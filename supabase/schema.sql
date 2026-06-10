@@ -1019,11 +1019,14 @@ CREATE TABLE public.programas_hospedajes (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   id_programa bigint NOT NULL,
   id_hotel bigint NOT NULL,
+  id_segmento bigint,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT programas_hospedajes_pkey PRIMARY KEY (id),
   CONSTRAINT programas_hospedajes_id_programa_fkey FOREIGN KEY (id_programa) REFERENCES public.programas(id),
   CONSTRAINT programas_hospedajes_id_hotel_fkey FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id)
 );
+CREATE UNIQUE INDEX programas_hospedajes_programa_hotel_segmento_uidx ON public.programas_hospedajes USING btree (id_programa, id_hotel, id_segmento) WHERE (id_segmento IS NOT NULL);
+CREATE UNIQUE INDEX programas_hospedajes_programa_hotel_sin_segmento_uidx ON public.programas_hospedajes USING btree (id_programa, id_hotel) WHERE (id_segmento IS NULL);
 CREATE TABLE public.programas_repertorios (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   id_programa bigint NOT NULL,

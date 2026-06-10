@@ -773,6 +773,156 @@ export const deleteGiraTransporteCascade = async (supabase, giraTransporteId) =>
 };
 
 /**
+ * Elimina una vacante (integrante simulado) de una gira y limpia sus vínculos logísticos.
+ * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
+ */
+export const deleteVacancyFromGira = async (supabase, giraId, vacancyId) => {
+  if (!supabase || giraId == null || vacancyId == null) {
+    return { ok: false, error: "Parámetros inválidos" };
+  }
+  const gid = Number(giraId);
+  const vid = Number(vacancyId);
+  if (!Number.isFinite(gid) || !Number.isFinite(vid)) {
+    return { ok: false, error: "ID de gira o vacante inválido" };
+  }
+
+  try {
+    const { data: integrante, error: fetchErr } = await supabase
+      .from("integrantes")
+      .select("id, es_simulacion")
+      .eq("id", vid)
+      .maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!integrante?.es_simulacion) {
+      return {
+        ok: false,
+        error: "Solo se pueden eliminar vacantes (integrantes simulados).",
+      };
+    }
+
+    const [hospedajesRes, transportesRes] = await Promise.all([
+      supabase
+        .from("programas_hospedajes")
+        .select("id, hospedaje_habitaciones(id, id_integrantes_asignados)")
+        .eq("id_programa", gid),
+      supabase
+        .from("giras_transportes")
+        .select("id, pasajeros_ids")
+        .eq("id_gira", gid),
+    ]);
+    if (hospedajesRes.error) throw hospedajesRes.error;
+    if (transportesRes.error) throw transportesRes.error;
+
+    const roomUpdates = [];
+    for (const hospedaje of hospedajesRes.data || []) {
+      for (const room of hospedaje.hospedaje_habitaciones || []) {
+        const ids = room.id_integrantes_asignados || [];
+        if (!ids.some((id) => Number(id) === vid)) continue;
+        roomUpdates.push(
+          supabase
+            .from("hospedaje_habitaciones")
+            .update({
+              id_integrantes_asignados: ids.filter(
+                (id) => Number(id) !== vid,
+              ),
+            })
+            .eq("id", room.id),
+        );
+      }
+    }
+
+    const transportes = transportesRes.data || [];
+    const transportUpdates = [];
+    for (const transporte of transportes) {
+      const pax = transporte.pasajeros_ids || [];
+      if (!pax.some((id) => Number(id) === vid)) continue;
+      transportUpdates.push(
+        supabase
+          .from("giras_transportes")
+          .update({
+            pasajeros_ids: pax.filter((id) => Number(id) !== vid),
+          })
+          .eq("id", transporte.id),
+      );
+    }
+
+    const transportIds = transportes.map((t) => t.id).filter(Boolean);
+    const logisticsDeletes = [
+      supabase
+        .from("giras_viaticos")
+        .delete()
+        .eq("id_gira", gid)
+        .eq("id_integrante", vid),
+      supabase
+        .from("giras_viaticos_detalle")
+        .delete()
+        .eq("id_gira", gid)
+        .eq("id_integrante", vid),
+      supabase
+        .from("giras_logistica_admision")
+        .delete()
+        .eq("id_gira", gid)
+        .eq("id_integrante", vid),
+      supabase
+        .from("giras_logistica_rutas")
+        .delete()
+        .eq("id_gira", gid)
+        .eq("id_integrante", vid),
+      supabase
+        .from("giras_hospedajes_excluidos")
+        .delete()
+        .eq("id_programa", gid)
+        .eq("id_integrante", vid),
+      supabase
+        .from("giras_accesos")
+        .delete()
+        .eq("id_gira", gid)
+        .eq("id_integrante", vid),
+      supabase.from("giras_comidas_rsvp").delete().eq("id_integrante", vid),
+    ];
+
+    if (transportIds.length > 0) {
+      logisticsDeletes.push(
+        supabase
+          .from("giras_logistica_reglas_transportes")
+          .delete()
+          .in("id_gira_transporte", transportIds)
+          .eq("id_integrante", vid),
+      );
+    }
+
+    const cleanupResults = await Promise.all([
+      ...roomUpdates,
+      ...transportUpdates,
+      ...logisticsDeletes,
+    ]);
+    const cleanupError = cleanupResults.find((r) => r.error)?.error;
+    if (cleanupError) throw cleanupError;
+
+    const { error: linkError } = await supabase
+      .from("giras_integrantes")
+      .delete()
+      .eq("id_gira", gid)
+      .eq("id_integrante", vid);
+    if (linkError) throw linkError;
+
+    const { error: userError } = await supabase
+      .from("integrantes")
+      .delete()
+      .eq("id", vid);
+    if (userError) throw userError;
+
+    return { ok: true };
+  } catch (err) {
+    console.error("[GiraService] deleteVacancyFromGira:", err);
+    return {
+      ok: false,
+      error: err?.message || String(err),
+    };
+  }
+};
+
+/**
  * Obtiene todos los eventos de tipo Concierto (id_tipo_evento = 1)
  * junto con su programa asociado y el estado actual del venue.
  * Pensado para el módulo de Gestión de Venues.

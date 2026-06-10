@@ -365,9 +365,9 @@ export default function RosterTableRow({
             <IconLink size={12} />
           </button>
 
-          {/* Vacantes: botón ASIGNAR y borrar siguen disponibles justo debajo en escritorio */}
-          {m.es_simulacion && (
-            <div className="col-span-2 hidden md:flex justify-end items-center gap-1 mt-1">
+          {/* Vacantes: asignar titular o eliminar sin cubrir */}
+          {m.es_simulacion && isEditor && (
+            <div className="col-span-2 flex justify-end items-center gap-1 mt-1">
               <button
                 type="button"
                 onClick={() => onSwap(m)}
@@ -380,7 +380,7 @@ export default function RosterTableRow({
                 type="button"
                 onClick={() => onDeleteVacancy(m)}
                 className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                title="Eliminar Vacante"
+                title="Eliminar vacante"
               >
                 <IconTrash size={14} />
               </button>

@@ -62,6 +62,22 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
 
     const handleSaveBooking = async () => {
         if (!newBooking.id_hotel) return alert("Selecciona un hotel.");
+        const hotelId = parseInt(newBooking.id_hotel, 10);
+        const alreadyInSegment =
+            cortesCount === 0 || !activeSegmentRow
+                ? bookings.some((b) => b.id_hotel === hotelId)
+                : bookings.some(
+                      (b) =>
+                          b.id_hotel === hotelId &&
+                          Number(b.id_segmento) === Number(activeSegmentRow.id),
+                  );
+        if (alreadyInSegment) {
+            return alert(
+                cortesCount > 0
+                    ? "Este hotel ya está reservado en este tramo."
+                    : "Este hotel ya está reservado para esta gira.",
+            );
+        }
         setLoading(true);
 
         try {
@@ -70,7 +86,13 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
             const payload = { ...newBooking, id_programa: program.id, id_segmento: segmentId };
             const { error } = await supabase.from('programas_hospedajes').insert([payload]);
 
-            if (error) alert("Error: El hotel ya está reservado para este programa, o faltan datos.");
+            if (error) {
+                alert(
+                    error.code === "23505"
+                        ? "Este hotel ya está reservado en este tramo."
+                        : `Error al guardar la reserva: ${error.message}`,
+                );
+            }
             else {
                 setIsAdding(false);
                 setNewBooking({

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { IconUserPlus, IconExchange, IconLoader, IconCheck, IconX } from '../ui/Icons';
+import { IconUserPlus, IconExchange, IconLoader, IconCheck, IconX, IconTrash } from '../ui/Icons';
 import SearchableSelect from '../ui/SearchableSelect'; 
 
 // --- MODAL 1: CREAR VACANTE (CORREGIDO) ---
@@ -155,7 +155,7 @@ export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, 
 
 // --- MODAL 2: SWAP (ASIGNAR TITULAR) ---
 // onAssigned: callback opcional para notificaciones (envía info del músico real asignado)
-export const SwapVacancyModal = ({ isOpen, onClose, giraId, placeholder, supabase, onRefresh, onAssigned }) => {
+export const SwapVacancyModal = ({ isOpen, onClose, giraId, placeholder, supabase, onRefresh, onAssigned, onDelete }) => {
     const [loading, setLoading] = useState(false);
     const [searching, setSearching] = useState(false);
     const [candidates, setCandidates] = useState([]);
@@ -270,11 +270,25 @@ export const SwapVacancyModal = ({ isOpen, onClose, giraId, placeholder, supabas
                         )}
                     </div>
                 </div>
-                <div className="p-4 border-t flex justify-end gap-3 bg-slate-50 rounded-b-lg">
-                    <button onClick={onClose} className="px-4 py-2 font-bold text-slate-500 hover:bg-slate-200 rounded text-sm">Cancelar</button>
-                    <button onClick={handleSwap} disabled={loading || !selectedRealId} className="px-6 py-2 font-bold bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow-md disabled:opacity-50 flex items-center gap-2 text-sm">
-                        {loading ? <IconLoader className="animate-spin"/> : <IconExchange/>} Confirmar
-                    </button>
+                <div className="p-4 border-t flex justify-between items-center gap-3 bg-slate-50 rounded-b-lg">
+                    {onDelete ? (
+                        <button
+                            type="button"
+                            onClick={() => onDelete(placeholder)}
+                            disabled={loading}
+                            className="px-3 py-2 font-bold text-red-600 hover:bg-red-50 rounded text-sm flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                            <IconTrash size={14} /> Eliminar vacante
+                        </button>
+                    ) : (
+                        <span />
+                    )}
+                    <div className="flex gap-3">
+                        <button onClick={onClose} className="px-4 py-2 font-bold text-slate-500 hover:bg-slate-200 rounded text-sm">Cancelar</button>
+                        <button onClick={handleSwap} disabled={loading || !selectedRealId} className="px-6 py-2 font-bold bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow-md disabled:opacity-50 flex items-center gap-2 text-sm">
+                            {loading ? <IconLoader className="animate-spin"/> : <IconExchange/>} Confirmar
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

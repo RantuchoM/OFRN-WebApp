@@ -12,7 +12,9 @@ Permitir la clonación de un hotel completo, incluyendo la distribución de mús
 ## Reglas de negocio
 
 - Un **bulk insert** de habitaciones minimiza round-trips a Supabase.
-- No se permite importar si el mismo `id_hotel` ya está cargado en el programa actual (evita duplicar la reserva).
+- No se permite importar si el mismo `id_hotel` ya está cargado en el **tramo activo** del programa actual (el mismo hotel puede existir en tramos distintos).
+- Cada `programas_hospedajes` debe persistir `id_segmento` del tramo activo al crear o trasladar reservas.
+- El listado de hoteles en `RoomingManager` filtra con `bookingBelongsToSegment` (no asignar por defecto al tramo 1 salvo datos legacy en índice 0).
 - La tabla `giras_hospedajes_excluidos` documenta a quienes no se les gestiona hotel; la importación no la modifica.
 
 ## Realtime / suscripciones
@@ -22,5 +24,9 @@ En la revisión del código (`RoomingManager`, `useLogistics`, `useGiraRoster`) 
 ## Estado de implementación
 
 **Completado:** modal de importación (`ImportHotelModal.jsx`), `handleImportHotel` con inserción de reserva + habitaciones en bloque, preview por programa/hotel, filtro por defecto `tipo === 'Sinfónico'`, layout de columnas `h-[calc(100vh-200px)]` en desktop.
+
+**Completado (multi-tramo):** resolución de tramo activo por `indice` sin fallback silencioso al tramo 0; alta/traslado de hoteles con `id_segmento` correcto; validación de duplicados por tramo; filtro `visibleBookings` alineado con `bookingBelongsToSegment`.
+
+**Completado (BD):** migración `20260610130000_programas_hospedajes_multi_tramo_hotel.sql` — elimina `unique_program_hotel` y usa índices únicos parciales `(id_programa, id_hotel, id_segmento)` con tramo, o `(id_programa, id_hotel)` solo si `id_segmento` es NULL.
 
 Los iconos de la UI siguen el set existente del proyecto (`Icons.jsx`), alineado con el resto de la app.

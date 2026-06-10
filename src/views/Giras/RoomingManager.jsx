@@ -37,6 +37,14 @@ import {
   formatTramoTitle,
   isLocalForTramoIndex,
 } from "../../utils/giraTramos";
+import { bookingBelongsToSegment } from "../../utils/roomingInitialOrder";
+
+function resolveSegmentRowByIdx(segmentRows, idx) {
+  if (!segmentRows?.length) return null;
+  const byIndice = segmentRows.find((s) => Number(s.indice) === Number(idx));
+  if (byIndice) return byIndice;
+  return segmentRows[idx] ?? null;
+}
 
 const normalizeIntegranteId = (v) => {
   const n = Number(v);
@@ -489,10 +497,11 @@ const TransferRoomModal = ({
           <option value="">-- Destino --</option>
           {sortedHotels.map((h) => {
             if (h.id === currentHotelId) return null;
-            const isAlreadyInTour = bookings.some((b) => b.id_hotel === h.id);
+            const isAlreadyInSegment = bookings.some((b) => b.id_hotel === h.id);
             return (
               <option key={h.id} value={h.id}>
-                {h.nombre} {isAlreadyInTour ? "(En Gira)" : "(Nuevo)"}
+                {h.nombre}{" "}
+                {isAlreadyInSegment ? "(En este tramo)" : "(Nuevo en tramo)"}
               </option>
             );
           })}
@@ -1343,18 +1352,25 @@ export default function RoomingManager({
     () => buildSegmentSpecs(program, cortes),
     [program, cortes],
   );
-  const activeSegmentRow = segmentRows[activeSegmentIdx] ?? segmentRows[0] ?? null;
+  const activeSegmentRow = useMemo(
+    () => resolveSegmentRowByIdx(segmentRows, activeSegmentIdx),
+    [segmentRows, activeSegmentIdx],
+  );
   const defaultSegmentId = segmentRows[0]?.id ?? null;
-  const activeSegment = segments[activeSegmentIdx] ?? segments[0] ?? null;
+  const activeSegment = segments[activeSegmentIdx] ?? null;
   const [rooms, setRooms] = useState([]);
   const [bookings, setBookings] = useState([]);
   const visibleBookings = useMemo(() => {
     if (cortesCount === 0 || !activeSegmentRow) return bookings;
-    return bookings.filter((b) => {
-      const segId = b.id_segmento ?? defaultSegmentId;
-      return Number(segId) === Number(activeSegmentRow.id);
-    });
-  }, [bookings, activeSegmentRow, cortesCount, defaultSegmentId]);
+    return bookings.filter((b) =>
+      bookingBelongsToSegment(
+        b,
+        activeSegmentRow,
+        segmentRows,
+        defaultSegmentId,
+      ),
+    );
+  }, [bookings, activeSegmentRow, cortesCount, segmentRows, defaultSegmentId]);
   const visibleBookingIds = useMemo(
     () => new Set(visibleBookings.map((b) => b.id)),
     [visibleBookings],
@@ -1478,6 +1494,13 @@ export default function RoomingManager({
     setSelectedIds(new Set());
     setLastSelectedId(null);
   }, [activeSegmentIdx]);
+
+  useEffect(() => {
+    if (!segmentRows.length) return;
+    if (!resolveSegmentRowByIdx(segmentRows, activeSegmentIdx)) {
+      setActiveSegmentIdx(0);
+    }
+  }, [segmentRows, activeSegmentIdx]);
 
   // --- LÓGICA DE SELECCIÓN ---
   const handleMusicianClick = (e, musician, contextList) => {
@@ -2265,11 +2288,25 @@ export default function RoomingManager({
     // 1. Validación: Evitar duplicados si estamos AGREGANDO uno existente (mode select)
     // Si estamos editando (editingId existe), permitimos cambiar el hotel aunque ya exista otro igual (edge case raro pero posible)
     if (!editingId && mode === "select") {
-      const alreadyExists = bookings.some(
-        (b) => b.id_hotel === parseInt(id_hotel),
-      );
+      const alreadyExists =
+        cortesCount === 0 || !activeSegmentRow
+          ? bookings.some((b) => b.id_hotel === parseInt(id_hotel))
+          : bookings.some(
+              (b) =>
+                b.id_hotel === parseInt(id_hotel) &&
+                bookingBelongsToSegment(
+                  b,
+                  activeSegmentRow,
+                  segmentRows,
+                  defaultSegmentId,
+                ),
+            );
       if (alreadyExists) {
-        alert("Este hotel ya está agregado a la gira.");
+        alert(
+          cortesCount > 0
+            ? "Este hotel ya está agregado en este tramo."
+            : "Este hotel ya está agregado a la gira.",
+        );
         setLoading(false);
         return;
       }
@@ -2305,9 +2342,14 @@ export default function RoomingManager({
           if (error) throw error;
         } else {
           // --- MODO CREACIÓN (INSERT) ---
-          let segmentId = activeSegmentRow?.id;
-          if (!segmentId) {
+          let segmentId = activeSegmentRow?.id ?? null;
+          if (!segmentId && cortesCount === 0) {
             segmentId = await ensureDefaultSegment(supabase, program.id);
+          }
+          if (!segmentId) {
+            throw new Error(
+              "No se pudo determinar el tramo activo. Recargá e intentá de nuevo.",
+            );
           }
           const { error } = await supabase
             .from("programas_hospedajes")
@@ -2357,9 +2399,14 @@ export default function RoomingManager({
     }
 
     const { id, id_programa, created_at, hoteles, ...bookingRest } = srcBooking;
-    let segmentId = activeSegmentRow?.id;
-    if (!segmentId) {
+    let segmentId = activeSegmentRow?.id ?? null;
+    if (!segmentId && cortesCount === 0) {
       segmentId = await ensureDefaultSegment(supabase, program.id);
+    }
+    if (!segmentId) {
+      throw new Error(
+        "No se pudo determinar el tramo activo para copiar el hotel.",
+      );
     }
     const { data: newBooking, error: insBk } = await supabase
       .from("programas_hospedajes")
@@ -2475,29 +2522,58 @@ export default function RoomingManager({
     setLoading(true);
     try {
       const hotelId = parseInt(targetHotelId);
-      let targetBookingId = bookings.find((b) => b.id_hotel === hotelId)?.id;
+      const bookingInSegment = (b) =>
+        cortesCount === 0 ||
+        !activeSegmentRow ||
+        bookingBelongsToSegment(
+          b,
+          activeSegmentRow,
+          segmentRows,
+          defaultSegmentId,
+        );
+      let targetBookingId = bookings.find(
+        (b) => b.id_hotel === hotelId && bookingInSegment(b),
+      )?.id;
+      let segmentId = activeSegmentRow?.id ?? null;
+      if (!segmentId && cortesCount === 0) {
+        segmentId = await ensureDefaultSegment(supabase, program.id);
+      }
       if (!targetBookingId) {
-        const { data: existing } = await supabase
+        const { data: existingRows } = await supabase
           .from("programas_hospedajes")
-          .select("id")
+          .select("id, id_segmento")
           .eq("id_programa", program.id)
-          .eq("id_hotel", hotelId)
-          .maybeSingle();
+          .eq("id_hotel", hotelId);
+        const existing = (existingRows || []).find((b) =>
+          bookingInSegment(b),
+        );
         if (existing) targetBookingId = existing.id;
         else {
+          if (!segmentId) {
+            throw new Error(
+              "No se pudo determinar el tramo activo para el hotel destino.",
+            );
+          }
           const { data: newBooking, error } = await supabase
             .from("programas_hospedajes")
-            .insert([{ id_programa: program.id, id_hotel: hotelId }])
+            .insert([
+              {
+                id_programa: program.id,
+                id_hotel: hotelId,
+                id_segmento: segmentId,
+              },
+            ])
             .select()
             .single();
           if (error && error.code === "23505") {
-            const { data: retry } = await supabase
+            const { data: retryRows } = await supabase
               .from("programas_hospedajes")
-              .select("id")
+              .select("id, id_segmento")
               .eq("id_programa", program.id)
-              .eq("id_hotel", hotelId)
-              .single();
-            targetBookingId = retry?.id;
+              .eq("id_hotel", hotelId);
+            targetBookingId = (retryRows || []).find((b) =>
+              bookingInSegment(b),
+            )?.id;
           } else targetBookingId = newBooking?.id;
         }
       }

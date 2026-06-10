@@ -15,5 +15,12 @@ Para obtener la lista de personas que viajan:
 2. Añadir registros manuales de `giras_integrantes`.
 3. **FILTRO CRÍTICO**: Eliminar a cualquier integrante que tenga un registro en `giras_integrantes` con `estado = 'ausente'`.
 
-## 4. Consumo en Servicios
+## 4. Vacantes (integrantes simulados)
+
+- Las vacantes son filas en `integrantes` con `es_simulacion = true`, vinculadas a la gira vía `giras_integrantes`.
+- **Crear**: modal "Nueva vacante" en el roster (`AddVacancyModal`).
+- **Asignar titular**: modal "Asignar titular" (`SwapVacancyModal`) → RPC `materializar_reemplazo` (transfiere logística al músico real).
+- **Eliminar sin asignar**: botón papelera en la fila del roster o "Eliminar vacante" en el modal de asignación → `deleteVacancyFromGira` en `giraService.js` (limpia rooming, transporte, viáticos y borra el integrante simulado).
+
+## 5. Consumo en Servicios
 - La función `resolveGiraRosterIds` en `giraService.js` es la implementación de referencia para esta lógica.

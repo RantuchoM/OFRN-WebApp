@@ -23,6 +23,7 @@ import {
   IconBell,
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { deleteVacancyFromGira } from "../../services/giraService";
 import { useRosterDropdownData } from "../../hooks/useRosterDropdownData";
 import {
   DEFAULT_ROL_ID,
@@ -669,26 +670,20 @@ export default function GiraRoster({
 
   // --- CRUD GIRA ---
   const handleDeleteVacancy = async (vacancy) => {
-    if (!confirm(`¿Eliminar definitivamente la vacante "${vacancy.apellido}"?`))
+    if (
+      !confirm(
+        `¿Eliminar definitivamente la vacante "${vacancy.apellido}"?\n\nSe quitará del roster y se liberará su logística (habitación, transporte, etc.).`,
+      )
+    )
       return;
 
     setLoadingAction(true);
     try {
-      const { error: linkError } = await supabase
-        .from("giras_integrantes")
-        .delete()
-        .eq("id_gira", gira.id)
-        .eq("id_integrante", vacancy.id);
+      const result = await deleteVacancyFromGira(supabase, gira.id, vacancy.id);
+      if (!result.ok) throw new Error(result.error);
 
-      if (linkError) throw linkError;
-
-      const { error: userError } = await supabase
-        .from("integrantes")
-        .delete()
-        .eq("id", vacancy.id);
-
-      if (userError) console.warn("Nota: FK User error", userError.message);
-
+      if (swapTarget?.id === vacancy.id) setSwapTarget(null);
+      toast.success("Vacante eliminada.");
       refreshRoster();
     } catch (err) {
       toast.error("Error al eliminar vacante: " + err.message);
@@ -2576,6 +2571,7 @@ export default function GiraRoster({
         supabase={supabase}
         onRefresh={refreshRoster}
         onAssigned={handleVacancyAssigned}
+        onDelete={isEditor ? handleDeleteVacancy : undefined}
       />
 
       {localNotificacionInicialEnviada && (
