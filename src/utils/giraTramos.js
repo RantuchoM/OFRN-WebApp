@@ -39,9 +39,13 @@ export function formatDateDDMM(date) {
   });
 }
 
+export function formatTramoLabel(idx) {
+  return `Tramo ${Number(idx) + 1}`;
+}
+
 export function formatTramoTitle(idx, fechaDesde, fechaHasta) {
   const range = formatIsoDateRangeDDMM(fechaDesde, fechaHasta);
-  const prefix = `Tramo ${idx + 1}`;
+  const prefix = formatTramoLabel(idx);
   return range ? `${prefix} (${range})` : prefix;
 }
 
@@ -220,6 +224,85 @@ function extractLocalidadIdsFromRow(row) {
   return (row?.giras_tramo_localidades || [])
     .map((l) => Number(l.id_localidad ?? l))
     .filter((id) => !Number.isNaN(id) && id > 0);
+}
+
+function namesFromSegmentRowLinks(row, locationsList = []) {
+  const names = [];
+  (row?.giras_tramo_localidades || []).forEach((link) => {
+    const fromJoin = link?.localidades?.localidad;
+    if (fromJoin) {
+      names.push(fromJoin);
+      return;
+    }
+    const id = Number(link?.id_localidad);
+    if (!id) return;
+    const fromList = locationsList.find((l) => Number(l.id) === id)?.localidad;
+    if (fromList) names.push(fromList);
+  });
+  return [...new Set(names)];
+}
+
+/** Nombres de localía del tramo (join BD → catálogo → giras_localidades legacy). */
+export function resolveTramoLocalidadLabels({
+  segmentRow = null,
+  segmentSpec = null,
+  segmentRows = [],
+  tramoIndice = null,
+  locationsList = [],
+  giraLocalidadIds = [],
+} = {}) {
+  const idx =
+    tramoIndice != null && !Number.isNaN(Number(tramoIndice))
+      ? Number(tramoIndice)
+      : segmentRow?.indice != null
+        ? Number(segmentRow.indice)
+        : null;
+
+  const candidates = [segmentRow];
+  if (segmentRow?.id != null) {
+    const linked = (segmentRows || []).find(
+      (s) => Number(s.id) === Number(segmentRow.id),
+    );
+    if (linked && linked !== segmentRow) candidates.push(linked);
+  }
+  if (idx != null) {
+    const byIdx = (segmentRows || []).find((s) => Number(s.indice) === idx);
+    if (byIdx) candidates.push(byIdx);
+  }
+
+  for (const row of candidates) {
+    const fromRow = namesFromSegmentRowLinks(row, locationsList);
+    if (fromRow.length) return fromRow;
+  }
+
+  const ids = getTramoLocalidadIds(
+    segmentRow,
+    segmentSpec,
+    segmentRows,
+    tramoIndice,
+  );
+  if (ids.length) {
+    return ids
+      .map(
+        (id) =>
+          locationsList.find((l) => Number(l.id) === Number(id))?.localidad,
+      )
+      .filter(Boolean);
+  }
+
+  if (
+    giraLocalidadIds?.length &&
+    (!segmentRows?.length || segmentRows.length <= 1 || idx === 0)
+  ) {
+    return giraLocalidadIds
+      .map(
+        (id) =>
+          locationsList.find((l) => Number(l.id) === Number(id))?.localidad,
+      )
+      .filter(Boolean);
+  }
+
+  return [];
 }
 
 /** Localidades del tramo: BD por id/índice primero, spec en memoria después. */

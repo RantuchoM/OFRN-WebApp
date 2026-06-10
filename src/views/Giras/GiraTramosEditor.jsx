@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   IconPlus,
   IconTrash,
@@ -257,7 +257,7 @@ function LocalidadConCorteRow({
   onCorteDateChange,
   onCorteHotelChange,
   onRemoveCorte,
-  disabled,
+  actionsDisabled,
 }) {
   const range = segmentRangeHint(spec);
 
@@ -285,7 +285,7 @@ function LocalidadConCorteRow({
               locIds={locIds}
               locationsList={locationsList}
               onRemove={removeChip}
-              disabled={disabled}
+              disabled={actionsDisabled}
               onChange={onChange}
               inline
             />
@@ -297,7 +297,6 @@ function LocalidadConCorteRow({
             <CorteDateTimeFields
               fecha={corte.fecha || ""}
               hora={sliceTime(corte.hora) || "12:00"}
-              disabled={disabled}
               onFechaChange={(val) =>
                 onCorteDateChange(corte, val, sliceTime(corte.hora) || "12:00")
               }
@@ -316,13 +315,12 @@ function LocalidadConCorteRow({
             <HotelTransitionFields
               corte={corte}
               onHotelChange={onCorteHotelChange}
-              disabled={disabled}
             />
           </FieldGroup>
 
           <button
             type="button"
-            disabled={disabled}
+            disabled={actionsDisabled}
             onClick={() => onRemoveCorte(corte.id)}
             className="h-9 w-9 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100 disabled:opacity-40 shrink-0"
             title="Eliminar corte y unir localías"
@@ -395,6 +393,8 @@ export default function GiraTramosEditor({
   locationsList = [],
   setSelectedLocations,
   onRefresh,
+  onDirty,
+  saveFlushRef,
   embedded = false,
 }) {
   const gira = { id: giraId, ...formData };
@@ -407,8 +407,27 @@ export default function GiraTramosEditor({
   } = useGiraSegmentos(supabase, gira);
 
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingCountRef = useRef(0);
   const [newCorteFecha, setNewCorteFecha] = useState("");
   const [newCorteHora, setNewCorteHora] = useState("12:00");
+
+  const beginSaving = useCallback(() => {
+    savingCountRef.current += 1;
+    setSaving(true);
+  }, []);
+
+  const endSaving = useCallback(() => {
+    savingCountRef.current = Math.max(0, savingCountRef.current - 1);
+    if (savingCountRef.current === 0) setSaving(false);
+  }, []);
+
+  useEffect(
+    () => () => {
+      savingCountRef.current = 0;
+    },
+    [],
+  );
 
   const specs = buildSegmentSpecs(gira, cortes);
 
@@ -486,30 +505,101 @@ export default function GiraTramosEditor({
     }
   };
 
-  const handleCorteDateChange = async (corte, fecha, hora) => {
-    setBusy(true);
-    try {
-      await updateCortePosition(supabase, corte.id, giraId, { fecha, hora });
-      await refreshSegmentos();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const persistCorteDateChange = useCallback(
+    async (corte, fecha, hora) => {
+      beginSaving();
+      try {
+        await updateCortePosition(supabase, corte.id, giraId, { fecha, hora });
+        await refreshSegmentos();
+        onDirty?.();
+      } catch (e) {
+        console.error(e);
+      } finally {
+        endSaving();
+      }
+    },
+    [supabase, giraId, refreshSegmentos, onDirty, beginSaving, endSaving],
+  );
 
-  const handleCorteHotelChange = async (corte, fields) => {
-    setBusy(true);
-    try {
-      await updateCorteHotelTransition(supabase, corte.id, fields);
-      await refreshSegmentos();
-    } catch (e) {
-      console.error(e);
-      alert(e?.message || "Error al guardar check-out/check-in intermedios.");
-    } finally {
-      setBusy(false);
+  const persistCorteHotelChange = useCallback(
+    async (corte, fields) => {
+      beginSaving();
+      try {
+        await updateCorteHotelTransition(supabase, corte.id, fields);
+        await refreshSegmentos();
+        onDirty?.();
+      } catch (e) {
+        console.error(e);
+        alert(e?.message || "Error al guardar check-out/check-in intermedios.");
+      } finally {
+        endSaving();
+      }
+    },
+    [supabase, refreshSegmentos, onDirty, beginSaving, endSaving],
+  );
+
+  const pendingDateRef = useRef(null);
+  const pendingHotelRef = useRef(null);
+  const dateTimerRef = useRef(null);
+  const hotelTimerRef = useRef(null);
+
+  const flushPendingSaves = useCallback(async () => {
+    const jobs = [];
+
+    if (dateTimerRef.current) {
+      clearTimeout(dateTimerRef.current);
+      dateTimerRef.current = null;
     }
-  };
+    if (pendingDateRef.current) {
+      const p = pendingDateRef.current;
+      pendingDateRef.current = null;
+      jobs.push(persistCorteDateChange(p.corte, p.fecha, p.hora));
+    }
+
+    if (hotelTimerRef.current) {
+      clearTimeout(hotelTimerRef.current);
+      hotelTimerRef.current = null;
+    }
+    if (pendingHotelRef.current) {
+      const p = pendingHotelRef.current;
+      pendingHotelRef.current = null;
+      jobs.push(persistCorteHotelChange(p.corte, p.fields));
+    }
+
+    if (jobs.length) await Promise.all(jobs);
+  }, [persistCorteDateChange, persistCorteHotelChange]);
+
+  useEffect(() => {
+    if (saveFlushRef) saveFlushRef.current = flushPendingSaves;
+  }, [saveFlushRef, flushPendingSaves]);
+
+  const handleCorteDateChange = useCallback(
+    (corte, fecha, hora) => {
+      pendingDateRef.current = { corte, fecha, hora };
+      if (dateTimerRef.current) clearTimeout(dateTimerRef.current);
+      dateTimerRef.current = setTimeout(() => {
+        dateTimerRef.current = null;
+        const p = pendingDateRef.current;
+        pendingDateRef.current = null;
+        if (p) persistCorteDateChange(p.corte, p.fecha, p.hora);
+      }, 450);
+    },
+    [persistCorteDateChange],
+  );
+
+  const handleCorteHotelChange = useCallback(
+    (corte, fields) => {
+      pendingHotelRef.current = { corte, fields };
+      if (hotelTimerRef.current) clearTimeout(hotelTimerRef.current);
+      hotelTimerRef.current = setTimeout(() => {
+        hotelTimerRef.current = null;
+        const p = pendingHotelRef.current;
+        pendingHotelRef.current = null;
+        if (p) persistCorteHotelChange(p.corte, p.fields);
+      }, 450);
+    },
+    [persistCorteHotelChange],
+  );
 
   if (loading && !segmentRows.length) {
     return (
@@ -546,7 +636,7 @@ export default function GiraTramosEditor({
           <span className="font-semibold text-slate-500">
             {formatIsoDateDDMM(formData.fecha_hasta)}
           </span>
-          {busy && (
+          {(busy || saving) && (
             <IconLoader size={14} className="animate-spin text-indigo-500" />
           )}
         </div>
@@ -649,7 +739,7 @@ export default function GiraTramosEditor({
                 onCorteDateChange={handleCorteDateChange}
                 onCorteHotelChange={handleCorteHotelChange}
                 onRemoveCorte={handleRemoveCorte}
-                disabled={busy}
+                actionsDisabled={busy}
               />
             );
           }

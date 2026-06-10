@@ -1,6 +1,18 @@
-import React, { useRef, useMemo } from "react";
-import { IconFileText, IconPrinter, IconX } from "../../components/ui/Icons";
-import { buildInitialOrderSections, getSuggestedRoomsLabel, showSuggestedRooms } from "../../utils/roomingInitialOrder";
+import React, { useRef, useMemo, useState } from "react";
+import {
+  IconFileText,
+  IconPrinter,
+  IconX,
+  IconClipboard,
+  IconCopy,
+  IconCheck,
+} from "../../components/ui/Icons";
+import {
+  buildInitialOrderSections,
+  buildInitialOrderTextSummary,
+  getSuggestedRoomsLabel,
+  showSuggestedRooms,
+} from "../../utils/roomingInitialOrder";
 
 function sumSectionTotals(sections) {
   return sections.reduce(
@@ -97,6 +109,8 @@ const InitialOrderReportModal = ({
   bedsPerRoom = 2,
 }) => {
     const componentRef = useRef();
+    const [showTextModal, setShowTextModal] = useState(false);
+    const [copied, setCopied] = useState(false);
     const showRoomsColumn = showSuggestedRooms(bedsPerRoom);
 
     const handlePrint = () => {
@@ -272,6 +286,21 @@ const InitialOrderReportModal = ({
       [visibleSections],
     );
 
+    const textSummary = useMemo(
+      () => buildInitialOrderTextSummary(visibleSections, { bedsPerRoom }),
+      [visibleSections, bedsPerRoom],
+    );
+
+    const handleCopyTextSummary = async () => {
+      try {
+        await navigator.clipboard.writeText(textSummary);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      } catch (error) {
+        console.error("No se pudo copiar el pedido de hotelería:", error);
+      }
+    };
+
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
             <div className="bg-white w-full max-w-5xl max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden">
@@ -280,6 +309,14 @@ const InitialOrderReportModal = ({
                         <IconFileText size={20} className="text-emerald-600"/> Pedido Inicial de Alojamiento
                     </h3>
                     <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowTextModal(true)}
+                          disabled={!textSummary}
+                          className="bg-emerald-600 text-white px-3 py-1.5 rounded text-sm font-bold hover:bg-emerald-700 flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:pointer-events-none"
+                        >
+                            <IconClipboard size={16}/> Texto pedido
+                        </button>
                         <button
                           type="button"
                           onClick={handlePrint}
@@ -419,6 +456,61 @@ const InitialOrderReportModal = ({
                     </div>
                 </div>
             </div>
+
+            {showTextModal && (
+              <div
+                className="fixed inset-0 z-[90] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+                onClick={() => setShowTextModal(false)}
+              >
+                <div
+                  className="w-full max-w-3xl bg-white rounded-xl shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-slate-800">
+                      Texto para enviar a hotelería
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowTextModal(false)}
+                      className="p-1 text-slate-400 hover:text-slate-700"
+                      title="Cerrar"
+                    >
+                      <IconX size={18} />
+                    </button>
+                  </div>
+                  <div className="p-4 overflow-auto">
+                    <textarea
+                      readOnly
+                      value={textSummary}
+                      className="w-full min-h-[360px] border border-slate-300 rounded-lg p-3 text-sm font-mono text-slate-700 resize-y bg-slate-50"
+                    />
+                  </div>
+                  <div className="px-4 py-3 border-t border-slate-200 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowTextModal(false)}
+                      className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-800"
+                    >
+                      Cerrar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyTextSummary}
+                      disabled={!textSummary}
+                      className={`px-3 py-1.5 rounded text-xs font-bold text-white flex items-center gap-1 disabled:opacity-50 ${
+                        copied
+                          ? "bg-emerald-600"
+                          : "bg-indigo-600 hover:bg-indigo-700"
+                      }`}
+                    >
+                      {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
+                      {copied ? "Copiado" : "Copiar texto"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
         </div>
     );
 };

@@ -86,6 +86,14 @@ const url = `${window.location.origin}${window.location.pathname}?tab=giras&view
 - **RepertoireView.jsx**: Navega a repertorio de una gira con `setSearchParams({ tab: "giras", view: "REPERTOIRE", giraId })`.
 - **App.jsx**: Sincroniza `tab` y `giraId` con el estado global de pestaña activa.
 
+## Título de pestaña del navegador
+
+- [x] El título de la pestaña (`document.title`) se actualiza dinámicamente según la sección activa.
+- Implementación: `src/utils/documentTitle.js` + `src/hooks/useDocumentTitle.js`, integrado en `App.jsx`.
+- Formato: `{sección} · {contexto opcional} · OFRN` (ej. `Rooming · Festival de Verano · OFRN`, `Gestión · OFRN`, `Espacios · Gestión · OFRN`).
+- En giras con `giraId`, el nombre se obtiene de `programas.nombre_gira` (con caché en memoria por sesión).
+- Rutas públicas (`/entradas`, `/viaticos-manual`, etc.) y login tienen títulos propios vía el mismo hook.
+
 ## Resumen
 
 - **Ruta base**: siempre `/` (raíz).

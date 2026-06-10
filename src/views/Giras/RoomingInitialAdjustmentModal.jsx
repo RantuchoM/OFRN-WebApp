@@ -11,9 +11,10 @@ import {
   showSuggestedRooms,
 } from "../../utils/roomingInitialOrder";
 import {
-  formatTramoTitle,
+  formatTramoLabel,
   getTramoLocalidadIds,
   isLocalInPedidoTramo,
+  resolveTramoLocalidadLabels,
 } from "../../utils/giraTramos";
 import { normalize } from "../../utils/giraUtils";
 
@@ -92,6 +93,7 @@ const RoomingInitialAdjustmentModal = ({
   segments = [],
   cortesCount = 0,
   locationsList = [],
+  giraLocalidadIds = [],
   excludedPersonIds = [],
   onClose,
   onConfirm,
@@ -125,12 +127,14 @@ const RoomingInitialAdjustmentModal = ({
         segmentRows,
         tramoIndice,
       );
-      const locNames = tramoLocalidadIds
-        .map(
-          (id) =>
-            locationsList.find((l) => Number(l.id) === Number(id))?.localidad,
-        )
-        .filter(Boolean);
+      const locNames = resolveTramoLocalidadLabels({
+        segmentRow: segRow,
+        segmentSpec,
+        segmentRows,
+        tramoIndice,
+        locationsList,
+        giraLocalidadIds,
+      });
       const excludedSet =
         excludedPersonIds instanceof Set
           ? excludedPersonIds
@@ -164,10 +168,7 @@ const RoomingInitialAdjustmentModal = ({
         tramoIndice,
         excludedPersonIds: excludedSet,
       });
-      const baseTitle =
-        segRow && hasTramos
-          ? formatTramoTitle(idx, segRow.fecha_desde, segRow.fecha_hasta)
-          : null;
+      const baseTitle = segRow && hasTramos ? formatTramoLabel(idx) : null;
       const locLabel =
         locNames.length > 0
           ? locNames.join(", ")
@@ -199,6 +200,7 @@ const RoomingInitialAdjustmentModal = ({
     cortesCount,
     defaultSegmentId,
     locationsList,
+    giraLocalidadIds,
     excludedPersonIds,
   ]);
 

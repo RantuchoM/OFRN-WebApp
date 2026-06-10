@@ -9,7 +9,7 @@ const SEGMENTO_SELECT = `
   indice,
   fecha_desde,
   fecha_hasta,
-  giras_tramo_localidades(id_localidad)
+  giras_tramo_localidades(id_localidad, localidades(id, localidad))
 `;
 
 const CORTES_SELECT = `

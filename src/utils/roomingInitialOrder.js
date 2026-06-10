@@ -5,10 +5,11 @@ import {
   parseISO,
   startOfDay,
 } from "date-fns";
+import { es } from "date-fns/locale";
 import { normalize } from "./giraUtils";
 import {
   formatDateDDMM,
-  formatTramoTitle,
+  formatTramoLabel,
   getTramoLocalidadIds,
   isLocalInPedidoTramo,
   nightBelongsToTramo,
@@ -621,10 +622,7 @@ export function buildInitialOrderSections({
 
     return {
       segmentId: segRow?.id ?? null,
-      title:
-        segRow && hasTramos
-          ? formatTramoTitle(idx, segRow.fecha_desde, segRow.fecha_hasta)
-          : null,
+      title: segRow && hasTramos ? formatTramoLabel(idx) : null,
       sortedGroups,
       computedRows,
       totalPax: computedRows.reduce((acc, row) => acc + row.totalRowPax, 0),
@@ -654,4 +652,145 @@ export function buildInitialOrderSections({
   }
 
   return segmentRows.map((segRow, idx) => buildSection(segRow, idx));
+}
+
+function pasajeroLabel(count) {
+  return count === 1 ? "pasajero" : "pasajeros";
+}
+
+function formatCheckDate(date) {
+  if (!date || Number.isNaN(date.getTime())) return "";
+  const weekday = format(date, "EEEE", { locale: es }).toLowerCase();
+  const day = date.getDate();
+  const month = date.getMonth() + 1;
+  return `${weekday}, ${day}/${month}`;
+}
+
+function formatStayRangeText(checkIn, checkOut) {
+  const inD = formatCheckDate(checkIn);
+  const outD = formatCheckDate(checkOut);
+  if (!inD || !outD) return "";
+  return `Check-in: ${inD} - check-out: ${outD}`;
+}
+
+function sumSectionsForText(sections) {
+  return (sections || []).reduce(
+    (acc, section) => ({
+      totalPax: acc.totalPax + (section.totalPax || 0),
+      totalStdPax: acc.totalStdPax + (section.totalStdPax || 0),
+      totalPlusPax: acc.totalPlusPax + (section.totalPlusPax || 0),
+      totalBedNights: acc.totalBedNights + (section.totalBedNights || 0),
+      grandTotalStdNights:
+        acc.grandTotalStdNights + (section.grandTotalStdNights || 0),
+      grandTotalPlusNights:
+        acc.grandTotalPlusNights + (section.grandTotalPlusNights || 0),
+      totalSuggestedRooms:
+        acc.totalSuggestedRooms + (section.totalSuggestedRooms || 0),
+    }),
+    {
+      totalPax: 0,
+      totalStdPax: 0,
+      totalPlusPax: 0,
+      totalBedNights: 0,
+      grandTotalStdNights: 0,
+      grandTotalPlusNights: 0,
+      totalSuggestedRooms: 0,
+    },
+  );
+}
+
+function appendTextSummaryBlock(lines, totals, { title, bedsPerRoom } = {}) {
+  if (!totals?.totalPax) return;
+
+  lines.push("");
+  if (title) lines.push(title);
+
+  lines.push(`Total pasajeros: ${totals.totalPax}`);
+
+  const paxParts = [];
+  if (totals.totalStdPax > 0) {
+    paxParts.push(`${totals.totalStdPax} estándar`);
+  }
+  if (totals.totalPlusPax > 0) {
+    paxParts.push(`${totals.totalPlusPax} superior`);
+  }
+  if (paxParts.length > 1) {
+    lines.push(`Desglose: ${paxParts.join(" · ")}`);
+  }
+
+  lines.push(`Noches básicas (camas): ${totals.grandTotalStdNights}`);
+  if (totals.grandTotalPlusNights > 0) {
+    lines.push(`Noches superiores (camas): ${totals.grandTotalPlusNights}`);
+  }
+  lines.push(`Total camas noche: ${totals.totalBedNights}`);
+
+  const roomsLabel = getSuggestedRoomsLabel(bedsPerRoom);
+  if (roomsLabel && totals.totalSuggestedRooms > 0) {
+    lines.push(`${roomsLabel}: ${totals.totalSuggestedRooms}`);
+  }
+}
+
+/**
+ * Texto plano para enviar a hotelería (mismo criterio de filas que el pedido tabular).
+ * Ej: "15 pasajeros. Check-in: jueves, 18/6 - check-out: sábado, 20/6"
+ */
+export function buildInitialOrderTextSummary(
+  sections = [],
+  { bedsPerRoom = DEFAULT_BEDS_PER_ROOM } = {},
+) {
+  const lines = [];
+  const showTramoHeaders = sections.length > 1;
+  const superiorRoomLabel = "habitación superior (single)";
+
+  sections.forEach((section, sectionIdx) => {
+    if (showTramoHeaders && section.title) {
+      if (lines.length > 0) lines.push("");
+      lines.push(section.title);
+    }
+
+    (section.computedRows || []).forEach((row) => {
+      const { stdPax, plusPax, group } = row;
+      const datePart = formatStayRangeText(group?.checkIn, group?.checkOut);
+      if (!datePart) return;
+
+      if (stdPax > 0) {
+        lines.push(
+          `${stdPax} ${pasajeroLabel(stdPax)}. ${datePart}`,
+        );
+      }
+      if (plusPax > 0) {
+        lines.push(
+          `${plusPax} ${pasajeroLabel(plusPax)} ${superiorRoomLabel}. ${datePart}`,
+        );
+      }
+    });
+
+    if (showTramoHeaders && section.totalPax > 0) {
+      appendTextSummaryBlock(lines, section, {
+        title: `Resumen · ${section.title ?? "Tramo"}`,
+        bedsPerRoom,
+      });
+    }
+
+    if (
+      showTramoHeaders &&
+      section.title &&
+      sectionIdx < sections.length - 1 &&
+      (section.computedRows || []).length > 0
+    ) {
+      lines.push("");
+    }
+  });
+
+  const grandTotals = sumSectionsForText(sections);
+  if (grandTotals.totalPax > 0) {
+    appendTextSummaryBlock(lines, grandTotals, {
+      title: showTramoHeaders
+        ? `Total general (${sections.length} tramos)`
+        : "Resumen",
+      bedsPerRoom,
+    });
+  }
+
+  return lines.join("\n").trim();
 }

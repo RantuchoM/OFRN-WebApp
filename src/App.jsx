@@ -69,6 +69,7 @@ import {
 } from "./components/ui/Icons";
 import ProfileEditModal from "./components/users/ProfileEditModal";
 import SearchableSelect from "./components/ui/SearchableSelect";
+import { useDocumentTitle } from "./hooks/useDocumentTitle";
 
 const LoginView = lazy(() => import("./views/LoginView/LoginView"));
 const GirasView = lazy(() => import("./views/Giras/GirasView"));
@@ -120,17 +121,22 @@ const ViewFallback = () => (
   </div>
 );
 
-const LazyRoute = ({ children }) => (
-  <Suspense
-    fallback={
-      <div className="flex h-screen items-center justify-center font-bold text-slate-400 animate-pulse">
-        Cargando...
-      </div>
-    }
-  >
-    {children}
-  </Suspense>
-);
+const LazyRoute = ({ children }) => {
+  const { pathname } = useLocation();
+  useDocumentTitle({ pathname, enabled: true });
+
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center font-bold text-slate-400 animate-pulse">
+          Cargando...
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  );
+};
 
 // --- HELPER DE NORMALIZACIÓN ---
 const normalizeId = (id) => {
@@ -886,6 +892,14 @@ const ProtectedApp = ({ initialTab }) => {
     }
   };
 
+  useDocumentTitle({
+    mode,
+    searchParams,
+    pathname: location.pathname,
+    supabase,
+    activeGiraId,
+  });
+
   const activeManualSection = (() => {
     if (mode === "GIRAS" && activeGiraId)
       return `gira_${searchParams.get("view") || "resumen"}`;
@@ -1395,6 +1409,11 @@ const ProtectedApp = ({ initialTab }) => {
 
 const AppContent = ({ initialTab }) => {
   const { user, loading } = useAuth();
+  useDocumentTitle({
+    enabled: !loading && !user,
+    staticTitle: "Iniciar sesión",
+  });
+
   if (loading)
     return (
       <div className="h-screen flex items-center justify-center font-bold text-slate-400 animate-pulse">

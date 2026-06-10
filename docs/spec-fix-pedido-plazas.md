@@ -45,3 +45,18 @@ El reporte seguía asumiendo que `log.checkin` y `log.checkout` eran siempre str
   - Desglose por rangos de fechas y categorías.
 - La lógica es compatible tanto con datos antiguos (strings manuales) como con el nuevo modelo basado en eventos, evitando errores de fechas inválidas o `NaN` en los totales.
 
+### Títulos de tramo en pedido (completado)
+
+- [x] Pedido tabular y exportación texto: solo `Tramo 1`, `Tramo 2`, … (sin fechas).
+- [x] Modal de ajuste previo: `Tramo N · Localidad1, Localidad2` (localías visibles, sin fechas en el título).
+- [x] `resolveTramoLocalidadLabels`: resuelve nombres desde `giras_tramo_localidades` (join `localidades`), catálogo o `giras_localidades` legacy.
+
+### Exportación a texto (completado)
+
+- [x] Botón **Texto pedido** en `RoomingInitialOrderReport.jsx` (mismo patrón que `MealsReport.jsx`).
+- [x] Helper `buildInitialOrderTextSummary` en `roomingInitialOrder.js`: genera líneas por rango de fechas y categoría.
+- [x] Formato estándar: `{n} pasajeros. Check-in: jueves, 18/6 - check-out: sábado, 20/6`.
+- [x] Formato superior (Plus): `{n} pasajeros habitación superior (single). Check-in: …`.
+- [x] Bloque **Resumen** al final (y por tramo si hay varios): total pax, desglose estándar/superior, noches básicas/superiores, camas noche y habitaciones sugeridas.
+- [x] La vista tabular / impresión existente se mantiene sin cambios; el texto es opcional vía modal con copiar al portapapeles.
+

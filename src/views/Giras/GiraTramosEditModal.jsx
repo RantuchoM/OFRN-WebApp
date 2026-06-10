@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { IconX } from "../../components/ui/Icons";
 import GiraTramosEditor from "./GiraTramosEditor";
 
@@ -14,6 +14,8 @@ export default function GiraTramosEditModal({
 }) {
   const [locationsList, setLocationsList] = useState([]);
   const [selectedLocations, setSelectedLocations] = useState(new Set());
+  const dirtyRef = useRef(false);
+  const saveFlushRef = useRef(null);
 
   const loadLocations = useCallback(async () => {
     if (!supabase || !gira?.id) return;
@@ -34,10 +36,23 @@ export default function GiraTramosEditModal({
     if (isOpen) loadLocations();
   }, [isOpen, loadLocations]);
 
-  const handleRefresh = useCallback(() => {
+  const markDirty = useCallback(() => {
+    dirtyRef.current = true;
+  }, []);
+
+  const handleEditorRefresh = useCallback(() => {
     loadLocations();
-    onSaved?.();
-  }, [loadLocations, onSaved]);
+    markDirty();
+  }, [loadLocations, markDirty]);
+
+  const handleClose = useCallback(async () => {
+    await saveFlushRef.current?.();
+    if (dirtyRef.current) {
+      dirtyRef.current = false;
+      onSaved?.();
+    }
+    onClose();
+  }, [onClose, onSaved]);
 
   if (!isOpen || !gira?.id) return null;
 
@@ -49,7 +64,7 @@ export default function GiraTramosEditModal({
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 backdrop-blur-sm p-4 animate-in fade-in"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-200"
@@ -67,7 +82,7 @@ export default function GiraTramosEditModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="text-slate-400 hover:text-slate-700 p-1 shrink-0"
             title="Cerrar"
           >
@@ -88,7 +103,9 @@ export default function GiraTramosEditModal({
               formData={formData}
               locationsList={locationsList}
               setSelectedLocations={setSelectedLocations}
-              onRefresh={handleRefresh}
+              onRefresh={handleEditorRefresh}
+              onDirty={markDirty}
+              saveFlushRef={saveFlushRef}
               embedded
             />
           )}
@@ -97,7 +114,7 @@ export default function GiraTramosEditModal({
         <div className="flex justify-end px-5 py-3 border-t border-slate-100 bg-slate-50 shrink-0">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700"
           >
             Listo

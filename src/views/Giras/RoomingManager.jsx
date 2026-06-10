@@ -1413,6 +1413,7 @@ export default function RoomingManager({
   const [showHotelForm, setShowHotelForm] = useState(false);
   const [editingHotelData, setEditingHotelData] = useState(null);
   const [locationsList, setLocationsList] = useState([]);
+  const [giraLocalidadIds, setGiraLocalidadIds] = useState([]);
   const [masterHotels, setMasterHotels] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
   const [draggedMusician, setDraggedMusician] = useState(null);
@@ -1980,11 +1981,19 @@ export default function RoomingManager({
     }
   }, [program.id, logisticsLoading]);
   const fetchLocations = async () => {
-    const { data } = await supabase
-      .from("localidades")
-      .select("id, localidad")
-      .order("localidad");
-    if (data) setLocationsList(data);
+    const [catalogRes, giraLocsRes] = await Promise.all([
+      supabase.from("localidades").select("id, localidad").order("localidad"),
+      supabase
+        .from("giras_localidades")
+        .select("id_localidad")
+        .eq("id_gira", program.id),
+    ]);
+    if (catalogRes.data) setLocationsList(catalogRes.data);
+    if (giraLocsRes.data) {
+      setGiraLocalidadIds(
+        giraLocsRes.data.map((row) => Number(row.id_localidad)).filter(Boolean),
+      );
+    }
   };
 
   const fetchMasterHotels = async () => {
@@ -3032,6 +3041,7 @@ export default function RoomingManager({
           segments={segments}
           cortesCount={cortesCount}
           locationsList={locationsList}
+          giraLocalidadIds={giraLocalidadIds}
           excludedPersonIds={excludedHospedajeIds}
           onClose={() => setShowInitialAdjust(false)}
           onConfirm={({ adjustments, selectedTramoIndices, bedsPerRoom }) => {
