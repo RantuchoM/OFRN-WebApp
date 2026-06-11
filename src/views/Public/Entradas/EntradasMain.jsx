@@ -2430,18 +2430,21 @@ export default function EntradasMain({ user, profile, onLogout }) {
                             className={ui.catalogConciertoCardBody}
                             onClick={() => handlePickConcierto(concierto.slug_publico)}
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <p className={`min-w-0 flex-1 text-sm font-semibold ${textoTarjetaAgotada}`}>{concierto.nombre}</p>
-                              <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                                {!reservasAbiertas && textoAperturaReservas(concierto) && (
-                                  <span className={ui.badgeRecordatorio}>
-                                    Apertura {textoAperturaReservas(concierto)}
-                                  </span>
-                                )}
-                                {aceptaRecordatorio && inscriptoRecordatorio && (
-                                  <span className={ui.badgeRecordatorio}>Recordatorio activo</span>
-                                )}
-                              </div>
+                            <div className="space-y-1">
+                              <p className={`text-sm font-semibold ${textoTarjetaAgotada}`}>{concierto.nombre}</p>
+                              {((!reservasAbiertas && textoAperturaReservas(concierto)) ||
+                                (aceptaRecordatorio && inscriptoRecordatorio)) && (
+                                <div className="flex flex-wrap gap-1">
+                                  {!reservasAbiertas && textoAperturaReservas(concierto) && (
+                                    <span className={ui.badgeRecordatorio}>
+                                      Apertura {textoAperturaReservas(concierto)}
+                                    </span>
+                                  )}
+                                  {aceptaRecordatorio && inscriptoRecordatorio && (
+                                    <span className={ui.badgeRecordatorio}>Recordatorio activo</span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                             <p className={`text-xs mt-0.5 ${textoSecundarioAgotado || ui.textSoft}`}>
                               {formatConciertoFechaHoraEs(concierto.fecha_hora)}
