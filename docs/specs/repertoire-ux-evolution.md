@@ -87,5 +87,33 @@ Permitir mover obras dentro del mismo bloque y entre bloques con feedback visual
 | `src/components/repertoire/InstrumentationFilterModal.jsx` | Modal compartido de filtro por orgánico con presets. |
 | `src/utils/instrumentationFilterPresets.js` | Definición de presets y helpers de etiqueta/activo. |
 | `src/views/Repertoire/RepertoireView.jsx` | Usa modal compartido y presets en columna Orgánico. |
-| `src/views/Repertoire/WorkForm.jsx` | Sustitución sección arcos por BowingSetManager edit; eliminación estado/handlers de arcos. |
+| `src/views/Repertoire/WorkForm.jsx` | Sustitución sección arcos por BowingSetManager edit; eliminación estado/handlers de arcos. **Autocomplete de título:** al escribir con compositor elegido, desplegable de obras existentes con acciones según `context` (`archive` vs `program`). |
+
+---
+
+## 6. Autocomplete de título en WorkForm (anti-duplicados)
+
+### Objetivo
+Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está escribiendo el título en una obra nueva.
+
+### Comportamiento
+- Solo aplica a **obras nuevas** (`!formData.id`), con al menos un compositor y título > 3 caracteres (texto plano).
+- Búsqueda debounced (~600 ms) en `obras` filtrada por compositor(es) seleccionados; resultados ordenados por coincidencia exacta / prefijo.
+- Desplegable anclado al editor de título (estilo autocomplete) mientras el campo tiene foco.
+- Pie del desplegable: **Continuar con obra nueva** (cierra sugerencias y sigue el flujo normal del formulario).
+
+### Acciones por contexto
+| Origen | Prop `context` | Acciones por obra encontrada |
+|--------|----------------|------------------------------|
+| `RepertoireView.jsx` | `archive` (default) | **Crear nuevo arreglo** (clona en Solicitud) · **Salir** |
+| `RepertoireManager.jsx` | `program` | **Agregar esta obra al programa** (`onInsertExistingWork`) · **Solicitar nuevo arreglo** |
+
+### Implementación
+- `createArrangementFromExistingWork(sourceWorkId)`: clona metadatos y relaciones de compositores/arregladores; sin Drive; estado Solicitud; dispara mail `nueva_obra` al archivista (igual que crear solicitud normal).
+- `RepertoireManager` ya pasa `context="program"` y `onInsertExistingWork` al modal de WorkForm.
+
+### Completado
+- [x] Desplegable contextual en título
+- [x] Acciones archive vs program
+- [x] Opción continuar con obra nueva
 | `src/services/giraService.js` | `updateWorkPosition`, `normalizeRepertorioBlockOrden`. |

@@ -83,7 +83,7 @@ const getDirectorInstrumentId = (catalogoInstrumentos) => {
         name.includes("score")
       );
     }) || null;
-  return found?.id ?? 142; // Fallback sugerido
+  return found?.id ?? "50"; // Fallback: id real en tabla instrumentos
 };
 
 // Determina si un id de instrumento pertenece al rango "01"–"29" (ej. "05a" -> 5)

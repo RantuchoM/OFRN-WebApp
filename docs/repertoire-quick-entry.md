@@ -28,14 +28,19 @@ En vista móvil se mantiene, de momento, el botón clásico `Agregar Obra` que a
    - Al seleccionar una opción del listado, el input se rellena con `Apellido, Nombre` y se fija el compositor seleccionado.
 
 3. **Búsqueda de obras existentes y detección de “Nueva Obra”**
-   - Cuando hay un **compositor seleccionado** y el título de la obra tiene al menos 2 caracteres, `QuickWorkRow`:
+   - **Con compositor seleccionado** y título con al menos 2 caracteres (o al enfocar el campo con compositor ya elegido), `QuickWorkRow`:
      - Lanza, con debounce (~400 ms), una consulta a Supabase sobre `obras` con join `obras_compositores!inner` filtrando por:
        - `obras_compositores.id_compositor = compositor.id`
        - `obras_compositores.rol = 'compositor'`
-       - `titulo ILIKE %texto%`
+       - `titulo ILIKE %texto%` (opcional si el título está vacío al enfocar)
      - Muestra un desplegable bajo el campo **Obra** con las coincidencias del archivo (título, instrumentación y duración).
-     - Al hacer clic en una obra sugerida, se **selecciona** esa obra para el guardado rápido (se enlaza en el bloque en lugar de crear una nueva).
-     - Si no hay coincidencias, y el título tiene al menos 3 caracteres, se marca internamente como **“nueva obra para este compositor”** y se muestra el badge verde correspondiente bajo el input de Título.
+     - Si no hay coincidencias y el título tiene al menos 3 caracteres, se marca internamente como **“nueva obra para este compositor”** y se muestra el badge verde correspondiente bajo el input de Título.
+   - **Sin compositor** y con al menos **4 caracteres** en el título:
+     - Busca en todo el archivo (`obras` + `obras_compositores` + `compositores`) por `titulo ILIKE %texto%`.
+     - Muestra el mismo desplegable con título, compositor asociado y duración.
+     - Al elegir o insertar una obra, **autocompleta el compositor** en la fila a partir de la relación `obras_compositores`.
+   - Cada ítem del desplegable incluye, cuando existe `link_drive`, un botón **Drive** (`IconDrive`) que abre la carpeta en una pestaña nueva sin cerrar el dropdown ni seleccionar la fila.
+   - Al hacer clic en una obra sugerida (o en **+**), se **inserta** en el bloque; con el icono de copia se reutiliza el título para crear una variante.
 
 4. **Guardado Rápido (Enter / Botón Guardar)**
    - Al pulsar **Enter** en cualquier input de la fila o el botón **Guardar**:
@@ -124,8 +129,8 @@ Estos índices no son estrictamente necesarios para el correcto funcionamiento d
 ### Notas de Diseño y Extensibilidad
 
 - La fila rápida está pensada como **MVP de entrada inline**:
-  - Actualmente crea siempre nuevas obras (no reusa directamente obras existentes del archivo); la selección de obras ya existentes sigue disponible vía el modal de búsqueda clásico.
-  - El patrón se ha encapsulado en el componente interno `QuickWorkRow` para que pueda evolucionar (p. ej. permitir búsqueda de obras existentes por título) sin afectar la tabla principal.
+  - Permite reutilizar obras existentes del archivo por compositor o por título global (≥ 4 caracteres).
+  - El patrón se ha encapsulado en el componente interno `QuickWorkRow` para que pueda evolucionar sin afectar la tabla principal.
 - El mini‑modal de follow‑up está intencionadamente acotado a los campos más usados en la carga inicial:
   - Si se requieren ediciones más avanzadas (particellas, arcos, metadata extendida), se sigue utilizando el modal de `WorkForm` ya existente desde otras rutas de la app.
 

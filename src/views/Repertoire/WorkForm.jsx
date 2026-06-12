@@ -19,7 +19,6 @@ import {
   IconMessageSquare,
   IconUserPlus,
   IconCopy,
-  IconAlertCircle,
   IconEdit,
   IconFolder,
 } from "../../components/ui/Icons";
@@ -103,7 +102,15 @@ function uniquifyParticellaRows(parts, externalReservedKeys = null) {
 }
 
 // --- COMPONENTE EDITOR WYSIWYG ---
-const WysiwygEditor = ({ value, onChange, placeholder, className = "", fillHeight = false }) => {
+const WysiwygEditor = ({
+  value,
+  onChange,
+  placeholder,
+  className = "",
+  fillHeight = false,
+  onFocus,
+  onBlur,
+}) => {
   const editorRef = useRef(null);
   const [isFocused, setIsFocused] = useState(false);
 
@@ -167,8 +174,14 @@ const WysiwygEditor = ({ value, onChange, placeholder, className = "", fillHeigh
         onInput={handleInput}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
+        onFocus={() => {
+          setIsFocused(true);
+          onFocus?.();
+        }}
+        onBlur={() => {
+          setIsFocused(false);
+          onBlur?.();
+        }}
         className={`flex-1 p-3 text-sm outline-none overflow-y-auto min-h-[80px] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline leading-relaxed ${
           fillHeight ? "min-h-0 max-h-none" : "max-h-[min(18rem,50vh)]"
         }`}
@@ -477,6 +490,10 @@ export default function WorkForm({
   });
   const [duplicateWorks, setDuplicateWorks] = useState([]);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const [titleFieldFocused, setTitleFieldFocused] = useState(false);
+  const [duplicateSuggestionsDismissed, setDuplicateSuggestionsDismissed] = useState(false);
+  const titleDropdownRef = useRef(null);
+  const titleBlurTimerRef = useRef(null);
   const [draftExitConfirmOpen, setDraftExitConfirmOpen] = useState(false);
   const handleQuickCompCreated = (newComp) => {
     const newOption = {
@@ -768,7 +785,17 @@ export default function WorkForm({
           setDuplicateWorks([]);
           return;
         }
-        setDuplicateWorks(data || []);
+        const searchNorm = normalizeForSearch(search);
+        const sorted = (data || []).slice().sort((a, b) => {
+          const na = normalizeForSearch(stripHtml(a.titulo));
+          const nb = normalizeForSearch(stripHtml(b.titulo));
+          if (na === searchNorm && nb !== searchNorm) return -1;
+          if (nb === searchNorm && na !== searchNorm) return 1;
+          if (na.startsWith(searchNorm) && !nb.startsWith(searchNorm)) return -1;
+          if (nb.startsWith(searchNorm) && !na.startsWith(searchNorm)) return 1;
+          return na.localeCompare(nb, "es", { sensitivity: "base" });
+        });
+        setDuplicateWorks(sorted);
       } catch (e) {
         console.warn("checkDuplicateWorks:", e);
         setDuplicateWorks([]);
@@ -789,6 +816,31 @@ export default function WorkForm({
   useEffect(() => {
     debouncedCheckDuplicates(formData.titulo, selectedComposers);
   }, [formData.titulo, selectedComposers, debouncedCheckDuplicates]);
+
+  useEffect(() => {
+    setDuplicateSuggestionsDismissed(false);
+  }, [selectedComposers]);
+
+  useEffect(() => {
+    if (stripHtml(formData.titulo).trim().length <= 3) {
+      setDuplicateSuggestionsDismissed(false);
+    }
+  }, [formData.titulo]);
+
+  useEffect(
+    () => () => {
+      if (titleBlurTimerRef.current) clearTimeout(titleBlurTimerRef.current);
+    },
+    [],
+  );
+
+  const showTitleDuplicateDropdown =
+    !formData.id &&
+    selectedComposers.length > 0 &&
+    stripHtml(formData.titulo).trim().length > 3 &&
+    duplicateWorks.length > 0 &&
+    titleFieldFocused &&
+    !duplicateSuggestionsDismissed;
 
   useEffect(() => {
     const titulo = stripHtml(formData.titulo);
@@ -1016,6 +1068,24 @@ export default function WorkForm({
       .then(({ error }) => {
         if (error) console.error("mails_produccion (encargo_arreglo):", error);
         else toast.success("Mail de encargo enviado al Arreglador y al Archivista.");
+      });
+  };
+
+  const sendNuevaObraArchivistaMail = (detalle) => {
+    if (!user?.id) return;
+    supabase.functions
+      .invoke("mails_produccion", {
+        body: {
+          action: "enviar_mail",
+          templateId: "nueva_obra",
+          email: "ofrn.archivo@gmail.com",
+          nombre: `${user.nombre} ${user.apellido}`,
+          gira: null,
+          detalle,
+        },
+      })
+      .then(({ error }) => {
+        if (error) console.error("Error enviando alerta de obra:", error);
       });
   };
 
@@ -1410,32 +1480,19 @@ export default function WorkForm({
         const arrangerLabels = (selectedArrangers || [])
           .map((id) => composersOptions.find((c) => c.id === id)?.label)
           .filter(Boolean);
-        supabase.functions
-          .invoke("mails_produccion", {
-            body: {
-              action: "enviar_mail",
-              templateId: "nueva_obra",
-              email: "ofrn.archivo@gmail.com",
-              nombre: `${user.nombre} ${user.apellido}`,
-              gira: null,
-              detalle: {
-                titulo: stripHtml(formData.titulo),
-                compositores: composerLabels.join("; ") || null,
-                arregladores: arrangerLabels.length ? arrangerLabels.join("; ") : null,
-                duracion: formData.duracion,
-                anio: formData.anio || null,
-                estado: formData.estado || null,
-                instrumentacion: payload.instrumentacion,
-                link_drive: formData.link_drive || null,
-                link_youtube: (formData.link_youtube || "").trim() || null,
-                observaciones: (formData.observaciones || "").trim() || null,
-                comentarios: (formData.comentarios || "").trim() || null,
-              },
-            },
-          })
-          .then(({ error }) => {
-            if (error) console.error("Error enviando alerta de obra:", error);
-          });
+        sendNuevaObraArchivistaMail({
+          titulo: stripHtml(formData.titulo),
+          compositores: composerLabels.join("; ") || null,
+          arregladores: arrangerLabels.length ? arrangerLabels.join("; ") : null,
+          duracion: formData.duracion,
+          anio: formData.anio || null,
+          estado: formData.estado || null,
+          instrumentacion: payload.instrumentacion,
+          link_drive: formData.link_drive || null,
+          link_youtube: (formData.link_youtube || "").trim() || null,
+          observaciones: (formData.observaciones || "").trim() || null,
+          comentarios: (formData.comentarios || "").trim() || null,
+        });
 
         if (formData.estado === "Para arreglar" && formData.id_integrante_arreglador) {
           enviarEncargoArreglo(
@@ -1483,27 +1540,33 @@ export default function WorkForm({
     onCancel();
   };
 
-  const handleDuplicateAsArrangement = async () => {
-    if (!formData.id || !user?.id) {
-      toast.error("No se puede duplicar: obra no guardada o sesión inválida.");
-      return;
+  const createArrangementFromExistingWork = async (sourceWorkId) => {
+    if (!sourceWorkId || !user?.id) {
+      toast.error("No se puede crear el arreglo: obra origen o sesión inválida.");
+      return false;
     }
     setIsSaving(true);
     try {
+      const { data: source, error: sourceError } = await supabase
+        .from("obras")
+        .select("*, obras_compositores(rol, id_compositor)")
+        .eq("id", sourceWorkId)
+        .single();
+
+      if (sourceError) throw sourceError;
+
       const payload = {
-        titulo: formData.titulo,
-        duracion_segundos: inputToSeconds(formData.duracion),
-        anio_composicion: formData.anio ? parseInt(formData.anio) : null,
+        titulo: source.titulo,
+        duracion_segundos: source.duracion_segundos ?? null,
+        anio_composicion: source.anio_composicion ?? null,
         estado: "Solicitud",
         id_integrante_arreglador: null,
-        fecha_esperada:
-          formData.estado === "Solicitud" || formData.estado === "Para arreglar"
-            ? (formData.fecha_esperada || null)
-            : null,
-        observaciones: formData.observaciones || null,
-        comentarios: formData.comentarios || null,
-        link_youtube: formData.link_youtube || null,
+        fecha_esperada: source.fecha_esperada || null,
+        observaciones: source.observaciones || null,
+        comentarios: source.comentarios || null,
+        link_youtube: source.link_youtube || null,
         link_drive: null,
+        instrumentacion: source.instrumentacion || null,
         id_usuario_carga: user.id,
       };
 
@@ -1516,21 +1579,45 @@ export default function WorkForm({
       if (error) throw error;
       const newId = data.id;
 
-      const { data: relations, error: relError } = await supabase
-        .from("obras_compositores")
-        .select("rol, id_compositor")
-        .eq("id_obra", formData.id);
-
-      if (relError) throw relError;
-      if (relations?.length > 0) {
+      const relations = source.obras_compositores || [];
+      if (relations.length > 0) {
         await supabase.from("obras_compositores").insert(
-          relations.map((r) => ({ id_obra: newId, id_compositor: r.id_compositor, rol: r.rol })),
+          relations.map((r) => ({
+            id_obra: newId,
+            id_compositor: r.id_compositor,
+            rol: r.rol,
+          })),
         );
       }
+
+      const composerLabels = relations
+        .filter((r) => r.rol === "compositor" || !r.rol)
+        .map((r) => composersOptions.find((c) => c.id === r.id_compositor)?.label)
+        .filter(Boolean);
+      const arrangerLabels = relations
+        .filter((r) => r.rol === "arreglador")
+        .map((r) => composersOptions.find((c) => c.id === r.id_compositor)?.label)
+        .filter(Boolean);
+      sendNuevaObraArchivistaMail({
+        titulo: stripHtml(source.titulo),
+        compositores: composerLabels.join("; ") || null,
+        arregladores: arrangerLabels.length ? arrangerLabels.join("; ") : null,
+        duracion: source.duracion_segundos
+          ? formatSecondsToTime(source.duracion_segundos)
+          : null,
+        anio: source.anio_composicion || null,
+        estado: payload.estado,
+        instrumentacion: payload.instrumentacion,
+        link_drive: null,
+        link_youtube: (source.link_youtube || "").trim() || null,
+        observaciones: (source.observaciones || "").trim() || null,
+        comentarios: (source.comentarios || "").trim() || null,
+      });
 
       await fetchWorkDetails(newId);
       setParticellas([]);
       setSelectedPartTempIds(new Set());
+      setDuplicateSuggestionsDismissed(true);
       if (onSave) {
         if (isProgramContext) {
           onSave(newId, true);
@@ -1539,12 +1626,22 @@ export default function WorkForm({
         }
       }
       toast.success("Nuevo arreglo creado en Solicitud. Podés editar instrumentación y Drive.");
+      return true;
     } catch (err) {
       console.error(err);
       toast.error("Error al crear el nuevo arreglo: " + (err.message || "Error desconocido"));
+      return false;
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleDuplicateAsArrangement = async () => {
+    if (!formData.id) {
+      toast.error("No se puede duplicar: obra no guardada.");
+      return;
+    }
+    await createArrangementFromExistingWork(formData.id);
   };
 
   const handleAddParts = () => {
@@ -1982,71 +2079,131 @@ export default function WorkForm({
               Buscar sugerencias
             </button>
             </div>
-            <div className="min-h-0 flex-1 flex flex-col">
+            <div className="min-h-0 flex-1 flex flex-col relative" ref={titleDropdownRef}>
               <WysiwygEditor
                 value={formData.titulo ?? ""}
                 onChange={(v) => updateField("titulo", v)}
                 placeholder="Ej: Sinfonía n.5"
                 fillHeight
                 className="min-h-0"
+                onFocus={() => {
+                  if (titleBlurTimerRef.current) {
+                    clearTimeout(titleBlurTimerRef.current);
+                    titleBlurTimerRef.current = null;
+                  }
+                  setTitleFieldFocused(true);
+                }}
+                onBlur={() => {
+                  titleBlurTimerRef.current = setTimeout(() => {
+                    setTitleFieldFocused(false);
+                  }, 180);
+                }}
               />
-            </div>
 
-          {duplicateWorks.length > 0 && (
-            <div className="mt-2 shrink-0 rounded-lg border border-amber-300 bg-amber-50 text-xs text-amber-900 p-3 flex gap-3">
-              <div className="shrink-0 mt-0.5">
-                <IconAlertCircle size={16} className="text-amber-500" />
-              </div>
-              <div className="space-y-1">
-                <div className="font-semibold uppercase tracking-wide text-[11px] flex items-center gap-2">
-                  <span>Posibles duplicados encontrados</span>
-                  {checkingDuplicates && (
-                    <IconLoader size={10} className="animate-spin text-amber-600" />
-                  )}
-                </div>
-                <p className="text-[11px] text-amber-800">
-                  Revisa si alguna de estas obras ya existe en el archivo antes de crear una nueva.
-                </p>
-                <ul className="space-y-0.5 max-h-40 overflow-y-auto pr-1">
-                  {duplicateWorks.map((obra) => (
-                    <li
-                      key={obra.id}
-                      className="flex flex-col gap-1 rounded px-2 py-1 bg-amber-100/70 border border-amber-200/70"
-                    >
-                      <div>
-                        <span
-                          className="font-semibold text-[11px] text-amber-900"
-                          dangerouslySetInnerHTML={{ __html: obra.titulo || "" }}
-                        />
-                        {obra.instrumentacion && (
-                          <span className="block text-[10px] text-amber-800/90">
-                            {obra.instrumentacion}
-                          </span>
-                        )}
-                      </div>
-                      {isProgramContext && typeof onInsertExistingWork === "function" && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            try {
-                              await onInsertExistingWork(obra.id);
-                              onCancel();
-                            } catch (e) {
-                              console.warn("onInsertExistingWork error:", e);
-                              toast.error("No se pudo insertar esta obra en el programa.");
-                            }
-                          }}
-                          className="self-start mt-0.5 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-amber-600 text-white hover:bg-amber-700 shadow-sm"
+              {showTitleDuplicateDropdown && (
+                <div
+                  className="absolute left-0 right-0 top-full z-[60] mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl animate-in fade-in zoom-in-95"
+                  onMouseDown={(e) => e.preventDefault()}
+                >
+                  <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                      Obras existentes
+                    </span>
+                    {checkingDuplicates && (
+                      <IconLoader size={12} className="animate-spin text-indigo-500" />
+                    )}
+                  </div>
+                  <ul className="max-h-56 overflow-y-auto py-1">
+                    {duplicateWorks.map((obra) => {
+                      const typedNorm = normalizeForSearch(stripHtml(formData.titulo));
+                      const obraNorm = normalizeForSearch(stripHtml(obra.titulo));
+                      const isExactMatch = typedNorm === obraNorm;
+                      return (
+                        <li
+                          key={obra.id}
+                          className={`border-b border-slate-50 px-3 py-2 last:border-b-0 ${
+                            isExactMatch ? "bg-amber-50/80" : "hover:bg-slate-50"
+                          }`}
                         >
-                          Insertar esta obra en programa
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+                          <div className="min-w-0">
+                            <span
+                              className="block text-sm font-semibold text-slate-800 leading-snug"
+                              dangerouslySetInnerHTML={{ __html: obra.titulo || "" }}
+                            />
+                            {obra.instrumentacion && (
+                              <span className="mt-0.5 block font-mono text-[10px] text-slate-500">
+                                {obra.instrumentacion}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {isProgramContext ? (
+                              <>
+                                {typeof onInsertExistingWork === "function" && (
+                                  <button
+                                    type="button"
+                                    disabled={isSaving}
+                                    onClick={async () => {
+                                      try {
+                                        await onInsertExistingWork(obra.id);
+                                        onCancel();
+                                      } catch (e) {
+                                        console.warn("onInsertExistingWork error:", e);
+                                        toast.error("No se pudo agregar esta obra al programa.");
+                                      }
+                                    }}
+                                    className="rounded-md bg-indigo-600 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
+                                  >
+                                    Agregar esta obra al programa
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={isSaving}
+                                  onClick={() => createArrangementFromExistingWork(obra.id)}
+                                  className="rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                                >
+                                  Solicitar nuevo arreglo
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={isSaving}
+                                  onClick={() => createArrangementFromExistingWork(obra.id)}
+                                  className="rounded-md bg-indigo-600 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
+                                >
+                                  Crear nuevo arreglo
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isSaving}
+                                  onClick={onCancel}
+                                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                                >
+                                  Salir
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDuplicateSuggestionsDismissed(true);
+                      setTitleFieldFocused(true);
+                    }}
+                    className="w-full border-t border-slate-100 px-3 py-2 text-left text-[11px] font-medium text-slate-500 hover:bg-slate-50"
+                  >
+                    Continuar con obra nueva
+                  </button>
+                </div>
+              )}
             </div>
-          )}
 
           {suggestedTitleWithMovements && (
             <div className="mt-2 shrink-0 p-3 bg-sky-50 border border-sky-200 rounded-lg text-sm">

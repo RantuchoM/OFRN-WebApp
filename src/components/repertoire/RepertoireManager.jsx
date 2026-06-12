@@ -514,6 +514,14 @@ const SoloistSelect = ({ currentId, musicians, onChange }) => {
 };
 
 
+const getWorkComposerFromRelations = (work) => {
+  const rels = work?.obras_compositores || [];
+  const compRel = rels.find((r) => r.rol === "compositor") || rels[0];
+  const c = compRel?.compositores;
+  if (!c) return null;
+  return { id: c.id, apellido: c.apellido, nombre: c.nombre };
+};
+
 function QuickWorkRow({
   rep,
   definitionMode,
@@ -525,6 +533,7 @@ function QuickWorkRow({
   setQuickEntryFollowup,
 }) {
   const MIN_SEARCH_LEN = 2;
+  const MIN_TITLE_SEARCH_LEN = 4;
   const [composerInput, setComposerInput] = useState("");
   const [composerOptions, setComposerOptions] = useState([]);
   const [activeComposerIndex, setActiveComposerIndex] = useState(-1);
@@ -682,10 +691,17 @@ function QuickWorkRow({
     300,
   );
 
+  const applyComposerFromWork = (work) => {
+    const comp = getWorkComposerFromRelations(work);
+    if (!comp?.id) return;
+    setSelectedComposer(comp);
+    setComposerInput(`${comp.apellido}${comp.nombre ? `, ${comp.nombre}` : ""}`);
+  };
+
   const debouncedSearchWorks = useDebouncedCallback(
     async (composerId, rawTitle) => {
       const clean = (rawTitle || "").trim();
-      if (!composerId) {
+      if (!composerId && clean.length < MIN_TITLE_SEARCH_LEN) {
         setWorkOptions([]);
         setIsNewWorkForComposer(false);
         setSearchingWork(false);
@@ -693,18 +709,29 @@ function QuickWorkRow({
         return;
       }
       try {
-        let query = supabase
-          .from("obras")
-          .select(
-            "id, titulo, duracion_segundos, instrumentacion, link_drive, link_youtube, observaciones, obras_compositores!inner(id_compositor, rol)",
-          )
-          .eq("obras_compositores.id_compositor", composerId)
-          .eq("obras_compositores.rol", "compositor")
-          .order("titulo")
-          .limit(20);
-
-        if (clean.length >= 2) {
-          query = query.ilike("titulo", `%${clean}%`);
+        let query;
+        if (composerId) {
+          query = supabase
+            .from("obras")
+            .select(
+              "id, titulo, duracion_segundos, instrumentacion, link_drive, link_youtube, observaciones, obras_compositores!inner(id_compositor, rol, compositores(id, apellido, nombre))",
+            )
+            .eq("obras_compositores.id_compositor", composerId)
+            .eq("obras_compositores.rol", "compositor")
+            .order("titulo")
+            .limit(20);
+          if (clean.length >= MIN_SEARCH_LEN) {
+            query = query.ilike("titulo", `%${clean}%`);
+          }
+        } else {
+          query = supabase
+            .from("obras")
+            .select(
+              "id, titulo, duracion_segundos, instrumentacion, link_drive, link_youtube, observaciones, obras_compositores(rol, compositores(id, apellido, nombre))",
+            )
+            .ilike("titulo", `%${clean}%`)
+            .order("titulo")
+            .limit(20);
         }
 
         const { data, error } = await query;
@@ -903,7 +930,7 @@ function QuickWorkRow({
 
   const handleInsertExistingWork = async (work) => {
     if (!isEditor || saving) return;
-    if (!selectedComposer) return;
+    if (!selectedComposer) applyComposerFromWork(work);
 
     setSaving(true);
     try {
@@ -1175,6 +1202,7 @@ function QuickWorkRow({
         const target = workOptions[Math.max(0, activeWorkIndex)];
         if (target) {
           const cleanTitle = (target.titulo || "").replace(/<[^>]*>?/gm, "") || "";
+          if (!selectedComposer) applyComposerFromWork(target);
           setSelectedWork(target);
           setTitulo(cleanTitle);
           setShowWorkDropdown(false);
@@ -1273,9 +1301,19 @@ function QuickWorkRow({
                 const val = e.target.value;
                 setTitulo(val);
                 setSelectedWork(null);
-                if (selectedComposer && val.trim().length >= MIN_SEARCH_LEN) {
+                const trimmed = val.trim();
+                if (selectedComposer) {
+                  if (trimmed.length >= MIN_SEARCH_LEN || trimmed.length === 0) {
+                    setSearchingWork(true);
+                    debouncedSearchWorks(selectedComposer.id, val);
+                  } else {
+                    setWorkOptions([]);
+                    setShowWorkDropdown(false);
+                    setIsNewWorkForComposer(false);
+                  }
+                } else if (trimmed.length >= MIN_TITLE_SEARCH_LEN) {
                   setSearchingWork(true);
-                  debouncedSearchWorks(selectedComposer.id, val);
+                  debouncedSearchWorks(null, val);
                 } else {
                   setWorkOptions([]);
                   setShowWorkDropdown(false);
@@ -1283,9 +1321,13 @@ function QuickWorkRow({
                 }
               }}
               onFocus={() => {
+                const trimmed = titulo.trim();
                 if (selectedComposer) {
                   setSearchingWork(true);
-                  debouncedSearchWorks(selectedComposer.id, "");
+                  debouncedSearchWorks(selectedComposer.id, titulo);
+                } else if (trimmed.length >= MIN_TITLE_SEARCH_LEN) {
+                  setSearchingWork(true);
+                  debouncedSearchWorks(null, titulo);
                 }
               }}
               onKeyDown={handleKeyDown}
@@ -1300,9 +1342,10 @@ function QuickWorkRow({
               </span>
             )}
             {showWorkDropdown &&
-              selectedComposer &&
               workDropdownPos &&
-              (workOptions.length > 0 || titulo.trim().length >= MIN_SEARCH_LEN) &&
+              (workOptions.length > 0 ||
+                (selectedComposer && titulo.trim().length >= MIN_SEARCH_LEN) ||
+                (!selectedComposer && titulo.trim().length >= MIN_TITLE_SEARCH_LEN)) &&
               createPortal(
                 <div
                   className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs"
@@ -1323,6 +1366,10 @@ function QuickWorkRow({
                   </div>
                   {workOptions.map((w, index) => {
                     const cleanTitle = (w.titulo || "").replace(/<[^>]*>?/gm, "") || "";
+                    const workComposer = getWorkComposerFromRelations(w);
+                    const composerLabel = workComposer
+                      ? `${workComposer.apellido}${workComposer.nombre ? `, ${workComposer.nombre}` : ""}`
+                      : "";
                     return (
                       <div
                         key={w.id}
@@ -1330,11 +1377,24 @@ function QuickWorkRow({
                         onMouseEnter={() => setActiveWorkIndex(index)}
                       >
                         <div className="flex items-center gap-1 shrink-0">
+                          {w.link_drive ? (
+                            <a
+                              href={w.link_drive}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Abrir carpeta en Drive"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              className="p-1 rounded-full text-blue-600 hover:text-white hover:bg-blue-600 bg-blue-50"
+                            >
+                              <IconDrive size={12} />
+                            </a>
+                          ) : null}
                           <button
                             type="button"
                             title="Copiar título en la fila (crear nueva obra)"
                             onMouseDown={(e) => {
                               e.preventDefault();
+                              if (!selectedComposer) applyComposerFromWork(w);
                               setSelectedWork(w);
                               setTitulo(cleanTitle);
                               setShowWorkDropdown(false);
@@ -1362,7 +1422,7 @@ function QuickWorkRow({
                             e.preventDefault();
                             handleInsertExistingWork(w);
                           }}
-                          className="flex-1 text-left flex flex-col gap-0.5"
+                          className="flex-1 text-left flex flex-col gap-0.5 min-w-0"
                         >
                           <span
                             className="font-semibold text-[11px] text-slate-800 truncate"
@@ -1370,13 +1430,19 @@ function QuickWorkRow({
                           >
                             {cleanTitle}
                           </span>
-                          <div className="flex items-center justify-between text-[10px] text-slate-500">
-                            <span className="font-mono">
-                              {w.instrumentacion ||
-                                calculateInstrumentation(w.obras_particellas || []) ||
-                                "-"}
+                          <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 min-w-0">
+                            <span className="truncate">
+                              {!selectedComposer && composerLabel ? (
+                                <span className="text-slate-600">{composerLabel}</span>
+                              ) : (
+                                <span className="font-mono">
+                                  {w.instrumentacion ||
+                                    calculateInstrumentation(w.obras_particellas || []) ||
+                                    "-"}
+                                </span>
+                              )}
                             </span>
-                            <span className="font-mono">
+                            <span className="font-mono shrink-0">
                               {formatSecondsToTime(w.duracion_segundos || 0)}
                             </span>
                           </div>
@@ -1384,9 +1450,13 @@ function QuickWorkRow({
                       </div>
                     );
                   })}
-                  {workOptions.length === 0 && titulo.trim().length >= MIN_SEARCH_LEN && (
+                  {workOptions.length === 0 &&
+                    ((selectedComposer && titulo.trim().length >= MIN_SEARCH_LEN) ||
+                      (!selectedComposer && titulo.trim().length >= MIN_TITLE_SEARCH_LEN)) && (
                     <div className="px-2 py-1 text-[10px] text-slate-400 border-t border-slate-100">
-                      Sin coincidencias en el archivo para este compositor.
+                      {selectedComposer
+                        ? "Sin coincidencias en el archivo para este compositor."
+                        : "Sin coincidencias en el archivo."}
                     </div>
                   )}
                 </div>,
@@ -1883,6 +1953,11 @@ export default function RepertoireManager({
     if (!isNew) {
       autoSyncDrive();
     }
+  };
+
+  const closeWorkFormModal = () => {
+    setIsEditWorkModalOpen(false);
+    fetchFullRepertoire();
   };
 
   const openEditModal = (item) => {
@@ -4267,18 +4342,17 @@ export default function RepertoireManager({
 
       {/* MODAL EDITAR (WORKFORM) */}
       {isEditWorkModalOpen && isEditor && (
-        <ModalPortal onClose={() => setIsEditWorkModalOpen(false)}>
+        <ModalPortal onClose={closeWorkFormModal}>
           <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto overflow-x-hidden rounded-xl bg-white p-2 shadow-2xl animate-in zoom-in-95 sm:p-3">
             <WorkForm
               supabase={supabase}
               formData={workFormData}
-              onCancel={() => setIsEditWorkModalOpen(false)}
+              onCancel={closeWorkFormModal}
               onSave={handleWorkSaved}
               catalogoInstrumentos={instrumentList}
               context="program"
               onInsertExistingWork={async (workId) => {
                 await addWorkToBlock(workId, activeRepertorioId);
-                setIsEditWorkModalOpen(false);
               }}
             />
           </div>
