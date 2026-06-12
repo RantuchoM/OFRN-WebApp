@@ -77,6 +77,23 @@ const formatDate = (dateString) => {
   return `${d}/${m}`;
 };
 
+const formatConcertMomentDesktop = (fecha, horaInicio) => {
+  if (!fecha) return "-";
+  const dayPart = format(parseISO(fecha), "dd/MM, EEEE", { locale: es });
+  const timePart = horaInicio ? sliceTime(horaInicio, "") : "";
+  return timePart ? `${dayPart} - ${timePart}` : dayPart;
+};
+
+const isConcertPast = (fecha, horaInicio) => {
+  if (!fecha) return false;
+  try {
+    const time = sliceTime(horaInicio, "23:59");
+    return isPast(parseISO(`${fecha}T${time}`));
+  } catch {
+    return isPast(parseISO(fecha));
+  }
+};
+
 export default function GiraCard({
   gira,
   updateView,
@@ -353,7 +370,7 @@ export default function GiraCard({
           {concerts.map((c, idx) => (
             <div
               key={idx}
-              className="flex gap-3 items-center p-1.5 bg-white/60 rounded border border-black/5"
+              className={`flex gap-3 items-center p-1.5 bg-white/60 rounded border border-black/5 ${isConcertPast(c.fecha, c.hora_inicio) ? "opacity-45" : ""}`}
             >
               <div className="bg-white/80 px-1.5 py-0.5 rounded border border-black/10 text-center min-w-[36px]">
                 <span className="block text-[11px] font-black opacity-50 uppercase">
@@ -506,15 +523,15 @@ export default function GiraCard({
   const getConcertListDesktop = () => {
     if (concerts.length === 0) return null;
     return (
-      <div className="text-xs space-y-1 mt-2 border-t border-black/5 pt-2">
+      <div className="text-sm space-y-1 mt-2 border-t border-black/5 pt-2">
         <ul className="pl-1 space-y-0.5">
           {concerts.slice(0, 3).map((c, idx) => (
             <li
               key={idx}
-              className="opacity-70 truncate max-w-full flex items-center gap-1"
+              className={`truncate max-w-full flex items-center gap-1 ${isConcertPast(c.fecha, c.hora_inicio) ? "opacity-45" : "opacity-70"}`}
             >
-              <span className="font-mono text-[10px] mr-1 bg-white/60 px-1 rounded border border-black/10">
-                {formatDate(c.fecha)} - {c.hora_inicio.slice(0, 5)}
+              <span className="font-mono text-[11px] mr-1 bg-white/60 px-1 rounded border border-black/10 shrink-0">
+                {formatConcertMomentDesktop(c.fecha, c.hora_inicio)}
               </span>
               <span className="min-w-0 truncate">
                 <LocacionNombreSpan
@@ -537,7 +554,7 @@ export default function GiraCard({
             </li>
           ))}
           {concerts.length > 3 && (
-            <li className="opacity-50 italic text-[10px] pt-1">
+            <li className="opacity-50 italic text-[11px] pt-1">
               y {concerts.length - 3} evento(s) más.
             </li>
           )}

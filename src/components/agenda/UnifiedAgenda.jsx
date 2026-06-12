@@ -78,7 +78,7 @@ import ConfirmModal from "../ui/ConfirmModal";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import RehearsalCheckInBlock from "./RehearsalCheckInBlock";
 import { useEnsayoCheckin } from "../../hooks/useEnsayoCheckin";
-import EventTranspositionModal from "./EventTranspositionModal";
+import { deriveAgendaPermissions } from "../../utils/agendaPermissions";
 
 /** tipos_evento.id: Traslado interno — "mi transporte" para todo integrante activo (sin reglas de asignación). */
 const ID_TIPO_TRASLADO_INTERNO = 35;
@@ -189,10 +189,43 @@ export default function UnifiedAgenda({
   const [musicianOptions, setMusicianOptions] = useState([]);
 
   const effectiveUserId = viewAsUserId || user.id;
+  const isViewAsMode = !!viewAsUserId;
   const isPersonalGuest = isGuest && !user?.isGeneral && !!user?.token_original;
   const defaultPersonalFilter =
     isPersonalGuest ||
     ((!isEditor && !isManagement && !user?.isGeneral) || isTechnician);
+  const viewAsPermissions = useMemo(() => {
+    if (!viewAsUserId) return null;
+    const viewed = musicianOptions.find(
+      (m) => String(m.id) === String(viewAsUserId),
+    );
+    if (!viewed) return null;
+    return deriveAgendaPermissions(viewed.rol_sistema ?? ["musico"]);
+  }, [viewAsUserId, musicianOptions]);
+  const filterPermissions = useMemo(() => {
+    if (isViewAsMode) {
+      return viewAsPermissions ?? deriveAgendaPermissions(["musico"]);
+    }
+    return {
+      isEditor,
+      isManagement,
+      isTechnician,
+      defaultPersonalFilter,
+    };
+  }, [
+    isViewAsMode,
+    viewAsPermissions,
+    isEditor,
+    isManagement,
+    isTechnician,
+    defaultPersonalFilter,
+  ]);
+  const {
+    isEditor: filterIsEditor,
+    isManagement: filterIsManagement,
+    isTechnician: filterIsTechnician,
+    defaultPersonalFilter: filterDefaultPersonalFilter,
+  } = filterPermissions;
   // --- ESTADOS ---
   const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
   const [myEnsembleObjects, setMyEnsembleObjects] = useState([]);
@@ -323,12 +356,13 @@ export default function UnifiedAgenda({
   } = useAgendaFilters({
     effectiveUserId,
     giraId,
-    isEditor,
-    isManagement,
+    isEditor: filterIsEditor,
+    isManagement: filterIsManagement,
     availableCategories,
-    defaultPersonalFilter,
+    defaultPersonalFilter: filterDefaultPersonalFilter,
     isPersonalGuest,
-    isTechnician,
+    isTechnician: filterIsTechnician,
+    isViewAsMode,
   });
 
   const [userProfile, setUserProfile] = useState(null);
@@ -429,8 +463,8 @@ export default function UnifiedAgenda({
     setSelectedCategoryIds,
     selectedCategoryIds,
     setAvailableCategories,
-    isEditor,
-    isManagement,
+    isEditor: filterIsEditor,
+    isManagement: filterIsManagement,
     user,
     includeDeletedBeyond24h: isAdmin && showDeletedEvents,
     includeAssociatedEnsembleRehearsals,
@@ -551,12 +585,12 @@ export default function UnifiedAgenda({
       !isGiraFinishedTour ||
       loading ||
       finishedGiraTechDefaultsRef.current ||
-      !(isManagement || isTechnician)
+      !(filterIsManagement || filterIsTechnician)
     )
       return;
     finishedGiraTechDefaultsRef.current = true;
     setTechFilter("all");
-  }, [isGiraFinishedTour, loading, isManagement, isTechnician]);
+  }, [isGiraFinishedTour, loading, filterIsManagement, filterIsTechnician]);
 
   // Alinear el control "Desde" con la fecha real del filtro (evita mostrar "hoy" cuando la vista ya es toda la gira)
   useEffect(() => {
@@ -604,7 +638,7 @@ export default function UnifiedAgenda({
         try {
           const { data } = await supabase
             .from("integrantes")
-            .select("id, nombre, apellido")
+            .select("id, nombre, apellido, rol_sistema")
             .order("apellido");
 
           if (data) {
@@ -612,6 +646,7 @@ export default function UnifiedAgenda({
               id: m.id,
               label: `${m.apellido}, ${m.nombre}`,
               subLabel: null,
+              rol_sistema: m.rol_sistema,
             }));
             setMusicianOptions(options);
           }
@@ -778,7 +813,7 @@ export default function UnifiedAgenda({
       if (item.isProgramMarker) return true;
 
       // Filtro técnico: no debe ocultar mi propia subida/bajada cuando está activo "Mi transporte"
-      const hasTechVisibility = isManagement || isTechnician;
+      const hasTechVisibility = filterIsManagement || filterIsTechnician;
       if (
         !hasTechVisibility &&
         item.tecnica &&
@@ -831,9 +866,9 @@ export default function UnifiedAgenda({
     hideDeletedEvents,
     myTransportLogistics,
     techFilter,
-    isManagement,
-    isTechnician,
-    isEditor,
+    filterIsManagement,
+    filterIsTechnician,
+    filterIsEditor,
   ]);
 
   const getRecentChangesThreshold = useCallback(() => {
@@ -1513,12 +1548,14 @@ export default function UnifiedAgenda({
                           onClick={() => {
                             const catsToSelect = availableCategories
                               .filter((c) =>
-                                isEditor || isManagement ? true : c.id !== 3,
+                                filterIsEditor || filterIsManagement
+                                  ? true
+                                  : c.id !== 3,
                               )
                               .map((c) => c.id);
                             setSelectedCategoryIds(catsToSelect);
-                            setShowOnlyMyTransport(false);
-                            setShowOnlyMyMeals(false);
+                            setShowOnlyMyTransport(filterDefaultPersonalFilter);
+                            setShowOnlyMyMeals(filterDefaultPersonalFilter);
                             setShowNoGray(false);
                             if (isGiraFinishedTour && giraFirstDate) {
                               setFilterDateFrom(giraFirstDate);
@@ -1527,7 +1564,11 @@ export default function UnifiedAgenda({
                             }
                             setFilterDateTo(null);
                             if (isGiraFinishedTour) setShowNonActive(true);
-                            if (isManagement) setTechFilter("all");
+                            if (filterIsManagement || filterIsTechnician) {
+                              setTechFilter("all");
+                            } else {
+                              setTechFilter("no_tech");
+                            }
                           }}
                           className="text-[10px] text-indigo-600 hover:underline font-bold"
                         >
@@ -1536,7 +1577,7 @@ export default function UnifiedAgenda({
                       </div>
                       <div className="max-h-[60vh] overflow-y-auto">
                         {/* ... (Resto de filtros) ... */}
-                        {isManagement && (
+                        {(filterIsManagement || filterIsTechnician) && (
                           <div className="p-2 border-b border-slate-100">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block px-2 mb-1">
                               Filtro Técnica
@@ -1655,7 +1696,7 @@ export default function UnifiedAgenda({
                               } else {
                                 const catsToSelect = availableCategories
                                   .filter((c) =>
-                                    isEditor || isManagement
+                                    filterIsEditor || filterIsManagement
                                       ? true
                                       : c.id !== 3,
                                   )

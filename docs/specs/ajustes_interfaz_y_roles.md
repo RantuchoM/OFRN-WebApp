@@ -13,3 +13,11 @@
 ## 3. Selector "Ver como..." en Móvil
 - **Ajuste**: En `UnifiedAgenda.jsx`, remover la clase `hidden` o restricciones de ancho que limiten la visibilidad del selector de músicos en pantallas pequeñas, asegurando que los admins puedan simular otros usuarios desde el celular.
 
+## 4. Filtros por defecto en "Ver como..." (Agenda)
+- **Estado**: Completado (2026-06-11)
+- **Comportamiento**: Al elegir un integrante en el selector local de `UnifiedAgenda`, los filtros se reinician según los permisos de esa persona (no según los del editor ni el `localStorage` del integrante simulado).
+- **Músico / personal**: `Solo mi transporte` y `Solo mis comidas` activos (también dentro de una gira en modo simulación); sin categoría Logística (id 3).
+- **Editor / gestión / técnico**: filtros globales (en gira: todas las categorías permitidas; sin filtros personales).
+- **Salir de "Ver como"**: restaura los filtros guardados del usuario logueado.
+- **Implementación**: `deriveAgendaPermissions` en `src/utils/agendaPermissions.js`; `useAgendaFilters` recibe `isViewAsMode` y permisos efectivos desde `UnifiedAgenda`.
+
