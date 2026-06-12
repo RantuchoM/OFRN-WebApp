@@ -96,13 +96,20 @@ const isCoreInstrumentId = (id) => {
   return num >= 1 && num <= 29;
 };
 
-// Construye particellas sugeridas a partir de archivos de Drive
-const getSuggestedParts = (driveFiles, catalogoInstrumentos) => {
-  if (!driveFiles || driveFiles.length === 0 || !catalogoInstrumentos) return [];
+const isDriveFileExcludedFromMatching = (rawName) => {
+  const upperName = (rawName || "").toUpperCase();
+  return upperName.startsWith("PORTADA") || upperName.startsWith("AUDIO");
+};
+
+/** Sugiere una particella a partir de un archivo de Drive (prefijo antes del primer "-"). */
+const suggestPartFromDriveFile = (file, catalogoInstrumentos) => {
+  if (!file || !catalogoInstrumentos) return null;
+
+  const rawName = file.name || "";
+  if (!rawName || isDriveFileExcludedFromMatching(rawName)) return null;
 
   const directorId = getDirectorInstrumentId(catalogoInstrumentos);
 
-  // Solo consideramos instrumentos "núcleo" (IDs entre 01 y 29, incluyendo variantes como 05a)
   const normalizedCatalog = (catalogoInstrumentos || [])
     .filter((i) => isCoreInstrumentId(i.id))
     .map((i) => ({
@@ -110,124 +117,110 @@ const getSuggestedParts = (driveFiles, catalogoInstrumentos) => {
       norm: normalizeInstrumentString(i.instrumento),
     }));
 
-  const parts = [];
+  const base = rawName.split(".")[0];
+  const prefix = base.split("-")[0].trim();
+  const lowerPrefix = prefix.toLowerCase();
 
-  for (const file of driveFiles) {
-    const rawName = file.name || "";
-    if (!rawName) continue;
-
-    // Excluir PORTADA* y AUDIO* directamente
-    const upperName = rawName.toUpperCase();
-    if (upperName.startsWith("PORTADA") || upperName.startsWith("AUDIO")) {
-      continue;
-    }
-
-    const base = rawName.split(".")[0]; // quitar extensión
-    const prefix = base.split("-")[0].trim(); // antes del primer "-"
-    const lowerPrefix = prefix.toLowerCase();
-
-    // Caso especial: Director / Score
-    if (
-      /\b(director|conductor|score|partitura)\b/i.test(lowerPrefix) &&
-      directorId
-    ) {
-      const instrObj = normalizedCatalog.find((i) => i.id === directorId);
-      parts.push({
-        tempId: Date.now() + Math.random(),
-        id: undefined,
-        id_instrumento: directorId,
-        nombre_archivo: prefix || "Director",
-        links: [],
-        nota_organico: "",
-        instrumento_nombre: instrObj?.instrumento || "Director",
-        es_solista: false,
-      });
-      continue;
-    }
-
-    let normPrefix = normalizeInstrumentString(prefix);
-    if (!normPrefix) continue;
-
-    // Sinónimos frecuentes en nombres de archivo (p. ej. Piccolo → familia flauta; Glock bajo Perc).
-    const rawL = lowerPrefix;
-    if (
-      /picc|piccolo|^fp\b|^fi\b/.test(rawL) ||
-      /\bfl\s+picc/i.test(rawL) ||
-      normPrefix.includes("piccolo")
-    ) {
-      normPrefix = "flauta";
-    }
-    let forcePercussion =
-      /glock|metal(o)?fon|metalof|celesta|xilo/i.test(rawL) ||
-      (/perc/i.test(rawL) && /glock|metal|celesta/i.test(rawL));
-
-    let best = null;
-    for (const instr of normalizedCatalog) {
-      if (!instr.norm) continue;
-      // Match fuerte por inclusión de tokens
-      if (
-        normPrefix === instr.norm ||
-        normPrefix.includes(instr.norm) ||
-        instr.norm.includes(normPrefix)
-      ) {
-        best = instr;
-        break;
-      }
-
-      const dist = levenshtein(normPrefix, instr.norm);
-      const maxLen = Math.max(normPrefix.length, instr.norm.length) || 1;
-      const sim = 1 - dist / maxLen;
-      if (!best || sim > best.sim) {
-        best = { ...instr, sim };
-      }
-    }
-
-    // Caso especial: si el prefijo es exactamente "corno",
-    // priorizamos el instrumento cuyo nombre normalizado sea "corno"
-    // (evita que "Corno Inglés" gane el match por contener "corno").
-    if (normPrefix === "corno") {
-      const plainHorn =
-        normalizedCatalog.find((i) => i.norm === "corno") ||
-        normalizedCatalog.find(
-          (i) => i.norm.startsWith("corno") && !i.norm.includes("ingl"),
-        );
-      if (plainHorn) {
-        best = plainHorn;
-      }
-    }
-
-    if (forcePercussion) {
-      const percCand =
-        normalizedCatalog.find(
-          (i) =>
-            i.norm.includes("perc") ||
-            i.norm.includes("percus") ||
-            /^perc\b/i.test(i.norm),
-        ) || null;
-      if (percCand) {
-        const weakMatch =
-          !best ||
-          (typeof best.sim === "number" && best.sim < 0.55);
-        if (weakMatch) best = percCand;
-      }
-    }
-
-    if (!best) continue;
-    if (best.sim !== undefined && best.sim < 0.4) continue; // Umbral de similitud
-
-    parts.push({
+  if (
+    /\b(director|conductor|score|partitura)\b/i.test(lowerPrefix) &&
+    directorId
+  ) {
+    const instrObj = normalizedCatalog.find((i) => i.id === directorId);
+    return {
       tempId: Date.now() + Math.random(),
       id: undefined,
-      id_instrumento: best.id,
-      nombre_archivo: prefix,
+      id_instrumento: directorId,
+      nombre_archivo: prefix || "Director",
       links: [],
       nota_organico: "",
-      instrumento_nombre: best.instrumento,
+      instrumento_nombre: instrObj?.instrumento || "Director",
       es_solista: false,
-    });
+    };
   }
 
-  return parts;
+  let normPrefix = normalizeInstrumentString(prefix);
+  if (!normPrefix) return null;
+
+  const rawL = lowerPrefix;
+  if (
+    /picc|piccolo|^fp\b|^fi\b/.test(rawL) ||
+    /\bfl\s+picc/i.test(rawL) ||
+    normPrefix.includes("piccolo")
+  ) {
+    normPrefix = "flauta";
+  }
+  const forcePercussion =
+    /glock|metal(o)?fon|metalof|celesta|xilo/i.test(rawL) ||
+    (/perc/i.test(rawL) && /glock|metal|celesta/i.test(rawL));
+
+  let best = null;
+  for (const instr of normalizedCatalog) {
+    if (!instr.norm) continue;
+    if (
+      normPrefix === instr.norm ||
+      normPrefix.includes(instr.norm) ||
+      instr.norm.includes(normPrefix)
+    ) {
+      best = instr;
+      break;
+    }
+
+    const dist = levenshtein(normPrefix, instr.norm);
+    const maxLen = Math.max(normPrefix.length, instr.norm.length) || 1;
+    const sim = 1 - dist / maxLen;
+    if (!best || sim > best.sim) {
+      best = { ...instr, sim };
+    }
+  }
+
+  if (normPrefix === "corno") {
+    const plainHorn =
+      normalizedCatalog.find((i) => i.norm === "corno") ||
+      normalizedCatalog.find(
+        (i) => i.norm.startsWith("corno") && !i.norm.includes("ingl"),
+      );
+    if (plainHorn) {
+      best = plainHorn;
+    }
+  }
+
+  if (forcePercussion) {
+    const percCand =
+      normalizedCatalog.find(
+        (i) =>
+          i.norm.includes("perc") ||
+          i.norm.includes("percus") ||
+          /^perc\b/i.test(i.norm),
+      ) || null;
+    if (percCand) {
+      const weakMatch =
+        !best || (typeof best.sim === "number" && best.sim < 0.55);
+      if (weakMatch) best = percCand;
+    }
+  }
+
+  if (!best) return null;
+  if (best.sim !== undefined && best.sim < 0.4) return null;
+
+  return {
+    tempId: Date.now() + Math.random(),
+    id: undefined,
+    id_instrumento: best.id,
+    nombre_archivo: prefix,
+    links: [],
+    nota_organico: "",
+    instrumento_nombre: best.instrumento,
+    es_solista: false,
+  };
+};
+
+// Construye particellas sugeridas a partir de archivos de Drive
+const getSuggestedParts = (driveFiles, catalogoInstrumentos) => {
+  if (!driveFiles || driveFiles.length === 0 || !catalogoInstrumentos) return [];
+
+  return driveFiles
+    .map((file) => suggestPartFromDriveFile(file, catalogoInstrumentos))
+    .filter(Boolean);
 };
 
 /** Empareja cada particella sugerida con el primer archivo de Drive cuyo prefijo encaje (1 archivo → 1 parte). */
@@ -362,6 +355,18 @@ export default function DriveMatcherModal({
       ),
     [driveFiles],
   );
+
+  const autoCreateEligibleFileIds = useMemo(() => {
+    const ids = new Set();
+    for (const file of sortedDriveFiles) {
+      if (!/\.pdf$/i.test(file.name || "")) continue;
+      if (isDriveFileExcludedFromMatching(file.name)) continue;
+      if (suggestPartFromDriveFile(file, catalogoInstrumentos)) {
+        ids.add(file.id);
+      }
+    }
+    return ids;
+  }, [sortedDriveFiles, catalogoInstrumentos]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -752,6 +757,31 @@ export default function DriveMatcherModal({
       es_solista: false,
     };
     if (onPartsChange) onPartsChange([...parts, newPart]);
+  };
+
+  const handleCreatePartFromFile = (e, file) => {
+    e.stopPropagation();
+    if (!file?.webViewLink || !onPartsChange) return;
+
+    const suggested = suggestPartFromDriveFile(file, catalogoInstrumentos);
+    if (!suggested) {
+      const prefix = (file.name || "").split(".")[0].split("-")[0].trim();
+      window.alert(
+        prefix
+          ? `No se pudo detectar un instrumento para "${prefix}".`
+          : "No se pudo detectar un instrumento para este archivo.",
+      );
+      return;
+    }
+
+    const newPart = {
+      ...suggested,
+      links: [{ url: file.webViewLink, description: file.name }],
+    };
+    const updatedParts = [...parts, newPart].sort((a, b) =>
+      String(a.id_instrumento).localeCompare(String(b.id_instrumento)),
+    );
+    onPartsChange(updatedParts);
   };
 
   const requestClose = async () => {
@@ -1175,6 +1205,8 @@ export default function DriveMatcherModal({
                     assignCount++;
                 });
                 const isUsed = assignCount > 0;
+                const canAutoCreatePart =
+                  !isUsed && autoCreateEligibleFileIds.has(file.id);
 
                 return (
                   <div
@@ -1202,6 +1234,20 @@ export default function DriveMatcherModal({
                       <span className="truncate font-medium">{file.name}</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0 ml-2">
+                      {canAutoCreatePart && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleCreatePartFromFile(e, file)}
+                          className={`p-1 rounded transition-colors ${
+                            isSelected
+                              ? "bg-white/20 text-white hover:bg-white/30"
+                              : "bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
+                          }`}
+                          title="Crear particella según el nombre del archivo y vincular"
+                        >
+                          <IconPlus size={14} />
+                        </button>
+                      )}
                       {isUsed && !isSelected && (
                         <span className="text-[9px] bg-emerald-200 text-emerald-800 px-1.5 rounded-full font-bold ml-2">
                           {assignCount}

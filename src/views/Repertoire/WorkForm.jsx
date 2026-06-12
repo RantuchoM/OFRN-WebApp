@@ -368,6 +368,7 @@ const buildParaAcomodarFolderName = (tituloHtml, composerIds, arrangerIds, compo
 /** Barra superior del formulario, estilo MusicianForm (condición) */
 const getEstadoHeaderClass = (estado) => {
   const m = {
+    Borrador: "bg-slate-500",
     Solicitud: "bg-amber-600",
     Pendiente: "bg-slate-600",
     "Para arreglar": "bg-amber-700",
@@ -381,6 +382,7 @@ const getEstadoHeaderClass = (estado) => {
 /** Fondo/borde del bloque formulario según estado (p. ej. Oficial) */
 const getEstadoShellClass = (estado) => {
   const map = {
+    Borrador: "bg-slate-100/95 border-slate-300/90",
     Solicitud: "bg-amber-50/85 border-amber-200/80",
     Pendiente: "bg-slate-50/90 border-slate-200/80",
     "Para arreglar": "bg-orange-50/85 border-orange-200/80",
@@ -475,6 +477,7 @@ export default function WorkForm({
   });
   const [duplicateWorks, setDuplicateWorks] = useState([]);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const [draftExitConfirmOpen, setDraftExitConfirmOpen] = useState(false);
   const handleQuickCompCreated = (newComp) => {
     const newOption = {
       id: newComp.id,
@@ -1327,14 +1330,14 @@ export default function WorkForm({
     setSelectedPartTempIds(new Set());
   };
 
-  const handleCreateInitial = async () => {
+  const handleCreateInitial = async (shouldClose = false) => {
     if (!formData.titulo) {
       alert("El título de la obra es obligatorio.");
-      return;
+      return false;
     }
     if (!user || !user.id) {
       alert("Error de sesión: No se pudo identificar al usuario actual.");
-      return;
+      return false;
     }
 
     setIsSaving(true);
@@ -1447,14 +1450,37 @@ export default function WorkForm({
           );
         }
 
-        if (onSave) onSave(newId, true);
+        if (onSave) {
+          if (isProgramContext) {
+            onSave(newId, true);
+            if (shouldClose) onCancel();
+          } else {
+            onSave(newId, shouldClose);
+          }
+        }
+        return true;
       }
+      return false;
     } catch (err) {
       console.error(err);
       alert("Error al crear la obra: " + err.message);
+      return false;
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const requestClose = () => {
+    if (formData.id) {
+      onCancel();
+      return;
+    }
+    setDraftExitConfirmOpen(true);
+  };
+
+  const handleDiscardDraft = () => {
+    setDraftExitConfirmOpen(false);
+    onCancel();
   };
 
   const handleDuplicateAsArrangement = async () => {
@@ -1468,8 +1494,8 @@ export default function WorkForm({
         titulo: formData.titulo,
         duracion_segundos: inputToSeconds(formData.duracion),
         anio_composicion: formData.anio ? parseInt(formData.anio) : null,
-        estado: formData.estado,
-        id_integrante_arreglador: formData.estado === "Para arreglar" && formData.id_integrante_arreglador ? formData.id_integrante_arreglador : null,
+        estado: "Solicitud",
+        id_integrante_arreglador: null,
         fecha_esperada:
           formData.estado === "Solicitud" || formData.estado === "Para arreglar"
             ? (formData.fecha_esperada || null)
@@ -1503,8 +1529,16 @@ export default function WorkForm({
       }
 
       await fetchWorkDetails(newId);
-      if (onSave) onSave(newId, true);
-      toast.success("Nuevo arreglo creado. Puedes editar instrumentación y Drive.");
+      setParticellas([]);
+      setSelectedPartTempIds(new Set());
+      if (onSave) {
+        if (isProgramContext) {
+          onSave(newId, true);
+        } else {
+          onSave(newId, false);
+        }
+      }
+      toast.success("Nuevo arreglo creado en Solicitud. Podés editar instrumentación y Drive.");
     } catch (err) {
       console.error(err);
       toast.error("Error al crear el nuevo arreglo: " + (err.message || "Error desconocido"));
@@ -1708,8 +1742,10 @@ export default function WorkForm({
     }
   }, [supabase, paraAcomodarConfirm]);
 
-  const estadoHeaderClass = getEstadoHeaderClass(formData.estado);
-  const estadoShellClass = getEstadoShellClass(formData.estado);
+  const isDraft = !formData.id;
+  const displayEstado = isDraft ? "Borrador" : formData.estado;
+  const estadoHeaderClass = getEstadoHeaderClass(displayEstado);
+  const estadoShellClass = getEstadoShellClass(displayEstado);
   const isOficial = formData.estado === "Oficial";
 
   return (
@@ -1729,20 +1765,29 @@ export default function WorkForm({
             <span className="text-[10px] font-bold uppercase tracking-widest text-white/80">
               Estado
             </span>
-            <select
-              className="bg-white/95 text-slate-900 border border-white/50 rounded-lg px-2.5 py-1.5 text-sm sm:text-base font-bold tracking-tight outline-none focus:ring-2 focus:ring-white/50 min-w-[10rem] max-w-full"
-              value={formData.estado ?? ""}
-              onChange={(e) => updateField("estado", e.target.value)}
-            >
-              <option value="Pendiente">Pendiente</option>
-              <option value="Para arreglar">Para arreglar</option>
-              <option value="Entregado">Entregado (Revisión Archivista)</option>
-              <option value="Oficial" disabled={!isAdmin}>
-                Oficial (Disponible){!isAdmin ? " - solo admin" : ""}
-              </option>
-              <option value="Solicitud">Solicitud</option>
-              <option value="Informativo">Informativo</option>
-            </select>
+            {isDraft ? (
+              <span
+                className="inline-flex items-center bg-white/95 text-slate-600 border border-white/50 rounded-lg px-2.5 py-1.5 text-sm sm:text-base font-bold tracking-tight min-w-[10rem]"
+                title="Se guardará como Solicitud al crear la obra"
+              >
+                Borrador
+              </span>
+            ) : (
+              <select
+                className="bg-white/95 text-slate-900 border border-white/50 rounded-lg px-2.5 py-1.5 text-sm sm:text-base font-bold tracking-tight outline-none focus:ring-2 focus:ring-white/50 min-w-[10rem] max-w-full"
+                value={formData.estado ?? ""}
+                onChange={(e) => updateField("estado", e.target.value)}
+              >
+                <option value="Pendiente">Pendiente</option>
+                <option value="Para arreglar">Para arreglar</option>
+                <option value="Entregado">Entregado (Revisión Archivista)</option>
+                <option value="Oficial" disabled={!isAdmin}>
+                  Oficial (Disponible){!isAdmin ? " - solo admin" : ""}
+                </option>
+                <option value="Solicitud">Solicitud</option>
+                <option value="Informativo">Informativo</option>
+              </select>
+            )}
           </div>
         </div>
         <div className="flex items-center justify-end gap-3 shrink-0 self-end w-full sm:w-auto">
@@ -1758,9 +1803,9 @@ export default function WorkForm({
           )}
           <button
             type="button"
-            onClick={onCancel}
+            onClick={requestClose}
             className="bg-white/90 p-1.5 rounded-full text-slate-600 hover:text-red-500 shadow-sm transition-all"
-            aria-label="Cerrar"
+            aria-label={isDraft ? "Salir del borrador" : "Cerrar"}
           >
             <IconX size={20} />
           </button>
@@ -1802,8 +1847,15 @@ export default function WorkForm({
         </div>
       )}
 
+      {isDraft && (
+        <div className="px-3 sm:px-4 py-2 flex items-center gap-2 bg-slate-200/60 border-b border-slate-300/70 text-slate-600 text-xs">
+          <IconInfo size={14} className="shrink-0" />
+          Borrador local: los datos no están en el archivo hasta que pulses «Crear solicitud» o «Guardar y Cerrar».
+        </div>
+      )}
+
       {formData.estado === "Solicitud" && (
-        <div className="px-3 sm:px-4 py-2.5 border-b border-amber-200/60 bg-amber-50/50">
+        <div className={`px-3 sm:px-4 py-2.5 border-b ${isDraft ? "border-slate-300/60 bg-slate-200/40" : "border-amber-200/60 bg-amber-50/50"}`}>
           <DateInput
             label="F. Esperada (dd/mm/aaaa)"
             value={formData.fecha_esperada || ""}
@@ -1813,7 +1865,9 @@ export default function WorkForm({
         </div>
       )}
 
-      <div className="space-y-4 p-2 sm:p-3">
+      <div
+        className={`space-y-4 p-2 sm:p-3 ${isDraft ? "bg-slate-50/80 text-slate-700 [&_label]:text-slate-500 [&_input]:bg-slate-50 [&_textarea]:bg-slate-50 [&_.border-indigo-600]:border-slate-400 [&_.text-indigo-600]:text-slate-600" : ""}`}
+      >
         {/* Compositores / Arregladores (ancho = resto de filas) */}
         <div className="w-full min-w-0 max-w-full grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 items-end">
           <div className="min-w-0">
@@ -2583,16 +2637,19 @@ export default function WorkForm({
       {/* FOOTER ACCIONES */}
       <div
         className={`sticky bottom-0 z-10 flex gap-3 border-t pt-6 px-2 py-3 backdrop-blur-sm shadow-[0_-10px_20px_-12px_rgba(0,0,0,0.06)] sm:gap-4 sm:px-3 sm:py-4 rounded-b-2xl ${
-          isOficial
-            ? "border-emerald-200/80 bg-emerald-50/95"
-            : "border-slate-200/80 bg-white/90"
+          isDraft
+            ? "border-slate-300/80 bg-slate-100/95"
+            : isOficial
+              ? "border-emerald-200/80 bg-emerald-50/95"
+              : "border-slate-200/80 bg-white/90"
         }`}
       >
         <button
-          onClick={onCancel}
+          type="button"
+          onClick={requestClose}
           className="flex-1 py-3 border border-slate-200 rounded-xl text-slate-600 font-bold hover:bg-slate-50 transition-colors"
         >
-          Cerrar
+          {formData.id ? "Cerrar" : "Cancelar"}
         </button>
         {formData.id && (
           <button
@@ -2606,14 +2663,26 @@ export default function WorkForm({
           </button>
         )}
         {!formData.id ? (
-          <button
-            onClick={handleCreateInitial}
-            disabled={isSaving}
-            className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 flex justify-center items-center gap-2"
-          >
-            {isSaving ? <IconLoader className="animate-spin" /> : <IconCheck />}{" "}
-            Crear Solicitud
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => handleCreateInitial(false)}
+              disabled={isSaving}
+              className="flex-1 py-3 border-2 border-indigo-400 rounded-xl text-indigo-600 font-bold hover:bg-indigo-50 transition-colors flex justify-center items-center gap-2 disabled:opacity-50"
+            >
+              {isSaving ? <IconLoader className="animate-spin" size={18} /> : <IconCheck size={18} />}
+              Crear solicitud
+            </button>
+            <button
+              type="button"
+              onClick={() => handleCreateInitial(true)}
+              disabled={isSaving}
+              className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 flex justify-center items-center gap-2 disabled:opacity-50"
+            >
+              {isSaving ? <IconLoader className="animate-spin" size={18} /> : <IconCheck size={18} />}
+              Guardar y Cerrar
+            </button>
+          </>
         ) : (
           <div className="flex-1 flex justify-center items-center text-xs text-slate-400 italic font-medium">
             Cambios guardados automáticamente
@@ -2622,6 +2691,32 @@ export default function WorkForm({
       </div>
 
       {/* MODALES */}
+      <ConfirmDialog
+        isOpen={draftExitConfirmOpen}
+        onClose={() => {
+          if (isSaving) return;
+          setDraftExitConfirmOpen(false);
+        }}
+        onConfirm={async () => {
+          const ok = await handleCreateInitial(true);
+          if (!ok) throw new Error("draft_create_failed");
+        }}
+        title="Solicitud sin guardar"
+        message="Todavía no guardaste esta solicitud en el archivo. ¿Qué deseas hacer?"
+        confirmText="Crear solicitud"
+        cancelText="Seguir editando"
+        confirmLoading={isSaving}
+        loadingText="Creando solicitud…"
+        overlayClassName="z-[110]"
+        secondaryAction={{
+          label: "Cancelar solicitud",
+          onClick: handleDiscardDraft,
+          disabled: isSaving,
+          className:
+            "w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm font-bold text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50",
+        }}
+      />
+
       <ConfirmDialog
         isOpen={!!paraAcomodarConfirm}
         onClose={() => {

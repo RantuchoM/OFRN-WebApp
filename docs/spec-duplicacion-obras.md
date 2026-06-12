@@ -13,8 +13,9 @@ Permitir al usuario crear una copia rápida de una obra existente para cargar un
 ### 2. Lógica de Duplicación
 
 **Campos a copiar en la nueva obra:**
-- `titulo`, `duracion_segundos`, `anio_composicion`, `estado`, `observaciones`, `comentarios`, `link_youtube`.
-- `fecha_esperada` solo si `estado === "Solicitud"`.
+- `titulo`, `duracion_segundos`, `anio_composicion`, `observaciones`, `comentarios`, `link_youtube`.
+- `fecha_esperada` solo si la obra origen estaba en `Solicitud` o `Para arreglar`.
+- La nueva obra siempre se crea con `estado: "Solicitud"` (no hereda el estado de la original).
 
 **No copiar:**
 - `link_drive` (debe quedar vacío para el nuevo material).
@@ -30,7 +31,7 @@ Permitir al usuario crear una copia rápida de una obra existente para cargar un
   2. Obtener el nuevo ID generado.
   3. Copiar `obras_compositores` de la obra actual al nuevo ID.
   4. Cargar la nueva obra en el formulario (saltar al nuevo ID).
-  5. Llamar a `onSave(newId, true)`.
+  5. Llamar a `onSave(newId, false)` en archivo (mantiene el formulario abierto) o `onSave(newId, true)` en contexto programa (añade al bloque sin cerrar el modal).
   6. Mostrar toast de éxito.
 
 ### 4. Consideraciones de Seguridad
@@ -46,10 +47,10 @@ Permitir al usuario crear una copia rápida de una obra existente para cargar un
    - Import de `IconCopy`.
    - Función `handleDuplicateAsArrangement`:
      - Comprueba que exista `formData.id` y `user.id`; si no, toast de error.
-     - Inserta en `obras` una nueva fila con: `titulo`, `duracion_segundos`, `anio_composicion`, `estado`, `fecha_esperada` (solo si estado es "Solicitud"), `observaciones`, `comentarios`, `link_youtube`, `id_usuario_carga`. No se copian `link_drive` (se envía `null`) ni `instrumentacion`.
+     - Inserta en `obras` una nueva fila con: `titulo`, `duracion_segundos`, `anio_composicion`, `estado: "Solicitud"`, `fecha_esperada` (según obra origen), `observaciones`, `comentarios`, `link_youtube`, `id_usuario_carga`. No se copian `link_drive` (se envía `null`) ni `instrumentacion`.
      - Obtiene el nuevo ID del insert.
      - Lee los registros de `obras_compositores` de la obra actual y los inserta para la nueva obra (`id_obra: newId`, mismo `rol` e `id_compositor`).
      - Llama a `fetchWorkDetails(newId)` para cargar la nueva obra en el formulario.
-     - Llama a `onSave(newId, true)`.
+     - Llama a `onSave(newId, false)` (archivo) para dejar el formulario abierto en la nueva obra.
      - Toast de éxito; en caso de error, toast de error y `setIsSaving(false)` en `finally`.
    - Footer: botón **"Nuevo Arreglo"** visible cuando `formData.id` existe, con `IconCopy`, borde y texto índigo, hover suave (`border-indigo-400 text-indigo-600 hover:bg-indigo-50`), deshabilitado mientras `isSaving`.

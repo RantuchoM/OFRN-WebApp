@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   DndContext,
@@ -56,6 +56,8 @@ import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
 import { useAuth } from "../../context/AuthContext";
 import WorkForm from "../../views/Repertoire/WorkForm";
+import InstrumentationFilterModal from "./InstrumentationFilterModal";
+import { getInstrumentationFilterLabel } from "../../utils/instrumentationFilterPresets";
 const ModalPortal = ({ children, onClose = null, closeOnBackdrop = false }) => {
   useEffect(() => {
     if (!onClose) return undefined;
@@ -425,106 +427,6 @@ function NotasProgramaStickyCell({ item, isEditor, updateWorkDetail, shrinkWhenE
     </div>
   );
 }
-
-// --- FILTRO POR ORGÁNICO (misma estructura que RepertoireView) ---
-const InstrumentationFilterModal = ({
-  onClose,
-  onApply,
-  currentFilters,
-  stringsFilter,
-  setStringsFilter,
-  strictMode,
-  setStrictMode,
-  anchorRef,
-}) => {
-  const [position, setPosition] = useState({ top: 0, left: 0 });
-
-  const updatePosition = () => {
-    if (anchorRef?.current) {
-      const rect = anchorRef.current.getBoundingClientRect();
-      setPosition({ top: rect.bottom + 8, left: rect.left });
-    }
-  };
-
-  useLayoutEffect(() => {
-    if (!anchorRef?.current) return;
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [anchorRef]);
-
-  const BASE_INSTRUMENTS = [
-    { id: "fl", label: "Flautas" }, { id: "ob", label: "Oboes" }, { id: "cl", label: "Clarinetes" }, { id: "bn", label: "Fagotes" },
-    { id: "hn", label: "Cornos" }, { id: "tpt", label: "Trompetas" }, { id: "tbn", label: "Trombones" }, { id: "tba", label: "Tubas" },
-  ];
-  const [rules, setRules] = useState(() => {
-    const existingMap = {};
-    currentFilters.forEach((r) => { existingMap[r.instrument] = r; });
-    return BASE_INSTRUMENTS.map((base) => {
-      if (existingMap[base.id]) return { ...existingMap[base.id], isBase: true, label: base.label };
-      return { id: base.id, instrument: base.id, operator: "eq", value: "", isBase: true, label: base.label };
-    }).concat(currentFilters.filter((r) => !BASE_INSTRUMENTS.some((b) => b.id === r.instrument)));
-  });
-  const addRule = () => setRules([...rules, { id: Date.now(), instrument: "perc", operator: "eq", value: 0, isBase: false }]);
-  const removeRule = (id) => setRules(rules.filter((r) => r.id !== id));
-  const updateRule = (id, field, val) => setRules(rules.map((r) => (r.id === id ? { ...r, [field]: val } : r)));
-  const handleApply = () => onApply(rules.filter((r) => r.value !== "" && r.value !== null));
-  const INSTRUMENTS_OPTS = [{ label: "Percusión", value: "perc" }, { label: "Timbal", value: "timp" }, { label: "Arpa", value: "harp" }, { label: "Piano/Cel", value: "key" }, { label: "Cuerdas", value: "str" }];
-
-  const content = (
-    <div
-      className={`w-80 bg-white rounded-xl shadow-xl border border-slate-200 z-[10000] p-4 animate-in fade-in zoom-in-95 ${!anchorRef ? "absolute top-full left-0 mt-2" : ""}`}
-      style={anchorRef ? { position: "fixed", top: position.top, left: position.left } : undefined}
-    >
-      <h4 className="text-xs font-bold text-slate-500 uppercase mb-3 flex justify-between">Filtro por Orgánico <button type="button" onClick={onClose}><IconX size={14} /></button></h4>
-      <div className="mb-3">
-        <label className={`flex items-center justify-between p-2 rounded-lg cursor-pointer border transition-colors ${strictMode ? "bg-indigo-50 border-indigo-200 text-indigo-800" : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"}`}>
-          <div className="flex items-center gap-2"><div className={`w-3 h-3 rounded-full ${strictMode ? "bg-indigo-500" : "bg-slate-300"}`} /><span className="text-xs font-bold">Modo Estricto</span></div>
-          <span className="text-[9px] uppercase tracking-wider font-bold">{strictMode ? "Solo Selección" : "Admitir Otros"}</span>
-          <input type="checkbox" className="hidden" checked={strictMode} onChange={(e) => setStrictMode(e.target.checked)} />
-        </label>
-      </div>
-      <div className="mb-4 bg-slate-50 p-2 rounded-lg border border-slate-100">
-        <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Sección Cuerdas</label>
-        <div className="flex gap-1">
-          {["all", "with", "without"].map((m) => (
-            <button key={m} type="button" onClick={() => setStringsFilter(m)} className={`flex-1 text-[10px] font-bold py-1 px-2 rounded border ${stringsFilter === m ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"}`}>
-              {m === "all" ? "Indif." : m === "with" ? "Con" : "Sin"}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="space-y-1 max-h-[300px] overflow-y-auto mb-3 pr-1 custom-scrollbar">
-        {rules.map((rule) => {
-          const isActive = rule.value !== "" && rule.value !== null;
-          return (
-            <div key={rule.id} className={`flex gap-2 items-center text-xs p-1 rounded transition-colors ${isActive ? "bg-indigo-50 border border-indigo-100" : ""}`}>
-              <div className="w-24 font-bold text-slate-600 truncate flex items-center">{rule.isBase ? <span className="capitalize">{rule.label}</span> : <select className="w-full bg-transparent border-none outline-none p-0 cursor-pointer" value={rule.instrument} onChange={(e) => updateRule(rule.id, "instrument", e.target.value)}>{INSTRUMENTS_OPTS.map((i) => <option key={i.value} value={i.value}>{i.label}</option>)}</select>}</div>
-              <select className={`border rounded p-1 outline-none text-center w-14 ${isActive ? "border-indigo-300 bg-white" : "border-slate-200 bg-slate-50"}`} value={rule.operator} onChange={(e) => updateRule(rule.id, "operator", e.target.value)}><option value="eq">=</option><option value="gte">≥</option><option value="lte">≤</option></select>
-              <input type="number" min={0} className={`border rounded p-1 w-12 text-center outline-none focus:border-indigo-500 ${isActive ? "border-indigo-300 bg-white font-bold text-indigo-700" : "border-slate-200"}`} placeholder="-" value={rule.value} onChange={(e) => updateRule(rule.id, "value", e.target.value)} />
-              {!rule.isBase && <button type="button" onClick={() => removeRule(rule.id)} className="text-slate-300 hover:text-red-500"><IconTrash size={12} /></button>}
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex justify-between items-center border-t border-slate-100 pt-3">
-        <button type="button" onClick={addRule} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><IconPlus size={10} /> Extra</button>
-        <div className="flex gap-2">
-          <button type="button" onClick={() => { setRules((prev) => prev.map((r) => r.isBase ? { ...r, value: "" } : r).filter((r) => r.isBase)); setStringsFilter("all"); setStrictMode(false); onApply([]); }} className="text-[10px] text-slate-400 hover:text-slate-600 font-bold px-2">Limpiar</button>
-          <button type="button" onClick={handleApply} className="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-indigo-700 font-bold">Filtrar</button>
-        </div>
-      </div>
-    </div>
-  );
-
-  return anchorRef
-    ? createPortal(content, document.body)
-    : content;
-};
 
 // --- COMPONENTE INTERNO: SELECTOR DE SOLISTA ---
 const SoloistSelect = ({ currentId, musicians, onChange }) => {
@@ -1900,12 +1802,20 @@ export default function RepertoireManager({
     setLoading(false);
   };
 
+  const hasActiveInstrFilter =
+    addModalInstrFilters.length > 0 ||
+    addModalStringsFilter !== "all" ||
+    addModalStrictMode;
+
   const fetchLibrary = async ({ page = 0, append = false } = {}) => {
     setLoadingLibrary(true);
     setLibraryError(null);
     const composerFilter = normalizeSearchText(debouncedFilters.compositor);
     const arrangerFilter = normalizeSearchText(debouncedFilters.arreglador);
-    const useBroadFetch = composerFilter.length >= 2 || arrangerFilter.length >= 2;
+    const useBroadFetch =
+      composerFilter.length >= 2 ||
+      arrangerFilter.length >= 2 ||
+      hasActiveInstrFilter;
     const from = page * LIBRARY_PAGE_SIZE;
     const to = from + LIBRARY_PAGE_SIZE - 1;
     let query = supabase
@@ -2423,9 +2333,10 @@ export default function RepertoireManager({
     return (
       composerFilter.length >= 2 ||
       titleFilter.length >= 2 ||
-      arrangerFilter.length >= 2
+      arrangerFilter.length >= 2 ||
+      hasActiveInstrFilter
     );
-  }, [debouncedFilters]);
+  }, [debouncedFilters, hasActiveInstrFilter]);
 
   useEffect(() => {
     if (!isAddModalOpen) return;
@@ -3918,7 +3829,11 @@ export default function RepertoireManager({
                   className={`w-full text-xs p-1.5 border rounded flex items-center justify-between gap-2 min-h-[2rem] ${addModalInstrFilters.length > 0 || addModalStringsFilter !== "all" ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-bold" : "bg-white border-slate-300 text-slate-500"}`}
                 >
                   <span className="truncate text-left">
-                    {addModalInstrFilters.length > 0 ? `${addModalInstrFilters.length} reglas` : addModalStringsFilter !== "all" ? (addModalStringsFilter === "with" ? "Con Cuerdas" : "Sin Cuerdas") : "Filtrar"}
+                    {getInstrumentationFilterLabel(
+                      addModalInstrFilters,
+                      addModalStringsFilter,
+                      addModalStrictMode,
+                    )}
                   </span>
                   <IconFilter size={10} />
                 </button>
@@ -3959,7 +3874,7 @@ export default function RepertoireManager({
               ) : !shouldFetchLibrary ? (
                 <div className="p-8 text-center">
                   <div className="text-sm font-semibold text-slate-600">
-                    Empieza escribiendo compositor, obra o arreglador.
+                    Escribí compositor, obra o arreglador, o elegí un filtro de orgánico.
                   </div>
                   <div className="text-xs text-slate-500 mt-1">
                     Cargamos resultados bajo demanda para reducir consumo de datos.

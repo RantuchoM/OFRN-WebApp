@@ -34,7 +34,9 @@ import ComposersManager from "./ComposersManager";
 import TagsManager from "./TagsManager";
 import TagMultiSelect from "../../components/filters/TagMultiSelect";
 import RepertoireSelectionBar from "../../components/repertoire/RepertoireSelectionBar";
+import InstrumentationFilterModal from "../../components/repertoire/InstrumentationFilterModal";
 import { calculateInstrumentation } from "../../utils/instrumentation";
+import { getInstrumentationFilterLabel } from "../../utils/instrumentationFilterPresets";
 import { normalizeForSearch } from "../../utils/sanitize";
 import {
   loadRepertoireSelection,
@@ -390,69 +392,6 @@ const AssignProgramModal = ({ work, onClose, supabase }) => {
   );
 };
 
-const InstrumentationFilterModal = ({ onClose, onApply, currentFilters, stringsFilter, setStringsFilter, strictMode, setStrictMode }) => {
-  const BASE_INSTRUMENTS = [
-    { id: "fl", label: "Flautas" }, { id: "ob", label: "Oboes" }, { id: "cl", label: "Clarinetes" }, { id: "bn", label: "Fagotes" },
-    { id: "hn", label: "Cornos" }, { id: "tpt", label: "Trompetas" }, { id: "tbn", label: "Trombones" }, { id: "tba", label: "Tubas" },
-  ];
-  const [rules, setRules] = useState(() => {
-    const existingMap = {};
-    currentFilters.forEach((r) => { existingMap[r.instrument] = r; });
-    return BASE_INSTRUMENTS.map((base) => {
-      if (existingMap[base.id]) return { ...existingMap[base.id], isBase: true, label: base.label };
-      return { id: base.id, instrument: base.id, operator: "eq", value: "", isBase: true, label: base.label };
-    }).concat(currentFilters.filter((r) => !BASE_INSTRUMENTS.some((b) => b.id === r.instrument)));
-  });
-  const addRule = () => setRules([...rules, { id: Date.now(), instrument: "perc", operator: "eq", value: 0, isBase: false }]);
-  const removeRule = (id) => setRules(rules.filter((r) => r.id !== id));
-  const updateRule = (id, field, val) => setRules(rules.map((r) => (r.id === id ? { ...r, [field]: val } : r)));
-  const handleApply = () => onApply(rules.filter((r) => r.value !== "" && r.value !== null));
-  const INSTRUMENTS_OPTS = [{ label: "Percusión", value: "perc" }, { label: "Timbal", value: "timp" }, { label: "Arpa", value: "harp" }, { label: "Piano/Cel", value: "key" }, { label: "Cuerdas", value: "str" }];
-
-  return (
-    <div className="absolute top-full left-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 z-50 p-4 animate-in fade-in zoom-in-95">
-      <h4 className="text-xs font-bold text-slate-500 uppercase mb-3 flex justify-between">Filtro por Orgánico <button onClick={onClose}><IconX size={14} /></button></h4>
-      <div className="mb-3">
-        <label className={`flex items-center justify-between p-2 rounded-lg cursor-pointer border transition-colors ${strictMode ? "bg-indigo-50 border-indigo-200 text-indigo-800" : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"}`}>
-          <div className="flex items-center gap-2"><div className={`w-3 h-3 rounded-full ${strictMode ? "bg-indigo-500" : "bg-slate-300"}`} /><span className="text-xs font-bold">Modo Estricto</span></div>
-          <span className="text-[9px] uppercase tracking-wider font-bold">{strictMode ? "Solo Selección" : "Admitir Otros"}</span>
-          <input type="checkbox" className="hidden" checked={strictMode} onChange={(e) => setStrictMode(e.target.checked)} />
-        </label>
-      </div>
-      <div className="mb-4 bg-slate-50 p-2 rounded-lg border border-slate-100">
-        <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Sección Cuerdas</label>
-        <div className="flex gap-1">
-          {["all", "with", "without"].map(m => (
-            <button key={m} onClick={() => setStringsFilter(m)} className={`flex-1 text-[10px] font-bold py-1 px-2 rounded border ${stringsFilter === m ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"}`}>
-              {m === "all" ? "Indif." : m === "with" ? "Con" : "Sin"}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="space-y-1 max-h-[300px] overflow-y-auto mb-3 pr-1 custom-scrollbar">
-        {rules.map((rule) => {
-          const isActive = rule.value !== "" && rule.value !== null;
-          return (
-            <div key={rule.id} className={`flex gap-2 items-center text-xs p-1 rounded transition-colors ${isActive ? "bg-indigo-50 border border-indigo-100" : ""}`}>
-              <div className="w-24 font-bold text-slate-600 truncate flex items-center">{rule.isBase ? <span className="capitalize">{rule.label}</span> : <select className="w-full bg-transparent border-none outline-none p-0 cursor-pointer" value={rule.instrument} onChange={(e) => updateRule(rule.id, "instrument", e.target.value)}>{INSTRUMENTS_OPTS.map((i) => <option key={i.value} value={i.value}>{i.label}</option>)}</select>}</div>
-              <select className={`border rounded p-1 outline-none text-center w-14 ${isActive ? "border-indigo-300 bg-white" : "border-slate-200 bg-slate-50"}`} value={rule.operator} onChange={(e) => updateRule(rule.id, "operator", e.target.value)}><option value="eq">=</option><option value="gte">≥</option><option value="lte">≤</option></select>
-              <input type="number" min="0" className={`border rounded p-1 w-12 text-center outline-none focus:border-indigo-500 ${isActive ? "border-indigo-300 bg-white font-bold text-indigo-700" : "border-slate-200"}`} placeholder="-" value={rule.value} onChange={(e) => updateRule(rule.id, "value", e.target.value)} />
-              {!rule.isBase && <button onClick={() => removeRule(rule.id)} className="text-slate-300 hover:text-red-500"><IconTrash size={12} /></button>}
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex justify-between items-center border-t border-slate-100 pt-3">
-        <button onClick={addRule} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><IconPlus size={10} /> Extra</button>
-        <div className="flex gap-2">
-          <button onClick={() => { setRules(prev => prev.map(r => r.isBase ? { ...r, value: "" } : r).filter(r => r.isBase)); setStringsFilter("all"); setStrictMode(false); onApply([]); }} className="text-[10px] text-slate-400 hover:text-slate-600 font-bold px-2">Limpiar</button>
-          <button onClick={handleApply} className="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-indigo-700 font-bold">Filtrar</button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const ColumnManager = ({ visibleColumns, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const wrapperRef = useRef(null);
@@ -721,16 +660,26 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     );
     let nextProgram = null;
     let nextProgramStart = null;
+    let lastPastProgram = null;
+    let lastPastProgramStart = null;
     (w.repertorio_obras || []).forEach((rel) => {
       const prog = rel.programas_repertorios?.programas;
       if (!prog || !prog.fecha_desde) return;
       const startDate = parseISO(prog.fecha_desde);
-      if (isBefore(startDate, today)) return;
+      if (isBefore(startDate, today)) {
+        if (!lastPastProgramStart || isBefore(lastPastProgramStart, startDate)) {
+          lastPastProgram = prog;
+          lastPastProgramStart = startDate;
+        }
+        return;
+      }
       if (!nextProgramStart || isBefore(startDate, nextProgramStart)) {
         nextProgram = prog;
         nextProgramStart = startDate;
       }
     });
+    const displayProgram = nextProgram || lastPastProgram;
+    const proximaGiraEsPasada = !nextProgram && !!lastPastProgram;
     return {
       ...w,
       instValues,
@@ -759,9 +708,10 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
         w.obras_palabras_clave?.map(
           (opc) => opc.palabras_clave?.id,
         ) || [],
-      proxima_gira_nombre: nextProgram?.nombre_gira || null,
-      proxima_gira_fecha_desde: nextProgram?.fecha_desde || null,
-      proxima_gira_fecha_hasta: nextProgram?.fecha_hasta || null,
+      proxima_gira_nombre: displayProgram?.nombre_gira || null,
+      proxima_gira_fecha_desde: displayProgram?.fecha_desde || null,
+      proxima_gira_fecha_hasta: displayProgram?.fecha_hasta || null,
+      proxima_gira_es_pasada: proximaGiraEsPasada,
     };
   };
 
@@ -1157,7 +1107,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                     {visibleColumns.compositor && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("compositor_full")}>Compositor <SortIcon column="compositor_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.compositor} onChange={(e) => setFilters({ ...filters, compositor: e.target.value })} /></div>}
                     {visibleColumns.obra && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("titulo")}>Obra <SortIcon column="titulo" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.titulo} onChange={(e) => setFilters({ ...filters, titulo: e.target.value })} /></div>}
                     {visibleColumns.arreglador && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("arreglador_full")}>Arreglador <SortIcon column="arreglador_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.arreglador} onChange={(e) => setFilters({ ...filters, arreglador: e.target.value })} /></div>}
-                    {visibleColumns.organico && <div className="space-y-2 relative"><div className="flex items-center text-xs font-bold text-slate-500 uppercase">Orgánico</div><button onClick={() => setShowInstrFilter(!showInstrFilter)} className={`w-full text-xs p-1.5 border rounded flex items-center justify-between ${instrFilters.length > 0 || stringsFilter !== "all" ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-bold" : "bg-white border-slate-300 text-slate-500"}`}><span>{instrFilters.length > 0 ? `${instrFilters.length} reglas` : stringsFilter !== "all" ? (stringsFilter === "with" ? "Con Cuerdas" : "Sin Cuerdas") : "Filtrar"}</span><IconFilter size={10} /></button>{showInstrFilter && <InstrumentationFilterModal onClose={() => setShowInstrFilter(false)} currentFilters={instrFilters} stringsFilter={stringsFilter} setStringsFilter={setStringsFilter} strictMode={strictMode} setStrictMode={setStrictMode} onApply={(newRules) => { setInstrFilters(newRules); setShowInstrFilter(false); }} />}</div>}
+                    {visibleColumns.organico && <div className="space-y-2 relative"><div className="flex items-center text-xs font-bold text-slate-500 uppercase">Orgánico</div><button onClick={() => setShowInstrFilter(!showInstrFilter)} className={`w-full text-xs p-1.5 border rounded flex items-center justify-between ${instrFilters.length > 0 || stringsFilter !== "all" ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-bold" : "bg-white border-slate-300 text-slate-500"}`}><span>{getInstrumentationFilterLabel(instrFilters, stringsFilter, strictMode)}</span><IconFilter size={10} /></button>{showInstrFilter && <InstrumentationFilterModal onClose={() => setShowInstrFilter(false)} currentFilters={instrFilters} stringsFilter={stringsFilter} setStringsFilter={setStringsFilter} strictMode={strictMode} setStrictMode={setStrictMode} onApply={(newRules) => { setInstrFilters(newRules); setShowInstrFilter(false); }} />}</div>}
                     {visibleColumns.duracion && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase">Duración (min)</div><div className="flex gap-1"><input className="w-full text-xs p-1 border border-slate-300 rounded text-center outline-none" placeholder="Min" type="number" value={filters.duracionMin} onChange={(e) => setFilters({ ...filters, duracionMin: e.target.value })} /><input className="w-full text-xs p-1 border border-slate-300 rounded text-center outline-none" placeholder="Max" type="number" value={filters.duracionMax} onChange={(e) => setFilters({ ...filters, duracionMax: e.target.value })} /></div></div>}
                     {visibleColumns.estado && (
                       <div className="space-y-2">
@@ -1343,18 +1293,30 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                         </div>
                       )}
                       {visibleColumns.proxima_gira && (
-                        <div className="text-xs text-center text-slate-700">
+                        <div
+                          className={`text-xs text-center ${work.proxima_gira_es_pasada ? "text-slate-500" : "text-slate-700"}`}
+                        >
                           {work.proxima_gira_nombre ? (
                             <div className="leading-tight">
+                              {work.proxima_gira_es_pasada && (
+                                <div className="text-[9px] font-bold uppercase text-slate-400 mb-0.5">
+                                  Última
+                                </div>
+                              )}
                               <div className="truncate">
                                 {work.proxima_gira_nombre}
                               </div>
                               {work.proxima_gira_fecha_hasta && (
                                 <div className="text-[10px] text-slate-500">
-                                  {`(hasta ${format(
-                                    parseISO(work.proxima_gira_fecha_hasta),
-                                    "dd/MM/yy",
-                                  )})`}
+                                  {work.proxima_gira_es_pasada
+                                    ? format(
+                                        parseISO(work.proxima_gira_fecha_hasta),
+                                        "dd/MM/yy",
+                                      )
+                                    : `(hasta ${format(
+                                        parseISO(work.proxima_gira_fecha_hasta),
+                                        "dd/MM/yy",
+                                      )})`}
                                 </div>
                               )}
                             </div>

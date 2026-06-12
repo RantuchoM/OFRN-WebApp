@@ -58,11 +58,34 @@ Permitir mover obras dentro del mismo bloque y entre bloques con feedback visual
 
 ---
 
-## 4. Archivos tocados
+## 4. Filtros predeterminados por orgánico
+
+- **Componente compartido:** `src/components/repertoire/InstrumentationFilterModal.jsx`
+- **Presets:** `src/utils/instrumentationFilterPresets.js`
+- **Ubicaciones:** modal "Buscar Obra" / Agregar Obra en `RepertoireManager.jsx` y columna Orgánico en `RepertoireView.jsx`
+- **Chips de un clic:** Solo cuerdas, Quinteto de maderas, Quinteto de metales, Vientos (sin cuerdas), Solo percusión
+- **Comportamiento:** al elegir un preset se aplican `stringsFilter`, `strictMode` y reglas de instrumentos; el botón Orgánico muestra el nombre del preset activo
+- **Modal Agregar Obra:** un preset o filtro de orgánico activo dispara la carga de la biblioteca (hasta ~2000 obras) sin exigir texto en compositor/obra/arreglador
+- **Panel de filtro:** altura limitada al viewport (abre arriba del botón si no hay espacio abajo); cuerpo con scroll y footer fijo (Limpiar / Filtrar siempre visible)
+
+| Preset | Cuerdas | Estricto | Reglas clave |
+|--------|---------|----------|--------------|
+| Solo cuerdas | Con | Sí | Sin vientos/percusión |
+| Quinteto de maderas | Sin | Sí | fl/ob/cl/bn/hn = 1 |
+| Quinteto de metales | Sin | Sí | hn=1, tpt=2, tbn=1, tba=1 |
+| Vientos (sin cuerdas) | Sin | No | Solo excluye cuerdas |
+| Solo percusión | Sin | Sí | perc ≥ 1 |
+
+---
+
+## 5. Archivos tocados
 
 | Archivo | Cambios |
 |--------|--------|
 | `src/components/repertoire/BowingSetManager.jsx` | Nuevo: modos edit/assign, modal con portal, Tailwind. |
 | `src/components/repertoire/RepertoireManager.jsx` | BowingSetManager assign, columna GripVertical, DndContext, SortableContext, SortableRepertorioRow, handleDragEnd, savingPosition, dragOverId. |
+| `src/components/repertoire/InstrumentationFilterModal.jsx` | Modal compartido de filtro por orgánico con presets. |
+| `src/utils/instrumentationFilterPresets.js` | Definición de presets y helpers de etiqueta/activo. |
+| `src/views/Repertoire/RepertoireView.jsx` | Usa modal compartido y presets en columna Orgánico. |
 | `src/views/Repertoire/WorkForm.jsx` | Sustitución sección arcos por BowingSetManager edit; eliminación estado/handlers de arcos. |
 | `src/services/giraService.js` | `updateWorkPosition`, `normalizeRepertorioBlockOrden`. |
