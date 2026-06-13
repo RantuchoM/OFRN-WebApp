@@ -156,6 +156,27 @@ Permitir armar listas de obras del catálogo, exportar PDF, sincronizar accesos 
 
 ---
 
+## 8. RepertoireView móvil: tarjetas compactas y filtros por chips
+
+### Objetivo
+Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para mostrar más obras por viewport, manteniendo los colores por estado y evitando una tabla horizontal pesada.
+
+### Comportamiento implementado (2026-06-13)
+- En móvil, el listado usa **cards compactas** en lugar de la grilla desktop.
+- Cada card conserva el color de estado mediante `getEstadoRowBgClass(estado)` y muestra un badge de estado con la misma paleta existente.
+- La información prioritaria entra en pocas líneas: título, compositor, estado, arreglador opcional, duración, orgánico, próxima/última gira y tags principales.
+- Todas las acciones móviles son iconográficas: seleccionar, audio, partitura, Drive, asignar a gira, historial, editar y eliminar.
+- La grilla con headers/filtros por columna permanece en desktop (`md+`) sin cambios funcionales.
+
+### Filtros móviles
+- Se agrega un menú superior de filtros con `IconFilter`, siguiendo el patrón de filtros tipo chip usado en vistas compactas.
+- Los filtros se aplican desde el menú y aparecen como **chips removibles** debajo de la barra móvil.
+- Chips soportados: obra, compositor, arreglador, estado, solicitante, duración, fechas, observaciones, tags, orgánico y legacy "Oficial sin Drive".
+- El filtro por orgánico reutiliza `InstrumentationFilterModal` con `anchorRef` para posicionarse correctamente en viewport móvil.
+- El botón de limpiar filtros se muestra como acción iconográfica cuando hay chips activos.
+
+---
+
 ## 6. Seed ARIAS / Para acomodar (Drive directo, sin copias)
 
 ### Política

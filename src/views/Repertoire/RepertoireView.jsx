@@ -450,10 +450,23 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [historyWork, setHistoryWork] = useState(null);
   const [assignWork, setAssignWork] = useState(null);
   const [showInstrFilter, setShowInstrFilter] = useState(false);
+  const [showMobileInstrFilter, setShowMobileInstrFilter] = useState(false);
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [showSolicitudes, setShowSolicitudes] = useState(false);
   const solicitudesRef = useRef(null);
+  const mobileFiltersRef = useRef(null);
+  const mobileInstrFilterAnchorRef = useRef(null);
   useEffect(() => {
     const handleClickOutside = (e) => { if (solicitudesRef.current && !solicitudesRef.current.contains(e.target)) setShowSolicitudes(false); };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (mobileFiltersRef.current && !mobileFiltersRef.current.contains(e.target)) {
+        setShowMobileFilters(false);
+      }
+    };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
@@ -1002,19 +1015,153 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     return "text-slate-600";
   };
 
+  const getEstadoBadgeClasses = (estado) => {
+    switch (estado) {
+      case "Solicitud":
+        return "bg-amber-100 text-amber-700 border-amber-200";
+      case "Para arreglar":
+        return "bg-amber-100 text-amber-800 border-amber-200";
+      case "Entregado":
+        return "bg-sky-100 text-sky-800 border-sky-200";
+      case "Informativo":
+        return "bg-blue-50 text-blue-600 border-blue-200";
+      case "Oficial":
+      case "Pendiente":
+        return "bg-slate-100 text-slate-500 border-slate-200";
+      default:
+        return "bg-slate-100 text-slate-500 border-slate-200";
+    }
+  };
+
+  const getEstadoLabel = (estado) => (estado === "Solicitud" ? "Pendiente" : estado || "Oficial");
+
+  const selectedSolicitanteLabel =
+    solicitantesOptions.find((o) => String(o.value) === String(filters.solicitante))
+      ?.label || filters.solicitante;
+
+  const selectedTagObjects = useMemo(
+    () => availableTags.filter((tag) => selectedTags.has(tag.id)),
+    [availableTags, selectedTags],
+  );
+
+  const mobileActiveFilterChips = useMemo(() => {
+    const chips = [];
+    const addTextFilter = (key, label) => {
+      if (!filters[key]) return;
+      chips.push({
+        key,
+        label: `${label}: ${filters[key]}`,
+        tone: "slate",
+        onRemove: () => setFilters((prev) => ({ ...prev, [key]: "" })),
+      });
+    };
+
+    addTextFilter("titulo", "Obra");
+    addTextFilter("compositor", "Comp.");
+    addTextFilter("arreglador", "Arr.");
+    if (filters.estado !== "Todos") {
+      chips.push({
+        key: "estado",
+        label: filters.estado,
+        tone: "amber",
+        onRemove: () => setFilters((prev) => ({ ...prev, estado: "Todos" })),
+      });
+    }
+    if (filters.solicitante) {
+      chips.push({
+        key: "solicitante",
+        label: `Solic.: ${selectedSolicitanteLabel}`,
+        tone: "amber",
+        onRemove: () => setSolicitanteFilter(""),
+      });
+    }
+    if (filters.duracionMin || filters.duracionMax) {
+      chips.push({
+        key: "duracion",
+        label: `Dur. ${filters.duracionMin || "0"}-${filters.duracionMax || "∞"} min`,
+        tone: "indigo",
+        onRemove: () =>
+          setFilters((prev) => ({ ...prev, duracionMin: "", duracionMax: "" })),
+      });
+    }
+    if (filters.fechaDesde || filters.fechaHasta) {
+      chips.push({
+        key: "fecha",
+        label: `Fecha ${filters.fechaDesde || "…"}-${filters.fechaHasta || "…"}`,
+        tone: "indigo",
+        onRemove: () =>
+          setFilters((prev) => ({ ...prev, fechaDesde: "", fechaHasta: "" })),
+      });
+    }
+    addTextFilter("observaciones", "Obs.");
+    selectedTagObjects.forEach((tag) => {
+      chips.push({
+        key: `tag-${tag.id}`,
+        label: tag.tag,
+        tone: "indigo",
+        onRemove: () => {
+          const next = new Set(selectedTags);
+          next.delete(tag.id);
+          setSelectedTags(next);
+        },
+      });
+    });
+    if (instrFilters.length > 0 || stringsFilter !== "all" || strictMode) {
+      chips.push({
+        key: "organico",
+        label: getInstrumentationFilterLabel(instrFilters, stringsFilter, strictMode),
+        tone: "yellow",
+        onRemove: () => {
+          setInstrFilters([]);
+          setStringsFilter("all");
+          setStrictMode(false);
+          setShowMobileInstrFilter(false);
+        },
+      });
+    }
+    if (showLegacyOficialSinDrive) {
+      chips.push({
+        key: "legacy",
+        label: "Oficial sin Drive",
+        tone: "rose",
+        onRemove: () => setShowLegacyOficialSinDrive(false),
+      });
+    }
+    return chips;
+  }, [
+    filters,
+    instrFilters,
+    selectedSolicitanteLabel,
+    selectedTagObjects,
+    selectedTags,
+    showLegacyOficialSinDrive,
+    stringsFilter,
+    strictMode,
+  ]);
+
+  const mobileFilterCount = mobileActiveFilterChips.length;
+
+  const chipToneClasses = {
+    slate: "bg-white text-slate-600 border-slate-200",
+    amber: "bg-amber-50 text-amber-700 border-amber-200",
+    indigo: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    yellow: "bg-yellow-50 text-yellow-700 border-yellow-200",
+    rose: "bg-rose-50 text-rose-700 border-rose-200",
+  };
+
   return (
-    <div className="space-y-6 h-full flex flex-col overflow-hidden animate-in fade-in">
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 shrink-0 flex flex-col md:flex-row justify-between items-center gap-4">
-        <div className="flex items-center gap-4">
+    <div className="space-y-3 md:space-y-6 h-full flex flex-col overflow-hidden animate-in fade-in">
+      <div className="bg-white p-2.5 md:p-4 rounded-xl shadow-sm border border-slate-200 shrink-0 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-2 md:gap-4">
+        <div className="flex items-center gap-2 md:gap-4 min-w-0">
           <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2"><IconFolderMusic className="text-indigo-600" /> Archivo de Obras</h2>
-          <div className="text-xs text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{allFilteredWorks.length} resultados</div>
+          <div className="text-xs text-slate-500 bg-slate-100 px-2 md:px-3 py-1 rounded-full shrink-0">{allFilteredWorks.length} resultados</div>
         </div>
-        <div className="flex flex-wrap gap-3 items-center">
+        <div className="flex flex-nowrap md:flex-wrap gap-2 md:gap-3 items-center overflow-x-auto no-scrollbar md:overflow-visible">
           <div className="relative" ref={solicitudesRef}>
             <button
               type="button"
               onClick={() => setShowSolicitudes((v) => !v)}
-              className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded border transition-colors ${filters.solicitante || (sortConfig.key === "fecha_esperada" && filters.estado === "Solicitud") ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"}`}
+              className={`hidden md:flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded border transition-colors ${filters.solicitante || (sortConfig.key === "fecha_esperada" && filters.estado === "Solicitud") ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"}`}
             >
               Solicitudes
               <IconChevronDown size={14} className={showSolicitudes ? "rotate-180" : ""} />
@@ -1039,12 +1186,12 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
               </div>
             )}
           </div>
-          <button onClick={clearAllFilters} className="text-xs text-slate-400 hover:text-red-500 font-bold underline px-2">Limpiar Filtros</button>
+          <button onClick={clearAllFilters} className="hidden md:inline text-xs text-slate-400 hover:text-red-500 font-bold underline px-2">Limpiar Filtros</button>
           {legacyOficialSinDriveCount > 0 && (
             <button
               type="button"
               onClick={() => setShowLegacyOficialSinDrive((v) => !v)}
-              className={`text-xs font-bold px-3 py-1.5 rounded border transition-colors ${
+              className={`hidden md:inline-flex text-xs font-bold px-3 py-1.5 rounded border transition-colors ${
                 showLegacyOficialSinDrive
                   ? "bg-rose-50 border-rose-300 text-rose-700"
                   : "bg-white border-rose-200 text-rose-700 hover:bg-rose-50"
@@ -1054,12 +1201,14 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
               Legacy: Oficial sin Drive ({legacyOficialSinDriveCount})
             </button>
           )}
-          <div className="flex gap-1 border-r border-slate-200 pr-3">
+          <div className="flex gap-1 border-r border-slate-200 pr-2 md:pr-3">
             <button onClick={() => setShowComposersManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full" title="Compositores"><IconUsers size={20} /></button>
             <button onClick={() => setShowTagsManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full" title="Tags"><IconTag size={20} /></button>
           </div>
-          <ColumnManager visibleColumns={visibleColumns} onChange={(key, val) => setVisibleColumns((prev) => ({ ...prev, [key]: val }))} />
-          <button onClick={() => { setIsAdding(true); setFormData({}); }} className="ml-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm"><IconPlus size={16} /> Nuevo</button>
+          <div className="hidden md:block">
+            <ColumnManager visibleColumns={visibleColumns} onChange={(key, val) => setVisibleColumns((prev) => ({ ...prev, [key]: val }))} />
+          </div>
+          <button onClick={() => { setIsAdding(true); setFormData({}); }} className="md:ml-2 bg-indigo-600 text-white p-2 md:px-4 md:py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm" title="Nueva obra" aria-label="Nueva obra"><IconPlus size={16} /> <span className="hidden md:inline">Nuevo</span></button>
         </div>
       </div>
 
@@ -1089,7 +1238,8 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
             <WorkForm supabase={supabase} formData={formData} setFormData={setFormData} onSave={handleSave} onCancel={() => { setIsAdding(false); setEditingId(null); setFormData({}); }} isNew={isAdding} catalogoInstrumentos={catalogoInstrumentos} />
           </div>
         ) : (
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <>
+          <div className="hidden md:flex flex-1 flex-col overflow-hidden">
             <div className="flex-1 overflow-auto relative">
               <div className="min-w-full inline-block align-middle">
                 {/* HEADERS */}
@@ -1404,6 +1554,447 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
               <div className="text-[10px] font-medium text-slate-400 uppercase">Mostrando {paginatedWorks.length} de {allFilteredWorks.length} obras</div>
             </div>
           </div>
+
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:hidden">
+            <div className="relative shrink-0 border-b border-slate-200 bg-slate-50 p-2" ref={mobileFiltersRef}>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMobileFilters((v) => !v)}
+                  className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${
+                    showMobileFilters || mobileFilterCount > 0
+                      ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                      : "border-slate-300 bg-white text-slate-600"
+                  }`}
+                  aria-expanded={showMobileFilters}
+                  aria-label="Filtros"
+                >
+                  <IconFilter size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleFilteredSelection}
+                  disabled={filteredWorkIds.length === 0}
+                  className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border disabled:opacity-40 ${
+                    filteredSelectionState !== "none"
+                      ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                      : "border-slate-300 bg-white text-slate-500"
+                  }`}
+                  aria-label="Seleccionar obras filtradas"
+                  title="Seleccionar obras filtradas"
+                >
+                  <IconCheck size={17} />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-bold text-slate-700">
+                    {allFilteredWorks.length} obra{allFilteredWorks.length === 1 ? "" : "s"}
+                  </p>
+                  <p className="truncate text-[10px] text-slate-400">
+                    Página {currentPage}/{totalPages || 1} · {selectionOrderedIds.length} seleccionada{selectionOrderedIds.length === 1 ? "" : "s"}
+                  </p>
+                </div>
+                {mobileFilterCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-rose-200 bg-white text-rose-600"
+                    aria-label="Limpiar filtros"
+                    title="Limpiar filtros"
+                  >
+                    <IconX size={17} />
+                  </button>
+                )}
+              </div>
+
+              {mobileActiveFilterChips.length > 0 && (
+                <div className="mt-2 flex gap-1 overflow-x-auto no-scrollbar pb-0.5">
+                  {mobileActiveFilterChips.map((chip) => (
+                    <span
+                      key={chip.key}
+                      className={`inline-flex max-w-[12rem] shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${chipToneClasses[chip.tone] || chipToneClasses.slate}`}
+                    >
+                      <span className="truncate">{chip.label}</span>
+                      <button
+                        type="button"
+                        onClick={chip.onRemove}
+                        className="rounded-full p-0.5 opacity-70 hover:bg-white hover:opacity-100"
+                        aria-label={`Quitar filtro ${chip.label}`}
+                      >
+                        <IconX size={9} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {showMobileFilters && (
+                <div className="absolute left-0 right-0 top-full z-40 mt-1 max-h-[68vh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="flex items-center gap-1.5 text-xs font-black uppercase text-slate-600">
+                      <IconFilter size={13} className="text-indigo-500" />
+                      Filtros
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowMobileFilters(false)}
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                      aria-label="Cerrar filtros"
+                    >
+                      <IconX size={14} />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2">
+                    <label className="space-y-1">
+                      <span className="text-[10px] font-bold uppercase text-slate-400">Obra</span>
+                      <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1">
+                        <IconSearch size={13} className="text-slate-400" />
+                        <input
+                          className="min-w-0 flex-1 bg-transparent text-xs outline-none"
+                          placeholder="Buscar título..."
+                          value={filters.titulo}
+                          onChange={(e) => setFilters({ ...filters, titulo: e.target.value })}
+                        />
+                      </div>
+                    </label>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400">Compositor</span>
+                        <input
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs outline-none"
+                          placeholder="Nombre..."
+                          value={filters.compositor}
+                          onChange={(e) => setFilters({ ...filters, compositor: e.target.value })}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400">Arreglador</span>
+                        <input
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs outline-none"
+                          placeholder="Nombre..."
+                          value={filters.arreglador}
+                          onChange={(e) => setFilters({ ...filters, arreglador: e.target.value })}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400">Estado</span>
+                        <select
+                          className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none"
+                          value={filters.estado}
+                          onChange={(e) => setFilters({ ...filters, estado: e.target.value })}
+                        >
+                          <option value="Todos">Todos</option>
+                          <option value="Pendiente">Pendiente</option>
+                          <option value="Para arreglar">Para arreglar</option>
+                          <option value="Entregado">Entregado</option>
+                          <option value="Oficial">Oficial</option>
+                          <option value="Solicitud">Solicitud</option>
+                          <option value="Informativo">Informativo</option>
+                        </select>
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400">Solicitante</span>
+                        <select
+                          className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none"
+                          value={filters.solicitante}
+                          onChange={(e) => setSolicitanteFilter(e.target.value)}
+                        >
+                          <option value="">Todos</option>
+                          {solicitantesOptions.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400">Min</span>
+                        <input
+                          type="number"
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs outline-none"
+                          value={filters.duracionMin}
+                          onChange={(e) => setFilters({ ...filters, duracionMin: e.target.value })}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400">Max</span>
+                        <input
+                          type="number"
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs outline-none"
+                          value={filters.duracionMax}
+                          onChange={(e) => setFilters({ ...filters, duracionMax: e.target.value })}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400">Desde</span>
+                        <input
+                          type="date"
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs outline-none"
+                          value={filters.fechaDesde}
+                          onChange={(e) => setFilters({ ...filters, fechaDesde: e.target.value })}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400">Hasta</span>
+                        <input
+                          type="date"
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs outline-none"
+                          value={filters.fechaHasta}
+                          onChange={(e) => setFilters({ ...filters, fechaHasta: e.target.value })}
+                        />
+                      </label>
+                    </div>
+
+                    <label className="space-y-1">
+                      <span className="text-[10px] font-bold uppercase text-slate-400">Observaciones</span>
+                      <input
+                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs outline-none"
+                        placeholder="Buscar texto..."
+                        value={filters.observaciones}
+                        onChange={(e) => setFilters({ ...filters, observaciones: e.target.value })}
+                      />
+                    </label>
+
+                    <div className="space-y-1">
+                      <TagMultiSelect tags={availableTags} selectedIds={selectedTags} onChange={setSelectedTags} />
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <div className="relative flex-1" ref={mobileInstrFilterAnchorRef}>
+                        <button
+                          type="button"
+                          onClick={() => setShowMobileInstrFilter((v) => !v)}
+                          className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-xs font-bold ${
+                            instrFilters.length > 0 || stringsFilter !== "all" || strictMode
+                              ? "border-yellow-300 bg-yellow-50 text-yellow-700"
+                              : "border-slate-200 bg-white text-slate-600"
+                          }`}
+                        >
+                          <span className="truncate">
+                            {getInstrumentationFilterLabel(instrFilters, stringsFilter, strictMode)}
+                          </span>
+                          <IconFilter size={12} />
+                        </button>
+                      </div>
+                      {legacyOficialSinDriveCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowLegacyOficialSinDrive((v) => !v)}
+                          className={`h-8 shrink-0 rounded-lg border px-2 text-[10px] font-bold ${
+                            showLegacyOficialSinDrive
+                              ? "border-rose-300 bg-rose-50 text-rose-700"
+                              : "border-rose-200 bg-white text-rose-700"
+                          }`}
+                          title='Mostrar obras "Oficial" sin link de Drive'
+                        >
+                          Legacy
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="mt-1 flex justify-end gap-2 border-t border-slate-100 pt-2">
+                      <button
+                        type="button"
+                        onClick={clearAllFilters}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600"
+                      >
+                        <IconX size={12} />
+                        Limpiar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowMobileFilters(false)}
+                        className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white"
+                      >
+                        <IconCheck size={12} />
+                        Aplicar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {showMobileInstrFilter && (
+                <InstrumentationFilterModal
+                  onClose={() => setShowMobileInstrFilter(false)}
+                  currentFilters={instrFilters}
+                  stringsFilter={stringsFilter}
+                  setStringsFilter={setStringsFilter}
+                  strictMode={strictMode}
+                  setStrictMode={setStrictMode}
+                  onApply={(newRules) => {
+                    setInstrFilters(newRules);
+                    setShowMobileInstrFilter(false);
+                  }}
+                  anchorRef={mobileInstrFilterAnchorRef}
+                />
+              )}
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto bg-white p-2">
+              {loading ? (
+                <div className="p-10 text-center text-indigo-500">
+                  <IconLoader className="inline animate-spin" /> Cargando...
+                </div>
+              ) : paginatedWorks.length === 0 ? (
+                <div className="p-10 text-center text-sm italic text-slate-400">
+                  No se encontraron resultados.
+                </div>
+              ) : (
+                <ul className="space-y-1.5">
+                  {paginatedWorks.map((work) => (
+                    <li
+                      key={work.id}
+                      className={`rounded-lg border border-slate-200 p-2 shadow-sm ${getEstadoRowBgClass(work.estado)}`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          className="mt-1 h-4 w-4 shrink-0 accent-indigo-600"
+                          checked={selectionIdSet.has(work.id)}
+                          onChange={() => toggleWorkSelection(work.id)}
+                          aria-label={selectionIdSet.has(work.id) ? "Quitar de la selección" : "Agregar a la selección"}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="line-clamp-2 text-[13px] font-bold leading-tight text-slate-800">
+                                <RichTextPreview content={work.titulo} />
+                              </div>
+                              <div className="mt-0.5 truncate text-[11px] font-semibold text-slate-600">
+                                {work.compositor_full || "Sin compositor"}
+                              </div>
+                            </div>
+                            <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${getEstadoBadgeClasses(work.estado)}`}>
+                              {getEstadoLabel(work.estado)}
+                            </span>
+                          </div>
+
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {work.arreglador_full && (
+                              <span className="max-w-[9rem] truncate rounded border border-slate-200 bg-white/80 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                                Arr. {work.arreglador_full}
+                              </span>
+                            )}
+                            <span className="rounded border border-slate-200 bg-white/80 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
+                              {formatDuration(work.duracion_segundos)}
+                            </span>
+                            <span className={`max-w-[9.5rem] truncate rounded border px-1.5 py-0.5 font-mono text-[10px] ${
+                              instrFilters.length > 0 || stringsFilter !== "all"
+                                ? "border-yellow-200 bg-yellow-50 text-yellow-700 font-bold"
+                                : "border-slate-200 bg-white/80 text-slate-500"
+                            }`}>
+                              {work.instrumentacion || "-"}
+                            </span>
+                            {work.proxima_gira_nombre && (
+                              <span className="max-w-[10rem] truncate rounded border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                                {work.proxima_gira_es_pasada ? "Últ. " : ""}
+                                {work.proxima_gira_nombre}
+                              </span>
+                            )}
+                          </div>
+
+                          {work.tags_objects?.length > 0 && (
+                            <div className="mt-1 flex gap-1 overflow-hidden">
+                              {work.tags_objects.slice(0, 3).map((tag) => (
+                                <span
+                                  key={tag.id}
+                                  className="max-w-[6rem] truncate rounded border border-indigo-100 bg-indigo-50 px-1 py-0.5 text-[9px] font-bold text-indigo-600"
+                                >
+                                  {tag.tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="mt-1.5 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1">
+                              {work.link_audio && (
+                                <a href={work.link_audio} target="_blank" className="rounded bg-green-50 p-1 text-green-600" aria-label="Abrir audio">
+                                  <IconMusic size={13} />
+                                </a>
+                              )}
+                              {work.link_partitura && (
+                                <a href={work.link_partitura} target="_blank" className="rounded bg-blue-50 p-1 text-blue-600" aria-label="Abrir partitura">
+                                  <IconLink size={13} />
+                                </a>
+                              )}
+                              {work.link_drive && (
+                                <a href={work.link_drive} target="_blank" className="rounded bg-green-50 p-1 text-green-600" aria-label="Abrir Drive">
+                                  <IconDrive size={14} />
+                                </a>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button type="button" onClick={() => setAssignWork(work)} className="rounded p-1 text-blue-600 hover:bg-blue-50" aria-label="Asignar a gira">
+                                <IconCalendarPlus size={15} />
+                              </button>
+                              <button type="button" onClick={() => setHistoryWork(work)} className="rounded p-1 text-indigo-500 hover:bg-indigo-50" aria-label="Ver historial">
+                                <IconHistory size={15} />
+                              </button>
+                              <button type="button" onClick={() => startEdit(work)} className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-indigo-600" aria-label="Editar obra">
+                                <IconEdit size={15} />
+                              </button>
+                              <button type="button" onClick={() => handleDelete(work.id)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600" aria-label="Eliminar obra">
+                                <IconTrash size={15} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex shrink-0 items-center justify-between border-t border-slate-200 bg-slate-50 px-2 py-2">
+              <select
+                className="rounded border border-slate-200 bg-white p-1 text-[11px] font-bold text-slate-600"
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                aria-label="Cantidad de obras por página"
+              >
+                {[25, 50, 100, 200].map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage((p) => p - 1)}
+                  className="rounded border bg-white p-1 text-indigo-600 transition-colors disabled:opacity-30"
+                  aria-label="Página anterior"
+                >
+                  <IconChevronLeft size={15} />
+                </button>
+                <div className="text-[11px] font-bold text-slate-600">
+                  {currentPage}/{totalPages || 1}
+                </div>
+                <button
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => p + 1)}
+                  className="rounded border bg-white p-1 text-indigo-600 transition-colors disabled:opacity-30"
+                  aria-label="Página siguiente"
+                >
+                  <IconChevronRight size={15} />
+                </button>
+              </div>
+            </div>
+          </div>
+          </>
         )}
       </div>
 
