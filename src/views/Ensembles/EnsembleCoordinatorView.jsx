@@ -211,7 +211,7 @@ const FeriadoBadge = ({ feriado }) => {
       </button>
       {showTooltip && (
         <div
-          className={`absolute top-full right-0 mt-1 z-50 px-2 py-1.5 rounded-lg border shadow-lg text-xs font-medium whitespace-nowrap ${bgClass} ${textColor} animate-in fade-in zoom-in-95 duration-150`}
+          className={`absolute top-full left-0 mt-1 z-[110] px-2 py-1.5 rounded-lg border shadow-lg text-xs font-medium whitespace-nowrap ${bgClass} ${textColor} animate-in fade-in zoom-in-95 duration-150`}
           style={{ minWidth: "180px" }}
           onMouseLeave={() => setShowTooltip(false)}
         >
@@ -3897,25 +3897,24 @@ export default function EnsembleCoordinatorView({ supabase }) {
           >
             {activeTab === "ensayos" && (
               <>
-                <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 md:gap-4 mb-1.5 md:mb-2 pb-1.5 md:pb-2 border-b border-slate-100 pl-0 md:pl-1">
+                <div className="shrink-0 flex items-center gap-1.5 md:gap-2 mb-1.5 md:mb-2 pb-1.5 md:pb-2 border-b border-slate-100 pl-0 md:pl-1 overflow-x-auto no-scrollbar whitespace-nowrap">
                   {/* Checkbox "Select All" */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center">
                     <input
                       type="checkbox"
                       checked={isAllSelected}
                       onChange={(e) => handleSelectAllVisible(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      title="Seleccionar todo lo visible"
+                      aria-label="Seleccionar todo lo visible"
                     />
-                    <span className="text-[11px] md:text-xs font-bold text-slate-500">
-                      Seleccionar todo lo visible
-                    </span>
                     <span className="text-[10px] text-slate-400 hidden sm:inline">
                       · Shift+clic: rango consecutivo
                     </span>
                   </div>
 
                   {/* FILTRO DE FECHAS EN LÍNEA */}
-                  <div className="flex items-center gap-1.5 md:gap-2 flex-wrap">
+                  <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
                     <button
                       type="button"
                       onClick={() => setShowListProgramFilter((v) => !v)}
@@ -3943,7 +3942,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                         onChange={(v) =>
                           setDateFilter((prev) => ({ ...prev, start: v }))
                         }
-                        className="h-6 text-xs w-24 md:w-28 bg-slate-50 border-slate-200"
+                        className="h-6 text-xs w-[5.6rem] md:w-28 bg-slate-50 border-slate-200"
                       />
                     </div>
                     <div className="flex items-center gap-1">
@@ -3955,7 +3954,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                         onChange={(v) =>
                           setDateFilter((prev) => ({ ...prev, end: v }))
                         }
-                        className="h-6 text-xs w-24 md:w-28 bg-slate-50 border-slate-200"
+                        className="h-6 text-xs w-[5.6rem] md:w-28 bg-slate-50 border-slate-200"
                         placeholder="Indefinido"
                       />
                     </div>

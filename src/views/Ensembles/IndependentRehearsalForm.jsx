@@ -14,6 +14,7 @@ import {
   IconUserPlus,
   IconUserX,
   IconTrash,
+  IconChevronDown,
 } from "../../components/ui/Icons";
 import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext";
@@ -54,6 +55,109 @@ function mapMembersOptions(data) {
     label: `${m.apellido}, ${m.nombre}`,
   }));
 }
+
+function optionLabel(options, id) {
+  const option = (options || []).find((opt) => String(opt.id) === String(id));
+  return option?.label || `#${id}`;
+}
+
+const SelectionChips = ({ ids = [], options = [], emptyLabel = "Sin selección" }) => {
+  if (!ids.length) {
+    return (
+      <div className="mt-2 flex flex-wrap gap-1">
+        <span className="rounded-full border border-dashed border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-400">
+          {emptyLabel}
+        </span>
+      </div>
+    );
+  }
+
+  const visibleIds = ids.slice(0, 3);
+  const hiddenCount = ids.length - visibleIds.length;
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {visibleIds.map((id) => (
+        <span
+          key={id}
+          className="max-w-full truncate rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700"
+          title={optionLabel(options, id)}
+        >
+          {optionLabel(options, id)}
+        </span>
+      ))}
+      {hiddenCount > 0 && (
+        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-500">
+          +{hiddenCount}
+        </span>
+      )}
+    </div>
+  );
+};
+
+const AttendanceChips = ({ items = [] }) => {
+  if (!items.length) {
+    return (
+      <div className="mt-2 flex flex-wrap gap-1">
+        <span className="rounded-full border border-dashed border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-400">
+          Sin excepciones
+        </span>
+      </div>
+    );
+  }
+
+  const invitados = items.filter((item) => item.tipo === "invitado").length;
+  const ausentes = items.filter((item) => item.tipo === "ausente").length;
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {invitados > 0 && (
+        <span className="rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+          {invitados} invitado{invitados === 1 ? "" : "s"}
+        </span>
+      )}
+      {ausentes > 0 && (
+        <span className="rounded-full border border-red-100 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">
+          {ausentes} ausente{ausentes === 1 ? "" : "s"}
+        </span>
+      )}
+    </div>
+  );
+};
+
+const MobileCollapsibleSection = ({
+  title,
+  icon: Icon,
+  isOpen,
+  onToggle,
+  summary,
+  children,
+  className = "",
+}) => (
+  <section className={`rounded border border-slate-200 p-3 ${className}`}>
+    <button
+      type="button"
+      onClick={onToggle}
+      className="flex w-full items-center justify-between gap-2 text-left"
+      aria-expanded={isOpen}
+    >
+      <span className="flex min-w-0 items-center gap-2 text-xs font-bold text-slate-700">
+        <Icon size={14} className="shrink-0" />
+        <span className="truncate">{title}</span>
+      </span>
+      <IconChevronDown
+        size={14}
+        className={`shrink-0 text-slate-400 transition-transform md:hidden ${
+          isOpen ? "rotate-180" : ""
+        }`}
+      />
+    </button>
+    {summary}
+    <div className={`${isOpen ? "block" : "hidden"} md:block mt-2`}>
+      {children}
+    </div>
+  </section>
+);
 
 export default function IndependentRehearsalForm({
   supabase,
@@ -97,6 +201,11 @@ export default function IndependentRehearsalForm({
   );
   const [initialSnapshot, setInitialSnapshot] = useState(null);
   const [selectedMemberToAdd, setSelectedMemberToAdd] = useState("");
+  const [mobileSectionsOpen, setMobileSectionsOpen] = useState({
+    convocatoria: false,
+    asistencia: false,
+    repertorio: false,
+  });
 
   const { data: programasFromQuery = [], isLoading: programasQueryLoading, memberIds: resolvedMemberIds } =
     useRehearsalProgramasOptions(supabase, {
@@ -129,6 +238,13 @@ export default function IndependentRehearsalForm({
     } else {
       onCancel();
     }
+  };
+
+  const toggleMobileSection = (section) => {
+    setMobileSectionsOpen((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
   };
 
   const fetchLocations = useCallback(async () => {
@@ -460,8 +576,8 @@ export default function IndependentRehearsalForm({
 
   return (
     <>
-      <div className="bg-white p-5 rounded-lg shadow-lg border border-slate-200 w-full max-w-2xl mx-auto max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4 border-b pb-2">
+      <div className="bg-white p-4 md:p-5 rounded-lg shadow-lg border border-slate-200 w-full max-w-2xl mx-auto max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-3 md:mb-4 border-b pb-2">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
             <IconCalendar className="text-indigo-600" />{" "}
             {initialData ? "Editar Ensayo" : "Nuevo Ensayo"}
@@ -474,7 +590,7 @@ export default function IndependentRehearsalForm({
           </button>
         </div>
 
-        <div className="space-y-5">
+        <div className="space-y-3 md:space-y-5">
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
@@ -510,6 +626,21 @@ export default function IndependentRehearsalForm({
 
           <div>
             <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+              Título
+            </label>
+            <input
+              type="text"
+              className="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
+              placeholder="Ej: Ensayo regular, solo cuerdas..."
+              value={formData.descripcion}
+              onChange={(e) =>
+                setFormData({ ...formData, descripcion: e.target.value })
+              }
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
               Lugar / Sala (Opcional)
             </label>
             <LocationSelectWithCreate
@@ -522,10 +653,20 @@ export default function IndependentRehearsalForm({
             />
           </div>
 
-          <div className="bg-slate-50 p-3 rounded border border-slate-200">
-            <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-2">
-              <IconMusic size={14} /> Convocatoria (Ensambles Base)
-            </h3>
+          <MobileCollapsibleSection
+            title="Convocatoria"
+            icon={IconMusic}
+            isOpen={mobileSectionsOpen.convocatoria}
+            onToggle={() => toggleMobileSection("convocatoria")}
+            className="bg-slate-50"
+            summary={
+              <SelectionChips
+                ids={formData.selectedEnsambles}
+                options={ensamblesOptions}
+                emptyLabel="Sin ensamble"
+              />
+            }
+          >
             <MultiSelect
               placeholder="Seleccionar ensambles..."
               options={ensamblesOptions}
@@ -537,12 +678,16 @@ export default function IndependentRehearsalForm({
             <p className="text-[9px] text-slate-400 mt-1 ml-1">
               * Tus ensambles coordinados aparecen al principio marcados con ★
             </p>
-          </div>
+          </MobileCollapsibleSection>
 
-          <div className="bg-white p-3 rounded border border-slate-200 shadow-sm">
-            <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-2">
-              <IconUsers size={14} /> Asistencia Particular
-            </h3>
+          <MobileCollapsibleSection
+            title="Asistencia Particular"
+            icon={IconUsers}
+            isOpen={mobileSectionsOpen.asistencia}
+            onToggle={() => toggleMobileSection("asistencia")}
+            className="bg-white shadow-sm"
+            summary={<AttendanceChips items={customAttendance} />}
+          >
             <div className="flex gap-2 items-end mb-3">
               <div className="flex-1">
                 <label className="text-[9px] text-slate-400 uppercase mb-1 block">
@@ -601,40 +746,40 @@ export default function IndependentRehearsalForm({
                 No hay excepciones cargadas.
               </div>
             )}
-          </div>
+          </MobileCollapsibleSection>
 
-          {programasLoading ? (
-            <div className="bg-emerald-50 p-6 rounded border border-emerald-100 flex items-center justify-center gap-2 text-emerald-700 text-xs font-bold">
-              <IconLoader className="animate-spin" size={16} />
-              Cargando programas...
-            </div>
-          ) : (
-            <RepertorioPreparacionSelect
-              options={programasOptions}
-              selectedIds={formData.selectedProgramas}
-              onChange={(ids) =>
-                setFormData({ ...formData, selectedProgramas: ids })
-              }
-              minRehearsalDate={formData.fecha || null}
-              supabase={supabase}
-              activeMembersSet={activeMembersSet}
-            />
-          )}
-
-          <div>
-            <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
-              Nota Pública
-            </label>
-            <input
-              type="text"
-              className="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
-              placeholder="Ej: Solo cuerdas, traer atril..."
-              value={formData.descripcion}
-              onChange={(e) =>
-                setFormData({ ...formData, descripcion: e.target.value })
-              }
-            />
-          </div>
+          <MobileCollapsibleSection
+            title="Repertorio / Programación"
+            icon={IconMusic}
+            isOpen={mobileSectionsOpen.repertorio}
+            onToggle={() => toggleMobileSection("repertorio")}
+            className="bg-white shadow-sm"
+            summary={
+              <SelectionChips
+                ids={formData.selectedProgramas}
+                options={programasOptions}
+                emptyLabel="Sin programa"
+              />
+            }
+          >
+            {programasLoading ? (
+              <div className="bg-emerald-50 p-6 rounded border border-emerald-100 flex items-center justify-center gap-2 text-emerald-700 text-xs font-bold">
+                <IconLoader className="animate-spin" size={16} />
+                Cargando programas...
+              </div>
+            ) : (
+              <RepertorioPreparacionSelect
+                options={programasOptions}
+                selectedIds={formData.selectedProgramas}
+                onChange={(ids) =>
+                  setFormData({ ...formData, selectedProgramas: ids })
+                }
+                minRehearsalDate={formData.fecha || null}
+                supabase={supabase}
+                activeMembersSet={activeMembersSet}
+              />
+            )}
+          </MobileCollapsibleSection>
 
           <div className="flex justify-between pt-4 border-t border-slate-100 items-center">
             {initialData ? (

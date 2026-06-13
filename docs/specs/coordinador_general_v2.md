@@ -20,4 +20,9 @@ Implementar el rol `coord_general` como una entidad de coordinación con alcance
 - Las cards móviles de ensayo reducen padding, márgenes y tamaños secundarios para ganar densidad vertical.
 - El horario de inicio/fin de cada card usa `whitespace-nowrap` para permanecer en una misma línea.
 - Las acciones de la card se apilan verticalmente: editar arriba y eliminar abajo. El botón de eliminación se muestra en rojo.
+- El tooltip de feriado se alinea hacia la derecha del badge (`left-0`) y usa `z-[110]` para no quedar cortado en pantallas móviles.
+- La fila de controles de lista móvil queda en una sola línea con scroll horizontal: checkbox grande sin etiqueta textual, filtro Programa, fechas y export PDF.
+- En el formulario de ensayo (`IndependentRehearsalForm.jsx`), la antigua "Nota Pública" pasa a llamarse **Título** y se ubica arriba, antes de Convocatoria.
+- En móvil, las secciones **Convocatoria**, **Asistencia Particular** y **Repertorio / Programación** son contraíbles y arrancan cerradas; en desktop permanecen visibles.
+- Convocatoria y Repertorio muestran chips/resumen de selección aun cuando la sección móvil está contraída.
 
