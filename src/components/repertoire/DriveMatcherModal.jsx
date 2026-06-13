@@ -16,6 +16,9 @@ import {
 import SearchableSelect from "../ui/SearchableSelect";
 import { calculateInstrumentation } from "../../utils/instrumentation";
 import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups"; // <--- IMPORTAR
+import { parseOrganicoVientosInput } from "../../utils/particellaOrganicoInput";
+import OrganicoVientosAddField from "./OrganicoVientosAddField";
+import { toast } from "sonner";
 import { normalizeForSearch } from "../../utils/sanitize";
 
 const capitalize = (s) => s && s[0].toUpperCase() + s.slice(1);
@@ -308,6 +311,7 @@ export default function DriveMatcherModal({
 
   // Estados UI
   const [genQuantity, setGenQuantity] = useState(1);
+  const [organicoVientosInput, setOrganicoVientosInput] = useState("");
   const [instrumentQuery, setInstrumentQuery] = useState("");
   const [selectedInstrId, setSelectedInstrId] = useState("");
   const [showInstrumentOptions, setShowInstrumentOptions] = useState(false);
@@ -649,6 +653,35 @@ export default function DriveMatcherModal({
     }, 0);
   };
 
+  const handleAddPartsFromOrganico = () => {
+    const parsed = parseOrganicoVientosInput(organicoVientosInput);
+    if (!parsed.ok) {
+      toast.error(parsed.error);
+      return;
+    }
+    const newParts = parsed.definitions.map((def) => ({
+      tempId: Date.now() + Math.random(),
+      id: undefined,
+      id_instrumento: def.id_instrumento,
+      nombre_archivo: def.nombre_archivo,
+      links: [],
+      nota_organico: "",
+      instrumento_nombre: def.instrumento_base,
+      es_solista: false,
+    }));
+    if (onPartsChange) {
+      onPartsChange(
+        [...parts, ...newParts].sort((a, b) =>
+          a.id_instrumento.localeCompare(b.id_instrumento),
+        ),
+      );
+    }
+    setOrganicoVientosInput("");
+    toast.success(
+      `${newParts.length} particella${newParts.length === 1 ? "" : "s"} añadida${newParts.length === 1 ? "" : "s"} desde orgánico`,
+    );
+  };
+
   const handleDeletePart = (tempId) => {
     if (!confirm("¿Eliminar?")) return;
     if (onPartsChange) onPartsChange(parts.filter((p) => p.tempId !== tempId));
@@ -876,61 +909,73 @@ export default function DriveMatcherModal({
           {/* IZQUIERDA: PARTICELLAS */}
           <div className="w-7/12 border-r border-slate-200 flex flex-col bg-slate-50/30">
             {/* BARRA CREAR */}
-            <div className="p-2 bg-white border-b border-slate-200 flex gap-2 shadow-sm z-20 items-center">
-              <div className="flex-1 relative">
-                <input
-                  ref={instrumentInputRef}
-                  type="text"
-                  className="w-full text-xs border p-1.5 rounded outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
-                  placeholder="Buscar instrumento..."
-                  value={instrumentQuery}
-                  onChange={(e) => {
-                    setInstrumentQuery(e.target.value);
-                    setSelectedInstrId("");
-                    setShowInstrumentOptions(true);
-                  }}
-                  onFocus={() => setShowInstrumentOptions(true)}
-                  onBlur={() =>
-                    setTimeout(() => setShowInstrumentOptions(false), 200)
-                  }
-                  onKeyDown={(e) => e.key === "Enter" && handleAddPart()}
-                />
-                {showInstrumentOptions && instrumentQuery && (
-                  <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded shadow-xl max-h-48 overflow-y-auto z-50">
-                    {filteredInstruments.map((i) => (
-                      <div
-                        key={i.id}
-                        className="p-2 hover:bg-indigo-50 cursor-pointer text-xs text-slate-700 border-b border-slate-50 last:border-0"
-                        onMouseDown={() => {
-                          setSelectedInstrId(i.id);
-                          setInstrumentQuery(i.instrumento);
-                          setShowInstrumentOptions(false);
-                        }}
-                      >
-                        {i.instrumento}
-                      </div>
-                    ))}
-                  </div>
-                )}
+            <div className="p-2 bg-white border-b border-slate-200 flex flex-wrap gap-2 shadow-sm z-20 items-center">
+              <div className="flex min-w-0 flex-1 basis-[12rem] gap-2 items-center">
+                <div className="flex-1 min-w-0 relative">
+                  <input
+                    ref={instrumentInputRef}
+                    type="text"
+                    className="w-full text-xs border p-1.5 rounded outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
+                    placeholder="Buscar instrumento..."
+                    value={instrumentQuery}
+                    onChange={(e) => {
+                      setInstrumentQuery(e.target.value);
+                      setSelectedInstrId("");
+                      setShowInstrumentOptions(true);
+                    }}
+                    onFocus={() => setShowInstrumentOptions(true)}
+                    onBlur={() =>
+                      setTimeout(() => setShowInstrumentOptions(false), 200)
+                    }
+                    onKeyDown={(e) => e.key === "Enter" && handleAddPart()}
+                  />
+                  {showInstrumentOptions && instrumentQuery && (
+                    <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded shadow-xl max-h-48 overflow-y-auto z-50">
+                      {filteredInstruments.map((i) => (
+                        <div
+                          key={i.id}
+                          className="p-2 hover:bg-indigo-50 cursor-pointer text-xs text-slate-700 border-b border-slate-50 last:border-0"
+                          onMouseDown={() => {
+                            setSelectedInstrId(i.id);
+                            setInstrumentQuery(i.instrumento);
+                            setShowInstrumentOptions(false);
+                          }}
+                        >
+                          {i.instrumento}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="w-14 shrink-0">
+                  <input
+                    type="number"
+                    min="1"
+                    className="w-full text-xs border p-1.5 rounded text-center outline-none focus:border-blue-500"
+                    value={genQuantity}
+                    onChange={(e) =>
+                      setGenQuantity(parseInt(e.target.value) || 1)
+                    }
+                    onKeyDown={(e) => e.key === "Enter" && handleAddPart()}
+                    title="Cantidad"
+                    aria-label="Cantidad"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddPart}
+                  className="shrink-0 bg-indigo-100 text-indigo-700 p-1.5 rounded hover:bg-indigo-200"
+                  title="Añadir instrumento(s)"
+                >
+                  <IconPlus size={16} />
+                </button>
               </div>
-              <div className="w-16">
-                <input
-                  type="number"
-                  min="1"
-                  className="w-full text-xs border p-1.5 rounded text-center outline-none focus:border-blue-500"
-                  value={genQuantity}
-                  onChange={(e) =>
-                    setGenQuantity(parseInt(e.target.value) || 1)
-                  }
-                  onKeyDown={(e) => e.key === "Enter" && handleAddPart()}
-                />
-              </div>
-              <button
-                onClick={handleAddPart}
-                className="bg-indigo-100 text-indigo-700 p-1.5 rounded hover:bg-indigo-200"
-              >
-                <IconPlus size={16} />
-              </button>
+              <OrganicoVientosAddField
+                variant="compact"
+                value={organicoVientosInput}
+                onChange={setOrganicoVientosInput}
+                onAdd={handleAddPartsFromOrganico}
+              />
             </div>
 
             {selectedPartTempIds.size > 0 && (

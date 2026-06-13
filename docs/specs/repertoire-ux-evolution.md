@@ -218,3 +218,12 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 | `scripts/patch-arias-lucevan-nabucco.mjs` | SQL patch obras 3507 y 3514 |
 | `scripts/patch-arias-particellas.mjs` | Re-sync particellas + instrumentación desde Drive (14 obras ARIAS) |
 | `scripts/verify-arias-particellas.mjs` | Auditoría BD vs Drive |
+
+---
+
+## 9. Gestión de particellas en WorkForm
+
+### Completado (2026-06-13)
+- [x] Barra «Instrumento / Cant.»: input de cantidad y botón `+` agrupados con `shrink-0` para evitar desborde horizontal junto al scroll del modal.
+- [x] Eliminación individual y masiva de particella con `ConfirmDialog` (estilo destructivo), alineado con el design system del proyecto.
+- [x] **Ingreso por orgánico de vientos** en `WorkForm.jsx` y `DriveMatcherModal.jsx`: campo con placeholder `2.2.3.2 - 4.3.1.2` que genera particellas (Fl–Tba) vía `parseOrganicoVientosInput` (`src/utils/particellaOrganicoInput.js`) y `OrganicoVientosAddField.jsx`. Entrada solo numérica (8 dígitos) con autoformato progresivo (`22324312` → `2.2.3.2 - 4.3.1.2`).
