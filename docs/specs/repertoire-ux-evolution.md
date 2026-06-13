@@ -163,10 +163,12 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 
 ### Comportamiento implementado (2026-06-13)
 - En móvil, el listado usa **cards compactas** en lugar de la grilla desktop.
-- Cada card conserva el color de estado mediante `getEstadoRowBgClass(estado)` y muestra un badge de estado con la misma paleta existente.
+- Cada card conserva el color de estado mediante el fondo de la tarjeta, sin badge textual de estado en móvil.
 - La información prioritaria entra en pocas líneas: título, compositor, estado, arreglador opcional, duración, orgánico, próxima/última gira y tags principales.
 - Todas las acciones móviles son iconográficas: seleccionar, audio, partitura, Drive, asignar a gira, historial, editar y eliminar.
 - La grilla con headers/filtros por columna permanece en desktop (`md+`) sin cambios funcionales.
+- Ajuste v3: se quita el badge de estado en móvil y el estado pasa a comunicarse por un fondo de card más visible (`getEstadoMobileCardBgClass`).
+- Ajuste v3: Drive/carpeta se ubica debajo del checkbox de selección, y las cuatro acciones principales (asignar, historial, editar, eliminar) se apilan verticalmente a la derecha sin aumentar el alto de la card.
 
 ### Filtros móviles
 - Se agrega un menú superior de filtros con `IconFilter`, siguiendo el patrón de filtros tipo chip usado en vistas compactas.

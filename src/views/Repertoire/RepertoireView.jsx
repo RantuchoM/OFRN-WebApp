@@ -186,6 +186,26 @@ const getEstadoRowBgClass = (estado) => {
   }
 };
 
+const getEstadoMobileCardBgClass = (estado) => {
+  const e = estado || "Oficial";
+  switch (e) {
+    case "Informativo":
+      return "bg-blue-50/75 hover:bg-blue-50";
+    case "Solicitud":
+      return "bg-amber-50/75 hover:bg-amber-50";
+    case "Para arreglar":
+      return "bg-orange-50/70 hover:bg-orange-50";
+    case "Entregado":
+      return "bg-sky-50/80 hover:bg-sky-50 border-l-[3px] border-sky-300/70";
+    case "Oficial":
+      return "bg-emerald-50/70 hover:bg-emerald-50";
+    case "Pendiente":
+      return "bg-slate-100/75 hover:bg-slate-100";
+    default:
+      return "bg-slate-50/75 hover:bg-slate-100";
+  }
+};
+
 // --- 2. MODALES ---
 
 const HistoryModal = ({ work, onClose, supabase }) => {
@@ -1014,26 +1034,6 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     if (isBefore(d, addDays(new Date(), 7))) return "text-indigo-600 font-bold";
     return "text-slate-600";
   };
-
-  const getEstadoBadgeClasses = (estado) => {
-    switch (estado) {
-      case "Solicitud":
-        return "bg-amber-100 text-amber-700 border-amber-200";
-      case "Para arreglar":
-        return "bg-amber-100 text-amber-800 border-amber-200";
-      case "Entregado":
-        return "bg-sky-100 text-sky-800 border-sky-200";
-      case "Informativo":
-        return "bg-blue-50 text-blue-600 border-blue-200";
-      case "Oficial":
-      case "Pendiente":
-        return "bg-slate-100 text-slate-500 border-slate-200";
-      default:
-        return "bg-slate-100 text-slate-500 border-slate-200";
-    }
-  };
-
-  const getEstadoLabel = (estado) => (estado === "Solicitud" ? "Pendiente" : estado || "Oficial");
 
   const selectedSolicitanteLabel =
     solicitantesOptions.find((o) => String(o.value) === String(filters.solicitante))
@@ -1880,32 +1880,35 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                   {paginatedWorks.map((work) => (
                     <li
                       key={work.id}
-                      className={`rounded-lg border border-slate-200 p-2 shadow-sm ${getEstadoRowBgClass(work.estado)}`}
+                      className={`rounded-lg border border-slate-200 p-1.5 shadow-sm transition-colors ${getEstadoMobileCardBgClass(work.estado)}`}
                     >
-                      <div className="flex items-start gap-2">
-                        <input
-                          type="checkbox"
-                          className="mt-1 h-4 w-4 shrink-0 accent-indigo-600"
-                          checked={selectionIdSet.has(work.id)}
-                          onChange={() => toggleWorkSelection(work.id)}
-                          aria-label={selectionIdSet.has(work.id) ? "Quitar de la selección" : "Agregar a la selección"}
-                        />
+                      <div className="flex items-stretch gap-1.5">
+                        <div className="flex w-5 shrink-0 flex-col items-center gap-1 pt-0.5">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-indigo-600"
+                            checked={selectionIdSet.has(work.id)}
+                            onChange={() => toggleWorkSelection(work.id)}
+                            aria-label={selectionIdSet.has(work.id) ? "Quitar de la selección" : "Agregar a la selección"}
+                          />
+                          {work.link_drive && (
+                            <a href={work.link_drive} target="_blank" className="rounded bg-white/70 p-0.5 text-green-600" aria-label="Abrir Drive">
+                              <IconDrive size={14} />
+                            </a>
+                          )}
+                        </div>
+
                         <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 items-start justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <div className="line-clamp-2 text-[13px] font-bold leading-tight text-slate-800">
-                                <RichTextPreview content={work.titulo} />
-                              </div>
-                              <div className="mt-0.5 truncate text-[11px] font-semibold text-slate-600">
-                                {work.compositor_full || "Sin compositor"}
-                              </div>
+                          <div className="min-w-0">
+                            <div className="line-clamp-2 text-[13px] font-bold leading-tight text-slate-800">
+                              <RichTextPreview content={work.titulo} />
                             </div>
-                            <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${getEstadoBadgeClasses(work.estado)}`}>
-                              {getEstadoLabel(work.estado)}
-                            </span>
+                            <div className="mt-0.5 truncate text-[11px] font-semibold text-slate-600">
+                              {work.compositor_full || "Sin compositor"}
+                            </div>
                           </div>
 
-                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                          <div className="mt-1 flex flex-wrap items-center gap-1 pr-1">
                             {work.arreglador_full && (
                               <span className="max-w-[9rem] truncate rounded border border-slate-200 bg-white/80 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
                                 Arr. {work.arreglador_full}
@@ -1942,39 +1945,35 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                             </div>
                           )}
 
-                          <div className="mt-1.5 flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1">
+                          {(work.link_audio || work.link_partitura) && (
+                            <div className="mt-1 flex items-center gap-1">
                               {work.link_audio && (
-                                <a href={work.link_audio} target="_blank" className="rounded bg-green-50 p-1 text-green-600" aria-label="Abrir audio">
-                                  <IconMusic size={13} />
+                                <a href={work.link_audio} target="_blank" className="rounded bg-white/70 p-0.5 text-green-600" aria-label="Abrir audio">
+                                  <IconMusic size={12} />
                                 </a>
                               )}
                               {work.link_partitura && (
-                                <a href={work.link_partitura} target="_blank" className="rounded bg-blue-50 p-1 text-blue-600" aria-label="Abrir partitura">
-                                  <IconLink size={13} />
-                                </a>
-                              )}
-                              {work.link_drive && (
-                                <a href={work.link_drive} target="_blank" className="rounded bg-green-50 p-1 text-green-600" aria-label="Abrir Drive">
-                                  <IconDrive size={14} />
+                                <a href={work.link_partitura} target="_blank" className="rounded bg-white/70 p-0.5 text-blue-600" aria-label="Abrir partitura">
+                                  <IconLink size={12} />
                                 </a>
                               )}
                             </div>
-                            <div className="flex items-center gap-1">
-                              <button type="button" onClick={() => setAssignWork(work)} className="rounded p-1 text-blue-600 hover:bg-blue-50" aria-label="Asignar a gira">
-                                <IconCalendarPlus size={15} />
-                              </button>
-                              <button type="button" onClick={() => setHistoryWork(work)} className="rounded p-1 text-indigo-500 hover:bg-indigo-50" aria-label="Ver historial">
-                                <IconHistory size={15} />
-                              </button>
-                              <button type="button" onClick={() => startEdit(work)} className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-indigo-600" aria-label="Editar obra">
-                                <IconEdit size={15} />
-                              </button>
-                              <button type="button" onClick={() => handleDelete(work.id)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600" aria-label="Eliminar obra">
-                                <IconTrash size={15} />
-                              </button>
-                            </div>
-                          </div>
+                          )}
+                        </div>
+
+                        <div className="flex w-6 shrink-0 flex-col items-center justify-between self-stretch py-0.5">
+                          <button type="button" onClick={() => setAssignWork(work)} className="rounded p-0.5 text-blue-600 hover:bg-blue-50" aria-label="Asignar a gira">
+                            <IconCalendarPlus size={15} />
+                          </button>
+                          <button type="button" onClick={() => setHistoryWork(work)} className="rounded p-0.5 text-indigo-500 hover:bg-indigo-50" aria-label="Ver historial">
+                            <IconHistory size={15} />
+                          </button>
+                          <button type="button" onClick={() => startEdit(work)} className="rounded p-0.5 text-slate-500 hover:bg-slate-100 hover:text-indigo-600" aria-label="Editar obra">
+                            <IconEdit size={15} />
+                          </button>
+                          <button type="button" onClick={() => handleDelete(work.id)} className="rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600" aria-label="Eliminar obra">
+                            <IconTrash size={15} />
+                          </button>
                         </div>
                       </div>
                     </li>
