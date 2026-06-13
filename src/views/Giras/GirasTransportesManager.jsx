@@ -1607,6 +1607,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
     }
   };
 
+  const applyDetailCommand = (eventId, editorId, command) => {
+    const el = document.getElementById(editorId);
+    if (!el) return;
+    el.focus();
+    document.execCommand(command, false, null);
+    handleUpdateEvent(eventId, "descripcion", el.innerHTML);
+  };
+
   const getEventRulesSummary = (eventId, type, transportId) => {
     if (!routeRules) return [];
 
@@ -2184,6 +2192,17 @@ export default function GirasTransportesManager({ supabase, gira }) {
       id_locacion: null,
       descripcion: "",
       id_tipo_evento: String(CATEGORIAS_TRANSPORTE.PASAJEROS),
+    });
+  };
+
+  const beginNewStopForTransport = (transport) => {
+    setEditingEventId(`new-${transport.id}`);
+    setNewEvent({
+      fecha: gira.fecha_inicio || format(new Date(), "yyyy-MM-dd"),
+      hora: "08:00:00",
+      id_locacion: null,
+      descripcion: "",
+      id_tipo_evento: String(eventTypeIdForCategoria(transport.categoria_logistica)),
     });
   };
 
@@ -2857,14 +2876,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
   };
 
   return (
-    <div className="h-full overflow-y-auto p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-6xl mx-auto">
+    <div className="h-full overflow-y-auto p-3 sm:p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-6xl mx-auto">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-bold text-slate-700 flex items-center gap-2">
           <IconTruck className="text-indigo-600" /> Gestion de Transportes
         </h3>
       </div>
 
-      <div className="mb-4 grid grid-cols-4 gap-4 w-full">
+      <div className="mb-4 grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 w-full">
         <div
           onClick={() =>
             setInfoListModal({
@@ -2875,16 +2894,16 @@ export default function GirasTransportesManager({ supabase, gira }) {
               showInternal: false,
             })
           }
-          className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex items-center gap-3 shadow-sm cursor-pointer hover:bg-emerald-100 hover:border-emerald-200 transition-all group"
+          className="bg-emerald-50 border border-emerald-100 p-3 sm:p-4 rounded-xl sm:rounded-2xl flex items-center gap-2.5 sm:gap-3 shadow-sm cursor-pointer hover:bg-emerald-100 hover:border-emerald-200 transition-all group min-w-0"
         >
-          <div className="p-2.5 bg-emerald-100 rounded-xl text-emerald-600 shrink-0">
-            <IconCheckCircle size={22} />
+          <div className="p-2 sm:p-2.5 bg-emerald-100 rounded-xl text-emerald-600 shrink-0">
+            <IconCheckCircle size={20} />
           </div>
           <div className="min-w-0">
-            <div className="text-xl font-black text-emerald-700 leading-none">
+            <div className="text-lg sm:text-xl font-black text-emerald-700 leading-none">
               {coverageStats.single.length}
             </div>
-            <div className="text-[10px] text-emerald-600 font-bold uppercase tracking-tight mt-1">
+            <div className="text-[9px] sm:text-[10px] text-emerald-600 font-bold uppercase tracking-tight mt-1 leading-tight">
               Asignados
             </div>
           </div>
@@ -2900,17 +2919,18 @@ export default function GirasTransportesManager({ supabase, gira }) {
               showInternal: false,
             })
           }
-          className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex items-center gap-3 shadow-sm cursor-pointer hover:bg-amber-100 hover:border-amber-200 transition-all group"
+          className="bg-amber-50 border border-amber-100 p-3 sm:p-4 rounded-xl sm:rounded-2xl flex items-center gap-2.5 sm:gap-3 shadow-sm cursor-pointer hover:bg-amber-100 hover:border-amber-200 transition-all group min-w-0"
         >
-          <div className="p-2.5 bg-amber-100 rounded-xl text-amber-600 shrink-0 group-hover:scale-110 transition-transform">
-            <IconTruck size={22} />
+          <div className="p-2 sm:p-2.5 bg-amber-100 rounded-xl text-amber-600 shrink-0 group-hover:scale-110 transition-transform">
+            <IconTruck size={20} />
           </div>
           <div className="min-w-0">
-            <div className="text-xl font-black text-amber-700 leading-none">
+            <div className="text-lg sm:text-xl font-black text-amber-700 leading-none">
               {coverageStats.multiple.length}
             </div>
-            <div className="text-[10px] text-amber-600 font-bold uppercase tracking-tight mt-1 underline decoration-dashed underline-offset-4">
-              Más de un Transporte
+            <div className="text-[9px] sm:text-[10px] text-amber-600 font-bold uppercase tracking-tight mt-1 leading-tight underline decoration-dashed underline-offset-4">
+              <span className="sm:hidden">Multi transp.</span>
+              <span className="hidden sm:inline">Más de un Transporte</span>
             </div>
           </div>
         </div>
@@ -2925,16 +2945,16 @@ export default function GirasTransportesManager({ supabase, gira }) {
               showInternal: false,
             })
           }
-          className="bg-rose-50 border border-rose-100 p-4 rounded-2xl flex items-center gap-3 shadow-sm cursor-pointer hover:bg-rose-100 hover:border-rose-200 transition-all group"
+          className="bg-rose-50 border border-rose-100 p-3 sm:p-4 rounded-xl sm:rounded-2xl flex items-center gap-2.5 sm:gap-3 shadow-sm cursor-pointer hover:bg-rose-100 hover:border-rose-200 transition-all group min-w-0"
         >
-          <div className="p-2.5 bg-rose-100 rounded-xl text-rose-600 shrink-0 group-hover:animate-bounce">
-            <IconAlertTriangle size={22} />
+          <div className="p-2 sm:p-2.5 bg-rose-100 rounded-xl text-rose-600 shrink-0 group-hover:animate-bounce">
+            <IconAlertTriangle size={20} />
           </div>
           <div className="min-w-0">
-            <div className="text-xl font-black text-rose-700 leading-none">
+            <div className="text-lg sm:text-xl font-black text-rose-700 leading-none">
               {coverageStats.none.length}
             </div>
-            <div className="text-[10px] text-rose-600 font-bold uppercase tracking-tight mt-1 underline decoration-dashed underline-offset-4">
+            <div className="text-[9px] sm:text-[10px] text-rose-600 font-bold uppercase tracking-tight mt-1 leading-tight underline decoration-dashed underline-offset-4">
               Sin Transporte
             </div>
           </div>
@@ -2950,33 +2970,34 @@ export default function GirasTransportesManager({ supabase, gira }) {
               showInternal: true,
             })
           }
-          className="bg-sky-50 border border-sky-100 p-4 rounded-2xl flex items-center gap-3 shadow-sm cursor-pointer hover:bg-sky-100 hover:border-sky-200 transition-all group"
+          className="bg-sky-50 border border-sky-100 p-3 sm:p-4 rounded-xl sm:rounded-2xl flex items-center gap-2.5 sm:gap-3 shadow-sm cursor-pointer hover:bg-sky-100 hover:border-sky-200 transition-all group min-w-0"
         >
-          <div className="p-2.5 bg-sky-100 rounded-xl text-sky-600 shrink-0 group-hover:scale-110 transition-transform">
-            <IconBus size={22} />
+          <div className="p-2 sm:p-2.5 bg-sky-100 rounded-xl text-sky-600 shrink-0 group-hover:scale-110 transition-transform">
+            <IconBus size={20} />
           </div>
           <div className="min-w-0">
-            <div className="text-xl font-black text-sky-700 leading-none">
+            <div className="text-lg sm:text-xl font-black text-sky-700 leading-none">
               {coverageStats.internal.length}
             </div>
-            <div className="text-[10px] text-sky-600 font-bold uppercase tracking-tight mt-1 underline decoration-dashed underline-offset-4">
-              Traslado Interno
+            <div className="text-[9px] sm:text-[10px] text-sky-600 font-bold uppercase tracking-tight mt-1 leading-tight underline decoration-dashed underline-offset-4">
+              <span className="sm:hidden">Interno</span>
+              <span className="hidden sm:inline">Traslado Interno</span>
             </div>
           </div>
         </div>
       </div>
 
       <div className="mb-4 border-b pb-3">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
           <button
             onClick={() => setShowAddTransportForm((v) => !v)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold transition-colors shadow-sm"
+            className="flex items-center justify-center gap-2 px-3 py-2 sm:py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold transition-colors shadow-sm"
           >
             <IconPlus size={14} /> Transporte
           </button>
           <button
             onClick={handleExportGlobal}
-            className="flex items-center gap-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-bold transition-colors shadow-sm"
+            className="flex items-center justify-center gap-2 px-3 py-2 sm:py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-bold transition-colors shadow-sm"
           >
             <IconDownload size={14} /> Excel General
           </button>
@@ -2984,7 +3005,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             onClick={() =>
               setItineraryModal({ isOpen: true, transportId: null })
             }
-            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded text-xs font-bold hover:bg-indigo-100"
+            className="flex items-center justify-center gap-2 px-3 py-2 sm:py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded text-xs font-bold hover:bg-indigo-100"
           >
             <IconMapPin size={14} /> Gestor de Itinerarios
           </button>
@@ -2996,12 +3017,12 @@ export default function GirasTransportesManager({ supabase, gira }) {
                 exportFormat: "pdf",
               })
             }
-            className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-xs font-bold hover:bg-emerald-100"
+            className="flex items-center justify-center gap-2 px-3 py-2 sm:py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-xs font-bold hover:bg-emerald-100"
           >
             <IconList size={14} /> Paradas Combinadas
           </button>
           <DataIntegrityIndicator passengers={passengerList} />
-          <div className="ml-auto flex bg-slate-50 p-0.5 rounded-lg border border-slate-200 min-w-fit">
+          <div className="w-full sm:w-auto sm:ml-auto flex bg-slate-50 p-0.5 rounded-lg border border-slate-200 min-w-fit">
             {[
               { key: "PASAJEROS", label: "Pasajeros", activeColor: "text-fixed-indigo-600" },
               { key: "LOGISTICO", label: "Logistico", activeColor: "text-amber-600" },
@@ -3014,7 +3035,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                   <button
                     type="button"
                     onClick={() => toggleTransportTypeFilter(opt.key)}
-                    className={`px-2.5 py-1 rounded text-[11px] font-bold transition-all ${
+                    className={`flex-1 sm:flex-none px-2.5 py-1.5 sm:py-1 rounded text-[11px] font-bold transition-all ${
                       isActive
                         ? `bg-white shadow-sm border border-slate-100 ${opt.activeColor}`
                         : "text-slate-400 hover:text-slate-600"
@@ -3030,8 +3051,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
       </div>
 
       {showAddTransportForm && (
-      <div className="flex gap-2 mb-6 items-end bg-slate-50 p-3 rounded-lg border border-slate-200">
-        <div className="w-1/4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex gap-2 mb-6 items-end bg-slate-50 p-3 rounded-lg border border-slate-200">
+        <div className="lg:w-1/4">
           <label className="text-[10px] font-bold text-slate-500">TIPO</label>
           <select
             className="w-full text-xs border p-2 rounded"
@@ -3048,7 +3069,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             ))}
           </select>
         </div>
-        <div className="flex-1">
+        <div className="lg:flex-1">
           <label className="text-[10px] font-bold text-slate-500">
             DETALLE
           </label>
@@ -3062,7 +3083,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             }
           />
         </div>
-        <div className="w-24">
+        <div className="sm:w-28">
           <label className="text-[10px] font-bold text-slate-500">
             CAPACIDAD
           </label>
@@ -3077,7 +3098,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             }
           />
         </div>
-        <div className="min-w-[220px]">
+        <div className="sm:col-span-2 lg:col-span-1 lg:min-w-[220px]">
           <label className="text-[10px] font-bold text-slate-500">CHOFER</label>
           <select
             className="w-full text-xs border p-2 rounded"
@@ -3096,7 +3117,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         </div>
         <button
           onClick={handleAddTransport}
-          className="bg-indigo-600 text-white p-2 rounded hover:bg-indigo-700"
+          className="sm:col-span-2 lg:col-span-1 bg-indigo-600 text-white p-2 rounded hover:bg-indigo-700 flex items-center justify-center min-h-[34px]"
         >
           <IconPlus size={18} />
         </button>
@@ -3471,7 +3492,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             )}
                           </div>
                         </div>
-                        <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">
                             {t.transportes?.nombre || "Bus"}
                           </span>
@@ -3520,7 +3541,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
                 {!isEditing && (
                   <div
-                    className="flex items-center gap-1 shrink-0 ml-auto md:ml-0"
+                    className="flex items-center gap-1 shrink-0 w-full md:w-auto ml-0 md:ml-auto"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {incompletePax.length > 0 && !isMediosPropios && (
@@ -3540,7 +3561,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                       </button>
                     )}
 
-                    <div className="flex items-center bg-slate-100/80 p-0.5 rounded-xl border border-slate-200 gap-0.5">
+                    <div className="flex items-center bg-slate-100/80 p-0.5 rounded-xl border border-slate-200 gap-0.5 overflow-x-auto max-w-full">
                       <button
                         onClick={() =>
                           setAdmissionModal({ isOpen: true, transportId: t.id })
@@ -3646,7 +3667,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
               {isExpanded && (
                 <div className="border-t border-slate-100 overflow-hidden rounded-b-2xl bg-slate-50/30">
-                  <div className="overflow-x-auto">
+                  <div className="hidden md:block overflow-x-auto">
                     <table
                       className="w-full text-sm text-left border-separate border-spacing-0"
                       style={{ tableLayout: "fixed" }}
@@ -4103,22 +4124,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           <tr>
                             <td colSpan="8" className="p-2 bg-slate-50/50">
                               <button
-                                onClick={() => {
-                                  setEditingEventId(`new-${t.id}`);
-                                  setNewEvent({
-                                    fecha:
-                                      gira.fecha_inicio ||
-                                      format(new Date(), "yyyy-MM-dd"),
-                                    hora: "08:00:00",
-                                    id_locacion: null,
-                                    descripcion: "",
-                                    id_tipo_evento: String(
-                                      eventTypeIdForCategoria(
-                                        t.categoria_logistica,
-                                      ),
-                                    ),
-                                  });
-                                }}
+                                onClick={() => beginNewStopForTransport(t)}
                                 className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-[10px] font-black text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all uppercase tracking-[0.2em] bg-white"
                               >
                                 + Agregar parada
@@ -4128,6 +4134,381 @@ export default function GirasTransportesManager({ supabase, gira }) {
                         )}
                       </tbody>
                     </table>
+                  </div>
+                  <div className="md:hidden p-2 space-y-2 bg-slate-50/80">
+                    {myEvents.map((evt) => {
+                      const upsSummary = getEventRulesSummary(
+                        evt.id,
+                        "up",
+                        t.id,
+                      );
+                      const downsSummary = getEventRulesSummary(
+                        evt.id,
+                        "down",
+                        t.id,
+                      );
+                      const totalUps = upsSummary.reduce(
+                        (acc, curr) => acc + curr.count,
+                        0,
+                      );
+                      const totalDowns = downsSummary.reduce(
+                        (acc, curr) => acc + curr.count,
+                        0,
+                      );
+                      const upAlert =
+                        upsSummary.some((s) => s.count === 0) &&
+                        !isMediosPropios;
+                      const downAlert =
+                        downsSummary.some((s) => s.count === 0) &&
+                        !isMediosPropios;
+                      const mobileDetailEditorId = `transport-detail-mobile-${evt.id}`;
+
+                      return (
+                        <div
+                          key={evt.id}
+                          className={`rounded-2xl border p-2 shadow-sm ${
+                            evt.visible_agenda === false
+                              ? "border-slate-200 bg-slate-100"
+                              : "border-slate-200 bg-white"
+                          }`}
+                        >
+                          <div className="flex gap-2">
+                            <div className="min-w-0 flex-1 space-y-2">
+                              <div className="grid grid-cols-2 gap-2">
+                                <label className="space-y-1">
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                                    Fecha
+                                  </span>
+                                  <DateInput
+                                    value={evt.fecha}
+                                    onChange={(v) =>
+                                      handleUpdateEvent(evt.id, "fecha", v)
+                                    }
+                                    showDayName={false}
+                                    className={`h-9 w-full text-[12px] font-bold text-center border rounded-lg bg-white ${getInputClass(evt.id, "fecha")}`}
+                                  />
+                                </label>
+                                <label className="space-y-1">
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                                    Hora
+                                  </span>
+                                  <TimeInput
+                                    value={evt.hora_inicio}
+                                    onChange={(v) =>
+                                      handleUpdateEvent(
+                                        evt.id,
+                                        "hora_inicio",
+                                        v,
+                                      )
+                                    }
+                                    className={`h-9 w-full text-[12px] font-bold text-center border rounded-lg bg-white ${getInputClass(evt.id, "hora_inicio")}`}
+                                  />
+                                </label>
+                              </div>
+
+                              <div className="block space-y-1">
+                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                                  Locación
+                                </span>
+                                <LocationSelectWithCreate
+                                  supabase={supabase}
+                                  options={locationOptions}
+                                  value={evt.id_locacion}
+                                  onChange={(v) =>
+                                    handleUpdateEvent(evt.id, "id_locacion", v)
+                                  }
+                                  onRefresh={refreshLocationsList}
+                                  placeholder="Lugar / sala"
+                                  className={`min-w-0 h-9 max-h-9 w-full rounded-lg text-[11px] leading-tight [&>div:first-child>div>div]:!h-9 [&>div:first-child>div>div]:!min-h-0 [&>div:first-child>div>div]:!px-2 [&>div:first-child>div>div]:!py-0 [&>div:first-child>div>div]:!text-[11px] [&>button:last-child]:h-8 [&>button:last-child]:w-8 [&>button:last-child]:min-h-0 [&>button:last-child]:p-0 [&>button:last-child>svg]:!h-3 [&>button:last-child>svg]:!w-3 ${getInputClass(evt.id, "id_locacion")}`}
+                                />
+                              </div>
+
+                              <div className="block space-y-1">
+                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                                  Detalle
+                                </span>
+                                <div className="relative">
+                                  {activeDetailEventId === evt.id && (
+                                    <div className="absolute -top-7 left-0 z-10 flex gap-1 rounded border border-slate-200 bg-slate-50 p-0.5 shadow-sm">
+                                      {[
+                                        { command: "bold", label: "B", className: "font-bold" },
+                                        { command: "italic", label: "I", className: "italic" },
+                                        { command: "underline", label: "U", className: "underline" },
+                                      ].map(({ command, label, className }) => (
+                                        <button
+                                          key={command}
+                                          type="button"
+                                          data-detail-id={evt.id}
+                                          onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            applyDetailCommand(
+                                              evt.id,
+                                              mobileDetailEditorId,
+                                              command,
+                                            );
+                                          }}
+                                          className={`flex h-5 w-5 items-center justify-center rounded text-[10px] text-slate-700 hover:bg-white ${className}`}
+                                          title={label}
+                                        >
+                                          {label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                  <div
+                                    id={mobileDetailEditorId}
+                                    contentEditable
+                                    suppressContentEditableWarning={true}
+                                    className={`min-h-[58px] max-h-[150px] w-full overflow-y-auto rounded-lg border bg-white px-2 py-1.5 text-xs outline-none ${getInputClass(evt.id, "descripcion")}`}
+                                    onFocus={() => setActiveDetailEventId(evt.id)}
+                                    onClick={() => setActiveDetailEventId(evt.id)}
+                                    onBlur={(e) => {
+                                      const html = e.currentTarget.innerHTML;
+                                      setTimeout(() => {
+                                        const active = document.activeElement;
+                                        if (
+                                          active &&
+                                          active.dataset &&
+                                          active.dataset.detailId ===
+                                            String(evt.id)
+                                        ) {
+                                          return;
+                                        }
+                                        setActiveDetailEventId((current) =>
+                                          current === evt.id ? null : current,
+                                        );
+                                        if ((evt.descripcion || "") !== html) {
+                                          handleUpdateEvent(
+                                            evt.id,
+                                            "descripcion",
+                                            html,
+                                          );
+                                        }
+                                      }, 0);
+                                    }}
+                                    dangerouslySetInnerHTML={{
+                                      __html: evt.descripcion || "",
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex w-[92px] shrink-0 flex-col gap-2">
+                              <label className="flex items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5 text-[9px] font-black uppercase text-slate-500">
+                                <input
+                                  type="checkbox"
+                                  className="rounded border-slate-300 text-indigo-600"
+                                  checked={selectedEventIds.has(evt.id)}
+                                  onChange={(e) => {
+                                    handleEventSelectionToggle(
+                                      evt.id,
+                                      e.target.checked,
+                                      myEvents,
+                                      !!e.nativeEvent?.shiftKey,
+                                    );
+                                  }}
+                                />
+                                Sel.
+                              </label>
+
+                              <button
+                                onClick={() =>
+                                  setRulesModal({
+                                    isOpen: true,
+                                    event: evt,
+                                    type: "up",
+                                    transportId: t.id,
+                                  })
+                                }
+                                className={`min-h-[82px] w-full rounded-xl border px-1.5 py-2 text-[10px] font-black flex flex-col items-center justify-center gap-1 ${totalUps > 0 ? "bg-emerald-100 text-emerald-700 border-emerald-200" : upAlert ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse" : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"}`}
+                              >
+                                <span className="flex items-center gap-1">
+                                  <IconUpload size={10} /> Suben
+                                </span>
+                                <span className="text-base leading-none">
+                                  {totalUps > 0 ? totalUps : upAlert ? "0" : "+"}
+                                </span>
+                                {upsSummary.slice(0, 2).map((s, i) => (
+                                  <span
+                                    key={i}
+                                    className={`w-full truncate rounded-sm px-1 text-[8px] ${
+                                      s.count === 0
+                                        ? "bg-amber-100 text-amber-800"
+                                        : "opacity-70"
+                                    }`}
+                                  >
+                                    {s.label} ({s.count})
+                                  </span>
+                                ))}
+                              </button>
+
+                              <button
+                                onClick={() =>
+                                  setRulesModal({
+                                    isOpen: true,
+                                    event: evt,
+                                    type: "down",
+                                    transportId: t.id,
+                                  })
+                                }
+                                className={`min-h-[82px] w-full rounded-xl border px-1.5 py-2 text-[10px] font-black flex flex-col items-center justify-center gap-1 ${totalDowns > 0 ? "bg-rose-100 text-rose-700 border-rose-200" : downAlert ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse" : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"}`}
+                              >
+                                <span className="flex items-center gap-1">
+                                  <IconDownload size={10} /> Bajan
+                                </span>
+                                <span className="text-base leading-none">
+                                  {totalDowns > 0
+                                    ? totalDowns
+                                    : downAlert
+                                      ? "0"
+                                      : "+"}
+                                </span>
+                                {downsSummary.slice(0, 2).map((s, i) => (
+                                  <span
+                                    key={i}
+                                    className={`w-full truncate rounded-sm px-1 text-[8px] ${
+                                      s.count === 0
+                                        ? "bg-amber-100 text-amber-800"
+                                        : "opacity-70"
+                                    }`}
+                                  >
+                                    {s.label} ({s.count})
+                                  </span>
+                                ))}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+                              {evt.visible_agenda === false
+                                ? "Oculta en agenda"
+                                : "Visible en agenda"}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() =>
+                                  handleUpdateEvent(
+                                    evt.id,
+                                    "visible_agenda",
+                                    evt.visible_agenda === false ? true : false,
+                                  )
+                                }
+                                className={`rounded-lg border px-2 py-1 text-[10px] font-black ${
+                                  evt.visible_agenda === false
+                                    ? "border-slate-300 bg-white text-slate-500"
+                                    : "border-slate-200 bg-slate-50 text-slate-500"
+                                }`}
+                                title={
+                                  evt.visible_agenda === false
+                                    ? "Mostrar en agenda"
+                                    : "Ocultar de agenda"
+                                }
+                              >
+                                {evt.visible_agenda === false ? (
+                                  <IconEyeOff size={13} />
+                                ) : (
+                                  <IconEye size={13} />
+                                )}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteEvent(evt.id)}
+                                className="rounded-lg border border-rose-100 bg-rose-50 px-2 py-1 text-rose-500"
+                              >
+                                <IconTrash size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {editingEventId === `new-${t.id}` ? (
+                      <div className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-2 shadow-sm">
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1">
+                            <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
+                              Fecha
+                            </span>
+                            <DateInput
+                              value={newEvent.fecha}
+                              onChange={(v) =>
+                                setNewEvent({ ...newEvent, fecha: v })
+                              }
+                              showDayName={false}
+                              className="h-9 w-full rounded-lg border-indigo-300 text-center text-[12px] font-bold"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
+                              Hora
+                            </span>
+                            <TimeInput
+                              value={newEvent.hora}
+                              onChange={(v) =>
+                                setNewEvent({ ...newEvent, hora: v })
+                              }
+                              className="h-9 w-full rounded-lg border-indigo-300 text-center text-[12px] font-bold"
+                            />
+                          </label>
+                        </div>
+                        <div className="mt-2 block space-y-1">
+                          <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
+                            Locación
+                          </span>
+                          <LocationSelectWithCreate
+                            supabase={supabase}
+                            options={locationOptions}
+                            value={newEvent.id_locacion}
+                            onChange={(v) =>
+                              setNewEvent({ ...newEvent, id_locacion: v })
+                            }
+                            onRefresh={refreshLocationsList}
+                            placeholder="Lugar / sala"
+                            className="min-w-0 h-9 max-h-9 w-full rounded-lg border-indigo-300 text-[11px] leading-tight [&>div:first-child>div>div]:!h-9 [&>div:first-child>div>div]:!min-h-0 [&>div:first-child>div>div]:!px-2 [&>div:first-child>div>div]:!py-0 [&>div:first-child>div>div]:!text-[11px] [&>button:last-child]:h-8 [&>button:last-child]:w-8 [&>button:last-child]:min-h-0 [&>button:last-child]:p-0 [&>button:last-child>svg]:!h-3 [&>button:last-child>svg]:!w-3"
+                          />
+                        </div>
+                        <label className="mt-2 block space-y-1">
+                          <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
+                            Detalle
+                          </span>
+                          <input
+                            type="text"
+                            value={newEvent.descripcion}
+                            onChange={(e) =>
+                              setNewEvent({
+                                ...newEvent,
+                                descripcion: e.target.value,
+                              })
+                            }
+                            placeholder="Nota de la parada..."
+                            className="h-10 w-full rounded-lg border border-indigo-300 px-2 text-xs outline-none focus:ring-2 focus:ring-indigo-200"
+                          />
+                        </label>
+                        <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                          <button
+                            onClick={() => handleSaveEvent(t.id)}
+                            className="rounded-xl bg-indigo-600 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-sm hover:bg-indigo-700"
+                          >
+                            Guardar parada
+                          </button>
+                          <button
+                            onClick={cancelEdit}
+                            className="rounded-xl bg-slate-200 px-3 py-2 text-slate-600 hover:bg-slate-300"
+                          >
+                            <IconX size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => beginNewStopForTransport(t)}
+                        className="w-full rounded-2xl border-2 border-dashed border-slate-200 bg-white py-3 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 transition-all hover:border-indigo-300 hover:text-indigo-600"
+                      >
+                        + Agregar parada
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
