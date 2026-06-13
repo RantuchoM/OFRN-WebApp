@@ -1045,6 +1045,102 @@ async function syncArchivoSelectionShortcuts(
   };
 }
 
+function parseArchivoSelectionOrder(name: string | undefined | null, fallback: number): number {
+  const match = String(name || "").match(/^(\d+)\s*-\s*/);
+  if (match) {
+    const n = parseInt(match[1], 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return fallback;
+}
+
+async function listArchivoMiscFolders(drive: ReturnType<typeof google.drive>) {
+  const folders: Array<{ id: string; name: string; webViewLink?: string | null; modifiedTime?: string | null }> = [];
+  let pageToken: string | undefined;
+  do {
+    const res = await drive.files.list({
+      q: `'${ARCHIVO_MISC_FOLDER_ID}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`,
+      fields: "nextPageToken, files(id, name, webViewLink, modifiedTime)",
+      pageSize: 200,
+      orderBy: "name",
+      pageToken,
+      ...DRIVE_SHARED_OPTS,
+    });
+    for (const f of res.data.files || []) {
+      if (f.id && f.name) {
+        folders.push({
+          id: f.id,
+          name: f.name,
+          webViewLink: f.webViewLink,
+          modifiedTime: f.modifiedTime,
+        });
+      }
+    }
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  return folders;
+}
+
+async function loadArchivoSelectionFromDriveFolder(
+  drive: ReturnType<typeof google.drive>,
+  folderId: string,
+) {
+  const folderMeta = await drive.files.get({
+    fileId: folderId,
+    fields: "id, name, webViewLink",
+    ...DRIVE_SHARED_OPTS,
+  });
+
+  const items: Array<{ order: number; targetDriveId: string; shortcutName: string }> = [];
+  let skippedNonMatchable = 0;
+  let pageToken: string | undefined;
+
+  do {
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false`,
+      fields: "nextPageToken, files(id, name, mimeType, shortcutDetails)",
+      pageSize: 200,
+      orderBy: "name",
+      pageToken,
+      ...DRIVE_SHARED_OPTS,
+    });
+
+    for (const f of res.data.files || []) {
+      if (f.mimeType === SHORTCUT_MIME && f.shortcutDetails?.targetId) {
+        items.push({
+          order: parseArchivoSelectionOrder(f.name, items.length + 1),
+          targetDriveId: f.shortcutDetails.targetId,
+          shortcutName: f.name || "",
+        });
+        continue;
+      }
+      if (f.mimeType === FOLDER_MIME && f.id) {
+        items.push({
+          order: parseArchivoSelectionOrder(f.name, items.length + 1),
+          targetDriveId: f.id,
+          shortcutName: f.name || "",
+        });
+        continue;
+      }
+      skippedNonMatchable += 1;
+    }
+
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+
+  items.sort((a, b) => a.order - b.order || a.shortcutName.localeCompare(b.shortcutName, "es"));
+
+  return {
+    folderId,
+    folderName: folderMeta.data.name || "Selección",
+    folderUrl:
+      folderMeta.data.webViewLink || `https://drive.google.com/drive/folders/${folderId}`,
+    items,
+    itemsTotal: items.length,
+    skippedNonMatchable,
+  };
+}
+
 // =================================================================================
 // SYNC UN PROGRAMA COMPLETO (metadata + repertorio) — compatible con lógica previa
 // =================================================================================
@@ -1313,6 +1409,7 @@ serve(async (req) => {
       selectionName,
       works: selectionWorks,
       repertoireBlockId,
+      selectionFolderId,
     } = body;
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -2526,6 +2623,28 @@ serve(async (req) => {
           ensembleShortcuts: ensembleStats,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // --- ACCIÓN: LISTAR CARPETAS DE MISCeláneos (selecciones del archivo) ---
+    if (action === "list_archivo_misc_folders") {
+      const folders = await listArchivoMiscFolders(drive);
+      return new Response(
+        JSON.stringify({ success: true, folders }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // --- ACCIÓN: CARGAR SELECCIÓN DESDE CARPETA DE MISCeláneos ---
+    if (action === "load_archivo_selection_from_drive") {
+      const folderId = selectionFolderId || body.folderId;
+      if (!folderId || !String(folderId).trim()) {
+        throw new Error("ID de carpeta requerido.");
+      }
+      const result = await loadArchivoSelectionFromDriveFolder(drive, String(folderId).trim());
+      return new Response(
+        JSON.stringify({ success: true, ...result }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 

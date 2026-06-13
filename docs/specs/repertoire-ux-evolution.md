@@ -117,3 +117,72 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 - [x] Acciones archive vs program
 - [x] Opción continuar con obra nueva
 | `src/services/giraService.js` | `updateWorkPosition`, `normalizeRepertorioBlockOrden`. |
+
+---
+
+## 7. Selección del archivo (PDF / Drive / preselección)
+
+### Objetivo
+Permitir armar listas de obras del catálogo, exportar PDF, sincronizar accesos directos numerados en [Misceláneos](https://drive.google.com/drive/folders/10-gPJSotDGO4yvHXo9pG_Kcg7XAMa5za) y **cargar preselecciones** desde carpetas ya existentes en esa ubicación.
+
+### Componentes
+| Archivo | Rol |
+|---------|-----|
+| `RepertoireSelectionBar.jsx` | Barra de acciones (orden, tags, programa, PDF, Drive, vaciar). Visible siempre; si no hay selección muestra solo «Preselección desde Drive». |
+| `RepertoireSelectionDriveLoadModal.jsx` | Modal: lista carpetas de Misceláneos, preview de match, aplica preselección. |
+| `repertoireSelectionDriveService.js` | `listArchivoMiscFolders`, `loadArchivoSelectionFromDrive`, `matchSelectionItemsToWorkIds`, `syncArchivoSelectionToDrive`. |
+| `repertoireSelectionStorage.js` | Persistencia en `localStorage` (`orderedIds`, `name`). |
+
+### Edge Function (`manage-drive`)
+| Acción | Descripción |
+|--------|-------------|
+| `list_archivo_misc_folders` | Subcarpetas de `ARCHIVO_MISC_FOLDER_ID`. |
+| `load_archivo_selection_from_drive` | Lee shortcuts (`shortcutDetails.targetId`) y subcarpetas numeradas; devuelve orden y `targetDriveId`. |
+| `sync_archivo_selection_shortcuts` | Crea/actualiza carpeta + shortcuts numerados (flujo existente). |
+
+### Flujo «Preselección desde Drive»
+1. Usuario abre modal y elige carpeta de Misceláneos.
+2. Backend lista accesos directos / subcarpetas con prefijo `N - `.
+3. Frontend cruza `targetDriveId` con `extractFileId(obra.link_drive)`.
+4. Se reemplaza la selección (con confirmación si ya había obras), se guarda nombre de carpeta en `selectionName`.
+5. El usuario puede editar orden, agregar/quitar obras y re-sincronizar con Drive.
+
+### Completado
+- [x] Listar carpetas Misceláneos
+- [x] Cargar shortcuts y mapear a obras del archivo
+- [x] Botón «Preselección desde Drive» (con y sin selección activa)
+- [x] Preview de obras sin match antes de aplicar
+
+---
+
+## 6. Seed ARIAS / Para acomodar (Drive directo, sin copias)
+
+### Política
+- **`link_drive`** apunta a la carpeta original en ARIAS o Para acomodar; **no** se usa `copiar_carpeta_a_archivo`.
+- PDFs renombrados **sin prefijo `S-N`**; carpetas sin prefijo numérico (`02 -`, etc.).
+- Obras duplicadas en Archivo (copias del seed anterior) eliminadas vía `scripts/delete-archivo-copies.mjs`.
+
+### Scripts
+| Script | Rol |
+|--------|-----|
+| `scripts/process-arias-local.mjs` | Renombra carpetas/PDFs en sync local `H:\...\ARIAS` |
+| `scripts/generate-arias-sync.mjs` | Genera `supabase/seed_arias_sync.sql` (INSERT/UPDATE + particellas) |
+| `scripts/lib/ariasCatalog.mjs` | Catálogo de obras ARIAS, IDs de copias a borrar |
+| `scripts/delete-archivo-copies.mjs` | Borra carpetas duplicadas del Archivo en Drive |
+
+### Completado (2026-06-13)
+- [x] **A)** 5 obras ARIAS re-apuntadas a carpetas originales (3491–3493, 3495–3496); 4 Para acomodar a link original (3490, 3494, 3497–3498)
+- [x] **B)** 9 obras ARIAS nuevas insertadas (3506–3514)
+- [x] 10 carpetas copia eliminadas del Archivo
+- [x] Dedupe de particellas por `(id_instrumento, nombre_archivo)` con merge de URLs
+- [x] **E lucevan (3507) + Nabucco (3514):** PDFs renombrados; particellas e instrumentación corregidas
+- [x] **Particellas ARIAS (3491–3496, 3506–3514):** re-sync desde Drive tras fix de matcher (`extractInstrumentFromExistingName` para `1-2`, Contrafagot `08b`, etc.)
+
+### Scripts adicionales
+| Script | Rol |
+|--------|-----|
+| `scripts/fix-arias-problem-pdfs.mjs` | Renombra PDFs Tosca/IMSLP leyendo encabezado o mapa IMSLP |
+| `scripts/lib/ariasPdfFixes.mjs` | Mapa IMSLP Nabucco + parser encabezado Tosca |
+| `scripts/patch-arias-lucevan-nabucco.mjs` | SQL patch obras 3507 y 3514 |
+| `scripts/patch-arias-particellas.mjs` | Re-sync particellas + instrumentación desde Drive (14 obras ARIAS) |
+| `scripts/verify-arias-particellas.mjs` | Auditoría BD vs Drive |

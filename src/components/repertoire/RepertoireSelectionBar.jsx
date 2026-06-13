@@ -14,6 +14,7 @@ import {
 import RepertoireSelectionOrderModal from "./RepertoireSelectionOrderModal";
 import RepertoireSelectionTagsModal from "./RepertoireSelectionTagsModal";
 import RepertoireSelectionProgramModal from "./RepertoireSelectionProgramModal";
+import RepertoireSelectionDriveLoadModal from "./RepertoireSelectionDriveLoadModal";
 import { exportRepertoireSelectionPdf } from "../../utils/repertoireSelectionPdf";
 import { getRepertoireSelectionPdfTitle, getRepertoireSelectionPdfFileName } from "../../utils/repertoireSelectionStorage";
 import { syncArchivoSelectionToDrive } from "../../services/repertoireSelectionDriveService";
@@ -30,19 +31,22 @@ export default function RepertoireSelectionBar({
   selectionName,
   onSelectionNameChange,
   worksById,
+  works,
   availableTags,
   onUpdateOrder,
   onClear,
   onRemove,
   onRefreshWorks,
+  onLoadFromDrive,
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showTagsModal, setShowTagsModal] = useState(false);
   const [showProgramModal, setShowProgramModal] = useState(false);
+  const [showDriveLoadModal, setShowDriveLoadModal] = useState(false);
   const [driveLoading, setDriveLoading] = useState(false);
 
-  if (orderedIds.length === 0) return null;
+  const hasSelection = orderedIds.length > 0;
 
   const pdfTitle = getRepertoireSelectionPdfTitle(selectionName);
 
@@ -99,85 +103,110 @@ export default function RepertoireSelectionBar({
     <>
       <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 shrink-0 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3 min-w-0 flex-1">
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="flex items-center gap-2 text-sm font-bold text-indigo-800 hover:text-indigo-900 shrink-0"
-            >
-              <IconList size={18} className="text-indigo-600" />
-              Selección ({orderedIds.length})
-              {expanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-            </button>
-            <input
-              type="text"
-              value={selectionName}
-              onChange={(e) => onSelectionNameChange(e.target.value)}
-              placeholder="Nombre de la selección"
-              className="min-w-[180px] flex-1 max-w-md text-xs px-2.5 py-1.5 border border-indigo-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              title="Nombre usado en el PDF y en la carpeta de Drive"
-            />
-          </div>
+          {hasSelection ? (
+            <>
+              <div className="flex flex-wrap items-center gap-3 min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => setExpanded((v) => !v)}
+                  className="flex items-center gap-2 text-sm font-bold text-indigo-800 hover:text-indigo-900 shrink-0"
+                >
+                  <IconList size={18} className="text-indigo-600" />
+                  Selección ({orderedIds.length})
+                  {expanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                </button>
+                <input
+                  type="text"
+                  value={selectionName}
+                  onChange={(e) => onSelectionNameChange(e.target.value)}
+                  placeholder="Nombre de la selección"
+                  className="min-w-[180px] flex-1 max-w-md text-xs px-2.5 py-1.5 border border-indigo-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  title="Nombre usado en el PDF y en la carpeta de Drive"
+                />
+              </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowOrderModal(true)}
-              className="text-xs font-bold px-3 py-1.5 rounded-lg border border-indigo-300 bg-white text-indigo-700 hover:bg-indigo-100"
-            >
-              Editar orden
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowTagsModal(true)}
-              className="text-xs font-bold px-3 py-1.5 rounded-lg border border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100 flex items-center gap-1.5"
-              title="Agregar o quitar tags en todas las obras"
-            >
-              <IconTag size={14} /> Tags
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowProgramModal(true)}
-              className="text-xs font-bold px-3 py-1.5 rounded-lg border border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100 flex items-center gap-1.5"
-              title="Cargar obras a un bloque de repertorio"
-            >
-              <IconCalendarPlus size={14} /> Programa
-            </button>
-            <button
-              type="button"
-              onClick={handleExportPdf}
-              className="text-xs font-bold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-1.5 shadow-sm"
-            >
-              <IconFileText size={14} /> PDF
-            </button>
-            <button
-              type="button"
-              onClick={handleSyncDrive}
-              disabled={driveLoading}
-              className="text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 flex items-center gap-1.5 disabled:opacity-50"
-              title="Crear accesos directos numerados en Misceláneos (Drive)"
-            >
-              {driveLoading ? (
-                <IconLoader size={14} className="animate-spin" />
-              ) : (
-                <IconDrive size={14} />
-              )}
-              Drive
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (confirm("¿Vaciar toda la selección?")) onClear();
-              }}
-              className="text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 flex items-center gap-1"
-              title="Vaciar selección"
-            >
-              <IconTrash size={14} />
-            </button>
-          </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDriveLoadModal(true)}
+                  className="text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-400 bg-white text-emerald-800 hover:bg-emerald-50 flex items-center gap-1.5"
+                  title="Cargar obras desde una carpeta existente en Misceláneos"
+                >
+                  <IconDrive size={14} /> Preselección desde Drive
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowOrderModal(true)}
+                  className="text-xs font-bold px-3 py-1.5 rounded-lg border border-indigo-300 bg-white text-indigo-700 hover:bg-indigo-100"
+                >
+                  Editar orden
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTagsModal(true)}
+                  className="text-xs font-bold px-3 py-1.5 rounded-lg border border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100 flex items-center gap-1.5"
+                  title="Agregar o quitar tags en todas las obras"
+                >
+                  <IconTag size={14} /> Tags
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowProgramModal(true)}
+                  className="text-xs font-bold px-3 py-1.5 rounded-lg border border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100 flex items-center gap-1.5"
+                  title="Cargar obras a un bloque de repertorio"
+                >
+                  <IconCalendarPlus size={14} /> Programa
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportPdf}
+                  className="text-xs font-bold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-1.5 shadow-sm"
+                >
+                  <IconFileText size={14} /> PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSyncDrive}
+                  disabled={driveLoading}
+                  className="text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 flex items-center gap-1.5 disabled:opacity-50"
+                  title="Crear accesos directos numerados en Misceláneos (Drive)"
+                >
+                  {driveLoading ? (
+                    <IconLoader size={14} className="animate-spin" />
+                  ) : (
+                    <IconDrive size={14} />
+                  )}
+                  Drive
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm("¿Vaciar toda la selección?")) onClear();
+                  }}
+                  className="text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 flex items-center gap-1"
+                  title="Vaciar selección"
+                >
+                  <IconTrash size={14} />
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3 w-full">
+              <p className="text-xs text-indigo-700/80">
+                Sin obras seleccionadas. Podés cargar una lista desde Drive o marcar obras en la tabla.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowDriveLoadModal(true)}
+                className="text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-400 bg-white text-emerald-800 hover:bg-emerald-50 flex items-center gap-1.5 shadow-sm"
+              >
+                <IconDrive size={14} /> Preselección desde Drive
+              </button>
+            </div>
+          )}
         </div>
 
-        {expanded && (
+        {hasSelection && expanded && (
           <div className="mt-3 pt-3 border-t border-indigo-200/80 max-h-40 overflow-y-auto space-y-1">
             {selectedWorks.map((work, index) => (
               <div
@@ -237,6 +266,16 @@ export default function RepertoireSelectionBar({
           workIds={selectedWorks.map((w) => w.id)}
           workCount={selectedWorks.length}
           onClose={() => setShowProgramModal(false)}
+        />
+      )}
+
+      {showDriveLoadModal && (
+        <RepertoireSelectionDriveLoadModal
+          supabase={supabase}
+          works={works}
+          currentSelectionCount={orderedIds.length}
+          onClose={() => setShowDriveLoadModal(false)}
+          onLoad={onLoadFromDrive}
         />
       )}
     </>

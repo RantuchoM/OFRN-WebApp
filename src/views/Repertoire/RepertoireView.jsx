@@ -541,6 +541,12 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     await Promise.all(ids.map((id) => fetchWorkById(id)));
   };
 
+  const loadSelectionFromDrive = (orderedIds, name) => {
+    const saved = saveRepertoireSelection(orderedIds, name);
+    setSelectionOrderedIds(saved.orderedIds);
+    setSelectionName(saved.name);
+  };
+
   const legacyOficialSinDriveCount = useMemo(
     () =>
       works.filter(
@@ -1064,9 +1070,11 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
         selectionName={selectionName}
         onSelectionNameChange={updateSelectionName}
         worksById={worksById}
+        works={works}
         availableTags={availableTags}
         onUpdateOrder={persistSelection}
         onRefreshWorks={refreshSelectionWorks}
+        onLoadFromDrive={loadSelectionFromDrive}
         onClear={() => {
           clearRepertoireSelection();
           setSelectionOrderedIds([]);
