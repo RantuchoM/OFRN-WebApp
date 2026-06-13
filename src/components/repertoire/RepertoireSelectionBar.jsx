@@ -7,6 +7,7 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconDrive,
+  IconHelpCircle,
   IconLoader,
   IconTag,
   IconCalendarPlus,
@@ -23,6 +24,9 @@ const stripHtml = (html) =>
   String(html || "")
     .replace(/<[^>]*>/g, "")
     .trim();
+
+const EMPTY_SELECTION_HELP =
+  "Sin obras seleccionadas. Podés cargar una lista desde Drive o marcar obras en la tabla.";
 
 export default function RepertoireSelectionBar({
   supabase,
@@ -191,10 +195,7 @@ export default function RepertoireSelectionBar({
               </div>
             </>
           ) : (
-            <div className="flex flex-wrap items-center justify-between gap-3 w-full">
-              <p className="text-xs text-indigo-700/80">
-                Sin obras seleccionadas. Podés cargar una lista desde Drive o marcar obras en la tabla.
-              </p>
+            <div className="flex flex-wrap items-center justify-end gap-2 w-full">
               <button
                 type="button"
                 onClick={() => setShowDriveLoadModal(true)}
@@ -202,6 +203,20 @@ export default function RepertoireSelectionBar({
               >
                 <IconDrive size={14} /> Preselección desde Drive
               </button>
+              <span
+                className="relative inline-flex group"
+                tabIndex={0}
+                aria-label={EMPTY_SELECTION_HELP}
+                title={EMPTY_SELECTION_HELP}
+              >
+                <IconHelpCircle
+                  size={16}
+                  className="text-indigo-500 hover:text-indigo-700 cursor-help"
+                />
+                <span className="pointer-events-none invisible absolute right-0 top-full z-[110] mt-2 w-64 rounded-lg border border-indigo-100 bg-white px-3 py-2 text-left text-[11px] font-medium leading-snug text-slate-700 shadow-xl opacity-0 transition-opacity group-hover:visible group-hover:opacity-100 group-focus:visible group-focus:opacity-100">
+                  {EMPTY_SELECTION_HELP}
+                </span>
+              </span>
             </div>
           )}
         </div>

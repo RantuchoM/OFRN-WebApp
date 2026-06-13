@@ -152,6 +152,7 @@ Permitir armar listas de obras del catálogo, exportar PDF, sincronizar accesos 
 - [x] Cargar shortcuts y mapear a obras del archivo
 - [x] Botón «Preselección desde Drive» (con y sin selección activa)
 - [x] Preview de obras sin match antes de aplicar
+- [x] Estado sin selección compacto: ayuda movida a signo de pregunta junto a «Preselección desde Drive»
 
 ---
 
