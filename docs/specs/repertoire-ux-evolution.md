@@ -169,6 +169,7 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - La grilla con headers/filtros por columna permanece en desktop (`md+`) sin cambios funcionales.
 - Ajuste v3: se quita el badge de estado en móvil y el estado pasa a comunicarse por un fondo de card más visible (`getEstadoMobileCardBgClass`).
 - Ajuste v3: Drive/carpeta se ubica debajo del checkbox de selección, y las cuatro acciones principales (asignar, historial, editar, eliminar) se apilan verticalmente a la derecha sin aumentar el alto de la card.
+- Ajuste v4: las acciones principales pasan a un menú de tres puntos (`IconMoreVertical`) a la derecha para no afectar la altura; la carpeta/Drive se desplaza levemente hacia abajo bajo el checkbox.
 
 ### Filtros móviles
 - Se agrega un menú superior de filtros con `IconFilter`, siguiendo el patrón de filtros tipo chip usado en vistas compactas.

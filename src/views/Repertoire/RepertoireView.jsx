@@ -26,6 +26,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconExternalLink,
+  IconMoreVertical,
 } from "../../components/ui/Icons";
 import { format, isBefore, isToday, parseISO, addDays } from "date-fns";
 import { es } from "date-fns/locale";
@@ -472,10 +473,12 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [showInstrFilter, setShowInstrFilter] = useState(false);
   const [showMobileInstrFilter, setShowMobileInstrFilter] = useState(false);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [mobileWorkActionMenuId, setMobileWorkActionMenuId] = useState(null);
   const [showSolicitudes, setShowSolicitudes] = useState(false);
   const solicitudesRef = useRef(null);
   const mobileFiltersRef = useRef(null);
   const mobileInstrFilterAnchorRef = useRef(null);
+  const mobileWorkActionMenuRef = useRef(null);
   useEffect(() => {
     const handleClickOutside = (e) => { if (solicitudesRef.current && !solicitudesRef.current.contains(e.target)) setShowSolicitudes(false); };
     document.addEventListener("mousedown", handleClickOutside);
@@ -485,6 +488,18 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     const handleClickOutside = (e) => {
       if (mobileFiltersRef.current && !mobileFiltersRef.current.contains(e.target)) {
         setShowMobileFilters(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (
+        mobileWorkActionMenuRef.current &&
+        !mobileWorkActionMenuRef.current.contains(e.target)
+      ) {
+        setMobileWorkActionMenuId(null);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -1892,7 +1907,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                             aria-label={selectionIdSet.has(work.id) ? "Quitar de la selección" : "Agregar a la selección"}
                           />
                           {work.link_drive && (
-                            <a href={work.link_drive} target="_blank" className="rounded bg-white/70 p-0.5 text-green-600" aria-label="Abrir Drive">
+                            <a href={work.link_drive} target="_blank" className="mt-1.5 rounded bg-white/70 p-0.5 text-green-600" aria-label="Abrir Drive">
                               <IconDrive size={14} />
                             </a>
                           )}
@@ -1961,19 +1976,67 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                           )}
                         </div>
 
-                        <div className="flex w-6 shrink-0 flex-col items-center justify-between self-stretch py-0.5">
-                          <button type="button" onClick={() => setAssignWork(work)} className="rounded p-0.5 text-blue-600 hover:bg-blue-50" aria-label="Asignar a gira">
-                            <IconCalendarPlus size={15} />
+                        <div className="relative flex w-6 shrink-0 justify-center pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setMobileWorkActionMenuId((prev) =>
+                                prev === work.id ? null : work.id,
+                              )
+                            }
+                            className="flex h-6 w-6 items-center justify-center rounded-full bg-white/70 text-slate-500 hover:bg-white hover:text-indigo-600"
+                            aria-label="Acciones de obra"
+                            aria-expanded={mobileWorkActionMenuId === work.id}
+                          >
+                            <IconMoreVertical size={16} />
                           </button>
-                          <button type="button" onClick={() => setHistoryWork(work)} className="rounded p-0.5 text-indigo-500 hover:bg-indigo-50" aria-label="Ver historial">
-                            <IconHistory size={15} />
-                          </button>
-                          <button type="button" onClick={() => startEdit(work)} className="rounded p-0.5 text-slate-500 hover:bg-slate-100 hover:text-indigo-600" aria-label="Editar obra">
-                            <IconEdit size={15} />
-                          </button>
-                          <button type="button" onClick={() => handleDelete(work.id)} className="rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600" aria-label="Eliminar obra">
-                            <IconTrash size={15} />
-                          </button>
+                          {mobileWorkActionMenuId === work.id && (
+                            <div
+                              ref={mobileWorkActionMenuRef}
+                              className="absolute right-0 top-7 z-30 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-xs font-bold shadow-xl"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAssignWork(work);
+                                  setMobileWorkActionMenuId(null);
+                                }}
+                                className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-blue-700 hover:bg-blue-50"
+                              >
+                                <IconCalendarPlus size={13} /> Asignar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setHistoryWork(work);
+                                  setMobileWorkActionMenuId(null);
+                                }}
+                                className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-indigo-700 hover:bg-indigo-50"
+                              >
+                                <IconHistory size={13} /> Historial
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  startEdit(work);
+                                  setMobileWorkActionMenuId(null);
+                                }}
+                                className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                              >
+                                <IconEdit size={13} /> Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMobileWorkActionMenuId(null);
+                                  handleDelete(work.id);
+                                }}
+                                className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-red-600 hover:bg-red-50"
+                              >
+                                <IconTrash size={13} /> Eliminar
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </li>
