@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   IconList,
@@ -42,13 +42,17 @@ export default function RepertoireSelectionBar({
   onRemove,
   onRefreshWorks,
   onLoadFromDrive,
+  variant = "bar",
+  mobileExtraActions = null,
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showTagsModal, setShowTagsModal] = useState(false);
   const [showProgramModal, setShowProgramModal] = useState(false);
   const [showDriveLoadModal, setShowDriveLoadModal] = useState(false);
   const [driveLoading, setDriveLoading] = useState(false);
+  const mobileMenuRef = useRef(null);
 
   const hasSelection = orderedIds.length > 0;
 
@@ -102,6 +106,186 @@ export default function RepertoireSelectionBar({
       setDriveLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (variant !== "mobile-menu") return undefined;
+    const handleClickOutside = (event) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(event.target)) {
+        setShowMobileMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [variant]);
+
+  const openAndCloseMenu = (callback) => {
+    callback();
+    setShowMobileMenu(false);
+  };
+
+  if (variant === "mobile-menu") {
+    return (
+      <>
+        <div className="relative shrink-0" ref={mobileMenuRef}>
+          <button
+            type="button"
+            onClick={() => setShowMobileMenu((v) => !v)}
+            className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-2 text-xs font-bold ${
+              showMobileMenu || hasSelection
+                ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                : "border-slate-300 bg-white text-slate-600"
+            }`}
+            aria-expanded={showMobileMenu}
+            aria-label="Acciones de selección"
+          >
+            <IconList size={16} />
+            {hasSelection && (
+              <span className="rounded-full bg-indigo-600 px-1.5 py-0.5 text-[9px] leading-none text-white">
+                {orderedIds.length}
+              </span>
+            )}
+            <IconChevronDown size={12} className={showMobileMenu ? "rotate-180" : ""} />
+          </button>
+
+          {showMobileMenu && (
+            <div className="absolute left-0 top-full z-50 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+              <div className="mb-2 flex items-center justify-between border-b border-slate-100 pb-2">
+                <span className="text-[10px] font-black uppercase text-slate-500">
+                  Selección
+                </span>
+                <span className="text-[10px] font-bold text-indigo-700">
+                  {orderedIds.length} obra{orderedIds.length === 1 ? "" : "s"}
+                </span>
+              </div>
+
+              <div className="space-y-1">
+                {mobileExtraActions}
+
+                <button
+                  type="button"
+                  onClick={() => openAndCloseMenu(() => setShowDriveLoadModal(true))}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-emerald-800 hover:bg-emerald-50"
+                >
+                  <IconDrive size={14} /> Preselección desde Drive
+                </button>
+
+                {hasSelection ? (
+                  <>
+                    <input
+                      type="text"
+                      value={selectionName}
+                      onChange={(e) => onSelectionNameChange(e.target.value)}
+                      placeholder="Nombre de la selección"
+                      className="mb-1 w-full rounded-lg border border-indigo-100 bg-indigo-50/40 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => openAndCloseMenu(() => setShowOrderModal(true))}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50"
+                    >
+                      <IconList size={14} /> Editar orden
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openAndCloseMenu(() => setShowTagsModal(true))}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-violet-800 hover:bg-violet-50"
+                    >
+                      <IconTag size={14} /> Tags
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openAndCloseMenu(() => setShowProgramModal(true))}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-sky-800 hover:bg-sky-50"
+                    >
+                      <IconCalendarPlus size={14} /> Programa
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openAndCloseMenu(handleExportPdf)}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50"
+                    >
+                      <IconFileText size={14} /> PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openAndCloseMenu(handleSyncDrive)}
+                      disabled={driveLoading}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
+                    >
+                      {driveLoading ? (
+                        <IconLoader size={14} className="animate-spin" />
+                      ) : (
+                        <IconDrive size={14} />
+                      )}
+                      Sincronizar Drive
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openAndCloseMenu(() => {
+                          if (confirm("¿Vaciar toda la selección?")) onClear();
+                        })
+                      }
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-rose-700 hover:bg-rose-50"
+                    >
+                      <IconTrash size={14} /> Vaciar selección
+                    </button>
+                  </>
+                ) : (
+                  <div className="flex items-start gap-2 rounded-lg bg-slate-50 px-2 py-2 text-[11px] leading-snug text-slate-500">
+                    <IconHelpCircle size={14} className="mt-0.5 shrink-0 text-indigo-500" />
+                    <span>{EMPTY_SELECTION_HELP}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {showOrderModal && (
+          <RepertoireSelectionOrderModal
+            worksById={worksById}
+            orderedIds={orderedIds}
+            onClose={() => setShowOrderModal(false)}
+            onSave={(ids) => {
+              onUpdateOrder(ids);
+              setShowOrderModal(false);
+            }}
+          />
+        )}
+
+        {showTagsModal && (
+          <RepertoireSelectionTagsModal
+            supabase={supabase}
+            workIds={selectedWorks.map((w) => w.id)}
+            workCount={selectedWorks.length}
+            availableTags={availableTags}
+            onClose={() => setShowTagsModal(false)}
+            onApplied={onRefreshWorks}
+          />
+        )}
+
+        {showProgramModal && (
+          <RepertoireSelectionProgramModal
+            supabase={supabase}
+            workIds={selectedWorks.map((w) => w.id)}
+            workCount={selectedWorks.length}
+            onClose={() => setShowProgramModal(false)}
+          />
+        )}
+
+        {showDriveLoadModal && (
+          <RepertoireSelectionDriveLoadModal
+            supabase={supabase}
+            works={works}
+            currentSelectionCount={orderedIds.length}
+            onClose={() => setShowDriveLoadModal(false)}
+            onLoad={onLoadFromDrive}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <>

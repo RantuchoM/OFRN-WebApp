@@ -1151,12 +1151,12 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
 
   return (
     <div className="space-y-3 md:space-y-6 h-full flex flex-col overflow-hidden animate-in fade-in">
-      <div className="bg-white p-2.5 md:p-4 rounded-xl shadow-sm border border-slate-200 shrink-0 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-2 md:gap-4">
+      <div className="bg-white p-2.5 md:p-4 rounded-xl shadow-sm border border-slate-200 shrink-0 flex flex-row justify-between items-center gap-2 md:gap-4">
         <div className="flex items-center gap-2 md:gap-4 min-w-0">
-          <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2"><IconFolderMusic className="text-indigo-600" /> Archivo de Obras</h2>
+          <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2"><IconFolderMusic className="text-indigo-600" /> Archivo</h2>
           <div className="text-xs text-slate-500 bg-slate-100 px-2 md:px-3 py-1 rounded-full shrink-0">{allFilteredWorks.length} resultados</div>
         </div>
-        <div className="flex flex-nowrap md:flex-wrap gap-2 md:gap-3 items-center overflow-x-auto no-scrollbar md:overflow-visible">
+        <div className="flex shrink-0 flex-nowrap md:flex-wrap gap-1.5 md:gap-3 items-center overflow-x-auto no-scrollbar md:overflow-visible">
           <div className="relative" ref={solicitudesRef}>
             <button
               type="button"
@@ -1201,7 +1201,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
               Legacy: Oficial sin Drive ({legacyOficialSinDriveCount})
             </button>
           )}
-          <div className="flex gap-1 border-r border-slate-200 pr-2 md:pr-3">
+          <div className="flex gap-0.5 md:gap-1 border-r border-slate-200 pr-1.5 md:pr-3">
             <button onClick={() => setShowComposersManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full" title="Compositores"><IconUsers size={20} /></button>
             <button onClick={() => setShowTagsManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full" title="Tags"><IconTag size={20} /></button>
           </div>
@@ -1212,25 +1212,27 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
         </div>
       </div>
 
-      <RepertoireSelectionBar
-        supabase={supabase}
-        orderedIds={selectionOrderedIds}
-        selectedWorks={selectedWorks}
-        selectionName={selectionName}
-        onSelectionNameChange={updateSelectionName}
-        worksById={worksById}
-        works={works}
-        availableTags={availableTags}
-        onUpdateOrder={persistSelection}
-        onRefreshWorks={refreshSelectionWorks}
-        onLoadFromDrive={loadSelectionFromDrive}
-        onClear={() => {
-          clearRepertoireSelection();
-          setSelectionOrderedIds([]);
-          setSelectionName("");
-        }}
-        onRemove={removeFromSelection}
-      />
+      <div className="hidden md:block">
+        <RepertoireSelectionBar
+          supabase={supabase}
+          orderedIds={selectionOrderedIds}
+          selectedWorks={selectedWorks}
+          selectionName={selectionName}
+          onSelectionNameChange={updateSelectionName}
+          worksById={worksById}
+          works={works}
+          availableTags={availableTags}
+          onUpdateOrder={persistSelection}
+          onRefreshWorks={refreshSelectionWorks}
+          onLoadFromDrive={loadSelectionFromDrive}
+          onClear={() => {
+            clearRepertoireSelection();
+            setSelectionOrderedIds([]);
+            setSelectionName("");
+          }}
+          onRemove={removeFromSelection}
+        />
+      </div>
 
       <div className="flex-1 overflow-hidden flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm relative">
         {isAdding || editingId ? (
@@ -1571,20 +1573,43 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                 >
                   <IconFilter size={18} />
                 </button>
-                <button
-                  type="button"
-                  onClick={toggleFilteredSelection}
-                  disabled={filteredWorkIds.length === 0}
-                  className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border disabled:opacity-40 ${
-                    filteredSelectionState !== "none"
-                      ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                      : "border-slate-300 bg-white text-slate-500"
-                  }`}
-                  aria-label="Seleccionar obras filtradas"
-                  title="Seleccionar obras filtradas"
-                >
-                  <IconCheck size={17} />
-                </button>
+                <RepertoireSelectionBar
+                  variant="mobile-menu"
+                  supabase={supabase}
+                  orderedIds={selectionOrderedIds}
+                  selectedWorks={selectedWorks}
+                  selectionName={selectionName}
+                  onSelectionNameChange={updateSelectionName}
+                  worksById={worksById}
+                  works={works}
+                  availableTags={availableTags}
+                  onUpdateOrder={persistSelection}
+                  onRefreshWorks={refreshSelectionWorks}
+                  onLoadFromDrive={loadSelectionFromDrive}
+                  onClear={() => {
+                    clearRepertoireSelection();
+                    setSelectionOrderedIds([]);
+                    setSelectionName("");
+                  }}
+                  onRemove={removeFromSelection}
+                  mobileExtraActions={
+                    <button
+                      type="button"
+                      onClick={toggleFilteredSelection}
+                      disabled={filteredWorkIds.length === 0}
+                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold disabled:opacity-40 ${
+                        filteredSelectionState !== "none"
+                          ? "bg-indigo-50 text-indigo-700"
+                          : "text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      <IconCheck size={14} />
+                      {filteredSelectionState === "all"
+                        ? "Quitar obras filtradas"
+                        : "Seleccionar obras filtradas"}
+                    </button>
+                  }
+                />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-bold text-slate-700">
                     {allFilteredWorks.length} obra{allFilteredWorks.length === 1 ? "" : "s"}

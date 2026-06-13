@@ -175,6 +175,13 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - El filtro por orgánico reutiliza `InstrumentationFilterModal` con `anchorRef` para posicionarse correctamente en viewport móvil.
 - El botón de limpiar filtros se muestra como acción iconográfica cuando hay chips activos.
 
+### Selección móvil (v2)
+- El título móvil se compacta a **Archivo** y las acciones de administración del archivo quedan en la línea superior.
+- La barra completa `RepertoireSelectionBar` permanece solo en desktop.
+- En móvil, `RepertoireSelectionBar` usa `variant="mobile-menu"`: todas las acciones de selección se agrupan en un desplegable junto al botón de filtros.
+- El menú móvil incluye selección de obras filtradas, preselección desde Drive, nombre de selección, editar orden, tags, cargar a programa, PDF, sincronizar Drive y vaciar selección.
+- `RepertoireSelectionOrderModal` evita drag & drop en móvil y usa botones subir/bajar por obra; desktop conserva DnD.
+
 ---
 
 ## 6. Seed ARIAS / Para acomodar (Drive directo, sin copias)

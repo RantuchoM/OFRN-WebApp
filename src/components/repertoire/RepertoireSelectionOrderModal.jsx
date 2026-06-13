@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -13,7 +13,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { IconX, IconGripVertical, IconCheck } from "../ui/Icons";
+import { IconX, IconGripVertical, IconCheck, IconArrowUp, IconArrowDown } from "../ui/Icons";
 
 const stripHtml = (html) =>
   String(html || "")
@@ -62,6 +62,51 @@ function SortableRow({ work, index, onRemove }) {
   );
 }
 
+function ManualOrderRow({ work, index, total, onMove, onRemove }) {
+  return (
+    <div className="flex items-center gap-2 p-2 bg-white border border-slate-200 rounded-lg shadow-sm">
+      <span className="text-xs font-bold text-indigo-600 w-6 shrink-0">{index + 1}</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-semibold text-slate-700 truncate">
+          {work.compositor_full || "Sin compositor"}
+        </div>
+        <div className="text-[11px] text-slate-600 truncate">{stripHtml(work.titulo)}</div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          onClick={() => onMove(index, index - 1)}
+          disabled={index === 0}
+          className="p-1 rounded border border-slate-200 text-indigo-600 disabled:opacity-30"
+          aria-label="Subir obra"
+          title="Subir"
+        >
+          <IconArrowUp size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={() => onMove(index, index + 1)}
+          disabled={index >= total - 1}
+          className="p-1 rounded border border-slate-200 text-indigo-600 disabled:opacity-30"
+          aria-label="Bajar obra"
+          title="Bajar"
+        >
+          <IconArrowDown size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={() => onRemove(work.id)}
+          className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+          title="Quitar de la selección"
+          aria-label="Quitar de la selección"
+        >
+          <IconX size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function RepertoireSelectionOrderModal({
   worksById,
   orderedIds,
@@ -69,6 +114,7 @@ export default function RepertoireSelectionOrderModal({
   onClose,
 }) {
   const [draftIds, setDraftIds] = useState(() => [...orderedIds]);
+  const [isMobileOrder, setIsMobileOrder] = useState(false);
 
   const draftWorks = useMemo(
     () =>
@@ -81,6 +127,14 @@ export default function RepertoireSelectionOrderModal({
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobileOrder(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   const handleDragEnd = (event) => {
     const { active, over } = event;
@@ -97,6 +151,13 @@ export default function RepertoireSelectionOrderModal({
     setDraftIds((prev) => prev.filter((x) => x !== id));
   };
 
+  const handleManualMove = (fromIndex, toIndex) => {
+    setDraftIds((prev) => {
+      if (toIndex < 0 || toIndex >= prev.length) return prev;
+      return arrayMove(prev, fromIndex, toIndex);
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
@@ -104,7 +165,8 @@ export default function RepertoireSelectionOrderModal({
           <div>
             <h3 className="font-bold text-slate-800 text-lg">Orden de la selección</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Arrastrá para reordenar. {draftWorks.length} obra{draftWorks.length === 1 ? "" : "s"}.
+              {isMobileOrder ? "Usá las flechas para reordenar." : "Arrastrá para reordenar."}{" "}
+              {draftWorks.length} obra{draftWorks.length === 1 ? "" : "s"}.
             </p>
           </div>
           <button
@@ -120,6 +182,19 @@ export default function RepertoireSelectionOrderModal({
           {draftWorks.length === 0 ? (
             <div className="text-center py-10 text-slate-400 italic text-sm">
               No hay obras en la selección.
+            </div>
+          ) : isMobileOrder ? (
+            <div className="space-y-2">
+              {draftWorks.map((work, index) => (
+                <ManualOrderRow
+                  key={work.id}
+                  work={work}
+                  index={index}
+                  total={draftWorks.length}
+                  onMove={handleManualMove}
+                  onRemove={handleRemove}
+                />
+              ))}
             </div>
           ) : (
             <DndContext
