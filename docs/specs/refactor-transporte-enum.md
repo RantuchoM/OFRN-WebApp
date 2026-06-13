@@ -22,6 +22,13 @@ Cualquier evento en la agenda cuyo `id_tipo_evento` sea **35** debe considerarse
 - `giraService.js`: `getTransportesByGira` incluye `categoria_logistica` en el select.
 - `useAgendaData.js`: la query de `giras_transportes` incluye `categoria_logistica` para que el cálculo de logística en agenda tenga el dato.
 
+## UI móvil de Gestión de Transportes
+
+- [x] Los cuatro indicadores superiores usan grilla responsive `2 columnas -> 4 columnas` para evitar compresión en pantallas angostas.
+- [x] La barra de acciones, filtros y formulario de alta de transporte se adaptan a mobile con controles apilados o de ancho completo.
+- [x] Al abrir un transporte en mobile, las paradas se renderizan como cards: fecha, hora, locación y detalle quedan apilados; las reglas de subida/bajada quedan en una columna lateral.
+- [x] En desktop se mantiene la tabla original de paradas para preservar densidad de edición.
+
 ## Migración SQL
 
 Ver `supabase/migrations/20260329120000_transporte_categoria_logistica.sql`. La columna `es_tipo_alternativo` puede eliminarse después de validar (paso opcional comentado en el archivo).
