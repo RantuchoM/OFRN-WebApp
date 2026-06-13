@@ -13,3 +13,11 @@ Implementar el rol `coord_general` como una entidad de coordinación con alcance
   - No puede modificar la configuración de una Gira.
   - Solo puede editar eventos donde el tipo sea "Ensayos de Ensamble" (ID 13) o similares, gracias a la lógica de `canUserEditEvent` ya existente que valida contra el `Set` de ensambles.
 
+## UI móvil de Coordinación
+- **Estado:** Implementado (2026-06-13).
+- El header principal de `EnsembleCoordinatorView.jsx` mantiene título, ayuda, filtros/herramientas y botón "Nuevo" en una sola fila móvil, reduciendo gaps/paddings y acotando badges con scroll horizontal.
+- La barra de pestañas y acciones superiores queda en una sola fila móvil; las pestañas usan scroll horizontal y etiquetas compactas.
+- Las cards móviles de ensayo reducen padding, márgenes y tamaños secundarios para ganar densidad vertical.
+- El horario de inicio/fin de cada card usa `whitespace-nowrap` para permanecer en una misma línea.
+- Las acciones de la card se apilan verticalmente: editar arriba y eliminar abajo. El botón de eliminación se muestra en rojo.
+

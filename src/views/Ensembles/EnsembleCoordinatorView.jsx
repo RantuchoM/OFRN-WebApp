@@ -287,10 +287,10 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
 
   return (
     <div
-      className={`flex items-start p-2.5 border rounded-lg shadow-sm transition-all bg-white ${isSelected ? "border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/40" : "border-slate-200"} ${!isMyEvent ? "opacity-60 grayscale-[0.5] border-dashed" : ""} ${isDeleted ? "line-through opacity-50 grayscale" : ""}`}
+      className={`flex items-start p-2 md:p-2.5 border rounded-lg shadow-sm transition-all bg-white ${isSelected ? "border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/40" : "border-slate-200"} ${!isMyEvent ? "opacity-60 grayscale-[0.5] border-dashed" : ""} ${isDeleted ? "line-through opacity-50 grayscale" : ""}`}
     >
       {/* COLUMNA IZQUIERDA: CHECKBOX + FECHA */}
-      <div className="flex flex-col items-center gap-2 mr-3 shrink-0 relative">
+      <div className="flex flex-col items-center gap-1.5 md:gap-2 mr-2 md:mr-3 shrink-0 relative">
         {isEditable && (
           <input
             type="checkbox"
@@ -298,15 +298,15 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
             onChange={(e) =>
               onSelect(evt.id, e.target.checked, listIndex, e.nativeEvent)
             }
-            className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            className="w-4 h-4 md:w-5 md:h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
           />
         )}
 
-        <div className="flex flex-col items-center justify-center rounded-md p-1 w-12 bg-slate-50 border border-slate-100">
+        <div className="flex flex-col items-center justify-center rounded-md p-0.5 md:p-1 w-10 md:w-12 bg-slate-50 border border-slate-100">
           <span className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-0.5">
             {day}
           </span>
-          <span className="text-xl font-bold leading-none text-slate-700">
+          <span className="text-lg md:text-xl font-bold leading-none text-slate-700">
             {num}
           </span>
           <span className="text-[9px] font-bold text-slate-400 uppercase leading-none mt-0.5">
@@ -321,24 +321,24 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
       </div>
 
       <div
-        className="flex-1 min-w-0 pl-3 relative border-l-2"
+        className="flex-1 min-w-0 pl-2 md:pl-3 relative border-l-2"
         style={{ borderLeftColor: eventColor }}
       >
-        <div className="flex items-start justify-between gap-2 mb-1">
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold font-mono text-slate-600 bg-slate-100 px-1.5 rounded">
+        <div className="flex items-start justify-between gap-1.5 md:gap-2 mb-0.5 md:mb-1">
+          <div className="flex-1 min-w-0">
+            <div className="flex min-w-0 items-center gap-1.5 md:gap-2">
+              <span className="shrink-0 whitespace-nowrap text-[11px] md:text-xs font-bold font-mono text-slate-600 bg-slate-100 px-1.5 rounded">
                 {formatTime(evt.hora_inicio)} - {formatTime(evt.hora_fin)}
               </span>
               <span
-                className="text-[9px] px-1.5 rounded border font-bold uppercase tracking-wider truncate max-w-[120px]"
+                className="min-w-0 text-[9px] px-1.5 rounded border font-bold uppercase tracking-wider truncate max-w-[92px] sm:max-w-[120px]"
                 style={tagStyle}
               >
                 {evt.tipos_evento?.nombre}
               </span>
             </div>
             <h3
-              className={`font-bold text-sm mt-1 truncate ${isMyEvent ? "text-slate-800" : "text-slate-600 italic"}`}
+              className={`font-bold text-[13px] md:text-sm mt-0.5 md:mt-1 truncate ${isMyEvent ? "text-slate-800" : "text-slate-600 italic"}`}
             >
               {stripHtml(evt.descripcion) || "Evento"}
             </h3>
@@ -349,17 +349,17 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
             )}
           </div>
           {isEditable && (
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex flex-col items-center gap-0.5 shrink-0 -mt-0.5">
               <button
                 onClick={() => onEdit(evt)}
-                className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-slate-100 transition-colors"
+                className="text-slate-400 hover:text-indigo-600 p-0.5 md:p-1 rounded hover:bg-slate-100 transition-colors"
                 title="Editar Evento"
               >
                 <IconEdit size={14} />
               </button>
               <button
                 onClick={() => onDelete(evt.id, evt)}
-                className="text-slate-400 hover:text-red-600 p-1 rounded hover:bg-slate-100 transition-colors"
+                className="text-red-500 hover:text-red-700 p-0.5 md:p-1 rounded hover:bg-red-50 transition-colors"
                 title="Eliminar Evento"
               >
                 <IconTrash size={14} />
@@ -368,7 +368,7 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
           )}
         </div>
         {linkedPrograms.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-2">
+          <div className="flex flex-wrap gap-1 mb-1.5 md:mb-2">
             {linkedPrograms.map((prog) => (
               <span
                 key={prog.id}
@@ -382,8 +382,8 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
             ))}
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-1">
-          <span className="flex items-center gap-1 truncate max-w-[150px]">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 md:gap-3 text-[11px] md:text-xs text-slate-500 mt-0.5 md:mt-1">
+          <span className="flex items-center gap-1 truncate max-w-[128px] sm:max-w-[150px]">
             <IconMapPin size={12} className="text-slate-400 shrink-0" />{" "}
             {locationStr}
           </span>
@@ -427,7 +427,7 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
           )}
         </div>
         {(guests.length > 0 || absents.length > 0) && (
-          <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-slate-100 border-dashed">
+          <div className="flex flex-wrap gap-1 mt-1.5 md:mt-2 pt-1.5 md:pt-2 border-t border-slate-100 border-dashed">
             {guests.map((g) => (
               <span
                 key={g.id_integrante}
@@ -3368,7 +3368,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   ];
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 p-4 md:p-6 gap-3 overflow-hidden">
+    <div className="flex flex-col h-full bg-slate-50 p-2 md:p-6 gap-2 md:gap-3 overflow-hidden">
       <ConfirmModal
         isOpen={deleteConfirm.isOpen}
         onClose={() =>
@@ -3389,24 +3389,24 @@ export default function EnsembleCoordinatorView({ supabase }) {
         cancelText="Cancelar"
       />
       {/* HEADER */}
-      <div className="flex flex-col gap-2 shrink-0">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+      <div className="flex flex-col gap-1.5 md:gap-2 shrink-0">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2 md:gap-3">
+            <h1 className="shrink-0 text-lg md:text-xl font-bold text-slate-800 flex items-center gap-1.5 md:gap-2">
               Coordinación
               <ManualTrigger section="coordinacion" size="sm" />
               {isSuperUser && (
-                <span className="text-[10px] bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">
+                <span className="text-[9px] md:text-[10px] bg-amber-100 text-amber-700 border border-amber-200 px-1.5 md:px-2 py-0.5 rounded uppercase tracking-wide">
                   Admin
                 </span>
               )}
             </h1>
             {!isSuperUser && !canUseEnsembleFilter && (
-              <div className="flex gap-1 overflow-x-auto max-w-[200px] md:max-w-none no-scrollbar">
+              <div className="flex min-w-0 gap-1 overflow-x-auto max-w-[34vw] md:max-w-none no-scrollbar">
                 {activeEnsembles.map((e) => (
                   <span
                     key={e.id}
-                    className="text-[10px] font-bold px-2 py-0.5 bg-white text-slate-600 rounded border border-slate-200 shadow-sm flex items-center gap-1 whitespace-nowrap"
+                    className="text-[10px] font-bold px-1.5 md:px-2 py-0.5 bg-white text-slate-600 rounded border border-slate-200 shadow-sm flex items-center gap-1 whitespace-nowrap"
                     title={ensembleTooltipMap[e.id] || undefined}
                   >
                     <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>{" "}
@@ -3417,14 +3417,14 @@ export default function EnsembleCoordinatorView({ supabase }) {
             )}
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
             {/* BOTONES MÓVIL: SOLO ICONOS */}
             <div className="md:hidden relative" ref={mobileToolsRef}>
               <button
                 onClick={() => setShowMobileTools(!showMobileTools)}
-                className="bg-white border px-2 py-1.5 rounded shadow-sm text-slate-700 hover:bg-slate-50"
+                className="bg-white border px-2 py-1 rounded shadow-sm text-slate-700 hover:bg-slate-50"
               >
-                <IconSettings size={18} />
+                <IconSettings size={16} />
               </button>
               {showMobileTools && (
                 <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-xl border border-slate-200 z-50 overflow-hidden animate-in fade-in zoom-in-95">
@@ -3480,12 +3480,12 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   title="Filtrar ensambles"
                 >
                   <IconFilter size={14} className="text-slate-500" />
-                  <div className="flex flex-nowrap items-center gap-1 overflow-x-auto no-scrollbar max-w-[120px]">
+                  <div className="flex flex-nowrap items-center gap-1 overflow-x-auto no-scrollbar max-w-[82px] sm:max-w-[120px]">
                     {activeEnsembles.length > 0 ? (
                       activeEnsembles.map((e) => (
                         <span
                           key={e.id}
-                          className="text-[10px] font-bold px-2 py-0.5 bg-white text-slate-600 rounded border border-slate-200 shadow-sm flex items-center whitespace-nowrap"
+                          className="text-[10px] font-bold px-1.5 sm:px-2 py-0.5 bg-white text-slate-600 rounded border border-slate-200 shadow-sm flex items-center whitespace-nowrap"
                           title={ensembleTooltipMap[e.id] || undefined}
                         >
                           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
@@ -3657,7 +3657,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                 setEditingEvent(null);
                 setIsModalOpen(true);
               }}
-              className="bg-indigo-600 text-white px-3 py-1.5 rounded shadow-md text-xs font-bold flex gap-2 hover:bg-indigo-700 items-center"
+              className="bg-indigo-600 text-white px-2.5 md:px-3 py-1 md:py-1.5 rounded shadow-md text-xs font-bold flex gap-1.5 md:gap-2 hover:bg-indigo-700 items-center"
             >
               <IconPlus size={14} />{" "}
               <span className="hidden sm:inline">Nuevo</span>
@@ -3773,55 +3773,62 @@ export default function EnsembleCoordinatorView({ supabase }) {
       )}
 
       {/* TABS Y NAVEGACIÓN */}
-      <div className="flex flex-col md:flex-row items-end justify-between border-b border-slate-200 bg-white rounded-t-lg px-4 pt-2 shadow-sm gap-2 mt-1 shrink-0">
-        <div className="flex">
+      <div className="flex items-center justify-between border-b border-slate-200 bg-white rounded-t-lg px-2 md:px-4 pt-1 md:pt-2 shadow-sm gap-1.5 md:gap-2 mt-0.5 md:mt-1 shrink-0">
+        <div className="flex min-w-0 flex-1 overflow-x-auto no-scrollbar">
           <button
             onClick={() => setActiveTab("ensayos")}
-            className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors ${activeTab === "ensayos" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500"}`}
+            className={`shrink-0 px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors ${activeTab === "ensayos" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500"}`}
           >
             Lista
           </button>
           <button
             onClick={() => setActiveTab("calendario")}
-            className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors flex items-center gap-2 ${activeTab === "calendario" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500"}`}
+            className={`shrink-0 px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors flex items-center gap-1 md:gap-2 ${activeTab === "calendario" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500"}`}
           >
             <IconCalendar size={14} /> Calendario
           </button>
           <button
             onClick={() => setActiveTab("programas")}
-            className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors ${activeTab === "programas" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500"}`}
+            className={`shrink-0 px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors ${activeTab === "programas" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500"}`}
           >
             Programas
           </button>
           <button
             onClick={() => setActiveTab("repertorio")}
-            className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors flex items-center gap-2 ${activeTab === "repertorio" ? "border-fixed-indigo-600 text-fixed-indigo-600" : "border-transparent text-slate-500"}`}
+            className={`shrink-0 px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors flex items-center gap-1 md:gap-2 ${activeTab === "repertorio" ? "border-fixed-indigo-600 text-fixed-indigo-600" : "border-transparent text-slate-500"}`}
           >
-            <IconMusic size={14} /> Programación de Repertorio
+            <IconMusic size={14} />
+            <span className="md:hidden">Repertorio</span>
+            <span className="hidden md:inline">Programación de Repertorio</span>
           </button>
         </div>
 
         {(activeTab === "ensayos" || activeTab === "calendario") && (
-          <div className="mb-1 flex flex-wrap items-center justify-end gap-2">
+          <div className="mb-0.5 md:mb-1 flex shrink-0 items-center justify-end gap-1 md:gap-2">
             <button
               type="button"
               onClick={() => setIsEnsayosReportModalOpen(true)}
-              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+              className="flex items-center gap-1 md:gap-2 rounded-lg border border-slate-200 bg-white px-2 md:px-3 py-1 text-[11px] md:text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50"
               title="Matriz de ensayos por programa y ensamble"
             >
               <IconDownload size={14} />
               <span className="hidden sm:inline">Reporte ensayos</span>
-              <span className="sm:hidden">Reporte</span>
+              <span className="sm:hidden">Rep.</span>
             </button>
             <div className="relative">
             <button
               onClick={() => setShowOverlapOptions(!showOverlapOptions)}
-              className={`flex items-center gap-2 px-3 py-1 text-xs font-bold border rounded-lg ${overlapCategories.length > 0 ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-white text-slate-500 hover:bg-slate-50"}`}
+              className={`flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 text-[11px] md:text-xs font-bold border rounded-lg ${overlapCategories.length > 0 ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-white text-slate-500 hover:bg-slate-50"}`}
             >
               <IconEye size={14} />{" "}
-              {overlapCategories.length > 0
-                ? `+${overlapCategories.length} Filtros`
-                : "Ver Superposiciones"}
+              <span className="hidden sm:inline">
+                {overlapCategories.length > 0
+                  ? `+${overlapCategories.length} Filtros`
+                  : "Ver Superposiciones"}
+              </span>
+              <span className="sm:hidden">
+                {overlapCategories.length > 0 ? `+${overlapCategories.length}` : "Sup."}
+              </span>
             </button>
             {showOverlapOptions && (
               <div className="absolute top-full right-0 mt-1 w-64 bg-white border border-slate-200 rounded-lg shadow-xl z-50 p-3 animate-in fade-in zoom-in duration-200">
@@ -3884,13 +3891,13 @@ export default function EnsembleCoordinatorView({ supabase }) {
           <div
             className={
               activeTab === "ensayos"
-                ? "h-full flex flex-col overflow-hidden p-4"
-                : "h-full overflow-y-auto p-4"
+                ? "h-full flex flex-col overflow-hidden p-2 md:p-4"
+                : "h-full overflow-y-auto p-2 md:p-4"
             }
           >
             {activeTab === "ensayos" && (
               <>
-                <div className="shrink-0 flex flex-wrap items-center justify-between gap-4 mb-2 pb-2 border-b border-slate-100 pl-1">
+                <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 md:gap-4 mb-1.5 md:mb-2 pb-1.5 md:pb-2 border-b border-slate-100 pl-0 md:pl-1">
                   {/* Checkbox "Select All" */}
                   <div className="flex items-center gap-2">
                     <input
@@ -3899,7 +3906,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                       onChange={(e) => handleSelectAllVisible(e.target.checked)}
                       className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                     />
-                    <span className="text-xs font-bold text-slate-500">
+                    <span className="text-[11px] md:text-xs font-bold text-slate-500">
                       Seleccionar todo lo visible
                     </span>
                     <span className="text-[10px] text-slate-400 hidden sm:inline">
@@ -3908,7 +3915,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   </div>
 
                   {/* FILTRO DE FECHAS EN LÍNEA */}
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 md:gap-2 flex-wrap">
                     <button
                       type="button"
                       onClick={() => setShowListProgramFilter((v) => !v)}
@@ -3936,7 +3943,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                         onChange={(v) =>
                           setDateFilter((prev) => ({ ...prev, start: v }))
                         }
-                        className="h-6 text-xs w-28 bg-slate-50 border-slate-200"
+                        className="h-6 text-xs w-24 md:w-28 bg-slate-50 border-slate-200"
                       />
                     </div>
                     <div className="flex items-center gap-1">
@@ -3948,7 +3955,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                         onChange={(v) =>
                           setDateFilter((prev) => ({ ...prev, end: v }))
                         }
-                        className="h-6 text-xs w-28 bg-slate-50 border-slate-200"
+                        className="h-6 text-xs w-24 md:w-28 bg-slate-50 border-slate-200"
                         placeholder="Indefinido"
                       />
                     </div>
@@ -3984,7 +3991,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
                 <div
                   ref={attachListScrollRef}
-                  className="relative flex-1 min-h-0 overflow-y-auto mt-1"
+                  className="relative flex-1 min-h-0 overflow-y-auto mt-0.5 md:mt-1"
                 >
                   {rehearsalsFetching && filteredRehearsals.length > 0 && (
                     <div className="sticky top-0 z-10 mb-2 flex items-center justify-center gap-2 rounded-md border border-indigo-100 bg-indigo-50/90 px-2 py-1 text-[10px] font-bold text-indigo-700">
