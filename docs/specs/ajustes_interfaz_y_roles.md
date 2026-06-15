@@ -13,7 +13,14 @@
 ## 3. Selector "Ver como..." en Móvil
 - **Ajuste**: En `UnifiedAgenda.jsx`, remover la clase `hidden` o restricciones de ancho que limiten la visibilidad del selector de músicos en pantallas pequeñas, asegurando que los admins puedan simular otros usuarios desde el celular.
 
-## 4. Filtros por defecto en "Ver como..." (Agenda)
+## 4. Banner de cumpleaños
+- **Estado**: Completado (2026-06-15)
+- **Comportamiento**: Banner flotante fijo arriba al centro cuando hay integrantes **Estables** vigentes (`fecha_baja` nula o futura, sin `es_simulacion`) cuya `fecha_nac` coincide con el día actual.
+- **Texto**: `🎂 Hoy cumple años {Nombre A.} 🥳` (singular) o `🎂 Hoy cumplen años {lista} 🥳` (plural; nombre + inicial de apellido, unidos con comas y «y»).
+- **Cierre**: botón ✕ guarda en `localStorage` (`ofrn:birthday-banner-dismissed`) la fecha del día; no vuelve a mostrarse en ese dispositivo hasta el día siguiente.
+- **Implementación**: `BirthdayBanner.jsx`, `useBirthdaysToday.js`, `birthdayUtils.js`; montado en `ProtectedApp` (`App.jsx`).
+
+## 5. Filtros por defecto en "Ver como..." (Agenda)
 - **Estado**: Completado (2026-06-11)
 - **Comportamiento**: Al elegir un integrante en el selector local de `UnifiedAgenda`, los filtros se reinician según los permisos de esa persona (no según los del editor ni el `localStorage` del integrante simulado).
 - **Músico / personal**: `Solo mi transporte` y `Solo mis comidas` activos (también dentro de una gira en modo simulación); sin categoría Logística (id 3).

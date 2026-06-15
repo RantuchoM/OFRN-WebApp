@@ -11,6 +11,7 @@ import {
 import { AuthProvider, useAuth, getRolesDisplay } from "./context/AuthContext";
 import { supabase } from "./services/supabase";
 import ReloadPrompt from "./components/ui/ReloadPrompt";
+import BirthdayBanner from "./components/ui/BirthdayBanner";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import NewsModal from "./components/news/NewsModal";
 import FeedbackWidget from "./components/ui/FeedbackWidget";
@@ -917,6 +918,7 @@ const ProtectedApp = ({ initialTab }) => {
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
       <NotificationsListener supabase={supabase} />
+      <BirthdayBanner />
       <Toaster position="top-right" richColors />
 
       {/* OVERLAY MÓVIL */}

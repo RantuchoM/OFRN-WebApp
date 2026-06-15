@@ -223,6 +223,28 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 
 ## 9. Gestión de particellas en WorkForm
 
+### Seed LEMA — Acomodar (2026-06-15)
+
+### Política
+- Carpeta Drive: [LEMA — Acomodar](https://drive.google.com/drive/folders/10JQJW7YX7UNmWciqgJ-EiqaldM_e0Tvi); sync local `H:\Mi unidad\Archivo - para organizar\LEMA - Acomodar`.
+- **`link_drive`** apunta a la carpeta original en LEMA; **no** se copia al Archivo.
+- Solo se renombran **carpetas** al formato `Compositor-Lema - Título` (o `Lema, G. - …` / `Capó-Lema - …`); **PDFs sin tocar**.
+
+### Scripts
+| Script | Rol |
+|--------|-----|
+| `scripts/lib/lemaCatalog.mjs` | Catálogo 17 obras (14 renombradas + 3 ya canónicas) |
+| `scripts/process-lema-local.mjs` | Renombra carpetas en sync local |
+| `scripts/generate-lema-sync.mjs` | Genera `supabase/seed_lema_sync.sql` (updates + inserts + particellas) |
+
+### Completado
+- [x] 14 carpetas renombradas localmente (Drive sync)
+- [x] 6 updates (`1356`, `1357`, `1627`, `1432`, `1368`, `1578`) + 11 inserts nuevas
+- [x] Particellas e instrumentación desde Drive (matcher existente, sin renombrar PDFs)
+- [ ] Carpeta `REVISAR` — pendiente de catálogo
+
+---
+
 ### Completado (2026-06-13)
 - [x] Barra «Instrumento / Cant.»: input de cantidad y botón `+` agrupados con `shrink-0` para evitar desborde horizontal junto al scroll del modal.
 - [x] Eliminación individual y masiva de particella con `ConfirmDialog` (estilo destructivo), alineado con el design system del proyecto.
