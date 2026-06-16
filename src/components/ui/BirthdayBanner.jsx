@@ -53,10 +53,11 @@ export default function BirthdayBanner() {
           <button
             type="button"
             onClick={handleDismiss}
-            className="shrink-0 rounded-lg p-1 text-indigo-400 hover:bg-indigo-100 hover:text-indigo-700 transition-colors"
+            className="shrink-0 rounded-xl border border-indigo-200 bg-white p-1.5 text-indigo-700 shadow-sm transition-all hover:bg-indigo-100 hover:text-indigo-900 hover:shadow-md active:scale-95"
             aria-label="Cerrar aviso de cumpleaños"
+            title="Cerrar aviso"
           >
-            <IconX size={16} />
+            <IconX size={20} />
           </button>
         </div>
       </div>

@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../services/supabase";
-import { isBirthdayToday } from "../utils/birthdayUtils";
+import { getLocalDateKey, isBirthdayToday } from "../utils/birthdayUtils";
 
 export function useBirthdaysToday() {
-  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayKey = getLocalDateKey();
 
   return useQuery({
     queryKey: ["birthdays-today", todayKey],

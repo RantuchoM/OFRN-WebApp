@@ -12,6 +12,7 @@ import { AuthProvider, useAuth, getRolesDisplay } from "./context/AuthContext";
 import { supabase } from "./services/supabase";
 import ReloadPrompt from "./components/ui/ReloadPrompt";
 import BirthdayBanner from "./components/ui/BirthdayBanner";
+import BirthdaySidebarControl from "./components/ui/BirthdaySidebarControl";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import NewsModal from "./components/news/NewsModal";
 import FeedbackWidget from "./components/ui/FeedbackWidget";
@@ -989,6 +990,10 @@ const ProtectedApp = ({ initialTab }) => {
             >
               {isDarkMode ? <IconMoon size={16} /> : <IconSun size={16} />}
             </button>
+
+            <div className="w-px h-4 bg-slate-200 mx-2"></div>
+
+            <BirthdaySidebarControl />
 
             <div className="w-px h-4 bg-slate-200 mx-2"></div>
 

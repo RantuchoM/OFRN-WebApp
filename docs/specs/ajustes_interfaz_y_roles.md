@@ -14,11 +14,13 @@
 - **Ajuste**: En `UnifiedAgenda.jsx`, remover la clase `hidden` o restricciones de ancho que limiten la visibilidad del selector de músicos en pantallas pequeñas, asegurando que los admins puedan simular otros usuarios desde el celular.
 
 ## 4. Banner de cumpleaños
-- **Estado**: Completado (2026-06-15)
+- **Estado**: Completado (2026-06-15). Ampliado (2026-06-16).
 - **Comportamiento**: Banner flotante fijo arriba al centro cuando hay integrantes **Estables** vigentes (`fecha_baja` nula o futura, sin `es_simulacion`) cuya `fecha_nac` coincide con el día actual.
 - **Texto**: `🎂 Hoy cumple años {Nombre A.} 🥳` (singular) o `🎂 Hoy cumplen años {lista} 🥳` (plural; nombre + inicial de apellido, unidos con comas y «y»).
-- **Cierre**: botón ✕ guarda en `localStorage` (`ofrn:birthday-banner-dismissed`) la fecha del día; no vuelve a mostrarse en ese dispositivo hasta el día siguiente.
-- **Implementación**: `BirthdayBanner.jsx`, `useBirthdaysToday.js`, `birthdayUtils.js`; montado en `ProtectedApp` (`App.jsx`).
+- **Cierre**: botón ✕ con fondo, borde y mayor área clickeable; guarda en `localStorage` (`ofrn:birthday-banner-dismissed`) la fecha del día; no vuelve a mostrarse en ese dispositivo hasta el día siguiente.
+- **Sidebar**: se agrega un botón de torta junto a modo oscuro y escala de interfaz. Abre un modal en portal (`document.body`, `z-[100]`) con cumpleaños de hoy y próximos 30 días.
+- **Listado ampliado**: el modal reutiliza los filtros del banner (Estables vigentes, sin simulación) y ordena por días restantes; separa "Hoy" y "Próximos 30 días".
+- **Implementación**: `BirthdayBanner.jsx`, `BirthdaySidebarControl.jsx`, `BirthdayUpcomingModal.jsx`, `useBirthdaysToday.js`, `useUpcomingBirthdays.js`, `birthdayUtils.js`; montado en `ProtectedApp` (`App.jsx`).
 
 ## 5. Filtros por defecto en "Ver como..." (Agenda)
 - **Estado**: Completado (2026-06-11)
