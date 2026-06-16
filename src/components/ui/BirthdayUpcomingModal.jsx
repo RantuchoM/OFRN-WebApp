@@ -20,7 +20,7 @@ function formatBirthdayDate(date) {
 function formatRelativeDay(daysUntil) {
   if (daysUntil === 0) return "Hoy";
   if (daysUntil === 1) return "Mañana";
-  return `En ${daysUntil} dias`;
+  return `En ${daysUntil} días`;
 }
 
 function BirthdayRow({ person }) {
@@ -82,8 +82,11 @@ export default function BirthdayUpcomingModal({
   isOpen,
   onClose,
   birthdays = [],
+  daysAhead = 30,
   isLoading = false,
+  isFetchingMore = false,
   error = null,
+  onLoadMore,
 }) {
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -100,6 +103,7 @@ export default function BirthdayUpcomingModal({
 
   const todayBirthdays = birthdays.filter((person) => person.daysUntil === 0);
   const upcomingBirthdays = birthdays.filter((person) => person.daysUntil > 0);
+  const rangeLabel = `próximos ${daysAhead} días`;
 
   return createPortal(
     <div
@@ -127,7 +131,7 @@ export default function BirthdayUpcomingModal({
               Cumpleaños
             </h2>
             <p className="text-sm font-medium text-slate-500">
-              Hoy y proximos 30 dias
+              Hoy y {rangeLabel}
             </p>
           </div>
           <button
@@ -151,9 +155,22 @@ export default function BirthdayUpcomingModal({
               No se pudieron cargar los cumpleaños.
             </p>
           ) : birthdays.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-400">
-              No hay cumpleaños hoy ni en los proximos 30 dias.
-            </p>
+            <div className="space-y-4">
+              <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-400">
+                No hay cumpleaños hoy ni en los {rangeLabel}.
+              </p>
+              <button
+                type="button"
+                onClick={onLoadMore}
+                disabled={isFetchingMore}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-pink-200 bg-pink-50 px-4 py-3 text-sm font-black text-pink-700 transition-all hover:bg-pink-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isFetchingMore ? (
+                  <IconLoader size={16} className="animate-spin" />
+                ) : null}
+                {isFetchingMore ? "Cargando..." : "Ver un mes más"}
+              </button>
+            </div>
           ) : (
             <div className="space-y-6">
               <BirthdaySection
@@ -162,10 +179,21 @@ export default function BirthdayUpcomingModal({
                 birthdays={todayBirthdays}
               />
               <BirthdaySection
-                title="Proximos 30 dias"
+                title={`Próximos ${daysAhead} días`}
                 subtitle="Ordenados por fecha"
                 birthdays={upcomingBirthdays}
               />
+              <button
+                type="button"
+                onClick={onLoadMore}
+                disabled={isFetchingMore}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-pink-200 bg-pink-50 px-4 py-3 text-sm font-black text-pink-700 transition-all hover:bg-pink-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isFetchingMore ? (
+                  <IconLoader size={16} className="animate-spin" />
+                ) : null}
+                {isFetchingMore ? "Cargando..." : "Ver un mes más"}
+              </button>
             </div>
           )}
         </div>

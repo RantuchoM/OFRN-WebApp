@@ -19,7 +19,8 @@
 - **Texto**: `🎂 Hoy cumple años {Nombre A.} 🥳` (singular) o `🎂 Hoy cumplen años {lista} 🥳` (plural; nombre + inicial de apellido, unidos con comas y «y»).
 - **Cierre**: botón ✕ con fondo, borde y mayor área clickeable; guarda en `localStorage` (`ofrn:birthday-banner-dismissed`) la fecha del día; no vuelve a mostrarse en ese dispositivo hasta el día siguiente.
 - **Sidebar**: se agrega un botón de torta junto a modo oscuro y escala de interfaz. Abre un modal en portal (`document.body`, `z-[100]`) con cumpleaños de hoy y próximos 30 días.
-- **Listado ampliado**: el modal reutiliza los filtros del banner (Estables vigentes, sin simulación) y ordena por días restantes; separa "Hoy" y "Próximos 30 días".
+- **Listado ampliado**: el modal reutiliza los filtros del banner (Estables vigentes, sin simulación) y ordena por días restantes; separa "Hoy" y el rango futuro visible.
+- **Carga incremental**: el modal incluye el botón **"Ver un mes más"**. Cada click suma 30 días al rango visible y vuelve a consultar con esa ventana ampliada.
 - **Implementación**: `BirthdayBanner.jsx`, `BirthdaySidebarControl.jsx`, `BirthdayUpcomingModal.jsx`, `useBirthdaysToday.js`, `useUpcomingBirthdays.js`, `birthdayUtils.js`; montado en `ProtectedApp` (`App.jsx`).
 
 ## 5. Filtros por defecto en "Ver como..." (Agenda)

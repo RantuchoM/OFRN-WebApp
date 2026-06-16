@@ -3,13 +3,18 @@ import { useUpcomingBirthdays } from "../../hooks/useUpcomingBirthdays";
 import { IconCake } from "./Icons";
 import BirthdayUpcomingModal from "./BirthdayUpcomingModal";
 
+const DAYS_PER_MONTH = 30;
+
 export default function BirthdaySidebarControl() {
   const [isOpen, setIsOpen] = useState(false);
+  const [monthsAhead, setMonthsAhead] = useState(1);
+  const daysAhead = monthsAhead * DAYS_PER_MONTH;
   const {
     data: birthdays = [],
     isLoading,
+    isFetching,
     error,
-  } = useUpcomingBirthdays(30);
+  } = useUpcomingBirthdays(daysAhead);
 
   const todayCount = useMemo(
     () => birthdays.filter((person) => person.daysUntil === 0).length,
@@ -53,8 +58,11 @@ export default function BirthdaySidebarControl() {
         isOpen={isOpen}
         onClose={() => setIsOpen(false)}
         birthdays={birthdays}
+        daysAhead={daysAhead}
         isLoading={isLoading}
+        isFetchingMore={isFetching && !isLoading}
         error={error}
+        onLoadMore={() => setMonthsAhead((current) => current + 1)}
       />
     </>
   );
