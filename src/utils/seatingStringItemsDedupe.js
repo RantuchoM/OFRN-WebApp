@@ -1,5 +1,3 @@
-import { seatingItemMatrixPosition, sortSeatingItems } from "../services/giraService";
-
 const numericOrMax = (value) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
@@ -8,6 +6,44 @@ const numericOrMax = (value) => {
 const musicianKey = (id) => {
   if (id == null || id === "") return null;
   return String(id);
+};
+
+const seatingOrderToMatrixLegacyZeroBased = (orden) => {
+  if (orden == null || Number.isNaN(Number(orden))) {
+    return { atril_num: null, lado: null };
+  }
+  const o = Math.trunc(Number(orden));
+  if (o < 0) return { atril_num: null, lado: null };
+  return {
+    atril_num: Math.floor(o / 2) + 1,
+    lado: o % 2,
+  };
+};
+
+const seatingItemMatrixPosition = (item, fallbackIndex = 0) => {
+  const fb = Number(fallbackIndex) || 0;
+
+  const hasAtril =
+    item?.atril_num != null && !Number.isNaN(Number(item.atril_num));
+  const hasLado =
+    item?.lado != null && !Number.isNaN(Number(item.lado));
+
+  if (hasAtril) {
+    const atril_num = Number(item.atril_num);
+    return {
+      atril_num,
+      lado: hasLado ? Number(item.lado) : fb % 2,
+    };
+  }
+
+  if (item?.orden != null && !Number.isNaN(Number(item.orden))) {
+    return seatingOrderToMatrixLegacyZeroBased(Math.trunc(Number(item.orden)));
+  }
+
+  return {
+    atril_num: Math.floor(fb / 2) + 1,
+    lado: fb % 2,
+  };
 };
 
 export const buildSeatingContainerRankMap = (containers = []) => {
@@ -101,7 +137,8 @@ export const getDuplicateSeatingStringItemIds = (items = [], containers = []) =>
 
 export const dedupeSeatingStringItems = (items = [], containers = []) => {
   const duplicateIds = new Set(getDuplicateSeatingStringItemIds(items, containers).map(String));
-  return sortSeatingItems(items || []).filter(
-    (item) => item?.id == null || !duplicateIds.has(String(item.id)),
-  );
+  return (items || []).filter((item) => {
+    if (item?.id == null) return true;
+    return !duplicateIds.has(String(item.id));
+  });
 };
