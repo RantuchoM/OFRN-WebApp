@@ -83,11 +83,13 @@ Permitir mover obras dentro del mismo bloque y entre bloques con feedback visual
 | Archivo | Cambios |
 |--------|--------|
 | `src/components/repertoire/BowingSetManager.jsx` | Nuevo: modos edit/assign, modal con portal, Tailwind. |
-| `src/components/repertoire/RepertoireManager.jsx` | BowingSetManager assign, columna GripVertical, DndContext, SortableContext, SortableRepertorioRow, handleDragEnd, savingPosition, dragOverId. |
+| `src/components/repertoire/RepertoireManager.jsx` | BowingSetManager assign, columna GripVertical, DndContext, SortableContext, SortableRepertorioRow, handleDragEnd, savingPosition, dragOverId, mail `nueva_obra` desde entrada rápida. |
 | `src/components/repertoire/InstrumentationFilterModal.jsx` | Modal compartido de filtro por orgánico con presets. |
 | `src/utils/instrumentationFilterPresets.js` | Definición de presets y helpers de etiqueta/activo. |
 | `src/views/Repertoire/RepertoireView.jsx` | Usa modal compartido y presets en columna Orgánico. |
 | `src/views/Repertoire/WorkForm.jsx` | Sustitución sección arcos por BowingSetManager edit; eliminación estado/handlers de arcos. **Autocomplete de título:** al escribir con compositor elegido, desplegable de obras existentes con acciones según `context` (`archive` vs `program`). |
+| `src/services/giraService.js` | `updateWorkPosition`, `normalizeRepertorioBlockOrden`. |
+| `supabase/seed_gira_10_fanfarrias_falla.sql` | Seed idempotente para agregar dos fanfarrias de Falla en estado `Solicitud` al bloque de gira 10. |
 
 ---
 
@@ -111,12 +113,31 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 ### Implementación
 - `createArrangementFromExistingWork(sourceWorkId)`: clona metadatos y relaciones de compositores/arregladores; sin Drive; estado Solicitud; dispara mail `nueva_obra` al archivista (igual que crear solicitud normal).
 - `RepertoireManager` ya pasa `context="program"` y `onInsertExistingWork` al modal de WorkForm.
+- `QuickWorkRow` en `RepertoireManager.jsx` también dispara `mails_produccion` con template `nueva_obra` al crear una obra nueva en estado `Solicitud` desde la entrada rápida del bloque.
 
 ### Completado
 - [x] Desplegable contextual en título
 - [x] Acciones archive vs program
 - [x] Opción continuar con obra nueva
-| `src/services/giraService.js` | `updateWorkPosition`, `normalizeRepertorioBlockOrden`. |
+- [x] Mail al archivo para solicitudes creadas desde entrada rápida de programa
+
+---
+
+## 6b. Seeds de solicitudes puntuales en programas
+
+### Gira 10 - Fanfarrias de Manuel de Falla
+
+- **Script:** `supabase/seed_gira_10_fanfarrias_falla.sql`.
+- **Destino:** primer bloque existente de `programas_repertorios` para `id_programa = 10`.
+- **Obras:** `Fanfare pour une fête` y `Fanfare sobre el nombre de Enrique Fernández Arbós`.
+- **Estado:** `Solicitud`.
+- **Nota interna:** link IMSLP guardado en `obras.observaciones`, respetando la compatibilidad de la UI (`nota_interna` / `observaciones` / `comentarios`).
+- **Idempotencia:** reutiliza a `Falla, Manuel de`; si la obra ya existe, fuerza estado `Solicitud`, conserva/agrega la nota IMSLP sin duplicarla y evita volver a vincularla al bloque.
+- **Notificaciones:** las altas hechas desde la UI disparan `mails_produccion` (`nueva_obra`) desde `WorkForm` y desde `QuickWorkRow`. Los seeds SQL son de datos y no invocan Edge Functions por sí mismos.
+
+### Completado
+- [x] Seed para agregar las dos fanfarrias al bloque de gira 10
+- [x] Documentada la frontera SQL vs. mail automático de frontend
 
 ---
 
