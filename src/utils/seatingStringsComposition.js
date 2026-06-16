@@ -1,4 +1,5 @@
 import { countsTowardInstrumentationConvoked } from "./instrumentation";
+import { dedupeSeatingStringItems } from "./seatingStringItemsDedupe";
 
 /** Códigos de pupitre en BD (solo estos cuatro). */
 export const SEATING_STRING_INSTR_IDS = ["01", "02", "03", "04"];
@@ -23,8 +24,9 @@ export async function fetchMusicianSeatingContainerLabels(supabase, programId) {
 
   const { data: conts, error: e1 } = await supabase
     .from("seating_contenedores")
-    .select("id, nombre")
-    .eq("id_programa", programId);
+    .select("id, nombre, orden")
+    .eq("id_programa", programId)
+    .order("orden");
 
   if (e1) throw e1;
   if (!conts?.length) return map;
@@ -36,12 +38,13 @@ export async function fetchMusicianSeatingContainerLabels(supabase, programId) {
   const contIds = conts.map((c) => c.id);
   const { data: items, error: e2 } = await supabase
     .from("seating_contenedores_items")
-    .select("id_musico, id_contenedor")
+    .select("id, id_musico, id_contenedor, orden, atril_num, lado")
     .in("id_contenedor", contIds);
 
   if (e2) throw e2;
 
-  for (const it of items || []) {
+  const dedupedItems = dedupeSeatingStringItems(items || [], conts);
+  for (const it of dedupedItems) {
     const mid = Number(it.id_musico);
     if (Number.isNaN(mid)) continue;
     if (map.has(mid)) continue;

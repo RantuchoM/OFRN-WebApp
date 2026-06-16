@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { IconHistory, IconX, IconLoader, IconPlus } from "../ui/Icons";
 import { seatingItemMatrixPosition } from "../../services/giraService";
+import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
 
 export default function SeatingHistoryModal({ isOpen, onClose, roster, supabase }) {
   const [historyData, setHistoryData] = useState({});
@@ -49,13 +50,32 @@ export default function SeatingHistoryModal({ isOpen, onClose, roster, supabase 
       const { data: items } = await supabase
         .from("seating_contenedores_items")
         .select(
-          `atril_num, lado, orden, id_musico, seating_contenedores!inner (id_programa, nombre)`,
+          `id, id_contenedor, atril_num, lado, orden, id_musico, seating_contenedores!inner (id, id_programa, nombre, orden)`,
         )
         .in("seating_contenedores.id_programa", progIds);
 
       // 3. Mapear datos
       const newMap = {};
-      items?.forEach((item) => {
+      const itemsByProgram = new Map();
+      const containersByProgram = new Map();
+      (items || []).forEach((item) => {
+        const container = item.seating_contenedores;
+        const pId = container?.id_programa;
+        if (pId == null) return;
+        if (!itemsByProgram.has(pId)) itemsByProgram.set(pId, []);
+        if (!containersByProgram.has(pId)) containersByProgram.set(pId, new Map());
+        itemsByProgram.get(pId).push(item);
+        containersByProgram.get(pId).set(container.id, container);
+      });
+      const dedupedItems = Array.from(itemsByProgram.entries()).flatMap(
+        ([pId, programItems]) =>
+          dedupeSeatingStringItems(
+            programItems,
+            Array.from(containersByProgram.get(pId)?.values() || []),
+          ),
+      );
+
+      dedupedItems.forEach((item) => {
         const mId = item.id_musico;
         const pId = item.seating_contenedores.id_programa;
         const pos = seatingItemMatrixPosition(item, 0);

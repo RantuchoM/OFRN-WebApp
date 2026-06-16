@@ -58,6 +58,7 @@ import { useAuth } from "../../context/AuthContext";
 import WorkForm from "../../views/Repertoire/WorkForm";
 import InstrumentationFilterModal from "./InstrumentationFilterModal";
 import { getInstrumentationFilterLabel } from "../../utils/instrumentationFilterPresets";
+import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
 const ModalPortal = ({ children, onClose = null, closeOnBackdrop = false }) => {
   useEffect(() => {
     if (!onClose) return undefined;
@@ -1690,12 +1691,13 @@ export default function RepertoireManager({
 
     const { data: containers } = await supabase
       .from("seating_contenedores")
-      .select("id, nombre")
-      .eq("id_programa", programId);
+      .select("id, nombre, orden")
+      .eq("id_programa", programId)
+      .order("orden");
 
     const { data: items } = await supabase
       .from("seating_contenedores_items")
-      .select("id_contenedor, id_musico, orden, atril_num, lado")
+      .select("id, id_contenedor, id_musico, orden, atril_num, lado")
       .in("id_contenedor", containers?.map((c) => c.id) || []);
 
     const { data: asigns } = await supabase
@@ -1705,8 +1707,9 @@ export default function RepertoireManager({
 
     setAssignments(asigns || []);
 
+    const dedupedItems = dedupeSeatingStringItems(items || [], containers || []);
     const newMap = {};
-    items?.forEach((item) => {
+    dedupedItems.forEach((item) => {
       if (item.id_musico) {
         const container = containers.find((c) => c.id === item.id_contenedor);
 

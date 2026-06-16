@@ -49,6 +49,7 @@ import {
   didParseCellSeatingStringsStandPairs,
   seatingStringsGridEvenRowCount,
 } from "../../utils/seatingPdfStringsTableHooks";
+import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
 import { createPortal } from "react-dom";
 
 // Librerías para reporte PDF
@@ -1427,11 +1428,12 @@ export default function ProgramSeating({
         .order("id", { ascending: true });
 
       const rosterKeys = confirmedSeatingRosterKeySet(rawRoster);
+      const dedupedItems = dedupeSeatingStringItems(items || [], conts);
 
       setContainers(
         conts.map((c) => {
           const containerItems =
-            items?.filter((i) => Number(i.id_contenedor) === Number(c.id)) || [];
+            dedupedItems.filter((i) => Number(i.id_contenedor) === Number(c.id)) || [];
           const presentItems = containerItems.filter((item) =>
             isMusicianOnConfirmedSeatingRoster(rosterKeys, item.id_musico),
           );

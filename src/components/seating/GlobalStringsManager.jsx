@@ -18,6 +18,7 @@ import {
   sortSeatingItems,
   shiftSeatingLine,
 } from "../../services/giraService";
+import { getDuplicateSeatingStringItemIds } from "../../utils/seatingStringItemsDedupe";
 
 const PROGRAM_TYPES = [
   { value: "Todos", label: "Todos" },
@@ -491,6 +492,53 @@ export default function GlobalStringsManager({
   const [reorderMode, setReorderMode] = useState("adelantar"); // "adelantar" | "acomodar"
   const [previewMap, setPreviewMap] = useState({}); // { [itemId]: { atril_num, lado, orden } }
 
+  const cleanupDuplicateMusiciansOnServer = async () => {
+    if (!supabase || !programId) return;
+
+    const { data: programContainers, error: containersError } = await supabase
+      .from("seating_contenedores")
+      .select("id, orden")
+      .eq("id_programa", programId)
+      .order("orden");
+
+    if (containersError) throw containersError;
+    if (!programContainers?.length) return;
+
+    const { data: items, error: itemsError } = await supabase
+      .from("seating_contenedores_items")
+      .select("id, id_contenedor, id_musico, orden, atril_num, lado")
+      .in(
+        "id_contenedor",
+        programContainers.map((c) => c.id),
+      );
+
+    if (itemsError) throw itemsError;
+
+    const duplicateIds = getDuplicateSeatingStringItemIds(
+      items || [],
+      programContainers,
+    );
+    if (duplicateIds.length === 0) return;
+
+    const { error: deleteError } = await supabase
+      .from("seating_contenedores_items")
+      .delete()
+      .in("id", duplicateIds);
+
+    if (deleteError) throw deleteError;
+  };
+
+  const refreshAfterContainerChange = async () => {
+    try {
+      await cleanupDuplicateMusiciansOnServer();
+    } catch (err) {
+      console.error("Error limpiando duplicados de cuerdas:", err);
+      alert("No se pudieron limpiar los duplicados de cuerdas.");
+    } finally {
+      onUpdate();
+    }
+  };
+
   const seatingSuggestionsByContainer = useMemo(() => {
     const byContainer = {};
     displayContainers.forEach((container) => {
@@ -560,7 +608,7 @@ export default function GlobalStringsManager({
     const name = prompt("Nombre del grupo:", `Grupo ${containers.length + 1}`);
     if (!name) return;
     await supabase.from("seating_contenedores").insert({ id_programa: programId, nombre: name, orden: containers.length, id_instrumento: "00" });
-    onUpdate();
+    await refreshAfterContainerChange();
   };
 
   const createBaseContainers = async () => {
@@ -639,7 +687,7 @@ export default function GlobalStringsManager({
         }
       }
 
-      onUpdate();
+      await refreshAfterContainerChange();
     } finally {
       setIsCreatingBase(false);
     }
@@ -648,12 +696,12 @@ export default function GlobalStringsManager({
     if (readOnly) return;
     if (!confirm("¿Eliminar este grupo?")) return;
     await supabase.from("seating_contenedores").delete().eq("id", id);
-    onUpdate();
+    await refreshAfterContainerChange();
   };
   const startEditing = (c) => { setEditingId(c.id); setEditName(c.nombre); setEditCap(c.capacidad || ""); };
   const saveEditing = async (id) => {
     await supabase.from("seating_contenedores").update({ nombre: editName, capacidad: editCap ? parseInt(editCap) : null }).eq("id", id);
-    setEditingId(null); onUpdate();
+    setEditingId(null); await refreshAfterContainerChange();
   };
   const updateOrderInDB = async (items) => {
     await Promise.all(
@@ -758,7 +806,7 @@ export default function GlobalStringsManager({
     if (!newItem) return;
 
     // Refrescamos desde DB; el corrimiento ya lo hizo shift_seating_line
-    onUpdate();
+    await refreshAfterContainerChange();
   };
   const handleReorder = async (
     itemId,
@@ -825,7 +873,7 @@ export default function GlobalStringsManager({
       .eq("id", itemId);
 
     // Refrescamos datos; el corrimiento ya lo hizo shift_seating_line
-    onUpdate();
+    await refreshAfterContainerChange();
   };
   const removeMusician = async (itemId) => {
     if (readOnly) return;
@@ -860,7 +908,7 @@ export default function GlobalStringsManager({
       });
     }
 
-    onUpdate();
+    await refreshAfterContainerChange();
   };
 
   const applySeatingSuggestions = async (containerIds = null) => {
@@ -886,7 +934,7 @@ export default function GlobalStringsManager({
     });
     if (updates.length) {
       await Promise.all(updates);
-      onUpdate();
+      await refreshAfterContainerChange();
     }
   };
   const handleImportSeating = async ({
@@ -1058,7 +1106,7 @@ export default function GlobalStringsManager({
         }
       }
 
-      onUpdate();
+      await refreshAfterContainerChange();
     } catch (e) {
       console.error(e);
       alert("Error importando.");
@@ -1205,7 +1253,7 @@ export default function GlobalStringsManager({
     }
     setShowReorderModal(false);
     setPreviewMap({});
-    onUpdate();
+    await refreshAfterContainerChange();
   };
 
   // Normaliza un contenedor específico: compacta atriles por lado (adelantar)

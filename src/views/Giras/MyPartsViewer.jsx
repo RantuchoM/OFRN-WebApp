@@ -11,6 +11,7 @@ import {
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { seatingItemMatrixPosition } from "../../services/giraService";
+import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
 
 // --- SUB-COMPONENTE: TARJETA MÓVIL COMPACTA ---
 const MobilePartCard = ({ item }) => {
@@ -175,18 +176,24 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
       );
 
       // 2. Obtener el Contenedor (Atril) CON DATOS EXTRA
-      const { data: seatingJoin } = await supabase
+      const { data: seatingJoinRows } = await supabase
         .from("seating_contenedores_items")
         .select(`
+            id,
             id_contenedor, 
             orden,
             atril_num,
             lado,
-            seating_contenedores!inner (id_programa, nombre)
+            seating_contenedores!inner (id, id_programa, nombre, orden)
         `)
         .eq("id_musico", user.id)
-        .eq("seating_contenedores.id_programa", gira.id)
-        .maybeSingle();
+        .eq("seating_contenedores.id_programa", gira.id);
+      const seatingContainers = (seatingJoinRows || [])
+        .map((row) => row.seating_contenedores)
+        .filter(Boolean);
+      const seatingJoin =
+        dedupeSeatingStringItems(seatingJoinRows || [], seatingContainers)[0] ||
+        null;
 
       const myContainerId = seatingJoin?.id_contenedor;
 

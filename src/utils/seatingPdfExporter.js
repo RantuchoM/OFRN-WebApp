@@ -11,6 +11,7 @@ import {
   didParseCellSeatingStringsStandPairs,
   seatingStringsGridEvenRowCount,
 } from "./seatingPdfStringsTableHooks";
+import { dedupeSeatingStringItems } from "./seatingStringItemsDedupe";
 
 // Identifica si un instrumento es cuerda (códigos tal cual en BD; sin forzar "1"→"01")
 const isStringInstrument = (id) =>
@@ -82,10 +83,11 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
     // 3. TABLA 1: DISPOSICIÓN (Cuerdas)
     // Solo filas cuyo músico está convocado y confirmado en esta gira (misma regla que GiraRoster / ProgramSeating)
     const rosterKeys = confirmedSeatingRosterKeySet(roster);
-    const validItems = items.filter(
-      (i) =>
-        conts.some((c) => c.id === i.id_contenedor) &&
-        isMusicianOnConfirmedSeatingRoster(rosterKeys, i.id_musico),
+    const programItems = items.filter((i) =>
+      conts.some((c) => c.id === i.id_contenedor),
+    );
+    const validItems = dedupeSeatingStringItems(programItems, conts).filter(
+      (i) => isMusicianOnConfirmedSeatingRoster(rosterKeys, i.id_musico),
     );
     const rawMaxRows = Math.max(
       ...conts.map(

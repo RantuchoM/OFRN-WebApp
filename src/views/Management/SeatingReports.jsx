@@ -29,6 +29,7 @@ import {
   didParseCellSeatingStringsStandPairs,
   seatingStringsGridEvenRowCount,
 } from "../../utils/seatingPdfStringsTableHooks";
+import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
 import { sortSeatingItems } from "../../services/giraService";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -258,10 +259,11 @@ export default function SeatingReports({ supabase }) {
       if (itemsError) throw itemsError;
 
       const rosterKeys = confirmedSeatingRosterKeySet(roster);
+      const dedupedItems = dedupeSeatingStringItems(items || [], conts);
 
       containers = conts.map((c) => {
         const containerItems =
-          items?.filter(
+          dedupedItems.filter(
             (i) => Number(i.id_contenedor) === Number(c.id),
           ) || [];
         const presentItems = containerItems.filter((item) =>

@@ -3,6 +3,7 @@ import { IconLoader, IconUsers, IconX } from "../ui/Icons";
 import {
   buildDifusionMusiciansSections,
 } from "../../utils/difusionMusiciansList";
+import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
 
 export default function MusiciansListModal({
   isOpen,
@@ -42,12 +43,13 @@ export default function MusiciansListModal({
         const items = (itemsRes.data || []).filter((it) =>
           contIds.includes(it.id_contenedor),
         );
+        const dedupedItems = dedupeSeatingStringItems(items, contsRes.data || []);
 
         setSections(
           buildDifusionMusiciansSections(
             roster,
             contsRes.data,
-            items,
+            dedupedItems,
           ),
         );
       } catch (err) {

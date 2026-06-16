@@ -12,3 +12,9 @@ Garantizar que los miembros de ensambles excluidos no aparezcan en ninguna insta
 
 ## Acción Correctiva
 Refactorizar el selector de músicos en la vista de Seating para validar contra el estado de resolución de `giraService`.
+
+## Deduplicación de Cuerdas en Contenedores
+- **Regla:** dentro de la configuración de cuerdas de una gira, cada `id_musico` debe aparecer como máximo una vez en `seating_contenedores_items` para los contenedores del programa.
+- **Lectura:** si existen filas duplicadas persistidas, las vistas de Seating, reportes, listados y composición `Str` deben mostrar solo la posición visual más alta. La prioridad visual se resuelve por `seating_contenedores.orden`, luego `atril_num`, `lado`, `orden` e `id` de la fila.
+- **Escritura:** cualquier cambio realizado desde el manager de cuerdas (crear/editar/eliminar contenedor, agregar/mover/quitar músicos, importar o reordenar) dispara una limpieza persistente que borra las filas duplicadas y conserva la misma fila ganadora que se muestra en lectura.
+- **Estado:** implementado en `src/utils/seatingStringItemsDedupe.js`, `ProgramSeating.jsx`, `GlobalStringsManager.jsx` y consumidores directos de seating.
