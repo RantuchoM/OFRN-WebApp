@@ -20,7 +20,6 @@ export default function BirthdaySidebarControl() {
     () => birthdays.filter((person) => person.daysUntil === 0).length,
     [birthdays],
   );
-  const badgeCount = todayCount || birthdays.length;
 
   const title =
     birthdays.length > 0
@@ -41,15 +40,9 @@ export default function BirthdaySidebarControl() {
         aria-label={title}
       >
         <IconCake size={16} />
-        {badgeCount > 0 ? (
-          <span
-            className={`absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-black leading-none ${
-              todayCount > 0
-                ? "bg-amber-300 text-pink-950"
-                : "bg-pink-600 text-white"
-            }`}
-          >
-            {badgeCount > 9 ? "9+" : badgeCount}
+        {todayCount > 0 ? (
+          <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-300 px-1 text-[10px] font-black leading-none text-pink-950">
+            {todayCount > 9 ? "9+" : todayCount}
           </span>
         ) : null}
       </button>

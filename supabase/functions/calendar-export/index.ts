@@ -38,9 +38,29 @@ const addDays = (dateStr: string, days: number) => {
   return date.toISOString().split("T")[0].replace(/-/g, "");
 };
 
-const cleanText = (text: string) => {
+// Se añade parámetro stripNewlines para limpiar el SUMMARY de manera segura
+const cleanText = (text: string, stripNewlines = false) => {
   if (!text) return "";
-  return text.replace(/,/g, "\\,").replace(/\n/g, "\\n").replace(/;/g, "\\;");
+  
+  let processed = text;
+  
+  // 1. Remover formato enriquecido (HTML Tags si existieran)
+  processed = processed.replace(/<[^>]*>/g, "");
+  
+  // 2. Remover formato enriquecido básico de Markdown (*, **, _, ~, `)
+  processed = processed.replace(/(\*\*|__)(.*?)\1/g, "$2"); // Negritas
+  processed = processed.replace(/(\*|_)(.*?)\1/g, "$2");    // Itálicas
+  processed = processed.replace(/(~~)(.*?)\1/g, "$2");       // Tachado
+  processed = processed.replace(/`([^`]+)`/g, "$1");         // Código en línea
+  
+  // 3. Escapar caracteres requeridos por el estándar RFC 5545
+  processed = processed.replace(/,/g, "\\,").replace(/;/g, "\\;");
+  
+  // 4. Manejo estricto de saltos de línea según el destino (SUMMARY o DESCRIPTION)
+  if (stripNewlines) {
+    return processed.replace(/\r?\n|\r/g, " ").trim(); 
+  }
+  return processed.replace(/\n/g, "\\n"); 
 };
 
 /** Membresía vigente en día ref (YYYY-MM-DD); fecha_hasta null = abierta. */
@@ -149,7 +169,6 @@ serve(async (req) => {
     // B. Programas (Giras o Eventos asociados)
     const prog = isProgram ? item : item.programas;
     
-    // Si es evento de ensamble sin id_gira pero con programas asociados
     if (!isProgram && !prog && item.eventos_programas_asociados?.length > 0) {
        // Se asume visible si tiene programas múltiples
     }
@@ -191,6 +210,9 @@ serve(async (req) => {
 
   const programasFiltrados = (allPrograms || []).filter((p) => shouldShowItem(p, true));
 
+  // Timestamp de generación fijo para esta solicitud
+  const generationStamp = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+
   // --- GENERACIÓN ICS ---
   const icsLines = [
     "BEGIN:VCALENDAR",
@@ -211,21 +233,18 @@ serve(async (req) => {
 
     // -- 1. RESCATAR PROGRAMAS Y OBRAS --
     const listaObras: string[] = [];
-    let mainProgramId = null; // ID para el enlace "Ver en App"
+    let mainProgramId = null;
     
-    // A. Desde Gira única
     if (evt.programas) {
         listaObras.push(evt.programas.nomenclador || evt.programas.nombre_gira);
         mainProgramId = evt.programas.id;
     }
-    // B. Desde Múltiples programas (Ensayos Ensamble)
     if (evt.eventos_programas_asociados && evt.eventos_programas_asociados.length > 0) {
         evt.eventos_programas_asociados.forEach((ep: any) => {
             const p = ep.programas;
             if (p) {
                 const nombre = p.nomenclador || p.nombre_gira;
                 if (nombre) listaObras.push(nombre);
-                // Si no hay programa principal asignado, tomamos el primero de la lista
                 if (!mainProgramId) mainProgramId = p.id;
             }
         });
@@ -233,11 +252,9 @@ serve(async (req) => {
 
     const obrasStr = listaObras.join(", ");
 
-    if (obrasStr) {
-       rawDesc = `[${obrasStr}] ${rawDesc}`;
-    }
-
-    const summary = `[${tipoNombre.toUpperCase()}] ${cleanText(rawDesc)}`;
+    // Forzar limpieza estricta de una sola línea eliminando saltos de línea internos en el SUMMARY
+    const summaryText = obrasStr ? `[${obrasStr}] ${rawDesc}` : rawDesc;
+    const summary = `[${tipoNombre.toUpperCase()}] ${cleanText(summaryText, true)}`;
     
     let descBody = `Tipo: ${tipoNombre}\\n${cleanText(evt.descripcion || "")}`;
     if (obrasStr) {
@@ -245,20 +262,17 @@ serve(async (req) => {
     }
     
     // -- 2. AGREGAR ENLACES --
-    
-    // Enlace a Drive (Solo si viene del programa principal)
     if (evt.programas && evt.programas.google_drive_folder_id) {
         const driveLink = `https://drive.google.com/drive/folders/${evt.programas.google_drive_folder_id}`;
         descBody += `\\n\\n📂 Drive: ${driveLink}`;
     }
 
-    // NUEVO: Enlace a la App (Si encontramos algún programa asociado)
     if (mainProgramId) {
         const appLink = `${FRONTEND_URL}/?tab=giras&view=REPERTOIRE&giraId=${mainProgramId}`;
         descBody += `\\n\\n🔗 Ver en App:\\n${appLink}`;
     }
 
-    const loc = `${cleanText(evt.locaciones?.nombre || "")} ${cleanText(evt.locaciones?.direccion || "")}`;
+    const loc = `${cleanText(evt.locaciones?.nombre || "", true)} ${cleanText(evt.locaciones?.direccion || "", true)}`;
     const dtStart = formatDateTime(evt.fecha, evt.hora_inicio);
     let dtEnd;
     if (evt.hora_fin && evt.hora_fin !== evt.hora_inicio) {
@@ -270,12 +284,13 @@ serve(async (req) => {
     icsLines.push(
       "BEGIN:VEVENT",
       `UID:evt_${evt.id}@orquestamanager.app`,
-      `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`,
+      `DTSTAMP:${generationStamp}`,
       `DTSTART:${dtStart}`,
       `DTEND:${dtEnd}`,
       `SUMMARY:${summary}`,
       `DESCRIPTION:${descBody}`,
       `LOCATION:${loc}`,
+      "SEQUENCE:0",
       "STATUS:CONFIRMED",
       "END:VEVENT"
     );
@@ -295,24 +310,23 @@ serve(async (req) => {
     
     let description = `${cleanText(prog.nombre_gira || "")}`;
     
-    // DRIVE LINK
     if (prog.google_drive_folder_id) {
         const driveLink = `https://drive.google.com/drive/folders/${prog.google_drive_folder_id}`;
         description += `\\n\\n📂 Carpeta Drive:\\n${driveLink}`;
     }
     
-    // APP LINK
     const appLink = `${FRONTEND_URL}/?tab=giras&view=REPERTOIRE&giraId=${prog.id}`;
     description += `\\n\\n🔗 Ver en App:\\n${appLink}`;
 
     icsLines.push(
       "BEGIN:VEVENT",
       `UID:prog_${prog.id}@orquestamanager.app`,
-      `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`,
+      `DTSTAMP:${generationStamp}`,
       `DTSTART;VALUE=DATE:${dtStart}`,
       `DTEND;VALUE=DATE:${dtEnd}`,
-      `SUMMARY:${title}`,
+      `SUMMARY:${cleanText(title, true)}`,
       `DESCRIPTION:${description}`,
+      "SEQUENCE:0",
       "TRANSP:TRANSPARENT", 
       "END:VEVENT"
     );
