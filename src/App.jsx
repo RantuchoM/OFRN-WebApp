@@ -182,27 +182,24 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId, isAdmin }) => {
     let url = `${ADMIN_BASE_URL}?type=${encodeURIComponent(type)}&mode=${mode}`;
     return formatLinks(url);
   };
-
-  const handleSubscribe = (
-    platform,
-    category,
-    mode,
-    isAdminContext = false,
-  ) => {
-    let links = isAdminContext
-      ? getAdminLinks(category, mode)
-      : getUserLinks(category);
-    const { webcalLink, googleMagicLink, httpsLink } = links;
-
+  const BASE_URL = "https://muxrbuivopnawnxlcjxq.supabase.co/functions/v1/calendar-export";
+  const handleSubscribe = (platform, category, mode, isAdminContext = false) => {
+    // Construcción dinámica de URL
+    let url = `${BASE_URL}?`;
+    if (isAdminContext) {
+      url += `admin=true&type=${encodeURIComponent(category)}&mode=${mode}`;
+    } else {
+      url += `uid=${userId}&mode=${category}`; // category aquí sería 'musical' o 'otros'
+    }
+    
+    const { webcalLink, googleMagicLink } = formatLinks(url);
+    
     if (platform === "GOOGLE") window.open(googleMagicLink, "_blank");
     else if (platform === "IOS") window.location.href = webcalLink;
     else if (platform === "COPY") {
-      navigator.clipboard.writeText(httpsLink).then(() => {
-        alert("🔗 Enlace copiado al portapapeles.");
-      });
+      navigator.clipboard.writeText(url).then(() => alert("🔗 Enlace copiado."));
     }
   };
-
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
