@@ -126,14 +126,15 @@ export const CommandPaletteProvider = ({ children }) => {
                           const view = params.get('view');
                           
                           // Solo preservamos pantalla si ya estamos dentro de una vista de Giras.
-                          // Si estamos en LIST (view omitido o view=LIST), abrimos AGENDA como fallback.
                           if (tab === 'giras' && view && view !== 'LIST') {
                             params.set('giraId', String(gira.id));
                             return navigate(`/?${params.toString()}`);
                           }
 
-                          // Fallback: si no estamos en el panel de giras, abrimos AGENDA.
-                          return navigate(`/?tab=giras&view=AGENDA&giraId=${gira.id}`);
+                          // Giras del historial (fuera del filtro de fechas): abrir roster
+                          // para que GirasView resuelva el programa por id y cargue la nómina.
+                          const defaultView = isManagement ? 'ROSTER' : 'AGENDA';
+                          return navigate(`/?tab=giras&view=${defaultView}&giraId=${gira.id}`);
                         }
                     };
                 });
@@ -145,7 +146,7 @@ export const CommandPaletteProvider = ({ children }) => {
     };
 
     fetchGiras();
-  }, [user, navigate]);
+  }, [user, navigate, isManagement]);
 
   // ===========================================================================
   // 3. COMANDOS CONTEXTUALES (Dinámicos según Tab/View y ROL)

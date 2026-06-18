@@ -8,6 +8,11 @@ La aplicación usa **query params** en la ruta raíz (`/`) para abrir la pestañ
 |-----------|--------|-------------|
 | `tab` | `giras` | Activa la pestaña principal "Giras". |
 | `giraId` | ID numérico (ej. `2`) | ID del programa/gira seleccionado. Obligatorio para ver Agenda, Repertorio, etc. |
+
+### Deep-link desde Ctrl+K (giras pasadas)
+El listado de Giras filtra por rango de fechas (hoy → fin de año). Las giras anteriores no aparecen en la lista pero sí en **Historial de Giras** (Ctrl+K).
+
+Al navegar con `giraId` que no está en el listado filtrado, `GirasView` carga el programa completo vía `fetchProgramsByIds` (`useGirasList.js`) y lo usa como `selectedGira`. Desde Ctrl+K el destino por defecto es `view=ROSTER` (management) o `view=AGENDA` (personal).
 | `view` | Ver tabla abajo | Vista interna dentro de la gira. |
 | `subTab` | (según vista) | Subvista; por ejemplo en Logística: `rooming`, etc. |
 
@@ -93,6 +98,14 @@ const url = `${window.location.origin}${window.location.pathname}?tab=giras&view
 - Formato: `{sección} · {contexto opcional} · OFRN` (ej. `Rooming · Festival de Verano · OFRN`, `Gestión · OFRN`, `Espacios · Gestión · OFRN`).
 - En giras con `giraId`, el nombre se obtiene de `programas.nombre_gira` (con caché en memoria por sesión).
 - Rutas públicas (`/entradas`, `/viaticos-manual`, etc.) y login tienen títulos propios vía el mismo hook.
+
+## Resumen anual en listado (GirasView LIST)
+
+- [x] Al final del listado de programas (cuando el filtro de fecha llega al 31/12 del año en curso), se muestra un cuadro horizontal con estadísticas del año.
+- **Programas por tipo**: cuenta solo los programas en los que el integrante está convocado (filtro personal: ensamble/familia/nómina), entre el 1/ene y el 31/dic del año en curso — **sin** ampliar por rol editor ni por ensambles coordinados.
+- **Ensayos de ensamble convocados**: solo para usuarios integrante (no invitados). Cuenta eventos `id_tipo_evento = 13`, no técnicos, no eliminados, en el año en curso, donde el músico está convocado (membresía activa en el ensamble del evento ± overrides `eventos_asistencia_custom`).
+- Implementación: `GirasYearSummaryBar.jsx`, `useGirasYearSummary.js`, `girasYearSummary.js`.
+- Visible solo en `mode === LIST` y cuando `filterDateEnd >= endOfCurrentYearLocal()`.
 
 ## Resumen
 

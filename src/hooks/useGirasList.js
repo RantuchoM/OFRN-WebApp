@@ -61,8 +61,8 @@ async function fetchProgramIdsWithConcertsInRange(
   return [...new Set((data || []).map((p) => p.id).filter((id) => id != null))];
 }
 
-/** Programa completo para ids que solo entraron por fecha de concierto. */
-async function fetchProgramsByIds(supabase, ids) {
+/** Programa completo para ids que solo entraron por fecha de concierto o deep-link (Ctrl+K). */
+export async function fetchProgramsByIds(supabase, ids) {
   if (!ids?.length) return [];
   const { data, error } = await supabase
     .from("programas")

@@ -73,3 +73,4 @@ No hace falta duplicar la URL en más sitios: `buildManagementPaletteCommands()`
 - [x] Fuente compartida `managementPalette.js`
 - [x] Corrección ruta Usuarios (`/?tab=usuarios`, antes `configuracion`)
 - [x] Coordinación con detección de coordinador de ensamble
+- [x] Historial de giras: deep-link por `giraId` carga programa fuera del filtro de fechas y abre Roster (management) o Agenda (personal)

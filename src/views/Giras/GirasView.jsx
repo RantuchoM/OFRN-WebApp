@@ -26,7 +26,9 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
 import { fetchGiraRosterCached } from "../../hooks/useGiraRosterQuery";
-import { useGirasList } from "../../hooks/useGirasList";
+import { fetchProgramsByIds, useGirasList } from "../../hooks/useGirasList";
+import { useGirasYearSummary } from "../../hooks/useGirasYearSummary";
+import GirasYearSummaryBar from "../../components/giras/GirasYearSummaryBar";
 import {
   compareProgramsForList,
   endOfCurrentYearLocal,
@@ -106,6 +108,8 @@ export default function GirasView({ supabase, trigger = 0 }) {
     [coordinatedEnsembles],
   );
 
+  const showYearSummary = filterDateEnd >= endOfCurrentYearLocal();
+
   const {
     giras: girasFromQuery,
     isLoading: loading,
@@ -130,6 +134,18 @@ export default function GirasView({ supabase, trigger = 0 }) {
     return girasFromQuery;
   }, [girasFromQuery, isGuest, user?.active_gira_id]);
 
+  const {
+    year: summaryYear,
+    programCounts: yearProgramCounts,
+    ensayosConvocados: yearEnsayosConvocados,
+    isLoading: yearSummaryLoading,
+  } = useGirasYearSummary(supabase, {
+    user,
+    isGuest,
+    isDifusion,
+    enabled: Boolean(user) && mode === "LIST" && showYearSummary,
+  });
+
   const fetchGiras = useCallback(async () => {
     await refetchGiras();
   }, [refetchGiras]);
@@ -141,10 +157,55 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const [showDupModal, setShowDupModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const selectedGira = useMemo(() => {
-    if (!giraId || giras.length === 0) return null;
-    return giras.find((g) => g.id.toString() === giraId);
+  const selectedGiraFromList = useMemo(() => {
+    if (!giraId) return null;
+    return giras.find((g) => g.id.toString() === giraId) ?? null;
   }, [giras, giraId]);
+
+  const [deepLinkedGira, setDeepLinkedGira] = useState(null);
+  const [deepLinkLoading, setDeepLinkLoading] = useState(false);
+
+  useEffect(() => {
+    if (!giraId || !supabase) {
+      setDeepLinkedGira(null);
+      setDeepLinkLoading(false);
+      return;
+    }
+    if (selectedGiraFromList) {
+      setDeepLinkedGira(null);
+      setDeepLinkLoading(false);
+      return;
+    }
+    if (loading) return;
+
+    let cancelled = false;
+    const parsedId = Number(giraId);
+    if (!Number.isFinite(parsedId)) {
+      setDeepLinkedGira(null);
+      return;
+    }
+
+    (async () => {
+      setDeepLinkLoading(true);
+      try {
+        const programs = await fetchProgramsByIds(supabase, [parsedId]);
+        if (!cancelled) {
+          setDeepLinkedGira(programs[0] ?? null);
+        }
+      } catch (err) {
+        console.error("[GirasView] deep-link programa:", err);
+        if (!cancelled) setDeepLinkedGira(null);
+      } finally {
+        if (!cancelled) setDeepLinkLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [giraId, selectedGiraFromList, loading, supabase]);
+
+  const selectedGira = selectedGiraFromList ?? deepLinkedGira;
 
   const getActiveSection = () => {
     if (!selectedGira) return null;
@@ -1540,7 +1601,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
             />
           </div>
         )}
-        {loading && !selectedGira && mode !== "LIST" && mode !== "CALENDAR" && (
+        {(loading || deepLinkLoading) && !selectedGira && mode !== "LIST" && mode !== "CALENDAR" && (
           <div className="flex h-full items-center justify-center text-slate-400">
             <IconLoader className="animate-spin mr-2" /> Cargando programa...
           </div>
@@ -1653,6 +1714,14 @@ export default function GirasView({ supabase, trigger = 0 }) {
                   {renderGiraCard(gira)}
                 </React.Fragment>
               ),
+            )}
+            {showYearSummary && (
+              <GirasYearSummaryBar
+                year={summaryYear}
+                programCounts={yearProgramCounts}
+                ensayosConvocados={yearEnsayosConvocados}
+                isLoading={yearSummaryLoading}
+              />
             )}
           </div>
         )}
