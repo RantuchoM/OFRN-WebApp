@@ -437,12 +437,14 @@ CREATE TABLE public.giras_integrantes (
   estado text DEFAULT 'confirmado'::text,
   motivo_estado text,
   motivo_estado_actualizado_at timestamp with time zone,
+  id_instr text,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   rol text DEFAULT 'musico'::text,
   token_publico uuid DEFAULT gen_random_uuid() UNIQUE,
   CONSTRAINT giras_integrantes_pkey PRIMARY KEY (id),
   CONSTRAINT giras_integrantes_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
-  CONSTRAINT giras_integrantes_id_integrante_fkey FOREIGN KEY (id_integrante) REFERENCES public.integrantes(id)
+  CONSTRAINT giras_integrantes_id_integrante_fkey FOREIGN KEY (id_integrante) REFERENCES public.integrantes(id),
+  CONSTRAINT giras_integrantes_id_instr_fkey FOREIGN KEY (id_instr) REFERENCES public.instrumentos(id)
 );
 CREATE TABLE public.giras_localidades (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,

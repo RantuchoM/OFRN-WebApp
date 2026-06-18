@@ -31,6 +31,7 @@ Visualizar en un cuadro de doble entrada la participación de integrantes en los
 - El ID del integrante es numérico (PK Integer).
 - La resolución de integrantes por gira debe usar la lógica de `resolveGiraRosterIds` definida en `src/services/giraService.js` (reexportada desde `src/services/supabase.js` para consumo unificado). Incluye fuentes `ENSAMBLE`, `FAMILIA`, `EXCL_ENSAMBLE` y overrides en `giras_integrantes` (excluyendo `estado === 'ausente'`).
 - En base de datos, el vínculo del integrante al instrumento es `integrantes.id_instr` → `instrumentos.id` (orden de filas alineado a la tabla maestra de instrumentos).
+- **Override por gira:** si `giras_integrantes.id_instr` está definido para un programa, la matriz muestra el instrumento efectivo en los programas visibles donde el integrante está en roster (`buildMatrixIntegranteInstrumentDisplay` en `giraUtils.js`). Si toca distintos instrumentos en varias giras, el subtexto une los nombres (`Clarinete / Violín`).
 
 ## SQL (Supabase Editor)
 
@@ -51,5 +52,6 @@ No se requieren tablas nuevas; se sugiere una vista para optimizar la carga de l
 | Tabla con primera columna y primera fila sticky (Tailwind) | Completado |
 | Ubicación: **Gestión** (`?tab=management`) → pestaña **Convocatorias** | Completado |
 | Agregación de datos en `fetchAsistenciaMatrixBaseData` (`src/services/giraService.js`) | Completado |
+| Overrides `giras_integrantes.id_instr` + instrumento efectivo en matriz/export | Completado |
 
-**Nota:** El orden orquestal de filas usa `integrantes.id_instr` (PK en `instrumentos`), coherente con la jerarquía definida en datos maestros; `src/utils/instrumentation.js` aplica a analítica de partituras, no a esta lista de personas.
+**Nota:** El orden orquestal de filas usa `id_instr` como texto (`localeCompare` numérico), no `parseInt`. La analítica de partituras sigue en `src/utils/instrumentation.js`.

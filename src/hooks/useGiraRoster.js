@@ -8,6 +8,7 @@ import {
 import {
   inferDefaultTourRole,
   resolveTourRoleOverride,
+  applyEffectiveGiraInstrument,
 } from "../utils/giraUtils";
 import { fetchGiraSegmentosBundle } from "../services/giraSegmentosService";
 import { resolvePersonIsLocal } from "../utils/giraTramos";
@@ -56,6 +57,11 @@ export async function fetchRosterForGira(supabase, gira) {
     .eq("id_gira", gira.id);
   if (errOverrides) throw errOverrides;
 
+  const { data: instrumentCatalog, error: errCatalog } = await supabase
+    .from("instrumentos")
+    .select("id, instrumento, familia, plaza_extra, rol_gira_default");
+  if (errCatalog) throw errCatalog;
+
   const overrideMap = {};
   overrides?.forEach((o) => {
     const kid = integranteKey(o.id_integrante);
@@ -63,6 +69,7 @@ export async function fetchRosterForGira(supabase, gira) {
     overrideMap[kid] = {
       estado: o.estado,
       rol: o.rol,
+      id_instr: o.id_instr ?? null,
       motivo_estado: o.motivo_estado ?? null,
       motivo_estado_actualizado_at: o.motivo_estado_actualizado_at ?? null,
     };
@@ -227,8 +234,13 @@ export async function fetchRosterForGira(supabase, gira) {
         cortesCount: segmentBundle.cortesCount,
       });
       const enGirasIntegrantes = manualIds.has(id);
+      const withEffectiveInstrument = applyEffectiveGiraInstrument(
+        processedMember,
+        manualData?.id_instr ?? null,
+        instrumentCatalog || [],
+      );
       finalRoster.push({
-        ...processedMember,
+        ...withEffectiveInstrument,
         estado_gira: estadoReal,
         rol_gira: rolReal,
         es_adicional: esAdicional,

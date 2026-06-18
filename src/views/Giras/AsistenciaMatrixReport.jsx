@@ -26,7 +26,10 @@ import {
   downloadAsistenciaMatrixPdf,
   getAsistenciaMatrixSummaryHeadLabels,
 } from "../../utils/asistenciaMatrixExport";
-import { IconDownload, IconHistory } from "../../components/ui/Icons";
+import {
+  buildMatrixIntegranteInstrumentDisplay,
+  compareInstrumentIds,
+} from "../../utils/giraUtils";
 
 function startOfToday() {
   return startOfDay(new Date());
@@ -54,9 +57,8 @@ function filterProgramasForMatrix(programas, { selectedTypes, showPastInYear }) 
 
 function sortIntegrantesByInstrument(integrantes) {
   return [...integrantes].sort((a, b) => {
-    const ia = Number(a.id_instr) || 999999;
-    const ib = Number(b.id_instr) || 999999;
-    if (ia !== ib) return ia - ib;
+    const cmp = compareInstrumentIds(a.id_instr, b.id_instr);
+    if (cmp !== 0) return cmp;
     const na = `${a.apellido || ""} ${a.nombre || ""}`.trim();
     const nb = `${b.apellido || ""} ${b.nombre || ""}`.trim();
     return na.localeCompare(nb, "es");
@@ -188,6 +190,10 @@ export default function AsistenciaMatrixReport({ supabase }) {
   const [integrantes, setIntegrantes] = useState([]);
   const [ensambles, setEnsambles] = useState([]);
   const [memberships, setMemberships] = useState([]);
+  const [instrumentCatalog, setInstrumentCatalog] = useState([]);
+  const [giraInstrumentOverrideMap, setGiraInstrumentOverrideMap] = useState(
+    () => new Map(),
+  );
 
   const [selectedTypes, setSelectedTypes] = useState(
     () => new Set(["Sinfónico", "Camerata Filarmónica"]),
@@ -210,8 +216,15 @@ export default function AsistenciaMatrixReport({ supabase }) {
     (async () => {
       setLoading(true);
       setLoadError(null);
-      const { programas: p, integrantes: i, ensambles: e, memberships: m, error } =
-        await fetchAsistenciaMatrixBaseData(supabase);
+      const {
+        programas: p,
+        integrantes: i,
+        ensambles: e,
+        memberships: m,
+        instrumentCatalog: catalog,
+        giraInstrumentOverrideMap: overrideMap,
+        error,
+      } = await fetchAsistenciaMatrixBaseData(supabase);
       if (cancelled) return;
       if (error) {
         setLoadError(error.message || "Error al cargar datos");
@@ -222,6 +235,8 @@ export default function AsistenciaMatrixReport({ supabase }) {
       setIntegrantes(i);
       setEnsambles(e);
       setMemberships(m);
+      setInstrumentCatalog(catalog || []);
+      setGiraInstrumentOverrideMap(overrideMap || new Map());
       setSelectedIntegranteIds(new Set());
       setOpenEnsambles(new Set());
       setLoading(false);
@@ -302,25 +317,50 @@ export default function AsistenciaMatrixReport({ supabase }) {
     [integrantesInMatrix, selectedIntegranteIds],
   );
 
+  const visibleRowsEnriched = useMemo(
+    () =>
+      visibleRows.map((row) =>
+        buildMatrixIntegranteInstrumentDisplay(
+          row,
+          filteredProgramas,
+          rosterByGiraId,
+          giraInstrumentOverrideMap,
+          instrumentCatalog,
+        ),
+      ),
+    [
+      visibleRows,
+      filteredProgramas,
+      rosterByGiraId,
+      giraInstrumentOverrideMap,
+      instrumentCatalog,
+    ],
+  );
+
   const rowGroups = useMemo(
     () =>
       buildAsistenciaMatrixRowGroups(
-        visibleRows,
+        visibleRowsEnriched,
         ensambles,
         membershipsByEnsamble,
         selectedIntegranteIds,
       ),
-    [visibleRows, ensambles, membershipsByEnsamble, selectedIntegranteIds],
+    [
+      visibleRowsEnriched,
+      ensambles,
+      membershipsByEnsamble,
+      selectedIntegranteIds,
+    ],
   );
 
   const ensambleAggregateRows = useMemo(
     () =>
       buildAsistenciaMatrixEnsambleAggregateRows(
-        visibleRows,
+        visibleRowsEnriched,
         ensambles,
         membershipsByEnsamble,
       ),
-    [visibleRows, ensambles, membershipsByEnsamble],
+    [visibleRowsEnriched, ensambles, membershipsByEnsamble],
   );
 
   const summaryHeadLabels = useMemo(
@@ -416,7 +456,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
   const handleExportExcel = useCallback(async () => {
     if (exportDisabled) return;
     await downloadAsistenciaMatrixExcel({
-      visibleRows,
+      visibleRows: visibleRowsEnriched,
       filteredProgramas,
       rosterByGiraId,
       headerLabel,
@@ -428,7 +468,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
     });
   }, [
     exportDisabled,
-    visibleRows,
+    visibleRowsEnriched,
     filteredProgramas,
     rosterByGiraId,
     headerLabel,
@@ -442,7 +482,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
   const handleExportPdf = useCallback(() => {
     if (exportDisabled) return;
     downloadAsistenciaMatrixPdf({
-      visibleRows,
+      visibleRows: visibleRowsEnriched,
       filteredProgramas,
       rosterByGiraId,
       headerLabel,
@@ -454,7 +494,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
     });
   }, [
     exportDisabled,
-    visibleRows,
+    visibleRowsEnriched,
     filteredProgramas,
     rosterByGiraId,
     headerLabel,

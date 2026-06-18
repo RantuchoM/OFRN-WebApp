@@ -29,6 +29,8 @@ import {
   DEFAULT_ROL_ID,
   inferDefaultTourRole,
   resolveTourRoleOverride,
+  buildGiraIntegranteUpsert,
+  applyEffectiveGiraInstrument,
 } from "../../utils/giraUtils";
 import MusicianForm from "../Musicians/MusicianForm";
 import {
@@ -812,12 +814,37 @@ export default function GiraRoster({
     });
 
     await supabase.from("giras_integrantes").upsert(
-      {
-        id_gira: gira.id,
-        id_integrante: musician.id,
-        rol: newRole,
+      buildGiraIntegranteUpsert(gira.id, musician, { rol: newRole }),
+      { onConflict: "id_gira, id_integrante" },
+    );
+    refreshRoster();
+  };
+
+  const changeInstrument = async (musician, newInstrId) => {
+    const profileId = musician.id_instr_perfil ?? musician.id_instr ?? "";
+    const normalizedNew =
+      newInstrId != null && String(newInstrId).trim() !== ""
+        ? String(newInstrId).trim()
+        : null;
+    const overrideId =
+      normalizedNew && normalizedNew !== String(profileId) ? normalizedNew : null;
+    const effectiveId = overrideId ?? profileId ?? null;
+    const optimisticMember = applyEffectiveGiraInstrument(
+      musician,
+      overrideId,
+      instrumentsList,
+    );
+
+    setLocalRoster((prev) =>
+      prev.map((m) => (m.id === musician.id ? optimisticMember : m)),
+    );
+
+    await supabase.from("giras_integrantes").upsert(
+      buildGiraIntegranteUpsert(gira.id, musician, {
+        id_instr: overrideId,
+        rol: musician.rol_gira,
         estado: musician.estado_gira,
-      },
+      }),
       { onConflict: "id_gira, id_integrante" },
     );
     refreshRoster();
@@ -849,22 +876,12 @@ export default function GiraRoster({
     // Siempre upsert/update: el registro NUNCA se elimina de giras_integrantes al pasar de Ausente a Presente.
     if (newStatus === "ausente") {
       await supabase.from("giras_integrantes").upsert(
-        {
-          id_gira: gira.id,
-          id_integrante: musician.id,
-          estado: newStatus,
-          rol: musician.rol_gira,
-        },
+        buildGiraIntegranteUpsert(gira.id, musician, { estado: newStatus }),
         { onConflict: "id_gira, id_integrante" },
       );
     } else {
       await supabase.from("giras_integrantes").upsert(
-        {
-          id_gira: gira.id,
-          id_integrante: musician.id,
-          estado: "confirmado",
-          rol: musician.rol_gira,
-        },
+        buildGiraIntegranteUpsert(gira.id, musician, { estado: "confirmado" }),
         { onConflict: "id_gira, id_integrante" },
       );
     }
@@ -1086,12 +1103,7 @@ export default function GiraRoster({
     const { musician, action } = pendingBaja;
     if (action === "ausente") {
       await supabase.from("giras_integrantes").upsert(
-        {
-          id_gira: gira.id,
-          id_integrante: musician.id,
-          estado: "ausente",
-          rol: musician.rol_gira,
-        },
+        buildGiraIntegranteUpsert(gira.id, musician, { estado: "ausente" }),
         { onConflict: "id_gira, id_integrante" },
       );
       if (localNotificacionInicialEnviada && notificacionesHabilitadas && musician.mail) {
@@ -2449,9 +2461,11 @@ export default function GiraRoster({
                     visibleColumns={visibleColumns}
                     isEditor={isEditor}
                     rolesList={rolesList}
+                    instrumentsList={instrumentsList}
                     defaultRolId={DEFAULT_ROL_ID}
                     onToggleSelection={handleRowCheckboxClick}
                     onChangeRole={changeRole}
+                    onChangeInstrument={changeInstrument}
                     onEdit={setEditingMusician}
                     onSwap={setSwapTarget}
                     onDeleteVacancy={handleDeleteVacancy}

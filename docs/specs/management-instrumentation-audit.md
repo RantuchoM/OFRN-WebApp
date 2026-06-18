@@ -79,12 +79,11 @@ Proveer una interfaz centralizada para comparar la instrumentación técnica req
 - Filtro de filas:
   - Se consideran solo registros con `estado != 'ausente'`.
 - Para cada registro de `giras_integrantes`:
-  - Se obtiene el integrante asociado vía relación `integrantes`:
-    - Campos mínimos:
-      - `integrantes.id_instr`
-      - `integrantes.instrumentos (instrumento, familia)`
+  - Se obtiene el integrante vía `fetchRosterForGira` (roster normalizado):
+    - **Instrumento efectivo:** `giras_integrantes.id_instr ?? integrantes.id_instr` (ver `docs/specs/gira-instrument-override.md`).
+    - Campos usados en conteo: `id_instr` efectivo + `instrumentos.instrumento` / `familia`.
   - Se mapea el instrumento real a una de las columnas de la matriz usando las mismas heurísticas que `ProgramSeating`:
-    - Si `id_instr` ∈ `["01", "02", "03", "04"]` → cuenta en **Cuerdas**.
+    - Si `id_instr` efectivo ∈ `["01", "02", "03", "04"]` → cuenta en **Cuerdas**.
     - Si `instrumentos.instrumento` contiene:
       - `"flaut"` o `"picc"` → **Fl**
       - `"oboe"` o `"corno ing"` → **Ob**

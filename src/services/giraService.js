@@ -13,6 +13,7 @@ import {
   sortFamiliasParticipantes,
 } from "../utils/participantesSort";
 import { formatTramoTitle } from "../utils/giraTramos";
+import { buildGiraInstrumentOverrideMap } from "../utils/giraUtils";
 
 /**
  * Resuelve los IDs de los integrantes de una gira:
@@ -153,20 +154,34 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
       integrantes: [],
       ensambles: [],
       memberships: [],
+      instrumentCatalog: [],
+      giraInstrumentOverrideMap: new Map(),
       error: null,
     };
   }
   const y = new Date().getFullYear();
   const minFechaDesde = `${y - 1}-01-01`;
   try {
-    const [programasRes, integrantesRes, ensRes, ieRes] = await Promise.all([
-      supabase
-        .from("programas")
-        .select(
-          "id, nomenclador, mes_letra, nombre_gira, subtitulo, tipo, fecha_desde, fecha_hasta",
-        )
-        .gte("fecha_desde", minFechaDesde)
-        .order("fecha_desde", { ascending: true }),
+    const programasRes = await supabase
+      .from("programas")
+      .select(
+        "id, nomenclador, mes_letra, nombre_gira, subtitulo, tipo, fecha_desde, fecha_hasta",
+      )
+      .gte("fecha_desde", minFechaDesde)
+      .order("fecha_desde", { ascending: true });
+
+    if (programasRes.error) throw programasRes.error;
+
+    const programas = programasRes.data || [];
+    const programaIds = programas.map((p) => p.id).filter((id) => id != null);
+
+    const [
+      integrantesRes,
+      ensRes,
+      ieRes,
+      catalogRes,
+      giInstrRes,
+    ] = await Promise.all([
       supabase
         .from("integrantes")
         .select(
@@ -177,13 +192,24 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
       supabase
         .from("integrantes_ensambles")
         .select("id_ensamble, id_integrante, fecha_desde, fecha_hasta"),
+      supabase
+        .from("instrumentos")
+        .select("id, instrumento, familia, abreviatura, plaza_extra, rol_gira_default"),
+      programaIds.length > 0
+        ? supabase
+            .from("giras_integrantes")
+            .select("id_gira, id_integrante, id_instr")
+            .in("id_gira", programaIds)
+            .not("id_instr", "is", null)
+        : Promise.resolve({ data: [], error: null }),
     ]);
 
     const err =
-      programasRes.error ||
       integrantesRes.error ||
       ensRes.error ||
-      ieRes.error;
+      ieRes.error ||
+      catalogRes.error ||
+      giInstrRes.error;
     if (err) {
       console.error("[GiraService] fetchAsistenciaMatrixBaseData:", err);
       return {
@@ -191,6 +217,8 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
         integrantes: [],
         ensambles: [],
         memberships: [],
+        instrumentCatalog: [],
+        giraInstrumentOverrideMap: new Map(),
         error: err,
       };
     }
@@ -199,10 +227,14 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
     const membershipsRaw = ieRes.data || [];
 
     return {
-      programas: programasRes.data || [],
+      programas,
       integrantes: integrantesRes.data || [],
       ensambles: ensRes.data || [],
       memberships: filterMembershipRowsForProgramDate(membershipsRaw, hoy),
+      instrumentCatalog: catalogRes.data || [],
+      giraInstrumentOverrideMap: buildGiraInstrumentOverrideMap(
+        giInstrRes.data || [],
+      ),
       error: null,
     };
   } catch (e) {
@@ -212,6 +244,8 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
       integrantes: [],
       ensambles: [],
       memberships: [],
+      instrumentCatalog: [],
+      giraInstrumentOverrideMap: new Map(),
       error: e,
     };
   }

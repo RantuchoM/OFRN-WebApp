@@ -24,9 +24,11 @@ export default function RosterTableRow({
   visibleColumns,
   isEditor,
   rolesList,
+  instrumentsList = [],
   defaultRolId,
   onToggleSelection,
   onChangeRole,
+  onChangeInstrument,
   onEdit,
   onSwap,
   onDeleteVacancy,
@@ -107,9 +109,39 @@ export default function RosterTableRow({
             {m.rol_gira || defaultRolId}
           </span>
         )}
-        <span className="text-[9px] md:text-[10px] text-slate-400 block font-medium mt-0.5 truncate">
-          {m.instrumentos?.instrumento || "-"}
-        </span>
+        {isEditor && !m.es_simulacion && instrumentsList.length > 0 ? (
+          <select
+            className={`text-[9px] md:text-[10px] border-none bg-transparent outline-none cursor-pointer w-full max-w-full -ml-1 font-medium mt-0.5 truncate ${
+              m.id_instr_gira_override
+                ? "text-indigo-600"
+                : "text-slate-400"
+            }`}
+            value={m.id_instr || ""}
+            title={
+              m.id_instr_gira_override
+                ? `Instrumento en gira (ficha: ${
+                    instrumentsList.find(
+                      (i) => String(i.id) === String(m.id_instr_perfil),
+                    )?.instrumento || m.id_instr_perfil || "-"
+                  })`
+                : "Instrumento de ficha"
+            }
+            onChange={(e) => onChangeInstrument?.(m, e.target.value)}
+          >
+            {!m.id_instr && (
+              <option value="">—</option>
+            )}
+            {instrumentsList.map((inst) => (
+              <option key={inst.id} value={inst.id}>
+                {inst.instrumento}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-[9px] md:text-[10px] text-slate-400 block font-medium mt-0.5 truncate">
+            {m.instrumentos?.instrumento || "-"}
+          </span>
+        )}
       </td>
 
       {/* APELLIDO, NOMBRE + NOTA INTERNA - 30% móvil */}

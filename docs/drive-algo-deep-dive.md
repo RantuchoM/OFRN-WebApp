@@ -28,40 +28,57 @@ Para mejorar el acierto del *match* entre el archivo de Drive y el catálogo, se
 
 ## Integración en `DriveMatcherModal.jsx`
 
-- Se implementa una función interna `getSuggestedParts` que:
-  1. Recorre `driveFiles` y extrae el prefijo (antes del `-` o de la extensión).  
-  2. Normaliza ese prefijo según las reglas anteriores.  
-  3. Calcula, para cada archivo, el instrumento más cercano en `catalogoInstrumentos` usando:
-     - *Token match* directo (inclusión de palabras clave).  
-     - Fuzzy matching con distancia de Levenshtein como desempate.  
-  4. Si el prefijo contiene `"Director"` o `"Score"`, fuerza el mapeo al ID de Director (detectado en el catálogo o `142` como fallback).
-  5. Devuelve una lista de `parts` compatibles con `calculateInstrumentation`:
-     - `id_instrumento` (numérico, tomado del catálogo).  
-     - `nombre_archivo` (prefijo del archivo).  
-     - `instrumento_nombre` (texto desde el catálogo).  
-     - `links: []`, `nota_organico: ""`, `es_solista: false`.
+La lógica vive en **`src/utils/drivePartMatcher.js`** (importada por el modal).
 
-- A partir de estas `parts` sugeridas se calcula un string de instrumentación usando `calculateInstrumentation`, que se muestra en un banner:
-  > **Instrumentación detectada:** `1.2.1.1 - 2.2.1.0 …`  
-  > ¿Deseas inicializar las particellas?
+- `getSuggestedParts` / `expandDriveFileToParts`:
+  1. Recorre `driveFiles` y extrae el prefijo (antes del `-` o de la extensión).
+  2. Normaliza ese prefijo según las reglas anteriores.
+  3. Calcula, para cada archivo, el instrumento más cercano en `catalogoInstrumentos`.
+  4. Si el prefijo contiene `"Director"` o `"Score"`, fuerza el mapeo al ID de Director (catálogo o `50` como fallback).
+  5. Devuelve `parts` compatibles con `calculateInstrumentation`.
+
+- A partir de estas `parts` sugeridas se calcula instrumentación en el banner verde (solo cuando `parts.length === 0`).
+
+## Archivos combinados (`1y2`, `1 y 2`, `1&2`, `1-2`, `1/2`)
+
+- `parseCombinedNumbers` detecta sufijos como `Corno F 1y2` → números `[1, 2]` + resto `Corno F`.
+- **Auto-generación** (`Insertar y vincular`, botón `+` en archivo): un PDF combinado genera **varias** particellas (`Corno 1`, `Corno 2`, …) con el **mismo** enlace Drive.
+- **Placeholders existentes**: `attachDriveLinksByFilename` y `suggestDriveLinksForParts` permiten que un mismo archivo se vincule a cada slot incluido en el combinado.
+- **Prioridad**: match de slot exacto (`Corno 1.pdf` → solo `Corno 1`) gana sobre combinado (`Corno 1y2.pdf`).
+
+### Puntuación de match (`getMatchScore`)
+
+| Score | Significado |
+|-------|-------------|
+| 100 | Mismo instrumento + número de parte exacto |
+| 50 | Archivo combinado que incluye el número de la particella |
+| 45 | Placeholder numerado único (ej. solo `Tuba 1`) ↔ archivo sin número (`Tuba`) |
+| 30 | Mismo instrumento sin número en archivo ni particella |
+
+## Sugerencias para placeholders (sin enlace)
+
+Cuando ya hay particellas creadas (orgánico manual, etc.) pero sin `links`:
+
+- Banner ámbar: cuenta de particellas sin enlace y sugerencias detectadas.
+- **Vincular sugerencias** (global): aplica todos los matches de `suggestDriveLinksForParts`.
+- **IconBulb** por fila: muestra el nombre del PDF sugerido; al clic vincula ese archivo.
+
+Solo se sugiere si `links.length === 0` en la particella.
 
 ## Botones de Acción
 
-- **Insertar**:  
-  - Reemplaza las particellas actuales (`parts`) por las sugeridas (`getSuggestedParts`), de forma que toda la cadena (`calculateInstrumentation`, vistas de repertorio, reportes) use IDs reales del catálogo.
+- **Insertar y vincular** (obra vacía): reemplaza `parts` por `getSuggestedParts` + `attachDriveLinksByFilename`.
 
-- **+ Agregar Director**:  
-  - Si tras el escaneo no hay una parte de Director, se muestra un botón destacado.  
-  - Al pulsarlo, se inserta en `parts` una particella:
-    - `id_instrumento`: ID de Director del catálogo (o `142` como fallback).  
-    - `nombre_archivo`: `"Director"`.  
-    - `instrumento_nombre`: `"Director"`.  
-    - Resto de campos neutros (`links: []`, `nota_organico: ""`, `es_solista: false`).
+- **+ Agregar Director**: si falta Director tras el escaneo.
+
+- **Vincular sugerencias** (obra con placeholders): aplica vínculos sin crear particellas nuevas.
 
 ## Estado de Implementación
 
-- [x] Definir estrategia de normalización y fuzzy matching.  
-- [x] Implementar `getSuggestedParts` en `DriveMatcherModal.jsx`.  
-- [x] Integrar el banner de instrumentación detectada con `calculateInstrumentation`.  
+- [x] Definir estrategia de normalización y fuzzy matching.
+- [x] Implementar `getSuggestedParts` (ahora en `src/utils/drivePartMatcher.js`).
+- [x] Integrar el banner de instrumentación detectada con `calculateInstrumentation`.
 - [x] Implementar botón inteligente **"+ Agregar Director"** cuando falte esa particella.
+- [x] Archivos combinados (`1y2`, etc.): expansión multi-particella y vínculo compartido.
+- [x] Sugerencias IconBulb + acción global para placeholders sin enlace.
 

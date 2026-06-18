@@ -101,6 +101,193 @@ export const getInstrumentNameFromMember = (member) =>
 export const getInstrumentFamilyFromMember = (member) =>
   getInstrumentRel(member)?.familia ?? "";
 
+/** ID de instrumento de ficha (sin override de gira). */
+export const getProfileInstrumentId = (member) => {
+  const fromField = member?.id_instr_perfil;
+  if (fromField != null && String(fromField).trim() !== "") {
+    return String(fromField).trim();
+  }
+  const fromMember = member?.id_instr;
+  if (fromMember != null && String(fromMember).trim() !== "") {
+    return String(fromMember).trim();
+  }
+  return null;
+};
+
+/** Override explícito de instrumento en giras_integrantes (null = usar ficha). */
+export const getGiraInstrumentOverrideId = (member) => {
+  const raw = member?.id_instr_gira_override;
+  if (raw == null || String(raw).trim() === "") return null;
+  return String(raw).trim();
+};
+
+/** ID efectivo para roster/seating: override de gira o ficha. */
+export const getEffectiveInstrumentId = (member) =>
+  getGiraInstrumentOverrideId(member) ?? getProfileInstrumentId(member);
+
+/** Resuelve fila de catálogo `instrumentos` por id. */
+export const resolveInstrumentFromCatalog = (instrumentId, catalog = []) => {
+  if (instrumentId == null || String(instrumentId).trim() === "") return null;
+  const key = String(instrumentId).trim();
+  const list = Array.isArray(catalog) ? catalog : [];
+  return list.find((row) => String(row.id) === key) ?? null;
+};
+
+/**
+ * Aplica instrumento efectivo de gira sobre el integrante (mutación de id_instr + instrumentos).
+ * @param {object} member - fila con join instrumentos de ficha
+ * @param {string|null} giraOverrideId - giras_integrantes.id_instr
+ * @param {Array} instrumentCatalog - catálogo completo instrumentos
+ */
+export const applyEffectiveGiraInstrument = (
+  member,
+  giraOverrideId,
+  instrumentCatalog = [],
+) => {
+  const idInstrPerfil = member?.id_instr ?? null;
+  const idInstrGiraOverride =
+    giraOverrideId != null && String(giraOverrideId).trim() !== ""
+      ? String(giraOverrideId).trim()
+      : null;
+  const effectiveId = idInstrGiraOverride ?? idInstrPerfil;
+  const profileInstrument = getInstrumentRel(member);
+  const catalogRow = resolveInstrumentFromCatalog(effectiveId, instrumentCatalog);
+  const effectiveInstrument = catalogRow
+    ? {
+        instrumento: catalogRow.instrumento,
+        familia: catalogRow.familia,
+        plaza_extra: catalogRow.plaza_extra ?? profileInstrument?.plaza_extra ?? null,
+        rol_gira_default:
+          catalogRow.rol_gira_default ?? profileInstrument?.rol_gira_default ?? null,
+      }
+    : profileInstrument;
+
+  return {
+    ...member,
+    id_instr_perfil: idInstrPerfil,
+    id_instr_gira_override: idInstrGiraOverride,
+    id_instr: effectiveId,
+    instrumentos: effectiveInstrument,
+  };
+};
+
+/** Payload base para upsert en giras_integrantes preservando override de instrumento. */
+export const buildGiraIntegranteUpsert = (giraId, musician, fields = {}) => {
+  const payload = {
+    id_gira: giraId,
+    id_integrante: musician.id,
+    ...fields,
+  };
+  if (!("rol" in fields) && musician.rol_gira != null) {
+    payload.rol = musician.rol_gira;
+  }
+  if (!("estado" in fields) && musician.estado_gira != null) {
+    payload.estado = musician.estado_gira;
+  }
+  if (!("id_instr" in fields) && musician.id_instr_gira_override != null) {
+    payload.id_instr = musician.id_instr_gira_override;
+  }
+  return payload;
+};
+
+/** Mapa `giraId:integranteId` → id_instr override (solo filas con override explícito). */
+export const buildGiraInstrumentOverrideMap = (rows = []) => {
+  const map = new Map();
+  for (const row of rows) {
+    if (row?.id_instr == null || String(row.id_instr).trim() === "") continue;
+    if (row.id_gira == null || row.id_integrante == null) continue;
+    map.set(
+      `${row.id_gira}:${row.id_integrante}`,
+      String(row.id_instr).trim(),
+    );
+  }
+  return map;
+};
+
+/** Instrumento efectivo de un integrante en una gira concreta. */
+export const getEffectiveInstrumentIdForGiraMember = (
+  integranteId,
+  giraId,
+  profileInstrId,
+  overrideMap = new Map(),
+) => {
+  const key = `${giraId}:${integranteId}`;
+  const override = overrideMap.get(key);
+  if (override) return override;
+  if (profileInstrId == null || String(profileInstrId).trim() === "") {
+    return null;
+  }
+  return String(profileInstrId).trim();
+};
+
+/**
+ * Enriquece un integrante para matriz multi-gira: instrumento mostrado según
+ * overrides en los programas visibles donde está en roster.
+ */
+export const buildMatrixIntegranteInstrumentDisplay = (
+  integrante,
+  filteredProgramas,
+  rosterByGiraId,
+  overrideMap,
+  catalog = [],
+) => {
+  const iid = Number(integrante.id);
+  const profileId =
+    integrante.id_instr != null ? String(integrante.id_instr).trim() : null;
+  const effectiveIds = [];
+
+  for (const programa of filteredProgramas || []) {
+    const roster = rosterByGiraId[programa.id];
+    if (!roster?.has(iid)) continue;
+    const eff = getEffectiveInstrumentIdForGiraMember(
+      iid,
+      programa.id,
+      profileId,
+      overrideMap,
+    );
+    if (eff) effectiveIds.push(eff);
+  }
+
+  const uniqueIds = [...new Set(effectiveIds)];
+  if (uniqueIds.length === 0) {
+    return applyEffectiveGiraInstrument(integrante, null, catalog);
+  }
+
+  uniqueIds.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const sortId = uniqueIds[0];
+  const names = uniqueIds.map(
+    (id) => resolveInstrumentFromCatalog(id, catalog)?.instrumento || `#${id}`,
+  );
+  const primary = resolveInstrumentFromCatalog(sortId, catalog);
+  const singleOverride =
+    uniqueIds.length === 1 && uniqueIds[0] !== profileId
+      ? uniqueIds[0]
+      : null;
+
+  const base = applyEffectiveGiraInstrument(
+    integrante,
+    singleOverride,
+    catalog,
+  );
+
+  if (names.length <= 1) return base;
+
+  return {
+    ...base,
+    instrumentos: {
+      ...(base.instrumentos || {}),
+      instrumento: names.join(" / "),
+    },
+  };
+};
+
+/** Orden orquestal por código de instrumento (texto, p. ej. 01–04). */
+export const compareInstrumentIds = (a, b) => {
+  const sa = a != null && String(a).trim() !== "" ? String(a).trim() : "zzzz";
+  const sb = b != null && String(b).trim() !== "" ? String(b).trim() : "zzzz";
+  return sa.localeCompare(sb, undefined, { numeric: true });
+};
+
 /** Rol de gira por defecto configurado en `instrumentos.rol_gira_default`. */
 export const getInstrumentDefaultTourRoleFromMember = (member) => {
   const roleId = getInstrumentRel(member)?.rol_gira_default;

@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { saveAs } from "file-saver";
+import { compareInstrumentIds } from "./giraUtils";
 
 /**
  * Agrupa integrantes visibles por ensamble según la selección actual.
@@ -32,9 +33,8 @@ export function buildAsistenciaMatrixRowGroups(
 
   const sortRows = (rows) =>
     [...rows].sort((a, b) => {
-      const ia = Number(a.id_instr) || 999999;
-      const ib = Number(b.id_instr) || 999999;
-      if (ia !== ib) return ia - ib;
+      const cmp = compareInstrumentIds(a.id_instr, b.id_instr);
+      if (cmp !== 0) return cmp;
       const na = `${a.apellido || ""} ${a.nombre || ""}`.trim();
       const nb = `${b.apellido || ""} ${b.nombre || ""}`.trim();
       return na.localeCompare(nb, "es");

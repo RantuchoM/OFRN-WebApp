@@ -12,6 +12,7 @@ import {
   IconTrash,
   IconEdit,
   IconSearch,
+  IconBulb,
 } from "../ui/Icons";
 import SearchableSelect from "../ui/SearchableSelect";
 import { calculateInstrumentation } from "../../utils/instrumentation";
@@ -20,6 +21,14 @@ import { parseOrganicoVientosInput } from "../../utils/particellaOrganicoInput";
 import OrganicoVientosAddField from "./OrganicoVientosAddField";
 import { toast } from "sonner";
 import { normalizeForSearch } from "../../utils/sanitize";
+import {
+  attachDriveLinksByFilename,
+  expandDriveFileToParts,
+  fileProducesParticella,
+  getDirectorInstrumentId,
+  getSuggestedParts,
+  suggestDriveLinksForParts,
+} from "../../utils/drivePartMatcher";
 
 const capitalize = (s) => s && s[0].toUpperCase() + s.slice(1);
 
@@ -37,258 +46,6 @@ const ModalPortal = ({ children }) => {
     </div>,
     document.body,
   );
-};
-
-// Normaliza texto para matching (minúsculas, sin tildes, sin sufijos comunes)
-const normalizeInstrumentString = (str) => {
-  if (!str) return "";
-  return str
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\b(1ra|2da|3ra|ppal|principal|score|partitura)\b/gi, "")
-    .replace(/\d+/g, "")
-    .replace(/[^a-z\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-};
-
-// Distancia de Levenshtein simple para fuzzy matching
-const levenshtein = (a, b) => {
-  if (a === b) return 0;
-  if (!a.length) return b.length;
-  if (!b.length) return a.length;
-  const dp = Array(b.length + 1)
-    .fill(null)
-    .map(() => Array(a.length + 1).fill(0));
-  for (let i = 0; i <= a.length; i++) dp[0][i] = i;
-  for (let j = 0; j <= b.length; j++) dp[j][0] = j;
-  for (let j = 1; j <= b.length; j++) {
-    for (let i = 1; i <= a.length; i++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[j][i] = Math.min(
-        dp[j - 1][i] + 1, // eliminación
-        dp[j][i - 1] + 1, // inserción
-        dp[j - 1][i - 1] + cost, // sustitución
-      );
-    }
-  }
-  return dp[b.length][a.length];
-};
-
-const getDirectorInstrumentId = (catalogoInstrumentos) => {
-  const found =
-    (catalogoInstrumentos || []).find((i) => {
-      const name = (i.instrumento || "").toLowerCase();
-      return (
-        name.includes("director") ||
-        name.includes("conductor") ||
-        name.includes("score")
-      );
-    }) || null;
-  return found?.id ?? "50"; // Fallback: id real en tabla instrumentos
-};
-
-// Determina si un id de instrumento pertenece al rango "01"–"29" (ej. "05a" -> 5)
-const isCoreInstrumentId = (id) => {
-  if (id === undefined || id === null) return false;
-  const str = String(id);
-  const match = str.match(/\d+/);
-  if (!match) return false;
-  const num = parseInt(match[0], 10);
-  return num >= 1 && num <= 29;
-};
-
-const isDriveFileExcludedFromMatching = (rawName) => {
-  const upperName = (rawName || "").toUpperCase();
-  return upperName.startsWith("PORTADA") || upperName.startsWith("AUDIO");
-};
-
-/** Sugiere una particella a partir de un archivo de Drive (prefijo antes del primer "-"). */
-const suggestPartFromDriveFile = (file, catalogoInstrumentos) => {
-  if (!file || !catalogoInstrumentos) return null;
-
-  const rawName = file.name || "";
-  if (!rawName || isDriveFileExcludedFromMatching(rawName)) return null;
-
-  const directorId = getDirectorInstrumentId(catalogoInstrumentos);
-
-  const normalizedCatalog = (catalogoInstrumentos || [])
-    .filter((i) => isCoreInstrumentId(i.id))
-    .map((i) => ({
-      ...i,
-      norm: normalizeInstrumentString(i.instrumento),
-    }));
-
-  const base = rawName.split(".")[0];
-  const prefix = base.split("-")[0].trim();
-  const lowerPrefix = prefix.toLowerCase();
-
-  if (
-    /\b(director|conductor|score|partitura)\b/i.test(lowerPrefix) &&
-    directorId
-  ) {
-    const instrObj = normalizedCatalog.find((i) => i.id === directorId);
-    return {
-      tempId: Date.now() + Math.random(),
-      id: undefined,
-      id_instrumento: directorId,
-      nombre_archivo: prefix || "Director",
-      links: [],
-      nota_organico: "",
-      instrumento_nombre: instrObj?.instrumento || "Director",
-      es_solista: false,
-    };
-  }
-
-  let normPrefix = normalizeInstrumentString(prefix);
-  if (!normPrefix) return null;
-
-  const rawL = lowerPrefix;
-  if (
-    /picc|piccolo|^fp\b|^fi\b/.test(rawL) ||
-    /\bfl\s+picc/i.test(rawL) ||
-    normPrefix.includes("piccolo")
-  ) {
-    normPrefix = "flauta";
-  }
-  const forcePercussion =
-    /glock|metal(o)?fon|metalof|celesta|xilo/i.test(rawL) ||
-    (/perc/i.test(rawL) && /glock|metal|celesta/i.test(rawL));
-
-  let best = null;
-  for (const instr of normalizedCatalog) {
-    if (!instr.norm) continue;
-    if (
-      normPrefix === instr.norm ||
-      normPrefix.includes(instr.norm) ||
-      instr.norm.includes(normPrefix)
-    ) {
-      best = instr;
-      break;
-    }
-
-    const dist = levenshtein(normPrefix, instr.norm);
-    const maxLen = Math.max(normPrefix.length, instr.norm.length) || 1;
-    const sim = 1 - dist / maxLen;
-    if (!best || sim > best.sim) {
-      best = { ...instr, sim };
-    }
-  }
-
-  if (normPrefix === "corno") {
-    const plainHorn =
-      normalizedCatalog.find((i) => i.norm === "corno") ||
-      normalizedCatalog.find(
-        (i) => i.norm.startsWith("corno") && !i.norm.includes("ingl"),
-      );
-    if (plainHorn) {
-      best = plainHorn;
-    }
-  }
-
-  if (forcePercussion) {
-    const percCand =
-      normalizedCatalog.find(
-        (i) =>
-          i.norm.includes("perc") ||
-          i.norm.includes("percus") ||
-          /^perc\b/i.test(i.norm),
-      ) || null;
-    if (percCand) {
-      const weakMatch =
-        !best || (typeof best.sim === "number" && best.sim < 0.55);
-      if (weakMatch) best = percCand;
-    }
-  }
-
-  if (!best) return null;
-  if (best.sim !== undefined && best.sim < 0.4) return null;
-
-  return {
-    tempId: Date.now() + Math.random(),
-    id: undefined,
-    id_instrumento: best.id,
-    nombre_archivo: prefix,
-    links: [],
-    nota_organico: "",
-    instrumento_nombre: best.instrumento,
-    es_solista: false,
-  };
-};
-
-// Construye particellas sugeridas a partir de archivos de Drive
-const getSuggestedParts = (driveFiles, catalogoInstrumentos) => {
-  if (!driveFiles || driveFiles.length === 0 || !catalogoInstrumentos) return [];
-
-  return driveFiles
-    .map((file) => suggestPartFromDriveFile(file, catalogoInstrumentos))
-    .filter(Boolean);
-};
-
-/** Empareja cada particella sugerida con el primer archivo de Drive cuyo prefijo encaje (1 archivo → 1 parte). */
-const attachDriveLinksByFilename = (partsList, driveFilesSorted) => {
-  if (!partsList?.length || !driveFilesSorted?.length) return partsList;
-
-  const usableFiles = [...driveFilesSorted].filter((f) => {
-    const up = (f.name || "").toUpperCase();
-    return !up.startsWith("PORTADA") && !up.startsWith("AUDIO");
-  });
-  const usedIds = new Set();
-  const scoreLikeToken = "__score__";
-  const isScoreLike = (text) =>
-    /\b(director|conductor|score|partitura)\b/i.test(String(text || ""));
-
-  const filePrimaryNorm = (f) => {
-    const base = (f.name || "").split(".")[0].split("-")[0].trim();
-    if (isScoreLike(base)) return scoreLikeToken;
-    let n = normalizeInstrumentString(base);
-    const low = base.toLowerCase();
-    if (/picc|piccolo|^fp\b/.test(low) || n.includes("piccolo")) n = "flauta";
-    return n;
-  };
-
-  const partPrimaryNorm = (p) => {
-    const base = (p.nombre_archivo || "").split("-")[0].trim();
-    if (isScoreLike(base) || String(p.instrumento_nombre || "").toLowerCase().includes("director")) {
-      return scoreLikeToken;
-    }
-    let n = normalizeInstrumentString(base);
-    const low = base.toLowerCase();
-    if (/picc|piccolo|^fp\b/.test(low) || n.includes("piccolo")) n = "flauta";
-    return n;
-  };
-
-  return partsList.map((part) => {
-    const pn = partPrimaryNorm(part);
-    if (!pn) return part;
-
-    const hit = usableFiles.find((f) => {
-      if (usedIds.has(f.id)) return false;
-      const fn = filePrimaryNorm(f);
-      if (!fn) return false;
-      if (fn === pn || fn.includes(pn) || pn.includes(fn)) return true;
-      if (
-        (pn.includes("flaut") || pn === "flauta") &&
-        (fn.includes("picc") || fn.includes("piccolo"))
-      )
-        return true;
-      if (
-        (fn.includes("flaut") || fn === "flauta") &&
-        (pn.includes("picc") || pn.includes("piccolo"))
-      )
-        return true;
-      return false;
-    });
-
-    if (!hit?.webViewLink) return part;
-    usedIds.add(hit.id);
-    const links = [...(part.links || [])];
-    if (!links.some((l) => l.url === hit.webViewLink)) {
-      links.push({ url: hit.webViewLink, description: hit.name });
-    }
-    return { ...part, links };
-  });
 };
 
 export default function DriveMatcherModal({
@@ -364,13 +121,30 @@ export default function DriveMatcherModal({
     const ids = new Set();
     for (const file of sortedDriveFiles) {
       if (!/\.pdf$/i.test(file.name || "")) continue;
-      if (isDriveFileExcludedFromMatching(file.name)) continue;
-      if (suggestPartFromDriveFile(file, catalogoInstrumentos)) {
+      if (fileProducesParticella(file, catalogoInstrumentos)) {
         ids.add(file.id);
       }
     }
     return ids;
   }, [sortedDriveFiles, catalogoInstrumentos]);
+
+  const partsWithoutLinks = useMemo(
+    () => (parts || []).filter((p) => !(p.links?.length)),
+    [parts],
+  );
+
+  const linkSuggestionsByPartId = useMemo(
+    () => suggestDriveLinksForParts(parts, sortedDriveFiles),
+    [parts, sortedDriveFiles],
+  );
+
+  const pendingLinkSuggestionCount = useMemo(
+    () => Object.keys(linkSuggestionsByPartId).length,
+    [linkSuggestionsByPartId],
+  );
+
+  const hasPlaceholderLinkSuggestions =
+    parts.length > 0 && pendingLinkSuggestionCount > 0;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -774,6 +548,40 @@ export default function DriveMatcherModal({
     onPartsChange(linked);
   };
 
+  const applySuggestedLinkToPart = (part, file) => {
+    if (!onPartsChange || !file?.webViewLink) return;
+    const currentLinks = part.links || [];
+    const exists = currentLinks.some((l) => l.url === file.webViewLink);
+    const newLinks = exists
+      ? currentLinks.filter((l) => l.url !== file.webViewLink)
+      : [
+          ...currentLinks,
+          { url: file.webViewLink, description: file.name },
+        ];
+    onPartsChange(
+      parts.map((p) =>
+        p.tempId === part.tempId ? { ...p, links: newLinks } : p,
+      ),
+    );
+  };
+
+  const handleApplyAllLinkSuggestions = () => {
+    if (!onPartsChange || pendingLinkSuggestionCount === 0) return;
+    const updatedParts = parts.map((part) => {
+      const file = linkSuggestionsByPartId[part.tempId];
+      if (!file?.webViewLink || part.links?.length) return part;
+      const links = [...(part.links || [])];
+      if (!links.some((l) => l.url === file.webViewLink)) {
+        links.push({ url: file.webViewLink, description: file.name });
+      }
+      return { ...part, links };
+    });
+    onPartsChange(updatedParts);
+    toast.success(
+      `${pendingLinkSuggestionCount} enlace${pendingLinkSuggestionCount === 1 ? "" : "s"} vinculado${pendingLinkSuggestionCount === 1 ? "" : "s"}`,
+    );
+  };
+
   const handleAddDirectorPart = () => {
     if (!directorId) return;
     const instrObj = (catalogoInstrumentos || []).find(
@@ -796,8 +604,8 @@ export default function DriveMatcherModal({
     e.stopPropagation();
     if (!file?.webViewLink || !onPartsChange) return;
 
-    const suggested = suggestPartFromDriveFile(file, catalogoInstrumentos);
-    if (!suggested) {
+    const expanded = expandDriveFileToParts(file, catalogoInstrumentos);
+    if (!expanded.length) {
       const prefix = (file.name || "").split(".")[0].split("-")[0].trim();
       window.alert(
         prefix
@@ -807,11 +615,13 @@ export default function DriveMatcherModal({
       return;
     }
 
-    const newPart = {
-      ...suggested,
-      links: [{ url: file.webViewLink, description: file.name }],
-    };
-    const updatedParts = [...parts, newPart].sort((a, b) =>
+    const newParts = expanded.map((p) => ({
+      ...p,
+      links: p.links?.length
+        ? p.links
+        : [{ url: file.webViewLink, description: file.name }],
+    }));
+    const updatedParts = [...parts, ...newParts].sort((a, b) =>
       String(a.id_instrumento).localeCompare(String(b.id_instrumento)),
     );
     onPartsChange(updatedParts);
@@ -873,6 +683,28 @@ export default function DriveMatcherModal({
                       </button>
                     )}
                   </div>
+                </div>
+              )}
+              {hasPlaceholderLinkSuggestions && (
+                <div className="mt-1 text-[11px] bg-amber-50 border border-amber-200 text-amber-900 px-2 py-1 rounded flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                  <span>
+                    {partsWithoutLinks.length} particella
+                    {partsWithoutLinks.length === 1 ? "" : "s"} sin enlace —{" "}
+                    <span className="font-bold">
+                      {pendingLinkSuggestionCount} sugerencia
+                      {pendingLinkSuggestionCount === 1 ? "" : "s"}
+                    </span>{" "}
+                    detectada{pendingLinkSuggestionCount === 1 ? "" : "s"} por
+                    nombre de archivo.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleApplyAllLinkSuggestions}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-900 text-[11px] font-bold hover:bg-amber-200 shrink-0"
+                  >
+                    <IconBulb size={12} className="text-amber-500" />
+                    Vincular sugerencias
+                  </button>
                 </div>
               )}
             </div>
@@ -1046,6 +878,9 @@ export default function DriveMatcherModal({
                     ? persistedLinks
                     : assignments[part.tempId] || [];
                 const isEditing = editingPartId === part.tempId;
+                const suggestedFile = !hasLinkedFiles
+                  ? linkSuggestionsByPartId[part.tempId]
+                  : null;
 
                 const baseCard =
                   hasLinkedFiles
@@ -1135,6 +970,25 @@ export default function DriveMatcherModal({
                               onClick={(e) => e.stopPropagation()}
                               title="Nota orgánico"
                             />
+                            {suggestedFile && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  applySuggestedLinkToPart(part, suggestedFile);
+                                }}
+                                className="inline-flex items-center gap-1 max-w-[11rem] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-medium border border-amber-200 hover:bg-amber-200 transition-colors shrink-0"
+                                title="Vincular archivo sugerido"
+                              >
+                                <IconBulb
+                                  size={12}
+                                  className="text-amber-500 shrink-0"
+                                />
+                                <span className="truncate">
+                                  {suggestedFile.name}
+                                </span>
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>

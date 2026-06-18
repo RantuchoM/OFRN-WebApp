@@ -1473,12 +1473,10 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       const updatePayload = {};
       Object.entries(updates || {}).forEach(([field, value]) => {
         let finalValue = value === "" ? null : value;
-        if (
-          field === "id_localidad" ||
-          field === "id_instr" ||
-          field === "id_domicilio_laboral"
-        ) {
+        if (field === "id_localidad" || field === "id_domicilio_laboral") {
           finalValue = value ? parseInt(value) : null;
+        } else if (field === "id_instr") {
+          finalValue = value ? String(value).trim() : null;
         }
         updatePayload[field] = finalValue;
       });

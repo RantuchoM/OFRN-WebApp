@@ -36,6 +36,7 @@ Visualizar en tiempo real la diferencia entre la instrumentación técnica reque
 
 ### 2. Instrumentación Convocada
 - Se cuenta el personal de la gira usando el hook `useGiraRoster` (roster ya resuelto para la gira actual).
+- **Instrumento efectivo:** `giras_integrantes.id_instr` si existe; si no, `integrantes.id_instr` (ver `docs/specs/gira-instrument-override.md`). El roster expone `m.id_instr` y `m.instrumentos` ya normalizados.
 - Se consideran únicamente músicos con:
   - `estado_gira === "confirmado"`.
   - Rol no incluido en `EXCLUDED_ROLES` (`staff`, `producción`, `chofer`, etc.).
