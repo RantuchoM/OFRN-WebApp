@@ -19,6 +19,7 @@ import {
   IconHistory,
   IconChevronDown,
   IconEdit,
+  IconMenu,
   IconPlus,
   IconX,
   IconTrash,
@@ -910,6 +911,8 @@ export default function ProgramSeating({
   const [instrumentList, setInstrumentList] = useState([]);
   const [createModalInfo, setCreateModalInfo] = useState(null);
   const [fetchedBlocks, setFetchedBlocks] = useState([]);
+  const [showMobileActionsMenu, setShowMobileActionsMenu] = useState(false);
+  const mobileActionsMenuRef = useRef(null);
   const musicianTooltipById = useMemo(() => {
     const map = {};
     (filteredRoster || []).forEach((m) => {
@@ -917,6 +920,20 @@ export default function ProgramSeating({
     });
     return map;
   }, [filteredRoster]);
+
+  useEffect(() => {
+    if (!showMobileActionsMenu) return undefined;
+    const handleClickOutside = (event) => {
+      if (
+        mobileActionsMenuRef.current &&
+        !mobileActionsMenuRef.current.contains(event.target)
+      ) {
+        setShowMobileActionsMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showMobileActionsMenu]);
 
   // Fetch Obras
   useEffect(() => {
@@ -2233,7 +2250,151 @@ export default function ProgramSeating({
             );
           })()}
         </h2>
-        <div className="flex w-full sm:w-auto gap-2 overflow-x-auto pb-1 sm:pb-0 sm:overflow-visible">
+        <div className="relative w-full md:hidden" ref={mobileActionsMenuRef}>
+          <button
+            type="button"
+            onClick={() => setShowMobileActionsMenu((current) => !current)}
+            className="w-full px-3 py-2 text-xs font-bold rounded-lg flex items-center justify-between gap-2 transition-colors bg-slate-800 text-white hover:bg-slate-900 shadow-sm"
+            aria-expanded={showMobileActionsMenu}
+            aria-haspopup="menu"
+          >
+            <span className="inline-flex items-center gap-2">
+              <IconMenu size={16} />
+              Menú Seating
+            </span>
+            <IconChevronDown
+              size={14}
+              className={`transition-transform ${showMobileActionsMenu ? "rotate-180" : ""}`}
+            />
+          </button>
+          {showMobileActionsMenu && (
+            <div
+              className="absolute right-0 top-full z-50 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl animate-in fade-in zoom-in-95"
+              role="menu"
+            >
+              {isEditor && pendingParticellaSuggestionsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMobileActionsMenu(false);
+                    handleAcceptAllParticellaSuggestions();
+                  }}
+                  disabled={
+                    isAcceptingAllSuggestions || loading || isExporting
+                  }
+                  className="w-full px-3 py-2.5 text-left text-xs font-bold text-amber-900 hover:bg-amber-50 disabled:opacity-50 flex items-center gap-2 border-b border-slate-100"
+                  role="menuitem"
+                >
+                  {isAcceptingAllSuggestions ? (
+                    <IconLoader className="animate-spin" size={16} />
+                  ) : (
+                    <IconBulb size={16} className="text-amber-500" />
+                  )}
+                  Aceptar sugerencias
+                </button>
+              )}
+              {canDownloadSeatingReports && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMobileActionsMenu(false);
+                      handleExportReport();
+                    }}
+                    disabled={isExporting}
+                    className="w-full px-3 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-2 border-b border-slate-100"
+                    role="menuitem"
+                  >
+                    <IconDownload size={16} className="text-indigo-600" />
+                    Descargar reporte PDF
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMobileActionsMenu(false);
+                      handleExportExcel();
+                    }}
+                    disabled={isExporting}
+                    className="w-full px-3 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-2 border-b border-slate-100"
+                    role="menuitem"
+                  >
+                    <IconDownload size={16} className="text-emerald-600" />
+                    Descargar Excel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMobileActionsMenu(false);
+                      setShowParticellaModal(true);
+                    }}
+                    disabled={isExporting}
+                    className="w-full px-3 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-2 border-b border-slate-100"
+                    role="menuitem"
+                  >
+                    <IconLayers size={16} className="text-slate-700" />
+                    Descargar particellas
+                  </button>
+                </>
+              )}
+              {canViewStringsConfig && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMobileActionsMenu(false);
+                      setShowRotationModal(true);
+                    }}
+                    className="w-full px-3 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-b border-slate-100"
+                    role="menuitem"
+                  >
+                    <IconLayers size={16} className="text-emerald-600" />
+                    Rotación de cuerdas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMobileActionsMenu(false);
+                      setShowHistory(!showHistory);
+                    }}
+                    className="w-full px-3 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-b border-slate-100"
+                    role="menuitem"
+                  >
+                    <IconHistory size={16} className="text-indigo-600" />
+                    {showHistory ? "Ocultar historial" : "Ver historial"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMobileActionsMenu(false);
+                      setShowConfig(!showConfig);
+                    }}
+                    className="w-full px-3 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-b border-slate-100"
+                    role="menuitem"
+                  >
+                    <IconSettings size={16} className="text-slate-600" />
+                    {showConfig
+                      ? "Ocultar configuración de cuerdas"
+                      : isEditor
+                        ? "Configurar cuerdas"
+                        : "Ver grupos de cuerdas"}
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMobileActionsMenu(false);
+                  onBack();
+                }}
+                className="w-full px-3 py-2.5 text-left text-xs font-bold text-slate-500 hover:bg-slate-50 flex items-center gap-2"
+                role="menuitem"
+              >
+                ← Volver
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="hidden md:flex md:w-auto gap-2 overflow-visible">
           {isEditor && pendingParticellaSuggestionsCount > 0 && (
             <button
               type="button"

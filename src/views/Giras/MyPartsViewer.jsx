@@ -304,9 +304,41 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
     const entries = [];
     repertoire.forEach((row, workIndex) => {
       if (row.particella_status !== "AVAILABLE") return;
+      const availableAssignedParts = (row.partes_asignadas || []).filter(
+        (part) => part.links?.some((link) => link?.url),
+      );
+
+      if (availableAssignedParts.length > 0) {
+        availableAssignedParts.forEach((part, partIndex) => {
+          part.links.forEach((link, linkIndex) => {
+            if (!link?.url) return;
+            entries.push({
+              row,
+              link,
+              linkIndex,
+              workIndex,
+              partIndex,
+              partsCount: availableAssignedParts.length,
+              partName: part.nombre,
+              partLinksCount: part.links.length,
+            });
+          });
+        });
+        return;
+      }
+
       row.particella_links.forEach((link, linkIndex) => {
         if (!link?.url) return;
-        entries.push({ row, link, linkIndex, workIndex });
+        entries.push({
+          row,
+          link,
+          linkIndex,
+          workIndex,
+          partIndex: 0,
+          partsCount: 1,
+          partName: row.particella_nombre,
+          partLinksCount: row.particella_links.length,
+        });
       });
     });
     return entries;
@@ -415,9 +447,21 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
 
     try {
       for (let i = 0; i < entries.length; i += 1) {
-        const { row, link, linkIndex, workIndex } = entries[i];
+        const {
+          row,
+          link,
+          workIndex,
+          partIndex,
+          partsCount,
+          partName: entryPartName,
+          partLinksCount,
+        } = entries[i];
         const title = stripHtml(row.titulo) || `Obra ${workIndex + 1}`;
-        const partName = row.particella_nombre || link.name || "Parte";
+        const partName = entryPartName || row.particella_nombre || link.name || "Parte";
+        const concertNumber = String(workIndex + 1).padStart(2, "0");
+        const doubleSuffix =
+          partsCount > 1 ? String.fromCharCode(97 + partIndex) : "";
+        const fileNumber = `${concertNumber}${doubleSuffix}`;
 
         setDownloadAllState({
           isRunning: true,
@@ -429,13 +473,14 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
 
         try {
           const fallbackName = ensurePdfExtension(
-            link.name && row.particella_links.length > 1 ? link.name : partName,
+            link.name && partLinksCount > 1
+              ? `${partName} - ${link.name}`
+              : partName,
           );
           const { arrayBuffer, sourceFileName } = await fetchPartFile(
             link.url,
             fallbackName,
           );
-          const fileNumber = String(successfulDownloads + 1).padStart(2, "0");
           const originalFileName = ensurePdfExtension(
             sanitizeZipFileName(sourceFileName, fallbackName),
           );
