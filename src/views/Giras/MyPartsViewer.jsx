@@ -82,6 +82,27 @@ const uniqueZipPath = (path, usedPaths) => {
   return nextPath;
 };
 
+const parsePartLinks = (part) => {
+  if (!part?.url_archivo) return [];
+  try {
+    if (part.url_archivo.trim().startsWith("[")) {
+      const parsed = JSON.parse(part.url_archivo);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((link) => link?.url)
+          .map((link, index) => ({
+            url: link.url,
+            name: link.name || `Versión ${index + 1}`,
+          }));
+      }
+    }
+    return [{ url: part.url_archivo, name: "Principal" }];
+  } catch {
+    return [{ url: part.url_archivo, name: "Principal" }];
+  }
+  return [];
+};
+
 const extractDriveFileIdFromUrl = (url) => {
   if (!url || typeof url !== "string") return null;
   const match = url.match(/[-\w]{25,}/);
@@ -116,6 +137,18 @@ const MobilePartCard = ({ item }) => {
 
   const hasMultipleLinks = item.particella_links.length > 1;
   const mainLink = item.particella_links[0];
+  const assignedParts =
+    item.partes_asignadas?.length > 0
+      ? item.partes_asignadas
+      : item.particella_status !== "NO_ASSIGNED"
+        ? [
+            {
+              nombre: item.particella_nombre,
+              nota: item.nota_extra,
+              status: item.particella_status,
+            },
+          ]
+        : [];
 
   // Colores de estado
   let borderClass = "bg-slate-200"; 
@@ -148,20 +181,34 @@ const MobilePartCard = ({ item }) => {
 
       {/* Info de la Parte */}
       <div className="pl-2">
-         {item.particella_status !== "NO_ASSIGNED" ? (
-            <div className="flex items-baseline gap-2">
-               <span className="font-bold text-indigo-700 text-xs truncate max-w-[200px]">
-                 {item.particella_nombre}
-               </span>
-               {item.nota_extra && (
-                 <span className="text-[9px] text-slate-400 italic truncate max-w-[100px]">
-                   ({item.nota_extra})
-                 </span>
-               )}
-            </div>
-         ) : (
-            <span className="text-[10px] text-slate-400 italic">No asignado</span>
-         )}
+        {assignedParts.length > 0 ? (
+          <div className="flex flex-col gap-0.5">
+            {assignedParts.map((part, index) => (
+              <div key={`${part.id || part.nombre}-${index}`} className="flex items-baseline gap-2">
+                {assignedParts.length > 1 && (
+                  <span className="text-[9px] font-bold text-indigo-400">
+                    {index + 1}.
+                  </span>
+                )}
+                <span className="font-bold text-indigo-700 text-xs truncate max-w-[200px]">
+                  {part.nombre}
+                </span>
+                {part.nota && (
+                  <span className="text-[9px] text-slate-400 italic truncate max-w-[100px]">
+                    ({part.nota})
+                  </span>
+                )}
+                {part.status === "PENDING" && (
+                  <span className="text-[8px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded px-1">
+                    Pendiente
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <span className="text-[10px] text-slate-400 italic">No asignado</span>
+        )}
       </div>
 
       {/* Botones de Acción */}
@@ -513,7 +560,8 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
       const { data: asignsData } = await supabase
         .from("seating_asignaciones")
         .select("id_obra, id_particella, id_contenedor, id_musicos_asignados")
-        .eq("id_programa", gira.id);
+        .eq("id_programa", gira.id)
+        .order("id", { ascending: true });
 
       const assignments = asignsData || [];
 
@@ -558,7 +606,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
           const workAsigns = assignments.filter(
             (a) => String(a.id_obra) === String(obra.id),
           );
-          const specificAsign = workAsigns.find((a) =>
+          const specificAsigns = workAsigns.filter((a) =>
             a.id_musicos_asignados?.some(
               (mid) => String(mid) === String(user.id),
             ),
@@ -568,14 +616,20 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
               myContainerId &&
               String(a.id_contenedor) === String(myContainerId),
           );
-          const finalAsign = specificAsign || groupAsign;
+          const finalAsigns =
+            specificAsigns.length > 0
+              ? specificAsigns.slice(0, 2)
+              : groupAsign
+                ? [groupAsign]
+                : [];
 
-          const myPart = obra.obras_particellas?.find(
-            (p) =>
-              finalAsign &&
-              String(p.id) === String(finalAsign.id_particella) &&
-              String(p.id_instrumento) === String(myInstrumentId),
-          );
+          const assignedParts = finalAsigns
+            .map((assign) =>
+              obra.obras_particellas?.find(
+                (part) => String(part.id) === String(assign.id_particella),
+              ),
+            )
+            .filter(Boolean);
 
           // Compositor
           let composerName = "Autor Desconocido";
@@ -590,28 +644,29 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
             composerName = `${obra.compositores.nombre} ${obra.compositores.apellido}`;
           }
 
-          // PARSEO DE LINKS
-          let links = [];
-          if (myPart?.url_archivo) {
-            try {
-              if (myPart.url_archivo.trim().startsWith("[")) {
-                const parsed = JSON.parse(myPart.url_archivo);
-                if (Array.isArray(parsed)) {
-                   links = parsed.map((l, i) => ({
-                       url: l.url,
-                       name: l.name || `Versión ${i + 1}`
-                   }));
-                }
-              } else {
-                links = [{ url: myPart.url_archivo, name: 'Principal' }];
-              }
-            } catch (e) {
-              links = [{ url: myPart.url_archivo, name: 'Principal' }];
-            }
-          }
+          const partEntries = assignedParts.map((part) => {
+            const links = parsePartLinks(part);
+            const name = part.nombre_archivo || "Parte sin nombre";
+            return {
+              id: part.id,
+              nombre: name,
+              nota: part.nota_organico || null,
+              status: links.length > 0 ? "AVAILABLE" : "PENDING",
+              links,
+            };
+          });
+          const links = partEntries.flatMap((entry) =>
+            entry.links.map((link) => ({
+              ...link,
+              name:
+                partEntries.length > 1
+                  ? `${entry.nombre} - ${link.name || "PDF"}`
+                  : link.name,
+            })),
+          );
 
           let status = "NO_ASSIGNED";
-          if (myPart) {
+          if (partEntries.length > 0) {
             status = links.length > 0 ? "AVAILABLE" : "PENDING";
           }
 
@@ -628,9 +683,14 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
             particella_links: links,
             
             particella_nombre:
-              myPart?.nombre_archivo ||
-              (myPart ? "Parte sin nombre" : myInstrumentId),
-            nota_extra: myPart?.nota_organico || null,
+              partEntries.map((entry) => entry.nombre).join(" + ") ||
+              myInstrumentId,
+            nota_extra:
+              partEntries
+                .map((entry) => entry.nota)
+                .filter(Boolean)
+                .join(" · ") || null,
+            partes_asignadas: partEntries,
           });
         });
       });
@@ -811,14 +871,40 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                         <td className="px-4 py-3 text-slate-600">
                           {row.particella_status !== "NO_ASSIGNED" ? (
                             <div className="flex flex-col">
-                              <span className="font-bold text-indigo-600 text-xs truncate max-w-[200px]">
-                                {row.particella_nombre}
-                              </span>
-                              {row.nota_extra && (
-                                <span className="text-[10px] text-slate-400 italic">
-                                  {row.nota_extra}
-                                </span>
-                              )}
+                              {(row.partes_asignadas?.length
+                                ? row.partes_asignadas
+                                : [
+                                    {
+                                      nombre: row.particella_nombre,
+                                      nota: row.nota_extra,
+                                      status: row.particella_status,
+                                    },
+                                  ]
+                              ).map((part, index, list) => (
+                                <div
+                                  key={`${part.id || part.nombre}-${index}`}
+                                  className="flex items-baseline gap-2"
+                                >
+                                  {list.length > 1 && (
+                                    <span className="text-[10px] font-bold text-indigo-400">
+                                      {index + 1}.
+                                    </span>
+                                  )}
+                                  <span className="font-bold text-indigo-600 text-xs truncate max-w-[220px]">
+                                    {part.nombre}
+                                  </span>
+                                  {part.nota && (
+                                    <span className="text-[10px] text-slate-400 italic">
+                                      {part.nota}
+                                    </span>
+                                  )}
+                                  {part.status === "PENDING" && (
+                                    <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded px-1">
+                                      Pendiente
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
                             </div>
                           ) : (
                             <span className="text-slate-400 italic text-xs">

@@ -19,6 +19,8 @@ import {
   IconHistory,
   IconChevronDown,
   IconEdit,
+  IconPlus,
+  IconX,
   IconTrash,
   IconDownload,
   IconBulb,
@@ -206,15 +208,109 @@ const normalizePartLabel = (label = "") => {
   return numerized.replace(/\s+/g, " ").trim();
 };
 
+const getAssignmentPartIds = (assignments, secondaryAssignments, key) => {
+  const ids = [assignments?.[key], secondaryAssignments?.[key]].filter(Boolean);
+  return ids.filter(
+    (id, index) => ids.findIndex((candidate) => String(candidate) === String(id)) === index,
+  );
+};
+
+const DoubleParticellaSelect = ({
+  options,
+  primaryValue,
+  secondaryValue,
+  onPrimaryChange,
+  onSecondaryChange,
+  onRequestCreatePrimary,
+  onRequestCreateSecondary,
+  preferredInstrumentId,
+  counts,
+  compact = false,
+}) => {
+  const [showSecond, setShowSecond] = useState(!!secondaryValue);
+
+  useEffect(() => {
+    if (secondaryValue) setShowSecond(true);
+  }, [secondaryValue]);
+
+  const handleSecondaryChange = (value) => {
+    if (value && primaryValue && String(value) === String(primaryValue)) return;
+    onSecondaryChange(value);
+  };
+
+  return (
+    <div className="flex flex-col gap-1 items-stretch">
+      <div className="flex items-stretch gap-1">
+        <div className="min-w-0 flex-1">
+          <ParticellaSelect
+            options={options}
+            value={primaryValue}
+            onChange={onPrimaryChange}
+            onRequestCreate={onRequestCreatePrimary}
+            disabled={false}
+            placeholder="Asignar"
+            preferredInstrumentId={preferredInstrumentId}
+            counts={counts}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowSecond(true)}
+          disabled={showSecond}
+          className={`${compact ? "w-7" : "w-8"} min-h-[24px] shrink-0 inline-flex items-center justify-center rounded border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-default transition-colors`}
+          title="Asociar segunda parte"
+          aria-label="Asociar segunda parte"
+        >
+          <IconPlus size={compact ? 12 : 14} />
+        </button>
+      </div>
+      {showSecond && (
+        <div className="flex items-stretch gap-1">
+          <div className="min-w-0 flex-1">
+            <ParticellaSelect
+              options={options}
+              value={secondaryValue}
+              onChange={handleSecondaryChange}
+              onRequestCreate={onRequestCreateSecondary}
+              disabled={false}
+              placeholder="2da parte"
+              preferredInstrumentId={preferredInstrumentId}
+              counts={counts}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              onSecondaryChange(null);
+              setShowSecond(false);
+            }}
+            className={`${compact ? "w-7" : "w-8"} min-h-[24px] shrink-0 inline-flex items-center justify-center rounded border border-slate-200 bg-white text-slate-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors`}
+            title="Quitar segunda parte"
+            aria-label="Quitar segunda parte"
+          >
+            <IconX size={compact ? 12 : 14} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // --- COMPONENTE MÓVIL OPTIMIZADO ---
 const MobileSeatingTable = ({
   user,
   obras,
   assignments,
+  secondaryAssignments = {},
   filteredRoster,
   containers,
   particellas,
   isEditor = false,
+  availablePartsByWork = {},
+  particellaCounts = {},
+  onAssign,
+  onSecondaryAssign,
+  onRequestCreate,
   musiciansWithoutParts = new Set(),
   musicianTooltipById = {},
 }) => {
@@ -225,6 +321,7 @@ const MobileSeatingTable = ({
     );
     return myContainer ? [myContainer.id] : [];
   });
+  const [editingObraId, setEditingObraId] = useState(null);
 
   const toggleContainer = (id) => {
     setExpandedIds((prev) =>
@@ -290,22 +387,56 @@ const MobileSeatingTable = ({
               <th className="p-1 pl-2 w-[32vw] min-w-[110px] max-w-[140px] sticky left-0 z-40 bg-slate-800 border-r border-slate-600 text-[10px] font-bold uppercase tracking-tight align-bottom">
                 Grupo / Músico
               </th>
-              {obras.map((obra) => (
-                <th
-                  key={obra.id}
-                  onClick={() => showFullTitle(obra)}
-                  className="p-1 min-w-[70px] max-w-[80px] border-l border-slate-600 text-center cursor-pointer active:bg-slate-700 align-bottom pb-2"
-                >
-                  <div className="flex flex-col leading-none">
-                    <span className="text-[8px] text-slate-400 font-normal truncate">
-                      {getShortComposer(obra.composer)}
-                    </span>
-                    <span className="text-[10px] font-bold text-white truncate mt-0.5">
-                      {getFirstWord(obra.title)}
-                    </span>
-                  </div>
-                </th>
-              ))}
+              {obras.map((obra) => {
+                const isEditingThisWork =
+                  isEditor && editingObraId === obra.obra_id;
+                return (
+                  <th
+                    key={obra.id}
+                    className={`p-1 min-w-[78px] max-w-[96px] border-l border-slate-600 text-center align-bottom pb-1 ${
+                      isEditingThisWork ? "bg-indigo-700" : ""
+                    }`}
+                  >
+                    <div className="flex flex-col leading-none gap-1">
+                      <button
+                        type="button"
+                        onClick={() => showFullTitle(obra)}
+                        className="min-w-0 active:bg-slate-700 rounded"
+                      >
+                        <span className="text-[8px] text-slate-400 font-normal truncate block">
+                          {getShortComposer(obra.composer)}
+                        </span>
+                        <span className="text-[10px] font-bold text-white truncate mt-0.5 block">
+                          {getFirstWord(obra.title)}
+                        </span>
+                      </button>
+                      {isEditor && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingObraId((current) =>
+                              current === obra.obra_id ? null : obra.obra_id,
+                            )
+                          }
+                          className={`mx-auto inline-flex items-center justify-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[8px] font-bold transition-colors ${
+                            isEditingThisWork
+                              ? "bg-white text-indigo-700 border-white"
+                              : "bg-slate-700 text-slate-100 border-slate-500 hover:bg-slate-600"
+                          }`}
+                          title={
+                            isEditingThisWork
+                              ? "Cerrar edición"
+                              : "Editar seating de esta obra"
+                          }
+                        >
+                          <IconEdit size={9} />
+                          {isEditingThisWork ? "Listo" : "Editar"}
+                        </button>
+                      )}
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
 
@@ -347,14 +478,43 @@ const MobileSeatingTable = ({
                     {obras.map((obra) => {
                       const containerPartId =
                         assignments[`C-${c.id}-${obra.obra_id}`];
+                      const isEditingThisWork =
+                        isEditor && editingObraId === obra.obra_id;
+                      const availableParts =
+                        availablePartsByWork[obra.obra_id] || [];
                       return (
                         <td
                           key={obra.id}
+                          onClick={(event) => {
+                            if (isEditingThisWork) event.stopPropagation();
+                          }}
                           className="p-1 border-l border-slate-200 text-center align-middle"
                         >
-                          <span className="text-[10px] font-bold text-slate-700 block truncate max-w-[75px]">
-                            {getPartName(containerPartId)}
-                          </span>
+                          {isEditingThisWork ? (
+                            <ParticellaSelect
+                              options={availableParts}
+                              value={containerPartId}
+                              onChange={(val) =>
+                                onAssign?.("C", c.id, obra.obra_id, val)
+                              }
+                              onRequestCreate={() =>
+                                onRequestCreate?.(
+                                  obra.obra_id,
+                                  "00",
+                                  "C",
+                                  c.id,
+                                )
+                              }
+                              disabled={false}
+                              placeholder="Asignar"
+                              preferredInstrumentId={c.id_instrumento}
+                              counts={particellaCounts}
+                            />
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-700 block truncate max-w-[75px]">
+                              {getPartName(containerPartId)}
+                            </span>
+                          )}
                         </td>
                       );
                     })}
@@ -437,11 +597,23 @@ const MobileSeatingTable = ({
                                   assignments[
                                     `M-${musicianId}-${obra.obra_id}`
                                   ];
+                                const individualSecondaryPartId =
+                                  secondaryAssignments[
+                                    `M-${musicianId}-${obra.obra_id}`
+                                  ];
                                 const containerPartId =
                                   assignments[`C-${c.id}-${obra.obra_id}`];
+                                const individualPartIds = getAssignmentPartIds(
+                                  assignments,
+                                  secondaryAssignments,
+                                  `M-${musicianId}-${obra.obra_id}`,
+                                );
                                 const showPart =
-                                  individualPartId &&
-                                  individualPartId !== containerPartId;
+                                  individualPartIds.length > 0 &&
+                                  individualPartIds.some(
+                                    (partId) =>
+                                      String(partId) !== String(containerPartId),
+                                  );
 
                                 return (
                                   <td
@@ -450,7 +622,15 @@ const MobileSeatingTable = ({
                                   >
                                     {showPart ? (
                                       <span className="text-[9px] text-indigo-600 font-bold bg-indigo-50 px-1 rounded truncate max-w-[70px] block mx-auto">
-                                        {getPartName(individualPartId)}
+                                        {[individualPartId, individualSecondaryPartId]
+                                          .filter(Boolean)
+                                          .filter(
+                                            (partId) =>
+                                              String(partId) !==
+                                              String(containerPartId),
+                                          )
+                                          .map(getPartName)
+                                          .join(" + ")}
                                       </span>
                                     ) : (
                                       <span className="text-[10px] text-slate-300 select-none">
@@ -516,15 +696,58 @@ const MobileSeatingTable = ({
                     </div>
                   </td>
                   {obras.map((obra) => {
-                    const partId = assignments[`M-${m.id}-${obra.obra_id}`];
+                    const key = `M-${m.id}-${obra.obra_id}`;
+                    const partId = assignments[key];
+                    const secondaryPartId = secondaryAssignments[key];
+                    const isEditingThisWork =
+                      isEditor && editingObraId === obra.obra_id;
+                    const availableParts =
+                      availablePartsByWork[obra.obra_id] || [];
                     return (
                       <td
                         key={`${m.id}-${obra.id}`}
                         className="p-1 border-l border-slate-100 text-center align-middle"
                       >
-                        <span className="text-[9px] text-slate-700 font-medium block truncate max-w-[75px]">
-                          {getPartName(partId)}
-                        </span>
+                        {isEditingThisWork ? (
+                          <DoubleParticellaSelect
+                            options={availableParts}
+                            primaryValue={partId}
+                            secondaryValue={secondaryPartId}
+                            onPrimaryChange={(val) =>
+                              onAssign?.("M", m.id, obra.obra_id, val)
+                            }
+                            onSecondaryChange={(val) =>
+                              onSecondaryAssign?.(m.id, obra.obra_id, val)
+                            }
+                            onRequestCreatePrimary={() =>
+                              onRequestCreate?.(
+                                obra.obra_id,
+                                m.id_instr,
+                                "M",
+                                m.id,
+                              )
+                            }
+                            onRequestCreateSecondary={() =>
+                              onRequestCreate?.(
+                                obra.obra_id,
+                                m.id_instr,
+                                "M",
+                                m.id,
+                                "secondary",
+                              )
+                            }
+                            preferredInstrumentId={m.id_instr}
+                            counts={particellaCounts}
+                            compact
+                          />
+                        ) : (
+                          <span className="text-[9px] text-slate-700 font-medium block truncate max-w-[75px]">
+                            {[partId, secondaryPartId]
+                              .filter(Boolean)
+                              .map(getPartName)
+                              .join(" + ") || "-"}
+                          </span>
+                        )}
                       </td>
                     );
                   })}
@@ -672,6 +895,7 @@ export default function ProgramSeating({
   const [filteredRoster, setFilteredRoster] = useState([]);
   const [particellas, setParticellas] = useState([]);
   const [assignments, setAssignments] = useState({});
+  const [secondaryAssignments, setSecondaryAssignments] = useState({});
   const [containers, setContainers] = useState([]);
   const [showConfig, setShowConfig] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -840,12 +1064,15 @@ export default function ProgramSeating({
     });
 
     visibleKeys.forEach((key) => {
-      const partId = assignments[key];
-      if (partId) counts[partId] = (counts[partId] || 0) + 1;
+      getAssignmentPartIds(assignments, secondaryAssignments, key).forEach(
+        (partId) => {
+          counts[partId] = (counts[partId] || 0) + 1;
+        },
+      );
     });
 
     return counts;
-  }, [assignments, containers, obras, otherMusicians]);
+  }, [assignments, secondaryAssignments, containers, obras, otherMusicians]);
 
   function createEmptyInstrumentationMap() {
     return {
@@ -1390,18 +1617,35 @@ export default function ProgramSeating({
       const { data: assigns } = await supabase
         .from("seating_asignaciones")
         .select("*")
-        .eq("id_programa", program.id);
+        .eq("id_programa", program.id)
+        .order("id", { ascending: true });
       const finalMap = {};
+      const secondaryMap = {};
+      const addMusicianAssignment = (key, partId) => {
+        if (!partId) return;
+        if (!finalMap[key]) {
+          finalMap[key] = partId;
+          return;
+        }
+        if (
+          String(finalMap[key]) !== String(partId) &&
+          !secondaryMap[key]
+        ) {
+          secondaryMap[key] = partId;
+        }
+      };
       assigns?.forEach((row) => {
         const obraId = row.id_obra;
         if (row.id_contenedor)
           finalMap[`C-${row.id_contenedor}-${obraId}`] = row.id_particella;
         else if (row.id_musicos_asignados)
           row.id_musicos_asignados.forEach(
-            (mId) => (finalMap[`M-${mId}-${obraId}`] = row.id_particella),
+            (mId) =>
+              addMusicianAssignment(`M-${mId}-${obraId}`, row.id_particella),
           );
       });
       setAssignments(finalMap);
+      setSecondaryAssignments(secondaryMap);
     } catch (err) {
       console.error(err);
     } finally {
@@ -1588,13 +1832,25 @@ export default function ProgramSeating({
   }, [filteredRoster]);
 
   // --- MODALS & UPDATES ---
-  const openCreateModal = (obraId, defaultInstrId, targetType, targetId) => {
-    setCreateModalInfo({ obraId, targetType, targetId, defaultInstrId });
+  const openCreateModal = (
+    obraId,
+    defaultInstrId,
+    targetType,
+    targetId,
+    targetSlot = "primary",
+  ) => {
+    setCreateModalInfo({
+      obraId,
+      targetType,
+      targetId,
+      targetSlot,
+      defaultInstrId,
+    });
   };
 
   const handleConfirmCreate = async (instrumentId, name) => {
     if (!createModalInfo) return;
-    const { obraId, targetType, targetId } = createModalInfo;
+    const { obraId, targetType, targetId, targetSlot } = createModalInfo;
     const { data, error } = await supabase
       .from("obras_particellas")
       .insert({
@@ -1616,7 +1872,11 @@ export default function ProgramSeating({
       ...prev,
       { ...data, instrumentos: { id: instrumentId, instrumento: instrName } },
     ]);
-    handleAssign(targetType, targetId, obraId, data.id);
+    if (targetSlot === "secondary" && targetType === "M") {
+      handleSecondaryAssign(targetId, obraId, data.id);
+    } else {
+      handleAssign(targetType, targetId, obraId, data.id);
+    }
     setCreateModalInfo(null);
   };
 
@@ -1654,16 +1914,56 @@ export default function ProgramSeating({
   };
 
   const handleAssign = async (targetType, targetId, obraId, particellaId) => {
+    await handleAssignSlot(targetType, targetId, obraId, particellaId, "primary");
+  };
+
+  const handleSecondaryAssign = async (targetId, obraId, particellaId) => {
+    await handleAssignSlot("M", targetId, obraId, particellaId, "secondary");
+  };
+
+  const handleAssignSlot = async (
+    targetType,
+    targetId,
+    obraId,
+    particellaId,
+    slot = "primary",
+  ) => {
     if (!isEditor) return;
     const key = `${targetType}-${targetId}-${obraId}`;
+    const nextPrimary =
+      slot === "primary" ? particellaId : assignments[key] || null;
+    const nextSecondary =
+      targetType === "M" && slot === "secondary"
+        ? particellaId
+        : secondaryAssignments[key] || null;
+    const nextPartIds = [];
+
+    if (nextPrimary) nextPartIds.push(nextPrimary);
+    if (
+      targetType === "M" &&
+      nextSecondary &&
+      !nextPartIds.some((id) => String(id) === String(nextSecondary))
+    ) {
+      nextPartIds.push(nextSecondary);
+    }
+    const normalizedPrimary = nextPartIds[0] || null;
+    const normalizedSecondary = nextPartIds[1] || null;
 
     // Update local state instantáneamente
     setAssignments((prev) => {
       const copy = { ...prev };
-      if (!particellaId) delete copy[key];
-      else copy[key] = particellaId;
+      if (!normalizedPrimary) delete copy[key];
+      else copy[key] = normalizedPrimary;
       return copy;
     });
+    if (targetType === "M") {
+      setSecondaryAssignments((prev) => {
+        const copy = { ...prev };
+        if (!normalizedSecondary) delete copy[key];
+        else copy[key] = normalizedSecondary;
+        return copy;
+      });
+    }
 
     // DB Sync
     if (targetType === "C") {
@@ -1672,11 +1972,11 @@ export default function ProgramSeating({
         id_contenedor: targetId,
         id_obra: obraId,
       });
-      if (particellaId)
+      if (normalizedPrimary)
         await supabase.from("seating_asignaciones").insert({
           id_programa: program.id,
           id_obra: obraId,
-          id_particella: particellaId,
+          id_particella: normalizedPrimary,
           id_contenedor: targetId,
           id_musicos_asignados: null,
         });
@@ -1686,50 +1986,65 @@ export default function ProgramSeating({
         .select("*")
         .eq("id_programa", program.id)
         .eq("id_obra", obraId);
+
       const updates = [];
-      existing?.forEach((row) => {
-        if (row.id_musicos_asignados?.includes(targetId)) {
-          const newArr = row.id_musicos_asignados.filter(
-            (id) => id !== targetId,
-          );
-          if (newArr.length === 0 && !row.id_contenedor)
-            updates.push(
-              supabase.from("seating_asignaciones").delete().eq("id", row.id),
+      const rowTargets = new Map();
+      (existing || [])
+        .filter((row) => !row.id_contenedor)
+        .forEach((row) => {
+          const ids = row.id_musicos_asignados || [];
+          if (
+            ids.some((id) => String(id) === String(targetId))
+          ) {
+            rowTargets.set(
+              row.id,
+              ids.filter((id) => String(id) !== String(targetId)),
             );
-          else
-            updates.push(
-              supabase
-                .from("seating_asignaciones")
-                .update({ id_musicos_asignados: newArr })
-                .eq("id", row.id),
-            );
-        }
-      });
-      if (particellaId) {
+          }
+        });
+
+      nextPartIds.forEach((partId) => {
         const targetRow = existing?.find(
-          (r) => r.id_particella === particellaId && !r.id_contenedor,
+          (row) =>
+            !row.id_contenedor &&
+            String(row.id_particella) === String(partId),
         );
         if (targetRow) {
-          const newArr = [
-            ...new Set([...(targetRow.id_musicos_asignados || []), targetId]),
-          ];
-          updates.push(
-            supabase
-              .from("seating_asignaciones")
-              .update({ id_musicos_asignados: newArr })
-              .eq("id", targetRow.id),
-          );
+          const baseIds =
+            rowTargets.get(targetRow.id) ||
+            (targetRow.id_musicos_asignados || []).filter(
+              (id) => String(id) !== String(targetId),
+            );
+          rowTargets.set(targetRow.id, [...new Set([...baseIds, targetId])]);
         } else {
           updates.push(
             supabase.from("seating_asignaciones").insert({
               id_programa: program.id,
               id_obra: obraId,
-              id_particella: particellaId,
+              id_particella: partId,
               id_musicos_asignados: [targetId],
             }),
           );
         }
-      }
+      });
+
+      (existing || [])
+        .filter((row) => !row.id_contenedor && rowTargets.has(row.id))
+        .forEach((row) => {
+          const nextIds = rowTargets.get(row.id) || [];
+          if (nextIds.length === 0) {
+            updates.push(
+              supabase.from("seating_asignaciones").delete().eq("id", row.id),
+            );
+          } else {
+          updates.push(
+              supabase
+                .from("seating_asignaciones")
+                .update({ id_musicos_asignados: nextIds })
+                .eq("id", row.id),
+            );
+          }
+        });
       await Promise.all(updates);
     }
   };
@@ -1768,7 +2083,7 @@ export default function ProgramSeating({
 
       for (const obra of obras) {
         const individualKey = `M-${id}-${obra.obra_id}`;
-        if (assignments[individualKey]) {
+        if (assignments[individualKey] || secondaryAssignments[individualKey]) {
           hasAnyPart = true;
           break;
         }
@@ -1787,7 +2102,7 @@ export default function ProgramSeating({
       if (!hasAnyPart) without.add(sid);
     });
     return without;
-  }, [containers, otherMusicians, obras, assignments]);
+  }, [containers, otherMusicians, obras, assignments, secondaryAssignments]);
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
@@ -1863,8 +2178,8 @@ export default function ProgramSeating({
         )}
       </Suspense>
 
-      <div className="px-4 py-2 border-b border-slate-200 bg-white flex justify-between items-center shrink-0">
-        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+      <div className="px-3 sm:px-4 py-2 border-b border-slate-200 bg-white flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center shrink-0">
+        <h2 className="text-base sm:text-lg font-bold text-slate-800 flex flex-wrap items-center gap-2 min-w-0">
           <IconUsers className="text-indigo-600" />
           <span>Seating & Particellas</span>
           {canSeeInstrumentationBadges && obras.length > 0 && (() => {
@@ -1918,7 +2233,7 @@ export default function ProgramSeating({
             );
           })()}
         </h2>
-        <div className="flex gap-2">
+        <div className="flex w-full sm:w-auto gap-2 overflow-x-auto pb-1 sm:pb-0 sm:overflow-visible">
           {isEditor && pendingParticellaSuggestionsCount > 0 && (
             <button
               type="button"
@@ -1926,7 +2241,7 @@ export default function ProgramSeating({
               disabled={
                 isAcceptingAllSuggestions || loading || isExporting
               }
-              className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-amber-50 border border-amber-300 text-amber-900 hover:bg-amber-100 shadow-sm disabled:opacity-50"
+              className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-amber-50 border border-amber-300 text-amber-900 hover:bg-amber-100 shadow-sm disabled:opacity-50 shrink-0"
               title={`${pendingParticellaSuggestionsCount} sugerencia${pendingParticellaSuggestionsCount === 1 ? "" : "s"} pendiente${pendingParticellaSuggestionsCount === 1 ? "" : "s"}`}
             >
               {isAcceptingAllSuggestions ? (
@@ -1945,7 +2260,7 @@ export default function ProgramSeating({
               <button
                 onClick={handleExportReport}
                 disabled={isExporting}
-                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm active:scale-95 disabled:opacity-50"
+                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm active:scale-95 disabled:opacity-50 shrink-0"
               >
                 <IconDownload size={16} />{" "}
                 <span className="hidden sm:inline">Reporte</span>
@@ -1953,7 +2268,7 @@ export default function ProgramSeating({
               <button
                 onClick={handleExportExcel}
                 disabled={isExporting}
-                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm active:scale-95 disabled:opacity-50"
+                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm active:scale-95 disabled:opacity-50 shrink-0"
               >
                 <IconDownload size={16} />{" "}
                 <span className="hidden sm:inline">Excel</span>
@@ -1961,7 +2276,7 @@ export default function ProgramSeating({
               <button
                 onClick={() => setShowParticellaModal(true)}
                 disabled={isExporting}
-                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-slate-800 text-white hover:bg-slate-900 shadow-sm active:scale-95 disabled:opacity-50"
+                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-slate-800 text-white hover:bg-slate-900 shadow-sm active:scale-95 disabled:opacity-50 shrink-0"
               >
                 <IconDownload size={16} />
                 <IconLayers size={14} />
@@ -1973,21 +2288,21 @@ export default function ProgramSeating({
             <>
               <button
                 onClick={() => setShowRotationModal(true)}
-                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-white border border-slate-300 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 shadow-sm"
+                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-white border border-slate-300 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 shadow-sm shrink-0"
               >
                 <IconLayers size={16} />{" "}
                 <span className="hidden sm:inline">Rotación</span>
               </button>
               <button
                 onClick={() => setShowHistory(!showHistory)}
-                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-white border border-slate-300 text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 shadow-sm"
+                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-white border border-slate-300 text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 shadow-sm shrink-0"
               >
                 <IconHistory size={16} />{" "}
                 <span className="hidden sm:inline">Historial</span>
               </button>
               <button
                 onClick={() => setShowConfig(!showConfig)}
-                className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors ${showConfig ? "bg-indigo-600 text-white" : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"}`}
+                className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors shrink-0 ${showConfig ? "bg-indigo-600 text-white" : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"}`}
               >
                 <IconSettings size={16} /> {isEditor ? "Cuerdas" : "Ver Grupos"}
               </button>
@@ -1995,7 +2310,7 @@ export default function ProgramSeating({
           )}
           <button
             onClick={onBack}
-            className="text-sm font-medium text-slate-500 hover:text-indigo-600 ml-4"
+            className="text-sm font-medium text-slate-500 hover:text-indigo-600 sm:ml-4 shrink-0"
           >
             ← Volver
           </button>
@@ -2026,10 +2341,16 @@ export default function ProgramSeating({
             user={user}
             obras={obras}
             assignments={assignments}
+            secondaryAssignments={secondaryAssignments}
             filteredRoster={filteredRoster}
             containers={containers}
             particellas={particellas}
             isEditor={isEditor}
+            availablePartsByWork={availablePartsByWork}
+            particellaCounts={particellaCounts}
+            onAssign={handleAssign}
+            onSecondaryAssign={handleSecondaryAssign}
+            onRequestCreate={openCreateModal}
             musiciansWithoutParts={musiciansWithoutParts}
             musicianTooltipById={musicianTooltipById}
           />
@@ -2403,8 +2724,10 @@ export default function ProgramSeating({
                           </div>
                         </td>
                         {obras.map((obra) => {
+                          const key = `M-${m.id}-${obra.obra_id}`;
                           const currentVal =
-                            assignments[`M-${m.id}-${obra.obra_id}`];
+                            assignments[key];
+                          const secondaryVal = secondaryAssignments[key];
                           const availableParts =
                             availablePartsByWork[obra.obra_id] || [];
                           const hasRealPartForInstrument = availableParts.some(
@@ -2433,10 +2756,11 @@ export default function ProgramSeating({
                             >
                               {isEditor ? (
                                 <div className="flex flex-col gap-1 items-stretch">
-                                  <ParticellaSelect
+                                  <DoubleParticellaSelect
                                     options={availableParts}
-                                    value={currentVal}
-                                    onChange={(val) =>
+                                    primaryValue={currentVal}
+                                    secondaryValue={secondaryVal}
+                                    onPrimaryChange={(val) =>
                                       handleAssign(
                                         "M",
                                         m.id,
@@ -2444,7 +2768,14 @@ export default function ProgramSeating({
                                         val,
                                       )
                                     }
-                                    onRequestCreate={() =>
+                                    onSecondaryChange={(val) =>
+                                      handleSecondaryAssign(
+                                        m.id,
+                                        obra.obra_id,
+                                        val,
+                                      )
+                                    }
+                                    onRequestCreatePrimary={() =>
                                       openCreateModal(
                                         obra.obra_id,
                                         m.id_instr,
@@ -2452,8 +2783,15 @@ export default function ProgramSeating({
                                         m.id,
                                       )
                                     }
-                                    disabled={false}
-                                    placeholder="Asignar"
+                                    onRequestCreateSecondary={() =>
+                                      openCreateModal(
+                                        obra.obra_id,
+                                        m.id_instr,
+                                        "M",
+                                        m.id,
+                                        "secondary",
+                                      )
+                                    }
                                     preferredInstrumentId={m.id_instr}
                                     counts={particellaCounts}
                                   />
@@ -2485,18 +2823,36 @@ export default function ProgramSeating({
                                   <span
                                     className="text-xs text-slate-700 truncate"
                                     title={
-                                      currentVal
-                                        ? availableParts.find(
-                                            (p) => p.id === currentVal,
-                                          )?.nombre_archivo
-                                        : ""
+                                      getAssignmentPartIds(
+                                        assignments,
+                                        secondaryAssignments,
+                                        key,
+                                      )
+                                        .map(
+                                          (partId) =>
+                                            availableParts.find(
+                                              (p) =>
+                                                String(p.id) === String(partId),
+                                            )?.nombre_archivo,
+                                        )
+                                        .filter(Boolean)
+                                        .join(" + ")
                                     }
                                   >
-                                    {currentVal
-                                      ? availableParts.find(
-                                          (p) => p.id === currentVal,
-                                        )?.nombre_archivo
-                                      : "-"}
+                                    {getAssignmentPartIds(
+                                      assignments,
+                                      secondaryAssignments,
+                                      key,
+                                    )
+                                      .map(
+                                        (partId) =>
+                                          availableParts.find(
+                                            (p) =>
+                                              String(p.id) === String(partId),
+                                          )?.nombre_archivo,
+                                      )
+                                      .filter(Boolean)
+                                      .join(" + ") || "-"}
                                   </span>
                                 </div>
                               )}
