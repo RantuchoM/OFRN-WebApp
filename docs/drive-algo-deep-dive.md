@@ -45,6 +45,7 @@ La lógica vive en **`src/utils/drivePartMatcher.js`** (importada por el modal).
 - **Auto-generación** (`Insertar y vincular`, botón `+` en archivo): un PDF combinado genera **varias** particellas (`Corno 1`, `Corno 2`, …) con el **mismo** enlace Drive.
 - **Placeholders existentes**: `attachDriveLinksByFilename` y `suggestDriveLinksForParts` permiten que un mismo archivo se vincule a cada slot incluido en el combinado.
 - **Prioridad**: match de slot exacto (`Corno 1.pdf` → solo `Corno 1`) gana sobre combinado (`Corno 1y2.pdf`).
+- **Faltantes parcialmente cubiertos**: `getUncoveredDrivePartSuggestions` trabaja a nivel particella, no solo a nivel archivo. Si `Corno 1y2.pdf` ya está cubierto por `Corno 1` pero falta `Corno 2`, sugiere agregar únicamente `Corno 2` con el mismo enlace.
 
 ### Puntuación de match (`getMatchScore`)
 
@@ -73,6 +74,8 @@ Solo se sugiere si `links.length === 0` en la particella.
 
 - **Vincular sugerencias** (obra con placeholders): aplica vínculos sin crear particellas nuevas.
 
+- **Agregar faltantes** (obra con diferencias contra Drive): crea y vincula las particellas derivadas de PDFs que todavía no estén representadas por las particellas existentes.
+
 ## Estado de Implementación
 
 - [x] Definir estrategia de normalización y fuzzy matching.
@@ -81,4 +84,5 @@ Solo se sugiere si `links.length === 0` en la particella.
 - [x] Implementar botón inteligente **"+ Agregar Director"** cuando falte esa particella.
 - [x] Archivos combinados (`1y2`, etc.): expansión multi-particella y vínculo compartido.
 - [x] Sugerencias IconBulb + acción global para placeholders sin enlace.
+- [x] Sugerencias globales para agregar particellas faltantes detectadas en PDFs no cubiertos.
 

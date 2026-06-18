@@ -437,6 +437,41 @@ export const getMatchScore = (part, file, context = {}) => {
 
 export const partMatchesDriveFile = (part, file) => getMatchScore(part, file) > 0;
 
+const slotNumbersForPartSlot = (slot) => {
+  if (slot?.slotNumbers?.length) return slot.slotNumbers;
+  if (slot?.slotNumber != null) return [slot.slotNumber];
+  return [];
+};
+
+export const partsRepresentSameSlot = (a, b) => {
+  if (!a || !b) return false;
+
+  const aSlot = parsePartSlot(a.nombre_archivo);
+  const bSlot = parsePartSlot(b.nombre_archivo);
+  const sameInstrumentId =
+    a.id_instrumento != null &&
+    b.id_instrumento != null &&
+    String(a.id_instrumento) === String(b.id_instrumento);
+  const compatibleByName =
+    instrumentsCompatible(aSlot, bSlot, a, b.nombre_archivo) ||
+    instrumentsCompatible(bSlot, aSlot, b, a.nombre_archivo);
+
+  if (!sameInstrumentId && !compatibleByName) return false;
+
+  const aNumbers = slotNumbersForPartSlot(aSlot);
+  const bNumbers = slotNumbersForPartSlot(bSlot);
+
+  if (aNumbers.length > 0 || bNumbers.length > 0) {
+    return (
+      aNumbers.length > 0 &&
+      bNumbers.length > 0 &&
+      aNumbers.some((n) => bNumbers.includes(n))
+    );
+  }
+
+  return true;
+};
+
 export const DIRECTOR_INSTRUMENT_ID = "50";
 
 const makePartShell = (instr, nombre_archivo, links = [], { es_solista = false } = {}) => ({
@@ -655,6 +690,68 @@ export const suggestDriveLinksForParts = (parts, driveFiles) => {
   }
 
   return result;
+};
+
+const fileAlreadyLinkedInParts = (file, parts) => {
+  if (!file?.webViewLink) return false;
+  return (parts || []).some((part) =>
+    (part.links || []).some((link) => link.url === file.webViewLink),
+  );
+};
+
+const candidateCoveredByExistingPart = (candidate, sourceFile, existingParts, matchContext) => {
+  const candidateSlot = parsePartSlot(candidate?.nombre_archivo);
+  const candidateNumber = getPartSlotNumber(candidateSlot);
+
+  return (existingParts || []).some((part) => {
+    if (partsRepresentSameSlot(candidate, part)) return true;
+
+    if (candidateNumber == null && getMatchScore(part, sourceFile, matchContext) > 0) {
+      return true;
+    }
+
+    return false;
+  });
+};
+
+/**
+ * Sugiere particellas para PDFs que no están cubiertos por las particellas existentes.
+ * Devuelve una entrada por particella faltante para soportar PDFs combinados parcialmente cubiertos.
+ * @returns {{ file: object, part: object }[]}
+ */
+export const getUncoveredDrivePartSuggestions = (parts, driveFiles, catalogoInstrumentos) => {
+  if (!driveFiles?.length || !catalogoInstrumentos) return [];
+
+  const existingParts = parts || [];
+  const singletonFamilyKeys = buildSingletonFamilyKeys(existingParts);
+  const matchContext = { singletonFamilyKeys };
+  const acceptedParts = [...existingParts];
+  const suggestions = [];
+
+  for (const file of driveFiles) {
+    const rawName = file?.name || "";
+    if (!/\.pdf$/i.test(rawName) || isDriveFileExcludedFromMatching(rawName)) continue;
+    if (fileAlreadyLinkedInParts(file, existingParts)) continue;
+
+    const expanded = expandDriveFileToParts(file, catalogoInstrumentos);
+    for (const candidate of expanded) {
+      if (
+        candidateCoveredByExistingPart(
+          candidate,
+          file,
+          acceptedParts,
+          matchContext,
+        )
+      ) {
+        continue;
+      }
+
+      suggestions.push({ file, part: candidate });
+      acceptedParts.push(candidate);
+    }
+  }
+
+  return suggestions;
 };
 
 export const fileProducesParticella = (file, catalogoInstrumentos) =>

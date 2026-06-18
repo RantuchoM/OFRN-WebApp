@@ -24,9 +24,9 @@ import { normalizeForSearch } from "../../utils/sanitize";
 import {
   attachDriveLinksByFilename,
   expandDriveFileToParts,
-  fileProducesParticella,
   getDirectorInstrumentId,
   getSuggestedParts,
+  getUncoveredDrivePartSuggestions,
   suggestDriveLinksForParts,
 } from "../../utils/drivePartMatcher";
 
@@ -38,6 +38,16 @@ const sortByNameEs = (a, b) =>
     "es",
     { numeric: true, sensitivity: "base" },
   );
+
+const sortPartsByInstrumentAndName = (list) =>
+  [...(list || [])].sort((a, b) => {
+    const byInstrument = String(a?.id_instrumento ?? "").localeCompare(
+      String(b?.id_instrumento ?? ""),
+      "es",
+      { numeric: true, sensitivity: "base" },
+    );
+    return byInstrument || sortByNameEs(a, b);
+  });
 
 const ModalPortal = ({ children }) => {
   return createPortal(
@@ -117,16 +127,27 @@ export default function DriveMatcherModal({
     [driveFiles],
   );
 
+  const uncoveredDrivePartSuggestions = useMemo(
+    () =>
+      getUncoveredDrivePartSuggestions(
+        parts,
+        sortedDriveFiles,
+        catalogoInstrumentos,
+      ),
+    [parts, sortedDriveFiles, catalogoInstrumentos],
+  );
+
   const autoCreateEligibleFileIds = useMemo(() => {
     const ids = new Set();
-    for (const file of sortedDriveFiles) {
-      if (!/\.pdf$/i.test(file.name || "")) continue;
-      if (fileProducesParticella(file, catalogoInstrumentos)) {
-        ids.add(file.id);
-      }
+    for (const suggestion of uncoveredDrivePartSuggestions) {
+      if (suggestion.file?.id) ids.add(suggestion.file.id);
     }
     return ids;
-  }, [sortedDriveFiles, catalogoInstrumentos]);
+  }, [uncoveredDrivePartSuggestions]);
+
+  const uncoveredDriveSuggestionFileCount = autoCreateEligibleFileIds.size;
+  const hasUncoveredDrivePartSuggestions =
+    parts.length > 0 && uncoveredDrivePartSuggestions.length > 0;
 
   const partsWithoutLinks = useMemo(
     () => (parts || []).filter((p) => !(p.links?.length)),
@@ -548,6 +569,19 @@ export default function DriveMatcherModal({
     onPartsChange(linked);
   };
 
+  const handleAddUncoveredDrivePartSuggestions = () => {
+    if (!onPartsChange || uncoveredDrivePartSuggestions.length === 0) return;
+
+    const newParts = uncoveredDrivePartSuggestions.map(({ part }) => ({
+      ...part,
+      links: [...(part.links || [])],
+    }));
+    onPartsChange(sortPartsByInstrumentAndName([...parts, ...newParts]));
+    toast.success(
+      `${newParts.length} particella${newParts.length === 1 ? "" : "s"} faltante${newParts.length === 1 ? "" : "s"} agregada${newParts.length === 1 ? "" : "s"} desde ${uncoveredDriveSuggestionFileCount} PDF${uncoveredDriveSuggestionFileCount === 1 ? "" : "s"}`,
+    );
+  };
+
   const applySuggestedLinkToPart = (part, file) => {
     if (!onPartsChange || !file?.webViewLink) return;
     const currentLinks = part.links || [];
@@ -604,7 +638,12 @@ export default function DriveMatcherModal({
     e.stopPropagation();
     if (!file?.webViewLink || !onPartsChange) return;
 
-    const expanded = expandDriveFileToParts(file, catalogoInstrumentos);
+    const suggestionsForFile = uncoveredDrivePartSuggestions
+      .filter((suggestion) => suggestion.file?.id === file.id)
+      .map(({ part }) => part);
+    const expanded = suggestionsForFile.length
+      ? suggestionsForFile
+      : expandDriveFileToParts(file, catalogoInstrumentos);
     if (!expanded.length) {
       const prefix = (file.name || "").split(".")[0].split("-")[0].trim();
       window.alert(
@@ -621,9 +660,7 @@ export default function DriveMatcherModal({
         ? p.links
         : [{ url: file.webViewLink, description: file.name }],
     }));
-    const updatedParts = [...parts, ...newParts].sort((a, b) =>
-      String(a.id_instrumento).localeCompare(String(b.id_instrumento)),
-    );
+    const updatedParts = sortPartsByInstrumentAndName([...parts, ...newParts]);
     onPartsChange(updatedParts);
   };
 
@@ -704,6 +741,31 @@ export default function DriveMatcherModal({
                   >
                     <IconBulb size={12} className="text-amber-500" />
                     Vincular sugerencias
+                  </button>
+                </div>
+              )}
+              {hasUncoveredDrivePartSuggestions && (
+                <div className="mt-1 text-[11px] bg-sky-50 border border-sky-200 text-sky-900 px-2 py-1 rounded flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                  <span>
+                    {uncoveredDriveSuggestionFileCount} PDF
+                    {uncoveredDriveSuggestionFileCount === 1 ? "" : "s"} sin
+                    particella asociada —{" "}
+                    <span className="font-bold">
+                      {uncoveredDrivePartSuggestions.length} instrumento
+                      {uncoveredDrivePartSuggestions.length === 1 ? "" : "s"}{" "}
+                      faltante
+                      {uncoveredDrivePartSuggestions.length === 1 ? "" : "s"}
+                    </span>{" "}
+                    detectado
+                    {uncoveredDrivePartSuggestions.length === 1 ? "" : "s"}.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleAddUncoveredDrivePartSuggestions}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-100 border border-sky-300 text-sky-900 text-[11px] font-bold hover:bg-sky-200 shrink-0"
+                  >
+                    <IconPlus size={12} />
+                    Agregar faltantes
                   </button>
                 </div>
               )}
