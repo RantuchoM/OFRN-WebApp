@@ -250,3 +250,24 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - [x] Eliminación individual y masiva de particella con `ConfirmDialog` (estilo destructivo), alineado con el design system del proyecto.
 - [x] **Ingreso por orgánico de vientos** en `WorkForm.jsx` y `DriveMatcherModal.jsx`: campo con placeholder `2.2.3.2 - 4.3.1.2` que genera particellas (Fl–Tba) vía `parseOrganicoVientosInput` (`src/utils/particellaOrganicoInput.js`) y `OrganicoVientosAddField.jsx`. Entrada solo numérica (8 dígitos) con autoformato progresivo (`22324312` → `2.2.3.2 - 4.3.1.2`).
 - [x] **Matcher Drive centralizado** en `src/utils/drivePartMatcher.js`: archivos combinados (`Corno 1y2`, `1 y 2`, `1&2`, `1-2`, `1/2`) expanden a varias particellas con el mismo link; sugerencias IconBulb + «Vincular sugerencias» para placeholders sin enlace en `DriveMatcherModal.jsx`; banner «Agregar faltantes» para crear las particellas detectadas en PDFs que aún no estén cubiertas por la obra. Ver `docs/drive-algo-deep-dive.md`.
+
+---
+
+## 10. Mis Partes — descarga ZIP
+
+### Objetivo
+Permitir que el músico descargue de una vez todas sus partes disponibles desde la vista `Mis Partes`.
+
+### Implementación
+- **Componente:** `src/views/Giras/MyPartsViewer.jsx`.
+- Botón **«Descargar todo»** en el header junto a «Tu Asignación».
+- La descarga usa `manage-drive` (`action: get_temp_token`) para obtener acceso temporal a Drive y luego baja cada `url_archivo` de las particellas asignadas.
+- El ZIP se arma en el cliente con `pizzip`, agrupando archivos por obra (`01 - Título/Parte.pdf`).
+- Si una parte tiene múltiples enlaces/versiones, el ZIP incluye todas las versiones disponibles.
+- Si algún archivo falla pero otros descargan correctamente, el ZIP se genera igual e incluye `errores_descarga.txt` con el detalle de omitidos.
+
+### Completado
+- [x] Botón visible en Mis Partes.
+- [x] Descarga autenticada de archivos Drive.
+- [x] ZIP comprimido con todas las partes disponibles.
+- [x] Progreso y aviso de errores parciales.
