@@ -49,6 +49,14 @@ Garantizar que los eventos marcados con `is_deleted: true` no aparezcan en:
 - **calendar-export** (`supabase/functions/calendar-export/index.ts`)
   - Implementado filtro para excluir eventos con `is_deleted = true`:
     - Uso de `.or("is_deleted.eq.false,is_deleted.is.null")` en la consulta a `eventos`.
+  - **Modo admin** (`admin=true&type=…`): el filtro por tipo de programa usa solo la asociación directa `eventos.id_gira` → `programas`. No incluye ensayos de ensamble (`id_tipo_evento = 13`) vinculados únicamente por `eventos_programas_asociados` (programas que se ensayan, no eventos del programa).
+  - **Master solo conciertos** (`admin=true&mode=conciertos`): exporta únicamente eventos tipo Concierto (`id_tipo_evento = 1`) de todos los organismos, más los marcadores de día completo (`fecha_desde`–`fecha_hasta`) de **todos** los programas sin filtrar por tipo.
+  - **Cache-bust de suscripción**: el modal en `App.jsx` agrega `v=YYYYMMDDHHmmss` al enlace en cada clic de suscripción; la Edge Function lo ignora pero Google/iCal lo tratan como feed nuevo.
+  - **Marcadores día completo**: no se exportan programas con `tipo = Ensamble` (ventanas amplias de coordinación); el resto de tipos sí generan evento `fecha_desde`–`fecha_hasta`.
+  - **Títulos ICS**:
+    - Ensayo de ensamble (`id_tipo_evento = 13`): `[ENSAYO ENSAMBLE {ensamble}]` (+ programas ensayados si aplica en modo personal).
+    - Concierto (`id_tipo_evento = 1`): `[CONCIERTO {nomenclador}]`.
+    - Marcadores de programa (día completo): `🏁 {nomenclador} | {nombre_gira} | {zona}`.
 - **PDF Exporter** (`src/utils/agendaPdfExporter.js`)
   - Implementado filtro de soft-delete en `exportAgendaToPDF`:
     - `const events = items.filter(i => !i.isProgramMarker && !i.is_deleted);`

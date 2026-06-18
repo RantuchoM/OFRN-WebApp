@@ -48,13 +48,68 @@ const membershipActiveOnProgramDate = (row: any, ref: string): boolean => {
   return refD >= from && (until === null || refD <= until);
 };
 
+/** Programas del evento: id_gira (directo) y, en modo personal, también los que se ensayan vía eventos_programas_asociados. */
+const getProgramsForItem = (item: any, isProgram: boolean, directOnly: boolean) => {
+  if (isProgram) return [item];
+  const direct = item.programas ? [item.programas] : [];
+  if (directOnly) return direct;
+  const rehearsed = item.eventos_programas_asociados?.map((e: any) => e.programas).filter(Boolean) || [];
+  return [...direct, ...rehearsed];
+};
+
+const ID_TIPO_CONCIERTO = 1;
+const ID_TIPO_ENSAYO_ENSAMBLE = 13;
+
+const isEnsambleProgram = (prog: any) =>
+  String(prog?.tipo || "").toLowerCase().trim() === "ensamble";
+
+/** Los programas Ensamble suelen tener ventanas de semanas/meses; no exportarlos como bloque día completo. */
+const shouldExportProgramAllDayMarker = (prog: any) => !isEnsambleProgram(prog);
+
+const buildEventSummary = (
+  evt: any,
+  tipoNombre: string,
+  listaObras: string[],
+  rawDesc: string,
+) => {
+  const desc = cleanText(rawDesc, true);
+  const idTipo = Number(evt.id_tipo_evento);
+
+  if (idTipo === ID_TIPO_ENSAYO_ENSAMBLE) {
+    const ensambleNames = (evt.eventos_ensambles || [])
+      .map((ee: any) => ee.ensambles?.ensamble)
+      .filter(Boolean);
+    const label = ensambleNames.length > 0 ? ensambleNames.join(", ") : "Ensamble";
+    const prefix = `[ENSAYO ENSAMBLE ${label}]`;
+    const obrasStr = listaObras.join(", ");
+    const body = obrasStr ? `[${cleanText(obrasStr, true)}] ${desc}` : desc;
+    return `${prefix} ${body}`.trim();
+  }
+
+  if (idTipo === ID_TIPO_CONCIERTO) {
+    const nom =
+      evt.programas?.nomenclador ||
+      listaObras[0] ||
+      evt.programas?.nombre_gira ||
+      "";
+    const prefix = nom ? `[CONCIERTO ${cleanText(nom, true)}]` : "[CONCIERTO]";
+    return `${prefix} ${desc}`.trim();
+  }
+
+  const obrasStr = listaObras.join(", ");
+  const summaryText = obrasStr ? `[${obrasStr}] ${rawDesc}` : rawDesc;
+  return `[${tipoNombre.toUpperCase()}] ${cleanText(summaryText, true)}`.trim();
+};
+
 serve(async (req) => {
   const url = new URL(req.url);
   const userId = url.searchParams.get("uid");
   const mode = url.searchParams.get("mode");
   const isAdmin = url.searchParams.get("admin") === "true"; // Nuevo
   const adminType = url.searchParams.get("type"); // Nuevo (ej: "Sinfónico")
+  const isMasterConciertos = isAdmin && mode === "conciertos";
   const debug = url.searchParams.get("debug") === "true";
+  // `v` es solo cache-bust del cliente (suscripción ICS); se ignora en el servidor.
   if (!userId && !isAdmin) return new Response("Falta UID o Auth", { status: 400 });
 
   const supabase = createClient(
@@ -75,8 +130,9 @@ serve(async (req) => {
   const { data: eventos } = await supabase
     .from("eventos")
     .select(`
-      id, fecha, hora_inicio, hora_fin, descripcion, convocados, 
+      id, fecha, hora_inicio, hora_fin, descripcion, convocados, id_tipo_evento,
       tipos_evento(nombre, id_categoria), locaciones(nombre, direccion),
+      eventos_ensambles( ensambles ( ensamble ) ),
       programas(id, nomenclador, nombre_gira, google_drive_folder_id, fecha_desde, fecha_hasta, tipo, zona, giras_integrantes(id_integrante, estado, rol), giras_fuentes(tipo, valor_id, valor_texto)),
       eventos_programas_asociados(programas(id, nomenclador, nombre_gira, google_drive_folder_id, fecha_desde, fecha_hasta, zona, giras_integrantes(id_integrante, estado, rol), giras_fuentes(tipo, valor_id, valor_texto)))
     `)
@@ -94,12 +150,15 @@ serve(async (req) => {
 
   // --- LÓGICA UNIFICADA ---
   const shouldShowItem = (item: any, isProgram = false) => {
+    // Master: todos los programas (marcadores día completo); eventos se filtran aparte
+    if (isMasterConciertos) return true;
+
     // Modo Admin: Filtra solo por tipo de gira (si se envió adminType)
     if (isAdmin) {
       if (!adminType) return true;
 
-      // Obtenemos los programas asociados al evento o el programa mismo
-      const progs = isProgram ? [item] : [...(item.programas ? [item.programas] : []), ...(item.eventos_programas_asociados?.map((e: any) => e.programas) || [])];
+      // Admin: solo eventos del programa (id_gira), no ensayos de ensamble que lo ensayan
+      const progs = getProgramsForItem(item, isProgram, true);
 
       // Normalización para comparación segura (evita errores de tildes o case-sensitive)
       const normalizedType = adminType.toLowerCase().trim();
@@ -117,7 +176,7 @@ serve(async (req) => {
       if (item.convocados.includes("GRP:TUTTI") || (item.convocados.includes("GRP:LOCALES") && profile?.is_local) || item.convocados.includes(`FAM:${profile?.instrumentos?.familia}`)) return true;
     }
 
-    const progs = isProgram ? [item] : [...(item.programas ? [item.programas] : []), ...(item.eventos_programas_asociados?.map((e: any) => e.programas) || [])];
+    const progs = getProgramsForItem(item, isProgram, false);
     return progs.some((prog: any) => {
       const myOverride = prog.giras_integrantes?.find((gi: any) => String(gi.id_integrante) === String(userId));
       if (myOverride) return myOverride.estado !== "ausente";
@@ -130,6 +189,10 @@ serve(async (req) => {
   };
 
   const eventosFiltrados = (eventos || []).filter((e: any) => {
+    if (isMasterConciertos) {
+      return Number(e.id_tipo_evento) === ID_TIPO_CONCIERTO;
+    }
+
     // 1. Validar visibilidad general (o bypass si es admin)
     if (!shouldShowItem(e, false)) return false;
 
@@ -142,6 +205,8 @@ serve(async (req) => {
   });
 
   const programasFiltrados = (allPrograms || []).filter((p: any) => {
+    if (isMasterConciertos) return true;
+
     if (isAdmin) {
       if (!adminType) return true;
       // Normalización robusta
@@ -159,7 +224,7 @@ serve(async (req) => {
     "PRODID:-//OrquestaManager//App//ES",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-    "X-WR-CALNAME:Agenda Orquesta",
+    isMasterConciertos ? "X-WR-CALNAME:OFRN Master Conciertos" : "X-WR-CALNAME:Agenda Orquesta",
     "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
   ];
 
@@ -177,7 +242,7 @@ serve(async (req) => {
       mainProgramId = evt.programas.id;
       driveFolderId = evt.programas.google_drive_folder_id;
     }
-    if (evt.eventos_programas_asociados && evt.eventos_programas_asociados.length > 0) {
+    if (!isAdmin && evt.eventos_programas_asociados && evt.eventos_programas_asociados.length > 0) {
       evt.eventos_programas_asociados.forEach((ep: any) => {
         const p = ep.programas;
         if (p) {
@@ -190,8 +255,7 @@ serve(async (req) => {
     }
 
     const obrasStr = listaObras.join(", ");
-    const summaryText = obrasStr ? `[${obrasStr}] ${rawDesc}` : rawDesc;
-    const summary = `[${tipoNombre.toUpperCase()}] ${cleanText(summaryText, true)}`;
+    const summary = buildEventSummary(evt, tipoNombre, listaObras, rawDesc);
 
     let descBody = `Tipo: ${tipoNombre}\\n${cleanText(evt.descripcion || "")}`;
     if (obrasStr) {
@@ -228,10 +292,19 @@ serve(async (req) => {
 
   programasFiltrados.forEach((prog: any) => {
     if (!prog.fecha_desde) return;
+    if (!shouldExportProgramAllDayMarker(prog)) return;
 
     const dtStart = formatDateOnly(prog.fecha_desde);
     const dtEnd = prog.fecha_hasta ? addDays(prog.fecha_hasta, 1) : addDays(prog.fecha_desde, 1);
-    const title = `🏁 ${prog.nomenclador || ""}${prog.zona ? ` | ${prog.zona}` : ""}`;
+    const nom = prog.nomenclador || "";
+    const gira = prog.nombre_gira || "";
+    let titleCore = nom;
+    if (gira && gira !== nom) {
+      titleCore = nom ? `${nom} | ${gira}` : gira;
+    } else if (!nom) {
+      titleCore = gira;
+    }
+    const title = `🏁 ${titleCore}${prog.zona ? ` | ${prog.zona}` : ""}`;
     let description = `${cleanText(prog.nombre_gira || "")}`;
 
     if (prog.google_drive_folder_id) {

@@ -154,6 +154,17 @@ const queryClient = new QueryClient({
   },
 });
 
+const calendarSubscriptionCacheBust = () => {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+};
+
+const appendCalendarCacheBust = (url) => {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}v=${calendarSubscriptionCacheBust()}`;
+};
+
 // --- MODAL CALENDARIO ---
 const CalendarSelectionModal = ({ isOpen, onClose, userId, isAdmin }) => {
   if (!isOpen || !userId) return null;
@@ -175,27 +186,33 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId, isAdmin }) => {
     let url = `${USER_BASE_URL}?uid=${userId}`;
     if (mode === "musical") url += "&mode=musical";
     else if (mode === "otros") url += "&mode=otros";
-    return formatLinks(url);
+    return formatLinks(appendCalendarCacheBust(url));
   };
 
   const getAdminLinks = (type, mode) => {
     let url = `${ADMIN_BASE_URL}?type=${encodeURIComponent(type)}&mode=${mode}`;
-    return formatLinks(url);
+    return formatLinks(appendCalendarCacheBust(url));
   };
   const BASE_URL = "https://muxrbuivopnawnxlcjxq.supabase.co/functions/v1/calendar-export";
   const handleSubscribe = (platform, category, mode, isAdminContext = false) => {
     // Construcción dinámica de URL
     let url = `${BASE_URL}?`;
     if (isAdminContext) {
-      url += `admin=true&type=${encodeURIComponent(category)}&mode=${mode}`;
+      if (mode === "conciertos") {
+        url += "admin=true&mode=conciertos";
+      } else {
+        url += `admin=true&type=${encodeURIComponent(category)}&mode=${mode}`;
+      }
     } else {
       url += `uid=${userId}&mode=${category}`; // category aquí sería 'musical' o 'otros'
     }
-    
-    const { webcalLink, googleMagicLink } = formatLinks(url);
-    
+
+    url = appendCalendarCacheBust(url);
+    const webcalUrl = url.replace(/^https:\/\//, "webcal://");
+    const { googleMagicLink } = formatLinks(webcalUrl);
+
     if (platform === "GOOGLE") window.open(googleMagicLink, "_blank");
-    else if (platform === "IOS") window.location.href = webcalLink;
+    else if (platform === "IOS") window.location.href = webcalUrl;
     else if (platform === "COPY") {
       navigator.clipboard.writeText(url).then(() => alert("🔗 Enlace copiado."));
     }
@@ -286,6 +303,46 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId, isAdmin }) => {
 
           {isAdmin && activeTab === "ADMIN" && (
             <div className="space-y-6">
+              <div className="border-2 border-indigo-200 rounded-lg overflow-hidden bg-indigo-50/40">
+                <div className="px-3 py-2 text-[10px] font-black uppercase tracking-widest bg-indigo-100 text-indigo-700 border-b border-indigo-200">
+                  Master — Solo Conciertos
+                </div>
+                <p className="px-3 pt-2 text-[11px] text-slate-600 leading-relaxed">
+                  Todos los <strong>conciertos</strong> y las ventanas{" "}
+                  <strong>desde–hasta</strong> de gira de Sinfónico, Ensamble y
+                  Jazz Band.
+                </p>
+                <div className="p-3 flex justify-end gap-2">
+                  <button
+                    onClick={() =>
+                      handleSubscribe("GOOGLE", null, "conciertos", true)
+                    }
+                    className="p-1.5 rounded hover:bg-indigo-100 text-slate-500 hover:text-blue-600"
+                    title="Google Calendar"
+                  >
+                    <IconCalendar size={14} />
+                  </button>
+                  <button
+                    onClick={() =>
+                      handleSubscribe("IOS", null, "conciertos", true)
+                    }
+                    className="p-1.5 rounded hover:bg-indigo-100 text-slate-500 hover:text-slate-900"
+                    title="Apple Calendar"
+                  >
+                    <IconDownload size={14} />
+                  </button>
+                  <button
+                    onClick={() =>
+                      handleSubscribe("COPY", null, "conciertos", true)
+                    }
+                    className="p-1.5 rounded hover:bg-indigo-100 text-slate-500 hover:text-indigo-600"
+                    title="Copiar enlace"
+                  >
+                    <IconCopy size={14} />
+                  </button>
+                </div>
+              </div>
+
               {["Sinfónico", "Ensamble", "Jazz Band"].map((type) => (
                 <div
                   key={type}
