@@ -361,7 +361,9 @@ const MobileSeatingTable = ({
       .replace(/Trompeta/i, "Tpt")
       .replace(/Trombon/i, "Tbn")
       .replace(/Tuba/i, "Tb")
-      .substring(0, 10);
+      .replace(/\s+/g, " ")
+      .trim()
+      .substring(0, 9);
   };
 
   const showFullTitle = (obra) => {
@@ -394,11 +396,11 @@ const MobileSeatingTable = ({
                 return (
                   <th
                     key={obra.id}
-                    className={`p-1 min-w-[78px] max-w-[96px] border-l border-slate-600 text-center align-bottom pb-1 ${
+                    className={`p-0.5 min-w-[72px] max-w-[84px] border-l border-slate-600 text-center align-bottom pb-1 ${
                       isEditingThisWork ? "bg-indigo-700" : ""
                     }`}
                   >
-                    <div className="flex flex-col leading-none gap-1">
+                    <div className="flex flex-col leading-none gap-0.5">
                       <button
                         type="button"
                         onClick={() => showFullTitle(obra)}
@@ -419,7 +421,7 @@ const MobileSeatingTable = ({
                               current === obra.obra_id ? null : obra.obra_id,
                             )
                           }
-                          className={`mx-auto inline-flex items-center justify-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[8px] font-bold transition-colors ${
+                          className={`mx-auto inline-flex items-center justify-center gap-0.5 rounded-full border px-1 py-0 text-[8px] font-bold transition-colors ${
                             isEditingThisWork
                               ? "bg-white text-indigo-700 border-white"
                               : "bg-slate-700 text-slate-100 border-slate-500 hover:bg-slate-600"
@@ -430,7 +432,7 @@ const MobileSeatingTable = ({
                               : "Editar seating de esta obra"
                           }
                         >
-                          <IconEdit size={9} />
+                          <IconEdit size={8} />
                           {isEditingThisWork ? "Listo" : "Editar"}
                         </button>
                       )}
@@ -622,7 +624,7 @@ const MobileSeatingTable = ({
                                     className="p-1 border-l border-slate-100 border-b border-slate-50 text-center align-middle"
                                   >
                                     {showPart ? (
-                                      <span className="text-[9px] text-indigo-600 font-bold bg-indigo-50 px-1 rounded truncate max-w-[70px] block mx-auto">
+                                      <span className="text-[8px] leading-none text-indigo-600 font-bold bg-indigo-50 px-0.5 rounded truncate whitespace-nowrap max-w-[82px] block mx-auto">
                                         {[individualPartId, individualSecondaryPartId]
                                           .filter(Boolean)
                                           .filter(
@@ -631,7 +633,7 @@ const MobileSeatingTable = ({
                                               String(containerPartId),
                                           )
                                           .map(getPartName)
-                                          .join(" + ")}
+                                          .join("+")}
                                       </span>
                                     ) : (
                                       <span className="text-[10px] text-slate-300 select-none">
@@ -742,11 +744,11 @@ const MobileSeatingTable = ({
                             compact
                           />
                         ) : (
-                          <span className="text-[9px] text-slate-700 font-medium block truncate max-w-[75px]">
+                          <span className="text-[8px] leading-none text-slate-700 font-medium block truncate whitespace-nowrap max-w-[82px]">
                             {[partId, secondaryPartId]
                               .filter(Boolean)
                               .map(getPartName)
-                              .join(" + ") || "-"}
+                              .join("+") || "-"}
                           </span>
                         )}
                       </td>
@@ -2195,10 +2197,10 @@ export default function ProgramSeating({
         )}
       </Suspense>
 
-      <div className="px-3 sm:px-4 py-2 border-b border-slate-200 bg-white flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center shrink-0">
-        <h2 className="text-base sm:text-lg font-bold text-slate-800 flex flex-wrap items-center gap-2 min-w-0">
-          <IconUsers className="text-indigo-600" />
-          <span>Seating & Particellas</span>
+      <div className="px-2 sm:px-4 py-1.5 sm:py-2 border-b border-slate-200 bg-white flex items-start md:items-center justify-between gap-2 shrink-0">
+        <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex flex-wrap items-center gap-1.5 sm:gap-2 min-w-0 pt-1 md:pt-0">
+          <IconUsers size={18} className="text-indigo-600 shrink-0" />
+          <span className="truncate">Seating & Particellas</span>
           {canSeeInstrumentationBadges && obras.length > 0 && (() => {
             const organicoRevisado = !!program?.organico_revisado;
             const organicoComentario = program?.organico_comentario ?? null;
@@ -2211,7 +2213,7 @@ export default function ProgramSeating({
                     ? "bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200"
                     : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100";
             return (
-              <div className="flex flex-wrap items-center gap-1 ml-3">
+              <div className="hidden md:flex flex-wrap items-center gap-1 ml-3">
                 {organicoRevisado && (
                   <IconCheckCircle size={14} className="text-sky-600 shrink-0" title="Adaptación validada" />
                 )}
@@ -2250,11 +2252,11 @@ export default function ProgramSeating({
             );
           })()}
         </h2>
-        <div className="relative w-full md:hidden" ref={mobileActionsMenuRef}>
+        <div className="relative shrink-0 md:hidden" ref={mobileActionsMenuRef}>
           <button
             type="button"
             onClick={() => setShowMobileActionsMenu((current) => !current)}
-            className="w-full px-3 py-2 text-xs font-bold rounded-lg flex items-center justify-between gap-2 transition-colors bg-slate-800 text-white hover:bg-slate-900 shadow-sm"
+            className="px-2.5 py-1.5 text-xs font-bold rounded-lg flex items-center justify-between gap-1.5 transition-colors bg-slate-800 text-white hover:bg-slate-900 shadow-sm"
             aria-expanded={showMobileActionsMenu}
             aria-haspopup="menu"
           >
@@ -2269,9 +2271,34 @@ export default function ProgramSeating({
           </button>
           {showMobileActionsMenu && (
             <div
-              className="absolute right-0 top-full z-50 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl animate-in fade-in zoom-in-95"
+              className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl animate-in fade-in zoom-in-95"
               role="menu"
             >
+              {canSeeInstrumentationBadges && obras.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMobileActionsMenu(false);
+                    setShowInstrumentationModal(true);
+                  }}
+                  className={`w-full px-3 py-2.5 text-left text-xs font-bold hover:bg-slate-50 flex items-center gap-2 border-b border-slate-100 ${
+                    hasInstrumentationMismatch
+                      ? "text-orange-700"
+                      : "text-slate-700"
+                  }`}
+                  role="menuitem"
+                >
+                  <IconAlertTriangle
+                    size={16}
+                    className={
+                      hasInstrumentationMismatch
+                        ? "text-orange-500"
+                        : "text-slate-500"
+                    }
+                  />
+                  Comparativo Seating
+                </button>
+              )}
               {isEditor && pendingParticellaSuggestionsCount > 0 && (
                 <button
                   type="button"
@@ -2478,7 +2505,7 @@ export default function ProgramSeating({
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden p-2 md:p-4 flex flex-col">
+      <div className="flex-1 overflow-hidden p-1 md:p-4 flex flex-col">
         <Suspense
           fallback={
             <div className="p-4 text-center text-slate-400">Cargando...</div>
