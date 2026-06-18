@@ -1,5 +1,5 @@
-// src/views/Giras/MyPartsViewer.jsx
 import React, { useState, useEffect, useRef } from "react";
+import PizZip from "pizzip";
 import {
   IconLoader,
   IconDownload,
@@ -12,6 +12,72 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { seatingItemMatrixPosition } from "../../services/giraService";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
+
+const initialDownloadAllState = {
+  isRunning: false,
+  current: 0,
+  total: 0,
+  label: "",
+  error: null,
+};
+
+const stripHtml = (value) =>
+  String(value || "")
+    .replace(/<[^>]*>?/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const sanitizeZipSegment = (value, fallback = "archivo") => {
+  const clean = stripHtml(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ñ/g, "n")
+    .replace(/Ñ/g, "N")
+    .replace(/[^a-zA-Z0-9 ._()-]+/g, "_")
+    .replace(/\s+/g, " ")
+    .replace(/\.+$/g, "")
+    .trim();
+  return (clean || fallback).slice(0, 90);
+};
+
+const ensurePdfExtension = (name) => (/\.pdf$/i.test(name) ? name : `${name}.pdf`);
+
+const uniqueZipPath = (path, usedPaths) => {
+  const lower = path.toLowerCase();
+  if (!usedPaths.has(lower)) {
+    usedPaths.add(lower);
+    return path;
+  }
+
+  const dotIdx = path.lastIndexOf(".");
+  const base = dotIdx === -1 ? path : path.slice(0, dotIdx);
+  const ext = dotIdx === -1 ? "" : path.slice(dotIdx);
+  let idx = 2;
+  let nextPath = `${base} (${idx})${ext}`;
+  while (usedPaths.has(nextPath.toLowerCase())) {
+    idx += 1;
+    nextPath = `${base} (${idx})${ext}`;
+  }
+  usedPaths.add(nextPath.toLowerCase());
+  return nextPath;
+};
+
+const extractDriveFileIdFromUrl = (url) => {
+  if (!url || typeof url !== "string") return null;
+  const match = url.match(/[-\w]{25,}/);
+  return match ? match[0] : null;
+};
+
+const downloadBlob = (blob, fileName) => {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
 
 // --- SUB-COMPONENTE: TARJETA MÓVIL COMPACTA ---
 const MobilePartCard = ({ item }) => {
@@ -153,10 +219,202 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
   const [repertoire, setRepertoire] = useState([]);
   const [userInstrument, setUserInstrument] = useState(null);
   const [seatingInfo, setSeatingInfo] = useState(null);
+  const [googleAccessToken, setGoogleAccessToken] = useState(null);
+  const [downloadAllState, setDownloadAllState] = useState(
+    initialDownloadAllState,
+  );
 
   useEffect(() => {
     fetchData();
   }, [gira.id, user.id]);
+
+  const downloadablePartsCount = repertoire.reduce((total, row) => {
+    if (row.particella_status !== "AVAILABLE") return total;
+    return total + row.particella_links.filter((link) => link?.url).length;
+  }, 0);
+
+  const buildDownloadEntries = () => {
+    const entries = [];
+    repertoire.forEach((row, workIndex) => {
+      if (row.particella_status !== "AVAILABLE") return;
+      row.particella_links.forEach((link, linkIndex) => {
+        if (!link?.url) return;
+        entries.push({ row, link, linkIndex, workIndex });
+      });
+    });
+    return entries;
+  };
+
+  const ensureGoogleAccessToken = async (forceRefresh = false) => {
+    if (!forceRefresh && googleAccessToken) return googleAccessToken;
+
+    const { data, error } = await supabase.functions.invoke("manage-drive", {
+      body: { action: "get_temp_token" },
+    });
+
+    if (error || !data?.accessToken) {
+      throw new Error(
+        error?.message ||
+          data?.error ||
+          "No se pudo obtener acceso temporal a Drive.",
+      );
+    }
+
+    setGoogleAccessToken(data.accessToken);
+    return data.accessToken;
+  };
+
+  const fetchPartArrayBuffer = async (url) => {
+    if (url.includes("drive.google.com")) {
+      const fileId = extractDriveFileIdFromUrl(url);
+      if (!fileId) throw new Error("No se pudo extraer el ID de Drive.");
+
+      let token = await ensureGoogleAccessToken();
+      let response = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      if (response.status === 401) {
+        token = await ensureGoogleAccessToken(true);
+        response = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(`Drive respondió ${response.status}`);
+      }
+
+      return response.arrayBuffer();
+    }
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Descarga respondió ${response.status}`);
+    return response.arrayBuffer();
+  };
+
+  const handleDownloadAll = async () => {
+    const entries = buildDownloadEntries();
+    if (!entries.length) {
+      setDownloadAllState({
+        ...initialDownloadAllState,
+        error: "No hay partes disponibles para descargar.",
+      });
+      return;
+    }
+
+    const zip = new PizZip();
+    const usedPaths = new Set();
+    const failures = [];
+    let successfulDownloads = 0;
+
+    setDownloadAllState({
+      isRunning: true,
+      current: 0,
+      total: entries.length,
+      label: "Preparando descarga...",
+      error: null,
+    });
+
+    try {
+      for (let i = 0; i < entries.length; i += 1) {
+        const { row, link, linkIndex, workIndex } = entries[i];
+        const title = stripHtml(row.titulo) || `Obra ${workIndex + 1}`;
+        const partName = row.particella_nombre || link.name || "Parte";
+
+        setDownloadAllState({
+          isRunning: true,
+          current: i + 1,
+          total: entries.length,
+          label: `Descargando ${title} - ${partName}`,
+          error: null,
+        });
+
+        try {
+          const arrayBuffer = await fetchPartArrayBuffer(link.url);
+          const workFolder = `${String(workIndex + 1).padStart(2, "0")} - ${sanitizeZipSegment(title, "Obra")}`;
+          const rawVersionName =
+            row.particella_links.length > 1
+              ? link.name || `Version ${linkIndex + 1}`
+              : "";
+          const fileStem = row.particella_links.length > 1
+            ? `${sanitizeZipSegment(partName, "Parte")} - ${sanitizeZipSegment(
+                rawVersionName,
+                `Version ${linkIndex + 1}`,
+              )}`
+            : sanitizeZipSegment(partName, "Parte");
+          const zipPath = uniqueZipPath(
+            `${workFolder}/${ensurePdfExtension(fileStem)}`,
+            usedPaths,
+          );
+
+          zip.file(zipPath, arrayBuffer);
+          successfulDownloads += 1;
+        } catch (error) {
+          failures.push(
+            `${title} - ${partName}: ${
+              error?.message || "Error desconocido"
+            }`,
+          );
+        }
+      }
+
+      if (!successfulDownloads) {
+        throw new Error(
+          "No se pudo descargar ninguna parte. Revisá que los enlaces de Drive estén compartidos con el Archivo.",
+        );
+      }
+
+      if (failures.length) {
+        zip.file(
+          "errores_descarga.txt",
+          [
+            "No se pudieron incluir estos archivos en el ZIP:",
+            "",
+            ...failures,
+          ].join("\n"),
+        );
+      }
+
+      const zipBlob = zip.generate({
+        type: "blob",
+        mimeType: "application/zip",
+        compression: "DEFLATE",
+        compressionOptions: { level: 6 },
+      });
+      const programName =
+        gira?.nomenclador || gira?.nombre_gira || gira?.nombre || `Gira_${gira.id}`;
+      downloadBlob(
+        zipBlob,
+        `Mis_Partes_${sanitizeZipSegment(programName, "Gira")}.zip`,
+      );
+
+      setDownloadAllState({
+        isRunning: false,
+        current: entries.length,
+        total: entries.length,
+        label: "ZIP descargado",
+        error: failures.length
+          ? `${failures.length} archivo${failures.length === 1 ? "" : "s"} no se pudieron incluir. El ZIP contiene un detalle en errores_descarga.txt.`
+          : null,
+      });
+    } catch (error) {
+      console.error("Error descargando todas las partes:", error);
+      setDownloadAllState({
+        isRunning: false,
+        current: 0,
+        total: entries.length,
+        label: "",
+        error: error?.message || "No se pudo generar el ZIP.",
+      });
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -377,15 +635,76 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
           </div>
         </div>
 
-        {onOpenSeating && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={onOpenSeating}
-            className="flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full text-xs font-bold hover:bg-indigo-100 transition-colors"
+            type="button"
+            onClick={handleDownloadAll}
+            disabled={downloadAllState.isRunning || downloadablePartsCount === 0}
+            className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-xs font-bold hover:bg-emerald-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title={
+              downloadablePartsCount === 0
+                ? "No hay partes disponibles para descargar"
+                : `Descargar ${downloadablePartsCount} archivo${downloadablePartsCount === 1 ? "" : "s"} en ZIP`
+            }
           >
-            <IconLayers size={14} /> <span className="hidden sm:inline">Ver</span> Seating
+            {downloadAllState.isRunning ? (
+              <IconLoader size={14} className="animate-spin" />
+            ) : (
+              <IconDownload size={14} />
+            )}
+            <span>Descargar todo</span>
           </button>
-        )}
+
+          {onOpenSeating && (
+            <button
+              onClick={onOpenSeating}
+              className="flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full text-xs font-bold hover:bg-indigo-100 transition-colors"
+            >
+              <IconLayers size={14} /> <span className="hidden sm:inline">Ver</span> Seating
+            </button>
+          )}
+        </div>
       </div>
+
+      {(downloadAllState.isRunning || downloadAllState.error) && (
+        <div className="bg-white border-b border-slate-200 px-4 py-2 shrink-0">
+          <div
+            className={`flex items-center gap-2 text-xs font-medium ${
+              downloadAllState.error ? "text-amber-700" : "text-slate-600"
+            }`}
+          >
+            {downloadAllState.isRunning ? (
+              <IconLoader size={14} className="animate-spin text-emerald-600" />
+            ) : (
+              <IconAlertCircle size={14} className="text-amber-500" />
+            )}
+            <span className="truncate">
+              {downloadAllState.error || downloadAllState.label}
+            </span>
+          </div>
+          {downloadAllState.isRunning && (
+            <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 transition-all"
+                style={{
+                  width: `${
+                    downloadAllState.total
+                      ? Math.min(
+                          100,
+                          Math.round(
+                            (downloadAllState.current /
+                              downloadAllState.total) *
+                              100,
+                          ),
+                        )
+                      : 0
+                  }%`,
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-2 md:p-4">
         {repertoire.length === 0 ? (
