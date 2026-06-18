@@ -40,7 +40,27 @@ const sanitizeZipSegment = (value, fallback = "archivo") => {
   return (clean || fallback).slice(0, 90);
 };
 
+const sanitizeZipFileName = (value, fallback = "archivo.pdf") => {
+  const clean = stripHtml(value)
+    .replace(/[<>:"/\\|?*\x00-\x1F]+/g, "_")
+    .replace(/\s+/g, " ")
+    .replace(/\.+$/g, "")
+    .trim();
+  return (clean || fallback).slice(0, 160);
+};
+
 const ensurePdfExtension = (name) => (/\.pdf$/i.test(name) ? name : `${name}.pdf`);
+
+const getUrlFileName = (url, fallback = "archivo.pdf") => {
+  try {
+    const parsed = new URL(url);
+    const lastSegment = parsed.pathname.split("/").filter(Boolean).pop();
+    if (!lastSegment) return fallback;
+    return decodeURIComponent(lastSegment);
+  } catch {
+    return fallback;
+  }
+};
 
 const uniqueZipPath = (path, usedPaths) => {
   const lower = path.toLowerCase();
@@ -264,12 +284,18 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
     return data.accessToken;
   };
 
-  const fetchPartArrayBuffer = async (url) => {
+  const fetchPartFile = async (url, fallbackName) => {
     if (url.includes("drive.google.com")) {
       const fileId = extractDriveFileIdFromUrl(url);
       if (!fileId) throw new Error("No se pudo extraer el ID de Drive.");
 
       let token = await ensureGoogleAccessToken();
+      let metaResponse = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       let response = await fetch(
         `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
         {
@@ -277,8 +303,14 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
         },
       );
 
-      if (response.status === 401) {
+      if (metaResponse.status === 401 || response.status === 401) {
         token = await ensureGoogleAccessToken(true);
+        metaResponse = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
         response = await fetch(
           `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
           {
@@ -287,16 +319,28 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
         );
       }
 
+      let sourceFileName = fallbackName;
+      if (metaResponse.ok) {
+        const meta = await metaResponse.json();
+        sourceFileName = meta?.name || fallbackName;
+      }
+
       if (!response.ok) {
         throw new Error(`Drive respondió ${response.status}`);
       }
 
-      return response.arrayBuffer();
+      return {
+        arrayBuffer: await response.arrayBuffer(),
+        sourceFileName,
+      };
     }
 
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Descarga respondió ${response.status}`);
-    return response.arrayBuffer();
+    return {
+      arrayBuffer: await response.arrayBuffer(),
+      sourceFileName: getUrlFileName(url, fallbackName),
+    };
   };
 
   const handleDownloadAll = async () => {
@@ -337,20 +381,19 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
         });
 
         try {
-          const arrayBuffer = await fetchPartArrayBuffer(link.url);
-          const workFolder = `${String(workIndex + 1).padStart(2, "0")} - ${sanitizeZipSegment(title, "Obra")}`;
-          const rawVersionName =
-            row.particella_links.length > 1
-              ? link.name || `Version ${linkIndex + 1}`
-              : "";
-          const fileStem = row.particella_links.length > 1
-            ? `${sanitizeZipSegment(partName, "Parte")} - ${sanitizeZipSegment(
-                rawVersionName,
-                `Version ${linkIndex + 1}`,
-              )}`
-            : sanitizeZipSegment(partName, "Parte");
+          const fallbackName = ensurePdfExtension(
+            link.name && row.particella_links.length > 1 ? link.name : partName,
+          );
+          const { arrayBuffer, sourceFileName } = await fetchPartFile(
+            link.url,
+            fallbackName,
+          );
+          const fileNumber = String(successfulDownloads + 1).padStart(2, "0");
+          const originalFileName = ensurePdfExtension(
+            sanitizeZipFileName(sourceFileName, fallbackName),
+          );
           const zipPath = uniqueZipPath(
-            `${workFolder}/${ensurePdfExtension(fileStem)}`,
+            `${fileNumber} - ${originalFileName}`,
             usedPaths,
           );
 

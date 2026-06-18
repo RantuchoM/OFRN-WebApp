@@ -262,7 +262,8 @@ Permitir que el músico descargue de una vez todas sus partes disponibles desde 
 - **Componente:** `src/views/Giras/MyPartsViewer.jsx`.
 - Botón **«Descargar todo»** en el header junto a «Tu Asignación».
 - La descarga usa `manage-drive` (`action: get_temp_token`) para obtener acceso temporal a Drive y luego baja cada `url_archivo` de las particellas asignadas.
-- El ZIP se arma en el cliente con `pizzip`, agrupando archivos por obra (`01 - Título/Parte.pdf`).
+- El ZIP se arma en el cliente con `pizzip` en una estructura plana, sin carpetas internas.
+- Cada PDF usa el nombre real del archivo origen de Drive antecedido por orden correlativo (`01 - NombreOriginal.pdf`, `02 - NombreOriginal.pdf`, etc.).
 - Si una parte tiene múltiples enlaces/versiones, el ZIP incluye todas las versiones disponibles.
 - Si algún archivo falla pero otros descargan correctamente, el ZIP se genera igual e incluye `errores_descarga.txt` con el detalle de omitidos.
 
