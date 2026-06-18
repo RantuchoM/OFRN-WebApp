@@ -979,7 +979,7 @@ const ProtectedApp = ({ initialTab }) => {
       {/* OVERLAY MÓVIL */}
       {isMobileMenuOpen && (
         <div
-          className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-[90] bg-slate-900/50 backdrop-blur-sm lg:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
@@ -989,7 +989,7 @@ const ProtectedApp = ({ initialTab }) => {
         onMouseEnter={() => setIsSidebarHovered(true)}
         onMouseLeave={() => setIsSidebarHovered(false)}
         className={`
-            fixed inset-y-0 left-0 z-50 bg-white border-r border-slate-200 
+            fixed inset-y-0 left-0 z-[100] bg-white border-r border-slate-200
             transform transition-all duration-300 ease-in-out flex flex-col
             ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"} 
             lg:relative lg:translate-x-0 
