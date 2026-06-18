@@ -663,7 +663,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
           );
           const finalAsigns =
             specificAsigns.length > 0
-              ? specificAsigns.slice(0, 2)
+              ? specificAsigns
               : groupAsign
                 ? [groupAsign]
                 : [];

@@ -4,6 +4,8 @@ import { IconX } from "../ui/Icons";
 import {
   getInstrumentValue,
   countsTowardInstrumentationConvoked,
+  getPercComparableTotal,
+  parsePercussionTotalFromString,
 } from "../../utils/instrumentation";
 
 const INSTRUMENT_COLUMNS = [
@@ -102,7 +104,7 @@ export default function InstrumentationSummaryModal({
   const observationsByWorkId = useMemo(() => {
     const map = {};
     works.forEach((w) => {
-      const s = w.instrumentacion_effective || w.instrumentacion || "";
+      const s = w.instrumentacion_effective || "";
       const matches = s.match(/\(([^)]*)\)/g);
       if (matches && matches.length > 0) {
         const txt = matches
@@ -297,29 +299,11 @@ export default function InstrumentationSummaryModal({
     return r - c;
   };
 
-  const getPercTotalForInstrumentation = (instString) => {
-    if (!instString) return 0;
-    let percTotalForWork = 0;
-    const timpMatch = instString.match(/Timp\.\s*(?:\+(\d+))?/i);
-    if (timpMatch) {
-      const extra = parseInt(timpMatch[1] || "0", 10) || 0;
-      percTotalForWork += 1 + extra;
-    }
-    const percMatch = instString.match(/Perc(?:\.x(\d+))?/i);
-    if (percMatch) {
-      const explicitPerc = percMatch[1] ? parseInt(percMatch[1], 10) || 0 : 1;
-      percTotalForWork += explicitPerc;
-    }
-    if (!timpMatch && !percMatch) {
-      percTotalForWork =
-        (getInstrumentValue(instString, "timp") || 0) +
-        (getInstrumentValue(instString, "perc") || 0);
-    }
-    return percTotalForWork;
-  };
+  const getPercTotalForInstrumentation = (instString) =>
+    parsePercussionTotalFromString(instString);
 
   const renderCellContent = (work, col) => {
-    const inst = work.instrumentacion_effective || work.instrumentacion || "";
+    const inst = work.instrumentacion_effective || "";
     let count = 0;
     if (inst) {
       count =
@@ -329,33 +313,54 @@ export default function InstrumentationSummaryModal({
     }
 
     const obs = observationsByWorkId[work.obra_id];
+    const isConsolidated = (work.instrumentation_consolidated_families || []).includes(
+      col.id,
+    );
+    const partsSlotsCount =
+      col.id === "Perc"
+        ? getPercComparableTotal(work.instrumentation_parts_column_map || {})
+        : work.instrumentation_parts_column_map?.[col.id];
 
-    let convBase = convoked[col.id] || 0;
+    let convokedCount = convoked[col.id] || 0;
     if (col.id === "Perc") {
-      convBase = (convoked.Tim || 0) + (convoked.Perc || 0);
+      convokedCount = (convoked.Tim || 0) + (convoked.Perc || 0);
     }
-    const convLimit = convBase;
-    const isOver = col.id !== "Str" && count > convLimit;
+    const requiredCount = count;
+    const requiredAboveConvoked =
+      col.id !== "Str" && requiredCount > convokedCount;
+    const requiredEqualsConvoked =
+      col.id !== "Str" &&
+      requiredCount === convokedCount &&
+      requiredCount > 0;
+
+    const countClass = requiredAboveConvoked
+      ? "bg-orange-200 text-black"
+      : requiredEqualsConvoked && isConsolidated
+        ? "bg-violet-200 text-violet-900"
+        : "text-slate-900";
 
     if (!count && !obs) {
       return (
-        <div
-          className={`flex flex-col items-center gap-0.5 px-1 py-0.5 rounded ${
-            isOver ? "bg-orange-200 text-black" : ""
-          }`}
-        >
+        <div className="flex flex-col items-center gap-0.5 px-1 py-0.5 rounded">
           <span className="text-[10px] text-slate-300">-</span>
         </div>
       );
     }
 
     return (
-      <div
-        className={`flex flex-col items-center gap-0.5 px-1 py-0.5 rounded ${
-          isOver ? "bg-orange-200 text-black" : ""
-        }`}
-      >
-        <span className="font-mono text-xs font-extrabold text-slate-900">
+      <div className="flex flex-col items-center gap-0.5 px-1 py-0.5 rounded">
+        <span
+          className={`font-mono text-xs font-extrabold rounded px-1 ${countClass}`}
+          title={
+            isConsolidated && partsSlotsCount != null
+              ? `Particellas en obra: ${partsSlotsCount} · Músicos asignados: ${count || 0}`
+              : isConsolidated
+                ? "Partes cubiertas con asignación múltiple"
+                : requiredAboveConvoked
+                  ? `Requerido: ${requiredCount} · Convocado: ${convokedCount}`
+                  : undefined
+          }
+        >
           {count || "-"}
         </span>
         {obs && (
@@ -472,7 +477,7 @@ export default function InstrumentationSummaryModal({
                     const delta = getColumnDelta(col);
                     const label =
                       delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : "";
-                    const isActive = delta !== 0 && col.id !== "Str";
+                    const isActive = delta > 0 && col.id !== "Str";
                     return (
                       <th
                         key={col.id}
@@ -501,14 +506,12 @@ export default function InstrumentationSummaryModal({
                           {w.composer || "S/D"},{" "}
                           {w.shortTitle || w.title || "Obra"}
                         </span>
-                        {(w.instrumentacion_effective || w.instrumentacion) && (
+                        {w.instrumentacion_effective && (
                           <span
                             className="text-[9px] font-mono text-slate-400 truncate"
-                            title={
-                              w.instrumentacion_effective || w.instrumentacion
-                            }
+                            title={w.instrumentacion_effective}
                           >
-                            {w.instrumentacion_effective || w.instrumentacion}
+                            {w.instrumentacion_effective}
                           </span>
                         )}
                       </div>

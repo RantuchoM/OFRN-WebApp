@@ -21,7 +21,7 @@ Optimizar la interfaz de Auditoría de Instrumentación para mejorar la densidad
 - El botón usa `stopPropagation` para no disparar el expand/collapse del acordeón.
 
 ### 4. Desglose de obras (lazy) y acciones por obra
-- **Lazy rendering**: El desglose de obras por programa se movió a un subcomponente `ProgramWorksTable` que **solo se monta cuando la gira está expandida** (`isOpen && <ProgramWorksTable ... />`). La lista de obras se calcula dentro del componente con `useMemo(..., [program._blocks])`, evitando procesar obras de giras no expandidas.
+- **Lazy rendering**: `ProgramWorksTable` usa `program._worksAudit` precalculado al cargar (incluye seating); solo se monta al expandir la gira.
 - **Icono `IconPencil`** junto al título de cada obra: abre el modal de **WorkForm** para editar la obra. Se pasa `workFormInitialData = { id: obraId }`; WorkForm carga el detalle por id.
 - **Icono `IconFolder`** (solo si la obra tiene `link_drive`): abre el enlace de Drive en nueva pestaña. Se usa `buildDriveUrl(link_drive)` para soportar tanto URL completa como solo ID de carpeta (`https://drive.google.com/drive/folders/<id>`).
 - **Modal WorkForm**: Renderizado en la vista con estado `workFormOpen` y `workFormInitialData`; cierre con `closeWorkForm` o desde `onSave`/`onCancel` del formulario. Se usa `catalogoInstrumentos={[]}`; WorkForm puede cargar instrumentos internamente si hace falta.
@@ -39,8 +39,16 @@ Optimizar la interfaz de Auditoría de Instrumentación para mejorar la densidad
 - **Obras**: En la query de `programas_repertorios` → `repertorio_obras` → `obras` se incluye **`link_drive`** además de `id`, `titulo`, `instrumentacion`.
 - **Roster por programa**: Cada programa enriquecido incluye **`_roster`** (array de integrantes devueltos por `fetchRosterForGira`) para poder calcular los tooltips de convocados sin una petición extra.
 
-### 7. Archivos afectados
-- **Vista**: `src/views/Management/InstrumentationAudit.jsx` (refactor completo según 1–6).
+### 7. Alineación con Seating (auditoría de instrumentación)
+- **Requerido máximo** (`Req Max`): misma lógica que `ProgramSeating` — `buildProgramInstrumentationAudit` con asignaciones de seating, particellas y requerido híbrido por familia (`getEffectiveRequiredColumnMap`).
+- **Colores**:
+  - **Naranja** (celdas y fila Sug.): solo si `requerido > convocado`.
+  - **Violeta** (Req Max y obras): `requerido == convocado` por asignación múltiple.
+  - **Conv** en naranja/azul: exceso de convocados (`convocado > requerido`), sin cambio.
+- **Percusión**: siempre `Perc` / `Perc.xN` (total de instrumentistas).
+- **Datos extra**: `seating_asignaciones`, `seating_contenedores`, `obras_particellas` por programa.
+
+### 8. Archivos afectados
 - **Utilidad**: `src/utils/giraUtils.js` (uso de `getProgramStyle`; sin cambios en el archivo).
 - **Referencia de patrón**: `src/views/Giras/GiraCard.jsx` (estilos de programa y botón de vista).
 - **Componente de formulario**: `src/views/Repertoire/WorkForm.jsx` (uso en modal; sin cambios).

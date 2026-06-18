@@ -54,6 +54,7 @@ export const exportSeatingToExcel = async (
   assignments,
   containers,
   particellas,
+  musicianAssignments = {},
 ) => {
   try {
     const workbook = new ExcelJS.Workbook();
@@ -291,11 +292,18 @@ export const exportSeatingToExcel = async (
           `${m.apellido || ""}, ${m.nombre || ""}`,
           ...obrasList.map((o) => {
             const key = `M-${m.id}-${o.obra_id}`;
-            const partId = assignments?.[key];
-            const part = particellas?.find(
-              (p) => String(p.id) === String(partId),
-            );
-            return part?.nombre_archivo || "-";
+            const partIds = Array.isArray(musicianAssignments?.[key])
+              ? musicianAssignments[key]
+              : assignments?.[key]
+                ? [assignments[key]]
+                : [];
+            const labels = partIds
+              .map((partId) =>
+                particellas?.find((p) => String(p.id) === String(partId)),
+              )
+              .filter(Boolean)
+              .map((part) => part.nombre_archivo);
+            return labels.length > 0 ? labels.join(" + ") : "-";
           }),
         ];
 

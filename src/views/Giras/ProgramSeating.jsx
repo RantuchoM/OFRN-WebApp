@@ -30,8 +30,17 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import {
-  getInstrumentValue,
   calculateInstrumentation,
+  calculateInstrumentationFromSeatingAssignments,
+  calculateInstrumentationCountsFromParts,
+  getInstrumentationUnassignedFamilies,
+  getInstrumentationConsolidatedFamilies,
+  computeInstrumentationRequiredConsolidated,
+  maxInstrumentationColumnMap,
+  getEffectiveRequiredColumnMap,
+  instrumentationColumnMapToString,
+  getPercComparableTotal,
+  formatPercussionLabel,
   countsTowardInstrumentationConvoked,
 } from "../../utils/instrumentation";
 import {
@@ -209,90 +218,97 @@ const normalizePartLabel = (label = "") => {
   return numerized.replace(/\s+/g, " ").trim();
 };
 
-const getAssignmentPartIds = (assignments, secondaryAssignments, key) => {
-  const ids = [assignments?.[key], secondaryAssignments?.[key]].filter(Boolean);
+const getMusicianPartIds = (musicianAssignments, key) => {
+  const ids = musicianAssignments?.[key];
+  if (!Array.isArray(ids)) return [];
   return ids.filter(
-    (id, index) => ids.findIndex((candidate) => String(candidate) === String(id)) === index,
+    (id, index) =>
+      id &&
+      ids.findIndex((candidate) => String(candidate) === String(id)) === index,
   );
 };
 
-const DoubleParticellaSelect = ({
+const MultiParticellaSelect = ({
   options,
-  primaryValue,
-  secondaryValue,
-  onPrimaryChange,
-  onSecondaryChange,
-  onRequestCreatePrimary,
-  onRequestCreateSecondary,
+  values = [],
+  onSlotChange,
+  onRequestCreate,
   preferredInstrumentId,
   counts,
   compact = false,
 }) => {
-  const [showSecond, setShowSecond] = useState(!!secondaryValue);
+  const [extraSlots, setExtraSlots] = useState(0);
+  const filledCount = values.length;
+  const slotCount = Math.max(1, filledCount + extraSlots);
+  const hasEmptyTrailing = slotCount > filledCount;
 
   useEffect(() => {
-    if (secondaryValue) setShowSecond(true);
-  }, [secondaryValue]);
+    setExtraSlots(0);
+  }, [filledCount]);
 
-  const handleSecondaryChange = (value) => {
-    if (value && primaryValue && String(value) === String(primaryValue)) return;
-    onSecondaryChange(value);
+  const handleSlotChange = (slotIndex, value) => {
+    if (
+      value &&
+      values.some(
+        (existing, index) =>
+          index !== slotIndex && String(existing) === String(value),
+      )
+    ) {
+      return;
+    }
+    onSlotChange(slotIndex, value);
+    if (value && slotIndex >= filledCount) {
+      setExtraSlots(0);
+    }
+  };
+
+  const handleRemoveSlot = (slotIndex) => {
+    onSlotChange(slotIndex, null);
+    if (slotIndex >= filledCount) {
+      setExtraSlots((prev) => Math.max(0, prev - 1));
+    }
   };
 
   return (
     <div className="flex flex-col gap-1 items-stretch">
-      <div className="flex items-stretch gap-1">
-        <div className="min-w-0 flex-1">
-          <ParticellaSelect
-            options={options}
-            value={primaryValue}
-            onChange={onPrimaryChange}
-            onRequestCreate={onRequestCreatePrimary}
-            disabled={false}
-            placeholder="Asignar"
-            preferredInstrumentId={preferredInstrumentId}
-            counts={counts}
-          />
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowSecond(true)}
-          disabled={showSecond}
-          className={`${compact ? "w-7" : "w-8"} min-h-[24px] shrink-0 inline-flex items-center justify-center rounded border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-default transition-colors`}
-          title="Asociar segunda parte"
-          aria-label="Asociar segunda parte"
-        >
-          <IconPlus size={compact ? 12 : 14} />
-        </button>
-      </div>
-      {showSecond && (
-        <div className="flex items-stretch gap-1">
+      {Array.from({ length: slotCount }).map((_, slotIndex) => (
+        <div key={slotIndex} className="flex items-stretch gap-1">
           <div className="min-w-0 flex-1">
             <ParticellaSelect
               options={options}
-              value={secondaryValue}
-              onChange={handleSecondaryChange}
-              onRequestCreate={onRequestCreateSecondary}
+              value={values[slotIndex] || null}
+              onChange={(val) => handleSlotChange(slotIndex, val)}
+              onRequestCreate={() => onRequestCreate?.(slotIndex)}
               disabled={false}
-              placeholder="2da parte"
+              placeholder={slotIndex === 0 ? "Asignar" : `${slotIndex + 1}a parte`}
               preferredInstrumentId={preferredInstrumentId}
               counts={counts}
             />
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              onSecondaryChange(null);
-              setShowSecond(false);
-            }}
-            className={`${compact ? "w-7" : "w-8"} min-h-[24px] shrink-0 inline-flex items-center justify-center rounded border border-slate-200 bg-white text-slate-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors`}
-            title="Quitar segunda parte"
-            aria-label="Quitar segunda parte"
-          >
-            <IconX size={compact ? 12 : 14} />
-          </button>
+          {slotIndex === 0 ? (
+            <button
+              type="button"
+              onClick={() => setExtraSlots((prev) => prev + 1)}
+              disabled={hasEmptyTrailing}
+              className={`${compact ? "w-7" : "w-8"} min-h-[24px] shrink-0 inline-flex items-center justify-center rounded border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-default transition-colors`}
+              title="Asociar otra parte"
+              aria-label="Asociar otra parte"
+            >
+              <IconPlus size={compact ? 12 : 14} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => handleRemoveSlot(slotIndex)}
+              className={`${compact ? "w-7" : "w-8"} min-h-[24px] shrink-0 inline-flex items-center justify-center rounded border border-slate-200 bg-white text-slate-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors`}
+              title="Quitar parte"
+              aria-label="Quitar parte"
+            >
+              <IconX size={compact ? 12 : 14} />
+            </button>
+          )}
         </div>
-      )}
+      ))}
     </div>
   );
 };
@@ -302,7 +318,7 @@ const MobileSeatingTable = ({
   user,
   obras,
   assignments,
-  secondaryAssignments = {},
+  musicianAssignments = {},
   filteredRoster,
   containers,
   particellas,
@@ -310,7 +326,7 @@ const MobileSeatingTable = ({
   availablePartsByWork = {},
   particellaCounts = {},
   onAssign,
-  onSecondaryAssign,
+  onMusicianSlotAssign,
   onRequestCreate,
   musiciansWithoutParts = new Set(),
   musicianTooltipById = {},
@@ -596,20 +612,12 @@ const MobileSeatingTable = ({
                                   );
                                 }
 
-                                const individualPartId =
-                                  assignments[
-                                    `M-${musicianId}-${obra.obra_id}`
-                                  ];
-                                const individualSecondaryPartId =
-                                  secondaryAssignments[
-                                    `M-${musicianId}-${obra.obra_id}`
-                                  ];
+                                const musicianKey = `M-${musicianId}-${obra.obra_id}`;
                                 const containerPartId =
                                   assignments[`C-${c.id}-${obra.obra_id}`];
-                                const individualPartIds = getAssignmentPartIds(
-                                  assignments,
-                                  secondaryAssignments,
-                                  `M-${musicianId}-${obra.obra_id}`,
+                                const individualPartIds = getMusicianPartIds(
+                                  musicianAssignments,
+                                  musicianKey,
                                 );
                                 const showPart =
                                   individualPartIds.length > 0 &&
@@ -625,8 +633,7 @@ const MobileSeatingTable = ({
                                   >
                                     {showPart ? (
                                       <span className="text-[8px] leading-none text-indigo-600 font-bold bg-indigo-50 px-0.5 rounded truncate whitespace-nowrap max-w-[82px] block mx-auto">
-                                        {[individualPartId, individualSecondaryPartId]
-                                          .filter(Boolean)
+                                        {individualPartIds
                                           .filter(
                                             (partId) =>
                                               String(partId) !==
@@ -700,8 +707,7 @@ const MobileSeatingTable = ({
                   </td>
                   {obras.map((obra) => {
                     const key = `M-${m.id}-${obra.obra_id}`;
-                    const partId = assignments[key];
-                    const secondaryPartId = secondaryAssignments[key];
+                    const partIds = getMusicianPartIds(musicianAssignments, key);
                     const isEditingThisWork =
                       isEditor && editingObraId === obra.obra_id;
                     const availableParts =
@@ -712,31 +718,24 @@ const MobileSeatingTable = ({
                         className="p-1 border-l border-slate-100 text-center align-middle"
                       >
                         {isEditingThisWork ? (
-                          <DoubleParticellaSelect
+                          <MultiParticellaSelect
                             options={availableParts}
-                            primaryValue={partId}
-                            secondaryValue={secondaryPartId}
-                            onPrimaryChange={(val) =>
-                              onAssign?.("M", m.id, obra.obra_id, val)
-                            }
-                            onSecondaryChange={(val) =>
-                              onSecondaryAssign?.(m.id, obra.obra_id, val)
-                            }
-                            onRequestCreatePrimary={() =>
-                              onRequestCreate?.(
-                                obra.obra_id,
-                                m.id_instr,
-                                "M",
+                            values={partIds}
+                            onSlotChange={(slotIndex, val) =>
+                              onMusicianSlotAssign?.(
                                 m.id,
+                                obra.obra_id,
+                                val,
+                                slotIndex,
                               )
                             }
-                            onRequestCreateSecondary={() =>
+                            onRequestCreate={(slotIndex) =>
                               onRequestCreate?.(
                                 obra.obra_id,
                                 m.id_instr,
                                 "M",
                                 m.id,
-                                "secondary",
+                                slotIndex,
                               )
                             }
                             preferredInstrumentId={m.id_instr}
@@ -745,10 +744,7 @@ const MobileSeatingTable = ({
                           />
                         ) : (
                           <span className="text-[8px] leading-none text-slate-700 font-medium block truncate whitespace-nowrap max-w-[82px]">
-                            {[partId, secondaryPartId]
-                              .filter(Boolean)
-                              .map(getPartName)
-                              .join("+") || "-"}
+                            {partIds.map(getPartName).join("+") || "-"}
                           </span>
                         )}
                       </td>
@@ -898,7 +894,7 @@ export default function ProgramSeating({
   const [filteredRoster, setFilteredRoster] = useState([]);
   const [particellas, setParticellas] = useState([]);
   const [assignments, setAssignments] = useState({});
-  const [secondaryAssignments, setSecondaryAssignments] = useState({});
+  const [musicianAssignments, setMusicianAssignments] = useState({});
   const [containers, setContainers] = useState([]);
   const [showConfig, setShowConfig] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -1083,15 +1079,18 @@ export default function ProgramSeating({
     });
 
     visibleKeys.forEach((key) => {
-      getAssignmentPartIds(assignments, secondaryAssignments, key).forEach(
-        (partId) => {
+      if (key.startsWith("M-")) {
+        getMusicianPartIds(musicianAssignments, key).forEach((partId) => {
           counts[partId] = (counts[partId] || 0) + 1;
-        },
-      );
+        });
+        return;
+      }
+      const partId = assignments[key];
+      if (partId) counts[partId] = (counts[partId] || 0) + 1;
     });
 
     return counts;
-  }, [assignments, secondaryAssignments, containers, obras, otherMusicians]);
+  }, [assignments, musicianAssignments, containers, obras, otherMusicians]);
 
   function createEmptyInstrumentationMap() {
     return {
@@ -1132,7 +1131,7 @@ export default function ProgramSeating({
       obras.forEach((targetObra, tIdx) => {
         const targetObraId = targetObra.obra_id;
         const targetKey = `M-${musicianId}-${targetObraId}`;
-        if (assignments[targetKey]) return;
+        if (getMusicianPartIds(musicianAssignments, targetKey).length > 0) return;
 
         const available = availablePartsByWork[targetObraId] || [];
         if (!available.length) return;
@@ -1146,7 +1145,7 @@ export default function ProgramSeating({
 
         for (const cand of candidateObras) {
           const candKey = `M-${musicianId}-${cand.obra_id}`;
-          const partId = assignments[candKey];
+          const partId = getMusicianPartIds(musicianAssignments, candKey)[0];
           if (!partId) continue;
           const part = particellas.find((p) => String(p.id) === String(partId));
           if (!part) continue;
@@ -1173,6 +1172,7 @@ export default function ProgramSeating({
     otherMusicians,
     obras,
     assignments,
+    musicianAssignments,
     particellas,
     availablePartsByWork,
     particellaCounts,
@@ -1182,47 +1182,80 @@ export default function ProgramSeating({
     if (!obras || obras.length === 0) return [];
     return obras.map((obra) => {
       const parts = availablePartsByWork[obra.obra_id] || [];
-      const instString =
-        obra.instrumentacion || calculateInstrumentation(parts) || "";
+      const partsColumnMap = calculateInstrumentationCountsFromParts(parts);
+      const unassignedFamilies = getInstrumentationUnassignedFamilies(
+        parts,
+        particellaCounts,
+      );
+      const fromAssignments = calculateInstrumentationFromSeatingAssignments({
+        obraId: obra.obra_id,
+        containers,
+        assignments,
+        musicianAssignments,
+        particellas,
+      });
+
+      let instString = "";
+      let consolidatedFamilies = [];
+      let effectiveColumnMap = partsColumnMap;
+
+      if (fromAssignments.hasAssignments) {
+        consolidatedFamilies = getInstrumentationConsolidatedFamilies(
+          partsColumnMap,
+          fromAssignments.columnMap,
+          unassignedFamilies,
+        );
+        effectiveColumnMap = getEffectiveRequiredColumnMap(
+          partsColumnMap,
+          fromAssignments.columnMap,
+          unassignedFamilies,
+          consolidatedFamilies,
+        );
+        instString = instrumentationColumnMapToString(effectiveColumnMap);
+      } else {
+        instString = calculateInstrumentation(parts) || "";
+      }
+
       return {
         ...obra,
         instrumentacion_effective: instString,
+        instrumentation_effective_column_map: effectiveColumnMap,
+        instrumentation_consolidated_families: consolidatedFamilies,
+        instrumentation_unassigned_families: unassignedFamilies,
+        instrumentation_from_assignments: fromAssignments.hasAssignments,
+        instrumentation_parts_column_map: partsColumnMap,
+        instrumentation_assigned_column_map: fromAssignments.hasAssignments
+          ? fromAssignments.columnMap
+          : null,
       };
     });
-  }, [obras, availablePartsByWork]);
+  }, [
+    obras,
+    availablePartsByWork,
+    containers,
+    assignments,
+    musicianAssignments,
+    particellas,
+    particellaCounts,
+  ]);
 
-  const instrumentationRequired = useMemo(() => {
-    if (!obrasWithInstrumentation || obrasWithInstrumentation.length === 0)
-      return createEmptyInstrumentationMap();
-    const acc = createEmptyInstrumentationMap();
+  const instrumentationRequired = useMemo(
+    () =>
+      maxInstrumentationColumnMap(
+        obrasWithInstrumentation.map(
+          (obra) => obra.instrumentation_effective_column_map,
+        ),
+      ),
+    [obrasWithInstrumentation],
+  );
 
-    obrasWithInstrumentation.forEach((obra) => {
-      const instString = obra.instrumentacion_effective || "";
-      if (!instString) return;
-
-      const values = {
-        Fl: getInstrumentValue(instString, "fl") || 0,
-        Ob: getInstrumentValue(instString, "ob") || 0,
-        Cl: getInstrumentValue(instString, "cl") || 0,
-        Fg: getInstrumentValue(instString, "bn") || 0,
-        Cr: getInstrumentValue(instString, "hn") || 0,
-        Tp: getInstrumentValue(instString, "tpt") || 0,
-        Tb: getInstrumentValue(instString, "tbn") || 0,
-        Tba: getInstrumentValue(instString, "tba") || 0,
-        Tim: getInstrumentValue(instString, "timp") || 0,
-        Perc: getInstrumentValue(instString, "perc") || 0,
-        Har: getInstrumentValue(instString, "harp") || 0,
-        Pno: getInstrumentValue(instString, "key") || 0,
-        Str: getInstrumentValue(instString, "str") || 0,
-      };
-
-      Object.keys(values).forEach((k) => {
-        if (values[k] > acc[k]) acc[k] = values[k];
-      });
-    });
-
-    return acc;
-  }, [obrasWithInstrumentation]);
+  const instrumentationPartsMax = useMemo(
+    () =>
+      maxInstrumentationColumnMap(
+        obrasWithInstrumentation.map((obra) => obra.instrumentation_parts_column_map),
+      ),
+    [obrasWithInstrumentation],
+  );
 
   // Sugerencia basada en nombre de contenedor (cuerdas)
   const getContainerSuggestedPart = useCallback(
@@ -1267,7 +1300,8 @@ export default function ProgramSeating({
       const suggestions = derivedMusicianSuggestions[m.id] || {};
       obras.forEach((obra) => {
         const obraId = obra.obra_id;
-        if (assignments[`M-${m.id}-${obraId}`]) return;
+        if (getMusicianPartIds(musicianAssignments, `M-${m.id}-${obraId}`).length > 0)
+          return;
         if (suggestions[obraId]) count += 1;
       });
     });
@@ -1277,6 +1311,7 @@ export default function ProgramSeating({
     containers,
     obras,
     assignments,
+    musicianAssignments,
     getContainerSuggestedPart,
     derivedMusicianSuggestions,
     otherMusicians,
@@ -1423,6 +1458,20 @@ export default function ProgramSeating({
     });
   }, [instrumentationRequired, instrumentationConvoked]);
 
+  const instrumentationRequiredConsolidated = useMemo(
+    () =>
+      computeInstrumentationRequiredConsolidated(
+        instrumentationRequired,
+        instrumentationConvoked,
+        instrumentationPartsMax,
+      ),
+    [
+      instrumentationPartsMax,
+      instrumentationRequired,
+      instrumentationConvoked,
+    ],
+  );
+
   const hasVacancies = useMemo(
     () => (rawRoster || []).some((r) => !!r.es_simulacion),
     [rawRoster],
@@ -1438,21 +1487,14 @@ export default function ProgramSeating({
     const tbn = map.Tb || 0;
     const tba = map.Tba || 0;
 
-    const hasTimp = (map.Tim || 0) > 0;
-    const percCount = map.Perc || 0;
     const harpCount = map.Har || 0;
     const keyCount = map.Pno || 0;
     const hasStr = (map.Str || 0) > 0;
 
+    const percTotal = (map.Tim || 0) + (map.Perc || 0);
     let standardStr = `${fl}.${ob}.${cl}.${bn} - ${hn}.${tpt}.${tbn}.${tba}`;
 
-    let percStr = "";
-    if (hasTimp) {
-      percStr = percCount > 0 ? `Timp.+${percCount}` : "Timp";
-    } else {
-      if (percCount === 1) percStr = "Perc";
-      else if (percCount > 1) percStr = `Perc.x${percCount}`;
-    }
+    const percStr = formatPercussionLabel(percTotal);
     if (percStr) standardStr += ` - ${percStr}`;
 
     if (harpCount > 0)
@@ -1462,8 +1504,7 @@ export default function ProgramSeating({
 
     const isStandardEmpty =
       standardStr.startsWith("0.0.0.0 - 0.0.0.0") &&
-      !hasTimp &&
-      percCount === 0 &&
+      percTotal === 0 &&
       !hasStr &&
       harpCount === 0 &&
       keyCount === 0;
@@ -1475,49 +1516,77 @@ export default function ProgramSeating({
       .replace("0.0.0.0 - 0.0.0.0", "");
   };
 
-  const renderInstrumentationStandardDiff = (map, otherMap, validatedAdaptation = false) => {
-    const fl = map.Fl || 0;
-    const ob = map.Ob || 0;
-    const cl = map.Cl || 0;
-    const bn = map.Fg || 0;
-    const hn = map.Cr || 0;
-    const tpt = map.Tp || 0;
-    const tbn = map.Tb || 0;
-    const tba = map.Tba || 0;
+  const renderInstrumentationStandardDiff = (
+    displayMap,
+    requiredMap,
+    convokedMap,
+    validatedAdaptation = false,
+    consolidatedFamilies = {},
+    showConsolidatedHighlight = false,
+  ) => {
+    const fl = displayMap.Fl || 0;
+    const ob = displayMap.Ob || 0;
+    const cl = displayMap.Cl || 0;
+    const bn = displayMap.Fg || 0;
+    const hn = displayMap.Cr || 0;
+    const tpt = displayMap.Tp || 0;
+    const tbn = displayMap.Tb || 0;
+    const tba = displayMap.Tba || 0;
 
-    const hasTimp = (map.Tim || 0) > 0;
-    const percCount = map.Perc || 0;
-    const harpCount = map.Har || 0;
-    const keyCount = map.Pno || 0;
-    const hasStr = (map.Str || 0) > 0;
+    const harpCount = displayMap.Har || 0;
+    const keyCount = displayMap.Pno || 0;
+    const hasStr = (displayMap.Str || 0) > 0;
 
-    const percTotalThis = (map.Tim || 0) + (map.Perc || 0);
-    const percTotalOther = (otherMap.Tim || 0) + (otherMap.Perc || 0);
-    const isPercTotalDiff =
-      normalizeForCompare("Perc", percTotalThis) !==
-      normalizeForCompare("Perc", percTotalOther);
+    const displayPercTotal = (displayMap.Tim || 0) + (displayMap.Perc || 0);
+    const requiredPercTotal =
+      (requiredMap.Tim || 0) + (requiredMap.Perc || 0);
+    const convokedPercTotal =
+      (convokedMap.Tim || 0) + (convokedMap.Perc || 0);
 
-    const isDiff = (key) => {
+    const getRequiredCount = (key) => {
       if (key === "Tim" || key === "Perc") {
-        return isPercTotalDiff;
+        return requiredPercTotal;
       }
-      return (
-        normalizeForCompare(key, map[key] || 0) !==
-        normalizeForCompare(key, otherMap[key] || 0)
-      );
+      return normalizeForCompare(key, requiredMap[key] || 0);
     };
+
+    const getConvokedCount = (key) => {
+      if (key === "Tim" || key === "Perc") {
+        return convokedPercTotal;
+      }
+      return normalizeForCompare(key, convokedMap[key] || 0);
+    };
+
+    const isRequiredDifferentFromConvoked = (key) =>
+      getRequiredCount(key) !== getConvokedCount(key);
+
+    const isConsolidatedMatch = (key) =>
+      getRequiredCount(key) === getConvokedCount(key) &&
+      getRequiredCount(key) > 0 &&
+      consolidatedFamilies[key];
 
     const highlightClass = validatedAdaptation
       ? "bg-sky-200 text-sky-800 font-extrabold"
       : "bg-orange-200 text-black font-extrabold";
+    const consolidatedClass =
+      "bg-violet-200 text-violet-900 font-extrabold";
+
+    const tokenClass = (key, showConsolidatedHighlight = false) => {
+      if (isRequiredDifferentFromConvoked(key)) return highlightClass;
+      if (showConsolidatedHighlight && isConsolidatedMatch(key)) {
+        return consolidatedClass;
+      }
+      return "text-slate-700";
+    };
 
     const tokenNumber = (value, key) => {
-      const diff = isDiff(key);
       const base =
         "inline-flex items-center justify-center rounded-sm px-0.5 py-0 text-[9px] leading-none";
-      const diffClass = diff ? highlightClass : "text-slate-700";
       return (
-        <span key={key} className={`${base} ${diffClass}`}>
+        <span
+          key={key}
+          className={`${base} ${tokenClass(key, showConsolidatedHighlight)}`}
+        >
           {value}.
         </span>
       );
@@ -1544,21 +1613,16 @@ export default function ProgramSeating({
     parts.push(tokenNumber(tba, "Tba"));
 
     // Percusión
-    let percStr = "";
-    if (hasTimp) {
-      percStr = percCount > 0 ? `Timp.+${percCount}` : "Timp";
-    } else {
-      if (percCount === 1) percStr = "Perc";
-      else if (percCount > 1) percStr = `Perc.x${percCount}`;
-    }
+    const percStr = formatPercussionLabel(displayPercTotal);
     if (percStr) {
       parts.push(" - ");
-      const diff = isPercTotalDiff;
       const base =
         "inline-flex items-center justify-center rounded px-0.5 text-[9px] leading-none";
-      const diffClass = diff ? highlightClass : "text-slate-700";
       parts.push(
-        <span key="perc" className={`${base} ${diffClass}`}>
+        <span
+          key="perc"
+          className={`${base} ${tokenClass("Perc", showConsolidatedHighlight)}`}
+        >
           {percStr}
         </span>,
       );
@@ -1568,12 +1632,13 @@ export default function ProgramSeating({
     if (harpCount > 0) {
       parts.push(" - ");
       const hpText = harpCount > 1 ? `${harpCount}Hp` : "Hp";
-      const diff = isDiff("Har");
       const base =
         "inline-flex items-center justify-center rounded px-0.5 text-[9px] leading-none";
-      const diffClass = diff ? highlightClass : "text-slate-700";
       parts.push(
-        <span key="harp" className={`${base} ${diffClass}`}>
+        <span
+          key="harp"
+          className={`${base} ${tokenClass("Har", showConsolidatedHighlight)}`}
+        >
           {hpText}
         </span>,
       );
@@ -1582,12 +1647,13 @@ export default function ProgramSeating({
     // Key
     if (keyCount > 0) {
       parts.push(" - ");
-      const diff = isDiff("Pno");
       const base =
         "inline-flex items-center justify-center rounded px-0.5 text-[9px] leading-none";
-      const diffClass = diff ? highlightClass : "text-slate-700";
       parts.push(
-        <span key="key" className={`${base} ${diffClass}`}>
+        <span
+          key="key"
+          className={`${base} ${tokenClass("Pno", showConsolidatedHighlight)}`}
+        >
           Key
         </span>,
       );
@@ -1596,12 +1662,13 @@ export default function ProgramSeating({
     // Str
     if (hasStr) {
       parts.push(" - ");
-      const diff = isDiff("Str");
       const base =
         "inline-flex items-center justify-center rounded px-0.5 text-[10px]";
-      const diffClass = diff ? highlightClass : "text-slate-700";
       parts.push(
-        <span key="str" className={`${base} ${diffClass}`}>
+        <span
+          key="str"
+          className={`${base} ${tokenClass("Str", showConsolidatedHighlight)}`}
+        >
           Str
         </span>,
       );
@@ -1639,32 +1706,27 @@ export default function ProgramSeating({
         .eq("id_programa", program.id)
         .order("id", { ascending: true });
       const finalMap = {};
-      const secondaryMap = {};
-      const addMusicianAssignment = (key, partId) => {
-        if (!partId) return;
-        if (!finalMap[key]) {
-          finalMap[key] = partId;
-          return;
-        }
-        if (
-          String(finalMap[key]) !== String(partId) &&
-          !secondaryMap[key]
-        ) {
-          secondaryMap[key] = partId;
-        }
-      };
+      const musicianMap = {};
       assigns?.forEach((row) => {
         const obraId = row.id_obra;
-        if (row.id_contenedor)
+        if (row.id_contenedor) {
           finalMap[`C-${row.id_contenedor}-${obraId}`] = row.id_particella;
-        else if (row.id_musicos_asignados)
-          row.id_musicos_asignados.forEach(
-            (mId) =>
-              addMusicianAssignment(`M-${mId}-${obraId}`, row.id_particella),
-          );
+        } else if (row.id_musicos_asignados) {
+          row.id_musicos_asignados.forEach((mId) => {
+            const key = `M-${mId}-${obraId}`;
+            if (!musicianMap[key]) musicianMap[key] = [];
+            if (
+              !musicianMap[key].some(
+                (partId) => String(partId) === String(row.id_particella),
+              )
+            ) {
+              musicianMap[key].push(row.id_particella);
+            }
+          });
+        }
       });
       setAssignments(finalMap);
-      setSecondaryAssignments(secondaryMap);
+      setMusicianAssignments(musicianMap);
     } catch (err) {
       console.error(err);
     } finally {
@@ -1781,9 +1843,15 @@ export default function ProgramSeating({
       const tableBody = otherMusicians.map((m) => {
         const row = [`${m.apellido}, ${m.nombre}`];
         obras.forEach((o) => {
-          const pid = assignments[`M-${m.id}-${o.obra_id}`];
-          const p = particellas.find((x) => String(x.id) === String(pid));
-          row.push(p ? p.nombre_archivo : "-");
+          const partIds = getMusicianPartIds(
+            musicianAssignments,
+            `M-${m.id}-${o.obra_id}`,
+          );
+          const labels = partIds
+            .map((pid) => particellas.find((x) => String(x.id) === String(pid)))
+            .filter(Boolean)
+            .map((p) => p.nombre_archivo);
+          row.push(labels.length > 0 ? labels.join(" + ") : "-");
         });
         return row;
       });
@@ -1831,6 +1899,7 @@ export default function ProgramSeating({
         assignments,
         containers,
         particellas,
+        musicianAssignments,
       );
     } catch (err) {
       console.error("Error exportando Excel Seating:", err);
@@ -1856,7 +1925,7 @@ export default function ProgramSeating({
     defaultInstrId,
     targetType,
     targetId,
-    targetSlot = "primary",
+    targetSlot = 0,
   ) => {
     setCreateModalInfo({
       obraId,
@@ -1891,8 +1960,13 @@ export default function ProgramSeating({
       ...prev,
       { ...data, instrumentos: { id: instrumentId, instrumento: instrName } },
     ]);
-    if (targetSlot === "secondary" && targetType === "M") {
-      handleSecondaryAssign(targetId, obraId, data.id);
+    if (targetType === "M") {
+      handleMusicianSlotAssign(
+        targetId,
+        obraId,
+        data.id,
+        Number(targetSlot) || 0,
+      );
     } else {
       handleAssign(targetType, targetId, obraId, data.id);
     }
@@ -1919,7 +1993,8 @@ export default function ProgramSeating({
         const suggestions = derivedMusicianSuggestions[m.id] || {};
         for (const obra of obras) {
           const obraId = obra.obra_id;
-          if (assignments[`M-${m.id}-${obraId}`]) continue;
+          if (getMusicianPartIds(musicianAssignments, `M-${m.id}-${obraId}`).length > 0)
+            continue;
           const partId = suggestions[obraId];
           if (partId) {
             // eslint-disable-next-line no-await-in-loop
@@ -1933,138 +2008,139 @@ export default function ProgramSeating({
   };
 
   const handleAssign = async (targetType, targetId, obraId, particellaId) => {
-    await handleAssignSlot(targetType, targetId, obraId, particellaId, "primary");
+    if (targetType === "M") {
+      await handleMusicianSlotAssign(targetId, obraId, particellaId, 0);
+      return;
+    }
+    await handleContainerAssign(targetId, obraId, particellaId);
   };
 
-  const handleSecondaryAssign = async (targetId, obraId, particellaId) => {
-    await handleAssignSlot("M", targetId, obraId, particellaId, "secondary");
-  };
-
-  const handleAssignSlot = async (
-    targetType,
+  const handleMusicianSlotAssign = async (
     targetId,
     obraId,
     particellaId,
-    slot = "primary",
+    slotIndex = 0,
   ) => {
     if (!isEditor) return;
-    const key = `${targetType}-${targetId}-${obraId}`;
-    const nextPrimary =
-      slot === "primary" ? particellaId : assignments[key] || null;
-    const nextSecondary =
-      targetType === "M" && slot === "secondary"
-        ? particellaId
-        : secondaryAssignments[key] || null;
-    const nextPartIds = [];
+    const key = `M-${targetId}-${obraId}`;
+    const prev = [...(musicianAssignments[key] || [])];
+    let next = [...prev];
 
-    if (nextPrimary) nextPartIds.push(nextPrimary);
-    if (
-      targetType === "M" &&
-      nextSecondary &&
-      !nextPartIds.some((id) => String(id) === String(nextSecondary))
-    ) {
-      nextPartIds.push(nextSecondary);
+    if (particellaId == null) {
+      if (slotIndex < next.length) next.splice(slotIndex, 1);
+    } else {
+      while (next.length <= slotIndex) next.push(null);
+      next = next.map((id, index) =>
+        index !== slotIndex && id && String(id) === String(particellaId)
+          ? null
+          : id,
+      );
+      next[slotIndex] = particellaId;
+      next = next.filter(Boolean);
     }
-    const normalizedPrimary = nextPartIds[0] || null;
-    const normalizedSecondary = nextPartIds[1] || null;
 
-    // Update local state instantáneamente
-    setAssignments((prev) => {
-      const copy = { ...prev };
-      if (!normalizedPrimary) delete copy[key];
-      else copy[key] = normalizedPrimary;
+    const nextPartIds = next.filter(
+      (id, index) =>
+        id &&
+        next.findIndex((candidate) => String(candidate) === String(id)) ===
+          index,
+    );
+
+    setMusicianAssignments((prevState) => {
+      const copy = { ...prevState };
+      if (nextPartIds.length === 0) delete copy[key];
+      else copy[key] = nextPartIds;
       return copy;
     });
-    if (targetType === "M") {
-      setSecondaryAssignments((prev) => {
-        const copy = { ...prev };
-        if (!normalizedSecondary) delete copy[key];
-        else copy[key] = normalizedSecondary;
-        return copy;
-      });
-    }
 
-    // DB Sync
-    if (targetType === "C") {
-      await supabase.from("seating_asignaciones").delete().match({
-        id_programa: program.id,
-        id_contenedor: targetId,
-        id_obra: obraId,
-      });
-      if (normalizedPrimary)
-        await supabase.from("seating_asignaciones").insert({
-          id_programa: program.id,
-          id_obra: obraId,
-          id_particella: normalizedPrimary,
-          id_contenedor: targetId,
-          id_musicos_asignados: null,
-        });
-    } else {
-      const { data: existing } = await supabase
-        .from("seating_asignaciones")
-        .select("*")
-        .eq("id_programa", program.id)
-        .eq("id_obra", obraId);
+    const { data: existing } = await supabase
+      .from("seating_asignaciones")
+      .select("*")
+      .eq("id_programa", program.id)
+      .eq("id_obra", obraId);
 
-      const updates = [];
-      const rowTargets = new Map();
-      (existing || [])
-        .filter((row) => !row.id_contenedor)
-        .forEach((row) => {
-          const ids = row.id_musicos_asignados || [];
-          if (
-            ids.some((id) => String(id) === String(targetId))
-          ) {
-            rowTargets.set(
-              row.id,
-              ids.filter((id) => String(id) !== String(targetId)),
-            );
-          }
-        });
-
-      nextPartIds.forEach((partId) => {
-        const targetRow = existing?.find(
-          (row) =>
-            !row.id_contenedor &&
-            String(row.id_particella) === String(partId),
-        );
-        if (targetRow) {
-          const baseIds =
-            rowTargets.get(targetRow.id) ||
-            (targetRow.id_musicos_asignados || []).filter(
-              (id) => String(id) !== String(targetId),
-            );
-          rowTargets.set(targetRow.id, [...new Set([...baseIds, targetId])]);
-        } else {
-          updates.push(
-            supabase.from("seating_asignaciones").insert({
-              id_programa: program.id,
-              id_obra: obraId,
-              id_particella: partId,
-              id_musicos_asignados: [targetId],
-            }),
+    const updates = [];
+    const rowTargets = new Map();
+    (existing || [])
+      .filter((row) => !row.id_contenedor)
+      .forEach((row) => {
+        const ids = row.id_musicos_asignados || [];
+        if (ids.some((id) => String(id) === String(targetId))) {
+          rowTargets.set(
+            row.id,
+            ids.filter((id) => String(id) !== String(targetId)),
           );
         }
       });
 
-      (existing || [])
-        .filter((row) => !row.id_contenedor && rowTargets.has(row.id))
-        .forEach((row) => {
-          const nextIds = rowTargets.get(row.id) || [];
-          if (nextIds.length === 0) {
-            updates.push(
-              supabase.from("seating_asignaciones").delete().eq("id", row.id),
-            );
-          } else {
+    nextPartIds.forEach((partId) => {
+      const targetRow = existing?.find(
+        (row) =>
+          !row.id_contenedor && String(row.id_particella) === String(partId),
+      );
+      if (targetRow) {
+        const baseIds =
+          rowTargets.get(targetRow.id) ||
+          (targetRow.id_musicos_asignados || []).filter(
+            (id) => String(id) !== String(targetId),
+          );
+        rowTargets.set(targetRow.id, [...new Set([...baseIds, targetId])]);
+      } else {
+        updates.push(
+          supabase.from("seating_asignaciones").insert({
+            id_programa: program.id,
+            id_obra: obraId,
+            id_particella: partId,
+            id_musicos_asignados: [targetId],
+          }),
+        );
+      }
+    });
+
+    (existing || [])
+      .filter((row) => !row.id_contenedor && rowTargets.has(row.id))
+      .forEach((row) => {
+        const nextIds = rowTargets.get(row.id) || [];
+        if (nextIds.length === 0) {
           updates.push(
-              supabase
-                .from("seating_asignaciones")
-                .update({ id_musicos_asignados: nextIds })
-                .eq("id", row.id),
-            );
-          }
-        });
-      await Promise.all(updates);
+            supabase.from("seating_asignaciones").delete().eq("id", row.id),
+          );
+        } else {
+          updates.push(
+            supabase
+              .from("seating_asignaciones")
+              .update({ id_musicos_asignados: nextIds })
+              .eq("id", row.id),
+          );
+        }
+      });
+    await Promise.all(updates);
+  };
+
+  const handleContainerAssign = async (targetId, obraId, particellaId) => {
+    if (!isEditor) return;
+    const key = `C-${targetId}-${obraId}`;
+
+    setAssignments((prev) => {
+      const copy = { ...prev };
+      if (!particellaId) delete copy[key];
+      else copy[key] = particellaId;
+      return copy;
+    });
+
+    await supabase.from("seating_asignaciones").delete().match({
+      id_programa: program.id,
+      id_contenedor: targetId,
+      id_obra: obraId,
+    });
+    if (particellaId) {
+      await supabase.from("seating_asignaciones").insert({
+        id_programa: program.id,
+        id_obra: obraId,
+        id_particella: particellaId,
+        id_contenedor: targetId,
+        id_musicos_asignados: null,
+      });
     }
   };
 
@@ -2102,7 +2178,7 @@ export default function ProgramSeating({
 
       for (const obra of obras) {
         const individualKey = `M-${id}-${obra.obra_id}`;
-        if (assignments[individualKey] || secondaryAssignments[individualKey]) {
+        if (getMusicianPartIds(musicianAssignments, individualKey).length > 0) {
           hasAnyPart = true;
           break;
         }
@@ -2121,7 +2197,7 @@ export default function ProgramSeating({
       if (!hasAnyPart) without.add(sid);
     });
     return without;
-  }, [containers, otherMusicians, obras, assignments, secondaryAssignments]);
+  }, [containers, otherMusicians, obras, assignments, musicianAssignments]);
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
@@ -2231,8 +2307,11 @@ export default function ProgramSeating({
                   <span className="mr-1">Req:</span>
                   {renderInstrumentationStandardDiff(
                     instrumentationRequired,
+                    instrumentationRequired,
                     instrumentationConvoked,
                     organicoRevisado,
+                    instrumentationRequiredConsolidated,
+                    true,
                   )}
                 </button>
                 <button
@@ -2245,6 +2324,7 @@ export default function ProgramSeating({
                   {renderInstrumentationStandardDiff(
                     instrumentationConvoked,
                     instrumentationRequired,
+                    instrumentationConvoked,
                     organicoRevisado,
                   )}
                 </button>
@@ -2529,7 +2609,7 @@ export default function ProgramSeating({
             user={user}
             obras={obras}
             assignments={assignments}
-            secondaryAssignments={secondaryAssignments}
+            musicianAssignments={musicianAssignments}
             filteredRoster={filteredRoster}
             containers={containers}
             particellas={particellas}
@@ -2537,7 +2617,7 @@ export default function ProgramSeating({
             availablePartsByWork={availablePartsByWork}
             particellaCounts={particellaCounts}
             onAssign={handleAssign}
-            onSecondaryAssign={handleSecondaryAssign}
+            onMusicianSlotAssign={handleMusicianSlotAssign}
             onRequestCreate={openCreateModal}
             musiciansWithoutParts={musiciansWithoutParts}
             musicianTooltipById={musicianTooltipById}
@@ -2913,9 +2993,7 @@ export default function ProgramSeating({
                         </td>
                         {obras.map((obra) => {
                           const key = `M-${m.id}-${obra.obra_id}`;
-                          const currentVal =
-                            assignments[key];
-                          const secondaryVal = secondaryAssignments[key];
+                          const partIds = getMusicianPartIds(musicianAssignments, key);
                           const availableParts =
                             availablePartsByWork[obra.obra_id] || [];
                           const hasRealPartForInstrument = availableParts.some(
@@ -2944,46 +3022,30 @@ export default function ProgramSeating({
                             >
                               {isEditor ? (
                                 <div className="flex flex-col gap-1 items-stretch">
-                                  <DoubleParticellaSelect
+                                  <MultiParticellaSelect
                                     options={availableParts}
-                                    primaryValue={currentVal}
-                                    secondaryValue={secondaryVal}
-                                    onPrimaryChange={(val) =>
-                                      handleAssign(
-                                        "M",
+                                    values={partIds}
+                                    onSlotChange={(slotIndex, val) =>
+                                      handleMusicianSlotAssign(
                                         m.id,
                                         obra.obra_id,
                                         val,
+                                        slotIndex,
                                       )
                                     }
-                                    onSecondaryChange={(val) =>
-                                      handleSecondaryAssign(
-                                        m.id,
-                                        obra.obra_id,
-                                        val,
-                                      )
-                                    }
-                                    onRequestCreatePrimary={() =>
+                                    onRequestCreate={(slotIndex) =>
                                       openCreateModal(
                                         obra.obra_id,
                                         m.id_instr,
                                         "M",
                                         m.id,
-                                      )
-                                    }
-                                    onRequestCreateSecondary={() =>
-                                      openCreateModal(
-                                        obra.obra_id,
-                                        m.id_instr,
-                                        "M",
-                                        m.id,
-                                        "secondary",
+                                        slotIndex,
                                       )
                                     }
                                     preferredInstrumentId={m.id_instr}
                                     counts={particellaCounts}
                                   />
-                                  {!currentVal && suggestedPart && (
+                                  {!partIds.length && suggestedPart && (
                                     <button
                                       type="button"
                                       onClick={async () => {
@@ -3010,28 +3072,18 @@ export default function ProgramSeating({
                                 <div className="flex items-center justify-center h-full px-2">
                                   <span
                                     className="text-xs text-slate-700 truncate"
-                                    title={
-                                      getAssignmentPartIds(
-                                        assignments,
-                                        secondaryAssignments,
-                                        key,
+                                    title={partIds
+                                      .map(
+                                        (partId) =>
+                                          availableParts.find(
+                                            (p) =>
+                                              String(p.id) === String(partId),
+                                          )?.nombre_archivo,
                                       )
-                                        .map(
-                                          (partId) =>
-                                            availableParts.find(
-                                              (p) =>
-                                                String(p.id) === String(partId),
-                                            )?.nombre_archivo,
-                                        )
-                                        .filter(Boolean)
-                                        .join(" + ")
-                                    }
+                                      .filter(Boolean)
+                                      .join(" + ")}
                                   >
-                                    {getAssignmentPartIds(
-                                      assignments,
-                                      secondaryAssignments,
-                                      key,
-                                    )
+                                    {partIds
                                       .map(
                                         (partId) =>
                                           availableParts.find(

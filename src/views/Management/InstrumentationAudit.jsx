@@ -15,8 +15,12 @@ import {
   IconInfo,
 } from "../../components/ui/Icons";
 import {
-  getInstrumentValue,
   countsTowardInstrumentationConvoked,
+  getPercComparableTotal,
+  formatPercussionLabel,
+  buildProgramInstrumentationAudit,
+  computeInstrumentationRequiredConsolidated,
+  hasInstrumentationDeficit,
 } from "../../utils/instrumentation";
 import { fetchRosterForGira } from "../../hooks/useGiraRoster";
 import { getProgramStyle } from "../../utils/giraUtils";
@@ -127,71 +131,6 @@ function ConvocacionFuentesResumen({ sources, ensambleLabels }) {
       })}
     </div>
   );
-}
-
-function computeRequiredForProgram(blocks = []) {
-  const acc = createEmptyInstrumentationMap();
-  if (!blocks || blocks.length === 0) return acc;
-
-  blocks.forEach((block) => {
-    (block.repertorio_obras || []).forEach((ro) => {
-      if (!ro || ro.excluir) return;
-      const obra = ro.obras;
-      if (!obra) return;
-      const instString = obra.instrumentacion || "";
-      if (!instString) return;
-
-      // Percusión: interpretar formatos "Timp.+n" / "Perc.xn" como total de instrumentistas
-      let percTotalForWork = 0;
-      let timVal = 0;
-      let percVal = 0;
-
-      const timpMatch = instString.match(/Timp\.\s*(?:\+(\d+))?/i);
-      if (timpMatch) {
-        timVal = 1;
-        const extra = parseInt(timpMatch[1] || "0", 10) || 0;
-        percTotalForWork += 1 + extra;
-      }
-
-      const percMatch = instString.match(/Perc(?:\.x(\d+))?/i);
-      if (percMatch) {
-        const explicitPerc = percMatch[1]
-          ? parseInt(percMatch[1], 10) || 0
-          : 1;
-        percVal = explicitPerc;
-        percTotalForWork += explicitPerc;
-      }
-
-      if (!timpMatch && !percMatch) {
-        timVal = getInstrumentValue(instString, "timp") || 0;
-        percVal = getInstrumentValue(instString, "perc") || 0;
-        percTotalForWork = timVal + percVal;
-      }
-
-      const values = {
-        Fl: getInstrumentValue(instString, "fl") || 0,
-        Ob: getInstrumentValue(instString, "ob") || 0,
-        Cl: getInstrumentValue(instString, "cl") || 0,
-        Fg: getInstrumentValue(instString, "bn") || 0,
-        Cr: getInstrumentValue(instString, "hn") || 0,
-        Tp: getInstrumentValue(instString, "tpt") || 0,
-        Tb: getInstrumentValue(instString, "tbn") || 0,
-        Tba: getInstrumentValue(instString, "tba") || 0,
-        // Para requerido máximo: usar total de percusionistas por obra
-        Tim: 0,
-        Perc: percTotalForWork,
-        Har: getInstrumentValue(instString, "harp") || 0,
-        Pno: getInstrumentValue(instString, "key") || 0,
-        Str: getInstrumentValue(instString, "str") || 0,
-      };
-
-      Object.keys(values).forEach((k) => {
-        if (values[k] > acc[k]) acc[k] = values[k];
-      });
-    });
-  });
-
-  return acc;
 }
 
 function computeConvokedForProgram(roster = []) {
@@ -547,39 +486,10 @@ function computeInstrumentationDeficits(required, convokedAll) {
   return deficits;
 }
 
-function normalizeForCompare(_key, value) {
-  return value || 0;
-}
-
-function hasInstrumentationMismatch(required, convoked) {
-  const requiredPercTotal = (required.Tim || 0) + (required.Perc || 0);
-  const convokedPercTotal = (convoked.Tim || 0) + (convoked.Perc || 0);
-
-  const keys = [
-    "Fl",
-    "Ob",
-    "Cl",
-    "Fg",
-    "Cr",
-    "Tp",
-    "Tb",
-    "Tba",
-    "Perc",
-    "Har",
-    "Pno",
-  ];
-
-  return keys.some((k) => {
-    if (k === "Perc") {
-      return (
-        normalizeForCompare("Perc", requiredPercTotal) !==
-        normalizeForCompare("Perc", convokedPercTotal)
-      );
-    }
-    const r = normalizeForCompare(k, required[k] || 0);
-    const c = normalizeForCompare(k, convoked[k] || 0);
-    return r !== c;
-  });
+function getRequiredCountFromWork(work, colId) {
+  const map = work.instrumentation_effective_column_map || {};
+  if (colId === "Perc") return getPercComparableTotal(map);
+  return map[colId] || 0;
 }
 
 function formatInstrumentationStandard(map) {
@@ -592,21 +502,14 @@ function formatInstrumentationStandard(map) {
   const tbn = map.Tb || 0;
   const tba = map.Tba || 0;
 
-  const hasTimp = (map.Tim || 0) > 0;
-  const percCount = map.Perc || 0;
+  const percTotal = getPercComparableTotal(map);
   const harpCount = map.Har || 0;
   const keyCount = map.Pno || 0;
   const hasStr = (map.Str || 0) > 0;
 
   let standardStr = `${fl}.${ob}.${cl}.${bn} - ${hn}.${tpt}.${tbn}.${tba}`;
 
-  let percStr = "";
-  if (hasTimp) {
-    percStr = percCount > 0 ? `Timp.+${percCount}` : "Timp";
-  } else {
-    if (percCount === 1) percStr = "Perc";
-    else if (percCount > 1) percStr = `Perc.x${percCount}`;
-  }
+  const percStr = formatPercussionLabel(percTotal);
   if (percStr) standardStr += ` - ${percStr}`;
 
   if (harpCount > 0)
@@ -616,8 +519,7 @@ function formatInstrumentationStandard(map) {
 
   const isStandardEmpty =
     standardStr.startsWith("0.0.0.0 - 0.0.0.0") &&
-    !hasTimp &&
-    percCount === 0 &&
+    percTotal === 0 &&
     !hasStr &&
     harpCount === 0 &&
     keyCount === 0;
@@ -654,54 +556,9 @@ function ProgramWorksTable({
   convokedAll,
   requiredPercTotal,
   convokedPercTotal,
-  required,
   onOpenWorkForm,
 }) {
-  const works = useMemo(() => {
-    const blocks = program._blocks || [];
-    return blocks
-      .flatMap((block) =>
-        (block.repertorio_obras || []).map((ro) => {
-          if (!ro || ro.excluir) return null;
-          const obra = ro.obras;
-          if (!obra) return null;
-          const ocList = Array.isArray(obra.obras_compositores)
-            ? obra.obras_compositores
-            : obra.obras_compositores
-              ? [obra.obras_compositores]
-              : [];
-          const composerEntry = ocList.find((oc) => oc.rol === "compositor") || ocList[0];
-          const comp = composerEntry?.compositores;
-          const composerLabel = comp
-            ? `${comp.apellido || ""}, ${comp.nombre || ""}`.trim()
-            : "";
-          return {
-            id: ro.id,
-            obra_id: obra.id,
-            title: obra.titulo || "Obra",
-            composerLabel: composerLabel || null,
-            estado: obra.estado || null,
-            instrumentacion: obra.instrumentacion || "",
-            link_drive: obra.link_drive || null,
-          };
-        }),
-      )
-      .filter(Boolean);
-  }, [program._blocks]);
-
-  const keyMap = {
-    Fl: "fl",
-    Ob: "ob",
-    Cl: "cl",
-    Fg: "bn",
-    Cr: "hn",
-    Tp: "tpt",
-    Tb: "tbn",
-    Tba: "tba",
-    Perc: "perc",
-    Har: "harp",
-    Pno: "key",
-  };
+  const works = program._worksAudit || [];
 
   return (
     <div className="px-4 pb-4 pt-1 border-t border-slate-100">
@@ -771,52 +628,42 @@ function ProgramWorksTable({
                   </div>
                 </td>
                 {visibleColumns.map((col) => {
-                  const inst = w.instrumentacion || "";
-                  let count = 0;
-                  if (inst) {
-                    if (col.id === "Perc") {
-                      let percTotalForWork = 0;
-                      const timpMatch = inst.match(/Timp\.\s*(?:\+(\d+))?/i);
-                      if (timpMatch) {
-                        const extra = parseInt(timpMatch[1] || "0", 10) || 0;
-                        percTotalForWork += 1 + extra;
-                      }
-                      const percMatch = inst.match(/Perc(?:\.x(\d+))?/i);
-                      if (percMatch) {
-                        const explicitPerc = percMatch[1]
-                          ? parseInt(percMatch[1], 10) || 0
-                          : 1;
-                        percTotalForWork += explicitPerc;
-                      }
-                      if (!timpMatch && !percMatch) {
-                        percTotalForWork =
-                          (getInstrumentValue(inst, "timp") || 0) +
-                          (getInstrumentValue(inst, "perc") || 0);
-                      }
-                      count = percTotalForWork;
-                    } else {
-                      count =
-                        getInstrumentValue(inst, keyMap[col.id]) || 0;
-                    }
-                  }
-                  const convBase =
+                  const requiredCount = getRequiredCountFromWork(w, col.id);
+                  const convokedCount =
                     col.id === "Perc"
                       ? convokedPercTotal
                       : convokedAll[col.id] || 0;
-                  const isOver = count > convBase;
+                  const isConsolidated = (
+                    w.instrumentation_consolidated_families || []
+                  ).includes(col.id);
+                  const requiredAboveConvoked =
+                    col.id !== "Str" && requiredCount > convokedCount;
+                  const requiredEqualsConvoked =
+                    col.id !== "Str" &&
+                    requiredCount === convokedCount &&
+                    requiredCount > 0;
+                  const countClass = requiredAboveConvoked
+                    ? "bg-orange-500 text-white rounded px-1"
+                    : requiredEqualsConvoked && isConsolidated
+                      ? "bg-violet-200 text-violet-900 rounded px-1"
+                      : "text-slate-900";
+
                   return (
                     <td
                       key={col.id}
                       className={`${AUDIT_WORKS_INST_TH_TD} border-r border-slate-200`}
                     >
                       <span
-                        className={`font-mono text-xs font-extrabold ${
-                          isOver
-                            ? "bg-orange-500 text-white rounded px-1"
-                            : "text-slate-900"
-                        }`}
+                        className={`font-mono text-xs font-extrabold ${countClass}`}
+                        title={
+                          isConsolidated
+                            ? "Partes cubiertas con asignación múltiple"
+                            : requiredAboveConvoked
+                              ? `Requerido: ${requiredCount} · Convocado: ${convokedCount}`
+                              : undefined
+                        }
                       >
-                        {count || "-"}
+                        {requiredCount || "-"}
                       </span>
                     </td>
                   );
@@ -961,6 +808,62 @@ export default function InstrumentationAudit({ supabase }) {
           });
         }
 
+        const obraIdSet = new Set();
+        Object.values(blocksByProgram).forEach((blocks) => {
+          blocks.forEach((b) => {
+            (b.repertorio_obras || []).forEach((ro) => {
+              if (ro?.obras?.id) obraIdSet.add(ro.obras.id);
+            });
+          });
+        });
+
+        const particellasByObra = {};
+        let allParticellas = [];
+        const obraIds = [...obraIdSet];
+        if (obraIds.length > 0) {
+          for (let i = 0; i < obraIds.length; i += 10) {
+            const chunk = obraIds.slice(i, i + 10);
+            const { data } = await supabase
+              .from("obras_particellas")
+              .select(
+                "id, id_obra, nombre_archivo, id_instrumento, instrumentos(id, instrumento, abreviatura)",
+              )
+              .in("id_obra", chunk);
+            if (data) allParticellas = [...allParticellas, ...data];
+          }
+          allParticellas.forEach((part) => {
+            const oid = part.id_obra;
+            if (!particellasByObra[oid]) particellasByObra[oid] = [];
+            particellasByObra[oid].push(part);
+          });
+        }
+
+        const assignsByProgram = {};
+        const containersByProgram = {};
+        if (programIds.length > 0) {
+          const { data: assigns } = await supabase
+            .from("seating_asignaciones")
+            .select("*")
+            .in("id_programa", programIds);
+          (assigns || []).forEach((row) => {
+            if (!assignsByProgram[row.id_programa]) {
+              assignsByProgram[row.id_programa] = [];
+            }
+            assignsByProgram[row.id_programa].push(row);
+          });
+
+          const { data: conts } = await supabase
+            .from("seating_contenedores")
+            .select("id, id_programa, nombre, orden")
+            .in("id_programa", programIds);
+          (conts || []).forEach((c) => {
+            if (!containersByProgram[c.id_programa]) {
+              containersByProgram[c.id_programa] = [];
+            }
+            containersByProgram[c.id_programa].push(c);
+          });
+        }
+
         const rosterByProgram = {};
         const sourcesByProgram = {};
         if (basePrograms.length > 0) {
@@ -1021,17 +924,34 @@ export default function InstrumentationAudit({ supabase }) {
           const blocks = (blocksByProgram[p.id] || []).slice().sort(
             (a, b) => (a.orden || 0) - (b.orden || 0),
           );
-          const required = computeRequiredForProgram(blocks);
           const { all, vacants } = computeConvokedForProgram(
             rosterByProgram[p.id] || [],
+          );
+          const seatingContext = {
+            assigns: assignsByProgram[p.id] || [],
+            containers: containersByProgram[p.id] || [],
+            particellasByObra,
+            particellas: allParticellas,
+          };
+          const { required, workRows, partsMax } = buildProgramInstrumentationAudit(
+            blocks,
+            seatingContext,
+          );
+          const consolidated = computeInstrumentationRequiredConsolidated(
+            required,
+            all,
+            partsMax,
           );
           return {
             ...p,
             _blocks: blocks,
+            _worksAudit: workRows,
             _roster: rosterByProgram[p.id] || [],
             _convocacionSources: sourcesByProgram[p.id] || [],
             _ensambleLabels: ensambleLabelById,
             instrumentationRequired: required,
+            instrumentationPartsMax: partsMax,
+            instrumentationRequiredConsolidated: consolidated,
             instrumentationConvoked: all,
             instrumentationVacants: vacants,
           };
@@ -1267,7 +1187,7 @@ export default function InstrumentationAudit({ supabase }) {
   const hasAnyMismatch = useMemo(
     () =>
       filteredPrograms.some((p) =>
-        hasInstrumentationMismatch(
+        hasInstrumentationDeficit(
           p.instrumentationRequired || createEmptyInstrumentationMap(),
           p.instrumentationConvoked || createEmptyInstrumentationMap(),
         ),
@@ -1348,7 +1268,8 @@ export default function InstrumentationAudit({ supabase }) {
           const vacants =
             p.instrumentationVacants || createEmptyInstrumentationMap();
           const isOpen = expandedIds.has(p.id);
-          const mismatches = hasInstrumentationMismatch(required, convokedAll);
+          const requiredConsolidated =
+            p.instrumentationRequiredConsolidated || {};
 
           const fechaDesde = p.fecha_desde || "";
           const fechaHasta = p.fecha_hasta || "";
@@ -1493,16 +1414,27 @@ export default function InstrumentationAudit({ supabase }) {
                               col.id === "Perc"
                                 ? requiredPercTotal
                                 : required[col.id] || 0;
-                            const highlight = reqVal > convVal;
+                            const highlightDeficit = reqVal > convVal;
+                            const highlightConsolidated =
+                              !highlightDeficit &&
+                              reqVal === convVal &&
+                              reqVal > 0 &&
+                              requiredConsolidated[col.id];
                             const reqMismatchStyle = p.organico_revisado
                               ? "bg-blue-100 text-blue-700 border border-blue-300 font-bold rounded"
                               : "bg-orange-500 text-white font-bold rounded";
+                            const reqConsolidatedStyle =
+                              "bg-violet-200 text-violet-900 font-bold rounded";
 
                             return (
                               <td
                                 key={col.id}
                                 className={`${AUDIT_SUMMARY_INST_TH_TD} font-mono ${
-                                  highlight ? reqMismatchStyle : "text-slate-800"
+                                  highlightDeficit
+                                    ? reqMismatchStyle
+                                    : highlightConsolidated
+                                      ? reqConsolidatedStyle
+                                      : "text-slate-800"
                                 }`}
                               >
                                 {reqVal}
@@ -1529,7 +1461,7 @@ export default function InstrumentationAudit({ supabase }) {
                                 : delta < 0
                                 ? `${delta}`
                                 : "·";
-                            const isActive = delta !== 0 && col.id !== "Str";
+                            const isActive = delta > 0 && col.id !== "Str";
                             return (
                               <td
                                 key={col.id}
@@ -1684,7 +1616,6 @@ export default function InstrumentationAudit({ supabase }) {
                     convokedAll={convokedAll}
                     requiredPercTotal={requiredPercTotal}
                     convokedPercTotal={convokedPercTotal}
-                    required={required}
                     onOpenWorkForm={openWorkForm}
                   />
                 </>

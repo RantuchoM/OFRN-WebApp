@@ -57,6 +57,37 @@ const getProgramsForItem = (item: any, isProgram: boolean, directOnly: boolean) 
   return [...direct, ...rehearsed];
 };
 
+/** Ensayo tipo 13: misma visibilidad que useAgendaData (agenda general). */
+const isMemberOfLinkedEnsembleOnDate = (
+  item: any,
+  profile: any,
+  eventDate: string,
+) => {
+  const linkedIds = (item.eventos_ensambles || [])
+    .map((ee: any) => Number(ee.id_ensamble ?? ee.ensambles?.id))
+    .filter((id: number) => !Number.isNaN(id) && id > 0);
+  if (linkedIds.length === 0) return false;
+  return linkedIds.some((ensId) =>
+    profile?.integrantes_ensambles?.some(
+      (ie: any) =>
+        Number(ie.id_ensamble) === ensId &&
+        membershipActiveOnProgramDate(ie, eventDate),
+    ),
+  );
+};
+
+const shouldShowEnsayoEnsamblePersonal = (
+  item: any,
+  profile: any,
+  customEventIds: Set<number>,
+  myEnsembleEventIds: Set<number>,
+) => {
+  if (customEventIds.has(Number(item.id))) return true;
+  if (myEnsembleEventIds.has(Number(item.id))) return true;
+  const eventDate = String(item.fecha || "").slice(0, 10);
+  return isMemberOfLinkedEnsembleOnDate(item, profile, eventDate);
+};
+
 const ID_TIPO_CONCIERTO = 1;
 const ID_TIPO_ENSAYO_ENSAMBLE = 13;
 
@@ -118,9 +149,44 @@ serve(async (req) => {
   );
 
   let profile = null;
+  let customEventIds = new Set<number>();
+  let myEnsembleEventIds = new Set<number>();
   if (!isAdmin) {
-    const { data } = await supabase.from("integrantes").select("*, instrumentos(familia), integrantes_ensambles(id_ensamble, fecha_desde, fecha_hasta)").eq("id", userId).single();
-    profile = data;
+    const todayStr = new Date().toISOString().split("T")[0];
+    const [profileRes, customRes] = await Promise.all([
+      supabase
+        .from("integrantes")
+        .select(
+          "*, instrumentos(familia), integrantes_ensambles(id_ensamble, fecha_desde, fecha_hasta)",
+        )
+        .eq("id", userId)
+        .single(),
+      supabase
+        .from("eventos_asistencia_custom")
+        .select("id_evento, tipo")
+        .eq("id_integrante", userId),
+    ]);
+    profile = profileRes.data;
+    customEventIds = new Set(
+      (customRes.data || []).map((c) => Number(c.id_evento)),
+    );
+
+    const myEnsembles = new Set<number>();
+    profile?.integrantes_ensambles?.forEach((ie: any) => {
+      if (membershipActiveOnProgramDate(ie, todayStr)) {
+        myEnsembles.add(Number(ie.id_ensamble));
+      }
+    });
+
+    if (myEnsembles.size > 0) {
+      const { data: ensembleLinks } = await supabase
+        .from("eventos_ensambles")
+        .select("id_evento")
+        .in("id_ensamble", Array.from(myEnsembles));
+      myEnsembleEventIds = new Set(
+        (ensembleLinks || []).map((row) => Number(row.id_evento)),
+      );
+    }
   }
 
   const thirtyDaysAgo = new Date();
@@ -132,7 +198,7 @@ serve(async (req) => {
     .select(`
       id, fecha, hora_inicio, hora_fin, descripcion, convocados, id_tipo_evento,
       tipos_evento(nombre, id_categoria), locaciones(nombre, direccion),
-      eventos_ensambles( ensambles ( ensamble ) ),
+      eventos_ensambles( id_ensamble, ensambles ( id, ensamble ) ),
       programas(id, nomenclador, nombre_gira, google_drive_folder_id, fecha_desde, fecha_hasta, tipo, zona, giras_integrantes(id_integrante, estado, rol), giras_fuentes(tipo, valor_id, valor_texto)),
       eventos_programas_asociados(programas(id, nomenclador, nombre_gira, google_drive_folder_id, fecha_desde, fecha_hasta, zona, giras_integrantes(id_integrante, estado, rol), giras_fuentes(tipo, valor_id, valor_texto)))
     `)
@@ -171,6 +237,19 @@ serve(async (req) => {
       });
     }
 
+    // Modo Usuario (Personal): ensayos de ensamble — mis ensambles, adicional/invitado o convocado
+    if (
+      !isProgram &&
+      Number(item.id_tipo_evento) === ID_TIPO_ENSAYO_ENSAMBLE
+    ) {
+      return shouldShowEnsayoEnsamblePersonal(
+        item,
+        profile,
+        customEventIds,
+        myEnsembleEventIds,
+      );
+    }
+
     // Modo Usuario (Personal)
     if (!isProgram && item.convocados?.length > 0) {
       if (item.convocados.includes("GRP:TUTTI") || (item.convocados.includes("GRP:LOCALES") && profile?.is_local) || item.convocados.includes(`FAM:${profile?.instrumentos?.familia}`)) return true;
@@ -197,9 +276,10 @@ serve(async (req) => {
     if (!shouldShowItem(e, false)) return false;
 
     // 2. Filtro de Categoría (Solo si NO es admin, o si el modo es estrictamente essential)
-    if (mode === 'musical') {
+    if (mode === "musical") {
       const catId = e.tipos_evento?.id_categoria;
-      if (catId != 1 && catId != 2) return false;
+      const isEnsayo = Number(e.id_tipo_evento) === ID_TIPO_ENSAYO_ENSAMBLE;
+      if (!isEnsayo && catId != 1 && catId != 2) return false;
     }
     return true;
   });

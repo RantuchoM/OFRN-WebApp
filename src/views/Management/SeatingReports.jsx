@@ -278,10 +278,12 @@ export default function SeatingReports({ supabase }) {
 
     // Asignaciones
     const assignments = {};
+    const musicianAssignments = {};
     const { data: assigns, error: assignsError } = await supabase
       .from("seating_asignaciones")
       .select("*")
-      .eq("id_programa", program.id);
+      .eq("id_programa", program.id)
+      .order("id", { ascending: true });
     if (assignsError) throw assignsError;
     assigns?.forEach((row) => {
       const obraId = row.id_obra;
@@ -289,7 +291,15 @@ export default function SeatingReports({ supabase }) {
         assignments[`C-${row.id_contenedor}-${obraId}`] = row.id_particella;
       } else if (row.id_musicos_asignados) {
         row.id_musicos_asignados.forEach((mId) => {
-          assignments[`M-${mId}-${obraId}`] = row.id_particella;
+          const key = `M-${mId}-${obraId}`;
+          if (!musicianAssignments[key]) musicianAssignments[key] = [];
+          if (
+            !musicianAssignments[key].some(
+              (partId) => String(partId) === String(row.id_particella),
+            )
+          ) {
+            musicianAssignments[key].push(row.id_particella);
+          }
         });
       }
     });
@@ -317,7 +327,7 @@ export default function SeatingReports({ supabase }) {
       }
     }
 
-    return { assignments, containers, particellas };
+    return { assignments, musicianAssignments, containers, particellas };
   };
 
   useEffect(() => {
@@ -418,7 +428,7 @@ export default function SeatingReports({ supabase }) {
 
         const localRepertorio = await fetchLocalRepertorio(program.id);
         const { roster } = await fetchRosterForGira(supabase, program);
-        const { assignments, containers, particellas } =
+        const { assignments, musicianAssignments, containers, particellas } =
           await buildSeatingStateForProgram(
             program,
             roster,
@@ -536,13 +546,17 @@ export default function SeatingReports({ supabase }) {
         const tableBody = otherMusicians.map((m) => {
           const row = [`${m.apellido || ""}, ${m.nombre || ""}`];
           obrasList.forEach((o) => {
-            const assign = assignments[
-              `M-${m.id}-${o.obra_id}`
-            ];
-            const partName = (particellas || []).find(
-              (p) => String(p.id) === String(assign),
-            )?.nombre_archivo;
-            row.push(partName || "-");
+            const key = `M-${m.id}-${o.obra_id}`;
+            const partIds = musicianAssignments[key] || [];
+            const labels = partIds
+              .map((partId) =>
+                (particellas || []).find(
+                  (p) => String(p.id) === String(partId),
+                ),
+              )
+              .filter(Boolean)
+              .map((part) => part.nombre_archivo);
+            row.push(labels.length > 0 ? labels.join(" + ") : "-");
           });
           return row;
         });
@@ -600,7 +614,7 @@ export default function SeatingReports({ supabase }) {
 
         const localRepertorio = await fetchLocalRepertorio(program.id);
         const { roster } = await fetchRosterForGira(supabase, program);
-        const { assignments, containers, particellas } =
+        const { assignments, musicianAssignments, containers, particellas } =
           await buildSeatingStateForProgram(
             program,
             roster,
@@ -734,11 +748,16 @@ export default function SeatingReports({ supabase }) {
               `${m.apellido || ""}, ${m.nombre || ""}`,
               ...obrasList.map((o) => {
                 const key = `M-${m.id}-${o.obra_id}`;
-                const partId = assignments[key];
-                const part = (particellas || []).find(
-                  (p) => String(p.id) === String(partId),
-                );
-                return part?.nombre_archivo || "-";
+                const partIds = musicianAssignments[key] || [];
+                const labels = partIds
+                  .map((partId) =>
+                    (particellas || []).find(
+                      (p) => String(p.id) === String(partId),
+                    ),
+                  )
+                  .filter(Boolean)
+                  .map((part) => part.nombre_archivo);
+                return labels.length > 0 ? labels.join(" + ") : "-";
               }),
             ];
             sheet.addRow(rowValues);
@@ -775,7 +794,7 @@ export default function SeatingReports({ supabase }) {
       for (const program of selectedPrograms) {
         const localRepertorio = await fetchLocalRepertorio(program.id);
         const { roster } = await fetchRosterForGira(supabase, program);
-        const { assignments, containers, particellas } =
+        const { assignments, musicianAssignments, containers, particellas } =
           await buildSeatingStateForProgram(
             program,
             roster,
@@ -790,6 +809,7 @@ export default function SeatingReports({ supabase }) {
           assignments,
           containers,
           particellas,
+          musicianAssignments,
         );
       }
     } catch (err) {

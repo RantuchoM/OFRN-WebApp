@@ -111,7 +111,30 @@ Para cada programa seleccionado:
 - Resultado:
   - La gestión de venues deja de estar anclada a la vista de Giras y se centraliza únicamente en `ManagementView`.
 
-## 5. Estilos y Componentes UI
+## 5. Command Palette (Ctrl+K)
+
+Cada informe de Gestión expone un acceso directo en el menú **Ctrl+K**, con ruta propia bajo `/management/{slug}`.
+
+- **Configuración central**: `src/constants/managementPalette.js`
+- **Registro automático**: `buildManagementPaletteCommands()` en `CommandPaletteContext.jsx`
+- **Documentación completa**: `docs/specs/command-palette.md`
+
+### Informes registrados
+| Slug | Ruta | Etiqueta Ctrl+K |
+|------|------|-----------------|
+| _(home)_ | `/management` | Gestión: Menú de informes |
+| `venues` | `/management/venues` | Gestión: Espacios |
+| `seating` | `/management/seating` | Gestión: Informes Seating |
+| `instrumentation` | `/management/instrumentation` | Gestión: Instrumentación |
+| `convocatorias` | `/management/convocatorias` | Gestión: Convocatorias |
+| `ensayos` | `/management/ensayos` | Gestión: Ensayos por programa |
+| `asistencia_ensayos` | `/management/asistencia_ensayos` | Gestión: Asistencia a ensayos |
+| `conciertos` | `/management/conciertos` | Gestión: Conciertos |
+| `audiencia` | `/management/audiencia` | Gestión: Audiencia |
+
+Al agregar un informe nuevo, seguir el checklist en `docs/specs/command-palette.md`.
+
+## 6. Estilos y Componentes UI
 
 - Se reutilizan patrones visuales existentes:
   - Layout de tarjetas y tablas (`bg-white`, `border-slate-200`, `rounded-xl`, `shadow-sm`).

@@ -57,6 +57,7 @@ Garantizar que los eventos marcados con `is_deleted: true` no aparezcan en:
     - Ensayo de ensamble (`id_tipo_evento = 13`): `[ENSAYO ENSAMBLE {ensamble}]` (+ programas ensayados si aplica en modo personal).
     - Concierto (`id_tipo_evento = 1`): `[CONCIERTO {nomenclador}]`.
     - Marcadores de programa (día completo): `🏁 {nomenclador} | {nombre_gira} | {zona}`.
+  - **Modo personal — ensayos de ensamble** (`id_tipo_evento = 13`): alineado con `useAgendaData` en agenda general. Solo se exportan si el integrante tiene asistencia custom en el evento o pertenece a un ensamble vinculado en `eventos_ensambles` (membresía activa en la fecha del evento). **No** se incluyen por participación en el programa asociado (`eventos_programas_asociados` / familia de instrumento) ni solo por etiquetas `convocados`. En `mode=musical` los ensayos de ensamble siempre pasan el filtro de categoría aunque su `id_categoria` no sea 1 ni 2.
 - **PDF Exporter** (`src/utils/agendaPdfExporter.js`)
   - Implementado filtro de soft-delete en `exportAgendaToPDF`:
     - `const events = items.filter(i => !i.isProgramMarker && !i.is_deleted);`

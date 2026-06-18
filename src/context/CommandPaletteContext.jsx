@@ -3,13 +3,45 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from './AuthContext'; 
 import { supabase } from '../services/supabase'; 
 import { canAccessMusicTranslation } from '../constants/musicTranslationAccess';
+import {
+  MANAGEMENT_PALETTE_ENTRIES,
+  managementPalettePath,
+} from '../constants/managementPalette';
 import CommandPalette from '../components/ui/CommandPalette';
 import { 
-    IconHome, IconSettings, IconMusic, IconCalendar, 
-    IconUsers, IconTruck, IconFileText, IconBriefcase, IconGrid, 
+    IconSettings, IconMusic, IconCalendar, 
+    IconUsers, IconTruck, IconFileText, IconGrid, 
     IconUser, IconUtensils, IconBed, IconLayout, IconDollarSign,
-    IconTag, IconDatabase, IconInfo, IconCheckSquare
+    IconTag, IconDatabase, IconInfo, IconCheckSquare, IconMegaphone,
+    IconMusicNote, IconList, IconBell, IconBookOpen, IconEdit,
+    IconBulb, IconSpiralNotebook, IconManagement, IconSettingsWheel,
+    IconHistory, IconMap,
 } from '../components/ui/Icons';
+
+const MANAGEMENT_SECTION_ICONS = {
+  venues: IconSettingsWheel,
+  seating: IconHistory,
+  instrumentation: IconMusicNote,
+  convocatorias: IconGrid,
+  ensayos: IconMusic,
+  asistencia_ensayos: IconUsers,
+  conciertos: IconCalendar,
+  audiencia: IconUsers,
+};
+
+function buildManagementPaletteCommands(navigate) {
+  return MANAGEMENT_PALETTE_ENTRIES.map((entry) => {
+    const IconComponent =
+      entry.slug == null ? IconManagement : MANAGEMENT_SECTION_ICONS[entry.slug];
+    return {
+      id: entry.id,
+      label: entry.label,
+      icon: <IconComponent size={14} className="text-indigo-500" />,
+      section: entry.section,
+      run: () => navigate(managementPalettePath(entry.slug)),
+    };
+  });
+}
 
 const CommandPaletteContext = createContext();
 
@@ -23,8 +55,39 @@ export const CommandPaletteProvider = ({ children }) => {
   const location = useLocation(); 
   const [searchParams] = useSearchParams();
   
-  // 1. OBTENER ROL DE GESTIÓN
-  const { user, isManagement } = useAuth(); 
+  const {
+    user,
+    isManagement,
+    isAdmin,
+    isEditor,
+    isGuest,
+    isPersonal,
+    isDifusion,
+    isArreglador,
+    isArchivista,
+    isCurador,
+    roles,
+  } = useAuth();
+
+  const [isEnsembleCoordinator, setIsEnsembleCoordinator] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const roleGrantsCoordinator = (roles || []).some((r) =>
+      ["admin", "produccion_general", "coord_general", "curador"].includes(r),
+    );
+    if (roleGrantsCoordinator) {
+      setIsEnsembleCoordinator(true);
+      return;
+    }
+
+    supabase
+      .from("ensambles_coordinadores")
+      .select("id", { count: "exact", head: true })
+      .eq("id_integrante", user.id)
+      .then(({ count }) => setIsEnsembleCoordinator(count > 0));
+  }, [user, roles]);
 
   // LEER PARÁMETROS DE URL
   const currentTab = searchParams.get('tab');
@@ -284,97 +347,199 @@ export const CommandPaletteProvider = ({ children }) => {
           );
       }
 
-      // --- D) CONTEXTO: CONFIGURACIÓN (SOLO ADMIN) ---
-      if (currentTab === 'configuracion' && isManagement) {
+      // --- D) CONTEXTO: USUARIOS (SOLO ADMIN) ---
+      if (currentTab === 'usuarios' && isAdmin) {
           cmds.push(
               {
                   id: 'conf-users',
-                  label: 'Configuración: Usuarios',
+                  label: 'Usuarios: Gestión de cuentas',
                   icon: <IconUsers size={14}/>,
-                  section: 'Configuración',
-                  run: () => navigate('/?tab=configuracion&view=USERS')
+                  section: 'Administración',
+                  run: () => navigate('/?tab=usuarios')
               }
           );
       }
 
+      // --- E) CONTEXTO: GESTIÓN (/management/*) ---
+      if (location.pathname.startsWith('/management') && (isAdmin || isEditor)) {
+          cmds.push(...buildManagementPaletteCommands(navigate));
+      }
+
       return cmds;
-  }, [currentTab, currentGiraId, currentView, navigate, isManagement]);
+  }, [currentTab, currentGiraId, currentView, location.pathname, navigate, isManagement, isAdmin, isEditor]);
 
   // ===========================================================================
   // 4. COMANDOS GLOBALES (Filtrados por Rol)
   // ===========================================================================
   const globalCommands = useMemo(() => {
-    // Comandos base (para todos)
+    const isDirector = roles?.includes('director');
+    const canAccessArreglos =
+      isAdmin || isArreglador || user?.mail === 'martin.rantucho@gmail.com';
+    const canAccessDifusion =
+      isAdmin || (Array.isArray(roles) && roles.includes('editor')) || isDifusion;
+    const canAccessAgenda = !isGuest && (isPersonal || isEditor || isManagement);
+    const canAccessRepertorio =
+      !isGuest && (isArchivista || isEditor || isManagement);
+    const canAccessManual = !isGuest && (isPersonal || isEditor || isManagement);
+
     const cmds = [
-        { 
-            id: 'global-home', 
-            label: 'Ir a Inicio / Dashboard', 
-            icon: <IconHome size={14} />, 
-            section: 'General', 
-            run: () => navigate('/?tab=dashboard') 
-        },
         { 
             id: 'global-giras', 
             label: 'Ir a Panel de Giras', 
-            icon: <IconBriefcase size={14} />, 
+            icon: <IconMap size={14} />, 
             section: 'General', 
             run: () => navigate('/?tab=giras') 
         },
-        { 
-            id: 'global-manual', 
-            label: 'Ir a Manual de Usuario', 
-            icon: <IconInfo size={14} />, 
-            section: 'Ayuda', 
-            run: () => navigate('/?tab=manual') 
-        }
     ];
 
-    // Comandos Adicionales SOLO para MANAGEMENT
+    if (isManagement || isDirector) {
+      cmds.push({
+        id: 'global-dashboard',
+        label: 'Ir a Dashboard',
+        icon: <IconSpiralNotebook size={14} />,
+        section: 'General',
+        run: () => navigate('/?tab=dashboard'),
+      });
+    }
+
+    if (canAccessAgenda) {
+      cmds.push({
+        id: 'global-agenda',
+        label: 'Ir a Agenda General',
+        icon: <IconCalendar size={14} />,
+        section: 'General',
+        run: () => navigate('/?tab=agenda'),
+      });
+    }
+
+    if (canAccessDifusion) {
+      cmds.push({
+        id: 'global-difusion',
+        label: 'Ir a Difusión',
+        icon: <IconMegaphone size={14} className="text-fuchsia-500" />,
+        section: 'General',
+        run: () => navigate('/?tab=difusion'),
+      });
+    }
+
+    if (canAccessRepertorio) {
+      cmds.push({
+        id: 'global-repertorio',
+        label: 'Ir a Repertorio',
+        icon: <IconFileText size={14} />,
+        section: 'General',
+        run: () => navigate('/?tab=repertorio'),
+      });
+    }
+
+    if (canAccessArreglos) {
+      cmds.push({
+        id: 'global-arreglos',
+        label: 'Ir a Arreglos',
+        icon: <IconMusicNote size={14} className="text-amber-600" />,
+        section: 'General',
+        run: () => navigate('/?tab=arreglos'),
+      });
+    }
+
+    if (canAccessManual) {
+      cmds.push({
+        id: 'global-manual',
+        label: 'Ir a Manual de Usuario',
+        icon: <IconBookOpen size={14} />,
+        section: 'Ayuda',
+        run: () => navigate('/?tab=manual'),
+      });
+    }
+
+    if (!isGuest) {
+      cmds.push({
+        id: 'global-feedback',
+        label: 'Ir a Feedback',
+        icon: <IconBulb size={14} className="text-yellow-600" />,
+        section: 'Ayuda',
+        run: () => navigate('/?tab=feedback'),
+      });
+    }
+
     if (isManagement) {
         cmds.push(
             { 
-                id: 'global-agenda', 
-                label: 'Ir a Agenda General', 
-                icon: <IconCalendar size={14} />, 
-                section: 'Gestión', 
-                run: () => navigate('/?tab=agenda') 
-            },
-            { 
                 id: 'global-ensambles', 
-                label: 'Ir a Coordinación de Ensambles', 
+                label: 'Ir a Ensambles', 
                 icon: <IconMusic size={14} />, 
                 section: 'Gestión', 
                 run: () => navigate('/?tab=ensambles') 
             },
             { 
                 id: 'global-musicians', 
-                label: 'Ir a Base de Músicos', 
+                label: 'Ir a Personas', 
                 icon: <IconUsers size={14} />, 
                 section: 'Gestión', 
                 run: () => navigate('/?tab=musicos') 
             },
-            { 
-                id: 'global-repertorio', 
-                label: 'Ir a Librería de Obras', 
-                icon: <IconFileText size={14} />, 
-                section: 'Gestión', 
-                run: () => navigate('/?tab=repertorio') 
-            },
-            { 
-                id: 'global-data', 
-                label: 'Ir a Base de Datos (Tablas)', 
-                icon: <IconDatabase size={14} />, 
-                section: 'Gestión', 
-                run: () => navigate('/?tab=datos') 
-            },
-            { 
-                id: 'global-settings', 
-                label: 'Configuración de Sistema', 
-                icon: <IconSettings size={14} />, 
-                section: 'Admin', 
-                run: () => navigate('/?tab=configuracion') 
-            }
         );
+
+        if (!isDifusion) {
+          cmds.push({
+            id: 'global-data',
+            label: 'Ir a Datos (Tablas)',
+            icon: <IconDatabase size={14} />,
+            section: 'Gestión',
+            run: () => navigate('/?tab=datos'),
+          });
+        }
+
+        cmds.push(
+            {
+              id: 'global-news',
+              label: 'Ir a Comunicación',
+              icon: <IconBell size={14} className="text-orange-500" />,
+              section: 'Gestión',
+              run: () => navigate('/?tab=news_manager'),
+            },
+            {
+              id: 'global-manual-admin',
+              label: 'Ir a Editor Manual',
+              icon: <IconEdit size={14} />,
+              section: 'Gestión',
+              run: () => navigate('/?tab=manual_admin'),
+            },
+        );
+    }
+
+    if (isEnsembleCoordinator) {
+      cmds.push({
+        id: 'global-coordinacion',
+        label: 'Ir a Coordinación',
+        icon: <IconList size={14} className="text-teal-600" />,
+        section: 'Gestión',
+        run: () => navigate('/?tab=coordinacion'),
+      });
+    }
+
+    if (isAdmin || isCurador) {
+      cmds.push({
+        id: 'global-curadoria',
+        label: 'Ir a Curaduría',
+        icon: <IconMusic size={14} className="text-purple-600" />,
+        section: 'Gestión',
+        run: () => navigate('/?tab=curadoria'),
+      });
+    }
+
+    if (isAdmin || isEditor) {
+      cmds.push(...buildManagementPaletteCommands(navigate));
+    }
+
+    if (isAdmin) {
+        cmds.push({ 
+            id: 'global-settings', 
+            label: 'Ir a Usuarios', 
+            icon: <IconSettings size={14} />, 
+            section: 'Admin', 
+            run: () => navigate('/?tab=usuarios') 
+        });
     }
 
     if (canAccessMusicTranslation(user?.id)) {
@@ -388,7 +553,22 @@ export const CommandPaletteProvider = ({ children }) => {
     }
 
     return cmds;
-  }, [navigate, isManagement, user?.id]);
+  }, [
+    navigate,
+    isManagement,
+    isAdmin,
+    isEditor,
+    isGuest,
+    isPersonal,
+    isDifusion,
+    isArreglador,
+    isArchivista,
+    isCurador,
+    isEnsembleCoordinator,
+    roles,
+    user?.id,
+    user?.mail,
+  ]);
 
   // ===========================================================================
   // 5. COMBINACIÓN
