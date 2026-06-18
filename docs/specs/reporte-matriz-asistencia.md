@@ -11,8 +11,10 @@ Visualizar en un cuadro de doble entrada la participación de integrantes en los
    - Capacidad de tildar/destildar nodos completos o individuales.
 2. **Selector de Programas (Filtros):**
    - Checkboxes por `tipo_programa` (Sinfónico, Cámara, etc.).
-   - Toggle: "Mostrar programas anteriores del año" (Filtra por fecha >= actual por defecto).
-3. **Matriz de Datos:**
+3. **Barra de controles de la matriz (encabezado):**
+   - Toggle: "Agrupar por ensambles".
+   - Toggle: "Mostrar histórico" (`IconHistory`) — incluye programas anteriores del mismo año calendario; por defecto solo muestra programas con fecha >= hoy.
+4. **Matriz de Datos:**
    - **Eje Y (Filas):** Nombre y Apellido del integrante.
      - Subtexto: Instrumento y Ensamble (tamaño pequeño).
      - Orden: Por `id_instrumento` (prioridad orquestal).
@@ -21,7 +23,7 @@ Visualizar en un cuadro de doble entrada la participación de integrantes en los
      - Hover: Título y subtítulo del programa.
      - Link: Acceso directo a la sección de repertorio del programa.
      - Orden: Cronológico ascendente.
-4. **Intersección:**
+5. **Intersección:**
    - Mostrar una cruz (X) si el integrante pertenece a la gira (resolviendo `giras_fuentes` y validando que no esté en `giras_integrantes` como 'ausente').
 
 ## Lógica de Negocio (Reglas de Oro)

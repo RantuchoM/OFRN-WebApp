@@ -26,7 +26,7 @@ import {
   downloadAsistenciaMatrixPdf,
   getAsistenciaMatrixSummaryHeadLabels,
 } from "../../utils/asistenciaMatrixExport";
-import { IconDownload } from "../../components/ui/Icons";
+import { IconDownload, IconHistory } from "../../components/ui/Icons";
 
 function startOfToday() {
   return startOfDay(new Date());
@@ -516,16 +516,6 @@ export default function AsistenciaMatrixReport({ supabase }) {
             </div>
           </div>
 
-          <label className="flex cursor-pointer items-center gap-2 border-t border-slate-100 pt-2 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-300">
-            <input
-              type="checkbox"
-              checked={showPastInYear}
-              onChange={(e) => setShowPastInYear(e.target.checked)}
-              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            Mostrar programas anteriores del año (mismo año calendario)
-          </label>
-
           <div className="border-t border-slate-100 pt-2 dark:border-slate-800">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -629,6 +619,19 @@ export default function AsistenciaMatrixReport({ supabase }) {
                   className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                 />
                 Agrupar por ensambles
+              </label>
+              <label
+                className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 dark:text-slate-300"
+                title="Incluir programas anteriores del mismo año calendario"
+              >
+                <input
+                  type="checkbox"
+                  checked={showPastInYear}
+                  onChange={(e) => setShowPastInYear(e.target.checked)}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <IconHistory size={14} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                Mostrar histórico
               </label>
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
