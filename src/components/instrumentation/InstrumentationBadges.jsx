@@ -3,6 +3,8 @@ import { IconUsers, IconCheckCircle, IconInfo } from "../ui/Icons";
 import {
   getInstrumentValue,
   countsTowardInstrumentationConvoked,
+  rosterHasInstrumentationMembers,
+  getInstrumentationBadgeBaseClass,
 } from "../../utils/instrumentation";
 import InstrumentationSummaryModal from "../seating/InstrumentationSummaryModal";
 
@@ -272,7 +274,12 @@ function formatInstrumentationStandard(map) {
     .replace("0.0.0.0 - 0.0.0.0", "");
 }
 
-function renderInstrumentationStandardDiff(map, otherMap, validatedAdaptation = false) {
+function renderInstrumentationStandardDiff(
+  map,
+  otherMap,
+  validatedAdaptation = false,
+  skipDiffHighlight = false,
+) {
   const fl = map.Fl || 0;
   const ob = map.Ob || 0;
   const cl = map.Cl || 0;
@@ -292,6 +299,7 @@ function renderInstrumentationStandardDiff(map, otherMap, validatedAdaptation = 
   const percTotalOther = (otherMap.Tim || 0) + (otherMap.Perc || 0);
 
   const shouldHighlight = (key) => {
+    if (skipDiffHighlight) return false;
     if (key === "Tim" || key === "Perc") {
       const thisNorm = normalizeForCompare("Perc", percTotalThis);
       const otherNorm = normalizeForCompare("Perc", percTotalOther);
@@ -441,16 +449,20 @@ export default function InstrumentationBadges({
     [roster],
   );
 
-  const badgeBaseClass =
-    organicoRevisado
-      ? "bg-sky-100 text-sky-700 border-sky-300 hover:bg-sky-200"
-      : mismatch
-        ? "bg-orange-100 text-orange-700 border-orange-300 hover:bg-orange-200"
-        : hasVacancies
-          ? "bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200"
-          : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100";
+  const hasWorks = normalizedWorks.length > 0;
+  const hasConvocableMembers = useMemo(
+    () => rosterHasInstrumentationMembers(roster),
+    [roster],
+  );
 
-  if (!normalizedWorks || normalizedWorks.length === 0) return null;
+  const badgeBaseClass = getInstrumentationBadgeBaseClass({
+    hasWorks,
+    organicoRevisado,
+    mismatch,
+    hasVacancies,
+  });
+
+  if (!hasWorks && !hasConvocableMembers) return null;
 
   return (
     <>
@@ -480,18 +492,25 @@ export default function InstrumentationBadges({
         >
           <IconUsers size={12} className="opacity-70" />
           <span className="mr-1">Conv:</span>
-          {renderInstrumentationStandardDiff(convoked, required, organicoRevisado)}
+          {renderInstrumentationStandardDiff(
+            convoked,
+            required,
+            organicoRevisado,
+            !hasWorks,
+          )}
         </button>
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className={`px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate flex items-center gap-1 ${badgeBaseClass}`}
-          title={formatInstrumentationStandard(required)}
-        >
-          <IconUsers size={12} className="opacity-70" />
-          <span className="mr-1">Req:</span>
-          {renderInstrumentationStandardDiff(required, convoked, organicoRevisado)}
-        </button>
+        {hasWorks && (
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className={`px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate flex items-center gap-1 ${badgeBaseClass}`}
+            title={formatInstrumentationStandard(required)}
+          >
+            <IconUsers size={12} className="opacity-70" />
+            <span className="mr-1">Req:</span>
+            {renderInstrumentationStandardDiff(required, convoked, organicoRevisado)}
+          </button>
+        )}
       </div>
 
       {showModal && (

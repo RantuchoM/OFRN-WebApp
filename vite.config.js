@@ -36,10 +36,102 @@ function appVersionPlugin(buildId) {
   };
 }
 
+function tutorialsStaticPlugin() {
+  const appsRoot = path.resolve(__dirname, "apps");
+  const tutorialsPublic = path.resolve(__dirname, "public/tutorials");
+
+  const serveFile = (res, filePath, contentType) => {
+    if (!filePath.startsWith(path.resolve(__dirname))) {
+      res.statusCode = 403;
+      res.end("Forbidden");
+      return;
+    }
+    import("fs").then((fs) => {
+      fs.readFile(filePath, (err, data) => {
+        if (err) {
+          res.statusCode = 404;
+          res.end("Not found");
+          return;
+        }
+        res.setHeader("Content-Type", contentType);
+        res.setHeader("Cache-Control", "no-cache");
+        res.end(data);
+      });
+    });
+  };
+
+  return {
+    name: "tutorials-static",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url?.split("?")[0] || "";
+        if (url === "/tutorials/manifest.json") {
+          serveFile(
+            res,
+            path.join(tutorialsPublic, "manifest.json"),
+            "application/json",
+          );
+          return;
+        }
+        const mdMatch = url.match(/^\/apps\/(.+\.md)$/i);
+        if (mdMatch) {
+          serveFile(
+            res,
+            path.join(appsRoot, mdMatch[1]),
+            "text/markdown; charset=utf-8",
+          );
+          return;
+        }
+        const srcMatch = url.match(/^\/tutorials-src\/([^/]+)\/([^/]+)(\/.*)?$/);
+        if (srcMatch) {
+          const [, appId, slug, sub = ""] = srcMatch;
+          const tutorialsDir = path.join(appsRoot, appId, "tutorials");
+          import("fs").then((fs) => {
+            if (!fs.existsSync(tutorialsDir)) {
+              res.statusCode = 404;
+              res.end("Not found");
+              return;
+            }
+            const mdFiles = fs
+              .readdirSync(tutorialsDir)
+              .filter((f) => f.endsWith(".md"));
+            const mdFile = mdFiles.find((f) => f.replace(/\.md$/i, "") === slug);
+            if (!mdFile) {
+              res.statusCode = 404;
+              res.end("Not found");
+              return;
+            }
+            const baseDir = path.join(tutorialsDir, slug);
+            fs.mkdirSync(baseDir, { recursive: true });
+            const rel = sub.replace(/^\//, "");
+            if (!rel) {
+              res.statusCode = 404;
+              res.end("Not found");
+              return;
+            }
+            if (rel.startsWith("images/")) {
+              serveFile(
+                res,
+                path.join(tutorialsDir, "images", path.basename(rel)),
+                "application/octet-stream",
+              );
+              return;
+            }
+            next();
+          });
+          return;
+        }
+        next();
+      });
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
     appVersionPlugin(APP_BUILD_ID),
+    tutorialsStaticPlugin(),
     VitePWA({
       registerType: "prompt",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],

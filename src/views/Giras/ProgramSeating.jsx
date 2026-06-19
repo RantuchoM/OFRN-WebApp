@@ -42,6 +42,8 @@ import {
   getPercComparableTotal,
   formatPercussionLabel,
   countsTowardInstrumentationConvoked,
+  rosterHasInstrumentationMembers,
+  getInstrumentationBadgeBaseClass,
 } from "../../utils/instrumentation";
 import {
   ParticellaSelect,
@@ -1460,6 +1462,10 @@ export default function ProgramSeating({
     });
   }, [instrumentationRequired, instrumentationConvoked]);
 
+  const showInstrumentationBadges =
+    canSeeInstrumentationBadges &&
+    (obras.length > 0 || rosterHasInstrumentationMembers(filteredRoster));
+
   const instrumentationRequiredConsolidated = useMemo(
     () =>
       computeInstrumentationRequiredConsolidated(
@@ -1525,6 +1531,7 @@ export default function ProgramSeating({
     validatedAdaptation = false,
     consolidatedFamilies = {},
     showConsolidatedHighlight = false,
+    skipDiffHighlight = false,
   ) => {
     const fl = displayMap.Fl || 0;
     const ob = displayMap.Ob || 0;
@@ -1574,6 +1581,7 @@ export default function ProgramSeating({
       "bg-violet-200 text-violet-900 font-extrabold";
 
     const tokenClass = (key, showConsolidatedHighlight = false) => {
+      if (skipDiffHighlight) return "text-slate-700";
       if (isRequiredDifferentFromConvoked(key)) return highlightClass;
       if (showConsolidatedHighlight && isConsolidatedMatch(key)) {
         return consolidatedClass;
@@ -2279,17 +2287,16 @@ export default function ProgramSeating({
         <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex flex-wrap items-center gap-1.5 sm:gap-2 min-w-0 pt-1 md:pt-0">
           <IconUsers size={18} className="text-indigo-600 shrink-0" />
           <span className="truncate">Seating & Particellas</span>
-          {canSeeInstrumentationBadges && obras.length > 0 && (() => {
+          {showInstrumentationBadges && (() => {
             const organicoRevisado = !!program?.organico_revisado;
             const organicoComentario = program?.organico_comentario ?? null;
-            const badgeBaseClass =
-              organicoRevisado
-                ? "bg-sky-100 text-sky-700 border-sky-300 hover:bg-sky-200"
-                : hasInstrumentationMismatch
-                  ? "bg-orange-100 text-orange-700 border-orange-300 hover:bg-orange-200"
-                  : hasVacancies
-                    ? "bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200"
-                    : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100";
+            const hasWorks = obras.length > 0;
+            const badgeBaseClass = getInstrumentationBadgeBaseClass({
+              hasWorks,
+              organicoRevisado,
+              mismatch: hasInstrumentationMismatch,
+              hasVacancies,
+            });
             return (
               <div className="hidden md:flex flex-wrap items-center gap-1 ml-3">
                 {organicoRevisado && (
@@ -2300,22 +2307,24 @@ export default function ProgramSeating({
                     <IconInfo size={14} />
                   </span>
                 )}
-                <button
-                  type="button"
-                  onClick={() => setShowInstrumentationModal(true)}
-                  className={`px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate ${badgeBaseClass}`}
-                  title={formatInstrumentationStandard(instrumentationRequired)}
-                >
-                  <span className="mr-1">Req:</span>
-                  {renderInstrumentationStandardDiff(
-                    instrumentationRequired,
-                    instrumentationRequired,
-                    instrumentationConvoked,
-                    organicoRevisado,
-                    instrumentationRequiredConsolidated,
-                    true,
-                  )}
-                </button>
+                {obras.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowInstrumentationModal(true)}
+                    className={`px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate ${badgeBaseClass}`}
+                    title={formatInstrumentationStandard(instrumentationRequired)}
+                  >
+                    <span className="mr-1">Req:</span>
+                    {renderInstrumentationStandardDiff(
+                      instrumentationRequired,
+                      instrumentationRequired,
+                      instrumentationConvoked,
+                      organicoRevisado,
+                      instrumentationRequiredConsolidated,
+                      true,
+                    )}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowInstrumentationModal(true)}
@@ -2328,6 +2337,9 @@ export default function ProgramSeating({
                     instrumentationRequired,
                     instrumentationConvoked,
                     organicoRevisado,
+                    undefined,
+                    false,
+                    !hasWorks,
                   )}
                 </button>
               </div>
@@ -2356,7 +2368,7 @@ export default function ProgramSeating({
               className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl animate-in fade-in zoom-in-95"
               role="menu"
             >
-              {canSeeInstrumentationBadges && obras.length > 0 && (
+              {showInstrumentationBadges && (
                 <button
                   type="button"
                   onClick={() => {
@@ -2364,7 +2376,7 @@ export default function ProgramSeating({
                     setShowInstrumentationModal(true);
                   }}
                   className={`w-full px-3 py-2.5 text-left text-xs font-bold hover:bg-slate-50 flex items-center gap-2 border-b border-slate-100 ${
-                    hasInstrumentationMismatch
+                    hasInstrumentationMismatch && obras.length > 0
                       ? "text-orange-700"
                       : "text-slate-700"
                   }`}
@@ -2373,7 +2385,7 @@ export default function ProgramSeating({
                   <IconAlertTriangle
                     size={16}
                     className={
-                      hasInstrumentationMismatch
+                      hasInstrumentationMismatch && obras.length > 0
                         ? "text-orange-500"
                         : "text-slate-500"
                     }

@@ -113,6 +113,9 @@ const FeedbackAdmin = lazy(() => import("./views/Feedback/FeedbackAdmin"));
 const ManualIndex = lazy(() => import("./views/Manual/ManualIndex"));
 const ManualAdmin = lazy(() => import("./views/Manual/ManualAdmin"));
 const ManagementView = lazy(() => import("./views/Management/ManagementView"));
+const TutorialLayout = lazy(() => import("./views/Tutorials/TutorialLayout"));
+const TutorialList = lazy(() => import("./views/Tutorials/TutorialList"));
+const TutorialView = lazy(() => import("./views/Tutorials/TutorialView"));
 const MusicTranslationView = lazy(
   () => import("./views/MusicTranslation/MusicTranslationView"),
 );
@@ -1560,6 +1563,31 @@ export default function App() {
                   </LazyRoute>
                 }
               />
+              <Route
+                path="/tutorials"
+                element={
+                  <LazyRoute>
+                    <TutorialLayout />
+                  </LazyRoute>
+                }
+              >
+                <Route
+                  index
+                  element={
+                    <LazyRoute>
+                      <TutorialList />
+                    </LazyRoute>
+                  }
+                />
+                <Route
+                  path=":appId/:slug"
+                  element={
+                    <LazyRoute>
+                      <TutorialView />
+                    </LazyRoute>
+                  }
+                />
+              </Route>
               <Route
                 path="/management/*"
                 element={<AppContent initialTab="management" />}

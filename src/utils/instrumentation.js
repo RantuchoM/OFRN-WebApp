@@ -12,6 +12,44 @@ export function countsTowardInstrumentationConvoked(rolGira) {
   return r === "musico" || r === "mus_prod";
 }
 
+/** Hay al menos un integrante presente que aporta a la instrumentación convocada. */
+export function rosterHasInstrumentationMembers(roster) {
+  return (roster || []).some(
+    (m) =>
+      m.estado_gira !== "ausente" &&
+      countsTowardInstrumentationConvoked(m.rol_gira),
+  );
+}
+
+/** El mapa de columnas tiene al menos un instrumento con conteo > 0. */
+export function hasInstrumentationMapContent(map) {
+  if (!map) return false;
+  return Object.values(map).some((value) => (Number(value) || 0) > 0);
+}
+
+/** Badge convocado sin obras cargadas: informativo, sin alerta de desajuste. */
+export const INSTRUMENTATION_BADGE_NEUTRAL_CLASS =
+  "bg-white text-slate-600 border-slate-200 hover:bg-slate-50";
+
+export function getInstrumentationBadgeBaseClass({
+  hasWorks = true,
+  organicoRevisado = false,
+  mismatch = false,
+  hasVacancies = false,
+} = {}) {
+  if (!hasWorks) return INSTRUMENTATION_BADGE_NEUTRAL_CLASS;
+  if (organicoRevisado) {
+    return "bg-sky-100 text-sky-700 border-sky-300 hover:bg-sky-200";
+  }
+  if (mismatch) {
+    return "bg-orange-100 text-orange-700 border-orange-300 hover:bg-orange-200";
+  }
+  if (hasVacancies) {
+    return "bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200";
+  }
+  return "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100";
+}
+
 /** Obtiene el valor numérico de un instrumento desde el string de instrumentación (para filtros analíticos). */
 export const getInstrumentValue = (workString, instrumentKey) => {
   if (!workString) return 0;

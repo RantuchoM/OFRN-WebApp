@@ -854,9 +854,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
           <div className="flex flex-col">
             <h2 className="text-sm md:text-m font-bold text-slate-800 flex items-center gap-2">
               <span>Repertorio</span>
-              {canSeeInstrumentationBadges &&
-                activeTab === "repertoire" &&
-                obrasWithInstrumentation.length > 0 && (
+              {canSeeInstrumentationBadges && activeTab === "repertoire" && (
                   <InstrumentationBadges
                     works={obrasWithInstrumentation}
                     roster={roster}

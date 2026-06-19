@@ -1735,8 +1735,7 @@ export default function GiraRoster({
           <div>
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
               <span>{gira.nombre_gira}</span>
-              {instrumentationWorks.length > 0 && (
-                <InstrumentationBadges
+              <InstrumentationBadges
                   works={instrumentationWorks}
                   roster={rawRoster}
                   organicoRevisado={!!gira?.organico_revisado}
@@ -1746,7 +1745,6 @@ export default function GiraRoster({
                   onOrganicoSave={onRefreshGira}
                   className="hidden md:flex flex-wrap items-center gap-1 ml-2"
                 />
-              )}
             </h2>
             <div className="flex gap-2 mt-1 flex-wrap">
               {sources.map((s) => (

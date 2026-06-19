@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-06-19T12:13:30.260Z",
+  "tutorials": [
+    {
+      "id": "ofrn-web-app/01-getting-started",
+      "appId": "ofrn-web-app",
+      "slug": "01-getting-started",
+      "title": "Primeros pasos en OFRN WebApp",
+      "description": "Guía de ejemplo para validar listas, imágenes y formato Markdown.",
+      "order": 1,
+      "markdownPath": "apps/ofrn-web-app/tutorials/01-getting-started.md",
+      "markdownUrl": "/apps/ofrn-web-app/tutorials/01-getting-started.md",
+      "baseUrl": "/tutorials-src/ofrn-web-app/01-getting-started",
+      "routePath": "/tutorials/ofrn-web-app/01-getting-started"
+    }
+  ]
+}
