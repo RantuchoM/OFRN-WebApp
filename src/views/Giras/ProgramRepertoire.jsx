@@ -840,19 +840,19 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
   return (
     <div className="flex h-full min-h-0 min-w-0 w-full max-w-none flex-col bg-slate-100 animate-in fade-in">
       {/* Header */}
-      <div className="bg-white p-4 border-b border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
-        <div className="flex items-center gap-4 w-full md:w-auto">
+      <div className="bg-white px-3 py-2 md:p-4 border-b border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-2 md:gap-4 shrink-0">
+        <div className="flex items-center gap-2 md:gap-4 w-full md:w-auto">
           <button
             onClick={handleBack}
-            className="text-slate-400 hover:text-indigo-600 text-sm font-bold flex items-center gap-1 shrink-0"
+            className="text-slate-400 hover:text-indigo-600 text-xs md:text-sm font-bold flex items-center gap-1 shrink-0"
           >
-            <IconArrowLeft size={16} />
+            <IconArrowLeft size={14} className="md:w-4 md:h-4" />
             {activeTab !== "repertoire"
               ? "Volver al Repertorio"
               : "Volver a Programas"}
           </button>
           <div className="flex flex-col">
-            <h2 className="text-m font-bold text-slate-800 flex items-center gap-2">
+            <h2 className="text-sm md:text-m font-bold text-slate-800 flex items-center gap-2">
               <span>Repertorio</span>
               {canSeeInstrumentationBadges &&
                 activeTab === "repertoire" &&
@@ -872,47 +872,47 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
           </div>
         </div>
 
-        <div className="flex bg-slate-100 p-1 rounded-lg items-center">
+        <div className="flex w-full md:w-auto bg-slate-100 p-0.5 md:p-1 rounded-lg items-center justify-between md:justify-start">
           <button
             onClick={() => handleTabChange("repertoire")}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
+            className={`px-2 md:px-3 py-1 md:py-1.5 rounded-md text-xs md:text-sm font-medium transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap ${
               activeTab === "repertoire"
                 ? "bg-white text-indigo-700 shadow-sm"
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            <IconMusic size={16} /> Repertorio
+            <IconMusic size={14} className="md:w-4 md:h-4" /> Repertorio
           </button>
           <button
             onClick={() => handleTabChange("seating")}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
+            className={`px-2 md:px-3 py-1 md:py-1.5 rounded-md text-xs md:text-sm font-medium transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap ${
               activeTab === "seating"
                 ? "bg-white text-indigo-700 shadow-sm"
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            <IconUsers size={16} /> Seating
+            <IconUsers size={14} className="md:w-4 md:h-4" /> Seating
           </button>
           <button
             onClick={() => handleTabChange("my_parts")}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
+            className={`px-2 md:px-3 py-1 md:py-1.5 rounded-md text-xs md:text-sm font-medium transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap ${
               activeTab === "my_parts"
                 ? "bg-white text-indigo-700 shadow-sm"
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            <IconFileText size={16} /> Mis Partes
+            <IconFileText size={14} className="md:w-4 md:h-4" /> Mis Partes
           </button>
           {program.google_drive_folder_id && (
             <>
-              <div className="w-px h-4 bg-slate-300 mx-1"></div>
+              <div className="w-px h-4 bg-slate-300 mx-0.5 md:mx-1"></div>
               <a
                 href={`https://drive.google.com/drive/folders/${program.google_drive_folder_id}`}
                 target="_blank"
                 rel="noreferrer"
-                className="px-2 py-1.5 rounded-md text-slate-500 hover:text-green-700 hover:bg-white transition-all"
+                className="px-1.5 md:px-2 py-1 md:py-1.5 rounded-md text-slate-500 hover:text-green-700 hover:bg-white transition-all"
               >
-                <IconFolderMusic size={18} />
+                <IconFolderMusic size={16} className="md:w-[18px] md:h-[18px]" />
               </a>
             </>
           )}
