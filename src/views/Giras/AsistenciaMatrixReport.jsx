@@ -30,6 +30,7 @@ import {
   buildMatrixIntegranteInstrumentDisplay,
   compareInstrumentIds,
 } from "../../utils/giraUtils";
+import { IconDownload, IconHistory } from "../../components/ui/Icons";
 
 function startOfToday() {
   return startOfDay(new Date());
