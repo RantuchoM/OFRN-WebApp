@@ -15,7 +15,7 @@ Permitir la descarga del Seating de un programa en formato `.xlsx`, replicando l
 - **Estructura**:
   - **Header**: Nombre de la gira y programa con estilo destacado, más fecha de generación.
   - **Sección 1 (Cuerdas)**: Columnas representadas por los nombres de los `containers`. Filas representadas por los músicos de cada atril, en el mismo orden visual que en la UI/PDF.
-  - **Sección 2 (Vientos/Asignaciones)**: Tabla cruzada entre Músico (filas) y Obras (columnas), mostrando el nombre de la particella asignada por obra.
+  - **Sección 2 (Vientos/Asignaciones)**: Tabla cruzada entre Músico (filas) y Obras (columnas), mostrando el nombre de la particella asignada por obra. Filas ordenadas por `id_instr` y, dentro de cada familia, por número de parte asignada (ej. Fagot 1, 2; Corno 1, 2, 3, 4) vía `sortWindMusiciansForSeating` en `seatingWindOrder.js`.
 
 ## Estilos
 - **Encabezados** con fondo azul oscuro (`#1e293b` / `#1f2937`) y texto blanco.

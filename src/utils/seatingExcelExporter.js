@@ -8,6 +8,10 @@ import {
   isMusicianOnConfirmedSeatingRoster,
 } from "./seatingRosterGate";
 import { seatingStringsGridEvenRowCount } from "./seatingPdfStringsTableHooks";
+import {
+  buildSeatingPartSortOptions,
+  sortWindMusiciansForSeating,
+} from "./seatingWindOrder";
 
 const isStringInstrument = (id) =>
   ["01", "02", "03", "04"].includes(String(id ?? "").trim());
@@ -234,21 +238,21 @@ export const exportSeatingToExcel = async (
           .map((i) => integranteKey(i.id_musico ?? i.id_integrante)),
       );
 
-      const otherMusicians = roster
-        .filter((m) => {
+      const otherMusicians = sortWindMusiciansForSeating(
+        roster.filter((m) => {
           if (!isConfirmedConvocadoForSeatingReports(m)) return false;
           const instrId = String(m.id_instr ?? "").trim();
           const mId = integranteKey(m.id);
           if (stringMusicianIds.has(mId)) return false;
           if (isStringInstrument(instrId)) return false;
           return true;
-        })
-        .sort((a, b) => {
-          const instrA = a.id_instr || "9999";
-          const instrB = b.id_instr || "9999";
-          if (instrA !== instrB) return instrA.localeCompare(instrB);
-          return (a.apellido || "").localeCompare(b.apellido || "");
-        });
+        }),
+        buildSeatingPartSortOptions({
+          obras: obrasList,
+          musicianAssignments,
+          particellas,
+        }),
+      );
 
       const headerValues = [
         "Músico",

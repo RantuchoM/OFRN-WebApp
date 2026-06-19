@@ -30,6 +30,10 @@ import {
   seatingStringsGridEvenRowCount,
 } from "../../utils/seatingPdfStringsTableHooks";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
+import {
+  buildSeatingPartSortOptions,
+  sortWindMusiciansForSeating,
+} from "../../utils/seatingWindOrder";
 import { sortSeatingItems } from "../../services/giraService";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -521,20 +525,20 @@ export default function SeatingReports({ supabase }) {
           )
           .filter(Boolean);
 
-        const otherMusicians = (roster || [])
-          .filter(
+        const otherMusicians = sortWindMusiciansForSeating(
+          (roster || []).filter(
             (m) =>
               isConfirmedConvocadoForSeatingReports(m) &&
               !["01", "02", "03", "04"].includes(
                 String(m.id_instr ?? "").trim(),
               ),
-          )
-          .sort((a, b) => {
-            const instrA = a.id_instr || "9999";
-            const instrB = b.id_instr || "9999";
-            if (instrA !== instrB) return instrA.localeCompare(instrB);
-            return (a.apellido || "").localeCompare(b.apellido || "");
-          });
+          ),
+          buildSeatingPartSortOptions({
+            obras: obrasList,
+            musicianAssignments,
+            particellas,
+          }),
+        );
 
         const tableHeaders = [
           [
@@ -722,20 +726,20 @@ export default function SeatingReports({ supabase }) {
           .filter(Boolean);
 
         if (obrasList.length > 0) {
-          const otherMusicians = (roster || [])
-            .filter(
+          const otherMusicians = sortWindMusiciansForSeating(
+            (roster || []).filter(
               (m) =>
                 isConfirmedConvocadoForSeatingReports(m) &&
                 !["01", "02", "03", "04"].includes(
                   String(m.id_instr ?? "").trim(),
                 ),
-            )
-            .sort((a, b) => {
-              const instrA = a.id_instr || "9999";
-              const instrB = b.id_instr || "9999";
-              if (instrA !== instrB) return instrA.localeCompare(instrB);
-              return (a.apellido || "").localeCompare(b.apellido || "");
-            });
+            ),
+            buildSeatingPartSortOptions({
+              obras: obrasList,
+              musicianAssignments,
+              particellas,
+            }),
+          );
 
           const headerValues = [
             "Músico",

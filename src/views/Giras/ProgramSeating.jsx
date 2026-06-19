@@ -64,6 +64,14 @@ import {
   seatingStringsGridEvenRowCount,
 } from "../../utils/seatingPdfStringsTableHooks";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
+import {
+  seatingPartsRepresentSameSlot,
+  getPercussionSeatingFamily,
+} from "../../utils/drivePartMatcher";
+import {
+  buildSeatingPartSortOptions,
+  sortWindMusiciansForSeating,
+} from "../../utils/seatingWindOrder";
 import { createPortal } from "react-dom";
 
 // Librerías para reporte PDF
@@ -322,6 +330,7 @@ const MobileSeatingTable = ({
   assignments,
   musicianAssignments = {},
   filteredRoster,
+  windMusicians = [],
   containers,
   particellas,
   isEditor = false,
@@ -388,15 +397,7 @@ const MobileSeatingTable = ({
     alert(`${obra.composer}\n\n${obra.title.replace(/<[^>]*>?/gm, "")}`);
   };
 
-  const windsAndPerc = filteredRoster.filter((m) => {
-    const idInstr = String(m.id_instr || "");
-    const role = (m.rol_gira || "").toLowerCase();
-    const esCuerda = ["01", "02", "03", "04"].includes(idInstr);
-    const esSolista = role.includes("solista");
-    // Solistas de cuerdas también aparecen en la tabla móvil
-    if (esCuerda && esSolista) return true;
-    return !esCuerda;
-  });
+  const windsAndPerc = windMusicians;
 
   return (
     <div className="relative w-full border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm flex flex-col h-full">
@@ -1047,7 +1048,7 @@ export default function ProgramSeating({
   }, [obras, supabase]);
 
   const otherMusicians = useMemo(() => {
-    return filteredRoster.filter((m) => {
+    const filtered = filteredRoster.filter((m) => {
       const idInstr = String(m.id_instr || "");
       const role = (m.rol_gira || "").toLowerCase();
       const esCuerda = ["01", "02", "03", "04"].includes(idInstr);
@@ -1056,7 +1057,15 @@ export default function ProgramSeating({
       if (esCuerda && esSolista) return true;
       return !esCuerda;
     });
-  }, [filteredRoster]);
+    return sortWindMusiciansForSeating(
+      filtered,
+      buildSeatingPartSortOptions({
+        obras,
+        musicianAssignments,
+        particellas,
+      }),
+    );
+  }, [filteredRoster, obras, musicianAssignments, particellas]);
 
   const particellaCounts = useMemo(() => {
     const counts = {};
@@ -1094,6 +1103,31 @@ export default function ProgramSeating({
     });
 
     return counts;
+  }, [assignments, musicianAssignments, containers, obras, otherMusicians]);
+
+  const assignedPartIdsByObra = useMemo(() => {
+    const byObra = {};
+    obras.forEach((obra) => {
+      byObra[obra.obra_id] = new Set();
+    });
+
+    otherMusicians.forEach((m) => {
+      obras.forEach((obra) => {
+        const key = `M-${m.id}-${obra.obra_id}`;
+        getMusicianPartIds(musicianAssignments, key).forEach((partId) => {
+          byObra[obra.obra_id].add(String(partId));
+        });
+      });
+    });
+
+    containers.forEach((c) => {
+      obras.forEach((obra) => {
+        const partId = assignments[`C-${c.id}-${obra.obra_id}`];
+        if (partId) byObra[obra.obra_id].add(String(partId));
+      });
+    });
+
+    return byObra;
   }, [assignments, musicianAssignments, containers, obras, otherMusicians]);
 
   function createEmptyInstrumentationMap() {
@@ -1140,7 +1174,10 @@ export default function ProgramSeating({
         const available = availablePartsByWork[targetObraId] || [];
         if (!available.length) return;
 
-        const hasUnassigned = available.some((p) => !particellaCounts[p.id]);
+        const assignedInObra = assignedPartIdsByObra[targetObraId] || new Set();
+        const hasUnassigned = available.some(
+          (p) => !assignedInObra.has(String(p.id)),
+        );
         if (!hasUnassigned) return;
 
         const beforeReversed = obras.slice(0, tIdx).reverse();
@@ -1153,12 +1190,12 @@ export default function ProgramSeating({
           if (!partId) continue;
           const part = particellas.find((p) => String(p.id) === String(partId));
           if (!part) continue;
-          const targetLabel = normalizePartLabel(getPartLabelFromPart(part));
-          if (!targetLabel) continue;
-          const match = available.find((p) => {
-            const label = normalizePartLabel(getPartLabelFromPart(p));
-            return label === targetLabel;
-          });
+          if (getPercussionSeatingFamily(part) === "aux") continue;
+          const match = available.find(
+            (p) =>
+              !assignedInObra.has(String(p.id)) &&
+              seatingPartsRepresentSameSlot(part, p),
+          );
           if (match) {
             forMusician[targetObraId] = match.id;
             break;
@@ -1179,7 +1216,7 @@ export default function ProgramSeating({
     musicianAssignments,
     particellas,
     availablePartsByWork,
-    particellaCounts,
+    assignedPartIdsByObra,
   ]);
 
   const obrasWithInstrumentation = useMemo(() => {
@@ -1267,8 +1304,10 @@ export default function ProgramSeating({
       const available = availablePartsByWork[obraId] || [];
       if (!available.length) return null;
 
-      // Si la obra ya tiene todas sus particellas usadas al menos una vez, no sugerimos más
-      const hasUnassigned = available.some((p) => !particellaCounts[p.id]);
+      const assignedInObra = assignedPartIdsByObra[obraId] || new Set();
+      const hasUnassigned = available.some(
+        (p) => !assignedInObra.has(String(p.id)),
+      );
       if (!hasUnassigned) return null;
 
       const rawName = container?.nombre || "";
@@ -1277,6 +1316,9 @@ export default function ProgramSeating({
 
       return (
         available.find((p) => {
+          if (assignedInObra.has(String(p.id))) return false;
+          if (seatingPartsRepresentSameSlot({ nombre_archivo: rawName }, p))
+            return true;
           const label = normalizePartLabel(getPartLabelFromPart(p));
           return (
             label === normalizedContainer ||
@@ -1286,7 +1328,7 @@ export default function ProgramSeating({
         }) || null
       );
     },
-    [availablePartsByWork, particellaCounts],
+    [availablePartsByWork, assignedPartIdsByObra],
   );
 
   const pendingParticellaSuggestionsCount = useMemo(() => {
@@ -1838,8 +1880,13 @@ export default function ProgramSeating({
       doc.setFont("helvetica", "bold");
       doc.text("Asignación de Particellas", 14, finalY + 8);
 
-      const otherMusicians = filteredRoster.filter(
-        (m) => !isString(m.id_instr),
+      const otherMusicians = sortWindMusiciansForSeating(
+        filteredRoster.filter((m) => !isString(m.id_instr)),
+        buildSeatingPartSortOptions({
+          obras,
+          musicianAssignments,
+          particellas,
+        }),
       );
       const tableHeaders = [
         [
@@ -2625,6 +2672,7 @@ export default function ProgramSeating({
             assignments={assignments}
             musicianAssignments={musicianAssignments}
             filteredRoster={filteredRoster}
+            windMusicians={otherMusicians}
             containers={containers}
             particellas={particellas}
             isEditor={isEditor}

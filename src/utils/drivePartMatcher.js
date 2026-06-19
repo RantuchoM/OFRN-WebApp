@@ -23,6 +23,20 @@ export const normalizeInstrumentString = (str) => {
     .trim();
 };
 
+/** Quita afinación/transposición (F, A, Bb…) para equiparar "Corno F 1" con "Corno 1". */
+export const stripTranspositionKeys = (text = "") =>
+  String(text)
+    .replace(/\b(bb|b\s*♭|eb|e\s*♭|si\s*b|mi\s*b)\b/gi, "")
+    .replace(/\b(in\s+)?([fac])\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const normalizePartBase = (rawBase) =>
+  applyPiccoloFlautaNorm(
+    normalizeInstrumentString(stripTranspositionKeys(rawBase)),
+    rawBase,
+  );
+
 const levenshtein = (a, b) => {
   if (a === b) return 0;
   if (!a.length) return b.length;
@@ -112,10 +126,7 @@ export const parsePartSlot = (nombre_archivo) => {
   if (combined) {
     return {
       baseLabel: combined.remainder,
-      baseNorm: applyPiccoloFlautaNorm(
-        normalizeInstrumentString(combined.remainder),
-        combined.remainder,
-      ),
+      baseNorm: normalizePartBase(combined.remainder),
       slotNumbers: combined.numbers,
       isCombined: true,
       slotNumber: null,
@@ -128,10 +139,7 @@ export const parsePartSlot = (nombre_archivo) => {
     const n = parseInt(singleMatch[2], 10);
     return {
       baseLabel: remainder,
-      baseNorm: applyPiccoloFlautaNorm(
-        normalizeInstrumentString(remainder),
-        remainder,
-      ),
+      baseNorm: normalizePartBase(remainder),
       slotNumbers: [n],
       isCombined: false,
       slotNumber: n,
@@ -140,10 +148,7 @@ export const parsePartSlot = (nombre_archivo) => {
 
   return {
     baseLabel: base,
-    baseNorm: applyPiccoloFlautaNorm(
-      normalizeInstrumentString(base),
-      base,
-    ),
+    baseNorm: normalizePartBase(base),
     slotNumbers: null,
     isCombined: false,
     slotNumber: null,
@@ -315,14 +320,15 @@ const resolveInstrumentFromPrefix = (prefix, catalogoInstrumentos, rawFileName =
 };
 
 const instrumentsCompatible = (partSlot, fileSlot, part, filePrefix) => {
-  if (
+  const partIsScoreLike =
     isScoreLike(part?.nombre_archivo) ||
-    isScoreLike(filePrefix) ||
     String(part?.instrumento_nombre || "")
       .toLowerCase()
-      .includes("director")
-  ) {
-    return isScoreLike(part?.nombre_archivo) || isScoreLike(filePrefix);
+      .includes("director");
+  const fileIsScoreLike = isScoreLike(filePrefix);
+
+  if (partIsScoreLike || fileIsScoreLike) {
+    return partIsScoreLike && fileIsScoreLike;
   }
 
   const pn = partSlot.baseNorm;
@@ -470,6 +476,42 @@ export const partsRepresentSameSlot = (a, b) => {
   }
 
   return true;
+};
+
+const getPercussionSeatingLabel = (part) => {
+  const archivo = String(part?.nombre_archivo || "");
+  const instrumento = String(
+    part?.instrumento_nombre || part?.instrumentos?.instrumento || "",
+  );
+  return `${archivo} ${instrumento}`.toLowerCase();
+};
+
+/** timp = timbales; aux = resto de percusión; null = no es percusión de seating. */
+export const getPercussionSeatingFamily = (part) => {
+  const label = getPercussionSeatingLabel(part);
+  if (
+    /perc\s*timp|perc\s*timb|perc\.\s*timb|\btimbal/i.test(label) ||
+    /\bperc\s+timp\b/i.test(label)
+  ) {
+    return "timp";
+  }
+  if (
+    /perc|bombo|marimba|platillo|caja|glock|metalof|metalofon|xilo|mallet|pandeiro|triangulo|triángulo/i.test(
+      label,
+    )
+  ) {
+    return "aux";
+  }
+  return null;
+};
+
+/** Matching de sugerencias en Seating: solo Perc Timp se propaga; el resto de perc no sugiere. */
+export const seatingPartsRepresentSameSlot = (a, b) => {
+  const aPerc = getPercussionSeatingFamily(a);
+  const bPerc = getPercussionSeatingFamily(b);
+  if (aPerc === "aux" || bPerc === "aux") return false;
+  if (Boolean(aPerc === "timp") !== Boolean(bPerc === "timp")) return false;
+  return partsRepresentSameSlot(a, b);
 };
 
 export const DIRECTOR_INSTRUMENT_ID = "50";

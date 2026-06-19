@@ -12,6 +12,7 @@ import {
   seatingStringsGridEvenRowCount,
 } from "./seatingPdfStringsTableHooks";
 import { dedupeSeatingStringItems } from "./seatingStringItemsDedupe";
+import { sortWindMusiciansForSeating } from "./seatingWindOrder";
 
 // Identifica si un instrumento es cuerda (códigos tal cual en BD; sin forzar "1"→"01")
 const isStringInstrument = (id) =>
@@ -142,24 +143,29 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
       validItems.map((i) => integranteKey(i.id_musico ?? i.id_integrante)),
     );
 
-    const otherMusicians = roster
-      .filter((m) => {
+    const otherMusicians = sortWindMusiciansForSeating(
+      roster.filter((m) => {
         if (!isConfirmedConvocadoForSeatingReports(m)) return false;
         const instrId = String(m.id_instr ?? "").trim();
         const mId = integranteKey(m.id);
         if (stringMusicianIds.has(mId)) return false;
         if (isStringInstrument(instrId)) return false;
         return true;
-      })
-      .sort((a, b) => {
-        // Ordenar por ID de instrumento (01, 02... 05, 06...) y luego apellido
-        // id_instr viene como string "05", "10", etc.
-        const instrA = a.id_instr || "9999";
-        const instrB = b.id_instr || "9999";
-        
-        if (instrA !== instrB) return instrA.localeCompare(instrB);
-        return (a.apellido || "").localeCompare(b.apellido || "");
-      });
+      }),
+      {
+        obras: obrasList,
+        particellas: allParts,
+        getPartIdsForObra: (musicianId, obraId) => {
+          const mid = integranteKey(musicianId);
+          const assign = assigns.find(
+            (a) =>
+              String(a.id_obra) === String(obraId) &&
+              a.id_musicos_asignados?.some((id) => integranteKey(id) === mid),
+          );
+          return assign?.id_particella ? [assign.id_particella] : [];
+        },
+      },
+    );
 
     const tableHeaders = [["Músico", ...obrasList.map(o => `${truncate(cleanHTML(o.composer), 10)}\n${truncate(cleanHTML(o.title), 12)}`)]];
 

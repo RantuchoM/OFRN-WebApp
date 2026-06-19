@@ -22,6 +22,7 @@ Helpers de normalización:
 
 - `getPartLabelFromPart(part)`: devuelve una etiqueta legible a partir de `nombre_archivo` o `instrumentos.instrumento` sin extensión.
 - `normalizePartLabel(label)`: baja a minúsculas, colapsa espacios y convierte romanos simples a números (`I/II/III/IV` → `1/2/3/4`) para hacer el matching más tolerante.
+- **Matching de slot instrumental** (vientos/percusión y contenedores): `seatingPartsRepresentSameSlot` de `drivePartMatcher.js`, que ignora afinación/transposición (`F`, `A`, `Bb`, etc.) y compara instrumento + número. Ej.: `Corno F 1` ≈ `Corno 1`; `Clarinete A 2` ≈ `Clarinete 2` ≈ `Clarinete Bb 2`. `SCORE`/partitura solo matchea con otra partitura, nunca con un instrumento (ej. Tuba). **Percusión:** solo `Perc Timp` / timbales se propagan entre obras; el resto de particellas de perc (`Perc`, bombo, marimba, etc.) no generan sugerencias.
 
 ### Lógica de generación de sugerencias (vientos/percusión)
 
@@ -30,7 +31,7 @@ Helpers de normalización:
    - Se obtiene su etiqueta normalizada (`normalizePartLabel(getPartLabelFromPart(part))`).
    - Se recorren todas las obras del programa:
      - Se ignora la obra de origen (`originObraId`) y cualquier obra donde el músico ya tenga asignación (`assignments["M-{id_musico}-{id_obra}"]`).
-     - Para cada obra, se consulta `availablePartsByWork[obraId]` y se busca la primera particella cuya etiqueta normalizada coincida exactamente con la del origen.
+     - Para cada obra, se consulta `availablePartsByWork[obraId]` y se busca la primera particella libre en **esa obra** (no asignada a otro músico/contenedor) que represente el mismo slot (`seatingPartsRepresentSameSlot`) que la del origen.
      - Si hay match, se agrega a `suggestions[id_musico][id_obra] = id_particella_sugerida`.
    - Si no quedan entradas para ese músico, se elimina su key de `suggestions`.
 
