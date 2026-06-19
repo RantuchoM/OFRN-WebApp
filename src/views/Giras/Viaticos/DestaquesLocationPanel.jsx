@@ -29,10 +29,6 @@ import {
     fetchEncargadoCuadroFirmas,
     toCuadroFirmasPerson,
 } from "../../../utils/destaquesCuadroFirmasPdf";
-import {
-    calcDevolucionReintegro,
-    formatRendicionDiffUi,
-} from "../../../utils/rendicionDiff";
 
 // --- UTILIDADES ---
 const formatDateVisual = (dateStr) => {
@@ -91,6 +87,12 @@ const withStableExportFallbacks = (person) => {
     jornada: jornada || "Horas cátedra",
   };
 };
+
+/** Localidad que es sede de la gira (giras_localidades). */
+const isGiraSedeLocalidad = (locId, sedeIdSet) =>
+  locId != null &&
+  locId !== "unknown" &&
+  sedeIdSet?.has?.(String(locId));
 
 // --- CONFIGURACIÓN DE COLUMNAS ---
 const MASSIVE_COLS = [
@@ -274,20 +276,14 @@ const LiveMassiveValuesForm = ({
 
     const granTotalEst = totalGastosEst + (isGeneral ? 0 : anticipoViaticoTotal);
     const granTotalRen = totalGastosRen + parseFloat(resolve("rendicion_viatico_monto") || 0);
-    const { dev: devFinal, reint: reintFinal } = calcDevolucionReintegro(
-        granTotalEst,
-        granTotalRen,
-    );
+    const diffFinal = granTotalEst - granTotalRen;
 
     const StackedCell = ({ expKey, renKey, isReadOnlyExp = false, forceExpValue = null }) => {
         const estVal = forceExpValue !== null ? forceExpValue : resolve(expKey);
         const renVal = resolve(renKey);
         const estFallback = !isReadOnlyExp && isFallbackField(expKey);
         const renFallback = isFallbackField(renKey);
-        const { dev, reint } = calcDevolucionReintegro(
-            parseFloat(estVal || 0),
-            parseFloat(renVal || 0),
-        );
+        const diff = (parseFloat(estVal || 0) - parseFloat(renVal || 0));
 
         return (
             <div className="flex flex-col gap-1 justify-center h-full py-1 min-w-[90px]">
@@ -306,11 +302,8 @@ const LiveMassiveValuesForm = ({
                     onCommit={(val) => handleCommit(renKey, val)}
                     className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 transition-colors ${getInputClass(locationId, renKey, feedback, "bg-emerald-50 text-emerald-900")}`}
                 />
-                <div className={`text-right text-[10px] border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${dev > 0 ? 'text-red-600 font-black' : 'text-slate-400 font-bold'}`} title="Devolución">
-                    {formatRendicionDiffUi(dev)}
-                </div>
-                <div className={`text-right text-[10px] border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${reint > 0 ? 'text-slate-800 font-black' : 'text-slate-400 font-bold'}`} title="Reintegro">
-                    {formatRendicionDiffUi(reint)}
+                <div className={`text-right text-[10px] border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${diff < 0 ? 'text-red-600 font-black' : 'text-slate-500 font-bold'}`}>
+                    {diff !== 0 ? formatCurrency(diff) : "-"}
                 </div>
             </div>
         );
@@ -617,11 +610,8 @@ const LiveMassiveValuesForm = ({
                                     <div className="text-right text-xs font-bold px-1 py-0.5 bg-emerald-100 text-emerald-900 rounded-sm">
                                         {formatCurrency(granTotalRen)}
                                     </div>
-                                    <div className={`text-right text-[10px] border border-slate-300 bg-white px-1 rounded-sm font-black ${devFinal > 0 ? 'text-red-600' : 'text-slate-400'}`} title="Devolución">
-                                        {formatRendicionDiffUi(devFinal)}
-                                    </div>
-                                    <div className={`text-right text-[10px] border border-slate-300 bg-white px-1 rounded-sm font-black ${reintFinal > 0 ? 'text-slate-800' : 'text-slate-400'}`} title="Reintegro">
-                                        {formatRendicionDiffUi(reintFinal)}
+                                    <div className={`text-right text-xs border border-slate-300 bg-white px-1 rounded-sm font-black ${diffFinal < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                                        {formatCurrency(diffFinal)}
                                     </div>
                                 </div>
                             </td>
@@ -634,7 +624,7 @@ const LiveMassiveValuesForm = ({
 };
 
 // --- COMPONENTE: LOCATION GROUP ITEM ---
-const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, destaquesGeneralConfig, showBackup, onUpdateConfig, feedback, globalConfig }) => {
+const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, destaquesGeneralConfig, showBackup, onUpdateConfig, feedback, globalConfig, isGiraSede = false }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [isConfigOpen, setIsConfigOpen] = useState(false);
 
@@ -704,6 +694,9 @@ const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, 
                                 </span>
                             </h3>
                             {isChanged && <span className="text-[8px] font-bold bg-cyan-500 text-white px-1.5 py-0.5 rounded animate-pulse">MODIFICADO</span>}
+                            {isGiraSede && (
+                                <span className="text-[8px] font-bold bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded shrink-0">Sede local</span>
+                            )}
                         </div>
                         
                         <div className="flex items-center gap-2">
@@ -826,12 +819,14 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
     onExportBatch, 
     isExporting, 
     exportStatus,
+    exportDetail,
     globalConfig,
     giraLabel = "",
     showBackup = false,
     onSelectionToolbarChange,
     exportFailureLog = [],
     onClearExportFailureLog,
+    giraSedeLocalidadIds = [],
 }, ref) {
    const [selectedGroupIds, setSelectedGroupIds] = useState([]);
     const [isExportingFirmas, setIsExportingFirmas] = useState(false);
@@ -846,6 +841,11 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
         (transportesList || []).forEach(t => map[t.id] = t); 
         return map; 
     }, [transportesList]);
+
+    const giraSedeSet = useMemo(
+        () => new Set((giraSedeLocalidadIds || []).map((id) => String(id))),
+        [giraSedeLocalidadIds],
+    );
 
     const groupedData = useMemo(() => {
         const groups = {};
@@ -963,8 +963,13 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
                 grp.people.push({ ...person, travelData, hasIndividual });
             }
         });
-        return Object.values(groups).sort((a,b) => b.people.length - a.people.length);
-    }, [roster, logisticsMap, existingViaticosIds, routeRules, transportMap]);
+        return Object.values(groups).sort((a, b) => {
+            const aLocal = isGiraSedeLocalidad(a.id, giraSedeSet) ? 1 : 0;
+            const bLocal = isGiraSedeLocalidad(b.id, giraSedeSet) ? 1 : 0;
+            if (aLocal !== bLocal) return aLocal - bLocal;
+            return b.people.length - a.people.length;
+        });
+    }, [roster, logisticsMap, existingViaticosIds, routeRules, transportMap, giraSedeSet]);
 
     const handleToggleSelect = (id) => {
         setSelectedGroupIds(prev => {
@@ -974,9 +979,16 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
     };
 
     const allLocationIds = useMemo(() => groupedData.map((g) => g.id), [groupedData]);
+    const nonLocalLocationIds = useMemo(
+        () => allLocationIds.filter((id) => !isGiraSedeLocalidad(id, giraSedeSet)),
+        [allLocationIds, giraSedeSet],
+    );
     const allLocationsSelected =
         allLocationIds.length > 0 &&
         allLocationIds.every((id) => selectedGroupIds.includes(id));
+    const allNonLocalSelected =
+        nonLocalLocationIds.length > 0 &&
+        nonLocalLocationIds.every((id) => selectedGroupIds.includes(id));
     const masterCheckboxRef = useRef(null);
 
     useEffect(() => {
@@ -987,8 +999,19 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
     }, [allLocationIds, selectedGroupIds]);
 
     const handleToggleAllLocations = () => {
-        if (allLocationsSelected) setSelectedGroupIds([]);
-        else setSelectedGroupIds([...allLocationIds]);
+        if (allLocationsSelected) {
+            setSelectedGroupIds([]);
+            return;
+        }
+        if (!allNonLocalSelected) {
+            setSelectedGroupIds(
+                nonLocalLocationIds.length > 0
+                    ? [...nonLocalLocationIds]
+                    : [...allLocationIds],
+            );
+            return;
+        }
+        setSelectedGroupIds([...allLocationIds]);
     };
 
     const handleSelectPendingClick = () => {
@@ -1379,6 +1402,7 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
                             checked={allLocationsSelected}
                             onChange={handleToggleAllLocations}
                             className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                            title="1.er clic: solo localidades de gira (no sedes locales). 2.º clic: incluye sedes locales. 3.er clic: deselecciona todo."
                         />
                         Todas las localidades
                     </label>
@@ -1398,6 +1422,7 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
                         onUpdateConfig={onSaveLocationConfig}
                         feedback={feedback}
                         globalConfig={globalConfig}
+                        isGiraSede={isGiraSedeLocalidad(group.id, giraSedeSet)}
                     />
                 ))}
             </div>
@@ -1416,6 +1441,7 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
                             isExporting={isExporting}
                             isExportingFirmas={isExportingFirmas}
                             exportStatus={exportStatus}
+                            exportDetail={exportDetail}
                         />
                     </div>
                 </div>

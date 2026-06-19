@@ -11,7 +11,8 @@ export default function LocationBulkPanel({
     loading, 
     isExporting,
     isExportingFirmas = false,
-    exportStatus 
+    exportStatus,
+    exportDetail,
 }) {
     // ... resto del código igual a mi respuesta anterior (con los botones de modo) ...
     // Se mantiene la lógica de scope y unificationMode
@@ -196,6 +197,9 @@ export default function LocationBulkPanel({
                         </p>
                         {isExporting && exportStatus ? (
                             <p className="mt-1 opacity-80">{exportStatus}</p>
+                        ) : null}
+                        {isExporting && exportDetail ? (
+                            <p className="mt-0.5 opacity-70 text-[10px]">{exportDetail}</p>
                         ) : null}
                     </div>
                 )}

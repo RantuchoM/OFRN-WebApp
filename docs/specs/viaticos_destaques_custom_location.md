@@ -26,6 +26,12 @@ Permitir que el usuario defina un "Lugar de Comisión" específico para el proce
 - Si `lugar_comision_destaques_exportacion` está presente, se usa para todos los PDFs de destaques generados masivamente.
 - Si está vacío, se utiliza `config.lugar_comision` (el valor general de la gira).
 
+### Listado por localidad (DestaquesLocationPanel)
+
+- [x] Las localidades que son **sedes de la gira** (`giras_localidades` / `sedeIds` de `useLogistics`) se muestran al **final** del listado.
+- [x] El checkbox **Todas las localidades**: 1.er clic selecciona solo localidades **no sede**; 2.º clic agrega las sedes locales; 3.er clic deselecciona todo.
+- [x] Badge visual **Sede local** en grupos correspondientes.
+
 ## SQL
 
 ```sql

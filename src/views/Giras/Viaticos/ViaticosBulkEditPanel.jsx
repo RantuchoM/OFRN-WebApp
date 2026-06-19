@@ -74,6 +74,7 @@ export default function ViaticosBulkEditPanel({
   onSendEmails,
   isExporting,
   exportStatus,
+  exportDetail,
 }) {
   // ESTADOS DE VISTA: 'home' | 'edit' | 'export'
   const [currentView, setCurrentView] = useState("home");
@@ -654,8 +655,13 @@ export default function ViaticosBulkEditPanel({
               </button>
 
               {isExporting && (
-                <div className="mt-2 text-[10px] text-center text-amber-600 font-bold animate-pulse">
-                  {exportStatus || "Procesando..."}
+                <div className="mt-2 text-[10px] text-center text-amber-600 font-bold animate-pulse space-y-0.5">
+                  <div>{exportStatus || "Procesando..."}</div>
+                  {exportDetail ? (
+                    <div className="text-slate-500 font-medium normal-case">
+                      {exportDetail}
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>

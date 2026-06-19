@@ -12,10 +12,6 @@ import {
 import "./ViaticosSheet.css";
 import RenunciaViaticosExportOption from "./RenunciaViaticosExportOption";
 import {
-  calcDevolucionReintegro,
-  formatRendicionDiffUi,
-} from "../../../utils/rendicionDiff";
-import {
   canMergeTramoGroup,
   getTramoGroupRows,
   isTramoViaticoRow,
@@ -175,7 +171,7 @@ function AnticipoViaticoRendicionCell({
 }) {
   const anticipoVal = getAnticipoDisplay(row);
   const numRen = parseFloat(row.rendicion_viaticos || 0);
-  const { dev, reint } = calcDevolucionReintegro(anticipoVal, numRen);
+  const diff = anticipoVal - numRen;
 
   return (
     <div className="flex flex-col gap-1 justify-center h-full py-1">
@@ -196,20 +192,11 @@ function AnticipoViaticoRendicionCell({
         />
       </div>
       {showExpenses && (
-        <>
-          <div
-            className={`text-right text-[10px] border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${dev > 0 ? "text-red-600 font-black" : "text-slate-400 font-bold"}`}
-            title="Devolución"
-          >
-            {formatRendicionDiffUi(dev)}
-          </div>
-          <div
-            className={`text-right text-[10px] border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${reint > 0 ? "text-slate-800 font-black" : "text-slate-400 font-bold"}`}
-            title="Reintegro"
-          >
-            {formatRendicionDiffUi(reint)}
-          </div>
-        </>
+        <div
+          className={`text-right text-xs border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${diff < 0 ? "text-red-600 font-black" : "text-slate-500 font-bold"}`}
+        >
+          {diff !== 0 ? diff.toLocaleString("es-AR") : "-"}
+        </div>
       )}
     </div>
   );
@@ -449,7 +436,7 @@ export default function ViaticosTable({
 
     const numEst = parseFloat(estVal || 0);
     const numRen = parseFloat(renVal || 0);
-    const { dev, reint } = calcDevolucionReintegro(numEst, numRen);
+    const diff = numEst - numRen;
 
     return (
       <div className="flex flex-col gap-1 justify-center h-full py-1">
@@ -482,20 +469,11 @@ export default function ViaticosTable({
 
         {/* FILA DIFERENCIA (CLARA Y VISIBLE) */}
         {showExpenses && showRendiciones && (
-          <>
-            <div
-              className={`text-right text-[10px] border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${dev > 0 ? "text-red-600 font-black" : "text-slate-400 font-bold"}`}
-              title="Devolución"
-            >
-              {formatRendicionDiffUi(dev)}
-            </div>
-            <div
-              className={`text-right text-[10px] border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${reint > 0 ? "text-slate-800 font-black" : "text-slate-400 font-bold"}`}
-              title="Reintegro"
-            >
-              {formatRendicionDiffUi(reint)}
-            </div>
-          </>
+          <div
+            className={`text-right text-xs border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${diff < 0 ? "text-red-600 font-black" : "text-slate-500 font-bold"}`}
+          >
+            {diff !== 0 ? diff.toLocaleString("es-AR") : "-"}
+          </div>
         )}
       </div>
     );
@@ -511,7 +489,7 @@ export default function ViaticosTable({
       totalRen += parseFloat(row[c.ren] || 0);
     });
 
-    const { dev, reint } = calcDevolucionReintegro(totalEst, totalRen);
+    const diff = totalEst - totalRen;
 
     return (
       <div className="flex flex-col gap-1 justify-center h-full py-1 px-1">
@@ -529,20 +507,11 @@ export default function ViaticosTable({
         )}
         {/* Diferencia Final */}
         {showExpenses && showRendiciones && (
-          <>
-            <div
-              className={`text-right text-[10px] border border-slate-300 bg-white px-1 rounded-sm font-black ${dev > 0 ? "text-red-600" : "text-slate-400"}`}
-              title="Devolución"
-            >
-              {formatRendicionDiffUi(dev)}
-            </div>
-            <div
-              className={`text-right text-[10px] border border-slate-300 bg-white px-1 rounded-sm font-black ${reint > 0 ? "text-slate-800" : "text-slate-400"}`}
-              title="Reintegro"
-            >
-              {formatRendicionDiffUi(reint)}
-            </div>
-          </>
+          <div
+            className={`text-right text-xs border border-slate-300 bg-white px-1 rounded-sm font-black ${diff < 0 ? "text-red-600" : "text-slate-800"}`}
+          >
+            ${diff.toLocaleString("es-AR")}
+          </div>
         )}
       </div>
     );

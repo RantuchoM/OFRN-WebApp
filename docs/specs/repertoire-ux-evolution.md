@@ -219,6 +219,21 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 | `scripts/patch-arias-particellas.mjs` | Re-sync particellas + instrumentación desde Drive (14 obras ARIAS) |
 | `scripts/verify-arias-particellas.mjs` | Auditoría BD vs Drive |
 
+### Falla — Danza Española Nro 1 ('La Vida Breve') (2026-06-19)
+- Carpeta [Para acomodar / Falla](https://drive.google.com/open?id=16TvE6QokADJSSk9gpZXpP1D8GcrngIQS): 16 PDFs IMSLP → **26 particellas** canónicas.
+- Obra BD **id 3532** (`Danza Española Nro 1. 'La Vida Breve'`, Falla): sin particellas previas.
+- Proceso: dividir combinados (vientos/metales/perc), recortar portadas IMSLP, renombrar `Instrumento - S-N. Título - Falla, M.pdf`.
+- Instrumentación resultante: `3.3.3.1 - 2.1.1.1 - Timp.+2 - Hp - Key - Str`.
+
+| Script | Rol |
+|--------|-----|
+| `scripts/lib/fallaCatalog.mjs` | Manifiestos de páginas + metadata obra 3532 |
+| `scripts/process-falla-local.mjs` | Split/crop/rename en sync local `H:\...\Para acomodar` |
+| `scripts/generate-falla-sync.mjs` | Genera `supabase/seed_falla_sync.sql` |
+
+- [x] PDFs procesados y sincronizados a Drive con nombres canónicos
+- [x] Seed SQL generado (`seed_falla_sync.sql`) — pendiente ejecutar en Supabase
+
 ---
 
 ## 9. Gestión de particellas en WorkForm

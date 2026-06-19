@@ -65,6 +65,12 @@ import {
 } from "../../../utils/viaticosAnticipo";
 import { parseSupabasePublicStorageUrl } from "../../../utils/supabaseStorage";
 import { buildViaticosLogisticsMap } from "../../../utils/viaticosLogisticsSchedule";
+import {
+  collectMotivoLugarWarningsForExport,
+  formatMotivoLugarWarningMessage,
+  resolveLugarViaticosIndividual,
+  resolveMotivoViaticosIndividual,
+} from "../../../utils/viaticosExportMotivoLugar";
 
 const uint8ArrayToBase64 = (uint8Array) => {
   let binary = "";
@@ -259,6 +265,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     loading: rosterLoading,
     refresh: refreshLogistics,
     allEvents,
+    sedeIds,
   } = useLogistics(supabase, giraObj);
 
   const logisticsMap = useMemo(
@@ -365,6 +372,8 @@ export default function ViaticosManager({ supabase, giraId }) {
   /** Exportación viático 0%: anticipo como «RENUNCIA A VIÁTICOS» en PDF. */
   const [exportRenunciaViaticos, setExportRenunciaViaticos] = useState(true);
   const [showEmailConfirm, setShowEmailConfirm] = useState(false);
+  const [exportMotivoLugarConfirm, setExportMotivoLugarConfirm] = useState(null);
+  const pendingExportRef = useRef(null);
   const [notification, setNotification] = useState(null);
 
   const selectionHasViaticoCero = useMemo(
@@ -1318,6 +1327,41 @@ const collectTransportSupportDocs = (personData) => {
     setExportStatus("");
   };
 
+  const clearPendingExport = () => {
+    pendingExportRef.current = null;
+    setExportMotivoLugarConfirm(null);
+  };
+
+  const promptExportMotivoLugarIfNeeded = (
+    rawRows,
+    exportConfig,
+    options,
+    runExport,
+  ) => {
+    const issues = collectMotivoLugarWarningsForExport(
+      rawRows,
+      exportConfig,
+      options,
+    );
+    if (!issues.length) {
+      runExport();
+      return;
+    }
+    setIsExporting(false);
+    setExportStatus("");
+    setExportDetail("");
+    pendingExportRef.current = runExport;
+    setExportMotivoLugarConfirm({
+      message: formatMotivoLugarWarningMessage(issues),
+    });
+  };
+
+  const handleConfirmExportDespiteMotivoLugar = () => {
+    const run = pendingExportRef.current;
+    clearPendingExport();
+    run?.();
+  };
+
   const handleExportLocationBatch = async (
     peopleArray,
     folderId,
@@ -1329,8 +1373,9 @@ const collectTransportSupportDocs = (personData) => {
     const targetFolderId = folderId || config.link_drive;
     if (!targetFolderId) return toast.error("Carpeta Drive no configurada.");
 
-    setExportStatus("Preparando datos masivos...");
     setIsExporting(true);
+    setExportStatus("Preparando datos masivos...");
+    setExportDetail("");
 
     try {
       const addLocalityName = (map, id, name) => {
@@ -1570,11 +1615,48 @@ const collectTransportSupportDocs = (personData) => {
         return rich;
       });
 
-      await processExportList(
-        richData,
-        targetFolderId,
-        options,
-        locationIdOrIds,
+      const runBatchExport = async () => {
+        setIsExporting(true);
+        try {
+          await processExportList(
+            richData,
+            targetFolderId,
+            options,
+            locationIdOrIds,
+          );
+        } catch (err) {
+          console.error(err);
+          const msg = err?.message || String(err);
+          setExportFailureLog((prev) => [
+            ...prev,
+            {
+              ts: new Date().toISOString(),
+              personLabel: "(lote destaques)",
+              item: "Exportación masiva",
+              message: msg,
+            },
+          ]);
+          console.warn("[Export viáticos/destaques]", {
+            item: "Batch",
+            message: msg,
+          });
+          toast.error("Error batch: " + msg);
+        } finally {
+          setIsExporting(false);
+          setExportStatus("");
+          setExportDetail("");
+        }
+      };
+
+      promptExportMotivoLugarIfNeeded(
+        peopleArray,
+        config,
+        {
+          ...options,
+          isDestaquesBatch: true,
+          localityNameById: localityNameByIdForDestaques,
+        },
+        runBatchExport,
       );
     } catch (err) {
       console.error(err);
@@ -1584,26 +1666,23 @@ const collectTransportSupportDocs = (personData) => {
         {
           ts: new Date().toISOString(),
           personLabel: "(lote destaques)",
-          item: "Exportación masiva",
+          item: "Preparación exportación",
           message: msg,
         },
       ]);
-      console.warn("[Export viáticos/destaques]", { item: "Batch", message: msg });
-      toast.error("Error batch: " + msg);
-    } finally {
+      console.warn("[Export viáticos/destaques]", {
+        item: "Preparación",
+        message: msg,
+      });
+      toast.error("Error preparando exportación: " + msg);
       setIsExporting(false);
       setExportStatus("");
+      setExportDetail("");
     }
   };
 
-  const handleExportToDrive = async (options) => {
-    if (selection.size === 0) {
-      toast.error("Selecciona alguien.");
-      return;
-    }
-
-    // --- NORMALIZACIÓN DE DATOS (anticipo custom > histórico > calculado) ---
-    const selectedData = viaticosRows
+  const buildSelectedExportData = () =>
+    viaticosRows
       .filter((r) => selection.has(r.id))
       .map((row) => {
         const person = row.integrantes || {};
@@ -1623,27 +1702,21 @@ const collectTransportSupportDocs = (personData) => {
         const patenteOficialFromLogistics = String(logData?.patente || "").trim();
         const ciudadOrigen = resolveCiudadOrigenViaticos(person, row);
         const asientoHabitual = resolveAsientoHabitualViaticos(person, row);
-        const effectiveSubtotal = getAnticipoSubtotalForExport(row, useHistoricalCalc);
+        const effectiveSubtotal = getAnticipoSubtotalForExport(
+          row,
+          useHistoricalCalc,
+        );
         const totalFinalNorm = effectiveSubtotal + sumGastosViaticoRow(row);
         return {
           ...person,
           ...row,
           id: row.id,
-          motivo:
-            row.motivo && String(row.motivo).trim() !== ""
-              ? row.motivo
-              : config.motivo || "",
-          lugar_comision:
-            row.lugar_comision != null &&
-            String(row.lugar_comision).trim() !== ""
-              ? row.lugar_comision
-              : config.lugar_comision || "",
+          motivo: resolveMotivoViaticosIndividual(row, config),
+          lugar_comision: resolveLugarViaticosIndividual(row, config),
           subtotal: effectiveSubtotal,
           totalFinal: totalFinalNorm,
-          // En tabla la patente oficial visible viene de logística; si no hubo edición manual en el detalle, usamos ese valor al exportar.
           patente_oficial: patenteOficialFromRow || patenteOficialFromLogistics,
-          documentacion:
-            person.documentacion || row.documentacion,
+          documentacion: person.documentacion || row.documentacion,
           docred: person.docred || row.docred,
           link_declaracion:
             person.link_declaracion ||
@@ -1658,17 +1731,20 @@ const collectTransportSupportDocs = (personData) => {
         };
       });
 
-    let driveFolderId = config?.link_drive;
+  const handleExportToDrive = async (options) => {
+    if (selection.size === 0) {
+      toast.error("Selecciona alguien.");
+      return;
+    }
+
+    const rawRows = viaticosRows.filter((r) => selection.has(r.id));
+
+    const driveFolderId = config?.link_drive;
     if (!driveFolderId) {
       toast.error("Sin carpeta Drive");
       return;
     }
 
-    // Normalizar modo de unificación:
-    // - Si ya viene definido (por ejemplo, "location"), se respeta.
-    // - Si no viene definido, usamos el toggle del panel bulk:
-    //     unifyFiles = true  -> "master" (1 PDF unificado)
-    //     unifyFiles = false -> "individual" (PDF por persona)
     const normalizedOptions = {
       ...options,
       renuncia_viaticos: !!(options.renuncia_viaticos || exportRenunciaViaticos),
@@ -1677,18 +1753,36 @@ const collectTransportSupportDocs = (personData) => {
         (options.unifyFiles ? "master" : "individual"),
     };
 
-    setExportStatus("Exportando...");
-    setIsExporting(true);
-    try {
-      await processExportList(selectedData, driveFolderId, normalizedOptions, []);
-      setSelection(new Set());
-    } catch (e) {
-      console.error(e);
-      toast.error(e.message);
-    } finally {
-      setIsExporting(false);
-      setExportStatus("");
-    }
+    const selectedData = buildSelectedExportData();
+
+    const runExport = async () => {
+      setExportStatus("Exportando...");
+      setExportDetail("");
+      setIsExporting(true);
+      try {
+        await processExportList(
+          selectedData,
+          driveFolderId,
+          normalizedOptions,
+          [],
+        );
+        setSelection(new Set());
+      } catch (e) {
+        console.error(e);
+        toast.error(e.message);
+      } finally {
+        setIsExporting(false);
+        setExportStatus("");
+        setExportDetail("");
+      }
+    };
+
+    promptExportMotivoLugarIfNeeded(
+      rawRows,
+      config,
+      normalizedOptions,
+      runExport,
+    );
   };
 
   // --- FUNCIÓN DE EMAIL MASIVO ---
@@ -1840,6 +1934,16 @@ const collectTransportSupportDocs = (personData) => {
         title="Enviar Notificaciones"
         message={`Estás a punto de enviar ${selection.size} correos...`}
         confirmText="Enviar"
+      />
+      <ConfirmDialog
+        isOpen={!!exportMotivoLugarConfirm}
+        onClose={clearPendingExport}
+        onConfirm={handleConfirmExportDespiteMotivoLugar}
+        title="Motivo o lugar de comisión incompletos"
+        message={exportMotivoLugarConfirm?.message || ""}
+        confirmText="Exportar igual"
+        cancelText="Revisar"
+        overlayClassName="z-[110]"
       />
 
       {/* PANEL SUPERIOR: INDIVIDUALES */}
@@ -2268,6 +2372,7 @@ const collectTransportSupportDocs = (personData) => {
               showBackup={destaquesShowBackup}
               onSelectionToolbarChange={setDestaquesSelToolbar}
               roster={massiveRoster}
+              giraSedeLocalidadIds={sedeIds}
               configs={destaquesConfigs}
               destaquesGeneralConfig={destaquesGeneralConfig}
               globalConfig={config}
@@ -2301,6 +2406,26 @@ const collectTransportSupportDocs = (personData) => {
               <IconCheck size={14} strokeWidth={3} />
             </div>
             <span className="font-medium text-sm">{notification}</span>
+          </div>
+        </div>
+      )}
+
+      {isExporting && (
+        <div className="fixed bottom-6 left-1/2 z-[90] w-[min(92vw,28rem)] -translate-x-1/2 animate-in slide-in-from-bottom-4 fade-in duration-200">
+          <div className="rounded-xl border border-indigo-200 bg-white px-4 py-3 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <IconLoader className="shrink-0 animate-spin text-indigo-600" size={20} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-slate-800 truncate">
+                  {exportStatus || "Exportando..."}
+                </p>
+                {exportDetail ? (
+                  <p className="text-xs text-slate-500 mt-0.5 truncate">
+                    {exportDetail}
+                  </p>
+                ) : null}
+              </div>
+            </div>
           </div>
         </div>
       )}

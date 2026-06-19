@@ -24,7 +24,8 @@
   - Si rendido < anticipo → monto en **Devolución**, **$0,00** en Reintegro.
   - Si rendido > anticipo → **$0,00** en Devolución, monto en **Reintegro**.
   - Si rendido = anticipo → **$0,00** en ambas columnas.
-- [x] Util compartido `src/utils/rendicionDiff.js` usado en tabla giras, destaques, PDF y manual.
+- [x] Util compartido `src/utils/rendicionDiff.js` usado en **export PDF rendición**, `RendicionForm`, `RendicionesManual` y formularios de exportación.
+- [x] **ViaticosTable** y **DestaquesLocationPanel** mantienen una sola fila de **diferencia** (estimado − rendido) en la UI; el desglose devolución/reintegro aplica solo al PDF de rendición.
 
 ## 5. Exportación PDF
 - Invocar `exportViaticosToPDFForm` con `mode: 'rendicion'`.

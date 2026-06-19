@@ -36,13 +36,16 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bcontrafagot\b/i.test(name)) return "Contrafagot";
   if (/\boboe\s*2\b/i.test(name) && !/\boboe\s*1\b/i.test(name)) return "Oboe 2";
   if (/\boboe\s*1\b/i.test(name)) return "Oboe 1";
-  if (/\boboes?\b|\bob\b/i.test(name) && !/corno/i.test(name)) return "Oboe";
-  if (/\bcorno\s+ingles\b|\benglish\s+horn\b|\bcorno\s+inglés\b/i.test(name))
+  if (/\bcorno\s+ingles\b|\benglish\s+horn\b|\bcorno\s+inglés\b|\bob\s+eh\b/i.test(name))
     return "Ob EH";
+  if (/\boboes?\b|\bob\b/i.test(name) && !/corno/i.test(name) && !/\bob\s*eh\b/i.test(name))
+    return "Oboe";
   if (/\bclarinete\s+mib\s+piccolo\b|\bcl\s+piccolo\b/i.test(name))
     return "Cl Piccolo Eb";
   if (/\bclarinete\s+bajo\b|\bbass\s+clarinet\b/i.test(name))
     return "Clarinete Bajo";
+  if (/\bclarinete\s+a\s*2\b|\bcl\s+a\s*2\b/i.test(name)) return "Clarinete A 2";
+  if (/\bclarinete\s+a\s*1\b|\bcl\s+a\s*1\b/i.test(name)) return "Clarinete A 1";
   if (/\bclarinete\s+a\b|\bcl\s+a\b/i.test(name)) return "Clarinete A";
   if (/\bclarinete\s+(en\s+)?sib\s*2\b|\bcl\s*2\b|\bclarinet\s*2\b/i.test(name))
     return "Clarinete Bb 2";
@@ -71,6 +74,7 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\btrombón\s*1\b|\btrombone\s*1\b|\btrombones?\b|\btrombón\b|\btrombon\b/i.test(name))
     return "Trombón";
   if (/\btuba\b/i.test(name)) return "Tuba";
+  if (/\bglockenspiel\b|\bmetal[oó]fono\b/i.test(name)) return "Perc Glockenspiel";
   if (/\bmarimba\b/i.test(name)) return "Perc Marimba";
   if (/\btimpani\b|\btimbal\b|\btimbales\b|\bperc\s*timp\b/i.test(name))
     return "Perc Timbal";
@@ -88,7 +92,8 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bviolin\s*i\b|\bviolín\s*1\b|\bviolins?\s*i\b|\bviolin\s*1\b/i.test(name))
     return "Violín 1";
   if (/\bflauta\s*2\b|\bflute\s*2\b/i.test(name)) return "Flauta 2";
-  if (/\bflauta\s*1\b|\bflute\s*1\b|\bflutes?\b|\bflauta\b/i.test(name)) return "Flauta";
+  if (/\bflauta\s*1\b|\bflute\s*1\b/i.test(name)) return "Flauta 1";
+  if (/\bflutes?\b|\bflauta\b/i.test(name)) return "Flauta";
   if (/\bcontrabajo\s+y\s+vc\b|\bcontrabajo\s+y\s+violoncello\b/i.test(name))
     return "Contrabajo";
   if (/\bvioloncello\s+y\s+cb\b/i.test(name)) return "Violoncello";
