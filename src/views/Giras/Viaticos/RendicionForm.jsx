@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { calcDevolucionReintegro } from "../../../utils/rendicionDiff";
 import "./Rendicion.css";
 
 export default function RendicionForm({ data, configData }) {
@@ -18,10 +19,8 @@ export default function RendicionForm({ data, configData }) {
   };
 
   const calc = (ant, rend) => {
-    const a = parseFloat(ant || 0),
-      r = parseFloat(rend || 0),
-      d = r - a;
-    return { dev: d < 0 ? fM(Math.abs(d)) : "", rei: d > 0 ? fM(d) : "" };
+    const { dev, reint } = calcDevolucionReintegro(ant, rend);
+    return { dev: fM(dev), rei: fM(reint) };
   };
 
   // Anticipo viáticos: por defecto, cálculo (días * valor diario) pero editable.
@@ -68,8 +67,6 @@ export default function RendicionForm({ data, configData }) {
     data.rendicion_gastos_capacit,
     data.rendicion_transporte_otros,
   ].reduce((acc, v) => acc + parseFloat(v || 0), 0);
-
-  const diffTotal = totalRend - totalAnt;
 
   return (
     <div className="rendicion-wrapper">
@@ -392,9 +389,11 @@ export default function RendicionForm({ data, configData }) {
               <td className="s31">{fM(totalAnt)}</td>
               <td className="s31">{fM(totalRend)}</td>
               <td className="s32">
-                {diffTotal < 0 ? fM(Math.abs(diffTotal)) : ""}
+                {fM(calcDevolucionReintegro(totalAnt, totalRend).dev)}
               </td>
-              <td className="s32">{diffTotal > 0 ? fM(diffTotal) : ""}</td>
+              <td className="s32">
+                {fM(calcDevolucionReintegro(totalAnt, totalRend).reint)}
+              </td>
             </tr>
 
             {/* FILA 31: ESPACIO */}

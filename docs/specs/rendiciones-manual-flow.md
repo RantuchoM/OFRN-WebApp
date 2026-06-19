@@ -16,14 +16,18 @@
 - Objetivo: que la oficina pueda guardar el archivo y cargarlo semanas después en Rendiciones.
 
 ## 4. Lógica de Rendición Manual
-- Vista `RendicionesManual.jsx` debe incluir una tabla con 4 columnas:
-  - **Concepto**, **Anticipado**, **Rendido**, **Diferencia**.
+- Vista `RendicionesManual.jsx` debe incluir una tabla con columnas:
+  - **Concepto**, **Anticipado**, **Rendido**, **Devolución**, **Reintegro**.
 - Importación:
   - Botón **"Importar Viático (CSV)"** para precargar la columna **Anticipado**.
-- Diferencia:
-  - Si rendido < anticipo → **Devolución**
-  - Si rendido > anticipo → **Reintegro**
+- Devolución / Reintegro (mutuamente excluyentes; la columna sin saldo muestra **$0,00**):
+  - Si rendido < anticipo → monto en **Devolución**, **$0,00** en Reintegro.
+  - Si rendido > anticipo → **$0,00** en Devolución, monto en **Reintegro**.
+  - Si rendido = anticipo → **$0,00** en ambas columnas.
+- [x] Util compartido `src/utils/rendicionDiff.js` usado en tabla giras, destaques, PDF y manual.
 
 ## 5. Exportación PDF
 - Invocar `exportViaticosToPDFForm` con `mode: 'rendicion'`.
 - `firma` siempre se envía como `null`.
+- [x] En rendición, el anticipo de viáticos en **$0** se exporta como monto **$0,00** (no «RENUNCIA A VIÁTICOS»; esa leyenda solo aplica al PDF de **viático** al 0% si está marcada la opción).
+- [x] Columnas devolución/reintegro del PDF: placeholder **$0,00** en el lado sin saldo.

@@ -29,6 +29,10 @@ import {
     fetchEncargadoCuadroFirmas,
     toCuadroFirmasPerson,
 } from "../../../utils/destaquesCuadroFirmasPdf";
+import {
+    calcDevolucionReintegro,
+    formatRendicionDiffUi,
+} from "../../../utils/rendicionDiff";
 
 // --- UTILIDADES ---
 const formatDateVisual = (dateStr) => {
@@ -270,14 +274,20 @@ const LiveMassiveValuesForm = ({
 
     const granTotalEst = totalGastosEst + (isGeneral ? 0 : anticipoViaticoTotal);
     const granTotalRen = totalGastosRen + parseFloat(resolve("rendicion_viatico_monto") || 0);
-    const diffFinal = granTotalEst - granTotalRen;
+    const { dev: devFinal, reint: reintFinal } = calcDevolucionReintegro(
+        granTotalEst,
+        granTotalRen,
+    );
 
     const StackedCell = ({ expKey, renKey, isReadOnlyExp = false, forceExpValue = null }) => {
         const estVal = forceExpValue !== null ? forceExpValue : resolve(expKey);
         const renVal = resolve(renKey);
         const estFallback = !isReadOnlyExp && isFallbackField(expKey);
         const renFallback = isFallbackField(renKey);
-        const diff = (parseFloat(estVal || 0) - parseFloat(renVal || 0));
+        const { dev, reint } = calcDevolucionReintegro(
+            parseFloat(estVal || 0),
+            parseFloat(renVal || 0),
+        );
 
         return (
             <div className="flex flex-col gap-1 justify-center h-full py-1 min-w-[90px]">
@@ -296,8 +306,11 @@ const LiveMassiveValuesForm = ({
                     onCommit={(val) => handleCommit(renKey, val)}
                     className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 transition-colors ${getInputClass(locationId, renKey, feedback, "bg-emerald-50 text-emerald-900")}`}
                 />
-                <div className={`text-right text-[10px] border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${diff < 0 ? 'text-red-600 font-black' : 'text-slate-500 font-bold'}`}>
-                    {diff !== 0 ? formatCurrency(diff) : "-"}
+                <div className={`text-right text-[10px] border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${dev > 0 ? 'text-red-600 font-black' : 'text-slate-400 font-bold'}`} title="Devolución">
+                    {formatRendicionDiffUi(dev)}
+                </div>
+                <div className={`text-right text-[10px] border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${reint > 0 ? 'text-slate-800 font-black' : 'text-slate-400 font-bold'}`} title="Reintegro">
+                    {formatRendicionDiffUi(reint)}
                 </div>
             </div>
         );
@@ -604,8 +617,11 @@ const LiveMassiveValuesForm = ({
                                     <div className="text-right text-xs font-bold px-1 py-0.5 bg-emerald-100 text-emerald-900 rounded-sm">
                                         {formatCurrency(granTotalRen)}
                                     </div>
-                                    <div className={`text-right text-xs border border-slate-300 bg-white px-1 rounded-sm font-black ${diffFinal < 0 ? 'text-red-600' : 'text-slate-800'}`}>
-                                        {formatCurrency(diffFinal)}
+                                    <div className={`text-right text-[10px] border border-slate-300 bg-white px-1 rounded-sm font-black ${devFinal > 0 ? 'text-red-600' : 'text-slate-400'}`} title="Devolución">
+                                        {formatRendicionDiffUi(devFinal)}
+                                    </div>
+                                    <div className={`text-right text-[10px] border border-slate-300 bg-white px-1 rounded-sm font-black ${reintFinal > 0 ? 'text-slate-800' : 'text-slate-400'}`} title="Reintegro">
+                                        {formatRendicionDiffUi(reintFinal)}
                                     </div>
                                 </div>
                             </td>

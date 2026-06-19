@@ -126,15 +126,7 @@ const parseCsv = (text) => {
   return rows;
 };
 
-const calcDiff = (ant, rend) => {
-  const a = toNumber(ant);
-  const r = toNumber(rend);
-  const diff = r - a;
-  return {
-    dev: diff < 0 ? Math.abs(diff) : 0,
-    reint: diff > 0 ? diff : 0,
-  };
-};
+import { calcDevolucionReintegro } from "../../utils/rendicionDiff";
 
 const DEFAULT_BASE = {
   apellido: "",
@@ -1346,10 +1338,10 @@ export default function RendicionesManual() {
                           />
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-slate-700">
-                          {dev > 0 ? fmtMoneyPreview(dev) : "—"}
+                          {fmtMoneyPreview(dev)}
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-slate-700">
-                          {reint > 0 ? fmtMoneyPreview(reint) : "—"}
+                          {fmtMoneyPreview(reint)}
                         </td>
                       </tr>
                     );
@@ -1367,10 +1359,10 @@ export default function RendicionesManual() {
                       {fmtMoneyPreview(totals.totalRend)}
                     </td>
                     <td className="px-4 py-3 text-right font-black text-slate-800">
-                      {totals.dev > 0 ? fmtMoneyPreview(totals.dev) : "—"}
+                      {fmtMoneyPreview(totals.dev)}
                     </td>
                     <td className="px-4 py-3 text-right font-black text-slate-800">
-                      {totals.reint > 0 ? fmtMoneyPreview(totals.reint) : "—"}
+                      {fmtMoneyPreview(totals.reint)}
                     </td>
                   </tr>
                 </tfoot>

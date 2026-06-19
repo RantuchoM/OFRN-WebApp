@@ -1,6 +1,7 @@
 import { PDFArray, PDFBool, PDFDocument, PDFName, PDFNumber, PDFString } from "pdf-lib";
 import { saveAs } from "file-saver";
 import { firstMondayAfter, formatDdMmYy, formatDdMmYyyy } from "./dates";
+import { calcDevolucionReintegroForExport } from "./rendicionDiff";
 import {
   getAnticipoSubtotalForExport,
   resolveAnticipoParaPdfViatico,
@@ -161,23 +162,8 @@ const fmtTime = (timeStr) => {
   return timeStr.substring(0, 5);
 };
 
-// Calcula Devolución (negativo) o Reintegro (positivo)
-// En exportación editable queremos números crudos (sin $ ni formato local).
-const calcDiff = (ant, rend, keepEditable = false) => {
-  const a = parseFloat(ant || 0);
-  const r = parseFloat(rend || 0);
-  const diff = r - a;
-  const raw = (n) => {
-    const num = Number(n);
-    if (!Number.isFinite(num)) return "";
-    return String(num);
-  };
-
-  return {
-    dev: diff < 0 ? (keepEditable ? raw(Math.abs(diff)) : fmtMoney(Math.abs(diff))) : "",
-    reint: diff > 0 ? (keepEditable ? raw(diff) : fmtMoney(diff)) : "",
-  };
-};
+const calcDiff = (ant, rend, keepEditable = false) =>
+  calcDevolucionReintegroForExport(ant, rend, keepEditable, fmtMoney);
 
 export const sumRendicion = (data) => {
   // Orden y campos alineados con ViaticosTable: Movilidad→transporte_otros, Otros→gasto_otros, etc.
@@ -227,14 +213,16 @@ export const exportViaticosToPDFForm = async (
       mode === "destaque"
         ? rawData
         : (() => {
-            const sub = resolveAnticipoParaPdfViatico(
-              rawData,
-              useHistorical,
-              !!configData?.renuncia_viaticos,
-            );
+            const subNum = getAnticipoSubtotalForExport(rawData, useHistorical);
+            const sub =
+              mode === "rendicion"
+                ? subNum
+                : resolveAnticipoParaPdfViatico(
+                    rawData,
+                    useHistorical,
+                    !!configData?.renuncia_viaticos,
+                  );
             const gastos = sumGastosViaticoRow(rawData);
-            const subNum =
-              typeof sub === "string" ? 0 : getAnticipoSubtotalForExport(rawData, useHistorical);
             const totalFinal =
               Math.round((subNum + gastos + Number.EPSILON) * 100) / 100;
             return { ...rawData, subtotal: sub, totalFinal };
