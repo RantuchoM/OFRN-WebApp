@@ -337,10 +337,10 @@ const MobileSeatingTable = ({
     return parts[parts.length - 1].toUpperCase();
   };
 
-  const getFirstWord = (title) => {
+  const getCompactTitle = (title) => {
     if (!title) return "";
     const clean = title.replace(/<[^>]*>?/gm, "");
-    return clean.split(" ")[0];
+    return clean.replace(/\s+/g, " ").trim();
   };
 
   const getPartName = (partId) => {
@@ -409,8 +409,8 @@ const MobileSeatingTable = ({
                         <span className="text-[8px] text-slate-400 font-normal truncate block">
                           {getShortComposer(obra.composer)}
                         </span>
-                        <span className="text-[10px] font-bold text-white truncate mt-0.5 block">
-                          {getFirstWord(obra.title)}
+                        <span className="text-[10px] font-bold text-white truncate mt-0.5 block max-w-[78px] mx-auto">
+                          {getCompactTitle(obra.title)}
                         </span>
                       </button>
                       {isEditor && (
@@ -432,8 +432,10 @@ const MobileSeatingTable = ({
                               : "Editar seating de esta obra"
                           }
                         >
-                          <IconEdit size={8} />
-                          {isEditingThisWork ? "Listo" : "Editar"}
+                          <IconEdit size={10} />
+                          <span className="sr-only">
+                            {isEditingThisWork ? "Cerrar edición" : "Editar"}
+                          </span>
                         </button>
                       )}
                     </div>

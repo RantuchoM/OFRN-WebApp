@@ -12,7 +12,7 @@ Permitir que cualquier músico marcado con el rol de `solista` en la gira pueda 
 6. **Mis Partes**: Si una persona tiene doble asignación individual en una obra, ambas partes se muestran en `Mis Partes` y sus enlaces quedan disponibles para descarga.
 7. **Menú móvil de Seating**: Los controles superiores de Seating en móvil se agrupan dentro de un desplegable `Menú Seating` ubicado junto al título; cada acción debe mostrar icono y texto, incluyendo el acceso al comparativo de Seating.
 8. **Numeración ZIP de Mis Partes**: La descarga masiva usa el orden real de concierto como prefijo (`01`, `02`, `04`, etc.). Si una obra tiene doble asignación descargable, sus archivos se nombran con sufijos `a`/`b` sobre el mismo número de obra (`04a`, `04b`).
-9. **Compacidad móvil**: La vista móvil prioriza el área de la tabla; dobles partes en una celda se muestran compactas en una sola línea (`Ob 1+Ob EH`) y los controles superiores no deben ocupar una fila completa adicional.
+9. **Compacidad móvil**: La vista móvil prioriza el área de la tabla; dobles partes en una celda se muestran compactas en una sola línea (`Ob 1+Ob EH`), los títulos de obra muestran todo lo que entra antes de truncarse y el botón de edición por obra se muestra solo como lápiz.
 
 ### Criterios de Aceptación
 - Un violín con `rol_gira === "solista"` aparece listado en la tabla inferior (“Vientos, Percusión y Solistas”).
@@ -23,4 +23,5 @@ Permitir que cualquier músico marcado con el rol de `solista` en la gira pueda 
 - En móvil, los controles superiores de Seating están dentro del desplegable `Menú Seating` con texto visible para cada acción y acceso al comparativo.
 - En el ZIP de `Mis Partes`, la numeración salta obras no tocadas y las dobles asignaciones usan `a`/`b`.
 - En la tabla móvil de Seating, una doble parte no se parte en dos líneas.
+- En la cabecera móvil de obras, no se limita el título a la primera palabra; se trunca por ancho disponible.
 
