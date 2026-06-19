@@ -65,3 +65,10 @@ Optimizar la interfaz de Auditoría de Instrumentación para mejorar la densidad
 | IconFolder → link_drive              | Sí     |
 | Tooltips Conv con nombres            | Sí     |
 | IDs integrantes como integers        | Sí (ya en uso en fetch/roster) |
+
+### 9. Optimización de carga (2026-06)
+- **Filtro en servidor**: `programas` se consulta con `tipo`, `fecha_desde`/`fecha_hasta` según los filtros de la UI (no se trae el histórico completo al abrir la pestaña).
+- **Tipos de programa**: query ligera única (`select tipo`) para poblar el `<select>` sin depender del lote filtrado.
+- **Roster lite**: `fetchRosterForGira(..., { lite: true, instrumentCatalog })` — select mínimo de integrantes, sin segmentos/`is_local`, catálogo de instrumentos compartido entre todas las giras (1 query en lugar de N).
+- **Particellas**: chunks de 80 obras en paralelo (`Promise.all`) en lugar de lotes secuenciales de 10.
+- **Deuda**: el roster sigue resolviéndose gira a gira (`giras_fuentes`, ensambles, overrides). Un batch único por lote de IDs reduciría aún más latencia si el volumen crece.

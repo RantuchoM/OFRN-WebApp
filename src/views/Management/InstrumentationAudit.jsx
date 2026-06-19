@@ -682,6 +682,7 @@ export default function InstrumentationAudit({ supabase }) {
   const [loading, setLoading] = useState(false);
   const [programs, setPrograms] = useState([]);
   const [instrumentsCatalog, setInstrumentsCatalog] = useState([]);
+  const [programTypeOptions, setProgramTypeOptions] = useState([]);
   const [selectedType, setSelectedType] = useState("Sinfónico");
   const [expandedIds, setExpandedIds] = useState(() => new Set());
   const [dateFrom, setDateFrom] = useState(
@@ -762,21 +763,55 @@ export default function InstrumentationAudit({ supabase }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [excessModal]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("programas")
+        .select("tipo")
+        .not("tipo", "is", null);
+      if (cancelled) return;
+      const tipos = [
+        ...new Set((data || []).map((p) => p.tipo).filter(Boolean)),
+      ].sort((a, b) => a.localeCompare(b));
+      setProgramTypeOptions(tipos);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
+
   const fetchProgramsData = useCallback(async () => {
       setLoading(true);
       try {
-        const { data: instRows } = await supabase
+        const { data: catalogRows } = await supabase
           .from("instrumentos")
-          .select("id, instrumento")
+          .select("id, instrumento, familia, plaza_extra, rol_gira_default")
           .order("instrumento");
-        setInstrumentsCatalog(instRows || []);
+        setInstrumentsCatalog(catalogRows || []);
 
-        const { data: programRows, error: progError } = await supabase
+        let programQuery = supabase
           .from("programas")
           .select(
             "id, nombre_gira, nomenclador, mes_letra, fecha_desde, fecha_hasta, tipo, zona, organico_revisado, organico_comentario, notificaciones_habilitadas, notificacion_inicial_enviada",
           )
           .order("fecha_desde", { ascending: true });
+
+        if (selectedType) {
+          programQuery = programQuery.eq("tipo", selectedType);
+        }
+        if (dateFrom) {
+          programQuery = programQuery.or(
+            `fecha_hasta.gte.${dateFrom},fecha_desde.gte.${dateFrom}`,
+          );
+        }
+        if (dateTo) {
+          programQuery = programQuery.or(
+            `fecha_desde.lte.${dateTo},fecha_hasta.lte.${dateTo}`,
+          );
+        }
+
+        const { data: programRows, error: progError } = await programQuery;
         if (progError) throw progError;
 
         const basePrograms = programRows || [];
@@ -821,16 +856,24 @@ export default function InstrumentationAudit({ supabase }) {
         let allParticellas = [];
         const obraIds = [...obraIdSet];
         if (obraIds.length > 0) {
-          for (let i = 0; i < obraIds.length; i += 10) {
-            const chunk = obraIds.slice(i, i + 10);
-            const { data } = await supabase
-              .from("obras_particellas")
-              .select(
-                "id, id_obra, nombre_archivo, id_instrumento, instrumentos(id, instrumento, abreviatura)",
-              )
-              .in("id_obra", chunk);
-            if (data) allParticellas = [...allParticellas, ...data];
+          const chunkSize = 80;
+          const chunks = [];
+          for (let i = 0; i < obraIds.length; i += chunkSize) {
+            chunks.push(obraIds.slice(i, i + chunkSize));
           }
+          const particellaResults = await Promise.all(
+            chunks.map((chunk) =>
+              supabase
+                .from("obras_particellas")
+                .select(
+                  "id, id_obra, nombre_archivo, id_instrumento, instrumentos(id, instrumento, abreviatura)",
+                )
+                .in("id_obra", chunk),
+            ),
+          );
+          particellaResults.forEach(({ data }) => {
+            if (data) allParticellas = [...allParticellas, ...data];
+          });
           allParticellas.forEach((part) => {
             const oid = part.id_obra;
             if (!particellasByObra[oid]) particellasByObra[oid] = [];
@@ -867,12 +910,18 @@ export default function InstrumentationAudit({ supabase }) {
         const rosterByProgram = {};
         const sourcesByProgram = {};
         if (basePrograms.length > 0) {
+          const rosterOptions = {
+            instrumentCatalog: catalogRows || [],
+            lite: true,
+          };
+
           const results = await Promise.all(
             basePrograms.map(async (prog) => {
               try {
                 const { roster, sources } = await fetchRosterForGira(
                   supabase,
                   prog,
+                  rosterOptions,
                 );
                 return {
                   id: prog.id,
@@ -967,7 +1016,7 @@ export default function InstrumentationAudit({ supabase }) {
       } finally {
         setLoading(false);
       }
-  }, [supabase]);
+  }, [supabase, selectedType, dateFrom, dateTo]);
 
   useEffect(() => {
     fetchProgramsData();
@@ -1148,23 +1197,17 @@ export default function InstrumentationAudit({ supabase }) {
     [supabase, instrumentsCatalog, fetchProgramsData],
   );
 
-  const programTypeOptions = useMemo(() => {
-    const tipos = new Set();
-    programs.forEach((p) => {
-      if (p.tipo) tipos.add(p.tipo);
-    });
-    return Array.from(tipos)
-      .sort((a, b) => a.localeCompare(b))
-      .map((tipo) => ({
+  const programTypeSelectOptions = useMemo(
+    () =>
+      programTypeOptions.map((tipo) => ({
         id: tipo,
         label: tipo,
-      }));
-  }, [programs]);
+      })),
+    [programTypeOptions],
+  );
 
   const filteredPrograms = useMemo(() => {
     return programs.filter((p) => {
-      if (selectedType && p.tipo !== selectedType) return false;
-
       const progFrom = p.fecha_desde || p.fecha_hasta || null;
       const progTo = p.fecha_hasta || p.fecha_desde || null;
 
@@ -1173,7 +1216,7 @@ export default function InstrumentationAudit({ supabase }) {
 
       return true;
     });
-  }, [programs, selectedType, dateFrom, dateTo]);
+  }, [programs, dateFrom, dateTo]);
 
   const toggleExpanded = (id) => {
     setExpandedIds((prev) => {
@@ -1226,10 +1269,10 @@ export default function InstrumentationAudit({ supabase }) {
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value)}
           >
-            {programTypeOptions.length === 0 && (
+            {programTypeSelectOptions.length === 0 && (
               <option value="Sinfónico">Sinfónico</option>
             )}
-            {programTypeOptions.map((opt) => (
+            {programTypeSelectOptions.map((opt) => (
               <option key={opt.id} value={opt.id}>
                 {opt.label}
               </option>

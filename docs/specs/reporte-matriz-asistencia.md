@@ -53,5 +53,6 @@ No se requieren tablas nuevas; se sugiere una vista para optimizar la carga de l
 | Ubicación: **Gestión** (`?tab=management`) → pestaña **Convocatorias** | Completado |
 | Agregación de datos en `fetchAsistenciaMatrixBaseData` (`src/services/giraService.js`) | Completado |
 | Overrides `giras_integrantes.id_instr` + instrumento efectivo en matriz/export | Completado |
+| Panel lateral: chevron `IconChevronDown` (rotación), contador seleccionados por ensamble, filas con hover | Completado |
 
 **Nota:** El orden orquestal de filas usa `id_instr` como texto (`localeCompare` numérico), no `parseInt`. La analítica de partituras sigue en `src/utils/instrumentation.js`.

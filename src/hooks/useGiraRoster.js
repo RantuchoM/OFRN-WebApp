@@ -13,12 +13,29 @@ import {
 import { fetchGiraSegmentosBundle } from "../services/giraSegmentosService";
 import { resolvePersonIsLocal } from "../utils/giraTramos";
 
+const INTEGRANTES_SELECT_FULL = `id, nombre, apellido, fecha_alta, fecha_baja, condicion, telefono, mail, alimentacion, es_simulacion, id_instr,
+           id_localidad, id_loc_viaticos, id_domicilio_laboral, documentacion, docred, firma, nota_interna, cargo, jornada, motivo,
+           dni, fecha_nac, genero, cuil,
+           link_dni_img, link_cuil, link_cbu_img, link_declaracion, link_carnet,
+           instrumentos(instrumento, familia, plaza_extra, rol_gira_default),
+           residencia:localidades!id_localidad(id, localidad, id_region, regiones(region)),
+           viaticos:localidades!id_loc_viaticos(id, localidad, id_region, regiones(region)),
+           integrantes_ensambles(id, id_ensamble, fecha_desde, fecha_hasta, ensambles(id, ensamble))`;
+
+const INTEGRANTES_SELECT_LITE = `id, nombre, apellido, fecha_alta, fecha_baja, es_simulacion, id_instr, mail,
+           instrumentos(instrumento, familia, rol_gira_default),
+           integrantes_ensambles(id, id_ensamble, fecha_desde, fecha_hasta, ensambles(id, ensamble))`;
+
 /**
  * Obtiene el roster completo de una gira (fuentes + overrides + lógica de negocio).
  * Reutilizable desde el hook useGiraRoster y desde handleDeleteGira (notificación de baja).
+ * @param {object} [options]
+ * @param {Array} [options.instrumentCatalog] Catálogo precargado (evita N queries repetidas).
+ * @param {boolean} [options.lite] Select mínimo de integrantes; omite segmentos e is_local.
  * @returns {Promise<{ roster: Array, sources: Array }>}
  */
-export async function fetchRosterForGira(supabase, gira) {
+export async function fetchRosterForGira(supabase, gira, options = {}) {
+  const { instrumentCatalog: cachedCatalog = null, lite = false } = options;
   if (!gira?.id) return { roster: [], sources: [] };
 
   let programRefDesde = gira.fecha_desde ?? null;
@@ -57,10 +74,14 @@ export async function fetchRosterForGira(supabase, gira) {
     .eq("id_gira", gira.id);
   if (errOverrides) throw errOverrides;
 
-  const { data: instrumentCatalog, error: errCatalog } = await supabase
-    .from("instrumentos")
-    .select("id, instrumento, familia, plaza_extra, rol_gira_default");
-  if (errCatalog) throw errCatalog;
+  let instrumentCatalog = cachedCatalog;
+  if (!instrumentCatalog) {
+    const { data, error: errCatalog } = await supabase
+      .from("instrumentos")
+      .select("id, instrumento, familia, plaza_extra, rol_gira_default");
+    if (errCatalog) throw errCatalog;
+    instrumentCatalog = data;
+  }
 
   const overrideMap = {};
   overrides?.forEach((o) => {
@@ -128,20 +149,13 @@ export async function fetchRosterForGira(supabase, gira) {
   const chunks = [];
   for (let i = 0; i < allIds.length; i += chunkSize) chunks.push(allIds.slice(i, i + chunkSize));
 
+  const integrantesSelect = lite ? INTEGRANTES_SELECT_LITE : INTEGRANTES_SELECT_FULL;
+
   const musiciansResults = await Promise.all(
     chunks.map((chunk) =>
       supabase
         .from("integrantes")
-        .select(
-          `id, nombre, apellido, fecha_alta, fecha_baja, condicion, telefono, mail, alimentacion, es_simulacion, id_instr,
-           id_localidad, id_loc_viaticos, id_domicilio_laboral, documentacion, docred, firma, nota_interna, cargo, jornada, motivo,
-           dni, fecha_nac, genero, cuil,
-           link_dni_img, link_cuil, link_cbu_img, link_declaracion, link_carnet,
-           instrumentos(instrumento, familia, plaza_extra, rol_gira_default),
-           residencia:localidades!id_localidad(id, localidad, id_region, regiones(region)),
-           viaticos:localidades!id_loc_viaticos(id, localidad, id_region, regiones(region)),
-           integrantes_ensambles(id, id_ensamble, fecha_desde, fecha_hasta, ensambles(id, ensamble))`
-        )
+        .select(integrantesSelect)
         // chunk son claves string unificadas; PostgREST acepta string para bigint
         .in(
           "id",
@@ -156,17 +170,20 @@ export async function fetchRosterForGira(supabase, gira) {
     if (res.data) musicians = [...musicians, ...res.data];
   }
 
-  const { data: tourLocs } = await supabase
-    .from("giras_localidades")
-    .select("id_localidad")
-    .eq("id_gira", gira.id);
-  const tourLocSet = new Set(tourLocs?.map((l) => l.id_localidad));
-
+  let tourLocSet = new Set();
   let segmentBundle = { segments: [], cortesCount: 0 };
-  try {
-    segmentBundle = await fetchGiraSegmentosBundle(supabase, gira.id, gira);
-  } catch (segmentErr) {
-    console.warn("fetchGiraSegmentosBundle:", segmentErr?.message);
+  if (!lite) {
+    const { data: tourLocs } = await supabase
+      .from("giras_localidades")
+      .select("id_localidad")
+      .eq("id_gira", gira.id);
+    tourLocSet = new Set(tourLocs?.map((l) => l.id_localidad));
+
+    try {
+      segmentBundle = await fetchGiraSegmentosBundle(supabase, gira.id, gira);
+    } catch (segmentErr) {
+      console.warn("fetchGiraSegmentosBundle:", segmentErr?.message);
+    }
   }
 
   const giraInicio = gira.fecha_desde ? new Date(gira.fecha_desde) : new Date();
@@ -181,21 +198,30 @@ export async function fetchRosterForGira(supabase, gira) {
     const isExcluded = excludedIds.has(id);
     const isBaseIncluded = baseIncludedIds.has(id);
 
-    const locEfectiva = resolveLocalidadEfectivaViaticos(m);
-    const localidadEfectiva = locEfectiva.objeto;
     const ieForProgram = filterMembershipRowsForProgramDate(
       m.integrantes_ensambles,
       programRefDesde,
     );
-    const processedMember = {
-      ...m,
-      localidades: localidadEfectiva,
-      nombre_completo: `${m.apellido}, ${m.nombre}`,
-      _loc_residencia: m.residencia,
-      _loc_viaticos: m.viaticos,
-      integrantes_ensambles: ieForProgram,
-      ensambles: ieForProgram.map((ie) => ie.ensambles).filter(Boolean),
-    };
+    const processedMember = lite
+      ? {
+          ...m,
+          nombre_completo: `${m.apellido}, ${m.nombre}`,
+          integrantes_ensambles: ieForProgram,
+          ensambles: ieForProgram.map((ie) => ie.ensambles).filter(Boolean),
+        }
+      : (() => {
+          const locEfectiva = resolveLocalidadEfectivaViaticos(m);
+          const localidadEfectiva = locEfectiva.objeto;
+          return {
+            ...m,
+            localidades: localidadEfectiva,
+            nombre_completo: `${m.apellido}, ${m.nombre}`,
+            _loc_residencia: m.residencia,
+            _loc_viaticos: m.viaticos,
+            integrantes_ensambles: ieForProgram,
+            ensambles: ieForProgram.map((ie) => ie.ensambles).filter(Boolean),
+          };
+        })();
 
     let keep = false;
     let estadoReal = "confirmado";
@@ -228,11 +254,13 @@ export async function fetchRosterForGira(supabase, gira) {
     }
 
     if (keep) {
-      const isLocal = resolvePersonIsLocal(processedMember, {
-        segments: segmentBundle.segments,
-        tourLocSet,
-        cortesCount: segmentBundle.cortesCount,
-      });
+      const isLocal = lite
+        ? false
+        : resolvePersonIsLocal(processedMember, {
+            segments: segmentBundle.segments,
+            tourLocSet,
+            cortesCount: segmentBundle.cortesCount,
+          });
       const enGirasIntegrantes = manualIds.has(id);
       const withEffectiveInstrument = applyEffectiveGiraInstrument(
         processedMember,

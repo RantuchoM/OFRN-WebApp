@@ -30,7 +30,7 @@ import {
   buildMatrixIntegranteInstrumentDisplay,
   compareInstrumentIds,
 } from "../../utils/giraUtils";
-import { IconDownload, IconHistory } from "../../components/ui/Icons";
+import { IconChevronDown, IconDownload, IconHistory } from "../../components/ui/Icons";
 
 function startOfToday() {
   return startOfDay(new Date());
@@ -534,16 +534,16 @@ export default function AsistenciaMatrixReport({ supabase }) {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 lg:flex-row">
-        <aside className="flex w-full shrink-0 flex-col gap-3 overflow-auto rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900 lg:max-w-sm">
+        <aside className="flex w-full shrink-0 flex-col gap-4 overflow-auto rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:max-w-sm">
           <div>
-            <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <h2 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               Tipo de programa
             </h2>
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-0.5 rounded-lg border border-slate-100 bg-slate-50/60 p-1 dark:border-slate-800 dark:bg-slate-800/40">
               {TIPOS_PROGRAMA_ASISTENCIA_MATRIZ.map((tipo) => (
                 <label
                   key={tipo}
-                  className="flex cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-300"
+                  className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-slate-700 transition-colors hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800"
                 >
                   <input
                     type="checkbox"
@@ -551,35 +551,38 @@ export default function AsistenciaMatrixReport({ supabase }) {
                     onChange={() => toggleType(tipo)}
                     className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                   />
-                  {tipo}
+                  <span className="leading-tight">{tipo}</span>
                 </label>
               ))}
             </div>
           </div>
 
-          <div className="border-t border-slate-100 pt-2 dark:border-slate-800">
+          <div className="border-t border-slate-100 pt-3 dark:border-slate-800">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <h2 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                 Ensambles e integrantes
               </h2>
-              <div className="flex gap-1.5">
+              <div className="flex gap-1">
                 <button
                   type="button"
                   onClick={selectAllIntegrantes}
-                  className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                  className="rounded-md px-2 py-0.5 text-[10px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/50"
                 >
                   Todos
                 </button>
+                <span className="text-slate-200 dark:text-slate-700" aria-hidden>
+                  |
+                </span>
                 <button
                   type="button"
                   onClick={clearAllIntegrantes}
-                  className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                  className="rounded-md px-2 py-0.5 text-[10px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
                 >
                   Ninguno
                 </button>
               </div>
             </div>
-            <div className="max-h-[40vh] space-y-1 overflow-y-auto pr-1 lg:max-h-none">
+            <div className="max-h-[40vh] space-y-1 overflow-y-auto pr-0.5 lg:max-h-none">
               {ensambles.map((en) => {
                 const eid = Number(en.id);
                 const memberIds = membershipsByEnsamble.get(eid) || [];
@@ -588,16 +591,32 @@ export default function AsistenciaMatrixReport({ supabase }) {
                 const allOn = memberIds.every((id) =>
                   selectedIntegranteIds.has(id),
                 );
+                const selectedCount = memberIds.filter((id) =>
+                  selectedIntegranteIds.has(id),
+                ).length;
                 return (
-                  <div key={eid} className="rounded border border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center gap-1 bg-slate-50 px-2 py-1.5 dark:bg-slate-800/80">
+                  <div
+                    key={eid}
+                    className="overflow-hidden rounded-lg border border-slate-100 dark:border-slate-800"
+                  >
+                    <div className="flex items-center gap-1 bg-slate-50/80 px-1.5 py-1 dark:bg-slate-800/50">
                       <button
                         type="button"
                         onClick={() => toggleEnsambleOpen(eid)}
-                        className="w-5 shrink-0 text-slate-500"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
                         aria-expanded={open}
+                        aria-label={
+                          open
+                            ? `Contraer ${en.ensamble || eid}`
+                            : `Expandir ${en.ensamble || eid}`
+                        }
                       >
-                        {open ? "▼" : "▶"}
+                        <IconChevronDown
+                          size={14}
+                          className={`shrink-0 transition-transform duration-200 ${
+                            open ? "rotate-0" : "-rotate-90"
+                          }`}
+                        />
                       </button>
                       <input
                         ref={(el) => {
@@ -608,12 +627,15 @@ export default function AsistenciaMatrixReport({ supabase }) {
                         onChange={() => toggleEnsambleMembers(eid, memberIds)}
                         className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                       />
-                      <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800 dark:text-slate-200">
                         {en.ensamble || `Ensamble ${eid}`}
+                      </span>
+                      <span className="shrink-0 pr-1 text-[10px] tabular-nums text-slate-400 dark:text-slate-500">
+                        {selectedCount}/{memberIds.length}
                       </span>
                     </div>
                     {open && (
-                      <div className="space-y-0.5 border-t border-slate-100 py-1 pl-7 dark:border-slate-800">
+                      <div className="space-y-0.5 border-t border-slate-100 py-1 pl-3 dark:border-slate-800">
                         {memberIds.map((iid) => {
                           const p = integranteById.get(iid);
                           if (!p) return null;
@@ -621,7 +643,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
                           return (
                             <label
                               key={`${eid}-${iid}`}
-                              className="flex cursor-pointer items-center gap-2 py-0.5 text-sm text-slate-600 dark:text-slate-400"
+                              className="flex cursor-pointer items-center gap-2.5 rounded-md py-1 pl-6 pr-2 text-sm text-slate-600 transition-colors hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800/60"
                             >
                               <input
                                 type="checkbox"
@@ -629,7 +651,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
                                 onChange={() => toggleIntegrante(iid)}
                                 className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                               />
-                              {label}
+                              <span className="truncate leading-tight">{label}</span>
                             </label>
                           );
                         })}
