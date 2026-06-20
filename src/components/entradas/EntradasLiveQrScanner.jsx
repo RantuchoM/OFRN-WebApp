@@ -219,7 +219,7 @@ export default function EntradasLiveQrScanner({
 
         {status === "scanning" && (
           <p className="relative z-10 mt-auto px-4 pb-2 text-center text-xs text-white/80">
-            Apuntá al código QR. Se lee solo al detectarlo.
+            Apuntá al código QR. El ingreso se registra al detectarlo.
           </p>
         )}
       </div>

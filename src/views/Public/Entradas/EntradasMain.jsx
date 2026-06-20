@@ -64,6 +64,9 @@ import {
   lugarNombreDesdeConciertoEntrada,
   listarRecordatoriosAperturaConciertoIds,
   previewEntradaQr,
+  recepcionAnularEntradas,
+  recepcionCancelarReserva,
+  recepcionRevertirIngresos,
   suscribirRecordatorioApertura,
   tokenToQrDataUrl,
   validarYConsumirQr,
@@ -337,6 +340,18 @@ function conciertoEnVentanaCatalogoDosSemanas(concierto, inicioDiaHoy, finDiaVen
   return t >= inicioDiaHoy && t <= finDiaVentanaCatalogo;
 }
 
+function ordenesIngresadasDesdeResultado(result) {
+  if (!result?.ok) return [];
+  if (Array.isArray(result.ordenes_ingresadas) && result.ordenes_ingresadas.length) {
+    return result.ordenes_ingresadas.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  }
+  if (result.tipo === "entrada" && result.entrada_orden != null) {
+    const o = Number(result.entrada_orden);
+    return Number.isFinite(o) && o > 0 ? [o] : [];
+  }
+  return [];
+}
+
 function motivoBloqueoEliminarConcierto(stats) {
   if (!stats) return null;
   if (Number(stats.reservadas || 0) > 0) return "Hay reservas activas en este concierto.";
@@ -380,12 +395,18 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [recepcionConciertoId, setRecepcionConciertoId] = useState("");
   const [scannerToken, setScannerToken] = useState("");
   const [manualReservaCode, setManualReservaCode] = useState("");
-  const [pendingWarning, setPendingWarning] = useState(null);
   const [qrPreview, setQrPreview] = useState(null);
   const [qrPreviewLoading, setQrPreviewLoading] = useState(false);
   const [ingresando, setIngresando] = useState(false);
-  /** Órdenes de plaza (1..n) a ingresar ahora con QR de reserva grupal */
-  const [recepcionOrdenesIngreso, setRecepcionOrdenesIngreso] = useState(() => new Set());
+  /** Evita doble ingreso automático para el mismo token/concierto. */
+  const autoIngresoAttemptRef = useRef("");
+  /** Recepción: confirmación de cancelación de reserva o plaza pendiente. */
+  const [recepcionCancelReservaTarget, setRecepcionCancelReservaTarget] = useState(null);
+  const [recepcionAnularOrdenTarget, setRecepcionAnularOrdenTarget] = useState(null);
+  const [recepcionRevertirTarget, setRecepcionRevertirTarget] = useState(null);
+  const [recepcionCancelBusy, setRecepcionCancelBusy] = useState(false);
+  /** Banner del último ingreso exitoso (persiste hasta el próximo escaneo). */
+  const [recepcionUltimoIngreso, setRecepcionUltimoIngreso] = useState(null);
   /** Recepción: personas que ingresan sin reserva/QR (cuenta compartida en tiempo real). */
   const [sinEntradaCount, setSinEntradaCount] = useState(0);
   const [sinEntradaBusy, setSinEntradaBusy] = useState(false);
@@ -1142,36 +1163,96 @@ export default function EntradasMain({ user, profile, onLogout }) {
   }, [scannerToken, section, canRecepcion, recepcionConciertoId]);
 
   useEffect(() => {
-    if (qrPreview?.ok && qrPreview.tipo === "reserva" && Array.isArray(qrPreview.entradas)) {
-      const pendientes = qrPreview.entradas
-        .filter((e) => e.estado_ingreso === "pendiente")
-        .map((e) => Number(e.orden))
-        .filter((n) => Number.isFinite(n) && n > 0);
-      setRecepcionOrdenesIngreso(new Set(pendientes));
-    } else {
-      setRecepcionOrdenesIngreso(new Set());
-    }
-  }, [qrPreview]);
+    autoIngresoAttemptRef.current = "";
+  }, [scannerToken, recepcionConciertoId]);
 
-  const puedeIngresarRecepcion = useMemo(() => {
-    if (!qrPreview?.ok || !qrPreview.puede_ingresar) return false;
-    if (qrPreview.tipo === "reserva") {
-      const hayPendiente = (qrPreview.entradas || []).some((e) => e.estado_ingreso === "pendiente");
-      return hayPendiente && recepcionOrdenesIngreso.size > 0;
+  const refreshRecepcionPreview = async () => {
+    const t = scannerToken.trim();
+    if (!t || !recepcionConciertoId) return;
+    try {
+      const p = await previewEntradaQr(t, recepcionConciertoId);
+      setQrPreview(p);
+    } catch (err) {
+      setQrPreview({
+        ok: false,
+        reason: "error",
+        detalle: err?.message || String(err),
+      });
     }
-    return true;
-  }, [qrPreview, recepcionOrdenesIngreso]);
+  };
 
-  const toggleRecepcionOrdenIngreso = (orden) => {
-    const n = Number(orden);
-    if (!Number.isFinite(n)) return;
-    setRecepcionOrdenesIngreso((prev) => {
-      const next = new Set(prev);
-      if (next.has(n)) next.delete(n);
-      else next.add(n);
-      return next;
+  const refreshRecepcionUltimoIngreso = async (banner) => {
+    if (!banner?.token || !recepcionConciertoId) return banner;
+    try {
+      const preview = await previewEntradaQr(banner.token, recepcionConciertoId);
+      const ingresadasSet = new Set();
+      if (preview?.tipo === "entrada") {
+        if (preview.estado_ingreso === "ingresada" && preview.entrada_orden != null) {
+          ingresadasSet.add(Number(preview.entrada_orden));
+        }
+      } else {
+        for (const e of preview?.entradas || []) {
+          if (e.estado_ingreso === "ingresada") ingresadasSet.add(Number(e.orden));
+        }
+      }
+      const ordenesEstaOperacion = (banner.ordenesEstaOperacion || []).filter((o) => ingresadasSet.has(o));
+      if (!ordenesEstaOperacion.length) return null;
+      return {
+        ...banner,
+        preview,
+        codigo_reserva: preview?.codigo_reserva ?? banner.codigo_reserva,
+        ordenesEstaOperacion,
+        personasIngresadas: ordenesEstaOperacion.length,
+      };
+    } catch {
+      return banner;
+    }
+  };
+
+  const registrarUltimoIngresoBanner = async (result, token) => {
+    const ordenesEstaOperacion = ordenesIngresadasDesdeResultado(result);
+    const tokenTrim = String(token || "").trim();
+    let preview = null;
+    if (tokenTrim && recepcionConciertoId) {
+      try {
+        preview = await previewEntradaQr(tokenTrim, recepcionConciertoId);
+      } catch {
+        preview = null;
+      }
+    }
+    setRecepcionUltimoIngreso({
+      reserva_id: result.reserva_id ?? preview?.reserva_id,
+      codigo_reserva: result.codigo_reserva ?? preview?.codigo_reserva ?? "—",
+      token: tokenTrim,
+      ordenesEstaOperacion,
+      personasIngresadas: ordenesEstaOperacion.length || Number(result.pendientes_consumidas) || 1,
+      preview,
     });
   };
+
+  useEffect(() => {
+    if (section !== "recepcion" || !canRecepcion || !recepcionConciertoId) return;
+    if (qrPreviewLoading || ingresando) return;
+    if (!qrPreview?.ok || !qrPreview.puede_ingresar) return;
+    const t = scannerToken.trim();
+    if (!t) return;
+
+    const attemptKey = `${recepcionConciertoId}:${t}`;
+    if (autoIngresoAttemptRef.current === attemptKey) return;
+    autoIngresoAttemptRef.current = attemptKey;
+
+    void consumeToken({
+      forceParcial: Boolean(qrPreview.necesita_confirmar_parcial),
+    });
+  }, [
+    section,
+    canRecepcion,
+    recepcionConciertoId,
+    scannerToken,
+    qrPreview,
+    qrPreviewLoading,
+    ingresando,
+  ]);
 
   useEffect(() => {
     if (section !== "recepcion" || !canRecepcion || !recepcionConciertoId) {
@@ -1475,7 +1556,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
     setScannerToken("");
     setManualReservaCode("");
     setQrPreview(null);
-    setRecepcionOrdenesIngreso(new Set());
+    autoIngresoAttemptRef.current = "";
   };
 
   const consumeToken = async ({ forceParcial = false } = {}) => {
@@ -1484,21 +1565,34 @@ export default function EntradasMain({ user, profile, onLogout }) {
       return;
     }
     setIngresando(true);
-    const esReservaGrupo = qrPreview?.tipo === "reserva";
-    const ordenesIngresar =
-      esReservaGrupo && !forceParcial && recepcionOrdenesIngreso.size > 0
-        ? [...recepcionOrdenesIngreso].sort((a, b) => a - b)
-        : null;
     try {
       const result = await validarYConsumirQr({
         token: scannerToken,
         modo: "auto",
         confirmarParcial: forceParcial,
         conciertoId: recepcionConciertoId,
-        ordenesIngresar,
+        ordenesIngresar: null,
       });
       if (result?.warning || result?.reason === "reserva_uso_parcial") {
-        setPendingWarning(result);
+        const retry = await validarYConsumirQr({
+          token: scannerToken,
+          modo: "auto",
+          confirmarParcial: true,
+          conciertoId: recepcionConciertoId,
+          ordenesIngresar: null,
+        });
+        if (!retry?.ok) {
+          toast.error(formatEntradasValidacionError(retry));
+          return;
+        }
+        toast.success(formatEntradasRecepcionIngresoSuccess(retry), { duration: 3500 });
+        await registrarUltimoIngresoBanner(retry, scannerToken);
+        clearRecepcionParaNuevoIngreso();
+        getAdminConciertoStats(recepcionConciertoId)
+          .then((s) =>
+            setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
+          )
+          .catch(() => {});
         return;
       }
       if (!result?.ok) {
@@ -1537,6 +1631,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
         return;
       }
       toast.success(formatEntradasRecepcionIngresoSuccess(result), { duration: 3500 });
+      await registrarUltimoIngresoBanner(result, scannerToken);
       clearRecepcionParaNuevoIngreso();
       getAdminConciertoStats(recepcionConciertoId)
         .then((s) =>
@@ -1545,6 +1640,125 @@ export default function EntradasMain({ user, profile, onLogout }) {
         .catch(() => {});
     } finally {
       setIngresando(false);
+    }
+  };
+
+  const handleConfirmRecepcionCancelReserva = async () => {
+    const target = recepcionCancelReservaTarget;
+    if (!target?.reserva_id) return;
+    setRecepcionCancelBusy(true);
+    try {
+      await recepcionCancelarReserva(target.reserva_id);
+      try {
+        await enviarMailCancelacionReserva({ reservaId: target.reserva_id });
+        toast.success("Reserva cancelada. Se envió confirmación por correo.");
+      } catch {
+        toast.message("Reserva cancelada. No pudimos enviar el mail de confirmación.");
+      }
+      setRecepcionCancelReservaTarget(null);
+      setRecepcionUltimoIngreso(null);
+      clearRecepcionParaNuevoIngreso();
+      getAdminConciertoStats(recepcionConciertoId)
+        .then((s) =>
+          setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
+        )
+        .catch(() => {});
+    } catch (err) {
+      toast.error(err?.message || "No se pudo cancelar la reserva.");
+    } finally {
+      setRecepcionCancelBusy(false);
+    }
+  };
+
+  const handleConfirmRecepcionAnularEntrada = async () => {
+    const target = recepcionAnularOrdenTarget;
+    if (!target?.reserva_id || !target?.orden) return;
+    setRecepcionCancelBusy(true);
+    try {
+      const out = await recepcionAnularEntradas(target.reserva_id, [target.orden]);
+      toast.success(
+        out?.reserva_cancelada
+          ? `Plaza nº ${target.orden} anulada. La reserva quedó cancelada.`
+          : `Plaza nº ${target.orden} anulada.`,
+      );
+      setRecepcionAnularOrdenTarget(null);
+      if (out?.reserva_cancelada) {
+        setRecepcionUltimoIngreso(null);
+        clearRecepcionParaNuevoIngreso();
+      } else if (
+        recepcionUltimoIngreso?.reserva_id === target.reserva_id
+        && recepcionUltimoIngreso?.token
+      ) {
+        const next = await refreshRecepcionUltimoIngreso(recepcionUltimoIngreso);
+        setRecepcionUltimoIngreso(next);
+      } else {
+        await refreshRecepcionPreview();
+      }
+      getAdminConciertoStats(recepcionConciertoId)
+        .then((s) =>
+          setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
+        )
+        .catch(() => {});
+    } catch (err) {
+      toast.error(err?.message || "No se pudo anular la plaza.");
+    } finally {
+      setRecepcionCancelBusy(false);
+    }
+  };
+
+  const abrirRecepcionCancelReserva = (previewOrBanner) => {
+    const reserva_id = previewOrBanner?.reserva_id;
+    if (!reserva_id) return;
+    setRecepcionCancelReservaTarget({
+      reserva_id,
+      codigo_reserva: previewOrBanner.codigo_reserva,
+      entradas: previewOrBanner.entradas || previewOrBanner.preview?.entradas || [],
+    });
+  };
+
+  const abrirRecepcionAnularEntrada = (preview, orden) => {
+    if (!preview?.reserva_id) return;
+    setRecepcionAnularOrdenTarget({
+      reserva_id: preview.reserva_id,
+      codigo_reserva: preview.codigo_reserva,
+      orden: Number(orden),
+    });
+  };
+
+  const abrirRecepcionRevertirDesdeBanner = (ordenes) => {
+    const b = recepcionUltimoIngreso;
+    if (!b?.reserva_id) return;
+    const nums = (ordenes || b.ordenesEstaOperacion || []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
+    if (!nums.length) return;
+    setRecepcionRevertirTarget({
+      reserva_id: b.reserva_id,
+      codigo_reserva: b.codigo_reserva,
+      ordenes: nums,
+    });
+  };
+
+  const handleConfirmRecepcionRevertir = async () => {
+    const target = recepcionRevertirTarget;
+    if (!target?.reserva_id || !target.ordenes?.length) return;
+    setRecepcionCancelBusy(true);
+    try {
+      await recepcionRevertirIngresos(target.reserva_id, target.ordenes);
+      const n = target.ordenes.length;
+      toast.success(n === 1 ? "Ingreso deshecho." : `Se deshicieron ${n} ingresos.`);
+      setRecepcionRevertirTarget(null);
+      if (recepcionUltimoIngreso?.reserva_id === target.reserva_id) {
+        const next = await refreshRecepcionUltimoIngreso(recepcionUltimoIngreso);
+        setRecepcionUltimoIngreso(next);
+      }
+      getAdminConciertoStats(recepcionConciertoId)
+        .then((s) =>
+          setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
+        )
+        .catch(() => {});
+    } catch (err) {
+      toast.error(err?.message || "No se pudo deshacer el ingreso.");
+    } finally {
+      setRecepcionCancelBusy(false);
     }
   };
 
@@ -1576,7 +1790,6 @@ export default function EntradasMain({ user, profile, onLogout }) {
       if (text?.trim()) {
         setManualReservaCode("");
         setScannerToken(text.trim());
-        toast.success("Código leído de la imagen.");
       } else {
         toast.error("No se leyó el QR. Probá otra toma o ingresá el código de 10 dígitos.");
       }
@@ -1603,7 +1816,6 @@ export default function EntradasMain({ user, profile, onLogout }) {
     if (text?.trim()) {
       setManualReservaCode("");
       setScannerToken(text.trim());
-      toast.success("Código leído con la cámara.");
     }
   };
 
@@ -2983,6 +3195,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   setManualReservaCode("");
                   setQrPreview(null);
                   setRecepcionStatHelp(null);
+                  setRecepcionUltimoIngreso(null);
                 }}
               >
                 <option value="">Concierto (desde hoy)…</option>
@@ -3017,149 +3230,126 @@ export default function EntradasMain({ user, profile, onLogout }) {
               className={`${ui.input} tracking-[0.18em]`}
               placeholder="Código manual (10 dígitos)"
             />
-            {(qrPreviewLoading || qrPreview) && (
+            {recepcionUltimoIngreso && (
+              <div
+                className={`rounded-xl border-2 p-4 space-y-3 text-sm shadow-md ${
+                  isDark
+                    ? "border-emerald-700/70 bg-emerald-950/40"
+                    : "border-emerald-500 bg-emerald-50"
+                }`}
+                role="status"
+                aria-live="polite"
+              >
+                <div>
+                  <p
+                    className={`text-[10px] font-black uppercase tracking-wider ${
+                      isDark ? "text-emerald-300" : "text-emerald-800"
+                    }`}
+                  >
+                    Último ingreso
+                  </p>
+                  <p className={`mt-1 font-bold ${ui.textStrong}`}>
+                    {recepcionUltimoIngreso.personasIngresadas === 1
+                      ? "Ingresó 1 persona"
+                      : `Ingresaron ${recepcionUltimoIngreso.personasIngresadas} personas`}
+                    {" · "}
+                    <span className="font-mono">{recepcionUltimoIngreso.codigo_reserva || "—"}</span>
+                  </p>
+                  <p className={`mt-1 text-[11px] ${ui.textMuted}`}>
+                    Podés corregir este ingreso hasta escanear el siguiente QR.
+                  </p>
+                </div>
+                {(recepcionUltimoIngreso.ordenesEstaOperacion || []).length > 0 && (
+                  <ul className="text-xs space-y-1">
+                    {[...(recepcionUltimoIngreso.ordenesEstaOperacion || [])]
+                      .sort((a, b) => a - b)
+                      .map((orden) => (
+                        <li
+                          key={orden}
+                          className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${
+                            isDark ? "border-emerald-800/60 bg-slate-900/50" : "border-emerald-200 bg-white/90"
+                          }`}
+                        >
+                          <span className={`font-semibold ${ui.textStrong}`}>Plaza nº {orden}</span>
+                          <button
+                            type="button"
+                            disabled={recepcionCancelBusy || ingresando}
+                            onClick={() => abrirRecepcionRevertirDesdeBanner([orden])}
+                            className={`ml-auto shrink-0 text-[10px] font-bold underline-offset-2 hover:underline ${
+                              isDark ? "text-amber-200" : "text-amber-900"
+                            }`}
+                          >
+                            Deshacer
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+                {Array.isArray(recepcionUltimoIngreso.preview?.entradas)
+                  && recepcionUltimoIngreso.preview.entradas.some((e) => e.estado_ingreso === "pendiente") && (
+                    <ul className={`text-xs space-y-1 border-t pt-2 ${ui.dividerLight}`}>
+                      {recepcionUltimoIngreso.preview.entradas
+                        .filter((e) => e.estado_ingreso === "pendiente")
+                        .map((row) => (
+                          <li
+                            key={`pend-${row.orden}`}
+                            className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${
+                              isDark ? "border-slate-600 bg-slate-800/80" : "border-slate-200 bg-white/80"
+                            }`}
+                          >
+                            <span className={`font-semibold ${ui.textStrong}`}>Plaza nº {row.orden}</span>
+                            <span className={`text-[10px] ${ui.textMuted}`}>sin ingresar</span>
+                            <button
+                              type="button"
+                              disabled={recepcionCancelBusy || ingresando}
+                              onClick={() => abrirRecepcionAnularEntrada(recepcionUltimoIngreso.preview, row.orden)}
+                              className={`ml-auto shrink-0 text-[10px] font-bold underline-offset-2 hover:underline ${
+                                isDark ? "text-rose-300" : "text-rose-700"
+                              }`}
+                            >
+                              Anular
+                            </button>
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  {(recepcionUltimoIngreso.ordenesEstaOperacion || []).length > 1 && (
+                    <button
+                      type="button"
+                      disabled={recepcionCancelBusy || ingresando}
+                      onClick={() => abrirRecepcionRevertirDesdeBanner(recepcionUltimoIngreso.ordenesEstaOperacion)}
+                      className={`${ui.btnGhost} flex-1 text-xs font-bold ${
+                        isDark ? "text-amber-200 border-amber-800" : "text-amber-950 border-amber-300"
+                      }`}
+                    >
+                      Deshacer todo este ingreso
+                    </button>
+                  )}
+                  {recepcionUltimoIngreso.reserva_id && (
+                    <button
+                      type="button"
+                      disabled={recepcionCancelBusy || ingresando}
+                      onClick={() => abrirRecepcionCancelReserva(recepcionUltimoIngreso.preview || recepcionUltimoIngreso)}
+                      className={`${ui.btnGhost} flex-1 text-xs font-bold text-rose-700 border-rose-200 hover:bg-rose-50`}
+                    >
+                      Cancelar reserva completa
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            {(qrPreviewLoading || ingresando || (qrPreview && !qrPreview.ok)) && (
               <div className="space-y-3">
-                {qrPreviewLoading && (
-                  <p className="text-sm font-medium entradas-accent-text">Analizando código…</p>
+                {(qrPreviewLoading || ingresando) && (
+                  <p className="text-sm font-medium entradas-accent-text">
+                    {ingresando ? "Registrando ingreso…" : "Analizando código…"}
+                  </p>
                 )}
                 {qrPreview && !qrPreview.ok && (
                   <div className={`rounded-xl border-2 p-3 text-sm shadow-sm ${recepcionPanelClass(qrPreview, isDark)}`}>
                     <p className={`font-medium ${ui.textBody}`}>{formatEntradasPreviewError(qrPreview)}</p>
                   </div>
-                )}
-                {qrPreview && qrPreview.ok && qrPreview.tipo === "entrada" && (
-                  <div className={`rounded-xl border-2 p-4 space-y-2 text-sm shadow-sm ${recepcionPanelClass(qrPreview, isDark)}`}>
-                    <p className={`text-[10px] font-black uppercase tracking-wider ${ui.textMuted}`}>Entrada individual</p>
-                    <p className={ui.textBody}>
-                      Reserva <span className="font-mono font-semibold">{qrPreview.codigo_reserva || "—"}</span> · Entrada nº{" "}
-                      {qrPreview.entrada_orden} de {qrPreview.cantidad_en_reserva}
-                    </p>
-                    <p className={`font-medium ${ui.textBody}`}>
-                      {qrPreview.estado_ingreso === "pendiente" ? (
-                        <span>Sin ingreso registrado aún con esta plaza.</span>
-                      ) : (
-                        <span>
-                          {qrPreview.ingresada_at
-                            ? formatEntradasIngresoConRecepcionista(qrPreview.ingresada_at, qrPreview.ingresada_por_nombre)
-                            : "—"}
-                        </span>
-                      )}
-                    </p>
-                    {!qrPreview.puede_ingresar && entradasBloqueoIngreso(qrPreview) && (
-                      <p className={`text-xs border-t pt-2 mt-1 ${ui.dividerLight} ${ui.textBody}`}>{entradasBloqueoIngreso(qrPreview)}</p>
-                    )}
-                  </div>
-                )}
-                {qrPreview && qrPreview.ok && qrPreview.tipo === "reserva" && (
-                  <div className={`rounded-xl border-2 p-4 space-y-2 text-sm shadow-sm ${recepcionPanelClass(qrPreview, isDark)}`}>
-                    <p className={`${ui.textBody} whitespace-nowrap overflow-x-auto`}>
-                      <span className={`text-[10px] font-black uppercase tracking-wider ${ui.textMuted}`}>
-                        Reserva (grupo)
-                      </span>
-                      {" · "}
-                      <span className="font-mono font-semibold">{qrPreview.codigo_reserva}</span>
-                    </p>
-                    <p className={ui.textBody}>
-                      {qrPreview.pendientes} sin ingresar · {qrPreview.ingresadas} ya ingresaron
-                    </p>
-                    {Array.isArray(qrPreview.entradas) && qrPreview.entradas.length > 0 && (
-                      <div className={`border-t pt-2 space-y-2 ${ui.dividerLight}`}>
-                        <ul className="text-xs space-y-1">
-                          {qrPreview.entradas.map((row) => {
-                            const orden = Number(row.orden);
-                            const esPendiente = row.estado_ingreso === "pendiente";
-                            const marcada = recepcionOrdenesIngreso.has(orden);
-                            return (
-                              <li
-                                key={row.orden}
-                                className={`rounded-lg border px-2.5 py-1.5 ${
-                                  esPendiente && !marcada
-                                    ? isDark
-                                      ? "border-amber-800 bg-amber-950/50"
-                                      : "border-amber-200 bg-amber-50/80"
-                                    : isDark
-                                      ? "border-slate-600 bg-slate-800/80"
-                                      : "border-slate-200 bg-white/80"
-                                }`}
-                              >
-                                <label
-                                  className={`flex items-center gap-2 ${esPendiente ? "cursor-pointer" : "cursor-default"}`}
-                                >
-                                  {esPendiente ? (
-                                    <input
-                                      type="checkbox"
-                                      className={`shrink-0 ${ui.checkbox}`}
-                                      checked={marcada}
-                                      onChange={() => toggleRecepcionOrdenIngreso(orden)}
-                                    />
-                                  ) : (
-                                    <span className="w-4 shrink-0" aria-hidden />
-                                  )}
-                                  <span className={`min-w-0 shrink-0 font-semibold ${ui.textStrong}`}>
-                                    Plaza nº {row.orden}
-                                  </span>
-                                  {esPendiente && marcada && (
-                                    <span
-                                      className={`ml-auto shrink-0 text-[10px] font-medium whitespace-nowrap ${
-                                        isDark ? "text-emerald-300" : "text-emerald-800"
-                                      }`}
-                                    >
-                                      Ingresa ahora
-                                    </span>
-                                  )}
-                                  {esPendiente && !marcada && (
-                                    <span
-                                      className={`ml-auto shrink-0 text-[10px] font-medium text-right leading-tight ${
-                                        isDark ? "text-amber-200" : "text-amber-900"
-                                      }`}
-                                    >
-                                      Vendrá después
-                                    </span>
-                                  )}
-                                  {!esPendiente && (
-                                    <span className={`ml-auto min-w-0 shrink text-right text-[10px] leading-snug ${ui.textBody}`}>
-                                      {row.ingresada_at
-                                        ? formatEntradasIngresoConRecepcionista(row.ingresada_at, row.ingresada_por_nombre)
-                                        : "Ingresada"}
-                                    </span>
-                                  )}
-                                </label>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                        {recepcionOrdenesIngreso.size === 0 &&
-                          (qrPreview.entradas || []).some((e) => e.estado_ingreso === "pendiente") && (
-                            <p className={`text-xs font-medium ${isDark ? "text-amber-200" : "text-amber-900"}`}>
-                              Marcá al menos una plaza para registrar el ingreso.
-                            </p>
-                          )}
-                      </div>
-                    )}
-                    {!qrPreview.puede_ingresar && entradasBloqueoIngreso(qrPreview) && (
-                      <p className={`text-xs border-t pt-2 ${ui.dividerLight} ${ui.textBody}`}>{entradasBloqueoIngreso(qrPreview)}</p>
-                    )}
-                  </div>
-                )}
-                {qrPreview?.ok && (
-                  <button
-                    type="button"
-                    onClick={() => consumeToken()}
-                    className={ui.btnSuccess}
-                    disabled={
-                      !recepcionConciertoId
-                      || !scannerToken.trim()
-                      || qrPreviewLoading
-                      || !puedeIngresarRecepcion
-                      || ingresando
-                    }
-                  >
-                    {ingresando
-                      ? "Registrando…"
-                      : qrPreview.tipo === "reserva" && recepcionOrdenesIngreso.size > 0
-                        ? `Ingresar ${recepcionOrdenesIngreso.size} plaza${recepcionOrdenesIngreso.size === 1 ? "" : "s"}`
-                        : "Ingresar a sala"}
-                  </button>
                 )}
               </div>
             )}
@@ -4243,15 +4433,51 @@ export default function EntradasMain({ user, profile, onLogout }) {
       )}
 
       <ConfirmModal
-        isOpen={Boolean(pendingWarning)}
-        onClose={() => setPendingWarning(null)}
-        title="La reserva ya tuvo ingresos parciales"
-        message={`Reserva ${pendingWarning?.codigo_reserva || "—"}: ya se registraron ${pendingWarning?.ingresadas || 0} entrada(s). ¿Querés completar ahora el ingreso de las ${pendingWarning?.pendientes || 0} que siguen pendientes?`}
-        confirmText="Consumir pendientes"
-        onConfirm={async () => {
-          await consumeToken({ forceParcial: true });
-          setPendingWarning(null);
-        }}
+        isOpen={Boolean(recepcionRevertirTarget)}
+        onClose={() => !recepcionCancelBusy && setRecepcionRevertirTarget(null)}
+        title="Deshacer ingreso"
+        message={
+          recepcionRevertirTarget
+            ? recepcionRevertirTarget.ordenes.length === 1
+              ? `¿Deshacer el ingreso de la plaza nº ${recepcionRevertirTarget.ordenes[0]} (reserva ${recepcionRevertirTarget.codigo_reserva || "—"})?\n\nLa plaza volverá a quedar pendiente y podrá escanearse de nuevo.`
+              : `¿Deshacer el ingreso de ${recepcionRevertirTarget.ordenes.length} plazas de la reserva ${recepcionRevertirTarget.codigo_reserva || "—"}?\n\nEsas entradas volverán a quedar pendientes.`
+            : ""
+        }
+        confirmText={recepcionCancelBusy ? "Deshaciendo…" : "Sí, deshacer"}
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-md"
+        onConfirm={handleConfirmRecepcionRevertir}
+      />
+
+      <ConfirmModal
+        isOpen={Boolean(recepcionCancelReservaTarget)}
+        onClose={() => !recepcionCancelBusy && setRecepcionCancelReservaTarget(null)}
+        title="Cancelar reserva en recepción"
+        message={
+          recepcionCancelReservaTarget
+            ? `¿Cancelar la reserva ${recepcionCancelReservaTarget.codigo_reserva || "—"}?\n\nLos QR pendientes dejarán de valer y las plazas se liberarán.${
+                (recepcionCancelReservaTarget.entradas || []).some((e) => e.estado_ingreso === "ingresada")
+                  ? "\n\nSi alguien ya ingresó, esa asistencia se conserva; solo se anulan las plazas pendientes."
+                  : ""
+              }`
+            : ""
+        }
+        confirmText={recepcionCancelBusy ? "Cancelando…" : "Sí, cancelar reserva"}
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-md"
+        onConfirm={handleConfirmRecepcionCancelReserva}
+      />
+
+      <ConfirmModal
+        isOpen={Boolean(recepcionAnularOrdenTarget)}
+        onClose={() => !recepcionCancelBusy && setRecepcionAnularOrdenTarget(null)}
+        title="Anular plaza pendiente"
+        message={
+          recepcionAnularOrdenTarget
+            ? `¿Anular la plaza nº ${recepcionAnularOrdenTarget.orden} de la reserva ${recepcionAnularOrdenTarget.codigo_reserva || "—"}?\n\nEsa entrada no podrá usarse; el resto de la reserva sigue activa salvo que canceles todo el grupo.`
+            : ""
+        }
+        confirmText={recepcionCancelBusy ? "Anulando…" : "Sí, anular plaza"}
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-md"
+        onConfirm={handleConfirmRecepcionAnularEntrada}
       />
 
       <ConfirmModal

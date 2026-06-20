@@ -418,6 +418,36 @@ export async function cancelarReserva(reservaId) {
   if (error) throw error;
 }
 
+/** Recepción: cancela reserva activa (plazas pendientes → anuladas). */
+export async function recepcionCancelarReserva(reservaId) {
+  const { error } = await supabaseEntradasPublic.rpc("entrada_recepcion_cancelar_reserva", {
+    p_reserva_id: reservaId,
+  });
+  if (error) throw error;
+}
+
+/** Recepción: anula plazas pendientes por número de orden (1..n). */
+export async function recepcionAnularEntradas(reservaId, ordenes) {
+  const nums = (ordenes || []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_recepcion_anular_entradas", {
+    p_reserva_id: reservaId,
+    p_ordenes: nums,
+  });
+  if (error) throw error;
+  return data;
+}
+
+/** Recepción: deshace ingresos (ingresada → pendiente) de plazas indicadas. */
+export async function recepcionRevertirIngresos(reservaId, ordenes) {
+  const nums = (ordenes || []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_recepcion_revertir_ingresos", {
+    p_reserva_id: reservaId,
+    p_ordenes: nums,
+  });
+  if (error) throw error;
+  return data;
+}
+
 export async function enviarMailCancelacionReserva({ reservaId }) {
   const { error } = await supabaseEntradasPublic.functions.invoke("entradas-send-reserva-email", {
     body: {
