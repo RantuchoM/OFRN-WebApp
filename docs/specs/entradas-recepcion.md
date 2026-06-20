@@ -18,16 +18,14 @@
 - [x] Tras cada ingreso exitoso aparece un **banner verde** con reserva y plazas registradas en esa operación.
 - [x] Permanece visible hasta el **próximo ingreso exitoso** (o cambio de concierto).
 - [x] Acciones sobre ese ingreso:
-  - **Deshacer** una plaza o **deshacer todo** el ingreso recién registrado (vuelve a pendiente).
-  - **Anular** plazas pendientes (atajo por fila).
-  - **Bajar plazas…** modal con checkboxes: baja múltiples pendientes y/o deshace ingresos del último escaneo.
-  - **Cancelar reserva completa** (modal de confirmación vía portal).
+  - **Cancelar** (por plaza o todo el último escaneo): revierte el check-in (`entrada_recepcion_revertir_ingresos`); la plaza vuelve a **pendiente**. **No cancela la reserva.**
+  - **Bajar** plazas pendientes (atajo por fila o modal «Bajar plazas sin ingresar…»): anula entradas que **no ingresaron** (`entrada_recepcion_anular_entradas`).
+  - En recepción **no** hay «Cancelar reserva completa» (eso queda en catálogo / mis reservas).
 
 ## RPCs
 
-- `entrada_recepcion_cancelar_reserva(p_reserva_id)`
-- `entrada_recepcion_anular_entradas(p_reserva_id, p_ordenes)`
-- `entrada_recepcion_revertir_ingresos(p_reserva_id, p_ordenes)` — ingresada → pendiente
+- `entrada_recepcion_anular_entradas(p_reserva_id, p_ordenes)` — pendiente → anulada (baja sin ingresar)
+- `entrada_recepcion_revertir_ingresos(p_reserva_id, p_ordenes)` — ingresada → pendiente (cancelar ingreso)
 - `entrada_validar_y_consumir_qr` devuelve `ordenes_ingresadas[]`
 - `entrada_preview_qr` devuelve `reserva_id`, `entrada_id` e `id` por fila en `entradas[]`.
 
@@ -40,10 +38,10 @@ Migraciones:
 ## UI
 
 - Componente: `src/views/Public/Entradas/EntradasMain.jsx` (sección Recepción).
-- Servicio: `recepcionCancelarReserva`, `recepcionAnularEntradas`, `recepcionRevertirIngresos` en `src/services/entradaService.js`.
+- Servicio: `recepcionAnularEntradas`, `recepcionRevertirIngresos` en `src/services/entradaService.js`.
 - `ConfirmModal` renderiza en `document.body` (z-index visible en recepción).
 
 ## Notas
 
-- Llegada parcial al grupo: escanear QR individuales, o escanear el grupal y **deshacer/anular** desde el banner.
+- Llegada parcial al grupo: escanear QR individuales, o escanear el grupal y **cancelar ingreso / bajar plazas** desde el banner.
 - Contador «Sin entrada / sin QR» sin cambios.
