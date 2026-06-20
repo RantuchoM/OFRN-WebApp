@@ -10,6 +10,29 @@ export function safeFileName(name) {
     .replace(/\.$/, "");
 }
 
+/** Sufijo canónico para varias partes en un PDF: [1,2] → "1y2", [1,2,3] → "1y2y3". */
+export function formatCombinedSlot(numbers) {
+  return numbers.map(String).join("y");
+}
+
+/** Convierte "1-2", "1 y 2", "1&2" → "1y2"; rangos "1-3" → "1y2y3". */
+export function canonicalCombinedSuffix(raw) {
+  const s = String(raw || "").trim();
+  const range = s.match(/^(\d+)\s*-\s*(\d+)$/);
+  if (range) {
+    const a = parseInt(range[1], 10);
+    const b = parseInt(range[2], 10);
+    if (b > a && b - a <= 4) {
+      return formatCombinedSlot(
+        Array.from({ length: b - a + 1 }, (_, i) => a + i),
+      );
+    }
+  }
+  return s
+    .replace(/(\d+)\s*[-/&]\s*(\d+)/gi, "$1y$2")
+    .replace(/(\d+)\s+y\s+(\d+)/gi, "$1y$2");
+}
+
 export function normalizeInstrumentLabel(rawName) {
   const base = String(rawName || "").replace(/\.pdf$/i, "");
   let name = base.replace(/_/g, " ");
@@ -26,13 +49,24 @@ export function normalizeInstrumentLabel(rawName) {
 
   if (/\bflutes?\b.*\bpiccolo\b|\bpiccolo\b|\bflauta\s*piccolo\b/i.test(name))
     return "Fl Piccolo";
-  if (/\boboe\s*1-2\b|\boboes?\s*1,\s*2\b/i.test(name)) return "Oboe 1-2";
-  if (/\bclarinete\s+a\s*1-2\b|\bcl\s+a\s*1-2\b/i.test(name)) return "Clarinete A 1-2";
-  if (/\bfagot\s*1-2\b|\bbassoon\s*1-2\b/i.test(name)) return "Fagot 1-2";
-  if (/\bcorno\s+f\s*1-2\b|\bhorn\s*1-2\b/i.test(name)) return "Corno F 1-2";
-  if (/\bcorno\s+f\s*3-4\b|\bhorn\s*3-4\b/i.test(name)) return "Corno F 3-4";
-  if (/\btrompeta\s*1-2\b|\btrumpet\s*1-2\b/i.test(name)) return "Trompeta 1-2";
-  if (/\btromb[oó]n\s*1-3\b|\btrombone\s*1-3\b/i.test(name)) return "Trombón 1-3";
+  if (/\boboe\s*1[\s-]?y?\s*2\b|\boboe\s*1-2\b|\boboes?\s*1,\s*2\b/i.test(name))
+    return "Oboe 1y2";
+  if (/\bclarinete\s+a\s*1[\s-]?y?\s*2\b|\bclarinete\s+a\s*1-2\b|\bcl\s+a\s*1-2\b/i.test(name))
+    return "Clarinete A 1y2";
+  if (/\bfagot\s*1[\s-]?y?\s*2\b|\bfagot\s*1-2\b|\bbassoon\s*1-2\b/i.test(name))
+    return "Fagot 1y2";
+  if (/\bcorno\s+f\s*1[\s-]?y?\s*2\b|\bcorno\s+f\s*1-2\b|\bhorn\s*1-2\b/i.test(name))
+    return "Corno F 1y2";
+  if (/\bcorno\s+f\s*3[\s-]?y?\s*4\b|\bcorno\s+f\s*3-4\b|\bhorn\s*3-4\b/i.test(name))
+    return "Corno F 3y4";
+  if (/\btrompeta\s*1[\s-]?y?\s*2\b|\btrompeta\s*1-2\b|\btrumpet\s*1-2\b/i.test(name))
+    return "Trompeta 1y2";
+  if (
+    /\btromb[oó]n\s*1y2y3\b|\btromb[oó]n\s*1[\s-]?y?\s*2[\s-]?y?\s*3\b|\btromb[oó]n\s*1-3\b|\btrombone\s*1-3\b/i.test(
+      name,
+    )
+  )
+    return "Trombón 1y2y3";
   if (/\bcontrafagot\b/i.test(name)) return "Contrafagot";
   if (/\boboe\s*2\b/i.test(name) && !/\boboe\s*1\b/i.test(name)) return "Oboe 2";
   if (/\boboe\s*1\b/i.test(name)) return "Oboe 1";

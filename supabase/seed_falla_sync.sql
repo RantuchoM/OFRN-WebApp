@@ -6,7 +6,7 @@ BEGIN
   UPDATE obras SET
     link_drive = 'https://drive.google.com/open?id=16TvE6QokADJSSk9gpZXpP1D8GcrngIQS',
     observaciones = 'Para acomodar — Falla, M. - Danza Española Nro 1 (''La Vida Breve'')',
-    instrumentacion = '3.3.3.1 - 2.1.1.1 - Timp.+2 - Hp - Key - Str',
+    instrumentacion = '3.3.3.1 - 2.1.2.1 - Timp.+2 - Hp - Key - Str',
     anio_composicion = 1905
   WHERE id = 3532;
 
@@ -70,7 +70,10 @@ BEGIN
   VALUES (3532, '50', 'SCORE', '[{"url":"https://drive.google.com/file/d/1u5CGbezxBbsPh9LobeEXTMbPwRXaYUvF/view?usp=drivesdk","description":"SCORE - S-N. Danza Española Nro 1 (''La Vida Breve'') - Falla, M.pdf"}]', false);
 
   INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-  VALUES (3532, '11', 'Trombón 1', '[{"url":"https://drive.google.com/file/d/1_uMtzrs884NKySzybylKChWk6jHJu8Vm/view?usp=drivesdk","description":"Trombón 1-3 - S-N. Danza Española Nro 1 (''La Vida Breve'') - Falla, M.pdf"}]', false);
+  VALUES (3532, '11', 'Trombón 1', '[{"url":"https://drive.google.com/file/d/1_uMtzrs884NKySzybylKChWk6jHJu8Vm/view?usp=drivesdk","description":"Trombón 1y2 - S-N. Danza Española Nro 1 (''La Vida Breve'') - Falla, M.pdf"}]', false);
+
+  INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
+  VALUES (3532, '11', 'Trombón 3', '[{"url":"https://drive.google.com/file/d/1a9WYTUDeGVbC5t3SJ8gfBLp5s4RY5csl/view?usp=drivesdk","description":"Trombón 3 - S-N. Danza Española Nro 1 (''La Vida Breve'') - Falla, M.pdf"}]', false);
 
   INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
   VALUES (3532, '10', 'Trompeta 1', '[{"url":"https://drive.google.com/file/d/1Zxl0In_X69bf6v1VyN6zlzQIhfRvTEHw/view?usp=drivesdk","description":"Trompeta 1-2 - S-N. Danza Española Nro 1 (''La Vida Breve'') - Falla, M.pdf"}]', false);

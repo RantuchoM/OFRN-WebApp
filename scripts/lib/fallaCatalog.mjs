@@ -53,23 +53,23 @@ export const FALLA_WORK = {
     },
     {
       pdf: "IMSLP19678-PMLP04190-Falla_VidaDance_Bsns.pdf",
-      parts: [{ instrument: "Fagot 1-2", start: 2, end: 5 }],
+      parts: [{ instrument: "Fagot 1y2", start: 2, end: 5 }],
     },
     {
       pdf: "IMSLP19679-PMLP04190-Falla_VidaDance_Hns.pdf",
       parts: [
-        { instrument: "Corno F 1-2", start: 2, end: 5 },
-        { instrument: "Corno F 3-4", start: 7, end: 11 },
+        { instrument: "Corno F 1y2", start: 2, end: 5 },
+        { instrument: "Corno F 3y4", start: 7, end: 11 },
       ],
     },
     {
       pdf: "IMSLP19680-PMLP04190-Falla_VidaDance_Tpts.pdf",
-      parts: [{ instrument: "Trompeta 1-2", start: 2, end: 6 }],
+      parts: [{ instrument: "Trompeta 1y2", start: 2, end: 6 }],
     },
     {
       pdf: "IMSLP19681-PMLP04190-Falla_VidaDance_LowBrs.pdf",
       parts: [
-        { instrument: "Trombón 1-3", start: 2, end: 6 },
+        { instrument: "Trombón 1y2y3", start: 2, end: 6 },
         { instrument: "Tuba", start: 8, end: 9 },
       ],
     },

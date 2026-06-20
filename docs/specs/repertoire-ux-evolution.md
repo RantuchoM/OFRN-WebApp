@@ -222,12 +222,13 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 ### Falla — Danza Española Nro 1 ('La Vida Breve') (2026-06-19)
 - Carpeta [Para acomodar / Falla](https://drive.google.com/open?id=16TvE6QokADJSSk9gpZXpP1D8GcrngIQS): 16 PDFs IMSLP → **26 particellas** canónicas.
 - Obra BD **id 3532** (`Danza Española Nro 1. 'La Vida Breve'`, Falla): sin particellas previas.
-- Proceso: dividir combinados (vientos/metales/perc), recortar portadas IMSLP, renombrar `Instrumento - S-N. Título - Falla, M.pdf`.
+- Proceso: dividir combinados (vientos/metales/perc), recortar portadas IMSLP, renombrar `Instrumento - S-N. Título - Falla, M.pdf` (combinados: `1y2`, `3y4`, `1y2y3`).
 - Instrumentación resultante: `3.3.3.1 - 2.1.1.1 - Timp.+2 - Hp - Key - Str`.
 
 | Script | Rol |
 |--------|-----|
 | `scripts/lib/fallaCatalog.mjs` | Manifiestos de páginas + metadata obra 3532 |
+| `scripts/lib/pdfPartsRenaming.mjs` | Renombrado canónico; combinados con sufijo `1y2` (no `1-2`) |
 | `scripts/process-falla-local.mjs` | Split/crop/rename en sync local `H:\...\Para acomodar` |
 | `scripts/generate-falla-sync.mjs` | Genera `supabase/seed_falla_sync.sql` |
 

@@ -1,4 +1,4 @@
-import { parsePartSlot } from "./drivePartMatcher";
+import { parsePartSlot, getPercussionSeatingFamily } from "./drivePartMatcher";
 
 const ROMAN_TO_NUMBER = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6 };
 
@@ -59,6 +59,54 @@ export const getMusicianSeatingPartNumber = (
   return null;
 };
 
+const PERCUSSION_INSTRUMENT_ID = "13";
+
+export const getMusicianPercussionSeatingFamily = (
+  musician,
+  { obras = [], getPartIdsForObra, particellas = [] } = {},
+) => {
+  if (musician?.id != null && typeof getPartIdsForObra === "function") {
+    for (const obra of obras) {
+      const obraId = obra?.obra_id ?? obra?.id;
+      if (obraId == null) continue;
+
+      const partIds = getPartIdsForObra(musician.id, obraId) || [];
+      for (const partId of partIds) {
+        const part = particellas.find(
+          (p) => String(p.id) === String(partId),
+        );
+        const family = getPercussionSeatingFamily(part);
+        if (family) return family;
+      }
+    }
+  }
+
+  const instrName = String(
+    musician?.instrumentos?.instrumento || "",
+  ).toLowerCase();
+  if (/timbal|\btimp\b/i.test(instrName)) return "timp";
+  if (
+    /perc|bombo|marimba|platillo|caja|glock|metalof|xilo|mallet/i.test(
+      instrName,
+    )
+  ) {
+    return "aux";
+  }
+
+  if (String(musician?.id_instr ?? "").trim() === PERCUSSION_INSTRUMENT_ID) {
+    return "aux";
+  }
+
+  return null;
+};
+
+const percussionFamilySortRank = (musician, sortOptions) => {
+  const family = getMusicianPercussionSeatingFamily(musician, sortOptions);
+  if (family === "timp") return 0;
+  if (family === "aux") return 1;
+  return 2;
+};
+
 export const buildSeatingPartSortOptions = ({
   obras = [],
   musicianAssignments = {},
@@ -75,7 +123,8 @@ export const buildSeatingPartSortOptions = ({
 
 /**
  * Ordena vientos/percusión: primero por id_instr, luego por número de parte asignada
- * (Fagot 1 antes que 2, Corno 1…4), y por apellido si empatan o no hay número.
+ * (Fagot 1 antes que 2, Corno 1…4). En percusión (id 13), Perc Timp antes que el resto.
+ * Desempate por apellido si no hay número.
  */
 export const sortWindMusiciansForSeating = (musicians = [], sortOptions = {}) => {
   const resolveRank = (musician) => {
@@ -88,6 +137,12 @@ export const sortWindMusiciansForSeating = (musicians = [], sortOptions = {}) =>
     const instrB = String(b?.id_instr ?? "9999");
     if (instrA !== instrB) {
       return instrA.localeCompare(instrB, undefined, { numeric: true });
+    }
+
+    if (instrA === PERCUSSION_INSTRUMENT_ID) {
+      const percRankA = percussionFamilySortRank(a, sortOptions);
+      const percRankB = percussionFamilySortRank(b, sortOptions);
+      if (percRankA !== percRankB) return percRankA - percRankB;
     }
 
     const rankA = resolveRank(a);
