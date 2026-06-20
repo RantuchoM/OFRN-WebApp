@@ -37,8 +37,8 @@ Migración: `supabase/migrations/20260619120000_entradas_reservas_terceros.sql`
 
 ## UI
 
-- Catálogo: checkbox «Reservar para otra persona» + mail/referencia opcionales + confirmación de identidad.
-- Nav admin: «Entradas de terceros».
+- **Admin** → pestaña **«Entradas de terceros»** (junto a Programas y Usuarios).
+- Selector de concierto actual con reservas abiertas + formulario de reserva + listado activo.
 - Componente: `src/components/entradas/EntradasTercerosSection.jsx`.
 
 ## Edge
