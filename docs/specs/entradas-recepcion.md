@@ -19,8 +19,9 @@
 - [x] Permanece visible hasta el **próximo ingreso exitoso** (o cambio de concierto).
 - [x] Acciones sobre ese ingreso:
   - **Deshacer** una plaza o **deshacer todo** el ingreso recién registrado (vuelve a pendiente).
-  - **Anular** plazas que sigan pendientes en la misma reserva.
-  - **Cancelar reserva completa**.
+  - **Anular** plazas pendientes (atajo por fila).
+  - **Bajar plazas…** modal con checkboxes: baja múltiples pendientes y/o deshace ingresos del último escaneo.
+  - **Cancelar reserva completa** (modal de confirmación vía portal).
 
 ## RPCs
 
@@ -38,6 +39,7 @@ Migraciones:
 
 - Componente: `src/views/Public/Entradas/EntradasMain.jsx` (sección Recepción).
 - Servicio: `recepcionCancelarReserva`, `recepcionAnularEntradas`, `recepcionRevertirIngresos` en `src/services/entradaService.js`.
+- `ConfirmModal` renderiza en `document.body` (z-index visible en recepción).
 
 ## Notas
 

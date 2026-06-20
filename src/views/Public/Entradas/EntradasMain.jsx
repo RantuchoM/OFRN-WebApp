@@ -352,6 +352,20 @@ function ordenesIngresadasDesdeResultado(result) {
   return [];
 }
 
+/** Contexto unificado de reserva para acciones en recepción (banner o preview). */
+function recepcionContextoReserva(source) {
+  if (!source) return null;
+  const preview = source.preview ?? (source.ok != null || source.tipo ? source : null);
+  const reserva_id = source.reserva_id ?? preview?.reserva_id;
+  if (!reserva_id) return null;
+  return {
+    reserva_id,
+    codigo_reserva: source.codigo_reserva ?? preview?.codigo_reserva ?? "—",
+    entradas: preview?.entradas ?? source.entradas ?? [],
+    reserva_estado: preview?.reserva_estado ?? source.reserva_estado,
+  };
+}
+
 function motivoBloqueoEliminarConcierto(stats) {
   if (!stats) return null;
   if (Number(stats.reservadas || 0) > 0) return "Hay reservas activas en este concierto.";
@@ -404,6 +418,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [recepcionCancelReservaTarget, setRecepcionCancelReservaTarget] = useState(null);
   const [recepcionAnularOrdenTarget, setRecepcionAnularOrdenTarget] = useState(null);
   const [recepcionRevertirTarget, setRecepcionRevertirTarget] = useState(null);
+  const [recepcionBajarPlazasOpen, setRecepcionBajarPlazasOpen] = useState(false);
+  const [recepcionBajarAnularSel, setRecepcionBajarAnularSel] = useState(() => new Set());
+  const [recepcionBajarRevertirSel, setRecepcionBajarRevertirSel] = useState(() => new Set());
   const [recepcionCancelBusy, setRecepcionCancelBusy] = useState(false);
   /** Banner del último ingreso exitoso (persiste hasta el próximo escaneo). */
   const [recepcionUltimoIngreso, setRecepcionUltimoIngreso] = useState(null);
@@ -1645,7 +1662,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
   const handleConfirmRecepcionCancelReserva = async () => {
     const target = recepcionCancelReservaTarget;
-    if (!target?.reserva_id) return;
+    if (!target?.reserva_id) {
+      toast.error("No se pudo identificar la reserva.");
+      throw new Error("missing reserva_id");
+    }
     setRecepcionCancelBusy(true);
     try {
       await recepcionCancelarReserva(target.reserva_id);
@@ -1656,6 +1676,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
         toast.message("Reserva cancelada. No pudimos enviar el mail de confirmación.");
       }
       setRecepcionCancelReservaTarget(null);
+      setRecepcionBajarPlazasOpen(false);
       setRecepcionUltimoIngreso(null);
       clearRecepcionParaNuevoIngreso();
       getAdminConciertoStats(recepcionConciertoId)
@@ -1706,33 +1727,124 @@ export default function EntradasMain({ user, profile, onLogout }) {
     }
   };
 
-  const abrirRecepcionCancelReserva = (previewOrBanner) => {
-    const reserva_id = previewOrBanner?.reserva_id;
-    if (!reserva_id) return;
-    setRecepcionCancelReservaTarget({
-      reserva_id,
-      codigo_reserva: previewOrBanner.codigo_reserva,
-      entradas: previewOrBanner.entradas || previewOrBanner.preview?.entradas || [],
-    });
+  const abrirRecepcionCancelReserva = (source) => {
+    const ctx = recepcionContextoReserva(source);
+    if (!ctx?.reserva_id) {
+      toast.error("No se pudo identificar la reserva. ¿Aplicaste las migraciones de recepción en Supabase?");
+      return;
+    }
+    setRecepcionCancelReservaTarget(ctx);
   };
 
-  const abrirRecepcionAnularEntrada = (preview, orden) => {
-    if (!preview?.reserva_id) return;
+  const abrirRecepcionAnularEntrada = (source, orden) => {
+    const ctx = recepcionContextoReserva(source);
+    if (!ctx?.reserva_id) {
+      toast.error("No se pudo identificar la reserva.");
+      return;
+    }
     setRecepcionAnularOrdenTarget({
-      reserva_id: preview.reserva_id,
-      codigo_reserva: preview.codigo_reserva,
+      reserva_id: ctx.reserva_id,
+      codigo_reserva: ctx.codigo_reserva,
       orden: Number(orden),
     });
   };
 
+  const abrirRecepcionBajarPlazas = (banner) => {
+    const ctx = recepcionContextoReserva(banner);
+    if (!ctx?.reserva_id) {
+      toast.error("No se pudo identificar la reserva.");
+      return;
+    }
+    const ingresadasOp = new Set(banner?.ordenesEstaOperacion || []);
+    const pendientes = (ctx.entradas || [])
+      .filter((e) => e.estado_ingreso === "pendiente")
+      .map((e) => Number(e.orden))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const revertibles = (ctx.entradas || [])
+      .filter((e) => e.estado_ingreso === "ingresada" && ingresadasOp.has(Number(e.orden)))
+      .map((e) => Number(e.orden))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (!pendientes.length && !revertibles.length) {
+      toast.message("No hay plazas pendientes ni ingresos recientes para ajustar.");
+      return;
+    }
+    setRecepcionBajarAnularSel(new Set());
+    setRecepcionBajarRevertirSel(new Set());
+    setRecepcionBajarPlazasOpen(true);
+  };
+
+  const toggleRecepcionBajarSel = (setter, orden) => {
+    const n = Number(orden);
+    if (!Number.isFinite(n)) return;
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
+      return next;
+    });
+  };
+
+  const handleConfirmRecepcionBajarPlazas = async () => {
+    const ctx = recepcionContextoReserva(recepcionUltimoIngreso);
+    if (!ctx?.reserva_id) {
+      toast.error("No se pudo identificar la reserva.");
+      return;
+    }
+    const anular = [...recepcionBajarAnularSel].sort((a, b) => a - b);
+    const revertir = [...recepcionBajarRevertirSel].sort((a, b) => a - b);
+    if (!anular.length && !revertir.length) {
+      toast.error("Marcá al menos una plaza para bajar o deshacer.");
+      return;
+    }
+    setRecepcionCancelBusy(true);
+    try {
+      if (revertir.length) {
+        await recepcionRevertirIngresos(ctx.reserva_id, revertir);
+      }
+      let reservaCancelada = false;
+      if (anular.length) {
+        const out = await recepcionAnularEntradas(ctx.reserva_id, anular);
+        reservaCancelada = Boolean(out?.reserva_cancelada);
+      }
+      const parts = [];
+      if (revertir.length) parts.push(`${revertir.length} ingreso${revertir.length === 1 ? "" : "s"} deshecho${revertir.length === 1 ? "" : "s"}`);
+      if (anular.length) parts.push(`${anular.length} plaza${anular.length === 1 ? "" : "s"} dada${anular.length === 1 ? "" : "s"} de baja`);
+      toast.success(parts.join(" · ") + (reservaCancelada ? ". Reserva cancelada." : "."));
+      setRecepcionBajarPlazasOpen(false);
+      setRecepcionBajarAnularSel(new Set());
+      setRecepcionBajarRevertirSel(new Set());
+      if (reservaCancelada) {
+        setRecepcionUltimoIngreso(null);
+        clearRecepcionParaNuevoIngreso();
+      } else if (recepcionUltimoIngreso?.token) {
+        const next = await refreshRecepcionUltimoIngreso(recepcionUltimoIngreso);
+        setRecepcionUltimoIngreso(next);
+      }
+      getAdminConciertoStats(recepcionConciertoId)
+        .then((s) =>
+          setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
+        )
+        .catch(() => {});
+    } catch (err) {
+      toast.error(err?.message || "No se pudo aplicar los cambios.");
+    } finally {
+      setRecepcionCancelBusy(false);
+    }
+  };
+
   const abrirRecepcionRevertirDesdeBanner = (ordenes) => {
-    const b = recepcionUltimoIngreso;
-    if (!b?.reserva_id) return;
-    const nums = (ordenes || b.ordenesEstaOperacion || []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
+    const ctx = recepcionContextoReserva(recepcionUltimoIngreso);
+    if (!ctx?.reserva_id) {
+      toast.error("No se pudo identificar la reserva.");
+      return;
+    }
+    const nums = (ordenes || recepcionUltimoIngreso?.ordenesEstaOperacion || [])
+      .map(Number)
+      .filter((n) => Number.isFinite(n) && n > 0);
     if (!nums.length) return;
     setRecepcionRevertirTarget({
-      reserva_id: b.reserva_id,
-      codigo_reserva: b.codigo_reserva,
+      reserva_id: ctx.reserva_id,
+      codigo_reserva: ctx.codigo_reserva,
       ordenes: nums,
     });
   };
@@ -3302,7 +3414,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                             <button
                               type="button"
                               disabled={recepcionCancelBusy || ingresando}
-                              onClick={() => abrirRecepcionAnularEntrada(recepcionUltimoIngreso.preview, row.orden)}
+                              onClick={() => abrirRecepcionAnularEntrada(recepcionUltimoIngreso, row.orden)}
                               className={`ml-auto shrink-0 text-[10px] font-bold underline-offset-2 hover:underline ${
                                 isDark ? "text-rose-300" : "text-rose-700"
                               }`}
@@ -3326,15 +3438,27 @@ export default function EntradasMain({ user, profile, onLogout }) {
                       Deshacer todo este ingreso
                     </button>
                   )}
-                  {recepcionUltimoIngreso.reserva_id && (
-                    <button
-                      type="button"
-                      disabled={recepcionCancelBusy || ingresando}
-                      onClick={() => abrirRecepcionCancelReserva(recepcionUltimoIngreso.preview || recepcionUltimoIngreso)}
-                      className={`${ui.btnGhost} flex-1 text-xs font-bold text-rose-700 border-rose-200 hover:bg-rose-50`}
-                    >
-                      Cancelar reserva completa
-                    </button>
+                  {recepcionContextoReserva(recepcionUltimoIngreso) && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={recepcionCancelBusy || ingresando}
+                        onClick={() => abrirRecepcionBajarPlazas(recepcionUltimoIngreso)}
+                        className={`${ui.btnGhost} flex-1 text-xs font-bold ${
+                          isDark ? "text-indigo-200 border-indigo-800" : "text-indigo-900 border-indigo-200"
+                        }`}
+                      >
+                        Bajar plazas…
+                      </button>
+                      <button
+                        type="button"
+                        disabled={recepcionCancelBusy || ingresando}
+                        onClick={() => abrirRecepcionCancelReserva(recepcionUltimoIngreso)}
+                        className={`${ui.btnGhost} flex-1 text-xs font-bold text-rose-700 border-rose-200 hover:bg-rose-50`}
+                      >
+                        Cancelar reserva completa
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -4147,6 +4271,114 @@ export default function EntradasMain({ user, profile, onLogout }) {
         onFallbackPhoto={handleQrScannerFallbackPhoto}
       />
 
+      {recepcionBajarPlazasOpen && recepcionUltimoIngreso && (() => {
+        const ctx = recepcionContextoReserva(recepcionUltimoIngreso);
+        const ingresadasOp = new Set(recepcionUltimoIngreso.ordenesEstaOperacion || []);
+        const filas = (ctx?.entradas || []).filter(
+          (e) =>
+            e.estado_ingreso === "pendiente"
+            || (e.estado_ingreso === "ingresada" && ingresadasOp.has(Number(e.orden))),
+        );
+        const nSel = recepcionBajarAnularSel.size + recepcionBajarRevertirSel.size;
+        return (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 backdrop-blur-sm p-3 sm:p-4"
+            role="presentation"
+            onClick={(e) => {
+              if (recepcionCancelBusy) return;
+              if (e.target === e.currentTarget) setRecepcionBajarPlazasOpen(false);
+            }}
+          >
+            <div
+              className={`w-full max-w-md max-h-[min(90vh,42rem)] overflow-y-auto p-5 shadow-2xl ${ui.cardInner}`}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="entradas-bajar-plazas-titulo"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <div className="min-w-0 pr-2">
+                  <h3 id="entradas-bajar-plazas-titulo" className={`text-sm font-bold ${ui.textStrong}`}>
+                    Bajar plazas de la reserva
+                  </h3>
+                  <p className={`text-xs mt-0.5 ${ui.textMuted}`}>
+                    {ctx?.codigo_reserva || "—"} · elegí qué plazas deshacer o dar de baja
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`shrink-0 rounded p-1 ${ui.btnIcon}`}
+                  aria-label="Cerrar"
+                  disabled={recepcionCancelBusy}
+                  onClick={() => setRecepcionBajarPlazasOpen(false)}
+                >
+                  <IconX size={20} />
+                </button>
+              </div>
+              <ul className="text-xs space-y-1.5 mb-4">
+                {filas.map((row) => {
+                  const orden = Number(row.orden);
+                  const esPendiente = row.estado_ingreso === "pendiente";
+                  const sel = esPendiente
+                    ? recepcionBajarAnularSel.has(orden)
+                    : recepcionBajarRevertirSel.has(orden);
+                  return (
+                    <li key={orden}>
+                      <label
+                        className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 ${
+                          sel
+                            ? isDark
+                              ? "border-indigo-600 bg-indigo-950/40"
+                              : "border-indigo-300 bg-indigo-50"
+                            : isDark
+                              ? "border-slate-600 bg-slate-800/80"
+                              : "border-slate-200 bg-white/90"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className={`shrink-0 ${ui.checkbox}`}
+                          checked={sel}
+                          disabled={recepcionCancelBusy}
+                          onChange={() =>
+                            toggleRecepcionBajarSel(
+                              esPendiente ? setRecepcionBajarAnularSel : setRecepcionBajarRevertirSel,
+                              orden,
+                            )
+                          }
+                        />
+                        <span className={`font-semibold ${ui.textStrong}`}>Plaza nº {orden}</span>
+                        <span className={`ml-auto text-[10px] ${ui.textMuted}`}>
+                          {esPendiente ? "Sin ingresar → baja" : "Ingresó ahora → deshacer"}
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={recepcionCancelBusy}
+                  onClick={() => setRecepcionBajarPlazasOpen(false)}
+                  className={ui.btnGhost}
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="button"
+                  disabled={recepcionCancelBusy || nSel === 0}
+                  onClick={() => void handleConfirmRecepcionBajarPlazas()}
+                  className={`${ui.btnPrimary} text-xs font-bold disabled:opacity-50`}
+                >
+                  {recepcionCancelBusy ? "Aplicando…" : `Aplicar (${nSel})`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {catalogQrModalReserva && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 backdrop-blur-sm p-3 sm:p-4"
@@ -4462,6 +4694,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
             : ""
         }
         confirmText={recepcionCancelBusy ? "Cancelando…" : "Sí, cancelar reserva"}
+        confirmLoading={recepcionCancelBusy}
+        loadingText="Cancelando…"
         confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-md"
         onConfirm={handleConfirmRecepcionCancelReserva}
       />

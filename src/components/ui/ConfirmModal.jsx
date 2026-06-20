@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { IconAlertTriangle, IconLoader, IconX } from "./Icons";
 
 export default function ConfirmModal({
@@ -31,7 +32,7 @@ export default function ConfirmModal({
     }
   };
 
-  return (
+  return createPortal(
     <div className={`fixed inset-0 ${overlayClassName} flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200 p-3 sm:p-4`}>
       <div
         className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[min(90vh,36rem)] overflow-y-auto p-5 sm:p-6 transform transition-all scale-100 animate-in zoom-in-95 duration-200 border border-slate-100"
@@ -107,10 +108,11 @@ export default function ConfirmModal({
             className={`w-full sm:w-auto flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed ${confirmClassName}`}
           >
             {busy ? <IconLoader size={16} className="animate-spin shrink-0" /> : null}
-            {busy ? "Copiando…" : confirmText}
+            {busy ? loadingText : confirmText}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
