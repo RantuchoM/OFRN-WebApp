@@ -1153,14 +1153,31 @@ export default function EntradasMain({ user, profile, onLogout }) {
       return;
     }
     let active = true;
+    setQrPreview(null);
     setQrPreviewLoading(true);
+    autoIngresoAttemptRef.current = "";
     const timer = setTimeout(() => {
       previewEntradaQr(t, recepcionConciertoId)
-        .then((p) => {
-          if (active) setQrPreview(p);
+        .then(async (p) => {
+          if (!active) return;
+          setQrPreview(p);
+          if (p?.ok && p.puede_ingresar) {
+            const attemptKey = `${recepcionConciertoId}:${t}`;
+            if (autoIngresoAttemptRef.current === attemptKey) return;
+            autoIngresoAttemptRef.current = attemptKey;
+            await ejecutarIngresoRecepcion({
+              token: t,
+              conciertoId: recepcionConciertoId,
+              forceParcial: Boolean(p.necesita_confirmar_parcial),
+            });
+          } else if (p?.ok && !p.puede_ingresar) {
+            const msg = entradasBloqueoIngreso(p);
+            if (msg) toast.message(msg);
+          }
         })
         .catch((err) => {
           if (active) {
+            autoIngresoAttemptRef.current = "";
             setQrPreview({
               ok: false,
               reason: "error",
@@ -1178,10 +1195,6 @@ export default function EntradasMain({ user, profile, onLogout }) {
       setQrPreviewLoading(false);
     };
   }, [scannerToken, section, canRecepcion, recepcionConciertoId]);
-
-  useEffect(() => {
-    autoIngresoAttemptRef.current = "";
-  }, [scannerToken, recepcionConciertoId]);
 
   const refreshRecepcionPreview = async () => {
     const t = scannerToken.trim();
@@ -1247,29 +1260,101 @@ export default function EntradasMain({ user, profile, onLogout }) {
     });
   };
 
-  useEffect(() => {
-    if (section !== "recepcion" || !canRecepcion || !recepcionConciertoId) return;
-    if (qrPreviewLoading || ingresando) return;
-    if (!qrPreview?.ok || !qrPreview.puede_ingresar) return;
-    const t = scannerToken.trim();
-    if (!t) return;
-
-    const attemptKey = `${recepcionConciertoId}:${t}`;
-    if (autoIngresoAttemptRef.current === attemptKey) return;
-    autoIngresoAttemptRef.current = attemptKey;
-
-    void consumeToken({
-      forceParcial: Boolean(qrPreview.necesita_confirmar_parcial),
-    });
-  }, [
-    section,
-    canRecepcion,
-    recepcionConciertoId,
-    scannerToken,
-    qrPreview,
-    qrPreviewLoading,
-    ingresando,
-  ]);
+  const ejecutarIngresoRecepcion = async ({
+    token,
+    conciertoId,
+    forceParcial = false,
+  } = {}) => {
+    const t = String(token ?? scannerToken).trim();
+    const cid = conciertoId ?? recepcionConciertoId;
+    if (!t || !cid) {
+      if (!cid) toast.error("Elegí un concierto en la lista para registrar ingresos.");
+      autoIngresoAttemptRef.current = "";
+      return;
+    }
+    setIngresando(true);
+    try {
+      const result = await validarYConsumirQr({
+        token: t,
+        modo: "auto",
+        confirmarParcial: forceParcial,
+        conciertoId: cid,
+        ordenesIngresar: null,
+      });
+      if (result?.warning || result?.reason === "reserva_uso_parcial") {
+        const retry = await validarYConsumirQr({
+          token: t,
+          modo: "auto",
+          confirmarParcial: true,
+          conciertoId: cid,
+          ordenesIngresar: null,
+        });
+        if (!retry?.ok) {
+          autoIngresoAttemptRef.current = "";
+          toast.error(formatEntradasValidacionError(retry));
+          return;
+        }
+        toast.success(formatEntradasRecepcionIngresoSuccess(retry), { duration: 3500 });
+        await registrarUltimoIngresoBanner(retry, t);
+        clearRecepcionParaNuevoIngreso();
+        getAdminConciertoStats(cid)
+          .then((s) =>
+            setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
+          )
+          .catch(() => {});
+        return;
+      }
+      if (!result?.ok) {
+        autoIngresoAttemptRef.current = "";
+        toast.error(formatEntradasValidacionError(result));
+        if (
+          result?.reason === "entrada_ya_usada"
+          || result?.reason === "reserva_totalmente_usada"
+        ) {
+          setQrPreview((prev) => {
+            const base = prev && typeof prev === "object" ? prev : { ok: true };
+            if (result.reason === "entrada_ya_usada") {
+              return {
+                ...base,
+                ok: true,
+                tipo: "entrada",
+                puede_ingresar: false,
+                estado_ingreso: "ingresada",
+                codigo_reserva: result.codigo_reserva ?? base.codigo_reserva,
+                entrada_orden: result.entrada_orden ?? base.entrada_orden,
+                ingresada_at: result.ingresada_at ?? base.ingresada_at,
+                ingresada_por_nombre: result.ingresada_por_nombre ?? base.ingresada_por_nombre,
+              };
+            }
+            return {
+              ...base,
+              ok: true,
+              tipo: "reserva",
+              puede_ingresar: false,
+              pendientes: 0,
+              codigo_reserva: result.codigo_reserva ?? base.codigo_reserva,
+              ingresada_at: result.ultima_ingresada_at,
+              ingresada_por_nombre: result.ultima_ingresada_por_nombre,
+            };
+          });
+        }
+        return;
+      }
+      toast.success(formatEntradasRecepcionIngresoSuccess(result), { duration: 3500 });
+      await registrarUltimoIngresoBanner(result, t);
+      clearRecepcionParaNuevoIngreso();
+      getAdminConciertoStats(cid)
+        .then((s) =>
+          setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
+        )
+        .catch(() => {});
+    } catch (err) {
+      autoIngresoAttemptRef.current = "";
+      toast.error(err?.message || "No se pudo registrar el ingreso.");
+    } finally {
+      setIngresando(false);
+    }
+  };
 
   useEffect(() => {
     if (section !== "recepcion" || !canRecepcion || !recepcionConciertoId) {
@@ -1574,90 +1659,6 @@ export default function EntradasMain({ user, profile, onLogout }) {
     setManualReservaCode("");
     setQrPreview(null);
     autoIngresoAttemptRef.current = "";
-  };
-
-  const consumeToken = async ({ forceParcial = false } = {}) => {
-    if (!scannerToken.trim() || !recepcionConciertoId) {
-      if (!recepcionConciertoId) toast.error("Elegí un concierto en la lista para registrar ingresos.");
-      return;
-    }
-    setIngresando(true);
-    try {
-      const result = await validarYConsumirQr({
-        token: scannerToken,
-        modo: "auto",
-        confirmarParcial: forceParcial,
-        conciertoId: recepcionConciertoId,
-        ordenesIngresar: null,
-      });
-      if (result?.warning || result?.reason === "reserva_uso_parcial") {
-        const retry = await validarYConsumirQr({
-          token: scannerToken,
-          modo: "auto",
-          confirmarParcial: true,
-          conciertoId: recepcionConciertoId,
-          ordenesIngresar: null,
-        });
-        if (!retry?.ok) {
-          toast.error(formatEntradasValidacionError(retry));
-          return;
-        }
-        toast.success(formatEntradasRecepcionIngresoSuccess(retry), { duration: 3500 });
-        await registrarUltimoIngresoBanner(retry, scannerToken);
-        clearRecepcionParaNuevoIngreso();
-        getAdminConciertoStats(recepcionConciertoId)
-          .then((s) =>
-            setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
-          )
-          .catch(() => {});
-        return;
-      }
-      if (!result?.ok) {
-        toast.error(formatEntradasValidacionError(result));
-        if (
-          result?.reason === "entrada_ya_usada"
-          || result?.reason === "reserva_totalmente_usada"
-        ) {
-          setQrPreview((prev) => {
-            const base = prev && typeof prev === "object" ? prev : { ok: true };
-            if (result.reason === "entrada_ya_usada") {
-              return {
-                ...base,
-                ok: true,
-                tipo: "entrada",
-                puede_ingresar: false,
-                estado_ingreso: "ingresada",
-                codigo_reserva: result.codigo_reserva ?? base.codigo_reserva,
-                entrada_orden: result.entrada_orden ?? base.entrada_orden,
-                ingresada_at: result.ingresada_at ?? base.ingresada_at,
-                ingresada_por_nombre: result.ingresada_por_nombre ?? base.ingresada_por_nombre,
-              };
-            }
-            return {
-              ...base,
-              ok: true,
-              tipo: "reserva",
-              puede_ingresar: false,
-              pendientes: 0,
-              codigo_reserva: result.codigo_reserva ?? base.codigo_reserva,
-              ingresada_at: result.ultima_ingresada_at,
-              ingresada_por_nombre: result.ultima_ingresada_por_nombre,
-            };
-          });
-        }
-        return;
-      }
-      toast.success(formatEntradasRecepcionIngresoSuccess(result), { duration: 3500 });
-      await registrarUltimoIngresoBanner(result, scannerToken);
-      clearRecepcionParaNuevoIngreso();
-      getAdminConciertoStats(recepcionConciertoId)
-        .then((s) =>
-          setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
-        )
-        .catch(() => {});
-    } finally {
-      setIngresando(false);
-    }
   };
 
   const handleConfirmRecepcionCancelReserva = async () => {
@@ -3463,7 +3464,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 </div>
               </div>
             )}
-            {(qrPreviewLoading || ingresando || (qrPreview && !qrPreview.ok)) && (
+            {(qrPreviewLoading || ingresando || (qrPreview && !qrPreview.ok) || (qrPreview?.ok && !qrPreview.puede_ingresar)) && (
               <div className="space-y-3">
                 {(qrPreviewLoading || ingresando) && (
                   <p className="text-sm font-medium entradas-accent-text">
@@ -3473,6 +3474,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 {qrPreview && !qrPreview.ok && (
                   <div className={`rounded-xl border-2 p-3 text-sm shadow-sm ${recepcionPanelClass(qrPreview, isDark)}`}>
                     <p className={`font-medium ${ui.textBody}`}>{formatEntradasPreviewError(qrPreview)}</p>
+                  </div>
+                )}
+                {qrPreview?.ok && !qrPreview.puede_ingresar && !ingresando && (
+                  <div className={`rounded-xl border-2 p-3 text-sm shadow-sm ${recepcionPanelClass(qrPreview, isDark)}`}>
+                    <p className={`font-medium ${ui.textBody}`}>
+                      {entradasBloqueoIngreso(qrPreview) || "Este código no admite ingreso en este momento."}
+                    </p>
                   </div>
                 )}
               </div>

@@ -34,6 +34,8 @@
 Migraciones:
 - `supabase/migrations/20260620120000_entradas_recepcion_auto_cancel.sql`
 - `supabase/migrations/20260620130000_entradas_recepcion_revertir_ingreso.sql`
+- `supabase/migrations/20260620140000_entradas_helpers_fecha_lugar_evento.sql` — si falta `entrada_fecha_hora_desde_evento` (entornos sin `20260520120000`)
+- `supabase/migrations/20260620150000_entradas_helpers_recepcionista_nombre.sql` — si falta `entrada_recepcionista_nombre_entrada`
 
 ## UI
 
