@@ -207,7 +207,38 @@ function templateEntradasReservaCancelada(d: {
 </html>`;
 }
 
-async function loadReservaForUser(
+function templateEntradasReservaConfirmadaAdminTercero(d: {
+  nombreAdmin: string;
+  beneficiarioLabel: string;
+  codigo: string;
+  conciertoNombre: string;
+  fechaTexto: string;
+  cantidad: number;
+  linkConcierto: string;
+  qrReservaToken: string;
+  qrEntradaTokens: string[];
+  programaNombre?: string;
+  programaDetalleHtml?: string;
+}): string {
+  const inner = templateEntradasReservaConfirmada({
+    nombre: d.nombreAdmin,
+    codigo: d.codigo,
+    conciertoNombre: d.conciertoNombre,
+    fechaTexto: d.fechaTexto,
+    cantidad: d.cantidad,
+    linkConcierto: d.linkConcierto,
+    qrReservaToken: d.qrReservaToken,
+    qrEntradaTokens: d.qrEntradaTokens,
+    programaNombre: d.programaNombre,
+    programaDetalleHtml: d.programaDetalleHtml,
+  });
+  return inner.replace(
+    "<p>Tu reserva de entradas gratuitas quedó <strong>confirmada</strong>.</p>",
+    `<p>Registraste una reserva de entradas para <strong>${esc(d.beneficiarioLabel)}</strong>. Quedó <strong>confirmada</strong>.</p>`,
+  );
+}
+
+async function loadReservaForAuthorizedUser(
   supabaseUser: ReturnType<typeof createClient>,
   reservaId: number,
   userId: string,
@@ -215,18 +246,33 @@ async function loadReservaForUser(
   const { data: reserva, error: reservaError } = await supabaseUser
     .from("entrada_reserva")
     .select(
-      `id, usuario_id, estado, codigo_reserva, cantidad_solicitada, concierto:entrada_concierto(nombre, slug_publico, detalle_richtext, ofrn_evento_id, entrada_programa(nombre, detalle_richtext), ${ENTRADA_CONCIERTO_EVENTO_SELECT})`,
+      `id, usuario_id, reservada_por, email_beneficiario, beneficiario_referencia, estado, codigo_reserva, cantidad_solicitada,
+      concierto:entrada_concierto(nombre, slug_publico, detalle_richtext, ofrn_evento_id, entrada_programa(nombre, detalle_richtext), ${ENTRADA_CONCIERTO_EVENTO_SELECT})`,
     )
     .eq("id", reservaId)
     .maybeSingle();
   if (reservaError) throw new Error(reservaError.message);
   if (!reserva) throw new Error("Reserva no encontrada.");
-  if (reserva.usuario_id !== userId) {
-    return { error: 403 as const, message: "No autorizado." };
+
+  const isOwner = reserva.usuario_id === userId;
+  const isCreator = reserva.reservada_por === userId;
+  if (!isOwner && !isCreator) {
+    const { data: perfilCaller } = await supabaseUser
+      .from("entrada_usuario")
+      .select("rol")
+      .eq("id", userId)
+      .maybeSingle();
+    if (perfilCaller?.rol !== "admin") {
+      return { error: 403 as const, message: "No autorizado." };
+    }
   }
+
   return { reserva: reserva as {
     id: number;
     usuario_id: string;
+    reservada_por: string | null;
+    email_beneficiario: string | null;
+    beneficiario_referencia: string | null;
     estado: string;
     codigo_reserva: string;
     cantidad_solicitada: number;
@@ -239,6 +285,83 @@ async function loadReservaForUser(
       entrada_programa?: { nombre?: string; detalle_richtext?: string } | null;
     } | null;
   } };
+}
+
+async function perfilEntradasPorId(
+  supabaseUser: ReturnType<typeof createClient>,
+  id: string | null | undefined,
+) {
+  if (!id) return null;
+  const { data } = await supabaseUser
+    .from("entrada_usuario")
+    .select("nombre, apellido, email")
+    .eq("id", id)
+    .maybeSingle();
+  return data;
+}
+
+function nombreCompleto(perfil: { nombre?: string; apellido?: string } | null | undefined, fallback = "Usuario") {
+  const n = [perfil?.nombre, perfil?.apellido].filter(Boolean).join(" ").trim();
+  return n || fallback;
+}
+
+function beneficiarioLabelFromReserva(
+  reserva: {
+    email_beneficiario?: string | null;
+    beneficiario_referencia?: string | null;
+  },
+  titularPerfil: { nombre?: string; apellido?: string; email?: string } | null,
+) {
+  if (titularPerfil && reserva.email_beneficiario == null) {
+    const n = nombreCompleto(titularPerfil, "");
+    if (n) return n;
+  }
+  if (reserva.beneficiario_referencia) return String(reserva.beneficiario_referencia);
+  if (reserva.email_beneficiario) return reserva.email_beneficiario;
+  return "beneficiario/a";
+}
+
+async function buildMailRecipients(
+  supabaseUser: ReturnType<typeof createClient>,
+  reserva: {
+    usuario_id: string;
+    reservada_por: string | null;
+    email_beneficiario: string | null;
+  },
+  callerId: string,
+) {
+  type Recipient = { email: string; rol: "titular" | "admin_creador" | "beneficiario_pendiente" };
+  const out: Recipient[] = [];
+  const seen = new Set<string>();
+
+  const push = (email: string | null | undefined, rol: Recipient["rol"]) => {
+    const e = String(email || "").trim().toLowerCase();
+    if (!e || seen.has(e)) return;
+    seen.add(e);
+    out.push({ email: e, rol });
+  };
+
+  if (reserva.reservada_por) {
+    const adminPerfil = await perfilEntradasPorId(supabaseUser, reserva.reservada_por);
+    push(adminPerfil?.email, "admin_creador");
+
+    if (reserva.email_beneficiario) {
+      push(reserva.email_beneficiario, "beneficiario_pendiente");
+    } else if (reserva.usuario_id !== reserva.reservada_por) {
+      const titular = await perfilEntradasPorId(supabaseUser, reserva.usuario_id);
+      push(titular?.email, "titular");
+    }
+  } else {
+    const titular = await perfilEntradasPorId(supabaseUser, reserva.usuario_id);
+    push(titular?.email, "titular");
+  }
+
+  if (!out.length) {
+    const caller = await perfilEntradasPorId(supabaseUser, callerId);
+    push(caller?.email, "titular");
+  }
+
+  return out;
 }
 
 serve(async (req) => {
@@ -307,7 +430,7 @@ serve(async (req) => {
       });
     }
 
-    const loaded = await loadReservaForUser(supabaseUser, reservaId, user.id);
+    const loaded = await loadReservaForAuthorizedUser(supabaseUser, reservaId, user.id);
     if ("error" in loaded) {
       return new Response(JSON.stringify({ error: loaded.message }), {
         status: loaded.error,
@@ -323,13 +446,6 @@ serve(async (req) => {
       throw new Error("Solo se puede reenviar confirmación de reservas activas.");
     }
 
-    // Cargar email del perfil entradas (mismo criterio que el resto del módulo)
-    const { data: perfil } = await supabaseUser.from("entrada_usuario").select("nombre, apellido, email").eq("id", user.id).maybeSingle();
-    const emailTo = (perfil?.email || user.email || "").trim();
-    if (!emailTo) {
-      throw new Error("No hay email de destino para el usuario.");
-    }
-
     const concierto = reserva.concierto;
     const conciertoNombre = concierto?.nombre || "Concierto";
     const slug = concierto?.slug_publico || "";
@@ -341,28 +457,16 @@ serve(async (req) => {
     const programaNombre = ep?.nombre ? String(ep.nombre) : "";
     const programaDetalleHtml = ep?.detalle_richtext ? String(ep.detalle_richtext) : "";
 
-    const nombreSaludo = [perfil?.nombre, perfil?.apellido].filter(Boolean).join(" ").trim() || "Usuario";
-    const html = action === "cancelacion"
-      ? templateEntradasReservaCancelada({
-        nombre: nombreSaludo,
-        codigo: reserva.codigo_reserva,
-        conciertoNombre,
-        fechaTexto,
-        cantidad: Number(reserva.cantidad_solicitada) || 0,
-        linkConcierto,
-      })
-      : templateEntradasReservaConfirmada({
-        nombre: nombreSaludo,
-        codigo: reserva.codigo_reserva,
-        conciertoNombre,
-        fechaTexto,
-        cantidad: Number(reserva.cantidad_solicitada) || 0,
-        linkConcierto,
-        qrReservaToken,
-        qrEntradaTokens,
-        programaNombre,
-        programaDetalleHtml,
-      });
+    const titularPerfil = await perfilEntradasPorId(supabaseUser, reserva.usuario_id);
+    const adminPerfil = reserva.reservada_por
+      ? await perfilEntradasPorId(supabaseUser, reserva.reservada_por)
+      : null;
+    const beneficiarioLabel = beneficiarioLabelFromReserva(reserva, titularPerfil);
+
+    const recipients = await buildMailRecipients(supabaseUser, reserva, user.id);
+    if (!recipients.length) {
+      throw new Error("No hay email de destino para enviar.");
+    }
 
     const subject = action === "cancelacion"
       ? `Entradas OFRN | Reserva cancelada ${reserva.codigo_reserva}`
@@ -394,20 +498,92 @@ serve(async (req) => {
           })()
         : undefined;
 
-    const info = await transporter.sendMail({
-      from: `"Filarmónica SCRN" <${GMAIL_USER}>`,
-      replyTo: "filarmonica.scrn@gmail.com",
-      to: emailTo,
-      subject,
-      html,
-      ...(pdfAttachment && pdfAttachment.length > 0 ? { attachments: pdfAttachment } : {}),
-    });
+    const messageIds: string[] = [];
 
-    console.log(
-      `[entradas-send-reserva-email] OK action=${action} messageId=${info.messageId} to=${emailTo} reservaId=${reservaId}`,
-    );
+    for (const recipient of recipients) {
+      let nombreSaludo = "Usuario";
+      let html: string;
 
-    return new Response(JSON.stringify({ success: true, id: info.messageId }), {
+      if (action === "cancelacion") {
+        if (recipient.rol === "admin_creador") {
+          nombreSaludo = nombreCompleto(adminPerfil);
+          html = templateEntradasReservaCancelada({
+            nombre: nombreSaludo,
+            codigo: reserva.codigo_reserva,
+            conciertoNombre,
+            fechaTexto,
+            cantidad: Number(reserva.cantidad_solicitada) || 0,
+            linkConcierto,
+          }).replace(
+            "<p>Tu reserva de entradas fue <strong>cancelada</strong> correctamente.</p>",
+            `<p>La reserva de entradas que registraste para <strong>${esc(beneficiarioLabel)}</strong> fue <strong>cancelada</strong> correctamente.</p>`,
+          );
+        } else {
+          nombreSaludo = recipient.rol === "beneficiario_pendiente"
+            ? beneficiarioLabel
+            : nombreCompleto(titularPerfil);
+          html = templateEntradasReservaCancelada({
+            nombre: nombreSaludo,
+            codigo: reserva.codigo_reserva,
+            conciertoNombre,
+            fechaTexto,
+            cantidad: Number(reserva.cantidad_solicitada) || 0,
+            linkConcierto,
+          });
+        }
+      } else if (recipient.rol === "admin_creador" && reserva.reservada_por) {
+        nombreSaludo = nombreCompleto(adminPerfil);
+        html = templateEntradasReservaConfirmadaAdminTercero({
+          nombreAdmin: nombreSaludo,
+          beneficiarioLabel,
+          codigo: reserva.codigo_reserva,
+          conciertoNombre,
+          fechaTexto,
+          cantidad: Number(reserva.cantidad_solicitada) || 0,
+          linkConcierto,
+          qrReservaToken,
+          qrEntradaTokens,
+          programaNombre,
+          programaDetalleHtml,
+        });
+      } else {
+        nombreSaludo = recipient.rol === "beneficiario_pendiente"
+          ? beneficiarioLabel
+          : nombreCompleto(titularPerfil);
+        html = templateEntradasReservaConfirmada({
+          nombre: nombreSaludo,
+          codigo: reserva.codigo_reserva,
+          conciertoNombre,
+          fechaTexto,
+          cantidad: Number(reserva.cantidad_solicitada) || 0,
+          linkConcierto,
+          qrReservaToken,
+          qrEntradaTokens,
+          programaNombre,
+          programaDetalleHtml,
+        });
+      }
+
+      const attachPdf = recipient.rol !== "admin_creador" || !reserva.reservada_por
+        ? pdfAttachment
+        : pdfAttachment;
+
+      const info = await transporter.sendMail({
+        from: `"Filarmónica SCRN" <${GMAIL_USER}>`,
+        replyTo: "filarmonica.scrn@gmail.com",
+        to: recipient.email,
+        subject,
+        html,
+        ...(attachPdf && attachPdf.length > 0 ? { attachments: attachPdf } : {}),
+      });
+
+      messageIds.push(info.messageId);
+      console.log(
+        `[entradas-send-reserva-email] OK action=${action} messageId=${info.messageId} to=${recipient.email} rol=${recipient.rol} reservaId=${reservaId}`,
+      );
+    }
+
+    return new Response(JSON.stringify({ success: true, ids: messageIds }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

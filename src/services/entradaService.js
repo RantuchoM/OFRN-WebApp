@@ -238,6 +238,57 @@ export async function enviarMailReserva({ reservaId, qrReservaToken, qrEntradaTo
   if (error) throw error;
 }
 
+export async function buscarBeneficiarioPorEmail(email) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_admin_buscar_beneficiario", {
+    p_email: String(email || "").trim(),
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function crearReservaTercero({ conciertoId, cantidad, emailBeneficiario, beneficiarioReferencia }) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_admin_crear_reserva_tercero", {
+    p_concierto_id: conciertoId,
+    p_cantidad: cantidad,
+    p_email_beneficiario: emailBeneficiario ? String(emailBeneficiario).trim() : null,
+    p_beneficiario_referencia: beneficiarioReferencia ? String(beneficiarioReferencia).trim() : null,
+  });
+  if (error) throw error;
+  const payload = Array.isArray(data) ? data[0] : data;
+  return payload;
+}
+
+export async function asociarEmailTercero({ reservaId, email }) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_admin_asociar_email_tercero", {
+    p_reserva_id: reservaId,
+    p_email: String(email || "").trim(),
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function cancelarReservaTercero(reservaId) {
+  const { error } = await supabaseEntradasPublic.rpc("entrada_admin_cancelar_reserva_tercero", {
+    p_reserva_id: reservaId,
+  });
+  if (error) throw error;
+}
+
+export async function actualizarReferenciaTercero(reservaId, referencia) {
+  const { error } = await supabaseEntradasPublic
+    .from("entrada_reserva")
+    .update({ beneficiario_referencia: referencia ? String(referencia).trim() : null })
+    .eq("id", reservaId);
+  if (error) throw error;
+}
+
+const RESERVA_TERCEROS_SELECT = `id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token,
+  reservada_por, email_beneficiario, beneficiario_referencia, usuario_id,
+  concierto:entrada_concierto(id, nombre, slug_publico, detalle_richtext, fecha_hora, ofrn_evento_id,
+    entrada_programa(id, nombre, detalle_richtext), ${ENTRADA_CONCIERTO_EVENTO_EMBED}),
+  entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token),
+  titular:entrada_usuario!entrada_reserva_usuario_id_fkey(id, nombre, apellido, email)`;
+
 /**
  * Genera el PDF (detalle + QRs) y devuelve blob y nombre de archivo. No lanza; el caller hace el toast.
  */
@@ -399,9 +450,17 @@ export async function listConciertoIdsConReservaActiva() {
     .from("entrada_reserva")
     .select("concierto_id")
     .eq("estado", "activa")
-    .eq("usuario_id", session.user.id);
+    .eq("usuario_id", session.user.id)
+    .is("reservada_por", null);
   if (error) throw error;
   return (data || []).map((r) => Number(r.concierto_id));
+}
+
+function mapReservaConConcierto(reserva) {
+  return {
+    ...reserva,
+    concierto: reserva.concierto ? aplicarDatosEventoAConciertoEntrada(reserva.concierto) : reserva.concierto,
+  };
 }
 
 export async function listarMisReservas() {
@@ -416,12 +475,26 @@ export async function listarMisReservas() {
       `id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token, concierto:entrada_concierto(id, nombre, slug_publico, detalle_richtext, ofrn_evento_id, entrada_programa(id, nombre, detalle_richtext), ${ENTRADA_CONCIERTO_EVENTO_EMBED}), entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token)`,
     )
     .eq("usuario_id", session.user.id)
+    .is("reservada_por", null)
     .order("id", { ascending: false });
   if (error) throw error;
-  return (data || []).map((reserva) => ({
-    ...reserva,
-    concierto: reserva.concierto ? aplicarDatosEventoAConciertoEntrada(reserva.concierto) : reserva.concierto,
-  }));
+  return (data || []).map(mapReservaConConcierto);
+}
+
+export async function listarEntradasTercerosAdmin() {
+  const {
+    data: { session },
+  } = await supabaseEntradasPublic.auth.getSession();
+  if (!session?.user) return [];
+
+  const { data, error } = await supabaseEntradasPublic
+    .from("entrada_reserva")
+    .select(RESERVA_TERCEROS_SELECT)
+    .eq("reservada_por", session.user.id)
+    .eq("estado", "activa")
+    .order("id", { ascending: false });
+  if (error) throw error;
+  return (data || []).map(mapReservaConConcierto);
 }
 
 export async function previewEntradaQr(token, conciertoId = null) {
