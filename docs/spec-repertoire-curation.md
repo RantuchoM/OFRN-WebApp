@@ -8,23 +8,25 @@
 ### Modelo de Datos
 
 - **Tabla base**: `repertorio_obras` (relación obra ↔ bloque de repertorio).
+- **Bloque**: `programas_repertorios.en_definicion` persiste el modo del bloque (incluso sin obras).
 - **Nuevos campos**:
   - `estado_curaduria TEXT DEFAULT 'Propuesto' CHECK (estado_curaduria IN ('Propuesto', 'Aceptado', 'Rechazado'))`
   - `observacion_curaduria TEXT`
-  - `en_definicion BOOLEAN DEFAULT false`
+  - `en_definicion BOOLEAN DEFAULT false` (en `repertorio_obras` y en `programas_repertorios`)
 - **Semántica**:
-  - `en_definicion`: indica si las obras de un bloque están aún en modo de definición/curaduría (flujo abierto).
+  - `programas_repertorios.en_definicion`: fuente de verdad del modo del bloque; se replica en las filas de `repertorio_obras` al cambiar el toggle.
+  - `repertorio_obras.en_definicion`: flag por fila, sincronizado con el bloque.
   - `estado_curaduria`: estado de validación de la obra propuesta dentro del bloque.
   - `observacion_curaduria`: comentarios breves de coordinación/edición sobre la decisión.
 
 ### Reglas de Negocio
 
 1. **Interruptor de Bloque (`en_definicion`)**
-   - Cada bloque de `programas_repertorios` opera sobre sus filas en `repertorio_obras` mediante un flag de definición.
-   - El flag se implementa como un booleano `en_definicion` en cada fila de `repertorio_obras`.
+   - Cada bloque de `programas_repertorios` expone el modo en `programas_repertorios.en_definicion`.
    - El header del bloque en `RepertoireManager` expone, solo para editores, un control **"Modo Definición"**:
-     - Al activarlo, todas las filas de `repertorio_obras` asociadas a ese bloque pasan a `en_definicion = true`.
-     - Al desactivarlo, todas las filas asociadas pasan a `en_definicion = false`.
+     - Al activarlo, el bloque pasa a `en_definicion = true` y todas las filas de `repertorio_obras` asociadas se sincronizan.
+     - Al desactivarlo, bloque y filas pasan a `en_definicion = false`.
+   - Las obras nuevas heredan el modo del bloque al agregarse.
 
 2. **Estados de Curaduría**
    - Las obras pueden estar en uno de estos estados:
@@ -42,7 +44,9 @@
        - Ven un selector de estado (`Propuesto`, `Aceptado`, `Rechazado`) por obra.
        - Ven un campo de texto corto para `observacion_curaduria`.
      - **Usuarios sin permisos de edición**:
-       - No pueden modificar valores, pero pueden ver el estado resultante en formato de badge/etiqueta de color.
+       - Ven badge **"En definición"** en el header del bloque cuando el bloque está en curaduría.
+       - Ven badge **"EN DEF."** junto al título de obras con estado `Propuesto`.
+       - En la columna de curaduría, `Propuesto` se muestra como **"En definición"**; `Aceptado` como **"Confirmada"**.
 
 4. **Persistencia**
    - Los cambios se guardan siempre en la tabla `repertorio_obras`:
@@ -89,12 +93,14 @@
 
 ### Estado de Implementación
 
-- **Estado**: Pendiente
+- **Estado**: Completado (2026-06-20)
 - **Tareas**:
-  - [ ] Crear campos `estado_curaduria`, `observacion_curaduria` y `en_definicion` en `repertorio_obras` (SQL en Supabase).
-  - [ ] Añadir toggle de `Modo Definición` en el header del bloque en `RepertoireManager`.
-  - [ ] Añadir columna de curaduría en la tabla Desktop (select + observación).
-  - [ ] Añadir controles equivalentes en las tarjetas móviles.
-  - [ ] Probar flujo completo con distintos roles (editor / solo lectura).
-  - [ ] Actualizar este spec marcando el estado como **Completado**.
+  - [x] Crear campos `estado_curaduria`, `observacion_curaduria` y `en_definicion` en `repertorio_obras` (SQL en Supabase).
+  - [x] Añadir `en_definicion` en `programas_repertorios` (migración `20260620160000_programas_repertorios_en_definicion.sql`).
+  - [x] Incluir campos de curaduría en el fetch de `RepertoireManager` y `ProgramRepertoire`.
+  - [x] Añadir toggle de `Modo Definición` en el header del bloque en `RepertoireManager`.
+  - [x] Añadir columna de curaduría en la tabla Desktop (select + observación).
+  - [x] Añadir controles equivalentes en las tarjetas móviles.
+  - [x] Badges de solo lectura para músicos (`En definición` / `EN DEF.`).
+  - [ ] Probar flujo completo con distintos roles (editor / solo lectura) en entorno con migración aplicada.
 

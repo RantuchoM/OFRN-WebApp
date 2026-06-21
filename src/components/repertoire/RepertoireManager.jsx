@@ -127,6 +127,26 @@ function formatRepertorioDuracionVisible(seconds) {
   return formatSecondsToTime(n);
 }
 
+function isBlockInDefinitionMode(rep) {
+  return (
+    !!rep?.en_definicion ||
+    (rep?.repertorio_obras || []).some((o) => o.en_definicion)
+  );
+}
+
+/** Etiqueta de curaduría para músicos (Propuesto → "En definición"). */
+function getCuraduriaDisplayLabel(estadoCuraduria, { forMusician = false } = {}) {
+  const estado = estadoCuraduria || "Propuesto";
+  if (forMusician && estado === "Propuesto") return "En definición";
+  if (forMusician && estado === "Aceptado") return "Confirmada";
+  return estado;
+}
+
+function isWorkPendingCuraduria(item) {
+  const estado = item.estado_curaduria || "Propuesto";
+  return estado === "Propuesto";
+}
+
 /** Duración por programa: cursiva si hay override; escritorio = IconEdit al hover; móvil = IconEdit junto al tiempo; al editar, IconRefresh restaura catálogo. */
 function RepertorioProgramDurationCell({ item, isEditor, updateWorkDetail, compact }) {
   const effective = effectiveRepertorioObraDurationSeconds(item);
@@ -1847,6 +1867,9 @@ export default function RepertoireManager({
           excluir, 
           id_arco_seleccionado,
           duracion_segundos_concierto,
+          en_definicion,
+          estado_curaduria,
+          observacion_curaduria,
           obras (
               id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, observaciones, comentarios,
               obras_arcos (id, nombre, link, descripcion, id_drive_folder),
@@ -2037,10 +2060,18 @@ export default function RepertoireManager({
         (max, o) => (o.orden > max ? o.orden : max),
         0,
       ) || 0;
+    const blockInDefinition = isBlockInDefinitionMode(currentRep);
 
     const { data: insertedRows, error } = await supabase
       .from("repertorio_obras")
-      .insert([{ id_repertorio: repId, id_obra: workId, orden: maxOrder + 1 }])
+      .insert([
+        {
+          id_repertorio: repId,
+          id_obra: workId,
+          orden: maxOrder + 1,
+          ...(blockInDefinition ? { en_definicion: true } : {}),
+        },
+      ])
       .select();
 
     if (error) {
@@ -2708,8 +2739,7 @@ export default function RepertoireManager({
       {repertorios.map((rep) => {
         // Calculamos el atril para el usuario actual en este bloque (si aplica)
         const userSeating = user ? seatingMap[user.id] : null;
-        const isDefinitionMode =
-          (rep.repertorio_obras || []).some((o) => o.en_definicion) || false;
+        const isDefinitionMode = isBlockInDefinitionMode(rep);
 
         return (
           <div
@@ -2758,12 +2788,12 @@ export default function RepertoireManager({
                       <button
                         onClick={async () => {
                           const nextValue = !isDefinitionMode;
-                          // Actualizar UI local
                           setRepertorios((current) =>
                             current.map((r) =>
                               r.id === rep.id
                                 ? {
                                     ...r,
+                                    en_definicion: nextValue,
                                     repertorio_obras: (r.repertorio_obras || []).map(
                                       (o) => ({
                                         ...o,
@@ -2774,25 +2804,32 @@ export default function RepertoireManager({
                                 : r,
                             ),
                           );
-                          // Persistir en Supabase para todas las obras del bloque
-                          const obraIds = (rep.repertorio_obras || []).map(
-                            (o) => o.id,
-                          );
-                          if (obraIds.length > 0) {
-                            try {
-                              await supabase
+                          try {
+                            const { error: blockError } = await supabase
+                              .from("programas_repertorios")
+                              .update({ en_definicion: nextValue })
+                              .eq("id", rep.id);
+                            if (blockError) throw blockError;
+
+                            const obraIds = (rep.repertorio_obras || []).map(
+                              (o) => o.id,
+                            );
+                            if (obraIds.length > 0) {
+                              const { error: obrasError } = await supabase
                                 .from("repertorio_obras")
                                 .update({ en_definicion: nextValue })
                                 .in("id", obraIds);
-                            } catch (e) {
-                              console.error(
-                                "Error al actualizar en_definicion del bloque:",
-                                e,
-                              );
-                              alert(
-                                "Error al actualizar el modo de definición del bloque.",
-                              );
+                              if (obrasError) throw obrasError;
                             }
+                          } catch (e) {
+                            console.error(
+                              "Error al actualizar en_definicion del bloque:",
+                              e,
+                            );
+                            alert(
+                              "Error al actualizar el modo de definición del bloque.",
+                            );
+                            fetchFullRepertoire();
                           }
                         }}
                         className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold transition-colors ${
@@ -2814,6 +2851,16 @@ export default function RepertoireManager({
                           </>
                         )}
                       </button>
+                    )}
+
+                    {!isEditor && isDefinitionMode && (
+                      <span
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold bg-amber-50 border-amber-300 text-amber-800"
+                        title="Este bloque de repertorio aún está en definición"
+                      >
+                        <IconAlertCircle size={12} className="text-amber-500" />
+                        <span>En definición</span>
+                      </span>
                     )}
 
                     {/* Badge de Atril (si el usuario tiene asignación) */}
@@ -2898,6 +2945,13 @@ export default function RepertoireManager({
 
                     <div className="flex gap-2 pl-2 pr-1">
                       <div className="flex-1 min-w-0">
+                        {isDefinitionMode && isWorkPendingCuraduria(item) && (
+                          <span className="inline-flex items-center gap-1 mb-1 text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200 font-semibold uppercase tracking-wide">
+                            <IconAlertCircle size={10} className="text-amber-600 shrink-0" />
+                            En definición
+                          </span>
+                        )}
+
                         {/* Fila 1: Orden, Compositor, Duración */}
                         <div className="flex justify-between items-center mb-1">
                           <div className="flex items-center gap-2">
@@ -3058,8 +3112,11 @@ export default function RepertoireManager({
                           </div>
                         )}
 
-                        {/* Fila 6: Curaduría (solo si el bloque está en definición) */}
-                        {item.en_definicion && (
+                        {/* Fila 6: Curaduría (editores siempre; músicos solo si ya hay decisión u observación) */}
+                        {isDefinitionMode &&
+                          (isEditor ||
+                            !isWorkPendingCuraduria(item) ||
+                            !!item.observacion_curaduria?.trim()) && (
                           <div className="mb-2 mt-1 border-t border-amber-100 pt-1">
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-1">
@@ -3131,7 +3188,9 @@ export default function RepertoireManager({
                                           : "bg-amber-50 text-amber-800 border border-amber-200"
                                     }`}
                                   >
-                                    {item.estado_curaduria || "Propuesto"}
+                                    {getCuraduriaDisplayLabel(item.estado_curaduria, {
+                                      forMusician: !isEditor,
+                                    })}
                                   </span>
                                   {item.observacion_curaduria && (
                                     <p className="text-[10px] text-slate-600 leading-tight">
@@ -3393,6 +3452,12 @@ export default function RepertoireManager({
                                   PEND
                                 </span>
                               )}
+                              {isDefinitionMode &&
+                                isWorkPendingCuraduria(item) && (
+                                  <span className="ml-1 text-[8px] bg-amber-100 text-amber-800 px-1 rounded border border-amber-200 align-text-top font-semibold">
+                                    EN DEF.
+                                  </span>
+                                )}
                             </div>
                             {canSeeInternalNotes && (item.obras.estado === "Solicitud" || item.obras.estado === "Pendiente") && (item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios) && (
                               <div className="group relative max-w-full">
@@ -3413,8 +3478,7 @@ export default function RepertoireManager({
                       </td>
                       {isDefinitionMode && (
                         <td className="p-1 text-center align-middle">
-                          {item.en_definicion ? (
-                            <div className="flex flex-col gap-1">
+                          <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-1">
                                 {item.estado_curaduria === "Aceptado" && (
                                   <IconCheck
@@ -3467,7 +3531,9 @@ export default function RepertoireManager({
                                           : "bg-amber-50 text-amber-800 border border-amber-200"
                                     }`}
                                   >
-                                    {item.estado_curaduria || "Propuesto"}
+                                    {getCuraduriaDisplayLabel(item.estado_curaduria, {
+                                      forMusician: !isEditor,
+                                    })}
                                   </span>
                                 )}
                               </div>
@@ -3491,10 +3557,7 @@ export default function RepertoireManager({
                                   {item.observacion_curaduria}
                                 </p>
                               )}
-                            </div>
-                          ) : (
-                            <span className="text-[10px] text-slate-300">-</span>
-                          )}
+                          </div>
                         </td>
                       )}
                       <td className="p-1 text-center whitespace-pre-line text-[10px] text-slate-500 font-mono">
