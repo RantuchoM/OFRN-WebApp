@@ -5,6 +5,7 @@ const PAGE_W = 210;
 const PAGE_H = 297;
 const MM_TO_PT = 72 / 25.4;
 const mmPt = (v) => v * MM_TO_PT;
+const MAX_SIGNATURE_CELL_HEIGHT_RATIO = 1 / 6;
 
 /** Encargado: siempre primera firma del cuadro (aunque no esté en el lote de destaques). */
 export const CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID = 1458710;
@@ -56,7 +57,7 @@ const SIG_JPEG_QUALITY = 0.72;
 
 /**
  * Calcula columnas y filas para que N firmas entren en una sola página A4.
- * Prioriza celdas cuadradas y zona de firma casi a altura completa (nombre solapado).
+ * Prioriza celdas cuadradas y limita la altura cuando hay pocas firmas.
  */
 export function computeSignatureGridLayout(count, opts = {}) {
   const {
@@ -69,7 +70,12 @@ export function computeSignatureGridLayout(count, opts = {}) {
     nameOverlapMm = 5,
     minSigHeightMm = 6,
     minCols = 4,
+    maxCellHeightMm = pageHeightMm * MAX_SIGNATURE_CELL_HEIGHT_RATIO,
   } = opts;
+  const maxCellH =
+    Number.isFinite(maxCellHeightMm) && maxCellHeightMm > 0
+      ? maxCellHeightMm
+      : Infinity;
 
   const empty = {
     cols: 0,
@@ -98,7 +104,8 @@ export function computeSignatureGridLayout(count, opts = {}) {
   for (let cols = colMin; cols <= colMax; cols++) {
     const rows = Math.ceil(count / cols);
     const cellW = (usableW - gapMm * (cols - 1)) / cols;
-    const cellH = (usableH - gapMm * (rows - 1)) / rows;
+    const rawCellH = (usableH - gapMm * (rows - 1)) / rows;
+    const cellH = Math.min(rawCellH, maxCellH);
     const sigBoxH = cellH - nameBandMm + nameOverlapMm;
     if (sigBoxH < minSigHeightMm) continue;
 
@@ -122,7 +129,8 @@ export function computeSignatureGridLayout(count, opts = {}) {
     const cols = Math.max(colMin, Math.ceil(Math.sqrt(count)));
     const rows = Math.ceil(count / cols);
     const cellW = (usableW - gapMm * (cols - 1)) / cols;
-    const cellH = (usableH - gapMm * (rows - 1)) / rows;
+    const rawCellH = (usableH - gapMm * (rows - 1)) / rows;
+    const cellH = Math.min(rawCellH, maxCellH);
     best = {
       cols,
       rows,
