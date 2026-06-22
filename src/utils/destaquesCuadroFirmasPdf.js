@@ -14,8 +14,6 @@ import {
   TableCell,
   TableLayoutType,
   TableRow,
-  TextRun,
-  VerticalAlignTable,
   WidthType,
 } from "docx";
 
@@ -33,11 +31,12 @@ export const CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID = 1458710;
 
 export function toCuadroFirmasPerson(row) {
   if (!row) return null;
+  const dni = row.dni != null ? String(row.dni).trim() : "";
   return {
     id: row.id,
     nombre: row.nombre,
     apellido: row.apellido,
-    dni: row.dni,
+    dni: dni || null,
     firma: row.firma,
   };
 }
@@ -58,8 +57,11 @@ export async function fetchEncargadoCuadroFirmas(supabase) {
 
 export function buildCuadroFirmasPeopleList(people, encargado) {
   const encargadoId = CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID;
+  const head = toCuadroFirmasPerson(encargado);
   const rest = (people || [])
     .filter((p) => Number(p.id) !== encargadoId)
+    .map(toCuadroFirmasPerson)
+    .filter(Boolean)
     .sort((a, b) => {
       const ap = String(a.apellido || "").localeCompare(
         String(b.apellido || ""),
@@ -68,8 +70,49 @@ export function buildCuadroFirmasPeopleList(people, encargado) {
       if (ap !== 0) return ap;
       return String(a.nombre || "").localeCompare(String(b.nombre || ""), "es");
     });
-  const head = toCuadroFirmasPerson(encargado);
   return head ? [head, ...rest] : rest;
+}
+
+export async function hydrateCuadroFirmasPeopleDni(supabase, people) {
+  if (!supabase?.from) return people || [];
+  const list = (people || []).map(toCuadroFirmasPerson).filter(Boolean);
+  const missingIds = [
+    ...new Set(
+      list
+        .filter((person) => !person.dni)
+        .map((person) => Number(person.id))
+        .filter(Number.isFinite),
+    ),
+  ];
+  if (missingIds.length === 0) return list;
+
+  const { data, error } = await supabase
+    .from("integrantes")
+    .select("id, dni")
+    .in("id", missingIds);
+  if (error) {
+    console.warn("Cuadro de firmas: DNI no cargados", error);
+    return list;
+  }
+
+  const dniById = new Map(
+    (data || []).map((row) => [
+      Number(row.id),
+      row.dni != null ? String(row.dni).trim() : "",
+    ]),
+  );
+
+  return list.map((person) => {
+    if (person.dni) return person;
+    const dni = dniById.get(Number(person.id));
+    return dni ? { ...person, dni } : person;
+  });
+}
+
+async function prepareCuadroFirmasPeople(people, encargado, supabase) {
+  const sorted = buildCuadroFirmasPeopleList(people, encargado);
+  if (!supabase) return sorted;
+  return hydrateCuadroFirmasPeopleDni(supabase, sorted);
 }
 
 /** Máximo píxeles al rasterizar cada firma (reduce mucho el peso del PDF). */
@@ -284,37 +327,335 @@ function buildCuadroFirmasFilename({ giraLabel, filePrefix, ext }) {
   return `Cuadro_Firmas_${safePrefix}_${safeLabel}_${dateStr}.${ext}`;
 }
 
-function scaleJpegDataToFitMm(imageData, maxWidthMm, maxHeightMm) {
-  if (!imageData?.width || !imageData?.height) return null;
-  const maxWidthPx = mmPx(maxWidthMm);
-  const maxHeightPx = mmPx(maxHeightMm);
-  const scale = Math.min(
-    maxWidthPx / imageData.width,
-    maxHeightPx / imageData.height,
-  );
+function resolveCuadroFirmasLayout(people) {
+  const hasAnyDni = (people || []).some((person) => person?.dni);
+  return computeSignatureGridLayout(people.length, {
+    nameBandMm: hasAnyDni ? 13 : 6,
+    nameOverlapMm: hasAnyDni ? 4 : 5,
+  });
+}
+
+function ptToPx(pt) {
+  return (pt * 96) / 72;
+}
+
+function loadImageFromBytes(bytes) {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([bytes], { type: "image/jpeg" });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Imagen inválida"));
+    };
+    img.src = url;
+  });
+}
+
+function drawCenteredCanvasText(
+  ctx,
+  text,
+  centerX,
+  centerY,
+  { font, color, baseline = "middle", letterSpacing = "0px" },
+) {
+  ctx.font = font;
+  ctx.fillStyle = color;
+  ctx.textAlign = "center";
+  ctx.textBaseline = baseline;
+  if ("letterSpacing" in ctx) ctx.letterSpacing = letterSpacing;
+  const line = String(text || "").trim();
+  if (!line) return;
+  ctx.fillText(line, centerX, centerY);
+  if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+}
+
+function parseFontSizePx(font) {
+  const match = String(font).match(/(\d+(?:\.\d+)?)px/);
+  return match ? Number(match[1]) : 8;
+}
+
+function measureCanvasLineHeight(ctx, text, font) {
+  ctx.font = font;
+  const metrics = ctx.measureText(String(text || "").trim());
+  const sizePx = parseFontSizePx(font);
+  const ascent =
+    metrics.actualBoundingBoxAscent ??
+    metrics.fontBoundingBoxAscent ??
+    sizePx * 0.78;
+  const descent =
+    metrics.actualBoundingBoxDescent ??
+    metrics.fontBoundingBoxDescent ??
+    sizePx * 0.22;
+  return Math.max(1, ascent + descent);
+}
+
+function buildCanvasFont(sizePx, { bold = false, mono = false } = {}) {
+  const size = Math.max(1, Math.round(sizePx * 4) / 4);
+  if (mono) {
+    return `${bold ? "bold " : ""}${size}px Consolas, "Courier New", monospace`;
+  }
+  return `${bold ? "bold " : ""}${size}px Arial, Helvetica, sans-serif`;
+}
+
+function fitCanvasFont(
+  ctx,
+  text,
+  { sizePx, bold, maxWidthPx, minSizePx = 3.5, mono = false },
+) {
+  const safeMaxW = maxWidthPx * 0.94;
+  let size = sizePx;
+  while (size >= minSizePx) {
+    const font = buildCanvasFont(size, { bold, mono });
+    ctx.font = font;
+    if (ctx.measureText(String(text || "").trim()).width <= safeMaxW) {
+      return { font, size };
+    }
+    size -= 0.25;
+  }
+  const font = buildCanvasFont(minSizePx, { bold, mono });
+  ctx.font = font;
+  return { font, size: minSizePx };
+}
+
+function splitNameLines(fullName) {
+  const text = String(fullName || "").trim();
+  if (!text) return [];
+  const commaIdx = text.indexOf(",");
+  if (commaIdx > 0 && commaIdx < text.length - 1) {
+    const first = text.slice(0, commaIdx + 1).trim();
+    const second = text.slice(commaIdx + 1).trim();
+    return second ? [first, second] : [first];
+  }
+  return [text];
+}
+
+function buildSignatureTextLines(person, cellWidthMm) {
+  const fullName = formatPersonFullName(person);
+  const nameSizePt = Math.min(8, Math.max(4.5, cellWidthMm * 0.22));
+  const dniSizePt = Math.min(6.5, Math.max(5.5, cellWidthMm * 0.19));
+  const hasDni = Boolean(person.dni);
+  const nameLines = splitNameLines(fullName);
+
+  return [
+    ...nameLines.map((text) => ({
+      kind: "name",
+      text,
+      sizePx: ptToPx(nameSizePt),
+      bold: true,
+      color: "#1E293B",
+      minSizePx: 4,
+      mono: false,
+    })),
+    ...(hasDni
+      ? [
+          {
+            kind: "dni",
+            text: `DNI ${String(person.dni).trim()}`,
+            sizePx: ptToPx(dniSizePt),
+            bold: false,
+            color: "#334155",
+            minSizePx: ptToPx(5.5),
+            mono: true,
+          },
+        ]
+      : []),
+  ];
+}
+
+function fitLineDef(ctx, line, maxWidthPx, sizeScale = 1) {
   return {
-    width: Math.max(1, Math.round(imageData.width * scale)),
-    height: Math.max(1, Math.round(imageData.height * scale)),
+    ...line,
+    ...fitCanvasFont(ctx, line.text, {
+      sizePx: line.sizePx * sizeScale,
+      bold: line.bold,
+      maxWidthPx,
+      minSizePx: line.minSizePx,
+      mono: line.mono,
+    }),
   };
+}
+
+function measureTextBlockHeight(ctx, lines, lineGapPx) {
+  return lines.reduce((sum, line, index) => {
+    const lineHeight = measureCanvasLineHeight(ctx, line.text, line.font);
+    return sum + lineHeight + (index < lines.length - 1 ? lineGapPx : 0);
+  }, 0);
+}
+
+function fitSignatureTextBlock(ctx, lineDefs, maxWidthPx, maxHeightPx, lineGapPx) {
+  const dniLines = lineDefs.filter((line) => line.kind === "dni");
+  const nameLines = lineDefs.filter((line) => line.kind !== "dni");
+
+  const fittedDni = dniLines.map((line) => fitLineDef(ctx, line, maxWidthPx, 1));
+  const dniBlockHeight = measureTextBlockHeight(ctx, fittedDni, lineGapPx);
+  const gapBeforeDni =
+    fittedDni.length > 0 && nameLines.length > 0 ? lineGapPx : 0;
+  const availableForNames = Math.max(
+    1,
+    maxHeightPx - dniBlockHeight - gapBeforeDni,
+  );
+
+  let nameScale = 1;
+  let fittedNames = nameLines.map((line) =>
+    fitLineDef(ctx, line, maxWidthPx, nameScale),
+  );
+  while (
+    fittedNames.length > 0 &&
+    measureTextBlockHeight(ctx, fittedNames, lineGapPx) > availableForNames &&
+    nameScale > 0.55
+  ) {
+    nameScale -= 0.04;
+    fittedNames = nameLines.map((line) =>
+      fitLineDef(ctx, line, maxWidthPx, nameScale),
+    );
+  }
+
+  return [...fittedNames, ...fittedDni];
+}
+
+function drawSignatureCellTextBlock(ctx, person, layout, widthPx, heightPx) {
+  const { cellWidthMm, cellHeightMm, nameBandMm } = layout;
+  const lineGapPx = mmPx(0.25);
+  const horizontalPadPx = mmPx(2.2);
+  const bottomSafePx = mmPx(1.8);
+  const topBandPadPx = mmPx(0.5);
+  const maxTextWidthPx = Math.max(1, widthPx - horizontalPadPx * 2);
+  const textBandTopPx = mmPx(cellHeightMm - nameBandMm) + topBandPadPx;
+  const textBandBottomPx = heightPx - bottomSafePx;
+  const maxBlockHeightPx = Math.max(
+    1,
+    textBandBottomPx - textBandTopPx,
+  );
+
+  const lineDefs = buildSignatureTextLines(person, cellWidthMm);
+  if (lineDefs.length === 0) return;
+
+  const fitted = fitSignatureTextBlock(
+    ctx,
+    lineDefs,
+    maxTextWidthPx,
+    maxBlockHeightPx,
+    lineGapPx,
+  );
+
+  let baselineY = textBandBottomPx;
+  for (let index = fitted.length - 1; index >= 0; index -= 1) {
+    const line = fitted[index];
+    drawCenteredCanvasText(ctx, line.text, widthPx / 2, baselineY, {
+      font: line.font,
+      color: line.color,
+      baseline: "bottom",
+      letterSpacing: line.mono ? "0.06em" : "0px",
+    });
+    if (index > 0) {
+      baselineY -=
+        measureCanvasLineHeight(ctx, line.text, line.font) + lineGapPx;
+    }
+  }
+}
+
+async function renderSignatureCellToJpeg(person, signatureJpegData, layout) {
+  const { cellWidthMm, cellHeightMm, signatureBoxHeightMm } = layout;
+  const edgeInsetMm = 0.35;
+  const widthPx = mmPx(cellWidthMm);
+  const heightPx = mmPx(cellHeightMm);
+  const canvas = document.createElement("canvas");
+  canvas.width = widthPx;
+  canvas.height = heightPx;
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, widthPx, heightPx);
+
+  const borderPx = Math.max(1, widthPx * 0.005);
+  const insetPx = mmPx(edgeInsetMm);
+  ctx.strokeStyle = "#CCD6E0";
+  ctx.lineWidth = borderPx;
+  ctx.strokeRect(
+    insetPx,
+    insetPx,
+    widthPx - insetPx * 2,
+    heightPx - insetPx * 2,
+  );
+
+  const sigPadMm = 0.8;
+  const sigWmm = cellWidthMm - sigPadMm * 2;
+  const sigHmm = signatureBoxHeightMm - sigPadMm;
+  let signatureDrawn = false;
+
+  if (signatureJpegData?.bytes) {
+    try {
+      const img = await loadImageFromBytes(signatureJpegData.bytes);
+      const maxWPx = mmPx(sigWmm);
+      const maxHPx = mmPx(sigHmm);
+      const scale = Math.min(maxWPx / img.width, maxHPx / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+      const x = (widthPx - w) / 2;
+      const y = mmPx(sigPadMm) + (mmPx(sigHmm) - h) / 2;
+      ctx.drawImage(img, x, y, w, h);
+      signatureDrawn = true;
+    } catch {
+      signatureDrawn = false;
+    }
+  }
+
+  if (!signatureDrawn) {
+    const fontSizePx = ptToPx(Math.min(7, cellWidthMm * 0.32));
+    const sigCenterY = mmPx(sigPadMm) + mmPx(sigHmm) / 2;
+    drawCenteredCanvasText(ctx, "Sin firma", widthPx / 2, sigCenterY, {
+      font: `${fontSizePx}px Arial, Helvetica, sans-serif`,
+      color: "#94A3B8",
+      baseline: "middle",
+    });
+  }
+
+  drawSignatureCellTextBlock(ctx, person, layout, widthPx, heightPx);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      async (pngBlob) => {
+        if (!pngBlob) {
+          reject(new Error("No se pudo rasterizar celda de firma"));
+          return;
+        }
+        resolve({
+          bytes: new Uint8Array(await pngBlob.arrayBuffer()),
+          width: widthPx,
+          height: heightPx,
+          displayWidthPx: Math.max(1, Math.round(widthPx * 0.965)),
+          displayHeightPx: Math.max(1, Math.round(heightPx * 0.965)),
+          mime: "image/png",
+        });
+      },
+      "image/png",
+    );
+  });
 }
 
 /**
  * Genera y descarga un PDF A4 aplanado con grilla de firmas (pdf-lib, imágenes comprimidas).
- * @param {{ people: Array<{ id, nombre, apellido, firma?, dni? }>, encargado?: object|null, giraLabel?: string, filePrefix?: string }} params
+ * @param {{ people: Array<{ id, nombre, apellido, firma?, dni? }>, encargado?: object|null, giraLabel?: string, filePrefix?: string, supabase?: object }} params
  */
 export async function exportDestaquesCuadroFirmasPdf({
   people,
   encargado = null,
   giraLabel = "",
   filePrefix = "Destaques",
+  supabase = null,
 }) {
-  const sorted = buildCuadroFirmasPeopleList(people, encargado);
+  const sorted = await prepareCuadroFirmasPeople(people, encargado, supabase);
 
   if (sorted.length === 0) {
     throw new Error("No hay personas para el cuadro de firmas.");
   }
 
-  const layout = computeSignatureGridLayout(sorted.length);
+  const layout = resolveCuadroFirmasLayout(sorted);
   const {
     cols,
     cellWidthMm,
@@ -403,7 +744,7 @@ export async function exportDestaquesCuadroFirmasPdf({
     const fullName = formatPersonFullName(person);
     const nameSize = Math.min(8, Math.max(5, cellWidthMm * 0.24));
     const dniSize = Math.min(6, cellWidthMm * 0.18);
-    const hasDni = person.dni && cellHeightMm >= 16;
+    const hasDni = Boolean(person.dni);
     const textPadMm = 0.9;
     const lineGapMm = 0.35;
 
@@ -443,23 +784,10 @@ export async function exportDestaquesCuadroFirmasPdf({
   );
 }
 
-const DOCX_BORDER = {
-  style: BorderStyle.SINGLE,
-  size: 4,
-  color: "CCD6E0",
-};
-
 const DOCX_NO_BORDER = {
   style: BorderStyle.NONE,
   size: 0,
   color: "FFFFFF",
-};
-
-const DOCX_CELL_BORDERS = {
-  top: DOCX_BORDER,
-  right: DOCX_BORDER,
-  bottom: DOCX_BORDER,
-  left: DOCX_BORDER,
 };
 
 const DOCX_NO_BORDERS = {
@@ -477,134 +805,10 @@ const emptyDocxParagraph = () =>
     children: [],
   });
 
-function createDocxTextParagraph(text, { size, bold = false, color }) {
-  return new Paragraph({
-    alignment: AlignmentType.CENTER,
-    spacing: { before: 0, after: 0, line: Math.round(size * 18) },
-    children: [
-      new TextRun({
-        text,
-        bold,
-        size: Math.round(size * 2),
-        font: "Arial",
-        color,
-      }),
-    ],
-  });
-}
-
-function createDocxSignatureInnerTable(person, imageData, layout) {
-  const {
-    cellWidthMm,
-    cellHeightMm,
-    nameBandMm,
-  } = layout;
-  const padMm = 0.8;
-  const signatureAreaHeightMm = Math.max(1, cellHeightMm - nameBandMm);
-  const signatureMaxWidthMm = Math.max(1, cellWidthMm - padMm * 2);
-  const signatureMaxHeightMm = Math.max(1, signatureAreaHeightMm - padMm);
-  const imageSize = scaleJpegDataToFitMm(
-    imageData,
-    signatureMaxWidthMm,
-    signatureMaxHeightMm,
-  );
-
-  const signatureChildren = imageData?.bytes && imageSize
-    ? [
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          spacing: { before: 0, after: 0 },
-          children: [
-            new ImageRun({
-              type: "jpg",
-              data: imageData.bytes,
-              transformation: imageSize,
-            }),
-          ],
-        }),
-      ]
-    : [
-        createDocxTextParagraph("Sin firma", {
-          size: Math.min(7, cellWidthMm * 0.32),
-          color: "94A3B8",
-        }),
-      ];
-
-  const fullName = formatPersonFullName(person);
-  const nameSize = Math.min(8, Math.max(5, cellWidthMm * 0.24));
-  const dniSize = Math.min(6, cellWidthMm * 0.18);
-  const hasDni = person.dni && cellHeightMm >= 16;
-  const nameChildren = [
-    ...(hasDni
-      ? [
-          createDocxTextParagraph(`DNI ${person.dni}`, {
-            size: dniSize,
-            color: "94A3B8",
-          }),
-        ]
-      : []),
-    createDocxTextParagraph(fullName, {
-      size: nameSize,
-      bold: true,
-      color: "1E293B",
-    }),
-  ];
-
-  return new Table({
-    rows: [
-      new TableRow({
-        height: {
-          value: mmTwip(signatureAreaHeightMm),
-          rule: HeightRule.EXACT,
-        },
-        children: [
-          new TableCell({
-            borders: DOCX_NO_BORDERS,
-            margins: {
-              top: mmTwip(padMm),
-              right: mmTwip(padMm),
-              bottom: 0,
-              left: mmTwip(padMm),
-            },
-            verticalAlign: VerticalAlignTable.CENTER,
-            children: signatureChildren,
-          }),
-        ],
-      }),
-      new TableRow({
-        height: {
-          value: mmTwip(nameBandMm),
-          rule: HeightRule.EXACT,
-        },
-        children: [
-          new TableCell({
-            borders: DOCX_NO_BORDERS,
-            margins: {
-              top: 0,
-              right: mmTwip(0.9),
-              bottom: mmTwip(0.5),
-              left: mmTwip(0.9),
-            },
-            verticalAlign: VerticalAlignTable.CENTER,
-            children: nameChildren,
-          }),
-        ],
-      }),
-    ],
-    width: {
-      size: mmTwip(cellWidthMm),
-      type: WidthType.DXA,
-    },
-    columnWidths: [mmTwip(cellWidthMm)],
-    layout: TableLayoutType.FIXED,
-    borders: DOCX_NO_BORDERS,
-  });
-}
-
-function createDocxSignatureCell(person, imageData, layout) {
+function createDocxSignatureCell(flatCellImage, layout, isEmpty) {
   const { cellWidthMm, cellHeightMm } = layout;
 
-  if (!person) {
+  if (isEmpty) {
     return new TableCell({
       width: { size: mmTwip(cellWidthMm), type: WidthType.DXA },
       borders: DOCX_NO_BORDERS,
@@ -614,35 +818,46 @@ function createDocxSignatureCell(person, imageData, layout) {
 
   return new TableCell({
     width: { size: mmTwip(cellWidthMm), type: WidthType.DXA },
-    borders: DOCX_CELL_BORDERS,
+    borders: DOCX_NO_BORDERS,
     margins: { top: 0, right: 0, bottom: 0, left: 0 },
-    verticalAlign: VerticalAlignTable.TOP,
     children: [
-      createDocxSignatureInnerTable(person, imageData, {
-        ...layout,
-        cellHeightMm,
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 0, after: 0 },
+        children: [
+          new ImageRun({
+            type: flatCellImage.mime === "image/png" ? "png" : "jpg",
+            data: flatCellImage.bytes,
+            transformation: {
+              width: flatCellImage.displayWidthPx || flatCellImage.width,
+              height: flatCellImage.displayHeightPx || flatCellImage.height,
+            },
+          }),
+        ],
       }),
     ],
   });
 }
 
 /**
- * Genera y descarga un DOCX A4 editable con la misma grilla de firmas del PDF.
- * @param {{ people: Array<{ id, nombre, apellido, firma?, dni? }>, encargado?: object|null, giraLabel?: string, filePrefix?: string }} params
+ * Genera y descarga un DOCX A4 con la misma grilla de firmas del PDF.
+ * Cada recuadro (borde + firma + aclaración) se rasteriza como una sola imagen.
+ * @param {{ people: Array<{ id, nombre, apellido, firma?, dni? }>, encargado?: object|null, giraLabel?: string, filePrefix?: string, supabase?: object }} params
  */
 export async function exportDestaquesCuadroFirmasDocx({
   people,
   encargado = null,
   giraLabel = "",
   filePrefix = "Destaques",
+  supabase = null,
 }) {
-  const sorted = buildCuadroFirmasPeopleList(people, encargado);
+  const sorted = await prepareCuadroFirmasPeople(people, encargado, supabase);
 
   if (sorted.length === 0) {
     throw new Error("No hay personas para el cuadro de firmas.");
   }
 
-  const layout = computeSignatureGridLayout(sorted.length);
+  const layout = resolveCuadroFirmasLayout(sorted);
   const {
     cols,
     rows,
@@ -652,6 +867,15 @@ export async function exportDestaquesCuadroFirmasDocx({
     marginMm,
   } = layout;
   const jpegCache = await buildSignatureJpegDataCache(sorted);
+  const flatCellCache = new Map();
+
+  for (const person of sorted) {
+    const sigData = person.firma ? jpegCache.get(person.firma) : null;
+    flatCellCache.set(
+      person.id,
+      await renderSignatureCellToJpeg(person, sigData, layout),
+    );
+  }
 
   const tableRows = [];
   for (let rowIndex = 0; rowIndex < rows; rowIndex++) {
@@ -660,9 +884,9 @@ export async function exportDestaquesCuadroFirmasDocx({
       const person = sorted[rowIndex * cols + colIndex];
       cells.push(
         createDocxSignatureCell(
-          person,
-          person?.firma ? jpegCache.get(person.firma) : null,
+          person ? flatCellCache.get(person.id) : null,
           layout,
+          !person,
         ),
       );
     }

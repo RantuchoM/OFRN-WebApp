@@ -5,9 +5,14 @@
 
 import {
   filterMembershipRowsForProgramDate,
+  integranteActiveOnProgramRange,
   membershipActiveOnProgramDate,
 } from "../utils/ensembleMembership";
 import { getTodayDateStringLocal } from "../utils/dates";
+import {
+  integranteIdForDb,
+  integranteKey,
+} from "../utils/integranteIds";
 import {
   sortEnsamblesParticipantes,
   sortFamiliasParticipantes,
@@ -20,19 +25,20 @@ import { isRepertorioPlaceholder } from "../utils/repertorioRowDisplay";
  * Resuelve los IDs de los integrantes de una gira:
  * (Miembros de Ensambles Convocados + Familias Convocadas + Overrides) MINUS (Miembros de Ensambles Excluidos) MINUS (Ausentes).
  * La exclusión de ensamble manda: si un ensamble está en EXCL_ENSAMBLE, sus miembros no entran aunque su familia esté convocada.
+ * Vigencia de orquesta (fecha_alta/fecha_baja) y de ensamble (fecha_desde/fecha_hasta en integrantes_ensambles) aplican a convocatoria base;
+ * overrides manuales en giras_integrantes (estado !== ausente) ignoran esas vigencias.
  * @see docs/roster-spec.md
  */
 export const resolveGiraRosterIds = async (supabase, giraId) => {
   try {
-    const num = (id) => Number(id);
-
     const { data: progRow } = await supabase
       .from("programas")
-      .select("fecha_desde")
+      .select("fecha_desde, fecha_hasta")
       .eq("id", giraId)
       .maybeSingle();
     const programRefDesde =
       progRow?.fecha_desde ?? new Date().toISOString().slice(0, 10);
+    const programRefHasta = progRow?.fecha_hasta ?? null;
 
     // A. Traemos configuración de fuentes y overrides
     const [fuentesRes, overridesRes] = await Promise.all([
@@ -46,12 +52,13 @@ export const resolveGiraRosterIds = async (supabase, giraId) => {
     const fuentes = fuentesRes.data || [];
     const overrides = overridesRes.data || [];
 
-    const integrantesIds = new Set();
+    const rawBaseIds = new Set();
+    const manualIds = new Set();
 
-    // B. Ensambles convocados (fuentes activas)
+    // B. Ensambles convocados (fuentes activas; vigencia del tramo en integrantes_ensambles)
     const ensambleIds = fuentes
       .filter((f) => f.tipo === "ENSAMBLE")
-      .map((f) => num(f.valor_id));
+      .map((f) => Number(f.valor_id));
 
     if (ensambleIds.length > 0) {
       const ensambleIdSet = new Set(ensambleIds);
@@ -62,15 +69,15 @@ export const resolveGiraRosterIds = async (supabase, giraId) => {
 
       ensambleRows?.forEach((row) => {
         if (
-          ensambleIdSet.has(num(row.id_ensamble)) &&
+          ensambleIdSet.has(Number(row.id_ensamble)) &&
           membershipActiveOnProgramDate(row, programRefDesde)
         ) {
-          integrantesIds.add(num(row.id_integrante));
+          rawBaseIds.add(integranteKey(row.id_integrante));
         }
       });
     }
 
-    // C. Familias convocadas
+    // C. Familias convocadas (vigencia de orquesta se valida en el paso D)
     const familias = fuentes
       .filter((f) => f.tipo === "FAMILIA")
       .map((f) => f.valor_texto);
@@ -82,20 +89,46 @@ export const resolveGiraRosterIds = async (supabase, giraId) => {
         .eq("condicion", "Estable")
         .in("instrumentos.familia", familias);
 
-      familiaMembers?.forEach((i) => integrantesIds.add(num(i.id)));
+      familiaMembers?.forEach((i) => rawBaseIds.add(integranteKey(i.id)));
     }
 
-    // D. Overrides: agregar a los forzados manualmente (estado !== ausente)
+    // D. Vigencia de orquesta (fecha_alta / fecha_baja) para convocatoria base
+    const baseIds = new Set();
+    if (rawBaseIds.size > 0) {
+      const idList = Array.from(rawBaseIds)
+        .map(integranteIdForDb)
+        .filter(Boolean);
+      const { data: vigenciaRows } = await supabase
+        .from("integrantes")
+        .select("id, fecha_alta, fecha_baja")
+        .in("id", idList);
+
+      vigenciaRows?.forEach((row) => {
+        if (
+          integranteActiveOnProgramRange(
+            row,
+            programRefDesde,
+            programRefHasta,
+          )
+        ) {
+          baseIds.add(integranteKey(row.id));
+        }
+      });
+    }
+
+    // E. Overrides manuales: siempre incluidos (estado !== ausente)
     overrides.forEach((o) => {
       if (o.estado !== "ausente") {
-        integrantesIds.add(num(o.id_integrante));
+        manualIds.add(integranteKey(o.id_integrante));
       }
     });
 
-    // E. Excluidos por ensamble: sus miembros se sacan siempre (la exclusión manda)
+    const integrantesIds = new Set([...baseIds, ...manualIds]);
+
+    // F. Excluidos por ensamble: sus miembros se sacan siempre (la exclusión manda)
     const exclEnsambleIds = fuentes
       .filter((f) => f.tipo === "EXCL_ENSAMBLE")
-      .map((f) => num(f.valor_id));
+      .map((f) => Number(f.valor_id));
 
     const excludedByEnsamble = new Set();
     if (exclEnsambleIds.length > 0) {
@@ -107,25 +140,25 @@ export const resolveGiraRosterIds = async (supabase, giraId) => {
 
       exclRows?.forEach((row) => {
         if (
-          exclSet.has(num(row.id_ensamble)) &&
+          exclSet.has(Number(row.id_ensamble)) &&
           membershipActiveOnProgramDate(row, programRefDesde)
         ) {
-          excludedByEnsamble.add(num(row.id_integrante));
+          excludedByEnsamble.add(integranteKey(row.id_integrante));
         }
       });
     }
 
-    // F. Ausentes (giras_integrantes.estado === 'ausente')
+    // G. Ausentes (giras_integrantes.estado === 'ausente')
     const ausentesIds = new Set(
       overrides
         .filter((o) => o.estado === "ausente")
-        .map((o) => num(o.id_integrante)),
+        .map((o) => integranteKey(o.id_integrante)),
     );
 
     // Resultado: convocados MINUS excluidos por ensamble MINUS ausentes
     return Array.from(integrantesIds).filter(
       (id) =>
-        !excludedByEnsamble.has(num(id)) && !ausentesIds.has(num(id)),
+        !excludedByEnsamble.has(id) && !ausentesIds.has(id),
     );
   } catch (error) {
     console.error("[GiraService] Error resolviendo roster IDs:", error);
@@ -294,6 +327,10 @@ export const getEnrichedRosterOnDemand = async (supabase, giraId) => {
 
     if (!finalRosterIds || finalRosterIds.length === 0) return [];
 
+    const rosterIdList = finalRosterIds
+      .map(integranteIdForDb)
+      .filter(Boolean);
+
     // 2. Traer datos en paralelo:
     //    - Detalles de las personas
     //    - Habitaciones asignadas en esta gira
@@ -302,7 +339,7 @@ export const getEnrichedRosterOnDemand = async (supabase, giraId) => {
       supabase
         .from("integrantes")
         .select("*, localidades(localidad)")
-        .in("id", finalRosterIds),
+        .in("id", rosterIdList),
 
       supabase
         .from("programas_hospedajes")

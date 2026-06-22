@@ -12,8 +12,11 @@ Definir las reglas para determinar qué integrantes participan efectivamente en 
 ## 3. Resolución de Roster (Lógica de Negocio)
 Para obtener la lista de personas que viajan:
 1. Identificar integrantes por `ENSAMBLE` o `FAMILIA` desde `giras_fuentes`.
-2. Añadir registros manuales de `giras_integrantes`.
+   - **Ensamble:** el tramo en `integrantes_ensambles` debe cubrir `programas.fecha_desde` (`fecha_desde` / `fecha_hasta` del vínculo).
+   - **Orquesta:** el integrante debe estar activo en el rango del programa (`fecha_alta` ≤ fin del programa y sin `fecha_baja` o `fecha_baja` ≥ inicio). Si el programa no tiene `fecha_hasta`, el fin es `fecha_desde` (programa de un día).
+2. Añadir registros manuales de `giras_integrantes` (sin aplicar vigencias de orquesta/ensamble).
 3. **FILTRO CRÍTICO**: Eliminar a cualquier integrante que tenga un registro en `giras_integrantes` con `estado = 'ausente'`.
+4. **Exclusión de ensamble:** miembros de ensambles en `EXCL_ENSAMBLE` activos en la fecha del programa se eliminan siempre.
 
 ## 4. Vacantes (integrantes simulados)
 

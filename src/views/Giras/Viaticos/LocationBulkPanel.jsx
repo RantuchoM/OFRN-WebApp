@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { IconFileText, IconLoader, IconBus, IconMap, IconFiles, IconCopy, IconFirma } from '../../../components/ui/Icons';
+import { IconFileText, IconLoader, IconBus, IconMap, IconFiles, IconCopy } from '../../../components/ui/Icons';
+import CuadroFirmasExportButton from '../../../components/ui/CuadroFirmasExportButton';
 import RenunciaViaticosExportOption from './RenunciaViaticosExportOption';
 
 export default function LocationBulkPanel({ 
@@ -204,37 +205,14 @@ export default function LocationBulkPanel({
                     </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                    <button
-                        type="button"
-                        onClick={() => handleCuadroFirmasClick("pdf")}
+                <div className="mb-2">
+                    <CuadroFirmasExportButton
+                        onExport={(format) => handleCuadroFirmasClick(format)}
                         disabled={busy || !onExportCuadroFirmas}
-                        className="py-2.5 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg hover:bg-slate-50 hover:border-indigo-300 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
-                        title="PDF A4: encargado (id 1458710) primero, luego firmas del lote según alcance"
-                    >
-                        {isExportingFirmas ? (
-                            <>Generando...</>
-                        ) : (
-                            <>
-                                Firmas PDF <IconFirma size={16} />
-                            </>
-                        )}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => handleCuadroFirmasClick("docx")}
-                        disabled={busy || !onExportCuadroFirmas}
-                        className="py-2.5 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg hover:bg-slate-50 hover:border-indigo-300 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
-                        title="Word A4: mismo cuadro de firmas en una hoja editable"
-                    >
-                        {isExportingFirmas ? (
-                            <>Generando...</>
-                        ) : (
-                            <>
-                                Firmas Word <IconFileText size={16} />
-                            </>
-                        )}
-                    </button>
+                        loading={isExportingFirmas}
+                        menuPlacement="top"
+                        title="PDF o Word: encargado (id 1458710) primero, luego firmas del lote según alcance"
+                    />
                 </div>
 
                 <div className="flex gap-2">

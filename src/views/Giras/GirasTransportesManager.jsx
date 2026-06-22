@@ -27,7 +27,6 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconEdit,
-  IconFirma,
   IconLoader,
   IconSave,
   IconCheck,
@@ -55,6 +54,7 @@ import StopRulesManager from "./StopRulesManager";
 import TransportAdmissionModal from "./TransportAdmissionModal";
 import DataIntegrityIndicator from "../../components/DataIntegrityIndicator";
 import ConfirmModal from "../../components/ui/ConfirmModal";
+import CuadroFirmasExportButton from "../../components/ui/CuadroFirmasExportButton";
 import {
   useLogistics,
   matchesRule,
@@ -2521,6 +2521,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         encargado,
         giraLabel,
         filePrefix: "Transporte",
+        supabase,
       });
       toast.success("Cuadro de firmas descargado.");
     } catch (err) {
@@ -3640,28 +3641,19 @@ export default function GirasTransportesManager({ supabase, gira }) {
                       >
                         CNRT
                       </button>
-                      <button
-                        type="button"
-                        onClick={(e) => handleExportCuadroFirmasTransport(e, t, "pdf")}
+                      <CuadroFirmasExportButton
+                        compact
+                        onExport={(format) =>
+                          handleExportCuadroFirmasTransport(
+                            { stopPropagation: () => {} },
+                            t,
+                            format,
+                          )
+                        }
                         disabled={exportingFirmasTransportId === t.id}
-                        className="p-1.5 bg-white text-violet-600 rounded-lg hover:bg-violet-600 hover:text-white transition-all border border-violet-100 shadow-sm disabled:opacity-60"
-                        title="Cuadro de firmas PDF (pasajeros del recorrido)"
-                      >
-                        {exportingFirmasTransportId === t.id ? (
-                          <IconLoader size={16} className="animate-spin" />
-                        ) : (
-                          <IconFirma size={16} />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => handleExportCuadroFirmasTransport(e, t, "docx")}
-                        disabled={exportingFirmasTransportId === t.id}
-                        className="px-2 py-1.5 bg-white text-violet-700 text-[9px] font-black rounded-lg hover:bg-violet-700 hover:text-white transition-all border border-violet-100 shadow-sm disabled:opacity-60"
-                        title="Cuadro de firmas Word (pasajeros del recorrido)"
-                      >
-                        WORD
-                      </button>
+                        loading={exportingFirmasTransportId === t.id}
+                        title="Cuadro de firmas: PDF o Word (pasajeros del recorrido)"
+                      />
                     </div>
 
                     <button

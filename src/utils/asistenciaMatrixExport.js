@@ -3,6 +3,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { saveAs } from "file-saver";
 import { compareInstrumentIds } from "./giraUtils";
+import { integranteKey } from "./integranteIds";
 
 /**
  * Agrupa integrantes visibles por ensamble según la selección actual.
@@ -24,10 +25,12 @@ export function buildAsistenciaMatrixRowGroups(
     selectedIntegranteIds instanceof Set
       ? selectedIntegranteIds
       : new Set(
-          Array.from(selectedIntegranteIds, (id) => Number(id)),
+          Array.from(selectedIntegranteIds, (id) => integranteKey(id)).filter(
+            Boolean,
+          ),
         );
 
-  const byId = new Map(visibleRows.map((r) => [Number(r.id), r]));
+  const byId = new Map(visibleRows.map((r) => [integranteKey(r.id), r]));
   const assigned = new Set();
   const groups = [];
 
@@ -47,7 +50,7 @@ export function buildAsistenciaMatrixRowGroups(
     const memberIds = membershipsByEnsamble.get(eid) || [];
     if (memberIds.length === 0) continue;
     const fullySelected = memberIds.every((id) =>
-      selected.has(Number(id)),
+      selected.has(integranteKey(id)),
     );
     if (fullySelected) tickedEnsembles.push(en);
   }
@@ -57,10 +60,10 @@ export function buildAsistenciaMatrixRowGroups(
     const memberIds = membershipsByEnsamble.get(eid) || [];
     const rows = [];
     for (const iid of memberIds) {
-      const nid = Number(iid);
-      if (!byId.has(nid) || assigned.has(nid)) continue;
-      rows.push(byId.get(nid));
-      assigned.add(nid);
+      const kid = integranteKey(iid);
+      if (!byId.has(kid) || assigned.has(kid)) continue;
+      rows.push(byId.get(kid));
+      assigned.add(kid);
     }
     if (rows.length === 0) continue;
     groups.push({
@@ -70,7 +73,7 @@ export function buildAsistenciaMatrixRowGroups(
     });
   }
 
-  const leftovers = visibleRows.filter((r) => !assigned.has(Number(r.id)));
+  const leftovers = visibleRows.filter((r) => !assigned.has(integranteKey(r.id)));
   if (leftovers.length > 0) {
     groups.push({
       key: "otros",
@@ -96,13 +99,13 @@ export function buildAsistenciaMatrixEnsambleAggregateRows(
   ensambles,
   membershipsByEnsamble,
 ) {
-  const visibleSet = new Set(visibleRows.map((r) => Number(r.id)));
+  const visibleSet = new Set(visibleRows.map((r) => integranteKey(r.id)));
   const out = [];
   for (const en of ensambles) {
     const eid = Number(en.id);
     const memberIds = membershipsByEnsamble.get(eid) || [];
     const visibleMemberIds = memberIds.filter((id) =>
-      visibleSet.has(Number(id)),
+      visibleSet.has(integranteKey(id)),
     );
     if (visibleMemberIds.length === 0) continue;
     out.push({
@@ -149,7 +152,7 @@ export function computeAsistenciaMatrixEnsambleTotals(
 }
 
 function integranteDetalle(row, ensambles, membershipsByEnsamble) {
-  const iid = Number(row.id);
+  const iid = integranteKey(row.id);
   const inst = row.instrumentos;
   const instLabel =
     inst?.instrumento ||
@@ -157,7 +160,9 @@ function integranteDetalle(row, ensambles, membershipsByEnsamble) {
     (row.id_instr ? `#${row.id_instr}` : "—");
   const ensLabels = ensambles
     .filter((en) =>
-      (membershipsByEnsamble.get(Number(en.id)) || []).includes(iid),
+      (membershipsByEnsamble.get(Number(en.id)) || []).some(
+        (id) => integranteKey(id) === iid,
+      ),
     )
     .map((en) => en.ensamble)
     .filter(Boolean);
@@ -179,10 +184,10 @@ export function computeAsistenciaMatrixRowTotals(
   rosterByGiraId,
   selectedTypes,
 ) {
-  const iid = Number(integranteId);
+  const iid = integranteKey(integranteId);
   const active = (gid) => {
     const set = rosterByGiraId[gid];
-    return set && set.has(iid);
+    return Boolean(iid && set && set.has(iid));
   };
   const countTipo = (tipo) =>
     filteredProgramas.filter((g) => g.tipo === tipo && active(g.id)).length;

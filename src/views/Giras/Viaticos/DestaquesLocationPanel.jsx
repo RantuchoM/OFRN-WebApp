@@ -1177,6 +1177,7 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
                 people: peopleToExport,
                 encargado,
                 giraLabel,
+                supabase,
             });
         } catch (err) {
             console.error("Cuadro de firmas:", err);

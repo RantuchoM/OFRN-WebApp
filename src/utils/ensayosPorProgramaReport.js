@@ -8,6 +8,7 @@ import {
   resolveGiraRosterIds,
 } from "../services/giraService";
 import { membershipActiveOnProgramDate } from "./ensembleMembership";
+import { integranteKey } from "./integranteIds";
 import { getEventProgramIds } from "./rehearsalProgramas";
 
 /** Tipos de programa disponibles en el reporte (sin Comisión). */
@@ -125,8 +126,8 @@ export async function programHasConvokedEnsembleMember(
   );
   if (memberIds.size === 0) return false;
   const rosterIds = await resolveGiraRosterIds(supabase, program.id);
-  const rosterSet = new Set(rosterIds.map(Number));
-  return [...memberIds].some((id) => rosterSet.has(id));
+  const rosterSet = new Set(rosterIds.map(integranteKey).filter(Boolean));
+  return [...memberIds].some((id) => rosterSet.has(integranteKey(id)));
 }
 
 /**

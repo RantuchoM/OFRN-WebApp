@@ -2,6 +2,8 @@
  * Membresía a ensamble por fechas (solo día calendario, ISO YYYY-MM-DD).
  */
 
+import { getTodayDateStringLocal } from "./dates";
+
 /** @param {unknown} d */
 export function toIsoDateString(d) {
   if (d == null || d === "") return null;
@@ -32,4 +34,42 @@ export function membershipActiveOnProgramDate(row, refDate) {
 export function filterMembershipRowsForProgramDate(rows, refDate) {
   if (!rows?.length) return [];
   return rows.filter((r) => membershipActiveOnProgramDate(r, refDate));
+}
+
+/**
+ * Rango efectivo del programa (solo día calendario).
+ * Sin `fecha_hasta`, el programa se trata como de un solo día (`fecha_desde`).
+ */
+export function programEffectiveDateRange(fechaDesde, fechaHasta) {
+  const progStart = toIsoDateString(fechaDesde ?? getTodayDateStringLocal());
+  const progEnd = toIsoDateString(
+    fechaHasta ?? fechaDesde ?? getTodayDateStringLocal(),
+  );
+  return { progStart, progEnd };
+}
+
+/**
+ * ¿El integrante estaba activo en la orquesta durante el programa?
+ * Traslape inclusivo entre [fecha_alta, fecha_baja] y [fecha_desde, fecha_hasta del programa].
+ * Sin `fecha_hasta` del programa, el fin es `fecha_desde` (no se extiende hasta hoy).
+ *
+ * @param {{ fecha_alta?: unknown, fecha_baja?: unknown }} person
+ * @param {unknown} fechaDesde programa.fecha_desde
+ * @param {unknown} [fechaHasta] programa.fecha_hasta
+ */
+export function integranteActiveOnProgramRange(person, fechaDesde, fechaHasta) {
+  const { progStart, progEnd } = programEffectiveDateRange(
+    fechaDesde,
+    fechaHasta,
+  );
+  if (!progStart || !progEnd) return true;
+
+  const alta =
+    person?.fecha_alta != null ? toIsoDateString(person.fecha_alta) : null;
+  const baja =
+    person?.fecha_baja != null ? toIsoDateString(person.fecha_baja) : null;
+
+  const startsBeforeEnd = !alta || alta <= progEnd;
+  const endsAfterStart = !baja || baja >= progStart;
+  return startsBeforeEnd && endsAfterStart;
 }

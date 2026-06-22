@@ -30,6 +30,7 @@ import {
   buildMatrixIntegranteInstrumentDisplay,
   compareInstrumentIds,
 } from "../../utils/giraUtils";
+import { integranteKey } from "../../utils/integranteIds";
 import { IconChevronDown, IconDownload, IconHistory } from "../../components/ui/Icons";
 
 function startOfToday() {
@@ -251,7 +252,8 @@ export default function AsistenciaMatrixReport({ supabase }) {
     const map = new Map();
     for (const row of memberships) {
       const eid = Number(row.id_ensamble);
-      const iid = Number(row.id_integrante);
+      const iid = integranteKey(row.id_integrante);
+      if (!iid) continue;
       if (!map.has(eid)) map.set(eid, []);
       map.get(eid).push(iid);
     }
@@ -260,14 +262,16 @@ export default function AsistenciaMatrixReport({ supabase }) {
 
   const integranteById = useMemo(() => {
     const m = new Map();
-    for (const it of integrantes) m.set(Number(it.id), it);
+    for (const it of integrantes) m.set(integranteKey(it.id), it);
     return m;
   }, [integrantes]);
 
   const integrantesInMatrix = useMemo(() => {
-    const ids = new Set(memberships.map((x) => Number(x.id_integrante)));
+    const ids = new Set(
+      memberships.map((x) => integranteKey(x.id_integrante)).filter(Boolean),
+    );
     return sortIntegrantesByInstrument(
-      integrantes.filter((it) => ids.has(Number(it.id))),
+      integrantes.filter((it) => ids.has(integranteKey(it.id))),
     );
   }, [integrantes, memberships]);
 
@@ -298,7 +302,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
       const entries = await Promise.all(
         giras.map(async (g) => {
           const ids = await resolveGiraRosterIds(supabase, g.id);
-          return [g.id, new Set(ids.map(Number))];
+          return [g.id, new Set(ids.map(integranteKey).filter(Boolean))];
         }),
       );
       if (cancelled) return;
@@ -313,7 +317,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
   const visibleRows = useMemo(
     () =>
       integrantesInMatrix.filter((it) =>
-        selectedIntegranteIds.has(Number(it.id)),
+        selectedIntegranteIds.has(integranteKey(it.id)),
       ),
     [integrantesInMatrix, selectedIntegranteIds],
   );
@@ -379,7 +383,8 @@ export default function AsistenciaMatrixReport({ supabase }) {
   }, []);
 
   const toggleIntegrante = useCallback((id) => {
-    const n = Number(id);
+    const n = integranteKey(id);
+    if (!n) return;
     setSelectedIntegranteIds((prev) => {
       const next = new Set(prev);
       if (next.has(n)) next.delete(n);
@@ -437,7 +442,10 @@ export default function AsistenciaMatrixReport({ supabase }) {
   };
 
   const allMatrixIntegranteIds = useMemo(
-    () => integrantesInMatrix.map((it) => Number(it.id)),
+    () =>
+      integrantesInMatrix
+        .map((it) => integranteKey(it.id))
+        .filter(Boolean),
     [integrantesInMatrix],
   );
 
@@ -529,7 +537,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
           Matriz de asistencia (músicos vs. programas)
         </h1>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Participación por programa según nómina resuelta (fuentes y ausentes).
+          Participación por programa según nómina resuelta (fuentes, vigencias de alta/baja y ausentes).
         </p>
       </header>
 
@@ -807,7 +815,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
                             const set = rosterByGiraId[g.id];
                             const n = set
                               ? ar.visibleMemberIds.filter((id) =>
-                                  set.has(Number(id)),
+                                  set.has(integranteKey(id)),
                                 ).length
                               : 0;
                             return (
@@ -868,7 +876,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
                       </td>
                     </tr>
                     {grp.rows.map((row) => {
-                      const iid = Number(row.id);
+                      const iid = integranteKey(row.id);
                       const inst = row.instrumentos;
                       const instLabel =
                         inst?.instrumento ||

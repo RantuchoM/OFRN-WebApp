@@ -30,6 +30,7 @@ Visualizar en un cuadro de doble entrada la participación de integrantes en los
 
 - El ID del integrante es numérico (PK Integer).
 - La resolución de integrantes por gira debe usar la lógica de `resolveGiraRosterIds` definida en `src/services/giraService.js` (reexportada desde `src/services/supabase.js` para consumo unificado). Incluye fuentes `ENSAMBLE`, `FAMILIA`, `EXCL_ENSAMBLE` y overrides en `giras_integrantes` (excluyendo `estado === 'ausente'`).
+- **Vigencias:** convocatoria base exige tramo activo en `integrantes_ensambles` (fecha del programa) y alta/baja del integrante en la orquesta (`integranteActiveOnProgramRange` en `ensembleMembership.js`). Sin `fecha_hasta` en el programa, el rango termina en `fecha_desde`. Los overrides manuales (`giras_integrantes` confirmado) ignoran esas vigencias.
 - En base de datos, el vínculo del integrante al instrumento es `integrantes.id_instr` → `instrumentos.id` (orden de filas alineado a la tabla maestra de instrumentos).
 - **Override por gira:** si `giras_integrantes.id_instr` está definido para un programa, la matriz muestra el instrumento efectivo en los programas visibles donde el integrante está en roster (`buildMatrixIntegranteInstrumentDisplay` en `giraUtils.js`). Si toca distintos instrumentos en varias giras, el subtexto une los nombres (`Clarinete / Violín`).
 
@@ -48,7 +49,7 @@ No se requieren tablas nuevas; se sugiere una vista para optimizar la carga de l
 | Matriz: filas con nombre, subtexto instrumento + ensambles, orden por `id_instr` | Completado |
 | Matriz: columnas por programa, orden `fecha_desde` ascendente, cabecera `nomenclador` + `mes_letra` | Completado |
 | Tooltip en cabecera con título/subtítulo y enlace a repertorio (`?tab=giras&view=REPERTOIRE&giraId=`) | Completado |
-| Cruce con `resolveGiraRosterIds` (misma lógica que nómina) | Completado |
+| Cruce con `resolveGiraRosterIds` (misma lógica que nómina, incl. alta/baja orquesta y tramos de ensamble) | Completado |
 | Tabla con primera columna y primera fila sticky (Tailwind) | Completado |
 | Ubicación: **Gestión** (`?tab=management`) → pestaña **Convocatorias** | Completado |
 | Agregación de datos en `fetchAsistenciaMatrixBaseData` (`src/services/giraService.js`) | Completado |

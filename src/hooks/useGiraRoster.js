@@ -4,6 +4,7 @@ import { resolveLocalidadEfectivaViaticos } from "../utils/integranteDomicilioVi
 import {
   membershipActiveOnProgramDate,
   filterMembershipRowsForProgramDate,
+  integranteActiveOnProgramRange,
 } from "../utils/ensembleMembership";
 import {
   inferDefaultTourRole,
@@ -186,10 +187,6 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
     }
   }
 
-  const giraInicio = gira.fecha_desde ? new Date(gira.fecha_desde) : new Date();
-  const giraFin = gira.fecha_hasta ? new Date(gira.fecha_hasta) : new Date();
-  giraFin.setHours(23, 59, 59, 999);
-
   const finalRoster = [];
   musicians.forEach((m) => {
     const id = integranteKey(m.id);
@@ -233,9 +230,11 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
 
     let isBaseValid = false;
     if (isBaseIncluded && !isExcluded) {
-      const alta = m.fecha_alta ? new Date(m.fecha_alta) : null;
-      const baja = m.fecha_baja ? new Date(m.fecha_baja) : null;
-      if ((!alta || alta <= giraFin) && (!baja || baja >= giraInicio)) isBaseValid = true;
+      isBaseValid = integranteActiveOnProgramRange(
+        m,
+        gira.fecha_desde,
+        gira.fecha_hasta,
+      );
     }
     // Convocatoria explícita en giras_integrantes debe verse siempre; si no, EXCL_ENSAMBLE
     // ocultaba filas aunque el INSERT ya hubiera creado el vínculo (409 "duplicado").
