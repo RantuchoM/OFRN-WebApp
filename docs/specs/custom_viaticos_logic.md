@@ -60,6 +60,7 @@ COMMENT ON COLUMN public.giras_viaticos_config.rendicion_fecha IS 'Fecha límite
 - **`getEffectiveSubtotalForExport`**: prioridad `anticipo_custom` → histórico (backup) → `subtotal` actual.
 - En PDF, la fecha de rendición va en el acrofield **`lugar_y_fecha`** (pie del formulario): ciudad del integrante + fecha límite (`rendicion_fecha` o primer lunes posterior a `fecha_hasta`), mismo formato textual que antes (`"Ciudad, dd de mes de yy"`). Si no hay fecha válida, se usa la fecha de hoy como respaldo.
 - [x] **Pre-check motivo / lugar de comisión** (`src/utils/viaticosExportMotivoLugar.js`): antes de exportar viático, destaque o rendición, valida con `trimOrEmpty` (null, `""` y espacios = vacío) y la misma cadena de fallback que el PDF; confirmación con `z-[110]` por encima del panel bulk (`z-[60]`).
+- [x] **Aclaración bajo la firma** (`aclaracion_firma` en plantillas AcroForm): viático, destaque y rendición rellenan `Apellido, Nombre` con `setText` en el campo `aclaracion_firma`; la imagen de firma sigue en `firma_link` / `firma_imagen`. Preview alineado en `ViaticosForm.jsx` y `RendicionForm.jsx`.
 
 ## 4. Archivos tocados
 

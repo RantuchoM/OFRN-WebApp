@@ -372,6 +372,7 @@ export const exportViaticosToPDFForm = async (
 
         // Pie del formulario: lugar + fecha límite de rendición (config o lunes post-gira)
         f("lugar_y_fecha", lugarYFecha);
+        f("aclaracion_firma", nombreCompleto);
         await insertImageSignature(srcDoc, form, "firma_imagen", data.firma);
       } else {
         // ---------------------------------------------------------
@@ -496,6 +497,7 @@ chk("check_temporada", configData.factor_temporada > 0);
         f("dia_hoy", diaHoy);
         f("mes_hoy", mesHoy);
         f("anio_hoy", anioHoy);
+        f("aclaracion_firma", nombreCompleto);
 
         await insertImageSignature(srcDoc, form, "firma_link", data.firma);
       }

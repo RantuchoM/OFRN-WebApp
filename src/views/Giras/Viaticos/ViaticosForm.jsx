@@ -666,25 +666,48 @@ export default function ViaticosForm({
               rowSpan={2}
               style={{
                 verticalAlign: "center",
-                textAlign: "center", // Alineación horizontal clásica
-                height: "80px", // Asegura que ocupe el alto de las 4 filas (20px * 4)
+                textAlign: "center",
+                height: "80px",
               }}
             >
               {data.firma === "NULL" ? (
                 <span></span>
-              ) : data.firma ? (
-                <img
-                  src={data.firma}
-                  alt="Firma Agente"
-                  style={{
-                    maxHeight: "120px", // Ajustado para no desbordar las 4 filas de 20px
-                    objectFit: "contain",
-                  }}
-                />
               ) : (
-                <span style={{ color: "#ccc", fontSize: "10pt" }}>
-                  {data.apellido?.toUpperCase()}, {data.nombre?.toUpperCase()}
-                </span>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "flex-end",
+                    width: "100%",
+                    height: "100%",
+                  }}
+                >
+                  {data.firma ? (
+                    <img
+                      src={data.firma}
+                      alt="Firma Agente"
+                      style={{
+                        maxHeight: "88px",
+                        objectFit: "contain",
+                      }}
+                    />
+                  ) : null}
+                  <span
+                    style={{
+                      fontSize: "8pt",
+                      fontWeight: 700,
+                      color: "#1e293b",
+                      lineHeight: 1.1,
+                      marginTop: data.firma ? "2px" : 0,
+                      marginBottom: "6px",
+                    }}
+                  >
+                    {[data.apellido, data.nombre]
+                      .filter(Boolean)
+                      .join(", ")}
+                  </span>
+                </div>
               )}
             </td>
             <td className="s11"></td>
