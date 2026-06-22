@@ -484,7 +484,7 @@ export default function RendicionesManual() {
       0,
     );
     const totalRend = sumRendicion({ ...rend });
-    const { dev, reint } = calcDiff(totalAnt, totalRend);
+    const { dev, reint } = calcDevolucionReintegro(totalAnt, totalRend);
     return { totalAnt, totalRend, dev, reint };
   }, [ant, rend]);
 
@@ -1305,7 +1305,7 @@ export default function RendicionesManual() {
                   {concepts.map((c) => {
                     const antVal = toNumber(ant[c.key]);
                     const rendVal = toNumber(rend[c.key]);
-                    const { dev, reint } = calcDiff(antVal, rendVal);
+                    const { dev, reint } = calcDevolucionReintegro(antVal, rendVal);
                     return (
                       <tr key={c.key}>
                         <td className="px-4 py-3 font-bold text-slate-700">
