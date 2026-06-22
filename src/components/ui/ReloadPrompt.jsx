@@ -104,6 +104,8 @@ function ReloadPrompt() {
   const restartStartedRef = useRef(false);
   const reloadPendingRef = useRef(false);
   const fallbackTimerRef = useRef(null);
+  /** true tras montaje o cambio de ruta: la próxima actualización se aplica sin banner. */
+  const entryAutoReloadRef = useRef(true);
   const [isRestarting, setIsRestarting] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
@@ -182,9 +184,15 @@ function ReloadPrompt() {
   }, []);
 
   useEffect(() => {
+    entryAutoReloadRef.current = true;
+    void checkForNewVersion();
+  }, [pathname, checkForNewVersion]);
+
+  useEffect(() => {
     if (!needRefresh) return;
-    if (entradasSilentUpdate) {
+    if (entradasSilentUpdate || entryAutoReloadRef.current) {
       if (restartStartedRef.current) return;
+      entryAutoReloadRef.current = false;
       restartStartedRef.current = true;
       void applyWaitingServiceWorker();
       return;
