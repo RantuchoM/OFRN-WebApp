@@ -14,6 +14,7 @@ import {
 } from "../utils/participantesSort";
 import { formatTramoTitle } from "../utils/giraTramos";
 import { buildGiraInstrumentOverrideMap } from "../utils/giraUtils";
+import { isRepertorioPlaceholder } from "../utils/repertorioRowDisplay";
 
 /**
  * Resuelve los IDs de los integrantes de una gira:
@@ -1029,7 +1030,7 @@ function buildRepertorioFromProgramasRepertorios(programasRepertorios = []) {
     })
     .flatMap((bloque) =>
       (bloque?.repertorio_obras || [])
-        .filter((row) => !row?.excluir)
+        .filter((row) => !row?.excluir && !isRepertorioPlaceholder(row))
         .sort((a, b) => {
           const ao = Number(a?.orden ?? 999999);
           const bo = Number(b?.orden ?? 999999);

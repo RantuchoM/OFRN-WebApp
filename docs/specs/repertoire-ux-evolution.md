@@ -60,9 +60,10 @@ Permitir mover obras dentro del mismo bloque y entre bloques con feedback visual
 
 ## 4. Filtros predeterminados por orgánico
 
-- **Componente compartido:** `src/components/repertoire/InstrumentationFilterModal.jsx`
-- **Presets:** `src/utils/instrumentationFilterPresets.js`
-- **Ubicaciones:** modal "Buscar Obra" / Agregar Obra en `RepertoireManager.jsx` y columna Orgánico en `RepertoireView.jsx`
+- **Componente compartido:** `src/components/repertoire/InstrumentationFilterModal.jsx` + `RepertoireWorkPickerModal.jsx`
+- **Presets:** `src/utils/instrumentationFilterPresets.js` (`buildMaxInstrumentationFilterDefaults` desde roster convocado)
+- **Ubicaciones:** `RepertoireWorkPickerModal` (Agregar Obra en repertorio de gira + opciones de placeholder) y columna Orgánico en `RepertoireView.jsx`
+- **Default orgánico gira:** al abrir el picker con `programId`, se precargan reglas `lte` por familia según músicos convocados (excl. ausentes)
 - **Chips de un clic:** Solo cuerdas, Quinteto de maderas, Quinteto de metales, Vientos (sin cuerdas), Solo percusión
 - **Comportamiento:** al elegir un preset se aplican `stringsFilter`, `strictMode` y reglas de instrumentos; el botón Orgánico muestra el nombre del preset activo
 - **Modal Agregar Obra:** un preset o filtro de orgánico activo dispara la carga de la biblioteca (hasta ~2000 obras) sin exigir texto en compositor/obra/arreglador

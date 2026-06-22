@@ -1055,7 +1055,7 @@ CREATE TABLE public.regiones (
 CREATE TABLE public.repertorio_obras (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   id_repertorio bigint NOT NULL,
-  id_obra bigint NOT NULL,
+  id_obra bigint,
   orden integer DEFAULT 1,
   notas_especificas text,
   google_drive_shortcut_id text,
@@ -1068,10 +1068,20 @@ CREATE TABLE public.repertorio_obras (
   observacion_curaduria text,
   en_definicion boolean DEFAULT false,
   duracion_segundos_concierto integer,
+  titulo_placeholder text,
+  instrumentacion_placeholder text,
   CONSTRAINT repertorio_obras_pkey PRIMARY KEY (id),
   CONSTRAINT repertorio_obras_id_repertorio_fkey FOREIGN KEY (id_repertorio) REFERENCES public.programas_repertorios(id),
   CONSTRAINT repertorio_obras_id_arco_seleccionado_fkey FOREIGN KEY (id_arco_seleccionado) REFERENCES public.obras_arcos(id),
-  CONSTRAINT repertorio_obras_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id)
+  CONSTRAINT repertorio_obras_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id),
+  CONSTRAINT repertorio_obras_obra_o_placeholder_chk CHECK (
+    (id_obra IS NOT NULL AND titulo_placeholder IS NULL)
+    OR (
+      id_obra IS NULL
+      AND titulo_placeholder IS NOT NULL
+      AND length(TRIM(BOTH FROM titulo_placeholder)) > 0
+    )
+  )
 );
 CREATE TABLE public.roles (
   id text NOT NULL,

@@ -3,6 +3,7 @@ import { IconPlus } from "../ui/Icons";
 import {
   ORGANICO_VIENTOS_PLACEHOLDER,
   formatOrganicoVientosInput,
+  formatOrganicoWithSuffixInput,
 } from "../../utils/particellaOrganicoInput";
 
 export default function OrganicoVientosAddField({
@@ -11,9 +12,15 @@ export default function OrganicoVientosAddField({
   onAdd,
   disabled = false,
   variant = "form",
+  className,
+  allowSuffix = false,
 }) {
   const handleChange = (e) => {
-    onChange(formatOrganicoVientosInput(e.target.value));
+    onChange(
+      allowSuffix
+        ? formatOrganicoWithSuffixInput(e.target.value)
+        : formatOrganicoVientosInput(e.target.value),
+    );
   };
 
   const handleKeyDown = (e) => {
@@ -25,16 +32,32 @@ export default function OrganicoVientosAddField({
 
   const inputProps = {
     type: "text",
-    inputMode: "numeric",
+    inputMode: allowSuffix ? "text" : "numeric",
     autoComplete: "off",
-    placeholder: ORGANICO_VIENTOS_PLACEHOLDER,
+    placeholder: allowSuffix
+      ? `${ORGANICO_VIENTOS_PLACEHOLDER} Str - Hp - Key`
+      : ORGANICO_VIENTOS_PLACEHOLDER,
     value,
     onChange: handleChange,
     onKeyDown: handleKeyDown,
     disabled,
-    title: "Escribí 8 dígitos; se formatea solo (ej. 22324312 → 2.2.3.2 - 4.3.1.2)",
+    title: allowSuffix
+      ? "8 dígitos de vientos (autoformato) y texto libre después, ej. 2.2.3.2 - 4.3.1.2 Str - Hp - Key"
+      : "Escribí 8 dígitos; se formatea solo (ej. 22324312 → 2.2.3.2 - 4.3.1.2)",
     "aria-label": "Ingreso por orgánico de vientos",
   };
+
+  if (variant === "inline") {
+    return (
+      <input
+        {...inputProps}
+        className={
+          className ||
+          "w-full text-[10px] font-mono px-1 py-0.5 border border-violet-200 rounded bg-white text-center tracking-tight outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 disabled:opacity-60"
+        }
+      />
+    );
+  }
 
   if (variant === "compact") {
     return (

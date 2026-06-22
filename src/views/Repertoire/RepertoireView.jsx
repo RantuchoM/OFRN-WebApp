@@ -44,6 +44,12 @@ import {
   saveRepertoireSelection,
   clearRepertoireSelection,
 } from "../../utils/repertoireSelectionStorage";
+import { useAuth } from "../../context/AuthContext";
+import AssignProgramModal from "../../components/repertoire/AssignProgramModal";
+import {
+  fetchPlaceholderOpcionesForObra,
+  fetchProgramIdsWithPlaceholders,
+} from "../../services/repertorioPlaceholderOpciones";
 
 // --- ICONOS ADICIONALES ---
 const IconColumns = ({ size = 20, className = "" }) => (
@@ -209,32 +215,63 @@ const getEstadoMobileCardBgClass = (estado) => {
 
 // --- 2. MODALES ---
 
-const HistoryModal = ({ work, onClose, supabase }) => {
+const HistoryModal = ({ work, onClose, supabase, isEditor }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [history, setHistory] = useState([]);
+  const [opcionesSlots, setOpcionesSlots] = useState([]);
+  const [programsWithPlaceholders, setProgramsWithPlaceholders] = useState(
+    () => new Set(),
+  );
 
   useEffect(() => {
     const fetchHistory = async () => {
       if (!work?.id) return;
       setLoading(true);
       try {
-        const { data, error } = await supabase
-          .from("repertorio_obras")
-          .select(`
+        const [{ data, error }, opciones] = await Promise.all([
+          supabase
+            .from("repertorio_obras")
+            .select(`
             programas_repertorios (
               nombre,
               programas (id, nombre_gira, fecha_desde, mes_letra, nomenclador, tipo)
             )
           `)
-          .eq("id_obra", work.id);
+            .eq("id_obra", work.id),
+          isEditor
+            ? fetchPlaceholderOpcionesForObra(supabase, work.id)
+            : Promise.resolve([]),
+        ]);
         if (error) throw error;
-        const historyData = data.map((item) => ({
-          bloque: item.programas_repertorios?.nombre,
-          gira: item.programas_repertorios?.programas,
-        })).filter((h) => h.gira);
-        historyData.sort((a, b) => new Date(b.gira.fecha_desde) - new Date(a.gira.fecha_desde));
+        const historyData = data
+          .map((item) => ({
+            bloque: item.programas_repertorios?.nombre,
+            gira: item.programas_repertorios?.programas,
+          }))
+          .filter((h) => h.gira);
+        historyData.sort(
+          (a, b) => new Date(b.gira.fecha_desde) - new Date(a.gira.fecha_desde),
+        );
         setHistory(historyData || []);
+        setOpcionesSlots(opciones || []);
+
+        const programIds = [
+          ...new Set(
+            [
+              ...historyData.map((h) => h.gira?.id),
+              ...(opciones || []).map(
+                (o) =>
+                  o.repertorio_obras?.programas_repertorios?.programas?.id,
+              ),
+            ].filter(Boolean),
+          ),
+        ];
+        const withPh = await fetchProgramIdsWithPlaceholders(
+          supabase,
+          programIds,
+        );
+        setProgramsWithPlaceholders(withPh);
       } catch (err) {
         console.error("Error history:", err);
       } finally {
@@ -242,7 +279,7 @@ const HistoryModal = ({ work, onClose, supabase }) => {
       }
     };
     fetchHistory();
-  }, [work, supabase]);
+  }, [work, supabase, isEditor]);
 
   const goToGiraRepertoire = (giraId) => {
     setSearchParams({ tab: "giras", view: "REPERTOIRE", giraId: String(giraId) });
@@ -268,19 +305,60 @@ const HistoryModal = ({ work, onClose, supabase }) => {
         <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
           {loading ? (
             <div className="text-center py-8 text-indigo-500"><IconLoader className="animate-spin inline" /></div>
-          ) : history.length === 0 ? (
+          ) : history.length === 0 && opcionesSlots.length === 0 ? (
             <div className="text-center py-8 text-slate-400 italic text-sm">Sin historial registrado.</div>
           ) : (
             <div className="space-y-3">
+              {isEditor && opcionesSlots.length > 0 && (
+                <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-3 space-y-2">
+                  <div className="text-[10px] font-bold uppercase text-violet-800">
+                    Opción en slots a definir
+                  </div>
+                  {opcionesSlots.map((op) => {
+                    const slot = op.repertorio_obras;
+                    const prog =
+                      slot?.programas_repertorios?.programas;
+                    const bloque = slot?.programas_repertorios?.nombre;
+                    return (
+                      <div
+                        key={op.id}
+                        className="text-xs text-slate-700 bg-white/80 rounded border border-violet-100 px-2 py-1.5"
+                      >
+                        <span className="font-semibold text-violet-900">
+                          {slot?.titulo_placeholder || "Slot a definir"}
+                        </span>
+                        {prog && (
+                          <span className="text-slate-500">
+                            {" "}
+                            · {prog.nomenclador} {prog.nombre_gira}
+                            {bloque ? ` (${bloque})` : ""}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {history.map((item, idx) => (
                 <div
                   key={idx}
                   className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center gap-3 hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors group"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-bold text-indigo-700 uppercase mb-0.5">
-                      {item.gira.nomenclador} · {item.gira.mes_letra}
-                      {item.gira.tipo && <span className="text-slate-500 font-medium ml-1">· {item.gira.tipo}</span>}
+                    <div className="text-[10px] font-bold text-indigo-700 uppercase mb-0.5 flex flex-wrap items-center gap-1">
+                      <span>
+                        {item.gira.nomenclador} · {item.gira.mes_letra}
+                        {item.gira.tipo && (
+                          <span className="text-slate-500 font-medium ml-1">
+                            · {item.gira.tipo}
+                          </span>
+                        )}
+                      </span>
+                      {programsWithPlaceholders.has(item.gira.id) && (
+                        <span className="inline-flex items-center text-[8px] bg-violet-100 text-violet-800 px-1.5 py-0.5 rounded border border-violet-200 font-semibold normal-case tracking-normal">
+                          Tiene slots a definir
+                        </span>
+                      )}
                     </div>
                     <div className="text-sm font-bold text-slate-800">{item.gira.nombre_gira}</div>
                     {item.bloque && <div className="text-[10px] text-slate-500 mt-1 bg-slate-50 inline-block px-1.5 rounded border border-slate-100">Bloque: {item.bloque}</div>}
@@ -304,109 +382,6 @@ const HistoryModal = ({ work, onClose, supabase }) => {
               ))}
             </div>
           )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const AssignProgramModal = ({ work, onClose, supabase }) => {
-  const [loading, setLoading] = useState(false);
-  const [giras, setGiras] = useState([]);
-  const [selectedGiraId, setSelectedGiraId] = useState("");
-  const [bloques, setBloques] = useState([]);
-  const [selectedBloqueId, setSelectedBloqueId] = useState("");
-  const [isCreatingBloque, setIsCreatingBloque] = useState(false);
-  const [newBloqueName, setNewBloqueName] = useState("");
-
-  useEffect(() => {
-    const fetchGiras = async () => {
-      const { data } = await supabase.from("programas").select("id, nombre_gira, mes_letra, nomenclador").order("fecha_desde", { ascending: false }).limit(20);
-      if (data) setGiras(data);
-    };
-    fetchGiras();
-  }, []);
-
-  useEffect(() => {
-    if (!selectedGiraId) { setBloques([]); return; }
-    const fetchBloques = async () => {
-      setLoading(true);
-      const { data } = await supabase.from("programas_repertorios").select("id, nombre, orden").eq("id_programa", selectedGiraId).order("orden", { ascending: true });
-      setBloques(data || []);
-      setLoading(false);
-      setSelectedBloqueId("");
-      setIsCreatingBloque(false);
-    };
-    fetchBloques();
-  }, [selectedGiraId]);
-
-  const handleAssign = async () => {
-    setLoading(true);
-    try {
-      let targetBloqueId = selectedBloqueId;
-      if (isCreatingBloque && newBloqueName) {
-        const lastOrder = bloques.length > 0 ? Math.max(...bloques.map((b) => b.orden || 0)) : 0;
-        const { data: newBlock, error: blockError } = await supabase.from("programas_repertorios").insert([{ id_programa: selectedGiraId, nombre: newBloqueName, orden: lastOrder + 1 }]).select().single();
-        if (blockError) throw blockError;
-        targetBloqueId = newBlock.id;
-      }
-      if (!targetBloqueId) { alert("Selecciona o crea un bloque."); setLoading(false); return; }
-      const { count } = await supabase.from("repertorio_obras").select("id", { count: "exact", head: true }).eq("id_repertorio", targetBloqueId);
-      const { error: assignError } = await supabase.from("repertorio_obras").insert([{ id_repertorio: targetBloqueId, id_obra: work.id, orden: (count || 0) + 1 }]);
-      if (assignError) throw assignError;
-      alert(`✅ "${work.titulo}" asignada.`);
-      onClose();
-    } catch (err) {
-      alert("Error: " + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="bg-white w-full max-w-sm rounded-xl shadow-2xl p-6 border border-slate-200">
-        <div className="flex justify-between items-start mb-4">
-          <div>
-            <h3 className="font-bold text-lg text-slate-800">Asignar a Gira</h3>
-            <div className="text-xs text-slate-500 line-clamp-1 max-w-[200px]">{work.titulo}</div>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><IconX size={20} /></button>
-        </div>
-        <div className="space-y-4">
-          <div>
-            <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">1. Seleccionar Gira</label>
-            <select className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-indigo-500" value={selectedGiraId} onChange={(e) => setSelectedGiraId(e.target.value)}>
-              <option value="">-- Seleccionar --</option>
-              {giras.map((p) => <option key={p.id} value={p.id}>{p.mes_letra} | {p.nombre_gira} ({p.nomenclador})</option>)}
-            </select>
-          </div>
-          {selectedGiraId && (
-            <div className="animate-in slide-in-from-top-2 fade-in">
-              <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">2. Bloque de Repertorio</label>
-              {!isCreatingBloque ? (
-                <div className="flex gap-2">
-                  <select className="w-full p-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500" value={selectedBloqueId} onChange={(e) => setSelectedBloqueId(e.target.value)} disabled={bloques.length === 0}>
-                    <option value="">{bloques.length === 0 ? "-- Sin bloques --" : "-- Seleccionar Bloque --"}</option>
-                    {bloques.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}
-                  </select>
-                  <button onClick={() => { setIsCreatingBloque(true); setSelectedBloqueId(""); }} className="p-2 bg-indigo-50 text-indigo-600 rounded-lg border border-indigo-200 hover:bg-indigo-100" title="Crear Bloque"><IconPlus size={18} /></button>
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  <input type="text" className="w-full p-2 border border-indigo-300 rounded-lg text-sm outline-none ring-2 ring-indigo-100" placeholder="Nombre (ej: Programa I)" value={newBloqueName} onChange={(e) => setNewBloqueName(e.target.value)} autoFocus />
-                  <button onClick={() => setIsCreatingBloque(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><IconX size={18} /></button>
-                </div>
-              )}
-              {bloques.length === 0 && !isCreatingBloque && <p className="text-[10px] text-amber-600 mt-1 flex items-center gap-1"><IconAlertCircle size={10} /> Gira sin bloques.</p>}
-            </div>
-          )}
-        </div>
-        <div className="flex gap-2 justify-end mt-6 border-t pt-4">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded-lg font-medium">Cancelar</button>
-          <button onClick={handleAssign} disabled={loading || !selectedGiraId || (!selectedBloqueId && !newBloqueName)} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-bold shadow-sm flex items-center gap-2">
-            {loading ? <IconLoader className="animate-spin" size={14} /> : <IconCheck size={14} />} {loading ? "..." : "Confirmar"}
-          </button>
         </div>
       </div>
     </div>
@@ -455,6 +430,7 @@ const ColumnManager = ({ visibleColumns, onChange }) => {
 // --- COMPONENTE PRINCIPAL ---
 
 export default function RepertoireView({ supabase, catalogoInstrumentos }) {
+  const { isEditor } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [works, setWorks] = useState([]);
   const [availableTags, setAvailableTags] = useState([]);
@@ -2087,8 +2063,22 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
 
       {showComposersManager && <ComposersManager supabase={supabase} onClose={() => { setShowComposersManager(false); fetchWorks(); }} />}
       {showTagsManager && <TagsManager supabase={supabase} onClose={() => { setShowTagsManager(false); fetchWorks(); fetchTags(); }} />}
-      {historyWork && <HistoryModal work={historyWork} onClose={() => setHistoryWork(null)} supabase={supabase} />}
-      {assignWork && <AssignProgramModal work={assignWork} onClose={() => setAssignWork(null)} supabase={supabase} />}
+      {historyWork && (
+        <HistoryModal
+          work={historyWork}
+          onClose={() => setHistoryWork(null)}
+          supabase={supabase}
+          isEditor={isEditor}
+        />
+      )}
+      {assignWork && (
+        <AssignProgramModal
+          work={assignWork}
+          onClose={() => setAssignWork(null)}
+          supabase={supabase}
+          isEditor={isEditor}
+        />
+      )}
     </div>
   );
 }

@@ -427,6 +427,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
           repertorio_obras (
             id, id_obra, orden, notas_especificas, seating_provisorio, usar_seating_provisorio, id_arco_seleccionado,
             en_definicion, estado_curaduria, observacion_curaduria,
+            duracion_segundos_concierto, titulo_placeholder, instrumentacion_placeholder,
             obras (
               id, titulo, duracion_segundos, instrumentacion, link_drive,
               obras_arcos (id, nombre, link, descripcion, id_drive_folder),

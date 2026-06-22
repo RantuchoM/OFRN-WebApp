@@ -91,3 +91,39 @@ export const getInstrumentationFilterLabel = (
   if (stringsFilter === "without") return "Sin Cuerdas";
   return "Filtrar";
 };
+
+const COLUMN_TO_FILTER_INSTR = {
+  Fl: "fl",
+  Ob: "ob",
+  Cl: "cl",
+  Fg: "bn",
+  Cr: "hn",
+  Tp: "tpt",
+  Tb: "tbn",
+  Tba: "tba",
+  Har: "harp",
+  Pno: "key",
+};
+
+/**
+ * Filtros por defecto para buscar obras que no superen el orgánico convocado en la gira.
+ * Usa operador `lte` por familia; cuerdas: "without" si no hay convocados de arco.
+ */
+export function buildMaxInstrumentationFilterDefaults(convokedMap = {}) {
+  const rules = [];
+
+  Object.entries(COLUMN_TO_FILTER_INSTR).forEach(([colKey, filterKey]) => {
+    const count = Number(convokedMap[colKey]) || 0;
+    rules.push(makeRule(filterKey, "lte", count));
+  });
+
+  const timCount = Number(convokedMap.Tim) || 0;
+  rules.push(makeRule("timp", "lte", timCount > 0 ? 1 : 0));
+
+  const percCount = Number(convokedMap.Perc) || 0;
+  rules.push(makeRule("perc", "lte", percCount));
+
+  const stringsFilter = (Number(convokedMap.Str) || 0) > 0 ? "all" : "without";
+
+  return { rules, stringsFilter, strictMode: false };
+};

@@ -40,6 +40,58 @@ export function formatOrganicoVientosInput(raw) {
 }
 
 /**
+ * Índice en `raw` justo después del 8.º dígito (prefijo numérico del orgánico).
+ * @returns {number|null} posición de corte o null si aún no hay 8 dígitos
+ */
+export function findOrganicoVientosDigitSplitIndex(raw) {
+  const str = String(raw ?? "");
+  let digitCount = 0;
+  for (let i = 0; i < str.length; i++) {
+    if (/\d/.test(str[i])) {
+      digitCount += 1;
+      if (digitCount === ORGANICO_VIENTOS_DIGIT_COUNT) return i + 1;
+    }
+  }
+  return null;
+}
+
+/** Separa prefijo numérico (8 dígitos) y texto libre posterior (ej. "Str - Hp - Key"). */
+export function splitOrganicoWithSuffix(raw) {
+  const str = String(raw ?? "");
+  const splitIndex = findOrganicoVientosDigitSplitIndex(str);
+  if (splitIndex == null) {
+    return {
+      prefixDigits: extractOrganicoVientosDigits(str),
+      suffix: "",
+    };
+  }
+  const prefixDigits = extractOrganicoVientosDigits(str.slice(0, splitIndex));
+  let suffix = str.slice(splitIndex).replace(/^[\s|·]+/, "");
+  if (suffix.startsWith("|")) suffix = suffix.replace(/^\|\s*/, "");
+  return { prefixDigits, suffix };
+}
+
+/**
+ * Formatea orgánico de vientos y conserva texto libre después (solo tras 8 dígitos).
+ * Ej: "22324312 Str - Hp" → "2.2.3.2 - 4.3.1.2 Str - Hp"
+ */
+export function formatOrganicoWithSuffixInput(raw) {
+  const str = String(raw ?? "");
+  const splitIndex = findOrganicoVientosDigitSplitIndex(str);
+  const { prefixDigits, suffix } = splitOrganicoWithSuffix(raw);
+  const formattedPrefix = formatOrganicoVientosDigits(prefixDigits);
+  const trimmedSuffix = suffix.trim();
+
+  if (!formattedPrefix) {
+    if (!prefixDigits) return str;
+    return formattedPrefix;
+  }
+  if (!trimmedSuffix) return formattedPrefix;
+  const sep = str.slice(splitIndex).trimStart().startsWith("|") ? " | " : " ";
+  return `${formattedPrefix}${sep}${trimmedSuffix}`;
+}
+
+/**
  * Parsea un orgánico de vientos tipo `2.2.3.2 - 4.3.1.2` (o `22324312`) en definiciones de particella.
  * @returns {{ ok: true, definitions: Array<{ id_instrumento: string, nombre_archivo: string, instrumento_base: string }> } | { ok: false, error: string }}
  */

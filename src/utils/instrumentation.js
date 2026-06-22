@@ -1,4 +1,5 @@
 import { formatSecondsToHm } from "./time";
+import { isRepertorioPlaceholder } from "./repertorioRowDisplay";
 
 /** Indica si el string de instrumentación incluye cuerdas. */
 export const hasStrings = (text) => {
@@ -420,6 +421,103 @@ function createEmptyColumnMap() {
     Pno: 0,
     Str: 0,
   };
+}
+
+/** Mapa vacío Fl/Ob/…/Str (misma forma que seating y auditoría). */
+export function createEmptyInstrumentationMap() {
+  return createEmptyColumnMap();
+}
+
+/** Orgánico convocado por roster de gira (confirmados, no ausentes, rol músico). */
+export function computeInstrumentationConvokedFromRoster(roster = []) {
+  const acc = createEmptyInstrumentationMap();
+  roster.forEach((m) => {
+    if (m.estado_gira === "ausente") return;
+    if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
+
+    const idInstr = String(m.id_instr || "");
+    const name = (m.instrumentos?.instrumento || "").toLowerCase();
+    const familia = (m.instrumentos?.familia || "").toLowerCase();
+
+    const add = (key) => {
+      acc[key] += 1;
+    };
+
+    if (["01", "02", "03", "04"].includes(idInstr)) {
+      add("Str");
+      return;
+    }
+
+    if (name.includes("flaut") || name.includes("picc")) {
+      add("Fl");
+      return;
+    }
+    if (name.includes("oboe") || name.includes("corno ing")) {
+      add("Ob");
+      return;
+    }
+    if (
+      name.includes("clarin") ||
+      name.includes("requinto") ||
+      name.includes("basset")
+    ) {
+      add("Cl");
+      return;
+    }
+    if (name.includes("fagot") || name.includes("contraf")) {
+      add("Fg");
+      return;
+    }
+    if (name.includes("corno") || name.includes("trompa")) {
+      add("Cr");
+      return;
+    }
+    if (name.includes("trompet") || name.includes("fliscorno")) {
+      add("Tp");
+      return;
+    }
+    if (name.includes("trombon") || name.includes("trombón")) {
+      add("Tb");
+      return;
+    }
+    if (name.includes("tuba") || name.includes("bombard")) {
+      add("Tba");
+      return;
+    }
+    if (name.includes("timbal")) {
+      add("Tim");
+      return;
+    }
+    if (
+      name.includes("perc") ||
+      name.includes("bombo") ||
+      name.includes("platillo") ||
+      name.includes("caja")
+    ) {
+      add("Perc");
+      return;
+    }
+    if (name.includes("arpa")) {
+      add("Har");
+      return;
+    }
+    if (
+      name.includes("piano") ||
+      name.includes("teclado") ||
+      name.includes("celesta") ||
+      name.includes("órgano") ||
+      name.includes("organo")
+    ) {
+      add("Pno");
+      return;
+    }
+
+    if (familia.includes("cuerd")) {
+      add("Str");
+    }
+  });
+
+  return acc;
 }
 
 function getPercComparableTotal(columnMap) {
@@ -886,6 +984,33 @@ export function buildProgramInstrumentationAudit(blocks = [], seatingContext = {
   (blocks || []).forEach((block) => {
     (block.repertorio_obras || []).forEach((ro) => {
       if (!ro || ro.excluir) return;
+
+      if (isRepertorioPlaceholder(ro)) {
+        const audit = buildWorkInstrumentationAuditRow({
+          obraId: `placeholder-${ro.id}`,
+          manualInstrumentacion: ro.instrumentacion_placeholder || "",
+          parts: [],
+          particellaCounts,
+          containers,
+          assignments,
+          musicianAssignments,
+          particellas,
+        });
+
+        workRows.push({
+          id: ro.id,
+          obra_id: null,
+          is_placeholder: true,
+          title: ro.titulo_placeholder || "Reserva",
+          composerLabel: null,
+          estado: null,
+          instrumentacion: ro.instrumentacion_placeholder || "",
+          link_drive: null,
+          ...audit,
+        });
+        return;
+      }
+
       const obra = ro.obras;
       if (!obra) return;
 

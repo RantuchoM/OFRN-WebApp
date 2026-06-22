@@ -367,13 +367,19 @@ async function duplicateGira(
           if (obras?.length) {
             const newObras = obras.map((o: any) => ({
               id_repertorio: newRep.id,
-              id_obra: o.id_obra,
+              id_obra: o.id_obra ?? null,
+              titulo_placeholder: o.titulo_placeholder ?? null,
+              instrumentacion_placeholder: o.instrumentacion_placeholder ?? null,
               orden: o.orden,
               notas_especificas: o.notas_especificas,
               id_solista: o.id_solista,
               usar_seating_provisorio: o.usar_seating_provisorio,
               seating_provisorio: o.seating_provisorio,
               excluir: o.excluir,
+              duracion_segundos_concierto: o.duracion_segundos_concierto,
+              en_definicion: o.en_definicion,
+              estado_curaduria: o.estado_curaduria,
+              observacion_curaduria: o.observacion_curaduria,
               google_drive_shortcut_id: null,
             }));
             await supabase.from("repertorio_obras").insert(newObras);
