@@ -2,7 +2,7 @@ import React, { useEffect, useImperativeHandle, useMemo, useRef, useState, forwa
 import { 
     IconBus, IconClock, IconAlertTriangle, IconChevronDown, IconChevronUp, 
     IconUsers, IconCheck, IconSettings, 
-    IconX, IconCalculator, IconCar, IconMap
+    IconX, IconCalculator, IconCar, IconMap, IconRefresh
 } from "../../../components/ui/Icons";
 import LocationBulkPanel from "./LocationBulkPanel";
 import DestaquesRecorridosModal from "./DestaquesRecorridosModal";
@@ -106,6 +106,67 @@ const MASSIVE_COLS = [
     { label: "Otros", exp: "gasto_otros", ren: "rendicion_gasto_otros" },
 ];
 
+const INHERITED_DESTAQUE_COLOR = "#0e7490"; // cyan-700 — tipografía heredada del general
+
+const currencyCellTintClass = (variant, inherited) => {
+    const bg = variant === "exp" ? "bg-orange-50" : "bg-emerald-50";
+    if (inherited) return bg;
+    return variant === "exp"
+        ? "bg-orange-50 text-orange-900"
+        : "bg-emerald-50 text-emerald-900";
+};
+
+const InheritFromGeneralButton = ({
+    visible,
+    onClick,
+    title = "Volver al valor general",
+    className = "",
+}) => {
+    if (!visible) return null;
+    return (
+        <button
+            type="button"
+            title={title}
+            aria-label={title}
+            className={`inline-flex items-center justify-center rounded-full border border-slate-200/90 bg-white p-0.5 text-slate-400 shadow-sm hover:border-cyan-300 hover:text-cyan-700 hover:shadow ${className}`}
+            onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onClick();
+            }}
+        >
+            <IconRefresh size={8} />
+        </button>
+    );
+};
+
+const CurrencyFieldWithInherit = ({
+    readOnly = false,
+    value,
+    onCommit,
+    inheritOnClear,
+    isFallback,
+    inputClassName,
+    hasOverride,
+    onReset,
+}) => (
+    <div className="relative w-full min-w-0">
+        <CurrencyInput
+            value={value}
+            readOnly={readOnly}
+            inheritOnClear={inheritOnClear}
+            isFallback={isFallback}
+            onCommit={onCommit}
+            className={`w-full min-w-0 text-right text-xs font-bold outline-none border-b rounded-sm py-0.5 transition-colors ${hasOverride ? "pl-1 pr-4" : "px-1"} ${inputClassName}`}
+        />
+        <InheritFromGeneralButton
+            visible={!readOnly && hasOverride}
+            onClick={onReset}
+            className="absolute right-0 top-1/2 z-10 -translate-y-1/2"
+        />
+    </div>
+);
+
 // --- COMPONENTE: INPUT MONEDA ---
 const CurrencyInput = ({
     value,
@@ -153,14 +214,15 @@ const CurrencyInput = ({
         if (e.key === 'Enter') e.target.blur();
     };
 
-    const fallbackClass = isFallback
-        ? "bg-cyan-50 text-cyan-900 border-cyan-300 ring-1 ring-cyan-100"
-        : "";
+    const inheritedTypography = isFallback
+        ? { color: INHERITED_DESTAQUE_COLOR }
+        : undefined;
 
     if (readOnly) {
         return (
             <div
-                className={`${className} ${fallbackClass} cursor-default truncate flex items-center justify-end`}
+                style={inheritedTypography}
+                className={`${className} cursor-default truncate flex items-center justify-end`}
             >
                 {formatCurrency(value)}
             </div>
@@ -170,7 +232,8 @@ const CurrencyInput = ({
     return (
         <input
             type={isEditing ? "number" : "text"}
-            className={`${fallbackClass} ${className}`}
+            style={inheritedTypography}
+            className={className}
             value={isEditing ? localValue : formatCurrency(value)}
             onChange={(e) => setLocalValue(e.target.value)}
             onFocus={handleFocus}
@@ -250,10 +313,21 @@ const LiveMassiveValuesForm = ({
         handleCommit(field, null);
     };
 
-    const logisticsFallbackClass = (field) =>
+    const resetFieldToGeneral = (field) => {
+        if (isGeneral) return;
+        handleCommit(field, null);
+    };
+
+    const hasLocalOverride = (field) =>
+        !isGeneral && hasOwnDestaqueValue(localConfig, field);
+
+    const logisticsFallbackStyle = (field) =>
         isLogisticsFallback(field)
-            ? "ring-1 ring-cyan-200 bg-cyan-50/80"
-            : "";
+            ? { color: INHERITED_DESTAQUE_COLOR }
+            : undefined;
+
+    const logisticsFallbackClass = (field) =>
+        isLogisticsFallback(field) ? "text-cyan-700" : "";
 
     // --- CÁLCULOS DETALLADOS DE VIÁTICO ---
     const dias = isGeneral ? 0 : (logisticsInfo?.dias || localConfig.backup_dias_computables || 0);
@@ -288,21 +362,35 @@ const LiveMassiveValuesForm = ({
         const diff = (parseFloat(estVal || 0) - parseFloat(renVal || 0));
 
         return (
-            <div className="flex flex-col gap-1 justify-center h-full py-1 min-w-[90px]">
-                <CurrencyInput 
-                    value={estVal}
+            <div className="flex flex-col gap-1 justify-center h-full py-1 min-w-0 w-full">
+                <CurrencyFieldWithInherit
                     readOnly={isReadOnlyExp}
+                    value={estVal}
                     inheritOnClear={!isGeneral && !isReadOnlyExp}
                     isFallback={estFallback}
+                    hasOverride={!isReadOnlyExp && hasLocalOverride(expKey)}
+                    onReset={() => resetFieldToGeneral(expKey)}
                     onCommit={(val) => !isReadOnlyExp && handleCommit(expKey, val)}
-                    className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 transition-colors ${getInputClass(locationId, expKey, feedback, "bg-orange-50 text-orange-900")}`}
+                    inputClassName={getInputClass(
+                        locationId,
+                        expKey,
+                        feedback,
+                        currencyCellTintClass("exp", estFallback),
+                    )}
                 />
-                <CurrencyInput 
+                <CurrencyFieldWithInherit
                     value={renVal}
                     inheritOnClear={!isGeneral}
                     isFallback={renFallback}
+                    hasOverride={hasLocalOverride(renKey)}
+                    onReset={() => resetFieldToGeneral(renKey)}
                     onCommit={(val) => handleCommit(renKey, val)}
-                    className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 transition-colors ${getInputClass(locationId, renKey, feedback, "bg-emerald-50 text-emerald-900")}`}
+                    inputClassName={getInputClass(
+                        locationId,
+                        renKey,
+                        feedback,
+                        currencyCellTintClass("rend", renFallback),
+                    )}
                 />
                 <div className={`text-right text-[10px] border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${diff < 0 ? 'text-red-600 font-black' : 'text-slate-500 font-bold'}`}>
                     {diff !== 0 ? formatCurrency(diff) : "-"}
@@ -329,8 +417,8 @@ const LiveMassiveValuesForm = ({
                 </div>
                 {!isGeneral && (
                     <p className="text-[10px] text-cyan-800 bg-cyan-50 border border-cyan-200 rounded px-2 py-1 max-w-lg">
-                        Celeste = heredado del general. Editá para valor propio; borrá para dejar vacío;
-                        doble clic para volver al general.
+                        Celeste = heredado del general. Editá para valor propio; el botón
+                        <IconRefresh size={9} className="inline mx-0.5 -mt-px" /> restaura la herencia.
                     </p>
                 )}
                 {isGeneral && (
@@ -423,6 +511,10 @@ const LiveMassiveValuesForm = ({
                         />
                         Aéreo
                     </label>
+                    <InheritFromGeneralButton
+                        visible={hasLocalOverride("check_aereo")}
+                        onClick={() => resetFieldToGeneral("check_aereo")}
+                    />
                     <label
                         className={`flex items-center gap-1 cursor-pointer rounded px-1 ${logisticsFallbackClass("check_terrestre")}`}
                         title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
@@ -440,11 +532,16 @@ const LiveMassiveValuesForm = ({
                         />
                         Terr.
                     </label>
+                    <InheritFromGeneralButton
+                        visible={hasLocalOverride("check_terrestre")}
+                        onClick={() => resetFieldToGeneral("check_terrestre")}
+                    />
                 </div>
 
                 <div className="flex items-center gap-2 border-r border-slate-100 pr-3">
                     <label
-                        className={`flex items-center gap-1 cursor-pointer font-bold text-slate-600 rounded px-1 ${logisticsFallbackClass("check_patente_oficial")}`}
+                        className={`flex items-center gap-1 cursor-pointer font-bold rounded px-1 ${logisticsFallbackClass("check_patente_oficial")} ${isLogisticsFallback("check_patente_oficial") ? "" : "text-slate-600"}`}
+                        style={logisticsFallbackStyle("check_patente_oficial")}
                         title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
                     >
                         <input
@@ -463,6 +560,10 @@ const LiveMassiveValuesForm = ({
                         />
                         OFICIAL
                     </label>
+                    <InheritFromGeneralButton
+                        visible={hasLocalOverride("check_patente_oficial")}
+                        onClick={() => resetFieldToGeneral("check_patente_oficial")}
+                    />
                     <input
                         key={`${locationId}-patente_oficial-${String(resolveLogistics("patente_oficial") || "")}-${hasOwnDestaqueValue(localConfig, "patente_oficial")}`}
                         type="text"
@@ -477,13 +578,19 @@ const LiveMassiveValuesForm = ({
                             handleCommit("patente_oficial", null);
                         }}
                         title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
+                        style={logisticsFallbackStyle("patente_oficial")}
                         className={`border border-slate-200 rounded px-1.5 py-0.5 w-20 outline-none uppercase text-xs focus:ring-1 focus:ring-indigo-500 ${logisticsFallbackClass("patente_oficial")} ${getInputClass(locationId, "patente_oficial", feedback, "bg-slate-50")}`}
+                    />
+                    <InheritFromGeneralButton
+                        visible={hasLocalOverride("patente_oficial")}
+                        onClick={() => resetFieldToGeneral("patente_oficial")}
                     />
                 </div>
 
                 <div className="flex items-center gap-2 border-r border-slate-100 pr-3">
                     <label
-                        className={`flex items-center gap-1 cursor-pointer text-slate-600 rounded px-1 ${logisticsFallbackClass("check_patente_particular")}`}
+                        className={`flex items-center gap-1 cursor-pointer rounded px-1 ${logisticsFallbackClass("check_patente_particular")} ${isLogisticsFallback("check_patente_particular") ? "" : "text-slate-600"}`}
+                        style={logisticsFallbackStyle("check_patente_particular")}
                         title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
                     >
                         <input
@@ -502,6 +609,10 @@ const LiveMassiveValuesForm = ({
                         />
                         Particular
                     </label>
+                    <InheritFromGeneralButton
+                        visible={hasLocalOverride("check_patente_particular")}
+                        onClick={() => resetFieldToGeneral("check_patente_particular")}
+                    />
                     <input
                         key={`${locationId}-patente_particular-${String(resolveLogistics("patente_particular") || "")}-${hasOwnDestaqueValue(localConfig, "patente_particular")}`}
                         type="text"
@@ -516,13 +627,19 @@ const LiveMassiveValuesForm = ({
                             handleCommit("patente_particular", null);
                         }}
                         title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
+                        style={logisticsFallbackStyle("patente_particular")}
                         className={`border border-slate-200 rounded px-1.5 py-0.5 w-20 outline-none uppercase text-xs focus:ring-1 focus:ring-indigo-500 ${logisticsFallbackClass("patente_particular")} ${getInputClass(locationId, "patente_particular", feedback, "bg-slate-50")}`}
+                    />
+                    <InheritFromGeneralButton
+                        visible={hasLocalOverride("patente_particular")}
+                        onClick={() => resetFieldToGeneral("patente_particular")}
                     />
                 </div>
 
                 <div className="flex items-center gap-2 flex-1 min-w-[200px]">
                     <label
-                        className={`flex items-center gap-1 cursor-pointer text-slate-600 rounded px-1 shrink-0 ${logisticsFallbackClass("check_otros")}`}
+                        className={`flex items-center gap-1 cursor-pointer rounded px-1 shrink-0 ${logisticsFallbackClass("check_otros")} ${isLogisticsFallback("check_otros") ? "" : "text-slate-600"}`}
+                        style={logisticsFallbackStyle("check_otros")}
                         title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
                     >
                         <input
@@ -538,6 +655,10 @@ const LiveMassiveValuesForm = ({
                         />
                         Otros
                     </label>
+                    <InheritFromGeneralButton
+                        visible={hasLocalOverride("check_otros")}
+                        onClick={() => resetFieldToGeneral("check_otros")}
+                    />
                     <input
                         key={`${locationId}-transporte_otros-${String(resolveLogistics("transporte_otros") || "")}-${hasOwnDestaqueValue(localConfig, "transporte_otros")}`}
                         type="text"
@@ -552,14 +673,19 @@ const LiveMassiveValuesForm = ({
                         }}
                         placeholder="Detalle (Combi, etc)"
                         title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
-                        className={`border border-slate-200 rounded px-2 py-0.5 text-xs w-full outline-none focus:ring-1 focus:ring-indigo-500 ${logisticsFallbackClass("transporte_otros")} ${getInputClass(locationId, "transporte_otros", feedback, "bg-white")}`}
+                        style={logisticsFallbackStyle("transporte_otros")}
+                        className={`border border-slate-200 rounded px-2 py-0.5 text-xs flex-1 min-w-0 outline-none focus:ring-1 focus:ring-indigo-500 ${logisticsFallbackClass("transporte_otros")} ${getInputClass(locationId, "transporte_otros", feedback, "bg-white")}`}
+                    />
+                    <InheritFromGeneralButton
+                        visible={hasLocalOverride("transporte_otros")}
+                        onClick={() => resetFieldToGeneral("transporte_otros")}
                     />
                 </div>
             </div>
 
             {/* TABLA HORIZONTAL */}
             <div className="overflow-x-auto border border-slate-200 rounded-lg bg-white">
-                <table className="w-full text-xs border-separate border-spacing-0">
+                <table className="w-full table-fixed text-xs border-separate border-spacing-0">
                     <thead>
                         <tr className="bg-slate-100 text-[10px] uppercase text-slate-500">
                             {!isGeneral ? (
@@ -572,7 +698,7 @@ const LiveMassiveValuesForm = ({
                             </th>
                             )}
                             {MASSIVE_COLS.map((col, i) => (
-                                <th key={i} className="px-2 py-2 text-right font-medium min-w-[100px] border-b border-slate-200">
+                                <th key={i} className="px-2 py-2 text-right font-medium w-[5.5rem] border-b border-slate-200">
                                     {col.label}
                                 </th>
                             ))}
@@ -600,7 +726,7 @@ const LiveMassiveValuesForm = ({
                                 )}
                             </td>
                             {MASSIVE_COLS.map((col, i) => (
-                                <td key={i} className="px-2 py-1 border-r border-slate-100 last:border-r-0">
+                                <td key={i} className="px-2 py-1 border-r border-slate-100 last:border-r-0 w-[5.5rem] max-w-[5.5rem] overflow-hidden">
                                     <StackedCell expKey={col.exp} renKey={col.ren} />
                                 </td>
                             ))}
