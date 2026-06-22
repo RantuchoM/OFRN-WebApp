@@ -27,6 +27,15 @@ Permitir que los coordinadores de ensamble editen la configuración de sus progr
 ### 5. Seguridad
 - El coordinador solo puede editar programas donde uno de sus ensambles coordinados sea fuente (`giras_fuentes`). La lista de programas ya está filtrada por la query que usa `activeEnsembles`, por lo que solo se muestran programas en los que el usuario tiene participación.
 
+### 6. Filtro de fechas (pestaña Programas)
+- **Desde / Hasta** del filtro definen un rango inclusivo.
+- Un programa aparece si su intervalo **`fecha_desde`–`fecha_hasta`** se solapa con ese rango (no basta con que el inicio caiga dentro).
+- Ejemplo: programa ayer → domingo con filtro **Desde = hoy** sigue visible porque `fecha_hasta` ≥ hoy.
+- Implementación: `programOverlapsDateRange(..., { calendarOnly: true })` en `EnsembleCoordinatorView.jsx` (ignora anclaje por conciertos usado en listados de Giras).
+
+### 7. Menú de acciones (GiraCard)
+- `CoordinatorProgramGiraCard` mantiene estado local `activeMenuId` / `setActiveMenuId` para que el menú de tres puntos de `GiraActionMenu` abra y cierre correctamente (antes eran no-ops y el menú no respondía).
+
 ## Flujo de Datos
 - `ProgramCardItem` recibe la función `onEdit`.
 - Al hacer clic en editar se ejecuta `handleEditProgram(program)`:

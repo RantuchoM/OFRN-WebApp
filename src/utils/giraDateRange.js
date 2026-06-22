@@ -17,6 +17,13 @@ function maxDateString(a, b) {
   return a > b ? a : b;
 }
 
+/** Normaliza a YYYY-MM-DD para comparación lexicográfica segura. */
+export function normalizeIsoDate(value) {
+  if (value == null || value === "") return null;
+  const s = String(value);
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
 /** id en BD para tipo "Concierto" (GiraForm). */
 export const CONCERT_EVENT_TYPE_ID = 1;
 
@@ -150,23 +157,37 @@ export function mergeProgramsById(programLists) {
 }
 
 /**
- * Solapamiento con rango de filtro, usando fechas efectivas (conciertos si existen).
+ * Solapamiento inclusivo entre el rango del programa y [rangeStart, rangeEnd].
+ * Por defecto usa fechas efectivas (conciertos si existen). Con `calendarOnly: true`
+ * usa solo fecha_desde / fecha_hasta (p. ej. filtro de Programas en Coordinación).
  */
 export function programOverlapsDateRange(
   program,
   rangeStart,
   rangeEnd,
   referenceDate = toLocalDateString(),
+  { calendarOnly = false } = {},
 ) {
   if (!program) return false;
-  const { rangeStart: effDesde, rangeEnd: effHasta } = getProgramListDates(
-    program,
-    referenceDate,
-  );
-  const desde = effDesde || program.fecha_desde;
-  const hasta = effHasta || program.fecha_hasta;
 
-  if (rangeEnd && desde && desde > rangeEnd) return false;
-  if (rangeStart && hasta && hasta < rangeStart) return false;
+  let desde;
+  let hasta;
+  if (calendarOnly) {
+    desde = normalizeIsoDate(program.fecha_desde);
+    hasta = normalizeIsoDate(program.fecha_hasta);
+  } else {
+    const { rangeStart: effDesde, rangeEnd: effHasta } = getProgramListDates(
+      program,
+      referenceDate,
+    );
+    desde = normalizeIsoDate(effDesde || program.fecha_desde);
+    hasta = normalizeIsoDate(effHasta || program.fecha_hasta);
+  }
+
+  const filterStart = normalizeIsoDate(rangeStart);
+  const filterEnd = normalizeIsoDate(rangeEnd);
+
+  if (filterEnd && desde && desde > filterEnd) return false;
+  if (filterStart && hasta && hasta < filterStart) return false;
   return true;
 }

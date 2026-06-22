@@ -503,6 +503,7 @@ const CoordinatorProgramGiraCard = ({
   updateView,
   showRepertoireInCards,
 }) => {
+  const [activeMenuId, setActiveMenuId] = useState(null);
   const { roster, loading } = useGiraRosterQuery(supabase, gira);
   const canEdit = gira.tipo === "Ensamble" && Boolean(onEdit);
 
@@ -523,8 +524,8 @@ const CoordinatorProgramGiraCard = ({
         startEdit={canEdit ? () => onEdit(gira) : () => {}}
         setGlobalCommentsGiraId={() => {}}
         setCommentsState={() => {}}
-        activeMenuId={null}
-        setActiveMenuId={() => {}}
+        activeMenuId={activeMenuId}
+        setActiveMenuId={setActiveMenuId}
         showRepertoireInCards={showRepertoireInCards}
         ensemblesList={ensemblesList}
         supabase={supabase}
@@ -2812,6 +2813,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
           p,
           programDateFilter.start || null,
           programDateFilter.end || null,
+          undefined,
+          { calendarOnly: true },
         ),
       );
     }
