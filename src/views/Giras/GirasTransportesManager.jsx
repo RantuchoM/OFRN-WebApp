@@ -69,6 +69,7 @@ import {
 import { toast } from "sonner";
 import {
   CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
+  exportDestaquesCuadroFirmasDocx,
   exportDestaquesCuadroFirmasPdf,
   fetchEncargadoCuadroFirmas,
   toCuadroFirmasPerson,
@@ -2489,7 +2490,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     return fetchEncargadoCuadroFirmas(supabase);
   }, [roster, supabase]);
 
-  const handleExportCuadroFirmasTransport = async (e, transport) => {
+  const handleExportCuadroFirmasTransport = async (e, transport, format = "pdf") => {
     e?.stopPropagation();
     if (!transport?.id || exportingFirmasTransportId) return;
 
@@ -2511,7 +2512,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
       ]
         .filter(Boolean)
         .join("_");
-      await exportDestaquesCuadroFirmasPdf({
+      const exporter =
+        format === "docx"
+          ? exportDestaquesCuadroFirmasDocx
+          : exportDestaquesCuadroFirmasPdf;
+      await exporter({
         people,
         encargado,
         giraLabel,
@@ -3637,16 +3642,25 @@ export default function GirasTransportesManager({ supabase, gira }) {
                       </button>
                       <button
                         type="button"
-                        onClick={(e) => handleExportCuadroFirmasTransport(e, t)}
+                        onClick={(e) => handleExportCuadroFirmasTransport(e, t, "pdf")}
                         disabled={exportingFirmasTransportId === t.id}
                         className="p-1.5 bg-white text-violet-600 rounded-lg hover:bg-violet-600 hover:text-white transition-all border border-violet-100 shadow-sm disabled:opacity-60"
-                        title="Cuadro de firmas (pasajeros del recorrido)"
+                        title="Cuadro de firmas PDF (pasajeros del recorrido)"
                       >
                         {exportingFirmasTransportId === t.id ? (
                           <IconLoader size={16} className="animate-spin" />
                         ) : (
                           <IconFirma size={16} />
                         )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleExportCuadroFirmasTransport(e, t, "docx")}
+                        disabled={exportingFirmasTransportId === t.id}
+                        className="px-2 py-1.5 bg-white text-violet-700 text-[9px] font-black rounded-lg hover:bg-violet-700 hover:text-white transition-all border border-violet-100 shadow-sm disabled:opacity-60"
+                        title="Cuadro de firmas Word (pasajeros del recorrido)"
+                      >
+                        WORD
                       </button>
                     </div>
 

@@ -25,6 +25,7 @@ import { calculateDaysDiff } from "../../../utils/viaticosDiasComputables";
 import DiasComputablesHelp from "./DiasComputablesHelp";
 import {
     CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
+    exportDestaquesCuadroFirmasDocx,
     exportDestaquesCuadroFirmasPdf,
     fetchEncargadoCuadroFirmas,
     toCuadroFirmasPerson,
@@ -1157,7 +1158,7 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
         return fetchEncargadoCuadroFirmas(supabase);
     };
 
-    const handleExportCuadroFirmas = async (exportScope) => {
+    const handleExportCuadroFirmas = async (exportScope, format = "pdf") => {
         const { peopleToExport } = collectPeopleForExport(exportScope);
         const encargado = await resolveEncargadoCuadroFirmas();
 
@@ -1168,7 +1169,11 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
 
         setIsExportingFirmas(true);
         try {
-            await exportDestaquesCuadroFirmasPdf({
+            const exporter =
+                format === "docx"
+                    ? exportDestaquesCuadroFirmasDocx
+                    : exportDestaquesCuadroFirmasPdf;
+            await exporter({
                 people: peopleToExport,
                 encargado,
                 giraLabel,

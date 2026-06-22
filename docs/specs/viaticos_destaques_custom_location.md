@@ -35,6 +35,7 @@ Permitir que el usuario defina un "Lugar de Comisión" específico para el proce
 ### Cuadro de Firmas
 
 - [x] La grilla PDF limita la altura vertical de cada celda/firma a un máximo de **1/6 de hoja A4** cuando hay pocas firmas, evitando que una fila única ocupe toda la página.
+- [x] El cuadro puede descargarse también como **Word (.docx)** en una hoja A4 editable, reutilizando el mismo cálculo de columnas/filas, proporciones y orden de personas del PDF.
 
 ## SQL
 

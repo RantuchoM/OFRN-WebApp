@@ -23,6 +23,7 @@
     "@tanstack/react-virtual": "^3.13.24",
     "browser-image-compression": "^2.0.2",
     "date-fns": "^4.1.0",
+    "docx": "^9.7.1",
     "docxtemplater": "^3.68.3",
     "dotenv": "^17.2.3",
     "downloadjs": "^1.4.7",

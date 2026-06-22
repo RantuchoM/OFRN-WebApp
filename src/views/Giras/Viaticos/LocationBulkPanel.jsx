@@ -59,9 +59,9 @@ export default function LocationBulkPanel({
         });
     };
 
-    const handleCuadroFirmasClick = () => {
+    const handleCuadroFirmasClick = (format = "pdf") => {
         if (typeof onExportCuadroFirmas === "function") {
-            onExportCuadroFirmas(scope);
+            onExportCuadroFirmas(scope, format);
         }
     };
 
@@ -204,21 +204,38 @@ export default function LocationBulkPanel({
                     </div>
                 )}
 
-                <button
-                    type="button"
-                    onClick={handleCuadroFirmasClick}
-                    disabled={busy || !onExportCuadroFirmas}
-                    className="w-full mb-2 py-2.5 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg hover:bg-slate-50 hover:border-indigo-300 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
-                    title="PDF A4: encargado (id 1458710) primero, luego firmas del lote según alcance"
-                >
-                    {isExportingFirmas ? (
-                        <>Generando...</>
-                    ) : (
-                        <>
-                            Cuadro de firmas <IconFirma size={16} />
-                        </>
-                    )}
-                </button>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                    <button
+                        type="button"
+                        onClick={() => handleCuadroFirmasClick("pdf")}
+                        disabled={busy || !onExportCuadroFirmas}
+                        className="py-2.5 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg hover:bg-slate-50 hover:border-indigo-300 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                        title="PDF A4: encargado (id 1458710) primero, luego firmas del lote según alcance"
+                    >
+                        {isExportingFirmas ? (
+                            <>Generando...</>
+                        ) : (
+                            <>
+                                Firmas PDF <IconFirma size={16} />
+                            </>
+                        )}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleCuadroFirmasClick("docx")}
+                        disabled={busy || !onExportCuadroFirmas}
+                        className="py-2.5 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg hover:bg-slate-50 hover:border-indigo-300 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                        title="Word A4: mismo cuadro de firmas en una hoja editable"
+                    >
+                        {isExportingFirmas ? (
+                            <>Generando...</>
+                        ) : (
+                            <>
+                                Firmas Word <IconFileText size={16} />
+                            </>
+                        )}
+                    </button>
+                </div>
 
                 <div className="flex gap-2">
                     <button 
