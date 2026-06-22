@@ -120,6 +120,35 @@ function secondsToMmSsDurationInput(totalSeconds) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+const stripHtmlText = (value) =>
+  String(value || "")
+    .replace(/<[^>]*>?/gm, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const composerDisplayName = (composer) => {
+  if (!composer) return "";
+  return `${composer.apellido || ""}${composer.nombre ? `, ${composer.nombre}` : ""}`.trim();
+};
+
+const sendNuevaObraArchivistaMail = ({ supabase, user, detalle }) => {
+  if (!user?.id) return;
+  supabase.functions
+    .invoke("mails_produccion", {
+      body: {
+        action: "enviar_mail",
+        templateId: "nueva_obra",
+        email: "ofrn.archivo@gmail.com",
+        nombre: `${user.nombre} ${user.apellido}`,
+        gira: null,
+        detalle,
+      },
+    })
+    .then(({ error }) => {
+      if (error) console.error("Error enviando alerta de obra:", error);
+    });
+};
+
 /** Celda Dur.repertorio: sin "0:00" si no hay duración (catálogo ni override > 0). */
 function formatRepertorioDuracionVisible(seconds) {
   const n = Number(seconds);
@@ -1108,6 +1137,24 @@ function QuickWorkRow({
         });
       }
       await supabase.from("obras_compositores").insert(relaciones);
+
+      sendNuevaObraArchivistaMail({
+        supabase,
+        user,
+        detalle: {
+          titulo: stripHtmlText(tituloHtml),
+          compositores:
+            composerDisplayName({ apellido: composerApellido, nombre: composerNombre }) || null,
+          arregladores: selectedArranger ? composerDisplayName(selectedArranger) : null,
+          duracion: duracion.trim() || null,
+          estado: newWork.estado || payload.estado,
+          instrumentacion: payload.instrumentacion,
+          link_drive: null,
+          link_youtube: null,
+          observaciones: null,
+          comentarios: null,
+        },
+      });
 
       const insertedRepObra = await addWorkToBlock(newWorkId, rep.id);
 
