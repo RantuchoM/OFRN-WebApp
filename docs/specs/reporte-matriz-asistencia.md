@@ -24,13 +24,14 @@ Visualizar en un cuadro de doble entrada la participación de integrantes en los
      - Link: Acceso directo a la sección de repertorio del programa.
      - Orden: Cronológico ascendente.
 5. **Intersección:**
-   - Mostrar una cruz (X) si el integrante pertenece a la gira (resolviendo `giras_fuentes` y validando que no esté en `giras_integrantes` como 'ausente').
+   - Mostrar **X** si el integrante está convocado con vigencia de legajo en el programa.
+   - Mostrar **\*** (gris) si figura en nómina pero su `fecha_alta` es posterior al programa (convocado manual antes del alta); **no suma** en columnas de totales.
 
 ## Lógica de Negocio (Reglas de Oro)
 
 - El ID del integrante es numérico (PK Integer).
 - La resolución de integrantes por gira debe usar la lógica de `resolveGiraRosterIds` definida en `src/services/giraService.js` (reexportada desde `src/services/supabase.js` para consumo unificado). Incluye fuentes `ENSAMBLE`, `FAMILIA`, `EXCL_ENSAMBLE` y overrides en `giras_integrantes` (excluyendo `estado === 'ausente'`).
-- **Vigencias:** convocatoria base exige tramo activo en `integrantes_ensambles` (fecha del programa) y alta/baja del integrante en la orquesta (`integranteActiveOnProgramRange` en `ensembleMembership.js`). Sin `fecha_hasta` en el programa, el rango termina en `fecha_desde`. Los overrides manuales (`giras_integrantes` confirmado) ignoran esas vigencias.
+- **Vigencias:** convocatoria base exige tramo activo en `integrantes_ensambles` (fecha del programa) y alta/baja del integrante en la orquesta (`integranteActiveOnProgramRange` en `ensembleMembership.js`). Sin `fecha_hasta` en el programa, el rango termina en `fecha_desde`. Los overrides manuales (`giras_integrantes` confirmado) aparecen en nómina; si el alta es posterior al programa se marcan con `*` (pre-alta) y no cuentan en totales (`resolveGiraRosterForMatrix`).
 - En base de datos, el vínculo del integrante al instrumento es `integrantes.id_instr` → `instrumentos.id` (orden de filas alineado a la tabla maestra de instrumentos).
 - **Override por gira:** si `giras_integrantes.id_instr` está definido para un programa, la matriz muestra el instrumento efectivo en los programas visibles donde el integrante está en roster (`buildMatrixIntegranteInstrumentDisplay` en `giraUtils.js`). Si toca distintos instrumentos en varias giras, el subtexto une los nombres (`Clarinete / Violín`).
 
@@ -49,7 +50,7 @@ No se requieren tablas nuevas; se sugiere una vista para optimizar la carga de l
 | Matriz: filas con nombre, subtexto instrumento + ensambles, orden por `id_instr` | Completado |
 | Matriz: columnas por programa, orden `fecha_desde` ascendente, cabecera `nomenclador` + `mes_letra` | Completado |
 | Tooltip en cabecera con título/subtítulo y enlace a repertorio (`?tab=giras&view=REPERTOIRE&giraId=`) | Completado |
-| Cruce con `resolveGiraRosterIds` (misma lógica que nómina, incl. alta/baja orquesta y tramos de ensamble) | Completado |
+| Cruce con `resolveGiraRosterForMatrix` (X contabilizado, `*` pre-alta sin totales) | Completado |
 | Tabla con primera columna y primera fila sticky (Tailwind) | Completado |
 | Ubicación: **Gestión** (`?tab=management`) → pestaña **Convocatorias** | Completado |
 | Agregación de datos en `fetchAsistenciaMatrixBaseData` (`src/services/giraService.js`) | Completado |

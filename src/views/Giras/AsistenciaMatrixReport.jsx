@@ -12,7 +12,7 @@ import { useNavigate } from "react-router-dom";
 import { parseISO, startOfDay } from "date-fns";
 import {
   fetchAsistenciaMatrixBaseData,
-  resolveGiraRosterIds,
+  resolveGiraRosterForMatrix,
   TIPOS_PROGRAMA_ASISTENCIA_MATRIZ,
 } from "../../services/giraService";
 import {
@@ -22,8 +22,10 @@ import {
   buildAsistenciaMatrixSummaryValues,
   computeAsistenciaMatrixEnsambleTotals,
   computeAsistenciaMatrixRowTotals,
+  countMatrixRosterCounted,
   downloadAsistenciaMatrixExcel,
   downloadAsistenciaMatrixPdf,
+  getAsistenciaMatrixCellMark,
   getAsistenciaMatrixSummaryHeadLabels,
 } from "../../utils/asistenciaMatrixExport";
 import {
@@ -301,8 +303,14 @@ export default function AsistenciaMatrixReport({ supabase }) {
       setRosterLoading(true);
       const entries = await Promise.all(
         giras.map(async (g) => {
-          const ids = await resolveGiraRosterIds(supabase, g.id);
-          return [g.id, new Set(ids.map(integranteKey).filter(Boolean))];
+          const { countedIds, preAltaIds } = await resolveGiraRosterForMatrix(
+            supabase,
+            g.id,
+          );
+          return [
+            g.id,
+            { counted: countedIds, preAlta: preAltaIds },
+          ];
         }),
       );
       if (cancelled) return;
@@ -537,7 +545,11 @@ export default function AsistenciaMatrixReport({ supabase }) {
           Matriz de asistencia (músicos vs. programas)
         </h1>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Participación por programa según nómina resuelta (fuentes, vigencias de alta/baja y ausentes).
+          Participación por programa según nómina resuelta.{" "}
+          <span className="font-semibold text-slate-600 dark:text-slate-300">X</span>{" "}
+          convocado ·{" "}
+          <span className="font-semibold text-slate-400">*</span> participó antes del
+          alta (no suma en totales).
         </p>
       </header>
 
@@ -812,12 +824,11 @@ export default function AsistenciaMatrixReport({ supabase }) {
                             </div>
                           </th>
                           {filteredProgramas.map((g) => {
-                            const set = rosterByGiraId[g.id];
-                            const n = set
-                              ? ar.visibleMemberIds.filter((id) =>
-                                  set.has(integranteKey(id)),
-                                ).length
-                              : 0;
+                            const entry = rosterByGiraId[g.id];
+                            const n = countMatrixRosterCounted(
+                              entry,
+                              ar.visibleMemberIds,
+                            );
                             return (
                               <td
                                 key={`${ar.key}-${g.id}`}
@@ -921,19 +932,28 @@ export default function AsistenciaMatrixReport({ supabase }) {
                             </div>
                           </th>
                           {filteredProgramas.map((g) => {
-                            const set = rosterByGiraId[g.id];
-                            const active = set && set.has(iid);
+                            const mark = getAsistenciaMatrixCellMark(
+                              rosterByGiraId[g.id],
+                              iid,
+                            );
                             return (
                               <td
                                 key={`${iid}-${g.id}`}
                                 className="border-l border-slate-100 px-1 py-1 text-center align-middle dark:border-slate-800"
                               >
-                                {active ? (
+                                {mark === "counted" ? (
                                   <span
                                     className="text-base font-bold text-slate-800 dark:text-slate-200"
-                                    title="Convocado / activo en nómina"
+                                    title="Convocado (cuenta en totales)"
                                   >
                                     X
+                                  </span>
+                                ) : mark === "pre_alta" ? (
+                                  <span
+                                    className="text-xl font-bold leading-none text-slate-400 dark:text-slate-500"
+                                    title="Participó antes del alta en la orquesta (no cuenta en totales)"
+                                  >
+                                    *
                                   </span>
                                 ) : (
                                   <span className="text-slate-300 dark:text-slate-600">

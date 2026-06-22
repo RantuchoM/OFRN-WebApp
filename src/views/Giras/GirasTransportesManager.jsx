@@ -72,6 +72,7 @@ import {
   exportDestaquesCuadroFirmasDocx,
   exportDestaquesCuadroFirmasPdf,
   fetchEncargadoCuadroFirmas,
+  parseCuadroFirmasExportOptions,
   toCuadroFirmasPerson,
 } from "../../utils/destaquesCuadroFirmasPdf";
 
@@ -2490,9 +2491,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
     return fetchEncargadoCuadroFirmas(supabase);
   }, [roster, supabase]);
 
-  const handleExportCuadroFirmasTransport = async (e, transport, format = "pdf") => {
+  const handleExportCuadroFirmasTransport = async (
+    e,
+    transport,
+    formatOrOptions = "pdf",
+  ) => {
     e?.stopPropagation();
     if (!transport?.id || exportingFirmasTransportId) return;
+    const { format, hostDocxFile } =
+      parseCuadroFirmasExportOptions(formatOrOptions);
 
     const people = getTransportPassengers(transport)
       .map(toCuadroFirmasPerson)
@@ -2522,6 +2529,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         giraLabel,
         filePrefix: "Transporte",
         supabase,
+        hostDocxFile,
       });
       toast.success("Cuadro de firmas descargado.");
     } catch (err) {

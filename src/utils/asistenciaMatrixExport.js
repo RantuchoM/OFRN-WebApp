@@ -5,6 +5,34 @@ import { saveAs } from "file-saver";
 import { compareInstrumentIds } from "./giraUtils";
 import { integranteKey } from "./integranteIds";
 
+/** @typedef {{ counted: Set<string>, preAlta: Set<string> }} MatrixRosterEntry */
+
+/**
+ * Marca de celda en la matriz: convocado contabilizado, pre-alta, o sin participación.
+ * @returns {'counted'|'pre_alta'|null}
+ */
+export function getAsistenciaMatrixCellMark(rosterEntry, integranteId) {
+  const iid = integranteKey(integranteId);
+  if (!iid || !rosterEntry) return null;
+  if (rosterEntry.counted?.has(iid)) return "counted";
+  if (rosterEntry.preAlta?.has(iid)) return "pre_alta";
+  return null;
+}
+
+/** Símbolo exportable para Excel/PDF según marca de celda. */
+export function asistenciaMatrixCellSymbol(mark) {
+  if (mark === "counted") return "X";
+  if (mark === "pre_alta") return "*";
+  return "";
+}
+
+export function countMatrixRosterCounted(rosterEntry, memberIds) {
+  if (!rosterEntry?.counted) return 0;
+  return memberIds.filter((id) =>
+    rosterEntry.counted.has(integranteKey(id)),
+  ).length;
+}
+
 /**
  * Agrupa integrantes visibles por ensamble según la selección actual.
  * Solo genera encabezado de sección para ensambles "completamente tildados":
@@ -175,7 +203,7 @@ function integranteDetalle(row, ensambles, membershipsByEnsamble) {
  *
  * @param {number|string} integranteId
  * @param {Array<{ id: string|number, tipo?: string }>} filteredProgramas
- * @param {Record<string, Set<number>>} rosterByGiraId
+ * @param {Record<string, MatrixRosterEntry>} rosterByGiraId
  * @param {Set<string>} selectedTypes
  */
 export function computeAsistenciaMatrixRowTotals(
@@ -186,8 +214,8 @@ export function computeAsistenciaMatrixRowTotals(
 ) {
   const iid = integranteKey(integranteId);
   const active = (gid) => {
-    const set = rosterByGiraId[gid];
-    return Boolean(iid && set && set.has(iid));
+    const entry = rosterByGiraId[gid];
+    return Boolean(iid && entry?.counted?.has(iid));
   };
   const countTipo = (tipo) =>
     filteredProgramas.filter((g) => g.tipo === tipo && active(g.id)).length;
@@ -234,7 +262,7 @@ export function buildAsistenciaMatrixSummaryValues(totals, selectedTypes) {
  * @param {object} params
  * @param {Array} params.visibleRows
  * @param {Array} params.filteredProgramas
- * @param {Record<string, Set<number>>} params.rosterByGiraId
+ * @param {Record<string, MatrixRosterEntry>} params.rosterByGiraId
  * @param {(g: object) => string} params.headerLabel
  * @param {Array} params.ensambles
  * @param {Map<number, number[]>} params.membershipsByEnsamble
@@ -305,9 +333,8 @@ export async function downloadAsistenciaMatrixExcel({
         ar.label,
         String(ar.visibleMemberIds.length),
         ...filteredProgramas.map((p) => {
-          const set = rosterByGiraId[p.id];
-          if (!set) return "";
-          const n = ar.visibleMemberIds.filter((id) => set.has(Number(id))).length;
+          const entry = rosterByGiraId[p.id];
+          const n = countMatrixRosterCounted(entry, ar.visibleMemberIds);
           return n > 0 ? String(n) : "";
         }),
         ...buildAsistenciaMatrixSummaryValues(totals, selectedTypes),
@@ -349,7 +376,7 @@ export async function downloadAsistenciaMatrixExcel({
       sc.alignment = { horizontal: "center", vertical: "middle" };
 
       for (const row of g.rows) {
-        const iid = Number(row.id);
+        const iid = integranteKey(row.id);
         const name = `${row.nombre || ""} ${row.apellido || ""}`.trim();
         const det = integranteDetalle(row, ensambles, membershipsByEnsamble);
         const totals = computeAsistenciaMatrixRowTotals(
@@ -361,10 +388,11 @@ export async function downloadAsistenciaMatrixExcel({
         const cells = [
           name,
           det,
-          ...filteredProgramas.map((p) => {
-            const set = rosterByGiraId[p.id];
-            return set && set.has(iid) ? "X" : "";
-          }),
+          ...filteredProgramas.map((p) =>
+            asistenciaMatrixCellSymbol(
+              getAsistenciaMatrixCellMark(rosterByGiraId[p.id], iid),
+            ),
+          ),
           ...buildAsistenciaMatrixSummaryValues(totals, selectedTypes),
         ];
         const dataRow = sheet.addRow(cells);
@@ -470,9 +498,8 @@ export function downloadAsistenciaMatrixPdf({
         ar.label,
         String(ar.visibleMemberIds.length),
         ...filteredProgramas.map((p) => {
-          const set = rosterByGiraId[p.id];
-          if (!set) return "";
-          const n = ar.visibleMemberIds.filter((id) => set.has(Number(id))).length;
+          const entry = rosterByGiraId[p.id];
+          const n = countMatrixRosterCounted(entry, ar.visibleMemberIds);
           return n > 0 ? String(n) : "";
         }),
         ...buildAsistenciaMatrixSummaryValues(totals, selectedTypes),
@@ -498,7 +525,7 @@ export function downloadAsistenciaMatrixPdf({
         },
       ]);
       for (const row of g.rows) {
-        const iid = Number(row.id);
+        const iid = integranteKey(row.id);
         const name = `${row.nombre || ""} ${row.apellido || ""}`.trim();
         const det = integranteDetalle(row, ensambles, membershipsByEnsamble);
         const totals = computeAsistenciaMatrixRowTotals(
@@ -510,10 +537,11 @@ export function downloadAsistenciaMatrixPdf({
         body.push([
           name,
           det,
-          ...filteredProgramas.map((p) => {
-            const set = rosterByGiraId[p.id];
-            return set && set.has(iid) ? "X" : "";
-          }),
+          ...filteredProgramas.map((p) =>
+            asistenciaMatrixCellSymbol(
+              getAsistenciaMatrixCellMark(rosterByGiraId[p.id], iid),
+            ),
+          ),
           ...buildAsistenciaMatrixSummaryValues(totals, selectedTypes),
         ]);
       }

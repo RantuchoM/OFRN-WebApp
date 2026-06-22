@@ -1,6 +1,7 @@
 // src/utils/giraUtils.js
 
 import { resolveLocalidadResidencia } from "./integranteDomicilioViaticos";
+import { integranteKey } from "./integranteIds";
 import {
   isLocalAt,
   isLocalAtMealSlot,
@@ -231,14 +232,16 @@ export const buildMatrixIntegranteInstrumentDisplay = (
   overrideMap,
   catalog = [],
 ) => {
-  const iid = Number(integrante.id);
+  const iid = integranteKey(integrante.id);
   const profileId =
     integrante.id_instr != null ? String(integrante.id_instr).trim() : null;
   const effectiveIds = [];
 
   for (const programa of filteredProgramas || []) {
     const roster = rosterByGiraId[programa.id];
-    if (!roster?.has(iid)) continue;
+    const inRoster =
+      roster?.counted?.has(iid) || roster?.preAlta?.has(iid);
+    if (!inRoster) continue;
     const eff = getEffectiveInstrumentIdForGiraMember(
       iid,
       programa.id,

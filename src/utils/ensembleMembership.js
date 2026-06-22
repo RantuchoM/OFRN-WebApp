@@ -73,3 +73,11 @@ export function integranteActiveOnProgramRange(person, fechaDesde, fechaHasta) {
   const endsAfterStart = !baja || baja >= progStart;
   return startsBeforeEnd && endsAfterStart;
 }
+
+/**
+ * En nómina pero sin vigencia de legajo en el programa (p. ej. convocado manual
+ * antes de la fecha de alta en la orquesta). No debe contabilizarse en totales.
+ */
+export function integrantePreAltaOnProgram(person, fechaDesde, fechaHasta) {
+  return !integranteActiveOnProgramRange(person, fechaDesde, fechaHasta);
+}

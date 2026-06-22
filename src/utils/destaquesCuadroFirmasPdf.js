@@ -1,6 +1,12 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { saveAs } from "file-saver";
 import {
+  buildMergedCuadroFirmasFilename,
+  mergeDocxAppend,
+  parseCuadroFirmasExportOptions,
+  parseDocxPageMarginsMm,
+} from "./mergeDocxAppend";
+import {
   AlignmentType,
   BorderStyle,
   convertMillimetersToTwip,
@@ -19,6 +25,8 @@ import {
 
 const PAGE_W = 210;
 const PAGE_H = 297;
+const PDF_GRID_MARGIN_MM = 10;
+const DOCX_GRID_MARGIN_MM = 0;
 const MM_TO_PT = 72 / 25.4;
 const MM_TO_PX = 96 / 25.4;
 const mmPt = (v) => v * MM_TO_PT;
@@ -32,12 +40,13 @@ export const CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID = 1458710;
 export function toCuadroFirmasPerson(row) {
   if (!row) return null;
   const dni = row.dni != null ? String(row.dni).trim() : "";
+  const firmaRaw = row.firma != null ? String(row.firma).trim() : "";
   return {
     id: row.id,
     nombre: row.nombre,
     apellido: row.apellido,
     dni: dni || null,
-    firma: row.firma,
+    firma: firmaRaw && firmaRaw !== "NULL" ? firmaRaw : null,
   };
 }
 
@@ -109,15 +118,103 @@ export async function hydrateCuadroFirmasPeopleDni(supabase, people) {
   });
 }
 
+export async function hydrateCuadroFirmasPeopleFirma(supabase, people) {
+  if (!supabase?.from) return people || [];
+  const list = (people || []).map(toCuadroFirmasPerson).filter(Boolean);
+  const ids = [
+    ...new Set(list.map((person) => Number(person.id)).filter(Number.isFinite)),
+  ];
+  if (ids.length === 0) return list;
+
+  const { data, error } = await supabase
+    .from("integrantes")
+    .select("id, firma")
+    .in("id", ids);
+  if (error) {
+    console.warn("Cuadro de firmas: firmas no cargadas", error);
+    return list;
+  }
+
+  const firmaById = new Map(
+    (data || []).map((row) => {
+      const firmaRaw = row.firma != null ? String(row.firma).trim() : "";
+      return [
+        Number(row.id),
+        firmaRaw && firmaRaw !== "NULL" ? firmaRaw : null,
+      ];
+    }),
+  );
+
+  return list.map((person) => ({
+    ...person,
+    firma: firmaById.get(Number(person.id)) ?? person.firma ?? null,
+  }));
+}
+
 async function prepareCuadroFirmasPeople(people, encargado, supabase) {
   const sorted = buildCuadroFirmasPeopleList(people, encargado);
   if (!supabase) return sorted;
-  return hydrateCuadroFirmasPeopleDni(supabase, sorted);
+  const withFirma = await hydrateCuadroFirmasPeopleFirma(supabase, sorted);
+  return hydrateCuadroFirmasPeopleDni(supabase, withFirma);
 }
 
 /** Máximo píxeles al rasterizar cada firma (reduce mucho el peso del PDF). */
 const SIG_MAX_PX = { w: 380, h: 160 };
 const SIG_JPEG_QUALITY = 0.72;
+const SIG_FETCH_TIMEOUT_MS = 25000;
+const SIG_FETCH_MAX_ATTEMPTS = 3;
+const SIG_FETCH_MAX_BYTES = 12 * 1024 * 1024;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isLikelyImageResponse(blob) {
+  if (blob?.type?.startsWith("image/")) return true;
+  // Storage/CDN suele devolver octet-stream aunque el archivo sea imagen.
+  if (!blob?.type || blob.type === "application/octet-stream") return true;
+  return false;
+}
+
+async function fetchSignatureBlob(url, attempt = 0) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SIG_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(String(url).trim(), {
+      method: "GET",
+      mode: "cors",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    if (!blob?.size) {
+      throw new Error("Respuesta vacía");
+    }
+    if (blob.size > SIG_FETCH_MAX_BYTES) {
+      throw new Error(`Archivo demasiado grande (${blob.size} bytes)`);
+    }
+    if (!isLikelyImageResponse(blob)) {
+      throw new Error(`Tipo no soportado: ${blob.type || "desconocido"}`);
+    }
+    return blob;
+  } catch (error) {
+    if (attempt + 1 < SIG_FETCH_MAX_ATTEMPTS) {
+      await sleep(350 * (attempt + 1));
+      return fetchSignatureBlob(url, attempt + 1);
+    }
+    console.warn("Cuadro de firmas: no se pudo descargar firma", {
+      url,
+      attempt: attempt + 1,
+      error,
+    });
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * Calcula columnas y filas para que N firmas entren en una sola página A4.
@@ -207,22 +304,31 @@ export function computeSignatureGridLayout(count, opts = {}) {
 
   return {
     ...best,
+    pageWidthMm,
+    pageHeightMm,
     marginMm,
     headerHeightMm,
     gapMm,
     nameBandMm,
     nameOverlapMm,
+    contentWidthMm: pageWidthMm - marginMm * 2,
     gridStartXMm: marginMm,
     gridStartYMm: marginMm + headerHeightMm,
   };
 }
 
-function blobToJpegData(blob, maxW, maxH, quality) {
+function shouldKeepPngRaster(blob, url) {
+  if (blob?.type === "image/png") return true;
+  return /\.png(\?|#|$)/i.test(String(url || ""));
+}
+
+function blobToRasterData(blob, maxW, maxH, quality, url = "") {
+  const keepPng = shouldKeepPngRaster(blob, url);
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(blob);
+    const objectUrl = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = () => {
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(objectUrl);
       let w = img.width;
       let h = img.height;
       const scale = Math.min(maxW / w, maxH / h, 1);
@@ -238,26 +344,27 @@ function blobToJpegData(blob, maxW, maxH, quality) {
       ctx.drawImage(img, 0, 0, w, h);
 
       canvas.toBlob(
-        async (jpegBlob) => {
-          if (!jpegBlob) {
-            reject(new Error("No se pudo comprimir la firma"));
+        async (outBlob) => {
+          if (!outBlob) {
+            reject(new Error("No se pudo rasterizar la firma"));
             return;
           }
           resolve({
-            bytes: new Uint8Array(await jpegBlob.arrayBuffer()),
+            bytes: new Uint8Array(await outBlob.arrayBuffer()),
             width: w,
             height: h,
+            mime: keepPng ? "image/png" : "image/jpeg",
           });
         },
-        "image/jpeg",
-        quality,
+        keepPng ? "image/png" : "image/jpeg",
+        keepPng ? undefined : quality,
       );
     };
     img.onerror = () => {
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(objectUrl);
       reject(new Error("Imagen de firma inválida"));
     };
-    img.src = url;
+    img.src = objectUrl;
   });
 }
 
@@ -282,32 +389,41 @@ function drawCenteredText(page, text, centerXPt, baselineYPt, { font, size, colo
   });
 }
 
-async function loadSignatureJpegData(url) {
+async function loadSignatureImageData(url) {
   if (!url || url === "NULL") return null;
+  const normalizedUrl = String(url).trim();
+  const blob = await fetchSignatureBlob(normalizedUrl);
+  if (!blob) return null;
   try {
-    const res = await fetch(String(url).trim(), { method: "GET", mode: "cors" });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    if (!blob.type.startsWith("image/")) return null;
-    return await blobToJpegData(
+    return await blobToRasterData(
       blob,
       SIG_MAX_PX.w,
       SIG_MAX_PX.h,
       SIG_JPEG_QUALITY,
+      normalizedUrl,
     );
-  } catch {
+  } catch (error) {
+    console.warn("Cuadro de firmas: firma no decodificable", {
+      url: normalizedUrl,
+      error,
+    });
     return null;
   }
 }
 
-async function buildSignatureJpegDataCache(people) {
-  const jpegCache = new Map();
-  for (const person of people) {
-    const key = person.firma || "";
-    if (!key || jpegCache.has(key)) continue;
-    jpegCache.set(key, await loadSignatureJpegData(key));
-  }
-  return jpegCache;
+async function buildSignatureImageDataCache(people) {
+  const urls = [
+    ...new Set(
+      (people || [])
+        .map((person) => person.firma)
+        .filter((url) => url && url !== "NULL")
+        .map((url) => String(url).trim()),
+    ),
+  ];
+  const entries = await Promise.all(
+    urls.map(async (url) => [url, await loadSignatureImageData(url)]),
+  );
+  return new Map(entries);
 }
 
 function formatPersonFullName(person) {
@@ -327,9 +443,12 @@ function buildCuadroFirmasFilename({ giraLabel, filePrefix, ext }) {
   return `Cuadro_Firmas_${safePrefix}_${safeLabel}_${dateStr}.${ext}`;
 }
 
-function resolveCuadroFirmasLayout(people) {
+function resolveCuadroFirmasLayout(people, opts = {}) {
   const hasAnyDni = (people || []).some((person) => person?.dni);
   return computeSignatureGridLayout(people.length, {
+    marginMm: opts.marginMm ?? PDF_GRID_MARGIN_MM,
+    pageWidthMm: opts.pageWidthMm ?? PAGE_W,
+    pageHeightMm: opts.pageHeightMm ?? PAGE_H,
     nameBandMm: hasAnyDni ? 13 : 6,
     nameOverlapMm: hasAnyDni ? 4 : 5,
   });
@@ -339,9 +458,9 @@ function ptToPx(pt) {
   return (pt * 96) / 72;
 }
 
-function loadImageFromBytes(bytes) {
+function loadImageFromBytesOnce(bytes, mime) {
   return new Promise((resolve, reject) => {
-    const blob = new Blob([bytes], { type: "image/jpeg" });
+    const blob = new Blob([bytes], { type: mime });
     const url = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = () => {
@@ -350,10 +469,29 @@ function loadImageFromBytes(bytes) {
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("Imagen inválida"));
+      reject(new Error(`Imagen inválida (${mime})`));
     };
     img.src = url;
   });
+}
+
+async function loadImageFromBytes(bytes, mime = "image/jpeg") {
+  const candidates = [
+    ...new Set(
+      [mime, "image/png", "image/jpeg", "application/octet-stream"].filter(
+        Boolean,
+      ),
+    ),
+  ];
+  let lastError = null;
+  for (const candidate of candidates) {
+    try {
+      return await loadImageFromBytesOnce(bytes, candidate);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Imagen inválida");
 }
 
 function drawCenteredCanvasText(
@@ -559,7 +697,7 @@ function drawSignatureCellTextBlock(ctx, person, layout, widthPx, heightPx) {
   }
 }
 
-async function renderSignatureCellToJpeg(person, signatureJpegData, layout) {
+async function renderSignatureCellToJpeg(person, signatureImageData, layout) {
   const { cellWidthMm, cellHeightMm, signatureBoxHeightMm } = layout;
   const edgeInsetMm = 0.35;
   const widthPx = mmPx(cellWidthMm);
@@ -588,9 +726,12 @@ async function renderSignatureCellToJpeg(person, signatureJpegData, layout) {
   const sigHmm = signatureBoxHeightMm - sigPadMm;
   let signatureDrawn = false;
 
-  if (signatureJpegData?.bytes) {
+  if (signatureImageData?.bytes) {
     try {
-      const img = await loadImageFromBytes(signatureJpegData.bytes);
+      const img = await loadImageFromBytes(
+        signatureImageData.bytes,
+        signatureImageData.mime || "image/jpeg",
+      );
       const maxWPx = mmPx(sigWmm);
       const maxHPx = mmPx(sigHmm);
       const scale = Math.min(maxWPx / img.width, maxHPx / img.height);
@@ -600,9 +741,22 @@ async function renderSignatureCellToJpeg(person, signatureJpegData, layout) {
       const y = mmPx(sigPadMm) + (mmPx(sigHmm) - h) / 2;
       ctx.drawImage(img, x, y, w, h);
       signatureDrawn = true;
-    } catch {
+    } catch (error) {
+      console.warn("Cuadro de firmas: firma no dibujada en celda Word", {
+        personId: person.id,
+        nombre: formatPersonFullName(person),
+        url: person.firma,
+        mime: signatureImageData.mime,
+        error,
+      });
       signatureDrawn = false;
     }
+  } else if (person.firma) {
+    console.warn("Cuadro de firmas: sin datos de firma en caché", {
+      personId: person.id,
+      nombre: formatPersonFullName(person),
+      url: person.firma,
+    });
   }
 
   if (!signatureDrawn) {
@@ -678,18 +832,27 @@ export async function exportDestaquesCuadroFirmasPdf({
   const nameColor = rgb(0.12, 0.16, 0.22);
   const mutedColor = rgb(0.58, 0.64, 0.72);
 
-  const jpegCache = await buildSignatureJpegDataCache(sorted);
+  const imageCache = await buildSignatureImageDataCache(sorted);
   const embedCache = new Map();
 
   const getEmbedded = async (url) => {
-    const imageData = url ? jpegCache.get(url) : null;
+    const key = url ? String(url).trim() : "";
+    const imageData = key ? imageCache.get(key) : null;
     if (!imageData?.bytes) return null;
-    if (embedCache.has(url)) return embedCache.get(url);
+    if (embedCache.has(key)) return embedCache.get(key);
     try {
-      const img = await pdfDoc.embedJpg(imageData.bytes);
-      embedCache.set(url, img);
+      const img =
+        imageData.mime === "image/png"
+          ? await pdfDoc.embedPng(imageData.bytes)
+          : await pdfDoc.embedJpg(imageData.bytes);
+      embedCache.set(key, img);
       return img;
-    } catch {
+    } catch (error) {
+      console.warn("Cuadro de firmas: firma no embebida en PDF", {
+        url: key,
+        mime: imageData.mime,
+        error,
+      });
       return null;
     }
   };
@@ -839,17 +1002,11 @@ function createDocxSignatureCell(flatCellImage, layout, isEmpty) {
   });
 }
 
-/**
- * Genera y descarga un DOCX A4 con la misma grilla de firmas del PDF.
- * Cada recuadro (borde + firma + aclaración) se rasteriza como una sola imagen.
- * @param {{ people: Array<{ id, nombre, apellido, firma?, dni? }>, encargado?: object|null, giraLabel?: string, filePrefix?: string, supabase?: object }} params
- */
-export async function exportDestaquesCuadroFirmasDocx({
+async function buildCuadroFirmasDocxBuffer({
   people,
   encargado = null,
-  giraLabel = "",
-  filePrefix = "Destaques",
   supabase = null,
+  layoutOpts = null,
 }) {
   const sorted = await prepareCuadroFirmasPeople(people, encargado, supabase);
 
@@ -857,25 +1014,32 @@ export async function exportDestaquesCuadroFirmasDocx({
     throw new Error("No hay personas para el cuadro de firmas.");
   }
 
-  const layout = resolveCuadroFirmasLayout(sorted);
+  const layout = resolveCuadroFirmasLayout(sorted, {
+    marginMm: DOCX_GRID_MARGIN_MM,
+    pageWidthMm: PAGE_W,
+    ...layoutOpts,
+  });
   const {
     cols,
     rows,
     cellWidthMm,
     cellHeightMm,
     gapMm,
-    marginMm,
   } = layout;
-  const jpegCache = await buildSignatureJpegDataCache(sorted);
+  const tableWidthMm = cols * cellWidthMm + Math.max(0, cols - 1) * gapMm;
+  const imageCache = await buildSignatureImageDataCache(sorted);
   const flatCellCache = new Map();
 
-  for (const person of sorted) {
-    const sigData = person.firma ? jpegCache.get(person.firma) : null;
-    flatCellCache.set(
-      person.id,
-      await renderSignatureCellToJpeg(person, sigData, layout),
-    );
-  }
+  await Promise.all(
+    sorted.map(async (person) => {
+      const sigKey = person.firma ? String(person.firma).trim() : "";
+      const sigData = sigKey ? imageCache.get(sigKey) : null;
+      flatCellCache.set(
+        person.id,
+        await renderSignatureCellToJpeg(person, sigData, layout),
+      );
+    }),
+  );
 
   const tableRows = [];
   for (let rowIndex = 0; rowIndex < rows; rowIndex++) {
@@ -913,10 +1077,10 @@ export async function exportDestaquesCuadroFirmasDocx({
               height: mmTwip(PAGE_H),
             },
             margin: {
-              top: mmTwip(marginMm),
-              right: mmTwip(marginMm),
-              bottom: mmTwip(marginMm),
-              left: mmTwip(marginMm),
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
             },
           },
         },
@@ -924,8 +1088,18 @@ export async function exportDestaquesCuadroFirmasDocx({
           new Table({
             rows: tableRows,
             width: {
-              size: mmTwip(PAGE_W - marginMm * 2),
+              size: mmTwip(tableWidthMm),
               type: WidthType.DXA,
+            },
+            indent: {
+              size: 0,
+              type: WidthType.DXA,
+            },
+            margins: {
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
             },
             columnWidths: Array.from({ length: cols }, () =>
               mmTwip(cellWidthMm),
@@ -942,9 +1116,61 @@ export async function exportDestaquesCuadroFirmasDocx({
     ],
   });
 
-  const blob = await Packer.toBlob(doc);
+  return Packer.toBlob(doc);
+}
+
+/**
+ * Genera y descarga un DOCX A4 con la misma grilla de firmas del PDF.
+ * Cada recuadro (borde + firma + aclaración) se rasteriza como una sola imagen.
+ * @param {{ people: Array<{ id, nombre, apellido, firma?, dni? }>, encargado?: object|null, giraLabel?: string, filePrefix?: string, supabase?: object, hostDocxFile?: File|null }} params
+ */
+export async function exportDestaquesCuadroFirmasDocx({
+  people,
+  encargado = null,
+  giraLabel = "",
+  filePrefix = "Destaques",
+  supabase = null,
+  hostDocxFile = null,
+}) {
+  let layoutOpts = {
+    marginMm: DOCX_GRID_MARGIN_MM,
+    pageWidthMm: PAGE_W,
+  };
+  let hostBuffer = null;
+
+  if (hostDocxFile) {
+    hostBuffer = await hostDocxFile.arrayBuffer();
+    const hostMargins = parseDocxPageMarginsMm(hostBuffer);
+    layoutOpts = {
+      marginMm: DOCX_GRID_MARGIN_MM,
+      pageWidthMm: Math.max(
+        80,
+        PAGE_W - hostMargins.left - hostMargins.right,
+      ),
+    };
+  }
+
+  const appendixBlob = await buildCuadroFirmasDocxBuffer({
+    people,
+    encargado,
+    supabase,
+    layoutOpts,
+  });
+
+  let outBlob = appendixBlob;
+  if (hostDocxFile && hostBuffer) {
+    const appendixBuffer = await appendixBlob.arrayBuffer();
+    outBlob = mergeDocxAppend(hostBuffer, appendixBuffer, {
+      blankLines: 2,
+    });
+  }
+
   saveAs(
-    blob,
-    buildCuadroFirmasFilename({ giraLabel, filePrefix, ext: "docx" }),
+    outBlob,
+    hostDocxFile
+      ? buildMergedCuadroFirmasFilename(hostDocxFile)
+      : buildCuadroFirmasFilename({ giraLabel, filePrefix, ext: "docx" }),
   );
 }
+
+export { parseCuadroFirmasExportOptions };

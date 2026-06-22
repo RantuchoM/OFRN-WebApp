@@ -29,7 +29,7 @@ import { isRepertorioPlaceholder } from "../utils/repertorioRowDisplay";
  * overrides manuales en giras_integrantes (estado !== ausente) ignoran esas vigencias.
  * @see docs/roster-spec.md
  */
-export const resolveGiraRosterIds = async (supabase, giraId) => {
+async function resolveGiraRosterDetail(supabase, giraId) {
   try {
     const { data: progRow } = await supabase
       .from("programas")
@@ -156,15 +156,54 @@ export const resolveGiraRosterIds = async (supabase, giraId) => {
     );
 
     // Resultado: convocados MINUS excluidos por ensamble MINUS ausentes
-    return Array.from(integrantesIds).filter(
+    const allIds = Array.from(integrantesIds).filter(
       (id) =>
         !excludedByEnsamble.has(id) && !ausentesIds.has(id),
     );
+
+    const countedIds = new Set();
+    const preAltaIds = new Set();
+    if (allIds.length > 0) {
+      const idList = allIds.map(integranteIdForDb).filter(Boolean);
+      const { data: vigenciaFinal } = await supabase
+        .from("integrantes")
+        .select("id, fecha_alta, fecha_baja")
+        .in("id", idList);
+
+      vigenciaFinal?.forEach((row) => {
+        const key = integranteKey(row.id);
+        if (
+          integranteActiveOnProgramRange(
+            row,
+            programRefDesde,
+            programRefHasta,
+          )
+        ) {
+          countedIds.add(key);
+        } else {
+          preAltaIds.add(key);
+        }
+      });
+    }
+
+    return { allIds, countedIds, preAltaIds };
   } catch (error) {
     console.error("[GiraService] Error resolviendo roster IDs:", error);
-    return [];
+    return { allIds: [], countedIds: new Set(), preAltaIds: new Set() };
   }
+}
+
+/** IDs en nómina (incluye pre-alta y convocatoria contabilizada). */
+export const resolveGiraRosterIds = async (supabase, giraId) => {
+  const { allIds } = await resolveGiraRosterDetail(supabase, giraId);
+  return allIds;
 };
+
+/**
+ * Nómina para matriz de convocatorias: separa convocatoria contabilizada vs. pre-alta.
+ * @returns {{ allIds: string[], countedIds: Set<string>, preAltaIds: Set<string> }}
+ */
+export const resolveGiraRosterForMatrix = resolveGiraRosterDetail;
 
 /** Valores de `programas.tipo` (enum tipo_programa) usados en filtros del reporte de matriz. */
 export const TIPOS_PROGRAMA_ASISTENCIA_MATRIZ = [

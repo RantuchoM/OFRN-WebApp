@@ -38,6 +38,11 @@ Permitir que el usuario defina un "Lugar de Comisión" específico para el proce
 - [x] El cuadro puede descargarse también como **Word (.docx)** en una hoja A4, reutilizando el mismo cálculo de columnas/filas, proporciones y orden de personas del PDF.
 - [x] En el DOCX, cada recuadro (borde + firma + DNI + aclaración) se exporta como **una sola imagen** por celda, evitando que Word separe firma y texto al editar.
 - [x] Un único botón **Cuadro de firmas** ofrece elegir **PDF** o **Word** (destaques y transportes).
+- [x] **Word + nota:** una sola opción para subir un `.docx`; las firmas se insertan al final del contenido (antes del `sectPr` del documento), con 2 líneas en blanco y sin salto de página forzado. Si Word repagina solo porque no entra el cuadro, queda en la hoja siguiente.
+- [x] Carga de firmas para Word/PDF: timeout 25 s, hasta 3 reintentos, descargas en paralelo, acepta `application/octet-stream` (Storage) y log en consola si una firma falla (`Cuadro de firmas: …`).
+- [x] Word sin margen extra: la grilla usa ancho **100%** del área útil (sin los 10 mm del PDF). En **Word + nota**, el layout se calcula con el ancho real entre márgenes del `.docx` host para que no desborde hacia la derecha.
+- [x] Firmas **PNG** (p. ej. con transparencia) se conservan como PNG al rasterizar; el cuadro rehidrata `firma` desde `integrantes` antes de exportar.
+- [x] **Word + nota:** al fusionar, solo se copian relaciones de imagen, se registran PNG/JPEG en `[Content_Types].xml` del host y la tabla usa ancho fijo en DXA (no `100%`).
 
 ## SQL
 

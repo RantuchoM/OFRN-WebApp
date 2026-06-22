@@ -28,6 +28,7 @@ import {
     exportDestaquesCuadroFirmasDocx,
     exportDestaquesCuadroFirmasPdf,
     fetchEncargadoCuadroFirmas,
+    parseCuadroFirmasExportOptions,
     toCuadroFirmasPerson,
 } from "../../../utils/destaquesCuadroFirmasPdf";
 
@@ -1158,9 +1159,11 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
         return fetchEncargadoCuadroFirmas(supabase);
     };
 
-    const handleExportCuadroFirmas = async (exportScope, format = "pdf") => {
+    const handleExportCuadroFirmas = async (exportScope, formatOrOptions = "pdf") => {
         const { peopleToExport } = collectPeopleForExport(exportScope);
         const encargado = await resolveEncargadoCuadroFirmas();
+        const { format, hostDocxFile } =
+            parseCuadroFirmasExportOptions(formatOrOptions);
 
         if (peopleToExport.length === 0 && !encargado) {
             alert("No hay personas para el cuadro de firmas con el criterio seleccionado.");
@@ -1178,6 +1181,7 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
                 encargado,
                 giraLabel,
                 supabase,
+                hostDocxFile,
             });
         } catch (err) {
             console.error("Cuadro de firmas:", err);

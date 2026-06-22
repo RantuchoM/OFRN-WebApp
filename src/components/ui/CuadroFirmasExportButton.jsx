@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { IconFileText, IconFirma, IconLoader } from "./Icons";
+import { IconFileText, IconFirma, IconLoader, IconUpload } from "./Icons";
 
 const FORMAT_OPTIONS = [
   {
@@ -11,9 +11,16 @@ const FORMAT_OPTIONS = [
   },
   {
     id: "docx",
-    label: "Word",
-    hint: "A4 (.docx)",
+    label: "Word en blanco",
+    hint: "Solo cuadro de firmas",
     icon: IconFileText,
+  },
+  {
+    id: "docx-merge",
+    label: "Word + nota",
+    hint: "Subir .docx y agregar firmas al final",
+    icon: IconUpload,
+    pickFile: true,
   },
 ];
 
@@ -28,8 +35,10 @@ export default function CuadroFirmasExportButton({
   title = "Exportar cuadro de firmas en PDF o Word",
 }) {
   const [open, setOpen] = useState(false);
+  const [awaitingNoteFile, setAwaitingNoteFile] = useState(false);
   const btnRef = useRef(null);
   const menuRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -53,13 +62,37 @@ export default function CuadroFirmasExportButton({
     };
   }, [open]);
 
-  const handlePick = (format) => {
+  const handlePick = (option) => {
+    if (option.pickFile) {
+      setAwaitingNoteFile(true);
+      setOpen(false);
+      fileInputRef.current?.click();
+      return;
+    }
     setOpen(false);
-    if (typeof onExport === "function") onExport(format);
+    if (typeof onExport === "function") onExport(option.id);
+  };
+
+  const handleFileChange = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !awaitingNoteFile) return;
+    if (!/\.docx$/i.test(file.name)) {
+      alert("Seleccioná un archivo Word (.docx).");
+      setAwaitingNoteFile(false);
+      return;
+    }
+    if (typeof onExport === "function") {
+      onExport({
+        format: "docx",
+        hostDocxFile: file,
+      });
+    }
+    setAwaitingNoteFile(false);
   };
 
   const rect = btnRef.current?.getBoundingClientRect();
-  const menuWidth = compact ? 148 : 176;
+  const menuWidth = compact ? 188 : 210;
   const menuStyle = rect
     ? {
         position: "fixed",
@@ -70,10 +103,7 @@ export default function CuadroFirmasExportButton({
             window.innerWidth - menuWidth - 8,
           ),
         ),
-        top:
-          menuPlacement === "top"
-            ? rect.top - 8
-            : rect.bottom + 6,
+        top: menuPlacement === "top" ? rect.top - 8 : rect.bottom + 6,
         width: menuWidth,
         zIndex: 110,
         transform: menuPlacement === "top" ? "translateY(-100%)" : undefined,
@@ -86,6 +116,13 @@ export default function CuadroFirmasExportButton({
 
   return (
     <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        className="hidden"
+        onChange={handleFileChange}
+      />
       <button
         ref={btnRef}
         type="button"
@@ -125,7 +162,7 @@ export default function CuadroFirmasExportButton({
                   key={option.id}
                   type="button"
                   role="menuitem"
-                  onClick={() => handlePick(option.id)}
+                  onClick={() => handlePick(option)}
                   className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
                 >
                   <OptionIcon size={16} className="shrink-0 text-indigo-600" />

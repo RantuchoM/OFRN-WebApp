@@ -60,9 +60,9 @@ export default function LocationBulkPanel({
         });
     };
 
-    const handleCuadroFirmasClick = (format = "pdf") => {
+    const handleCuadroFirmasClick = (formatOrOptions = "pdf") => {
         if (typeof onExportCuadroFirmas === "function") {
-            onExportCuadroFirmas(scope, format);
+            onExportCuadroFirmas(scope, formatOrOptions);
         }
     };
 
