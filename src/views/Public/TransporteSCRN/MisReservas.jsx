@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../../../services/supabase";
 import SearchableSelect from "../../../components/ui/SearchableSelect";
 import { IconEdit, IconX } from "../../../components/ui/Icons";
@@ -16,6 +17,15 @@ import { scrnEstadoBadgeClass } from "./scrnReservaEstadoUI";
 import { scrnTransporteColorFromEntity } from "./scrnTransporteColor";
 import { isSalidaHoyOFutura } from "./viajeSalidaTemporal";
 import { paxEmailMostrar, paxNombreCompleto } from "./scrnReservaPaxUtils";
+import ScrnViaticosOpcionesFields, {
+  EMPTY_VIATICOS_OPCIONES,
+  normalizeViaticosOpciones,
+} from "./ScrnViaticosOpcionesFields";
+import {
+  buildScrnViaticoPrefill,
+  puedeAbrirViaticoDesdeReserva,
+} from "../../../utils/scrnViaticoPrefill";
+import { writeScrnViaticoPrefill } from "../../../utils/viaticosManualStorage";
 
 const TRAMO_LABEL = { ida: "Ida", vuelta: "Vuelta", ambos: "Ambos" };
 const TRAMO_OPTS = [
@@ -105,12 +115,44 @@ export default function MisReservas({
   const [editingId, setEditingId] = useState(null);
   const [estadoAlInicio, setEstadoAlInicio] = useState(null);
   const [paradaDraft, setParadaDraft] = useState(null);
+  const [viaticosDraft, setViaticosDraft] = useState(null);
   const [savingParadas, setSavingParadas] = useState(false);
   const [verHistorial, setVerHistorial] = useState(false);
   const [comoPasajero, setComoPasajero] = useState([]);
   const [editingPasajero, setEditingPasajero] = useState(null);
   const [paxRowDraft, setPaxRowDraft] = useState(null);
+  const [paxViaticosDraft, setPaxViaticosDraft] = useState(null);
   const [savingPaxRow, setSavingPaxRow] = useState(false);
+  const navigate = useNavigate();
+
+  const miPerfil = useMemo(
+    () => (scrnPerfiles || []).find((p) => p.id === user?.id) || null,
+    [scrnPerfiles, user?.id],
+  );
+
+  const abrirViaticoDesdeRecorrido = useCallback(
+    ({ reserva, viaje, pax = null, rol = "titular" }) => {
+      if (!reserva || !viaje) return;
+      const viaticosOpciones =
+        rol === "pasajero"
+          ? normalizeViaticosOpciones(pax?.viaticos_opciones)
+          : normalizeViaticosOpciones(reserva?.viaticos_opciones);
+
+      const prefill = buildScrnViaticoPrefill({
+        viaje,
+        transporte: viaje?.scrn_transportes,
+        reserva,
+        pax: rol === "pasajero" ? pax : null,
+        perfil: miPerfil,
+        viaticosOpciones,
+        rol,
+      });
+
+      writeScrnViaticoPrefill(prefill);
+      navigate("/viaticos-manual?prefill=scrn");
+    },
+    [miPerfil, navigate],
+  );
 
   const locOptions = useMemo(
     () => localidadesToSearchableOptions(localidades),
@@ -131,17 +173,20 @@ export default function MisReservas({
       obs_subida: r.obs_subida || "",
       obs_bajada: r.obs_bajada || "",
     });
+    setViaticosDraft(normalizeViaticosOpciones(r.viaticos_opciones));
   };
 
   const cerrarEdicion = () => {
     setEditingId(null);
     setEstadoAlInicio(null);
     setParadaDraft(null);
+    setViaticosDraft(null);
   };
 
   const cerrarEdicionPasajero = () => {
     setEditingPasajero(null);
     setPaxRowDraft(null);
+    setPaxViaticosDraft(null);
   };
 
   const abrirEdicionPasajero = (item) => {
@@ -155,6 +200,7 @@ export default function MisReservas({
       obs_subida: getPaxParadasVal(pax, reserva, {}, {}, "obs_subida") || "",
       obs_bajada: getPaxParadasVal(pax, reserva, {}, {}, "obs_bajada") || "",
     });
+    setPaxViaticosDraft(normalizeViaticosOpciones(pax.viaticos_opciones));
   };
 
   const afterCambioQueRequiereGestion = useCallback(() => {
@@ -188,6 +234,7 @@ export default function MisReservas({
           localidad_bajada: bj,
           obs_subida: String(paradaDraft.obs_subida || "").trim() || null,
           obs_bajada: String(paradaDraft.obs_bajada || "").trim() || null,
+          viaticos_opciones: normalizeViaticosOpciones(viaticosDraft),
         })
         .eq("id", reserva.id);
       if (error) {
@@ -203,7 +250,7 @@ export default function MisReservas({
       refetchPaxYReservas();
       afterCambioQueRequiereGestion();
     },
-    [paradaDraft, estadoAlInicio, refetchPaxYReservas, afterCambioQueRequiereGestion],
+    [paradaDraft, viaticosDraft, estadoAlInicio, refetchPaxYReservas, afterCambioQueRequiereGestion],
   );
 
   const cancelarReserva = useCallback(
@@ -247,7 +294,10 @@ export default function MisReservas({
     }
     const { error } = await supabase
       .from("scrn_reserva_pasajeros")
-      .update(up)
+      .update({
+        ...up,
+        viaticos_opciones: normalizeViaticosOpciones(paxViaticosDraft),
+      })
       .eq("id", pax.id)
       .eq("id_perfil", user.id);
     if (error) {
@@ -268,6 +318,7 @@ export default function MisReservas({
   }, [
     editingPasajero,
     paxRowDraft,
+    paxViaticosDraft,
     user?.id,
     refetchPaxYReservas,
     afterCambioQueRequiereGestion,
@@ -567,6 +618,19 @@ export default function MisReservas({
                 <ResumenParadasPaxReadonly reserva={reserva} pax={pax} />
               )}
 
+              {!isEditing &&
+                puedeAbrirViaticoDesdeReserva({ reserva, viaje }) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      abrirViaticoDesdeRecorrido({ reserva, viaje, rol: "titular" })
+                    }
+                    className="inline-flex items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
+                  >
+                    Completar viático
+                  </button>
+                )}
+
               {isEditing && paradaDraft && (
                 <div className="border-t border-slate-200 pt-3 space-y-2">
                   <p className="text-xs font-extrabold text-slate-700 uppercase tracking-wide">
@@ -645,6 +709,12 @@ export default function MisReservas({
                       />
                     </div>
                   </div>
+                  <ScrnViaticosOpcionesFields
+                    title="Datos para tu viático (opcional)"
+                    value={viaticosDraft || EMPTY_VIATICOS_OPCIONES}
+                    onChange={setViaticosDraft}
+                    defaultOpen
+                  />
                   <div className="flex flex-wrap justify-end gap-2">
                     <button
                       type="button"
@@ -767,6 +837,28 @@ export default function MisReservas({
                   </div>
                 )}
 
+                {!isEd &&
+                  puedeAbrirViaticoDesdeReserva({
+                    reserva,
+                    viaje,
+                    estadoPasajero: pax.estado,
+                  }) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        abrirViaticoDesdeRecorrido({
+                          reserva,
+                          viaje,
+                          pax,
+                          rol: "pasajero",
+                        })
+                      }
+                      className="inline-flex items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
+                    >
+                      Completar viático
+                    </button>
+                  )}
+
                 {isEd && paxRowDraft && (
                   <div className="border-t border-indigo-100 pt-3 space-y-2">
                     <p className="text-xs font-extrabold text-slate-800 uppercase tracking-wide">
@@ -864,6 +956,12 @@ export default function MisReservas({
                         />
                       </div>
                     </div>
+                    <ScrnViaticosOpcionesFields
+                      title="Datos para tu viático (opcional)"
+                      value={paxViaticosDraft || EMPTY_VIATICOS_OPCIONES}
+                      onChange={setPaxViaticosDraft}
+                      defaultOpen
+                    />
                     <div className="flex flex-wrap justify-end gap-2">
                       <button
                         type="button"

@@ -161,11 +161,19 @@ export function normalizeInstrumentLabel(rawName) {
   return clean.split(/\s+/).slice(0, 4).join(" ");
 }
 
+/** Vacío si no hay catálogo real (null, S/N, S-N, etc.). */
+export function normalizeWorkNumberForFilename(workNo) {
+  const raw = String(workNo ?? "").trim();
+  if (!raw) return "";
+  if (/^s[\s./-]*n\.?$/i.test(raw)) return "";
+  return safeFileName(raw);
+}
+
 export function canonicalPartFilename(instrument, workNo, workTitle, composerTag) {
   const title = safeFileName(workTitle);
   const composer = safeFileName(composerTag);
   const inst = safeFileName(instrument);
-  const num = workNo ? safeFileName(String(workNo).replace(/^S-N$/i, "")) : "";
+  const num = normalizeWorkNumberForFilename(workNo);
   if (num) {
     return safeFileName(`${inst} - ${num}. ${title} - ${composer}.pdf`);
   }
@@ -177,11 +185,11 @@ export function extractInstrumentFromExistingName(fileName) {
   if (/^\s*SCORE\b/i.test(base)) return "SCORE";
 
   const mWorkNum = base.match(
-    /^\s*(.+?)\s*-\s*(?:\d+\s+BIS|\d+)\.\s+.+\s*-\s*.+\s*$/i,
+    /^\s*(.+?)\s*-\s*(?:\d+\s+BIS|(?:op\.?\s*)?\d+[A-Za-z]?|MWV\s+N\s*\d+)\.\s+.+\s*-\s*.+\s*$/i,
   );
   if (mWorkNum) return mWorkNum[1].trim();
 
-  const mSn = base.match(/^\s*(.+?)\s*-\s*S-N\.\s*/i);
+  const mSn = base.match(/^\s*(.+?)\s*-\s*S[-/]N\.\s*/i);
   if (mSn) return mSn[1].trim();
 
   const mNoNum = base.match(/^\s*(.+?)\s*-\s*.+\s*-\s*.+\s*$/i);

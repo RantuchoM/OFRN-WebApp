@@ -15,6 +15,22 @@
      * Convocatoria por BCC: el cuerpo usa un único saludo; si viene nombre y apellido del primer integrante
      * en detalle, armar "Nombre Apellido". Si no, usar payload.nombre (p. ej. "Apellido, Nombre" o un solo nombre).
      */
+    const BALANCE_ORQUESTAL_MAIL_FOOTNOTE =
+      "Desde la dirección artística se hicieron ajustes en el seating, por lo tanto se te informa que quedás desafectado de tu fila en esta gira. No obstante, si llegáramos a requerir de sus servicios (por enfermedad de algún/a colega u otra razón) te la haremos saber a la mayor brevedad posible.";
+
+    function isBalanceOrquestalDetalle(d: any, reason: string): boolean {
+      const motivoId = String(d?.motivo_baja_id || "").trim().toLowerCase();
+      if (motivoId === "balance_orquestal") return true;
+      return /balance\s*orquestal/i.test(String(reason || ""));
+    }
+
+    function resolveReasonFootnote(d: any, reason: string): string {
+      const explicit = String(d?.reason_footnote || "").trim();
+      if (explicit) return explicit;
+      if (isBalanceOrquestalDetalle(d, reason)) return BALANCE_ORQUESTAL_MAIL_FOOTNOTE;
+      return "";
+    }
+
     function nombreSaludoConvocatoria(payloadNombre: string, d: any): string {
       const nRaw = d?.primer_integrante_nombre ?? d?.nombre_primero;
       const aRaw = d?.primer_integrante_apellido ?? d?.apellido_primero;
@@ -386,6 +402,7 @@
         const linkRepertorio = d?.link_repertorio || "";
         const nomenclador = d?.nomenclador || gira;
         const reason = d?.reason || "";
+        const reasonFootnote = resolveReasonFootnote(d, reason);
         const rawDesde = d?.fecha_desde || "";
         const rawHasta = d?.fecha_hasta || "";
         const zona = d?.zona || "";
@@ -402,6 +419,9 @@
             : "";
         const reasonBlock = reason
           ? `<p style="margin: 10px 0; padding: 10px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px; font-size: 13px;"><strong>Motivo:</strong> ${reason}</p>`
+          : "";
+        const reasonFootnoteBlock = reasonFootnote
+          ? `<p style="margin: 10px 0; padding: 10px; background: #f8fafc; border-left: 4px solid #94a3b8; border-radius: 4px; font-size: 13px; color: #334155;">${String(reasonFootnote).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`
           : "";
 
         let titulo = "Convocatoria OFRN";
@@ -433,6 +453,7 @@
             <p>${saludo}</p>
             <p>Se registró tu <strong>baja</strong> de la gira <strong>${gira}</strong> (${nomenclador}).</p>
             ${reasonBlock}
+            ${reasonFootnoteBlock}
             ${fechasZonaBlock}
             <p>Si tenés dudas, respondé a este correo.</p>
           `;
@@ -442,6 +463,7 @@
             <p>${saludo}</p>
             <p>Se registró tu situación de <strong>ausente</strong> en la gira <strong>${gira}</strong> (${nomenclador}).</p>
             ${reasonBlock}
+            ${reasonFootnoteBlock}
             ${fechasZonaBlock}
             <p>Para cualquier cambio, contactá a la administración.</p>
           `;

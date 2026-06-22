@@ -5,6 +5,10 @@ import { ensureScrnPerfilForNewEmail } from "../../../services/scrnCreatePerfil"
 import SearchableSelect from "../../../components/ui/SearchableSelect";
 import { localidadesToSearchableOptions } from "./localidadesSearchable";
 import { scrnTransporteColorFromEntity } from "./scrnTransporteColor";
+import ScrnViaticosOpcionesFields, {
+  EMPTY_VIATICOS_OPCIONES,
+  normalizeViaticosOpciones,
+} from "./ScrnViaticosOpcionesFields";
 
 const initialFormState = {
   tramo: "ambos",
@@ -59,6 +63,9 @@ export default function SolicitudModal({
   const [profileIdsCargadosViaje, setProfileIdsCargadosViaje] = useState([]);
   const [checkingExisting, setCheckingExisting] = useState(false);
   const [showPasajeroForm, setShowPasajeroForm] = useState(false);
+  const [titularViaticosOpciones, setTitularViaticosOpciones] = useState(() => ({
+    ...EMPTY_VIATICOS_OPCIONES,
+  }));
 
   const usuarioActualRow = useMemo(() => {
     if (!user?.id) return null;
@@ -105,6 +112,7 @@ export default function SolicitudModal({
     });
     setParadasCustom(false);
     setShowPasajeroForm(false);
+    setTitularViaticosOpciones({ ...EMPTY_VIATICOS_OPCIONES });
   }, [isOpen, viaje?.id]);
 
   useEffect(() => {
@@ -120,7 +128,9 @@ export default function SolicitudModal({
       const [{ data, error: exErr }, { data: paqData, error: paqErr }, { data: allRsv }] = await Promise.all([
         supabase
           .from("scrn_reservas")
-          .select("id, estado, tramo, localidad_subida, localidad_bajada, created_at")
+          .select(
+            "id, estado, tramo, localidad_subida, localidad_bajada, created_at, viaticos_opciones",
+          )
           .eq("id_viaje", viaje.id)
           .eq("id_usuario", user.id)
           .neq("estado", "cancelada")
@@ -147,10 +157,15 @@ export default function SolicitudModal({
       } else {
         const r0 = (data || [])[0] || null;
         setExistingReserva(r0);
+        if (alive) {
+          setTitularViaticosOpciones(
+            normalizeViaticosOpciones(r0?.viaticos_opciones),
+          );
+        }
         if (r0?.id) {
           const { data: paxList, error: paxErr } = await supabase
             .from("scrn_reserva_pasajeros")
-            .select("id, id_perfil, nombre, apellido, email, estado")
+            .select("id, id_perfil, nombre, apellido, email, estado, viaticos_opciones")
             .eq("id_reserva", r0.id)
             .order("id", { ascending: true });
           if (!alive) return;
@@ -193,6 +208,7 @@ export default function SolicitudModal({
                     solicitante: Boolean(
                       p.id_perfil && user?.id && p.id_perfil === user.id,
                     ),
+                    viaticos_opciones: normalizeViaticosOpciones(p.viaticos_opciones),
                   };
                 }),
               );
@@ -355,7 +371,16 @@ export default function SolicitudModal({
     setDraftManual({ nombre: "", apellido: "", email: "" });
     setError("");
     setParadasCustom(false);
+    setTitularViaticosOpciones({ ...EMPTY_VIATICOS_OPCIONES });
     onClose?.();
+  };
+
+  const setRowViaticosOpciones = (key, opts) => {
+    setExtra((list) =>
+      list.map((row) =>
+        row.key === key ? { ...row, viaticos_opciones: normalizeViaticosOpciones(opts) } : row,
+      ),
+    );
   };
 
   const addFromPerfil = (perfilId) => {
@@ -377,6 +402,7 @@ export default function SolicitudModal({
         apellido: p.apellido || "",
         email: null,
         origen: "perfil",
+        viaticos_opciones: { ...EMPTY_VIATICOS_OPCIONES },
       },
     ]);
     setPerfilSelectKey((k) => k + 1);
@@ -405,6 +431,7 @@ export default function SolicitudModal({
         apellido: a,
         email: e,
         origen: "manual",
+        viaticos_opciones: { ...EMPTY_VIATICOS_OPCIONES },
       },
     ]);
     setDraftManual({ nombre: "", apellido: "", email: "" });
@@ -476,6 +503,7 @@ export default function SolicitudModal({
           obs_subida: (paradasCustom ? form.obs_subida : "").trim() || null,
           localidad_bajada: bj,
           obs_bajada: (paradasCustom ? form.obs_bajada : "").trim() || null,
+          viaticos_opciones: normalizeViaticosOpciones(titularViaticosOpciones),
         })
         .select("id")
         .single();
@@ -491,6 +519,21 @@ export default function SolicitudModal({
         .from("scrn_reservas")
         .update({ estado: "aceptada" })
         .eq("id", reservaId);
+    }
+
+    await supabase
+      .from("scrn_reservas")
+      .update({ viaticos_opciones: normalizeViaticosOpciones(titularViaticosOpciones) })
+      .eq("id", reservaId);
+
+    const existingPaxRows = extra.filter((row) => row.paxId && !row.solicitante);
+    for (const row of existingPaxRows) {
+      await supabase
+        .from("scrn_reserva_pasajeros")
+        .update({
+          viaticos_opciones: normalizeViaticosOpciones(row.viaticos_opciones),
+        })
+        .eq("id", row.paxId);
     }
 
     if (toInsert.length > 0) {
@@ -520,6 +563,9 @@ export default function SolicitudModal({
         apellido: row.id_perfil ? null : (row.apellido?.trim() || null),
         email: row.id_perfil ? null : (row.email ? row.email.trim() : null),
         estado: esAdmin ? "aceptada" : "pendiente",
+        viaticos_opciones: row.solicitante
+          ? {}
+          : normalizeViaticosOpciones(row.viaticos_opciones),
       }));
 
       const { error: paxError } = await supabase
@@ -569,6 +615,7 @@ export default function SolicitudModal({
     setSaving(false);
     setForm(initialFormState);
     setExtra([]);
+    setTitularViaticosOpciones({ ...EMPTY_VIATICOS_OPCIONES });
     setPerfilSelectKey((k) => k + 1);
     onSubmitted?.();
     onClose?.();
@@ -960,6 +1007,35 @@ export default function SolicitudModal({
               )}
             </div>
           )}
+
+          {!noHayLugarParaMiNuevaReserva && !sinLugarParaAcompanantes ? (
+            <ScrnViaticosOpcionesFields
+              title="Datos para tu viático (opcional)"
+              value={titularViaticosOpciones}
+              onChange={setTitularViaticosOpciones}
+            />
+          ) : null}
+
+          {!noHayLugarParaMiNuevaReserva &&
+            !sinLugarParaAcompanantes &&
+            extra.some((row) => !row.solicitante) ? (
+            <div className="space-y-2">
+              <p className="text-xs font-extrabold text-slate-700 uppercase tracking-wide">
+                Viático por acompañante (opcional)
+              </p>
+              {extra
+                .filter((row) => !row.solicitante)
+                .map((row) => (
+                  <ScrnViaticosOpcionesFields
+                    key={`viatico-${row.key}`}
+                    compact
+                    title={`${row.apellido || ""}, ${row.nombre || ""}`.replace(/^,\s*/, "").trim() || "Acompañante"}
+                    value={row.viaticos_opciones || EMPTY_VIATICOS_OPCIONES}
+                    onChange={(opts) => setRowViaticosOpciones(row.key, opts)}
+                  />
+                ))}
+            </div>
+          ) : null}
 
           {error && (
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 whitespace-pre-wrap">

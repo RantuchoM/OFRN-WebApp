@@ -198,7 +198,7 @@ export default function TransporteSCRNMain({
       supabase.from("localidades").select("id, localidad").order("localidad"),
       supabase
         .from("scrn_perfiles")
-        .select("id, nombre, apellido")
+        .select("id, nombre, apellido, dni, cargo")
         .order("apellido", { ascending: true })
         .order("nombre", { ascending: true }),
     ]);

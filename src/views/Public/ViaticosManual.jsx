@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { saveAs } from "file-saver";
 import { exportViaticosToPDFForm } from "../../utils/pdfFormExporter";
 import { calculateDaysDiff } from "../../hooks/viaticos/useViaticosIndividuales";
@@ -41,6 +42,8 @@ import {
 } from "../../utils/manualFieldClasses";
 import {
   hasMeaningfulViaticoData,
+  readAndClearScrnViaticoPrefill,
+  readManualStorage,
   STORAGE_KEY,
   writeViaticoToStorage,
 } from "../../utils/viaticosManualStorage";
@@ -217,6 +220,7 @@ const DEFAULT_FORM = {
 };
 
 export default function ViaticosManual() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     session,
     profile,
@@ -257,6 +261,8 @@ export default function ViaticosManual() {
   const [personaEditMode, setPersonaEditMode] = useState(null);
   const [changePersonaOpen, setChangePersonaOpen] = useState(false);
   const [vigenciaAdminOpen, setVigenciaAdminOpen] = useState(false);
+  const [scrnPrefillPending, setScrnPrefillPending] = useState(null);
+  const scrnPrefillHandledRef = useRef(false);
 
   const suppressAutosaveRef = useRef(() => {});
 
@@ -436,6 +442,42 @@ export default function ViaticosManual() {
   useEffect(() => {
     suppressAutosaveRef.current = suppressNextAutosave;
   }, [suppressNextAutosave]);
+
+  const applyScrnPrefill = useCallback(
+    (prefill) => {
+      if (!prefill || typeof prefill !== "object") return;
+      const { scrn_origen: scrnOrigen, ...formFields } = prefill;
+      suppressAutosaveRef.current?.();
+      setCloudViaticoId(null);
+      setEtiquetaDescriptiva("");
+      setSelectedPersonaId(null);
+      setForm({
+        ...DEFAULT_FORM,
+        ...formFields,
+        ...(scrnOrigen ? { scrn_origen: scrnOrigen } : {}),
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (scrnPrefillHandledRef.current) return;
+    if (searchParams.get("prefill") !== "scrn") return;
+    scrnPrefillHandledRef.current = true;
+
+    const payload = readAndClearScrnViaticoPrefill();
+    const next = new URLSearchParams(searchParams);
+    next.delete("prefill");
+    setSearchParams(next, { replace: true });
+    if (!payload) return;
+
+    const existing = readManualStorage();
+    if (hasMeaningfulViaticoData(existing || {})) {
+      setScrnPrefillPending(payload);
+    } else {
+      applyScrnPrefill(payload);
+    }
+  }, [searchParams, setSearchParams, applyScrnPrefill]);
 
   const handlePersonaSelect = (id) => {
     const p = (personas || []).find((x) => String(x.id) === String(id));
@@ -1334,6 +1376,19 @@ export default function ViaticosManual() {
         title="¿Elegir otra persona?"
         message="Se limpiarán los datos personales de la planilla. El resto del viático (fechas, importes, etc.) se mantiene."
         confirmText="Elegir otra persona"
+        cancelText="Cancelar"
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(scrnPrefillPending)}
+        onClose={() => setScrnPrefillPending(null)}
+        onConfirm={() => {
+          if (scrnPrefillPending) applyScrnPrefill(scrnPrefillPending);
+          setScrnPrefillPending(null);
+        }}
+        title="¿Reemplazar planilla con datos del transporte?"
+        message="La planilla actual tiene datos cargados. Si continuás, se reemplazarán con la información del recorrido SCRN."
+        confirmText="Reemplazar"
         cancelText="Cancelar"
       />
 

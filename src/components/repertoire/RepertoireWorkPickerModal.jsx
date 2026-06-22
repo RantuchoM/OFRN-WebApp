@@ -17,8 +17,7 @@ import { formatSecondsToTime } from "../../utils/time";
 import {
   calculateInstrumentation,
   computeInstrumentationConvokedFromRoster,
-  getInstrumentValue,
-  hasStrings,
+  workMatchesInstrumentationFilter,
 } from "../../utils/instrumentation";
 import {
   buildMaxInstrumentationFilterDefaults,
@@ -114,6 +113,73 @@ const getEstadoRowBgClass = (estado) => {
   }
 };
 
+/** Misma lógica visual que tarjetas móviles en RepertoireManager. */
+const getEstadoMobileCardStyles = (estado) => {
+  const e = estado || "Oficial";
+  switch (e) {
+    case "Informativo":
+      return {
+        borderClass: "bg-blue-500",
+        cardBorderClass: "border-blue-400 bg-blue-50/50",
+      };
+    case "Solicitud":
+      return {
+        borderClass: "bg-amber-500",
+        cardBorderClass: "border-amber-300 bg-amber-50/50",
+      };
+    case "Para arreglar":
+      return {
+        borderClass: "bg-orange-500",
+        cardBorderClass: "border-orange-300 bg-orange-50/50",
+      };
+    case "Entregado":
+      return {
+        borderClass: "bg-sky-500",
+        cardBorderClass: "border-sky-300 bg-sky-50/50",
+      };
+    case "Oficial":
+      return {
+        borderClass: "bg-emerald-500",
+        cardBorderClass: "border-emerald-300 bg-emerald-50/60",
+      };
+    case "Pendiente":
+      return {
+        borderClass: "bg-slate-400",
+        cardBorderClass: "border-slate-200 bg-slate-50/50",
+      };
+    default:
+      return {
+        borderClass: "bg-slate-300",
+        cardBorderClass: "border-slate-200",
+      };
+  }
+};
+
+const MultiLineTitle = ({ content }) => {
+  if (!content) return null;
+  let clean = content.replace(/^<p>|<\/p>$/g, "");
+  const rawParts = clean.split(/<br\s*\/?>|<\/div><div>|\n/i);
+  const parts = rawParts
+    .map((p) => p.replace(/<div>|<\/div>/g, ""))
+    .filter((p) => p.trim() !== "");
+  if (parts.length === 0) return null;
+  return (
+    <div className="flex flex-col text-slate-800">
+      <div
+        className="text-[15px] font-bold leading-tight"
+        dangerouslySetInnerHTML={{ __html: parts[0] }}
+      />
+      {parts.length > 1 && (
+        <div className="mt-0.5 text-[11px] font-medium opacity-60 leading-tight">
+          {parts.slice(1).map((line, idx) => (
+            <div key={idx} dangerouslySetInnerHTML={{ __html: line }} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 /**
  * Modal reutilizable «Buscar / Agregar obra» con filtros de catálogo.
  * mode: select → una obra y callback; toggle → marcar/desmarcar (opciones placeholder).
@@ -145,6 +211,8 @@ export default function RepertoireWorkPickerModal({
   const [strictMode, setStrictMode] = useState(false);
   const [showInstrFilter, setShowInstrFilter] = useState(false);
   const instrFilterAnchorRef = useRef(null);
+  const mobileInstrFilterAnchorRef = useRef(null);
+  const [instrFilterAnchor, setInstrFilterAnchor] = useState(instrFilterAnchorRef);
   const [worksLibrary, setWorksLibrary] = useState([]);
   const [loadingLibrary, setLoadingLibrary] = useState(false);
   const [libraryPage, setLibraryPage] = useState(0);
@@ -318,53 +386,19 @@ export default function RepertoireWorkPickerModal({
           return false;
         }
 
-        const instr =
-          w.instrumentacion || calculateInstrumentation(w.obras_particellas) || "";
-        const hasStr = hasStrings(instr);
-
-        if (stringsFilter !== "all") {
-          if (stringsFilter === "with" && !hasStr) return false;
-          if (stringsFilter === "without" && hasStr) return false;
-        }
-
         if (
           instrFilters.length > 0 ||
           stringsFilter !== "all" ||
           strictMode
         ) {
-          const passActiveRules = instrFilters.every((rule) => {
-            const countInWork = getInstrumentValue(instr, rule.instrument);
-            const targetVal = parseInt(rule.value, 10) || 0;
-            if (rule.operator === "eq") return countInWork === targetVal;
-            if (rule.operator === "gte") return countInWork >= targetVal;
-            if (rule.operator === "lte") return countInWork <= targetVal;
-            return true;
-          });
-          if (!passActiveRules) return false;
-
-          if (strictMode) {
-            const activeKeys = new Set(instrFilters.map((r) => r.instrument));
-            const masterList = [
-              "fl",
-              "ob",
-              "cl",
-              "bn",
-              "hn",
-              "tpt",
-              "tbn",
-              "tba",
-              "timp",
-              "perc",
-              "harp",
-              "key",
-            ];
-            for (const key of masterList) {
-              if (!activeKeys.has(key) && (getInstrumentValue(instr, key) || 0) > 0) {
-                return false;
-              }
-            }
-            if (stringsFilter === "all" && hasStr) return false;
-            if (instr.includes("+")) return false;
+          if (
+            !workMatchesInstrumentationFilter(w, {
+              instrFilters,
+              stringsFilter,
+              strictMode,
+            })
+          ) {
+            return false;
           }
         }
         return true;
@@ -426,6 +460,414 @@ export default function RepertoireWorkPickerModal({
   };
 
   const reserve = placeholderReserve;
+
+  const renderFilterFields = (anchorRef, { mobile = false } = {}) => {
+    const openInstrFilter = () => {
+      setInstrFilterAnchor(anchorRef);
+      setShowInstrFilter((prev) => !prev);
+    };
+
+    if (mobile) {
+      const rowLabel =
+        "w-[4.75rem] shrink-0 text-[10px] font-bold text-slate-500 text-right";
+      const rowInput =
+        "flex-1 min-w-0 p-1 border border-slate-300 rounded text-[11px] outline-none focus:border-indigo-500 bg-white";
+      const organicoBtnClass =
+        "flex-1 min-w-0 text-[10px] p-1 border rounded flex items-center justify-between gap-1 min-h-[1.75rem]";
+
+      return (
+        <>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={rowLabel}>Compositor:</span>
+            <input
+              type="text"
+              placeholder="Buscar..."
+              autoFocus
+              className={rowInput}
+              value={filters.compositor}
+              onChange={(e) =>
+                setFilters({ ...filters, compositor: e.target.value })
+              }
+            />
+          </div>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={rowLabel}>Obra:</span>
+            <input
+              type="text"
+              placeholder="Buscar..."
+              className={rowInput}
+              value={filters.titulo}
+              onChange={(e) =>
+                setFilters({ ...filters, titulo: e.target.value })
+              }
+            />
+          </div>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={rowLabel}>Arreglador:</span>
+            <input
+              type="text"
+              placeholder="Buscar..."
+              className={rowInput}
+              value={filters.arreglador}
+              onChange={(e) =>
+                setFilters({ ...filters, arreglador: e.target.value })
+              }
+            />
+          </div>
+          <div className="flex items-center gap-2 min-w-0 relative">
+            <span className={rowLabel}>Orgánico:</span>
+            <button
+              ref={anchorRef}
+              type="button"
+              onClick={openInstrFilter}
+              className={`${organicoBtnClass} ${
+                hasActiveInstrFilter
+                  ? accentFilterActive + " font-bold"
+                  : "bg-white border-slate-300 text-slate-500"
+              }`}
+            >
+              <span className="truncate text-left">
+                {getInstrumentationFilterLabel(
+                  instrFilters,
+                  stringsFilter,
+                  strictMode,
+                )}
+              </span>
+              <IconFilter size={10} className="shrink-0" />
+            </button>
+          </div>
+        </>
+      );
+    }
+
+    const labelClass = "text-xs font-bold text-slate-500 uppercase";
+    const fieldGap = "space-y-2";
+    const inputClass =
+      "w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:border-indigo-500";
+    const organicoBtnClass =
+      "w-full text-xs p-1.5 border rounded flex items-center justify-between gap-2 min-h-[2rem]";
+
+    return (
+      <>
+        <div className={`${fieldGap} min-w-0`}>
+          <div className={labelClass}>Compositor</div>
+          <input
+            type="text"
+            placeholder="Buscar..."
+            autoFocus
+            className={inputClass}
+            value={filters.compositor}
+            onChange={(e) =>
+              setFilters({ ...filters, compositor: e.target.value })
+            }
+          />
+        </div>
+        <div className={`${fieldGap} min-w-0`}>
+          <div className={labelClass}>Obra</div>
+          <input
+            type="text"
+            placeholder="Buscar..."
+            className={inputClass}
+            value={filters.titulo}
+            onChange={(e) =>
+              setFilters({ ...filters, titulo: e.target.value })
+            }
+          />
+        </div>
+        <div className={`${fieldGap} min-w-0`}>
+          <div className={labelClass}>Arreglador</div>
+          <input
+            type="text"
+            placeholder="Buscar..."
+            className={inputClass}
+            value={filters.arreglador}
+            onChange={(e) =>
+              setFilters({ ...filters, arreglador: e.target.value })
+            }
+          />
+        </div>
+        <div className={`${fieldGap} relative min-w-0`}>
+          <div className={labelClass}>Orgánico</div>
+          <button
+            ref={anchorRef}
+            type="button"
+            onClick={openInstrFilter}
+            className={`${organicoBtnClass} ${
+              hasActiveInstrFilter
+                ? accentFilterActive + " font-bold"
+                : "bg-white border-slate-300 text-slate-500"
+            }`}
+          >
+            <span className="truncate text-left">
+              {getInstrumentationFilterLabel(
+                instrFilters,
+                stringsFilter,
+                strictMode,
+              )}
+            </span>
+            <IconFilter size={10} className="shrink-0" />
+          </button>
+        </div>
+      </>
+    );
+  };
+
+  const renderResultsBody = () => {
+    const emptyPad = "p-4 md:p-8";
+    const emptyText = "text-xs md:text-sm";
+
+    if (loadingLibrary) {
+      return (
+        <div className={`${emptyPad} text-center text-fixed-indigo-600`}>
+          <IconLoader className="animate-spin inline" />
+        </div>
+      );
+    }
+    if (!shouldFetchLibrary) {
+      return (
+        <div className={`${emptyPad} text-center`}>
+          <div className={`${emptyText} font-semibold text-slate-600`}>
+            Escribí compositor, obra o arreglador, o elegí un filtro de orgánico.
+          </div>
+        </div>
+      );
+    }
+    if (libraryError) {
+      return (
+        <div className={`${emptyPad} text-center ${emptyText} font-semibold text-red-600`}>
+          {libraryError}
+        </div>
+      );
+    }
+    if (filteredLibrary.length === 0) {
+      return (
+        <div className={`${emptyPad} text-center ${emptyText} font-semibold text-slate-600`}>
+          Sin coincidencias con los filtros actuales.
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div className="md:hidden bg-slate-50 p-2 space-y-1">
+          {filteredLibrary.map((w) => {
+            const isSelected = selectedSet.has(Number(w.id));
+            const { borderClass, cardBorderClass } =
+              getEstadoMobileCardStyles(w.estado);
+                    const instr =
+                      w.instrumentacion ||
+                      calculateInstrumentation(w.obras_particellas) ||
+                      "-";
+            return (
+              <div
+                key={w.id}
+                className={`rounded-lg border shadow-sm p-2 relative overflow-hidden ${cardBorderClass} ${
+                  mode === "toggle" && isSelected ? accentRowSelected : ""
+                }`}
+              >
+                <div
+                  className={`absolute left-0 top-0 bottom-0 w-1 ${borderClass}`}
+                />
+                <div className="flex gap-2 pl-2 pr-1">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-center mb-1 gap-2">
+                      <span
+                        className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide truncate"
+                        title={w.compositor_full}
+                      >
+                        {w.compositor_full}
+                      </span>
+                      <span className="shrink-0 text-[10px] font-mono bg-white/70 px-1.5 py-0.5 rounded border border-slate-100">
+                        {formatSecondsToTime(w.duracion_segundos) || "-"}
+                      </span>
+                    </div>
+
+                    <div className="mb-1">
+                      <div className="flex items-start gap-1 flex-wrap">
+                        <MultiLineTitle content={w.titulo} />
+                        {w.estado === "Informativo" && (
+                          <span className="text-[8px] bg-blue-100 text-blue-600 px-1 rounded border border-blue-200 align-text-top shrink-0">
+                            INFO
+                          </span>
+                        )}
+                      </div>
+                      {w.arreglador_full !== "-" && (
+                        <p className="text-[10px] text-slate-400 italic mt-0.5 truncate">
+                          Arr: {w.arreglador_full}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span
+                        className={`text-[10px] font-mono text-slate-500 bg-white/70 px-1 rounded ${
+                          hasActiveInstrFilter
+                            ? "font-bold text-yellow-700 bg-yellow-50"
+                            : ""
+                        }`}
+                      >
+                        {instr}
+                      </span>
+                      {w.anio_composicion ? (
+                        <span className="text-[10px] text-slate-400">
+                          {w.anio_composicion}
+                        </span>
+                      ) : null}
+                      {w.link_drive ? (
+                        <a
+                          href={w.link_drive}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-600 inline-flex rounded-full bg-blue-50 p-0.5"
+                          aria-label="Abrir Drive"
+                        >
+                          <IconDrive size={14} />
+                        </a>
+                      ) : null}
+                      {normalizeSearchText(w.observaciones) ? (
+                        <button
+                          type="button"
+                          onClick={() => setObservacionesPreviewWork(w)}
+                          className="inline-flex rounded border border-yellow-200 bg-yellow-50 text-yellow-700 p-0.5"
+                          aria-label="Ver observaciones"
+                        >
+                          <IconAlertCircle size={12} />
+                        </button>
+                      ) : null}
+                    </div>
+
+                    <div className="flex justify-end">
+                      {renderActionButton(w)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <table className="hidden md:table w-full table-fixed text-left text-xs">
+          <colgroup>
+            <col style={{ width: "18%" }} />
+            <col style={{ width: "26%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "4.25rem" }} />
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "3rem" }} />
+            <col style={{ width: "2.75rem" }} />
+            <col style={{ width: "2.75rem" }} />
+            <col style={{ width: "5.5rem" }} />
+          </colgroup>
+          <thead className="bg-slate-50 text-slate-500 uppercase sticky top-0 font-bold shadow-sm">
+            <tr>
+              <th className="p-2 text-center">Compositor</th>
+              <th className="p-2">Obra</th>
+              <th className="p-2">Arreglador</th>
+              <th className="p-2 text-center">Duración</th>
+              <th className="p-2 text-center">Instr.</th>
+              <th className="p-2 text-center">Año</th>
+              <th className="p-2 text-center">Drive</th>
+              <th className="p-2 text-center">Notas</th>
+              <th className="p-2 text-right" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {filteredLibrary.map((w) => {
+              const isSelected = selectedSet.has(Number(w.id));
+              return (
+                <tr
+                  key={w.id}
+                  className={`group ${getEstadoRowBgClass(w.estado)} ${mode === "toggle" && isSelected ? accentRowSelected : ""}`}
+                >
+                  <td className="p-2 text-center text-slate-600">
+                    <div className="truncate" title={w.compositor_full}>
+                      {splitNamesLabel(w.compositor_full)
+                        .slice(0, 2)
+                        .map((c, idx) => (
+                          <div
+                            key={idx}
+                            className={`min-w-0 leading-tight ${idx > 0 ? "pt-1 mt-1 border-t border-slate-100" : ""}`}
+                          >
+                            <div className="truncate text-[11px] font-semibold text-slate-700">
+                              {c.apellido}
+                            </div>
+                            {c.nombre ? (
+                              <div className="truncate text-[10px] font-medium text-slate-500 leading-tight">
+                                {c.nombre}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                    </div>
+                  </td>
+                  <td className="p-2 text-slate-800 truncate">
+                    <RichTextPreview content={w.titulo} />
+                  </td>
+                  <td className="p-2 text-slate-500 truncate max-w-0">
+                    {w.arreglador_full !== "-" ? w.arreglador_full : ""}
+                  </td>
+                  <td className="p-2 text-center font-mono text-[10px] text-slate-400">
+                    {formatSecondsToTime(w.duracion_segundos)}
+                  </td>
+                  <td className="p-2 text-center font-mono text-[10px] text-slate-500 bg-slate-50/50 rounded">
+                    <div className="line-clamp-3 break-all whitespace-normal">
+                      {w.instrumentacion ||
+                        calculateInstrumentation(w.obras_particellas) ||
+                        "-"}
+                    </div>
+                  </td>
+                  <td className="p-2 text-center text-slate-500">
+                    {w.anio_composicion || "-"}
+                  </td>
+                  <td className="p-2 text-center">
+                    {w.link_drive ? (
+                      <a
+                        href={w.link_drive}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-600 inline-block p-1 bg-blue-50 rounded-full"
+                      >
+                        <IconDrive size={14} />
+                      </a>
+                    ) : (
+                      <span className="text-slate-200">-</span>
+                    )}
+                  </td>
+                  <td className="p-2 text-center">
+                    {normalizeSearchText(w.observaciones) ? (
+                      <button
+                        type="button"
+                        onClick={() => setObservacionesPreviewWork(w)}
+                        className="inline-flex rounded border border-yellow-200 bg-yellow-50 text-yellow-700 p-1"
+                      >
+                        <IconAlertCircle size={12} />
+                      </button>
+                    ) : (
+                      <span className="text-slate-200">-</span>
+                    )}
+                  </td>
+                  <td className="p-2 text-right">{renderActionButton(w)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {libraryHasMore && (
+          <div className="p-2 border-t flex justify-center">
+            <button
+              type="button"
+              disabled={loadingLibrary}
+              onClick={() =>
+                fetchLibrary({ page: libraryPage + 1, append: true })
+              }
+              className="px-3 py-1.5 text-xs font-bold rounded border border-fixed-indigo-200 text-fixed-indigo-600"
+            >
+              {loadingLibrary ? "Cargando..." : "Cargar más"}
+            </button>
+          </div>
+        )}
+      </>
+    );
+  };
 
   return createPortal(
     <>
@@ -557,85 +999,23 @@ export default function RepertoireWorkPickerModal({
             </p>
           )}
 
-          <div className="p-2 border-b grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,9rem)_minmax(14rem,2.75fr)_auto] gap-4 bg-white items-end shrink-0">
-            <div className="space-y-2 min-w-0">
-              <div className="text-xs font-bold text-slate-500 uppercase">
-                Compositor
+          <div className="md:hidden shrink-0 p-2 border-b bg-white space-y-1.5">
+            {renderFilterFields(mobileInstrFilterAnchorRef, { mobile: true })}
+            {showCreateRequest && onCreateRequest && (
+              <div className="flex justify-end pt-0.5">
+                <button
+                  type="button"
+                  onClick={onCreateRequest}
+                  className={`${accentPrimary} text-white px-3 py-1.5 rounded text-[10px] font-bold flex items-center gap-1`}
+                >
+                  <IconPlus size={11} /> Crear Solicitud
+                </button>
               </div>
-              <input
-                type="text"
-                placeholder="Buscar..."
-                autoFocus
-                className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:border-indigo-500"
-                value={filters.compositor}
-                onChange={(e) =>
-                  setFilters({ ...filters, compositor: e.target.value })
-                }
-              />
-            </div>
-            <div className="space-y-2 min-w-0">
-              <div className="text-xs font-bold text-slate-500 uppercase">Obra</div>
-              <input
-                type="text"
-                placeholder="Buscar..."
-                className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:border-indigo-500"
-                value={filters.titulo}
-                onChange={(e) =>
-                  setFilters({ ...filters, titulo: e.target.value })
-                }
-              />
-            </div>
-            <div className="space-y-2 min-w-0">
-              <div className="text-xs font-bold text-slate-500 uppercase">
-                Arreglador
-              </div>
-              <input
-                type="text"
-                placeholder="Buscar..."
-                className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:border-indigo-500"
-                value={filters.arreglador}
-                onChange={(e) =>
-                  setFilters({ ...filters, arreglador: e.target.value })
-                }
-              />
-            </div>
-            <div className="space-y-2 relative min-w-0 md:min-w-[14rem]">
-              <div className="text-xs font-bold text-slate-500 uppercase">
-                Orgánico
-              </div>
-              <button
-                ref={instrFilterAnchorRef}
-                type="button"
-                onClick={() => setShowInstrFilter(!showInstrFilter)}
-                className={`w-full text-xs p-1.5 border rounded flex items-center justify-between gap-2 min-h-[2rem] ${
-                  hasActiveInstrFilter ? accentFilterActive + " font-bold" : "bg-white border-slate-300 text-slate-500"
-                }`}
-              >
-                <span className="truncate text-left">
-                  {getInstrumentationFilterLabel(
-                    instrFilters,
-                    stringsFilter,
-                    strictMode,
-                  )}
-                </span>
-                <IconFilter size={10} />
-              </button>
-              {showInstrFilter && (
-                <InstrumentationFilterModal
-                  anchorRef={instrFilterAnchorRef}
-                  onClose={() => setShowInstrFilter(false)}
-                  currentFilters={instrFilters}
-                  stringsFilter={stringsFilter}
-                  setStringsFilter={setStringsFilter}
-                  strictMode={strictMode}
-                  setStrictMode={setStrictMode}
-                  onApply={(newRules) => {
-                    setInstrFilters(newRules);
-                    setShowInstrFilter(false);
-                  }}
-                />
-              )}
-            </div>
+            )}
+          </div>
+
+          <div className="hidden md:grid p-2 border-b grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,9rem)_minmax(14rem,2.75fr)_auto] gap-4 bg-white items-end shrink-0">
+            {renderFilterFields(instrFilterAnchorRef)}
             {showCreateRequest && onCreateRequest && (
               <div className="flex justify-end pb-0.5">
                 <button
@@ -650,174 +1030,7 @@ export default function RepertoireWorkPickerModal({
           </div>
 
           <div className="flex-1 overflow-y-auto min-h-0">
-            {loadingLibrary ? (
-              <div className="p-8 text-center text-fixed-indigo-600">
-                <IconLoader className="animate-spin inline" />
-              </div>
-            ) : !shouldFetchLibrary ? (
-              <div className="p-8 text-center">
-                <div className="text-sm font-semibold text-slate-600">
-                  Escribí compositor, obra o arreglador, o elegí un filtro de orgánico.
-                </div>
-              </div>
-            ) : libraryError ? (
-              <div className="p-8 text-center text-sm font-semibold text-red-600">
-                {libraryError}
-              </div>
-            ) : filteredLibrary.length === 0 ? (
-              <div className="p-8 text-center text-sm font-semibold text-slate-600">
-                Sin coincidencias con los filtros actuales.
-              </div>
-            ) : (
-              <>
-                <div className="md:hidden p-2 space-y-2">
-                  {filteredLibrary.map((w) => {
-                    const isSelected = selectedSet.has(Number(w.id));
-                    return (
-                      <div
-                        key={w.id}
-                        className={`rounded-lg border border-slate-200 p-3 shadow-sm ${getEstadoRowBgClass(w.estado)} ${mode === "toggle" && isSelected ? accentRowSelected : ""}`}
-                      >
-                        <div className="text-[11px] text-slate-600 text-center">
-                          {splitNamesLabel(w.compositor_full).map((c, idx) => (
-                            <div key={idx} className="leading-tight">
-                              <div className="font-semibold">{c.apellido}</div>
-                              {c.nombre ? (
-                                <div className="text-[10px] text-slate-500">
-                                  {c.nombre}
-                                </div>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                        <div className="text-xs text-slate-800 mt-1 line-clamp-2">
-                          <RichTextPreview content={w.titulo} />
-                        </div>
-                        <div className="mt-2 text-[10px] text-slate-500 truncate">
-                          Instr.:{" "}
-                          {w.instrumentacion ||
-                            calculateInstrumentation(w.obras_particellas) ||
-                            "-"}
-                        </div>
-                        <div className="mt-3">{renderActionButton(w)}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <table className="hidden md:table w-full table-fixed text-left text-xs">
-                  <colgroup>
-                    <col style={{ width: "18%" }} />
-                    <col style={{ width: "26%" }} />
-                    <col style={{ width: "10%" }} />
-                    <col style={{ width: "4.25rem" }} />
-                    <col style={{ width: "22%" }} />
-                    <col style={{ width: "3rem" }} />
-                    <col style={{ width: "2.75rem" }} />
-                    <col style={{ width: "2.75rem" }} />
-                    <col style={{ width: "5.5rem" }} />
-                  </colgroup>
-                  <thead className="bg-slate-50 text-slate-500 uppercase sticky top-0 font-bold shadow-sm">
-                    <tr>
-                      <th className="p-2 text-center">Compositor</th>
-                      <th className="p-2">Obra</th>
-                      <th className="p-2">Arreglador</th>
-                      <th className="p-2 text-center">Duración</th>
-                      <th className="p-2 text-center">Instr.</th>
-                      <th className="p-2 text-center">Año</th>
-                      <th className="p-2 text-center">Drive</th>
-                      <th className="p-2 text-center">Notas</th>
-                      <th className="p-2 text-right" />
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {filteredLibrary.map((w) => {
-                      const isSelected = selectedSet.has(Number(w.id));
-                      return (
-                        <tr
-                          key={w.id}
-                          className={`group ${getEstadoRowBgClass(w.estado)} ${mode === "toggle" && isSelected ? accentRowSelected : ""}`}
-                        >
-                          <td className="p-2 text-center text-slate-600">
-                            <div className="truncate" title={w.compositor_full}>
-                              {splitNamesLabel(w.compositor_full)
-                                .slice(0, 2)
-                                .map((c, idx) => (
-                                  <div key={idx} className="leading-tight">
-                                    <div className="truncate text-[11px] font-semibold">
-                                      {c.apellido}
-                                    </div>
-                                  </div>
-                                ))}
-                            </div>
-                          </td>
-                          <td className="p-2 text-slate-800 truncate">
-                            <RichTextPreview content={w.titulo} />
-                          </td>
-                          <td className="p-2 text-slate-500 truncate max-w-0">
-                            {w.arreglador_full !== "-" ? w.arreglador_full : ""}
-                          </td>
-                          <td className="p-2 text-center font-mono text-[10px] text-slate-400">
-                            {formatSecondsToTime(w.duracion_segundos)}
-                          </td>
-                          <td className="p-2 text-center font-mono text-[10px] text-slate-500 bg-slate-50/50 rounded">
-                            <div className="line-clamp-3 break-all whitespace-normal">
-                              {w.instrumentacion ||
-                                calculateInstrumentation(w.obras_particellas) ||
-                                "-"}
-                            </div>
-                          </td>
-                          <td className="p-2 text-center text-slate-500">
-                            {w.anio_composicion || "-"}
-                          </td>
-                          <td className="p-2 text-center">
-                            {w.link_drive ? (
-                              <a
-                                href={w.link_drive}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-blue-600 inline-block p-1 bg-blue-50 rounded-full"
-                              >
-                                <IconDrive size={14} />
-                              </a>
-                            ) : (
-                              <span className="text-slate-200">-</span>
-                            )}
-                          </td>
-                          <td className="p-2 text-center">
-                            {normalizeSearchText(w.observaciones) ? (
-                              <button
-                                type="button"
-                                onClick={() => setObservacionesPreviewWork(w)}
-                                className="inline-flex rounded border border-yellow-200 bg-yellow-50 text-yellow-700 p-1"
-                              >
-                                <IconAlertCircle size={12} />
-                              </button>
-                            ) : (
-                              <span className="text-slate-200">-</span>
-                            )}
-                          </td>
-                          <td className="p-2 text-right">{renderActionButton(w)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                {libraryHasMore && (
-                  <div className="p-2 border-t flex justify-center">
-                    <button
-                      type="button"
-                      disabled={loadingLibrary}
-                      onClick={() =>
-                        fetchLibrary({ page: libraryPage + 1, append: true })
-                      }
-                      className="px-3 py-1.5 text-xs font-bold rounded border border-fixed-indigo-200 text-fixed-indigo-600"
-                    >
-                      {loadingLibrary ? "Cargando..." : "Cargar más"}
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
+            {renderResultsBody()}
           </div>
 
           {mode === "toggle" && (
@@ -837,6 +1050,22 @@ export default function RepertoireWorkPickerModal({
           )}
         </div>
       </div>
+
+      {showInstrFilter && (
+        <InstrumentationFilterModal
+          anchorRef={instrFilterAnchor}
+          onClose={() => setShowInstrFilter(false)}
+          currentFilters={instrFilters}
+          stringsFilter={stringsFilter}
+          setStringsFilter={setStringsFilter}
+          strictMode={strictMode}
+          setStrictMode={setStrictMode}
+          onApply={(newRules) => {
+            setInstrFilters(newRules);
+            setShowInstrFilter(false);
+          }}
+        />
+      )}
 
       {observacionesPreviewWork && (
         <div

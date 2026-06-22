@@ -38,6 +38,7 @@ import {
   propuestaOcupacionWindowFromForm,
 } from "./viajeTransporteConflict";
 import { isSalidaHoyOFutura } from "./viajeSalidaTemporal";
+import { normalizeViaticosOpciones } from "../../../utils/scrnViaticoPrefill";
 import {
   normalizeScrnTransporteColor,
   scrnTransporteAccentStyle,
@@ -1376,6 +1377,7 @@ export default function AdminSCRNPanel({
         obs_subida: s.obs_subida?.trim() || null,
         localidad_bajada: (s.localidad_bajada || "").trim(),
         obs_bajada: s.obs_bajada?.trim() || null,
+        viaticos_opciones: normalizeViaticosOpciones(s.viaticos_opciones),
       })
       .select("id")
       .single();
@@ -1397,6 +1399,7 @@ export default function AdminSCRNPanel({
               apellido: null,
               email: null,
               estado: "aceptada",
+              viaticos_opciones: normalizeViaticosOpciones(p.viaticos_opciones),
             }
           : {
               id_reserva: rRow.id,
@@ -1405,6 +1408,7 @@ export default function AdminSCRNPanel({
               apellido: (p.apellido || "").trim() || null,
               email: p.email ? String(p.email).trim() : null,
               estado: "aceptada",
+              viaticos_opciones: normalizeViaticosOpciones(p.viaticos_opciones),
             },
       );
       const { error: eP } = await supabase

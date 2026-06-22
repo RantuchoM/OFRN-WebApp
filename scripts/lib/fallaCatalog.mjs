@@ -14,7 +14,7 @@ export const FALLA_WORK = {
   targetFolder: "Falla, M. - Danza Española Nro 1 ('La Vida Breve')",
   titulo: "Danza Española Nro 1 ('La Vida Breve')",
   tituloDb: "<p>Danza Española Nro 1. 'La Vida Breve'</p>",
-  workNumber: "S/N",
+  workNumber: null,
   composerTag: "Falla, M",
   compositor: { apellido: "Falla", nombre: "Manuel de" },
   /** Obra existente en BD (título HTML). El usuario indicó id 32; en prod es 3532. */

@@ -313,6 +313,102 @@ export const calculateInstrumentation = (parts) => {
   return finalStr || "";
 };
 
+const UNDETERMINED_INSTR_RE =
+  /(?:sin\s+determin|a\s+definir|por\s+definir|desconocid|indetermin|\bs\/d\b|s\.d\.|\btbd\b|^n\/?a$|pendiente)/i;
+
+/** True si el string de orgánico es parseable para filtrar (no vacío ni texto vago). */
+export function isInstrumentationClearlyDetermined(instrRaw) {
+  const instr = String(instrRaw || "").trim();
+  if (!instr || instr === "-" || instr === "—") return false;
+  if (UNDETERMINED_INSTR_RE.test(instr)) return false;
+
+  if (/\d+\.\d+(?:\.\d+){0,3}/.test(instr)) return true;
+
+  if (
+    /\b(?:Str|Cuerd|Perc|Timp|Hp|Harp|Key|Pno|Pf|Cel)\b/i.test(instr) ||
+    /Perc\.x\d+/i.test(instr)
+  ) {
+    return true;
+  }
+
+  if (
+    /\d+\s*(?:Fl|Ob|Cl|Fg|Bn|Hn|Cor|Tpt|Tp|Tbn|Tb|Tba)/i.test(instr) ||
+    /(?:Fl|Ob|Cl|Fg|Bn|Hn|Cor|Tpt|Tp|Tbn|Tb|Tba)\s*\.?\s*x\s*\d+/i.test(instr)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/** Mejor orgánico disponible para filtrar (campo explícito o inferido de particellas). */
+export function resolveWorkInstrumentationForFilter(obra) {
+  if (!obra) return "";
+  const explicit = String(obra.instrumentacion || "").trim();
+  const fromParts = calculateInstrumentation(obra.obras_particellas) || "";
+
+  if (explicit && isInstrumentationClearlyDetermined(explicit)) return explicit;
+  if (fromParts && isInstrumentationClearlyDetermined(fromParts)) return fromParts;
+  return "";
+}
+
+export function isWorkInstrumentationClearlyDetermined(obra) {
+  return !!resolveWorkInstrumentationForFilter(obra);
+}
+
+/** Filtro de orgánico: obras sin orgánico claro no se excluyen. */
+export function workMatchesInstrumentationFilter(
+  obra,
+  { instrFilters = [], stringsFilter = "all", strictMode = false } = {},
+) {
+  if (!isWorkInstrumentationClearlyDetermined(obra)) return true;
+
+  const instr = resolveWorkInstrumentationForFilter(obra);
+  const hasStr = hasStrings(instr);
+
+  if (stringsFilter !== "all") {
+    if (stringsFilter === "with" && !hasStr) return false;
+    if (stringsFilter === "without" && hasStr) return false;
+  }
+
+  const passActiveRules = instrFilters.every((rule) => {
+    const countInWork = getInstrumentValue(instr, rule.instrument);
+    const targetVal = parseInt(rule.value, 10) || 0;
+    if (rule.operator === "eq") return countInWork === targetVal;
+    if (rule.operator === "gte") return countInWork >= targetVal;
+    if (rule.operator === "lte") return countInWork <= targetVal;
+    return true;
+  });
+  if (!passActiveRules) return false;
+
+  if (strictMode) {
+    const activeKeys = new Set(instrFilters.map((r) => r.instrument));
+    const masterList = [
+      "fl",
+      "ob",
+      "cl",
+      "bn",
+      "hn",
+      "tpt",
+      "tbn",
+      "tba",
+      "timp",
+      "perc",
+      "harp",
+      "key",
+    ];
+    for (const key of masterList) {
+      if (!activeKeys.has(key) && (getInstrumentValue(instr, key) || 0) > 0) {
+        return false;
+      }
+    }
+    if (stringsFilter === "all" && hasStr) return false;
+    if (instr.includes("+")) return false;
+  }
+
+  return true;
+}
+
 /** Clasifica una particella en familia de instrumentación estándar (o null si no aplica). */
 export function classifyParticellaToInstrumentationFamily(part) {
   if (!part) return null;

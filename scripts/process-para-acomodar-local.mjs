@@ -47,7 +47,7 @@ const WORKS = [
     targetFolder: "Rey Jr., V. - A portrait of Frida Kahlo",
     composerTag: "Rey Jr., V",
     workTitle: "A portrait of Frida Kahlo",
-    workNumber: "S/N",
+    workNumber: null,
     splits: [],
   },
   {
@@ -55,7 +55,7 @@ const WORKS = [
     targetFolder: "Medoza y Cortés, Q. - Cielito Lindo",
     composerTag: "Medoza y Cortés, Q",
     workTitle: "Cielito Lindo",
-    workNumber: "S/N",
+    workNumber: null,
     splits: [],
   },
   {
@@ -63,7 +63,7 @@ const WORKS = [
     targetFolder: "Puccini, G. - Quando m'en vo (Vals de Musetta, 'La Bohème')",
     composerTag: "Puccini, G",
     workTitle: "Quando m'en vo (Vals de Musetta, 'La Bohème')",
-    workNumber: "S/N",
+    workNumber: null,
     splits: [],
   },
   {
@@ -71,7 +71,7 @@ const WORKS = [
     targetFolder: "Verdi, G. - Il Trovatore, Coro de gitanos",
     composerTag: "Verdi, G",
     workTitle: "Il Trovatore, Coro de gitanos",
-    workNumber: "S/N",
+    workNumber: null,
     splits: [],
   },
   {
@@ -79,7 +79,7 @@ const WORKS = [
     targetFolder: "Verdi, G. - La forza del destino, Obertura",
     composerTag: "Verdi, G",
     workTitle: "La forza del destino, Obertura",
-    workNumber: "S/N",
+    workNumber: null,
     splits: [],
   },
 ];
@@ -91,7 +91,7 @@ const GRIEG_SUBWORKS = [
     targetFolder: "Grieg, E. - Peer Gynt (Suite 1)",
     composerTag: "Grieg, E",
     workTitle: "Peer Gynt (Suite 1)",
-    workNumber: "S/N",
+    workNumber: null,
     splits: [
       {
         pdf: "Corno 1 2 3 4 en F Grieg Suite 1 completa.pdf",
@@ -112,7 +112,7 @@ const GRIEG_SUBWORKS = [
     targetFolder: "Grieg, E. - Peer Gynt (Suite 2)",
     composerTag: "Grieg, E",
     workTitle: "Peer Gynt (Suite 2)",
-    workNumber: "S/N",
+    workNumber: null,
     splits: [],
   },
 ];

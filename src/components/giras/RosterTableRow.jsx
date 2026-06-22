@@ -13,7 +13,7 @@ import WhatsAppLink from "../ui/WhatsAppLink";
 
 /**
  * Una fila de la tabla del roster de gira.
- * Baja (ausente/desconvocar) pasa por ventana 5s con Deshacer; no reordena hasta efectivizar.
+ * Baja (ausente/desconvocar) abre modal de motivo; no reordena hasta confirmar.
  */
 export default function RosterTableRow({
   musician: m,
@@ -34,7 +34,6 @@ export default function RosterTableRow({
   onDeleteVacancy,
   onToggleStatus,
   onRequestBaja,
-  onCancelBaja,
   pendingBajaForRow,
   onCopyLink,
   onOpenMotivoModal,
@@ -272,40 +271,13 @@ export default function RosterTableRow({
           {m.es_simulacion ? (
             <span className="text-[9px] text-slate-400">—</span>
           ) : pendingBajaForRow ? (
-            <div className="relative w-7 h-7 md:w-10 md:h-10 rounded flex items-center justify-center bg-white border-2 border-red-200 text-red-600 mx-auto">
-              <span className="text-[11px] font-bold relative z-10">A</span>
-              {/* Círculo que se consume (countdown circular) */}
-              <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 36 36">
-                <circle
-                  cx="18"
-                  cy="18"
-                  r="14"
-                  fill="none"
-                  stroke="rgb(254 226 226)"
-                  strokeWidth="2.5"
-                />
-                <circle
-                  cx="18"
-                  cy="18"
-                  r="14"
-                  fill="none"
-                  stroke="rgb(239 68 68)"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeDasharray={88}
-                  strokeDashoffset={88 - (pendingBajaForRow.countdown / 5) * 88}
-                  className="transition-[stroke-dashoffset] duration-1000 ease-linear"
-                />
-              </svg>
-              <div className="absolute -top-4 -right-1 z-10">
-                <button
-                  type="button"
-                  onClick={() => onCancelBaja()}
-                  className="text-[8px] font-black bg-amber-400 hover:bg-amber-500 text-amber-900 px-1.5 py-0.5 rounded shadow leading-tight animate-titilar"
-                >
-                  Deshacer
-                </button>
-              </div>
+            <div
+              className="relative w-7 h-7 md:w-10 md:h-10 rounded flex items-center justify-center bg-white border-2 border-red-300 text-red-600 mx-auto animate-pulse"
+              title="Baja pendiente de confirmación"
+            >
+              <span className="text-[11px] font-bold">
+                {pendingBajaForRow.action === "desconvocar" ? "—" : "A"}
+              </span>
             </div>
           ) : m.estado_gira === "ausente" ? (
             <div className="relative inline-flex items-center justify-center mx-auto">

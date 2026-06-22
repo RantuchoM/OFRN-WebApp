@@ -1133,6 +1133,7 @@ CREATE TABLE public.scrn_reserva_pasajeros (
   localidad_bajada text,
   obs_subida text,
   obs_bajada text,
+  viaticos_opciones jsonb NOT NULL DEFAULT '{}'::jsonb,
   CONSTRAINT scrn_reserva_pasajeros_pkey PRIMARY KEY (id),
   CONSTRAINT scrn_reserva_pasajeros_id_reserva_fkey FOREIGN KEY (id_reserva) REFERENCES public.scrn_reservas(id),
   CONSTRAINT scrn_reserva_pasajeros_id_perfil_fkey FOREIGN KEY (id_perfil) REFERENCES public.scrn_perfiles(id)
@@ -1147,6 +1148,7 @@ CREATE TABLE public.scrn_reservas (
   obs_subida text,
   localidad_bajada text NOT NULL,
   obs_bajada text,
+  viaticos_opciones jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT scrn_reservas_pkey PRIMARY KEY (id),
   CONSTRAINT scrn_reservas_id_viaje_fkey FOREIGN KEY (id_viaje) REFERENCES public.scrn_viajes(id),
@@ -1169,6 +1171,7 @@ CREATE TABLE public.scrn_solicitudes_nuevo_viaje (
   localidad_bajada text NOT NULL DEFAULT ''::text,
   obs_bajada text,
   pasajeros_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  viaticos_opciones jsonb NOT NULL DEFAULT '{}'::jsonb,
   estado text NOT NULL DEFAULT 'pendiente'::text CHECK (estado = ANY (ARRAY['pendiente'::text, 'aprobada'::text, 'rechazada'::text])),
   id_viaje_creado bigint,
   created_at timestamp with time zone NOT NULL DEFAULT now(),

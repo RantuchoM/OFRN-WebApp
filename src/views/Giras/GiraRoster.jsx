@@ -32,6 +32,7 @@ import {
   buildGiraIntegranteUpsert,
   applyEffectiveGiraInstrument,
 } from "../../utils/giraUtils";
+import { buildAusenteMailNotification, buildBajaGiraMailNotification } from "../../utils/rosterBajaMotivos";
 import MusicianForm from "../Musicians/MusicianForm";
 import {
   AddVacancyModal,
@@ -39,6 +40,7 @@ import {
 } from "../../components/giras/VacancyTools";
 import RosterTableRow from "../../components/giras/RosterTableRow";
 import RosterMotivoModal from "../../components/giras/RosterMotivoModal";
+import RosterBajaModal from "../../components/giras/RosterBajaModal";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
 import { toast } from "sonner";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
@@ -232,10 +234,8 @@ export default function GiraRoster({
   const [editingMusician, setEditingMusician] = useState(null);
   const [showExitConfirmModal, setShowExitConfirmModal] = useState(false);
 
-  // Baja con confirmación 5s: ausente o desconvocar. No reordenar ni notificar hasta efectivizar.
+  // Baja con modal de motivo: ausente o desconvocar. No reordenar ni notificar hasta confirmar.
   const [pendingBaja, setPendingBaja] = useState(null);
-  const [bajaCountdownSeconds, setBajaCountdownSeconds] = useState(0);
-  const bajaTimerRef = useRef(null);
 
   const notificationQueueRef = useRef(null);
 
@@ -1079,35 +1079,46 @@ export default function GiraRoster({
     if (!error) refreshRoster();
   };
 
-  // --- Baja con ventana 5s (ausente o desconvocar): no reordenar ni notificar hasta efectivizar ---
+  // --- Baja con modal (ausente o desconvocar): no reordenar ni notificar hasta confirmar ---
   const requestBaja = (musician, action) => {
     if (pendingBaja) return;
     setPendingBaja({
       integranteId: musician.id,
       action,
       musician,
-      startedAt: Date.now(),
     });
-    setBajaCountdownSeconds(5);
   };
 
   const cancelBaja = () => {
-    if (bajaTimerRef.current) clearInterval(bajaTimerRef.current);
-    bajaTimerRef.current = null;
     setPendingBaja(null);
-    setBajaCountdownSeconds(0);
   };
 
-  const efectivizeBaja = async () => {
+  const confirmBaja = async ({ motivoText, motivoId, notify }) => {
     if (!pendingBaja) return;
     const { musician, action } = pendingBaja;
+    const nombreCompleto =
+      musician.nombre_completo ||
+      `${musician.nombre || ""} ${musician.apellido || ""}`.trim();
+    const shouldNotify =
+      notify &&
+      localNotificacionInicialEnviada &&
+      notificacionesHabilitadas &&
+      musician.mail;
+    const motivoPayload = {
+      motivo_estado: motivoText,
+      motivo_estado_actualizado_at: new Date().toISOString(),
+    };
+
     if (action === "ausente") {
       await supabase.from("giras_integrantes").upsert(
-        buildGiraIntegranteUpsert(gira.id, musician, { estado: "ausente" }),
+        buildGiraIntegranteUpsert(gira.id, musician, {
+          estado: "ausente",
+          ...motivoPayload,
+        }),
         { onConflict: "id_gira, id_integrante" },
       );
-      if (localNotificacionInicialEnviada && notificacionesHabilitadas && musician.mail) {
-        const nombreCompleto = musician.nombre_completo || `${musician.nombre || ""} ${musician.apellido || ""}`.trim();
+      if (shouldNotify) {
+        const mail = buildAusenteMailNotification({ motivoText, motivoId });
         setPendingNotifications((prev) => [
           ...prev,
           {
@@ -1115,20 +1126,25 @@ export default function GiraRoster({
             variant: "AUSENTE",
             emails: [musician.mail],
             nombres: [nombreCompleto],
-            reason: "Se te marcó como ausente",
+            reason: mail.reason,
+            reasonFootnote: mail.reasonFootnote || undefined,
+            motivoBajaId: mail.motivoBajaId || undefined,
           },
         ]);
       }
     } else {
-      if (localNotificacionInicialEnviada && notificacionesHabilitadas && musician.mail) {
+      if (shouldNotify) {
+        const mail = buildBajaGiraMailNotification({ motivoText, motivoId });
         setPendingNotifications((prev) => [
           ...prev,
           {
             id: `baja-${musician.id}-${Date.now()}`,
             variant: "BAJA",
             emails: [musician.mail],
-            nombres: [musician.nombre_completo || `${musician.nombre || ""} ${musician.apellido || ""}`.trim()],
-            reason: "Baja de la gira",
+            nombres: [nombreCompleto],
+            reason: mail.reason,
+            reasonFootnote: mail.reasonFootnote || undefined,
+            motivoBajaId: mail.motivoBajaId || undefined,
           },
         ]);
       }
@@ -1138,12 +1154,14 @@ export default function GiraRoster({
         .eq("id_integrante", musician.id)
         .eq("id_gira", gira.id);
     }
-    if (bajaTimerRef.current) clearInterval(bajaTimerRef.current);
-    bajaTimerRef.current = null;
     setPendingBaja(null);
-    setBajaCountdownSeconds(0);
     await refreshRoster();
   };
+
+  const pendingBajaCanNotify =
+    Boolean(pendingBaja?.musician?.mail) &&
+    localNotificacionInicialEnviada &&
+    notificacionesHabilitadas;
 
   const saveMotivoFromModal = async (texto) => {
     if (!motivoModalMusician?.id || !gira?.id) return;
@@ -1166,36 +1184,6 @@ export default function GiraRoster({
     toast.success("Motivo guardado");
     await refreshRoster();
   };
-
-  useEffect(() => {
-    if (!pendingBaja) return;
-    const startedAt = pendingBaja.startedAt;
-    const tick = () => {
-      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
-      const left = Math.max(0, 5 - elapsed);
-      setBajaCountdownSeconds(left);
-      if (left <= 0) {
-        if (bajaTimerRef.current) clearInterval(bajaTimerRef.current);
-        bajaTimerRef.current = null;
-        efectivizeBaja();
-      }
-    };
-    tick();
-    bajaTimerRef.current = setInterval(tick, 1000);
-    return () => {
-      if (bajaTimerRef.current) clearInterval(bajaTimerRef.current);
-    };
-  }, [pendingBaja?.integranteId, pendingBaja?.action]);
-
-  useEffect(() => {
-    if (!pendingBaja) return;
-    const handler = (e) => {
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [pendingBaja]);
 
   const sendNotificacionInicial = async () => {
     const confirmados = localRoster.filter(
@@ -1718,7 +1706,7 @@ export default function GiraRoster({
             onClick={() => {
               if (pendingBaja) {
                 toast.warning(
-                  "Hay una baja pendiente. Espera los 5 segundos o cancélala antes de salir.",
+                  "Hay una baja pendiente. Confirmala o deshacela en el modal antes de salir.",
                 );
                 return;
               }
@@ -2469,10 +2457,9 @@ export default function GiraRoster({
                     onDeleteVacancy={handleDeleteVacancy}
                     onToggleStatus={toggleStatus}
                     onRequestBaja={requestBaja}
-                    onCancelBaja={cancelBaja}
                     pendingBajaForRow={
                       pendingBaja && pendingBaja.integranteId === m.id
-                        ? { action: pendingBaja.action, countdown: bajaCountdownSeconds }
+                        ? { action: pendingBaja.action }
                         : null
                     }
                     onCopyLink={copyGuestLink}
@@ -2506,6 +2493,14 @@ export default function GiraRoster({
         isEditor={isEditor}
         onClose={() => setMotivoModalMusician(null)}
         onSave={saveMotivoFromModal}
+      />
+
+      <RosterBajaModal
+        pendingBaja={pendingBaja}
+        canNotify={pendingBajaCanNotify}
+        isEditor={isEditor}
+        onClose={cancelBaja}
+        onConfirm={confirmBaja}
       />
 
       {/* --- MODAL CREACIÓN (DETALLADO) --- */}

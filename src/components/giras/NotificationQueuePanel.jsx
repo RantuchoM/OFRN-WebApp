@@ -67,6 +67,8 @@ const NotificationQueuePanel = forwardRef(function NotificationQueuePanel(
               fecha_hasta: taskFechaHasta,
               zona: taskZona,
               reason: task.reason ?? undefined,
+              reason_footnote: task.reasonFootnote || undefined,
+              motivo_baja_id: task.motivoBajaId || undefined,
             },
           },
         });

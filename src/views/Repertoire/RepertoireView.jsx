@@ -36,7 +36,7 @@ import TagsManager from "./TagsManager";
 import TagMultiSelect from "../../components/filters/TagMultiSelect";
 import RepertoireSelectionBar from "../../components/repertoire/RepertoireSelectionBar";
 import InstrumentationFilterModal from "../../components/repertoire/InstrumentationFilterModal";
-import { calculateInstrumentation } from "../../utils/instrumentation";
+import { calculateInstrumentation, workMatchesInstrumentationFilter } from "../../utils/instrumentation";
 import { getInstrumentationFilterLabel } from "../../utils/instrumentationFilterPresets";
 import { normalizeForSearch } from "../../utils/sanitize";
 import {
@@ -865,31 +865,19 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
         return false;
       if (selectedTags.size > 0 && !work.tags_ids.some((id) => selectedTags.has(id))) return false;
 
-      if (stringsFilter !== "all") {
-        const hasStr = hasStrings(work.instrumentacion);
-        if (stringsFilter === "with" && !hasStr) return false;
-        if (stringsFilter === "without" && hasStr) return false;
-      }
-
-      if (instrFilters.length > 0 || stringsFilter !== "all" || strictMode) {
-        const passActiveRules = instrFilters.every((rule) => {
-          const countInWork = work.instValues[rule.instrument] || 0;
-          const targetVal = parseInt(rule.value) || 0;
-          if (rule.operator === "eq") return countInWork === targetVal;
-          if (rule.operator === "gte") return countInWork >= targetVal;
-          if (rule.operator === "lte") return countInWork <= targetVal;
-          return true;
-        });
-        if (!passActiveRules) return false;
-
-        if (strictMode) {
-          const activeKeys = new Set(instrFilters.map((r) => r.instrument));
-          const masterList = ["fl", "ob", "cl", "bn", "hn", "tpt", "tbn", "tba", "timp", "perc", "harp", "key"];
-          for (const key of masterList) {
-            if (!activeKeys.has(key) && (work.instValues[key] || 0) > 0) return false;
-          }
-          if (stringsFilter === "all" && hasStrings(work.instrumentacion)) return false;
-          if (work.instrumentacion?.includes("+")) return false;
+      if (
+        instrFilters.length > 0 ||
+        stringsFilter !== "all" ||
+        strictMode
+      ) {
+        if (
+          !workMatchesInstrumentationFilter(work, {
+            instrFilters,
+            stringsFilter,
+            strictMode,
+          })
+        ) {
+          return false;
         }
       }
       return true;

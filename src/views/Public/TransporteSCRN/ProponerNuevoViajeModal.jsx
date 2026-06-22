@@ -12,6 +12,10 @@ import {
 } from "./viajeTransporteConflict";
 import { topeTransportePasajeros } from "./scrnPlazasCapacidad";
 import AlertModal from "../../../components/ui/AlertModal";
+import ScrnViaticosOpcionesFields, {
+  EMPTY_VIATICOS_OPCIONES,
+  normalizeViaticosOpciones,
+} from "./ScrnViaticosOpcionesFields";
 
 const initialParadas = {
   tramo: "ambos",
@@ -45,6 +49,9 @@ export default function ProponerNuevoViajeModal({
   const [error, setError] = useState("");
   const [transporteOcupadoMsg, setTransporteOcupadoMsg] = useState(null);
   const [paradasCustom, setParadasCustom] = useState(false);
+  const [titularViaticosOpciones, setTitularViaticosOpciones] = useState(() => ({
+    ...EMPTY_VIATICOS_OPCIONES,
+  }));
 
   const perfilesDisponibles = useMemo(
     () =>
@@ -94,7 +101,16 @@ export default function ProponerNuevoViajeModal({
     setError("");
     setTransporteOcupadoMsg(null);
     setParadasCustom(false);
+    setTitularViaticosOpciones({ ...EMPTY_VIATICOS_OPCIONES });
     onClose?.();
+  };
+
+  const setRowViaticosOpciones = (key, opts) => {
+    setExtra((list) =>
+      list.map((row) =>
+        row.key === key ? { ...row, viaticos_opciones: normalizeViaticosOpciones(opts) } : row,
+      ),
+    );
   };
 
   const addFromPerfil = (perfilId) => {
@@ -111,6 +127,7 @@ export default function ProponerNuevoViajeModal({
         apellido: p.apellido || "",
         email: null,
         origen: "perfil",
+        viaticos_opciones: { ...EMPTY_VIATICOS_OPCIONES },
       },
     ]);
     setPerfilSelectKey((k) => k + 1);
@@ -134,6 +151,7 @@ export default function ProponerNuevoViajeModal({
         apellido: a,
         email: e,
         origen: "manual",
+        viaticos_opciones: { ...EMPTY_VIATICOS_OPCIONES },
       },
     ]);
     setDraftManual({ nombre: "", apellido: "", email: "" });
@@ -231,6 +249,7 @@ export default function ProponerNuevoViajeModal({
       nombre: (row.nombre || "").trim(),
       apellido: (row.apellido || "").trim(),
       email: row.email ? row.email.trim() : null,
+      viaticos_opciones: normalizeViaticosOpciones(row.viaticos_opciones),
     }));
 
     const { error: insertError } = await supabase
@@ -253,6 +272,7 @@ export default function ProponerNuevoViajeModal({
         localidad_bajada: bj,
         obs_bajada: (paradasCustom ? paradas.obs_bajada : "").trim() || null,
         pasajeros_json: paxForJson,
+        viaticos_opciones: normalizeViaticosOpciones(titularViaticosOpciones),
         estado: "pendiente",
       });
 
@@ -532,6 +552,29 @@ export default function ProponerNuevoViajeModal({
               </ul>
             )}
           </div>
+
+          <ScrnViaticosOpcionesFields
+            title="Datos para tu viático (opcional)"
+            value={titularViaticosOpciones}
+            onChange={setTitularViaticosOpciones}
+          />
+
+          {extra.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-xs font-extrabold text-slate-700 uppercase tracking-wide">
+                Viático por acompañante (opcional)
+              </p>
+              {extra.map((row) => (
+                <ScrnViaticosOpcionesFields
+                  key={`viatico-${row.key}`}
+                  compact
+                  title={`${row.apellido || ""}, ${row.nombre || ""}`.replace(/^,\s*/, "").trim() || "Acompañante"}
+                  value={row.viaticos_opciones || EMPTY_VIATICOS_OPCIONES}
+                  onChange={(opts) => setRowViaticosOpciones(row.key, opts)}
+                />
+              ))}
+            </div>
+          ) : null}
 
           {error && (
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 whitespace-pre-wrap">

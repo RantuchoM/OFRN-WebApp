@@ -1,6 +1,7 @@
 export const STORAGE_KEY = "ofrn_manual_viatico_data";
 export const VIATICO_ORIGEN_SESSION_KEY = "viaticos_manual_viatico_origen_id";
 export const GUEST_BYPASS_SESSION_KEY = "viaticos_manual_guest_bypass";
+export const SCRN_VIATICO_PREFILL_SESSION_KEY = "ofrn_scrn_viatico_prefill";
 
 export function readGuestBypass() {
   try {
@@ -120,6 +121,32 @@ export function hasMeaningfulRendicionData(base, ant, rend) {
 
   const moneyValues = [...Object.values(ant || {}), ...Object.values(rend || {})];
   return moneyValues.some((value) => toStorageNumber(value) > 0);
+}
+
+export function writeScrnViaticoPrefill(payload) {
+  try {
+    sessionStorage.setItem(SCRN_VIATICO_PREFILL_SESSION_KEY, JSON.stringify(payload));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function readAndClearScrnViaticoPrefill() {
+  try {
+    const raw = sessionStorage.getItem(SCRN_VIATICO_PREFILL_SESSION_KEY);
+    sessionStorage.removeItem(SCRN_VIATICO_PREFILL_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    try {
+      sessionStorage.removeItem(SCRN_VIATICO_PREFILL_SESSION_KEY);
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
 }
 
 export function formatSavedDate(iso) {

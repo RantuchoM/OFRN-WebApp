@@ -21,7 +21,9 @@ description: >-
 | Regla | Detalle |
 |-------|---------|
 | Carpeta | `Apellido, I. - Título` (ej. `Falla, M. - Danza Española Nro 1 ('La Vida Breve')`) |
-| PDF | `Instrumento - S-N. Título - Compositor, I.pdf` |
+| PDF (con nº catálogo) | `Instrumento - op.11. Título - Compositor, I.pdf` (solo si hay op./MWV/BIS real) |
+| PDF (sin nº catálogo) | `Instrumento - Título - Compositor, I.pdf` — **no** incluir `S/N`, `S-N` ni placeholder |
+| `workNumber` en catálogo | `null` u omitir cuando no hay op./catálogo; nunca `"S/N"` |
 | Combinados | **Un PDF, varias partes en la misma hoja** → sufijo `1y2`, `3y4`, `1y2y3` (nunca `1-2`) |
 | Portadas | Página 1 IMSLP (título del grupo) se **excluye** al extraer |
 | `link_drive` | Carpeta original en Para acomodar; **no** `copiar_carpeta_a_archivo` |
@@ -44,7 +46,7 @@ description: >-
 
 | Script | Rol |
 |--------|-----|
-| `scripts/lib/pdfPartsRenaming.mjs` | Renombrado canónico; `formatCombinedSlot`, `canonicalCombinedSuffix` |
+| `scripts/lib/pdfPartsRenaming.mjs` | Renombrado canónico; `normalizeWorkNumberForFilename`, `formatCombinedSlot`, `canonicalCombinedSuffix` |
 | `scripts/lib/<obra>Catalog.mjs` | Manifiestos `splits` + `crops` por obra |
 | `scripts/process-<obra>-local.mjs` | Split/crop/rename en sync local |
 | `scripts/rename-combined-slots-local.mjs` | Corrige `1-2` → `1y2` en PDFs ya renombrados |
@@ -66,7 +68,7 @@ export const MI_OBRA_WORK = {
   sourceFolder: "Nombre viejo",
   targetFolder: "Compositor, I. - Título",
   titulo: "Título",
-  workNumber: "S/N",
+  workNumber: null, // o "op.11", "MWV N 1", "15 BIS" si aplica; nunca S/N
   composerTag: "Falla, M",
   compositor: { apellido: "Falla", nombre: "Manuel de" },
   obraId: 3532,
@@ -128,3 +130,4 @@ node scripts/generate-falla-sync.mjs
 | `Flauta 1` → `Flauta` | Regex `flauta 1` debe retornar `Flauta 1`, no `Flauta` |
 | Carpeta sin formato canónico | Renombrar antes de `split_and_rename_parts.py` |
 | Drive desactualizado | Esperar sync de Google Drive File Stream tras rename local |
+| PDF con `S-N.` o `S/N.` en el nombre | `workNumber: null` en catálogo; `normalizeWorkNumberForFilename` omite el segmento |

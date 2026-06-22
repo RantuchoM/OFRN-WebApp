@@ -9,14 +9,24 @@ Proveer una interfaz de carga única y manual de viáticos que permita exportar 
 3. **Cálculos Locales**:
    - Días computables automáticos mediante `calculateDaysDiff`.
    - Subtotal = Días * (Valor Base * Factor Temporada * % Viático).
+   - Valor diario base desde `viaticos_valor_diario_vigencia` (no editable manualmente).
 4. **Campos del Formulario**:
    - Personales: Apellido, Nombre, DNI, Cargo, Jornada, Ciudad Origen.
    - Comisión: Motivo, Lugar, Fecha/Hora Salida, Fecha/Hora Llegada.
-   - Financieros: Valor Diario Base (editable), Switch Temporada (30%), % Viático (default 100%).
-   - Gastos: Alojamiento, Pasajes, Combustible, Otros.
+   - Financieros: % Viático (100/80/0), Switch Temporada (30%).
+   - Transporte: Terrestre, patente oficial, detalle.
+   - Gastos: Alojamiento, Pasajes, Combustible, Otros, Capacitación, Movilidad otros, Ceremonial.
+
+## Prefill desde Transporte SCRN
+- [x] Query `?prefill=scrn` en `/viaticos-manual` consume payload de `sessionStorage` (`SCRN_VIATICO_PREFILL_SESSION_KEY`).
+- [x] Origen: botón **Completar viático** en `/transporte-scrn` → Mis viajes.
+- [x] Si la planilla ya tiene datos, se pide confirmación antes de reemplazar.
+- [x] Se persiste metadata `scrn_origen` en `datos` del viático guardado: `{ reserva_id, pax_id, viaje_id, rol: "titular"|"pasajero" }`.
+- [x] Mapeo implementado en `src/utils/scrnViaticoPrefill.js`.
 
 ## Mapeo de Exportación
 Se utilizará `exportViaticosToPDFForm` enviando un objeto que cumpla con la interfaz esperada por el helper, extrayendo los valores directamente del estado del formulario.
 
 ## Estado
-- **Ruta pública lista**: `/viaticos-manual` renderiza la vista sin pasar por `ProtectedRoute`/`AppContent` (sin login).
+- **Ruta pública lista**: `/viaticos-manual` renderiza la vista sin pasar por `ProtectedRoute`/`AppContent` (login OTP opcional para guardado en nube).
+- **Puente SCRN**: implementado (ver `docs/transporte-scrn-spec.md`).

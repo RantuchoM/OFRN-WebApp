@@ -68,6 +68,9 @@ Permitir mover obras dentro del mismo bloque y entre bloques con feedback visual
 - **Comportamiento:** al elegir un preset se aplican `stringsFilter`, `strictMode` y reglas de instrumentos; el botón Orgánico muestra el nombre del preset activo
 - **Modal Agregar Obra:** un preset o filtro de orgánico activo dispara la carga de la biblioteca (hasta ~2000 obras) sin exigir texto en compositor/obra/arreglador
 - **Panel de filtro:** altura limitada al viewport (abre arriba del botón si no hay espacio abajo); cuerpo con scroll y footer fijo (Limpiar / Filtrar siempre visible)
+- **Orgánico indeterminado:** si una obra no tiene orgánico claro (vacío, texto vago o sin notación parseable), **no se excluye** por el filtro de orgánico (`workMatchesInstrumentationFilter` en `instrumentation.js`; aplica en picker y `RepertoireView`).
+- **Vista móvil del picker (2026-06-22):** tarjetas compactas al estilo `RepertoireManager`. Filtros arriba, **una línea por filtro** (etiqueta a la izquierda, campo/desplegable a la derecha): Compositor, Obra, Arreglador, Orgánico.
+- **Compositor en escritorio (picker):** celda con apellido arriba y nombre debajo (hasta 2 compositores), igual que `RepertoireManager`.
 
 | Preset | Cuerdas | Estricto | Reglas clave |
 |--------|---------|----------|--------------|
@@ -86,6 +89,7 @@ Permitir mover obras dentro del mismo bloque y entre bloques con feedback visual
 | `src/components/repertoire/BowingSetManager.jsx` | Nuevo: modos edit/assign, modal con portal, Tailwind. |
 | `src/components/repertoire/RepertoireManager.jsx` | BowingSetManager assign, columna GripVertical, DndContext, SortableContext, SortableRepertorioRow, handleDragEnd, savingPosition, dragOverId. |
 | `src/components/repertoire/InstrumentationFilterModal.jsx` | Modal compartido de filtro por orgánico con presets. |
+| `src/components/repertoire/RepertoireWorkPickerModal.jsx` | Modal «Buscar Obra»; vista móvil con tarjetas al estilo RepertoireManager. |
 | `src/utils/instrumentationFilterPresets.js` | Definición de presets y helpers de etiqueta/activo. |
 | `src/views/Repertoire/RepertoireView.jsx` | Usa modal compartido y presets en columna Orgánico. |
 | `src/views/Repertoire/WorkForm.jsx` | Sustitución sección arcos por BowingSetManager edit; eliminación estado/handlers de arcos. **Autocomplete de título:** al escribir con compositor elegido, desplegable de obras existentes con acciones según `context` (`archive` vs `program`). |
@@ -223,7 +227,7 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 ### Falla — Danza Española Nro 1 ('La Vida Breve') (2026-06-19)
 - Carpeta [Para acomodar / Falla](https://drive.google.com/open?id=16TvE6QokADJSSk9gpZXpP1D8GcrngIQS): 16 PDFs IMSLP → **26 particellas** canónicas.
 - Obra BD **id 3532** (`Danza Española Nro 1. 'La Vida Breve'`, Falla): sin particellas previas.
-- Proceso: dividir combinados (vientos/metales/perc), recortar portadas IMSLP, renombrar `Instrumento - S-N. Título - Falla, M.pdf` (combinados: `1y2`, `3y4`, `1y2y3`).
+- Proceso: dividir combinados (vientos/metales/perc), recortar portadas IMSLP, renombrar `Instrumento - Título - Compositor.pdf` o `Instrumento - op.11. Título - Compositor.pdf` si hay catálogo (combinados: `1y2`, `3y4`, `1y2y3`).
 - Instrumentación resultante: `3.3.3.1 - 2.1.1.1 - Timp.+2 - Hp - Key - Str`.
 
 | Script | Rol |
@@ -235,6 +239,49 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 
 - [x] PDFs procesados y sincronizados a Drive con nombres canónicos
 - [x] Seed SQL generado (`seed_falla_sync.sql`) — pendiente ejecutar en Supabase
+
+### Mendelssohn-Bartholdy — Sinfonía Nro 1 en Do Mayor, op.11 (2026-06-22)
+- Carpeta [Para acomodar / Mendelssohn](https://drive.google.com/open?id=1xDSqCR9Y7NPifvrD84ZpXMi_ns6YJFqR): 12 PDFs IMSLP (PMLP18966) → **19 particellas** canónicas.
+- Obra BD **id 3535** (insert nueva, Mendelssohn-Bartholdy): `2.2.2.2 - 2.2.0.0 - Timp - Str`.
+- Proceso: dividir vientos combinados + cello/bass IMSLP, recortar portadas, renombrar `Instrumento - op.11. Título - Mendelssohn-Bartholdy, F.pdf`.
+- Edición cello/bass: un PDF compartido para Violoncello y Contrabajo (partbook IMSLP «Cellos/Basses»).
+
+| Script | Rol |
+|--------|-----|
+| `scripts/lib/mendelssohnCatalog.mjs` | Manifiestos OCR + metadata obra 3535 |
+| `scripts/process-mendelssohn-local.mjs` | Split/crop/rename en sync local |
+| `scripts/generate-mendelssohn-sync.mjs` | Genera `supabase/seed_mendelssohn_sync.sql` |
+
+- [x] PDFs procesados y sincronizados a Drive con nombres canónicos
+- [x] Seed ejecutado en Supabase (obra 3535, 19 particellas)
+
+### Mendelssohn-Bartholdy — Sinfonía para Cuerdas Nro 1 en Do Mayor, MWV N 1 (2026-06-22)
+- Carpeta [Para acomodar](https://drive.google.com/open?id=1tF11J6HKBGtdFjeUZL47n7ppL_f4WBRS): 6 PDFs IMSLP (PMLP207269) → **6 particellas** (solo renombrado, sin split/crop).
+- Obra BD **id 3536** (insert nueva): `Str`.
+- PDFs ya separados por instrumento; renombrado `Instrumento - MWV N 1. Título - Mendelssohn-Bartholdy, F.pdf`.
+
+| Script | Rol |
+|--------|-----|
+| `scripts/lib/mendelssohnStringSym1Catalog.mjs` | Mapa de renombrado + metadata obra 3536 |
+| `scripts/process-mendelssohn-string-sym1-local.mjs` | Renombra carpeta y PDFs en sync local |
+| `scripts/generate-mendelssohn-string-sym1-sync.mjs` | Genera `supabase/seed_mendelssohn_string_sym1_sync.sql` |
+
+- [x] PDFs renombrados y sincronizados a Drive
+- [x] Seed ejecutado en Supabase (obra 3536, 6 particellas)
+
+### Silva — Marcha de San Lorenzo [cuerdas] (2026-06-22)
+- Carpeta [Para acomodar](https://drive.google.com/drive/folders/1jBCHMNcerv3K9aoq17q9V_ekoCxhFAry): 1 PDF combinado → **5 particellas** (SCORE + 4 cuerdas).
+- Obra BD **id 3537** (insert nueva; distinta de **2276** versión vientos): `Str`.
+- Arr. Silva/Benielli para orquesta de cuerdas; split por páginas (portada/letra excluidas).
+
+| Script | Rol |
+|--------|-----|
+| `scripts/lib/sanLorenzoCuerdasCatalog.mjs` | Manifiesto split + metadata obra 3537 |
+| `scripts/process-san-lorenzo-cuerdas-local.mjs` | Split/rename en sync local |
+| `scripts/generate-san-lorenzo-cuerdas-sync.mjs` | Genera `supabase/seed_san_lorenzo_cuerdas_sync.sql` |
+
+- [x] PDFs procesados y sincronizados a Drive
+- [x] Seed ejecutado en Supabase (obra 3537, 5 particellas)
 
 ---
 
