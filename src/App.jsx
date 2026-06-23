@@ -11,6 +11,7 @@ import {
 import { AuthProvider, useAuth, getRolesDisplay } from "./context/AuthContext";
 import { supabase } from "./services/supabase";
 import ReloadPrompt from "./components/ui/ReloadPrompt";
+import PwaOrientationHint from "./components/ui/PwaOrientationHint";
 import BirthdayBanner from "./components/ui/BirthdayBanner";
 import BirthdaySidebarControl from "./components/ui/BirthdaySidebarControl";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -1568,6 +1569,7 @@ export default function App() {
             </Routes>
           </CommandPaletteProvider>
           <ReloadPrompt />
+          <PwaOrientationHint />
         </ManualProvider>
         <Toaster position="top-right" richColors expand={true} closeButton />
       </AuthProvider>

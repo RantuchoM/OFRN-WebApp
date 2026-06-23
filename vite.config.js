@@ -49,15 +49,17 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: false,
+        navigateFallbackDenylist: [/^\/manifest\.webmanifest$/, /^\/version\.json$/],
       },
       manifest: {
+        id: "/",
         name: "OFRN - App",
         short_name: "OFRN",
         description: "",
         theme_color: "#ffffff",
         background_color: "#ffffff",
         display: "standalone",
-        orientation: "any",
+        lang: "es",
         icons: [
           { src: "pwa-192x192.png", sizes: "192x192", type: "image/png" },
           { src: "pwa-512x512.png", sizes: "512x512", type: "image/png" },

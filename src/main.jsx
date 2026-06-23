@@ -6,6 +6,10 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App.jsx'
 import './index.css'
+import { tryUnlockScreenOrientation } from './utils/pwaOrientationRecovery'
+
+tryUnlockScreenOrientation()
+window.addEventListener('load', tryUnlockScreenOrientation, { once: true })
 
 // Recupera cuando un chunk hashado ya no existe tras deploy (con tope anti-bucle).
 const PRELOAD_RELOAD_KEY = 'ofrn:preload-reload'
