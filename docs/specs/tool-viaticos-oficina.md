@@ -5,7 +5,8 @@ Proveer una interfaz de carga única y manual de viáticos que permita exportar 
 
 ## Requisitos Técnicos
 1. **Acceso Público**: La ruta `/viaticos-manual` no debe estar protegida por el `AuthContext`.
-2. **Sin Firma Digital**: El campo de firma en el PDF se exportará vacío para firma ológrafa posterior.
+2. **Login unificado**: Misma sesión OTP y perfil (`scrn_perfiles`) que `/transporte-scrn` (`supabaseOficinaExterna`, storage `sb-ofrn-oficina-externa-session`).
+3. **Sin Firma Digital**: El campo de firma en el PDF se exportará vacío para firma ológrafa posterior.
 3. **Cálculos Locales**:
    - Días computables automáticos mediante `calculateDaysDiff`.
    - Subtotal = Días * (Valor Base * Factor Temporada * % Viático).

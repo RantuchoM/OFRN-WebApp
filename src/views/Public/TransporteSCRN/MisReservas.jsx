@@ -1,9 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "../../../services/supabase";
+import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import SearchableSelect from "../../../components/ui/SearchableSelect";
 import { IconEdit, IconX } from "../../../components/ui/Icons";
-import { localidadesToSearchableOptions } from "./localidadesSearchable";
+import {
+  esParadaParValida,
+  MSG_PARADA_PAR_INVALIDA,
+} from "./scrnRutasParadasUtils";
+import {
+  useScrnParadasLocOptions,
+  useScrnParadasViaje,
+} from "./useScrnParadasViaje";
 import ReservaPasajerosEditor from "./ReservaPasajerosEditor";
 import { requeueAceptadaToPendiente } from "./reservaGestionUtils";
 import {
@@ -154,9 +161,51 @@ export default function MisReservas({
     [miPerfil, navigate],
   );
 
-  const locOptions = useMemo(
-    () => localidadesToSearchableOptions(localidades),
-    [localidades],
+  const paradasViajeCtx = useMemo(() => {
+    if (editingId && paradaDraft) {
+      const r = reservas.find((x) => x.id === editingId);
+      const v = r ? viajesMap[r.id_viaje] : null;
+      return {
+        origen: v?.origen,
+        destino: v?.destino_final,
+        subida: paradaDraft.localidad_subida,
+        bajada: paradaDraft.localidad_bajada,
+        active: true,
+      };
+    }
+    if (editingPasajero && paxRowDraft) {
+      const v = viajesMap[editingPasajero.reserva.id_viaje];
+      return {
+        origen: v?.origen,
+        destino: v?.destino_final,
+        subida: paxRowDraft.localidad_subida,
+        bajada: paxRowDraft.localidad_bajada,
+        active: true,
+      };
+    }
+    return {
+      origen: null,
+      destino: null,
+      subida: "",
+      bajada: "",
+      active: false,
+    };
+  }, [editingId, paradaDraft, editingPasajero, paxRowDraft, reservas, viajesMap]);
+
+  const { caminoPorId, loading: paradasLoading, usedFallback, hasRutaCatalog } =
+    useScrnParadasViaje(
+      paradasViajeCtx.origen,
+      paradasViajeCtx.destino,
+      paradasViajeCtx.active,
+    );
+
+  const { subidaOptions, bajadaOptions } = useScrnParadasLocOptions(
+    localidades,
+    hasRutaCatalog ? caminoPorId : null,
+    {
+      subida: paradasViajeCtx.subida,
+      bajada: paradasViajeCtx.bajada,
+    },
   );
 
   const refetchPaxYReservas = useCallback(() => {
@@ -225,6 +274,10 @@ export default function MisReservas({
         alert("Completá localidad de subida y de bajada.");
         return;
       }
+      if (hasRutaCatalog && !esParadaParValida(caminoPorId, su, bj)) {
+        alert(MSG_PARADA_PAR_INVALIDA);
+        return;
+      }
       setSavingParadas(true);
       const { error } = await supabase
         .from("scrn_reservas")
@@ -250,7 +303,7 @@ export default function MisReservas({
       refetchPaxYReservas();
       afterCambioQueRequiereGestion();
     },
-    [paradaDraft, viaticosDraft, estadoAlInicio, refetchPaxYReservas, afterCambioQueRequiereGestion],
+    [paradaDraft, viaticosDraft, estadoAlInicio, refetchPaxYReservas, afterCambioQueRequiereGestion, hasRutaCatalog, caminoPorId],
   );
 
   const cancelarReserva = useCallback(
@@ -280,6 +333,10 @@ export default function MisReservas({
     const bj = String(paxRowDraft.localidad_bajada || "").trim();
     if (!su || !bj) {
       alert("Completá localidad de subida y de bajada.");
+      return;
+    }
+    if (hasRutaCatalog && !esParadaParValida(caminoPorId, su, bj)) {
+      alert(MSG_PARADA_PAR_INVALIDA);
       return;
     }
     setSavingPaxRow(true);
@@ -656,10 +713,21 @@ export default function MisReservas({
                         ))}
                       </select>
                     </div>
+                    {hasRutaCatalog ? (
+                      <p className="text-[10px] text-slate-600 md:col-span-2">
+                        Paradas acotadas al recorrido del viaje
+                        {paradasLoading ? " (cargando…)" : ""}.
+                      </p>
+                    ) : null}
+                    {usedFallback && !paradasLoading ? (
+                      <p className="text-[10px] text-amber-800 md:col-span-2">
+                        Sin corredor definido; se muestran todas las localidades.
+                      </p>
+                    ) : null}
                     <div className="space-y-1">
                       <span className={lbl}>Localidad de subida</span>
                       <SearchableSelect
-                        options={locOptions}
+                        options={subidaOptions}
                         value={paradaDraft.localidad_subida || null}
                         onChange={(v) =>
                           setParadaDraft((d) => ({ ...d, localidad_subida: v || "" }))
@@ -671,7 +739,7 @@ export default function MisReservas({
                     <div className="space-y-1">
                       <span className={lbl}>Localidad de bajada</span>
                       <SearchableSelect
-                        options={locOptions}
+                        options={bajadaOptions}
                         value={paradaDraft.localidad_bajada || null}
                         onChange={(v) =>
                           setParadaDraft((d) => ({ ...d, localidad_bajada: v || "" }))
@@ -883,6 +951,17 @@ export default function MisReservas({
                         ))}
                       </select>
                     </div>
+                    {hasRutaCatalog ? (
+                      <p className="text-[10px] text-slate-600">
+                        Paradas acotadas al recorrido del viaje
+                        {paradasLoading ? " (cargando…)" : ""}.
+                      </p>
+                    ) : null}
+                    {usedFallback && !paradasLoading ? (
+                      <p className="text-[10px] text-amber-800">
+                        Sin corredor definido; se muestran todas las localidades.
+                      </p>
+                    ) : null}
                     <div className="grid sm:grid-cols-2 gap-2">
                       <div className="space-y-1">
                         <label className={lbl} htmlFor={`pax-${pax.id}-t`}>
@@ -906,7 +985,7 @@ export default function MisReservas({
                       <div className="space-y-1">
                         <span className={lbl}>Subida</span>
                         <SearchableSelect
-                          options={locOptions}
+                          options={subidaOptions}
                           value={paxRowDraft.localidad_subida || null}
                           onChange={(v) =>
                             setPaxRowDraft((d) => ({ ...d, localidad_subida: v || "" }))
@@ -918,7 +997,7 @@ export default function MisReservas({
                       <div className="space-y-1">
                         <span className={lbl}>Bajada</span>
                         <SearchableSelect
-                          options={locOptions}
+                          options={bajadaOptions}
                           value={paxRowDraft.localidad_bajada || null}
                           onChange={(v) =>
                             setPaxRowDraft((d) => ({ ...d, localidad_bajada: v || "" }))

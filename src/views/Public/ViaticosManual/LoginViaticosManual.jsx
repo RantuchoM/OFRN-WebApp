@@ -72,7 +72,7 @@ function LoginFormBlock({
             {isGate ? "Ingresá a tu cuenta" : "Iniciar sesión"}
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Acceso con código por email. Tu sesión queda guardada en este navegador.
+            Acceso con código por email. La misma cuenta sirve para transporte SCRN y viáticos manual.
           </p>
         </div>
         {!isGate && onClose && (

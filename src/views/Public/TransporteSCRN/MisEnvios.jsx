@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { supabase } from "../../../services/supabase";
+import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { scrnTransporteColorFromEntity } from "./scrnTransporteColor";
 import { badgeClassEstadoPaquete, labelEstadoPaquete } from "./scrnPaqueteEstadoUI";
 import { isSalidaHoyOFutura } from "./viajeSalidaTemporal";

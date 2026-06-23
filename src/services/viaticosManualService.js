@@ -1,56 +1,40 @@
-import { supabaseViaticosManualPublic } from "./supabase";
+import { supabaseOficinaExterna } from "./supabase";
 import {
-  requestEntradasEmailCode,
-  verifyEntradasEmailCode,
-  verifyEntradasMagicLink,
-} from "./entradaService";
-
-const APP = "viaticos_manual";
+  ensureOficinaExternaProfile,
+  getOficinaExternaSessionProfile,
+  logoutOficinaExterna,
+  requestOficinaExternaEmailCode,
+  verifyOficinaExternaEmailCode,
+  verifyOficinaExternaMagicLink,
+  VIATICOS_APP,
+} from "./oficinaExternaAuthService";
 
 export async function getViaticosManualSessionProfile() {
-  const {
-    data: { session },
-  } = await supabaseViaticosManualPublic.auth.getSession();
-  if (!session?.user) return { session: null, profile: null };
-
-  const { data: profile, error } = await supabaseViaticosManualPublic
-    .from("viaticos_manual_usuario")
-    .select("*")
-    .eq("id", session.user.id)
-    .maybeSingle();
-  if (error) throw error;
-
-  return { session, profile: profile || null };
+  return getOficinaExternaSessionProfile();
 }
 
 export async function ensureViaticosManualProfile({ nombre, apellido }) {
-  const { data, error } = await supabaseViaticosManualPublic.rpc("viaticos_manual_ensure_profile", {
-    p_nombre: nombre,
-    p_apellido: apellido,
-  });
-  if (error) throw error;
-  return data;
+  return ensureOficinaExternaProfile({ nombre, apellido });
 }
 
 export async function requestViaticosManualEmailCode(email) {
-  return requestEntradasEmailCode(email, APP);
+  return requestOficinaExternaEmailCode(email, VIATICOS_APP);
 }
 
 export async function verifyViaticosManualEmailCode({ email, code }) {
-  return verifyEntradasEmailCode({ email, code, app: APP });
+  return verifyOficinaExternaEmailCode({ email, code, app: VIATICOS_APP });
 }
 
 export async function verifyViaticosManualMagicLink({ token }) {
-  return verifyEntradasMagicLink({ token, app: APP });
+  return verifyOficinaExternaMagicLink({ token, app: VIATICOS_APP });
 }
 
 export async function logoutViaticosManual() {
-  const { error } = await supabaseViaticosManualPublic.auth.signOut();
-  if (error) throw error;
+  return logoutOficinaExterna();
 }
 
 export async function listViaticosGuardados() {
-  const { data, error } = await supabaseViaticosManualPublic
+  const { data, error } = await supabaseOficinaExterna
     .from("viaticos_manual_viatico")
     .select("*")
     .order("created_at", { ascending: false });
@@ -59,7 +43,7 @@ export async function listViaticosGuardados() {
 }
 
 export async function getViaticoGuardado(id) {
-  const { data, error } = await supabaseViaticosManualPublic
+  const { data, error } = await supabaseOficinaExterna
     .from("viaticos_manual_viatico")
     .select("*")
     .eq("id", id)
@@ -71,7 +55,7 @@ export async function getViaticoGuardado(id) {
 export async function saveViaticoGuardado({ id, etiqueta, datos }) {
   const {
     data: { session },
-  } = await supabaseViaticosManualPublic.auth.getSession();
+  } = await supabaseOficinaExterna.auth.getSession();
   if (!session?.user) throw new Error("No autenticado");
 
   const payload = {
@@ -81,7 +65,7 @@ export async function saveViaticoGuardado({ id, etiqueta, datos }) {
   };
 
   if (id) {
-    const { data, error } = await supabaseViaticosManualPublic
+    const { data, error } = await supabaseOficinaExterna
       .from("viaticos_manual_viatico")
       .update(payload)
       .eq("id", id)
@@ -91,7 +75,7 @@ export async function saveViaticoGuardado({ id, etiqueta, datos }) {
     return data;
   }
 
-  const { data, error } = await supabaseViaticosManualPublic
+  const { data, error } = await supabaseOficinaExterna
     .from("viaticos_manual_viatico")
     .insert(payload)
     .select("*")
@@ -101,7 +85,7 @@ export async function saveViaticoGuardado({ id, etiqueta, datos }) {
 }
 
 export async function deleteViaticoGuardado(id) {
-  const { error } = await supabaseViaticosManualPublic
+  const { error } = await supabaseOficinaExterna
     .from("viaticos_manual_viatico")
     .delete()
     .eq("id", id);
@@ -111,10 +95,10 @@ export async function deleteViaticoGuardado(id) {
 export async function deleteAllViaticosGuardados() {
   const {
     data: { session },
-  } = await supabaseViaticosManualPublic.auth.getSession();
+  } = await supabaseOficinaExterna.auth.getSession();
   if (!session?.user) throw new Error("No autenticado");
 
-  const { error } = await supabaseViaticosManualPublic
+  const { error } = await supabaseOficinaExterna
     .from("viaticos_manual_viatico")
     .delete()
     .eq("usuario_id", session.user.id);
@@ -122,7 +106,7 @@ export async function deleteAllViaticosGuardados() {
 }
 
 export async function listRendicionesGuardadas() {
-  const { data, error } = await supabaseViaticosManualPublic
+  const { data, error } = await supabaseOficinaExterna
     .from("viaticos_manual_rendicion")
     .select("*")
     .order("created_at", { ascending: false });
@@ -133,7 +117,7 @@ export async function listRendicionesGuardadas() {
 export async function saveRendicionGuardada({ id, viatico_origen_id, etiqueta, datos }) {
   const {
     data: { session },
-  } = await supabaseViaticosManualPublic.auth.getSession();
+  } = await supabaseOficinaExterna.auth.getSession();
   if (!session?.user) throw new Error("No autenticado");
 
   const payload = {
@@ -144,7 +128,7 @@ export async function saveRendicionGuardada({ id, viatico_origen_id, etiqueta, d
   };
 
   if (id) {
-    const { data, error } = await supabaseViaticosManualPublic
+    const { data, error } = await supabaseOficinaExterna
       .from("viaticos_manual_rendicion")
       .update(payload)
       .eq("id", id)
@@ -154,7 +138,7 @@ export async function saveRendicionGuardada({ id, viatico_origen_id, etiqueta, d
     return data;
   }
 
-  const { data, error } = await supabaseViaticosManualPublic
+  const { data, error } = await supabaseOficinaExterna
     .from("viaticos_manual_rendicion")
     .insert(payload)
     .select("*")
@@ -164,7 +148,7 @@ export async function saveRendicionGuardada({ id, viatico_origen_id, etiqueta, d
 }
 
 export async function deleteRendicionGuardada(id) {
-  const { error } = await supabaseViaticosManualPublic
+  const { error } = await supabaseOficinaExterna
     .from("viaticos_manual_rendicion")
     .delete()
     .eq("id", id);
@@ -174,10 +158,10 @@ export async function deleteRendicionGuardada(id) {
 export async function deleteAllRendicionesGuardadas() {
   const {
     data: { session },
-  } = await supabaseViaticosManualPublic.auth.getSession();
+  } = await supabaseOficinaExterna.auth.getSession();
   if (!session?.user) throw new Error("No autenticado");
 
-  const { error } = await supabaseViaticosManualPublic
+  const { error } = await supabaseOficinaExterna
     .from("viaticos_manual_rendicion")
     .delete()
     .eq("usuario_id", session.user.id);

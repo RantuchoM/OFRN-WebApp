@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { supabase } from "../../../services/supabase";
+import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import AlertModal from "../../../components/ui/AlertModal";
 import { scrnTransporteColorFromEntity } from "./scrnTransporteColor";
 

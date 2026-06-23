@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabaseOficinaExterna } from "./supabase";
 
 /**
  * Sincroniza un evento de día completo en Google Calendar para un transporte SCRN
@@ -12,11 +12,11 @@ export async function syncTransporteGoogleCalendar(transporteId) {
   try {
     const {
       data: { session },
-    } = await supabase.auth.getSession();
+    } = await supabaseOficinaExterna.auth.getSession();
     if (!session?.access_token) {
       return { ok: false, error: "No hay sesión activa" };
     }
-    const { data, error } = await supabase.functions.invoke("sync-scrn-transporte-calendar", {
+    const { data, error } = await supabaseOficinaExterna.functions.invoke("sync-scrn-transporte-calendar", {
       body: { transporte_id: id },
       headers: { Authorization: `Bearer ${session.access_token}` },
     });
@@ -43,11 +43,11 @@ export async function syncViajeGoogleCalendar(viajeId) {
   try {
     const {
       data: { session },
-    } = await supabase.auth.getSession();
+    } = await supabaseOficinaExterna.auth.getSession();
     if (!session?.access_token) {
       return { ok: false, error: "No hay sesión activa" };
     }
-    const { data, error } = await supabase.functions.invoke("sync-scrn-transporte-calendar", {
+    const { data, error } = await supabaseOficinaExterna.functions.invoke("sync-scrn-transporte-calendar", {
       body: { viaje_id: id },
       headers: { Authorization: `Bearer ${session.access_token}` },
     });

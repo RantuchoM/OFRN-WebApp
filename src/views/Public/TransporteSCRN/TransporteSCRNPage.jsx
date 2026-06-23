@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "../../../services/supabase";
+import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { verifyEntradasMagicLink } from "../../../services/entradaService";
 import { clearMagicTokenFromUrl, readMagicTokenFromSearch } from "../../../utils/entradasMagicLink";
 import LoginSCRN from "./LoginSCRN";

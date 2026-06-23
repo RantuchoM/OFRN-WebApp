@@ -1,4 +1,4 @@
-import { supabase, supabaseViaticosManualPublic } from "./supabase";
+import { supabase, supabaseOficinaExterna } from "./supabase";
 
 const pickClient = (client) => client || supabase;
 
@@ -61,4 +61,4 @@ export async function deleteValorDiarioVigencia(id, client) {
   if (error) throw error;
 }
 
-export const viaticosValorDiarioManualClient = supabaseViaticosManualPublic;
+export const viaticosValorDiarioManualClient = supabaseOficinaExterna;

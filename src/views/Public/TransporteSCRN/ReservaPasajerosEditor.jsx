@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "../../../services/supabase";
+import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { ensureScrnPerfilForNewEmail } from "../../../services/scrnCreatePerfil";
 import AlertModal from "../../../components/ui/AlertModal";
 import ConfirmModal from "../../../components/ui/ConfirmModal";

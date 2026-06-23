@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "../../../services/supabase";
+import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { ensureScrnPerfilForNewEmail } from "../../../services/scrnCreatePerfil";
 import {
   syncTransporteGoogleCalendar,

@@ -16,7 +16,7 @@ import { isSalidaHoyOFutura } from "./viajeSalidaTemporal";
 import { es } from "date-fns/locale";
 import { useSearchParams } from "react-router-dom";
 import "react-big-calendar/lib/css/react-big-calendar.css";
-import { supabase } from "../../../services/supabase";
+import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import {
   rbcEventStyleFromViajeResource,
   scrnTransporteAccentStyle,

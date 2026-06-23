@@ -1,9 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { supabase } from "../../../services/supabase";
+import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { ensureScrnPerfilForNewEmail } from "../../../services/scrnCreatePerfil";
 import SearchableSelect from "../../../components/ui/SearchableSelect";
-import { localidadesToSearchableOptions } from "./localidadesSearchable";
+import {
+  esParadaParValida,
+  MSG_PARADA_PAR_INVALIDA,
+} from "./scrnRutasParadasUtils";
+import {
+  useScrnParadasLocOptions,
+  useScrnParadasViaje,
+} from "./useScrnParadasViaje";
 import { scrnTransporteColorFromEntity } from "./scrnTransporteColor";
 import ScrnViaticosOpcionesFields, {
   EMPTY_VIATICOS_OPCIONES,
@@ -91,9 +98,16 @@ export default function SolicitudModal({
     [scrnPerfiles, extra, profileIdsCargadosViaje],
   );
 
-  const locOptions = useMemo(
-    () => localidadesToSearchableOptions(localidades),
-    [localidades],
+  const { caminoPorId, loading: paradasLoading, usedFallback, hasRutaCatalog } =
+    useScrnParadasViaje(viaje?.origen, viaje?.destino_final, isOpen && Boolean(viaje));
+
+  const { subidaOptions, bajadaOptions } = useScrnParadasLocOptions(
+    localidades,
+    hasRutaCatalog ? caminoPorId : null,
+    {
+      subida: form.localidad_subida,
+      bajada: form.localidad_bajada,
+    },
   );
 
   const filasNuevas = useMemo(
@@ -489,6 +503,11 @@ export default function SolicitudModal({
       setError("Faltan subida o bajada. Activá “Cambiar paradas” y elegilas, o revisá el viaje.");
       return;
     }
+    if (paradasCustom && hasRutaCatalog && !esParadaParValida(caminoPorId, su, bj)) {
+      setSaving(false);
+      setError(MSG_PARADA_PAR_INVALIDA);
+      return;
+    }
 
     let reservaId = existingReserva?.id || null;
     if (!reservaId) {
@@ -808,12 +827,27 @@ export default function SolicitudModal({
                   <option value="ambos">Ambos</option>
                 </select>
               </div>
+              {hasRutaCatalog ? (
+                <p className="text-[10px] text-slate-600 leading-relaxed">
+                  Paradas acotadas al recorrido{" "}
+                  <span className="font-semibold">{viaje?.origen || "—"}</span>
+                  {" → "}
+                  <span className="font-semibold">{viaje?.destino_final || "—"}</span>
+                  {paradasLoading ? " (cargando…)" : ""}.
+                </p>
+              ) : null}
+              {usedFallback && !paradasLoading ? (
+                <p className="text-[10px] text-amber-800">
+                  No hay corredor definido entre origen y destino; se muestran todas las
+                  localidades.
+                </p>
+              ) : null}
               <div className="space-y-1">
                 <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
                   Localidad de subida
                 </span>
                 <SearchableSelect
-                  options={locOptions}
+                  options={subidaOptions}
                   value={form.localidad_subida || null}
                   onChange={(v) =>
                     setForm((prev) => ({ ...prev, localidad_subida: v || "" }))
@@ -837,7 +871,7 @@ export default function SolicitudModal({
                   Localidad de bajada
                 </span>
                 <SearchableSelect
-                  options={locOptions}
+                  options={bajadaOptions}
                   value={form.localidad_bajada || null}
                   onChange={(v) =>
                     setForm((prev) => ({ ...prev, localidad_bajada: v || "" }))

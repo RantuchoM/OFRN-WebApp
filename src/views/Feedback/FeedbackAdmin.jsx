@@ -563,8 +563,13 @@ export default function FeedbackAdmin({ supabase }) {
                         <span className="text-[11px]">{shortDate}</span>
                       </div>
                       <span className="text-slate-200 shrink-0 hidden sm:inline">|</span>
-                      {/* Col 5: Acciones — ancho fijo para no desplazar la columna nombre */}
-                      <div className="flex items-center gap-1 shrink-0 w-[200px] sm:w-[220px] justify-end" onClick={(e) => e.stopPropagation()}>
+                      {/* Col 5: Acciones — admin en desktop; Mis Reportes también en móvil */}
+                      <div
+                        className={`items-center gap-1 shrink-0 justify-end ${
+                          isAdminView ? "hidden md:flex w-[220px]" : "flex"
+                        }`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {activeTab === TAB_MIS_PEDIDOS ? (
                           (item.estado || "").toUpperCase() === "PENDIENTE" && (
                             <button
@@ -642,7 +647,7 @@ export default function FeedbackAdmin({ supabase }) {
                             <textarea
                               className="w-full text-sm p-2 border border-amber-300 rounded bg-amber-50 focus:ring-2 focus:ring-amber-500 outline-none"
                               rows={3}
-                              placeholder="Nota interna..."
+                              placeholder={resolvingId === item.id ? "Respuesta al usuario (obligatoria para resolver)..." : "Nota interna..."}
                               value={tempComment}
                               onChange={(e) => setTempComment(e.target.value)}
                               autoFocus
@@ -651,10 +656,14 @@ export default function FeedbackAdmin({ supabase }) {
                               <button
                                 onClick={() => saveComment(item.id)}
                                 disabled={savingResolution}
-                                className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded disabled:opacity-50 flex items-center gap-1"
+                                className={`px-2 py-1 text-white text-xs font-semibold rounded disabled:opacity-50 flex items-center gap-1 ${
+                                  resolvingId === item.id
+                                    ? "bg-emerald-600 hover:bg-emerald-700"
+                                    : "bg-amber-600 hover:bg-amber-700"
+                                }`}
                               >
                                 {savingResolution ? <IconLoader size={12} className="animate-spin" /> : <IconCheck size={12} />}
-                                Guardar
+                                {resolvingId === item.id ? "Resolver y notificar" : "Guardar"}
                               </button>
                               <button onClick={cancelEditing} className="px-2 py-1 border border-slate-200 rounded text-slate-600 text-xs font-semibold">
                                 <IconX size={12} /> Cancelar
@@ -677,6 +686,69 @@ export default function FeedbackAdmin({ supabase }) {
                           >
                             <IconEdit size={12} /> Agregar nota interna
                           </button>
+                        )}
+                        {activeTab === TAB_MIS_PEDIDOS && (item.estado || "").toUpperCase() === "PENDIENTE" && (
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(item)}
+                            className="md:hidden flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-semibold hover:bg-indigo-100 mb-2"
+                          >
+                            <IconEdit size={14} />
+                            Editar pedido
+                          </button>
+                        )}
+                        {isAdminView && (
+                          <div className="flex flex-wrap items-center gap-1.5 mb-2 pt-2 border-t border-slate-100 md:hidden">
+                            {item.estado !== "PENDIENTE" && (
+                              <button
+                                type="button"
+                                onClick={() => handleStatusChange(item.id, "PENDIENTE")}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:bg-slate-50"
+                              >
+                                <IconRefresh size={14} />
+                                Reabrir
+                              </button>
+                            )}
+                            {item.estado !== "EN_PROCESO" && item.estado !== "RESUELTO" && item.estado !== "DESCARTADO" && (
+                              <button
+                                type="button"
+                                onClick={() => handleStatusChange(item.id, "EN_PROCESO")}
+                                className="px-2.5 py-1.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 text-xs font-semibold hover:bg-blue-100"
+                              >
+                                Iniciar
+                              </button>
+                            )}
+                            {item.estado !== "RESUELTO" && editingId !== item.id && (
+                              <button
+                                type="button"
+                                onClick={() => handleStatusChange(item.id, "RESUELTO")}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold hover:bg-emerald-100"
+                              >
+                                <IconCheck size={14} />
+                                Resolver
+                              </button>
+                            )}
+                            {item.estado !== "DESCARTADO" && item.estado !== "RESUELTO" && (
+                              <button
+                                type="button"
+                                onClick={() => handleStatusChange(item.id, "DESCARTADO")}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-red-200 bg-white text-red-600 text-xs font-semibold hover:bg-red-50"
+                              >
+                                <IconTrash size={14} />
+                                Descartar
+                              </button>
+                            )}
+                            {editingId !== item.id && (
+                              <button
+                                type="button"
+                                onClick={() => startEditing(item)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100"
+                              >
+                                <IconEdit size={14} />
+                                Nota
+                              </button>
+                            )}
+                          </div>
                         )}
                         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 pt-1 border-t border-slate-100">
                           {item.ruta_pantalla && (

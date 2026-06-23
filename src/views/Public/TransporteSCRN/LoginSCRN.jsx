@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from "react";
-import { supabase } from "../../../services/supabase";
 import {
-  requestEntradasEmailCode,
-  verifyEntradasEmailCode,
-} from "../../../services/entradaService";
+  ensureOficinaExternaProfile,
+  requestOficinaExternaEmailCode,
+  verifyOficinaExternaEmailCode,
+  SCRN_APP,
+} from "../../../services/oficinaExternaAuthService";
 
 const initialProfileForm = {
   nombre: "",
@@ -58,7 +59,7 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
 
     const normalizedEmail = email.trim().toLowerCase();
     try {
-      await requestEntradasEmailCode(normalizedEmail, "scrn");
+      await requestOficinaExternaEmailCode(normalizedEmail, SCRN_APP);
     } catch (otpError) {
       const message = String(otpError?.message || "");
       if (/límite|limit|429/i.test(message)) {
@@ -84,10 +85,10 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
     setVerifyingOtp(true);
 
     try {
-      await verifyEntradasEmailCode({
+      await verifyOficinaExternaEmailCode({
         email: email.trim().toLowerCase(),
         code: otpCode.trim(),
-        app: "scrn",
+        app: SCRN_APP,
       });
     } catch (verifyError) {
       setError(verifyError?.message || "No se pudo validar el código.");
@@ -111,27 +112,22 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
     setError("");
     setMessage("");
 
-    const payload = {
-      id: user.id,
-      nombre: formData.nombre.trim(),
-      apellido: formData.apellido.trim(),
-      dni: formData.dni.trim() || null,
-      fecha_nacimiento: formData.fecha_nacimiento || null,
-      cargo: formData.cargo.trim() || null,
-      genero: formData.genero.trim() || null,
-      es_admin: false,
-    };
-
-    const { error: insertError } = await supabase
-      .from("scrn_perfiles")
-      .upsert(payload, { onConflict: "id" });
-
-    setSavingProfile(false);
-
-    if (insertError) {
+    try {
+      await ensureOficinaExternaProfile({
+        nombre: formData.nombre,
+        apellido: formData.apellido,
+        dni: formData.dni,
+        fecha_nacimiento: formData.fecha_nacimiento || null,
+        cargo: formData.cargo,
+        genero: formData.genero,
+      });
+    } catch (insertError) {
+      setSavingProfile(false);
       setError(getFriendlyProfileError(insertError));
       return;
     }
+
+    setSavingProfile(false);
 
     setMessage("Perfil guardado. Ya podés usar el sistema.");
     onProfileSaved?.();
@@ -150,7 +146,7 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
             Transporte SCRN
           </h1>
           <p className="text-sm text-slate-500">
-            Acceso por código de 8 dígitos enviado a tu correo.
+            Acceso por código de 8 dígitos enviado a tu correo. La misma cuenta sirve para viáticos manual.
           </p>
         </div>
 

@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { supabaseViaticosManualPublic } from "../services/supabase";
+import { supabaseOficinaExterna } from "../services/supabase";
 import {
   getViaticosManualSessionProfile,
   logoutViaticosManual,
@@ -98,7 +98,7 @@ export function ViaticosManualAuthProvider({ children }) {
 
     const {
       data: { subscription },
-    } = supabaseViaticosManualPublic.auth.onAuthStateChange((event, nextSession) => {
+    } = supabaseOficinaExterna.auth.onAuthStateChange((event, nextSession) => {
       if (event === "INITIAL_SESSION") return;
 
       const nextUserId = nextSession?.user?.id || null;

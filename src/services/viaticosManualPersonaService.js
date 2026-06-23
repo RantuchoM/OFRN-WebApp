@@ -1,7 +1,7 @@
-import { supabaseViaticosManualPublic } from "./supabase";
+import { supabaseOficinaExterna } from "./supabase";
 
 export async function listManualPersonas() {
-  const { data, error } = await supabaseViaticosManualPublic
+  const { data, error } = await supabaseOficinaExterna
     .from("viaticos_manual_persona")
     .select("*")
     .order("updated_at", { ascending: false })
@@ -11,7 +11,7 @@ export async function listManualPersonas() {
 }
 
 export async function listManualLocalidades() {
-  const { data, error } = await supabaseViaticosManualPublic
+  const { data, error } = await supabaseOficinaExterna
     .from("viaticos_manual_localidad")
     .select("nombre")
     .order("nombre", { ascending: true });
@@ -20,7 +20,7 @@ export async function listManualLocalidades() {
 }
 
 export async function getMaxValorDiarioFromPersonas() {
-  const { data, error } = await supabaseViaticosManualPublic
+  const { data, error } = await supabaseOficinaExterna
     .from("viaticos_manual_persona")
     .select("valor_diario_base")
     .not("valor_diario_base", "is", null)
@@ -43,7 +43,7 @@ export async function upsertPersonaFromFormData(datos = {}) {
     return Number.isFinite(n) && n > 0 ? n : null;
   };
 
-  const { data, error } = await supabaseViaticosManualPublic.rpc("viaticos_manual_upsert_persona", {
+  const { data, error } = await supabaseOficinaExterna.rpc("viaticos_manual_upsert_persona", {
     p_apellido: apellido,
     p_nombre: nombre,
     p_dni: String(datos.dni || "").trim(),

@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { supabase, supabaseEntradasPublic, supabaseViaticosManualPublic } from "./supabase";
+import { supabase, supabaseEntradasPublic, supabaseOficinaExterna } from "./supabase";
 import {
   blobToBase64NoPrefix,
   buildEntradasReservaPdfBlob,
@@ -76,11 +76,9 @@ async function signInAfterEntradasAuthPayload(data, app = "entradas") {
     throw new Error("No se pudo completar el acceso.");
   }
   const authClient =
-    app === "scrn"
-      ? supabase
-      : app === "viaticos_manual"
-        ? supabaseViaticosManualPublic
-        : supabaseEntradasPublic;
+    app === "scrn" || app === "viaticos_manual"
+      ? supabaseOficinaExterna
+      : supabaseEntradasPublic;
   const { error: signInError } = await authClient.auth.signInWithPassword({
     email: data.email,
     password: data.password,

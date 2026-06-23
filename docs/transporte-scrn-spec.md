@@ -3,6 +3,11 @@
 ## Resumen
 Sección pública para la gestión de flota y solicitudes de transporte de pasajeros. Permite a los usuarios registrarse/loguearse via OTP y solicitar plazas en viajes programados.
 
+## Autenticación (unificada con Viáticos Manual)
+- Login OTP compartido vía `entrada_auth_email_user` + `supabaseOficinaExterna` (storage `sb-ofrn-oficina-externa-session`).
+- Perfil único en `scrn_perfiles` (`scrn_ensure_profile`). Iniciar sesión en SCRN o en viáticos manual deja la misma cuenta activa en ambas rutas.
+- Migración: `20260622140000_oficina_externa_auth_unify.sql` (copia `viaticos_manual_usuario` → `scrn_perfiles`).
+
 ## Requisitos de Usuario (UX)
 - Login via Magic Code (OTP) al email.
 - Perfil: Nombre, Apellido, DNI, Fecha Nacimiento, Cargo, Género.
@@ -47,3 +52,9 @@ Sección pública para la gestión de flota y solicitudes de transporte de pasaj
 ## Estética
 - Uniforme con el resto de la App.
 - Uso del logo: `public/pictures/ofrn.jpg`.
+
+## Catálogo de rutas (corredores)
+- [x] Migración `20260622150000_scrn_rutas_rio_negro.sql`: tablas `scrn_rutas` + `scrn_ruta_paradas` (FK a `localidades.id`), vista `scrn_ruta_aristas`, funciones `scrn_resolve_localidad_id`, `scrn_paradas_entre`, `scrn_paradas_intermedias`.
+- Corredores seed (Río Negro + Neuquén tránsito): `rn22_costa`, `rn22_alto_valle`, `cipolletti_bariloche`, `linea_sur`, `rn237_el_bolson`. Empalmes en **Río Colorado**, **San Antonio Oeste**, **Cipolletti**, **Dina Huapi**.
+- Consulta ejemplo: `select * from scrn_paradas_entre('Viedma', 'San Carlos de Bariloche', 1);` — devuelve caminos posibles (vía Cipolletti/Neuquén o vía Línea Sur).
+- [x] UI: filtrar opciones de subida/bajada en `SolicitudModal`, `ProponerNuevoViajeModal` y `MisReservas` vía RPC `scrn_paradas_entre` (`useScrnParadasViaje`, `scrnRutasParadasUtils.js`, `scrnRutasService.js`).
