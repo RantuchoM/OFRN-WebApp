@@ -17,6 +17,7 @@ import {
   isTramoViaticoRow,
   parseEtiquetaTramo,
 } from "../../../utils/viaticosParadasIntegrante";
+import { resolveViaticoRowLogData } from "../../../utils/viaticosLogisticsSchedule";
 import DiasComputablesHelp from "./DiasComputablesHelp";
 
 // --- HELPERS DE FORMATO ---
@@ -319,6 +320,8 @@ export default function ViaticosTable({
   errorFields = new Set(),
   successFields = new Set(),
   logisticsMap = {},
+  logisticsTransportsByPerson = {},
+  allEvents = [],
   useHistoricalCalc = false,
   onUseHistoricalCalcChange,
   onEditMusician,
@@ -698,17 +701,10 @@ export default function ViaticosTable({
               {rows.map((row) => {
                 const isSelected = selection.has(row.id);
                 const isDeleting = deletingRows.has(row.id);
-                const logData =
-                  row.id_evento_parada_inicio && row.id_evento_parada_fin
-                    ? {
-                        fecha_salida: row.fecha_salida,
-                        hora_salida: row.hora_salida,
-                        fecha_llegada: row.fecha_llegada,
-                        hora_llegada: row.hora_llegada,
-                        transporte_salida: null,
-                        transporte_llegada: null,
-                      }
-                    : logisticsMap?.[String(row.id_integrante)] || {};
+                const logData = resolveViaticoRowLogData(row, logisticsMap, {
+                  allEvents,
+                  logisticsTransportsByPerson,
+                });
 
                 // --- LÓGICA DE ALERTAS LOGÍSTICAS (RESTAURADA) ---
                 const currentFechaSalida = row.fecha_salida;

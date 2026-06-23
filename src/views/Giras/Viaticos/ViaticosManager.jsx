@@ -64,7 +64,7 @@ import {
   sumGastosViaticoRow,
 } from "../../../utils/viaticosAnticipo";
 import { parseSupabasePublicStorageUrl } from "../../../utils/supabaseStorage";
-import { buildViaticosLogisticsMap } from "../../../utils/viaticosLogisticsSchedule";
+import { buildViaticosLogisticsMap, resolveViaticoRowLogData } from "../../../utils/viaticosLogisticsSchedule";
 import {
   collectMotivoLugarWarningsForExport,
   formatMotivoLugarWarningMessage,
@@ -1686,18 +1686,10 @@ const collectTransportSupportDocs = (personData) => {
       .filter((r) => selection.has(r.id))
       .map((row) => {
         const person = row.integrantes || {};
-        const useTramoSchedule =
-          row.id_evento_parada_inicio && row.id_evento_parada_fin;
-        const logData = useTramoSchedule
-          ? {
-              fecha_salida: row.fecha_salida,
-              hora_salida: row.hora_salida,
-              fecha_llegada: row.fecha_llegada,
-              hora_llegada: row.hora_llegada,
-            }
-          : logisticsMap?.[String(row.id_integrante)] ||
-            logisticsMap?.[row.id_integrante] ||
-            {};
+        const logData = resolveViaticoRowLogData(row, logisticsMap, {
+          allEvents,
+          logisticsTransportsByPerson,
+        });
         const patenteOficialFromRow = String(row.patente_oficial || "").trim();
         const patenteOficialFromLogistics = String(logData?.patente || "").trim();
         const ciudadOrigen = resolveCiudadOrigenViaticos(person, row);
@@ -2263,6 +2255,8 @@ const collectTransportSupportDocs = (personData) => {
                 errorFields={feedbackIndividual.errorFields}
                 deletingRows={feedbackIndividual.deletingRows}
                 logisticsMap={logisticsMap}
+                logisticsTransportsByPerson={logisticsTransportsByPerson}
+                allEvents={allEvents}
                 useHistoricalCalc={useHistoricalCalc}
                 onUseHistoricalCalcChange={setUseHistoricalCalc}
                 onEditMusician={(integranteId) => {

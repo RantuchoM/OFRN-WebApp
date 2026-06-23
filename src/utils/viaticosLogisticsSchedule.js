@@ -476,3 +476,77 @@ export function buildViaticosLogisticsMap({
 
   return result;
 }
+
+/**
+ * Datos logísticos para UI y exportación de una fila de viático.
+ * En tramos conserva fechas del tramo y resuelve patente/transporte del bus
+ * correspondiente (vía parada de inicio), con fallback al mapa global del integrante.
+ */
+export function resolveViaticoRowLogData(row, logisticsMap, options = {}) {
+  const integranteKey = String(row?.id_integrante ?? "");
+  const base =
+    logisticsMap?.[integranteKey] ||
+    logisticsMap?.[row?.id_integrante] ||
+    {};
+
+  const isTramo =
+    row?.id_evento_parada_inicio != null && row?.id_evento_parada_fin != null;
+
+  if (!isTramo) {
+    return { ...base };
+  }
+
+  const { allEvents, logisticsTransportsByPerson } = options;
+  const events = Array.isArray(allEvents) ? allEvents : [];
+  const findEvt = (id) =>
+    id != null ? events.find((e) => String(e.id) === String(id)) : null;
+
+  const startEvt = findEvt(row.id_evento_parada_inicio);
+  const endEvt = findEvt(row.id_evento_parada_fin);
+
+  let patente = String(base.patente || "").trim();
+  let transporte_salida = base.transporte_salida ?? null;
+  let transporte_llegada = base.transporte_llegada ?? null;
+  let lugar_salida = base.lugar_salida ?? null;
+  let lugar_llegada = base.lugar_llegada ?? null;
+
+  if (startEvt) {
+    transporte_salida =
+      startEvt.locaciones?.nombre || startEvt.descripcion || transporte_salida;
+    lugar_salida =
+      startEvt.locaciones?.localidades?.localidad ||
+      startEvt.nombre_localidad ||
+      lugar_salida;
+
+    const transportId = startEvt.id_gira_transporte;
+    if (transportId && logisticsTransportsByPerson) {
+      const transports = logisticsTransportsByPerson[integranteKey] || [];
+      const match = transports.find((t) => String(t.id) === String(transportId));
+      if (match?.patente) {
+        patente = String(match.patente).trim();
+      }
+    }
+  }
+
+  if (endEvt) {
+    transporte_llegada =
+      endEvt.locaciones?.nombre || endEvt.descripcion || transporte_llegada;
+    lugar_llegada =
+      endEvt.locaciones?.localidades?.localidad ||
+      endEvt.nombre_localidad ||
+      lugar_llegada;
+  }
+
+  return {
+    ...base,
+    fecha_salida: row.fecha_salida ?? base.fecha_salida ?? null,
+    hora_salida: row.hora_salida ?? base.hora_salida ?? null,
+    fecha_llegada: row.fecha_llegada ?? base.fecha_llegada ?? null,
+    hora_llegada: row.hora_llegada ?? base.hora_llegada ?? null,
+    patente: patente || base.patente || "",
+    transporte_salida,
+    transporte_llegada,
+    lugar_salida,
+    lugar_llegada,
+  };
+}
