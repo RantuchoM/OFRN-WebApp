@@ -4,10 +4,11 @@ import {
     membershipActiveOnProgramDate,
     toIsoDateString,
 } from '../../utils/ensembleMembership';
-import { IconLayers, IconPlus, IconTrash, IconEdit, IconSearch, IconLoader, IconCheck, IconMusic, IconUsers, IconMail } from '../../components/ui/Icons';
+import { IconLayers, IconPlus, IconTrash, IconEdit, IconSearch, IconLoader, IconCheck, IconMusic, IconUsers, IconMail, IconMapPin } from '../../components/ui/Icons';
 import WhatsAppLink from '../../components/ui/WhatsAppLink';
 import DateInput from '../../components/ui/DateInput';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 import EnsembleProgramManager from './EnsembleProgramManager';
 
 const createEmptyEnsembleInstrumentation = () => ({
@@ -58,6 +59,11 @@ const membershipRowFromIe = (row) => {
     };
 };
 
+const resolveLocalidadLabel = (ensamble) => {
+    const loc = Array.isArray(ensamble?.localidades) ? ensamble.localidades[0] : ensamble?.localidades;
+    return loc?.localidad || null;
+};
+
 const formatEnsembleInstrumentation = (counter) => {
     if (!counter) return '';
     const hasWinds = [counter.fl, counter.ob, counter.cl, counter.bn, counter.hn, counter.tpt, counter.tbn, counter.tba].some((v) => v > 0);
@@ -78,7 +84,8 @@ export default function EnsemblesView({ supabase }) {
     const [loadingMembers, setLoadingMembers] = useState(false);
     const [togglingId, setTogglingId] = useState(null); 
     const [isEditingHeader, setIsEditingHeader] = useState(false);
-    const [headerForm, setHeaderForm] = useState({ ensamble: '', descripcion: '' });
+    const [headerForm, setHeaderForm] = useState({ ensamble: '', descripcion: '', id_localidad: null });
+    const [localidadOptions, setLocalidadOptions] = useState([]);
     const [musicianSortMode, setMusicianSortMode] = useState('instrument');
     const [coordinatorIds, setCoordinatorIds] = useState(new Set());
     const [showMusicianPicker, setShowMusicianPicker] = useState(false);
@@ -91,7 +98,17 @@ export default function EnsemblesView({ supabase }) {
     const [membershipDeleteConfirm, setMembershipDeleteConfirm] = useState(null);
     const [activeView, setActiveView] = useState('members');
 
-    useEffect(() => { fetchEnsembles(); }, []);
+    useEffect(() => { fetchEnsembles(); fetchLocalidades(); }, []);
+
+    const fetchLocalidades = async () => {
+        const { data, error } = await supabase
+            .from('localidades')
+            .select('id, localidad')
+            .order('localidad');
+        if (!error && data) {
+            setLocalidadOptions(data.map((l) => ({ id: l.id, label: l.localidad })));
+        }
+    };
 
     useEffect(() => {
         if (!selectedEnsemble && ensembles.length > 0) {
@@ -108,7 +125,11 @@ export default function EnsemblesView({ supabase }) {
 
             fetchEnsembleMembers(selectedEnsemble.id);
             setIsEditingHeader(false);
-            setHeaderForm({ ensamble: selectedEnsemble.ensamble, descripcion: selectedEnsemble.descripcion || '' });
+            setHeaderForm({
+                ensamble: selectedEnsemble.ensamble,
+                descripcion: selectedEnsemble.descripcion || '',
+                id_localidad: selectedEnsemble.id_localidad ?? null,
+            });
             setShowMusicianPicker(false);
             setSearchText('');
             setActiveView('members');
@@ -128,7 +149,7 @@ export default function EnsemblesView({ supabase }) {
         // 'integrantes_ensambles(count)' nos devuelve el número de relaciones
         const { data, error } = await supabase
             .from('ensambles')
-            .select('*, integrantes_ensambles(count)') 
+            .select('*, integrantes_ensambles(count), localidades(id, localidad)')
             .order('ensamble');
         if (error) return;
 
@@ -234,8 +255,26 @@ export default function EnsemblesView({ supabase }) {
 
     const saveHeader = async () => {
         if (!selectedEnsemble) return;
-        const { error } = await supabase.from('ensambles').update({ ensamble: headerForm.ensamble, descripcion: headerForm.descripcion }).eq('id', selectedEnsemble.id);
-        if (error) toast.error("Error al actualizar: " + error.message); else { setIsEditingHeader(false); fetchEnsembles(); setSelectedEnsemble({ ...selectedEnsemble, ...headerForm }); }
+        const idLocalidad = headerForm.id_localidad === '' || headerForm.id_localidad == null
+            ? null
+            : Number(headerForm.id_localidad);
+        const payload = {
+            ensamble: headerForm.ensamble,
+            descripcion: headerForm.descripcion,
+            id_localidad: idLocalidad,
+        };
+        const { error } = await supabase.from('ensambles').update(payload).eq('id', selectedEnsemble.id);
+        if (error) toast.error("Error al actualizar: " + error.message);
+        else {
+            setIsEditingHeader(false);
+            await fetchEnsembles();
+            const locLabel = localidadOptions.find((o) => Number(o.id) === idLocalidad)?.label || null;
+            setSelectedEnsemble({
+                ...selectedEnsemble,
+                ...payload,
+                localidades: locLabel ? { id: idLocalidad, localidad: locLabel } : null,
+            });
+        }
     };
 
     const toggleMembership = async (musicianId) => {
@@ -458,6 +497,12 @@ export default function EnsemblesView({ supabase }) {
                                     {ens.integrantes_ensambles?.[0]?.count || 0} integrantes
                                 </div>
                                 {ens.descripcion && <div className={`text-xs truncate ${selectedEnsemble?.id === ens.id ? 'text-white/85' : 'text-slate-400'}`}>{ens.descripcion}</div>}
+                                {resolveLocalidadLabel(ens) && (
+                                    <div className={`text-[10px] mt-1 flex items-center gap-1 truncate ${selectedEnsemble?.id === ens.id ? 'text-white/80' : 'text-slate-400'}`}>
+                                        <IconMapPin size={10} className="shrink-0" />
+                                        {resolveLocalidadLabel(ens)}
+                                    </div>
+                                )}
                             </button>
                             <button onClick={(e) => deleteEnsemble(ens.id, e)} className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all ${selectedEnsemble?.id === ens.id ? 'text-white/70 hover:text-white hover:bg-white/20' : 'text-slate-300 hover:text-red-500 hover:bg-red-50'}`}><IconTrash size={16} /></button>
                         </div>
@@ -475,6 +520,15 @@ export default function EnsemblesView({ supabase }) {
                                 <div className="space-y-3 animate-in fade-in duration-200">
                                     <input type="text" className="w-full text-2xl font-bold border border-indigo-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 outline-none" value={headerForm.ensamble} onChange={(e) => setHeaderForm({...headerForm, ensamble: e.target.value})} placeholder="Nombre del Ensamble"/>
                                     <textarea className="w-full text-sm border border-indigo-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 outline-none resize-none h-20" value={headerForm.descripcion} onChange={(e) => setHeaderForm({...headerForm, descripcion: e.target.value})} placeholder="Descripción del ensamble..."/>
+                                    <div>
+                                        <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 block">Localidad</label>
+                                        <SearchableSelect
+                                            options={localidadOptions}
+                                            value={headerForm.id_localidad ?? ''}
+                                            onChange={(val) => setHeaderForm({ ...headerForm, id_localidad: val || null })}
+                                            placeholder="Buscar localidad..."
+                                        />
+                                    </div>
                                     <div className="flex gap-2 justify-end"><button onClick={() => setIsEditingHeader(false)} className="px-3 py-1 bg-white border rounded text-sm hover:bg-slate-50">Cancelar</button><button onClick={saveHeader} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">Guardar</button></div>
                                 </div>
                             ) : (
@@ -485,7 +539,15 @@ export default function EnsemblesView({ supabase }) {
                                                 {selectedEnsemble.ensamble}
                                                 <button onClick={() => setIsEditingHeader(true)} className="text-slate-300 hover:text-indigo-500 transition-colors opacity-0 group-hover:opacity-100" title="Editar Nombre/Descripción"><IconEdit size={18} /></button>
                                             </h2>
-                                            <p className="text-slate-500 text-sm mb-4 mt-1">{selectedEnsemble.descripcion || <span className="italic text-slate-400">Sin descripción</span>}</p>
+                                            <p className="text-slate-500 text-sm mb-1 mt-1">{selectedEnsemble.descripcion || <span className="italic text-slate-400">Sin descripción</span>}</p>
+                                            {resolveLocalidadLabel(selectedEnsemble) ? (
+                                                <p className="text-xs text-slate-500 flex items-center gap-1 mb-4">
+                                                    <IconMapPin size={12} className="text-indigo-500 shrink-0" />
+                                                    {resolveLocalidadLabel(selectedEnsemble)}
+                                                </p>
+                                            ) : (
+                                                <p className="text-xs text-slate-400 italic mb-4">Sin localidad asignada</p>
+                                            )}
                                         </div>
                                         {selectedEnsemble.instrumentationLabel && (
                                             <div className="text-[10px] lg:text-[11px] font-mono text-slate-600 bg-white border border-slate-200 rounded-md px-2 py-1 shrink-0">

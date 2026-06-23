@@ -346,6 +346,12 @@ export default function DataView({ supabase }) {
       columns: [
         { key: "ensamble", label: "Nombre Ensamble", type: "text" },
         { key: "descripcion", label: "Descripción", type: "text" },
+        {
+          key: "id_localidad",
+          label: "Localidad",
+          type: "select",
+          options: catalogos.localidades,
+        },
       ],
     },
     coordinadores: {
