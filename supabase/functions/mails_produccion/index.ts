@@ -263,6 +263,7 @@
         const fechaEstimada = d.fecha_esperada || null;
         const dificultad = d.dificultad || null;
         const organico = d.instrumentacion || null;
+        const solicitadoPor = d.solicitado_por || null;
 
         const fechaEstimadaLabel = fechaEstimada
           ? new Date(fechaEstimada + "T12:00:00").toLocaleDateString("es-AR", {
@@ -300,6 +301,7 @@
 
               <table class="data-table">
                 <tr><td class="label">Título:</td><td class="value">${titulo}</td></tr>
+                <tr><td class="label">Solicitado por:</td><td class="value">${solicitadoPor || nombreUser || "—"}</td></tr>
                 <tr><td class="label">Arreglador asignado:</td><td class="value">${arreglador}</td></tr>
                 ${idObra ? `<tr><td class="label">ID obra:</td><td class="value">${idObra}</td></tr>` : ''}
                 <tr><td class="label">Fecha estimada:</td><td class="value">${fechaEstimadaLabel || "—"}</td></tr>

@@ -437,6 +437,7 @@ export default function WorkForm({
     fecha_esperada: "",
     comentarios: "",
     observaciones: "",
+    dificultad: "",
   });
   const [isQuickCompOpen, setIsQuickCompOpen] = useState(false);
   const [showComposersManager, setShowComposersManager] = useState(false);
@@ -557,7 +558,7 @@ export default function WorkForm({
     const { data } = await supabase
       .from("obras")
       .select(
-        "*, obras_compositores(rol, id_compositor), obras_palabras_clave (palabras_clave (id, tag))",
+        "*, usuario_carga:integrantes!id_usuario_carga(apellido, nombre), obras_compositores(rol, id_compositor), obras_palabras_clave (palabras_clave (id, tag))",
       )
       .eq("id", workId)
       .single();
@@ -1041,6 +1042,7 @@ export default function WorkForm({
     fechaEsperada,
     dificultad,
     instrumentacion,
+    solicitadoPor,
   ) => {
     const integranteOpt = integrantesArregladorOptions.find((i) => Number(i.id) === Number(idIntegranteArregladorVal));
     const arregladorLabel = integranteOpt ? integranteOpt.label : "";
@@ -1059,6 +1061,7 @@ export default function WorkForm({
       fecha_esperada: fechaEsperada || null,
       dificultad: dificultad || null,
       instrumentacion: instrumentacion || null,
+      solicitado_por: solicitadoPor || null,
     };
     const { error } = await supabase.functions.invoke("mails_produccion", {
       body: {
@@ -1078,6 +1081,17 @@ export default function WorkForm({
     }
     toast.success("Mail de encargo enviado al Arreglador y al Archivista.");
     return true;
+  };
+
+  const getSolicitanteLabel = () => {
+    const uc = formData.usuario_carga;
+    if (uc?.apellido || uc?.nombre) {
+      return `${uc.apellido || ""}, ${uc.nombre || ""}`.trim();
+    }
+    if (user?.apellido || user?.nombre) {
+      return `${user.apellido || ""}, ${user.nombre || ""}`.trim();
+    }
+    return null;
   };
 
   const handleEnviarMailEncargo = async () => {
@@ -1109,6 +1123,7 @@ export default function WorkForm({
         formData.fecha_esperada,
         formData.dificultad || null,
         formData.instrumentacion || null,
+        getSolicitanteLabel(),
       );
     } finally {
       setSendingEncargoMail(false);
@@ -1488,6 +1503,7 @@ export default function WorkForm({
             : null,
         comentarios: formData.comentarios,
         observaciones: formData.observaciones,
+        dificultad: (formData.dificultad || "").trim() || null,
         link_drive: formData.link_drive,
         link_youtube: formData.link_youtube,
         id_usuario_carga: user.id,
@@ -2011,6 +2027,18 @@ export default function WorkForm({
                 value={formData.fecha_esperada || ""}
                 onChange={(v) => updateField("fecha_esperada", v)}
                 className="border border-amber-200 bg-white text-amber-900 rounded-lg text-xs focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+            <div className="flex-1 min-w-[8rem]">
+              <label className="text-[10px] font-bold uppercase text-amber-700 mb-1 block">
+                Dificultad
+              </label>
+              <input
+                type="text"
+                value={formData.dificultad ?? ""}
+                onChange={(e) => updateField("dificultad", e.target.value)}
+                placeholder="Ej. media, alta…"
+                className="w-full min-h-10 border border-amber-200 bg-white text-amber-900 rounded-lg text-xs px-2.5 focus:ring-2 focus:ring-amber-500"
               />
             </div>
             {formData.id && (

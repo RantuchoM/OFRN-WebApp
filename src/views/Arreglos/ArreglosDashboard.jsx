@@ -36,6 +36,36 @@ const RichTextPreview = ({ content, className = "" }) => {
 
 const fieldStatusKey = (workId, field) => `${workId}-${field}`;
 
+function isArregloEntregado(work) {
+  const estado = (work?.estado || "").toLowerCase();
+  return estado === "entregado" || estado === "oficial";
+}
+
+function compareArreglosPorUrgencia(a, b) {
+  const aEntregado = isArregloEntregado(a);
+  const bEntregado = isArregloEntregado(b);
+  if (aEntregado !== bEntregado) return aEntregado ? 1 : -1;
+
+  const fa = a.fecha_esperada || "";
+  const fb = b.fecha_esperada || "";
+  if (!fa && !fb) return stripHtmlForSort(a.titulo).localeCompare(stripHtmlForSort(b.titulo));
+  if (!fa) return 1;
+  if (!fb) return -1;
+  const cmp = fa.localeCompare(fb);
+  if (cmp !== 0) return cmp;
+  return stripHtmlForSort(a.titulo).localeCompare(stripHtmlForSort(b.titulo));
+}
+
+function stripHtmlForSort(html) {
+  return (html || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+}
+
+function formatIntegranteLabel(integrante) {
+  if (!integrante) return null;
+  const label = `${integrante.apellido || ""}, ${integrante.nombre || ""}`.trim();
+  return label || null;
+}
+
 function getFieldStatusClass(status) {
   if (status === "saving") return "bg-yellow-100 text-yellow-900 border-yellow-300 ring-1 ring-yellow-300 transition-colors duration-200";
   if (status === "error") return "bg-red-100 text-red-900 border-red-300 ring-1 ring-red-300 font-bold transition-colors duration-200";
@@ -58,7 +88,6 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   const [compositoresOptions, setCompositoresOptions] = useState([]);
   const [filterArregladorId, setFilterArregladorId] = useState("");
   const [myCompositorId, setMyCompositorId] = useState(null);
-  const [sortFechaEsperada, setSortFechaEsperada] = useState("asc"); // "asc" | "desc"
 
   // Modal WorkForm: abrir por encima de la vista sin cambiar de tab
   const [workFormModalOpen, setWorkFormModalOpen] = useState(false);
@@ -126,6 +155,8 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           duracion_segundos,
           id_integrante_arreglador,
           fecha_esperada,
+          id_usuario_carga,
+          usuario_carga:integrantes!id_usuario_carga (apellido, nombre),
           obras_compositores (rol, compositores (apellido, nombre))
         `
         );
@@ -189,6 +220,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           ...w,
           compositor_full: compositoresList,
           arreglador_label: w.id_integrante_arreglador ? intMap.get(w.id_integrante_arreglador) : null,
+          solicitante_label: formatIntegranteLabel(w.usuario_carga),
         };
       });
       setWorks(list);
@@ -250,19 +282,8 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     if (filterArregladorId) {
       list = works.filter((w) => String(w.id_integrante_arreglador) === String(filterArregladorId));
     }
-    if (sortFechaEsperada) {
-      list = [...list].sort((a, b) => {
-        const fa = a.fecha_esperada || "";
-        const fb = b.fecha_esperada || "";
-        if (!fa && !fb) return 0;
-        if (!fa) return 1;
-        if (!fb) return -1;
-        const cmp = fa.localeCompare(fb);
-        return sortFechaEsperada === "desc" ? -cmp : cmp;
-      });
-    }
-    return list;
-  }, [works, filterArregladorId, sortFechaEsperada]);
+    return [...list].sort(compareArreglosPorUrgencia);
+  }, [works, filterArregladorId]);
 
   const getDraft = (workId) => rowDraft[workId] || {};
 
@@ -350,6 +371,11 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     return isAdmin || hasOwner;
   };
 
+  const getSolicitanteLabelForUser = () => {
+    if (!user) return null;
+    return `${user.apellido || ""}, ${user.nombre || ""}`.trim() || null;
+  };
+
   const enviarEncargoArreglo = (
     obraId,
     tituloStr,
@@ -358,7 +384,8 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     observacionesStr,
     fechaEsperada,
     dificultad,
-    instrumentacion
+    instrumentacion,
+    solicitadoPor
   ) => {
     const integranteOpt = integrantesArregladorOptions.find(
       (i) => Number(i.id) === Number(idIntegranteArregladorVal)
@@ -384,6 +411,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
       fecha_esperada: fechaEsperada || null,
       dificultad: dificultad || null,
       instrumentacion: instrumentacion || null,
+      solicitado_por: solicitadoPor || null,
     };
     sb.functions
       .invoke("mails_produccion", {
@@ -463,7 +491,8 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           quickDraft.observaciones || "",
           quickDraft.fecha_esperada || null,
           quickDraft.dificultad || null,
-          quickDraft.instrumentacion || null
+          quickDraft.instrumentacion || null,
+          getSolicitanteLabelForUser()
         );
       }
 
@@ -745,13 +774,10 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
                   <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Obra / Compositor · Arreglador</th>
-                  <th
-                    className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs cursor-pointer hover:bg-slate-100 select-none"
-                    onClick={() => setSortFechaEsperada((s) => (s === "asc" ? "desc" : "asc"))}
-                    title={sortFechaEsperada === "asc" ? "Ordenar por fecha (asc); clic para desc" : "Ordenar por fecha (desc); clic para asc"}
-                  >
-                    F. estimada entrega {sortFechaEsperada === "asc" ? "↑" : "↓"}
+                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">
+                    F. estimada entrega
                   </th>
+                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Solicitado por</th>
                   <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Orgánico</th>
                   <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Dificultad</th>
                   <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Observación</th>
@@ -769,7 +795,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                       onClick={() => setShowQuickRow((prev) => !prev)}
                     >
                       <td
-                        colSpan={9}
+                        colSpan={10}
                         className="py-0.5 px-3 text-[11px] font-semibold text-indigo-700"
                       >
                         <div className="flex items-center justify-between gap-2">
@@ -825,6 +851,9 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                             onChange={(v) => setQuickDraftField("fecha_esperada", v)}
                             className="border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500"
                           />
+                        </td>
+                        <td className="py-2 px-3 align-top text-xs text-slate-500 bg-blue-50/40">
+                          {getSolicitanteLabelForUser() || "—"}
                         </td>
                         <td className="py-2 px-3 align-top bg-blue-50/40">
                           <input
@@ -995,6 +1024,9 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                             )}
                           </div>
                         )}
+                      </td>
+                      <td className="py-2 px-3 align-top text-xs text-slate-600 bg-blue-50/40 whitespace-nowrap">
+                        {work.solicitante_label || "—"}
                       </td>
                       <td className="py-2 px-3 align-top bg-blue-50/40">
                         {canEditFields && isParaArreglar ? (

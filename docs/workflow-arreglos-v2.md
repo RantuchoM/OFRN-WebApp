@@ -8,7 +8,7 @@
 | **Oficial** | Archivista | Valida material en la carpeta destino. La obra entra al catálogo vivo. |
 
 ## Integración con Edge Functions
-1. **Notificación de Encargo:** En `WorkForm`, botón **«Enviar mail de asignación»** (junto a la fecha estimada) invoca `mails_produccion` (`encargo_arreglo`) con arreglador, fecha y metadatos de la obra. Requiere obra guardada, arreglador asignado y fecha completada.
+1. **Notificación de Encargo:** En `WorkForm`, botón **«Enviar mail de asignación»** (junto a la fecha estimada) invoca `mails_produccion` (`encargo_arreglo`) con arreglador, fecha, metadatos de la obra y **Solicitado por** (`id_usuario_carga` → nombre del integrante). Requiere obra guardada, arreglador asignado y fecha completada.
 2. **Procesamiento de Entrega:** Al pasar a `Entregado`, llamar a `manage-drive` para clonar el link de origen hacia la carpeta raíz del Archivo (`ID: 10JQJW7YX7UNmWciqgJ-EiqaldM_e0Tvi`).
 
 ## Contactos Operativos
