@@ -22,6 +22,7 @@ import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import WorkForm, { QuickComposerModal } from "../Repertoire/WorkForm";
 import NewVersionModal from "../../components/repertoire/NewVersionModal";
+import ArreglosReferenciasModal from "../../components/arreglos/ArreglosReferenciasModal";
 
 const RichTextPreview = ({ content, className = "" }) => {
   if (!content) return null;
@@ -119,6 +120,8 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
 
   const [workToDelete, setWorkToDelete] = useState(null);
   const [deletingArreglo, setDeletingArreglo] = useState(false);
+  const [refsByObra, setRefsByObra] = useState({});
+  const [refsModalWork, setRefsModalWork] = useState(null);
 
   const fetchWorks = async () => {
     setLoading(true);
@@ -209,6 +212,26 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         }))
       );
 
+      let referenciasMap = {};
+      const obraIds = (obrasFiltradas || []).map((w) => w.id).filter(Boolean);
+      if (obraIds.length > 0) {
+        const { data: refsData, error: refsError } = await sb
+          .from("arreglos_referencias")
+          .select("id, id_obra, titulo, link, id_obra_referencia, orden")
+          .in("id_obra", obraIds)
+          .order("orden", { ascending: true })
+          .order("id", { ascending: true });
+        if (refsError) {
+          console.warn("ArreglosDashboard referencias:", refsError.message);
+        } else {
+          referenciasMap = (refsData || []).reduce((acc, ref) => {
+            if (!acc[ref.id_obra]) acc[ref.id_obra] = [];
+            acc[ref.id_obra].push(ref);
+            return acc;
+          }, {});
+        }
+      }
+
       const list = (obrasFiltradas || []).map((w) => {
         const compositoresList = (w.obras_compositores || [])
           .filter((oc) => oc.rol === "compositor")
@@ -223,6 +246,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           solicitante_label: formatIntegranteLabel(w.usuario_carga),
         };
       });
+      setRefsByObra(referenciasMap);
       setWorks(list);
       setRowDraft({});
       setFieldStatus({});
@@ -666,6 +690,33 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   const stripHtml = (html) =>
     (html || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
 
+  const refreshReferenciasCount = async (obraId) => {
+    try {
+      const { data, error } = await sb
+        .from("arreglos_referencias")
+        .select("id, id_obra, titulo, link, id_obra_referencia, orden")
+        .eq("id_obra", obraId)
+        .order("orden", { ascending: true })
+        .order("id", { ascending: true });
+      if (error) throw error;
+      setRefsByObra((prev) => ({ ...prev, [obraId]: data || [] }));
+    } catch (e) {
+      console.warn("refreshReferenciasCount:", e);
+    }
+  };
+
+  const SolicitanteTag = ({ label }) => {
+    if (!label) return null;
+    return (
+      <span
+        className="inline-flex mt-1 text-[9px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-1.5 py-0.5 max-w-full truncate"
+        title={`Solicitado por ${label}`}
+      >
+        {label}
+      </span>
+    );
+  };
+
   const deleteArregloCompleto = async (work) => {
     if (!canEditFields || !work?.id) return;
     if (work.estado !== "Para arreglar") {
@@ -774,7 +825,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                   <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">
                     F. estimada entrega
                   </th>
-                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Solicitado por</th>
+                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs w-20">Ref.</th>
                   <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Orgánico</th>
                   <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Dificultad</th>
                   <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Observación</th>
@@ -848,9 +899,10 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                             onChange={(v) => setQuickDraftField("fecha_esperada", v)}
                             className="border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500"
                           />
+                          <SolicitanteTag label={getSolicitanteLabelForUser()} />
                         </td>
-                        <td className="py-2 px-3 align-top text-xs text-slate-500 bg-blue-50/40">
-                          {getSolicitanteLabelForUser() || "—"}
+                        <td className="py-2 px-3 align-top text-xs text-slate-400 bg-blue-50/40">
+                          —
                         </td>
                         <td className="py-2 px-3 align-top bg-blue-50/40">
                           <input
@@ -981,26 +1033,29 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                       </td>
                       <td className="py-2 px-3 align-top text-xs whitespace-nowrap bg-blue-50/40">
                         {canEditFields && isParaArreglar ? (
-                          <DateInput
-                            label=""
-                            value={
-                              (draft.fecha_esperada !== undefined
-                                ? draft.fecha_esperada
-                                : work.fecha_esperada) || ""
-                            }
-                            onChange={(v) => {
-                              const nextVal = v || "";
-                              setDraftField(work.id, "fecha_esperada", nextVal);
-                              const current = work.fecha_esperada || "";
-                              if (nextVal !== current) {
-                                saveEditorField(work, "fecha_esperada", nextVal);
+                          <div>
+                            <DateInput
+                              label=""
+                              value={
+                                (draft.fecha_esperada !== undefined
+                                  ? draft.fecha_esperada
+                                  : work.fecha_esperada) || ""
                               }
-                            }}
-                            className={`border rounded-lg text-xs min-w-[110px] ${getFieldStatusClass(
-                              fieldStatus[fieldStatusKey(work.id, "fecha_esperada")] ||
-                                "idle"
-                            )}`}
-                          />
+                              onChange={(v) => {
+                                const nextVal = v || "";
+                                setDraftField(work.id, "fecha_esperada", nextVal);
+                                const current = work.fecha_esperada || "";
+                                if (nextVal !== current) {
+                                  saveEditorField(work, "fecha_esperada", nextVal);
+                                }
+                              }}
+                              className={`border rounded-lg text-xs min-w-[110px] ${getFieldStatusClass(
+                                fieldStatus[fieldStatusKey(work.id, "fecha_esperada")] ||
+                                  "idle"
+                              )}`}
+                            />
+                            <SolicitanteTag label={work.solicitante_label} />
+                          </div>
                         ) : (
                           <div className="flex flex-col text-slate-600">
                             <span>
@@ -1019,11 +1074,25 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                                 ({getDiasRestantesLabel(work)})
                               </span>
                             )}
+                            <SolicitanteTag label={work.solicitante_label} />
                           </div>
                         )}
                       </td>
-                      <td className="py-2 px-3 align-top text-xs text-slate-600 bg-blue-50/40 whitespace-nowrap">
-                        {work.solicitante_label || "—"}
+                      <td className="py-2 px-3 align-top bg-blue-50/40">
+                        {(() => {
+                          const refCount = (refsByObra[work.id] || []).length;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setRefsModalWork(work)}
+                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                              title="Ver referencias de material"
+                            >
+                              <IconDrive size={13} className="text-amber-600 shrink-0" />
+                              {refCount > 0 ? refCount : "+"}
+                            </button>
+                          );
+                        })()}
                       </td>
                       <td className="py-2 px-3 align-top bg-blue-50/40">
                         {canEditFields && isParaArreglar ? (
@@ -1296,6 +1365,15 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         work={newVersionWork}
         supabase={sb}
         onSuccess={fetchWorks}
+      />
+
+      <ArreglosReferenciasModal
+        isOpen={refsModalWork != null}
+        onClose={() => setRefsModalWork(null)}
+        work={refsModalWork}
+        supabase={sb}
+        canEdit={canEditFields}
+        onChanged={refreshReferenciasCount}
       />
 
       <ConfirmModal

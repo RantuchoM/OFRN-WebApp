@@ -114,7 +114,7 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 | `RepertoireManager.jsx` | `program` | **Agregar esta obra al programa** (`onInsertExistingWork`) · **Solicitar nuevo arreglo** |
 
 ### Implementación
-- `createArrangementFromExistingWork(sourceWorkId)`: clona metadatos y relaciones de compositores/arregladores; sin Drive; estado Solicitud; dispara mail `nueva_obra` al archivista (igual que crear solicitud normal).
+- `createArrangementFromExistingWork(sourceWorkId)`: clona metadatos y relaciones de compositores/arregladores; sin Drive; estado Solicitud; dispara mail `nueva_obra` al archivista (igual que crear solicitud normal). Inserta en `arreglos_referencias` la obra origen como referencia (`seedArregloReferenciaObraOrigen`).
 - En `RepertoireManager` (`context="program"`): al crear nuevo arreglo desde `WorkForm` (botón «Nuevo Arreglo»), `handleWorkSaved` inserta la obra clonada en el mismo bloque **debajo de la fila original** (`addWorkToBlockAfter` + `normalizeRepertorioBlockOrden`).
 - `RepertoireManager` ya pasa `context="program"` y `onInsertExistingWork` al modal de WorkForm.
 

@@ -40,6 +40,7 @@ import DateInput from "../../components/ui/DateInput";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import { normalizeForSearch } from "../../utils/sanitize";
+import { seedArregloReferenciaObraOrigen } from "../../utils/arreglosReferencias";
 
 /**
  * `unique_part_per_work`: (id_obra, id_instrumento, nombre_archivo) debe ser único.
@@ -1677,6 +1678,13 @@ export default function WorkForm({
           })),
         );
       }
+
+      await seedArregloReferenciaObraOrigen(
+        supabase,
+        newId,
+        sourceWorkId,
+        source.titulo,
+      );
 
       const composerLabels = relations
         .filter((r) => r.rol === "compositor" || !r.rol)
