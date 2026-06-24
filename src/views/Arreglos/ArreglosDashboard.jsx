@@ -11,11 +11,13 @@ import {
   IconX,
   IconUserPlus,
   IconCopy,
+  IconTrash,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../services/supabase";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import DateInput from "../../components/ui/DateInput";
+import ConfirmModal from "../../components/ui/ConfirmModal";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import WorkForm, { QuickComposerModal } from "../Repertoire/WorkForm";
@@ -85,6 +87,9 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   const [quickSaving, setQuickSaving] = useState(false);
   const [isQuickCompOpen, setIsQuickCompOpen] = useState(false);
   const [showQuickRow, setShowQuickRow] = useState(false);
+
+  const [workToDelete, setWorkToDelete] = useState(null);
+  const [deletingArreglo, setDeletingArreglo] = useState(false);
 
   const fetchWorks = async () => {
     setLoading(true);
@@ -635,6 +640,51 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   const stripHtml = (html) =>
     (html || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
 
+  const deleteArregloCompleto = async (work) => {
+    if (!canEditFields || !work?.id) return;
+    if (work.estado !== "Para arreglar") {
+      toast.error("Solo se pueden eliminar encargos en estado «Para arreglar».");
+      return;
+    }
+
+    setDeletingArreglo(true);
+    try {
+      const obraId = work.id;
+      const childDeletes = [
+        { table: "seating_asignaciones", column: "id_obra" },
+        { table: "repertorio_obras", column: "id_obra" },
+        { table: "obras_produccion_log", column: "id_obra" },
+        { table: "obras_palabras_clave", column: "id_obra" },
+        { table: "obras_particellas", column: "id_obra" },
+        { table: "obras_arcos", column: "id_obra" },
+        { table: "obras_compositores", column: "id_obra" },
+      ];
+
+      for (const { table, column } of childDeletes) {
+        const { error } = await sb.from(table).delete().eq(column, obraId);
+        if (error) throw error;
+      }
+
+      const { error: obraError } = await sb.from("obras").delete().eq("id", obraId);
+      if (obraError) throw obraError;
+
+      setWorks((prev) => prev.filter((w) => w.id !== obraId));
+      setRowDraft((prev) => {
+        const next = { ...prev };
+        delete next[obraId];
+        return next;
+      });
+      toast.success("Solicitud de arreglo eliminada por completo.");
+      setWorkToDelete(null);
+    } catch (e) {
+      console.error("Error al eliminar solicitud de arreglo:", e);
+      toast.error(e?.message || "No se pudo eliminar la solicitud de arreglo.");
+      throw e;
+    } finally {
+      setDeletingArreglo(false);
+    }
+  };
+
   return (
     <div className="space-y-6 h-full flex flex-col animate-in fade-in">
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 shrink-0">
@@ -1103,6 +1153,18 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                                   Solo el arreglador asignado puede marcar como entregado.
                                 </span>
                               )}
+                            {canEditFields && (
+                              <button
+                                type="button"
+                                onClick={() => setWorkToDelete(work)}
+                                disabled={isSaving}
+                                className="text-[10px] font-bold px-2 py-1 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50 flex items-center gap-1"
+                                title="Eliminar solicitud de arreglo"
+                              >
+                                <IconTrash size={12} />
+                                Eliminar
+                              </button>
+                            )}
                           </div>
                         ) : (
                           <div className="flex flex-wrap gap-1">
@@ -1205,6 +1267,25 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         work={newVersionWork}
         supabase={sb}
         onSuccess={fetchWorks}
+      />
+
+      <ConfirmModal
+        isOpen={workToDelete != null}
+        onClose={() => {
+          if (!deletingArreglo) setWorkToDelete(null);
+        }}
+        onConfirm={() => deleteArregloCompleto(workToDelete)}
+        title="Eliminar solicitud de arreglo"
+        message={
+          workToDelete
+            ? `Se eliminará por completo el encargo «${stripHtml(workToDelete.titulo) || "sin título"}» y todos los registros asociados (obra, compositores vinculados, historial de producción, particellas, etc.). Esta acción no se puede deshacer.`
+            : ""
+        }
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        confirmLoading={deletingArreglo}
+        loadingText="Eliminando…"
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-md w-full sm:w-auto"
       />
     </div>
   );

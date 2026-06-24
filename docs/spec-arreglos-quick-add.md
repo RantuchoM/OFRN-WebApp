@@ -19,6 +19,7 @@ Implementar una fila de entrada rápida al final de la tabla de encargos de arre
 ## Reglas de Negocio
 - Los IDs de compositores son numéricos (`integer`). ✅ El `SearchableSelect` guarda el `id` como valor y se inserta en `obras_compositores.id_compositor`.
 - La persistencia se realiza mediante un botón de 'Guardar' en la misma fila de draft, similar a la lógica de `RepertoireManager`. ✅ Botón **"Guardar encargo"** inserta en `public.obras` (estado `"Para arreglar"`) y en `public.obras_compositores`.
+- **Eliminación de encargo (admin/editor):** En filas con estado `Para arreglar`, botón **Eliminar** abre `ConfirmModal` (portal, `z-[100]`) advirtiendo que se borrarán todos los registros del arreglo. Al confirmar, se eliminan en cascada manual las tablas hijas (`seating_asignaciones`, `repertorio_obras`, `obras_produccion_log`, `obras_palabras_clave`, `obras_particellas`, `obras_arcos`, `obras_compositores`) y luego la fila en `obras`. Solo disponible para `isAdmin` o `isEditor`.
 
 ## Guía de Autoguardado y Guardado
 - La fila de carga rápida mantiene un **borrador local en memoria** (estado React) mientras escribís; no se crea ningún registro en base hasta que presionás **"Guardar encargo"**.

@@ -1905,7 +1905,23 @@ export default function RepertoireManager({
 
   const handleWorkSaved = async (savedWorkId, isNew = false) => {
     if (isNew && activeRepertorioId) {
-      await addWorkToBlock(savedWorkId, activeRepertorioId);
+      let inserted = null;
+      if (activeWorkItem?.id != null && activeWorkItem.id_obra != null) {
+        inserted = await addWorkToBlockAfter(
+          savedWorkId,
+          activeRepertorioId,
+          activeWorkItem.id,
+        );
+      } else {
+        inserted = await addWorkToBlock(savedWorkId, activeRepertorioId);
+      }
+      if (inserted) {
+        setActiveWorkItem({
+          ...inserted,
+          id_obra: savedWorkId,
+          id_repertorio: activeRepertorioId,
+        });
+      }
       if (isAddModalOpen) setIsAddModalOpen(false);
     }
     fetchFullRepertoire();
@@ -1916,12 +1932,14 @@ export default function RepertoireManager({
 
   const closeWorkFormModal = () => {
     setIsEditWorkModalOpen(false);
+    setActiveWorkItem(null);
     fetchFullRepertoire();
   };
 
   const openEditModal = (item) => {
     if (isRepertorioPlaceholder(item)) return;
     setActiveWorkItem(item);
+    setActiveRepertorioId(item.id_repertorio ?? null);
     setWorkFormData({ ...item.obras, id: item.obras.id });
     setIsEditWorkModalOpen(true);
   };
@@ -1971,6 +1989,7 @@ export default function RepertoireManager({
   };
 
   const openCreateModal = () => {
+    setActiveWorkItem(null);
     setWorkFormData({
       id: null,
       titulo: "",
@@ -2063,6 +2082,52 @@ export default function RepertoireManager({
     }
     autoSyncDrive();
     return inserted;
+  };
+
+  /** Inserta una obra en el bloque inmediatamente debajo de una fila existente (p. ej. nuevo arreglo). */
+  const addWorkToBlockAfter = async (
+    workId,
+    targetRepertorioId,
+    afterRepertorioObraId,
+  ) => {
+    const repId = targetRepertorioId;
+    if (!repId) return null;
+
+    const currentRep = repertorios.find((r) => r.id === repId);
+    if (!currentRep) return null;
+
+    const obras = [...(currentRep.repertorio_obras || [])].sort(
+      (a, b) => a.orden - b.orden || a.id - b.id,
+    );
+    const afterIdx = obras.findIndex((o) => o.id === afterRepertorioObraId);
+    if (afterIdx === -1) {
+      return addWorkToBlock(workId, repId);
+    }
+
+    const targetIdx = afterIdx + 1;
+    const nuevoOrden = targetIdx === 0 ? 0 : targetIdx + 1;
+    const blockInDefinition = isBlockInDefinitionMode(currentRep);
+
+    const { data: insertedRows, error } = await supabase
+      .from("repertorio_obras")
+      .insert([
+        {
+          id_repertorio: repId,
+          id_obra: workId,
+          orden: nuevoOrden,
+          ...(blockInDefinition ? { en_definicion: true } : {}),
+        },
+      ])
+      .select();
+
+    if (error) {
+      console.error("Error insertando obra debajo del original:", error);
+      return null;
+    }
+
+    await normalizeRepertorioBlockOrden(supabase, repId);
+    autoSyncDrive();
+    return insertedRows?.[0] || null;
   };
 
   const addPlaceholderToBlock = async ({

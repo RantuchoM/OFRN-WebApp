@@ -115,6 +115,7 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 
 ### Implementación
 - `createArrangementFromExistingWork(sourceWorkId)`: clona metadatos y relaciones de compositores/arregladores; sin Drive; estado Solicitud; dispara mail `nueva_obra` al archivista (igual que crear solicitud normal).
+- En `RepertoireManager` (`context="program"`): al crear nuevo arreglo desde `WorkForm` (botón «Nuevo Arreglo»), `handleWorkSaved` inserta la obra clonada en el mismo bloque **debajo de la fila original** (`addWorkToBlockAfter` + `normalizeRepertorioBlockOrden`).
 - `RepertoireManager` ya pasa `context="program"` y `onInsertExistingWork` al modal de WorkForm.
 
 ### Completado
@@ -128,6 +129,7 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 - UI: fecha estimada + botón **«Enviar mail de asignación»** (habilitado solo con fecha y obra persistida).
 - [x] Fix validación post-creación de arreglo
 - [x] Envío manual de mail con confirmación explícita
+- [x] Nuevo arreglo desde programa: inserción en bloque debajo del original
 | `src/services/giraService.js` | `updateWorkPosition`, `normalizeRepertorioBlockOrden`. |
 
 ---
