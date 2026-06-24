@@ -8,20 +8,125 @@ import {
   IconPlus,
   IconTrash,
   IconX,
+  IconYoutube,
 } from "../ui/Icons";
 import { toast } from "sonner";
 import RepertoireWorkPickerModal from "../repertoire/RepertoireWorkPickerModal";
+import {
+  getReferenciaLinkKind,
+  getReferenciaLinkLabel,
+  getReferenciaOpenKind,
+  isYoutubeUrl,
+  resolveReferenciaOpenUrl,
+} from "../../utils/arreglosReferencias";
 
 function stripHtml(html) {
   return (html || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
 }
 
-export function resolveReferenciaOpenUrl(ref) {
-  const link = (ref?.link || "").trim();
-  if (link) return link;
-  const drive = (ref?.obra_ref?.link_drive || "").trim();
-  if (drive) return drive;
-  return null;
+function ReferenciaOpenButton({ kind, url, className = "" }) {
+  if (!url) {
+    return (
+      <span
+        className={`p-1.5 rounded-lg text-slate-300 border border-slate-200 ${className}`}
+        title="Sin enlace disponible"
+      >
+        <IconExternalLink size={16} />
+      </span>
+    );
+  }
+
+  if (kind === "youtube") {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`p-1.5 rounded-lg text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 ${className}`}
+        title="Abrir en YouTube"
+      >
+        <IconYoutube size={16} />
+      </a>
+    );
+  }
+
+  if (kind === "drive" || kind === "obra") {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`p-1.5 rounded-lg text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 ${className}`}
+        title="Abrir carpeta en Drive"
+      >
+        <IconDrive size={16} />
+      </a>
+    );
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`p-1.5 rounded-lg text-slate-600 bg-slate-50 border border-slate-200 hover:bg-slate-100 ${className}`}
+      title="Abrir enlace"
+    >
+      <IconExternalLink size={16} />
+    </a>
+  );
+}
+
+function ReferenciaKindIcon({ kind, size = 12, className = "" }) {
+  if (kind === "obra") {
+    return <IconMusic size={size} className={`shrink-0 text-indigo-500 ${className}`} />;
+  }
+  if (kind === "youtube") {
+    return <IconYoutube size={size} className={`shrink-0 text-red-600 ${className}`} />;
+  }
+  if (kind === "drive") {
+    return <IconDrive size={size} className={`shrink-0 text-amber-600 ${className}`} />;
+  }
+  return <IconExternalLink size={size} className={`shrink-0 text-slate-400 ${className}`} />;
+}
+
+export { resolveReferenciaOpenUrl };
+
+const REF_TIPO_OPTIONS = [
+  { id: "obra", label: "Obra", Icon: IconMusic, activeClass: "bg-white text-indigo-700 shadow-sm ring-1 ring-indigo-200" },
+  { id: "youtube", label: "YouTube", Icon: IconYoutube, activeClass: "bg-white text-red-700 shadow-sm ring-1 ring-red-200" },
+  { id: "link", label: "Drive", Icon: IconDrive, activeClass: "bg-white text-amber-800 shadow-sm ring-1 ring-amber-200" },
+];
+
+function ReferenciaTipoToggle({ value, onChange, disabled = false }) {
+  return (
+    <div
+      className="flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 gap-0.5"
+      role="group"
+      aria-label="Tipo de referencia"
+    >
+      {REF_TIPO_OPTIONS.map(({ id, label, Icon, activeClass }) => {
+        const active = value === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(id)}
+            className={`flex-1 min-w-0 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-bold transition-all ${
+              active
+                ? activeClass
+                : "text-slate-500 hover:text-slate-700 hover:bg-slate-50/80"
+            } disabled:opacity-50`}
+            aria-pressed={active}
+          >
+            <Icon size={13} className="shrink-0" />
+            <span className="truncate">{label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function ArreglosReferenciasModal({
@@ -124,6 +229,16 @@ export default function ArreglosReferenciasModal({
     setDraft((p) => ({ ...p, id_obra_referencia: "" }));
   };
 
+  const setDraftTipo = (tipo) => {
+    setDraft((p) => ({
+      ...p,
+      tipo,
+      id_obra_referencia: tipo === "obra" ? p.id_obra_referencia : "",
+      link: tipo === "obra" ? p.link : "",
+    }));
+    if (tipo !== "obra") setObraPreview(null);
+  };
+
   const handleAddReferencia = async () => {
     if (!canEdit || !work?.id) return;
     const titulo = (draft.titulo || "").trim();
@@ -140,6 +255,15 @@ export default function ArreglosReferenciasModal({
         toast.error("Seleccioná una obra del archivo.");
         return;
       }
+    } else if (draft.tipo === "youtube") {
+      if (!link) {
+        toast.error("Ingresá el enlace de YouTube.");
+        return;
+      }
+      if (!isYoutubeUrl(link)) {
+        toast.error("El enlace no parece ser de YouTube (youtube.com o youtu.be).");
+        return;
+      }
     } else if (!link) {
       toast.error("Ingresá el enlace de referencia.");
       return;
@@ -151,7 +275,10 @@ export default function ArreglosReferenciasModal({
         id_obra: work.id,
         titulo,
         orden: referencias.length,
-        link: draft.tipo === "link" ? link : link || null,
+        link:
+          draft.tipo === "youtube" || draft.tipo === "link"
+            ? link
+            : link || null,
         id_obra_referencia: draft.tipo === "obra" ? obraId : null,
       };
 
@@ -232,6 +359,8 @@ export default function ArreglosReferenciasModal({
             <ul className="space-y-2">
               {referencias.map((ref) => {
                 const openUrl = resolveReferenciaOpenUrl(ref);
+                const linkKind = getReferenciaLinkKind(ref);
+                const openKind = getReferenciaOpenKind(ref, openUrl);
                 const obraRef = ref.obra_ref;
                 return (
                   <li
@@ -244,36 +373,20 @@ export default function ArreglosReferenciasModal({
                       </div>
                       {obraRef ? (
                         <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
-                          <IconMusic size={12} className="shrink-0 text-indigo-500" />
+                          <ReferenciaKindIcon kind="obra" />
                           <span>
                             #{obraRef.id} · {stripHtml(obraRef.titulo) || "Sin título"}
                           </span>
                         </div>
                       ) : (
-                        <div className="text-[11px] text-slate-500 mt-0.5 truncate">
-                          Enlace externo
+                        <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1 truncate">
+                          <ReferenciaKindIcon kind={linkKind} />
+                          <span>{getReferenciaLinkLabel(linkKind)}</span>
                         </div>
                       )}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      {openUrl ? (
-                        <a
-                          href={openUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="p-1.5 rounded-lg text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100"
-                          title="Abrir carpeta / enlace"
-                        >
-                          <IconDrive size={16} />
-                        </a>
-                      ) : (
-                        <span
-                          className="p-1.5 rounded-lg text-slate-300 border border-slate-200"
-                          title="Sin enlace disponible"
-                        >
-                          <IconDrive size={16} />
-                        </span>
-                      )}
+                      <ReferenciaOpenButton kind={openKind} url={openUrl} />
                       {canEdit && (
                         <button
                           type="button"
@@ -304,26 +417,11 @@ export default function ArreglosReferenciasModal({
                 placeholder="Título o descripción breve"
                 className="w-full text-sm border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500"
               />
-              <div className="flex gap-2 text-xs">
-                <label className="flex items-center gap-1 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="ref-tipo"
-                    checked={draft.tipo === "obra"}
-                    onChange={() => setDraft((p) => ({ ...p, tipo: "obra" }))}
-                  />
-                  Obra del archivo
-                </label>
-                <label className="flex items-center gap-1 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="ref-tipo"
-                    checked={draft.tipo === "link"}
-                    onChange={() => setDraft((p) => ({ ...p, tipo: "link" }))}
-                  />
-                  Enlace
-                </label>
-              </div>
+              <ReferenciaTipoToggle
+                value={draft.tipo}
+                onChange={setDraftTipo}
+                disabled={saving}
+              />
               {draft.tipo === "obra" ? (
                 <div className="space-y-1.5">
                   <button
@@ -347,7 +445,7 @@ export default function ArreglosReferenciasModal({
                             rel="noopener noreferrer"
                             className="text-[10px] text-amber-700 inline-flex items-center gap-0.5 mt-0.5"
                           >
-                            <IconExternalLink size={11} /> Drive de la obra
+                            <IconDrive size={11} /> Drive de la obra
                           </a>
                         ) : null}
                       </div>
@@ -369,6 +467,14 @@ export default function ArreglosReferenciasModal({
                     className="w-full text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
+              ) : draft.tipo === "youtube" ? (
+                <input
+                  type="url"
+                  value={draft.link}
+                  onChange={(e) => setDraft((p) => ({ ...p, link: e.target.value }))}
+                  placeholder="https://www.youtube.com/watch?v=… o https://youtu.be/…"
+                  className="w-full text-sm border border-red-200 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-red-400"
+                />
               ) : (
                 <input
                   type="url"
