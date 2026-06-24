@@ -1162,6 +1162,12 @@ export default function WorkForm({
   const saveFieldToDb = async (field, value, overrides = {}) => {
     if (!formData.id) return;
     const data = { ...formData, ...overrides };
+    if (field === "estado" && formData.estado === "Oficial" && value !== "Oficial") {
+      toast.error(
+        "Una obra Oficial no puede cambiar de estado. Creá un nuevo arreglo si necesitás otra versión.",
+      );
+      return;
+    }
     if (field === "estado" && value === "Oficial" && !isAdmin) {
       toast.error("Solo un admin puede pasar una obra a estado Oficial.");
       return;
@@ -1217,6 +1223,12 @@ export default function WorkForm({
   const debouncedSave = useDebouncedCallback(saveFieldToDb, 1000);
 
   const updateField = (field, val) => {
+    if (field === "estado" && formData.estado === "Oficial" && val !== "Oficial") {
+      toast.error(
+        "Una obra Oficial no puede cambiar de estado. Creá un nuevo arreglo si necesitás otra versión.",
+      );
+      return;
+    }
     if (field === "estado" && val === "Oficial" && !isAdmin) {
       toast.error("Solo un admin puede pasar una obra a estado Oficial.");
       return;
@@ -1971,6 +1983,13 @@ export default function WorkForm({
                 title="Se guardará como Solicitud al crear la obra"
               >
                 Borrador
+              </span>
+            ) : isOficial ? (
+              <span
+                className="inline-flex items-center bg-white/95 text-emerald-800 border border-white/50 rounded-lg px-2.5 py-1.5 text-sm sm:text-base font-bold tracking-tight min-w-[10rem]"
+                title="Las obras Oficiales no pueden cambiar de estado. Usá «Nuevo Arreglo» si necesitás otra versión."
+              >
+                Oficial
               </span>
             ) : (
               <select

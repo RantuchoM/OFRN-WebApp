@@ -123,6 +123,13 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 - [x] Acciones archive vs program
 - [x] Opción continuar con obra nueva
 
+### Estado «Oficial» (`WorkForm`)
+- Solo un **admin** puede pasar una obra a `Oficial`.
+- Una vez en `Oficial`, **nadie** (incluido admin) puede cambiar el estado: el selector se reemplaza por etiqueta de solo lectura.
+- Para otra versión instrumental o de arreglo, usar **Nuevo Arreglo** (`createArrangementFromExistingWork` / botón en footer del formulario).
+- [x] Bloqueo en `updateField` y `saveFieldToDb`
+- [x] UI de estado no editable cuando `estado === "Oficial"`
+
 ### Encargo «Para arreglar» (`WorkForm`)
 - Al pasar a `Para arreglar`, se asigna `id_integrante_arreglador` (default integrante `4340365` si vacío) en un único guardado con el estado — evita error de validación por estado React desactualizado tras crear un arreglo nuevo.
 - El mail `encargo_arreglo` **no** se dispara automáticamente al cambiar estado ni al crear la obra.
@@ -180,6 +187,7 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - Cada card conserva el color de estado mediante el fondo de la tarjeta, sin badge textual de estado en móvil.
 - La información prioritaria entra en pocas líneas: título, compositor, estado, arreglador opcional, duración, orgánico, próxima/última gira y tags principales.
 - Todas las acciones móviles son iconográficas: seleccionar, audio, partitura, Drive, asignar a gira, historial, editar y eliminar.
+- Eliminar obra (desktop y móvil): `ConfirmDialog` con título de la obra antes del borrado definitivo en Supabase.
 - La grilla con headers/filtros por columna permanece en desktop (`md+`) sin cambios funcionales.
 - Ajuste v3: se quita el badge de estado en móvil y el estado pasa a comunicarse por un fondo de card más visible (`getEstadoMobileCardBgClass`).
 - Ajuste v3: Drive/carpeta se ubica debajo del checkbox de selección, y las cuatro acciones principales (asignar, historial, editar, eliminar) se apilan verticalmente a la derecha sin aumentar el alto de la card.

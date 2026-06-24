@@ -31,6 +31,7 @@ import {
 import { format, isBefore, isToday, parseISO, addDays } from "date-fns";
 import { es } from "date-fns/locale";
 import WorkForm from "./WorkForm";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import ComposersManager from "./ComposersManager";
 import TagsManager from "./TagsManager";
 import TagMultiSelect from "../../components/filters/TagMultiSelect";
@@ -50,6 +51,7 @@ import {
   fetchPlaceholderOpcionesForObra,
   fetchProgramIdsWithPlaceholders,
 } from "../../services/repertorioPlaceholderOpciones";
+import { stripHtml } from "../../utils/eventDisplayUtils";
 
 // --- ICONOS ADICIONALES ---
 const IconColumns = ({ size = 20, className = "" }) => (
@@ -450,6 +452,8 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [showMobileInstrFilter, setShowMobileInstrFilter] = useState(false);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [mobileWorkActionMenuId, setMobileWorkActionMenuId] = useState(null);
+  const [deleteWorkConfirm, setDeleteWorkConfirm] = useState(null);
+  const [deletingWork, setDeletingWork] = useState(false);
   const [showSolicitudes, setShowSolicitudes] = useState(false);
   const solicitudesRef = useRef(null);
   const mobileFiltersRef = useRef(null);
@@ -984,16 +988,33 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       return null;
     } finally { setLoading(false); }
   };
-  const handleDelete = async (id) => {
-    if (!confirm("¿Eliminar obra?")) return;
+  const requestDeleteWork = (work) => {
+    setDeleteWorkConfirm({ id: work.id, titulo: work.titulo });
+  };
+
+  const confirmDeleteWork = async () => {
+    const id = deleteWorkConfirm?.id;
+    if (!id) return;
+    setDeletingWork(true);
     setLoading(true);
-    const { error: deleteError } = await supabase.from("obras").delete().eq("id", id);
-    if (deleteError) {
-      alert("Error: " + deleteError.message);
-    } else {
+    try {
+      const { error: deleteError } = await supabase.from("obras").delete().eq("id", id);
+      if (deleteError) {
+        alert("Error: " + deleteError.message);
+        throw deleteError;
+      }
       setWorks((prev) => prev.filter((w) => w.id !== id));
+      if (editingId === id) {
+        setEditingId(null);
+        setFormData({});
+      }
+      if (selectionIdSet.has(id)) {
+        removeFromSelection(id);
+      }
+    } finally {
+      setDeletingWork(false);
+      setLoading(false);
     }
-    setLoading(false);
   };
   const startEdit = (work) => {
     setEditingId(work.id);
@@ -1489,7 +1510,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                         <button onClick={() => setHistoryWork(work)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 rounded"><IconHistory size={16} /></button>
                         {work.link_drive && <a href={work.link_drive} target="_blank" className="p-1.5 text-green-600 hover:bg-green-50 rounded"><IconDrive size={16} /></a>}
                         <button onClick={() => startEdit(work)} className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded"><IconEdit size={16} /></button>
-                        <button onClick={() => handleDelete(work.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"><IconTrash size={16} /></button>
+                        <button onClick={() => requestDeleteWork(work)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"><IconTrash size={16} /></button>
                       </div>
                     </div>
                   ))}
@@ -1993,7 +2014,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                                 type="button"
                                 onClick={() => {
                                   setMobileWorkActionMenuId(null);
-                                  handleDelete(work.id);
+                                  requestDeleteWork(work);
                                 }}
                                 className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-red-600 hover:bg-red-50"
                               >
@@ -2067,6 +2088,26 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
           isEditor={isEditor}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={!!deleteWorkConfirm}
+        onClose={() => {
+          if (deletingWork) return;
+          setDeleteWorkConfirm(null);
+        }}
+        onConfirm={confirmDeleteWork}
+        title="Eliminar obra"
+        message={
+          deleteWorkConfirm
+            ? `¿Eliminar «${stripHtml(deleteWorkConfirm.titulo) || "esta obra"}» del archivo? Esta acción no se puede deshacer.`
+            : ""
+        }
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        confirmLoading={deletingWork}
+        loadingText="Eliminando…"
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-md transition-all active:scale-[0.98]"
+      />
     </div>
   );
 }
