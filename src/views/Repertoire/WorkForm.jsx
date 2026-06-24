@@ -21,6 +21,7 @@ import {
   IconCopy,
   IconEdit,
   IconFolder,
+  IconDrive,
   IconMail,
 } from "../../components/ui/Icons";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
@@ -38,6 +39,7 @@ import { toast } from "sonner";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import DateInput from "../../components/ui/DateInput";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import ArreglosReferenciasModal from "../../components/arreglos/ArreglosReferenciasModal";
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import { normalizeForSearch } from "../../utils/sanitize";
 import { seedArregloReferenciaObraOrigen } from "../../utils/arreglosReferencias";
@@ -420,7 +422,7 @@ export default function WorkForm({
   context = "archive", // "archive" (RepertoireView) | "program" (RepertoireManager)
   onInsertExistingWork, // opcional: insertar obra ya existente en bloque de repertorio
 }) {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isEditor } = useAuth();
   const isProgramContext = context === "program";
   const DEFAULT_ARREGLADOR_INTEGRANTE_ID = 4340365;
 
@@ -502,6 +504,8 @@ export default function WorkForm({
   const titleBlurTimerRef = useRef(null);
   const [draftExitConfirmOpen, setDraftExitConfirmOpen] = useState(false);
   const [sendingEncargoMail, setSendingEncargoMail] = useState(false);
+  const [refsModalOpen, setRefsModalOpen] = useState(false);
+  const [refsCount, setRefsCount] = useState(0);
   /** null | { mode: 'single', tempId } | { mode: 'bulk' } */
   const [particellaDeleteConfirm, setParticellaDeleteConfirm] = useState(null);
   const handleQuickCompCreated = (newComp) => {
@@ -554,6 +558,27 @@ export default function WorkForm({
       setFormData((prev) => ({ ...prev, ...initialData }));
     }
   }, [initialData?.id]);
+
+  const refreshRefsCount = useCallback(async (obraId = formData.id) => {
+    if (!obraId) {
+      setRefsCount(0);
+      return;
+    }
+    try {
+      const { count, error } = await supabase
+        .from("arreglos_referencias")
+        .select("id", { count: "exact", head: true })
+        .eq("id_obra", obraId);
+      if (error) throw error;
+      setRefsCount(count || 0);
+    } catch (e) {
+      console.warn("WorkForm refreshRefsCount:", e);
+    }
+  }, [supabase, formData.id]);
+
+  useEffect(() => {
+    refreshRefsCount(formData.id);
+  }, [formData.id, refreshRefsCount]);
 
   const fetchWorkDetails = async (workId) => {
     const { data } = await supabase
@@ -1685,6 +1710,7 @@ export default function WorkForm({
         sourceWorkId,
         source.titulo,
       );
+      await refreshRefsCount(newId);
 
       const composerLabels = relations
         .filter((r) => r.rol === "compositor" || !r.rol)
@@ -1967,6 +1993,9 @@ export default function WorkForm({
   const estadoHeaderClass = getEstadoHeaderClass(displayEstado);
   const estadoShellClass = getEstadoShellClass(displayEstado);
   const isOficial = formData.estado === "Oficial";
+  const showReferencias =
+    !!formData.id &&
+    ["Solicitud", "Para arreglar", "Entregado"].includes(formData.estado || "");
 
   return (
     <div
@@ -2027,6 +2056,17 @@ export default function WorkForm({
             <span className="text-xs text-white drop-shadow-sm flex items-center gap-1.5">
               <IconCheck size={12} /> Guardado
             </span>
+          )}
+          {showReferencias && (
+            <button
+              type="button"
+              onClick={() => setRefsModalOpen(true)}
+              className="inline-flex items-center gap-1 bg-white/90 text-amber-900 border border-white/50 rounded-lg px-2 py-1 text-[11px] font-bold hover:bg-white shadow-sm transition-colors"
+              title="Referencias de material (obras o enlaces)"
+            >
+              <IconDrive size={14} className="text-amber-600 shrink-0" />
+              {refsCount > 0 ? refsCount : "+"}
+            </button>
           )}
           <button
             type="button"
@@ -3021,6 +3061,15 @@ export default function WorkForm({
       </div>
 
       {/* MODALES */}
+      <ArreglosReferenciasModal
+        isOpen={refsModalOpen}
+        onClose={() => setRefsModalOpen(false)}
+        work={formData.id ? { id: formData.id, titulo: formData.titulo } : null}
+        supabase={supabase}
+        canEdit={isEditor || isAdmin}
+        onChanged={refreshRefsCount}
+      />
+
       <ConfirmDialog
         isOpen={!!particellaDeleteConfirm}
         onClose={() => setParticellaDeleteConfirm(null)}
