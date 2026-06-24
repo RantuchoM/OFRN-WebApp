@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import {
     membershipActiveOnProgramDate,
     toIsoDateString,
 } from '../../utils/ensembleMembership';
+import { formatDisplayDate, getTodayDateStringLocal } from '../../utils/dates';
 import { IconLayers, IconPlus, IconTrash, IconEdit, IconSearch, IconLoader, IconCheck, IconMusic, IconUsers, IconMail, IconMapPin } from '../../components/ui/Icons';
 import WhatsAppLink from '../../components/ui/WhatsAppLink';
 import DateInput from '../../components/ui/DateInput';
@@ -75,6 +77,142 @@ const formatEnsembleInstrumentation = (counter) => {
     return stringsBlock;
 };
 
+function MembershipBajaField({ musician, compactDateClass, onOpenBajaModal, onUpdateDates }) {
+    if (musician.fecha_hasta != null) {
+        return (
+            <div className="w-[124px] shrink-0">
+                <DateInput
+                    label="Baja"
+                    showDayName={false}
+                    showCalendarPicker
+                    value={toIsoDateString(musician.fecha_hasta) || ''}
+                    onChange={(iso) =>
+                        void onUpdateDates(musician, {
+                            fecha_hasta: iso === '' ? null : iso,
+                        })
+                    }
+                    className={compactDateClass}
+                />
+            </div>
+        );
+    }
+
+    return (
+        <div className="w-[124px] shrink-0 flex flex-col">
+            <span className="text-[10px] font-bold uppercase text-slate-500 mb-0.5 leading-none">Baja</span>
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenBajaModal(musician);
+                }}
+                className="border border-dashed border-red-200 bg-red-50/60 text-xs py-0.5 px-2 min-h-[2rem] rounded text-red-600 hover:border-red-300 hover:text-red-700 hover:bg-red-50 transition-colors text-center w-full"
+            >
+                Cargar baja
+            </button>
+        </div>
+    );
+}
+
+function MembershipBajaModal({ target, savingMembershipId, onClose, onConfirm }) {
+    const hoy = getTodayDateStringLocal();
+    const [showCustom, setShowCustom] = useState(false);
+    const [customDate, setCustomDate] = useState(hoy);
+
+    useEffect(() => {
+        if (target) {
+            setShowCustom(false);
+            setCustomDate(hoy);
+        }
+    }, [target, hoy]);
+
+    if (!target) return null;
+
+    const busy = savingMembershipId === target.row.membershipId;
+
+    return createPortal(
+        <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+            onClick={onClose}
+        >
+            <div
+                className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-5 border border-slate-100 animate-in zoom-in-95 duration-200"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="membership-baja-modal-title"
+            >
+                <h3 id="membership-baja-modal-title" className="text-lg font-bold text-slate-800">
+                    Cargar baja
+                </h3>
+                <p className="text-sm text-slate-500 mt-1">{target.musicianLabel}</p>
+                <p className="text-sm text-slate-500 mt-3">Elegí la fecha de baja del ensamble:</p>
+
+                {!showCustom ? (
+                    <div className="mt-4 space-y-2">
+                        <button
+                            type="button"
+                            onClick={() => void onConfirm(target.row, hoy)}
+                            disabled={busy}
+                            className="w-full px-4 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-60 flex items-center justify-center gap-2"
+                        >
+                            {busy ? <IconLoader size={16} className="animate-spin" /> : null}
+                            {busy ? 'Guardando…' : `Hoy (${formatDisplayDate(hoy)})`}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setShowCustom(true)}
+                            disabled={busy}
+                            className="w-full px-4 py-2.5 text-sm font-bold text-indigo-700 border border-indigo-200 hover:bg-indigo-50 rounded-lg disabled:opacity-60"
+                        >
+                            Fecha personalizada
+                        </button>
+                    </div>
+                ) : (
+                    <div className="mt-4 space-y-3">
+                        <DateInput
+                            label="Fecha de baja"
+                            showDayName={false}
+                            showCalendarPicker
+                            value={customDate}
+                            onChange={setCustomDate}
+                        />
+                        <div className="flex gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowCustom(false)}
+                                disabled={busy}
+                                className="flex-1 px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-60"
+                            >
+                                Volver
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void onConfirm(target.row, customDate)}
+                                disabled={busy || !customDate}
+                                className="flex-1 px-3 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-60 flex items-center justify-center gap-2"
+                            >
+                                {busy ? <IconLoader size={16} className="animate-spin" /> : null}
+                                Confirmar
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                <button
+                    type="button"
+                    onClick={onClose}
+                    disabled={busy}
+                    className="mt-4 w-full px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg disabled:opacity-60"
+                >
+                    Cancelar
+                </button>
+            </div>
+        </div>,
+        document.body,
+    );
+}
+
 export default function EnsemblesView({ supabase }) {
     const [ensembles, setEnsembles] = useState([]);
     const [selectedEnsemble, setSelectedEnsemble] = useState(null);
@@ -96,6 +234,7 @@ export default function EnsemblesView({ supabase }) {
     const [historicMemberRows, setHistoricMemberRows] = useState([]);
     const [savingMembershipId, setSavingMembershipId] = useState(null);
     const [membershipDeleteConfirm, setMembershipDeleteConfirm] = useState(null);
+    const [membershipBajaModal, setMembershipBajaModal] = useState(null);
     const [activeView, setActiveView] = useState('members');
 
     useEffect(() => { fetchEnsembles(); fetchLocalidades(); }, []);
@@ -325,7 +464,7 @@ export default function EnsemblesView({ supabase }) {
     };
 
     const updateMembershipDates = async (row, partial) => {
-        if (!selectedEnsemble || !row?.membershipId) return;
+        if (!selectedEnsemble || !row?.membershipId) return false;
         const membershipId = row.membershipId;
 
         const patch = {};
@@ -334,7 +473,7 @@ export default function EnsemblesView({ supabase }) {
             if (!fd) {
                 toast.error('La fecha de alta es obligatoria.');
                 await fetchEnsembleMembers(selectedEnsemble.id);
-                return;
+                return false;
             }
             patch.fecha_desde = fd;
         }
@@ -355,7 +494,7 @@ export default function EnsemblesView({ supabase }) {
         if (nextHasta != null && nextDesde && nextHasta < nextDesde) {
             toast.error('La fecha de baja no puede ser anterior a la fecha de alta.');
             await fetchEnsembleMembers(selectedEnsemble.id);
-            return;
+            return false;
         }
 
         setSavingMembershipId(membershipId);
@@ -368,10 +507,23 @@ export default function EnsemblesView({ supabase }) {
         if (error) {
             toast.error(error.message || 'No se pudieron guardar las fechas.');
             await fetchEnsembleMembers(selectedEnsemble.id);
-            return;
+            return false;
         }
         await fetchEnsembleMembers(selectedEnsemble.id);
         await fetchEnsembles();
+        return true;
+    };
+
+    const openMembershipBajaModal = (musician) => {
+        setMembershipBajaModal({
+            row: musician,
+            musicianLabel: `${musician.apellido}, ${musician.nombre}`,
+        });
+    };
+
+    const confirmMembershipBaja = async (row, fecha) => {
+        const ok = await updateMembershipDates(row, { fecha_hasta: fecha });
+        if (ok) setMembershipBajaModal(null);
     };
 
     const confirmDeleteMembershipRecord = async () => {
@@ -444,6 +596,12 @@ export default function EnsemblesView({ supabase }) {
             }
             confirmText="Eliminar"
             confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98]"
+        />
+        <MembershipBajaModal
+            target={membershipBajaModal}
+            savingMembershipId={savingMembershipId}
+            onClose={() => setMembershipBajaModal(null)}
+            onConfirm={confirmMembershipBaja}
         />
         <div className="flex h-full gap-4 lg:gap-5 flex-col lg:flex-row min-w-0 w-full">
             <div className="lg:hidden w-full min-w-0 max-w-none bg-white border border-slate-200 rounded-xl p-3 sm:p-3 shadow-sm">
@@ -655,24 +813,12 @@ export default function EnsemblesView({ supabase }) {
                                                             className={compactDateClass}
                                                         />
                                                     </div>
-                                                    <div className="w-[124px] shrink-0">
-                                                        <DateInput
-                                                            label="Baja"
-                                                            showDayName={false}
-                                                            showCalendarPicker
-                                                            value={
-                                                                musician.fecha_hasta != null
-                                                                    ? toIsoDateString(musician.fecha_hasta) || ''
-                                                                    : ''
-                                                            }
-                                                            onChange={(iso) =>
-                                                                void updateMembershipDates(musician, {
-                                                                    fecha_hasta: iso === '' ? null : iso,
-                                                                })
-                                                            }
-                                                            className={compactDateClass}
-                                                        />
-                                                    </div>
+                                                    <MembershipBajaField
+                                                        musician={musician}
+                                                        compactDateClass={compactDateClass}
+                                                        onOpenBajaModal={openMembershipBajaModal}
+                                                        onUpdateDates={updateMembershipDates}
+                                                    />
                                                 </div>
                                                 <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center" onClick={(e) => e.stopPropagation()}>
                                                     {musician.mail && (
@@ -743,24 +889,12 @@ export default function EnsemblesView({ supabase }) {
                                                                         className={compactDateClass}
                                                                     />
                                                                 </div>
-                                                                <div className="w-[124px] shrink-0">
-                                                                    <DateInput
-                                                                        label="Baja"
-                                                                        showDayName={false}
-                                                                        showCalendarPicker
-                                                                        value={
-                                                                            musician.fecha_hasta != null
-                                                                                ? toIsoDateString(musician.fecha_hasta) || ''
-                                                                                : ''
-                                                                        }
-                                                                        onChange={(iso) =>
-                                                                            void updateMembershipDates(musician, {
-                                                                                fecha_hasta: iso === '' ? null : iso,
-                                                                            })
-                                                                        }
-                                                                        className={compactDateClass}
-                                                                    />
-                                                                </div>
+                                                                <MembershipBajaField
+                                                                    musician={musician}
+                                                                    compactDateClass={compactDateClass}
+                                                                    onOpenBajaModal={openMembershipBajaModal}
+                                                                    onUpdateDates={updateMembershipDates}
+                                                                />
                                                             </div>
                                                             <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                                                                 <button type="button" onClick={() => goToMusicianEditor(musician)} className="p-1 rounded-full text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="Editar músico">
