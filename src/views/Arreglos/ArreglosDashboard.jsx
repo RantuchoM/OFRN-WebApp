@@ -371,10 +371,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     return isAdmin || hasOwner;
   };
 
-  const getSolicitanteLabelForUser = () => {
-    if (!user) return null;
-    return `${user.apellido || ""}, ${user.nombre || ""}`.trim() || null;
-  };
+  const getSolicitanteLabelForUser = () => formatIntegranteLabel(user);
 
   const enviarEncargoArreglo = (
     obraId,
@@ -420,7 +417,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           templateId: "encargo_arreglo",
           email: emailTo,
           bcc: ["ofrn.archivo@gmail.com"],
-          nombre: user ? `${user.nombre} ${user.apellido}` : "Sistema",
+          nombre: user ? `${user.apellido || ""}, ${user.nombre || ""}`.trim() : "Sistema",
           gira: null,
           detalle,
         },

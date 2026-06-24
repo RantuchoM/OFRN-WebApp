@@ -21,7 +21,7 @@ Implementar una fila de entrada rápida al final de la tabla de encargos de arre
 - La persistencia se realiza mediante un botón de 'Guardar' en la misma fila de draft, similar a la lógica de `RepertoireManager`. ✅ Botón **"Guardar encargo"** inserta en `public.obras` (estado `"Para arreglar"`) y en `public.obras_compositores`.
 - **Eliminación de encargo (admin/editor):** En filas con estado `Para arreglar`, botón **Eliminar** abre `ConfirmModal` (portal, `z-[100]`) advirtiendo que se borrarán todos los registros del arreglo. Al confirmar, se eliminan en cascada manual las tablas hijas (`seating_asignaciones`, `repertorio_obras`, `obras_produccion_log`, `obras_palabras_clave`, `obras_particellas`, `obras_arcos`, `obras_compositores`) y luego la fila en `obras`. Solo disponible para `isAdmin` o `isEditor`.
 - **Orden de la tabla:** Pendientes (`Para arreglar`) arriba por `fecha_esperada` ascendente (más urgente primero; sin fecha al final del bloque pendiente). `Entregado` y `Oficial` siempre al final.
-- **Solicitado por:** Columna con `integrantes!id_usuario_carga` (apellido, nombre). El mail `encargo_arreglo` incluye fila **Solicitado por** con ese nombre (`detalle.solicitado_por`).
+- **Solicitado por:** Columna con `integrantes!id_usuario_carga` (apellido, nombre). El mail `encargo_arreglo` incluye fila **Solicitado por** con ese nombre (`detalle.solicitado_por`, resuelto desde `id_usuario_carga`). **Asignado por** (cabecera del mail) = usuario de la sesión que envía; no se reutiliza como fallback de Solicitado por.
 - **Dificultad en WorkForm:** Campo editable en el bloque «Para arreglar» (junto a fecha estimada); se persiste en `obras.dificultad` y viaja en el mail de encargo.
 
 ## Guía de Autoguardado y Guardado

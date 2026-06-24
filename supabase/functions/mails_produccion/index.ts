@@ -301,7 +301,7 @@
 
               <table class="data-table">
                 <tr><td class="label">Título:</td><td class="value">${titulo}</td></tr>
-                <tr><td class="label">Solicitado por:</td><td class="value">${solicitadoPor || nombreUser || "—"}</td></tr>
+                <tr><td class="label">Solicitado por:</td><td class="value">${solicitadoPor || "—"}</td></tr>
                 <tr><td class="label">Arreglador asignado:</td><td class="value">${arreglador}</td></tr>
                 ${idObra ? `<tr><td class="label">ID obra:</td><td class="value">${idObra}</td></tr>` : ''}
                 <tr><td class="label">Fecha estimada:</td><td class="value">${fechaEstimadaLabel || "—"}</td></tr>

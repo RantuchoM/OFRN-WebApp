@@ -1033,6 +1033,24 @@ export default function WorkForm({
     return ["input", "min-h-10", statusClass, baseClass].filter(Boolean).join(" ");
   };
 
+  const formatIntegranteLabel = (integrante) => {
+    if (!integrante) return null;
+    const label = `${integrante.apellido || ""}, ${integrante.nombre || ""}`.trim();
+    return label || null;
+  };
+
+  const resolveSolicitanteLabel = async (idUsuarioCarga, usuarioCargaEmbedded) => {
+    const fromEmbed = formatIntegranteLabel(usuarioCargaEmbedded);
+    if (fromEmbed) return fromEmbed;
+    if (!idUsuarioCarga) return null;
+    const { data } = await supabase
+      .from("integrantes")
+      .select("apellido, nombre")
+      .eq("id", idUsuarioCarga)
+      .maybeSingle();
+    return formatIntegranteLabel(data);
+  };
+
   const enviarEncargoArreglo = async (
     obraId,
     tituloStr,
@@ -1069,7 +1087,7 @@ export default function WorkForm({
         templateId: "encargo_arreglo",
         email: emailTo,
         bcc: ["ofrn.archivo@gmail.com"],
-        nombre: user ? `${user.nombre} ${user.apellido}` : "Sistema",
+        nombre: user ? `${user.apellido || ""}, ${user.nombre || ""}`.trim() : "Sistema",
         gira: null,
         detalle,
       },
@@ -1081,17 +1099,6 @@ export default function WorkForm({
     }
     toast.success("Mail de encargo enviado al Arreglador y al Archivista.");
     return true;
-  };
-
-  const getSolicitanteLabel = () => {
-    const uc = formData.usuario_carga;
-    if (uc?.apellido || uc?.nombre) {
-      return `${uc.apellido || ""}, ${uc.nombre || ""}`.trim();
-    }
-    if (user?.apellido || user?.nombre) {
-      return `${user.apellido || ""}, ${user.nombre || ""}`.trim();
-    }
-    return null;
   };
 
   const handleEnviarMailEncargo = async () => {
@@ -1110,6 +1117,10 @@ export default function WorkForm({
     }
     setSendingEncargoMail(true);
     try {
+      const solicitanteLabel = await resolveSolicitanteLabel(
+        formData.id_usuario_carga,
+        formData.usuario_carga,
+      );
       await supabase
         .from("obras")
         .update({ fecha_esperada: formData.fecha_esperada })
@@ -1123,7 +1134,7 @@ export default function WorkForm({
         formData.fecha_esperada,
         formData.dificultad || null,
         formData.instrumentacion || null,
-        getSolicitanteLabel(),
+        solicitanteLabel,
       );
     } finally {
       setSendingEncargoMail(false);
@@ -1632,7 +1643,7 @@ export default function WorkForm({
         link_youtube: source.link_youtube || null,
         link_drive: null,
         instrumentacion: source.instrumentacion || null,
-        id_usuario_carga: user.id,
+        id_usuario_carga: source.id_usuario_carga ?? user.id,
       };
 
       const { data, error } = await supabase
