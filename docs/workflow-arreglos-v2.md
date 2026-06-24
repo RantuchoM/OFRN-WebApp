@@ -3,12 +3,12 @@
 ## Matriz de Estados y Responsabilidades
 | Estado | Actor | Acción Técnica |
 |:--- |:--- |:--- |
-| **Para arreglar** | Editor | Se asigna `id_integrante_arreglador` (integrante a notificar). Dispara `mails_produccion` al mail del integrante. |
+| **Para arreglar** | Editor | Se asigna `id_integrante_arreglador` (integrante a notificar; default `4340365` si no hay otro). El mail de encargo **no** se envía al cambiar estado: el editor indica `fecha_esperada` y pulsa **«Enviar mail de asignación»** en `WorkForm`. |
 | **Entregado** | Arreglador | Sube `link_drive`. Dispara `manage-drive` (clonación) y mail al Archivista. |
 | **Oficial** | Archivista | Valida material en la carpeta destino. La obra entra al catálogo vivo. |
 
 ## Integración con Edge Functions
-1. **Notificación de Encargo:** Al pasar a `Para arreglar`, llamar a `mails_produccion` con los datos del encargo.
+1. **Notificación de Encargo:** En `WorkForm`, botón **«Enviar mail de asignación»** (junto a la fecha estimada) invoca `mails_produccion` (`encargo_arreglo`) con arreglador, fecha y metadatos de la obra. Requiere obra guardada, arreglador asignado y fecha completada.
 2. **Procesamiento de Entrega:** Al pasar a `Entregado`, llamar a `manage-drive` para clonar el link de origen hacia la carpeta raíz del Archivo (`ID: 10JQJW7YX7UNmWciqgJ-EiqaldM_e0Tvi`).
 
 ## Contactos Operativos

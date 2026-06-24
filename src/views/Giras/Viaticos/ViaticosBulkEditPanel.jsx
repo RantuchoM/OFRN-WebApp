@@ -98,6 +98,7 @@ export default function ViaticosBulkEditPanel({
     rendicion: false,
     docComun: false,
     docReducida: false,
+    docVehiculoChofer: false,
     addDj: false,
     unifyFiles: false,
     renuncia_viaticos: true,
@@ -149,7 +150,8 @@ export default function ViaticosBulkEditPanel({
     exportOptions.destaque ||
     exportOptions.rendicion ||
     exportOptions.docComun ||
-    exportOptions.docReducida;
+    exportOptions.docReducida ||
+    exportOptions.docVehiculoChofer;
 
   // Título dinámico del header
   const getHeaderTitle = () => {
@@ -615,6 +617,20 @@ export default function ViaticosBulkEditPanel({
                     className="rounded text-green-600"
                   />{" "}
                   Agregar DJ (antes de Doc. Reducida)
+                </label>
+                <label className="flex items-center gap-2 text-xs text-slate-700 p-1.5 hover:bg-slate-50 rounded cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportOptions.docVehiculoChofer}
+                    onChange={(e) =>
+                      setExportOptions((prev) => ({
+                        ...prev,
+                        docVehiculoChofer: e.target.checked,
+                      }))
+                    }
+                    className="rounded text-green-600"
+                  />{" "}
+                  Doc. del vehículo y chofer
                 </label>
               </div>
 

@@ -62,6 +62,7 @@ COMMENT ON COLUMN public.giras_viaticos_config.rendicion_fecha IS 'Fecha límite
 - [x] **Pre-check motivo / lugar de comisión** (`src/utils/viaticosExportMotivoLugar.js`): antes de exportar viático, destaque o rendición, valida con `trimOrEmpty` (null, `""` y espacios = vacío) y la misma cadena de fallback que el PDF; confirmación con `z-[110]` por encima del panel bulk (`z-[60]`).
 - [x] **Aclaración bajo la firma** (`aclaracion_firma` en plantillas AcroForm): viático, destaque y rendición rellenan `Apellido, Nombre` con `setText` en el campo `aclaracion_firma`; la imagen de firma sigue en `firma_link` / `firma_imagen`. Preview alineado en `ViaticosForm.jsx` y `RendicionForm.jsx`.
 - [x] **Logística en tramos desdoblados** (`resolveViaticoRowLogData` en `viaticosLogisticsSchedule.js`): filas con `id_evento_parada_inicio` / `id_evento_parada_fin` conservan fechas del tramo y resuelven **patente oficial** (y etiquetas de parada salida/llegada) desde el transporte de la parada de inicio, con fallback al `logisticsMap` del integrante. Usado en `ViaticosTable` y en `buildSelectedExportData` de `ViaticosManager`.
+- [x] **Doc. vehículo y chofer (export opcional)**: la documentación del vehículo y el carnet/DNI del chofer (`collectTransportSupportDocs` en `ViaticosManager`) **ya no** se adjuntan automáticamente al marcar Doc. Común o Doc. Reducida. Checkbox explícito **«Doc. del vehículo y chofer»** (`docVehiculoChofer`) en `ViaticosBulkEditPanel` y `LocationBulkPanel`; solo se incluyen PDFs de logística si el usuario lo tilda.
 
 ## 4. Archivos tocados
 

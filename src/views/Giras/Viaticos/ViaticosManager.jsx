@@ -921,7 +921,7 @@ const collectTransportSupportDocs = (personData) => {
         );
     }
 
-    if (options.docComun || options.docReducida) {
+    if (options.docVehiculoChofer) {
       const supportDocs = collectTransportSupportDocs(personData);
       for (const doc of supportDocs) {
         if (!isPdfUrl(doc.url)) {
@@ -1174,7 +1174,13 @@ const collectTransportSupportDocs = (personData) => {
         setExportStatus(`${prefix} ${nameSafe}`);
 
         try {
-          const shouldBuildMergedPacket = options.docComun || options.docReducida;
+          const shouldBuildMergedPacket =
+            options.docComun ||
+            options.docReducida ||
+            (options.docVehiculoChofer &&
+              !options.viatico &&
+              !options.destaque &&
+              !options.rendicion);
           if (shouldBuildMergedPacket) {
             setExportDetail("Generando PDF integrado...");
             const personDoc = await PDFDocument.create();
@@ -1271,7 +1277,7 @@ const collectTransportSupportDocs = (personData) => {
               `${nameSafe} - Doc. Reducida`,
             );
           }
-          if (options.docComun || options.docReducida) {
+          if (options.docVehiculoChofer) {
             const supportDocs = collectTransportSupportDocs(personData);
             for (const doc of supportDocs) {
               if (!isPdfUrl(doc.url)) {
@@ -1607,6 +1613,9 @@ const collectTransportSupportDocs = (personData) => {
             lugarStored?.trim() || config.lugar_comision?.trim() || "";
         }
         rich.asiento_habitual = asientoHabitual;
+
+        rich.logistics_transports =
+          logisticsTransportsByPerson[String(p.id)] || [];
 
         if (options?.destaque) {
           return zeroDestaqueMonetaryFields(rich);

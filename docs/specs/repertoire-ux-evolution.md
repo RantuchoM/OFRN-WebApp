@@ -121,6 +121,13 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 - [x] Desplegable contextual en título
 - [x] Acciones archive vs program
 - [x] Opción continuar con obra nueva
+
+### Encargo «Para arreglar» (`WorkForm`)
+- Al pasar a `Para arreglar`, se asigna `id_integrante_arreglador` (default integrante `4340365` si vacío) en un único guardado con el estado — evita error de validación por estado React desactualizado tras crear un arreglo nuevo.
+- El mail `encargo_arreglo` **no** se dispara automáticamente al cambiar estado ni al crear la obra.
+- UI: fecha estimada + botón **«Enviar mail de asignación»** (habilitado solo con fecha y obra persistida).
+- [x] Fix validación post-creación de arreglo
+- [x] Envío manual de mail con confirmación explícita
 | `src/services/giraService.js` | `updateWorkPosition`, `normalizeRepertorioBlockOrden`. |
 
 ---

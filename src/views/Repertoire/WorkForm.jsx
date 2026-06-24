@@ -21,6 +21,7 @@ import {
   IconCopy,
   IconEdit,
   IconFolder,
+  IconMail,
 } from "../../components/ui/Icons";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import { useAuth } from "../../context/AuthContext";
@@ -498,6 +499,7 @@ export default function WorkForm({
   const titleDropdownRef = useRef(null);
   const titleBlurTimerRef = useRef(null);
   const [draftExitConfirmOpen, setDraftExitConfirmOpen] = useState(false);
+  const [sendingEncargoMail, setSendingEncargoMail] = useState(false);
   /** null | { mode: 'single', tempId } | { mode: 'bulk' } */
   const [particellaDeleteConfirm, setParticellaDeleteConfirm] = useState(null);
   const handleQuickCompCreated = (newComp) => {
@@ -1030,7 +1032,7 @@ export default function WorkForm({
     return ["input", "min-h-10", statusClass, baseClass].filter(Boolean).join(" ");
   };
 
-  const enviarEncargoArreglo = (
+  const enviarEncargoArreglo = async (
     obraId,
     tituloStr,
     idIntegranteArregladorVal,
@@ -1046,7 +1048,7 @@ export default function WorkForm({
     if (!emailTo) {
       console.warn("encargo_arreglo: sin email para integrante", idIntegranteArregladorVal);
       toast.error("No se encontró email del arreglador para enviar el encargo.");
-      return;
+      return false;
     }
     const detalle = {
       titulo: tituloStr,
@@ -1058,22 +1060,59 @@ export default function WorkForm({
       dificultad: dificultad || null,
       instrumentacion: instrumentacion || null,
     };
-    supabase.functions
-      .invoke("mails_produccion", {
-        body: {
-          action: "enviar_mail",
-          templateId: "encargo_arreglo",
-          email: emailTo,
-          bcc: ["ofrn.archivo@gmail.com"],
-          nombre: user ? `${user.nombre} ${user.apellido}` : "Sistema",
-          gira: null,
-          detalle,
-        },
-      })
-      .then(({ error }) => {
-        if (error) console.error("mails_produccion (encargo_arreglo):", error);
-        else toast.success("Mail de encargo enviado al Arreglador y al Archivista.");
-      });
+    const { error } = await supabase.functions.invoke("mails_produccion", {
+      body: {
+        action: "enviar_mail",
+        templateId: "encargo_arreglo",
+        email: emailTo,
+        bcc: ["ofrn.archivo@gmail.com"],
+        nombre: user ? `${user.nombre} ${user.apellido}` : "Sistema",
+        gira: null,
+        detalle,
+      },
+    });
+    if (error) {
+      console.error("mails_produccion (encargo_arreglo):", error);
+      toast.error("No se pudo enviar el mail de encargo.");
+      return false;
+    }
+    toast.success("Mail de encargo enviado al Arreglador y al Archivista.");
+    return true;
+  };
+
+  const handleEnviarMailEncargo = async () => {
+    if (!formData.id) {
+      toast.error("Guardá la obra antes de enviar el mail de asignación.");
+      return;
+    }
+    const idIntegrante = formData.id_integrante_arreglador || DEFAULT_ARREGLADOR_INTEGRANTE_ID;
+    if (!idIntegrante) {
+      toast.error("Asigná un arreglador (integrante a notificar) antes de enviar el mail.");
+      return;
+    }
+    if (!formData.fecha_esperada) {
+      toast.error("Indicá la fecha estimada de entrega antes de enviar el mail.");
+      return;
+    }
+    setSendingEncargoMail(true);
+    try {
+      await supabase
+        .from("obras")
+        .update({ fecha_esperada: formData.fecha_esperada })
+        .eq("id", formData.id);
+      await enviarEncargoArreglo(
+        formData.id,
+        stripHtml(formData.titulo),
+        idIntegrante,
+        formData.link_drive,
+        (formData.observaciones || "").trim(),
+        formData.fecha_esperada,
+        formData.dificultad || null,
+        formData.instrumentacion || null,
+      );
+    } finally {
+      setSendingEncargoMail(false);
+    }
   };
 
   const sendNuevaObraArchivistaMail = (detalle) => {
@@ -1094,14 +1133,11 @@ export default function WorkForm({
       });
   };
 
-  const saveFieldToDb = async (field, value) => {
+  const saveFieldToDb = async (field, value, overrides = {}) => {
     if (!formData.id) return;
+    const data = { ...formData, ...overrides };
     if (field === "estado" && value === "Oficial" && !isAdmin) {
       toast.error("Solo un admin puede pasar una obra a estado Oficial.");
-      return;
-    }
-    if (field === "estado" && value === "Para arreglar" && !formData.id_integrante_arreglador) {
-      toast.error("Al marcar 'Para arreglar' debes asignar un Arreglador (integrante a notificar).");
       return;
     }
     setSaveStatus("saving");
@@ -1116,8 +1152,10 @@ export default function WorkForm({
         payload["fecha_esperada"] = value || null;
       else if (field === "estado") {
         payload["estado"] = value;
-        if (value === "Para arreglar" && formData.id_integrante_arreglador)
-          payload["id_integrante_arreglador"] = formData.id_integrante_arreglador;
+        if (value === "Para arreglar") {
+          payload["id_integrante_arreglador"] =
+            data.id_integrante_arreglador || DEFAULT_ARREGLADOR_INTEGRANTE_ID;
+        }
       } else if (field === "id_arreglador") {
         payload["id_arreglador"] = value ? Number(value) : null;
       } else if (field === "id_integrante_arreglador") {
@@ -1130,25 +1168,8 @@ export default function WorkForm({
       setTimeout(() => setSaveStatus("idle"), 2000);
       if (onSave) onSave(formData.id, false);
 
-      // Encargo arreglo: solo al pasar a "Para arreglar" o al asignar integrante arreglador (no en cada guardado)
-      const acabaDePasarParaArreglar = field === "estado" && value === "Para arreglar";
-      const acabaDeAsignarArreglador = field === "id_integrante_arreglador" && value && formData.estado === "Para arreglar";
-      const idIntegranteParaMail = field === "id_integrante_arreglador" ? (value ? Number(value) : null) : formData.id_integrante_arreglador;
-      if ((acabaDePasarParaArreglar || acabaDeAsignarArreglador) && idIntegranteParaMail) {
-        enviarEncargoArreglo(
-          formData.id,
-          stripHtml(formData.titulo),
-          idIntegranteParaMail,
-          formData.link_drive,
-          (formData.observaciones || "").trim(),
-          formData.fecha_esperada || null,
-          formData.dificultad || null,
-          formData.instrumentacion || null,
-        );
-      }
-
       // manage-drive: al pasar a Entregado
-      if (field === "estado" && value === "Entregado" && (formData.link_drive || "").trim()) {
+      if (field === "estado" && value === "Entregado" && (data.link_drive || "").trim()) {
         supabase.functions
           .invoke("manage-drive", {
             body: {
@@ -1175,17 +1196,23 @@ export default function WorkForm({
       return;
     }
     if (field === "estado" && val === "Para arreglar") {
-      setFormData((prev) => {
-        const hasIntegrante = prev.id_integrante_arreglador != null && prev.id_integrante_arreglador !== "";
-        return {
-          ...prev,
-          estado: val,
-          id_integrante_arreglador: hasIntegrante ? prev.id_integrante_arreglador : DEFAULT_ARREGLADOR_INTEGRANTE_ID,
-        };
-      });
+      const resolvedArreglador =
+        formData.id_integrante_arreglador != null && formData.id_integrante_arreglador !== ""
+          ? formData.id_integrante_arreglador
+          : DEFAULT_ARREGLADOR_INTEGRANTE_ID;
+      setFormData((prev) => ({
+        ...prev,
+        estado: val,
+        id_integrante_arreglador:
+          prev.id_integrante_arreglador != null && prev.id_integrante_arreglador !== ""
+            ? prev.id_integrante_arreglador
+            : DEFAULT_ARREGLADOR_INTEGRANTE_ID,
+      }));
       if (formData.id) {
-        debouncedSave("estado", val);
-        if (!formData.id_integrante_arreglador) saveFieldToDb("id_integrante_arreglador", DEFAULT_ARREGLADOR_INTEGRANTE_ID);
+        saveFieldToDb("estado", val, {
+          estado: val,
+          id_integrante_arreglador: resolvedArreglador,
+        });
       }
       return;
     }
@@ -1528,19 +1555,6 @@ export default function WorkForm({
           observaciones: (formData.observaciones || "").trim() || null,
           comentarios: (formData.comentarios || "").trim() || null,
         });
-
-        if (formData.estado === "Para arreglar" && formData.id_integrante_arreglador) {
-          enviarEncargoArreglo(
-            newId,
-            stripHtml(formData.titulo),
-            formData.id_integrante_arreglador,
-            formData.link_drive,
-            (formData.observaciones || "").trim(),
-            formData.fecha_esperada || null,
-            formData.dificultad || null,
-            payload.instrumentacion || null,
-          );
-        }
 
         if (onSave) {
           if (isProgramContext) {
@@ -1990,12 +2004,36 @@ export default function WorkForm({
               className="text-sm border-amber-200 bg-white"
             />
           </div>
-          <DateInput
-            label="Fecha estimada de entrega"
-            value={formData.fecha_esperada || ""}
-            onChange={(v) => updateField("fecha_esperada", v)}
-            className="border border-amber-200 bg-white text-amber-900 rounded-lg text-xs focus:ring-2 focus:ring-amber-500"
-          />
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="flex-1 min-w-[12rem]">
+              <DateInput
+                label="Fecha estimada de entrega"
+                value={formData.fecha_esperada || ""}
+                onChange={(v) => updateField("fecha_esperada", v)}
+                className="border border-amber-200 bg-white text-amber-900 rounded-lg text-xs focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+            {formData.id && (
+              <button
+                type="button"
+                onClick={handleEnviarMailEncargo}
+                disabled={sendingEncargoMail || !formData.fecha_esperada}
+                className="inline-flex items-center gap-1.5 shrink-0 h-10 px-3 rounded-lg border border-amber-300 bg-amber-100 text-amber-900 text-xs font-bold uppercase tracking-wide hover:bg-amber-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title={
+                  formData.fecha_esperada
+                    ? "Enviar mail de encargo al arreglador asignado"
+                    : "Completá la fecha estimada antes de enviar el mail"
+                }
+              >
+                {sendingEncargoMail ? (
+                  <IconLoader size={14} className="animate-spin" />
+                ) : (
+                  <IconMail size={14} />
+                )}
+                Enviar mail de asignación
+              </button>
+            )}
+          </div>
         </div>
       )}
 
