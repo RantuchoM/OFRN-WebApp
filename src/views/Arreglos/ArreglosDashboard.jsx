@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import WorkForm, { QuickComposerModal } from "../Repertoire/WorkForm";
 import NewVersionModal from "../../components/repertoire/NewVersionModal";
 import ArreglosReferenciasModal from "../../components/arreglos/ArreglosReferenciasModal";
+import { markEncargoArregloMailSent } from "../../utils/encargoArregloMail";
 
 const RichTextPreview = ({ content, className = "" }) => {
   if (!content) return null;
@@ -397,7 +398,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
 
   const getSolicitanteLabelForUser = () => formatIntegranteLabel(user);
 
-  const enviarEncargoArreglo = (
+  const enviarEncargoArreglo = async (
     obraId,
     tituloStr,
     idIntegranteArregladorVal,
@@ -421,7 +422,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
       toast.error(
         "No se encontró email del arreglador para enviar el encargo."
       );
-      return;
+      return false;
     }
     const detalle = {
       titulo: tituloStr,
@@ -434,26 +435,24 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
       instrumentacion: instrumentacion || null,
       solicitado_por: solicitadoPor || null,
     };
-    sb.functions
-      .invoke("mails_produccion", {
-        body: {
-          action: "enviar_mail",
-          templateId: "encargo_arreglo",
-          email: emailTo,
-          bcc: ["ofrn.archivo@gmail.com"],
-          nombre: user ? `${user.apellido || ""}, ${user.nombre || ""}`.trim() : "Sistema",
-          gira: null,
-          detalle,
-        },
-      })
-      .then(({ error }) => {
-        if (error)
-          console.error("mails_produccion (encargo_arreglo):", error);
-        else
-          toast.success(
-            "Mail de encargo enviado al Arreglador y al Archivista."
-          );
-      });
+    const { error } = await sb.functions.invoke("mails_produccion", {
+      body: {
+        action: "enviar_mail",
+        templateId: "encargo_arreglo",
+        email: emailTo,
+        bcc: ["ofrn.archivo@gmail.com"],
+        nombre: user ? `${user.apellido || ""}, ${user.nombre || ""}`.trim() : "Sistema",
+        gira: null,
+        detalle,
+      },
+    });
+    if (error) {
+      console.error("mails_produccion (encargo_arreglo):", error);
+      toast.error("No se pudo enviar el mail de encargo.");
+      return false;
+    }
+    toast.success("Mail de encargo enviado al Arreglador y al Archivista.");
+    return true;
   };
 
   const handleQuickSave = async () => {
@@ -504,7 +503,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         if (relError) throw relError;
 
         // Enviar mail de encargo igual que en WorkForm
-        enviarEncargoArreglo(
+        const mailSent = await enviarEncargoArreglo(
           data.id,
           titulo,
           arregladorId,
@@ -515,6 +514,9 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           quickDraft.instrumentacion || null,
           getSolicitanteLabelForUser()
         );
+        if (mailSent) {
+          await markEncargoArregloMailSent(sb, data.id);
+        }
       }
 
       toast.success("Nuevo encargo de arreglo creado y asignado.");

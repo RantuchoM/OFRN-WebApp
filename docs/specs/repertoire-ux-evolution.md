@@ -133,7 +133,7 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 ### Encargo «Para arreglar» (`WorkForm`)
 - Al pasar a `Para arreglar`, se asigna `id_integrante_arreglador` (default integrante `4340365` si vacío) en un único guardado con el estado — evita error de validación por estado React desactualizado tras crear un arreglo nuevo.
 - El mail `encargo_arreglo` **no** se dispara automáticamente al cambiar estado ni al crear la obra.
-- UI: fecha estimada + botón **«Enviar mail de asignación»** (habilitado solo con fecha y obra persistida).
+- UI: fecha estimada + botón **«Enviar mail de asignación»** (habilitado solo con fecha y obra persistida). Tras envío exitoso: `obras.encargo_arreglo_mail_enviado_at`; reenvío con `ConfirmDialog`.
 - [x] Fix validación post-creación de arreglo
 - [x] Envío manual de mail con confirmación explícita
 - [x] Nuevo arreglo desde programa: inserción en bloque debajo del original

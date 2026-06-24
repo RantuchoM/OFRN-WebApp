@@ -31,6 +31,8 @@ export default function ArreglosReferenciasModal({
   supabase,
   canEdit = false,
   onChanged,
+  overlayClassName = "z-[10050]",
+  pickerOverlayClassName = "z-[10100]",
 }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -187,7 +189,9 @@ export default function ArreglosReferenciasModal({
   if (!isOpen || !work) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4">
+    <div
+      className={`fixed inset-0 ${overlayClassName} flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4`}
+    >
       <div
         className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[min(90vh,36rem)] flex flex-col border border-slate-200"
         role="dialog"
@@ -400,6 +404,7 @@ export default function ArreglosReferenciasModal({
           title="Buscar obra"
           showCreateRequest={false}
           applyGiraInstrumentationDefaults={false}
+          overlayClassName={pickerOverlayClassName}
           onSelectWork={selectObraFromArchivo}
         />
       )}

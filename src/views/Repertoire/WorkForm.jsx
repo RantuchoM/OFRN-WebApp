@@ -43,6 +43,10 @@ import ArreglosReferenciasModal from "../../components/arreglos/ArreglosReferenc
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import { normalizeForSearch } from "../../utils/sanitize";
 import { seedArregloReferenciaObraOrigen } from "../../utils/arreglosReferencias";
+import {
+  formatEncargoMailSentAt,
+  markEncargoArregloMailSent,
+} from "../../utils/encargoArregloMail";
 
 /**
  * `unique_part_per_work`: (id_obra, id_instrumento, nombre_archivo) debe ser único.
@@ -506,6 +510,7 @@ export default function WorkForm({
   const [sendingEncargoMail, setSendingEncargoMail] = useState(false);
   const [refsModalOpen, setRefsModalOpen] = useState(false);
   const [refsCount, setRefsCount] = useState(0);
+  const [encargoMailResendOpen, setEncargoMailResendOpen] = useState(false);
   /** null | { mode: 'single', tempId } | { mode: 'bulk' } */
   const [particellaDeleteConfirm, setParticellaDeleteConfirm] = useState(null);
   const handleQuickCompCreated = (newComp) => {
@@ -1127,9 +1132,13 @@ export default function WorkForm({
     return true;
   };
 
-  const handleEnviarMailEncargo = async () => {
+  const handleEnviarMailEncargo = async (forceResend = false) => {
     if (!formData.id) {
       toast.error("Guardá la obra antes de enviar el mail de asignación.");
+      return;
+    }
+    if (formData.encargo_arreglo_mail_enviado_at && !forceResend) {
+      setEncargoMailResendOpen(true);
       return;
     }
     const idIntegrante = formData.id_integrante_arreglador || DEFAULT_ARREGLADOR_INTEGRANTE_ID;
@@ -1151,7 +1160,7 @@ export default function WorkForm({
         .from("obras")
         .update({ fecha_esperada: formData.fecha_esperada })
         .eq("id", formData.id);
-      await enviarEncargoArreglo(
+      const sent = await enviarEncargoArreglo(
         formData.id,
         stripHtml(formData.titulo),
         idIntegrante,
@@ -1162,6 +1171,13 @@ export default function WorkForm({
         formData.instrumentacion || null,
         solicitanteLabel,
       );
+      if (!sent) return;
+      const sentAt = await markEncargoArregloMailSent(supabase, formData.id);
+      setFormData((prev) => ({ ...prev, encargo_arreglo_mail_enviado_at: sentAt }));
+      setEncargoMailResendOpen(false);
+    } catch (e) {
+      console.error("handleEnviarMailEncargo:", e);
+      toast.error(e?.message || "No se pudo registrar el envío del mail.");
     } finally {
       setSendingEncargoMail(false);
     }
@@ -2120,24 +2136,39 @@ export default function WorkForm({
               />
             </div>
             {formData.id && (
-              <button
-                type="button"
-                onClick={handleEnviarMailEncargo}
-                disabled={sendingEncargoMail || !formData.fecha_esperada}
-                className="inline-flex items-center gap-1.5 shrink-0 h-10 px-3 rounded-lg border border-amber-300 bg-amber-100 text-amber-900 text-xs font-bold uppercase tracking-wide hover:bg-amber-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                title={
-                  formData.fecha_esperada
-                    ? "Enviar mail de encargo al arreglador asignado"
-                    : "Completá la fecha estimada antes de enviar el mail"
-                }
-              >
-                {sendingEncargoMail ? (
-                  <IconLoader size={14} className="animate-spin" />
-                ) : (
-                  <IconMail size={14} />
+              <div className="flex flex-col gap-1 shrink-0">
+                {formData.encargo_arreglo_mail_enviado_at && (
+                  <span className="text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-0.5">
+                    Mail enviado {formatEncargoMailSentAt(formData.encargo_arreglo_mail_enviado_at)}
+                  </span>
                 )}
-                Enviar mail de asignación
-              </button>
+                <button
+                  type="button"
+                  onClick={() => handleEnviarMailEncargo(false)}
+                  disabled={sendingEncargoMail || !formData.fecha_esperada}
+                  className={`inline-flex items-center gap-1.5 h-10 px-3 rounded-lg border text-xs font-bold uppercase tracking-wide disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${
+                    formData.encargo_arreglo_mail_enviado_at
+                      ? "border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                      : "border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-200"
+                  }`}
+                  title={
+                    formData.fecha_esperada
+                      ? formData.encargo_arreglo_mail_enviado_at
+                        ? "El mail ya se envió; pulsar para reenviar con confirmación"
+                        : "Enviar mail de encargo al arreglador asignado"
+                      : "Completá la fecha estimada antes de enviar el mail"
+                  }
+                >
+                  {sendingEncargoMail ? (
+                    <IconLoader size={14} className="animate-spin" />
+                  ) : (
+                    <IconMail size={14} />
+                  )}
+                  {formData.encargo_arreglo_mail_enviado_at
+                    ? "Reenviar mail"
+                    : "Enviar mail de asignación"}
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -3068,6 +3099,25 @@ export default function WorkForm({
         supabase={supabase}
         canEdit={isEditor || isAdmin}
         onChanged={refreshRefsCount}
+        overlayClassName="z-[10050]"
+        pickerOverlayClassName="z-[10100]"
+      />
+
+      <ConfirmDialog
+        isOpen={encargoMailResendOpen}
+        onClose={() => {
+          if (sendingEncargoMail) return;
+          setEncargoMailResendOpen(false);
+        }}
+        onConfirm={() => handleEnviarMailEncargo(true)}
+        title="Reenviar mail de asignación"
+        message={`El mail de encargo ya se envió el ${formatEncargoMailSentAt(formData.encargo_arreglo_mail_enviado_at) || "—"}. ¿Querés enviarlo de nuevo al arreglador?`}
+        confirmText="Reenviar"
+        cancelText="Cancelar"
+        confirmLoading={sendingEncargoMail}
+        loadingText="Enviando…"
+        overlayClassName="z-[10060]"
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-md transition-all active:scale-[0.98]"
       />
 
       <ConfirmDialog
