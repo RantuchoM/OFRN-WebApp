@@ -17,7 +17,7 @@ import {
 const GIRAS_YEAR_SELECT = `
   id, nombre_gira, fecha_desde, fecha_hasta, tipo, estado,
   giras_fuentes(*),
-  giras_integrantes(id_integrante, estado),
+  giras_integrantes(id_integrante, estado, abona_reemplazo),
   eventos(id, fecha, id_tipo_evento)
 `;
 
@@ -113,7 +113,13 @@ async function fetchYearProgramsForUser(
       const myOverride = overrides.find(
         (o) => Number(o.id_integrante) === Number(user.id),
       );
-      if (myOverride && myOverride.estado === "ausente") return false;
+      if (
+        myOverride &&
+        myOverride.estado === "ausente" &&
+        !myOverride.abona_reemplazo
+      ) {
+        return false;
+      }
       if (myOverride) return true;
       const progRef = gira.fecha_desde;
       const ensembleActiveOnProgram = (valorId) =>

@@ -113,8 +113,21 @@ export default function MusicianTourManager({ supabase, musician }) {
   const [updatingRole, setUpdatingRole] = useState(null);
   const [pendingNotifications, setPendingNotifications] = useState([]);
 
+  const TOUR_TYPE_OPTIONS = [
+    "Sinfónico",
+    "Camerata Filarmónica",
+    "Ensamble",
+    "Jazz Band",
+    "Comisión",
+  ];
+  const DEFAULT_SELECTED_TOUR_TYPES = new Set(
+    TOUR_TYPE_OPTIONS.filter((t) => t !== "Comisión"),
+  );
+
   // Filtros
-  const [selectedTypes, setSelectedTypes] = useState(new Set(["TODOS"]));
+  const [selectedTypes, setSelectedTypes] = useState(
+    () => new Set(DEFAULT_SELECTED_TOUR_TYPES),
+  );
   const [selectedStatuses, setSelectedStatuses] = useState(new Set(["TODOS"]));
   const [dateRange, setDateRange] = useState("FUTURE");
   /** Solo giras en las que el músico está convocado (presente), no ausente ni fuera de roster. */
@@ -251,7 +264,7 @@ export default function MusicianTourManager({ supabase, musician }) {
 
       const { data: overridesData } = await supabase
         .from("giras_integrantes")
-        .select("id, id_gira, estado, rol") 
+        .select("id, id_gira, estado, rol, abona_reemplazo")
         .eq("id_integrante", musician.id)
         .in("id_gira", giraIds);
 
@@ -417,6 +430,10 @@ export default function MusicianTourManager({ supabase, musician }) {
           id_integrante: musician.id,
           estado: targetStatus,
           rol: currentRol,
+          abona_reemplazo:
+            targetStatus === "ausente"
+              ? Boolean(currentOverride?.abona_reemplazo)
+              : false,
         };
 
         const { data: savedData, error } = await supabase
@@ -486,7 +503,7 @@ export default function MusicianTourManager({ supabase, musician }) {
 
   if (loading && giras.length === 0) return <div className="p-10 flex justify-center text-slate-400"><IconLoader className="animate-spin" /></div>;
 
-  const typeOptions = ["Sinfónico", "Camerata Filarmónica", "Ensamble", "Jazz Band", "Comisión"].map(t => ({ value: t, label: t }));
+  const typeOptions = TOUR_TYPE_OPTIONS.map((t) => ({ value: t, label: t }));
   const statusOptions = [{value:"CONVOCADO", label:"Convocado"}, {value:"AUSENTE", label:"Ausente"}, {value:"NO_CONVOCADO", label:"No Convocado"}];
 
   // Estilos de botones
@@ -534,6 +551,7 @@ export default function MusicianTourManager({ supabase, musician }) {
                     const style = getProgramStyle(gira.tipo);
                     const isConvocado = gira.computedStatus === "CONVOCADO";
                     const isAusente = gira.computedStatus === "AUSENTE";
+                    const abonaReemplazo = Boolean(gira.override?.abona_reemplazo);
                     
                     const bgClass = style.color.match(/bg-[-\w]+-\d+/)?.[0] || "bg-slate-50";
                     const borderClass = style.color.match(/border-[-\w]+-\d+/)?.[0] || "border-slate-200";
@@ -542,7 +560,9 @@ export default function MusicianTourManager({ supabase, musician }) {
                     let cardClasses = "";
                     
                     if (isAusente) {
-                        cardClasses = "bg-red-50 border border-red-200 border-l-4 border-l-red-400 opacity-90";
+                        cardClasses = abonaReemplazo
+                          ? "bg-slate-100 border border-slate-200 border-l-4 border-l-slate-400"
+                          : "bg-red-50 border border-red-200 border-l-4 border-l-red-400 opacity-90";
                     } else if (isConvocado) {
                         const borderDarker = borderClass.replace("200", "500").replace("border-", "border-l-");
                         cardClasses = `${bgClass} border ${borderClass} border-l-4 shadow-sm ${borderDarker}`;
@@ -629,6 +649,25 @@ export default function MusicianTourManager({ supabase, musician }) {
 
                                 {/* COLUMNA DERECHA: ROL Y ACCIONES */}
                                 <div className="flex items-center gap-3 shrink-0">
+                                    {isAusente && (
+                                      <div
+                                        className="relative w-7 h-7 shrink-0"
+                                        title={
+                                          abonaReemplazo
+                                            ? "Ausente — abona reemplazo"
+                                            : "Ausente"
+                                        }
+                                      >
+                                        <span className="w-full h-full rounded flex items-center justify-center text-[10px] font-bold bg-white text-red-600 border border-red-200 shadow-sm">
+                                          A
+                                        </span>
+                                        {abonaReemplazo && (
+                                          <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-sky-500 text-white border border-sky-600 shadow flex items-center justify-center text-[8px] font-bold leading-none">
+                                            R
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
                                     
                                     {/* Selector Rol */}
                                     <div className="flex items-center gap-1 bg-white/50 px-2 py-1 rounded-lg border border-black/5 hover:border-black/10 transition-colors">

@@ -5,15 +5,16 @@ import { saveAs } from "file-saver";
 import { compareInstrumentIds } from "./giraUtils";
 import { integranteKey } from "./integranteIds";
 
-/** @typedef {{ counted: Set<string>, preAlta: Set<string> }} MatrixRosterEntry */
+/** @typedef {{ counted: Set<string>, preAlta: Set<string>, reemplazo?: Set<string> }} MatrixRosterEntry */
 
 /**
- * Marca de celda en la matriz: convocado contabilizado, pre-alta, o sin participación.
- * @returns {'counted'|'pre_alta'|null}
+ * Marca de celda en la matriz: convocado contabilizado, reemplazo, pre-alta, o sin participación.
+ * @returns {'counted'|'reemplazo'|'pre_alta'|null}
  */
 export function getAsistenciaMatrixCellMark(rosterEntry, integranteId) {
   const iid = integranteKey(integranteId);
   if (!iid || !rosterEntry) return null;
+  if (rosterEntry.reemplazo?.has(iid)) return "reemplazo";
   if (rosterEntry.counted?.has(iid)) return "counted";
   if (rosterEntry.preAlta?.has(iid)) return "pre_alta";
   return null;
@@ -22,15 +23,17 @@ export function getAsistenciaMatrixCellMark(rosterEntry, integranteId) {
 /** Símbolo exportable para Excel/PDF según marca de celda. */
 export function asistenciaMatrixCellSymbol(mark) {
   if (mark === "counted") return "X";
+  if (mark === "reemplazo") return "R";
   if (mark === "pre_alta") return "*";
   return "";
 }
 
 export function countMatrixRosterCounted(rosterEntry, memberIds) {
-  if (!rosterEntry?.counted) return 0;
-  return memberIds.filter((id) =>
-    rosterEntry.counted.has(integranteKey(id)),
-  ).length;
+  if (!rosterEntry) return 0;
+  return memberIds.filter((id) => {
+    const mark = getAsistenciaMatrixCellMark(rosterEntry, id);
+    return mark === "counted" || mark === "reemplazo";
+  }).length;
 }
 
 /**
@@ -214,8 +217,8 @@ export function computeAsistenciaMatrixRowTotals(
 ) {
   const iid = integranteKey(integranteId);
   const active = (gid) => {
-    const entry = rosterByGiraId[gid];
-    return Boolean(iid && entry?.counted?.has(iid));
+    const mark = getAsistenciaMatrixCellMark(rosterByGiraId[gid], iid);
+    return mark === "counted" || mark === "reemplazo";
   };
   const countTipo = (tipo) =>
     filteredProgramas.filter((g) => g.tipo === tipo && active(g.id)).length;

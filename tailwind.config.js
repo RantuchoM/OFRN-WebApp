@@ -28,6 +28,16 @@ module.exports = {
           950: 'rgb(var(--theme-primary))',
         },
       },
+      animation: {
+        "roster-reemplazo-flash":
+          "roster-reemplazo-flash 0.55s ease-in-out 3",
+      },
+      keyframes: {
+        "roster-reemplazo-flash": {
+          "0%, 100%": { backgroundColor: "rgb(241 245 249)" },
+          "50%": { backgroundColor: "rgb(203 213 225)" },
+        },
+      },
     },
   },
   plugins: [],

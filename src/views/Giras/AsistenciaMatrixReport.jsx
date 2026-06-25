@@ -500,13 +500,11 @@ export default function AsistenciaMatrixReport({ supabase }) {
       setRosterLoading(true);
       const entries = await Promise.all(
         giras.map(async (g) => {
-          const { countedIds, preAltaIds } = await resolveGiraRosterForMatrix(
-            supabase,
-            g.id,
-          );
+          const { countedIds, preAltaIds, reemplazoIds } =
+            await resolveGiraRosterForMatrix(supabase, g.id);
           return [
             g.id,
-            { counted: countedIds, preAlta: preAltaIds },
+            { counted: countedIds, preAlta: preAltaIds, reemplazo: reemplazoIds },
           ];
         }),
       );
@@ -745,6 +743,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
           Participación por programa según nómina resuelta.{" "}
           <span className="font-semibold text-slate-600 dark:text-slate-300">X</span>{" "}
           convocado ·{" "}
+          <span className="font-semibold text-sky-500">R</span> abona reemplazo ·{" "}
           <span className="font-semibold text-slate-400">*</span> participó antes del
           alta (no suma en totales).
         </p>
@@ -1143,6 +1142,13 @@ export default function AsistenciaMatrixReport({ supabase }) {
                                     title="Convocado (cuenta en totales)"
                                   >
                                     X
+                                  </span>
+                                ) : mark === "reemplazo" ? (
+                                  <span
+                                    className="text-base font-bold text-sky-500 dark:text-sky-400"
+                                    title="Ausente que abona reemplazo (cuenta en totales)"
+                                  >
+                                    R
                                   </span>
                                 ) : mark === "pre_alta" ? (
                                   <span

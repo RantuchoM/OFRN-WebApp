@@ -439,6 +439,7 @@ CREATE TABLE public.giras_integrantes (
   estado text DEFAULT 'confirmado'::text,
   motivo_estado text,
   motivo_estado_actualizado_at timestamp with time zone,
+  abona_reemplazo boolean NOT NULL DEFAULT false,
   id_instr text,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   rol text DEFAULT 'musico'::text,

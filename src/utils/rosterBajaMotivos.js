@@ -28,6 +28,14 @@ function buildMailNotification({ motivoText, motivoId, reason }) {
   return { reason, reasonFootnote, motivoBajaId: motivoId || null };
 }
 
+export function buildPresenteMailNotification() {
+  return {
+    reason: "Se te marcó como presente en la gira",
+    reasonFootnote: "",
+    motivoBajaId: null,
+  };
+}
+
 export function buildAusenteMailNotification({ motivoText, motivoId }) {
   return buildMailNotification({
     motivoText,

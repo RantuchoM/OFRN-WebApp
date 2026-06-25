@@ -23,6 +23,7 @@ export default function RosterBajaModal({
 }) {
   const [selectedMotivo, setSelectedMotivo] = useState("");
   const [otroText, setOtroText] = useState("");
+  const [abonaReemplazo, setAbonaReemplazo] = useState(false);
   const [confirmSkipNotify, setConfirmSkipNotify] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectionById, setSelectionById] = useState({});
@@ -35,6 +36,7 @@ export default function RosterBajaModal({
     if (!pendingBaja) return;
     setSelectedMotivo("");
     setOtroText("");
+    setAbonaReemplazo(false);
     setConfirmSkipNotify(false);
     setSubmitting(false);
     if (GROUP_BAJA_ACTIONS.has(pendingBaja.action) || GROUP_ALTA_ACTIONS.has(pendingBaja.action)) {
@@ -91,12 +93,16 @@ export default function RosterBajaModal({
       `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
 
   const isDesconvocar = action === "desconvocar";
+  const isPresente = action === "presente";
   const motivoText = resolveBajaMotivoText(selectedMotivo, otroText);
   const motivoValid =
     isGroupAlta ||
+    isPresente ||
     (selectedMotivo && (selectedMotivo !== "otro" || motivoText.length > 0));
 
-  const title = isGroupAlta
+  const title = isPresente
+    ? "Marcar como presente"
+    : isGroupAlta
     ? "Inclusión de familia"
     : isGroupBaja
       ? hasFamilia && !hasEnsamble
@@ -108,7 +114,9 @@ export default function RosterBajaModal({
         ? "Desconvocar de la gira"
         : "Marcar como ausente";
 
-  const subtitle = isGroupAlta
+  const subtitle = isPresente
+    ? "Confirmá el paso de ausente a presente en la nómina activa de la gira."
+    : isGroupAlta
     ? `Por inclusión de: ${causeLabels.join(", ") || "familia"}. Las personas marcadas recibirán notificación de convocatoria; las destildadas entrarán al roster sin mail.`
     : isGroupBaja
       ? `Por exclusión de: ${causeLabels.join(", ") || "fuente grupal"}. Las personas marcadas se desconvocarán; las destildadas quedarán como convocatoria manual sin notificación.`
@@ -132,6 +140,7 @@ export default function RosterBajaModal({
         motivoText: isGroupAlta ? "" : motivoText,
         motivoId: isGroupAlta ? "" : selectedMotivo,
         notify,
+        abonaReemplazo: !isGroupChange && abonaReemplazo,
         selectionById: isGroupChange ? selectionById : undefined,
       });
     } finally {
@@ -140,10 +149,10 @@ export default function RosterBajaModal({
   };
 
   const notifyEnabled = isGroupChange ? effectiveCanNotify : canNotify;
-  const headerClass = isGroupAlta
+  const headerClass = isGroupAlta || isPresente
     ? "bg-emerald-50/80"
     : "bg-red-50/80";
-  const confirmBtnClass = isGroupAlta
+  const confirmBtnClass = isGroupAlta || isPresente
     ? "bg-emerald-600 hover:bg-emerald-700"
     : "bg-red-600 hover:bg-red-700";
 
@@ -304,7 +313,7 @@ export default function RosterBajaModal({
             </>
           )}
 
-          {!isGroupChange && (
+          {!isGroupChange && !isPresente && (
             <>
               <fieldset className="space-y-2">
                 <legend className="sr-only">Motivo de la baja</legend>
@@ -346,6 +355,21 @@ export default function RosterBajaModal({
                   autoFocus
                 />
               )}
+
+              <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-sky-200 bg-sky-50/50 cursor-pointer hover:border-sky-300 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={abonaReemplazo}
+                  onChange={(e) => setAbonaReemplazo(e.target.checked)}
+                  className="mt-0.5 text-sky-600 focus:ring-sky-400 rounded"
+                />
+                <span className="text-sm text-slate-800">
+                  <span className="font-semibold text-sky-800">Abona reemplazo</span>
+                  <span className="block text-[11px] text-slate-500 mt-0.5 leading-snug">
+                    Cuenta como servicio en el resumen anual y en Convocatorias (marca R).
+                  </span>
+                </span>
+              </label>
             </>
           )}
 
@@ -355,13 +379,15 @@ export default function RosterBajaModal({
                 <IconAlertTriangle size={16} className="shrink-0 mt-0.5" />
                 <p className="text-xs font-medium leading-snug">
                   ¿Confirmás{" "}
-                  {isGroupAlta
-                    ? "la inclusión"
-                    : isGroupBaja
-                      ? "el cambio de convocatoria"
-                      : isDesconvocar
-                        ? "la desconvocatoria"
-                        : "marcar como ausente"}{" "}
+                  {isPresente
+                    ? "marcar como presente"
+                    : isGroupAlta
+                      ? "la inclusión"
+                      : isGroupBaja
+                        ? "el cambio de convocatoria"
+                        : isDesconvocar
+                          ? "la desconvocatoria"
+                          : "marcar como ausente"}{" "}
                   sin enviar mail{isGroupChange ? " a los músicos" : " al músico"}?
                 </p>
               </div>

@@ -21,6 +21,8 @@ export default function RosterTableRow({
   isSelected,
   rowClassName,
   rowStyle,
+  ausenteMuted = false,
+  isReemplazoFlashing = false,
   visibleColumns,
   isEditor,
   rolesList,
@@ -32,7 +34,7 @@ export default function RosterTableRow({
   onEdit,
   onSwap,
   onDeleteVacancy,
-  onToggleStatus,
+  onToggleAbonaReemplazo,
   onRequestBaja,
   pendingBajaForRow,
   onCopyLink,
@@ -64,14 +66,23 @@ export default function RosterTableRow({
       aria-label="Ver o editar motivo en roster"
     />
   ) : null;
+
+  const mutedCell = ausenteMuted
+    ? "opacity-60 grayscale-[50%] transition-opacity"
+    : "";
+
   return (
     <tr
       id={`row-integrante-${m.id}`}
-      className={`${rowClassName || ""} border-b border-slate-100`}
+      className={`${rowClassName || ""} border-b border-slate-100 ${
+        isReemplazoFlashing ? "animate-roster-reemplazo-flash" : ""
+      }`}
       style={rowStyle}
     >
       {/* CHECKBOX - 10% móvil */}
-      <td className="py-1.5 px-0.5 md:px-3 w-[10%] md:w-10 text-center border-r border-slate-100/50">
+      <td
+        className={`py-1.5 px-0.5 md:px-3 w-[10%] md:w-10 text-center border-r border-slate-100/50 ${mutedCell}`}
+      >
         <div className="flex flex-col items-center gap-0 md:block">
           <span className="hidden md:inline text-[10px] text-slate-400 font-mono w-5 text-right">
             {idx + 1}
@@ -90,7 +101,9 @@ export default function RosterTableRow({
       </td>
 
       {/* ROL / INSTR - 25% móvil */}
-      <td className="py-1.5 px-1 md:px-2 md:pl-3 border-r border-slate-100/50 w-[25%] md:w-28 md:max-w-[7rem]">
+      <td
+        className={`py-1.5 px-1 md:px-2 md:pl-3 border-r border-slate-100/50 w-[25%] md:w-28 md:max-w-[7rem] ${mutedCell}`}
+      >
         {isEditor && !m.es_simulacion ? (
           <select
             className="text-[10px] md:text-[11px] font-bold uppercase border-none bg-transparent outline-none cursor-pointer w-full max-w-full -ml-1 text-slate-700 truncate"
@@ -144,7 +157,9 @@ export default function RosterTableRow({
       </td>
 
       {/* APELLIDO, NOMBRE + NOTA INTERNA - 30% móvil */}
-      <td className="py-1.5 px-1 md:px-3 border-r border-slate-100/50 font-bold text-slate-700 w-[30%] md:w-56 md:max-w-[16rem] min-w-0">
+      <td
+        className={`py-1.5 px-1 md:px-3 border-r border-slate-100/50 font-bold text-slate-700 w-[30%] md:w-56 md:max-w-[16rem] min-w-0 ${mutedCell}`}
+      >
         <div className="flex flex-col gap-0.5 md:gap-1.5 min-w-0 truncate">
           <div className="flex items-center gap-1 md:gap-2 truncate text-[10px] md:text-sm">
             {m.apellido}, {m.nombre}
@@ -170,14 +185,18 @@ export default function RosterTableRow({
 
       {/* GÉNERO - oculto en móvil para que entren las 5 columnas */}
       {visibleColumns.genero && (
-        <td className="hidden md:table-cell py-1.5 px-3 text-xs text-slate-600 text-center border-r border-slate-100/50">
+        <td
+          className={`hidden md:table-cell py-1.5 px-3 text-xs text-slate-600 text-center border-r border-slate-100/50 ${mutedCell}`}
+        >
           {m.genero || "-"}
         </td>
       )}
 
       {/* ENSAMBLES */}
       {visibleColumns.ensambles && (
-        <td className="hidden md:table-cell py-1.5 px-3 border-r border-slate-100/50 max-w-[180px]">
+        <td
+          className={`hidden md:table-cell py-1.5 px-3 border-r border-slate-100/50 max-w-[180px] ${mutedCell}`}
+        >
           <div className="flex flex-wrap gap-1">
             {m.integrantes_ensambles && m.integrantes_ensambles.length > 0 ? (
               m.integrantes_ensambles.map((ie) => (
@@ -197,7 +216,9 @@ export default function RosterTableRow({
 
       {/* UBICACIÓN: residencia + viáticos (si aplica) */}
       {visibleColumns.localidad && (
-        <td className="hidden md:table-cell py-1.5 px-3 text-xs text-slate-600 border-r border-slate-100/50">
+        <td
+          className={`hidden md:table-cell py-1.5 px-3 text-xs text-slate-600 border-r border-slate-100/50 ${mutedCell}`}
+        >
           {m._loc_residencia || m.localidades ? (
             <div className="space-y-0.5">
               {/* Residencia */}
@@ -237,7 +258,9 @@ export default function RosterTableRow({
       )}
 
       {/* CONTACTO (sólo escritorio) */}
-      <td className="hidden md:table-cell py-1.5 px-3 border-r border-slate-100/50 text-xs">
+      <td
+        className={`hidden md:table-cell py-1.5 px-3 border-r border-slate-100/50 text-xs ${mutedCell}`}
+      >
         <div className="flex flex-col gap-1">
           {m.telefono && (
             <div className="flex items-center gap-1 text-slate-600">
@@ -260,36 +283,77 @@ export default function RosterTableRow({
 
       {/* ALIMENTACIÓN */}
       {visibleColumns.alimentacion && (
-        <td className="hidden md:table-cell py-1.5 px-3 text-xs text-slate-600 truncate max-w-[100px] border-r border-slate-100/50">
+        <td
+          className={`hidden md:table-cell py-1.5 px-3 text-xs text-slate-600 truncate max-w-[100px] border-r border-slate-100/50 ${mutedCell}`}
+        >
           {m.alimentacion || "-"}
         </td>
       )}
 
-      {/* ESTADO - 15% móvil */}
-      <td className="py-1.5 px-1 md:px-3 w-[15%] md:w-16 text-center border-r border-slate-100/50">
-        <div className="flex items-center justify-center">
+      {/* ESTADO - 15% móvil (sin atenuar: A, R y motivo) */}
+      <td className="py-1.5 px-1 md:px-3 w-[15%] md:w-16 text-center border-r border-slate-100/50 relative z-10">
+        <div className="flex items-center justify-center opacity-100 grayscale-0">
           {m.es_simulacion ? (
             <span className="text-[9px] text-slate-400">—</span>
           ) : pendingBajaForRow ? (
             <div
-              className="relative w-7 h-7 md:w-10 md:h-10 rounded flex items-center justify-center bg-white border-2 border-red-300 text-red-600 mx-auto animate-pulse"
-              title="Baja pendiente de confirmación"
+              className={`relative w-7 h-7 md:w-10 md:h-10 rounded flex items-center justify-center bg-white border-2 mx-auto animate-pulse ${
+                pendingBajaForRow.action === "presente"
+                  ? "border-emerald-300 text-emerald-600"
+                  : "border-red-300 text-red-600"
+              }`}
+              title={
+                pendingBajaForRow.action === "presente"
+                  ? "Alta pendiente de confirmación"
+                  : "Baja pendiente de confirmación"
+              }
             >
               <span className="text-[11px] font-bold">
-                {pendingBajaForRow.action === "desconvocar" ? "—" : "A"}
+                {pendingBajaForRow.action === "presente"
+                  ? "P"
+                  : pendingBajaForRow.action === "desconvocar"
+                    ? "—"
+                    : "A"}
               </span>
             </div>
           ) : m.estado_gira === "ausente" ? (
-            <div className="relative inline-flex items-center justify-center mx-auto">
+            <div className="relative w-6 h-6 md:w-7 md:h-7 mx-auto">
               <button
                 type="button"
-                onClick={() => isEditor && onToggleStatus(m)}
+                onClick={() => isEditor && onRequestBaja?.(m, "presente")}
                 disabled={!isEditor}
-                className="w-6 h-6 md:w-7 md:h-7 rounded flex items-center justify-center text-[9px] md:text-[10px] font-bold bg-white text-red-600 border border-red-200 hover:bg-red-50 shadow-sm transition-all"
+                className="w-full h-full rounded flex items-center justify-center text-[9px] md:text-[10px] font-bold bg-white text-red-600 border border-red-200 hover:bg-red-50 shadow-sm transition-all opacity-100"
                 title="Marcar presente"
               >
                 A
               </button>
+              {isEditor && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onToggleAbonaReemplazo?.(m);
+                  }}
+                  className={`absolute -top-0.5 -right-0.5 w-3 h-3 md:w-4 md:h-4 rounded-full border shadow flex items-center justify-center text-[7px] md:text-[8px] font-bold z-[6] transition-colors ${
+                    m.abona_reemplazo
+                      ? "bg-sky-500 text-white border-sky-600 hover:bg-sky-600"
+                      : "bg-white text-sky-400 border-sky-200 hover:bg-sky-50 hover:text-sky-600 hover:border-sky-300"
+                  }`}
+                  title={
+                    m.abona_reemplazo
+                      ? "Quitar abono reemplazo"
+                      : "Abona reemplazo (cuenta como servicio)"
+                  }
+                  aria-label={
+                    m.abona_reemplazo
+                      ? "Quitar abono reemplazo"
+                      : "Marcar abono reemplazo"
+                  }
+                >
+                  R
+                </button>
+              )}
               {motivoStick}
             </div>
           ) : (
@@ -321,7 +385,9 @@ export default function RosterTableRow({
       </td>
 
       {/* ACCIONES - 20% móvil: Mail, WhatsApp, Editar, Link (grid 2x2) */}
-      <td className="py-1.5 px-0.5 md:px-1 md:pr-2 w-[20%] md:w-auto text-right min-w-0">
+      <td
+        className={`py-1.5 px-0.5 md:px-1 md:pr-2 w-[20%] md:w-auto text-right min-w-0 ${mutedCell}`}
+      >
         <div className="mx-auto inline-grid grid-cols-2 gap-0.5 md:gap-1 justify-items-center max-w-full">
           {/* Mail */}
           <button

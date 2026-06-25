@@ -32,7 +32,7 @@ import {
   buildGiraIntegranteUpsert,
   applyEffectiveGiraInstrument,
 } from "../../utils/giraUtils";
-import { buildAusenteMailNotification, buildBajaGiraMailNotification, buildExclusionEnsambleMailNotification, buildExclusionFamiliaMailNotification, buildInclusionFamiliaMailNotification } from "../../utils/rosterBajaMotivos";
+import { buildAusenteMailNotification, buildBajaGiraMailNotification, buildExclusionEnsambleMailNotification, buildExclusionFamiliaMailNotification, buildInclusionFamiliaMailNotification, buildPresenteMailNotification } from "../../utils/rosterBajaMotivos";
 import { integranteActiveOnProgramRange } from "../../utils/ensembleMembership";
 import MusicianForm from "../Musicians/MusicianForm";
 import {
@@ -502,6 +502,7 @@ export default function GiraRoster({
 
   // Baja con modal de motivo: ausente o desconvocar. No reordenar ni notificar hasta confirmar.
   const [pendingBaja, setPendingBaja] = useState(null);
+  const [reemplazoFlashId, setReemplazoFlashId] = useState(null);
 
   const notificationQueueRef = useRef(null);
 
@@ -1116,44 +1117,6 @@ export default function GiraRoster({
     refreshRoster();
   };
 
-  const toggleStatus = async (musician) => {
-    const newStatus =
-      musician.estado_gira === "confirmado" ? "ausente" : "confirmado";
-    if (localNotificacionInicialEnviada && notificacionesHabilitadas && musician.mail) {
-      const variant = newStatus === "ausente" ? "AUSENTE" : "ALTA";
-      const nombreCompleto = musician.nombre_completo || `${musician.nombre || ""} ${musician.apellido || ""}`.trim();
-      const reason = newStatus === "ausente" ? "Se te marcó como ausente" : undefined;
-      setPendingNotifications((prev) => [
-        ...prev,
-        {
-          id: `toggle-${musician.id}-${Date.now()}`,
-          variant,
-          emails: [musician.mail],
-          nombres: [nombreCompleto],
-          reason,
-        },
-      ]);
-    }
-    setLocalRoster((prev) =>
-      prev.map((m) =>
-        m.id === musician.id ? { ...m, estado_gira: newStatus } : m,
-      ),
-    );
-    // Siempre upsert/update: el registro NUNCA se elimina de giras_integrantes al pasar de Ausente a Presente.
-    if (newStatus === "ausente") {
-      await supabase.from("giras_integrantes").upsert(
-        buildGiraIntegranteUpsert(gira.id, musician, { estado: newStatus }),
-        { onConflict: "id_gira, id_integrante" },
-      );
-    } else {
-      await supabase.from("giras_integrantes").upsert(
-        buildGiraIntegranteUpsert(gira.id, musician, { estado: "confirmado" }),
-        { onConflict: "id_gira, id_integrante" },
-      );
-    }
-    refreshRoster();
-  };
-
   const applyGroupUpdate = async (
     ensembles,
     families,
@@ -1558,6 +1521,7 @@ export default function GiraRoster({
     motivoText,
     motivoId,
     notify,
+    abonaReemplazo,
     selectionById,
     desconvocateById,
   }) => {
@@ -1640,10 +1604,39 @@ export default function GiraRoster({
       motivo_estado_actualizado_at: new Date().toISOString(),
     };
 
+    if (action === "presente") {
+      await supabase.from("giras_integrantes").upsert(
+        buildGiraIntegranteUpsert(gira.id, musician, {
+          estado: "confirmado",
+          abona_reemplazo: false,
+          motivo_estado: null,
+          motivo_estado_actualizado_at: null,
+        }),
+        { onConflict: "id_gira, id_integrante" },
+      );
+      if (shouldNotifyMusician) {
+        const mail = buildPresenteMailNotification();
+        setPendingNotifications((prev) => [
+          ...prev,
+          {
+            id: `presente-${musician.id}-${Date.now()}`,
+            variant: "ALTA",
+            emails: [musician.mail],
+            nombres: [nombreCompleto],
+            reason: mail.reason,
+          },
+        ]);
+      }
+      setPendingBaja(null);
+      await refreshRoster();
+      return;
+    }
+
     if (action === "ausente") {
       await supabase.from("giras_integrantes").upsert(
         buildGiraIntegranteUpsert(gira.id, musician, {
           estado: "ausente",
+          abona_reemplazo: Boolean(abonaReemplazo),
           ...motivoPayload,
         }),
         { onConflict: "id_gira, id_integrante" },
@@ -1679,14 +1672,62 @@ export default function GiraRoster({
           },
         ]);
       }
-      await supabase
-        .from("giras_integrantes")
-        .delete()
-        .eq("id_integrante", musician.id)
-        .eq("id_gira", gira.id);
+      if (abonaReemplazo) {
+        await supabase.from("giras_integrantes").upsert(
+          buildGiraIntegranteUpsert(gira.id, musician, {
+            estado: "ausente",
+            abona_reemplazo: true,
+            ...motivoPayload,
+          }),
+          { onConflict: "id_gira, id_integrante" },
+        );
+      } else {
+        await supabase
+          .from("giras_integrantes")
+          .delete()
+          .eq("id_integrante", musician.id)
+          .eq("id_gira", gira.id);
+      }
     }
     setPendingBaja(null);
     await refreshRoster();
+  };
+
+  const toggleAbonaReemplazo = async (musician) => {
+    if (!isEditor || musician.estado_gira !== "ausente") return;
+    const next = !musician.abona_reemplazo;
+    setLocalRoster((prev) =>
+      prev.map((m) =>
+        m.id === musician.id ? { ...m, abona_reemplazo: next } : m,
+      ),
+    );
+    const { error } = await supabase.from("giras_integrantes").upsert(
+      buildGiraIntegranteUpsert(gira.id, musician, {
+        estado: "ausente",
+        abona_reemplazo: next,
+      }),
+      { onConflict: "id_gira, id_integrante" },
+    );
+    if (error) {
+      toast.error("No se pudo actualizar reemplazo: " + error.message);
+      await refreshRoster();
+      return;
+    }
+    const nombre =
+      musician.nombre_completo ||
+      `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
+    toast.success(
+      next
+        ? `${nombre} abona reemplazo`
+        : `Se quitó el abono de reemplazo de ${nombre}`,
+    );
+    setReemplazoFlashId(musician.id);
+    window.setTimeout(() => {
+      setReemplazoFlashId((current) =>
+        current === musician.id ? null : current,
+      );
+    }, 1800);
+    refreshRoster();
   };
 
   const pendingBajaCanNotify =
@@ -2113,8 +2154,13 @@ export default function GiraRoster({
     }
 
     if (m.estado_gira === "ausente") {
-      baseStyle.className +=
-        " bg-red-50 text-red-800 opacity-60 grayscale-[50%] border-l-transparent";
+      if (m.abona_reemplazo) {
+        baseStyle.className +=
+          " bg-slate-100 text-slate-700 border-l-slate-400";
+      } else {
+        baseStyle.className += " bg-red-50 text-red-900 border-l-red-300";
+      }
+      baseStyle.ausenteMuted = true;
       return baseStyle;
     }
 
@@ -2968,7 +3014,7 @@ export default function GiraRoster({
             <tbody>
               {localRoster.map((m, idx) => {
                 const isSelected = selectedIds.has(m.id);
-                const { className: rowClassName, style: rowStyle } =
+                const { className: rowClassName, style: rowStyle, ausenteMuted } =
                   getRowStyles(m, isSelected);
                 return (
                   <RosterTableRow
@@ -2978,6 +3024,8 @@ export default function GiraRoster({
                     isSelected={isSelected}
                     rowClassName={rowClassName}
                     rowStyle={rowStyle}
+                    ausenteMuted={Boolean(ausenteMuted)}
+                    isReemplazoFlashing={reemplazoFlashId === m.id}
                     visibleColumns={visibleColumns}
                     isEditor={isEditor}
                     rolesList={rolesList}
@@ -2989,7 +3037,7 @@ export default function GiraRoster({
                     onEdit={setEditingMusician}
                     onSwap={setSwapTarget}
                     onDeleteVacancy={handleDeleteVacancy}
-                    onToggleStatus={toggleStatus}
+                    onToggleAbonaReemplazo={toggleAbonaReemplazo}
                     onRequestBaja={requestBaja}
                     pendingBajaForRow={
                       pendingBaja && pendingBaja.integranteId === m.id

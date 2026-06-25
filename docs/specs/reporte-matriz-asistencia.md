@@ -32,6 +32,7 @@ Visualizar en un cuadro de doble entrada la participación de integrantes en los
 - El ID del integrante es numérico (PK Integer).
 - La resolución de integrantes por gira debe usar la lógica de `resolveGiraRosterIds` definida en `src/services/giraService.js` (reexportada desde `src/services/supabase.js` para consumo unificado). Incluye fuentes `ENSAMBLE`, `FAMILIA`, `EXCL_ENSAMBLE` y overrides en `giras_integrantes` (excluyendo `estado === 'ausente'`).
 - **Vigencias:** convocatoria base exige tramo activo en `integrantes_ensambles` (fecha del programa) y alta/baja del integrante en la orquesta (`integranteActiveOnProgramRange` en `ensembleMembership.js`). Sin `fecha_hasta` en el programa, el rango termina en `fecha_desde`. Los overrides manuales (`giras_integrantes` confirmado) aparecen en nómina; si el alta es posterior al programa se marcan con `*` (pre-alta) y no cuentan en totales (`resolveGiraRosterForMatrix`).
+- **Abona reemplazo:** `giras_integrantes.abona_reemplazo` con `estado = ausente` cuenta en totales de servicios y muestra **R** en celeste en la matriz (misma semántica que X para conteos). Migración `20260625120000_giras_integrantes_abona_reemplazo.sql`. Modal de baja individual en roster (`RosterBajaModal`) o toggle **R** sobre la **A** en filas ausentes (`RosterTableRow`; fila cyan, flash al cambiar). Pasar de ausente a presente usa el mismo modal con confirmación y notificación (`action: presente`). Resumen anual de giras (`useGirasYearSummary`) incluye esas giras en el conteo personal.
 - En base de datos, el vínculo del integrante al instrumento es `integrantes.id_instr` → `instrumentos.id` (orden de filas alineado a la tabla maestra de instrumentos).
 - **Override por gira:** si `giras_integrantes.id_instr` está definido para un programa, la matriz muestra el instrumento efectivo en los programas visibles donde el integrante está en roster (`buildMatrixIntegranteInstrumentDisplay` en `giraUtils.js`). Si toca distintos instrumentos en varias giras, el subtexto une los nombres (`Clarinete / Violín`).
 
@@ -55,6 +56,7 @@ No se requieren tablas nuevas; se sugiere una vista para optimizar la carga de l
 | Ubicación: **Gestión** (`?tab=management`) → pestaña **Convocatorias** | Completado |
 | Agregación de datos en `fetchAsistenciaMatrixBaseData` (`src/services/giraService.js`) | Completado |
 | Overrides `giras_integrantes.id_instr` + instrumento efectivo en matriz/export | Completado |
+| `abona_reemplazo` en ausentes: marca R celeste + conteo en totales y resumen anual | Completado |
 | Panel lateral: chevron `IconChevronDown` (rotación), contador seleccionados por ensamble, filas con hover | Completado |
 
 **Nota:** El orden orquestal de filas usa `id_instr` como texto (`localeCompare` numérico), no `parseInt`. La analítica de partituras sigue en `src/utils/instrumentation.js`.

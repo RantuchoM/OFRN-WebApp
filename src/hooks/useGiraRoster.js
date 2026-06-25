@@ -94,6 +94,7 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
       id_instr: o.id_instr ?? null,
       motivo_estado: o.motivo_estado ?? null,
       motivo_estado_actualizado_at: o.motivo_estado_actualizado_at ?? null,
+      abona_reemplazo: Boolean(o.abona_reemplazo),
     };
   });
 
@@ -278,10 +279,12 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
               motivo_estado: manualData.motivo_estado ?? null,
               motivo_estado_actualizado_at:
                 manualData.motivo_estado_actualizado_at ?? null,
+              abona_reemplazo: Boolean(manualData.abona_reemplazo),
             }
           : {
               motivo_estado: null,
               motivo_estado_actualizado_at: null,
+              abona_reemplazo: false,
             }),
       });
     }

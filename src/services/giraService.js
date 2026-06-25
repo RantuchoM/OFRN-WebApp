@@ -45,7 +45,7 @@ async function resolveGiraRosterDetail(supabase, giraId) {
       supabase.from("giras_fuentes").select("*").eq("id_gira", giraId),
       supabase
         .from("giras_integrantes")
-        .select("id_integrante, estado")
+        .select("id_integrante, estado, abona_reemplazo")
         .eq("id_gira", giraId),
     ]);
 
@@ -148,21 +148,32 @@ async function resolveGiraRosterDetail(supabase, giraId) {
       });
     }
 
-    // G. Ausentes (giras_integrantes.estado === 'ausente')
+    // G. Ausentes (sin abono de reemplazo) vs. ausentes que abonan reemplazo (cuentan servicio)
     const ausentesIds = new Set(
       overrides
-        .filter((o) => o.estado === "ausente")
+        .filter((o) => o.estado === "ausente" && !o.abona_reemplazo)
+        .map((o) => integranteKey(o.id_integrante)),
+    );
+    const reemplazoIds = new Set(
+      overrides
+        .filter((o) => o.estado === "ausente" && o.abona_reemplazo)
         .map((o) => integranteKey(o.id_integrante)),
     );
 
-    // Resultado: convocados MINUS excluidos por ensamble MINUS ausentes
+    // Resultado: convocados MINUS excluidos por ensamble MINUS ausentes (sin reemplazo)
     const allIds = Array.from(integrantesIds).filter(
       (id) =>
         !excludedByEnsamble.has(id) && !ausentesIds.has(id),
     );
+    for (const id of reemplazoIds) {
+      if (!excludedByEnsamble.has(id) && !allIds.includes(id)) {
+        allIds.push(id);
+      }
+    }
 
     const countedIds = new Set();
     const preAltaIds = new Set();
+    const reemplazoCountedIds = new Set();
     if (allIds.length > 0) {
       const idList = allIds.map(integranteIdForDb).filter(Boolean);
       const { data: vigenciaFinal } = await supabase
@@ -180,16 +191,24 @@ async function resolveGiraRosterDetail(supabase, giraId) {
           )
         ) {
           countedIds.add(key);
+          if (reemplazoIds.has(key)) {
+            reemplazoCountedIds.add(key);
+          }
         } else {
           preAltaIds.add(key);
         }
       });
     }
 
-    return { allIds, countedIds, preAltaIds };
+    return { allIds, countedIds, preAltaIds, reemplazoIds: reemplazoCountedIds };
   } catch (error) {
     console.error("[GiraService] Error resolviendo roster IDs:", error);
-    return { allIds: [], countedIds: new Set(), preAltaIds: new Set() };
+    return {
+      allIds: [],
+      countedIds: new Set(),
+      preAltaIds: new Set(),
+      reemplazoIds: new Set(),
+    };
   }
 }
 
@@ -201,7 +220,7 @@ export const resolveGiraRosterIds = async (supabase, giraId) => {
 
 /**
  * Nómina para matriz de convocatorias: separa convocatoria contabilizada vs. pre-alta.
- * @returns {{ allIds: string[], countedIds: Set<string>, preAltaIds: Set<string> }}
+ * @returns {{ allIds: string[], countedIds: Set<string>, preAltaIds: Set<string>, reemplazoIds: Set<string> }}
  */
 export const resolveGiraRosterForMatrix = resolveGiraRosterDetail;
 
