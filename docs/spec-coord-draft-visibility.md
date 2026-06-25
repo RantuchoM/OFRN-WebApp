@@ -9,9 +9,10 @@ Mejorar la experiencia de usuario de los coordinadores de ensamble, asegurando q
    - Si el usuario es `admin`, `editor` o tiene rol de coordinador (p. ej. `coord_general` o roles que incluyan "coord"), el estado `filterStatus` debe incluir `"Borrador"` al cargar la vista.
    - Para músicos de fila (`isPersonal`) o usuarios de consulta general, se mantiene solo `"Vigente"` (sin borradores).
 3. **Persistencia**: El cambio afecta únicamente a la carga inicial de la sesión en la vista de Giras. El usuario puede cambiar el filtro manualmente después.
+4. **Excepción orquestas en borrador** (2026-06): Los programas **Sinfónico** y **Camerata Filarmónica** en estado `Borrador` solo son visibles para `admin` y `editor`, aunque el filtro de estado incluya borradores (p. ej. coordinadores). Los borradores de Ensamble, Jazz Band y Comisión siguen la regla general del filtro de estado.
 
 ## Componentes Afectados
-- `GirasView.jsx`: Para la inicialización del estado `filterStatus` basado en el rol del usuario.
+- `GirasView.jsx`: Para la inicialización del estado `filterStatus` basado en el rol del usuario, y filtro adicional `isOrchestralDraftHidden` en listado, calendario semanal y deep-links.
 - `GirasListControls.jsx`: El componente visual ya refleja el estado de `filterStatus` correctamente, no requiere cambios adicionales.
 
 ## Implementación Técnica
@@ -29,3 +30,5 @@ Mejorar la experiencia de usuario de los coordinadores de ensamble, asegurando q
 | Spec documento | ✅ Completado | `docs/spec-coord-draft-visibility.md` |
 | Inicialización de filterStatus en GirasView | ✅ Completado | `GirasView.jsx`: useState inicial con lógica de roles + useEffect para asegurar actualización cuando user esté disponible |
 | Verificación de GirasListControls | ✅ Completado | `GirasListControls.jsx`: Ya refleja correctamente el estado de `filterStatus` recibido como prop, no requiere cambios |
+| Ocultar borradores Sinfónico / Camerata a no editores | ✅ Completado | `GirasView.jsx`: `canSeeDraftOrchestral` (`admin` \| `editor`); filtro en `filteredGiras`, calendario semanal y redirect de deep-link |
+| Borradores excluidos del resumen anual (UX) | ✅ Completado | `girasYearSummary.js` (`isProgramBorrador`), `useGirasYearSummary.js` (ensayos de programas borrador) |

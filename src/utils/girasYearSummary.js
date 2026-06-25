@@ -4,6 +4,11 @@ import { PROGRAM_TYPES } from "./giraUtils";
 
 const ENSAYO_TIPO_ID = 13;
 
+/** Programas en borrador no entran en contadores de UX (resumen anual, etc.). */
+export function isProgramBorrador(program) {
+  return (program?.estado || "Borrador").trim() === "Borrador";
+}
+
 export function currentYearBounds(d = new Date()) {
   const year = d.getFullYear();
   return {
@@ -18,6 +23,7 @@ export function countProgramsByType(programs, { desde, hasta }) {
   const counts = {};
   const referenceDate = toLocalDateString();
   for (const program of programs || []) {
+    if (isProgramBorrador(program)) continue;
     if (
       !programOverlapsDateRange(program, desde, hasta, referenceDate)
     ) {

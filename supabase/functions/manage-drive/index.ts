@@ -132,6 +132,132 @@ async function copyFolderContentsRecursive(
   } while (pageToken);
 }
 
+function stripHtmlTitulo(html: string): string {
+  return (html || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>\s*<p>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .trim();
+}
+
+function getTituloPrimeraLinea(html: string): string {
+  return stripHtmlTitulo(html).split(/\r?\n/)[0]?.trim() || "";
+}
+
+function buildParaAcomodarFolderNameFromRelations(
+  tituloHtml: string,
+  rels: { rol: string; compositores?: { apellido?: string; nombre?: string } | null }[],
+): string | null {
+  const titulo = getTituloPrimeraLinea(tituloHtml);
+  const compRow = rels.find((r) => r.rol === "compositor");
+  const comp = compRow?.compositores;
+  if (!titulo || !comp?.apellido) return null;
+
+  const arrRow = rels.find((r) => r.rol === "arreglador");
+  const arrApellido = arrRow?.compositores?.apellido;
+  if (arrApellido) {
+    return `${comp.apellido}-${arrApellido} - ${titulo}`;
+  }
+
+  const inicial = comp.nombre ? `${comp.nombre.charAt(0).toUpperCase()}.` : "";
+  const prefijo = inicial ? `${comp.apellido}, ${inicial}` : comp.apellido;
+  return `${prefijo} - ${titulo}`;
+}
+
+async function isDriveItemUnderFolder(
+  drive: ReturnType<typeof google.drive>,
+  itemId: string,
+  ancestorFolderId: string,
+  opts: Record<string, unknown>,
+  depth = 0,
+): Promise<boolean> {
+  if (!itemId || depth > 25) return false;
+  if (itemId === ancestorFolderId) return true;
+  try {
+    const meta = await drive.files.get({
+      fileId: itemId,
+      fields: "parents",
+      ...opts,
+    });
+    const parents: string[] = meta.data?.parents || [];
+    for (const p of parents) {
+      if (p === ancestorFolderId) return true;
+      if (await isDriveItemUnderFolder(drive, p, ancestorFolderId, opts, depth + 1)) return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+async function copyLinkIntoDriveFolder(
+  drive: ReturnType<typeof google.drive>,
+  linkOrigen: string,
+  sourceId: string,
+  parentFolderId: string,
+  nombreCarpeta: string,
+  driveOpts: { supportsAllDrives?: boolean; includeItemsFromAllDrives?: boolean },
+): Promise<{ link_drive: string; folder_name: string }> {
+  const safeName = String(nombreCarpeta).slice(0, 200).replace(/[/\\?*:\[\]]/g, "_");
+
+  let sourceMime = "";
+  let sourceName = "archivo";
+  try {
+    const sourceMeta = await drive.files.get({
+      fileId: sourceId,
+      fields: "mimeType, name",
+      ...driveOpts,
+    });
+    sourceMime = sourceMeta.data?.mimeType || "";
+    sourceName = (sourceMeta.data?.name || "archivo").slice(0, 255);
+  } catch (e) {
+    if (isDriveAccessDeniedError(e)) {
+      const perm = await requestDriveAccessForServiceAccount(drive, sourceId, driveOpts);
+      const payload = driveAccessDeniedPayload({
+        permissionRequested: perm.ok,
+        sourceFileId: sourceId,
+        linkOrigen: linkOrigen,
+        requestDetail: perm.ok ? undefined : perm.detail,
+      });
+      throw Object.assign(new Error(payload.error), { drivePayload: payload });
+    }
+    throw e;
+  }
+
+  const nuevaCarpeta = await drive.files.create({
+    requestBody: {
+      name: safeName,
+      mimeType: FOLDER_MIME,
+      parents: [parentFolderId],
+    },
+    fields: "id, webViewLink",
+    ...driveOpts,
+  });
+  const destFolderId = nuevaCarpeta.data.id!;
+
+  if (sourceMime === FOLDER_MIME) {
+    await copyFolderContentsRecursive(drive, sourceId, destFolderId, driveOpts);
+  } else {
+    await drive.files.copy({
+      fileId: sourceId,
+      requestBody: { name: sourceName, parents: [destFolderId] },
+      fields: "id",
+      ...driveOpts,
+    });
+  }
+
+  const meta = await drive.files.get({
+    fileId: destFolderId,
+    fields: "webViewLink",
+    ...driveOpts,
+  });
+  const linkDrive =
+    meta.data.webViewLink || `https://drive.google.com/drive/folders/${destFolderId}`;
+
+  return { link_drive: linkDrive, folder_name: safeName };
+}
+
 const getAuthClient = () => {
   const clientId = Deno.env.get("G_CLIENT_ID");
   const clientSecret = Deno.env.get("G_CLIENT_SECRET");
@@ -1418,7 +1544,7 @@ serve(async (req) => {
     const token = tokenResponse.token;
     const drive = google.drive({ version: "v3", auth: authClient });
 
-    // --- ACCIÓN: ENTREGAR OBRA AL ARCHIVO (vista arreglador: copia real de archivos + actualiza obras + mail) ---
+    // --- ACCIÓN: ENTREGAR OBRA AL ARCHIVO (copia a «Para acomodar» + Entregado + mail) ---
     if (action === "entregar_obra_archivo") {
       if (!id_obra || !link_origen) throw new Error("Faltan id_obra o link_origen");
       const sourceId = extractFileId(link_origen);
@@ -1426,34 +1552,61 @@ serve(async (req) => {
 
       const { data: obra, error: obraError } = await supabase
         .from("obras")
-        .select("id, titulo")
+        .select(`
+          id,
+          titulo,
+          link_drive,
+          obras_compositores (rol, compositores (apellido, nombre))
+        `)
         .eq("id", id_obra)
         .single();
       if (obraError || !obra) throw new Error("Obra no encontrada");
-      const tituloParaMail = tituloObra || (obra.titulo || "").replace(/<[^>]*>/g, "").trim() || "Sin título";
-      const nombreCarpeta = tituloParaMail.slice(0, 200).replace(/[/\\?*:\[\]]/g, "_");
+
+      const tituloParaMail =
+        (tituloObra as string) ||
+        getTituloPrimeraLinea(obra.titulo || "") ||
+        "Sin título";
+      const nombreFromBody = (body.nombre_carpeta as string | undefined)?.trim();
+      const nombreCanonico = buildParaAcomodarFolderNameFromRelations(
+        obra.titulo || "",
+        (obra.obras_compositores as { rol: string; compositores?: { apellido?: string; nombre?: string } | null }[]) || [],
+      );
+      const nombreCarpeta = nombreFromBody || nombreCanonico || tituloParaMail;
 
       const driveOpts = { supportsAllDrives: true, includeItemsFromAllDrives: true };
 
       try {
-        const nuevaCarpeta = await drive.files.create({
-          requestBody: {
-            name: nombreCarpeta,
-            mimeType: FOLDER_MIME,
-            parents: [ARCHIVO_OBRAS_FOLDER_ID],
-          },
-          fields: "id, webViewLink",
-        });
-        const destFolderId = nuevaCarpeta.data.id;
+        let nuevoEnlace: string;
+        let copied = false;
 
-        await copyFolderContentsRecursive(drive, sourceId, destFolderId, driveOpts);
+        const alreadyInParaAcomodar = await isDriveItemUnderFolder(
+          drive,
+          sourceId,
+          PARA_ACOMODAR_FOLDER_ID,
+          driveOpts,
+        );
 
-        const meta = await drive.files.get({
-          fileId: destFolderId,
-          fields: "webViewLink",
-          ...driveOpts,
-        });
-        const nuevoEnlace = meta.data.webViewLink || `https://drive.google.com/drive/folders/${destFolderId}`;
+        if (alreadyInParaAcomodar) {
+          const meta = await drive.files.get({
+            fileId: sourceId,
+            fields: "webViewLink",
+            ...driveOpts,
+          });
+          nuevoEnlace =
+            meta.data.webViewLink ||
+            `https://drive.google.com/drive/folders/${sourceId}`;
+        } else {
+          const copyResult = await copyLinkIntoDriveFolder(
+            drive,
+            link_origen,
+            sourceId,
+            PARA_ACOMODAR_FOLDER_ID,
+            nombreCarpeta,
+            driveOpts,
+          );
+          nuevoEnlace = copyResult.link_drive;
+          copied = true;
+        }
 
         const { error: updateError } = await supabase
           .from("obras")
@@ -1486,10 +1639,21 @@ serve(async (req) => {
         }
 
         return new Response(
-          JSON.stringify({ success: true, link_drive: nuevoEnlace }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({
+            success: true,
+            link_drive: nuevoEnlace,
+            copied_to_para_acomodar: copied,
+            folder_name: nombreCarpeta,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       } catch (e: any) {
+        if (e?.drivePayload?.code === "DRIVE_ACCESS_DENIED") {
+          return new Response(JSON.stringify(e.drivePayload), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 400,
+          });
+        }
         console.error("[entregar_obra_archivo]:", e?.message);
         throw new Error(e?.message || "Error al copiar o actualizar");
       }

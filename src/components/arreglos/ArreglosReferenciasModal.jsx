@@ -90,6 +90,23 @@ function ReferenciaKindIcon({ kind, size = 12, className = "" }) {
   return <IconExternalLink size={size} className={`shrink-0 text-slate-400 ${className}`} />;
 }
 
+function ObraArchivoMeta({ obra }) {
+  if (!obra) return null;
+  const titulo = stripHtml(obra.titulo) || "Sin título";
+  const organico = (obra.instrumentacion || "").trim();
+  return (
+    <div className="text-[11px] text-slate-500 mt-0.5 flex items-start gap-1 min-w-0">
+      <ReferenciaKindIcon kind="obra" className="mt-0.5" />
+      <span className="min-w-0 leading-snug">
+        #{obra.id} · {titulo}
+        {organico ? (
+          <span className="block font-mono text-[10px] text-slate-400 mt-0.5">{organico}</span>
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
 export { resolveReferenciaOpenUrl };
 
 const REF_TIPO_OPTIONS = [
@@ -168,7 +185,8 @@ export default function ArreglosReferenciasModal({
           obra_ref:obras!arreglos_referencias_id_obra_referencia_fkey (
             id,
             titulo,
-            link_drive
+            link_drive,
+            instrumentacion
           )
         `,
         )
@@ -200,7 +218,7 @@ export default function ArreglosReferenciasModal({
     try {
       const { data, error } = await supabase
         .from("obras")
-        .select("id, titulo, link_drive")
+        .select("id, titulo, link_drive, instrumentacion")
         .eq("id", id)
         .maybeSingle();
       if (error) throw error;
@@ -372,12 +390,7 @@ export default function ArreglosReferenciasModal({
                         {ref.titulo}
                       </div>
                       {obraRef ? (
-                        <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
-                          <ReferenciaKindIcon kind="obra" />
-                          <span>
-                            #{obraRef.id} · {stripHtml(obraRef.titulo) || "Sin título"}
-                          </span>
-                        </div>
+                        <ObraArchivoMeta obra={obraRef} />
                       ) : (
                         <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1 truncate">
                           <ReferenciaKindIcon kind={linkKind} />
@@ -435,9 +448,7 @@ export default function ArreglosReferenciasModal({
                   {obraPreview && (
                     <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2">
                       <div className="min-w-0 flex-1">
-                        <p className="text-[11px] font-semibold text-slate-800 leading-snug">
-                          #{obraPreview.id} · {stripHtml(obraPreview.titulo) || "Sin título"}
-                        </p>
+                        <ObraArchivoMeta obra={obraPreview} />
                         {obraPreview.link_drive ? (
                           <a
                             href={obraPreview.link_drive}

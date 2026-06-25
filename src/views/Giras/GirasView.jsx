@@ -82,6 +82,22 @@ export default function GirasView({ supabase, trigger = 0 }) {
     isCoordGeneral,
   } = useAuth();
   const canSyncNomencladores = isAdmin || roles.includes("editor");
+  const canSeeDraftOrchestral = isAdmin || roles.includes("editor");
+  const ORCHESTRAL_PROGRAM_TYPES = useMemo(
+    () => new Set(["Sinfónico", "Camerata Filarmónica"]),
+    [],
+  );
+  const isOrchestralDraftHidden = useCallback(
+    (gira) => {
+      const estado = gira?.estado || "Borrador";
+      return (
+        estado === "Borrador" &&
+        ORCHESTRAL_PROGRAM_TYPES.has(gira?.tipo) &&
+        !canSeeDraftOrchestral
+      );
+    },
+    [ORCHESTRAL_PROGRAM_TYPES, canSeeDraftOrchestral],
+  );
   const userRole = role ?? "";
   const [statsRefreshTrigger, setStatsRefreshTrigger] = useState(0);
   const [hospedajeExcluidosIds, setHospedajeExcluidosIds] = useState([]);
@@ -479,6 +495,12 @@ export default function GirasView({ supabase, trigger = 0 }) {
       }
     }
   }, [isGuest, user, giras, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!selectedGira || canSeeDraftOrchestral) return;
+    if (!isOrchestralDraftHidden(selectedGira)) return;
+    setSearchParams({ tab: "giras" }, { replace: true });
+  }, [selectedGira, canSeeDraftOrchestral, isOrchestralDraftHidden, setSearchParams]);
 
   const fetchLocationsList = async () => {
     const { data } = await supabase
@@ -1106,6 +1128,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
         }
         const estadoGira = g.estado || "Borrador";
         if (filterStatus.size > 0 && !filterStatus.has(estadoGira)) return false;
+        if (isOrchestralDraftHidden(g)) return false;
         return true;
       })
       .sort((a, b) => compareProgramsForList(a, b, listReferenceDate));
@@ -1116,6 +1139,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
     filterDateEnd,
     filterStatus,
     listReferenceDate,
+    isOrchestralDraftHidden,
   ]);
 
   const toggleFilterType = (type) =>
@@ -1127,7 +1151,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
     });
 
   const allCalendarEvents = useMemo(() => {
-    return giras.flatMap((gira) => {
+    return giras
+      .filter((gira) => !isOrchestralDraftHidden(gira))
+      .flatMap((gira) => {
       if (!gira.eventos) return [];
 
       return gira.eventos
@@ -1161,7 +1187,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
         })
         .filter(Boolean); // 3. Filtramos los nulos (eventos inválidos)
     });
-  }, [giras]);
+  }, [giras, isOrchestralDraftHidden]);
 
   const handleUpdateCalendarEvent = async (eventData) => {
     setFormSaving(true);

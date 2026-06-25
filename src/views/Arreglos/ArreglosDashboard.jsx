@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   IconMusicNote,
   IconLoader,
@@ -12,6 +12,8 @@ import {
   IconUserPlus,
   IconCopy,
   IconTrash,
+  IconAlertCircle,
+  IconFolder,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../services/supabase";
@@ -20,10 +22,12 @@ import DateInput from "../../components/ui/DateInput";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import WorkForm, { QuickComposerModal } from "../Repertoire/WorkForm";
+import WorkForm, { QuickComposerModal, WysiwygEditor } from "../Repertoire/WorkForm";
 import NewVersionModal from "../../components/repertoire/NewVersionModal";
 import ArreglosReferenciasModal from "../../components/arreglos/ArreglosReferenciasModal";
+import ArregloEntregaModal from "../../components/arreglos/ArregloEntregaModal";
 import { markEncargoArregloMailSent } from "../../utils/encargoArregloMail";
+import { readManageDriveResponseBody } from "../../utils/paraAcomodarDrive";
 
 const RichTextPreview = ({ content, className = "" }) => {
   if (!content) return null;
@@ -77,6 +81,325 @@ function getFieldStatusClass(status) {
 
 const DEFAULT_ARREGLADOR_INTEGRANTE_ID = 4340365;
 
+const NOTAS_STICKY_PANEL_CLASS =
+  "bg-yellow-50 border border-yellow-100 text-yellow-900 rounded-lg shadow-[2px_3px_10px_rgba(234,179,8,0.22)] relative leading-tight rotate-[0.15deg]";
+
+function formatFechaCorta(fechaStr) {
+  if (!fechaStr) return null;
+  const d = fechaStr.includes("T") ? new Date(fechaStr) : new Date(`${fechaStr}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  });
+}
+
+function extractNotaEntrega(comentarios) {
+  const plain = (comentarios || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+  const idx = plain.lastIndexOf("[Entrega]");
+  if (idx === -1) return "";
+  return plain.slice(idx + "[Entrega]".length).trim().split(/\n\n/)[0].trim();
+}
+
+function SolicitanteTag({ label }) {
+  if (!label) return null;
+  return (
+    <span
+      className="inline-flex mt-1 text-[9px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-1.5 py-0.5 max-w-full truncate"
+      title={`Solicitado por ${label}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+function ObservacionesStickyCell({
+  value,
+  onChange,
+  onBlur,
+  canEdit,
+  statusClass = "",
+  placeholder = "Observación del pedido…",
+  fillHeight = false,
+}) {
+  const editingRef = useRef(false);
+  const [draft, setDraft] = useState(value ?? "");
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!editingRef.current) setDraft(value ?? "");
+  }, [value]);
+
+  const stickyWrap = (inner) => (
+    <div
+      className={`${NOTAS_STICKY_PANEL_CLASS} px-2 py-1 ${fillHeight ? "h-full flex flex-col flex-1 min-h-0" : ""}`}
+    >
+      <IconAlertCircle
+        size={10}
+        className="absolute left-1.5 top-1.5 text-amber-500/75 pointer-events-none"
+      />
+      <div className={`min-w-0 pl-3 ${fillHeight ? "flex flex-col flex-1 min-h-0 h-full" : ""}`}>{inner}</div>
+    </div>
+  );
+
+  if (!canEdit) {
+    const plain = (value || "").trim();
+    if (!plain) {
+      return <span className="text-[10px] text-slate-300 italic">—</span>;
+    }
+    return (
+      <div className={`min-w-0 max-w-[18rem] ${fillHeight ? "h-full" : ""}`}>
+        {stickyWrap(
+          <div className={`text-[10px] text-yellow-950 leading-snug ${fillHeight ? "" : "line-clamp-4"}`}>{plain}</div>,
+        )}
+      </div>
+    );
+  }
+
+  const showPostIt = draft.trim().length > 0 || focused;
+  const textarea = (
+    <textarea
+      rows={fillHeight ? undefined : showPostIt && focused ? 3 : 1}
+      spellCheck
+      className={`w-full bg-transparent border-0 p-0 text-[10px] outline-none focus:ring-0 leading-snug placeholder:text-slate-400 ${
+        fillHeight
+          ? "flex-1 min-h-[2.5rem] h-full resize-none"
+          : `resize-y ${showPostIt ? "text-yellow-950 min-h-[1.35rem] max-h-[8rem]" : "text-slate-700 min-h-[1.35rem]"}`
+      } ${statusClass}`}
+      placeholder={placeholder}
+      value={draft}
+      onFocus={() => {
+        editingRef.current = true;
+        setFocused(true);
+      }}
+      onBlur={() => {
+        editingRef.current = false;
+        setFocused(false);
+        onBlur?.(draft);
+      }}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        onChange?.(e.target.value);
+      }}
+    />
+  );
+
+  return (
+    <div className={`min-w-0 max-w-[18rem] ${fillHeight ? "h-full flex flex-col" : ""}`}>
+      {showPostIt ? (
+        stickyWrap(
+          fillHeight ? <div className="flex flex-col flex-1 min-h-0 h-full">{textarea}</div> : textarea,
+        )
+      ) : (
+        <div
+          className={`rounded-lg border border-dashed border-slate-200 bg-white px-1.5 py-0.5 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] ${
+            fillHeight ? "flex flex-col flex-1 min-h-[2.5rem] h-full" : ""
+          }`}
+        >
+          {textarea}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getDiasRestantesInfo(work) {
+  if (!work?.fecha_esperada) return null;
+  const estado = (work.estado || "").toLowerCase();
+  if (estado === "entregado" || estado === "oficial") return null;
+
+  const today = new Date();
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const target = new Date(`${work.fecha_esperada}T00:00:00`);
+  const diffMs = target.getTime() - todayMidnight.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return { kind: "hoy" };
+  if (diffDays > 0) return { kind: "faltan", days: diffDays };
+  return { kind: "vencio", days: Math.abs(diffDays) };
+}
+
+function DiasRestantesDisplay({ work }) {
+  const info = getDiasRestantesInfo(work);
+  if (!info || work.estado !== "Para arreglar") return null;
+
+  const textClass = "text-[11px] text-slate-500 leading-tight";
+  const numClass = "font-bold tabular-nums text-slate-700";
+
+  return (
+    <p className={`${textClass} text-center w-full`}>
+      {info.kind === "hoy" && "vence hoy"}
+      {info.kind === "faltan" && (
+        <>
+          Faltan <span className={numClass}>{info.days}</span> día{info.days === 1 ? "" : "s"}
+        </>
+      )}
+      {info.kind === "vencio" && (
+        <>
+          venció hace <span className={numClass}>{info.days}</span> día{info.days === 1 ? "" : "s"}
+        </>
+      )}
+    </p>
+  );
+}
+
+function FechaEntregaCell({
+  work,
+  canEditFecha,
+  fechaValue,
+  onFechaChange,
+  fechaStatusClass = "",
+  solicitanteLabel,
+}) {
+  const fecha = formatFechaCorta(work.fecha_esperada);
+
+  return (
+    <div className="space-y-1 min-w-[5.5rem] flex flex-col items-center text-center">
+      {canEditFecha ? (
+        <DateInput
+          label=""
+          value={fechaValue || ""}
+          onChange={onFechaChange}
+          className={`border rounded-lg text-[10px] w-full ${fechaStatusClass}`}
+        />
+      ) : fecha ? (
+        <span className="text-[11px] font-mono font-semibold text-slate-700 block">{fecha}</span>
+      ) : (
+        <span className="text-[10px] text-slate-300 italic block">Sin fecha</span>
+      )}
+      <DiasRestantesDisplay work={work} />
+      <SolicitanteTag label={solicitanteLabel} />
+    </div>
+  );
+}
+
+function ArregloEntregaAcciones({
+  work,
+  linkValue,
+  notaEntregaDraft,
+  notaEntregaGuardada,
+  fechaEntrega,
+  onOpenEntrega,
+  isSaving,
+  canEditFields,
+  canEditDelivery,
+  onDelete,
+  onEdit,
+  onNewVersion,
+}) {
+  const link = (linkValue || work.link_drive || "").trim();
+  const isParaArreglar = work.estado === "Para arreglar";
+  const notaBorrador = (notaEntregaDraft || "").trim();
+  const notaGuardada = (notaEntregaGuardada || "").trim();
+  const fechaEntregaFmt = formatFechaCorta(fechaEntrega);
+
+  const btnBase =
+    "w-full text-[10px] font-bold px-2 py-1 rounded flex items-center justify-center gap-1 disabled:opacity-50";
+
+  if (isParaArreglar) {
+    return (
+      <div className="flex flex-col justify-center gap-1 min-w-[5.5rem] max-w-[8rem] h-full py-1">
+        {notaBorrador ? (
+          <div className={`${NOTAS_STICKY_PANEL_CLASS} px-1.5 py-0.5`}>
+            <p className="text-[9px] text-yellow-950 line-clamp-3 leading-snug pl-2">{notaBorrador}</p>
+          </div>
+        ) : null}
+        <div className="flex flex-col gap-1">
+          {canEditFields && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className={`${btnBase} bg-indigo-100 text-indigo-700 hover:bg-indigo-200`}
+            >
+              <IconEdit size={11} />
+              Editar
+            </button>
+          )}
+          {canEditDelivery && (
+            <button
+              type="button"
+              onClick={onOpenEntrega}
+              disabled={isSaving}
+              className={`${btnBase} bg-sky-600 text-white hover:bg-sky-700`}
+            >
+              Entregar
+            </button>
+          )}
+          {canEditFields && (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={isSaving}
+              className={`${btnBase} bg-rose-50 text-rose-700 hover:bg-rose-100`}
+              title="Eliminar solicitud de arreglo"
+            >
+              <IconTrash size={11} />
+              Eliminar
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const notaMostrar = notaGuardada || notaBorrador;
+
+  return (
+    <div className="flex flex-col justify-center gap-1 min-w-[5.5rem] max-w-[9rem] h-full py-1">
+      <div className={`${NOTAS_STICKY_PANEL_CLASS} px-1.5 py-0.5`}>
+        <p className="text-[9px] font-bold text-yellow-950 leading-snug pl-2">
+          {work.estado}
+          {fechaEntregaFmt ? ` · ${fechaEntregaFmt}` : ""}
+        </p>
+      </div>
+      {notaMostrar ? (
+        <div className={`${NOTAS_STICKY_PANEL_CLASS} px-1.5 py-0.5`}>
+          <p className="text-[9px] text-yellow-950 line-clamp-3 leading-snug pl-2">{notaMostrar}</p>
+        </div>
+      ) : null}
+      <div className="flex items-center gap-1">
+        {link ? (
+          <a
+            href={link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-1.5 rounded-lg text-amber-700 hover:bg-amber-50 border border-amber-200/60"
+            title="Abrir carpeta"
+          >
+            <IconFolder size={15} />
+          </a>
+        ) : (
+          <span className="p-1.5 text-slate-300" title="Sin carpeta">
+            <IconFolder size={15} />
+          </span>
+        )}
+        {canEditFields && (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="p-1.5 rounded-lg text-indigo-700 hover:bg-indigo-50 border border-indigo-200/60"
+            title="Editar obra"
+          >
+            <IconEdit size={15} />
+          </button>
+        )}
+      </div>
+      {(work.estado === "Entregado" || work.estado === "Oficial") && (
+        <button
+          type="button"
+          onClick={onNewVersion}
+          className={`${btnBase} bg-slate-100 text-slate-700 hover:bg-slate-200`}
+          title="Nueva versión (reemplazar o clonar)"
+        >
+          <IconCopy size={11} />
+          Nueva versión
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRepertoire, catalogoInstrumentos }) {
   const { user, isEditor, isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -123,6 +446,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   const [deletingArreglo, setDeletingArreglo] = useState(false);
   const [refsByObra, setRefsByObra] = useState({});
   const [refsModalWork, setRefsModalWork] = useState(null);
+  const [entregaModalWork, setEntregaModalWork] = useState(null);
 
   const fetchWorks = async () => {
     setLoading(true);
@@ -214,6 +538,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
       );
 
       let referenciasMap = {};
+      let entregaFechaByObra = {};
       const obraIds = (obrasFiltradas || []).map((w) => w.id).filter(Boolean);
       if (obraIds.length > 0) {
         const { data: refsData, error: refsError } = await sb
@@ -231,6 +556,22 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
             return acc;
           }, {});
         }
+
+        const { data: entregaLogs, error: entregaLogsError } = await sb
+          .from("obras_produccion_log")
+          .select("id_obra, fecha")
+          .in("id_obra", obraIds)
+          .eq("estado_nuevo", "Entregado")
+          .order("fecha", { ascending: false });
+        if (entregaLogsError) {
+          console.warn("ArreglosDashboard fecha entrega:", entregaLogsError.message);
+        } else {
+          for (const log of entregaLogs || []) {
+            if (!entregaFechaByObra[log.id_obra]) {
+              entregaFechaByObra[log.id_obra] = log.fecha;
+            }
+          }
+        }
       }
 
       const list = (obrasFiltradas || []).map((w) => {
@@ -245,6 +586,8 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           compositor_full: compositoresList,
           arreglador_label: w.id_integrante_arreglador ? intMap.get(w.id_integrante_arreglador) : null,
           solicitante_label: formatIntegranteLabel(w.usuario_carga),
+          fecha_entrega: entregaFechaByObra[w.id] || null,
+          nota_entrega_guardada: extractNotaEntrega(w.comentarios),
         };
       });
       setRefsByObra(referenciasMap);
@@ -366,34 +709,20 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     return "bg-yellow-100";
   };
 
-  const getDiasRestantesLabel = (work) => {
-    if (!work.fecha_esperada) return null;
-    const estado = (work.estado || "").toLowerCase();
-    if (estado === "entregado") return null;
-
-    const today = new Date();
-    const todayMidnight = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate()
-    );
-    const target = new Date(`${work.fecha_esperada}T00:00:00`);
-    const diffMs = target.getTime() - todayMidnight.getTime();
-    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) return "vence hoy";
-    if (diffDays > 0) return `faltan ${diffDays} día${diffDays === 1 ? "" : "s"}`;
-
-    const atras = Math.abs(diffDays);
-    return `venció hace ${atras} día${atras === 1 ? "" : "s"}`;
-  };
-
   const canEditDeliveryForWork = (work) => {
     const hasOwner =
       work.id_integrante_arreglador != null &&
       myCompositorId != null &&
       Number(work.id_integrante_arreglador) === Number(myCompositorId);
     return isAdmin || hasOwner;
+  };
+
+  const canMarkEntregadoForWork = (work) => {
+    const isOwnerArreglador =
+      work.id_integrante_arreglador &&
+      myCompositorId &&
+      Number(work.id_integrante_arreglador) === Number(myCompositorId);
+    return isAdmin || isOwnerArreglador;
   };
 
   const getSolicitanteLabelForUser = () => formatIntegranteLabel(user);
@@ -635,13 +964,30 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           titulo: stripHtml(work.titulo),
         },
       });
-      if (efError) throw efError;
-      if (data?.error) throw new Error(data.error);
+      const body = await readManageDriveResponseBody(efError, data);
+      if (body?.code === "DRIVE_ACCESS_DENIED") {
+        toast.error(
+          body.error ||
+            "El Archivo no tiene acceso a la carpeta de Drive. Compartila con ofrn.archivo@gmail.com y reintentá.",
+        );
+        return;
+      }
+      if (efError || body?.error) throw new Error(body?.error || efError?.message || "Error al entregar");
+      if (!body?.success && !body?.link_drive) throw new Error(body?.error || "Error al entregar");
+
+      const nuevoLink = body?.link_drive || link.trim();
 
       setWorks((prev) =>
         prev.map((w) =>
           w.id === work.id
-            ? { ...w, estado: "Entregado", link_drive: data?.link_drive || link.trim(), comentarios: comentariosNuevos || w.comentarios }
+            ? {
+                ...w,
+                estado: "Entregado",
+                link_drive: nuevoLink,
+                comentarios: comentariosNuevos || w.comentarios,
+                nota_entrega_guardada: notaEntrega.trim() || w.nota_entrega_guardada,
+                fecha_entrega: w.fecha_entrega || new Date().toISOString(),
+              }
             : w
         )
       );
@@ -650,7 +996,11 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         delete next[work.id];
         return next;
       });
-      toast.success("Obra entregada. Se copió al Archivo y se notificó al archivista.");
+      toast.success(
+        body?.copied_to_para_acomodar
+          ? "Obra entregada. Copia creada en «Para acomodar» y se notificó al archivista."
+          : "Obra entregada. Ya estaba en «Para acomodar»; se notificó al archivista.",
+      );
     } catch (e) {
       toast.error(e?.message || "Error al entregar.");
     } finally {
@@ -705,18 +1055,6 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     } catch (e) {
       console.warn("refreshReferenciasCount:", e);
     }
-  };
-
-  const SolicitanteTag = ({ label }) => {
-    if (!label) return null;
-    return (
-      <span
-        className="inline-flex mt-1 text-[9px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-1.5 py-0.5 max-w-full truncate"
-        title={`Solicitado por ${label}`}
-      >
-        {label}
-      </span>
-    );
   };
 
   const deleteArregloCompleto = async (work) => {
@@ -820,21 +1158,30 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] border-collapse text-sm">
+            <table className="w-full min-w-[900px] border-collapse text-sm table-fixed">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Obra / Compositor · Arreglador</th>
-                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">
-                    F. estimada entrega
+                  <th className="text-center py-3 px-2 font-bold text-slate-600 uppercase text-xs w-[6%] min-w-[5rem]">
+                    F. est.
                   </th>
-                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs w-20">Ref.</th>
-                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Orgánico</th>
-                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Dificultad</th>
-                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Observación</th>
-                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs w-36 max-w-[10rem]">Link Drive</th>
-                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs">Nota entrega (opc.)</th>
-                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs min-w-[8rem]">Estado</th>
-                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs w-40">Acciones</th>
+                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs w-[24%] min-w-[12rem]">
+                    Obra / Compositor · Arreglador
+                  </th>
+                  <th className="text-center py-3 px-1 font-bold text-slate-600 uppercase text-xs w-[3%]">
+                    Ref.
+                  </th>
+                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs w-[14%] min-w-[6rem]">
+                    Orgánico
+                  </th>
+                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs w-[7%] min-w-[4.5rem]">
+                    Dificultad
+                  </th>
+                  <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs w-[18%] min-w-[8rem]">
+                    Observación
+                  </th>
+                  <th className="text-left py-3 px-2 font-bold text-slate-600 uppercase text-xs w-[12%] min-w-[5.5rem]">
+                    Acciones
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -845,7 +1192,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                       onClick={() => setShowQuickRow((prev) => !prev)}
                     >
                       <td
-                        colSpan={10}
+                        colSpan={7}
                         className="py-0.5 px-3 text-[11px] font-semibold text-indigo-700"
                       >
                         <div className="flex items-center justify-between gap-2">
@@ -863,10 +1210,19 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                     </tr>
                     {showQuickRow && (
                       <tr className="border-b border-slate-100 bg-yellow-50/30 hover:bg-yellow-50/50">
-                        <td className="py-2 px-3 align-top bg-blue-50/40">
-                          <div className="space-y-1">
+                        <td className="py-2 px-3 align-top text-xs whitespace-nowrap bg-blue-50/40">
+                          <FechaEntregaCell
+                            work={{ estado: "Para arreglar" }}
+                            canEditFecha
+                            fechaValue={quickDraft.fecha_esperada || ""}
+                            onFechaChange={(v) => setQuickDraftField("fecha_esperada", v)}
+                            solicitanteLabel={getSolicitanteLabelForUser()}
+                          />
+                        </td>
+                        <td className="py-2 px-3 align-top bg-blue-50/40 min-w-[14rem]">
+                          <div className="space-y-1 max-w-[22rem]">
                             <div className="flex items-center gap-1">
-                              <div className="flex-1">
+                              <div className="flex-1 min-w-0">
                                 <SearchableSelect
                                   options={compositoresOptions}
                                   value={quickDraft.compositorId}
@@ -879,7 +1235,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                               <button
                                 type="button"
                                 onClick={() => setIsQuickCompOpen(true)}
-                                className="inline-flex items-center justify-center px-2 py-1 rounded-lg border border-slate-300 bg-white text-slate-600 hover:border-indigo-500 hover:bg-indigo-50 transition-colors"
+                                className="inline-flex items-center justify-center px-2 py-1 rounded-lg border border-slate-300 bg-white text-slate-600 hover:border-indigo-500 hover:bg-indigo-50 transition-colors shrink-0"
                                 title="Crear nuevo compositor"
                               >
                                 <IconUserPlus size={16} />
@@ -890,20 +1246,11 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                               value={quickDraft.titulo}
                               onChange={(e) => setQuickDraftField("titulo", e.target.value)}
                               placeholder="Título de la obra"
-                              className="w-full text-xs border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                              className="w-full text-sm font-semibold border border-slate-300 rounded px-2 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                             />
                           </div>
                         </td>
-                        <td className="py-2 px-3 align-top text-xs whitespace-nowrap bg-blue-50/40">
-                          <DateInput
-                            label=""
-                            value={quickDraft.fecha_esperada || ""}
-                            onChange={(v) => setQuickDraftField("fecha_esperada", v)}
-                            className="border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500"
-                          />
-                          <SolicitanteTag label={getSolicitanteLabelForUser()} />
-                        </td>
-                        <td className="py-2 px-3 align-top text-xs text-slate-400 bg-blue-50/40">
+                        <td className="py-2 px-1 align-top text-center text-xs text-slate-400 bg-blue-50/40 w-10">
                           —
                         </td>
                         <td className="py-2 px-3 align-top bg-blue-50/40">
@@ -912,7 +1259,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                             value={quickDraft.instrumentacion}
                             onChange={(e) => setQuickDraftField("instrumentacion", e.target.value)}
                             placeholder="Orgánico"
-                            className="w-full min-w-[100px] text-xs border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            className="w-full min-w-[6rem] text-xs border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                           />
                         </td>
                         <td className="py-2 px-3 align-top text-xs bg-blue-50/40">
@@ -921,28 +1268,16 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                             value={quickDraft.dificultad}
                             onChange={(e) => setQuickDraftField("dificultad", e.target.value)}
                             placeholder="Dificultad"
-                            className="w-full min-w-[80px] border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            className="w-full min-w-[70px] border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                           />
                         </td>
-                        <td className="py-2 px-3 align-top text-xs max-w-[180px] bg-blue-50/40">
-                          <textarea
-                            rows={2}
+                        <td className="py-2 px-3 align-top text-xs bg-blue-50/40">
+                          <ObservacionesStickyCell
                             value={quickDraft.observaciones}
-                            onChange={(e) => setQuickDraftField("observaciones", e.target.value)}
-                            placeholder="Observación del pedido"
-                            className="w-full min-w-[120px] border border-slate-300 rounded px-2 py-1 resize-y focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            onChange={(v) => setQuickDraftField("observaciones", v)}
+                            canEdit
+                            placeholder="Observación del pedido…"
                           />
-                        </td>
-                        <td className="py-2 px-3 align-top w-36 max-w-[10rem] text-[11px] text-slate-400">
-                          Se completa al entregar el arreglo.
-                        </td>
-                        <td className="py-2 px-3 align-top text-xs text-slate-400">
-                          -
-                        </td>
-                        <td className="py-2 px-3 align-top min-w-[8rem]">
-                          <span className="text-[10px] px-2 py-0.5 rounded-full font-bold border bg-amber-100 text-amber-800 border-amber-200">
-                            Nuevo encargo
-                          </span>
                         </td>
                         <td className="py-2 px-3 align-top">
                           <div className="flex flex-col gap-2">
@@ -1004,28 +1339,62 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                       className={`hover:bg-slate-50/50 ${getRowPriorityClass(work)}`}
                     >
                       <td className="py-2 px-3 align-top bg-blue-50/40">
+                        <FechaEntregaCell
+                          work={work}
+                          canEditFecha={canEditFields && isParaArreglar}
+                          fechaValue={
+                            draft.fecha_esperada !== undefined
+                              ? draft.fecha_esperada
+                              : work.fecha_esperada
+                          }
+                          onFechaChange={(v) => {
+                            const nextVal = v || "";
+                            setDraftField(work.id, "fecha_esperada", nextVal);
+                            const current = work.fecha_esperada || "";
+                            if (nextVal !== current) {
+                              saveEditorField(work, "fecha_esperada", nextVal);
+                            }
+                          }}
+                          fechaStatusClass={getFieldStatusClass(
+                            fieldStatus[fieldStatusKey(work.id, "fecha_esperada")] || "idle",
+                          )}
+                          solicitanteLabel={work.solicitante_label}
+                        />
+                      </td>
+                      <td className="py-2 px-3 align-top bg-blue-50/40 min-w-[14rem]">
                         {canEditFields && isParaArreglar ? (
-                          <input
-                            type="text"
-                            value={(draft.titulo !== undefined ? draft.titulo : stripHtml(work.titulo || "")) || ""}
-                            onChange={(e) => setDraftField(work.id, "titulo", e.target.value)}
-                            onBlur={(e) => {
-                              const v = e.target.value;
-                              if (v !== stripHtml(work.titulo || "")) saveEditorField(work, "titulo", v);
-                            }}
-                            placeholder="Título"
-                            className={`w-full text-sm font-bold border rounded px-2 py-1 ${getFieldStatusClass(fieldStatus[fieldStatusKey(work.id, "titulo")] || "idle")}`}
-                          />
+                          <div className="max-w-[22rem] min-h-[3rem]">
+                            <WysiwygEditor
+                              compact
+                              fillHeight
+                              value={
+                                draft.titulo !== undefined ? draft.titulo : work.titulo || ""
+                              }
+                              onChange={(v) => setDraftField(work.id, "titulo", v)}
+                              onBlur={() => {
+                                const currentDraft = getDraft(work.id);
+                                const v =
+                                  currentDraft.titulo !== undefined
+                                    ? currentDraft.titulo
+                                    : work.titulo || "";
+                                if (v !== (work.titulo || "")) {
+                                  saveEditorField(work, "titulo", v);
+                                }
+                              }}
+                              placeholder="Título"
+                              className={`h-full min-h-[3rem] ${getFieldStatusClass(fieldStatus[fieldStatusKey(work.id, "titulo")] || "idle")}`}
+                            />
+                          </div>
                         ) : (
-                          <div className="font-bold text-slate-800 leading-tight">
+                          <div className="text-sm text-slate-800 leading-snug max-w-[22rem] [&_b]:font-semibold [&_strong]:font-semibold">
                             <RichTextPreview content={work.titulo} />
                           </div>
                         )}
                         {work.compositor_full && (
-                          <div className="text-xs text-slate-500 mt-0.5">{work.compositor_full}</div>
+                          <div className="text-xs text-slate-500 mt-0.5 truncate max-w-[22rem]">{work.compositor_full}</div>
                         )}
                         {work.arreglador_label && (
-                          <div className="text-xs text-slate-600 mt-0.5">
+                          <div className="text-xs text-slate-600 mt-0.5 truncate max-w-[22rem]">
                             {work.arreglador_label}
                             {myCompositorId === work.id_integrante_arreglador && (
                               <span className="text-indigo-500 ml-1">(vos)</span>
@@ -1033,87 +1402,42 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                           </div>
                         )}
                       </td>
-                      <td className="py-2 px-3 align-top text-xs whitespace-nowrap bg-blue-50/40">
-                        {canEditFields && isParaArreglar ? (
-                          <div>
-                            <DateInput
-                              label=""
-                              value={
-                                (draft.fecha_esperada !== undefined
-                                  ? draft.fecha_esperada
-                                  : work.fecha_esperada) || ""
-                              }
-                              onChange={(v) => {
-                                const nextVal = v || "";
-                                setDraftField(work.id, "fecha_esperada", nextVal);
-                                const current = work.fecha_esperada || "";
-                                if (nextVal !== current) {
-                                  saveEditorField(work, "fecha_esperada", nextVal);
-                                }
-                              }}
-                              className={`border rounded-lg text-xs min-w-[110px] ${getFieldStatusClass(
-                                fieldStatus[fieldStatusKey(work.id, "fecha_esperada")] ||
-                                  "idle"
-                              )}`}
-                            />
-                            <SolicitanteTag label={work.solicitante_label} />
-                          </div>
-                        ) : (
-                          <div className="flex flex-col text-slate-600">
-                            <span>
-                              {work.fecha_esperada
-                                ? new Date(
-                                    work.fecha_esperada + "T12:00:00"
-                                  ).toLocaleDateString("es-AR", {
-                                    day: "2-digit",
-                                    month: "2-digit",
-                                    year: "numeric",
-                                  })
-                                : "-"}
-                            </span>
-                            {getDiasRestantesLabel(work) && (
-                              <span className="text-[10px] text-slate-400 mt-0.5">
-                                ({getDiasRestantesLabel(work)})
-                              </span>
-                            )}
-                            <SolicitanteTag label={work.solicitante_label} />
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 align-top bg-blue-50/40">
+                      <td className="py-2 px-1 align-top text-center bg-blue-50/40 w-10">
                         {(() => {
                           const refCount = (refsByObra[work.id] || []).length;
                           return (
                             <button
                               type="button"
                               onClick={() => setRefsModalWork(work)}
-                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                              className="inline-flex items-center justify-center gap-0.5 text-[10px] font-bold p-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 min-w-0"
                               title="Ver referencias de material"
                             >
                               <IconDrive size={13} className="text-amber-600 shrink-0" />
-                              {refCount > 0 ? refCount : "+"}
+                              <span className="tabular-nums">{refCount > 0 ? refCount : "+"}</span>
                             </button>
                           );
                         })()}
                       </td>
-                      <td className="py-2 px-3 align-top bg-blue-50/40">
-                        {canEditFields && isParaArreglar ? (
-                          <input
-                            type="text"
-                            value={(draft.instrumentacion !== undefined ? draft.instrumentacion : work.instrumentacion) || ""}
-                            onChange={(e) => setDraftField(work.id, "instrumentacion", e.target.value)}
-                            onBlur={(e) => {
-                              const v = e.target.value;
-                              if (v !== (work.instrumentacion || "")) saveEditorField(work, "instrumentacion", v);
-                            }}
-                            placeholder="Orgánico"
-                            className={`w-full min-w-[100px] font-mono text-xs border rounded px-2 py-1 ${getFieldStatusClass(fieldStatus[fieldStatusKey(work.id, "instrumentacion")] || "idle")}`}
-                          />
-                        ) : (
-                          <span className="font-mono text-xs text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">
-                            {work.instrumentacion || "-"}
-                          </span>
-                        )}
+                      <td className="py-2 px-3 bg-blue-50/40 h-px align-stretch">
+                        <div className="h-full min-h-[3rem]">
+                          {canEditFields && isParaArreglar ? (
+                            <textarea
+                              value={(draft.instrumentacion !== undefined ? draft.instrumentacion : work.instrumentacion) || ""}
+                              onChange={(e) => setDraftField(work.id, "instrumentacion", e.target.value)}
+                              onBlur={(e) => {
+                                const v = e.target.value;
+                                if (v !== (work.instrumentacion || "")) saveEditorField(work, "instrumentacion", v);
+                              }}
+                              placeholder="Orgánico"
+                              rows={2}
+                              className={`w-full h-full min-h-[3rem] font-mono text-xs border rounded px-2 py-1 resize-none ${getFieldStatusClass(fieldStatus[fieldStatusKey(work.id, "instrumentacion")] || "idle")}`}
+                            />
+                          ) : (
+                            <span className="font-mono text-xs text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded block h-full min-h-[3rem]">
+                              {work.instrumentacion || "-"}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2 px-3 align-top text-xs bg-blue-50/40">
                         {canEditFields && isParaArreglar ? (
@@ -1132,168 +1456,56 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                           <span className="text-slate-600">{work.dificultad || "-"}</span>
                         )}
                       </td>
-                      <td className="py-2 px-3 align-top text-xs max-w-[180px] bg-blue-50/40">
-                        {canEditFields && isParaArreglar ? (
-                          <textarea
-                            rows={2}
-                            value={(draft.observaciones !== undefined ? draft.observaciones : stripHtml(work.observaciones || "")) || ""}
-                            onChange={(e) => setDraftField(work.id, "observaciones", e.target.value)}
-                            onBlur={(e) => {
-                              const v = e.target.value;
-                              if (v !== stripHtml(work.observaciones || "")) saveEditorField(work, "observaciones", v);
-                            }}
-                            placeholder="Observación"
-                            className={`w-full min-w-[120px] border rounded px-2 py-1 resize-y ${getFieldStatusClass(fieldStatus[fieldStatusKey(work.id, "observaciones")] || "idle")}`}
-                          />
-                        ) : (
-                          <div className="text-slate-600 line-clamp-3" title={stripHtml(work.observaciones)}>
-                            {stripHtml(work.observaciones) || "-"}
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 align-top w-36 max-w-[10rem]">
-                        {isParaArreglar && canEditDeliveryForWork(work) ? (
-                          <div className="flex flex-col gap-1 min-w-0">
-                            <input
-                              type="url"
-                              value={linkValue}
-                              onChange={(e) => setDraftField(work.id, "link_drive", e.target.value)}
-                              placeholder="Pegar URL..."
-                              className="w-full min-w-0 text-xs border border-slate-300 rounded px-2 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            />
-                            {work.link_drive && (
-                              <a
-                                href={work.link_drive}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[10px] text-green-600 hover:underline flex items-center gap-1"
-                              >
-                                <IconDrive size={12} /> Abrir actual
-                              </a>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            {work.link_drive ? (
-                              <a
-                                href={work.link_drive}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-green-600 hover:bg-green-50 rounded p-1"
-                                title="Abrir carpeta"
-                              >
-                                <IconDrive size={18} />
-                              </a>
-                            ) : (
-                              "-"
-                            )}
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 align-top">
-                        {isParaArreglar && canEditDeliveryForWork(work) ? (
-                          <input
-                            type="text"
-                            value={notaValue}
-                            onChange={(e) => setDraftField(work.id, "nota_entrega", e.target.value)}
-                            placeholder="Opcional"
-                            className="w-full min-w-[140px] text-xs border border-slate-300 rounded px-2 py-1.5 focus:ring-2 focus:ring-indigo-500"
-                          />
-                        ) : (
-                          <span className="text-xs text-slate-400">-</span>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 align-top min-w-[8rem]">
-                        <span
-                          className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
-                            work.estado === "Para arreglar"
-                              ? "bg-amber-100 text-amber-800 border-amber-200"
-                              : "bg-sky-100 text-sky-800 border-sky-200"
-                          }`}
-                        >
-                          {work.estado}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 align-top">
-                        {isParaArreglar ? (
-                          <div className="flex flex-col gap-1">
-                            <div className="flex flex-wrap gap-1">
-                              <button
-                                type="button"
-                                onClick={() => saveLinkDrive(work)}
-                                disabled={isSaving || !linkValue.trim()}
-                                className="text-[10px] font-bold px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50"
-                              >
-                                {isSaving ? <IconLoader size={12} className="animate-spin inline" /> : "Guardar link"}
-                              </button>
-                              {work.id_integrante_arreglador &&
-                              myCompositorId &&
-                              Number(work.id_integrante_arreglador) ===
-                                Number(myCompositorId) ? (
-                                <button
-                                  type="button"
-                                  onClick={() => pasarAEntregado(work)}
-                                  disabled={isSaving || !linkValue.trim()}
-                                  className="text-[10px] font-bold px-2 py-1 rounded bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 flex items-center gap-1"
-                                >
-                                  {isSaving ? (
-                                    <IconLoader size={12} className="animate-spin" />
-                                  ) : (
-                                    <IconCheck size={12} />
-                                  )}
-                                  Entregado
-                                </button>
-                              ) : null}
-                            </div>
-                            {work.id_integrante_arreglador &&
-                              myCompositorId &&
-                              Number(work.id_integrante_arreglador) !==
-                                Number(myCompositorId) && (
-                                <span className="text-[10px] text-slate-400 italic">
-                                  Solo el arreglador asignado puede marcar como entregado.
-                                </span>
+                      <td className="py-2 px-3 bg-blue-50/40 h-px align-stretch">
+                        <div className="h-full min-h-[3rem] flex flex-col">
+                          {canEditFields && isParaArreglar ? (
+                            <ObservacionesStickyCell
+                              fillHeight
+                              value={
+                                (draft.observaciones !== undefined
+                                  ? draft.observaciones
+                                  : stripHtml(work.observaciones || "")) || ""
+                              }
+                              onChange={(v) => setDraftField(work.id, "observaciones", v)}
+                              onBlur={(v) => {
+                                if (v !== stripHtml(work.observaciones || "")) {
+                                  saveEditorField(work, "observaciones", v);
+                                }
+                              }}
+                              canEdit
+                              statusClass={getFieldStatusClass(
+                                fieldStatus[fieldStatusKey(work.id, "observaciones")] || "idle",
                               )}
-                            {canEditFields && (
-                              <button
-                                type="button"
-                                onClick={() => setWorkToDelete(work)}
-                                disabled={isSaving}
-                                className="text-[10px] font-bold px-2 py-1 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50 flex items-center gap-1"
-                                title="Eliminar solicitud de arreglo"
-                              >
-                                <IconTrash size={12} />
-                                Eliminar
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="flex flex-wrap gap-1">
-                            {canEditFields && (
-                              <button
-                                type="button"
-                                onClick={() => openWorkFormModal(work.id)}
-                                className="text-[10px] font-bold px-2 py-1 rounded bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-1"
-                              >
-                                <IconEdit size={12} />
-                                Editar
-                              </button>
-                            )}
-                            {(work.estado === "Entregado" || work.estado === "Oficial") && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setNewVersionWork(work);
-                                  setNewVersionModalOpen(true);
-                                }}
-                                className="text-[10px] font-bold px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center gap-1"
-                                title="Nueva versión (reemplazar o clonar)"
-                              >
-                                <IconCopy size={12} />
-                                Nueva versión
-                              </button>
-                            )}
-                          </div>
-                        )}
+                            />
+                          ) : (
+                            <ObservacionesStickyCell
+                              fillHeight
+                              value={stripHtml(work.observaciones || "")}
+                              canEdit={false}
+                            />
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2 px-2 h-px align-middle">
+                        <div className="h-full min-h-[3rem] flex items-center justify-center">
+                          <ArregloEntregaAcciones
+                          work={work}
+                          linkValue={linkValue}
+                          notaEntregaDraft={notaValue}
+                          notaEntregaGuardada={work.nota_entrega_guardada}
+                          fechaEntrega={work.fecha_entrega}
+                          onOpenEntrega={() => setEntregaModalWork(work)}
+                          isSaving={isSaving}
+                          canEditFields={canEditFields}
+                          canEditDelivery={canEditDeliveryForWork(work)}
+                          onDelete={() => setWorkToDelete(work)}
+                          onEdit={() => openWorkFormModal(work.id)}
+                          onNewVersion={() => {
+                            setNewVersionWork(work);
+                            setNewVersionModalOpen(true);
+                          }}
+                        />
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1377,6 +1589,36 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         canEdit={canEditFields}
         onChanged={refreshReferenciasCount}
       />
+
+      {entregaModalWork && (
+        <ArregloEntregaModal
+          isOpen={entregaModalWork != null}
+          onClose={() => setEntregaModalWork(null)}
+          work={entregaModalWork}
+          linkValue={
+            (getDraft(entregaModalWork.id).link_drive !== undefined
+              ? getDraft(entregaModalWork.id).link_drive
+              : entregaModalWork.link_drive) || ""
+          }
+          onLinkChange={(v) => setDraftField(entregaModalWork.id, "link_drive", v)}
+          notaValue={
+            getDraft(entregaModalWork.id).nota_entrega !== undefined
+              ? getDraft(entregaModalWork.id).nota_entrega
+              : ""
+          }
+          onNotaChange={(v) => setDraftField(entregaModalWork.id, "nota_entrega", v)}
+          canEditDelivery={canEditDeliveryForWork(entregaModalWork)}
+          canMarkEntregado={canMarkEntregadoForWork(entregaModalWork)}
+          isSaving={savingId === entregaModalWork.id}
+          onSaveLink={async () => {
+            await saveLinkDrive(entregaModalWork);
+          }}
+          onEntregado={async () => {
+            await pasarAEntregado(entregaModalWork);
+            setEntregaModalWork(null);
+          }}
+        />
+      )}
 
       <ConfirmModal
         isOpen={workToDelete != null}

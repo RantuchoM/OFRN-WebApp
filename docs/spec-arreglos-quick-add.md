@@ -22,9 +22,16 @@ Implementar una fila de entrada rápida al final de la tabla de encargos de arre
 - **Eliminación de encargo (admin/editor):** En filas con estado `Para arreglar`, botón **Eliminar** abre `ConfirmModal` (portal, `z-[100]`) advirtiendo que se borrarán todos los registros del arreglo. Al confirmar, se eliminan en cascada manual las tablas hijas (`seating_asignaciones`, `repertorio_obras`, `obras_produccion_log`, `obras_palabras_clave`, `obras_particellas`, `obras_arcos`, `obras_compositores`) y luego la fila en `obras`. Solo disponible para `isAdmin` o `isEditor`.
 - **Orden de la tabla:** Pendientes (`Para arreglar`) arriba por `fecha_esperada` ascendente (más urgente primero; sin fecha al final del bloque pendiente). `Entregado` y `Oficial` siempre al final.
 - **Solicitado por:** Tag violeta debajo de la fecha estimada (`integrantes!id_usuario_carga`). El mail `encargo_arreglo` incluye fila **Solicitado por** con ese nombre (`detalle.solicitado_por`). **Asignado por** (cabecera del mail) = usuario de la sesión que envía.
-- **Referencias de material:** Tabla `public.arreglos_referencias`. Tipos en toggle segmentado: obra (`IconMusic`), YouTube (`IconYoutube`), Drive/enlace (`IconDrive`). Detección por URL en `arreglosReferencias.js`.
+- **Referencias de material:** Tabla `public.arreglos_referencias`. Tipos en toggle segmentado: obra (`IconMusic`), YouTube (`IconYoutube`), Drive/enlace (`IconDrive`). Obras del archivo muestran orgánico (`instrumentacion`) bajo el título.
 - **Dificultad en WorkForm:** Campo editable en el bloque «Para arreglar» (junto a fecha estimada); se persiste en `obras.dificultad` y viaja en el mail de encargo.
 - **Mail de asignación:** Columna `obras.encargo_arreglo_mail_enviado_at` (timestamptz). Tras envío exitoso en `WorkForm` o fila rápida del dashboard se persiste la marca; reenvío exige confirmación en WorkForm.
+
+## Columnas de la tabla (refactor UX entrega)
+- **F. est.:** Primera columna (izquierda). Fecha estimada editable inline si admin/editor; días restantes y tag solicitante debajo.
+- **Obra / Compositor · Arreglador:** Columna ancha. Título editable con `WysiwygEditor` (mismo componente que `WorkForm`, modo `compact`); visualización respeta HTML enriquecido sin bold forzado.
+- **Ref., Orgánico, Dificultad, Observación:** Sin cambios de datos; observación del pedido usa `ObservacionesStickyCell` (post-it amarillo al focus).
+- **Acciones:** Gestión de entrega condensada. Pendiente: botones apilados **Editar** / **Entregar** (modal) / **Eliminar**. Entregado/Oficial: post-it con estado + fecha de entrega (`obras_produccion_log`), post-it de nota `[Entrega]` si existe, iconos carpeta/editar, botón **Nueva versión**.
+- **Entrega Drive:** Al marcar entregado, `manage-drive` acción `entregar_obra_archivo` copia el link de origen a la carpeta compartida **«Para acomodar»** (mismo flujo que el botón del WorkForm: nombre canónico `Apellido-Arreglador - Título` o `Apellido, I. - Título`). Si el link ya está bajo «Para acomodar», no duplica y solo actualiza estado + mail. Errores de permiso Drive devuelven `DRIVE_ACCESS_DENIED`.
 
 ## Guía de Autoguardado y Guardado
 - La fila de carga rápida mantiene un **borrador local en memoria** (estado React) mientras escribís; no se crea ningún registro en base hasta que presionás **"Guardar encargo"**.

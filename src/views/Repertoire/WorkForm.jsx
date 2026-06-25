@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   IconMusic,
   IconPlus,
@@ -36,7 +37,6 @@ import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups";
 import { parseOrganicoVientosInput } from "../../utils/particellaOrganicoInput";
 import OrganicoVientosAddField from "../../components/repertoire/OrganicoVientosAddField";
 import { toast } from "sonner";
-import { FunctionsHttpError } from "@supabase/supabase-js";
 import DateInput from "../../components/ui/DateInput";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import ArreglosReferenciasModal from "../../components/arreglos/ArreglosReferenciasModal";
@@ -47,6 +47,12 @@ import {
   formatEncargoMailSentAt,
   markEncargoArregloMailSent,
 } from "../../utils/encargoArregloMail";
+import {
+  PARA_ACOMODAR_DRIVE_FOLDER_ID,
+  buildParaAcomodarFolderName,
+  getTituloPrimeraLinea,
+  readManageDriveResponseBody,
+} from "../../utils/paraAcomodarDrive";
 
 /**
  * `unique_part_per_work`: (id_obra, id_instrumento, nombre_archivo) debe ser único.
@@ -112,22 +118,23 @@ function uniquifyParticellaRows(parts, externalReservedKeys = null) {
 }
 
 // --- COMPONENTE EDITOR WYSIWYG ---
-const WysiwygEditor = ({
+export const WysiwygEditor = ({
   value,
   onChange,
   placeholder,
   className = "",
   fillHeight = false,
+  compact = false,
   onFocus,
   onBlur,
 }) => {
   const editorRef = useRef(null);
+  const toolbarRef = useRef(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [toolbarPos, setToolbarPos] = useState({ top: 0, left: 0 });
 
   useEffect(() => {
-    // Establecer formato neutro por defecto al montar
     document.execCommand("defaultParagraphSeparator", false, "div");
-    // Sincronizar siempre que cambie value (p. ej. al aplicar sugerencia de título) para que la vista se actualice
     if (editorRef.current && value !== undefined) {
       const next = value ?? "";
       if (editorRef.current.innerHTML !== next) {
@@ -136,16 +143,38 @@ const WysiwygEditor = ({
     }
   }, [value]);
 
+  const updateToolbarPos = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const toolbarH = compact ? 30 : 36;
+    setToolbarPos({
+      top: Math.max(8, rect.top - toolbarH - 4),
+      left: Math.max(8, rect.left + 4),
+    });
+  }, [compact]);
+
+  useEffect(() => {
+    if (!isFocused) return undefined;
+    updateToolbarPos();
+    const onReposition = () => updateToolbarPos();
+    window.addEventListener("scroll", onReposition, true);
+    window.addEventListener("resize", onReposition);
+    return () => {
+      window.removeEventListener("scroll", onReposition, true);
+      window.removeEventListener("resize", onReposition);
+    };
+  }, [isFocused, updateToolbarPos]);
+
   const handleInput = () => {
     if (editorRef.current) onChange(editorRef.current.innerHTML);
   };
 
   const execCmd = (command, val = null) => {
     document.execCommand(command, false, val);
-    editorRef.current.focus();
+    editorRef.current?.focus();
   };
 
-  // Limpiar formato al pegar para evitar tamaños gigantes o fuentes extrañas
   const handlePaste = (e) => {
     e.preventDefault();
     const text = e.clipboardData.getData("text/plain");
@@ -161,47 +190,119 @@ const WysiwygEditor = ({
     }
   };
 
-  return (
-    <div className={`border rounded-lg overflow-hidden transition-shadow bg-white/95 flex flex-col relative ${fillHeight ? "h-full min-h-0" : ""} ${isFocused ? "ring-2 ring-indigo-500 border-indigo-500" : "border-slate-300"} ${className}`}>
-      <div className="flex items-center gap-1 bg-slate-50 border-b border-slate-200 p-1.5 select-none shrink-0">
-        <button type="button" onMouseDown={(e) => { e.preventDefault(); execCmd("bold"); }} className="p-1.5 hover:bg-slate-200 rounded text-slate-600">
-          <IconBold size={14} />
-        </button>
-        <button type="button" onMouseDown={(e) => { e.preventDefault(); execCmd("italic"); }} className="p-1.5 hover:bg-slate-200 rounded text-slate-600">
-          <IconItalic size={14} />
-        </button>
-        <button type="button" onMouseDown={(e) => { e.preventDefault(); execCmd("insertUnorderedList"); }} className="p-1.5 hover:bg-slate-200 rounded text-slate-600">
-          <IconList size={14} />
-        </button>
-        {/* Botón para resetear formato si algo queda raro */}
-        <button type="button" onMouseDown={(e) => { e.preventDefault(); execCmd("removeFormat"); }} className="p-1.5 hover:bg-slate-200 rounded text-slate-400 ml-auto" title="Limpiar formato">
-          <IconX size={14} />
-        </button>
-      </div>
+  const handleEditorBlur = () => {
+    setTimeout(() => {
+      const active = document.activeElement;
+      if (toolbarRef.current?.contains(active)) return;
+      setIsFocused(false);
+      onBlur?.();
+    }, 0);
+  };
+
+  const toolbarBtnClass = `hover:bg-slate-100 rounded text-slate-600 ${compact ? "p-1" : "p-1.5"}`;
+  const iconSize = compact ? 12 : 14;
+
+  const floatingToolbar =
+    isFocused &&
+    createPortal(
       <div
-        ref={editorRef}
-        contentEditable
-        onInput={handleInput}
-        onKeyDown={handleKeyDown}
-        onPaste={handlePaste}
-        onFocus={() => {
-          setIsFocused(true);
-          onFocus?.();
-        }}
-        onBlur={() => {
-          setIsFocused(false);
-          onBlur?.();
-        }}
-        className={`flex-1 p-3 text-sm outline-none overflow-y-auto min-h-[80px] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline leading-relaxed ${
-          fillHeight ? "min-h-0 max-h-none" : "max-h-[min(18rem,50vh)]"
-        }`}
-      />
-      {!value && !isFocused && (
-        <div className="absolute top-[46px] left-3 text-slate-400 text-sm pointer-events-none italic">
-          {placeholder}
-        </div>
-      )}
-    </div>
+        ref={toolbarRef}
+        data-wysiwyg-toolbar="true"
+        className="fixed z-[60] bg-white border border-slate-200 rounded-lg shadow-md flex items-center gap-0.5 select-none text-xs"
+        style={{ top: toolbarPos.top, left: toolbarPos.left }}
+      >
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            execCmd("bold");
+          }}
+          className={toolbarBtnClass}
+          title="Negrita"
+        >
+          <IconBold size={iconSize} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            execCmd("italic");
+          }}
+          className={toolbarBtnClass}
+          title="Cursiva"
+        >
+          <IconItalic size={iconSize} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            execCmd("underline");
+          }}
+          className={toolbarBtnClass}
+          title="Subrayado"
+        >
+          <IconUnderline size={iconSize} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            execCmd("insertUnorderedList");
+          }}
+          className={toolbarBtnClass}
+          title="Lista"
+        >
+          <IconList size={iconSize} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            execCmd("removeFormat");
+          }}
+          className={`${toolbarBtnClass} text-slate-400`}
+          title="Limpiar formato"
+        >
+          <IconX size={iconSize} />
+        </button>
+      </div>,
+      document.body,
+    );
+
+  return (
+    <>
+      <div
+        className={`border rounded-lg overflow-hidden transition-shadow bg-white/95 flex flex-col relative ${fillHeight ? "h-full min-h-0" : ""} ${isFocused ? "ring-2 ring-indigo-500 border-indigo-500" : "border-slate-300"} ${className}`}
+      >
+        <div
+          ref={editorRef}
+          contentEditable
+          onInput={handleInput}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          onFocus={() => {
+            setIsFocused(true);
+            updateToolbarPos();
+            onFocus?.();
+          }}
+          onBlur={handleEditorBlur}
+          className={`flex-1 outline-none overflow-y-auto [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline leading-relaxed ${
+            compact ? "p-2 text-xs min-h-[2.25rem]" : "p-3 text-sm min-h-[80px]"
+          } ${
+            fillHeight ? "min-h-0 max-h-none" : compact ? "max-h-[10rem]" : "max-h-[min(18rem,50vh)]"
+          }`}
+        />
+        {!value && !isFocused && (
+          <div
+            className={`absolute text-slate-400 pointer-events-none italic ${compact ? "top-2 left-2 text-xs" : "top-3 left-3 text-sm"}`}
+          >
+            {placeholder}
+          </div>
+        )}
+      </div>
+      {floatingToolbar}
+    </>
   );
 };
 
@@ -330,62 +431,6 @@ const getYoutubeVideoId = (url) => {
   if (!url || typeof url !== "string") return null;
   const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^#&?]+)/);
   return m ? m[1] : null;
-};
-
-/** Carpeta Drive «Para acomodar» (staging). */
-const PARA_ACOMODAR_DRIVE_FOLDER_ID = "10ap1aEjq3X9bFRB3z4DQ-F0fB7y3JutI";
-
-async function readManageDriveResponseBody(fnError, fnData) {
-  if (fnData && (fnData.code || fnData.error || fnData.success)) return fnData;
-  if (fnError instanceof FunctionsHttpError && fnError.context?.json) {
-    try {
-      return await fnError.context.json();
-    } catch {
-      /* ignore */
-    }
-  }
-  return fnData ?? null;
-}
-
-const stripHtmlPlain = (html) =>
-  (html || "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>\s*<p>/gi, "\n")
-    .replace(/<[^>]*>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .trim();
-
-const getTituloPrimeraLinea = (htmlTitulo) =>
-  stripHtmlPlain(htmlTitulo).split(/\r?\n/)[0]?.trim() || "";
-
-const parseComposerFromOption = (opt) => {
-  if (!opt?.label) return { apellido: "", nombre: "" };
-  const idx = opt.label.indexOf(",");
-  if (idx === -1) return { apellido: opt.label.trim(), nombre: "" };
-  return {
-    apellido: opt.label.slice(0, idx).trim(),
-    nombre: opt.label.slice(idx + 1).trim(),
-  };
-};
-
-const buildParaAcomodarFolderName = (tituloHtml, composerIds, arrangerIds, composersOptions) => {
-  const titulo = getTituloPrimeraLinea(tituloHtml);
-  if (!titulo || !composerIds?.length) return null;
-
-  const compOpt = composersOptions.find((c) => c.id === composerIds[0]);
-  const { apellido: compApellido, nombre: compNombre } = parseComposerFromOption(compOpt);
-  if (!compApellido) return null;
-
-  if (arrangerIds?.length > 0) {
-    const arrOpt = composersOptions.find((c) => c.id === arrangerIds[0]);
-    const arrApellido = parseComposerFromOption(arrOpt).apellido;
-    if (!arrApellido) return null;
-    return `${compApellido}-${arrApellido} - ${titulo}`;
-  }
-
-  const inicial = compNombre ? `${compNombre.charAt(0).toUpperCase()}.` : "";
-  const prefijo = inicial ? `${compApellido}, ${inicial}` : compApellido;
-  return `${prefijo} - ${titulo}`;
 };
 
 /** Barra superior del formulario, estilo MusicianForm (condición) */
@@ -1242,18 +1287,33 @@ export default function WorkForm({
       setTimeout(() => setSaveStatus("idle"), 2000);
       if (onSave) onSave(formData.id, false);
 
-      // manage-drive: al pasar a Entregado
-      if (field === "estado" && value === "Entregado" && (data.link_drive || "").trim()) {
+      // manage-drive: al pasar a Entregado → copia a «Para acomodar» (mismo flujo que entrega de arreglos)
+      if (field === "estado" && value === "Entregado" && (data.link_drive || "").trim() && formData.id) {
         supabase.functions
           .invoke("manage-drive", {
             body: {
-              link_origen: formData.link_drive,
-              id_carpeta_destino: "10JQJW7YX7UNmWciqgJ-EiqaldM_e0Tvi",
+              action: "entregar_obra_archivo",
+              id_obra: formData.id,
+              link_origen: (data.link_drive || formData.link_drive).trim(),
+              titulo: getTituloPrimeraLinea(data.titulo || formData.titulo),
             },
           })
-          .then(({ error }) => {
-            if (error) console.error("manage-drive:", error);
-            else toast.success("Copia al Archivo iniciada.");
+          .then(async ({ data: resp, error }) => {
+            const body = await readManageDriveResponseBody(error, resp);
+            if (error || body?.error) {
+              if (body?.code !== "DRIVE_ACCESS_DENIED") {
+                console.error("manage-drive (entregar):", body?.error || error);
+              }
+              return;
+            }
+            if (body?.link_drive) {
+              setFormData((prev) => ({ ...prev, link_drive: body.link_drive }));
+            }
+            toast.success(
+              body?.copied_to_para_acomodar
+                ? "Copia creada en «Para acomodar»."
+                : "Entregado (carpeta ya en «Para acomodar»).",
+            );
           });
       }
     } catch (e) {

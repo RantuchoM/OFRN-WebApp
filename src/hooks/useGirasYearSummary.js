@@ -22,7 +22,7 @@ const GIRAS_YEAR_SELECT = `
 `;
 
 const ENSAYO_EVENT_SELECT = `
-  id, fecha, id_tipo_evento, tecnica, is_deleted,
+  id, fecha, id_tipo_evento, id_gira, tecnica, is_deleted,
   eventos_ensambles ( id_ensamble )
 `;
 
@@ -205,9 +205,33 @@ async function fetchYearEnsayosConvocados(supabase, integranteId, desde, hasta) 
     .lte("fecha", hasta);
   if (evErr) throw evErr;
 
+  const eventList = events || [];
+  const giraIds = [
+    ...new Set(
+      eventList.map((e) => e.id_gira).filter((id) => id != null),
+    ),
+  ];
+  let draftGiraIds = new Set();
+  if (giraIds.length > 0) {
+    const { data: programRows, error: progErr } = await supabase
+      .from("programas")
+      .select("id, estado")
+      .in("id", giraIds);
+    if (progErr) throw progErr;
+    draftGiraIds = new Set(
+      (programRows || [])
+        .filter((p) => (p.estado || "Borrador").trim() === "Borrador")
+        .map((p) => p.id),
+    );
+  }
+
+  const eventsInPublishedPrograms = eventList.filter(
+    (evt) => !evt.id_gira || !draftGiraIds.has(evt.id_gira),
+  );
+
   return {
     ensayosConvocados: countConvokedEnsayos(
-      events || [],
+      eventsInPublishedPrograms,
       uid,
       memberships || [],
       customRows || [],
