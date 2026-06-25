@@ -2,10 +2,10 @@
 
 ## 1. Notificaciones por Exclusión
 
-- **Escenario**: Cuando un usuario **destilda** un ensamble en el dropdown de Grupos (lo quita de la selección de incluidos).
-- **Acción**: El sistema identifica qué músicos pertenecen a ese ensamble y genera una tarea en la cola con el motivo: `"Se excluyó al ensamble [Nombre]"`.
-- **Validación**: Solo se genera la tarea si la gira tiene `notificacion_inicial_enviada === true`.
-- **Nota**: Lo mismo aplica cuando se agrega un ensamble como **EXCL_ENSAMBLE** (exclusión explícita): los integrantes de ese ensamble que salen del roster reciben la misma notificación.
+- **Escenario**: Cuando un usuario **destilda** un ensamble en el dropdown de Grupos (lo quita de la selección de incluidos) o lo agrega en **EXCLUIR Ens.**.
+- **Acción**: El sistema lista integrantes del ensamble afectado en `RosterBajaModal` con casilla por persona (marcadas = desconvocar). Por defecto se marcan quienes saldrían del roster; quienes ya están en `giras_integrantes` (convocatoria manual) aparecen sin marcar y con aviso. Al confirmar: las destildadas se insertan en `giras_integrantes` (quedan manuales, sin mail); las marcadas se desconvocan y, si corresponde, reciben mail con motivo `"Se excluyó al ensamble [Nombre]. Motivo: [texto]"`.
+- **Validación**: Solo se ofrece notificación por mail si la gira tiene `notificacion_inicial_enviada === true` y las notificaciones están habilitadas.
+- **Nota**: Lo mismo aplica al quitar un chip de ensamble incluido en el header (si hay integrantes afectados).
 
 ## 2. Gestión Masiva de la Cola (Panel)
 
@@ -24,7 +24,7 @@ El campo `reason` viaja siempre en el JSON hacia `mails_produccion` en los sigui
 |-------------------|--------------------------------------------------------|
 | ALTA_INDIVIDUAL   | "Se te convoca individualmente"                        |
 | ALTA_GRUPO        | "Se te convoca con el ensamble/familia [Nombre]"       |
-| BAJA_EXCLUSION    | "Se excluyó al ensamble [Nombre]"                      |
+| BAJA_EXCLUSION    | "Se excluyó al ensamble [Nombre]. Motivo: [texto]"     |
 | AUSENCIA          | "Se te marcó como ausente"                             |
 | GIRA_ELIMINADA    | "La gira [Nombre] ha sido cancelada y eliminada del cronograma" |
 

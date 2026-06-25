@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconAlertTriangle, IconX } from "../ui/Icons";
 import {
@@ -19,9 +19,11 @@ export default function RosterBajaModal({
   const [otroText, setOtroText] = useState("");
   const [confirmSkipNotify, setConfirmSkipNotify] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [desconvocateById, setDesconvocateById] = useState({});
 
   const musician = pendingBaja?.musician;
   const action = pendingBaja?.action;
+  const affectedMembers = pendingBaja?.affectedMembers || [];
 
   useEffect(() => {
     if (!pendingBaja) return;
@@ -29,13 +31,54 @@ export default function RosterBajaModal({
     setOtroText("");
     setConfirmSkipNotify(false);
     setSubmitting(false);
-  }, [pendingBaja?.integranteId, pendingBaja?.action]);
+    if (pendingBaja.action === "exclusion_ensamble") {
+      const initial = {};
+      (pendingBaja.affectedMembers || []).forEach((a) => {
+        initial[a.member.id] = a.defaultDesconvocate;
+      });
+      setDesconvocateById(initial);
+    } else {
+      setDesconvocateById({});
+    }
+  }, [
+    pendingBaja?.integranteId,
+    pendingBaja?.action,
+    pendingBaja?.affectedMembers,
+  ]);
 
-  if (!pendingBaja || !musician) return null;
+  const isExclusionEnsamble = action === "exclusion_ensamble";
 
-  const nombre =
-    musician.nombre_completo ||
-    `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
+  const desconvocateCount = useMemo(() => {
+    if (!isExclusionEnsamble) return 0;
+    return affectedMembers.filter((a) => desconvocateById[a.member.id]).length;
+  }, [isExclusionEnsamble, affectedMembers, desconvocateById]);
+
+  const manualAffectedCount = useMemo(() => {
+    if (!isExclusionEnsamble) return 0;
+    return affectedMembers.filter((a) => a.isAlreadyManual).length;
+  }, [isExclusionEnsamble, affectedMembers]);
+
+  const effectiveCanNotify = useMemo(() => {
+    if (!isExclusionEnsamble) return canNotify;
+    return (
+      canNotify &&
+      affectedMembers.some(
+        (a) => desconvocateById[a.member.id] && a.member?.mail,
+      )
+    );
+  }, [isExclusionEnsamble, canNotify, affectedMembers, desconvocateById]);
+
+  if (!pendingBaja || (!musician && !isExclusionEnsamble)) return null;
+  if (isExclusionEnsamble && affectedMembers.length === 0) return null;
+
+  const ensembleLabels = [
+    ...new Set(affectedMembers.map((r) => r.ensLabel).filter(Boolean)),
+  ];
+
+  const nombre = isExclusionEnsamble
+    ? `${desconvocateCount} de ${affectedMembers.length} integrante(s)`
+    : musician.nombre_completo ||
+      `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
 
   const isDesconvocar = action === "desconvocar";
   const motivoText = resolveBajaMotivoText(selectedMotivo, otroText);
@@ -43,20 +86,41 @@ export default function RosterBajaModal({
     selectedMotivo &&
     (selectedMotivo !== "otro" || motivoText.length > 0);
 
-  const title = isDesconvocar ? "Desconvocar de la gira" : "Marcar como ausente";
-  const subtitle = isDesconvocar
-    ? "Indicá el motivo de la desconvocatoria."
-    : "Indicá el motivo de la baja.";
+  const title = isExclusionEnsamble
+    ? "Exclusión de ensamble"
+    : isDesconvocar
+      ? "Desconvocar de la gira"
+      : "Marcar como ausente";
+  const subtitle = isExclusionEnsamble
+    ? `Por exclusión de: ${ensembleLabels.join(", ") || "ensamble"}. Las personas marcadas se desconvocarán; las destildadas quedarán como convocatoria manual sin notificación.`
+    : isDesconvocar
+      ? "Indicá el motivo de la desconvocatoria."
+      : "Indicá el motivo de la baja.";
+
+  const toggleDesconvocate = (memberId) => {
+    setDesconvocateById((prev) => ({
+      ...prev,
+      [memberId]: !prev[memberId],
+    }));
+    setConfirmSkipNotify(false);
+  };
 
   const handleConfirm = async (notify) => {
     if (!isEditor || !motivoValid || submitting) return;
     setSubmitting(true);
     try {
-      await onConfirm({ motivoText, motivoId: selectedMotivo, notify });
+      await onConfirm({
+        motivoText,
+        motivoId: selectedMotivo,
+        notify,
+        desconvocateById: isExclusionEnsamble ? desconvocateById : undefined,
+      });
     } finally {
       setSubmitting(false);
     }
   };
+
+  const notifyEnabled = isExclusionEnsamble ? effectiveCanNotify : canNotify;
 
   return createPortal(
     <div
@@ -65,8 +129,8 @@ export default function RosterBajaModal({
       aria-modal="true"
       aria-labelledby="roster-baja-title"
     >
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150">
-        <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-100 bg-red-50/80">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col">
+        <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-100 bg-red-50/80 shrink-0">
           <div className="min-w-0">
             <h2
               id="roster-baja-title"
@@ -89,8 +153,70 @@ export default function RosterBajaModal({
           </button>
         </div>
 
-        <div className="p-4 space-y-3">
+        <div className="p-4 space-y-3 overflow-y-auto flex-1 min-h-0">
           <p className="text-[11px] text-slate-500 leading-snug">{subtitle}</p>
+
+          {isExclusionEnsamble && (
+            <div className="space-y-2">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">
+                <p className="text-xs font-semibold text-slate-700">
+                  Se desconvocará a {desconvocateCount} persona
+                  {desconvocateCount === 1 ? "" : "s"}
+                </p>
+                {manualAffectedCount > 0 && (
+                  <p className="text-[11px] text-amber-800 mt-1 leading-snug">
+                    {manualAffectedCount === 1
+                      ? "Hay 1 persona convocada manualmente en este ensamble: no se desconvocará salvo que actives su casilla."
+                      : `Hay ${manualAffectedCount} personas convocadas manualmente en este ensamble: no se desconvocarán salvo que actives su casilla.`}
+                  </p>
+                )}
+              </div>
+
+              <ul className="rounded-xl border border-slate-200 divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                {affectedMembers.map((a) => {
+                  const m = a.member;
+                  const checked = Boolean(desconvocateById[m.id]);
+                  const label =
+                    m.nombre_completo ||
+                    `${m.apellido || ""}, ${m.nombre || ""}`.trim();
+                  return (
+                    <li key={m.id}>
+                      <label
+                        className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${
+                          checked ? "bg-red-50/50" : "hover:bg-slate-50/80"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleDesconvocate(m.id)}
+                          className="rounded border-slate-300 text-red-600 focus:ring-red-400 shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <span className="text-sm font-medium text-slate-800 block truncate">
+                            {label}
+                          </span>
+                          <span className="text-[10px] text-slate-500 truncate block">
+                            {m.instrumentos?.instrumento || "—"}
+                            {a.isAlreadyManual && (
+                              <span className="ml-1.5 text-amber-700 font-semibold">
+                                · Convocado manualmente
+                              </span>
+                            )}
+                            {!checked && !a.isAlreadyManual && (
+                              <span className="ml-1.5 text-fixed-indigo-700 font-semibold">
+                                · Quedará como manual
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
 
           <fieldset className="space-y-2">
             <legend className="sr-only">Motivo de la baja</legend>
@@ -129,7 +255,7 @@ export default function RosterBajaModal({
               onChange={(e) => setOtroText(e.target.value)}
               placeholder="Especificá el motivo…"
               className="w-full text-sm rounded-xl border border-slate-200 px-3 py-2 text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-red-400/30 focus:border-red-300 outline-none"
-              autoFocus
+              autoFocus={!isExclusionEnsamble}
             />
           )}
 
@@ -138,8 +264,13 @@ export default function RosterBajaModal({
               <div className="flex items-start gap-2 text-amber-900">
                 <IconAlertTriangle size={16} className="shrink-0 mt-0.5" />
                 <p className="text-xs font-medium leading-snug">
-                  ¿Confirmás {isDesconvocar ? "la desconvocatoria" : "marcar como ausente"}{" "}
-                  sin enviar mail al músico?
+                  ¿Confirmás{" "}
+                  {isExclusionEnsamble
+                    ? "la exclusión del ensamble"
+                    : isDesconvocar
+                      ? "la desconvocatoria"
+                      : "marcar como ausente"}{" "}
+                  sin enviar mail{isExclusionEnsamble ? " a los músicos" : " al músico"}?
                 </p>
               </div>
               <div className="flex justify-end gap-2">
@@ -164,7 +295,7 @@ export default function RosterBajaModal({
           )}
         </div>
 
-        <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex flex-wrap justify-end gap-2">
+        <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex flex-wrap justify-end gap-2 shrink-0">
           <button
             type="button"
             onClick={onClose}
@@ -173,7 +304,7 @@ export default function RosterBajaModal({
           >
             Deshacer
           </button>
-          {canNotify && !confirmSkipNotify && (
+          {notifyEnabled && !confirmSkipNotify && (
             <button
               type="button"
               onClick={() => setConfirmSkipNotify(true)}
@@ -185,13 +316,13 @@ export default function RosterBajaModal({
           )}
           <button
             type="button"
-            onClick={() => handleConfirm(canNotify)}
+            onClick={() => handleConfirm(notifyEnabled)}
             disabled={!motivoValid || submitting || confirmSkipNotify}
             className="text-xs font-bold px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white shadow-sm disabled:opacity-50 transition-colors"
           >
             {submitting
               ? "Guardando…"
-              : canNotify
+              : notifyEnabled
                 ? "Confirmar y notificar"
                 : "Confirmar"}
           </button>

@@ -21,7 +21,7 @@ El sistema inyecta el string exacto del motivo en el campo `data.reason` del mai
 | Alta individual | "Se te convoca individualmente" |
 | Alta por ensamble | "Se te convoca con el ensamble [Nombre]" |
 | Alta por familia | "Se te convoca con la familia de [Familia]" |
-| Exclusión de ensamble | "Se excluyó al ensamble [Nombre]" |
+| Exclusión de ensamble | "Se excluyó al ensamble [Nombre]. Motivo: [texto]" + pie Balance Orquestal si aplica |
 | Ausente (modal baja) | "Se te marcó como ausente. Motivo: [texto]" + pie Balance Orquestal si aplica |
 | Baja manual / desconvocar | "Baja de la gira. Motivo: [texto]" |
 
@@ -39,11 +39,19 @@ El sistema inyecta el string exacto del motivo en el campo `data.reason` del mai
 ## 6. Triggers de Notificación
 
 - **addManualMusician**: ALTA + reason "Se te convoca individualmente".
-- **handleUpdateGroups**: ALTA para nuevos (reason por ensamble o familia); BAJA para excluidos por EXCL_ENSAMBLE con reason "Se excluyó al ensamble [Nombre]".
+- **handleUpdateGroups**: ALTA para nuevos (reason por ensamble o familia). Si la actualización afecta integrantes por destildar ensamble o agregar `EXCL_ENSAMBLE`, abre `RosterBajaModal` con listado y casillas por persona (ver § exclusión ensamble). Las destildadas se convierten en convocatoria manual (`giras_integrantes`) sin notificar.
 - **toggleStatus** (a Presente desde ausente): ALTA sin motivo específico o genérico.
-- **Modal de baja** (`RosterBajaModal`, ausente o desconvocar): motivo obligatorio (Balance Orquestal, Razones personales, Enfermedad u Otro). Opciones: Deshacer, Confirmar y notificar, Confirmar sin notificar (con confirmación extra). El motivo se persiste en `giras_integrantes.motivo_estado` al marcar ausente; en desconvocar solo viaja al mail si se notifica.
+- **Modal de baja** (`RosterBajaModal`, ausente, desconvocar o exclusión de ensamble): motivo obligatorio (Balance Orquestal, Razones personales, Enfermedad u Otro). Opciones: Deshacer, Confirmar y notificar, Confirmar sin notificar (con confirmación extra). El motivo se persiste en `giras_integrantes.motivo_estado` al marcar ausente; en desconvocar o exclusión de ensamble solo viaja al mail si se notifica.
 
 Solo se encola cuando la gira tiene `notificacion_inicial_enviada === true`.
+
+## 8. Exclusión de ensamble — selección por integrante
+
+- **Listado**: `RosterBajaModal` muestra cada integrante del ensamble afectado con casilla «desconvocar».
+- **Por defecto marcados**: quienes saldrían del roster al aplicar la exclusión (no están en `giras_integrantes`).
+- **Por defecto sin marcar**: convocados manualmente (`giras_integrantes`); aviso en el modal. Si el usuario marca la casilla, se elimina el registro manual y se desconvoca (con mail si aplica).
+- **Destildar casilla** (en no manuales): antes de actualizar fuentes se hace `upsert` en `giras_integrantes`; la persona permanece en la gira sin notificación.
+- **Desconvocar manual** (marcar casilla en convocado manual): tras actualizar fuentes se hace `DELETE` en `giras_integrantes` para esa persona.
 
 ## 7. NotificationQueuePanel
 

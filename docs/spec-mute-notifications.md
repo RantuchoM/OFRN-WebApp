@@ -37,7 +37,6 @@ Permitir a los coordinadores omitir o pausar el flujo de notificaciones automát
 | Verificación en toggleStatus | ✅ Completado | Solo añade notificación si `notificacionesHabilitadas === true` |
 | Verificación en handleUpdateGroups | ✅ Completado | Solo añade notificaciones si `notificacionesHabilitadas === true` |
 | Verificación en addManualMusician | ✅ Completado | Solo añade notificación si `notificacionesHabilitadas === true` |
-| Verificación en removeMemberManual | ✅ Completado | Solo añade notificación si `notificacionesHabilitadas === true` |
 | Limpieza de cola al desactivar | ✅ Completado | `setPendingNotifications([])` cuando se desactiva el toggle |
 | Actualización en BD al cambiar toggle | ✅ Completado | Update inmediato en tabla `programas` |
 | Manejo en GirasView (crear/editar) | ✅ Completado | `formData.notificaciones_habilitadas` con default `true`, incluido en payload |

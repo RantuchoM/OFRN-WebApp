@@ -43,3 +43,18 @@ export function buildBajaGiraMailNotification({ motivoText, motivoId }) {
     reason: `Baja de la gira. Motivo: ${motivoText}`,
   });
 }
+
+export function buildExclusionEnsambleMailNotification({
+  motivoText,
+  motivoId,
+  ensLabel,
+}) {
+  const ensamblePart = ensLabel
+    ? `Se excluyó al ensamble ${ensLabel}`
+    : "Se te excluyó de la gira";
+  return buildMailNotification({
+    motivoText,
+    motivoId,
+    reason: `${ensamblePart}. Motivo: ${motivoText}`,
+  });
+}
