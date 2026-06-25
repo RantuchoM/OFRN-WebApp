@@ -23,6 +23,10 @@ import {
   buildMaxInstrumentationFilterDefaults,
   getInstrumentationFilterLabel,
 } from "../../utils/instrumentationFilterPresets";
+import {
+  getObraEstadoMobileCardStyles,
+  getObraEstadoPickerRowClass,
+} from "../../utils/obraEstadoStyles";
 
 const LIBRARY_PAGE_SIZE = 80;
 
@@ -92,68 +96,6 @@ const splitNamesLabel = (value) =>
       };
     })
     .filter((p) => p.apellido || p.nombre);
-
-const getEstadoRowBgClass = (estado) => {
-  const e = estado || "Oficial";
-  switch (e) {
-    case "Informativo":
-      return "bg-blue-50/40 hover:bg-blue-50/70";
-    case "Solicitud":
-      return "bg-amber-50/45 hover:bg-amber-50/70";
-    case "Para arreglar":
-      return "bg-orange-50/40 hover:bg-orange-50/65";
-    case "Entregado":
-      return "bg-sky-50/45 hover:bg-sky-50/75 border-l-[3px] border-sky-300/60";
-    case "Oficial":
-      return "bg-emerald-50/40 hover:bg-emerald-50/65";
-    case "Pendiente":
-      return "bg-slate-50/50 hover:bg-slate-100/75";
-    default:
-      return "bg-slate-50/40 hover:bg-slate-50/70";
-  }
-};
-
-/** Misma lógica visual que tarjetas móviles en RepertoireManager. */
-const getEstadoMobileCardStyles = (estado) => {
-  const e = estado || "Oficial";
-  switch (e) {
-    case "Informativo":
-      return {
-        borderClass: "bg-blue-500",
-        cardBorderClass: "border-blue-400 bg-blue-50/50",
-      };
-    case "Solicitud":
-      return {
-        borderClass: "bg-amber-500",
-        cardBorderClass: "border-amber-300 bg-amber-50/50",
-      };
-    case "Para arreglar":
-      return {
-        borderClass: "bg-orange-500",
-        cardBorderClass: "border-orange-300 bg-orange-50/50",
-      };
-    case "Entregado":
-      return {
-        borderClass: "bg-sky-500",
-        cardBorderClass: "border-sky-300 bg-sky-50/50",
-      };
-    case "Oficial":
-      return {
-        borderClass: "bg-emerald-500",
-        cardBorderClass: "border-emerald-300 bg-emerald-50/60",
-      };
-    case "Pendiente":
-      return {
-        borderClass: "bg-slate-400",
-        cardBorderClass: "border-slate-200 bg-slate-50/50",
-      };
-    default:
-      return {
-        borderClass: "bg-slate-300",
-        cardBorderClass: "border-slate-200",
-      };
-  }
-};
 
 const MultiLineTitle = ({ content }) => {
   if (!content) return null;
@@ -654,7 +596,7 @@ export default function RepertoireWorkPickerModal({
           {filteredLibrary.map((w) => {
             const isSelected = selectedSet.has(Number(w.id));
             const { borderClass, cardBorderClass } =
-              getEstadoMobileCardStyles(w.estado);
+              getObraEstadoMobileCardStyles(w.estado);
                     const instr =
                       w.instrumentacion ||
                       calculateInstrumentation(w.obras_particellas) ||
@@ -777,7 +719,7 @@ export default function RepertoireWorkPickerModal({
               return (
                 <tr
                   key={w.id}
-                  className={`group ${getEstadoRowBgClass(w.estado)} ${mode === "toggle" && isSelected ? accentRowSelected : ""}`}
+                  className={`group ${getObraEstadoPickerRowClass(w.estado)} ${mode === "toggle" && isSelected ? accentRowSelected : ""}`}
                 >
                   <td className="p-2 text-center text-slate-600">
                     <div className="truncate" title={w.compositor_full}>

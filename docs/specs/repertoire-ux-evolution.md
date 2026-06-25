@@ -87,6 +87,7 @@ Permitir mover obras dentro del mismo bloque y entre bloques con feedback visual
 | Archivo | Cambios |
 |--------|--------|
 | `src/components/repertoire/BowingSetManager.jsx` | Nuevo: modos edit/assign, modal con portal, Tailwind. |
+| `src/utils/obraEstadoStyles.js` | Paleta unificada de colores/clases por `obras.estado` (filas, cards móviles, badges, tags, WorkForm). |
 | `src/components/repertoire/RepertoireManager.jsx` | BowingSetManager assign, columna GripVertical, DndContext, SortableContext, SortableRepertorioRow, handleDragEnd, savingPosition, dragOverId. |
 | `src/components/repertoire/InstrumentationFilterModal.jsx` | Modal compartido de filtro por orgánico con presets. |
 | `src/components/repertoire/RepertoireWorkPickerModal.jsx` | Modal «Buscar Obra»; vista móvil con tarjetas al estilo RepertoireManager. |
@@ -184,7 +185,7 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 
 ### Comportamiento implementado (2026-06-13)
 - En móvil, el listado usa **cards compactas** en lugar de la grilla desktop.
-- Cada card conserva el color de estado mediante el fondo de la tarjeta, sin badge textual de estado en móvil.
+- Cada card conserva el color de estado mediante el fondo de la tarjeta; sin badge genérico de estado en móvil (excepción: chip «Para arreglar» junto al título).
 - La información prioritaria entra en pocas líneas: título, compositor, estado, arreglador opcional, duración, orgánico, próxima/última gira y tags principales.
 - Todas las acciones móviles son iconográficas: seleccionar, audio, partitura, Drive, asignar a gira, historial, editar y eliminar.
 - Eliminar obra (desktop y móvil): `ConfirmDialog` con título de la obra antes del borrado definitivo en Supabase.
@@ -192,6 +193,7 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - Ajuste v3: se quita el badge de estado en móvil y el estado pasa a comunicarse por un fondo de card más visible (`getEstadoMobileCardBgClass`).
 - Ajuste v3: Drive/carpeta se ubica debajo del checkbox de selección, y las cuatro acciones principales (asignar, historial, editar, eliminar) se apilan verticalmente a la derecha sin aumentar el alto de la card.
 - Ajuste v4: las acciones principales pasan a un menú de tres puntos (`IconMoreVertical`) a la derecha para no afectar la altura; la carpeta/Drive se desplaza levemente hacia abajo bajo el checkbox.
+- **Estado «Para arreglar» (2026-06-24):** paleta naranja/marrón centralizada en `src/utils/obraEstadoStyles.js`. En `RepertoireView`, chip junto al título solo en móvil; en desktop el estado se muestra en la columna Estado. En `RepertoireManager`, tag **«Para arr.»** junto al título (móvil y escritorio) vía `getObraEstadoTitleTag`.
 
 ### Filtros móviles
 - Se agrega un menú superior de filtros con `IconFilter`, siguiendo el patrón de filtros tipo chip usado en vistas compactas.

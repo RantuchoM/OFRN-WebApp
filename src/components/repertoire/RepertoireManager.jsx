@@ -49,6 +49,11 @@ import {
   effectiveRepertorioObraDurationSeconds,
   hasRepertorioObraDurationOverride,
 } from "../../utils/instrumentation";
+import {
+  getObraEstadoMobileCardStyles,
+  getObraEstadoProgramRowClass,
+  getObraEstadoTitleTag,
+} from "../../utils/obraEstadoStyles";
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
@@ -2524,25 +2529,6 @@ export default function RepertoireManager({
       </a>
     );
   };
-  const getEstadoRowBgClass = (estado) => {
-    const e = estado || "Oficial";
-    switch (e) {
-      case "Informativo":
-        return "bg-blue-50/40 hover:bg-blue-50/70";
-      case "Solicitud":
-        return "bg-amber-50/45 hover:bg-amber-50/70";
-      case "Para arreglar":
-        return "bg-orange-50/40 hover:bg-orange-50/65";
-      case "Entregado":
-        return "bg-sky-50/45 hover:bg-sky-50/75 border-l-[3px] border-sky-300/60";
-      case "Oficial":
-        return "bg-emerald-50/40 hover:bg-emerald-50/65";
-      case "Pendiente":
-        return "bg-slate-50/50 hover:bg-slate-100/75";
-      default:
-        return "bg-slate-50/40 hover:bg-slate-50/70";
-    }
-  };
 
   const splitNamesLabel = (value) =>
     String(value || "")
@@ -2993,27 +2979,20 @@ export default function RepertoireManager({
                 const hasUploadedPart = !!myPartData?.url;
 
                 const estado = item.obras.estado;
-                let borderClass = "bg-slate-300";
-                let cardBorderClass = "border-slate-200";
-
-                if (estado === "Informativo") {
-                  borderClass = "bg-blue-500";
-                  cardBorderClass = "border-blue-400 bg-blue-50/50";
-                } else if (estado === "Solicitud") {
-                  borderClass = "bg-amber-500";
-                  cardBorderClass = "border-amber-300 bg-amber-50/50";
-                } else if (estado === "Oficial") {
-                  borderClass = "bg-emerald-500";
-                  cardBorderClass = "border-emerald-300 bg-emerald-50/60";
-                } else if (!estado && hasUploadedPart) {
-                  borderClass = "bg-emerald-500";
-                  cardBorderClass = "border-emerald-300 bg-emerald-50/40";
-                }
+                const { borderClass, cardBorderClass } =
+                  getObraEstadoMobileCardStyles(estado);
+                const resolvedCardStyles =
+                  !estado && hasUploadedPart
+                    ? {
+                        borderClass: "bg-emerald-500",
+                        cardBorderClass: "border-emerald-300 bg-emerald-50/40",
+                      }
+                    : { borderClass, cardBorderClass };
 
                 return (
                   <div
                     key={item.id}
-                    className={`rounded-lg border shadow-sm p-2 relative overflow-hidden ${cardBorderClass} ${
+                    className={`rounded-lg border shadow-sm p-2 relative overflow-hidden ${resolvedCardStyles.cardBorderClass} ${
                       item.excluir
                         ? "opacity-[0.8] saturate-[0.68] grayscale-[0.18] ring-1 ring-inset ring-slate-400/60 bg-slate-100/50"
                         : ""
@@ -3022,7 +3001,7 @@ export default function RepertoireManager({
                   >
                     {/* Barra lateral de estado */}
                     <div
-                      className={`absolute left-0 top-0 bottom-0 w-1 ${borderClass}`}
+                      className={`absolute left-0 top-0 bottom-0 w-1 ${resolvedCardStyles.borderClass}`}
                     ></div>
 
                     <div className="flex gap-2 pl-2 pr-1">
@@ -3102,11 +3081,12 @@ export default function RepertoireManager({
                         <div className="mb-1">
                           <div className="flex items-center gap-1 flex-wrap">
                             <MultiLineTitle content={item.obras.titulo} />
-                            {item.obras.estado === "Informativo" && (
-                              <span className="text-[8px] bg-blue-100 text-blue-600 px-1 rounded border border-blue-200 align-text-top">
-                                INFO
-                              </span>
-                            )}
+                            {(() => {
+                              const tag = getObraEstadoTitleTag(item.obras.estado);
+                              return tag ? (
+                                <span className={tag.className}>{tag.label}</span>
+                              ) : null;
+                            })()}
                           </div>
                           {canSeeInternalNotes &&
                             (item.obras.estado === "Solicitud" ||
@@ -3478,13 +3458,7 @@ export default function RepertoireManager({
                       item={item}
                       rep={rep}
                       idx={idx}
-                      rowClassName={`group ${
-                        item.obras.estado === "Informativo"
-                          ? "bg-blue-50 hover:bg-blue-100 border-l-2 border-blue-400"
-                          : item.obras.estado !== "Oficial"
-                            ? "bg-amber-50 hover:bg-amber-100"
-                            : "bg-emerald-50 hover:bg-emerald-100 border-l-2 border-emerald-400"
-                      }${
+                      rowClassName={`group ${getObraEstadoProgramRowClass(item.obras.estado)}${
                         item.excluir
                           ? " opacity-[0.8] saturate-[0.68] grayscale-[0.18] ring-1 ring-inset ring-slate-400/60 [&_td]:bg-slate-100/45 [&_td]:text-slate-500"
                           : ""
@@ -3557,16 +3531,12 @@ export default function RepertoireManager({
                           <div className="flex min-w-0 flex-1 flex-col gap-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-1">
                               <RichTextPreview content={item.obras.titulo} />
-                              {item.obras.estado === "Informativo" && (
-                                <span className="ml-1 text-[8px] bg-blue-100 text-blue-600 px-1 rounded border border-blue-200 align-text-top">
-                                  INFO
-                                </span>
-                              )}
-                              {(item.obras.estado === "Solicitud" || item.obras.estado === "Pendiente") && (
-                                <span className="ml-1 text-[8px] bg-amber-100 text-amber-700 px-1 rounded border border-amber-200 align-text-top">
-                                  PEND
-                                </span>
-                              )}
+                              {(() => {
+                                const tag = getObraEstadoTitleTag(item.obras.estado);
+                                return tag ? (
+                                  <span className={`ml-1 ${tag.className}`}>{tag.label}</span>
+                                ) : null;
+                              })()}
                               {isDefinitionMode &&
                                 isWorkPendingCuraduria(item) && (
                                   <span className="ml-1 text-[8px] bg-amber-100 text-amber-800 px-1 rounded border border-amber-200 align-text-top font-semibold">

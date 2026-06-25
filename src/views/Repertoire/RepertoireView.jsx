@@ -52,6 +52,12 @@ import {
   fetchProgramIdsWithPlaceholders,
 } from "../../services/repertorioPlaceholderOpciones";
 import { stripHtml } from "../../utils/eventDisplayUtils";
+import {
+  getObraEstadoArchiveMobileCardClass,
+  getObraEstadoArchiveRowClass,
+  getObraEstadoBadgeClass,
+  getObraEstadoTitleTag,
+} from "../../utils/obraEstadoStyles";
 
 // --- ICONOS ADICIONALES ---
 const IconColumns = ({ size = 20, className = "" }) => (
@@ -172,47 +178,6 @@ const getInstrumentValue = (workString, instrumentKey) => {
 const hasStrings = (text) => {
   if (!text) return false;
   return /str|cuerd|viol|vln|vla|vlc|cb|arco|contrab/i.test(text);
-};
-
-/** Fondo de fila muy tenue alineado con el color del chip de estado */
-const getEstadoRowBgClass = (estado) => {
-  const e = estado || "Oficial";
-  switch (e) {
-    case "Informativo":
-      return "bg-blue-50/40 hover:bg-blue-50/65";
-    case "Solicitud":
-      return "bg-amber-50/40 hover:bg-amber-50/65";
-    case "Para arreglar":
-      return "bg-orange-50/35 hover:bg-orange-50/55";
-    case "Entregado":
-      return "bg-sky-50/45 hover:bg-sky-50/75 border-l-[3px] border-sky-300/60";
-    case "Oficial":
-      return "bg-emerald-50/35 hover:bg-emerald-50/55";
-    case "Pendiente":
-      return "bg-slate-50/45 hover:bg-slate-100/70";
-    default:
-      return "bg-slate-50/35 hover:bg-slate-50/55";
-  }
-};
-
-const getEstadoMobileCardBgClass = (estado) => {
-  const e = estado || "Oficial";
-  switch (e) {
-    case "Informativo":
-      return "bg-blue-50/75 hover:bg-blue-50";
-    case "Solicitud":
-      return "bg-amber-50/75 hover:bg-amber-50";
-    case "Para arreglar":
-      return "bg-orange-50/70 hover:bg-orange-50";
-    case "Entregado":
-      return "bg-sky-50/80 hover:bg-sky-50 border-l-[3px] border-sky-300/70";
-    case "Oficial":
-      return "bg-emerald-50/70 hover:bg-emerald-50";
-    case "Pendiente":
-      return "bg-slate-100/75 hover:bg-slate-100";
-    default:
-      return "bg-slate-50/75 hover:bg-slate-100";
-  }
 };
 
 // --- 2. MODALES ---
@@ -1354,7 +1319,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                   ) : paginatedWorks.map((work) => (
                     <div
                       key={work.id}
-                      className={`grid gap-4 px-4 py-3 items-center transition-colors group text-sm border-l-[3px] border-transparent ${getEstadoRowBgClass(work.estado)}`}
+                      className={`grid gap-4 px-4 py-3 items-center transition-colors group text-sm border-l-[3px] border-transparent ${getObraEstadoArchiveRowClass(work.estado)}`}
                       style={{ gridTemplateColumns: getGridTemplate() }}
                       title={work.estado === "Entregado" ? "Pendiente de validación por Archivista" : undefined}
                     >
@@ -1398,7 +1363,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                         <div className="text-center">
                           {work.estado === "Solicitud" ? (
                             <div className="flex flex-col items-center gap-0.5">
-                              <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-amber-200">
+                              <span className={`${getObraEstadoBadgeClass("Solicitud")} text-[10px] px-2 py-0.5 rounded-full font-bold border`}>
                                 Pendiente
                               </span>
                               {work.usuario_carga &&
@@ -1430,23 +1395,23 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                               )}
                             </div>
                           ) : work.estado === "Para arreglar" ? (
-                            <span className="bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-bold border border-amber-200">
+                            <span className={`${getObraEstadoBadgeClass(work.estado)} text-[10px] px-2 py-0.5 rounded-full font-bold border`}>
                               Para arreglar
                             </span>
                           ) : work.estado === "Entregado" ? (
-                            <span className="bg-sky-100 text-sky-800 text-[10px] px-2 py-0.5 rounded-full font-bold border border-sky-200" title="Revisión Archivista">
+                            <span className={`${getObraEstadoBadgeClass(work.estado)} text-[10px] px-2 py-0.5 rounded-full font-bold border`} title="Revisión Archivista">
                               Entregado
                             </span>
                           ) : work.estado === "Informativo" ? (
-                            <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full font-bold border border-blue-200">
+                            <span className={`${getObraEstadoBadgeClass(work.estado)} text-[10px] px-2 py-0.5 rounded-full font-bold border`}>
                               Informativo
                             </span>
                           ) : work.estado === "Oficial" || work.estado === "Pendiente" ? (
-                            <span className="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full border border-slate-200">
+                            <span className={`${getObraEstadoBadgeClass(work.estado)} text-[10px] px-2 py-0.5 rounded-full border`}>
                               {work.estado}
                             </span>
                           ) : (
-                            <span className="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full border border-slate-200">
+                            <span className={`${getObraEstadoBadgeClass(work.estado)} text-[10px] px-2 py-0.5 rounded-full border`}>
                               {work.estado || "Oficial"}
                             </span>
                           )}
@@ -1880,7 +1845,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                   {paginatedWorks.map((work) => (
                     <li
                       key={work.id}
-                      className={`rounded-lg border border-slate-200 p-1.5 shadow-sm transition-colors ${getEstadoMobileCardBgClass(work.estado)}`}
+                      className={`rounded-lg border border-slate-200 p-1.5 shadow-sm transition-colors ${getObraEstadoArchiveMobileCardClass(work.estado)}`}
                     >
                       <div className="flex items-stretch gap-1.5">
                         <div className="flex w-5 shrink-0 flex-col items-center gap-1 pt-0.5">
@@ -1900,8 +1865,16 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
 
                         <div className="min-w-0 flex-1">
                           <div className="min-w-0">
-                            <div className="line-clamp-2 text-[13px] font-bold leading-tight text-slate-800">
-                              <RichTextPreview content={work.titulo} />
+                            <div className="flex min-w-0 flex-wrap items-center gap-1 text-[13px] font-bold leading-tight text-slate-800">
+                              <div className="line-clamp-2 min-w-0">
+                                <RichTextPreview content={work.titulo} />
+                              </div>
+                              {(() => {
+                                const tag = getObraEstadoTitleTag(work.estado, { variant: "mobile" });
+                                return tag ? (
+                                  <span className={tag.className}>{tag.label}</span>
+                                ) : null;
+                              })()}
                             </div>
                             <div className="mt-0.5 truncate text-[11px] font-semibold text-slate-600">
                               {work.compositor_full || "Sin compositor"}

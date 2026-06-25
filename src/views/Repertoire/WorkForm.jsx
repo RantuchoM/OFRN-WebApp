@@ -42,6 +42,10 @@ import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import ArreglosReferenciasModal from "../../components/arreglos/ArreglosReferenciasModal";
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import { normalizeForSearch } from "../../utils/sanitize";
+import {
+  getObraEstadoFormHeaderClass,
+  getObraEstadoFormShellClass,
+} from "../../utils/obraEstadoStyles";
 import { seedArregloReferenciaObraOrigen } from "../../utils/arreglosReferencias";
 import {
   formatEncargoMailSentAt,
@@ -431,34 +435,6 @@ const getYoutubeVideoId = (url) => {
   if (!url || typeof url !== "string") return null;
   const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^#&?]+)/);
   return m ? m[1] : null;
-};
-
-/** Barra superior del formulario, estilo MusicianForm (condición) */
-const getEstadoHeaderClass = (estado) => {
-  const m = {
-    Borrador: "bg-slate-500",
-    Solicitud: "bg-amber-600",
-    Pendiente: "bg-slate-600",
-    "Para arreglar": "bg-amber-700",
-    Entregado: "bg-sky-600",
-    Informativo: "bg-blue-600",
-    Oficial: "bg-emerald-600",
-  };
-  return m[estado] || "bg-slate-600";
-};
-
-/** Fondo/borde del bloque formulario según estado (p. ej. Oficial) */
-const getEstadoShellClass = (estado) => {
-  const map = {
-    Borrador: "bg-slate-100/95 border-slate-300/90",
-    Solicitud: "bg-amber-50/85 border-amber-200/80",
-    Pendiente: "bg-slate-50/90 border-slate-200/80",
-    "Para arreglar": "bg-orange-50/85 border-orange-200/80",
-    Entregado: "bg-sky-50/85 border-sky-200/80",
-    Informativo: "bg-blue-50/85 border-blue-200/80",
-    Oficial: "bg-emerald-50/90 border-emerald-200/80",
-  };
-  return map[estado] || "bg-white border-slate-200";
 };
 
 // --- COMPONENTE PRINCIPAL ---
@@ -2066,8 +2042,8 @@ export default function WorkForm({
 
   const isDraft = !formData.id;
   const displayEstado = isDraft ? "Borrador" : formData.estado;
-  const estadoHeaderClass = getEstadoHeaderClass(displayEstado);
-  const estadoShellClass = getEstadoShellClass(displayEstado);
+  const estadoHeaderClass = getObraEstadoFormHeaderClass(displayEstado);
+  const estadoShellClass = getObraEstadoFormShellClass(displayEstado);
   const isOficial = formData.estado === "Oficial";
   const showReferencias =
     !!formData.id &&
