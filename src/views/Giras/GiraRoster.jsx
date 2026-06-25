@@ -32,7 +32,8 @@ import {
   buildGiraIntegranteUpsert,
   applyEffectiveGiraInstrument,
 } from "../../utils/giraUtils";
-import { buildAusenteMailNotification, buildBajaGiraMailNotification, buildExclusionEnsambleMailNotification } from "../../utils/rosterBajaMotivos";
+import { buildAusenteMailNotification, buildBajaGiraMailNotification, buildExclusionEnsambleMailNotification, buildExclusionFamiliaMailNotification, buildInclusionFamiliaMailNotification } from "../../utils/rosterBajaMotivos";
+import { integranteActiveOnProgramRange } from "../../utils/ensembleMembership";
 import MusicianForm from "../Musicians/MusicianForm";
 import {
   AddVacancyModal,
@@ -80,6 +81,49 @@ const hexToRgba = (hex, alpha = 0.1) => {
 
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 
+function normalizeEnsembleId(id) {
+  if (id == null || id === "") return null;
+  const n = Number(id);
+  return Number.isFinite(n) ? n : id;
+}
+
+function toEnsembleIdSet(iterable) {
+  const s = new Set();
+  for (const id of iterable) {
+    const key = normalizeEnsembleId(id);
+    if (key != null) s.add(key);
+  }
+  return s;
+}
+
+function memberEnsembleIds(member) {
+  const ids = new Set();
+  for (const ie of member.integrantes_ensambles ?? []) {
+    const id = normalizeEnsembleId(ie.ensambles?.id ?? ie.id_ensamble);
+    if (id != null) ids.add(id);
+  }
+  return [...ids];
+}
+
+function toFamilySet(iterable) {
+  const s = new Set();
+  for (const fam of iterable) {
+    const key = String(fam ?? "").trim();
+    if (key) s.add(key);
+  }
+  return s;
+}
+
+function memberWouldStayInRoster(member, nextIncl, nextExcl, nextFam) {
+  const memberEnsIds = memberEnsembleIds(member);
+  const isExcluded = memberEnsIds.some((id) => nextExcl.has(id));
+  const wouldStayViaEnsemble =
+    !isExcluded && memberEnsIds.some((id) => nextIncl.has(id));
+  const memberFamily = member.instrumentos?.familia?.trim();
+  const wouldStayViaFamily = memberFamily && nextFam.has(memberFamily);
+  return wouldStayViaEnsemble || wouldStayViaFamily;
+}
+
 /** Integrantes afectados por destildar o excluir ensambles (incluye convocados manuales del ensamble). */
 function getEnsembleExclusionAffected(
   roster,
@@ -90,12 +134,14 @@ function getEnsembleExclusionAffected(
   nextFamilies,
   ensemblesList,
 ) {
-  const uncheckedEnsembleIds = [...prevIncludedEnsembles].filter(
-    (id) => !nextIncludedEnsembles.has(id),
-  );
-  const newlyExcludedIds = [...nextExclEnsembles].filter(
-    (id) => !prevExclEnsembles.has(id),
-  );
+  const prevIncl = toEnsembleIdSet(prevIncludedEnsembles);
+  const prevExcl = toEnsembleIdSet(prevExclEnsembles);
+  const nextIncl = toEnsembleIdSet(nextIncludedEnsembles);
+  const nextExcl = toEnsembleIdSet(nextExclEnsembles);
+  const nextFam = toFamilySet(nextFamilies);
+
+  const uncheckedEnsembleIds = [...prevIncl].filter((id) => !nextIncl.has(id));
+  const newlyExcludedIds = [...nextExcl].filter((id) => !prevExcl.has(id));
   const causeEnsembleIds = new Set([
     ...uncheckedEnsembleIds,
     ...newlyExcludedIds,
@@ -106,40 +152,195 @@ function getEnsembleExclusionAffected(
   for (const member of roster) {
     if (member.es_simulacion) continue;
 
-    const memberEnsembleIds =
-      member.integrantes_ensambles
-        ?.map((ie) => ie.ensambles?.id)
-        .filter(Boolean) || [];
+    const memberEnsIds = memberEnsembleIds(member);
+    const excludedEnsembleId = memberEnsIds.find((id) =>
+      causeEnsembleIds.has(id),
+    );
+    if (excludedEnsembleId == null) continue;
 
-    const excludedEnsembleId = [...causeEnsembleIds].find((eid) =>
-      memberEnsembleIds.includes(eid),
+    const wouldLeave = !memberWouldStayInRoster(
+      member,
+      nextIncl,
+      nextExcl,
+      nextFam,
     );
-    if (!excludedEnsembleId) continue;
-
-    const wouldStayViaEnsemble = memberEnsembleIds.some((eid) =>
-      nextIncludedEnsembles.has(eid),
-    );
-    const wouldStayViaFamily =
-      member.instrumentos?.familia &&
-      nextFamilies.has(member.instrumentos.familia);
-    const isExcluded = memberEnsembleIds.some((eid) =>
-      nextExclEnsembles.has(eid),
-    );
-    const wouldLeave =
-      isExcluded || (!wouldStayViaEnsemble && !wouldStayViaFamily);
     const isAlreadyManual = Boolean(member.en_giras_integrantes);
 
     if (!wouldLeave && !isAlreadyManual) continue;
 
-    const ensLabel =
-      ensemblesList.find((e) => e.value === excludedEnsembleId)?.label ||
-      "Ensamble";
+    const causeLabel =
+      ensemblesList.find(
+        (e) => normalizeEnsembleId(e.value) === excludedEnsembleId,
+      )?.label || "Ensamble";
     affected.push({
       member,
-      excludedEnsembleId,
-      ensLabel,
+      causeLabel,
+      causeKind: "ensamble",
       isAlreadyManual,
-      defaultDesconvocate: wouldLeave && !isAlreadyManual,
+      defaultSelected: wouldLeave && !isAlreadyManual,
+    });
+  }
+  return affected;
+}
+
+/** Integrantes afectados por quitar familias de la convocatoria. */
+function getFamilyExclusionAffected(
+  roster,
+  prevFamilies,
+  nextFamilies,
+  nextIncludedEnsembles,
+  nextExclEnsembles,
+) {
+  const prevFam = toFamilySet(prevFamilies);
+  const nextFam = toFamilySet(nextFamilies);
+  const removedFamilies = [...prevFam].filter((f) => !nextFam.has(f));
+  if (removedFamilies.length === 0) return [];
+
+  const nextIncl = toEnsembleIdSet(nextIncludedEnsembles);
+  const nextExcl = toEnsembleIdSet(nextExclEnsembles);
+
+  const affected = [];
+  for (const member of roster) {
+    if (member.es_simulacion) continue;
+    const memberFamily = member.instrumentos?.familia?.trim();
+    if (!memberFamily || !removedFamilies.includes(memberFamily)) continue;
+
+    const wouldLeave = !memberWouldStayInRoster(
+      member,
+      nextIncl,
+      nextExcl,
+      nextFam,
+    );
+    const isAlreadyManual = Boolean(member.en_giras_integrantes);
+
+    if (!wouldLeave && !isAlreadyManual) continue;
+
+    affected.push({
+      member,
+      causeLabel: memberFamily,
+      causeKind: "familia",
+      isAlreadyManual,
+      defaultSelected: wouldLeave && !isAlreadyManual,
+    });
+  }
+  return affected;
+}
+
+function mergeGroupAffected(...lists) {
+  const byId = new Map();
+  for (const item of lists.flat()) {
+    const id = item.member?.id;
+    if (id == null) continue;
+    const existing = byId.get(id);
+    if (!existing) {
+      byId.set(id, { ...item });
+      continue;
+    }
+    if (
+      item.causeLabel &&
+      !String(existing.causeLabel).includes(item.causeLabel)
+    ) {
+      existing.causeLabel = `${existing.causeLabel}, ${item.causeLabel}`;
+    }
+    existing.defaultSelected =
+      existing.defaultSelected || item.defaultSelected;
+    existing.isAlreadyManual =
+      existing.isAlreadyManual || item.isAlreadyManual;
+  }
+  return [...byId.values()];
+}
+
+function getGroupBajaAffected(
+  roster,
+  prevEnsembles,
+  prevExclEnsembles,
+  prevFamilies,
+  nextEnsembles,
+  nextExclEnsembles,
+  nextFamilies,
+  ensemblesList,
+) {
+  return mergeGroupAffected(
+    getEnsembleExclusionAffected(
+      roster,
+      prevEnsembles,
+      prevExclEnsembles,
+      nextEnsembles,
+      nextExclEnsembles,
+      nextFamilies,
+      ensemblesList,
+    ),
+    getFamilyExclusionAffected(
+      roster,
+      prevFamilies,
+      nextFamilies,
+      nextEnsembles,
+      nextExclEnsembles,
+    ),
+  );
+}
+
+async function fetchFamilyInclusionAffected(
+  supabase,
+  addedFamilies,
+  currentRoster,
+  gira,
+) {
+  const families = [...toFamilySet(addedFamilies)];
+  if (families.length === 0) return [];
+
+  const currentById = new Map(currentRoster.map((m) => [m.id, m]));
+
+  const { data, error } = await supabase
+    .from("integrantes")
+    .select(
+      `id, nombre, apellido, mail, condicion, es_simulacion, fecha_alta, fecha_baja,
+       instrumentos!inner(instrumento, familia),
+       integrantes_ensambles(id, id_ensamble, fecha_desde, fecha_hasta, ensambles(id, ensamble))`,
+    )
+    .eq("condicion", "Estable")
+    .in("instrumentos.familia", families);
+  if (error) throw error;
+
+  const affected = [];
+  for (const row of data || []) {
+    if (row.es_simulacion) continue;
+    const familia = row.instrumentos?.familia?.trim();
+    if (!familia || !families.includes(familia)) continue;
+
+    const member = {
+      ...row,
+      nombre_completo: `${row.apellido || ""}, ${row.nombre || ""}`.trim(),
+    };
+    const existing = currentById.get(row.id);
+    if (existing) {
+      if (!existing.en_giras_integrantes) continue;
+      affected.push({
+        member: existing,
+        causeLabel: familia,
+        causeKind: "familia",
+        isAlreadyManual: true,
+        defaultSelected: false,
+      });
+      continue;
+    }
+
+    if (
+      !integranteActiveOnProgramRange(
+        row,
+        gira?.fecha_desde,
+        gira?.fecha_hasta,
+      )
+    ) {
+      continue;
+    }
+
+    affected.push({
+      member,
+      causeLabel: familia,
+      causeKind: "familia",
+      isAlreadyManual: false,
+      defaultSelected: true,
     });
   }
   return affected;
@@ -957,7 +1158,7 @@ export default function GiraRoster({
     ensembles,
     families,
     exclEnsembles,
-    { skipExclusionNotifications = false } = {},
+    { skipNotifications = false } = {},
   ) => {
     setLoadingAction(true);
     const prevRoster = [...localRoster];
@@ -978,7 +1179,7 @@ export default function GiraRoster({
     setAddMode(null);
     const newRoster = await refreshRoster();
     if (
-      !skipExclusionNotifications &&
+      !skipNotifications &&
       localNotificacionInicialEnviada &&
       notificacionesHabilitadas &&
       Array.isArray(newRoster)
@@ -1019,88 +1220,261 @@ export default function GiraRoster({
     return newRoster;
   };
 
-  const handleUpdateGroups = async () => {
-    const prevIncludedEnsembles = new Set(
-      (sources || []).filter((s) => s.tipo === "ENSAMBLE").map((s) => s.valor_id),
-    );
-    const prevExclEnsembles = new Set(
-      (sources || []).filter((s) => s.tipo === "EXCL_ENSAMBLE").map((s) => s.valor_id),
-    );
-    const affectedMembers = getEnsembleExclusionAffected(
-      localRoster,
-      prevIncludedEnsembles,
+  const getSourceSets = () => ({
+    prevEnsembles: toEnsembleIdSet(
+      (sources || [])
+        .filter((s) => s.tipo === "ENSAMBLE")
+        .map((s) => s.valor_id),
+    ),
+    prevExclEnsembles: toEnsembleIdSet(
+      (sources || [])
+        .filter((s) => s.tipo === "EXCL_ENSEMBLE")
+        .map((s) => s.valor_id),
+    ),
+    prevFamilies: toFamilySet(
+      (sources || [])
+        .filter((s) => s.tipo === "FAMILIA")
+        .map((s) => s.valor_texto),
+    ),
+  });
+
+  const buildGroupUpdatePayload = (ensembles, families, exclEnsembles) => ({
+    selectedEnsembles: toEnsembleIdSet(ensembles),
+    selectedFamilies: toFamilySet(families),
+    selectedExclEnsembles: toEnsembleIdSet(exclEnsembles),
+  });
+
+  const tryOpenGroupChangeModal = async (groupUpdate) => {
+    const { prevEnsembles, prevExclEnsembles, prevFamilies } = getSourceSets();
+    const { selectedEnsembles, selectedFamilies, selectedExclEnsembles } =
+      groupUpdate;
+
+    const bajaAffected = getGroupBajaAffected(
+      rawRoster,
+      prevEnsembles,
       prevExclEnsembles,
+      prevFamilies,
       selectedEnsembles,
       selectedExclEnsembles,
       selectedFamilies,
       ensemblesList,
     );
-    if (affectedMembers.length > 0) {
-      if (pendingBaja) return;
-      setPendingBaja({
-        action: "exclusion_ensamble",
-        affectedMembers,
-        groupUpdate: {
-          selectedEnsembles: new Set(selectedEnsembles),
-          selectedFamilies: new Set(selectedFamilies),
-          selectedExclEnsembles: new Set(selectedExclEnsembles),
-        },
-      });
-      return;
-    }
-    await applyGroupUpdate(
-      selectedEnsembles,
-      selectedFamilies,
-      selectedExclEnsembles,
-    );
-  };
 
-  const removeSource = async (id, tipo) => {
-    if (tipo === "ENSAMBLE") {
-      const source = sources.find((s) => s.id === id);
-      if (!source) return;
-      const newSelectedEnsembles = new Set(selectedEnsembles);
-      newSelectedEnsembles.delete(source.valor_id);
-      const prevIncludedEnsembles = new Set(
-        (sources || []).filter((s) => s.tipo === "ENSAMBLE").map((s) => s.valor_id),
-      );
-      const prevExclEnsembles = new Set(
-        (sources || []).filter((s) => s.tipo === "EXCL_ENSAMBLE").map((s) => s.valor_id),
-      );
-      const affectedMembers = getEnsembleExclusionAffected(
-        localRoster,
-        prevIncludedEnsembles,
-        prevExclEnsembles,
-        newSelectedEnsembles,
-        selectedExclEnsembles,
-        selectedFamilies,
-        ensemblesList,
-      );
-      if (affectedMembers.length > 0) {
-        if (pendingBaja) return;
-        setPendingBaja({
-          action: "exclusion_ensamble",
-          affectedMembers,
-          groupUpdate: {
-            selectedEnsembles: newSelectedEnsembles,
-            selectedFamilies: new Set(selectedFamilies),
-            selectedExclEnsembles: new Set(selectedExclEnsembles),
-          },
-        });
-        return;
+    const addedFamilies = [...selectedFamilies].filter(
+      (f) => !prevFamilies.has(f),
+    );
+    let altaAffected = [];
+    if (addedFamilies.length > 0) {
+      try {
+        altaAffected = await fetchFamilyInclusionAffected(
+          supabase,
+          addedFamilies,
+          rawRoster,
+          gira,
+        );
+      } catch (err) {
+        toast.error(
+          "No se pudo cargar integrantes de la familia: " + err.message,
+        );
+        return true;
       }
     }
 
-    if (
-      !confirm(
-        tipo === "EXCL_ENSAMBLE" ? "¿Quitar exclusión?" : "¿Quitar fuente?",
-      )
-    )
-      return;
+    if (bajaAffected.length > 0) {
+      if (pendingBaja) return true;
+      setPendingBaja({
+        action: "cambio_grupos_baja",
+        affectedMembers: bajaAffected,
+        groupUpdate,
+        chainedAlta: altaAffected.length > 0 ? altaAffected : null,
+      });
+      return true;
+    }
+
+    if (altaAffected.length > 0) {
+      if (pendingBaja) return true;
+      setPendingBaja({
+        action: "cambio_grupos_alta",
+        affectedMembers: altaAffected,
+        groupUpdate,
+      });
+      return true;
+    }
+
+    return false;
+  };
+
+  const applyGroupChangeWithNotifications = async (
+    groupUpdate,
+    {
+      bajaMembers = [],
+      bajaSelectionById = {},
+      bajaMotivoText = "",
+      bajaMotivoId = "",
+      notifyBaja = false,
+      altaMembers = [],
+      altaSelectionById = {},
+      notifyAlta = false,
+    },
+  ) => {
+    const toKeepAsManual = bajaMembers.filter(
+      (a) => !a.isAlreadyManual && !bajaSelectionById[a.member.id],
+    );
+    const toDesconvocate = bajaMembers.filter(
+      (a) => bajaSelectionById[a.member.id],
+    );
+
+    for (const { member } of toKeepAsManual) {
+      await supabase.from("giras_integrantes").upsert(
+        buildGiraIntegranteUpsert(gira.id, member, { estado: "confirmado" }),
+        { onConflict: "id_gira, id_integrante" },
+      );
+    }
+
+    await applyGroupUpdate(
+      groupUpdate.selectedEnsembles,
+      groupUpdate.selectedFamilies,
+      groupUpdate.selectedExclEnsembles,
+      { skipNotifications: true },
+    );
+
+    for (const { member } of toDesconvocate.filter((a) => a.isAlreadyManual)) {
+      await supabase
+        .from("giras_integrantes")
+        .delete()
+        .eq("id_integrante", member.id)
+        .eq("id_gira", gira.id);
+    }
+
+    const shouldNotifyBaja =
+      notifyBaja &&
+      localNotificacionInicialEnviada &&
+      notificacionesHabilitadas;
+    if (shouldNotifyBaja && toDesconvocate.length) {
+      toDesconvocate.forEach(({ member, causeLabel, causeKind }) => {
+        if (!member?.mail) return;
+        const nombreCompleto =
+          member.nombre_completo ||
+          `${member.apellido || ""}, ${member.nombre || ""}`.trim();
+        const mail =
+          causeKind === "familia"
+            ? buildExclusionFamiliaMailNotification({
+                motivoText: bajaMotivoText,
+                motivoId: bajaMotivoId,
+                familiaLabel: causeLabel,
+              })
+            : buildExclusionEnsambleMailNotification({
+                motivoText: bajaMotivoText,
+                motivoId: bajaMotivoId,
+                ensLabel: causeLabel,
+              });
+        setPendingNotifications((prev) => [
+          ...prev,
+          {
+            id: `baja-excl-${member.id}-${Date.now()}`,
+            variant: "BAJA",
+            emails: [member.mail],
+            nombres: [nombreCompleto],
+            reason: mail.reason,
+            reasonFootnote: mail.reasonFootnote || undefined,
+            motivoBajaId: mail.motivoBajaId || undefined,
+          },
+        ]);
+      });
+    }
+
+    const shouldNotifyAlta =
+      notifyAlta &&
+      localNotificacionInicialEnviada &&
+      notificacionesHabilitadas;
+    const toNotifyAlta = altaMembers.filter(
+      (a) => altaSelectionById[a.member.id],
+    );
+    if (shouldNotifyAlta && toNotifyAlta.length) {
+      toNotifyAlta.forEach(({ member, causeLabel }) => {
+        if (!member?.mail) return;
+        const nombreCompleto =
+          member.nombre_completo ||
+          `${member.apellido || ""}, ${member.nombre || ""}`.trim();
+        const mail = buildInclusionFamiliaMailNotification({
+          familiaLabel: causeLabel,
+        });
+        setPendingNotifications((prev) => [
+          ...prev,
+          {
+            id: `alta-groups-${member.id}-${Date.now()}`,
+            variant: "ALTA",
+            emails: [member.mail],
+            nombres: [nombreCompleto],
+            reason: mail.reason,
+          },
+        ]);
+      });
+    }
+
+    await refreshRoster();
+  };
+
+  const handleUpdateGroups = async () => {
     setLoadingAction(true);
-    await supabase.from("giras_fuentes").delete().eq("id", id);
-    setLoadingAction(false);
-    refreshRoster();
+    try {
+      const groupUpdate = buildGroupUpdatePayload(
+        selectedEnsembles,
+        selectedFamilies,
+        selectedExclEnsembles,
+      );
+      if (await tryOpenGroupChangeModal(groupUpdate)) return;
+      await applyGroupUpdate(
+        groupUpdate.selectedEnsembles,
+        groupUpdate.selectedFamilies,
+        groupUpdate.selectedExclEnsembles,
+      );
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const removeSource = async (id, tipo) => {
+    const source = sources.find((s) => s.id === id);
+    if (!source) return;
+
+    setLoadingAction(true);
+    try {
+      let groupUpdate = buildGroupUpdatePayload(
+        selectedEnsembles,
+        selectedFamilies,
+        selectedExclEnsembles,
+      );
+
+      if (tipo === "ENSAMBLE") {
+        groupUpdate.selectedEnsembles.delete(
+          normalizeEnsembleId(source.valor_id),
+        );
+      } else if (tipo === "EXCL_ENSEMBLE") {
+        groupUpdate.selectedExclEnsembles.delete(
+          normalizeEnsembleId(source.valor_id),
+        );
+      } else if (tipo === "FAMILIA") {
+        groupUpdate.selectedFamilies.delete(
+          String(source.valor_texto || "").trim(),
+        );
+      } else if (!confirm("¿Quitar fuente?")) {
+        return;
+      } else {
+        await supabase.from("giras_fuentes").delete().eq("id", id);
+        refreshRoster();
+        return;
+      }
+
+      if (await tryOpenGroupChangeModal(groupUpdate)) return;
+      await applyGroupUpdate(
+        groupUpdate.selectedEnsembles,
+        groupUpdate.selectedFamilies,
+        groupUpdate.selectedExclEnsembles,
+      );
+    } finally {
+      setLoadingAction(false);
+    }
   };
 
   /** @returns {Promise<boolean>} true si quedó vinculado o ya estaba en la gira (caso duplicado informado). */
@@ -1180,78 +1554,82 @@ export default function GiraRoster({
     setPendingBaja(null);
   };
 
-  const confirmBaja = async ({ motivoText, motivoId, notify, desconvocateById }) => {
+  const confirmBaja = async ({
+    motivoText,
+    motivoId,
+    notify,
+    selectionById,
+    desconvocateById,
+  }) => {
     if (!pendingBaja) return;
-    const { musician, action, affectedMembers, groupUpdate } = pendingBaja;
+    const {
+      musician,
+      action,
+      affectedMembers,
+      groupUpdate,
+      chainedAlta,
+      bajaContext,
+    } = pendingBaja;
+    const toggleById = selectionById || desconvocateById || {};
+
+    if (action === "cambio_grupos_baja") {
+      if (chainedAlta?.length) {
+        setPendingBaja({
+          action: "cambio_grupos_alta",
+          affectedMembers: chainedAlta,
+          groupUpdate,
+          bajaContext: {
+            affectedMembers: affectedMembers || [],
+            selectionById: toggleById,
+            motivoText,
+            motivoId,
+            notify,
+          },
+        });
+        return;
+      }
+      await applyGroupChangeWithNotifications(groupUpdate, {
+        bajaMembers: affectedMembers || [],
+        bajaSelectionById: toggleById,
+        bajaMotivoText: motivoText,
+        bajaMotivoId: motivoId,
+        notifyBaja: notify,
+      });
+      setPendingBaja(null);
+      return;
+    }
+
+    if (action === "cambio_grupos_alta") {
+      await applyGroupChangeWithNotifications(groupUpdate, {
+        bajaMembers: bajaContext?.affectedMembers || [],
+        bajaSelectionById: bajaContext?.selectionById || {},
+        bajaMotivoText: bajaContext?.motivoText || "",
+        bajaMotivoId: bajaContext?.motivoId || "",
+        notifyBaja: bajaContext?.notify,
+        altaMembers: affectedMembers || [],
+        altaSelectionById: toggleById,
+        notifyAlta: notify,
+      });
+      setPendingBaja(null);
+      return;
+    }
+
+    if (action === "exclusion_ensamble") {
+      await applyGroupChangeWithNotifications(groupUpdate, {
+        bajaMembers: affectedMembers || [],
+        bajaSelectionById: toggleById,
+        bajaMotivoText: motivoText,
+        bajaMotivoId: motivoId,
+        notifyBaja: notify,
+      });
+      setPendingBaja(null);
+      return;
+    }
+
     const shouldNotify =
       notify &&
       localNotificacionInicialEnviada &&
       notificacionesHabilitadas;
-
-    if (action === "exclusion_ensamble") {
-      const { selectedEnsembles, selectedFamilies, selectedExclEnsembles } =
-        groupUpdate;
-      const members = affectedMembers || [];
-
-      const toKeepAsManual = members.filter(
-        (a) => !a.isAlreadyManual && !desconvocateById?.[a.member.id],
-      );
-      const toDesconvocate = members.filter(
-        (a) => desconvocateById?.[a.member.id],
-      );
-
-      for (const { member } of toKeepAsManual) {
-        await supabase.from("giras_integrantes").upsert(
-          buildGiraIntegranteUpsert(gira.id, member, { estado: "confirmado" }),
-          { onConflict: "id_gira, id_integrante" },
-        );
-      }
-
-      await applyGroupUpdate(
-        selectedEnsembles,
-        selectedFamilies,
-        selectedExclEnsembles,
-        { skipExclusionNotifications: true },
-      );
-
-      for (const { member } of toDesconvocate.filter((a) => a.isAlreadyManual)) {
-        await supabase
-          .from("giras_integrantes")
-          .delete()
-          .eq("id_integrante", member.id)
-          .eq("id_gira", gira.id);
-      }
-
-      if (shouldNotify && toDesconvocate.length) {
-        toDesconvocate.forEach(({ member, ensLabel }) => {
-          if (!member?.mail) return;
-          const nombreCompleto =
-            member.nombre_completo ||
-            `${member.apellido || ""}, ${member.nombre || ""}`.trim();
-          const mail = buildExclusionEnsambleMailNotification({
-            motivoText,
-            motivoId,
-            ensLabel,
-          });
-          setPendingNotifications((prev) => [
-            ...prev,
-            {
-              id: `baja-excl-${member.id}-${Date.now()}`,
-              variant: "BAJA",
-              emails: [member.mail],
-              nombres: [nombreCompleto],
-              reason: mail.reason,
-              reasonFootnote: mail.reasonFootnote || undefined,
-              motivoBajaId: mail.motivoBajaId || undefined,
-            },
-          ]);
-        });
-      }
-
-      setPendingBaja(null);
-      await refreshRoster();
-      return;
-    }
 
     const nombreCompleto =
       musician.nombre_completo ||
@@ -1312,9 +1690,10 @@ export default function GiraRoster({
   };
 
   const pendingBajaCanNotify =
-    (pendingBaja?.action === "exclusion_ensamble"
-      ? true
-      : Boolean(pendingBaja?.musician?.mail)) &&
+    (pendingBaja?.action === "exclusion_ensamble" ||
+    pendingBaja?.action === "cambio_grupos_baja" ||
+    pendingBaja?.action === "cambio_grupos_alta" ||
+    Boolean(pendingBaja?.musician?.mail)) &&
     localNotificacionInicialEnviada &&
     notificacionesHabilitadas;
 

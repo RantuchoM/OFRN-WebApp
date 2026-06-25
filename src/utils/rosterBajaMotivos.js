@@ -58,3 +58,25 @@ export function buildExclusionEnsambleMailNotification({
     reason: `${ensamblePart}. Motivo: ${motivoText}`,
   });
 }
+
+export function buildExclusionFamiliaMailNotification({
+  motivoText,
+  motivoId,
+  familiaLabel,
+}) {
+  const familiaPart = familiaLabel
+    ? `Se excluyó la familia de ${familiaLabel}`
+    : "Se te excluyó de la gira";
+  return buildMailNotification({
+    motivoText,
+    motivoId,
+    reason: `${familiaPart}. Motivo: ${motivoText}`,
+  });
+}
+
+export function buildInclusionFamiliaMailNotification({ familiaLabel }) {
+  const reason = familiaLabel
+    ? `Se te convoca con la familia de ${familiaLabel}`
+    : "Se te convoca a la gira";
+  return { reason, reasonFootnote: "", motivoBajaId: null };
+}

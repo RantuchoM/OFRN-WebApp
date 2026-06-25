@@ -45,13 +45,24 @@ El sistema inyecta el string exacto del motivo en el campo `data.reason` del mai
 
 Solo se encola cuando la gira tiene `notificacion_inicial_enviada === true`.
 
-## 8. Exclusión de ensamble — selección por integrante
+## 8. Exclusión / inclusión grupal — selección por integrante
 
-- **Listado**: `RosterBajaModal` muestra cada integrante del ensamble afectado con casilla «desconvocar».
-- **Por defecto marcados**: quienes saldrían del roster al aplicar la exclusión (no están en `giras_integrantes`).
-- **Por defecto sin marcar**: convocados manualmente (`giras_integrantes`); aviso en el modal. Si el usuario marca la casilla, se elimina el registro manual y se desconvoca (con mail si aplica).
-- **Destildar casilla** (en no manuales): antes de actualizar fuentes se hace `upsert` en `giras_integrantes`; la persona permanece en la gira sin notificación.
-- **Desconvocar manual** (marcar casilla en convocado manual): tras actualizar fuentes se hace `DELETE` en `giras_integrantes` para esa persona.
+Aplica a **ensambles** y **familias** (chips del header o desplegable Convocar → Actualizar).
+
+### Baja (quitar ensamble o familia)
+- **Listado**: `RosterBajaModal` con casilla por integrante afectado.
+- **Por defecto marcados**: quienes saldrían del roster (no están en `giras_integrantes`).
+- **Por defecto sin marcar**: convocados manualmente; aviso en el modal.
+- **Destildar** (no manual): `upsert` en `giras_integrantes` → queda manual, sin mail.
+- **Marcar manual**: `DELETE` en `giras_integrantes` → desconvocado (mail BAJA con motivo si aplica).
+- Motivos de mail: ensamble `"Se excluyó al ensamble [Nombre]. Motivo: …"`; familia `"Se excluyó la familia de [Familia]. Motivo: …"`.
+
+### Alta (agregar familia)
+- **Listado**: integrantes estables de la familia que entrarían al roster (fetch a BD).
+- **Por defecto marcados**: nuevos integrantes; **sin marcar**: ya convocados manualmente.
+- **Destildar**: entran al roster por la fuente FAMILIA pero **sin** mail ALTA.
+- **Marcar manual**: se envía ALTA `"Se te convoca con la familia de [Familia]"`.
+- Si en el mismo Actualizar hay baja y alta, primero modal de baja y luego el de alta.
 
 ## 7. NotificationQueuePanel
 
