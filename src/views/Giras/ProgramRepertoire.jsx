@@ -754,7 +754,6 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
       const result = await syncBowingToProgram(supabase, {
         programId: program.id,
         obraId: obra.id,
-        obraTitulo: obra.titulo,
         nombreSet,
         targetDriveId,
       });

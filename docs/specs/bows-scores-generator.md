@@ -5,18 +5,19 @@ Permitir que los editores generen automáticamente copias de las particellas de 
 
 ## Lógica de Negocio
 1. **Filtro de Usuario:** Solo visible para `isEditor` o `isManagement`.
-2. **Origen de Datos:**
+2. **Nombres en Drive (arcos):** Nunca usar `obras.titulo` para carpetas/shortcuts. La EF resuelve el nombre desde `obras.link_drive` (nombre real de la carpeta en Drive) + `nombreSet` del set de arcos. Si no hay `link_drive`, la operación falla con mensaje claro.
+3. **Origen de Datos (scores):**
    - Se recorren todas las obras (`obras`) del programa.
    - Para cada obra, se busca en `obras_particellas` aquella con `id_instrumento === "50"` (SCORE Cuerdas General).
-3. **Formato de `url_archivo`:**
+4. **Formato de `url_archivo`:**
    - Puede ser:
      - Un string simple con una URL de Google Drive.
      - Un JSON con un array de versiones `[{ url, name }]`. En ese caso, se toma la primera entrada con `url` válida.
-4. **Acción de Drive (Edge Function):**
+5. **Acción de Drive (Edge Function):**
    - Se llama a `manage-drive` con una acción `COPY_FILES_BATCH`.
    - Payload: `files: Array<{ fileId, destinationFolderId, newName? }>` asociado al `giraId` actual.
    - La función debe copiar el archivo original y renombrarlo (ej: `[ARCOS] Nombre_Obra.pdf`).
-5. **Destino:** Campo `id_folder_arcos` de la tabla `programas`.
+6. **Destino:** Campo `id_folder_arcos` de la tabla `programas`.
 
 ## UI/UX
 - Menú desplegable **「Arcos」** en la pestaña Repertorio de la gira (`ProgramRepertoire.jsx`), visible para `isEditor` o `isManagement`.

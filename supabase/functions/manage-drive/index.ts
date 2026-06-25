@@ -93,6 +93,59 @@ const FOLDER_MIME = "application/vnd.google-apps.folder";
 const escapeDriveQueryLiteral = (value: string) =>
   String(value || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 
+const DRIVE_SHARED_OPTS_ARCOS = {
+  supportsAllDrives: true,
+  includeItemsFromAllDrives: true,
+};
+
+async function getDriveItemName(
+  drive: ReturnType<typeof google.drive>,
+  fileId: string | null | undefined,
+): Promise<string | null> {
+  if (!fileId) return null;
+  try {
+    const f = await drive.files.get({
+      fileId,
+      fields: "name, trashed",
+      ...DRIVE_SHARED_OPTS_ARCOS,
+    });
+    if (f.data?.trashed) return null;
+    const name = String(f.data?.name || "").trim();
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Nombre canónico de la obra en Drive: carpeta link_drive (nunca el título de BD). */
+async function resolveObraDriveFolderName(
+  drive: ReturnType<typeof google.drive>,
+  obra: { link_drive?: string | null; id_folder_arcos?: string | null },
+): Promise<string> {
+  const fromLink = await getDriveItemName(drive, extractFileId(obra.link_drive || ""));
+  if (fromLink) return fromLink;
+
+  const fromArcosMaster = await getDriveItemName(drive, obra.id_folder_arcos || "");
+  if (fromArcosMaster) return fromArcosMaster;
+
+  throw new Error(
+    "La obra no tiene carpeta en Drive (link_drive). Sincronizá la carpeta de la obra antes de gestionar arcos.",
+  );
+}
+
+/** Etiqueta de shortcut/carpeta de arcos: nombre del set + nombre de carpeta Drive de la obra. */
+function buildArcoDriveLabel(setDriveName: string, obraDriveFolderName: string): string {
+  const setName = String(setDriveName || "").trim() || "Set Arcos";
+  const folderName = String(obraDriveFolderName || "").trim();
+  let prefix = "Arcos ";
+  if (setName.toLowerCase().startsWith("arcos")) prefix = "";
+  if (!folderName) return `${prefix}${setName}`.trim();
+  if (setName.toLowerCase().includes(folderName.toLowerCase())) {
+    return `${prefix}${setName}`.trim();
+  }
+  return `${prefix}${setName} - ${folderName}`.trim();
+}
+
 /** Copia recursivamente el contenido de una carpeta Drive a otra carpeta destino (solo contenido, no la carpeta raíz). */
 async function copyFolderContentsRecursive(
   drive: any,
@@ -2129,6 +2182,17 @@ serve(async (req) => {
     }
     // --- ACCIÓN: CREAR CARPETA DE ARCOS (BOWINGS) ---
     if (action === "create_bowing_set") {
+      const obraIdForSet = body.obraId || body.id_obra;
+      if (!obraIdForSet) throw new Error("Falta obraId para create_bowing_set");
+
+      const { data: obraForSet } = await supabase
+        .from("obras")
+        .select("link_drive, id_folder_arcos")
+        .eq("id", obraIdForSet)
+        .single();
+      if (!obraForSet) throw new Error("Obra no encontrada");
+      const obraDriveFolderName = await resolveObraDriveFolderName(drive, obraForSet);
+
       // 1. Obtener o crear carpeta del Programa dentro de la raíz de Arcos
       const { data: prog } = await supabase.from("programas").select("nomenclador").eq("id", programId).single();
       const programFolderName = prog?.nomenclador || `Prog_${programId}`;
@@ -2149,8 +2213,8 @@ serve(async (req) => {
         programFolderId = pf.data.id;
       }
 
-      // 2. Crear la carpeta específica del Set (ej: Arcos 2024 - Titulo Obra)
-      const setFolderName = `${nombreSet} - ${obraTitulo}`;
+      // 2. Crear la carpeta específica del Set (nombre del set + carpeta Drive de la obra)
+      const setFolderName = buildArcoDriveLabel(nombreSet || "Set Arcos", obraDriveFolderName);
       const res = await drive.files.create({
         requestBody: { name: setFolderName, mimeType: "application/vnd.google-apps.folder", parents: [programFolderId] },
         fields: "id, webViewLink"
@@ -2161,6 +2225,17 @@ serve(async (req) => {
 
     // --- ACCIÓN: VINCULAR ARCO EXISTENTE (SHORTCUT) ---
     if (action === "link_existing_arco") {
+      const obraIdForLink = body.obraId || body.id_obra;
+      if (!obraIdForLink) throw new Error("Falta obraId para link_existing_arco");
+
+      const { data: obraForLink } = await supabase
+        .from("obras")
+        .select("link_drive, id_folder_arcos")
+        .eq("id", obraIdForLink)
+        .single();
+      if (!obraForLink) throw new Error("Obra no encontrada");
+      const obraDriveFolderName = await resolveObraDriveFolderName(drive, obraForLink);
+
       // 1. Obtener o crear carpeta del Programa en Arcos
       const { data: prog } = await supabase.from("programas").select("nomenclador").eq("id", programId).single();
       const programFolderName = prog?.nomenclador || `Prog_${programId}`;
@@ -2182,7 +2257,7 @@ serve(async (req) => {
       }
 
       // 2. Crear acceso directo (Shortcut) al arco original
-      const shortcutName = `${nombreSet} - ${obraTitulo}`;
+      const shortcutName = buildArcoDriveLabel(nombreSet || "Set Arcos", obraDriveFolderName);
       const res = await drive.files.create({
         requestBody: {
           name: shortcutName,
@@ -2198,6 +2273,28 @@ serve(async (req) => {
 
     // --- ACCIÓN: LIMPIAR SHORTCUTS AL ELIMINAR OBRA ---
     if (action === "delete_work_shortcuts") {
+      const obraIdForDelete = body.obraId || body.id_obra;
+      let folderNameForSearch = "";
+
+      if (obraIdForDelete) {
+        const { data: obraForDelete } = await supabase
+          .from("obras")
+          .select("link_drive, id_folder_arcos")
+          .eq("id", obraIdForDelete)
+          .single();
+        if (obraForDelete) {
+          folderNameForSearch = await resolveObraDriveFolderName(drive, obraForDelete);
+        }
+      }
+
+      if (!folderNameForSearch && obraTitulo) {
+        folderNameForSearch = String(obraTitulo).replace(/<[^>]*>?/gm, "").trim();
+      }
+
+      if (!folderNameForSearch) {
+        throw new Error("No se pudo resolver el nombre de carpeta Drive de la obra.");
+      }
+
       const { data: prog } = await supabase.from("programas").select("nomenclador").eq("id", programId).single();
       const programFolderName = prog?.nomenclador || `Prog_${programId}`;
 
@@ -2210,7 +2307,7 @@ serve(async (req) => {
         const pId = parentSearch.data.files[0].id;
         // Buscar archivos que contengan el título de la obra
         const toDelete = await drive.files.list({
-          q: `'${pId}' in parents and name contains '${escapeDriveQueryLiteral(obraTitulo || "")}' and trashed = false`,
+          q: `'${pId}' in parents and name contains '${escapeDriveQueryLiteral(folderNameForSearch)}' and trashed = false`,
           fields: "files(id)"
         });
         for (const file of (toDelete.data.files || [])) {
@@ -2539,18 +2636,24 @@ serve(async (req) => {
     // ACCIÓN: SINCRONIZAR ARCOS (V4 - DRIVE AS SOURCE OF TRUTH)
     // =================================================================================
     if (action === "sync_bowing_to_program") {
-      const { programId, obraTitulo, nombreSet, targetDriveId, obraId } = body;
+      const { programId, nombreSet, targetDriveId, obraId } = body;
 
       if (!programId || !obraId) throw new Error("Faltan parámetros (programId, obraId)");
 
       // --- 0. OBTENER DATOS DE BD ---
       const { data: prog } = await supabase.from("programas").select("*").eq("id", programId).single();
-      const { data: obra } = await supabase.from("obras").select("*").eq("id", obraId).single();
+      const { data: obra } = await supabase
+        .from("obras")
+        .select("id, link_drive, id_folder_arcos")
+        .eq("id", obraId)
+        .single();
 
       if (!prog || !obra) throw new Error("No se encontraron registros de Programa u Obra");
 
       const tourRootId = prog.google_drive_folder_id;
       if (!tourRootId) throw new Error("La gira no tiene carpeta principal (D1). Sincroniza la gira primero.");
+
+      const obraDriveFolderName = await resolveObraDriveFolderName(drive, obra);
 
       // -----------------------------------------------------------------------
       // NIVEL OBRAS (Biblioteca Central)
@@ -2558,33 +2661,28 @@ serve(async (req) => {
 
       // --- 1. GESTIONAR CARPETA MAESTRA DE LA OBRA (O2) ---
       let workMasterId = obra.id_folder_arcos;
-      // Nombre por defecto (solo si hay que crearla), saneado
-      let workDriveName = obra.titulo.replace(/<[^>]*>?/gm, '').trim();
+      let workMasterLabel = obraDriveFolderName;
 
       let workMasterExists = false;
 
       if (workMasterId) {
-        try {
-          // IMPORTANTE: Leemos el nombre REAL de Drive
-          const f = await drive.files.get({ fileId: workMasterId, fields: "id, name, trashed" });
-          if (!f.data.trashed) {
-            workMasterExists = true;
-            workDriveName = f.data.name; // <--- TOMAMOS EL NOMBRE DE DRIVE
-          }
-        } catch (e) { }
+        const existingMasterName = await getDriveItemName(drive, workMasterId);
+        if (existingMasterName) {
+          workMasterExists = true;
+          workMasterLabel = existingMasterName;
+        }
       }
 
       if (!workMasterExists) {
-        // Buscar por nombre (fallback). Escapar comillas: títulos como "Quando m'en vo" rompen la query.
         let foundByName = false;
         try {
-          const safeWorkName = escapeDriveQueryLiteral(workDriveName);
+          const safeWorkName = escapeDriveQueryLiteral(obraDriveFolderName);
           const q = `name = '${safeWorkName}' and '${OBRAS_REAL_STORAGE_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
           const search = await drive.files.list({ q, fields: "files(id, name)" });
 
           if (search.data.files && search.data.files.length > 0) {
             workMasterId = search.data.files[0].id;
-            workDriveName = search.data.files[0].name; // <--- TOMAMOS EL NOMBRE DE DRIVE
+            workMasterLabel = search.data.files[0].name || obraDriveFolderName;
             foundByName = true;
           }
         } catch (searchErr) {
@@ -2595,17 +2693,16 @@ serve(async (req) => {
         }
 
         if (!foundByName) {
-          // Crear
           const newMaster = await drive.files.create({
             requestBody: {
-              name: workDriveName,
+              name: obraDriveFolderName,
               mimeType: "application/vnd.google-apps.folder",
-              parents: [OBRAS_REAL_STORAGE_ID]
+              parents: [OBRAS_REAL_STORAGE_ID],
             },
-            fields: "id, name"
+            fields: "id, name",
           });
           workMasterId = newMaster.data.id;
-          workDriveName = newMaster.data.name;
+          workMasterLabel = newMaster.data.name || obraDriveFolderName;
         }
         await supabase.from("obras").update({ id_folder_arcos: workMasterId }).eq("id", obraId);
       }
@@ -2710,25 +2807,17 @@ serve(async (req) => {
       }
 
       // --- 5. GESTIONAR SHORTCUT DEL SET (S2) ---
+      const standardizedName = buildArcoDriveLabel(setDriveName, workMasterLabel);
 
-      // CONSTRUCCIÓN DEL NOMBRE ESTANDARIZADO
-      // Lógica: Si el nombre del set ya empieza con "Arcos", no lo duplicamos.
-      let prefix = "Arcos ";
-      if (setDriveName.toLowerCase().startsWith("arcos")) prefix = "";
-
-      const standardizedName = `${prefix}${setDriveName} - ${workDriveName}`;
-
-      // LIMPIEZA: Borrar shortcuts previos que contengan el nombre de la OBRA
-      // (Porque la obra es lo único constante si cambias de set)
-      const safeWorkName = escapeDriveQueryLiteral(workDriveName);
-      const qCleanup = `'${tourArcosId}' in parents and mimeType = 'application/vnd.google-apps.shortcut' and name contains '${safeWorkName}' and trashed = false`;
+      // LIMPIEZA: borrar shortcuts previos de esta obra (por nombre de carpeta Drive, no título BD)
+      const safeFolderLabel = escapeDriveQueryLiteral(workMasterLabel);
+      const qCleanup = `'${tourArcosId}' in parents and mimeType = 'application/vnd.google-apps.shortcut' and name contains '${safeFolderLabel}' and trashed = false`;
 
       try {
         const candidates = await drive.files.list({ q: qCleanup, fields: "files(id, name)" });
         if (candidates.data.files && candidates.data.files.length > 0) {
           for (const file of candidates.data.files) {
-            // Verificamos que sea realmente de esta obra
-            if (file.name.toLowerCase().includes(workDriveName.toLowerCase())) {
+            if (file.name?.toLowerCase().includes(workMasterLabel.toLowerCase())) {
               console.log(`[Clean] Reemplazando: ${file.name}`);
               await drive.files.delete({ fileId: file.id });
             }

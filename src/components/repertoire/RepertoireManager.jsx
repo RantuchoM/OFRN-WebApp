@@ -2216,25 +2216,25 @@ export default function RepertoireManager({
 
     if (!confirm("¿Eliminar esta obra del bloque de repertorio?")) return;
 
-    // Buscar la obra para obtener su título (necesario para borrar el shortcut por nombre)
-    let workTitle = null;
+    // Buscar la obra para obtener su id (la EF resuelve el nombre desde link_drive)
+    let workObraId = null;
     repertorios.forEach((rep) => {
       const found = rep.repertorio_obras?.find((o) => o.id === itemId);
-      if (found && found.obras) {
-        workTitle = found.obras.titulo;
+      if (found?.obras?.id) {
+        workObraId = found.obras.id;
       }
     });
 
     try {
       setLoading(true);
 
-      // 1. Llamar a Edge Function para limpiar shortcuts asociados a este título en la carpeta de arcos
-      if (workTitle) {
+      // 1. Limpiar shortcuts asociados a la carpeta Drive de la obra
+      if (workObraId) {
         await supabase.functions.invoke("manage-drive", {
           body: {
             action: "delete_work_shortcuts",
             programId: programId || giraId,
-            obraTitulo: workTitle,
+            obraId: workObraId,
           },
         });
       }
