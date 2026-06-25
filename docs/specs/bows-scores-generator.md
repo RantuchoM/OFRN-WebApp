@@ -19,11 +19,19 @@ Permitir que los editores generen automáticamente copias de las particellas de 
 5. **Destino:** Campo `id_folder_arcos` de la tabla `programas`.
 
 ## UI/UX
-- Botón al lado de "Importar Repertorio" con icono de `IconBus` (o similar que represente arcos/cuerdas).
-- Feedback mediante `sonner` (toast) que muestre el progreso o el resultado final de la operación:
-  - Cargando: "Copiando scores para arcos..."
-  - Éxito: "Se copiaron X particellas de cuerdas con éxito."
-  - Error: Detalle de la causa (incluyendo el caso en que no haya particellas SCORE de cuerdas 50 con archivo).
+- Menú desplegable **「Arcos」** en la pestaña Repertorio de la gira (`ProgramRepertoire.jsx`), visible para `isEditor` o `isManagement`.
+- Opciones del menú:
+  1. **Carpeta de arcos** — abre en nueva pestaña `programas.id_folder_arcos` (fallback `id_shortcut_arcos_drive`). Si no existe, toast indicando usar «Generar toda la gira».
+  2. **Generar toda la gira** — flujo batch (detalle abajo).
+  3. **Acomodar Arcos** — repara shortcuts de Drive para todos los sets ya seleccionados en el repertorio.
+  4. **Scores para Arcos** — copia particellas SCORE cuerdas (id 50) a la carpeta de arcos con prefijo `[ARCOS]`.
+- **Generar toda la gira** (batch):
+     - Por cada fila de `repertorio_obras` con obra vinculada: si ya tiene `id_arco_seleccionado`, no cambia la selección.
+     - Si la obra tiene sets en `obras_arcos` pero ninguno seleccionado → asigna el primero (por `id` ascendente).
+     - Si la obra no tiene ningún set → modal pidiendo nombre canónico del set (default `Arcos {nomenclador}`); crea el set vía `sync_bowing_to_program` + insert en `obras_arcos` y lo asigna a todas las filas de esa obra en el programa.
+     - Al terminar, ejecuta **Acomodar Arcos** (`sync_bowing_to_program` con `targetDriveId` por cada set seleccionado) para reparar shortcuts en Drive.
+     - Modal final opcional: «¿Deseás además dejar una copia de los Scores…?» → si confirma, ejecuta **Scores para Arcos** (`COPY_FILES_BATCH`).
+- Feedback mediante `sonner` (toast) en todo el flujo batch y al copiar scores.
 
 ## SQL (Supabase Editor)
 Verifica que la tabla `programas` tenga el campo necesario:
@@ -38,12 +46,13 @@ COMMENT ON COLUMN public.programas.id_folder_arcos IS 'ID de Google Drive de la 
 ```
 
 ## Estado de Implementación
-- **Edge Function `manage-drive`**: acción `COPY_FILES_BATCH` implementada.
+- **Edge Function `manage-drive`**: acciones `COPY_FILES_BATCH` y `sync_bowing_to_program` implementadas.
 - **Frontend `ProgramRepertoire.jsx`**:
-  - Botón "Scores para Arcos" añadido, restringido a `isEditor` o `isManagement`, usando `toast.promise` de `sonner`.
+  - Menú **Arcos** con cuatro acciones: «Carpeta de arcos», «Generar toda la gira», «Acomodar Arcos», «Scores para Arcos» (`isEditor` o `isManagement`).
+  - `executeGenerateBowScores` / `executeRepairArcos` reutilizados por el flujo batch y el modal final de scores.
   - Lógica que filtra `obras_particellas` por `id_instrumento === "50"` y parsea `url_archivo` como string o JSON de versiones.
-  - La operación usa `program.id_folder_arcos` como carpeta destino en Drive.
+  - La operación de scores usa `program.id_folder_arcos` como carpeta destino en Drive.
 - **Permisos**:
-  - "Scores para Arcos": visible para `isEditor` o `isManagement`.
-  - "Importar Repertorio" y "Sincronizar Drive": visibles solo para editores/admins (`isEditor`).
+  - Menú Arcos: visible para `isEditor` o `isManagement`.
+  - «Importar Repertorio» y «Sincronizar Drive»: visibles solo para editores/admins (`isEditor`).
 

@@ -89,6 +89,10 @@ const throwIfStorageUploadError = (
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
+/** Escapa comillas simples para literales en queries de Google Drive (`name = '...'`). */
+const escapeDriveQueryLiteral = (value: string) =>
+  String(value || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+
 /** Copia recursivamente el contenido de una carpeta Drive a otra carpeta destino (solo contenido, no la carpeta raíz). */
 async function copyFolderContentsRecursive(
   drive: any,
@@ -600,7 +604,7 @@ async function syncEnsambleRootFolder(
     } else {
       const q =
         `'${ENSAMBLES_ROOT_FOLDER_ID}' in parents and mimeType = '${FOLDER_MIME}' ` +
-        `and name = '${folderName.replace(/'/g, "\\'")}' and trashed = false`;
+        `and name = '${escapeDriveQueryLiteral(folderName)}' and trashed = false`;
       const search = await drive.files.list({ q, fields: "files(id)", pageSize: 1, ...DRIVE_SHARED_OPTS });
       if (search.data.files?.length) {
         folderId = search.data.files[0].id!;
@@ -2130,7 +2134,7 @@ serve(async (req) => {
       const programFolderName = prog?.nomenclador || `Prog_${programId}`;
 
       const parentSearch = await drive.files.list({
-        q: `name = '${programFolderName}' and '${PROGRAMAS_ARCOS_ROOT_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+        q: `name = '${escapeDriveQueryLiteral(programFolderName)}' and '${PROGRAMAS_ARCOS_ROOT_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
         fields: "files(id)"
       });
 
@@ -2162,7 +2166,7 @@ serve(async (req) => {
       const programFolderName = prog?.nomenclador || `Prog_${programId}`;
 
       const parentSearch = await drive.files.list({
-        q: `name = '${programFolderName}' and '${PROGRAMAS_ARCOS_ROOT_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+        q: `name = '${escapeDriveQueryLiteral(programFolderName)}' and '${PROGRAMAS_ARCOS_ROOT_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
         fields: "files(id)"
       });
 
@@ -2198,7 +2202,7 @@ serve(async (req) => {
       const programFolderName = prog?.nomenclador || `Prog_${programId}`;
 
       const parentSearch = await drive.files.list({
-        q: `name = '${programFolderName}' and '${PROGRAMAS_ARCOS_ROOT_ID}' in parents and trashed = false`,
+        q: `name = '${escapeDriveQueryLiteral(programFolderName)}' and '${PROGRAMAS_ARCOS_ROOT_ID}' in parents and trashed = false`,
         fields: "files(id)"
       });
 
@@ -2206,7 +2210,7 @@ serve(async (req) => {
         const pId = parentSearch.data.files[0].id;
         // Buscar archivos que contengan el título de la obra
         const toDelete = await drive.files.list({
-          q: `'${pId}' in parents and name contains '${obraTitulo}' and trashed = false`,
+          q: `'${pId}' in parents and name contains '${escapeDriveQueryLiteral(obraTitulo || "")}' and trashed = false`,
           fields: "files(id)"
         });
         for (const file of (toDelete.data.files || [])) {
@@ -2571,14 +2575,26 @@ serve(async (req) => {
       }
 
       if (!workMasterExists) {
-        // Buscar por nombre (fallback)
-        const q = `name = '${workDriveName}' and '${OBRAS_REAL_STORAGE_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-        const search = await drive.files.list({ q, fields: "files(id, name)" });
+        // Buscar por nombre (fallback). Escapar comillas: títulos como "Quando m'en vo" rompen la query.
+        let foundByName = false;
+        try {
+          const safeWorkName = escapeDriveQueryLiteral(workDriveName);
+          const q = `name = '${safeWorkName}' and '${OBRAS_REAL_STORAGE_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+          const search = await drive.files.list({ q, fields: "files(id, name)" });
 
-        if (search.data.files && search.data.files.length > 0) {
-          workMasterId = search.data.files[0].id;
-          workDriveName = search.data.files[0].name; // <--- TOMAMOS EL NOMBRE DE DRIVE
-        } else {
+          if (search.data.files && search.data.files.length > 0) {
+            workMasterId = search.data.files[0].id;
+            workDriveName = search.data.files[0].name; // <--- TOMAMOS EL NOMBRE DE DRIVE
+            foundByName = true;
+          }
+        } catch (searchErr) {
+          console.warn(
+            "[sync_bowing_to_program] Búsqueda carpeta maestra falló, se creará:",
+            (searchErr as Error)?.message || searchErr,
+          );
+        }
+
+        if (!foundByName) {
           // Crear
           const newMaster = await drive.files.create({
             requestBody: {
@@ -2664,8 +2680,17 @@ serve(async (req) => {
       }
 
       if (!shortcutG1Exists) {
-        const qS1 = `'${tourRootId}' in parents and mimeType = 'application/vnd.google-apps.shortcut' and name = '${tourArcosName}' and trashed = false`;
-        const searchS1 = await drive.files.list({ q: qS1, fields: "files(id)" });
+        const safeTourArcosName = escapeDriveQueryLiteral(tourArcosName);
+        const qS1 = `'${tourRootId}' in parents and mimeType = 'application/vnd.google-apps.shortcut' and name = '${safeTourArcosName}' and trashed = false`;
+        let searchS1: { data: { files?: { id?: string }[] } } = { data: {} };
+        try {
+          searchS1 = await drive.files.list({ q: qS1, fields: "files(id)" });
+        } catch (searchErr) {
+          console.warn(
+            "[sync_bowing_to_program] Búsqueda shortcut G1 falló, se creará:",
+            (searchErr as Error)?.message || searchErr,
+          );
+        }
 
         if (searchS1.data.files && searchS1.data.files.length > 0) {
           shortcutG1Id = searchS1.data.files[0].id;
@@ -2695,7 +2720,7 @@ serve(async (req) => {
 
       // LIMPIEZA: Borrar shortcuts previos que contengan el nombre de la OBRA
       // (Porque la obra es lo único constante si cambias de set)
-      const safeWorkName = workDriveName.replace(/'/g, "\\'");
+      const safeWorkName = escapeDriveQueryLiteral(workDriveName);
       const qCleanup = `'${tourArcosId}' in parents and mimeType = 'application/vnd.google-apps.shortcut' and name contains '${safeWorkName}' and trashed = false`;
 
       try {
@@ -3167,13 +3192,22 @@ serve(async (req) => {
         }
 
         if (!shortcutG1Exists) {
+          const safeTourArcosName = escapeDriveQueryLiteral(tourArcosName);
           const qS1 =
             `'${tourRootId}' in parents and mimeType = 'application/vnd.google-apps.shortcut' ` +
-            `and name = '${tourArcosName}' and trashed = false`;
-          const searchS1 = await drive.files.list({
-            q: qS1,
-            fields: "files(id)",
-          });
+            `and name = '${safeTourArcosName}' and trashed = false`;
+          let searchS1: { data: { files?: { id?: string }[] } } = { data: {} };
+          try {
+            searchS1 = await drive.files.list({
+              q: qS1,
+              fields: "files(id)",
+            });
+          } catch (searchErr) {
+            console.warn(
+              "[COPY_FILES_BATCH] Búsqueda shortcut G1 falló, se creará:",
+              (searchErr as Error)?.message || searchErr,
+            );
+          }
 
           if (searchS1.data.files && searchS1.data.files.length > 0) {
             shortcutG1Id = searchS1.data.files[0].id!;
@@ -3245,7 +3279,7 @@ serve(async (req) => {
           }
 
           // Evitar duplicados: si ya existe un archivo con ese nombre en la carpeta destino, lo saltamos.
-          const safeNameForQuery = (finalName || "").replace(/'/g, "\\'");
+          const safeNameForQuery = escapeDriveQueryLiteral(finalName || "");
           const existing = await drive.files.list({
             q: `'${destFolder}' in parents and name = '${safeNameForQuery}' and trashed = false`,
             fields: "files(id)",

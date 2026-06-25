@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   IconLoader,
   IconMusic,
@@ -11,11 +12,15 @@ import {
   IconCheck,
   IconSearch,
   IconChevronRight,
+  IconChevronDown,
   IconArrowRight,
   IconFilter,
   IconRefresh,
   IconViolin,
+  IconFolder,
+  IconExternalLink,
 } from "../../components/ui/Icons";
+import ConfirmModal from "../../components/ui/ConfirmModal";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
@@ -29,6 +34,153 @@ import {
 import { calculateInstrumentation } from "../../utils/instrumentation";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { toast } from "sonner";
+
+function sortArcos(arcos) {
+  return [...(arcos || [])].sort((a, b) => Number(a.id) - Number(b.id));
+}
+
+function analyzeArcosNeeds(repertorios) {
+  const itemsNeedingSelection = [];
+  const obrasNeedingCreation = new Map();
+  let totalItems = 0;
+
+  for (const bloque of repertorios || []) {
+    for (const item of bloque.repertorio_obras || []) {
+      if (!item.obras?.id) continue;
+      totalItems += 1;
+      if (item.id_arco_seleccionado) continue;
+
+      const arcos = sortArcos(item.obras.obras_arcos);
+      if (arcos.length > 0) {
+        itemsNeedingSelection.push({ item, firstArco: arcos[0] });
+      } else {
+        const obraId = item.obras.id;
+        if (!obrasNeedingCreation.has(obraId)) {
+          obrasNeedingCreation.set(obraId, {
+            obra: item.obras,
+            rowIds: [],
+          });
+        }
+        obrasNeedingCreation.get(obraId).rowIds.push(item.id);
+      }
+    }
+  }
+
+  return { itemsNeedingSelection, obrasNeedingCreation, totalItems };
+}
+
+function collectRepairTasks(repertorios) {
+  const tasks = [];
+  for (const bloque of repertorios || []) {
+    for (const item of bloque.repertorio_obras || []) {
+      const obra = item.obras;
+      const arcoId = item.id_arco_seleccionado;
+      if (!obra || !arcoId) continue;
+      const arco = (obra.obras_arcos || []).find(
+        (a) => String(a.id) === String(arcoId),
+      );
+      if (!arco?.id_drive_folder) continue;
+      tasks.push({ obra, arco });
+    }
+  }
+  return tasks;
+}
+
+const ArcoDefaultNameModal = ({
+  isOpen,
+  defaultName,
+  obraCount,
+  onClose,
+  onConfirm,
+  saving,
+}) => {
+  const [nombre, setNombre] = useState(defaultName || "");
+
+  useEffect(() => {
+    if (isOpen) setNombre(defaultName || "");
+  }, [isOpen, defaultName]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const trimmed = nombre.trim();
+    if (!trimmed) return;
+    await onConfirm(trimmed);
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <div
+        className="bg-white rounded-xl shadow-2xl w-full max-w-md border border-slate-100 animate-in zoom-in-95 duration-200"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5 border-b border-slate-100 flex justify-between items-start gap-3">
+          <div>
+            <h3 className="text-base font-bold text-slate-800">
+              Nombre del set de arcos
+            </h3>
+            <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+              {obraCount === 1
+                ? "Hay 1 obra sin carpeta de arcos."
+                : `Hay ${obraCount} obras sin carpeta de arcos.`}{" "}
+              ¿Qué nombre de carpeta de arcos debería usarse para las que no
+              tienen arco?
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="text-slate-400 hover:text-slate-600 shrink-0 disabled:opacity-40"
+            aria-label="Cerrar"
+          >
+            <IconX size={20} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
+              Nombre del set
+            </label>
+            <input
+              type="text"
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              disabled={saving}
+              autoFocus
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-60"
+              placeholder="Ej: Arcos G15"
+            />
+          </div>
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !nombre.trim()}
+              className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {saving ? (
+                <IconLoader size={16} className="animate-spin" />
+              ) : null}
+              {saving ? "Generando…" : "Continuar"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body,
+  );
+};
 
 // --- MODAL AVANZADO DE IMPORTACIÓN ---
 const AdvancedImportModal = ({
@@ -379,6 +531,32 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
   const [syncingRepertoire, setSyncingRepertoire] = useState(false);
   const [generatingBowScores, setGeneratingBowScores] = useState(false);
   const [repairingArcos, setRepairingArcos] = useState(false);
+  const [generatingFullTour, setGeneratingFullTour] = useState(false);
+  const [arcosMenuOpen, setArcosMenuOpen] = useState(false);
+  const [showArcoNameModal, setShowArcoNameModal] = useState(false);
+  const [showScoresConfirmModal, setShowScoresConfirmModal] = useState(false);
+  const [defaultArcoName, setDefaultArcoName] = useState("");
+  const [pendingArcosAnalysis, setPendingArcosAnalysis] = useState(null);
+  const arcosMenuRef = useRef(null);
+
+  const arcosBusy =
+    generatingBowScores || repairingArcos || generatingFullTour;
+
+  useEffect(() => {
+    if (!arcosMenuOpen) return;
+    const handleClickOutside = (event) => {
+      if (arcosMenuRef.current && !arcosMenuRef.current.contains(event.target)) {
+        setArcosMenuOpen(false);
+      }
+    };
+    const timer = setTimeout(() => {
+      document.addEventListener("click", handleClickOutside);
+    }, 10);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("click", handleClickOutside);
+    };
+  }, [arcosMenuOpen]);
 
   // 1. Efecto de Permisos
   useEffect(() => {
@@ -461,7 +639,11 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
           ])
           .select(`*, repertorio_obras(*)`)
           .single();
-        if (!createError) setRepertorios([newBlock]);
+        if (!createError) {
+          setRepertorios([newBlock]);
+          return [newBlock];
+        }
+        return [];
       } else {
         const sortedData = data.map((bloque) => ({
           ...bloque,
@@ -470,9 +652,11 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
           ),
         }));
         setRepertorios(sortedData);
+        return sortedData;
       }
     } catch (err) {
       console.error("Error fetching full repertoire:", err);
+      return null;
     } finally {
       setLoadingRepo(false);
     }
@@ -658,10 +842,9 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
     return match ? match[0] : null;
   };
 
-  const handleGenerateBowScores = async () => {
-    if (!program?.id) return;
+  const executeGenerateBowScores = async () => {
+    if (!program?.id) return null;
 
-    // Reunir todas las obras del repertorio actual
     const allWorks = [];
     for (const bloque of repertorios || []) {
       for (const item of bloque.repertorio_obras || []) {
@@ -683,87 +866,119 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
     }
 
     const uniqueWorks = Array.from(uniqueWorksMap.values());
-
     if (!uniqueWorks.length) {
-      toast.error("No se encontraron obras en el repertorio actual.");
+      throw new Error("No se encontraron obras en el repertorio actual.");
+    }
+
+    const obraIds = uniqueWorks.map((w) => w.obraId);
+    const { data: particellas, error } = await supabase
+      .from("obras_particellas")
+      .select("id, id_obra, id_instrumento, nombre_archivo, url_archivo")
+      .in("id_obra", obraIds)
+      .eq("id_instrumento", "50");
+
+    if (error) throw error;
+
+    const files = [];
+    for (const part of particellas || []) {
+      if (!part.url_archivo) continue;
+
+      let candidateUrl = null;
+      const raw = String(part.url_archivo).trim();
+
+      if (raw.startsWith("[")) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const firstWithUrl = parsed.find((x) => x && x.url) || parsed[0];
+            candidateUrl = firstWithUrl?.url || null;
+          }
+        } catch {
+          candidateUrl = raw;
+        }
+      } else {
+        candidateUrl = raw;
+      }
+
+      const fileId = extractFileIdFromUrl(candidateUrl);
+      if (!fileId) continue;
+
+      files.push({
+        fileId,
+        prefixLabel: "[ARCOS] ",
+      });
+    }
+
+    if (!files.length) {
+      throw new Error(
+        "No se encontraron particellas SCORE de cuerdas (instrumento 50) con archivo para copiar.",
+      );
+    }
+
+    const { data, error: fnError } = await supabase.functions.invoke(
+      "manage-drive",
+      {
+        body: {
+          action: "COPY_FILES_BATCH",
+          giraId: program.id,
+          files,
+        },
+      },
+    );
+
+    if (fnError) throw fnError;
+    return { response: data, totalPrepared: files.length };
+  };
+
+  const executeRepairArcos = async (repertoireData = repertorios) => {
+    const tasks = collectRepairTasks(repertoireData);
+    if (!tasks.length) {
+      return { repaired: 0, total: 0, skipped: true };
+    }
+
+    let repaired = 0;
+    for (const task of tasks) {
+      const { obra, arco } = task;
+      try {
+        await handleSyncArco(obra, arco.nombre, arco.id_drive_folder);
+        repaired += 1;
+      } catch (e) {
+        console.error("[AcomodarArcos] Error en obra", obra.id, e);
+      }
+    }
+    return { repaired, total: tasks.length, skipped: false };
+  };
+
+  const handleRepairArcos = async () => {
+    if (!program?.id) return;
+    setArcosMenuOpen(false);
+
+    const tasks = collectRepairTasks(repertorios);
+    if (!tasks.length) {
+      toast.error("No hay sets de arcos seleccionados en este programa.");
       return;
     }
 
-    setGeneratingBowScores(true);
-
-    const promise = (async () => {
-      // Cargar particellas de SCORE de cuerdas (id_instrumento === "50") para todas las obras del programa
-      const obraIds = uniqueWorks.map((w) => w.obraId);
-      const { data: particellas, error } = await supabase
-        .from("obras_particellas")
-        .select("id, id_obra, id_instrumento, nombre_archivo, url_archivo")
-        .in("id_obra", obraIds)
-        .eq("id_instrumento", "50");
-
-      if (error) {
-        throw error;
-      }
-
-      const files = [];
-
-      for (const part of particellas || []) {
-        if (!part.url_archivo) continue;
-
-        // url_archivo puede ser:
-        // - Un string simple con una URL de Drive
-        // - Un JSON de array [{ url, name }]
-        let candidateUrl = null;
-        const raw = String(part.url_archivo).trim();
-
-        if (raw.startsWith("[")) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              const firstWithUrl = parsed.find((x) => x && x.url) || parsed[0];
-              candidateUrl = firstWithUrl?.url || null;
-            }
-          } catch {
-            candidateUrl = raw;
-          }
-        } else {
-          candidateUrl = raw;
-        }
-
-        const fileId = extractFileIdFromUrl(candidateUrl);
-        if (!fileId) continue;
-
-        // No forzamos nombre aquí: dejamos que la Edge Function
-        // use el nombre original de Drive y solo aplique el prefijo "[ARCOS] ".
-        files.push({
-          fileId,
-          // destinationFolderId se resolverá en la Edge Function a partir de giraId
-          prefixLabel: "[ARCOS] ",
-        });
-      }
-
-      if (!files.length) {
-        throw new Error(
-          "No se encontraron particellas SCORE de cuerdas (instrumento 50) con archivo para copiar.",
-        );
-      }
-
-      const { data, error: fnError } = await supabase.functions.invoke(
-        "manage-drive",
-        {
-          body: {
-            action: "COPY_FILES_BATCH",
-            giraId: program.id,
-            files,
-          },
-        },
-      );
-
-      if (fnError) throw fnError;
-      return { response: data, totalPrepared: files.length };
-    })();
-
+    setRepairingArcos(true);
     try {
-      await toast.promise(promise, {
+      await toast.promise(executeRepairArcos(repertorios), {
+        loading: "Acomodando accesos de arcos...",
+        success: ({ repaired, total }) =>
+          `Se acomodaron ${repaired} de ${total} sets de arcos.`,
+        error: (err) =>
+          `Error al acomodar arcos: ${err?.message || "Error desconocido"}`,
+      });
+    } finally {
+      setRepairingArcos(false);
+    }
+  };
+
+  const handleGenerateBowScores = async () => {
+    if (!program?.id) return;
+    setArcosMenuOpen(false);
+    setGeneratingBowScores(true);
+    try {
+      await toast.promise(executeGenerateBowScores(), {
         loading: "Copiando scores para arcos...",
         success: ({ response, totalPrepared }) => {
           const copied =
@@ -780,55 +995,156 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
     }
   };
 
-  const handleRepairArcos = async () => {
-    if (!program?.id) return;
+  const handleOpenArcosFolder = async () => {
+    setArcosMenuOpen(false);
+    let folderId = program?.id_folder_arcos;
 
-    const tasks = [];
-
-    for (const bloque of repertorios || []) {
-      for (const item of bloque.repertorio_obras || []) {
-        const obra = item.obras;
-        const arcoId = item.id_arco_seleccionado;
-        if (!obra || !arcoId) continue;
-
-        const arco = (obra.obras_arcos || []).find((a) => a.id === arcoId);
-        if (!arco?.id_drive_folder) continue;
-
-        tasks.push({ obra, arco });
+    if (!folderId) {
+      const { data, error } = await supabase
+        .from("programas")
+        .select("id_folder_arcos, id_shortcut_arcos_drive")
+        .eq("id", program.id)
+        .single();
+      if (error) {
+        toast.error("No se pudo obtener la carpeta de arcos.");
+        return;
       }
+      folderId = data?.id_folder_arcos || data?.id_shortcut_arcos_drive;
     }
 
-    if (!tasks.length) {
-      toast.error("No hay sets de arcos seleccionados en este programa.");
+    if (!folderId) {
+      toast.error(
+        'La carpeta de arcos aún no existe. Usá "Generar toda la gira" primero.',
+      );
       return;
     }
 
-    setRepairingArcos(true);
+    window.open(
+      `https://drive.google.com/drive/folders/${folderId}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  };
 
-    const repairPromise = (async () => {
-      let repaired = 0;
-      for (const task of tasks) {
-        const { obra, arco } = task;
-        try {
-          await handleSyncArco(obra, arco.nombre, arco.id_drive_folder);
-          repaired += 1;
-        } catch (e) {
-          console.error("[AcomodarArcos] Error en obra", obra.id, e);
+  const runGenerateFullTour = async (newArcoName, analysis) => {
+      if (!program?.id || !analysis) return;
+
+      setGeneratingFullTour(true);
+      setShowArcoNameModal(false);
+
+      const toastId = toast.loading("Generando arcos para toda la gira...");
+
+      try {
+        for (const { obra, rowIds } of analysis.obrasNeedingCreation.values()) {
+          const result = await handleSyncArco(obra, newArcoName, null);
+          if (!result?.newArcoId) {
+            throw new Error(
+              `No se pudo crear el set de arcos para "${obra.titulo?.replace(/<[^>]*>?/gm, "") || "obra"}".`,
+            );
+          }
+          const { error } = await supabase
+            .from("repertorio_obras")
+            .update({ id_arco_seleccionado: result.newArcoId })
+            .in("id", rowIds);
+          if (error) throw error;
         }
-      }
-      return { repaired, total: tasks.length };
-    })();
 
-    try {
-      await toast.promise(repairPromise, {
-        loading: "Acomodando accesos de arcos...",
-        success: ({ repaired, total }) =>
-          `Se acomodaron ${repaired} de ${total} sets de arcos.`,
-        error: (err) =>
-          `Error al acomodar arcos: ${err?.message || "Error desconocido"}`,
-      });
+        for (const { item, firstArco } of analysis.itemsNeedingSelection) {
+          const { error } = await supabase
+            .from("repertorio_obras")
+            .update({ id_arco_seleccionado: firstArco.id })
+            .eq("id", item.id);
+          if (error) throw error;
+        }
+
+        const freshRepertoire = await fetchFullRepertoire();
+        const repairResult = await executeRepairArcos(
+          freshRepertoire || repertorios,
+        );
+
+        const createdCount = analysis.obrasNeedingCreation.size;
+        const selectedCount = analysis.itemsNeedingSelection.length;
+        const repairedCount = repairResult.repaired;
+
+        toast.success(
+          `Gira generada: ${createdCount} set(s) creado(s), ${selectedCount} asignación(es) y ${repairedCount} acceso(s) acomodado(s).`,
+          { id: toastId },
+        );
+
+        setShowScoresConfirmModal(true);
+      } catch (err) {
+        console.error("[GenerarTodaLaGira]", err);
+        toast.error(err?.message || "Error al generar arcos para la gira.", {
+          id: toastId,
+        });
     } finally {
-      setRepairingArcos(false);
+      setGeneratingFullTour(false);
+      setPendingArcosAnalysis(null);
+    }
+  };
+
+  const handleStartGenerateFullTour = () => {
+    setArcosMenuOpen(false);
+
+    const analysis = analyzeArcosNeeds(repertorios);
+    if (analysis.totalItems === 0) {
+      toast.error("No hay obras en el repertorio actual.");
+      return;
+    }
+
+    const needsWork =
+      analysis.obrasNeedingCreation.size > 0 ||
+      analysis.itemsNeedingSelection.length > 0;
+
+    if (!needsWork) {
+      setGeneratingFullTour(true);
+      const toastId = toast.loading("Acomodando accesos de arcos...");
+      executeRepairArcos(repertorios)
+        .then(({ repaired, total }) => {
+          toast.success(
+            total
+              ? `Todos los arcos ya estaban asignados. Se acomodaron ${repaired} de ${total} accesos.`
+              : "Todos los arcos ya estaban asignados.",
+            { id: toastId },
+          );
+          setShowScoresConfirmModal(true);
+        })
+        .catch((err) => {
+          toast.error(err?.message || "Error al acomodar arcos.", {
+            id: toastId,
+          });
+        })
+        .finally(() => setGeneratingFullTour(false));
+      return;
+    }
+
+    if (analysis.obrasNeedingCreation.size > 0) {
+      setDefaultArcoName(`Arcos ${program.nomenclador || "Gira"}`);
+      setPendingArcosAnalysis(analysis);
+      setShowArcoNameModal(true);
+      return;
+    }
+
+    runGenerateFullTour(null, analysis);
+  };
+
+  const handleConfirmArcoDefaultName = async (nombre) => {
+    if (!pendingArcosAnalysis) return;
+    await runGenerateFullTour(nombre, pendingArcosAnalysis);
+  };
+
+  const handleConfirmCopyScores = async () => {
+    setGeneratingBowScores(true);
+    try {
+      await executeGenerateBowScores();
+      toast.success("Scores copiados a la carpeta de arcos.");
+    } catch (err) {
+      toast.error(
+        err?.message || "Error al copiar scores para arcos.",
+      );
+      throw err;
+    } finally {
+      setGeneratingBowScores(false);
     }
   };
 
@@ -931,39 +1247,76 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
                 <div className="flex w-full min-w-0 justify-end">
                   {(isEditor || isManagement) && (
                     <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={handleGenerateBowScores}
-                        disabled={generatingBowScores}
-                        className="text-xs font-bold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded border border-slate-200 flex items-center gap-1 bg-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {generatingBowScores ? (
-                          <IconLoader
-                            size={14}
-                            className="animate-spin text-slate-500"
+                      <div className="relative" ref={arcosMenuRef}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setArcosMenuOpen((open) => !open);
+                          }}
+                          disabled={arcosBusy}
+                          className="text-xs font-bold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded border border-slate-200 flex items-center gap-1.5 bg-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {arcosBusy ? (
+                            <IconLoader
+                              size={14}
+                              className="animate-spin text-slate-500"
+                            />
+                          ) : (
+                            <IconViolin size={14} />
+                          )}
+                          Arcos
+                          <IconChevronDown
+                            size={12}
+                            className={`text-slate-400 transition-transform ${arcosMenuOpen ? "rotate-180" : ""}`}
                           />
-                        ) : (
-                          <IconViolin size={14} />
-                        )}
-                        Scores para Arcos
-                      </button>
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={handleRepairArcos}
-                        disabled={repairingArcos}
-                        className="text-xs font-bold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded border border-slate-200 flex items-center gap-1 bg-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {repairingArcos ? (
-                          <IconLoader
-                            size={14}
-                            className="animate-spin text-slate-500"
-                          />
-                        ) : (
-                          <IconViolin size={14} />
+                        {arcosMenuOpen && (
+                          <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1 animate-in fade-in zoom-in-95 duration-150">
+                            <button
+                              type="button"
+                              onClick={handleOpenArcosFolder}
+                              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                            >
+                              <IconFolder size={14} className="text-slate-400 shrink-0" />
+                              Carpeta de arcos
+                              <IconExternalLink
+                                size={12}
+                                className="text-slate-300 ml-auto shrink-0"
+                              />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleStartGenerateFullTour}
+                              disabled={arcosBusy}
+                              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50"
+                            >
+                              <IconViolin size={14} className="text-indigo-500 shrink-0" />
+                              Generar toda la gira
+                            </button>
+                            <div className="my-1 border-t border-slate-100" />
+                            <button
+                              type="button"
+                              onClick={handleRepairArcos}
+                              disabled={arcosBusy}
+                              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50"
+                            >
+                              <IconViolin size={14} className="text-slate-400 shrink-0" />
+                              Acomodar Arcos
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleGenerateBowScores}
+                              disabled={arcosBusy}
+                              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50"
+                            >
+                              <IconViolin size={14} className="text-slate-400 shrink-0" />
+                              Scores para Arcos
+                            </button>
+                          </div>
                         )}
-                        Acomodar Arcos
-                      </button>
+                      </div>
 
                       {isEditor && (
                         <>
@@ -1039,6 +1392,31 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
           onImport={handleImportBlock}
         />
       )}
+
+      <ArcoDefaultNameModal
+        isOpen={showArcoNameModal}
+        defaultName={defaultArcoName}
+        obraCount={pendingArcosAnalysis?.obrasNeedingCreation?.size || 0}
+        onClose={() => {
+          if (generatingFullTour) return;
+          setShowArcoNameModal(false);
+          setPendingArcosAnalysis(null);
+        }}
+        onConfirm={handleConfirmArcoDefaultName}
+        saving={generatingFullTour}
+      />
+
+      <ConfirmModal
+        isOpen={showScoresConfirmModal}
+        onClose={() => setShowScoresConfirmModal(false)}
+        onConfirm={handleConfirmCopyScores}
+        title="Copiar scores a la carpeta"
+        message="¿Deseás además dejar una copia de los Scores de cuerdas en la carpeta de arcos de la gira?"
+        confirmText="Sí, copiar scores"
+        cancelText="No, gracias"
+        confirmLoading={generatingBowScores}
+        loadingText="Copiando scores…"
+      />
     </div>
   );
 }
