@@ -20,7 +20,7 @@ Visualizar en un cuadro de doble entrada la participación de integrantes en los
      - Orden: Por `id_instrumento` (prioridad orquestal).
    - **Eje X (Columnas):** Programas.
      - Etiqueta: `nomenclador` + `mes_letra`.
-     - Hover: Título y subtítulo del programa.
+     - Click en cabecera: popover tipo mini `GiraCard` (móvil slide 1) con tipo/zona, fechas, localidades, título/subtítulo, ensambles/familias convocados y excluidos (`giras_fuentes`), y enlace a repertorio.
      - Link: Acceso directo a la sección de repertorio del programa.
      - Orden: Cronológico ascendente.
 5. **Intersección:**
@@ -49,7 +49,7 @@ No se requieren tablas nuevas; se sugiere una vista para optimizar la carga de l
 | Filtros por tipo de programa (`programas.tipo`) y toggle de programas pasados del año en curso | Completado |
 | Matriz: filas con nombre, subtexto instrumento + ensambles, orden por `id_instr` | Completado |
 | Matriz: columnas por programa, orden `fecha_desde` ascendente, cabecera `nomenclador` + `mes_letra` | Completado |
-| Tooltip en cabecera con título/subtítulo y enlace a repertorio (`?tab=giras&view=REPERTOIRE&giraId=`) | Completado |
+| Popover en cabecera (mini GiraCard + convocatorias + enlace repertorio `?tab=giras&view=REPERTOIRE&giraId=`) | Completado |
 | Cruce con `resolveGiraRosterForMatrix` (X contabilizado, `*` pre-alta sin totales) | Completado |
 | Tabla con primera columna y primera fila sticky (Tailwind) | Completado |
 | Ubicación: **Gestión** (`?tab=management`) → pestaña **Convocatorias** | Completado |

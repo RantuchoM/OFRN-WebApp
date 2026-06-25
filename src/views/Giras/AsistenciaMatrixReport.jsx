@@ -9,7 +9,8 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { parseISO, startOfDay } from "date-fns";
+import { format, parseISO, startOfDay } from "date-fns";
+import { es } from "date-fns/locale";
 import {
   fetchAsistenciaMatrixBaseData,
   resolveGiraRosterForMatrix,
@@ -31,9 +32,77 @@ import {
 import {
   buildMatrixIntegranteInstrumentDisplay,
   compareInstrumentIds,
+  getProgramStyle,
 } from "../../utils/giraUtils";
 import { integranteKey } from "../../utils/integranteIds";
-import { IconChevronDown, IconDownload, IconHistory } from "../../components/ui/Icons";
+import {
+  IconChevronDown,
+  IconDownload,
+  IconHistory,
+  IconMapPin,
+} from "../../components/ui/Icons";
+
+const normalizeFamily = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+const isProductionFamily = (value) => normalizeFamily(value) === "produccion";
+
+function formatProgramDateRangeCompact(start, end) {
+  if (!start) return null;
+  try {
+    const d1 = parseISO(start);
+    const d2 = end ? parseISO(end) : d1;
+    return {
+      d1: format(d1, "dd"),
+      m1: format(d1, "MMM", { locale: es }).toUpperCase(),
+      d2: format(d2, "dd"),
+      m2: format(d2, "MMM", { locale: es }).toUpperCase(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getProgramStyleToken(colorClasses, regex, fallback) {
+  return String(colorClasses || "").match(regex)?.[0] || fallback;
+}
+
+function buildConvocatoriaChips(girasFuentes = [], ensambleMap) {
+  const inclusions = [];
+  const exclusions = [];
+  for (const s of girasFuentes) {
+    if (s.tipo === "FAMILIA" && isProductionFamily(s.valor_texto)) continue;
+    const isEnsembleRef =
+      s.tipo === "ENSAMBLE" || s.tipo === "EXCL_ENSAMBLE";
+    let label = isEnsembleRef
+      ? ensambleMap.get(String(s.valor_id)) ||
+        `Ensamble ${s.valor_id ?? ""}`
+      : s.valor_texto;
+    if (label == null || String(label).trim() === "") {
+      label = isEnsembleRef ? `Ensamble ${s.valor_id ?? ""}` : "—";
+    }
+    const excluded = s.tipo === "EXCL_ENSAMBLE";
+    const chip = (
+      <span
+        key={s.id ?? `${s.tipo}-${s.valor_id}-${s.valor_texto}`}
+        className={`rounded border border-current bg-white/60 px-1 py-px text-[10px] leading-tight ${
+          excluded
+            ? "line-through opacity-50 text-slate-600"
+            : "font-medium opacity-90"
+        }`}
+      >
+        {label}
+      </span>
+    );
+    if (excluded) exclusions.push(chip);
+    else inclusions.push(chip);
+  }
+  return { inclusions, exclusions };
+}
 
 function startOfToday() {
   return startOfDay(new Date());
@@ -72,9 +141,8 @@ function sortIntegrantesByInstrument(integrantes) {
 /** Tooltip en portal (fixed) para no quedar recortado por overflow del scroll del panel. */
 function ProgramaHeaderTooltip({
   label,
-  nombreGira,
-  subtitulo,
-  giraId,
+  programa,
+  ensambleMap,
   onRepertoire,
   scrollContainerRef,
 }) {
@@ -83,10 +151,34 @@ function ProgramaHeaderTooltip({
   const popRef = useRef(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
+  const baseStyle = getProgramStyle(programa.tipo);
+  const typeColorClass = getProgramStyleToken(
+    baseStyle.color,
+    /text-[\w-]+-\d+/,
+    "text-slate-700",
+  );
+  const borderColorClass = getProgramStyleToken(
+    baseStyle.color,
+    /border-[\w-]+-\d+/,
+    "border-slate-300",
+  );
+  const dateInfo = formatProgramDateRangeCompact(
+    programa.fecha_desde,
+    programa.fecha_hasta,
+  );
+  const locs = programa.giras_localidades
+    ?.map((l) => l.localidades?.localidad)
+    .filter(Boolean)
+    .join(", ");
+  const { inclusions, exclusions } = buildConvocatoriaChips(
+    programa.giras_fuentes,
+    ensambleMap,
+  );
+
   const updatePos = useCallback(() => {
     if (!btnRef.current) return;
     const r = btnRef.current.getBoundingClientRect();
-    const maxW = 320;
+    const maxW = 240;
     const left = Math.min(
       Math.max(r.left + r.width / 2, maxW / 2 + 8),
       window.innerWidth - maxW / 2 - 8,
@@ -157,28 +249,127 @@ function ProgramaHeaderTooltip({
               top: pos.top,
               left: pos.left,
               transform: "translateX(-50%)",
-              zIndex: 99999,
             }}
-            className="w-max max-w-sm rounded-lg border border-slate-200 bg-white p-2.5 text-left text-xs shadow-2xl dark:border-slate-600 dark:bg-slate-800"
+            className={`z-[110] w-[15rem] overflow-hidden rounded-xl border text-left shadow-xl ${baseStyle.color} ${borderColorClass}`}
           >
-            <div className="font-semibold text-slate-800 dark:text-slate-100">
-              {nombreGira || "—"}
-            </div>
-            {subtitulo ? (
-              <div className="mt-0.5 text-slate-600 dark:text-slate-300">
-                {subtitulo}
+            <div className="flex flex-col gap-1 p-2.5">
+              <div className="flex items-center gap-1.5 truncate text-[10px] font-bold uppercase tracking-wide">
+                <span className={typeColorClass}>{programa.tipo || "—"}</span>
+                {programa.zona ? (
+                  <>
+                    <span className="opacity-30">|</span>
+                    <span className="opacity-60">{programa.zona}</span>
+                  </>
+                ) : null}
               </div>
-            ) : null}
-            <button
-              type="button"
-              className="mt-2 text-indigo-600 underline hover:text-indigo-800 dark:text-indigo-400"
-              onClick={() => {
-                onRepertoire(giraId);
-                setOpen(false);
-              }}
-            >
-              Ir al repertorio
-            </button>
+              <div className="flex items-center gap-1.5 truncate text-[9px] font-bold uppercase tracking-wide opacity-60">
+                {programa.nomenclador ? (
+                  <span className={`truncate ${typeColorClass}`}>
+                    {programa.nomenclador}
+                  </span>
+                ) : null}
+                {programa.mes_letra ? (
+                  <>
+                    {programa.nomenclador ? (
+                      <span className="opacity-30">|</span>
+                    ) : null}
+                    <span className={typeColorClass}>{programa.mes_letra}</span>
+                  </>
+                ) : null}
+              </div>
+
+              {dateInfo ? (
+                <div className="flex items-baseline justify-center gap-1.5 py-0.5">
+                  <div className="text-center">
+                    <span
+                      className={`text-xl font-black leading-none ${typeColorClass}`}
+                    >
+                      {dateInfo.d1}
+                    </span>
+                    {dateInfo.m1 !== dateInfo.m2 ? (
+                      <span className="ml-0.5 text-[9px] font-bold opacity-70">
+                        {dateInfo.m1}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="h-px w-3 self-center bg-current opacity-30" />
+                  <div className="text-center">
+                    <span
+                      className={`text-xl font-black leading-none ${typeColorClass}`}
+                    >
+                      {dateInfo.d2}
+                    </span>
+                    <span className="ml-0.5 text-[11px] font-bold opacity-70">
+                      {dateInfo.m2}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-0.5 text-center text-[10px] italic opacity-40">
+                  Sin fecha
+                </div>
+              )}
+
+              {locs ? (
+                <div className="flex items-center justify-center gap-1 truncate text-[10px] opacity-60">
+                  <IconMapPin size={11} className="shrink-0" />
+                  <span className="truncate">{locs}</span>
+                </div>
+              ) : null}
+
+              {programa.nombre_gira || programa.subtitulo ? (
+                <div className="border-t border-black/5 pt-1.5 text-center">
+                  {programa.nombre_gira ? (
+                    <div
+                      className={`text-[11px] font-semibold leading-tight ${typeColorClass}`}
+                    >
+                      {programa.nombre_gira}
+                    </div>
+                  ) : null}
+                  {programa.subtitulo ? (
+                    <div className="mt-0.5 text-[10px] leading-snug opacity-70">
+                      {programa.subtitulo}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {inclusions.length > 0 || exclusions.length > 0 ? (
+                <div className="space-y-1 border-t border-black/5 pt-1.5">
+                  {inclusions.length > 0 ? (
+                    <div className="flex items-start gap-1.5">
+                      <span className="w-14 shrink-0 pt-0.5 text-[9px] font-bold uppercase opacity-60">
+                        Conv.
+                      </span>
+                      <div className="flex min-w-0 flex-1 flex-wrap gap-0.5">
+                        {inclusions}
+                      </div>
+                    </div>
+                  ) : null}
+                  {exclusions.length > 0 ? (
+                    <div className="flex items-start gap-1.5">
+                      <span className="w-14 shrink-0 pt-0.5 text-[9px] font-bold uppercase opacity-60">
+                        Excl.
+                      </span>
+                      <div className="flex min-w-0 flex-1 flex-wrap gap-0.5">
+                        {exclusions}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                className="mt-0.5 w-full rounded-md border border-black/10 bg-white/70 py-1 text-center text-[10px] font-semibold text-indigo-700 transition-colors hover:bg-white dark:text-indigo-300"
+                onClick={() => {
+                  onRepertoire(programa.id);
+                  setOpen(false);
+                }}
+              >
+                Ir al repertorio
+              </button>
+            </div>
           </div>,
           document.body,
         )}
@@ -261,6 +452,12 @@ export default function AsistenciaMatrixReport({ supabase }) {
     }
     return map;
   }, [memberships]);
+
+  const ensambleMap = useMemo(() => {
+    const map = new Map();
+    for (const e of ensambles) map.set(String(e.id), e.ensamble);
+    return map;
+  }, [ensambles]);
 
   const integranteById = useMemo(() => {
     const m = new Map();
@@ -759,9 +956,8 @@ export default function AsistenciaMatrixReport({ supabase }) {
                       <div className="flex h-full flex-col items-center justify-end">
                         <ProgramaHeaderTooltip
                           label={headerLabel(g)}
-                          nombreGira={g.nombre_gira}
-                          subtitulo={g.subtitulo}
-                          giraId={g.id}
+                          programa={g}
+                          ensambleMap={ensambleMap}
                           onRepertoire={goToRepertoire}
                           scrollContainerRef={tableScrollRef}
                         />

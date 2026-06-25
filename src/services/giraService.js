@@ -238,7 +238,9 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
     const programasRes = await supabase
       .from("programas")
       .select(
-        "id, nomenclador, mes_letra, nombre_gira, subtitulo, tipo, fecha_desde, fecha_hasta",
+        `id, nomenclador, mes_letra, nombre_gira, subtitulo, tipo, fecha_desde, fecha_hasta, zona,
+        giras_fuentes ( id, tipo, valor_id, valor_texto ),
+        giras_localidades ( localidades ( localidad ) )`,
       )
       .gte("fecha_desde", minFechaDesde)
       .order("fecha_desde", { ascending: true });
