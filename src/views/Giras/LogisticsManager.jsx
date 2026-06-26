@@ -28,6 +28,8 @@ import TimeInput from "../../components/ui/TimeInput";
 import {
   useLogistics,
   getMatchStrength,
+  getRuleCategoryTiebreak,
+  compareLogisticsRulePrecedence,
   getCategoriaLogistica,
 } from "../../hooks/useLogistics";
 import {
@@ -247,7 +249,7 @@ const personMatchesLogisticsChip = (
   }
 };
 
-/** Misma lógica que calculateLogisticsSummary: última regla aplicada gana (mayor fuerza; empate → última en el listado). */
+/** Misma lógica que calculateLogisticsSummary: última regla aplicada gana (mayor fuerza; empate categoría rol > geográfica; empate → última en el listado). */
 const getWinningLogisticsRule = (
   person,
   rules,
@@ -257,20 +259,22 @@ const getWinningLogisticsRule = (
   if (!rules?.length) return null;
   const { segments, allEvents, field = "checkin" } = matchOptions;
   const matched = rules
-    .map((r, idx) => ({
-      r,
-      s: getMatchStrength(r, person, allLocalities, {
+    .map((r, idx) => {
+      const options = {
         segments,
         instant: resolveRuleFieldInstant(r, field, allEvents),
         field,
-      }),
-      idx,
-    }))
+      };
+      const s = getMatchStrength(r, person, allLocalities, options);
+      return {
+        r,
+        s,
+        tie: getRuleCategoryTiebreak(r, person, options),
+        idx,
+      };
+    })
     .filter((x) => x.s > 0)
-    .sort((a, b) => {
-      if (a.s !== b.s) return a.s - b.s;
-      return a.idx - b.idx;
-    });
+    .sort(compareLogisticsRulePrecedence);
   if (matched.length === 0) return null;
   return matched[matched.length - 1].r;
 };

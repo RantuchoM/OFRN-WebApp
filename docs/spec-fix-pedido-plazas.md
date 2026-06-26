@@ -45,6 +45,12 @@ El reporte seguía asumiendo que `log.checkin` y `log.checkout` eran siempre str
   - Desglose por rangos de fechas y categorías.
 - La lógica es compatible tanto con datos antiguos (strings manuales) como con el nuevo modelo basado en eventos, evitando errores de fechas inválidas o `NaN` en los totales.
 
+### Check-in temprano vs. inicio de tramo (completado)
+
+- [x] Si el integrante hace check-in **antes** de la primera noche contada en el tramo (p. ej. Producción 04/08 16:00 con tramo oficial desde 05/08), el rango del pedido conserva la **fecha y hora reales** de logística, no medianoche del primer día del tramo.
+- [x] Fix en `buildClippedRange` (`roomingInitialOrder.js`): ya no usa `startOfDay` ciego al recortar; compara `dIn` con el inicio de la primera noche elegible.
+- [x] La **noche del día de check-in** se incluye en el conteo del tramo correspondiente aunque el tramo oficial empiece después (`isEarlyCheckInNight` + `collectEligibleNights`). Cada tramo calcula sus noches de forma independiente.
+
 ### Títulos de tramo en pedido (completado)
 
 - [x] Pedido tabular y exportación texto: solo `Tramo 1`, `Tramo 2`, … (sin fechas).

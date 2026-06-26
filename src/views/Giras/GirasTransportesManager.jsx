@@ -62,6 +62,11 @@ import {
   isPersonVetoedFromTransport,
 } from "../../hooks/useLogistics";
 import {
+  buildRoadmapExportData,
+  generateRoadmapExcel,
+  generateRoadmapPdf,
+} from "../../utils/roadmapExport";
+import {
   countEventosByGiraTransporte,
   deleteGiraTransporteCascade,
 } from "../../services/giraService";
@@ -601,186 +606,6 @@ const generateStopsOnlyExcel = async (
   anchor.download = `Cronograma_Paradas_${transportName}.xlsx`;
   anchor.click();
   window.URL.revokeObjectURL(url);
-};
-
-const generateRoadmapExcel = async (
-  transportName,
-  events,
-  passengers,
-  startId,
-  endId,
-  paxLocalities = {},
-) => {
-  if (!events || events.length === 0) return alert("No hay paradas definidas.");
-  const sortedEvts = [...events].sort((a, b) =>
-    (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
-  );
-  const startIndex = startId
-    ? sortedEvts.findIndex((e) => String(e.id) === String(startId))
-    : 0;
-  const endIndex = endId
-    ? sortedEvts.findIndex((e) => String(e.id) === String(endId))
-    : sortedEvts.length - 1;
-
-  if (startIndex === -1 || endIndex === -1 || startIndex > endIndex)
-    return alert("Rango de paradas inválido.");
-  const activeEvents = sortedEvts.slice(startIndex, endIndex + 1);
-
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("Hoja de Ruta");
-  worksheet.columns = [
-    { key: "col1", width: 30 },
-    { key: "col2", width: 35 },
-    { key: "col3", width: 20 },
-  ];
-
-  activeEvents.forEach((evt, idx) => {
-    const stopNum = idx + 1;
-    const timeStr = evt.hora_inicio ? evt.hora_inicio.slice(0, 5) : "--:--";
-    const dateStr = formatDateSafe(evt.fecha);
-    const nota = evt.descripcion || "";
-
-    const headerText = `PARADA #${stopNum}      |      ${timeStr} hs      |      ${dateStr}${nota ? `      |      ${nota.toUpperCase()}` : ""}`;
-
-    const locName = evt.locaciones?.nombre || "Sin Locación Asignada";
-    const address = evt.locaciones?.direccion || "";
-    const city = evt.locaciones?.localidades?.localidad || "";
-    let fullPlace = locName;
-    if (address || city)
-      fullPlace += ` (${[address, city].filter(Boolean).join(" - ")})`;
-
-    const headerRow = worksheet.addRow([headerText, "", ""]);
-    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 12 };
-    headerRow.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FF1565C0" },
-    };
-    headerRow.getCell(1).alignment = { vertical: "middle" };
-    worksheet.mergeCells(`A${headerRow.number}:C${headerRow.number}`);
-
-    const placeRow = worksheet.addRow(["LUGAR:", fullPlace, ""]);
-    placeRow.font = { bold: true };
-    placeRow.height = 30;
-    placeRow.getCell(1).font = {
-      bold: true,
-      color: { argb: "FF555555" },
-      size: 10,
-    };
-    placeRow.getCell(2).alignment = { vertical: "top", wrapText: true };
-    worksheet.mergeCells(`B${placeRow.number}:C${placeRow.number}`);
-
-    const ups = passengers.filter((p) =>
-      p.logistics?.transports?.some(
-        (t) => String(t.subidaId) === String(evt.id),
-      ),
-    );
-    const downs = passengers.filter((p) =>
-      p.logistics?.transports?.some(
-        (t) => String(t.bajadaId) === String(evt.id),
-      ),
-    );
-    ups.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
-    downs.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
-
-    if (ups.length > 0) {
-      const subenHeader = worksheet.addRow([
-        `SUBEN (${ups.length})`,
-        "NOMBRE / RESIDENCIA",
-        "DNI",
-      ]);
-      subenHeader.font = { bold: true, color: { argb: "FF2E7D32" } };
-      subenHeader.getCell(1).fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FFEBF7ED" },
-      };
-
-      ups.forEach((p) => {
-        const loc =
-          p.localidades_residencia?.localidad ||
-          p._loc_residencia?.localidad ||
-          paxLocalities[p.id] ||
-          "";
-        const nombreYResidencia = loc ? `${p.nombre} (${loc})` : p.nombre;
-        worksheet.addRow([
-          p.apellido?.toUpperCase(),
-          nombreYResidencia,
-          p.dni || "-",
-        ]);
-      });
-    }
-
-    if (downs.length > 0) {
-      const bajanHeader = worksheet.addRow([
-        `BAJAN (${downs.length})`,
-        "NOMBRE / RESIDENCIA",
-        "DNI",
-      ]);
-      bajanHeader.font = { bold: true, color: { argb: "FFC62828" } };
-      bajanHeader.getCell(1).fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FFFEEBEB" },
-      };
-
-      downs.forEach((p) => {
-        const loc =
-          p.localidades_residencia?.localidad ||
-          p._loc_residencia?.localidad ||
-          paxLocalities[p.id] ||
-          "";
-        const nombreYResidencia = loc ? `${p.nombre} (${loc})` : p.nombre;
-        worksheet.addRow([
-          p.apellido?.toUpperCase(),
-          nombreYResidencia,
-          p.dni || "-",
-        ]);
-      });
-    }
-
-    const paxOnBoard = passengers.filter((p) => {
-      return p.logistics?.transports?.some((t) => {
-        if (!t || !t.subidaId || !t.bajadaId) return false;
-        const upIdx = sortedEvts.findIndex(
-          (e) => String(e.id) === String(t.subidaId),
-        );
-        const downIdx = sortedEvts.findIndex(
-          (e) => String(e.id) === String(t.bajadaId),
-        );
-        const currentIdx = sortedEvts.findIndex(
-          (e) => String(e.id) === String(evt.id),
-        );
-        return upIdx <= currentIdx && downIdx > currentIdx;
-      });
-    }).length;
-
-    const totalRow = worksheet.addRow([
-      `TOTAL A BORDO AL SALIR: ${paxOnBoard}`,
-      "",
-      "",
-    ]);
-    totalRow.font = { bold: true };
-    totalRow.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FFEEEEEE" },
-    };
-    totalRow.getCell(1).alignment = { horizontal: "center" };
-    worksheet.mergeCells(`A${totalRow.number}:C${totalRow.number}`);
-
-    worksheet.addRow(["", "", ""]);
-  });
-
-  const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
-  const url = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `Hoja_Ruta_${transportName}.xlsx`;
-  anchor.click();
 };
 
 const ShiftScheduleModal = ({
@@ -2540,21 +2365,33 @@ export default function GirasTransportesManager({ supabase, gira }) {
     }
   };
 
-  const handleExportRoadmap = (startId, endId) => {
+  const handleExportRoadmap = async (
+    startId,
+    endId,
+    exportFormat = "pdf",
+    options = {},
+  ) => {
     const tId = roadmapModal.transportId;
     const tInfo = transports.find((t) => t.id === tId);
-    // passengerList ya está filtrado (sin ausentes)
     const tPax = passengerList.filter((p) =>
       p.logistics?.transports?.some((t) => String(t.id) === String(tId)),
     );
-    generateRoadmapExcel(
-      tInfo?.detalle || "Transporte",
-      transportEvents[tId] || [],
-      tPax,
+
+    const exportData = buildRoadmapExportData({
+      events: transportEvents[tId] || [],
+      passengers: tPax,
       startId,
       endId,
-      paxLocalities,
-    );
+      alignViaticos: !!options.alignViaticos,
+      transportId: tId,
+      routeRules: routeRules || [],
+    });
+    const name = tInfo?.detalle || tInfo?.transportes?.nombre || "Transporte";
+    if (exportFormat === "excel") {
+      await generateRoadmapExcel(name, exportData, paxLocalities);
+    } else {
+      await generateRoadmapPdf(name, exportData, paxLocalities);
+    }
     setRoadmapModal({ isOpen: false, transportId: null });
   };
 
@@ -4807,10 +4644,20 @@ export default function GirasTransportesManager({ supabase, gira }) {
       {roadmapModal.isOpen && (
         <CnrtExportModal
           title="Exportar Hoja de Ruta"
+          showAlignViaticos
           transport={transports.find((t) => t.id === roadmapModal.transportId)}
+          transportId={roadmapModal.transportId}
           events={transportEvents[roadmapModal.transportId] || []}
+          viaticosAlignPassengers={passengerList.filter((p) =>
+            p.logistics?.transports?.some(
+              (t) => String(t.id) === String(roadmapModal.transportId),
+            ),
+          )}
+          viaticosAlignRouteRules={routeRules || []}
           onClose={() => setRoadmapModal({ isOpen: false, transportId: null })}
-          onExport={handleExportRoadmap}
+          onExport={(sid, eid, fmt, opts) =>
+            handleExportRoadmap(sid, eid, fmt, opts)
+          }
         />
       )}
 

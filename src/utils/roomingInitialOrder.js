@@ -301,7 +301,21 @@ function groupConsecutiveNights(nights) {
 function buildClippedRange(dIn, dOut, nightGroup, totalNights) {
   const firstIdx = nightGroup[0].index;
   const lastIdx = nightGroup[nightGroup.length - 1].index;
-  const clippedIn = firstIdx === 0 ? dIn : addDays(startOfDay(dIn), firstIdx);
+
+  let clippedIn;
+  if (firstIdx === 0) {
+    clippedIn = dIn;
+  } else {
+    const firstNightStart = addDays(startOfDay(dIn), firstIdx);
+    if (dIn < firstNightStart) {
+      clippedIn = dIn;
+    } else {
+      const checkInTime = format(dIn, "HH:mm:ss").slice(0, 5);
+      clippedIn = new Date(
+        `${format(firstNightStart, "yyyy-MM-dd")}T${checkInTime}`,
+      );
+    }
+  }
 
   let clippedOut;
   if (lastIdx === totalNights - 1) {
@@ -317,6 +331,35 @@ function buildClippedRange(dIn, dOut, nightGroup, totalNights) {
     clippedOut,
     nights: nightGroup.length,
   };
+}
+
+/**
+ * Noche del día de check-in cuando la llegada es anterior al inicio oficial del tramo.
+ * Cuenta en el pedido de ese tramo aunque `nightBelongsToTramo` la excluya por instante 20:00.
+ */
+function isEarlyCheckInNight(dIn, fecha, segments, tramoIndice, segmentRow) {
+  if (!dIn || !fecha || tramoIndice == null || Number.isNaN(Number(tramoIndice))) {
+    return false;
+  }
+
+  const checkInDay = format(startOfDay(dIn), "yyyy-MM-dd");
+  const day = String(fecha).slice(0, 10);
+  if (day !== checkInDay) return false;
+
+  const dInInstant = `${checkInDay}T${format(dIn, "HH:mm:ss").slice(0, 5)}`;
+  const idx = Number(tramoIndice);
+  const spec = segments?.find((s) => Number(s.indice) === idx);
+
+  if (spec?.instant_desde) {
+    return dInInstant.localeCompare(spec.instant_desde) < 0;
+  }
+
+  const desde =
+    (segmentRow?.fecha_desde
+      ? String(segmentRow.fecha_desde).slice(0, 10)
+      : null) ??
+    (spec?.fecha_desde ? String(spec.fecha_desde).slice(0, 10) : null);
+  return desde ? day < desde : false;
 }
 
 function collectEligibleNights(
@@ -336,7 +379,8 @@ function collectEligibleNights(
 
     if (
       tramoIndice != null &&
-      !nightBelongsToTramo(fecha, segments, tramoIndice, segmentRow)
+      !nightBelongsToTramo(fecha, segments, tramoIndice, segmentRow) &&
+      !isEarlyCheckInNight(dIn, fecha, segments, tramoIndice, segmentRow)
     ) {
       continue;
     }

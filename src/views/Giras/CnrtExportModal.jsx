@@ -5,7 +5,35 @@ import {
   IconMapPin,
   IconArrowRight,
   IconDownload,
+  IconAlertTriangle,
 } from "../../components/ui/Icons";
+import { collectViaticosLocalitiesWithoutDefinedStop } from "../../utils/roadmapExport";
+
+const MAX_VIATICOS_PARADA_WARN = 12;
+
+function formatParadaIssueLine(issue) {
+  const parts = [];
+  if (issue.missingSubida) parts.push("subida");
+  if (issue.missingBajada) parts.push("bajada");
+  const trayecto =
+    parts.length === 2
+      ? "subida y bajada"
+      : parts[0] === "subida"
+        ? "subida"
+        : "bajada";
+
+  const pax = issue.passengers || [];
+  const paxText =
+    pax.length <= MAX_VIATICOS_PARADA_WARN
+      ? pax.join("; ")
+      : `${pax.slice(0, MAX_VIATICOS_PARADA_WARN).join("; ")}; y ${pax.length - MAX_VIATICOS_PARADA_WARN} más`;
+
+  return {
+    localityName: issue.localityName,
+    trayecto,
+    paxText,
+  };
+}
 
 export default function CnrtExportModal({
   transport,
@@ -13,6 +41,10 @@ export default function CnrtExportModal({
   onClose,
   onExport,
   title = "Exportar Logística", // Prop por defecto por si no se envía
+  showAlignViaticos = false,
+  viaticosAlignPassengers = [],
+  viaticosAlignRouteRules = [],
+  transportId = null,
 }) {
   // 1. Ordenamos eventos cronológicamente para los selectores
   const sortedEvents = useMemo(() => {
@@ -29,6 +61,36 @@ export default function CnrtExportModal({
     String(sortedEvents[sortedEvents.length - 1]?.id || ""),
   );
   const [exportFormat, setExportFormat] = useState("pdf");
+  const [alignViaticos, setAlignViaticos] = useState(false);
+  const [recorridoParcial, setRecorridoParcial] = useState(false);
+
+  const resolvedTransportId = transportId ?? transport?.id ?? null;
+
+  const fullStartId = String(sortedEvents[0]?.id || "");
+  const fullEndId = String(sortedEvents[sortedEvents.length - 1]?.id || "");
+  const effectiveStartId = recorridoParcial ? startId : fullStartId;
+  const effectiveEndId = recorridoParcial ? endId : fullEndId;
+
+  const paradaIssues = useMemo(() => {
+    if (!alignViaticos || !showAlignViaticos || !resolvedTransportId) return [];
+    return collectViaticosLocalitiesWithoutDefinedStop({
+      passengers: viaticosAlignPassengers,
+      transportId: resolvedTransportId,
+      routeRules: viaticosAlignRouteRules,
+      events,
+      startId: effectiveStartId,
+      endId: effectiveEndId,
+    });
+  }, [
+    alignViaticos,
+    showAlignViaticos,
+    resolvedTransportId,
+    viaticosAlignPassengers,
+    viaticosAlignRouteRules,
+    events,
+    effectiveStartId,
+    effectiveEndId,
+  ]);
 
   // 3. Formateador de etiquetas para los selectores
   const formatLabel = (evt) => {
@@ -81,7 +143,7 @@ export default function CnrtExportModal({
           </button>
         </div>
 
-        <div className="p-6 space-y-5">
+        <div className="p-6 space-y-5 overflow-y-auto flex-1 min-h-0">
           {/* Info del Transporte */}
           <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100 text-sm text-indigo-800">
             <p className="font-bold">
@@ -125,59 +187,147 @@ export default function CnrtExportModal({
               </p>
             </div>
 
-            {/* SELECT DESDE */}
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-wider">
-                Desde (Salida)
-              </label>
-              <div className="relative">
-                <select
-                  className="w-full text-[12px] p-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500 outline-none appearance-none pr-10 shadow-sm font-medium text-slate-700"
-                  value={startId}
-                  onChange={(e) => setStartId(e.target.value)}
-                >
-                  {sortedEvents.map((evt) => (
-                    <option key={evt.id} value={String(evt.id)}>
-                      {formatLabel(evt)}
-                    </option>
-                  ))}
-                </select>
-                <IconMapPin
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none"
-                  size={16}
-                />
-              </div>
-            </div>
+            {showAlignViaticos && (
+              <div className="space-y-2">
+                <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:border-slate-300 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={alignViaticos}
+                    onChange={(e) => setAlignViaticos(e.target.checked)}
+                    className="mt-0.5 rounded border-slate-300 text-slate-700 focus:ring-slate-400"
+                  />
+                  <span className="text-xs">
+                    <span className="font-semibold text-slate-800">
+                      Alinear con viáticos
+                    </span>
+                    <span className="block mt-0.5 text-slate-600 leading-snug">
+                      Subida y bajada según la localidad de viáticos (misma
+                      lógica que el PDF de viático). Se incluyen todas las
+                      paradas del rango seleccionado.
+                    </span>
+                  </span>
+                </label>
 
-            <div className="flex justify-center">
-              <div className="bg-slate-100 p-1 rounded-full text-slate-300">
-                <IconArrowRight className="rotate-90" size={16} />
+                {alignViaticos && paradaIssues.length > 0 && (
+                  <div
+                    role="alert"
+                    className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950"
+                  >
+                    <div className="flex items-start gap-2 font-semibold text-amber-900 mb-2">
+                      <IconAlertTriangle
+                        size={14}
+                        className="shrink-0 mt-0.5 text-amber-600"
+                      />
+                      <span>
+                        Faltan reglas de parada (alcance Localidad) en el tramo
+                        seleccionado
+                      </span>
+                    </div>
+                    <ul className="space-y-1.5 pl-0 list-none">
+                      {paradaIssues.map((issue) => {
+                        const { localityName, trayecto, paxText } =
+                          formatParadaIssueLine(issue);
+                        return (
+                          <li
+                            key={`${issue.localityId ?? localityName}-${trayecto}`}
+                            className="text-amber-950/90 leading-snug"
+                          >
+                            <span className="font-medium">{localityName}</span>
+                            {`: sin regla de ${trayecto}`}
+                            {paxText ? (
+                              <span className="text-amber-800/80">
+                                {" "}
+                                ({paxText})
+                              </span>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <p className="mt-2 text-[11px] text-amber-800 leading-snug">
+                      Creá una regla de ruta con alcance Localidad para cada
+                      ciudad de viáticos (subida y/o bajada según corresponda).
+                    </p>
+                  </div>
+                )}
               </div>
-            </div>
+            )}
 
-            {/* SELECT HASTA */}
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-wider">
-                Hasta (Llegada)
-              </label>
-              <div className="relative">
-                <select
-                  className="w-full text-[12px] p-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500 outline-none appearance-none pr-10 shadow-sm font-medium text-slate-700"
-                  value={endId}
-                  onChange={(e) => setEndId(e.target.value)}
-                >
-                  {sortedEvents.map((evt) => (
-                    <option key={evt.id} value={String(evt.id)}>
-                      {formatLabel(evt)}
-                    </option>
-                  ))}
-                </select>
-                <IconMapPin
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none"
-                  size={16}
-                />
-              </div>
-            </div>
+            <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:border-slate-300 transition-colors">
+              <input
+                type="checkbox"
+                checked={recorridoParcial}
+                onChange={(e) => setRecorridoParcial(e.target.checked)}
+                className="mt-0.5 rounded border-slate-300 text-slate-700 focus:ring-slate-400"
+              />
+              <span className="text-xs">
+                <span className="font-semibold text-slate-800">
+                  Recorrido parcial
+                </span>
+                <span className="block mt-0.5 text-slate-600 leading-snug">
+                  Por defecto se exporta el recorrido completo. Activá esta opción
+                  para elegir parada de inicio y fin.
+                </span>
+              </span>
+            </label>
+
+            {recorridoParcial && (
+              <>
+                {/* SELECT DESDE */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-wider">
+                    Desde (Salida)
+                  </label>
+                  <div className="relative">
+                    <select
+                      className="w-full text-[12px] p-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500 outline-none appearance-none pr-10 shadow-sm font-medium text-slate-700"
+                      value={startId}
+                      onChange={(e) => setStartId(e.target.value)}
+                    >
+                      {sortedEvents.map((evt) => (
+                        <option key={evt.id} value={String(evt.id)}>
+                          {formatLabel(evt)}
+                        </option>
+                      ))}
+                    </select>
+                    <IconMapPin
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none"
+                      size={16}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-center">
+                  <div className="bg-slate-100 p-1 rounded-full text-slate-300">
+                    <IconArrowRight className="rotate-90" size={16} />
+                  </div>
+                </div>
+
+                {/* SELECT HASTA */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-wider">
+                    Hasta (Llegada)
+                  </label>
+                  <div className="relative">
+                    <select
+                      className="w-full text-[12px] p-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500 outline-none appearance-none pr-10 shadow-sm font-medium text-slate-700"
+                      value={endId}
+                      onChange={(e) => setEndId(e.target.value)}
+                    >
+                      {sortedEvents.map((evt) => (
+                        <option key={evt.id} value={String(evt.id)}>
+                          {formatLabel(evt)}
+                        </option>
+                      ))}
+                    </select>
+                    <IconMapPin
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none"
+                      size={16}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -191,7 +341,11 @@ export default function CnrtExportModal({
           </button>
           <button
             // Ya no enviamos el tercer argumento, solo start y end
-            onClick={() => onExport(startId, endId, exportFormat)}
+            onClick={() =>
+              onExport(effectiveStartId, effectiveEndId, exportFormat, {
+                alignViaticos,
+              })
+            }
             className="px-5 py-2 text-xs font-bold text-white rounded-lg shadow-lg transition-all flex items-center gap-2 active:scale-95 bg-indigo-600 shadow-indigo-200 hover:bg-indigo-700"
           >
             <IconDownload size={14} />

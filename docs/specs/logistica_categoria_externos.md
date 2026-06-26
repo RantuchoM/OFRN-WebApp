@@ -27,11 +27,24 @@ Un integrante se clasifica como `EXTERNOS` cuando cumple **todas** estas condici
 
 El cuadrito Loc/Viaj del header sigue siendo **por tramo seleccionado** (preview operativo). Las reglas de cobertura de comidas con chip `Locales` aplican a quienes residen en las localidades del **primer tramo**.
 
+## Desempate entre reglas de misma fuerza (comidas y hotelería)
+
+Cuando dos reglas comparten el mismo nivel de `getMatchStrength` (p. ej. ambas nivel 4 por categoría), gana la de **mayor especificidad de chip**:
+
+1. Coincidencia directa con la categoría del integrante (`PRODUCCION`, `STAFF`, `SOLISTAS`, etc.).
+2. Coincidencia geográfica vía `NO_LOCALES` / `LOCALES` (incluye perfiles `PRODUCCION` no locales que también matchean `NO_LOCALES`).
+3. Si persiste el empate, gana la **última** regla en el listado.
+
+**Ejemplo:** un integrante de Producción no local puede matchear una regla `PRODUCCION` y otra `NO_LOCALES` con la misma fuerza; prevalece la de `PRODUCCION`.
+
+Implementado en `getRuleCategoryTiebreak` y `compareLogisticsRulePrecedence` (`giraUtils.js`), usados por `calculateLogisticsSummary` y el preview de `LogisticsManager.jsx`.
+
 ## Implementación
 
 - **Fuente de verdad:** `getCategoriaLogistica` en `src/utils/giraUtils.js` (reexportada por `src/hooks/useLogistics.js`).
 - **Localía por hito:** `resolveIsLocalForLogisticsCategory` en `giraUtils.js`; `calculateLogisticsSummary` pasa `field` a `getMatchStrength` en comidas.
 - **Reglas y matching:** `getMatchStrength`, `matchesRule` y `calculateLogisticsSummary` usan el mismo valor devuelto para `target_categories` y alcance `Categoria` en rutas/admisión.
+- **Desempate categoría:** `getRuleCategoryTiebreak` + `compareLogisticsRulePrecedence` en hotelería, hitos de comida y proveedores (`prov_*`).
 - **UI:** selectores de categoría incluyen el valor exacto `EXTERNOS` (p. ej. `StopRulesManager.jsx`, `LogisticsManager.jsx`).
 
 ## Base de datos

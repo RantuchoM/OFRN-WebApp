@@ -671,6 +671,58 @@ export const getMatchStrength = (
 };
 
 /**
+ * Desempate entre reglas de misma fuerza (nivel 4 categoría).
+ * Rol explícito (p. ej. PRODUCCION) prima sobre chips geográficos (NO_LOCALES / LOCALES).
+ */
+const LOGISTICS_CATEGORY_TIEBREAK = {
+  PRODUCCION: 90,
+  CHOFER: 90,
+  DIRECTORES: 85,
+  SOLISTAS: 80,
+  STAFF: 75,
+  EXTERNOS: 50,
+  NO_LOCALES: 10,
+  LOCALES: 10,
+};
+
+export const getRuleCategoryTiebreak = (rule, person, options = {}) => {
+  const categories = rule?.target_categories || [];
+  if (!rule || !person || categories.length === 0) return 0;
+
+  const { segments, instant, field } = options;
+  const categoryContext = { segments, instant, field };
+  const pCat = getCategoriaLogistica(person);
+
+  let max = 0;
+  for (const cat of categories) {
+    if (!categoryMatches(cat, pCat, person, categoryContext)) continue;
+    if (cat === pCat) {
+      max = Math.max(max, LOGISTICS_CATEGORY_TIEBREAK[cat] ?? 60);
+      continue;
+    }
+    if (cat === "LOCALES" || cat === "NO_LOCALES") {
+      max = Math.max(max, LOGISTICS_CATEGORY_TIEBREAK[cat] ?? 10);
+      continue;
+    }
+    max = Math.max(max, LOGISTICS_CATEGORY_TIEBREAK[cat] ?? 40);
+  }
+  return max;
+};
+
+/** Orden ascendente: la última regla del array gana (mayor fuerza → mayor tiebreak → mayor índice). */
+export const compareLogisticsRulePrecedence = (a, b) => {
+  const strengthA = a.strength ?? a.s ?? 0;
+  const strengthB = b.strength ?? b.s ?? 0;
+  if (strengthA !== strengthB) return strengthA - strengthB;
+
+  const tieA = a.categoryTiebreak ?? a.tie ?? 0;
+  const tieB = b.categoryTiebreak ?? b.tie ?? 0;
+  if (tieA !== tieB) return tieA - tieB;
+
+  return (a.idx ?? 0) - (b.idx ?? 0);
+};
+
+/**
  * Verifica si una regla aplica a la persona.
  * Reglas de transporte (General / Región / Localidad): no aplican solo a
  * producción, staff o chofer. En alcance Localidad, además de músicos,

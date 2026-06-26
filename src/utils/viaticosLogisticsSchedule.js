@@ -13,7 +13,7 @@ const normalizeScope = (value) =>
 /** Alcance de regla de ruta que cuenta como asignación individual (misma lógica que useLogistics). */
 const PERSONAL_ROUTE_SCOPES = new Set(["persona", "integrante"]);
 
-function isPersonalRouteScope(scope) {
+export function isPersonalRouteScope(scope) {
   return PERSONAL_ROUTE_SCOPES.has(normalizeScope(scope));
 }
 
@@ -48,7 +48,7 @@ function eventLocalidadId(evt) {
   return evt?.locaciones?.id_localidad ?? evt?.id_localidad ?? null;
 }
 
-function eventMatchesLocalidad(evt, locId, locName) {
+export function eventMatchesLocalidad(evt, locId, locName) {
   if (!evt) return false;
   const eventLocId = eventLocalidadId(evt);
   if (locId != null && eventLocId != null && String(eventLocId) === String(locId)) {
@@ -63,13 +63,21 @@ function eventMatchesLocalidad(evt, locId, locName) {
   return false;
 }
 
+function ruleHasRouteEvent(rule, eventField) {
+  if (!rule) return false;
+  if (rule[eventField]) return true;
+  const idField =
+    eventField === "evento_subida" ? "id_evento_subida" : "id_evento_bajada";
+  return rule[idField] != null && rule[idField] !== "";
+}
+
 export function findBestRouteRule(routeRules, locId, regionId, eventField) {
   const rules = Array.isArray(routeRules) ? routeRules : [];
   let best = null;
   let bestScore = -1;
 
   rules.forEach((rule) => {
-    if (!rule?.[eventField]) return;
+    if (!ruleHasRouteEvent(rule, eventField)) return;
     const scope = normalizeScope(rule.alcance);
     const byLocalidad =
       String(rule.id_localidad || "") === String(locId) ||

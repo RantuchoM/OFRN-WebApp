@@ -3,6 +3,8 @@ import { useGiraRoster } from "./useGiraRoster";
 import {
   normalize,
   getMatchStrength,
+  getRuleCategoryTiebreak,
+  compareLogisticsRulePrecedence,
   matchesRule,
   getCategoriaLogistica,
   resolveTransportAdmissionStatus,
@@ -20,6 +22,8 @@ import { resolvePersonIsLocal } from "../utils/giraTramos";
 export {
   normalize,
   getMatchStrength,
+  getRuleCategoryTiebreak,
+  compareLogisticsRulePrecedence,
   matchesRule,
   getCategoriaLogistica,
   resolveTransportAdmissionStatus,
@@ -137,17 +141,24 @@ export const calculateLogisticsSummary = (
     };
 
     const applyFieldRules = (field, legacyDate, legacyTime, svcField) => {
+      const matchOptions = (r) => ({
+        segments,
+        instant: resolveRuleFieldInstant(r, field, allEvents),
+        field,
+      });
       const rulesWithStrength = logisticsRules
-        .map((r) => ({
-          rule: r,
-          strength: getMatchStrength(r, person, allLocalities, {
-            segments,
-            instant: resolveRuleFieldInstant(r, field, allEvents),
-            field,
-          }),
-        }))
+        .map((r, idx) => {
+          const options = matchOptions(r);
+          const strength = getMatchStrength(r, person, allLocalities, options);
+          return {
+            rule: r,
+            strength,
+            categoryTiebreak: getRuleCategoryTiebreak(r, person, options),
+            idx,
+          };
+        })
         .filter((item) => item.strength > 0)
-        .sort((a, b) => a.strength - b.strength);
+        .sort(compareLogisticsRulePrecedence);
 
       rulesWithStrength.forEach(({ rule: r, strength }) => {
         resolve(field, legacyDate, legacyTime, svcField, r, strength);
@@ -170,17 +181,23 @@ export const calculateLogisticsSummary = (
     );
 
     const provRulesWithStrength = logisticsRules
-      .map((r) => ({
-        rule: r,
-        strength: getMatchStrength(r, person, allLocalities, {
+      .map((r, idx) => {
+        const options = {
           segments,
           instant:
             resolveRuleFieldInstant(r, "checkin", allEvents) ||
             resolveRuleFieldInstant(r, "checkout", allEvents),
-        }),
-      }))
+        };
+        const strength = getMatchStrength(r, person, allLocalities, options);
+        return {
+          rule: r,
+          strength,
+          categoryTiebreak: getRuleCategoryTiebreak(r, person, options),
+          idx,
+        };
+      })
       .filter((item) => item.strength > 0)
-      .sort((a, b) => a.strength - b.strength);
+      .sort(compareLogisticsRulePrecedence);
 
     provRulesWithStrength.forEach(({ rule: r }) => {
       if (r.prov_desayuno && r.prov_desayuno !== "-")
