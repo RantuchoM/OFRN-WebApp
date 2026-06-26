@@ -41,7 +41,7 @@ El sistema inyecta el string exacto del motivo en el campo `data.reason` del mai
 - **addManualMusician**: ALTA + reason "Se te convoca individualmente".
 - **handleUpdateGroups**: ALTA para nuevos (reason por ensamble o familia). Si la actualización afecta integrantes por destildar ensamble o agregar `EXCL_ENSAMBLE`, abre `RosterBajaModal` con listado y casillas por persona (ver § exclusión ensamble). Las destildadas se convierten en convocatoria manual (`giras_integrantes`) sin notificar.
 - **toggleStatus** (a Presente desde ausente): ALTA sin motivo específico o genérico.
-- **Modal de baja** (`RosterBajaModal`, ausente, desconvocar o exclusión de ensamble): motivo obligatorio (Balance Orquestal, Razones personales, Enfermedad u Otro). Opciones: Deshacer, Confirmar y notificar, Confirmar sin notificar (con confirmación extra). El motivo se persiste en `giras_integrantes.motivo_estado` al marcar ausente; en desconvocar o exclusión de ensamble solo viaja al mail si se notifica.
+- **Modal de baja** (`RosterBajaModal`, ausente, desconvocar o exclusión de ensamble): motivo obligatorio (Balance Orquestal, Razones personales, Enfermedad u Otro). Opciones: Deshacer, Confirmar y notificar, Confirmar sin notificar (con confirmación extra). Al confirmar **con notificación**, el mail se envía **de inmediato** (sin pasar por la cola intermedia de `NotificationQueuePanel`). El motivo se persiste en `giras_integrantes.motivo_estado` al marcar ausente; en desconvocar o exclusión de ensamble solo viaja al mail si se notifica.
 
 Solo se encola cuando la gira tiene `notificacion_inicial_enviada === true`.
 
@@ -51,6 +51,7 @@ Aplica a **ensambles** y **familias** (chips del header o desplegable Convocar �
 
 ### Baja (quitar ensamble o familia)
 - **Listado**: `RosterBajaModal` con casilla por integrante afectado.
+- **Prioridad EXCL_ENSAMBLE**: al calcular quién sale del roster (`memberWouldStayInRoster`), la exclusión de ensamble **manda sobre familia** (igual que `useGiraRoster` / `giraService`). Si no, con familia convocada el modal no se abría y la baja se aplicaba en silencio.
 - **Por defecto marcados**: quienes saldrían del roster (no están en `giras_integrantes`).
 - **Por defecto sin marcar**: convocados manualmente; aviso en el modal.
 - **Destildar** (no manual): `upsert` en `giras_integrantes` → queda manual, sin mail.

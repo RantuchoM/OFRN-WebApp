@@ -53,6 +53,7 @@ import {
   integranteIdForDb,
   isForeignKeyViolation,
 } from "../../utils/integranteIds";
+import { sendConvocatoriaNotificationTasks } from "../../utils/convocatoriaNotificationSend";
 
 // --- CONSTANTES ---
 // ROLES_GIRA eliminado en favor de DB
@@ -116,9 +117,9 @@ function toFamilySet(iterable) {
 
 function memberWouldStayInRoster(member, nextIncl, nextExcl, nextFam) {
   const memberEnsIds = memberEnsembleIds(member);
-  const isExcluded = memberEnsIds.some((id) => nextExcl.has(id));
-  const wouldStayViaEnsemble =
-    !isExcluded && memberEnsIds.some((id) => nextIncl.has(id));
+  // EXCL_ENSAMBLE manda sobre familia e inclusión (misma regla que useGiraRoster / giraService).
+  if (memberEnsIds.some((id) => nextExcl.has(id))) return false;
+  const wouldStayViaEnsemble = memberEnsIds.some((id) => nextIncl.has(id));
   const memberFamily = member.instrumentos?.familia?.trim();
   const wouldStayViaFamily = memberFamily && nextFam.has(memberFamily);
   return wouldStayViaEnsemble || wouldStayViaFamily;
@@ -423,6 +424,53 @@ export default function GiraRoster({
     setNotificacionesHabilitadas(gira?.notificaciones_habilitadas !== false);
     setLocalNotificacionInicialEnviada(gira?.notificacion_inicial_enviada === true);
   }, [gira?.id, gira?.notificaciones_habilitadas, gira?.notificacion_inicial_enviada]);
+
+  const linkRepertorio = useMemo(
+    () =>
+      `${typeof window !== "undefined" ? window.location.origin : ""}${typeof window !== "undefined" ? window.location.pathname : ""}?tab=giras&view=REPERTOIRE&giraId=${gira.id}`,
+    [gira?.id],
+  );
+
+  const giraMailContext = useMemo(
+    () => ({
+      nombre_gira: gira.nombre_gira,
+      nomenclador: gira.nomenclador,
+      fecha_desde: gira.fecha_desde,
+      fecha_hasta: gira.fecha_hasta,
+      zona: gira.zona,
+    }),
+    [
+      gira?.nombre_gira,
+      gira?.nomenclador,
+      gira?.fecha_desde,
+      gira?.fecha_hasta,
+      gira?.zona,
+    ],
+  );
+
+  const sendNotificationsNow = async (tasks) => {
+    if (!tasks?.length) return;
+    const toastId = toast.loading(
+      tasks.length === 1
+        ? "Enviando notificación…"
+        : `Enviando ${tasks.length} notificaciones…`,
+    );
+    const { sent, failed } = await sendConvocatoriaNotificationTasks(
+      supabase,
+      tasks,
+      { gira: giraMailContext, linkRepertorio },
+    );
+    if (failed === 0) {
+      toast.success(
+        sent === 1 ? "Notificación enviada" : `${sent} notificaciones enviadas`,
+        { id: toastId },
+      );
+    } else if (sent === 0) {
+      toast.error("No se pudieron enviar las notificaciones", { id: toastId });
+    } else {
+      toast.warning(`${sent} enviadas, ${failed} con error`, { id: toastId });
+    }
+  };
 
   // UI States
   const [addMode, setAddMode] = useState(null);
@@ -1313,6 +1361,7 @@ export default function GiraRoster({
       notifyBaja &&
       localNotificacionInicialEnviada &&
       notificacionesHabilitadas;
+    const bajaNotificationTasks = [];
     if (shouldNotifyBaja && toDesconvocate.length) {
       toDesconvocate.forEach(({ member, causeLabel, causeKind }) => {
         if (!member?.mail) return;
@@ -1331,18 +1380,15 @@ export default function GiraRoster({
                 motivoId: bajaMotivoId,
                 ensLabel: causeLabel,
               });
-        setPendingNotifications((prev) => [
-          ...prev,
-          {
-            id: `baja-excl-${member.id}-${Date.now()}`,
-            variant: "BAJA",
-            emails: [member.mail],
-            nombres: [nombreCompleto],
-            reason: mail.reason,
-            reasonFootnote: mail.reasonFootnote || undefined,
-            motivoBajaId: mail.motivoBajaId || undefined,
-          },
-        ]);
+        bajaNotificationTasks.push({
+          id: `baja-excl-${member.id}-${Date.now()}`,
+          variant: "BAJA",
+          emails: [member.mail],
+          nombres: [nombreCompleto],
+          reason: mail.reason,
+          reasonFootnote: mail.reasonFootnote || undefined,
+          motivoBajaId: mail.motivoBajaId || undefined,
+        });
       });
     }
 
@@ -1353,6 +1399,7 @@ export default function GiraRoster({
     const toNotifyAlta = altaMembers.filter(
       (a) => altaSelectionById[a.member.id],
     );
+    const altaNotificationTasks = [];
     if (shouldNotifyAlta && toNotifyAlta.length) {
       toNotifyAlta.forEach(({ member, causeLabel }) => {
         if (!member?.mail) return;
@@ -1362,20 +1409,21 @@ export default function GiraRoster({
         const mail = buildInclusionFamiliaMailNotification({
           familiaLabel: causeLabel,
         });
-        setPendingNotifications((prev) => [
-          ...prev,
-          {
-            id: `alta-groups-${member.id}-${Date.now()}`,
-            variant: "ALTA",
-            emails: [member.mail],
-            nombres: [nombreCompleto],
-            reason: mail.reason,
-          },
-        ]);
+        altaNotificationTasks.push({
+          id: `alta-groups-${member.id}-${Date.now()}`,
+          variant: "ALTA",
+          emails: [member.mail],
+          nombres: [nombreCompleto],
+          reason: mail.reason,
+        });
       });
     }
 
     await refreshRoster();
+    await sendNotificationsNow([
+      ...bajaNotificationTasks,
+      ...altaNotificationTasks,
+    ]);
   };
 
   const handleUpdateGroups = async () => {
@@ -1616,8 +1664,7 @@ export default function GiraRoster({
       );
       if (shouldNotifyMusician) {
         const mail = buildPresenteMailNotification();
-        setPendingNotifications((prev) => [
-          ...prev,
+        await sendNotificationsNow([
           {
             id: `presente-${musician.id}-${Date.now()}`,
             variant: "ALTA",
@@ -1643,8 +1690,7 @@ export default function GiraRoster({
       );
       if (shouldNotifyMusician) {
         const mail = buildAusenteMailNotification({ motivoText, motivoId });
-        setPendingNotifications((prev) => [
-          ...prev,
+        await sendNotificationsNow([
           {
             id: `toggle-${musician.id}-${Date.now()}`,
             variant: "AUSENTE",
@@ -1659,8 +1705,7 @@ export default function GiraRoster({
     } else {
       if (shouldNotifyMusician) {
         const mail = buildBajaGiraMailNotification({ motivoText, motivoId });
-        setPendingNotifications((prev) => [
-          ...prev,
+        await sendNotificationsNow([
           {
             id: `baja-${musician.id}-${Date.now()}`,
             variant: "BAJA",
@@ -3186,7 +3231,7 @@ export default function GiraRoster({
             fecha_hasta: gira.fecha_hasta,
             zona: gira.zona,
           }}
-          linkRepertorio={`${typeof window !== "undefined" ? window.location.origin : ""}${typeof window !== "undefined" ? window.location.pathname : ""}?tab=giras&view=REPERTOIRE&giraId=${gira.id}`}
+          linkRepertorio={linkRepertorio}
         />
       )}
 
