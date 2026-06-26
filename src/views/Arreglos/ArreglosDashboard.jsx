@@ -255,7 +255,7 @@ function FechaEntregaCell({
   const fecha = formatFechaCorta(work.fecha_esperada);
 
   return (
-    <div className="space-y-1 min-w-[5.5rem] flex flex-col items-center text-center">
+    <div className="space-y-1 min-w-[6.5rem] flex flex-col items-center text-center">
       {canEditFecha ? (
         <DateInput
           label=""
@@ -1161,7 +1161,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
             <table className="w-full min-w-[900px] border-collapse text-sm table-fixed">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="text-center py-3 px-2 font-bold text-slate-600 uppercase text-xs w-[6%] min-w-[5rem]">
+                  <th className="text-center py-3 px-2 font-bold text-slate-600 uppercase text-xs w-[8%] min-w-[6.5rem]">
                     F. est.
                   </th>
                   <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs w-[24%] min-w-[12rem]">
@@ -1210,7 +1210,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                     </tr>
                     {showQuickRow && (
                       <tr className="border-b border-slate-100 bg-yellow-50/30 hover:bg-yellow-50/50">
-                        <td className="py-2 px-3 align-top text-xs whitespace-nowrap bg-blue-50/40">
+                        <td className="py-2 px-3 align-top text-xs whitespace-nowrap bg-blue-50/40 min-w-[6.5rem]">
                           <FechaEntregaCell
                             work={{ estado: "Para arreglar" }}
                             canEditFecha
@@ -1338,7 +1338,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                       key={work.id}
                       className={`hover:bg-slate-50/50 ${getRowPriorityClass(work)}`}
                     >
-                      <td className="py-2 px-3 align-top bg-blue-50/40">
+                      <td className="py-2 px-3 align-top bg-blue-50/40 min-w-[6.5rem]">
                         <FechaEntregaCell
                           work={work}
                           canEditFecha={canEditFields && isParaArreglar}
