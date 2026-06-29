@@ -148,7 +148,7 @@ export default function RepertoireSelectionBar({
           </button>
 
           {showMobileMenu && (
-            <div className="absolute left-0 top-full z-50 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+            <div className="absolute right-0 top-full z-50 mt-1 w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
               <div className="mb-2 flex items-center justify-between border-b border-slate-100 pb-2">
                 <span className="text-[10px] font-black uppercase text-slate-500">
                   Selección
