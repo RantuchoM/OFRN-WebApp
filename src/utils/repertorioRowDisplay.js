@@ -2,8 +2,11 @@
  * Reservas de repertorio: filas en repertorio_obras sin id_obra (slots de planificación).
  */
 
-export const isRepertorioPlaceholder = (row) =>
-  row != null && (row.id_obra == null || row.id_obra === undefined);
+export const isRepertorioPlaceholder = (row) => {
+  if (row == null) return false;
+  if (row.obras?.id != null) return false;
+  return row.id_obra == null || row.id_obra === undefined;
+};
 
 export const getRepertorioRowDisplay = (row) => {
   if (isRepertorioPlaceholder(row)) {

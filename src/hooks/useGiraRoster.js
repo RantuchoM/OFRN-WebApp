@@ -36,7 +36,12 @@ const INTEGRANTES_SELECT_LITE = `id, nombre, apellido, fecha_alta, fecha_baja, e
  * @returns {Promise<{ roster: Array, sources: Array }>}
  */
 export async function fetchRosterForGira(supabase, gira, options = {}) {
-  const { instrumentCatalog: cachedCatalog = null, lite = false } = options;
+  const {
+    instrumentCatalog: cachedCatalog = null,
+    lite = false,
+    fuentesOverride = null,
+    integrantesOverride = null,
+  } = options;
   if (!gira?.id) return { roster: [], sources: [] };
 
   let programRefDesde = gira.fecha_desde ?? null;
@@ -52,11 +57,17 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
     programRefDesde = new Date().toISOString().slice(0, 10);
   }
 
-  const { data: fuentes, error: errFuentes } = await supabase
-    .from("giras_fuentes")
-    .select("*")
-    .eq("id_gira", gira.id);
-  if (errFuentes) throw errFuentes;
+  let fuentes;
+  if (fuentesOverride != null) {
+    fuentes = fuentesOverride;
+  } else {
+    const { data, error: errFuentes } = await supabase
+      .from("giras_fuentes")
+      .select("*")
+      .eq("id_gira", gira.id);
+    if (errFuentes) throw errFuentes;
+    fuentes = data;
+  }
 
   const inclEnsembles = new Set();
   const inclFamilies = new Set();
@@ -67,13 +78,17 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
     if (f.tipo === "EXCL_ENSAMBLE") exclEnsembles.add(Number(f.valor_id));
   });
 
-  // Usar "*" para no pedir columnas que quizá aún no existan en BD (motivo_estado, …).
-  // Si se listan explícitamente y la migración no corre, PostgREST falla y el roster queda vacío.
-  const { data: overrides, error: errOverrides } = await supabase
-    .from("giras_integrantes")
-    .select("*")
-    .eq("id_gira", gira.id);
-  if (errOverrides) throw errOverrides;
+  let overrides;
+  if (integrantesOverride != null) {
+    overrides = integrantesOverride;
+  } else {
+    const { data, error: errOverrides } = await supabase
+      .from("giras_integrantes")
+      .select("*")
+      .eq("id_gira", gira.id);
+    if (errOverrides) throw errOverrides;
+    overrides = data;
+  }
 
   let instrumentCatalog = cachedCatalog;
   if (!instrumentCatalog) {

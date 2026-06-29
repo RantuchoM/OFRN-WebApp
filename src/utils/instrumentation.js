@@ -1055,6 +1055,17 @@ export function buildWorkInstrumentationAuditRow({
     effectiveColumnMap = instrumentationStringToColumnMap(manualInstrumentacion);
   }
 
+  if (
+    manualInstrumentacion &&
+    (!instString ||
+      instString === "s/d" ||
+      !hasInstrumentationMapContent(effectiveColumnMap))
+  ) {
+    instString = manualInstrumentacion;
+    effectiveColumnMap = instrumentationStringToColumnMap(manualInstrumentacion);
+    consolidatedFamilies = [];
+  }
+
   return {
     instrumentacion_effective: instString,
     instrumentation_effective_column_map: effectiveColumnMap,

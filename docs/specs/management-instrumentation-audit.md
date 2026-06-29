@@ -166,11 +166,13 @@ Proveer una interfaz centralizada para comparar la instrumentación técnica req
 - Panel implementado en:
   - `src/views/Management/InstrumentationAudit.jsx`:
     - Fetch masivo de programas (`programas`), repertorio asociado (`programas_repertorios` → `repertorio_obras` → `obras.instrumentacion`) y convocados (`giras_integrantes` + `integrantes`).
+    - El select de `repertorio_obras` incluye `id_obra`, `titulo_placeholder` e `instrumentacion_placeholder` para distinguir slots de reserva de obras reales (evita que el cuadro de obras muestre solo «Reserva»).
     - Cálculo de mapas `required` y `convoked` por programa reutilizando `getInstrumentValue` de `src/utils/instrumentation.js`.
     - Render de la lista de acordeones con cabecera vertical y matriz comparativa de dos filas (Req Max / Conv).
     - Resaltado naranja (`bg-orange-500 text-white font-bold rounded`) en celdas con discrepancias, con reglas especiales para `Perc` (Tim+Perc) y `Str` (presencia/ausencia).
   - `src/views/Management/ManagementView.jsx`:
     - Nueva pestaña `"Instrumentación"` en el selector de tabs del módulo de Gestión.
     - Render condicionado de `InstrumentationAudit` cuando la pestaña está activa.
+- **Modo Sandbox** (toggle Auditoría / Sandbox en el header): ver `docs/specs/instrumentacion-sandbox.md`. Vista lazy `InstrumentationSandbox.jsx` con layout 40/20/40, borrador en `instrumentacion_sandbox` + `instrumentacion_sandbox_gira`.
 - El panel respeta la línea visual existente del módulo de Gestión (uso de `Icons`, `Loader`, tarjetas blancas, tipografía compacta) y está optimizado para uso en escritorio con soporte responsive básico vía scroll horizontal en la matriz.
 

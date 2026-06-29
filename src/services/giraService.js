@@ -29,7 +29,7 @@ import { isRepertorioPlaceholder } from "../utils/repertorioRowDisplay";
  * overrides manuales en giras_integrantes (estado !== ausente) ignoran esas vigencias.
  * @see docs/roster-spec.md
  */
-async function resolveGiraRosterDetail(supabase, giraId) {
+async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null) {
   try {
     const { data: progRow } = await supabase
       .from("programas")
@@ -40,17 +40,22 @@ async function resolveGiraRosterDetail(supabase, giraId) {
       progRow?.fecha_desde ?? new Date().toISOString().slice(0, 10);
     const programRefHasta = progRow?.fecha_hasta ?? null;
 
-    // A. Traemos configuración de fuentes y overrides
-    const [fuentesRes, overridesRes] = await Promise.all([
-      supabase.from("giras_fuentes").select("*").eq("id_gira", giraId),
-      supabase
-        .from("giras_integrantes")
-        .select("id_integrante, estado, abona_reemplazo")
-        .eq("id_gira", giraId),
-    ]);
-
-    const fuentes = fuentesRes.data || [];
-    const overrides = overridesRes.data || [];
+    let fuentes;
+    let overrides;
+    if (sandboxOverride) {
+      fuentes = sandboxOverride.fuentes || [];
+      overrides = sandboxOverride.integrantes || [];
+    } else {
+      const [fuentesRes, overridesRes] = await Promise.all([
+        supabase.from("giras_fuentes").select("*").eq("id_gira", giraId),
+        supabase
+          .from("giras_integrantes")
+          .select("id_integrante, estado, abona_reemplazo")
+          .eq("id_gira", giraId),
+      ]);
+      fuentes = fuentesRes.data || [];
+      overrides = overridesRes.data || [];
+    }
 
     const rawBaseIds = new Set();
     const manualIds = new Set();

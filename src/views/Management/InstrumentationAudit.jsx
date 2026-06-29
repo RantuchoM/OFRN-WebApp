@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useRef, useCallback, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -27,6 +27,10 @@ import { getProgramStyle } from "../../utils/giraUtils";
 import DateInput from "../../components/ui/DateInput";
 import WorkForm from "../Repertoire/WorkForm";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
+
+const InstrumentationSandbox = lazy(
+  () => import("./InstrumentationSandbox"),
+);
 
 const INSTRUMENT_COLUMNS = [
   { id: "Fl", label: "Fl" },
@@ -689,6 +693,7 @@ export default function InstrumentationAudit({ supabase }) {
     () => new Date().toISOString().split("T")[0],
   );
   const [dateTo, setDateTo] = useState("");
+  const [viewMode, setViewMode] = useState("audit");
   const [workFormOpen, setWorkFormOpen] = useState(false);
   const [workFormInitialData, setWorkFormInitialData] = useState({});
   const [pendingNotifications, setPendingNotifications] = useState([]);
@@ -824,7 +829,7 @@ export default function InstrumentationAudit({ supabase }) {
             .select(
               `id, id_programa, orden, nombre,
                repertorio_obras (
-                 id, orden, excluir,
+                 id, id_obra, orden, excluir, titulo_placeholder, instrumentacion_placeholder,
                  obras ( id, titulo, instrumentacion, link_drive, estado, obras_compositores ( rol, compositores ( apellido, nombre ) ) )
                )`,
             )
@@ -1243,8 +1248,34 @@ export default function InstrumentationAudit({ supabase }) {
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
         <div className="flex flex-nowrap items-center gap-3 overflow-x-auto min-w-0">
           <h3 className="text-sm font-bold text-slate-800 shrink-0">
-            Auditoría de Instrumentación
+            {viewMode === "sandbox"
+              ? "Sandbox de Instrumentación"
+              : "Auditoría de Instrumentación"}
           </h3>
+          <div className="flex rounded-lg border border-slate-200 p-0.5 shrink-0 bg-slate-50">
+            <button
+              type="button"
+              onClick={() => setViewMode("audit")}
+              className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-colors ${
+                viewMode === "audit"
+                  ? "bg-white text-slate-800 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              Auditoría
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("sandbox")}
+              className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-colors ${
+                viewMode === "sandbox"
+                  ? "bg-violet-600 text-white shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              Sandbox
+            </button>
+          </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="text-[10px] font-medium text-slate-500 uppercase">Desde</span>
             <DateInput
@@ -1293,6 +1324,24 @@ export default function InstrumentationAudit({ supabase }) {
         </div>
       </div>
 
+      {viewMode === "sandbox" ? (
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center py-12 text-sm text-slate-400">
+              <IconLoader className="animate-spin mr-2" size={18} />
+              Cargando sandbox…
+            </div>
+          }
+        >
+          <InstrumentationSandbox
+            supabase={supabase}
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            selectedType={selectedType}
+          />
+        </Suspense>
+      ) : (
+      <>
       <div className="flex-1 space-y-3 overflow-y-auto pb-2">
         {filteredPrograms.length === 0 && !loading && (
           <div className="bg-white border border-slate-200 rounded-xl p-4 text-xs text-slate-500 flex items-center gap-2">
@@ -1806,6 +1855,8 @@ export default function InstrumentationAudit({ supabase }) {
           }}
           linkRepertorio=""
         />
+      )}
+      </>
       )}
     </div>
   );

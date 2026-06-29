@@ -3225,7 +3225,9 @@ export default function GiraRoster({
                   getRowStyles(m, isSelected);
                 const prev = idx > 0 ? localRoster[idx - 1] : null;
                 const groupSeparator =
-                  sortBy === "instrumento" && showInstrumentSeparators
+                  sortBy === "instrumento" &&
+                  showInstrumentSeparators &&
+                  m.estado_gira !== "ausente"
                     ? getRosterInstrumentRowSeparator(
                         prev,
                         m,
