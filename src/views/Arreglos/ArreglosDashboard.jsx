@@ -14,6 +14,9 @@ import {
   IconTrash,
   IconAlertCircle,
   IconFolder,
+  IconSearch,
+  IconChevronLeft,
+  IconChevronRight,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../services/supabase";
@@ -26,6 +29,8 @@ import WorkForm, { QuickComposerModal, WysiwygEditor } from "../Repertoire/WorkF
 import NewVersionModal from "../../components/repertoire/NewVersionModal";
 import ArreglosReferenciasModal from "../../components/arreglos/ArreglosReferenciasModal";
 import ArregloEntregaModal from "../../components/arreglos/ArregloEntregaModal";
+import ArregloQuickEncargoModal from "../../components/arreglos/ArregloQuickEncargoModal";
+import ArregloMobileDetailModal from "../../components/arreglos/ArregloMobileDetailModal";
 import { markEncargoArregloMailSent } from "../../utils/encargoArregloMail";
 import { readManageDriveResponseBody } from "../../utils/paraAcomodarDrive";
 
@@ -51,6 +56,17 @@ function compareArreglosPorUrgencia(a, b) {
   const aEntregado = isArregloEntregado(a);
   const bEntregado = isArregloEntregado(b);
   if (aEntregado !== bEntregado) return aEntregado ? 1 : -1;
+
+  if (aEntregado && bEntregado) {
+    const fa = a.fecha_entrega || "";
+    const fb = b.fecha_entrega || "";
+    if (!fa && !fb) return stripHtmlForSort(a.titulo).localeCompare(stripHtmlForSort(b.titulo));
+    if (!fa) return 1;
+    if (!fb) return -1;
+    const cmp = fb.localeCompare(fa);
+    if (cmp !== 0) return cmp;
+    return stripHtmlForSort(a.titulo).localeCompare(stripHtmlForSort(b.titulo));
+  }
 
   const fa = a.fecha_esperada || "";
   const fb = b.fecha_esperada || "";
@@ -80,6 +96,7 @@ function getFieldStatusClass(status) {
 }
 
 const DEFAULT_ARREGLADOR_INTEGRANTE_ID = 4340365;
+const ARREGLOS_PAGE_SIZE = 25;
 
 const NOTAS_STICKY_PANEL_CLASS =
   "bg-yellow-50 border border-yellow-100 text-yellow-900 rounded-lg shadow-[2px_3px_10px_rgba(234,179,8,0.22)] relative leading-tight rotate-[0.15deg]";
@@ -220,15 +237,17 @@ function getDiasRestantesInfo(work) {
   return { kind: "vencio", days: Math.abs(diffDays) };
 }
 
-function DiasRestantesDisplay({ work }) {
+function DiasRestantesDisplay({ work, inline = false }) {
   const info = getDiasRestantesInfo(work);
   if (!info || work.estado !== "Para arreglar") return null;
 
-  const textClass = "text-[11px] text-slate-500 leading-tight";
+  const textClass = inline
+    ? "text-[10px] text-slate-500 leading-tight"
+    : "text-[11px] text-slate-500 leading-tight text-center w-full";
   const numClass = "font-bold tabular-nums text-slate-700";
 
-  return (
-    <p className={`${textClass} text-center w-full`}>
+  const content = (
+    <>
       {info.kind === "hoy" && "vence hoy"}
       {info.kind === "faltan" && (
         <>
@@ -240,8 +259,57 @@ function DiasRestantesDisplay({ work }) {
           venció hace <span className={numClass}>{info.days}</span> día{info.days === 1 ? "" : "s"}
         </>
       )}
-    </p>
+    </>
   );
+
+  if (inline) {
+    return <span className={textClass}>{content}</span>;
+  }
+
+  return <p className={textClass}>{content}</p>;
+}
+
+function getArregloPriorityClasses(work) {
+  const estado = (work.estado || "").toLowerCase();
+  if (estado === "entregado" || estado === "oficial") {
+    return {
+      card: "bg-emerald-50/40 border-2 border-emerald-400",
+      row: "bg-emerald-50/40 border-y border-emerald-200",
+      rowAccent: "border-l-4 border-emerald-400",
+      cellPedido: "bg-emerald-50/15",
+    };
+  }
+
+  const fechaStr = work.fecha_esperada;
+  if (fechaStr) {
+    const today = new Date();
+    const target = new Date(`${fechaStr}T00:00:00`);
+    const diffMs = target.getTime() - today.getTime();
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    if (diffDays < 2) {
+      return {
+        card: "bg-red-50/40 border-2 border-red-400",
+        row: "bg-red-50/40 border-y border-red-200",
+        rowAccent: "border-l-4 border-red-400",
+        cellPedido: "bg-sky-50/20",
+      };
+    }
+    if (diffDays < 7) {
+      return {
+        card: "bg-orange-50/40 border-2 border-orange-400",
+        row: "bg-orange-50/40 border-y border-orange-200",
+        rowAccent: "border-l-4 border-orange-400",
+        cellPedido: "bg-sky-50/20",
+      };
+    }
+  }
+
+  return {
+    card: "bg-amber-50/35 border-2 border-amber-400",
+    row: "bg-amber-50/35 border-y border-amber-200",
+    rowAccent: "border-l-4 border-amber-400",
+    cellPedido: "bg-sky-50/20",
+  };
 }
 
 function FechaEntregaCell({
@@ -412,6 +480,10 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   const [integrantesArregladorOptions, setIntegrantesArregladorOptions] = useState([]);
   const [compositoresOptions, setCompositoresOptions] = useState([]);
   const [filterArregladorId, setFilterArregladorId] = useState("");
+  const [showArregladorFilter, setShowArregladorFilter] = useState(false);
+  const arregladorFilterRef = useRef(null);
+  const [searchObraText, setSearchObraText] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
   const [myCompositorId, setMyCompositorId] = useState(null);
 
   // Modal WorkForm: abrir por encima de la vista sin cambiar de tab
@@ -441,6 +513,10 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   const [quickSaving, setQuickSaving] = useState(false);
   const [isQuickCompOpen, setIsQuickCompOpen] = useState(false);
   const [showQuickRow, setShowQuickRow] = useState(false);
+  const [quickEncargoModalOpen, setQuickEncargoModalOpen] = useState(false);
+  const [mobileDetailWork, setMobileDetailWork] = useState(null);
+  const [quickRowPulse, setQuickRowPulse] = useState(false);
+  const quickRowRef = useRef(null);
 
   const [workToDelete, setWorkToDelete] = useState(null);
   const [deletingArreglo, setDeletingArreglo] = useState(false);
@@ -645,13 +721,61 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     setMyCompositorId(myId ?? null);
   }, [user, arregladoresOptions]);
 
+  useEffect(() => {
+    if (!showArregladorFilter) return;
+    const handleClickOutside = (e) => {
+      if (arregladorFilterRef.current && !arregladorFilterRef.current.contains(e.target)) {
+        setShowArregladorFilter(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showArregladorFilter]);
+
+  const selectArregladorFilter = (id) => {
+    setFilterArregladorId(id ? String(id) : "");
+    setShowArregladorFilter(false);
+  };
+
   const filteredWorks = useMemo(() => {
     let list = works;
     if (filterArregladorId) {
-      list = works.filter((w) => String(w.id_integrante_arreglador) === String(filterArregladorId));
+      list = list.filter((w) => String(w.id_integrante_arreglador) === String(filterArregladorId));
+    }
+    const q = searchObraText.trim().toLowerCase();
+    if (q) {
+      list = list.filter((w) => {
+        const titulo = stripHtmlForSort(w.titulo).toLowerCase();
+        const compositor = (w.compositor_full || "").toLowerCase();
+        const arreglador = (w.arreglador_label || "").toLowerCase();
+        return titulo.includes(q) || compositor.includes(q) || arreglador.includes(q);
+      });
     }
     return [...list].sort(compareArreglosPorUrgencia);
-  }, [works, filterArregladorId]);
+  }, [works, filterArregladorId, searchObraText]);
+
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredWorks.length / ARREGLOS_PAGE_SIZE)),
+    [filteredWorks.length],
+  );
+
+  const paginatedWorks = useMemo(() => {
+    const start = (currentPage - 1) * ARREGLOS_PAGE_SIZE;
+    return filteredWorks.slice(start, start + ARREGLOS_PAGE_SIZE);
+  }, [filteredWorks, currentPage]);
+
+  const mobileDetailWorkLive = useMemo(() => {
+    if (!mobileDetailWork?.id) return null;
+    return works.find((w) => w.id === mobileDetailWork.id) || mobileDetailWork;
+  }, [mobileDetailWork, works]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterArregladorId, searchObraText]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   const getDraft = (workId) => rowDraft[workId] || {};
 
@@ -681,6 +805,32 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     });
   };
 
+  const openEncargarArreglo = () => {
+    if (!canEditFields) return;
+    const isMobile =
+      typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+    if (isMobile) {
+      setQuickEncargoModalOpen(true);
+      return;
+    }
+    setShowQuickRow(true);
+    setQuickRowPulse(true);
+    window.setTimeout(() => setQuickRowPulse(false), 3500);
+  };
+
+  const handleQuickCancel = () => {
+    setShowQuickRow(false);
+    setQuickEncargoModalOpen(false);
+    setQuickRowPulse(false);
+    resetQuickDraft();
+  };
+
+  useEffect(() => {
+    if (showQuickRow && quickRowRef.current) {
+      quickRowRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [showQuickRow, quickRowPulse]);
+
   const handleQuickCompCreated = (newComp) => {
     const newOption = {
       id: newComp.id,
@@ -690,23 +840,6 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
       [...prev, newOption].sort((a, b) => (a.label || "").localeCompare(b.label || ""))
     );
     setQuickDraftField("compositorId", newComp.id);
-  };
-
-  const getRowPriorityClass = (work) => {
-    const estado = (work.estado || "").toLowerCase();
-    if (estado === "entregado" || estado === "oficial") return "bg-emerald-100";
-
-    const fechaStr = work.fecha_esperada;
-    if (fechaStr) {
-      const today = new Date();
-      const target = new Date(`${fechaStr}T00:00:00`);
-      const diffMs = target.getTime() - today.getTime();
-      const diffDays = diffMs / (1000 * 60 * 60 * 24);
-      if (diffDays < 2) return "bg-red-100";
-      if (diffDays < 7) return "bg-orange-100";
-    }
-
-    return "bg-yellow-100";
   };
 
   const canEditDeliveryForWork = (work) => {
@@ -849,7 +982,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
       }
 
       toast.success("Nuevo encargo de arreglo creado y asignado.");
-      resetQuickDraft();
+      handleQuickCancel();
       await fetchWorks();
     } catch (err) {
       console.error("Error al crear encargo rápido de arreglo:", err);
@@ -1110,54 +1243,104 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
             <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
               <IconMusicNote className="text-indigo-600" />Obras para arreglar
             </h2>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-slate-500 mt-1 hidden sm:block">
               Tabla de obras con encargos de arreglo: incluye las que están en &quot;Para arreglar&quot;, &quot;Entregado&quot; o tienen un arreglador asignado. Cargá el link de Drive, una observación opcional y pasá a Entregado.
             </p>
           </div>
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            <button
-              type="button"
-              onClick={() => openWorkFormModal()}
-              className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm shrink-0"
-            >
-              <IconPlus size={16} />
-              Nueva Obra
-            </button>
-            <IconFilter size={18} className="text-slate-400 shrink-0" />
-            <select
-              value={String(filterArregladorId)}
-              onChange={(e) => setFilterArregladorId(e.target.value)}
-              className="text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-indigo-500 min-w-0 max-w-[220px]"
-              title="Filtrar por arreglador"
-            >
-              <option value="">Todos los arregladores</option>
-              {arregladoresOptions.map((opt) => (
-                <option key={opt.id} value={String(opt.id)}>
-                  {opt.label}
-                  {myCompositorId === opt.id ? " (vos)" : ""}
-                </option>
-              ))}
-            </select>
+            {canEditFields && (
+              <button
+                type="button"
+                onClick={openEncargarArreglo}
+                className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm shrink-0"
+              >
+                <IconPlus size={16} />
+                Encargar arreglo
+              </button>
+            )}
+            <div className="relative shrink-0" ref={arregladorFilterRef}>
+              <button
+                type="button"
+                onClick={() => setShowArregladorFilter((v) => !v)}
+                className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${
+                  showArregladorFilter || filterArregladorId
+                    ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                    : "border-slate-300 bg-white text-slate-500 hover:bg-slate-50"
+                }`}
+                aria-expanded={showArregladorFilter}
+                aria-label="Filtrar por arreglador"
+                title="Filtrar por arreglador"
+              >
+                <IconFilter size={18} />
+              </button>
+              {showArregladorFilter && (
+                <div className="absolute right-0 top-full z-40 mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[60vh] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-100">
+                    <h3 className="text-xs font-bold uppercase text-slate-600">Arreglador</h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowArregladorFilter(false)}
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                      aria-label="Cerrar filtros"
+                    >
+                      <IconX size={14} />
+                    </button>
+                  </div>
+                  <ul className="py-1">
+                    <li>
+                      <button
+                        type="button"
+                        onClick={() => selectArregladorFilter("")}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 ${
+                          !filterArregladorId ? "bg-indigo-50 text-indigo-700 font-semibold" : "text-slate-700"
+                        }`}
+                      >
+                        Todos los arregladores
+                      </button>
+                    </li>
+                    {arregladoresOptions.map((opt) => (
+                      <li key={opt.id}>
+                        <button
+                          type="button"
+                          onClick={() => selectArregladorFilter(opt.id)}
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 truncate ${
+                            String(filterArregladorId) === String(opt.id)
+                              ? "bg-indigo-50 text-indigo-700 font-semibold"
+                              : "text-slate-700"
+                          }`}
+                        >
+                          {opt.label}
+                          {myCompositorId === opt.id ? " (vos)" : ""}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div className="flex-1 overflow-auto bg-white rounded-xl border border-slate-200 shadow-sm min-h-0">
         {loading ? (
           <div className="p-20 text-center text-indigo-500 flex flex-col items-center gap-2">
             <IconLoader className="animate-spin" size={28} />
             <span>Cargando...</span>
           </div>
-        ) : works.length === 0 ? (
+        ) : works.length === 0 && !(canEditFields && showQuickRow) ? (
           <div className="p-12 text-center text-slate-500 italic">
             No hay obras con encargos de arreglo para mostrar.
           </div>
-        ) : filteredWorks.length === 0 ? (
+        ) : filteredWorks.length === 0 && !(canEditFields && showQuickRow) ? (
           <div className="p-12 text-center text-slate-500 italic">
-            Ninguna obra para el arreglador seleccionado.
+            {searchObraText.trim()
+              ? "Ninguna obra coincide con la búsqueda."
+              : "Ninguna obra para el arreglador seleccionado."}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full min-w-[900px] border-collapse text-sm table-fixed">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
@@ -1165,7 +1348,23 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                     F. est.
                   </th>
                   <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs w-[24%] min-w-[12rem]">
-                    Obra / Compositor · Arreglador
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="shrink-0">Obra / Compositor · Arreglador</span>
+                      <div className="relative font-normal normal-case shrink-0">
+                        <IconSearch
+                          size={11}
+                          className="absolute left-1 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                        />
+                        <input
+                          type="search"
+                          value={searchObraText}
+                          onChange={(e) => setSearchObraText(e.target.value)}
+                          placeholder="Buscar…"
+                          className="w-[5.5rem] pl-5 pr-1 py-0.5 text-[10px] border border-slate-200 rounded bg-white text-slate-700 outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                          aria-label="Buscar por obra, compositor o arreglador"
+                        />
+                      </div>
+                    </div>
                   </th>
                   <th className="text-center py-3 px-1 font-bold text-slate-600 uppercase text-xs w-[3%]">
                     Ref.
@@ -1185,32 +1384,14 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {canEditFields && (
-                  <>
-                    <tr
-                      className="cursor-pointer bg-indigo-50 hover:bg-indigo-100 border-y border-indigo-100"
-                      onClick={() => setShowQuickRow((prev) => !prev)}
-                    >
-                      <td
-                        colSpan={7}
-                        className="py-0.5 px-3 text-[11px] font-semibold text-indigo-700"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1">
-                            <IconPlus size={12} />
-                            <span>
-                              {showQuickRow ? "Ocultar nuevo arreglo" : "Nuevo arreglo"}
-                            </span>
-                          </div>
-                          <span className="text-[10px] font-normal text-indigo-500">
-                            Cargar un nuevo encargo de arreglo.
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                    {showQuickRow && (
-                      <tr className="border-b border-slate-100 bg-yellow-50/30 hover:bg-yellow-50/50">
-                        <td className="py-2 px-3 align-top text-xs whitespace-nowrap bg-blue-50/40 min-w-[6.5rem]">
+                {canEditFields && showQuickRow && (
+                  <tr
+                    ref={quickRowRef}
+                    className={`border-b border-slate-100 bg-yellow-50/30 hover:bg-yellow-50/50 transition-shadow ${
+                      quickRowPulse ? "animate-pulse ring-2 ring-indigo-400 ring-inset" : ""
+                    }`}
+                  >
+                        <td className="py-2 px-3 align-top text-xs whitespace-nowrap bg-sky-50/20 min-w-[6.5rem]">
                           <FechaEntregaCell
                             work={{ estado: "Para arreglar" }}
                             canEditFecha
@@ -1219,7 +1400,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                             solicitanteLabel={getSolicitanteLabelForUser()}
                           />
                         </td>
-                        <td className="py-2 px-3 align-top bg-blue-50/40 min-w-[14rem]">
+                        <td className="py-2 px-3 align-top bg-sky-50/20 min-w-[14rem]">
                           <div className="space-y-1 max-w-[22rem]">
                             <div className="flex items-center gap-1">
                               <div className="flex-1 min-w-0">
@@ -1250,10 +1431,10 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                             />
                           </div>
                         </td>
-                        <td className="py-2 px-1 align-top text-center text-xs text-slate-400 bg-blue-50/40 w-10">
+                        <td className="py-2 px-1 align-top text-center text-xs text-slate-400 bg-sky-50/20 w-10">
                           —
                         </td>
-                        <td className="py-2 px-3 align-top bg-blue-50/40">
+                        <td className="py-2 px-3 align-top bg-sky-50/20">
                           <input
                             type="text"
                             value={quickDraft.instrumentacion}
@@ -1262,7 +1443,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                             className="w-full min-w-[6rem] text-xs border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                           />
                         </td>
-                        <td className="py-2 px-3 align-top text-xs bg-blue-50/40">
+                        <td className="py-2 px-3 align-top text-xs bg-sky-50/20">
                           <input
                             type="text"
                             value={quickDraft.dificultad}
@@ -1271,7 +1452,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                             className="w-full min-w-[70px] border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                           />
                         </td>
-                        <td className="py-2 px-3 align-top text-xs bg-blue-50/40">
+                        <td className="py-2 px-3 align-top text-xs bg-sky-50/20">
                           <ObservacionesStickyCell
                             value={quickDraft.observaciones}
                             onChange={(v) => setQuickDraftField("observaciones", v)}
@@ -1312,33 +1493,32 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                               </button>
                               <button
                                 type="button"
-                                onClick={resetQuickDraft}
+                                onClick={handleQuickCancel}
                                 disabled={quickSaving}
                                 className="text-[10px] font-bold px-2 py-1.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-50 flex items-center gap-1"
                               >
                                 <IconX size={12} />
-                                Limpiar
+                                Cancelar
                               </button>
                             </div>
                           </div>
                         </td>
                       </tr>
-                    )}
-                  </>
                 )}
 
-                {filteredWorks.map((work) => {
+                {paginatedWorks.map((work) => {
                   const draft = getDraft(work.id);
                   const linkValue = draft.link_drive !== undefined ? draft.link_drive : (work.link_drive || "");
                   const notaValue = draft.nota_entrega !== undefined ? draft.nota_entrega : "";
                   const isSaving = savingId === work.id;
                   const isParaArreglar = work.estado === "Para arreglar";
+                  const priorityClasses = getArregloPriorityClasses(work);
                   return (
                     <tr
                       key={work.id}
-                      className={`hover:bg-slate-50/50 ${getRowPriorityClass(work)}`}
+                      className={`hover:brightness-[0.99] ${priorityClasses.row}`}
                     >
-                      <td className="py-2 px-3 align-top bg-blue-50/40 min-w-[6.5rem]">
+                      <td className={`py-2 px-3 align-top min-w-[6.5rem] ${priorityClasses.rowAccent} ${priorityClasses.cellPedido}`}>
                         <FechaEntregaCell
                           work={work}
                           canEditFecha={canEditFields && isParaArreglar}
@@ -1361,7 +1541,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                           solicitanteLabel={work.solicitante_label}
                         />
                       </td>
-                      <td className="py-2 px-3 align-top bg-blue-50/40 min-w-[14rem]">
+                      <td className={`py-2 px-3 align-top min-w-[14rem] ${priorityClasses.cellPedido}`}>
                         {canEditFields && isParaArreglar ? (
                           <div className="max-w-[22rem] min-h-[3rem]">
                             <WysiwygEditor
@@ -1402,7 +1582,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                           </div>
                         )}
                       </td>
-                      <td className="py-2 px-1 align-top text-center bg-blue-50/40 w-10">
+                      <td className={`py-2 px-1 align-top text-center w-10 ${priorityClasses.cellPedido}`}>
                         {(() => {
                           const refCount = (refsByObra[work.id] || []).length;
                           return (
@@ -1418,7 +1598,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                           );
                         })()}
                       </td>
-                      <td className="py-2 px-3 bg-blue-50/40 h-px align-stretch">
+                      <td className={`py-2 px-3 h-px align-stretch ${priorityClasses.cellPedido}`}>
                         <div className="h-full min-h-[3rem]">
                           {canEditFields && isParaArreglar ? (
                             <textarea
@@ -1439,7 +1619,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                           )}
                         </div>
                       </td>
-                      <td className="py-2 px-3 align-top text-xs bg-blue-50/40">
+                      <td className={`py-2 px-3 align-top text-xs ${priorityClasses.cellPedido}`}>
                         {canEditFields && isParaArreglar ? (
                           <input
                             type="text"
@@ -1456,7 +1636,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                           <span className="text-slate-600">{work.dificultad || "-"}</span>
                         )}
                       </td>
-                      <td className="py-2 px-3 bg-blue-50/40 h-px align-stretch">
+                      <td className={`py-2 px-3 h-px align-stretch ${priorityClasses.cellPedido}`}>
                         <div className="h-full min-h-[3rem] flex flex-col">
                           {canEditFields && isParaArreglar ? (
                             <ObservacionesStickyCell
@@ -1512,7 +1692,160 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                 })}
               </tbody>
             </table>
+            {filteredWorks.length > 0 && (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2 border-t border-slate-200 bg-slate-50/80">
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={currentPage === 1 || loading}
+                      onClick={() => setCurrentPage((p) => p - 1)}
+                      className="p-1 rounded border bg-white disabled:opacity-30 hover:bg-indigo-50 text-indigo-600 transition-colors"
+                      aria-label="Página anterior"
+                    >
+                      <IconChevronLeft size={14} />
+                    </button>
+                    <div className="text-xs font-medium text-slate-600">
+                      Pág. <span className="font-bold text-indigo-600">{currentPage}</span> / {totalPages}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={currentPage >= totalPages || loading}
+                      onClick={() => setCurrentPage((p) => p + 1)}
+                      className="p-1 rounded border bg-white disabled:opacity-30 hover:bg-indigo-50 text-indigo-600 transition-colors"
+                      aria-label="Página siguiente"
+                    >
+                      <IconChevronRight size={14} />
+                    </button>
+                  </div>
+                )}
+                <div className="text-[10px] font-medium text-slate-500">
+                  Mostrando {paginatedWorks.length} de {filteredWorks.length} arreglo
+                  {filteredWorks.length === 1 ? "" : "s"}
+                </div>
+              </div>
+            )}
           </div>
+
+          <div className="md:hidden flex flex-col min-h-0">
+            <div className="shrink-0 p-2 border-b border-slate-200 bg-slate-50 space-y-2">
+              <div className="relative">
+                <IconSearch
+                  size={14}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                />
+                <input
+                  type="search"
+                  value={searchObraText}
+                  onChange={(e) => setSearchObraText(e.target.value)}
+                  placeholder="Buscar obra, compositor o arreglador…"
+                  className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-lg bg-white outline-none focus:ring-2 focus:ring-indigo-400"
+                  aria-label="Buscar por obra, compositor o arreglador"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2 space-y-2">
+              {paginatedWorks.map((work) => {
+                const fechaFmt = formatFechaCorta(
+                  isArregloEntregado(work) ? work.fecha_entrega : work.fecha_esperada,
+                );
+                const refCount = (refsByObra[work.id] || []).length;
+                return (
+                  <button
+                    key={work.id}
+                    type="button"
+                    onClick={() => setMobileDetailWork(work)}
+                    className={`w-full text-left rounded-xl p-3 shadow-sm active:scale-[0.99] transition-transform ${getArregloPriorityClasses(work).card}`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-bold border shrink-0 ${
+                            work.estado === "Para arreglar"
+                              ? "bg-amber-50 text-amber-800 border-amber-300"
+                              : work.estado === "Oficial"
+                                ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                                : "bg-sky-50 text-sky-800 border-sky-300"
+                          }`}
+                        >
+                          {work.estado}
+                        </span>
+                        {work.estado === "Para arreglar" ? (
+                          <DiasRestantesDisplay work={work} inline />
+                        ) : null}
+                      </div>
+                      {fechaFmt ? (
+                        <span className="text-[10px] font-mono text-slate-500 shrink-0">
+                          {isArregloEntregado(work) ? `Ent. ${fechaFmt}` : `Est. ${fechaFmt}`}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div
+                      className="text-sm font-bold text-slate-800 leading-snug line-clamp-2 [&_b]:font-semibold"
+                      dangerouslySetInnerHTML={{ __html: work.titulo || "Sin título" }}
+                    />
+                    {work.compositor_full ? (
+                      <p className="text-xs text-slate-500 mt-0.5 truncate">{work.compositor_full}</p>
+                    ) : null}
+                    {work.arreglador_label ? (
+                      <p className="text-xs text-slate-600 mt-0.5 truncate">
+                        {work.arreglador_label}
+                        {myCompositorId === work.id_integrante_arreglador ? (
+                          <span className="text-indigo-500 ml-1">(vos)</span>
+                        ) : null}
+                      </p>
+                    ) : null}
+                    <div className="flex items-center gap-3 mt-2 text-[10px] text-slate-500">
+                      {work.instrumentacion ? (
+                        <span className="truncate font-mono max-w-[70%]">{work.instrumentacion}</span>
+                      ) : null}
+                      {refCount > 0 ? (
+                        <span className="inline-flex items-center gap-0.5 text-amber-700">
+                          <IconDrive size={11} />
+                          {refCount} ref.
+                        </span>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {filteredWorks.length > 0 && (
+              <div className="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2 border-t border-slate-200 bg-slate-50/80">
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={currentPage === 1 || loading}
+                      onClick={() => setCurrentPage((p) => p - 1)}
+                      className="p-1 rounded border bg-white disabled:opacity-30 hover:bg-indigo-50 text-indigo-600"
+                      aria-label="Página anterior"
+                    >
+                      <IconChevronLeft size={14} />
+                    </button>
+                    <div className="text-xs font-medium text-slate-600">
+                      Pág. <span className="font-bold text-indigo-600">{currentPage}</span> / {totalPages}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={currentPage >= totalPages || loading}
+                      onClick={() => setCurrentPage((p) => p + 1)}
+                      className="p-1 rounded border bg-white disabled:opacity-30 hover:bg-indigo-50 text-indigo-600"
+                      aria-label="Página siguiente"
+                    >
+                      <IconChevronRight size={14} />
+                    </button>
+                  </div>
+                )}
+                <div className="text-[10px] font-medium text-slate-500">
+                  {paginatedWorks.length} de {filteredWorks.length} arreglos
+                </div>
+              </div>
+            )}
+          </div>
+          </>
         )}
       </div>
 
@@ -1616,6 +1949,80 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           onEntregado={async () => {
             await pasarAEntregado(entregaModalWork);
             setEntregaModalWork(null);
+            setMobileDetailWork(null);
+          }}
+        />
+      )}
+
+      <ArregloQuickEncargoModal
+        isOpen={quickEncargoModalOpen}
+        onClose={handleQuickCancel}
+        quickDraft={quickDraft}
+        onFieldChange={setQuickDraftField}
+        compositoresOptions={compositoresOptions}
+        integrantesArregladorOptions={integrantesArregladorOptions}
+        solicitanteLabel={getSolicitanteLabelForUser()}
+        onSave={handleQuickSave}
+        onOpenNewComposer={() => setIsQuickCompOpen(true)}
+        saving={quickSaving}
+      />
+
+      {mobileDetailWorkLive && (
+        <ArregloMobileDetailModal
+          isOpen={mobileDetailWorkLive != null}
+          onClose={() => setMobileDetailWork(null)}
+          work={mobileDetailWorkLive}
+          draft={getDraft(mobileDetailWorkLive.id)}
+          fieldStatus={fieldStatus}
+          fieldStatusKey={fieldStatusKey}
+          getFieldStatusClass={getFieldStatusClass}
+          canEditFields={canEditFields}
+          canEditDelivery={canEditDeliveryForWork(mobileDetailWorkLive)}
+          myCompositorId={myCompositorId}
+          refCount={(refsByObra[mobileDetailWorkLive.id] || []).length}
+          isSaving={savingId === mobileDetailWorkLive.id}
+          onFechaChange={(v) => {
+            const nextVal = v || "";
+            setDraftField(mobileDetailWorkLive.id, "fecha_esperada", nextVal);
+            const current = mobileDetailWorkLive.fecha_esperada || "";
+            if (nextVal !== current) {
+              saveEditorField(mobileDetailWorkLive, "fecha_esperada", nextVal);
+            }
+          }}
+          onInstrumentacionBlur={(v) => {
+            if (v !== (mobileDetailWorkLive.instrumentacion || "")) {
+              saveEditorField(mobileDetailWorkLive, "instrumentacion", v);
+            }
+          }}
+          onDificultadBlur={(v) => {
+            if (v !== (mobileDetailWorkLive.dificultad || "")) {
+              saveEditorField(mobileDetailWorkLive, "dificultad", v);
+            }
+          }}
+          onObservacionesBlur={(v) => {
+            if (v !== stripHtml(mobileDetailWorkLive.observaciones || "")) {
+              saveEditorField(mobileDetailWorkLive, "observaciones", v);
+            }
+          }}
+          onDraftChange={(field, value) => setDraftField(mobileDetailWorkLive.id, field, value)}
+          onOpenRefs={() => {
+            setRefsModalWork(mobileDetailWorkLive);
+          }}
+          onOpenEntrega={() => {
+            setEntregaModalWork(mobileDetailWorkLive);
+          }}
+          onEdit={() => {
+            setMobileDetailWork(null);
+            openWorkFormModal(mobileDetailWorkLive.id);
+          }}
+          onDelete={() => {
+            setMobileDetailWork(null);
+            setWorkToDelete(mobileDetailWorkLive);
+          }}
+          onNewVersion={() => {
+            setMobileDetailWork(null);
+            setNewVersionWork(mobileDetailWorkLive);
+            setNewVersionModalOpen(true);
           }}
         />
       )}
