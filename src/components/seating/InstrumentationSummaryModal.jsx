@@ -6,6 +6,8 @@ import {
   countsTowardInstrumentationConvoked,
   getPercComparableTotal,
   parsePercussionTotalFromString,
+  maxInstrumentationColumnMap,
+  computeInstrumentationRequiredConsolidated,
 } from "../../utils/instrumentation";
 
 const INSTRUMENT_COLUMNS = [
@@ -21,6 +23,27 @@ const INSTRUMENT_COLUMNS = [
   { id: "Har", label: "Har", key: "harp" },
   { id: "Pno", label: "Pno", key: "key" },
 ];
+
+const INSTRUMENT_LABELS_ES = {
+  Fl: ["flauta", "flautas"],
+  Ob: ["oboe", "oboes"],
+  Cl: ["clarinete", "clarinetes"],
+  Fg: ["fagot", "fagots"],
+  Cr: ["corno", "cornos"],
+  Tp: ["trompeta", "trompetas"],
+  Tb: ["trombón", "trombones"],
+  Tba: ["tuba", "tubas"],
+  Perc: ["percusión", "percusionistas"],
+  Har: ["arpa", "arpas"],
+  Pno: ["piano", "pianos"],
+};
+
+function formatInstrumentCount(colId, count) {
+  const labels = INSTRUMENT_LABELS_ES[colId];
+  if (!labels || count <= 0) return null;
+  const [singular, plural] = labels;
+  return `${count} ${count === 1 ? singular : plural}`;
+}
 
 const SAVE_DEBOUNCE_MS = 500;
 
@@ -287,16 +310,113 @@ export default function InstrumentationSummaryModal({
     });
   }, [required, convoked]);
 
-  const getColumnDelta = (col) => {
-    let r = required[col.id] || 0;
-    let c = convoked[col.id] || 0;
-
-    // Percusión: usar total de instrumentistas (Timp + Perc)
-    if (col.id === "Perc") {
-      r = (required.Tim || 0) + (required.Perc || 0);
-      c = (convoked.Tim || 0) + (convoked.Perc || 0);
+  const getRequiredCount = (colId) => {
+    if (colId === "Perc") {
+      return (required.Tim || 0) + (required.Perc || 0);
     }
-    return r - c;
+    return required[colId] || 0;
+  };
+
+  const getConvokedCount = (colId) => {
+    if (colId === "Perc") {
+      return (convoked.Tim || 0) + (convoked.Perc || 0);
+    }
+    return convoked[colId] || 0;
+  };
+
+  const instrumentationGaps = useMemo(() => {
+    const needMore = [];
+    const canSpare = [];
+
+    INSTRUMENT_COLUMNS.forEach((col) => {
+      const r = getRequiredCount(col.id);
+      const c = getConvokedCount(col.id);
+      const diff = r - c;
+      if (diff > 0) {
+        const label = formatInstrumentCount(col.id, diff);
+        if (label) needMore.push(label);
+      } else if (diff < 0) {
+        const label = formatInstrumentCount(col.id, Math.abs(diff));
+        if (label) canSpare.push(label);
+      }
+    });
+
+    return { needMore, canSpare };
+  }, [required, convoked]);
+
+  const consolidatedFamilies = useMemo(() => {
+    if (!works?.length) return {};
+    const partsMax = maxInstrumentationColumnMap(
+      works.map((w) => w.instrumentation_parts_column_map || {}),
+    );
+    return computeInstrumentationRequiredConsolidated(
+      required,
+      convoked,
+      partsMax,
+    );
+  }, [works, required, convoked]);
+
+  const partsMaxByColumn = useMemo(() => {
+    if (!works?.length) return {};
+    return maxInstrumentationColumnMap(
+      works.map((w) => w.instrumentation_parts_column_map || {}),
+    );
+  }, [works]);
+
+  const renderProgramSummaryCell = (colId, rowType) => {
+    const requiredValue = getRequiredCount(colId);
+    const convokedValue = getConvokedCount(colId);
+    const value = rowType === "convoked" ? convokedValue : requiredValue;
+    const isMismatch = requiredValue !== convokedValue;
+    const isLarger =
+      rowType === "convoked"
+        ? convokedValue > requiredValue
+        : requiredValue > convokedValue;
+    const isConsolidatedMatch =
+      !isMismatch &&
+      value > 0 &&
+      !!consolidatedFamilies[colId];
+
+    let valueClass = "text-slate-800";
+    if (isMismatch && isLarger) {
+      valueClass = "bg-orange-200 text-black font-extrabold";
+    } else if (isConsolidatedMatch) {
+      valueClass = "bg-violet-200 text-violet-900 font-extrabold";
+    }
+
+    const partsSlotsCount =
+      colId === "Perc"
+        ? getPercComparableTotal(partsMaxByColumn)
+        : partsMaxByColumn[colId];
+
+    const namesList =
+      colId === "Perc"
+        ? [
+            ...(convokedNamesByColumn.Tim || []),
+            ...(convokedNamesByColumn.Perc || []),
+          ]
+        : convokedNamesByColumn[colId] || [];
+    const tooltipText =
+      rowType === "convoked"
+        ? namesList.length > 0
+          ? namesList.join("\n")
+          : "Sin convocados"
+        : isConsolidatedMatch && partsSlotsCount != null
+          ? `Particellas en programa: ${partsSlotsCount} · Músicos asignados: ${value}`
+          : isConsolidatedMatch
+            ? "Partes cubiertas con asignación múltiple"
+            : isMismatch && isLarger
+              ? `Requerido: ${requiredValue} · Convocado: ${convokedValue}`
+              : undefined;
+
+    return (
+      <span
+        title={tooltipText}
+        className={`font-mono text-xs font-bold rounded px-1 ${valueClass}`}
+      >
+        {value || "·"}
+      </span>
+    );
   };
 
   const getPercTotalForInstrumentation = (instString) =>
@@ -321,10 +441,7 @@ export default function InstrumentationSummaryModal({
         ? getPercComparableTotal(work.instrumentation_parts_column_map || {})
         : work.instrumentation_parts_column_map?.[col.id];
 
-    let convokedCount = convoked[col.id] || 0;
-    if (col.id === "Perc") {
-      convokedCount = (convoked.Tim || 0) + (convoked.Perc || 0);
-    }
+    const convokedCount = getConvokedCount(col.id);
     const requiredCount = count;
     const requiredAboveConvoked =
       col.id !== "Str" && requiredCount > convokedCount;
@@ -441,60 +558,11 @@ export default function InstrumentationSummaryModal({
                       key={col.id}
                       className="px-2 py-1.5 text-center border-r border-slate-200"
                     >
-                      <div className="flex flex-col items-center gap-0.5">
-                        <span className="font-mono text-xs text-slate-800">
-                          {(() => {
-                            const namesList =
-                              col.id === "Perc"
-                                ? [
-                                    ...(convokedNamesByColumn.Tim || []),
-                                    ...(convokedNamesByColumn.Perc || []),
-                                  ]
-                                : convokedNamesByColumn[col.id] || [];
-                            const tooltipText =
-                              namesList.length > 0
-                                ? namesList.join("\n")
-                                : "Sin convocados";
-                            const value =
-                              col.id === "Perc"
-                                ? (convoked.Tim || 0) + (convoked.Perc || 0)
-                                : convoked[col.id] || 0;
-                            return <span title={tooltipText}>{value}</span>;
-                          })()}
-                        </span>
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
-                          {col.label}
-                        </span>
-                      </div>
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                        {col.label}
+                      </span>
                     </th>
                   ))}
-                </tr>
-                <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
-                  <th className="sticky left-0 z-10 bg-slate-50 px-3 py-1 text-[10px] font-medium text-left border-r border-slate-200">
-                    Δ Instrumentistas
-                  </th>
-                  {INSTRUMENT_COLUMNS.map((col) => {
-                    const delta = getColumnDelta(col);
-                    const label =
-                      delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : "";
-                    const isActive = delta > 0 && col.id !== "Str";
-                    return (
-                      <th
-                        key={col.id}
-                        className="px-2 py-1 text-center border-r border-slate-200"
-                      >
-                        <span
-                          className={
-                            isActive
-                              ? "font-semibold text-orange-700"
-                              : "text-slate-300"
-                          }
-                        >
-                          {label || "·"}
-                        </span>
-                      </th>
-                    );
-                  })}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -537,7 +605,68 @@ export default function InstrumentationSummaryModal({
                   </tr>
                 )}
               </tbody>
+              {works.length > 0 && (
+                <tfoot>
+                  <tr className="bg-slate-50 text-slate-700 border-t-2 border-slate-300">
+                    <td className="sticky left-0 z-10 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold border-r border-slate-200">
+                      Convocado
+                    </td>
+                    {INSTRUMENT_COLUMNS.map((col) => (
+                      <td
+                        key={col.id}
+                        className="px-2 py-1.5 text-center border-r border-slate-200"
+                      >
+                        {renderProgramSummaryCell(col.id, "convoked")}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="bg-white text-slate-700 border-t border-slate-200">
+                    <td className="sticky left-0 z-10 bg-white px-3 py-1.5 text-[10px] font-semibold border-r border-slate-200">
+                      Requerido
+                    </td>
+                    {INSTRUMENT_COLUMNS.map((col) => (
+                      <td
+                        key={col.id}
+                        className="px-2 py-1.5 text-center border-r border-slate-200"
+                      >
+                        {renderProgramSummaryCell(col.id, "required")}
+                      </td>
+                    ))}
+                  </tr>
+                </tfoot>
+              )}
             </table>
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="rounded-lg border border-orange-200 bg-orange-50/60 px-3 py-2">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-orange-800 mb-1">
+                Hace falta convocar o reacomodar
+              </div>
+              {instrumentationGaps.needMore.length > 0 ? (
+                <p className="text-xs text-orange-900">
+                  {instrumentationGaps.needMore.join(", ")}
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  No hay faltantes respecto al orgánico convocado.
+                </p>
+              )}
+            </div>
+            <div className="rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-sky-800 mb-1">
+                Se puede prescindir de
+              </div>
+              {instrumentationGaps.canSpare.length > 0 ? (
+                <p className="text-xs text-sky-900">
+                  {instrumentationGaps.canSpare.join(", ")}
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  No hay músicos de más respecto al requerido.
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </div>

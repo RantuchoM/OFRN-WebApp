@@ -29,7 +29,7 @@ Visualizar en tiempo real la diferencia entre la instrumentación técnica reque
 
 #### Modal de detalle (celdas por obra)
 - Misma semántica: naranja si `requerido > convocado`; violeta si `requerido == convocado` por asignación múltiple en esa obra.
-- La fila Δ muestra `requerido − convocado` por columna; naranja solo si `> 0`.
+- Filas **Convocado** / **Requerido** en cabecera de tabla; resúmenes textuales de faltantes y sobrantes bajo la grilla.
 
 ### 3. Instrumentación Convocada
 - Se cuenta el personal de la gira usando el hook `useGiraRoster` (roster ya resuelto para la gira actual).
@@ -67,6 +67,13 @@ Visualizar en tiempo real la diferencia entre la instrumentación técnica reque
 
 - Tabla por obra / instrumento con la misma semántica de colores que los tokens del badge.
 - Tooltip violeta: `Particellas en obra: N · Músicos asignados: M`.
+- **Cabecera de columnas:** solo abreviaturas (Fl, Ob, …); sin totales en el header.
+- **Fila Convocado:** totales convocados por familia (tooltip con nombres de músicos).
+- **Fila Requerido:** máximo de programa por familia (mismo mapa `required` que los badges).
+- Ambas filas van **debajo de las obras** (`tfoot`). Si hay diferencia, se resalta en naranja el número mayor; si coinciden con consolidación por asignación múltiple, violeta (misma regla que badges).
+- **Resumen bajo la tabla:**
+  - *Hace falta convocar o reacomodar:* familias con `requerido > convocado` (ej. `2 flautas`).
+  - *Se puede prescindir de:* familias con `convocado > requerido` (ej. `1 percusión, 2 trombones`).
 
 ## Utilidades (`src/utils/instrumentation.js`)
 - `getEffectiveRequiredColumnMap` — requerido híbrido por obra (particellas vs músicos según estado de asignación).
