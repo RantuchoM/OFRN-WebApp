@@ -272,6 +272,8 @@ export function buildAsistenciaMatrixSummaryValues(totals, selectedTypes) {
  * @param {Set<number>|Iterable<number>} params.selectedIntegranteIds
  * @param {Set<string>} params.selectedTypes — filtros de tipo de programa (define columna Ensamble en totales)
  * @param {boolean} [params.groupByEnsambles]
+ * @param {Array} [params.rowGroups] — grupos precalculados (respeta vista Ensambles/Cameratas)
+ * @param {Array} [params.ensambleAggregateRows] — filas agregadas precalculadas
  */
 export async function downloadAsistenciaMatrixExcel({
   visibleRows,
@@ -283,6 +285,8 @@ export async function downloadAsistenciaMatrixExcel({
   selectedIntegranteIds,
   selectedTypes,
   groupByEnsambles = false,
+  rowGroups: rowGroupsOverride = null,
+  ensambleAggregateRows: ensambleAggregateRowsOverride = null,
 }) {
   const summaryLabels = getAsistenciaMatrixSummaryHeadLabels(selectedTypes);
   const colCount = 2 + filteredProgramas.length + summaryLabels.length;
@@ -320,11 +324,13 @@ export async function downloadAsistenciaMatrixExcel({
   });
 
   if (groupByEnsambles) {
-    const aggRows = buildAsistenciaMatrixEnsambleAggregateRows(
-      visibleRows,
-      ensambles,
-      membershipsByEnsamble,
-    );
+    const aggRows =
+      ensambleAggregateRowsOverride ??
+      buildAsistenciaMatrixEnsambleAggregateRows(
+        visibleRows,
+        ensambles,
+        membershipsByEnsamble,
+      );
     for (const ar of aggRows) {
       const totals = computeAsistenciaMatrixEnsambleTotals(
         ar.visibleMemberIds,
@@ -359,24 +365,28 @@ export async function downloadAsistenciaMatrixExcel({
       });
     }
   } else {
-    const groups = buildAsistenciaMatrixRowGroups(
-      visibleRows,
-      ensambles,
-      membershipsByEnsamble,
-      selectedIntegranteIds,
-    );
+    const groups =
+      rowGroupsOverride ??
+      buildAsistenciaMatrixRowGroups(
+        visibleRows,
+        ensambles,
+        membershipsByEnsamble,
+        selectedIntegranteIds,
+      );
 
     for (const g of groups) {
-      const sep = sheet.addRow([g.label]);
-      sheet.mergeCells(sep.number, 1, sep.number, colCount);
-      const sc = sep.getCell(1);
-      sc.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FFE2E8F0" },
-      };
-      sc.font = { bold: true, size: 11 };
-      sc.alignment = { horizontal: "center", vertical: "middle" };
+      if (g.label) {
+        const sep = sheet.addRow([g.label]);
+        sheet.mergeCells(sep.number, 1, sep.number, colCount);
+        const sc = sep.getCell(1);
+        sc.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFE2E8F0" },
+        };
+        sc.font = { bold: true, size: 11 };
+        sc.alignment = { horizontal: "center", vertical: "middle" };
+      }
 
       for (const row of g.rows) {
         const iid = integranteKey(row.id);
@@ -450,6 +460,8 @@ export function downloadAsistenciaMatrixPdf({
   selectedTypes,
   reportTitle = "Matriz de asistencia",
   groupByEnsambles = false,
+  rowGroups: rowGroupsOverride = null,
+  ensambleAggregateRows: ensambleAggregateRowsOverride = null,
 }) {
   const summaryLabels = getAsistenciaMatrixSummaryHeadLabels(selectedTypes);
   const colSpan = 2 + filteredProgramas.length + summaryLabels.length;
@@ -485,11 +497,13 @@ export function downloadAsistenciaMatrixPdf({
 
   const body = [];
   if (groupByEnsambles) {
-    const aggRows = buildAsistenciaMatrixEnsambleAggregateRows(
-      visibleRows,
-      ensambles,
-      membershipsByEnsamble,
-    );
+    const aggRows =
+      ensambleAggregateRowsOverride ??
+      buildAsistenciaMatrixEnsambleAggregateRows(
+        visibleRows,
+        ensambles,
+        membershipsByEnsamble,
+      );
     for (const ar of aggRows) {
       const totals = computeAsistenciaMatrixEnsambleTotals(
         ar.visibleMemberIds,
@@ -509,24 +523,28 @@ export function downloadAsistenciaMatrixPdf({
       ]);
     }
   } else {
-    const groups = buildAsistenciaMatrixRowGroups(
-      visibleRows,
-      ensambles,
-      membershipsByEnsamble,
-      selectedIntegranteIds,
-    );
+    const groups =
+      rowGroupsOverride ??
+      buildAsistenciaMatrixRowGroups(
+        visibleRows,
+        ensambles,
+        membershipsByEnsamble,
+        selectedIntegranteIds,
+      );
     for (const g of groups) {
-      body.push([
-        {
-          content: `  ▸ ${g.label}`,
-          colSpan: colSpan,
-          styles: {
-            fillColor: [226, 232, 240],
-            fontStyle: "bold",
-            halign: "left",
+      if (g.label) {
+        body.push([
+          {
+            content: `  ▸ ${g.label}`,
+            colSpan: colSpan,
+            styles: {
+              fillColor: [226, 232, 240],
+              fontStyle: "bold",
+              halign: "left",
+            },
           },
-        },
-      ]);
+        ]);
+      }
       for (const row of g.rows) {
         const iid = integranteKey(row.id);
         const name = `${row.nombre || ""} ${row.apellido || ""}`.trim();

@@ -40,6 +40,7 @@ import {
   SwapVacancyModal,
 } from "../../components/giras/VacancyTools";
 import RosterTableRow from "../../components/giras/RosterTableRow";
+import RosterGroupSeparatorRow from "../../components/giras/RosterGroupSeparatorRow";
 import RosterMotivoModal from "../../components/giras/RosterMotivoModal";
 import RosterBajaModal from "../../components/giras/RosterBajaModal";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
@@ -54,6 +55,14 @@ import {
   isForeignKeyViolation,
 } from "../../utils/integranteIds";
 import { sendConvocatoriaNotificationTasks } from "../../utils/convocatoriaNotificationSend";
+import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
+import {
+  buildRosterSeatingSortContext,
+  compareRosterByInstrument,
+  getRosterInstrumentRowSeparator,
+  getRosterInstrumentGroupKey,
+  getRosterTableColumnCount,
+} from "../../utils/rosterInstrumentSort";
 
 // --- CONSTANTES ---
 // ROLES_GIRA eliminado en favor de DB
@@ -64,6 +73,34 @@ const CONDICIONES = [
   "Invitado",
   "Becario",
 ];
+
+const ROSTER_SORT_STORAGE_KEY = "gira_roster_sort_by";
+const ROSTER_SORT_OPTIONS = new Set([
+  "rol",
+  "localidad",
+  "region",
+  "instrumento",
+  "genero",
+]);
+
+function readStoredRosterSortBy() {
+  if (typeof window === "undefined") return "rol";
+  try {
+    const stored = localStorage.getItem(ROSTER_SORT_STORAGE_KEY);
+    return ROSTER_SORT_OPTIONS.has(stored) ? stored : "rol";
+  } catch {
+    return "rol";
+  }
+}
+
+function persistRosterSortBy(sortBy) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(ROSTER_SORT_STORAGE_KEY, sortBy);
+  } catch {
+    /* quota / private mode */
+  }
+}
 
 // Helper para convertir Hex a RGBA (para fondos suaves)
 const hexToRgba = (hex, alpha = 0.1) => {
@@ -476,7 +513,9 @@ export default function GiraRoster({
   const [addMode, setAddMode] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState([]);
-  const [sortBy, setSortBy] = useState("rol");
+  const [sortBy, setSortBy] = useState(readStoredRosterSortBy);
+  const [showInstrumentSeparators, setShowInstrumentSeparators] = useState(true);
+  const [seatingSortCtx, setSeatingSortCtx] = useState(null);
 
   // Filtros Múltiples
   const [selectedFilterRoles, setSelectedFilterRoles] = useState(new Set());
@@ -498,11 +537,62 @@ export default function GiraRoster({
   }, [gira?.id]);
 
   useEffect(() => {
+    persistRosterSortBy(sortBy);
+  }, [sortBy]);
+
+  useEffect(() => {
     setIndividualAddRoleId(DEFAULT_ROL_ID);
     setDetailedCreateRoleId(DEFAULT_ROL_ID);
     setPendingIndividualAdd(null);
     setPendingDetailedLink(null);
   }, [gira?.id]);
+
+  useEffect(() => {
+    if (!supabase || gira?.id == null) {
+      setSeatingSortCtx(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSeatingSort = async () => {
+      try {
+        const { data: containers, error: contsError } = await supabase
+          .from("seating_contenedores")
+          .select("id, nombre, orden")
+          .eq("id_programa", gira.id)
+          .order("orden");
+
+        if (cancelled) return;
+        if (contsError) throw contsError;
+
+        const contIds = (containers || []).map((c) => c.id);
+        let items = [];
+        if (contIds.length > 0) {
+          const { data: itemsData, error: itemsError } = await supabase
+            .from("seating_contenedores_items")
+            .select("id, id_contenedor, id_musico, atril_num, lado, orden")
+            .in("id_contenedor", contIds);
+          if (itemsError) throw itemsError;
+          items = itemsData || [];
+        }
+
+        const dedupedItems = dedupeSeatingStringItems(items, containers || []);
+
+        setSeatingSortCtx(
+          buildRosterSeatingSortContext(containers || [], dedupedItems),
+        );
+      } catch (err) {
+        console.warn("GiraRoster seating sort:", err?.message);
+        if (!cancelled) setSeatingSortCtx(null);
+      }
+    };
+
+    loadSeatingSort();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, gira?.id]);
 
   const [visibleColumns, setVisibleColumns] = useState({
     telefono: true,
@@ -784,6 +874,13 @@ export default function GiraRoster({
       });
 
       // --- ORDENAMIENTO ---
+      const roleOrderMap = {};
+      rolesList.forEach((r) => {
+        roleOrderMap[r.id] = r.orden;
+      });
+      const rolePriority = (rol) =>
+        roleOrderMap[rol] !== undefined ? roleOrderMap[rol] : 999;
+
       const sorted = [...filtered].sort((a, b) => {
         // 1. Ausentes siempre al final
         if (a.estado_gira === "ausente" && b.estado_gira !== "ausente")
@@ -806,12 +903,13 @@ export default function GiraRoster({
             if (regA !== regB) return regA.localeCompare(regB);
             return (a.apellido || "").localeCompare(b.apellido || "");
           }
-          case "instrumento": {
-            const instA = String(a.id_instr || "999");
-            const instB = String(b.id_instr || "999");
-            if (instA !== instB) return instA.localeCompare(instB);
-            return (a.apellido || "").localeCompare(b.apellido || "");
-          }
+          case "instrumento":
+            return compareRosterByInstrument(
+              a,
+              b,
+              seatingSortCtx,
+              rolePriority,
+            );
           case "genero": {
             const gA = a.genero || "Z";
             const gB = b.genero || "Z";
@@ -820,22 +918,8 @@ export default function GiraRoster({
           }
           case "rol":
           default: {
-            // Mapa de prioridades dinámico basado en rolesList
-            const roleOrderMap = {};
-            rolesList.forEach((r) => {
-              roleOrderMap[r.id] = r.orden;
-            });
-
-            // Fallback para roles no encontrados o nulos
-            const pA =
-              roleOrderMap[a.rol_gira] !== undefined
-                ? roleOrderMap[a.rol_gira]
-                : 999;
-            const pB =
-              roleOrderMap[b.rol_gira] !== undefined
-                ? roleOrderMap[b.rol_gira]
-                : 999;
-
+            const pA = rolePriority(a.rol_gira);
+            const pB = rolePriority(b.rol_gira);
             if (pA !== pB) return pA - pB;
             return (a.apellido || "").localeCompare(b.apellido || "");
           }
@@ -853,6 +937,7 @@ export default function GiraRoster({
     selectedFilterEnsemblesList,
     selectedFilterLocalities,
     rolesList,
+    seatingSortCtx,
   ]);
 
   useEffect(() => {
@@ -972,6 +1057,56 @@ export default function GiraRoster({
         .map((m) => m.id);
       setSelectedIds(new Set(validIds));
     }
+  };
+
+  const instrumentGroupMembers = useMemo(() => {
+    const map = new Map();
+    if (sortBy !== "instrumento") return map;
+    for (const m of localRoster) {
+      const key = getRosterInstrumentGroupKey(m, seatingSortCtx);
+      if (!key) continue;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(m.id);
+    }
+    return map;
+  }, [localRoster, sortBy, seatingSortCtx]);
+
+  const toggleInstrumentGroupSelection = (memberIds) => {
+    selectionAnchorIndexRef.current = null;
+    const selectable = (memberIds || []).filter((id) => {
+      const row = localRoster.find((r) => r.id === id);
+      return row && row.estado_gira !== "ausente";
+    });
+    if (selectable.length === 0) return;
+
+    const allSelected = selectable.every((id) => selectedIds.has(id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        selectable.forEach((id) => next.delete(id));
+      } else {
+        selectable.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const getInstrumentGroupSelectionState = (groupKey) => {
+    const memberIds = instrumentGroupMembers.get(groupKey) || [];
+    const selectable = memberIds.filter((id) => {
+      const row = localRoster.find((r) => r.id === id);
+      return row && row.estado_gira !== "ausente";
+    });
+    if (selectable.length === 0) {
+      return { checked: false, indeterminate: false, disabled: true, memberIds };
+    }
+    const selectedCount = selectable.filter((id) => selectedIds.has(id)).length;
+    return {
+      checked: selectedCount === selectable.length,
+      indeterminate: selectedCount > 0 && selectedCount < selectable.length,
+      disabled: false,
+      memberIds: selectable,
+    };
   };
 
   const handleCopyEmails = () => {
@@ -2257,6 +2392,11 @@ export default function GiraRoster({
     return baseStyle;
   };
 
+  const rosterTableColumnCount = useMemo(
+    () => getRosterTableColumnCount(visibleColumns),
+    [visibleColumns],
+  );
+
   const listaAusentes = localRoster.filter((r) => r.estado_gira === "ausente");
   const listaAdicionales = localRoster.filter((r) => r.es_adicional);
   const listaConfirmados = localRoster.filter(
@@ -2506,38 +2646,60 @@ export default function GiraRoster({
       <div className="px-4 py-2 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-4 z-40 relative">
         <div className="flex items-center gap-2 flex-wrap">
           {/* ORDEN */}
-          <div className="relative" ref={orderMenuRef}>
-            <button
-              type="button"
-              onClick={() => setShowOrderMenu((v) => !v)}
-              className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100"
-            >
-              Orden: {currentSortLabel}
-              <IconChevronDown size={12} />
-            </button>
-            {showOrderMenu && (
-              <div className="absolute top-full left-0 mt-2 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-50 text-xs">
-                {["rol", "localidad", "region", "instrumento", "genero"].map(
-                  (crit) => (
-                    <button
-                      key={crit}
-                      type="button"
-                      onClick={() => {
-                        setSortBy(crit);
-                        setShowOrderMenu(false);
-                      }}
-                      className={`w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center justify-between ${
-                        sortBy === crit ? "font-bold text-fixed-indigo-700" : ""
-                      }`}
-                    >
-                      <span>{sortLabelMap[crit]}</span>
-                      {sortBy === crit && (
-                        <IconArrowRight size={10} className="rotate-90" />
-                      )}
-                    </button>
-                  ),
-                )}
-              </div>
+          <div className="inline-flex items-stretch rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="relative" ref={orderMenuRef}>
+              <button
+                type="button"
+                onClick={() => setShowOrderMenu((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 ${
+                  sortBy === "instrumento"
+                    ? "rounded-l-lg rounded-r-none"
+                    : "rounded-lg"
+                }`}
+              >
+                Orden: {currentSortLabel}
+                <IconChevronDown size={12} />
+              </button>
+              {showOrderMenu && (
+                <div className="absolute top-full left-0 mt-2 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-50 text-xs">
+                  {["rol", "localidad", "region", "instrumento", "genero"].map(
+                    (crit) => (
+                      <button
+                        key={crit}
+                        type="button"
+                        onClick={() => {
+                          setSortBy(crit);
+                          setShowOrderMenu(false);
+                        }}
+                        className={`w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center justify-between ${
+                          sortBy === crit ? "font-bold text-fixed-indigo-700" : ""
+                        }`}
+                      >
+                        <span>{sortLabelMap[crit]}</span>
+                        {sortBy === crit && (
+                          <IconArrowRight size={10} className="rotate-90" />
+                        )}
+                      </button>
+                    ),
+                  )}
+                </div>
+              )}
+            </div>
+            {sortBy === "instrumento" && (
+              <label
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-slate-100 border-l border-slate-200 rounded-r-lg cursor-pointer select-none shrink-0"
+                title="Mostrar separadores por contenedor o instrumento"
+              >
+                <input
+                  type="checkbox"
+                  checked={showInstrumentSeparators}
+                  onChange={(e) =>
+                    setShowInstrumentSeparators(e.target.checked)
+                  }
+                  className="rounded border-slate-300 text-fixed-indigo-600 focus:ring-fixed-indigo-500 cursor-pointer"
+                />
+                Separadores
+              </label>
             )}
           </div>
 
@@ -3061,45 +3223,73 @@ export default function GiraRoster({
                 const isSelected = selectedIds.has(m.id);
                 const { className: rowClassName, style: rowStyle, ausenteMuted } =
                   getRowStyles(m, isSelected);
+                const prev = idx > 0 ? localRoster[idx - 1] : null;
+                const groupSeparator =
+                  sortBy === "instrumento" && showInstrumentSeparators
+                    ? getRosterInstrumentRowSeparator(
+                        prev,
+                        m,
+                        seatingSortCtx,
+                      )
+                    : null;
+                const groupSelection = groupSeparator?.groupKey
+                  ? getInstrumentGroupSelectionState(groupSeparator.groupKey)
+                  : null;
                 return (
-                  <RosterTableRow
-                    key={m.id}
-                    musician={m}
-                    index={idx}
-                    isSelected={isSelected}
-                    rowClassName={rowClassName}
-                    rowStyle={rowStyle}
-                    ausenteMuted={Boolean(ausenteMuted)}
-                    isReemplazoFlashing={reemplazoFlashId === m.id}
-                    visibleColumns={visibleColumns}
-                    isEditor={isEditor}
-                    rolesList={rolesList}
-                    instrumentsList={instrumentsList}
-                    defaultRolId={DEFAULT_ROL_ID}
-                    onToggleSelection={handleRowCheckboxClick}
-                    onChangeRole={changeRole}
-                    onChangeInstrument={changeInstrument}
-                    onEdit={setEditingMusician}
-                    onSwap={setSwapTarget}
-                    onDeleteVacancy={handleDeleteVacancy}
-                    onToggleAbonaReemplazo={toggleAbonaReemplazo}
-                    onRequestBaja={requestBaja}
-                    pendingBajaForRow={
-                      pendingBaja && pendingBaja.integranteId === m.id
-                        ? { action: pendingBaja.action }
-                        : null
-                    }
-                    onCopyLink={copyGuestLink}
-                    onOpenMotivoModal={(musician) =>
-                      setMotivoModalMusician(musician)
-                    }
-                  />
+                  <React.Fragment key={m.id}>
+                    {groupSeparator && (
+                      <RosterGroupSeparatorRow
+                        colSpan={rosterTableColumnCount}
+                        label={groupSeparator.label}
+                        type={groupSeparator.type}
+                        checked={groupSelection?.checked ?? false}
+                        indeterminate={groupSelection?.indeterminate ?? false}
+                        disabled={groupSelection?.disabled ?? true}
+                        onToggle={() =>
+                          toggleInstrumentGroupSelection(
+                            groupSelection?.memberIds,
+                          )
+                        }
+                      />
+                    )}
+                    <RosterTableRow
+                      musician={m}
+                      index={idx}
+                      isSelected={isSelected}
+                      rowClassName={rowClassName}
+                      rowStyle={rowStyle}
+                      ausenteMuted={Boolean(ausenteMuted)}
+                      isReemplazoFlashing={reemplazoFlashId === m.id}
+                      visibleColumns={visibleColumns}
+                      isEditor={isEditor}
+                      rolesList={rolesList}
+                      instrumentsList={instrumentsList}
+                      defaultRolId={DEFAULT_ROL_ID}
+                      onToggleSelection={handleRowCheckboxClick}
+                      onChangeRole={changeRole}
+                      onChangeInstrument={changeInstrument}
+                      onEdit={setEditingMusician}
+                      onSwap={setSwapTarget}
+                      onDeleteVacancy={handleDeleteVacancy}
+                      onToggleAbonaReemplazo={toggleAbonaReemplazo}
+                      onRequestBaja={requestBaja}
+                      pendingBajaForRow={
+                        pendingBaja && pendingBaja.integranteId === m.id
+                          ? { action: pendingBaja.action }
+                          : null
+                      }
+                      onCopyLink={copyGuestLink}
+                      onOpenMotivoModal={(musician) =>
+                        setMotivoModalMusician(musician)
+                      }
+                    />
+                  </React.Fragment>
                 );
               })}
               {localRoster.length === 0 && (
                 <tr>
                   <td
-                    colSpan="10"
+                    colSpan={rosterTableColumnCount}
                     className="p-8 text-center text-slate-400 italic"
                   >
                     No se encontraron músicos con los filtros actuales.

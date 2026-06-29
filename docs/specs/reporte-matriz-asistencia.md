@@ -7,8 +7,15 @@ Visualizar en un cuadro de doble entrada la participación de integrantes en los
 ## Requerimientos Funcionales
 
 1. **Selector de Árbol (Lado Izquierdo/Filtros):**
-   - Jerarquía: Ensamble > Integrantes.
+   - Jerarquía: Ensamble > Integrantes (o Región > Ensamble > Integrantes en vista Regiones).
    - Capacidad de tildar/destildar nodos completos o individuales.
+   - **Toggle de vista** (segmentado, 3 modos): Ensambles · Cameratas · Regiones.
+     - **Ensambles:** todos los ensambles regionales (excluye `Prod.`, prefijo `CF` y Jazz Band).
+     - **Cameratas:** ensambles con prefijo `CF` y Jazz Band.
+     - **Regiones:** mismos ensambles que Ensambles, agrupados por `ensambles.id_localidad` → `localidades.id_region` → `regiones.region`; checkbox de región tilda todos los integrantes de sus ensambles. Sin `id_localidad` → grupo **Sin región asignada** al final.
+   - Botones **Todos / Ninguno** acotados a los integrantes visibles en el modo actual.
+   - **Selección independiente por modo:** al cambiar Ensambles / Cameratas / Regiones, cada vista conserva su propia selección; la matriz muestra solo la del modo activo.
+   - **Agrupación en matriz:** en Ensambles/Regiones solo considera ensambles regionales (no cameratas). En Cameratas lista plana de músicos; con «Agrupar por ensambles» una sola fila agregada «Cameratas».
 2. **Selector de Programas (Filtros):**
    - Checkboxes por `tipo_programa` (Sinfónico, Cámara, etc.).
 3. **Barra de controles de la matriz (encabezado):**
@@ -58,5 +65,9 @@ No se requieren tablas nuevas; se sugiere una vista para optimizar la carga de l
 | Overrides `giras_integrantes.id_instr` + instrumento efectivo en matriz/export | Completado |
 | `abona_reemplazo` en ausentes: marca R celeste + conteo en totales y resumen anual | Completado |
 | Panel lateral: chevron `IconChevronDown` (rotación), contador seleccionados por ensamble, filas con hover | Completado |
+| Toggle Ensambles / Cameratas / Regiones en panel lateral (`convocatoriaEnsambleViews.js`) | Completado |
+| Fetch ensambles con `id_localidad` y join `localidades` / `regiones` en matriz | Completado |
+
+**Clasificación de ensambles (convocatorias):** reutiliza `isCfEnsambleLabel` y `isProduccionParticipanteLabel` (`participantesSort.js`); Jazz Band por nombre normalizado (`jazz band`). Utilidad: `src/utils/convocatoriaEnsambleViews.js`.
 
 **Nota:** El orden orquestal de filas usa `id_instr` como texto (`localeCompare` numérico), no `parseInt`. La analítica de partituras sigue en `src/utils/instrumentation.js`.

@@ -41,6 +41,20 @@ import {
   IconHistory,
   IconMapPin,
 } from "../../components/ui/Icons";
+import {
+  CONVOCATORIA_ENSAMBLE_VIEW_MODES,
+  CONVOCATORIA_VIEW_SECTION_TITLES,
+  filterEnsamblesForConvocatoriaView,
+  groupRegionalEnsamblesByRegion,
+} from "../../utils/convocatoriaEnsambleViews";
+
+function createEmptySelectionByMode() {
+  return {
+    ensambles: new Set(),
+    cameratas: new Set(),
+    regiones: new Set(),
+  };
+}
 
 const normalizeFamily = (value) =>
   String(value || "")
@@ -395,15 +409,18 @@ export default function AsistenciaMatrixReport({ supabase }) {
   );
   const [showPastInYear, setShowPastInYear] = useState(false);
   const [groupByEnsambles, setGroupByEnsambles] = useState(false);
-  const [selectedIntegranteIds, setSelectedIntegranteIds] = useState(
-    () => new Set(),
+  const [selectedIntegranteIdsByMode, setSelectedIntegranteIdsByMode] = useState(
+    createEmptySelectionByMode,
   );
   const [openEnsambles, setOpenEnsambles] = useState(() => new Set());
+  const [ensambleViewMode, setEnsambleViewMode] = useState("ensambles");
+  const [openRegions, setOpenRegions] = useState(() => new Set());
 
   const [rosterByGiraId, setRosterByGiraId] = useState({});
   const [rosterLoading, setRosterLoading] = useState(false);
 
   const ensambleCheckboxRefs = useRef({});
+  const regionCheckboxRefs = useRef({});
   const tableScrollRef = useRef(null);
 
   useEffect(() => {
@@ -432,7 +449,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
       setMemberships(m);
       setInstrumentCatalog(catalog || []);
       setGiraInstrumentOverrideMap(overrideMap || new Map());
-      setSelectedIntegranteIds(new Set());
+      setSelectedIntegranteIdsByMode(createEmptySelectionByMode());
       setOpenEnsambles(new Set());
       setLoading(false);
     })();
@@ -452,6 +469,45 @@ export default function AsistenciaMatrixReport({ supabase }) {
     }
     return map;
   }, [memberships]);
+
+  const visibleEnsamblesForView = useMemo(
+    () => filterEnsamblesForConvocatoriaView(ensambles, ensambleViewMode),
+    [ensambles, ensambleViewMode],
+  );
+
+  const regionGroups = useMemo(() => {
+    if (ensambleViewMode !== "regiones") return [];
+    return groupRegionalEnsamblesByRegion(ensambles)
+      .map((group) => ({
+        ...group,
+        ensambles: group.ensambles.filter((en) => {
+          const memberIds = membershipsByEnsamble.get(Number(en.id)) || [];
+          return memberIds.length > 0;
+        }),
+      }))
+      .filter((group) => group.ensambles.length > 0);
+  }, [ensambles, ensambleViewMode, membershipsByEnsamble]);
+
+  const visibleIntegranteIdsForView = useMemo(() => {
+    const ids = new Set();
+    for (const en of visibleEnsamblesForView) {
+      const memberIds = membershipsByEnsamble.get(Number(en.id)) || [];
+      if (memberIds.length === 0) continue;
+      memberIds.forEach((id) => ids.add(id));
+    }
+    return ids;
+  }, [visibleEnsamblesForView, membershipsByEnsamble]);
+
+  const selectedIntegranteIds = useMemo(
+    () => selectedIntegranteIdsByMode[ensambleViewMode] ?? new Set(),
+    [selectedIntegranteIdsByMode, ensambleViewMode],
+  );
+
+  /** Solo ensambles regionales: la matriz no agrupa por cameratas en vista Ensambles/Regiones. */
+  const ensamblesForGrouping = useMemo(
+    () => filterEnsamblesForConvocatoriaView(ensambles, "ensambles"),
+    [ensambles],
+  );
 
   const ensambleMap = useMemo(() => {
     const map = new Map();
@@ -545,31 +601,56 @@ export default function AsistenciaMatrixReport({ supabase }) {
     ],
   );
 
-  const rowGroups = useMemo(
-    () =>
-      buildAsistenciaMatrixRowGroups(
-        visibleRowsEnriched,
-        ensambles,
-        membershipsByEnsamble,
-        selectedIntegranteIds,
-      ),
-    [
+  const rowGroups = useMemo(() => {
+    if (ensambleViewMode === "cameratas") {
+      if (visibleRowsEnriched.length === 0) return [];
+      return [
+        {
+          key: "cameratas",
+          label: null,
+          rows: visibleRowsEnriched,
+        },
+      ];
+    }
+    return buildAsistenciaMatrixRowGroups(
       visibleRowsEnriched,
-      ensambles,
+      ensamblesForGrouping,
       membershipsByEnsamble,
       selectedIntegranteIds,
-    ],
-  );
+    );
+  }, [
+    ensambleViewMode,
+    visibleRowsEnriched,
+    ensamblesForGrouping,
+    membershipsByEnsamble,
+    selectedIntegranteIds,
+  ]);
 
-  const ensambleAggregateRows = useMemo(
-    () =>
-      buildAsistenciaMatrixEnsambleAggregateRows(
-        visibleRowsEnriched,
-        ensambles,
-        membershipsByEnsamble,
-      ),
-    [visibleRowsEnriched, ensambles, membershipsByEnsamble],
-  );
+  const ensambleAggregateRows = useMemo(() => {
+    if (ensambleViewMode === "cameratas") {
+      const memberIds = visibleRowsEnriched
+        .map((row) => integranteKey(row.id))
+        .filter(Boolean);
+      if (memberIds.length === 0) return [];
+      return [
+        {
+          key: "cameratas",
+          label: "Cameratas",
+          visibleMemberIds: memberIds,
+        },
+      ];
+    }
+    return buildAsistenciaMatrixEnsambleAggregateRows(
+      visibleRowsEnriched,
+      ensamblesForGrouping,
+      membershipsByEnsamble,
+    );
+  }, [
+    ensambleViewMode,
+    visibleRowsEnriched,
+    ensamblesForGrouping,
+    membershipsByEnsamble,
+  ]);
 
   const summaryHeadLabels = useMemo(
     () => getAsistenciaMatrixSummaryHeadLabels(selectedTypes),
@@ -585,29 +666,46 @@ export default function AsistenciaMatrixReport({ supabase }) {
     });
   }, []);
 
-  const toggleIntegrante = useCallback((id) => {
-    const n = integranteKey(id);
-    if (!n) return;
-    setSelectedIntegranteIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(n)) next.delete(n);
-      else next.add(n);
-      return next;
-    });
-  }, []);
+  const patchSelectionForMode = useCallback(
+    (updater) => {
+      setSelectedIntegranteIdsByMode((prev) => {
+        const current = new Set(prev[ensambleViewMode] || []);
+        const next = updater(current);
+        return { ...prev, [ensambleViewMode]: next };
+      });
+    },
+    [ensambleViewMode],
+  );
 
-  const toggleEnsambleMembers = useCallback((_ensambleId, memberIds) => {
-    setSelectedIntegranteIds((prev) => {
-      const allSelected = memberIds.every((id) => prev.has(id));
-      const next = new Set(prev);
-      if (allSelected) {
-        memberIds.forEach((id) => next.delete(id));
-      } else {
-        memberIds.forEach((id) => next.add(id));
-      }
-      return next;
-    });
-  }, []);
+  const toggleIntegrante = useCallback(
+    (id) => {
+      const n = integranteKey(id);
+      if (!n) return;
+      patchSelectionForMode((prev) => {
+        const next = new Set(prev);
+        if (next.has(n)) next.delete(n);
+        else next.add(n);
+        return next;
+      });
+    },
+    [patchSelectionForMode],
+  );
+
+  const toggleEnsambleMembers = useCallback(
+    (_ensambleId, memberIds) => {
+      patchSelectionForMode((prev) => {
+        const allSelected = memberIds.every((id) => prev.has(id));
+        const next = new Set(prev);
+        if (allSelected) {
+          memberIds.forEach((id) => next.delete(id));
+        } else {
+          memberIds.forEach((id) => next.add(id));
+        }
+        return next;
+      });
+    },
+    [patchSelectionForMode],
+  );
 
   const toggleEnsambleOpen = useCallback((id) => {
     setOpenEnsambles((prev) => {
@@ -619,8 +717,21 @@ export default function AsistenciaMatrixReport({ supabase }) {
     });
   }, []);
 
+  const toggleRegionOpen = useCallback((key) => {
+    setOpenRegions((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
-    for (const en of ensambles) {
+    const ensList =
+      ensambleViewMode === "regiones"
+        ? regionGroups.flatMap((g) => g.ensambles)
+        : visibleEnsamblesForView;
+    for (const en of ensList) {
       const eid = Number(en.id);
       const memberIds = membershipsByEnsamble.get(eid) || [];
       const ref = ensambleCheckboxRefs.current[eid];
@@ -631,7 +742,37 @@ export default function AsistenciaMatrixReport({ supabase }) {
       ref.indeterminate =
         selected.length > 0 && selected.length < memberIds.length;
     }
-  }, [ensambles, membershipsByEnsamble, selectedIntegranteIds]);
+  }, [
+    ensambleViewMode,
+    regionGroups,
+    visibleEnsamblesForView,
+    membershipsByEnsamble,
+    selectedIntegranteIds,
+  ]);
+
+  useEffect(() => {
+    if (ensambleViewMode !== "regiones") return;
+    for (const group of regionGroups) {
+      const allMemberIds = [];
+      for (const en of group.ensambles) {
+        const eid = Number(en.id);
+        const memberIds = membershipsByEnsamble.get(eid) || [];
+        allMemberIds.push(...memberIds);
+      }
+      const ref = regionCheckboxRefs.current[group.key];
+      if (!ref || allMemberIds.length === 0) continue;
+      const selected = allMemberIds.filter((id) =>
+        selectedIntegranteIds.has(id),
+      );
+      ref.indeterminate =
+        selected.length > 0 && selected.length < allMemberIds.length;
+    }
+  }, [
+    ensambleViewMode,
+    regionGroups,
+    membershipsByEnsamble,
+    selectedIntegranteIds,
+  ]);
 
   const headerLabel = useCallback((g) => {
     const n = (g.nomenclador || "").trim();
@@ -644,21 +785,97 @@ export default function AsistenciaMatrixReport({ supabase }) {
     navigate(`/?tab=giras&view=REPERTOIRE&giraId=${giraId}`);
   };
 
-  const allMatrixIntegranteIds = useMemo(
-    () =>
-      integrantesInMatrix
-        .map((it) => integranteKey(it.id))
-        .filter(Boolean),
-    [integrantesInMatrix],
-  );
-
   const selectAllIntegrantes = useCallback(() => {
-    setSelectedIntegranteIds(new Set(allMatrixIntegranteIds));
-  }, [allMatrixIntegranteIds]);
+    setSelectedIntegranteIdsByMode((prev) => ({
+      ...prev,
+      [ensambleViewMode]: new Set(visibleIntegranteIdsForView),
+    }));
+  }, [ensambleViewMode, visibleIntegranteIdsForView]);
 
   const clearAllIntegrantes = useCallback(() => {
-    setSelectedIntegranteIds(new Set());
-  }, []);
+    setSelectedIntegranteIdsByMode((prev) => ({
+      ...prev,
+      [ensambleViewMode]: new Set(),
+    }));
+  }, [ensambleViewMode]);
+
+  const renderEnsambleNode = (en, { nested = false } = {}) => {
+    const eid = Number(en.id);
+    const memberIds = membershipsByEnsamble.get(eid) || [];
+    if (memberIds.length === 0) return null;
+    const open = openEnsambles.has(eid);
+    const allOn = memberIds.every((id) => selectedIntegranteIds.has(id));
+    const selectedCount = memberIds.filter((id) =>
+      selectedIntegranteIds.has(id),
+    ).length;
+    return (
+      <div
+        key={eid}
+        className={`overflow-hidden rounded-lg border border-slate-100 dark:border-slate-800 ${
+          nested ? "ml-2" : ""
+        }`}
+      >
+        <div className="flex items-center gap-1 bg-slate-50/80 px-1.5 py-1 dark:bg-slate-800/50">
+          <button
+            type="button"
+            onClick={() => toggleEnsambleOpen(eid)}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+            aria-expanded={open}
+            aria-label={
+              open
+                ? `Contraer ${en.ensamble || eid}`
+                : `Expandir ${en.ensamble || eid}`
+            }
+          >
+            <IconChevronDown
+              size={14}
+              className={`shrink-0 transition-transform duration-200 ${
+                open ? "rotate-0" : "-rotate-90"
+              }`}
+            />
+          </button>
+          <input
+            ref={(el) => {
+              ensambleCheckboxRefs.current[eid] = el;
+            }}
+            type="checkbox"
+            checked={allOn}
+            onChange={() => toggleEnsambleMembers(eid, memberIds)}
+            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+          />
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800 dark:text-slate-200">
+            {en.ensamble || `Ensamble ${eid}`}
+          </span>
+          <span className="shrink-0 pr-1 text-[10px] tabular-nums text-slate-400 dark:text-slate-500">
+            {selectedCount}/{memberIds.length}
+          </span>
+        </div>
+        {open && (
+          <div className="space-y-0.5 border-t border-slate-100 py-1 pl-3 dark:border-slate-800">
+            {memberIds.map((iid) => {
+              const p = integranteById.get(iid);
+              if (!p) return null;
+              const label = `${p.nombre || ""} ${p.apellido || ""}`.trim();
+              return (
+                <label
+                  key={`${eid}-${iid}`}
+                  className="flex cursor-pointer items-center gap-2.5 rounded-md py-1 pl-6 pr-2 text-sm text-slate-600 transition-colors hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800/60"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedIntegranteIds.has(iid)}
+                    onChange={() => toggleIntegrante(iid)}
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="truncate leading-tight">{label}</span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const exportDisabled =
     rosterLoading ||
@@ -677,6 +894,8 @@ export default function AsistenciaMatrixReport({ supabase }) {
       selectedIntegranteIds,
       selectedTypes,
       groupByEnsambles,
+      rowGroups,
+      ensambleAggregateRows,
     });
   }, [
     exportDisabled,
@@ -689,6 +908,8 @@ export default function AsistenciaMatrixReport({ supabase }) {
     selectedIntegranteIds,
     selectedTypes,
     groupByEnsambles,
+    rowGroups,
+    ensambleAggregateRows,
   ]);
 
   const handleExportPdf = useCallback(() => {
@@ -703,6 +924,8 @@ export default function AsistenciaMatrixReport({ supabase }) {
       selectedIntegranteIds,
       selectedTypes,
       groupByEnsambles,
+      rowGroups,
+      ensambleAggregateRows,
     });
   }, [
     exportDisabled,
@@ -715,6 +938,8 @@ export default function AsistenciaMatrixReport({ supabase }) {
     selectedIntegranteIds,
     selectedTypes,
     groupByEnsambles,
+    rowGroups,
+    ensambleAggregateRows,
   ]);
 
   if (loading) {
@@ -774,9 +999,36 @@ export default function AsistenciaMatrixReport({ supabase }) {
           </div>
 
           <div className="border-t border-slate-100 pt-3 dark:border-slate-800">
+            <div
+              className="mb-3 flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800"
+              role="tablist"
+              aria-label="Vista de ensambles"
+            >
+              {CONVOCATORIA_ENSAMBLE_VIEW_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  role="tab"
+                  aria-selected={ensambleViewMode === mode}
+                  onClick={() => setEnsambleViewMode(mode)}
+                  className={`flex-1 rounded-md px-2 py-1 text-[10px] font-bold capitalize transition-all ${
+                    ensambleViewMode === mode
+                      ? "bg-white text-indigo-600 shadow-sm dark:bg-slate-900 dark:text-indigo-400"
+                      : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                  }`}
+                >
+                  {mode === "ensambles"
+                    ? "Ensambles"
+                    : mode === "cameratas"
+                      ? "Cameratas"
+                      : "Regiones"}
+                </button>
+              ))}
+            </div>
+
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                Ensambles e integrantes
+                {CONVOCATORIA_VIEW_SECTION_TITLES[ensambleViewMode]}
               </h2>
               <div className="flex gap-1">
                 <button
@@ -799,83 +1051,72 @@ export default function AsistenciaMatrixReport({ supabase }) {
               </div>
             </div>
             <div className="max-h-[40vh] space-y-1 overflow-y-auto pr-0.5 lg:max-h-none">
-              {ensambles.map((en) => {
-                const eid = Number(en.id);
-                const memberIds = membershipsByEnsamble.get(eid) || [];
-                if (memberIds.length === 0) return null;
-                const open = openEnsambles.has(eid);
-                const allOn = memberIds.every((id) =>
-                  selectedIntegranteIds.has(id),
-                );
-                const selectedCount = memberIds.filter((id) =>
-                  selectedIntegranteIds.has(id),
-                ).length;
-                return (
-                  <div
-                    key={eid}
-                    className="overflow-hidden rounded-lg border border-slate-100 dark:border-slate-800"
-                  >
-                    <div className="flex items-center gap-1 bg-slate-50/80 px-1.5 py-1 dark:bg-slate-800/50">
-                      <button
-                        type="button"
-                        onClick={() => toggleEnsambleOpen(eid)}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                        aria-expanded={open}
-                        aria-label={
-                          open
-                            ? `Contraer ${en.ensamble || eid}`
-                            : `Expandir ${en.ensamble || eid}`
-                        }
+              {ensambleViewMode === "regiones"
+                ? regionGroups.map((group) => {
+                    const regionOpen = openRegions.has(group.key);
+                    const allMemberIds = group.ensambles.flatMap((en) => {
+                      const eid = Number(en.id);
+                      return membershipsByEnsamble.get(eid) || [];
+                    });
+                    const allOn = allMemberIds.every((id) =>
+                      selectedIntegranteIds.has(id),
+                    );
+                    const selectedCount = allMemberIds.filter((id) =>
+                      selectedIntegranteIds.has(id),
+                    ).length;
+                    return (
+                      <div
+                        key={group.key}
+                        className="overflow-hidden rounded-lg border border-slate-100 dark:border-slate-800"
                       >
-                        <IconChevronDown
-                          size={14}
-                          className={`shrink-0 transition-transform duration-200 ${
-                            open ? "rotate-0" : "-rotate-90"
-                          }`}
-                        />
-                      </button>
-                      <input
-                        ref={(el) => {
-                          ensambleCheckboxRefs.current[eid] = el;
-                        }}
-                        type="checkbox"
-                        checked={allOn}
-                        onChange={() => toggleEnsambleMembers(eid, memberIds)}
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800 dark:text-slate-200">
-                        {en.ensamble || `Ensamble ${eid}`}
-                      </span>
-                      <span className="shrink-0 pr-1 text-[10px] tabular-nums text-slate-400 dark:text-slate-500">
-                        {selectedCount}/{memberIds.length}
-                      </span>
-                    </div>
-                    {open && (
-                      <div className="space-y-0.5 border-t border-slate-100 py-1 pl-3 dark:border-slate-800">
-                        {memberIds.map((iid) => {
-                          const p = integranteById.get(iid);
-                          if (!p) return null;
-                          const label = `${p.nombre || ""} ${p.apellido || ""}`.trim();
-                          return (
-                            <label
-                              key={`${eid}-${iid}`}
-                              className="flex cursor-pointer items-center gap-2.5 rounded-md py-1 pl-6 pr-2 text-sm text-slate-600 transition-colors hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800/60"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedIntegranteIds.has(iid)}
-                                onChange={() => toggleIntegrante(iid)}
-                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                              />
-                              <span className="truncate leading-tight">{label}</span>
-                            </label>
-                          );
-                        })}
+                        <div className="flex items-center gap-1 bg-slate-100/80 px-1.5 py-1 dark:bg-slate-800/70">
+                          <button
+                            type="button"
+                            onClick={() => toggleRegionOpen(group.key)}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                            aria-expanded={regionOpen}
+                            aria-label={
+                              regionOpen
+                                ? `Contraer ${group.name}`
+                                : `Expandir ${group.name}`
+                            }
+                          >
+                            <IconChevronDown
+                              size={14}
+                              className={`shrink-0 transition-transform duration-200 ${
+                                regionOpen ? "rotate-0" : "-rotate-90"
+                              }`}
+                            />
+                          </button>
+                          <input
+                            ref={(el) => {
+                              regionCheckboxRefs.current[group.key] = el;
+                            }}
+                            type="checkbox"
+                            checked={allOn && allMemberIds.length > 0}
+                            onChange={() =>
+                              toggleEnsambleMembers(group.key, allMemberIds)
+                            }
+                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800 dark:text-slate-200">
+                            {group.name}
+                          </span>
+                          <span className="shrink-0 pr-1 text-[10px] tabular-nums text-slate-400 dark:text-slate-500">
+                            {selectedCount}/{allMemberIds.length}
+                          </span>
+                        </div>
+                        {regionOpen && (
+                          <div className="space-y-1 border-t border-slate-100 p-1 dark:border-slate-800">
+                            {group.ensambles.map((en) =>
+                              renderEnsambleNode(en, { nested: true }),
+                            )}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+                    );
+                  })
+                : visibleEnsamblesForView.map((en) => renderEnsambleNode(en))}
             </div>
           </div>
         </aside>
@@ -1069,18 +1310,20 @@ export default function AsistenciaMatrixReport({ supabase }) {
                     })
                   : rowGroups.map((grp) => (
                   <Fragment key={grp.key}>
-                    <tr className="bg-slate-200/90 dark:bg-slate-800/95">
-                      <td
-                        colSpan={
-                          1 +
-                          filteredProgramas.length +
-                          summaryHeadLabels.length
-                        }
-                        className="border-b border-slate-300 px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-800 dark:border-slate-600 dark:text-slate-100"
-                      >
-                        {grp.label}
-                      </td>
-                    </tr>
+                    {grp.label ? (
+                      <tr className="bg-slate-200/90 dark:bg-slate-800/95">
+                        <td
+                          colSpan={
+                            1 +
+                            filteredProgramas.length +
+                            summaryHeadLabels.length
+                          }
+                          className="border-b border-slate-300 px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-800 dark:border-slate-600 dark:text-slate-100"
+                        >
+                          {grp.label}
+                        </td>
+                      </tr>
+                    ) : null}
                     {grp.rows.map((row) => {
                       const iid = integranteKey(row.id);
                       const inst = row.instrumentos;
