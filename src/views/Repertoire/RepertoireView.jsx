@@ -39,7 +39,7 @@ import RepertoireSelectionBar from "../../components/repertoire/RepertoireSelect
 import InstrumentationFilterModal from "../../components/repertoire/InstrumentationFilterModal";
 import { calculateInstrumentation, workMatchesInstrumentationFilter } from "../../utils/instrumentation";
 import { getInstrumentationFilterLabel } from "../../utils/instrumentationFilterPresets";
-import { normalizeForSearch } from "../../utils/sanitize";
+import { matchesMultiTokenSearch, normalizeForSearch } from "../../utils/sanitize";
 import {
   loadRepertoireSelection,
   saveRepertoireSelection,
@@ -416,6 +416,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [showInstrFilter, setShowInstrFilter] = useState(false);
   const [showMobileInstrFilter, setShowMobileInstrFilter] = useState(false);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [mobileQuickSearch, setMobileQuickSearch] = useState("");
   const [mobileWorkActionMenuId, setMobileWorkActionMenuId] = useState(null);
   const [deleteWorkConfirm, setDeleteWorkConfirm] = useState(null);
   const [deletingWork, setDeletingWork] = useState(false);
@@ -626,7 +627,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   }, [newObraParam]);
 
   // Resetear página al filtrar
-  useEffect(() => { setCurrentPage(1); }, [filters, selectedTags, instrFilters, stringsFilter, strictMode, sortConfig, pageSize]);
+  useEffect(() => { setCurrentPage(1); }, [filters, selectedTags, instrFilters, stringsFilter, strictMode, sortConfig, pageSize, mobileQuickSearch]);
 
   const setSortByFechaEstimada = (direction) => {
     setSortConfig({ key: "fecha_esperada", direction });
@@ -785,11 +786,25 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     setFilters({ titulo: "", compositor: "", arreglador: "", estado: "Todos", solicitante: "", duracionMin: "", duracionMax: "", fechaDesde: "", fechaHasta: "", observaciones: "" });
     setSelectedTags(new Set()); setInstrFilters([]); setStringsFilter("all"); setStrictMode(false);
     setShowLegacyOficialSinDrive(false);
+    setMobileQuickSearch("");
   };
 
   // --- FILTRADO Y ORDENAMIENTO ---
   const allFilteredWorks = useMemo(() => {
     return works.filter((work) => {
+      if (
+        mobileQuickSearch.trim() &&
+        !matchesMultiTokenSearch(
+          [
+            stripHtml(work.titulo),
+            work.compositor_full,
+            work.arreglador_full,
+          ],
+          mobileQuickSearch,
+        )
+      ) {
+        return false;
+      }
       if (
         filters.titulo &&
         !normalizeForSearch(work.titulo).includes(normalizeForSearch(filters.titulo))
@@ -865,7 +880,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
       return 0;
     });
-  }, [works, filters, selectedTags, instrFilters, stringsFilter, sortConfig, strictMode, showLegacyOficialSinDrive]);
+  }, [works, filters, selectedTags, instrFilters, stringsFilter, sortConfig, strictMode, showLegacyOficialSinDrive, mobileQuickSearch]);
 
   const filteredWorkIds = useMemo(
     () => allFilteredWorks.map((w) => w.id),
@@ -1021,6 +1036,14 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       });
     };
 
+    if (mobileQuickSearch.trim()) {
+      chips.push({
+        key: "quickSearch",
+        label: `Buscar: ${mobileQuickSearch.trim()}`,
+        tone: "indigo",
+        onRemove: () => setMobileQuickSearch(""),
+      });
+    }
     addTextFilter("titulo", "Obra");
     addTextFilter("compositor", "Comp.");
     addTextFilter("arreglador", "Arr.");
@@ -1102,6 +1125,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     showLegacyOficialSinDrive,
     stringsFilter,
     strictMode,
+    mobileQuickSearch,
   ]);
 
   const mobileFilterCount = mobileActiveFilterChips.length;
@@ -1534,10 +1558,35 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                       : "border-slate-300 bg-white text-slate-600"
                   }`}
                   aria-expanded={showMobileFilters}
-                  aria-label="Filtros"
+                  aria-label="Filtros avanzados"
+                  title="Filtros avanzados"
                 >
                   <IconFilter size={18} />
                 </button>
+                <div className="relative min-w-0 flex-1">
+                  <IconSearch
+                    size={14}
+                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    type="search"
+                    value={mobileQuickSearch}
+                    onChange={(e) => setMobileQuickSearch(e.target.value)}
+                    placeholder="Beeth Sinf…"
+                    aria-label="Búsqueda rápida"
+                    className="h-9 w-full rounded-lg border border-slate-300 bg-white pl-8 pr-8 text-xs outline-none focus:border-indigo-500"
+                  />
+                  {mobileQuickSearch.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => setMobileQuickSearch("")}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                      aria-label="Limpiar búsqueda rápida"
+                    >
+                      <IconX size={14} />
+                    </button>
+                  )}
+                </div>
                 <RepertoireSelectionBar
                   variant="mobile-menu"
                   supabase={supabase}
@@ -1575,12 +1624,12 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                     </button>
                   }
                 />
-                <div className="min-w-0 flex-1">
+                <div className="hidden min-w-0 shrink sm:block">
                   <p className="truncate text-xs font-bold text-slate-700">
                     {allFilteredWorks.length} obra{allFilteredWorks.length === 1 ? "" : "s"}
                   </p>
                   <p className="truncate text-[10px] text-slate-400">
-                    Página {currentPage}/{totalPages || 1} · {selectionOrderedIds.length} seleccionada{selectionOrderedIds.length === 1 ? "" : "s"}
+                    Pág. {currentPage}/{totalPages || 1}
                   </p>
                 </div>
                 {mobileFilterCount > 0 && (
@@ -1595,6 +1644,12 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                   </button>
                 )}
               </div>
+
+              <p className="mt-1 truncate text-[10px] text-slate-400 sm:hidden">
+                {allFilteredWorks.length} obra{allFilteredWorks.length === 1 ? "" : "s"} · Pág.{" "}
+                {currentPage}/{totalPages || 1} · {selectionOrderedIds.length} seleccionada
+                {selectionOrderedIds.length === 1 ? "" : "s"}
+              </p>
 
               {mobileActiveFilterChips.length > 0 && (
                 <div className="mt-2 flex gap-1 overflow-x-auto no-scrollbar pb-0.5">

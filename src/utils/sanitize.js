@@ -27,3 +27,31 @@ export function normalizeForSearch(value) {
     .toLowerCase()
     .trim();
 }
+
+/**
+ * Divide una consulta en tokens (espacios o "+") para búsqueda AND.
+ * @param {string} query
+ * @returns {string[]}
+ */
+export function splitSearchTokens(query) {
+  return String(query || "")
+    .split(/[\s+]+/)
+    .map((token) => normalizeForSearch(token))
+    .filter(Boolean);
+}
+
+/**
+ * Comprueba si todos los tokens aparecen en el texto combinado (insensible a tildes).
+ * @param {string[]} haystackParts - Fragmentos a unir (título, compositor, etc.)
+ * @param {string} query
+ * @returns {boolean}
+ */
+export function matchesMultiTokenSearch(haystackParts, query) {
+  const tokens = splitSearchTokens(query);
+  if (!tokens.length) return true;
+  const haystack = normalizeForSearch(
+    haystackParts.filter((part) => part != null && part !== "").join(" "),
+  );
+  if (!haystack) return false;
+  return tokens.every((token) => haystack.includes(token));
+}

@@ -197,8 +197,9 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 
 ### Filtros móviles
 - Se agrega un menú superior de filtros con `IconFilter`, siguiendo el patrón de filtros tipo chip usado en vistas compactas.
+- **Búsqueda rápida (2026-06-29):** input junto al embudo de filtros. Busca en título, compositor y arreglador a la vez; cada palabra (separada por espacio o `+`) debe coincidir (AND), p. ej. `Beeth Sinf` → sinfonías de Beethoven. El embudo abre el panel de **filtros avanzados** (obra/compositor/arreglador por campo, estado, orgánico, etc.).
 - Los filtros se aplican desde el menú y aparecen como **chips removibles** debajo de la barra móvil.
-- Chips soportados: obra, compositor, arreglador, estado, solicitante, duración, fechas, observaciones, tags, orgánico y legacy "Oficial sin Drive".
+- Chips soportados: búsqueda rápida, obra, compositor, arreglador, estado, solicitante, duración, fechas, observaciones, tags, orgánico y legacy "Oficial sin Drive".
 - El filtro por orgánico reutiliza `InstrumentationFilterModal` con `anchorRef` para posicionarse correctamente en viewport móvil.
 - El botón de limpiar filtros se muestra como acción iconográfica cuando hay chips activos.
 
