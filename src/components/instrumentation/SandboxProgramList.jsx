@@ -35,7 +35,7 @@ export default function SandboxProgramList({
           program={p}
           metrics={programMetrics?.[p.id]}
           ensambleLabels={ensambleLabels}
-          hasDraft={!!draftsByGiraId?.[p.id]}
+          hasDraft={!!programMetrics?.[p.id]?.hasPendingChanges}
           draftEntry={draftsByGiraId?.[p.id] ?? null}
           supabase={supabase}
           sandboxId={sandboxId}

@@ -692,6 +692,49 @@ export function draftFuentesMatchProduction(prodFuentes = [], draftFuentes = [])
   return prod.every((k, idx) => k === draft[idx]);
 }
 
+/** `integrantes: []` en borrador = mismos overrides que producción. */
+export function effectiveSandboxDraftIntegrantes(
+  prodIntegrantes = [],
+  draftIntegrantes = [],
+) {
+  if (!draftIntegrantes?.length) return prodIntegrantes || [];
+  return draftIntegrantes;
+}
+
+/** Hay delta real vs producción (fuentes u overrides de persona). */
+export function sandboxDraftHasPendingChanges(
+  draftOverride,
+  prodConvSnapshot = {},
+) {
+  if (!draftOverride) return false;
+  if (
+    !draftFuentesMatchProduction(
+      prodConvSnapshot.fuentes || [],
+      draftOverride.fuentes || [],
+    )
+  ) {
+    return true;
+  }
+  if (!draftOverride.integrantes?.length) return false;
+  return !draftIntegrantesMatchProduction(
+    prodConvSnapshot.integrantes || [],
+    draftOverride.integrantes,
+  );
+}
+
+/** Payload a persistir: [] si no hay delta de personas. */
+export function integrantesPayloadForSandboxDraft(
+  prodIntegrantes = [],
+  workingIntegrantes = [],
+) {
+  return draftIntegrantesMatchProduction(
+    prodIntegrantes,
+    effectiveSandboxDraftIntegrantes(prodIntegrantes, workingIntegrantes),
+  )
+    ? []
+    : workingIntegrantes;
+}
+
 /** True si overrides de integrantes coinciden con el snapshot productivo. */
 export function draftIntegrantesMatchProduction(
   prodIntegrantes = [],
@@ -921,6 +964,10 @@ export function buildSandboxProgramMetricSync(
     prodSources: prodRosterRes.sources,
     draftSources: draftRosterRes.sources,
     hasDraft: !!draftOverride,
+    hasPendingChanges: sandboxDraftHasPendingChanges(
+      draftOverride,
+      prodConvSnapshot,
+    ),
     convDiffCols: diffInstrumentationConvoked(prodConv, draftConv),
     prodRoster: prodRosterRes.roster,
     draftRoster: draftRosterRes.roster,

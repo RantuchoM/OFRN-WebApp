@@ -44,7 +44,15 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
     let overrides;
     if (sandboxOverride) {
       fuentes = sandboxOverride.fuentes || [];
-      overrides = sandboxOverride.integrantes || [];
+      if (sandboxOverride.integrantes?.length > 0) {
+        overrides = sandboxOverride.integrantes;
+      } else {
+        const { data: prodOverrides } = await supabase
+          .from("giras_integrantes")
+          .select("id_integrante, estado, abona_reemplazo")
+          .eq("id_gira", giraId);
+        overrides = prodOverrides || [];
+      }
     } else {
       const [fuentesRes, overridesRes] = await Promise.all([
         supabase.from("giras_fuentes").select("*").eq("id_gira", giraId),

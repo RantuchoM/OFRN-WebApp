@@ -15,7 +15,7 @@ Vista orquestadora: `src/views/Management/InstrumentationSandbox.jsx`.
 | Zona | Contenido |
 |------|-----------|
 | Cada fila (izq.) | Meta (título con enlace a roster en nueva pestaña), **chips ensamble/familia convocados y excluidos** en la misma línea, matriz Conv/Req compacta + **`Str: (…).…`**; botón **Ver obras** en la esquina superior izquierda de la matriz (celda sobre «Conv») → `InstrumentationSummaryModal`. |
-| Cada fila (der., ~11rem) | Desplegables **Agregar / Quitar / Excluir**; **+ músico / - músico** con búsqueda; chips del delta del borrador. |
+| Cada fila (der., ~11rem) | Desplegables **Agregar / Quitar / Excluir** (portal `fixed` hacia abajo y ancho hacia la derecha; 2 columnas si hay muchas opciones); **+ músico / - músico** con búsqueda; chips del delta del borrador. |
 | Histograma (columna derecha global) | Servicios Sinf+CF por ensamble regional: **suma anual**; hover en celda: «Con *n* servicios…» donde *n* es el encabezado de columna (no el número de la celda). |
 
 ## Persistencia
@@ -27,8 +27,8 @@ Migración: `supabase/migrations/20260629120000_instrumentacion_sandbox.sql`. En
 
 ## Flujos
 
-1. **Editar en la fila:** desplegables **Agregar** / **Quitar** / **Excluir** y + músico / - músico. Al cambiar ensambles o familias, los chips muestran **solo la fuente** (no un chip por integrante); los chips de persona aparecen solo con override manual (+/- músico).
-2. Autosave (~400 ms); recálculo incremental de esa fila + histograma. Los chips acumulan **todo el delta vs producción**; al guardar no se pierden cambios previos de la misma fila. La **×** en un chip revierte ese cambio; si el borrador queda idéntico a producción, se descarta solo. Saves obsoletos no sobrescriben el borrador (`saveGenerationRef`). Borrador con `integrantes: []` se interpreta como producción al calcular roster.
+1. **Editar en la fila:** desplegables **Agregar** / **Quitar** / **Excluir** y + músico / - músico. **Agregar** lista ensambles/familias no incluidos (ensambles excluidos se muestran como «(excluido)» y al elegirlos se quitan de `EXCL_ENSAMBLE`). **Quitar** lista solo familias incluidas y ensambles incluidos que tengan **al menos un músico convocado** (no ausente) perteneciente a ese ensamble en el roster efectivo. **Excluir** lista ensambles regionales aún no excluidos. Al cambiar ensambles o familias, los chips muestran **solo la fuente** (no un chip por integrante); los chips de persona aparecen solo con override manual (+/- músico).
+2. Autosave (~400 ms); recálculo incremental de esa fila + histograma. Si fuentes e integrantes vuelven a producción, el borrador se **elimina** automáticamente (`deleteGiraDraft`). Los chips acumulan **todo el delta vs producción**; al guardar no se pierden cambios previos de la misma fila. La **×** en un chip revierte ese cambio; si el borrador queda idéntico a producción, se descarta solo. Saves obsoletos no sobrescriben el borrador (`saveGenerationRef`). Borrador con `integrantes: []` se interpreta como producción al calcular roster **y** al comparar para descarte. **Aplicar** y el borde violeta de la fila usan `hasPendingChanges` (delta real), no solo la existencia de fila en DB.
 3. **Ver obras:** modal con desglose por obra (usa `obras.instrumentacion` si particellas/seating no alcanzan) + compositor desde join `obras_compositores`.
 4. **Descartar:** en la misma fila, elimina borrador de esa gira.
 5. **Aplicar cambios:** en la fila, modal con **motivo único** (obligatorio) → escribe en `giras_fuentes` / `giras_integrantes` → elimina borrador de la gira.

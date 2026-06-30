@@ -101,7 +101,13 @@ export default function InstrumentationSandbox({
     return map;
   }, [drafts]);
 
-  const draftGiraCount = drafts.length;
+  const draftGiraCount = useMemo(() => {
+    const fromMetrics = Object.values(programMetrics).filter(
+      (m) => m?.hasPendingChanges,
+    ).length;
+    if (Object.keys(programMetrics).length > 0) return fromMetrics;
+    return drafts.length;
+  }, [programMetrics, drafts.length]);
 
   const histogramYear = useMemo(
     () => resolveSandboxHistogramYear(dateFrom, dateTo),

@@ -375,7 +375,10 @@ export async function computeAddedMusiciansForDraft(
   const { roster: draftRoster } = await fetchRosterForGira(supabase, program, {
     ...lite,
     fuentesOverride: draftPayload.fuentes,
-    integrantesOverride: draftPayload.integrantes,
+    integrantesOverride:
+      draftPayload.integrantes?.length > 0
+        ? draftPayload.integrantes
+        : null,
   });
 
   const prodActive = new Set(

@@ -10,6 +10,7 @@ import {
   diffFuentes,
   draftFuentesMatchProduction,
   draftIntegrantesMatchProduction,
+  integrantesPayloadForSandboxDraft,
   formatIntegranteHistogramLabel,
   fuentesToSourceSets,
   hasFuenteStructuralChange,
@@ -21,6 +22,15 @@ import {
   deleteGiraDraft,
 } from "../../services/instrumentacionSandboxService";
 import { integranteKey } from "../../utils/integranteIds";
+
+function memberEnsembleIds(member) {
+  const ids = new Set();
+  for (const ie of member?.integrantes_ensambles ?? []) {
+    const id = Number(ie.ensambles?.id ?? ie.id_ensamble);
+    if (Number.isFinite(id)) ids.add(id);
+  }
+  return ids;
+}
 
 function applyIntegrantesOverrides(roster, overrides) {
   if (!overrides?.length) return roster || [];
@@ -54,20 +64,78 @@ function applyIntegrantesOverrides(roster, overrides) {
   return merged;
 }
 
+function computePickPortalLayout(btnEl, { preferredWidth = 220, preferredMaxHeight = 240 } = {}) {
+  if (!btnEl) {
+    return { top: 0, left: 0, width: preferredWidth, maxHeight: preferredMaxHeight };
+  }
+  const rect = btnEl.getBoundingClientRect();
+  const gap = 4;
+  const margin = 8;
+
+  const width = Math.min(
+    Math.max(preferredWidth, rect.width),
+    window.innerWidth - margin * 2,
+  );
+  let left = rect.left;
+  left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+
+  const spaceBelow = window.innerHeight - rect.bottom - gap - margin;
+  const spaceAbove = rect.top - gap - margin;
+  const openDown = spaceBelow >= 96 || spaceBelow >= spaceAbove;
+
+  let top;
+  let maxHeight;
+  if (openDown) {
+    top = rect.bottom + gap;
+    maxHeight = Math.min(preferredMaxHeight, spaceBelow);
+  } else {
+    maxHeight = Math.min(preferredMaxHeight, spaceAbove);
+    top = Math.max(margin, rect.top - gap - maxHeight);
+    maxHeight = Math.min(maxHeight, rect.top - gap - top);
+  }
+  maxHeight = Math.max(maxHeight, 72);
+
+  return { top, left, width, maxHeight };
+}
+
 function PickDropdown({ label, options, onPick, disabled }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const btnRef = useRef(null);
+  const [pos, setPos] = useState({
+    top: 0,
+    left: 0,
+    width: 220,
+    maxHeight: 240,
+  });
+
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) return;
+    setPos(
+      computePickPortalLayout(btnRef.current, {
+        preferredWidth: options.length > 6 ? 320 : 220,
+      }),
+    );
+  }, [open, options.length]);
 
   useEffect(() => {
+    if (!open) return;
     const handleClick = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      if (
+        btnRef.current?.contains(e.target) ||
+        e.target.closest(".sandbox-pick-portal")
+      ) {
+        return;
+      }
+      setOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
+  }, [open]);
+
+  const useTwoColumns = options.length > 6;
 
   return (
-    <div ref={ref} className="relative flex-1 min-w-0">
+    <div ref={btnRef} className="relative flex-1 min-w-0">
       <button
         type="button"
         disabled={disabled || options.length === 0}
@@ -77,23 +145,48 @@ function PickDropdown({ label, options, onPick, disabled }) {
         <span className="truncate">{label}</span>
         <IconChevronDown size={10} className="shrink-0 text-slate-400" />
       </button>
-      {open && options.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-0.5 z-[100] bg-white border border-slate-200 rounded shadow-lg max-h-28 overflow-y-auto">
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => {
-                onPick(opt.value);
-                setOpen(false);
-              }}
-              className="w-full text-left px-1.5 py-1 text-[9px] text-slate-700 hover:bg-violet-50 truncate"
+      {open &&
+        options.length > 0 &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="sandbox-pick-portal fixed z-[100] bg-white border border-slate-200 rounded shadow-lg overflow-hidden"
+            style={{
+              top: pos.top,
+              left: pos.left,
+              width: pos.width,
+            }}
+          >
+            <div
+              className="overflow-y-auto overflow-x-hidden p-0.5"
+              style={{ maxHeight: pos.maxHeight }}
             >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
+              <div
+                className={
+                  useTwoColumns
+                    ? "grid grid-cols-2 gap-x-0.5 content-start"
+                    : "flex flex-col"
+                }
+              >
+                {options.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      onPick(opt.value);
+                      setOpen(false);
+                    }}
+                    className="w-full text-left px-1.5 py-1 text-[9px] text-slate-700 hover:bg-violet-50 leading-snug"
+                    title={opt.label}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -109,7 +202,7 @@ function PickSearchDropdown({
   const [search, setSearch] = useState("");
   const btnRef = useRef(null);
   const inputRef = useRef(null);
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 160 });
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 168, maxHeight: 200 });
 
   const filteredOptions = useMemo(() => {
     if (!search.trim()) return options.slice(0, 100);
@@ -121,11 +214,7 @@ function PickSearchDropdown({
 
   useLayoutEffect(() => {
     if (!open || !btnRef.current) return;
-    const rect = btnRef.current.getBoundingClientRect();
-    const width = Math.max(rect.width, 168);
-    let left = rect.left;
-    left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
-    setPos({ top: rect.bottom + 4, left, width });
+    setPos(computePickPortalLayout(btnRef.current, { preferredWidth: 168 }));
   }, [open, options.length]);
 
   useEffect(() => {
@@ -201,7 +290,10 @@ function PickSearchDropdown({
                 />
               </div>
             </div>
-            <div className="max-h-32 overflow-y-auto">
+            <div
+              className="overflow-y-auto"
+              style={{ maxHeight: Math.max(80, (pos.maxHeight ?? 200) - 36) }}
+            >
               {filteredOptions.length > 0 ? (
                 filteredOptions.map((opt) => (
                   <button
@@ -360,6 +452,17 @@ export default function SandboxConvocatoriaInline({
     return map;
   }, [effectiveRoster]);
 
+  const ensamblesWithConvokedMembers = useMemo(() => {
+    const set = new Set();
+    effectiveRoster.forEach((m) => {
+      if (m.estado_gira === "ausente") return;
+      for (const eid of memberEnsembleIds(m)) {
+        set.add(eid);
+      }
+    });
+    return set;
+  }, [effectiveRoster]);
+
   const hydrateFuentes = useCallback((fuentes) => {
     const sets = fuentesToSourceSets(fuentes || []);
     setSelectedEnsembles(sets.ensembles);
@@ -406,30 +509,31 @@ export default function SandboxConvocatoriaInline({
       saveTimeoutRef.current = setTimeout(async () => {
         setSaving(true);
         try {
-          let ints;
-          if (integrantesRows !== undefined) {
-            ints =
-              integrantesRows.length === 0
-                ? (await cloneProductionConvocatoria(supabase, program.id))
-                    .integrantes || []
-                : integrantesRows;
-          } else if (integrantes.length) {
-            ints = integrantes;
-          } else if (draftEntry?.integrantes?.length) {
-            ints = draftEntry.integrantes;
-          } else {
-            ints = [];
-          }
-
           const prodSnapshot = await cloneProductionConvocatoria(
             supabase,
             program.id,
           );
+          const prodIntegrantes = prodSnapshot.integrantes || [];
+
+          let workingIntegrantes;
+          if (integrantesRows !== undefined) {
+            workingIntegrantes =
+              integrantesRows.length === 0
+                ? prodIntegrantes
+                : integrantesRows;
+          } else if (integrantes.length) {
+            workingIntegrantes = integrantes;
+          } else if (draftEntry?.integrantes?.length) {
+            workingIntegrantes = draftEntry.integrantes;
+          } else {
+            workingIntegrantes = prodIntegrantes;
+          }
+
           const matchesProduction =
             draftFuentesMatchProduction(prodSnapshot.fuentes, fuentes) &&
             draftIntegrantesMatchProduction(
-              prodSnapshot.integrantes,
-              ints,
+              prodIntegrantes,
+              workingIntegrantes,
             );
 
           if (matchesProduction) {
@@ -446,7 +550,10 @@ export default function SandboxConvocatoriaInline({
 
           const row = await upsertGiraDraft(supabase, sandboxId, program.id, {
             fuentes,
-            integrantes: ints,
+            integrantes: integrantesPayloadForSandboxDraft(
+              prodIntegrantes,
+              workingIntegrantes,
+            ),
           });
           if (saveGen !== saveGenerationRef.current) return;
           onDraftSaved?.(row);
@@ -520,7 +627,10 @@ export default function SandboxConvocatoriaInline({
     const opts = [];
     regionalEnsembles.forEach((e) => {
       const eid = Number(e.value);
-      if (selectedEnsembles.has(eid)) {
+      if (
+        selectedEnsembles.has(eid) &&
+        ensamblesWithConvokedMembers.has(eid)
+      ) {
         opts.push({ value: `ens:${eid}`, label: e.label });
       }
     });
@@ -530,7 +640,13 @@ export default function SandboxConvocatoriaInline({
       }
     });
     return opts;
-  }, [regionalEnsembles, familiesList, selectedEnsembles, selectedFamilies]);
+  }, [
+    regionalEnsembles,
+    familiesList,
+    selectedEnsembles,
+    selectedFamilies,
+    ensamblesWithConvokedMembers,
+  ]);
 
   const excluirOptions = useMemo(
     () =>
@@ -1036,7 +1152,7 @@ export default function SandboxConvocatoriaInline({
               />
             )}
           </div>
-        ) : hasDraft ? (
+        ) : hasModified ? (
           <p className="text-[8px] text-violet-600 italic">
             Borrador guardado (ver matriz)
           </p>
@@ -1048,7 +1164,7 @@ export default function SandboxConvocatoriaInline({
       <div className="shrink-0 px-1 py-0.5 border-t border-slate-100 flex gap-0.5">
         <button
           type="button"
-          disabled={!hasDraft || !sandboxId}
+          disabled={!hasModified || !sandboxId}
           onClick={() => onRequestApply?.(program)}
           className="flex-1 py-0.5 text-[8px] font-bold text-white bg-violet-600 hover:bg-violet-700 rounded disabled:opacity-40"
         >
@@ -1056,7 +1172,7 @@ export default function SandboxConvocatoriaInline({
         </button>
         <button
           type="button"
-          disabled={!hasDraft || !sandboxId}
+          disabled={(!hasDraft && !hasModified) || !sandboxId}
           onClick={handleDiscard}
           className="px-1 py-0.5 text-[8px] font-medium text-slate-600 hover:bg-slate-200 rounded border border-slate-200 disabled:opacity-40"
         >
