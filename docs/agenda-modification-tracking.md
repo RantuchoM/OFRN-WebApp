@@ -28,3 +28,12 @@ Permitir que los músicos visualicen cambios recientes (24h) y habilitar una "Pa
 1. El usuario borra un evento -> Se activa `is_deleted` y `deleted_at`.
 2. El sistema muestra el evento tachado a todos los usuarios por 24 horas.
 3. Un editor puede "Restaurar" seteando `is_deleted = false`.
+
+## Integración en GiraCard y edición de programa
+
+| Superficie | Comportamiento |
+|------------|----------------|
+| **GiraCard** (listado inicial) | Los conciertos con `is_deleted = true` no se muestran en la vista compacta ni en el listado de escritorio. El aviso «No hay conciertos definidos» solo considera conciertos activos. |
+| **GiraForm → Conciertos y Funciones** (Edición) | Se listan todos los conciertos del programa, incluidos los eliminados. Los eliminados se muestran con `line-through` y `opacity-50`. El botón «Eliminar» del modal hace soft delete (`is_deleted` + `deleted_at`); si ya está eliminado, alterna a «Restaurar». |
+| **useGirasList** | El select de `eventos` incluye `is_deleted` para filtrar en cliente. |
+| **giraDateRange** | `isConcertEvent` ignora eventos con `is_deleted` al calcular fechas de orden y solapamiento. |

@@ -29,7 +29,7 @@ export const CONCERT_EVENT_TYPE_ID = 1;
 
 /** Evento de concierto / función (misma heurística que GiraCard). */
 export function isConcertEvent(evento) {
-  if (!evento?.fecha) return false;
+  if (!evento?.fecha || evento.is_deleted) return false;
   if (Number(evento.id_tipo_evento) === 1) return true;
   const name = (evento.tipos_evento?.nombre || "").toLowerCase();
   return name.includes("concierto") || name.includes("función");

@@ -102,18 +102,30 @@ const ConcertFormModal = ({
     }
   };
 
+  const isDeleted = initialData?.is_deleted === true;
+
   const handleDelete = async () => {
-    if (!confirm("¿Eliminar este concierto?")) return;
+    const restoring = isDeleted;
+    const msg = restoring
+      ? "¿Restaurar este concierto?"
+      : "¿Marcar este concierto como eliminado? Se ocultará de la vista activa.";
+    if (!confirm(msg)) return;
     setLoading(true);
     try {
       const { error } = await supabase
         .from("eventos")
-        .delete()
+        .update(
+          restoring
+            ? { is_deleted: false, deleted_at: null }
+            : { is_deleted: true, deleted_at: new Date().toISOString() },
+        )
         .eq("id", initialData.id);
       if (error) throw error;
       onSuccess();
     } catch (err) {
-      alert("Error al eliminar: " + err.message);
+      alert(
+        restoring ? "Error al restaurar: " : "Error al eliminar: " + err.message,
+      );
     } finally {
       setLoading(false);
     }
@@ -213,9 +225,21 @@ const ConcertFormModal = ({
           {initialData ? (
             <button
               onClick={handleDelete}
-              className="text-red-500 hover:text-red-700 text-xs font-bold flex items-center gap-1"
+              className={`text-xs font-bold flex items-center gap-1 ${
+                isDeleted
+                  ? "text-emerald-600 hover:text-emerald-800"
+                  : "text-red-500 hover:text-red-700"
+              }`}
             >
-              <IconTrash size={14} /> Eliminar
+              {isDeleted ? (
+                <>
+                  <IconRefresh size={14} /> Restaurar
+                </>
+              ) : (
+                <>
+                  <IconTrash size={14} /> Eliminar
+                </>
+              )}
             </button>
           ) : (
             <div></div>
@@ -535,7 +559,7 @@ export default function GiraForm({
     const { data } = await supabase
       .from("eventos")
       .select(
-        "id, fecha, hora_inicio, hora_fin, descripcion, id_locacion, locaciones(nombre, localidades(localidad))",
+        "id, fecha, hora_inicio, hora_fin, descripcion, id_locacion, is_deleted, locaciones(nombre, localidades(localidad))",
       )
       .eq("id_gira", giraId)
       .eq("id_tipo_evento", 1)
@@ -1232,61 +1256,77 @@ export default function GiraForm({
               </div>
             )
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {concerts.map((c) => {
-                const concertDate = new Date(c.fecha + "T00:00:00");
-                const weekday = concertDate
-                  .toLocaleDateString("es-AR", { weekday: "short" })
-                  .replace(/\./g, "");
-                const month = concertDate
-                  .toLocaleDateString("es-AR", { month: "short" })
-                  .replace(/\./g, "");
-                return (
-                <div
-                  key={c.id}
-                  onClick={() => {
-                    setEditingConcert(c);
-                    setShowConcertModal(true);
-                  }}
-                  className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-lg hover:border-pink-300 hover:shadow-sm cursor-pointer transition-all group"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="bg-pink-50 text-pink-700 w-10 h-11 rounded flex flex-col items-center justify-center border border-pink-100 shrink-0">
-                      <span className="text-[9px] font-bold uppercase leading-none">
-                        {weekday}
-                      </span>
-                      <span className="text-lg font-bold leading-none">
-                        {concertDate.getDate()}
-                      </span>
-                      <span className="text-[8px] font-bold uppercase leading-none opacity-80">
-                        {month}
-                      </span>
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-700">
-                        {c.descripcion}
-                      </div>
-                      <div className="text-[10px] text-slate-500 flex items-center gap-1">
-                        <IconClock size={10} /> {c.hora_inicio?.slice(0, 5)} hs{" "}
-                        <span className="text-slate-300">|</span>{" "}
-                        <IconMapPin size={10} />{" "}
-                        {c.locaciones?.nombre
-                          ? `${c.locaciones.nombre}${
-                              c.locaciones.localidades?.localidad
-                                ? ` (${c.locaciones.localidades.localidad})`
-                                : ""
-                            }`
-                          : "Sin Sala"}
-                      </div>
-                    </div>
+            <>
+              {concerts.every((c) => c.is_deleted) &&
+                formData.tipo !== "Comisión" && (
+                  <div
+                    role="alert"
+                    className="flex items-center justify-center gap-2 rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800 animate-pulse mb-2"
+                  >
+                    <IconAlertTriangle size={18} className="shrink-0" />
+                    No hay conciertos definidos
                   </div>
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400">
-                    <IconEdit size={14} />
-                  </div>
-                </div>
-                );
-              })}
-            </div>
+                )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {concerts.map((c) => {
+                  const deleted = c.is_deleted === true;
+                  const concertDate = new Date(c.fecha + "T00:00:00");
+                  const weekday = concertDate
+                    .toLocaleDateString("es-AR", { weekday: "short" })
+                    .replace(/\./g, "");
+                  const month = concertDate
+                    .toLocaleDateString("es-AR", { month: "short" })
+                    .replace(/\./g, "");
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => {
+                        setEditingConcert(c);
+                        setShowConcertModal(true);
+                      }}
+                      className={`flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-lg hover:border-pink-300 hover:shadow-sm cursor-pointer transition-all group ${
+                        deleted ? "opacity-50 line-through" : ""
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="bg-pink-50 text-pink-700 w-10 h-11 rounded flex flex-col items-center justify-center border border-pink-100 shrink-0">
+                          <span className="text-[9px] font-bold uppercase leading-none">
+                            {weekday}
+                          </span>
+                          <span className="text-lg font-bold leading-none">
+                            {concertDate.getDate()}
+                          </span>
+                          <span className="text-[8px] font-bold uppercase leading-none opacity-80">
+                            {month}
+                          </span>
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-slate-700">
+                            {c.descripcion}
+                          </div>
+                          <div className="text-[10px] text-slate-500 flex items-center gap-1">
+                            <IconClock size={10} />{" "}
+                            {c.hora_inicio?.slice(0, 5)} hs{" "}
+                            <span className="text-slate-300">|</span>{" "}
+                            <IconMapPin size={10} />{" "}
+                            {c.locaciones?.nombre
+                              ? `${c.locaciones.nombre}${
+                                  c.locaciones.localidades?.localidad
+                                    ? ` (${c.locaciones.localidades.localidad})`
+                                    : ""
+                                }`
+                              : "Sin Sala"}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400">
+                        <IconEdit size={14} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
       )}

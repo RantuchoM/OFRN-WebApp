@@ -572,8 +572,9 @@ export default function GiraCard({
       (gira.eventos || [])
         .filter(
           (e) =>
-            e.tipos_evento?.nombre?.toLowerCase().includes("concierto") ||
-            e.tipos_evento?.nombre?.toLowerCase().includes("función"),
+            !e.is_deleted &&
+            (e.tipos_evento?.nombre?.toLowerCase().includes("concierto") ||
+              e.tipos_evento?.nombre?.toLowerCase().includes("función")),
         )
         .sort((a, b) =>
           (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),

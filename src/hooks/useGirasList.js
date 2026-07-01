@@ -19,7 +19,7 @@ export const GIRAS_LIST_SELECT = `
   ),
   giras_fuentes(*),
   eventos(
-    id, fecha, hora_inicio, hora_fin, id_tipo_evento, id_locacion, id_gira, convocados,
+    id, fecha, hora_inicio, hora_fin, id_tipo_evento, id_locacion, id_gira, convocados, is_deleted,
     tipos_evento(id, nombre, color, id_categoria),
     locaciones(id, nombre, localidades(localidad)),
     eventos_asistencia(id, id_integrante, estado)
