@@ -61,12 +61,7 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
     try {
       await requestOficinaExternaEmailCode(normalizedEmail, SCRN_APP);
     } catch (otpError) {
-      const message = String(otpError?.message || "");
-      if (/límite|limit|429/i.test(message)) {
-        setError("Se alcanzó el límite de envíos. Esperá 60s e intentá nuevamente.");
-      } else {
-        setError(message || "No se pudo enviar el código.");
-      }
+      setError(otpError?.message || "No se pudo enviar el código.");
       return;
     } finally {
       setSendingOtp(false);

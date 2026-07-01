@@ -40,12 +40,7 @@ export default function LoginEntradas({ user, profile, onProfileSaved, bootError
     try {
       await requestEntradasEmailCode(normalizedEmail, "entradas");
     } catch (otpError) {
-      const messageText = String(otpError?.message || "");
-      if (/límite|limit|429/i.test(messageText)) {
-        setError("Se alcanzó el límite de envíos. Esperá 60s e intentá nuevamente.");
-      } else {
-        setError(messageText || "No se pudo enviar el código.");
-      }
+      setError(otpError?.message || "No se pudo enviar el código.");
       return;
     } finally {
       setSending(false);

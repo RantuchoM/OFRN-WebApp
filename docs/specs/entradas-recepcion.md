@@ -1,5 +1,11 @@
 # Entradas — recepción (check-in QR)
 
+## Acceso público (login OTP)
+
+- Edge Function `entradas-auth-email` (código de 8 dígitos + enlace mágico).
+- [x] Errores de red / timeout al invocar la función se muestran en español claro («revisá tu conexión e intentá de nuevo»), no el mensaje técnico de Supabase.
+- Mensajes del servidor (cooldown 60s, límite por hora, código inválido, etc.) se conservan tal cual.
+
 ## Alcance
 
 - Rol **recepcionista** o **admin** en `/entradas?view=recepcion`.

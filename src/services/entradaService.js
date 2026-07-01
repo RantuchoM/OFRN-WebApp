@@ -15,6 +15,27 @@ import {
   lugarNombreDesdeConciertoEntrada,
 } from "../utils/entradasConciertoEvento";
 import { conciertoAdminSoloRecordatoriosProgramados } from "../utils/entradasReservasApertura";
+import { formatEntradasAuthError } from "../utils/entradasAuthMessages";
+
+async function assertEntradasAuthInvokeResult({ data, error }, action = "request") {
+  if (data?.error) {
+    throw new Error(formatEntradasAuthError(data.error, { action }));
+  }
+  if (!error) return data;
+
+  let serverMessage = "";
+  try {
+    const ctx = error?.context;
+    if (ctx instanceof Response) {
+      const body = await ctx.clone().json();
+      serverMessage = String(body?.error || body?.message || "").trim();
+    }
+  } catch {
+    /* cuerpo no JSON o ya consumido */
+  }
+
+  throw new Error(formatEntradasAuthError(serverMessage || error, { action }));
+}
 
 export {
   compareConciertosPorFechaHora,
@@ -65,9 +86,7 @@ export async function requestEntradasEmailCode(email, app = "entradas") {
       app,
     },
   });
-  if (error) throw error;
-  if (data?.error) throw new Error(data.error);
-  return data;
+  return assertEntradasAuthInvokeResult({ data, error }, "request");
 }
 
 async function signInAfterEntradasAuthPayload(data, app = "entradas") {
@@ -96,8 +115,8 @@ export async function verifyEntradasEmailCode({ email, code, app = "entradas" })
       code: normalizedCode,
     },
   });
-  if (error) throw error;
-  await signInAfterEntradasAuthPayload(data, app);
+  const payload = await assertEntradasAuthInvokeResult({ data, error }, "verify");
+  await signInAfterEntradasAuthPayload(payload, app);
 }
 
 export async function verifyEntradasMagicLink({ token, app = "entradas" }) {
@@ -108,8 +127,8 @@ export async function verifyEntradasMagicLink({ token, app = "entradas" }) {
       token: normalizedToken,
     },
   });
-  if (error) throw error;
-  await signInAfterEntradasAuthPayload(data, app);
+  const payload = await assertEntradasAuthInvokeResult({ data, error }, "verify");
+  await signInAfterEntradasAuthPayload(payload, app);
 }
 
 export async function listProgramasConConciertos() {
