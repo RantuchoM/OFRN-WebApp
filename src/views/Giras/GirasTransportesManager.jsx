@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
@@ -42,7 +43,9 @@ import {
   IconEye,
   IconEyeOff,
   IconUser,
+  IconMoreVertical,
 } from "../../components/ui/Icons";
+import { useClickOutside } from "../../hooks/useClickOutside";
 import { parseSupabasePublicStorageUrl } from "../../utils/supabaseStorage";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
@@ -54,7 +57,6 @@ import StopRulesManager from "./StopRulesManager";
 import TransportAdmissionModal from "./TransportAdmissionModal";
 import DataIntegrityIndicator from "../../components/DataIntegrityIndicator";
 import ConfirmModal from "../../components/ui/ConfirmModal";
-import CuadroFirmasExportButton from "../../components/ui/CuadroFirmasExportButton";
 import {
   useLogistics,
   matchesRule,
@@ -121,6 +123,51 @@ const formatDateSafe = (dateString) => {
   } catch (e) {
     return dateString;
   }
+};
+
+const sortEventsBySchedule = (events) =>
+  [...(events || [])].sort((a, b) =>
+    `${a.fecha || ""}${a.hora_inicio || ""}`.localeCompare(
+      `${b.fecha || ""}${b.hora_inicio || ""}`,
+    ),
+  );
+
+const formatEventScheduleLabel = (evt, { withWeekday = false } = {}) => {
+  if (!evt?.fecha) return null;
+  const date = formatDateSafe(evt.fecha);
+  const time = evt.hora_inicio ? String(evt.hora_inicio).slice(0, 5) : "";
+  const dateTime = time ? `${date} ${time}` : date;
+  if (!withWeekday) return dateTime;
+  try {
+    const dateObj = new Date(`${evt.fecha}T12:00:00`);
+    const weekday = format(dateObj, "EEEE", { locale: es });
+    const label = weekday.charAt(0).toLowerCase() + weekday.slice(1);
+    return `${label}, ${dateTime}`;
+  } catch {
+    return dateTime;
+  }
+};
+
+const getTransportScheduleBounds = (events) => {
+  const sorted = sortEventsBySchedule(events);
+  if (!sorted.length) return null;
+  const first = formatEventScheduleLabel(sorted[0], { withWeekday: true });
+  const last = formatEventScheduleLabel(sorted[sorted.length - 1]);
+  if (!first) return null;
+  return {
+    first,
+    last,
+    range: last && last !== first ? `${first} — ${last}` : first,
+    stopCount: sorted.length,
+  };
+};
+
+const getChoferDocumentationStatus = (chofer) => {
+  if (!chofer) return null;
+  const hasCarnet = Boolean(String(chofer.link_carnet || "").trim());
+  const hasDni = Boolean(String(chofer.link_dni_img || "").trim());
+  if (hasCarnet && hasDni) return "complete";
+  return "incomplete";
 };
 
 const htmlToPlainText = (input) => {
@@ -754,6 +801,558 @@ const ShiftScheduleModal = ({
   );
 };
 
+function TransportVehicleIdentity({
+  patente,
+  nombre,
+  transport,
+  onOpenDocs,
+  scheduleBounds,
+}) {
+  return (
+    <div className="relative shrink-0 w-full max-w-full overflow-visible">
+      <div className="rounded border border-slate-200 overflow-hidden w-full bg-white/90">
+        <div className="flex items-stretch min-w-0">
+          <span className="bg-slate-800 text-white px-1.5 py-0.5 text-[9px] font-mono tracking-tighter text-center truncate min-h-[1.125rem] leading-tight w-[4.75rem] shrink-0">
+            {patente || "—"}
+          </span>
+          <span
+            className="inline-flex items-center justify-center min-w-0 flex-1 px-1.5 py-0.5 border-l border-slate-200 bg-slate-100 text-[10px] font-medium text-slate-600 leading-none whitespace-nowrap min-h-[1.125rem] truncate text-center"
+            title={nombre || "Bus"}
+          >
+            {nombre || "Bus"}
+          </span>
+        </div>
+        <div
+          className="flex items-center justify-center gap-1 px-1.5 py-0.5 border-t border-slate-200 bg-slate-50/80 text-[10px] font-medium text-slate-600 min-w-0 text-center"
+          title={
+            scheduleBounds
+              ? `${scheduleBounds.stopCount} parada${scheduleBounds.stopCount === 1 ? "" : "s"}`
+              : undefined
+          }
+        >
+          <IconClock size={10} className="text-slate-400 shrink-0" />
+          <span className="font-semibold text-slate-700 tabular-nums truncate min-w-0 text-center">
+            {scheduleBounds ? scheduleBounds.range : "—"}
+          </span>
+        </div>
+      </div>
+      {transport && onOpenDocs && (
+        <VehicleDocCornerButton transport={transport} onOpen={onOpenDocs} />
+      )}
+    </div>
+  );
+}
+
+function TransportCornerButton({ onClick, title, className = "", children }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.(e);
+      }}
+      className={`absolute -top-1 -right-1 z-10 flex items-center justify-center w-4 h-4 rounded-full bg-white border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors ${className}`}
+      title={title}
+    >
+      {children}
+    </button>
+  );
+}
+
+function VehicleDocCornerButton({ transport, onOpen }) {
+  const hasDoc = transport.transportes?.documentacion;
+  return (
+    <TransportCornerButton
+      onClick={() => onOpen(transport)}
+      className={
+        hasDoc
+          ? "text-emerald-600 hover:text-emerald-700"
+          : "text-amber-500 hover:text-amber-600 animate-pulse"
+      }
+      title={
+        hasDoc
+          ? "Editar documentación de vehículo"
+          : "Cargar documentación de vehículo"
+      }
+    >
+      <IconFileText size={10} />
+    </TransportCornerButton>
+  );
+}
+
+function ChoferPickerDropdown({
+  anchorRef,
+  isOpen,
+  search,
+  onSearchChange,
+  options,
+  currentChoferId,
+  onSelect,
+}) {
+  const [dropdownStyle, setDropdownStyle] = useState(null);
+
+  useEffect(() => {
+    if (!isOpen || !anchorRef?.current) return;
+
+    const updatePosition = () => {
+      const rect = anchorRef.current.getBoundingClientRect();
+      const estimatedHeight = 280;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const dropUp =
+        spaceBelow < estimatedHeight && rect.top > estimatedHeight;
+
+      setDropdownStyle({
+        position: "fixed",
+        left: rect.left,
+        width: Math.max(rect.width, 288),
+        zIndex: 150,
+        ...(dropUp
+          ? {
+              top: "auto",
+              bottom: window.innerHeight - rect.top + 4,
+            }
+          : {
+              top: rect.bottom + 4,
+              bottom: "auto",
+            }),
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isOpen, anchorRef]);
+
+  if (!isOpen || !dropdownStyle) return null;
+
+  const query = String(search || "").toLowerCase();
+  const filteredOptions = options.filter((c) => {
+    const haystack = `${c.label} ${c.dni || ""}`.toLowerCase();
+    return haystack.includes(query);
+  });
+
+  return createPortal(
+    <div
+      className="chofer-picker-portal rounded-xl border border-slate-200 bg-white shadow-2xl p-2"
+      style={dropdownStyle}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => onSearchChange(e.target.value)}
+        placeholder="Buscar chofer..."
+        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-indigo-400"
+        autoFocus
+      />
+      <div className="mt-2 max-h-56 overflow-y-auto space-y-1">
+        <button
+          type="button"
+          onClick={() => onSelect("")}
+          className={`w-full text-left rounded-md px-2 py-1.5 text-xs ${
+            !currentChoferId
+              ? "bg-slate-100 text-slate-700 font-bold"
+              : "text-slate-600 hover:bg-slate-50"
+          }`}
+        >
+          Sin chofer
+        </button>
+        {filteredOptions.map((c) => (
+          <button
+            key={c.value}
+            type="button"
+            onClick={() => onSelect(c.value)}
+            className={`w-full text-left rounded-md px-2 py-1.5 text-xs ${
+              String(currentChoferId || "") === String(c.value)
+                ? "bg-emerald-50 text-emerald-700 font-bold"
+                : "text-slate-700 hover:bg-indigo-50"
+            }`}
+          >
+            {c.label} {c.dni ? `(${c.dni})` : ""}
+          </button>
+        ))}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+const EDIT_CATEGORIA_OPTIONS = [
+  { key: "PASAJEROS", label: "Pasajeros", activeClass: "text-slate-800" },
+  { key: "LOGISTICO", label: "Solo logístico", activeClass: "text-amber-700" },
+  { key: "INTERNO", label: "Trasl. interno", activeClass: "text-violet-700" },
+];
+
+function TransportEditForm({
+  editFormData,
+  setEditFormData,
+  catalog,
+  choferOptions,
+  defaultTransporteId,
+  onSave,
+  onCancel,
+}) {
+  return (
+    <div className="flex-1 min-w-0 space-y-3" onClick={(e) => e.stopPropagation()}>
+      <div className="grid grid-cols-1 sm:grid-cols-[10rem_1fr] gap-2 sm:gap-3">
+        <div>
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1 block">
+            Vehículo
+          </label>
+          <select
+            className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-200 outline-none"
+            value={editFormData.id_transporte || defaultTransporteId}
+            onChange={(e) =>
+              setEditFormData({ ...editFormData, id_transporte: e.target.value })
+            }
+          >
+            {catalog.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nombre}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1 block">
+            Nombre del recorrido
+          </label>
+          <input
+            type="text"
+            value={editFormData.detalle}
+            onChange={(e) =>
+              setEditFormData({ ...editFormData, detalle: e.target.value })
+            }
+            className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-200 outline-none"
+            placeholder="Ej: Bus 1 — Ida a Córdoba"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+        <div>
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1 block">
+            Capacidad
+          </label>
+          <input
+            type="number"
+            min="0"
+            value={editFormData.capacidad}
+            onChange={(e) =>
+              setEditFormData({ ...editFormData, capacidad: e.target.value })
+            }
+            className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
+            placeholder="Butacas"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1 block">
+            Costo
+          </label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={editFormData.costo}
+            onChange={(e) =>
+              setEditFormData({ ...editFormData, costo: e.target.value })
+            }
+            className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
+            placeholder="$"
+          />
+        </div>
+        <div className="col-span-2 sm:col-span-1">
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1 block">
+            Chofer
+          </label>
+          <select
+            className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-200 outline-none"
+            value={editFormData.id_chofer || ""}
+            onChange={(e) =>
+              setEditFormData({ ...editFormData, id_chofer: e.target.value })
+            }
+          >
+            <option value="">Sin chofer</option>
+            {choferOptions.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label} {c.dni ? `(${c.dni})` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5 block">
+          Categoría
+        </label>
+        <div
+          className="inline-flex w-full sm:w-auto rounded-lg border border-slate-200 bg-slate-100 p-0.5"
+          role="group"
+        >
+          {EDIT_CATEGORIA_OPTIONS.map(({ key, label, activeClass }) => {
+            const active = editFormData.categoria_logistica === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() =>
+                  setEditFormData({ ...editFormData, categoria_logistica: key })
+                }
+                className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap ${
+                  active
+                    ? `bg-white shadow-sm ${activeClass}`
+                    : "text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 pt-0.5">
+        <button
+          type="button"
+          onClick={onSave}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 transition-colors"
+        >
+          <IconCheck size={14} />
+          Guardar
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-xs font-bold hover:bg-slate-200 transition-colors"
+        >
+          <IconX size={14} />
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TransportCardActions({
+  incompleteCount,
+  isMediosPropios,
+  isExpanded,
+  exportingFirmas,
+  onShowIncomplete,
+  onAdmission,
+  onBoarding,
+  onItinerary,
+  onStopsExport,
+  onShift,
+  onRoadmap,
+  onCnrt,
+  onExportFirmasPdf,
+  onExportFirmasDocx,
+  onExportFirmasDocxMerge,
+  onDelete,
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [awaitingNoteFile, setAwaitingNoteFile] = useState(false);
+  const menuRef = useRef(null);
+  const fileInputRef = useRef(null);
+  useClickOutside(menuRef, () => setMenuOpen(false));
+
+  const infoBtnClass =
+    "flex items-center justify-center gap-1 px-1.5 py-1 sm:px-2.5 sm:py-1.5 rounded-lg text-[10px] font-bold transition-colors whitespace-nowrap";
+
+  const showPending = incompleteCount > 0 && !isMediosPropios;
+
+  const menuItems = [
+    {
+      key: "itinerary",
+      label: "Plantilla de Itinerario",
+      icon: IconMapPin,
+      onClick: onItinerary,
+    },
+    {
+      key: "stops",
+      label: "Cronograma de paradas",
+      icon: IconList,
+      onClick: onStopsExport,
+    },
+    {
+      key: "shift",
+      label: "Mover horarios",
+      icon: IconClock,
+      onClick: onShift,
+    },
+    { key: "roadmap", label: "Hoja de ruta", icon: IconFileText, onClick: onRoadmap },
+    { key: "cnrt", label: "Exportar CNRT", icon: IconDownload, onClick: onCnrt },
+    {
+      key: "firmas-pdf",
+      label: "Cuadro de firmas (PDF)",
+      icon: IconFileText,
+      onClick: onExportFirmasPdf,
+      disabled: exportingFirmas,
+    },
+    {
+      key: "firmas-docx",
+      label: "Cuadro de firmas (Word)",
+      icon: IconFileText,
+      onClick: onExportFirmasDocx,
+      disabled: exportingFirmas,
+    },
+    {
+      key: "firmas-merge",
+      label: "Cuadro + nota Word",
+      icon: IconUpload,
+      onClick: () => {
+        setAwaitingNoteFile(true);
+        fileInputRef.current?.click();
+      },
+      disabled: exportingFirmas,
+    },
+  ];
+
+  const handleMenuAction = (item) => {
+    if (item.disabled) return;
+    setMenuOpen(false);
+    item.onClick?.();
+  };
+
+  const handleNoteFileChange = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !awaitingNoteFile) return;
+    setAwaitingNoteFile(false);
+    if (!/\.docx$/i.test(file.name)) {
+      toast.error("Seleccioná un archivo .docx");
+      return;
+    }
+    onExportFirmasDocxMerge?.(file);
+  };
+
+  return (
+    <div
+      className="flex flex-wrap items-center justify-end gap-1 sm:gap-1.5 shrink-0 w-full md:w-auto max-w-full"
+      onClick={(e) => e.stopPropagation()}
+    >
+
+      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-0.5 shadow-sm overflow-visible">
+        <button
+          type="button"
+          onClick={onAdmission}
+          className={`${infoBtnClass} text-indigo-600 hover:bg-indigo-50`}
+          title="Admisión de pasajeros"
+        >
+          <IconUsers size={14} />
+          <span className="hidden sm:inline">Admisión</span>
+        </button>
+        <div className="w-px h-4 bg-slate-200 shrink-0" />
+        <div className="relative overflow-visible">
+          {showPending && (
+            <button
+              type="button"
+              onClick={onShowIncomplete}
+              className="absolute -top-1.5 -right-1.5 z-10 flex items-center justify-center min-w-[1.125rem] h-[1.125rem] px-1 rounded-full bg-rose-500 text-white text-[8px] font-black leading-none shadow-md ring-2 ring-white animate-pulse"
+              title={`${incompleteCount} pendiente${incompleteCount === 1 ? "" : "s"} de subida/bajada`}
+            >
+              {incompleteCount}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onBoarding}
+            className={`${infoBtnClass} text-amber-600 hover:bg-amber-50`}
+            title="Abordaje y subida/bajada"
+          >
+            <IconCheckCircle size={14} />
+            <span className="hidden sm:inline">Abordaje</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="relative" ref={menuRef}>
+        <button
+          type="button"
+          onClick={() => setMenuOpen((v) => !v)}
+          className={`flex items-center gap-1 px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-xl border text-[10px] font-bold transition-colors ${
+            menuOpen
+              ? "bg-slate-800 text-white border-slate-800"
+              : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+          }`}
+          title="Más acciones"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+        >
+          {exportingFirmas ? (
+            <IconLoader size={14} className="animate-spin" />
+          ) : (
+            <IconMoreVertical size={14} />
+          )}
+          <span className="hidden sm:inline">Acciones</span>
+        </button>
+
+        {menuOpen && (
+          <div
+            className="absolute right-0 top-[calc(100%+4px)] z-[140] min-w-[210px] rounded-xl border border-slate-200 bg-white shadow-2xl py-1 overflow-hidden"
+            role="menu"
+          >
+            {menuItems.map((item) => {
+              const ItemIcon = item.icon;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  role="menuitem"
+                  disabled={item.disabled}
+                  onClick={() => handleMenuAction(item)}
+                  className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors ${
+                    item.disabled
+                      ? "text-slate-300 cursor-not-allowed"
+                      : "text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <ItemIcon size={14} className="text-slate-400 shrink-0" />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+            <div className="my-1 border-t border-slate-100" />
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onDelete?.();
+              }}
+              className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 text-rose-600 hover:bg-rose-50 transition-colors"
+            >
+              <IconTrash size={14} className="shrink-0" />
+              <span>Eliminar transporte</span>
+            </button>
+          </div>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          className="hidden"
+          onChange={handleNoteFileChange}
+        />
+      </div>
+
+      <div
+        className={`text-slate-300 transition-transform shrink-0 ${isExpanded ? "rotate-180" : ""}`}
+      >
+        <IconChevronDown size={16} />
+      </div>
+    </div>
+  );
+}
+
 export default function GirasTransportesManager({ supabase, gira }) {
   const {
     summary: rawSummary,
@@ -1119,6 +1718,12 @@ export default function GirasTransportesManager({ supabase, gira }) {
   });
   const [vehicleDocUploading, setVehicleDocUploading] = useState(false);
   const [vehicleDocDragging, setVehicleDocDragging] = useState(false);
+  const [choferDocsModal, setChoferDocsModal] = useState({
+    isOpen: false,
+    choferLabel: "",
+    link_carnet: "",
+    link_dni_img: "",
+  });
   const [choferPicker, setChoferPicker] = useState({
     transportId: null,
     search: "",
@@ -1150,7 +1755,24 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const [boardingModal, setBoardingModal] = useState({
     isOpen: false,
     transportId: null,
+    initialFilter: "all",
   });
+
+  const openBoardingModal = (transportId, { filter = "all" } = {}) => {
+    setBoardingModal({
+      isOpen: true,
+      transportId,
+      initialFilter: filter,
+    });
+  };
+
+  const closeBoardingModal = () => {
+    setBoardingModal({
+      isOpen: false,
+      transportId: null,
+      initialFilter: "all",
+    });
+  };
   const [exportingFirmasTransportId, setExportingFirmasTransportId] =
     useState(null);
   const [activeDetailEventId, setActiveDetailEventId] = useState(null);
@@ -1204,11 +1826,12 @@ export default function GirasTransportesManager({ supabase, gira }) {
     const onClickOutside = (event) => {
       if (!choferPicker.transportId) return;
       if (
-        choferPickerRef.current &&
-        !choferPickerRef.current.contains(event.target)
+        choferPickerRef.current?.contains(event.target) ||
+        event.target.closest(".chofer-picker-portal")
       ) {
-        setChoferPicker({ transportId: null, search: "" });
+        return;
       }
+      setChoferPicker({ transportId: null, search: "" });
     };
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
@@ -1259,13 +1882,22 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   const filteredTransports = useMemo(() => {
     if (!transportTypeFilter || transportTypeFilter.size === 0) return [];
-    return (transports || []).filter(
-      (t) =>
-        transportTypeFilter.has(
-          String(t.categoria_logistica || "PASAJEROS").toUpperCase(),
-        ),
+    const filtered = (transports || []).filter((t) =>
+      transportTypeFilter.has(
+        String(t.categoria_logistica || "PASAJEROS").toUpperCase(),
+      ),
     );
-  }, [transports, transportTypeFilter]);
+    return filtered.sort((a, b) => {
+      const aFirst = sortEventsBySchedule(transportEvents[a.id] || [])[0];
+      const bFirst = sortEventsBySchedule(transportEvents[b.id] || [])[0];
+      if (!aFirst && !bFirst) return 0;
+      if (!aFirst) return 1;
+      if (!bFirst) return -1;
+      return `${aFirst.fecha || ""}${aFirst.hora_inicio || ""}`.localeCompare(
+        `${bFirst.fecha || ""}${bFirst.hora_inicio || ""}`,
+      );
+    });
+  }, [transports, transportTypeFilter, transportEvents]);
 
   const toggleTransportTypeFilter = (key) => {
     setTransportTypeFilter((prev) => {
@@ -2173,6 +2805,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     } catch (err) {
       console.error(err);
       alert("Error al guardar.");
+      throw err;
     }
   };
 
@@ -2523,6 +3156,28 @@ export default function GirasTransportesManager({ supabase, gira }) {
     });
   };
 
+  const openChoferDocsModal = (transport) => {
+    const chofer = transport?.chofer;
+    if (!transport?.id_chofer || !chofer) return;
+    setChoferDocsModal({
+      isOpen: true,
+      choferLabel:
+        `${chofer.apellido || ""}, ${chofer.nombre || ""}`.trim() ||
+        `Chofer #${transport.id_chofer}`,
+      link_carnet: chofer.link_carnet || "",
+      link_dni_img: chofer.link_dni_img || "",
+    });
+  };
+
+  const closeChoferDocsModal = () => {
+    setChoferDocsModal({
+      isOpen: false,
+      choferLabel: "",
+      link_carnet: "",
+      link_dni_img: "",
+    });
+  };
+
   const closeVehicleDocsModal = () => {
     if (vehicleDocUploading) return;
     setVehicleDocsModal({
@@ -2730,7 +3385,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     <div className="h-full overflow-y-auto p-3 sm:p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-6xl mx-auto">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-bold text-slate-700 flex items-center gap-2">
-          <IconTruck className="text-indigo-600" /> Gestion de Transportes
+          <IconTruck className="text-indigo-600" /> Gestión de Transportes
         </h3>
       </div>
 
@@ -3052,6 +3707,18 @@ export default function GirasTransportesManager({ supabase, gira }) {
           const transportIconName = t.transportes?.icon || "IconBus";
           const TransportIcon = TRANSPORT_ICON_MAP[transportIconName] || IconBus;
           const categoria = String(t.categoria_logistica || "PASAJEROS").toUpperCase();
+          const scheduleBounds = getTransportScheduleBounds(myEvents);
+          const choferDocsStatus =
+            t.id_chofer && t.chofer ? getChoferDocumentationStatus(t.chofer) : null;
+          const occupancyLabelDesktop = `${tPassengerCount}${
+            tInstrumentSeats > 0 ? ` + ${tInstrumentSeats} ins = ${totalOccupied}` : ""
+          } butacas${maxCap > 0 ? ` / ${maxCap}` : ""}`;
+          const occupancyLabelMobile =
+            tInstrumentSeats > 0
+              ? `${tPassengerCount}+${tInstrumentSeats}=${totalOccupied}${
+                  maxCap > 0 ? `/${maxCap}` : ""
+                }`
+              : `${tPassengerCount}${maxCap > 0 ? `/${maxCap}` : ""} pax`;
           const cardTintClass =
             categoria === "INTERNO"
               ? "bg-sky-50/40"
@@ -3062,210 +3729,103 @@ export default function GirasTransportesManager({ supabase, gira }) {
           return (
             <div
               key={t.id}
-              className={`group border rounded-2xl transition-all duration-300 ${isExpanded ? "border-indigo-300 shadow-xl ring-4 ring-indigo-50/50 bg-white" : `border-slate-200 ${cardTintClass} hover:border-slate-300 shadow-sm`}`}
+              className={`group border rounded-2xl transition-all duration-300 overflow-x-hidden overflow-y-visible ${isExpanded ? "border-indigo-300 shadow-xl ring-4 ring-indigo-50/50 bg-white" : `border-slate-200 ${cardTintClass} hover:border-slate-300 shadow-sm`}`}
             >
               <div
-                className="p-2 md:p-3 flex flex-col md:flex-row justify-between md:items-center gap-2 cursor-pointer"
+                className="p-2.5 md:p-3 cursor-pointer"
                 onClick={() =>
                   !isEditing && setActiveTransportId(isExpanded ? null : t.id)
                 }
               >
-                <div className="flex items-center gap-2 flex-1 min-w-0">
+                <div
+                  className={`w-full min-w-0 ${
+                    isEditing
+                      ? "flex items-start gap-2"
+                      : "grid grid-cols-[2.25rem_minmax(0,1fr)] gap-x-2 gap-y-0.5 md:gap-y-0 items-center md:items-start md:grid-cols-[2.25rem_minmax(0,1fr)_14.5rem_auto] md:grid-rows-[auto_auto]"
+                  }`}
+                >
                   <div
-                    className={`p-2 rounded-xl shrink-0 transition-colors ${isExpanded ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-indigo-100"}`}
+                    className={`relative shrink-0 overflow-visible ${
+                      isEditing ? "" : "md:row-span-2 md:self-center"
+                    }`}
                   >
-                    <TransportIcon size={20} />
+                    <div
+                      className={`p-2 rounded-xl transition-colors ${
+                        isExpanded
+                          ? "bg-indigo-600 text-white"
+                          : "bg-slate-100 text-slate-500 group-hover:bg-indigo-100"
+                      }`}
+                    >
+                      <TransportIcon size={20} />
+                    </div>
+                    {!isEditing && (
+                      <TransportCornerButton
+                        onClick={(e) => startEditingTransport(e, t)}
+                        className="text-slate-500 hover:text-indigo-600"
+                        title="Editar transporte"
+                      >
+                        <IconEdit size={10} />
+                      </TransportCornerButton>
+                    )}
                   </div>
 
-                  <div className="min-w-0 flex-1">
-                    {isEditing ? (
-                      <div
-                        className="flex flex-wrap items-center gap-2"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <select
-                          className="border border-indigo-300 rounded px-2 py-1 text-xs bg-white w-24"
-                          value={editFormData.id_transporte || t.id_transporte}
-                          onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              id_transporte: e.target.value,
-                            })
-                          }
-                        >
-                          {catalog.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.nombre}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          type="text"
-                          value={editFormData.detalle}
-                          onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              detalle: e.target.value,
-                            })
-                          }
-                          className="border border-indigo-300 rounded px-2 py-1 text-xs font-bold w-32"
-                        />
-                        <input
-                          type="number"
-                          min="0"
-                          placeholder="Cap."
-                          value={editFormData.capacidad}
-                          onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              capacidad: e.target.value,
-                            })
-                          }
-                          className="border border-indigo-300 rounded px-2 py-1 text-xs w-20"
-                        />
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="Costo"
-                          value={editFormData.costo}
-                          onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              costo: e.target.value,
-                            })
-                          }
-                          className="border border-indigo-300 rounded px-2 py-1 text-xs w-24"
-                        />
-                        <div className="flex flex-wrap gap-1 items-center">
-                          {[
-                            {
-                              key: "PASAJEROS",
-                              label: "De pasajeros",
-                              Icon: IconBus,
-                              activeClass:
-                                "bg-slate-50 border-slate-300 text-slate-800",
-                            },
-                            {
-                              key: "LOGISTICO",
-                              label: "Solo logístico",
-                              Icon: IconAlertTriangle,
-                              activeClass:
-                                "bg-amber-50 border-amber-200 text-amber-700",
-                            },
-                            {
-                              key: "INTERNO",
-                              label: "Trasl. interno",
-                              Icon: IconBus,
-                              activeClass:
-                                "bg-violet-50 border-violet-300 text-violet-700",
-                            },
-                          ].map(({ key, label, Icon, activeClass }) => {
-                            const active =
-                              editFormData.categoria_logistica === key;
-                            return (
-                              <button
-                                key={key}
-                                type="button"
-                                onClick={() =>
-                                  setEditFormData({
-                                    ...editFormData,
-                                    categoria_logistica: key,
-                                  })
-                                }
-                                className={`flex items-center gap-1 px-2 py-1 rounded border text-[9px] font-bold uppercase transition-colors ${
-                                  active
-                                    ? activeClass
-                                    : "bg-slate-50 border-slate-200 text-slate-400"
-                                }`}
-                                style={
-                                  key === "INTERNO" && active
-                                    ? {
-                                        borderColor: "#8B5CF6",
-                                        color: "#6D28D9",
-                                        backgroundColor: "#F5F3FF",
-                                      }
-                                    : undefined
-                                }
-                              >
-                                <Icon size={14} />
-                                {label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <select
-                          className="border border-indigo-300 rounded px-2 py-1 text-xs bg-white min-w-[180px]"
-                          value={editFormData.id_chofer || ""}
-                          onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              id_chofer: e.target.value,
-                            })
-                          }
-                        >
-                          <option value="">Sin chofer</option>
-                          {choferOptions.map((c) => (
-                            <option key={c.value} value={c.value}>
-                              {c.label} {c.dni ? `(${c.dni})` : ""}
-                            </option>
-                          ))}
-                        </select>
-                        <div className="flex gap-1">
-                          <button
-                            onClick={saveTransportChanges}
-                            className="bg-emerald-500 text-white p-1 rounded"
-                          >
-                            <IconCheck size={14} />
-                          </button>
-                          <button
-                            onClick={cancelEditingTransport}
-                            className="bg-slate-200 text-slate-600 p-1 rounded"
-                          >
-                            <IconX size={14} />
-                          </button>
-                        </div>
-                      </div>
+                  {isEditing ? (
+                      <TransportEditForm
+                        editFormData={editFormData}
+                        setEditFormData={setEditFormData}
+                        catalog={catalog}
+                        choferOptions={choferOptions}
+                        defaultTransporteId={t.id_transporte}
+                        onSave={saveTransportChanges}
+                        onCancel={cancelEditingTransport}
+                      />
                     ) : (
                       <>
-                        <div className="flex items-center gap-1.5 flex-nowrap min-w-0">
-                          <h4 className="font-black text-slate-800 uppercase tracking-tighter text-sm truncate shrink">
+                        <div className="hidden md:flex md:col-start-3 md:row-start-1 md:row-span-2 items-start min-w-0 w-full self-start justify-start">
+                          <TransportVehicleIdentity
+                            patente={t.transportes?.patente}
+                            nombre={t.transportes?.nombre}
+                            transport={t}
+                            onOpenDocs={openVehicleDocsModal}
+                            scheduleBounds={scheduleBounds}
+                          />
+                        </div>
+
+                        <div className="md:hidden flex flex-col gap-0.5 min-w-0 col-start-2 row-start-1">
+                            <h4
+                              className="font-semibold text-slate-800 text-sm min-w-0 leading-snug line-clamp-2"
+                              title={t.detalle || "Sin detalle"}
+                            >
+                              {t.detalle || "Sin detalle"}
+                            </h4>
+                            <TransportVehicleIdentity
+                              patente={t.transportes?.patente}
+                              nombre={t.transportes?.nombre}
+                              transport={t}
+                              onOpenDocs={openVehicleDocsModal}
+                              scheduleBounds={scheduleBounds}
+                            />
+                        </div>
+
+                        <div className="flex flex-col gap-1.5 min-w-0 col-start-1 col-span-2 md:col-start-2 md:col-span-1 md:row-start-1 md:row-span-2 md:self-start md:pr-2">
+                          <h4
+                            className="hidden md:block min-w-0 truncate font-semibold text-slate-800 text-sm leading-snug"
+                            title={t.detalle || "Sin detalle"}
+                          >
                             {t.detalle || "Sin detalle"}
                           </h4>
-                          {t.transportes?.patente && (
-                            <span className="bg-slate-800 text-white px-1.5 py-0.5 rounded text-[9px] font-mono tracking-tighter shrink-0">
-                              {t.transportes.patente}
-                            </span>
-                          )}
-                          <button
-                            onClick={(e) => startEditingTransport(e, t)}
-                            className="text-slate-300 hover:text-indigo-600 p-1 rounded-full"
-                          >
-                            <IconEdit size={12} />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openVehicleDocsModal(t);
-                            }}
-                            className={`p-1 rounded-full ${
-                              t.transportes?.documentacion
-                                ? "text-emerald-500 hover:text-emerald-600"
-                                : "text-amber-500 hover:text-amber-600 animate-pulse"
-                            }`}
-                            title={
-                              t.transportes?.documentacion
-                                ? "Editar documentación de vehículo"
-                                : "Cargar documentación de vehículo"
-                            }
-                          >
-                            <IconFileText size={12} />
-                          </button>
+                          <div className="flex flex-wrap items-center gap-1 min-w-0">
                           <div
-                            className="relative"
-                            ref={choferPicker.transportId === t.id ? choferPickerRef : null}
+                            className="relative w-full sm:w-36 md:w-36 shrink-0 overflow-visible"
+                            ref={
+                              choferPicker.transportId === t.id
+                                ? choferPickerRef
+                                : null
+                            }
+                            onClick={(e) => e.stopPropagation()}
                           >
                             <button
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setChoferPicker((prev) =>
@@ -3274,246 +3834,174 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     : { transportId: t.id, search: "" },
                                 );
                               }}
-                              className={`p-1 rounded-full ${
+                              className={`inline-flex items-center h-5 gap-1 w-full px-2 rounded-md border text-[10px] font-medium leading-none truncate ${
                                 t.id_chofer
-                                  ? "text-emerald-500 hover:text-emerald-600"
-                                  : "text-slate-400 hover:text-slate-600"
+                                  ? "border-cyan-200 bg-cyan-50 text-cyan-800"
+                                  : "border-slate-200 bg-slate-50 text-slate-400"
                               }`}
                               title={
                                 t.id_chofer
-                                  ? "Editar chofer del recorrido"
-                                  : "Asignar chofer al recorrido"
+                                  ? t.chofer
+                                    ? `${t.chofer.apellido || ""}, ${t.chofer.nombre || ""}`.trim()
+                                    : `Chofer #${t.id_chofer}`
+                                  : "Asignar chofer"
                               }
                             >
-                              <IconUser size={12} />
+                              <IconUser size={10} className="shrink-0" />
+                              <span className="truncate">
+                                {t.id_chofer
+                                  ? t.chofer
+                                    ? `${t.chofer.apellido || ""}, ${t.chofer.nombre || ""}`.trim()
+                                    : `#${t.id_chofer}`
+                                  : "Sin chofer"}
+                              </span>
                             </button>
-                            {choferPicker.transportId === t.id && (
-                              <div
-                                className="absolute right-0 top-[110%] z-[140] w-72 rounded-xl border border-slate-200 bg-white shadow-2xl p-2"
-                                onClick={(e) => e.stopPropagation()}
-                                onMouseDown={(e) => e.stopPropagation()}
+                            {choferDocsStatus && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openChoferDocsModal(t);
+                                }}
+                                className={`absolute -top-1.5 -right-1.5 z-10 flex items-center justify-center w-3.5 h-3.5 rounded-full ring-2 ring-white shadow-sm ${
+                                  choferDocsStatus === "complete"
+                                    ? "bg-emerald-500 text-white"
+                                    : "bg-amber-500 text-white animate-pulse"
+                                }`}
+                                title={
+                                  choferDocsStatus === "complete"
+                                    ? "Documentación del chofer completa"
+                                    : "Falta carnet y/o DNI del chofer"
+                                }
                               >
-                                <input
-                                  type="text"
-                                  value={choferPicker.search}
-                                  onChange={(e) =>
-                                    setChoferPicker((prev) => ({
-                                      ...prev,
-                                      search: e.target.value,
-                                    }))
-                                  }
-                                  placeholder="Buscar chofer..."
-                                  className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-indigo-400"
-                                />
-                                <div className="mt-2 max-h-56 overflow-y-auto space-y-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAssignChofer(t, "")}
-                                    className={`w-full text-left rounded-md px-2 py-1.5 text-xs ${
-                                      !t.id_chofer
-                                        ? "bg-slate-100 text-slate-700 font-bold"
-                                        : "text-slate-600 hover:bg-slate-50"
-                                    }`}
-                                  >
-                                    Sin chofer
-                                  </button>
-                                  {choferOptions
-                                    .filter((c) => {
-                                      const haystack = `${c.label} ${c.dni || ""}`.toLowerCase();
-                                      return haystack.includes(
-                                        String(choferPicker.search || "").toLowerCase(),
-                                      );
-                                    })
-                                    .map((c) => (
-                                      <button
-                                        key={c.value}
-                                        type="button"
-                                        onClick={() => handleAssignChofer(t, c.value)}
-                                        className={`w-full text-left rounded-md px-2 py-1.5 text-xs ${
-                                          String(t.id_chofer || "") === String(c.value)
-                                            ? "bg-emerald-50 text-emerald-700 font-bold"
-                                            : "text-slate-700 hover:bg-indigo-50"
-                                        }`}
-                                      >
-                                        {c.label} {c.dni ? `(${c.dni})` : ""}
-                                      </button>
-                                    ))}
-                                </div>
-                              </div>
+                                {choferDocsStatus === "complete" ? (
+                                  <IconCheck size={8} />
+                                ) : (
+                                  <IconAlertTriangle size={8} />
+                                )}
+                              </button>
+                            )}
+                            {choferPicker.transportId === t.id && (
+                              <ChoferPickerDropdown
+                                anchorRef={choferPickerRef}
+                                isOpen
+                                search={choferPicker.search}
+                                onSearchChange={(value) =>
+                                  setChoferPicker((prev) => ({
+                                    ...prev,
+                                    search: value,
+                                  }))
+                                }
+                                options={choferOptions}
+                                currentChoferId={t.id_chofer}
+                                onSelect={(choferId) =>
+                                  handleAssignChofer(t, choferId)
+                                }
+                              />
                             )}
                           </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">
-                            {t.transportes?.nombre || "Bus"}
-                          </span>
-                          <span className="text-slate-200 shrink-0">|</span>
-                          <span
-                            className={`text-[12px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${occupancyColor}`}
-                          >
-                            {tPassengerCount}{" "}
-                            {tInstrumentSeats > 0
-                              ? ` + ${tInstrumentSeats} ins = ${totalOccupied}`
-                              : ""}{" "}
-                            butacas {maxCap > 0 ? ` / ${maxCap}` : ""}
-                          </span>
-                          {String(t.categoria_logistica || "").toUpperCase() ===
-                            "LOGISTICO" && (
-                            <span className="ml-1 text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold border border-amber-200">
-                              Solo logístico
-                            </span>
-                          )}
-                          {String(t.categoria_logistica || "").toUpperCase() ===
-                            "INTERNO" && (
+                          <div className="flex flex-wrap items-center gap-1 min-w-0 w-full sm:w-auto">
                             <span
-                              className="ml-1 text-[9px] px-1.5 py-0.5 rounded font-bold border inline-flex items-center gap-0.5"
-                              style={{
-                                backgroundColor: "#E0F2FE",
-                                color: "#0369A1",
-                                borderColor: "#7DD3FC",
-                              }}
+                              className={`inline-flex items-center min-h-5 px-2 py-0.5 rounded-md border text-[10px] font-bold tabular-nums leading-tight max-w-full sm:max-w-none ${occupancyColor}`}
+                              title={occupancyLabelDesktop}
                             >
-                              <IconBus size={10} /> Trasl. interno
+                              <span className="sm:hidden truncate">
+                                {occupancyLabelMobile}
+                              </span>
+                              <span className="hidden sm:inline whitespace-nowrap">
+                                {occupancyLabelDesktop}
+                              </span>
                             </span>
-                          )}
-                          {t.id_chofer && (
-                            <span className="ml-1 text-[9px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded font-bold border border-cyan-200">
-                              Chofer:{" "}
-                              {t.chofer
-                                ? `${t.chofer.apellido || ""}, ${t.chofer.nombre || ""}`.trim()
-                                : `#${t.id_chofer}`}
-                            </span>
-                          )}
+                            {categoria === "LOGISTICO" && (
+                              <span className="inline-flex items-center h-5 px-2 rounded-md border border-amber-200 bg-amber-50 text-[10px] font-bold text-amber-700 leading-none shrink-0">
+                                Solo logístico
+                              </span>
+                            )}
+                            {categoria === "INTERNO" && (
+                              <span
+                                className="inline-flex items-center h-5 gap-0.5 px-2 rounded-md border text-[10px] font-bold leading-none shrink-0"
+                                style={{
+                                  backgroundColor: "#E0F2FE",
+                                  color: "#0369A1",
+                                  borderColor: "#7DD3FC",
+                                }}
+                              >
+                                <IconBus size={10} /> Trasl. interno
+                              </span>
+                            )}
+                          </div>
+                          </div>
                         </div>
-                      </>
-                    )}
-                  </div>
-                </div>
 
-                {!isEditing && (
-                  <div
-                    className="flex items-center gap-1 shrink-0 w-full md:w-auto ml-0 md:ml-auto"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {incompletePax.length > 0 && !isMediosPropios && (
-                      <button
-                        onClick={() =>
-                          setInfoListModal({
-                            isOpen: true,
-                            title: `Incompletos: ${t.detalle}`,
-                            list: incompletePax,
-                            transportId: t.id,
-                          })
+                        <div className="col-span-2 md:col-start-4 md:row-start-1 md:col-span-1 md:justify-self-end md:self-start w-full md:w-auto max-md:pt-0.5">
+                          <TransportCardActions
+                            incompleteCount={incompletePax.length}
+                            isMediosPropios={isMediosPropios}
+                            isExpanded={isExpanded}
+                            exportingFirmas={exportingFirmasTransportId === t.id}
+                        onShowIncomplete={() =>
+                          openBoardingModal(t.id, { filter: "incomplete" })
                         }
-                        className="flex items-center gap-1 px-2 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-[9px] font-black animate-pulse mr-1"
-                      >
-                        <IconAlertTriangle size={10} /> {incompletePax.length}{" "}
-                        PEND.
-                      </button>
-                    )}
-
-                    <div className="flex items-center bg-slate-100/80 p-0.5 rounded-xl border border-slate-200 gap-0.5 overflow-x-auto max-w-full">
-                      <button
-                        onClick={() =>
+                        onAdmission={() =>
                           setAdmissionModal({ isOpen: true, transportId: t.id })
                         }
-                        className="p-1.5 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all"
-                        title="Admisión"
-                      >
-                        <IconUsers size={16} />
-                      </button>
-                      <button
-                        onClick={() =>
-                          setBoardingModal({ isOpen: true, transportId: t.id })
+                        onBoarding={() =>
+                          openBoardingModal(t.id, {
+                            filter:
+                              incompletePax.length > 0 && !isMediosPropios
+                                ? "incomplete"
+                                : "all",
+                          })
                         }
-                        className="p-1.5 bg-white text-amber-600 rounded-lg hover:bg-amber-600 hover:text-white transition-all"
-                        title="Abordaje"
-                      >
-                        <IconCheckCircle size={16} />
-                      </button>
-                      <button
-                        onClick={() =>
+                        onItinerary={() =>
                           setItineraryModal({ isOpen: true, transportId: t.id })
                         }
-                        className="p-1.5 bg-white text-fuchsia-600 rounded-lg hover:bg-fuchsia-600 hover:text-white transition-all"
-                        title="Itinerario"
-                      >
-                        <IconMapPin size={16} />
-                      </button>
-
-                      {/* NUEVO BOTÓN: CRONOGRAMA */}
-                      <button
-                        onClick={() =>
+                        onStopsExport={() =>
                           setStopsExportModal({
                             isOpen: true,
                             transportId: t.id,
                           })
                         }
-                        className="p-1.5 bg-white text-emerald-600 rounded-lg hover:bg-emerald-600 hover:text-white transition-all border border-emerald-100 shadow-sm"
-                        title="Cronograma de Paradas (Solo paradas)"
-                      >
-                        <IconList size={16} />
-                      </button>
-
-                      <button
-                        onClick={() =>
+                        onShift={() =>
                           setShiftModal({
                             isOpen: true,
                             transportId: t.id,
                             transportName: t.detalle,
                           })
                         }
-                        className="p-1.5 bg-white text-slate-500 rounded-lg hover:bg-slate-800 hover:text-white transition-all"
-                        title="Mover Horarios"
-                      >
-                        <IconClock size={16} />
-                      </button>
-                      <div className="w-px h-4 bg-slate-200 mx-0.5"></div>
-                      <button
-                        onClick={() =>
+                        onRoadmap={() =>
                           setRoadmapModal({ isOpen: true, transportId: t.id })
                         }
-                        className="p-1.5 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all"
-                        title="Hoja de Ruta"
-                      >
-                        <IconFileText size={16} />
-                      </button>
-                      <button
-                        onClick={() =>
+                        onCnrt={() =>
                           setCnrtModal({ isOpen: true, transportId: t.id })
                         }
-                        className="px-2 py-1.5 bg-white text-indigo-700 text-[9px] font-black rounded-lg hover:bg-indigo-700 hover:text-white transition-all"
-                      >
-                        CNRT
-                      </button>
-                      <CuadroFirmasExportButton
-                        compact
-                        onExport={(format) =>
+                        onExportFirmasPdf={() =>
                           handleExportCuadroFirmasTransport(
                             { stopPropagation: () => {} },
                             t,
-                            format,
+                            "pdf",
                           )
                         }
-                        disabled={exportingFirmasTransportId === t.id}
-                        loading={exportingFirmasTransportId === t.id}
-                        title="Cuadro de firmas: PDF o Word (pasajeros del recorrido)"
-                      />
-                    </div>
-
-                    <button
-                      onClick={() => openDeleteTransportModal(t.id)}
-                      className="p-1.5 text-slate-300 hover:text-rose-600 ml-1"
-                    >
-                      <IconTrash size={16} />
-                    </button>
-                    <div
-                      className={`ml-1 text-slate-300 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                    >
-                      <IconChevronDown size={16} />
-                    </div>
-                  </div>
-                )}
+                        onExportFirmasDocx={() =>
+                          handleExportCuadroFirmasTransport(
+                            { stopPropagation: () => {} },
+                            t,
+                            "docx",
+                          )
+                        }
+                        onExportFirmasDocxMerge={(file) =>
+                          handleExportCuadroFirmasTransport(
+                            { stopPropagation: () => {} },
+                            t,
+                            { format: "docx-merge", hostDocxFile: file },
+                          )
+                        }
+                        onDelete={() => openDeleteTransportModal(t.id)}
+                          />
+                        </div>
+                      </>
+                    )}
+                </div>
               </div>
 
               {isExpanded && (
@@ -4506,6 +4994,78 @@ export default function GirasTransportesManager({ supabase, gira }) {
         </div>
       )}
 
+      {choferDocsModal.isOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-semibold text-slate-800">
+                  Documentación del chofer
+                </h4>
+                <p className="text-[11px] text-slate-500">{choferDocsModal.choferLabel}</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeChoferDocsModal}
+                className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <IconX size={16} />
+              </button>
+            </div>
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                { label: "Carnet", url: choferDocsModal.link_carnet },
+                { label: "DNI", url: choferDocsModal.link_dni_img },
+              ].map(({ label, url }) => (
+                <div
+                  key={label}
+                  className={`rounded-xl border p-3 ${
+                    url
+                      ? "border-emerald-100 bg-white"
+                      : "border-dashed border-amber-200 bg-amber-50/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <p className="text-[10px] font-bold text-slate-500 uppercase">{label}</p>
+                    {url ? (
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] font-bold text-indigo-600 hover:underline"
+                      >
+                        Ver archivo
+                      </a>
+                    ) : (
+                      <span className="text-[10px] font-bold text-amber-600">No cargado</span>
+                    )}
+                  </div>
+                  {url ? (
+                    /\.pdf(\?|$)/i.test(url) ? (
+                      <object
+                        data={`${url}#toolbar=0&navpanes=0`}
+                        type="application/pdf"
+                        className="w-full h-28 rounded-lg border border-slate-100 bg-slate-50"
+                      />
+                    ) : (
+                      <img
+                        src={url}
+                        alt={label}
+                        className="w-full h-28 object-contain rounded-lg border border-slate-100 bg-slate-50"
+                      />
+                    )
+                  ) : (
+                    <div className="h-28 rounded-lg border border-dashed border-amber-200 bg-white/60 flex items-center justify-center text-[11px] text-amber-600">
+                      Pendiente en ficha del integrante
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {admissionModal.isOpen && (
         <TransportAdmissionModal
           isOpen={admissionModal.isOpen}
@@ -4684,8 +5244,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
       {boardingModal.isOpen && (
         <BoardingManagerModal
           isOpen={boardingModal.isOpen}
-          onClose={() => setBoardingModal({ isOpen: false, transportId: null })}
+          onClose={closeBoardingModal}
           transportId={boardingModal.transportId}
+          initialFilter={boardingModal.initialFilter}
           passengers={passengerList}
           events={transportEvents[boardingModal.transportId] || []}
           onSaveBoarding={handleSaveBoarding}

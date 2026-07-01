@@ -14,7 +14,7 @@ Vista orquestadora: `src/views/Management/InstrumentationSandbox.jsx`.
 
 | Zona | Contenido |
 |------|-----------|
-| Cada fila (izq.) | Meta (título con enlace a roster en nueva pestaña), **chips ensamble/familia convocados y excluidos** en la misma línea, matriz Conv/Req compacta + **`Str: (…).…`**; botón **Ver obras** en la esquina superior izquierda de la matriz (celda sobre «Conv») → `InstrumentationSummaryModal`. |
+| Cada fila (izq.) | Meta (título con enlace a roster en nueva pestaña), **chips ensamble/familia convocados y excluidos** en la misma línea, matriz Conv/Req compacta con **celdas pintadas** (verde ok, naranja/azul déficit o exceso, violeta cambio de borrador; si borrador y aún déficit → celda violeta y número rojo) + bloque **Str:** a la derecha de la matriz; botón **Ver obras** en la esquina superior izquierda de la matriz (celda sobre «Conv») → `InstrumentationSummaryModal`. |
 | Cada fila (der., ~11rem) | Desplegables **Agregar / Quitar / Excluir** (portal `fixed` hacia abajo y ancho hacia la derecha; 2 columnas si hay muchas opciones); **+ músico / - músico** con búsqueda; chips del delta del borrador. |
 | Histograma (columna derecha global) | Servicios Sinf+CF por ensamble regional: **suma anual**; hover en celda: «Con *n* servicios…» donde *n* es el encabezado de columna (no el número de la celda). |
 
@@ -83,3 +83,19 @@ Migración `20260629140000_instrumentacion_perf_indexes.sql`: índices en `giras
 - [x] **`computeAllSandboxProgramMetrics`**: convocatoria productiva en batch (`batchFetchProductionConvocatoria`), seating labels en batch (`batchFetchMusicianSeatingContainerLabels`), roster draft solo si fuentes/integrantes difieren de producción.
 - [x] **`buildSandboxRosterByGiraIdBatch`**: histograma Sinf+CF con prefetch compartido (integrantes, ensambles, familias, vigencia) — una pasada baseline + draft en memoria.
 - [x] Histograma no se recarga en cada autosave de borrador; solo al cambiar año/filtros o tras apply/discard masivo; incremental vía `refreshGiraMetrics`.
+
+## `obras.instrumentacion` (sync BD)
+
+- [x] Trigger `obras_particellas_sync_instrumentacion` recalcula `obras.instrumentacion` ante cambios en `obras_particellas`.
+- Función SQL: `public.calculate_obra_instrumentacion` — paridad con `calculateInstrumentation` en `src/utils/instrumentation.js` (aviso PARIDAD BD en ese archivo).
+- Migración: `20260630120000_obras_instrumentacion_sync_trigger.sql` (+ backfill de obras con particellas).
+- Sin particellas: el campo sigue siendo aproximación manual editable en WorkForm.
+- Con particellas: SSOT en BD; el JS calcula solo para preview en pantalla (`WorkForm` ya no hace `UPDATE obras.instrumentacion` al guardar particellas).
+- [x] `WorkForm`: campo instrumentación **solo lectura** cuando hay particellas (aproximación manual solo sin particellas).
+
+## `repertorio_obras.tiene_asignaciones_multiples`
+
+- [x] Columna bool en `repertorio_obras`; trigger en `seating_asignaciones` la actualiza por par `(id_programa, id_obra)`.
+- `true`: algún músico tiene **más de una particella** asignada en seating para esa obra en ese programa.
+- Auditoría / sandbox: si `false` → `buildWorkInstrumentationAuditRow` usa `obras.instrumentacion` (`preferObrasInstrumentacion`); si `true` → cálculo completo con seating.
+- Migración: `20260630130000_repertorio_obras_asignaciones_multiples.sql`.

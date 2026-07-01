@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { IconCheck, IconX, IconLoader, IconRefresh, IconUser, IconClock, IconEdit, IconTrash, IconPlus } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
+import HorasDeleteGuardModal from "../../components/musicians/HorasDeleteGuardModal";
 
 const CONCEPTOS = [
   { id: "h_basico", label: "Básico", color: "text-blue-700 bg-blue-50 border-blue-200" },
@@ -80,7 +81,7 @@ function buildHorasPayload({ selectedId, form, mode, activeRecord, contextTotals
   return payload;
 }
 
-export default function NovedadModal({ isOpen, onClose, supabase, musician, allMusicians, recordToEdit, onSuccess }) {
+export default function NovedadModal({ isOpen, onClose, supabase, musician, allMusicians, recordToEdit, onSuccess, novedadPreset = null }) {
   // Estado del Músico
   const [selectedId, setSelectedId] = useState(musician?.id || recordToEdit?.id_integrante || null);
   const [contextLoading, setContextLoading] = useState(false);
@@ -94,6 +95,9 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
   const [mode, setMode] = useState("ABSOLUTE"); 
   const [saving, setSaving] = useState(false);
   const [syncLegajoCondicion, setSyncLegajoCondicion] = useState(true);
+  const [deleteGuardRecord, setDeleteGuardRecord] = useState(null);
+  const [deleteGuardLoading, setDeleteGuardLoading] = useState(false);
+  const [deleteGuardError, setDeleteGuardError] = useState(null);
   const [form, setForm] = useState({
     origen: "CULTURA",
     mes_inicio: new Date().getMonth() + 1,
@@ -122,8 +126,8 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
             ...Object.fromEntries(CONCEPTOS.map(c => [c.id, activeRecord[c.id] || 0]))
         });
         setMode("ABSOLUTE"); // Al editar, mostramos valor absoluto
-    } else {
-        // Reset a modo "Nueva Novedad"
+    } else if (!novedadPreset) {
+        // Reset a modo "Nueva Novedad" (salvo preset de baja desde el dashboard)
         setForm(prev => ({
             ...prev,
             mes_inicio: new Date().getMonth() + 1,
@@ -132,7 +136,30 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
             ...Object.fromEntries(CONCEPTOS.map(c => [c.id, 0]))
         }));
     }
-  }, [activeRecord, isOpen]);
+  }, [activeRecord, isOpen, novedadPreset]);
+
+  useEffect(() => {
+    if (!isOpen || !novedadPreset || recordToEdit) return;
+    setActiveRecord(null);
+    setMode("ABSOLUTE");
+    setForm({
+      origen: novedadPreset.origen || "CULTURA",
+      mes_inicio: novedadPreset.mes_inicio ?? new Date().getMonth() + 1,
+      anio_inicio: novedadPreset.anio_inicio ?? new Date().getFullYear(),
+      mes_fin: "",
+      anio_fin: "",
+      observaciones: novedadPreset.observaciones || "Baja de horas cátedra",
+      ...Object.fromEntries(CONCEPTOS.map((c) => [c.id, 0])),
+    });
+  }, [isOpen, novedadPreset, recordToEdit]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setDeleteGuardRecord(null);
+      setDeleteGuardError(null);
+      setDeleteGuardLoading(false);
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -305,21 +332,54 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
     }
   };
 
-  const handleInternalDelete = async (id) => {
-      if(!confirm("¿Eliminar este registro histórico?")) return;
-      try {
-          const { error } = await supabase.from("horas_catedra").delete().eq("id", id);
-          if (error) throw error;
-          
-          // Refrescar contexto local y lista externa
-          fetchMusicianContext(selectedId);
-          onSuccess(); 
-          
-          // Si estábamos editando el que borramos, limpiar
-          if(activeRecord?.id === id) setActiveRecord(null);
-      } catch (err) {
-          alert("Error: " + err.message);
-      }
+  const openDeleteGuard = (record) => {
+    setDeleteGuardError(null);
+    setDeleteGuardRecord(record);
+  };
+
+  const closeDeleteGuard = () => {
+    if (deleteGuardLoading) return;
+    setDeleteGuardRecord(null);
+    setDeleteGuardError(null);
+  };
+
+  const handleCargarBajaNovedad = () => {
+    const rec = deleteGuardRecord;
+    if (!rec) return;
+    const now = new Date();
+    setActiveRecord(null);
+    setMode("ABSOLUTE");
+    setForm({
+      origen: rec.origen,
+      mes_inicio: now.getMonth() + 1,
+      anio_inicio: now.getFullYear(),
+      mes_fin: "",
+      anio_fin: "",
+      observaciones: `Baja ${rec.origen} desde ${now.getMonth() + 1}/${now.getFullYear()}`,
+      ...Object.fromEntries(CONCEPTOS.map((c) => [c.id, 0])),
+    });
+  };
+
+  const handleConfirmDeleteRecord = async () => {
+    const id = deleteGuardRecord?.id;
+    if (!id) return;
+    setDeleteGuardLoading(true);
+    setDeleteGuardError(null);
+    try {
+      const { error } = await supabase.from("horas_catedra").delete().eq("id", id);
+      if (error) throw error;
+
+      fetchMusicianContext(selectedId);
+      onSuccess();
+
+      if (activeRecord?.id === id) setActiveRecord(null);
+      closeDeleteGuard();
+    } catch (err) {
+      setDeleteGuardError(err.message || "Error al eliminar");
+      throw err;
+    } finally {
+      setDeleteGuardLoading(false);
+    }
   };
 
   const activeMusician = allMusicians?.find(m => m.id === selectedId) || musician;
@@ -353,9 +413,9 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
                           <IconEdit size={10} />
                       </button>
                       <button 
-                        onClick={() => handleInternalDelete(item.id)} 
+                        onClick={() => openDeleteGuard(item)} 
                         className="p-1 rounded bg-white border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200"
-                        title="Eliminar"
+                        title="Eliminar registro (evitar si es una baja de horas)"
                       >
                           <IconTrash size={10} />
                       </button>
@@ -440,6 +500,9 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
                                     )}
                                 </div>
                                 <div className="space-y-0 pl-1">
+                                    <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mb-3 leading-snug">
+                                      Para dar de baja horas, cargá una <strong>novedad en 0 hs</strong> desde el mes correspondiente. No elimines el historial.
+                                    </p>
                                     {contextData.history.length > 0 
                                         ? contextData.history.map(renderHistoryLine)
                                         : <div className="text-center text-xs text-slate-400 italic py-4">Sin historial</div>
@@ -608,6 +671,23 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
             </button>
         </div>
       </div>
+
+      <HorasDeleteGuardModal
+        isOpen={!!deleteGuardRecord}
+        onClose={closeDeleteGuard}
+        onConfirmDelete={handleConfirmDeleteRecord}
+        onCargarBajaNovedad={handleCargarBajaNovedad}
+        musicianName={
+          activeMusician
+            ? `${activeMusician.apellido}, ${activeMusician.nombre}`
+            : "el integrante"
+        }
+        origen={deleteGuardRecord?.origen || "CULTURA"}
+        bajaMes={deleteGuardRecord ? new Date().getMonth() + 1 : 1}
+        bajaAnio={deleteGuardRecord ? new Date().getFullYear() : new Date().getFullYear()}
+        deleteLoading={deleteGuardLoading}
+        deleteError={deleteGuardError}
+      />
     </div>
   );
 }

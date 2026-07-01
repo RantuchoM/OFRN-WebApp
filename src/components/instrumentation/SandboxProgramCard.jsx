@@ -92,6 +92,61 @@ function ConvocacionFuentesHeader({
   );
 }
 
+function convCellPresentation({
+  convVal,
+  reqVal,
+  isDraft,
+  organicoRevisado,
+}) {
+  const surplus = convVal > reqVal;
+  const deficit = reqVal > convVal;
+  const warnCell = organicoRevisado
+    ? "bg-blue-100 border border-blue-300"
+    : "bg-orange-500 border border-orange-600";
+  const warnText = organicoRevisado
+    ? "text-blue-800 font-bold"
+    : "text-white font-bold";
+
+  if (isDraft && deficit) {
+    return {
+      cell: "bg-violet-200 border border-violet-400",
+      text: "text-red-700 font-bold",
+    };
+  }
+  if (isDraft) {
+    return {
+      cell: "bg-violet-200 border border-violet-400",
+      text: "text-violet-900 font-bold",
+    };
+  }
+  if (surplus || deficit) {
+    return { cell: warnCell, text: warnText };
+  }
+  if (convVal > 0 || reqVal > 0) {
+    return {
+      cell: "bg-emerald-50 border border-emerald-200",
+      text: "text-slate-800 font-semibold",
+    };
+  }
+  return {
+    cell: "bg-slate-50 border border-slate-100",
+    text: "text-slate-300",
+  };
+}
+
+function MatrixValueCell({ presentation, value, title }) {
+  const display = value > 0 ? value : "·";
+  return (
+    <td className={`${SUMMARY_CELL} p-0 align-middle`} title={title}>
+      <div
+        className={`mx-0.5 my-0.5 min-h-[1.15rem] rounded-sm flex items-center justify-center font-mono text-[8px] leading-none ${presentation.cell} ${presentation.text}`}
+      >
+        {display}
+      </div>
+    </td>
+  );
+}
+
 function MiniMatrix({
   required,
   convokedAll,
@@ -101,6 +156,9 @@ function MiniMatrix({
 }) {
   const requiredPercTotal = getPercComparableTotal(required);
   const convokedPercTotal = getPercComparableTotal(convokedAll);
+
+  const valueForCol = (col, map, percTotal) =>
+    col.id === "Perc" ? percTotal : map[col.id] || 0;
 
   return (
     <table className="w-full border-collapse text-[9px]">
@@ -132,53 +190,52 @@ function MiniMatrix({
         <tr>
           <td className={SUMMARY_LABEL}>Conv</td>
           {AUDIT_GRID_COLUMNS.map((col) => {
-            const convVal =
-              col.id === "Perc"
-                ? convokedPercTotal
-                : convokedAll[col.id] || 0;
-            const reqVal =
-              col.id === "Perc"
-                ? requiredPercTotal
-                : required[col.id] || 0;
-            const colDeficit =
-              col.id === "Perc"
-                ? requiredPercTotal > convokedPercTotal
-                : reqVal > convVal;
+            const convVal = valueForCol(col, convokedAll, convokedPercTotal);
+            const reqVal = valueForCol(col, required, requiredPercTotal);
             const isDraft = convDiffCols?.has(col.id);
+            const presentation = convCellPresentation({
+              convVal,
+              reqVal,
+              isDraft,
+              organicoRevisado,
+            });
             return (
-              <td key={col.id} className={SUMMARY_CELL}>
-                <span
-                  className={
-                    isDraft
-                      ? "text-violet-700 font-bold"
-                      : convVal > reqVal
-                        ? organicoRevisado
-                          ? "text-blue-700 font-bold"
-                          : "text-orange-600 font-bold"
-                        : colDeficit
-                          ? organicoRevisado
-                            ? "text-blue-700"
-                            : "text-orange-600"
-                          : "text-slate-800"
-                  }
-                >
-                  {convVal}
-                </span>
-              </td>
+              <MatrixValueCell
+                key={col.id}
+                presentation={presentation}
+                value={convVal}
+                title={
+                  isDraft && reqVal > convVal
+                    ? `Borrador: ${convVal} convocado(s), ${reqVal} requerido(s)`
+                    : undefined
+                }
+              />
             );
           })}
         </tr>
         <tr className="text-slate-600">
           <td className={SUMMARY_LABEL}>Req</td>
           {AUDIT_GRID_COLUMNS.map((col) => {
-            const reqVal =
-              col.id === "Perc"
-                ? requiredPercTotal
-                : required[col.id] || 0;
+            const convVal = valueForCol(col, convokedAll, convokedPercTotal);
+            const reqVal = valueForCol(col, required, requiredPercTotal);
+            const deficit = reqVal > convVal;
+            const presentation = deficit
+              ? convCellPresentation({
+                  convVal,
+                  reqVal,
+                  isDraft: false,
+                  organicoRevisado,
+                })
+              : {
+                  cell: "bg-white border border-slate-100",
+                  text: "text-slate-600",
+                };
             return (
-              <td key={col.id} className={SUMMARY_CELL}>
-                {reqVal || "·"}
-              </td>
+              <MatrixValueCell
+                key={col.id}
+                presentation={presentation}
+                value={reqVal}
+              />
             );
           })}
         </tr>
@@ -200,7 +257,7 @@ function StringsCompositionBlock({ label, prodLabel, hasDraft }) {
       <span
         className={`font-mono text-[9px] leading-tight tabular-nums truncate ${
           changed
-            ? "text-violet-800 font-bold"
+            ? "text-violet-800 font-bold ring-1 ring-violet-300 bg-violet-50 rounded px-0.5"
             : "text-slate-800 font-semibold"
         }`}
       >

@@ -18,6 +18,15 @@ Permitir a los administradores dar de alta masivamente a integrantes con condici
 - El ID del integrante es de tipo `Integer` y se normaliza con `Number(id)` antes del insert.
 - El modal usa React Portals y notificaciones con `sonner` para consistencia visual con el modulo.
 
+## Baja de horas vs eliminacion del historial
+- **No eliminar** filas de `horas_catedra` para dar de baja a un musico: el historial no se recupera desde la app.
+- **Flujo correcto**: cargar una **novedad** con **0 hs** en todos los conceptos, vigente desde el mes correspondiente (origen CULTURA y/o EDUCACION segun corresponda).
+- Al intentar eliminar un registro (panel de historial del dashboard o modal de novedad), se muestra `HorasDeleteGuardModal` con:
+  - Accion recomendada: **Cargar novedad de baja (0 hs)** — abre el modal de novedad prellenado.
+  - Accion destructiva: **Eliminar igualmente (irreversible)** — solo para errores de carga.
+- Aviso persistente en el panel de historial del dashboard y en el lateral del modal de novedad.
+- Componente: `src/components/musicians/HorasDeleteGuardModal.jsx`.
+
 ## Consulta SQL de Referencia
 ```sql
 SELECT i.id, i.apellido, i.nombre

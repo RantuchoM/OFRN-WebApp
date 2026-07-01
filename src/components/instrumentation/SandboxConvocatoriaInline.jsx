@@ -1144,13 +1144,6 @@ export default function SandboxConvocatoriaInline({
                 onRemove={() => undoRemovedPerson(m)}
               />
             ))}
-            {hasStringsDelta && (
-              <DraftChip
-                label={stringsLabel}
-                changed
-                title={`Productivo: ${prodStringsLabel}`}
-              />
-            )}
           </div>
         ) : hasModified ? (
           <p className="text-[8px] text-violet-600 italic">

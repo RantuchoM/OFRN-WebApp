@@ -1224,6 +1224,7 @@ export default function WorkForm({
 
   const saveFieldToDb = async (field, value, overrides = {}) => {
     if (!formData.id) return;
+    if (field === "instrumentacion" && particellas.length > 0) return;
     const data = { ...formData, ...overrides };
     if (field === "estado" && formData.estado === "Oficial" && value !== "Oficial") {
       toast.error(
@@ -1300,7 +1301,12 @@ export default function WorkForm({
 
   const debouncedSave = useDebouncedCallback(saveFieldToDb, 1000);
 
+  const instrumentacionLocked = particellas.length > 0;
+
   const updateField = (field, val) => {
+    if (field === "instrumentacion" && instrumentacionLocked) {
+      return;
+    }
     if (field === "estado" && formData.estado === "Oficial" && val !== "Oficial") {
       toast.error(
         "Una obra Oficial no puede cambiar de estado. Creá un nuevo arreglo si necesitás otra versión.",
@@ -1494,10 +1500,7 @@ export default function WorkForm({
             setParticellas(mergedList);
           }
 
-          await supabase
-            .from("obras")
-            .update({ instrumentacion: workingInstr })
-            .eq("id", targetId);
+          // instrumentacion en BD: trigger obras_particellas_sync_instrumentacion
           setSaveStatus("saved");
           setTimeout(() => setSaveStatus("idle"), 2000);
           if (onSave) onSave(targetId, false);
@@ -2563,11 +2566,24 @@ export default function WorkForm({
             <div className="flex min-h-0 flex-1 flex-col">
               <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
                 Instrumentación
+                {instrumentacionLocked && (
+                  <span className="ml-1 font-normal normal-case text-slate-400">
+                    (desde particellas)
+                  </span>
+                )}
               </label>
               <textarea
-                className={getInputClass("instrumentacion", "block min-h-[5rem] w-full flex-1 resize-none py-2 text-[11px] font-mono leading-snug bg-white/90")}
+                className={getInputClass(
+                  "instrumentacion",
+                  `block min-h-[5rem] w-full flex-1 resize-none py-2 text-[11px] font-mono leading-snug ${
+                    instrumentacionLocked
+                      ? "bg-slate-50 text-slate-600 cursor-default"
+                      : "bg-white/90"
+                  }`,
+                )}
                 value={formData.instrumentacion ?? ""}
                 onChange={(e) => updateField("instrumentacion", e.target.value)}
+                readOnly={instrumentacionLocked}
                 placeholder="Orgánico…"
               />
             </div>

@@ -830,6 +830,7 @@ export default function InstrumentationAudit({ supabase }) {
               `id, id_programa, orden, nombre,
                repertorio_obras (
                  id, id_obra, orden, excluir, titulo_placeholder, instrumentacion_placeholder,
+                 tiene_asignaciones_multiples,
                  obras ( id, titulo, instrumentacion, link_drive, estado, obras_compositores ( rol, compositores ( apellido, nombre ) ) )
                )`,
             )

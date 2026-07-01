@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 import {
   IconX,
   IconSave,
@@ -13,10 +15,20 @@ import {
 
 // --- UTILIDADES ---
 const formatTime = (time) => (time ? time.slice(0, 5) : "--:--");
-const formatDate = (dateStr) => {
+
+const formatStopDate = (dateStr, { withWeekday = false } = {}) => {
   if (!dateStr) return "-";
-  const [y, m, d] = dateStr.split("-");
-  return `${d}/${m}`;
+  const [, m, d] = dateStr.split("-");
+  const ddmm = `${d}/${m}`;
+  if (!withWeekday) return ddmm;
+  try {
+    const dateObj = new Date(`${dateStr}T12:00:00`);
+    const weekday = format(dateObj, "EEEE", { locale: es });
+    const label = weekday.charAt(0).toLowerCase() + weekday.slice(1);
+    return `${label}, ${ddmm}`;
+  } catch {
+    return ddmm;
+  }
 };
 
 // --- COMPONENTE INTERNO: SELECTOR DE PARADA (Timeline Style) ---
@@ -60,7 +72,7 @@ const StopSelectorModal = ({
             <table className="w-full text-sm text-left">
               <thead className="bg-slate-100 text-slate-500 sticky top-0 shadow-sm z-10 text-xs uppercase">
                 <tr>
-                  <th className="p-3 w-20">Hora</th>
+                  <th className="p-3 w-28">Fecha / Hora</th>
                   <th className="p-3">Parada / Locación</th>
                   <th className="p-3">Ciudad</th>
                   <th className="p-3 text-right"></th>
@@ -81,11 +93,11 @@ const StopSelectorModal = ({
                       }`}
                     >
                       <td className="p-3 align-middle">
-                        <div className="font-bold text-slate-700">
+                        <div className="font-bold text-slate-700 tabular-nums">
                           {formatTime(evt.hora_inicio)}
                         </div>
-                        <div className="text-[10px] text-slate-400">
-                          {formatDate(evt.fecha)}
+                        <div className="text-[10px] text-slate-500 leading-snug mt-0.5">
+                          {formatStopDate(evt.fecha, { withWeekday: true })}
                         </div>
                       </td>
                       <td className="p-3 align-middle">
@@ -142,9 +154,12 @@ export default function BoardingManagerModal({
   events,
   onSaveBoarding,
   onDeleteBoarding, // <--- AGREGAR ESTO
+  initialFilter = "all",
 }) {
   const [localData, setLocalData] = useState({});
   const [filter, setFilter] = useState("all");
+  const [incompleteSnapshotIds, setIncompleteSnapshotIds] = useState(null);
+  const incompleteSnapshotCapturedRef = useRef(false);
   const [selector, setSelector] = useState({
     isOpen: false,
     pId: null,
@@ -156,68 +171,145 @@ export default function BoardingManagerModal({
   );
 
   useEffect(() => {
-    if (isOpen && relevantPax.length > 0) {
-      const initial = {};
-      relevantPax.forEach((p) => {
-        const tData = p.logistics?.transports?.find(
-          (t) => t.id === transportId
-        );
-        initial[p.id] = {
-          subida: tData?.subidaId || "",
-          bajada: tData?.bajadaId || "",
-          // Guardamos las prioridades iniciales para comparar
-          subidaPrio: tData?.subidaPrio || 0,
-          bajadaPrio: tData?.bajadaPrio || 0,
-          changed: false,
-        };
-      });
-      setLocalData(initial);
+    if (isOpen) {
+      setFilter(initialFilter === "incomplete" ? "incomplete" : "all");
+    } else {
+      incompleteSnapshotCapturedRef.current = false;
+      setIncompleteSnapshotIds(null);
     }
-  }, [isOpen, transportId, passengers]);
+  }, [isOpen, initialFilter, transportId]);
+
+  const buildLocalRow = (p) => {
+    const tData = p.logistics?.transports?.find((t) => t.id === transportId);
+    return {
+      subida: tData?.subidaId || "",
+      bajada: tData?.bajadaId || "",
+      subidaPrio: tData?.subidaPrio || 0,
+      bajadaPrio: tData?.bajadaPrio || 0,
+      changed: false,
+      saving: false,
+    };
+  };
+
+  useEffect(() => {
+    if (!isOpen || relevantPax.length === 0) return;
+
+    const initial = {};
+    relevantPax.forEach((p) => {
+      initial[p.id] = buildLocalRow(p);
+    });
+    setLocalData(initial);
+
+    if (
+      initialFilter === "incomplete" &&
+      !incompleteSnapshotCapturedRef.current
+    ) {
+      const ids = new Set(
+        relevantPax
+          .filter((p) => {
+            const row = initial[p.id];
+            return !row.subida || !row.bajada;
+          })
+          .map((p) => String(p.id)),
+      );
+      incompleteSnapshotCapturedRef.current = true;
+      setIncompleteSnapshotIds(ids);
+    }
+  }, [isOpen, transportId, passengers, initialFilter]);
 
   const handleOpenSelector = (pId, field) => {
     setSelector({ isOpen: true, pId, field });
   };
 
-  const handleSelectStop = (eventId) => {
+  const handleSelectStop = async (eventId) => {
     const { pId, field } = selector;
-    if (pId) {
-      // Si seleccionamos Bajada, verificar consistencia temporal opcionalmente,
-      // pero aquí confiamos en el filtro del modal.
+    setSelector({ isOpen: false, pId: null, field: null });
 
-      setLocalData((prev) => ({
-        ...prev,
+    if (!pId || !field) return;
+
+    const prev = localData[pId] || {
+      subida: "",
+      bajada: "",
+      subidaPrio: 0,
+      bajadaPrio: 0,
+    };
+    const nextSubida = field === "subida" ? eventId || "" : prev.subida;
+    const nextBajada = field === "bajada" ? eventId || "" : prev.bajada;
+    const prioField = field === "subida" ? "subidaPrio" : "bajadaPrio";
+
+    setLocalData((prevState) => ({
+      ...prevState,
+      [pId]: {
+        ...prevState[pId],
+        subida: nextSubida,
+        bajada: nextBajada,
+        [field]: eventId || "",
+        [prioField]: eventId ? 5 : prev[prioField],
+        changed: false,
+        saving: true,
+      },
+    }));
+
+    try {
+      await onSaveBoarding(pId, nextSubida, nextBajada);
+      setLocalData((prevState) => ({
+        ...prevState,
         [pId]: {
-          ...prev[pId],
-          [field]: eventId || "", // null se convierte en string vacía
+          ...prevState[pId],
+          subida: nextSubida,
+          bajada: nextBajada,
+          [field]: eventId || "",
+          [prioField]: eventId ? 5 : prev[prioField],
+          changed: false,
+          saving: false,
+        },
+      }));
+    } catch {
+      setLocalData((prevState) => ({
+        ...prevState,
+        [pId]: {
+          ...prevState[pId],
           changed: true,
+          saving: false,
         },
       }));
     }
-    setSelector({ isOpen: false, pId: null, field: null });
   };
 
   const handleSaveRow = async (pId) => {
     const data = localData[pId];
     if (!data) return;
-    await onSaveBoarding(pId, data.subida, data.bajada);
-    // Actualizamos el estado local asumiendo éxito,
-    // y marcamos que ahora es "Personal" (Prio 5) visualmente hasta que recargue todo
     setLocalData((prev) => ({
       ...prev,
-      [pId]: {
-        ...prev[pId],
-        changed: false,
-        // Al guardar manualmente, se convierte en excepción personal (prio 5)
-        [`${selector.field}Prio`]: 5,
-      },
+      [pId]: { ...prev[pId], saving: true },
     }));
+    try {
+      await onSaveBoarding(pId, data.subida, data.bajada);
+      setLocalData((prev) => ({
+        ...prev,
+        [pId]: {
+          ...prev[pId],
+          changed: false,
+          saving: false,
+          subidaPrio: data.subida ? 5 : prev[pId]?.subidaPrio || 0,
+          bajadaPrio: data.bajada ? 5 : prev[pId]?.bajadaPrio || 0,
+        },
+      }));
+    } catch {
+      setLocalData((prev) => ({
+        ...prev,
+        [pId]: { ...prev[pId], changed: true, saving: false },
+      }));
+    }
   };
 
   if (!isOpen) return null;
 
   const displayedPax = relevantPax.filter((p) => {
     if (filter === "all") return true;
+    if (incompleteSnapshotIds) {
+      return incompleteSnapshotIds.has(String(p.id));
+    }
     const data = localData[p.id];
     return !data?.subida || !data?.bajada;
   });
@@ -264,23 +356,27 @@ export default function BoardingManagerModal({
         )}
 
         {evt ? (
-          <div className="flex flex-col items-start leading-tight overflow-hidden">
-            <span
-              className={`font-bold text-[11px] truncate w-full ${
-                isPersonal ? "text-indigo-800" : "text-slate-700"
-              }`}
-            >
-              {evt.locaciones?.nombre}
-            </span>
-            <div className="flex gap-2 text-[10px] text-slate-500">
-              <span className="flex items-center gap-0.5">
-                <IconClock size={10} /> {formatTime(evt.hora_inicio)}
+            <div className="flex flex-col items-start leading-tight overflow-hidden min-w-0">
+              <span
+                className={`font-bold text-[11px] truncate w-full ${
+                  isPersonal ? "text-indigo-800" : "text-slate-700"
+                }`}
+              >
+                {evt.locaciones?.nombre}
               </span>
-              <span className="truncate opacity-80">
-                {evt.locaciones?.localidades?.localidad}
-              </span>
+              <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-slate-500 w-full">
+                <span className="flex items-center gap-0.5 shrink-0 tabular-nums">
+                  <IconCalendar size={10} />
+                  {formatStopDate(evt.fecha, { withWeekday: true })}
+                </span>
+                <span className="flex items-center gap-0.5 shrink-0 tabular-nums">
+                  <IconClock size={10} /> {formatTime(evt.hora_inicio)}
+                </span>
+                <span className="truncate opacity-80 min-w-0">
+                  {evt.locaciones?.localidades?.localidad}
+                </span>
+              </div>
             </div>
-          </div>
         ) : (
           <span className="text-slate-400 italic font-normal text-xs">
             -- Seleccionar --
@@ -373,17 +469,23 @@ export default function BoardingManagerModal({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          <table className="w-full text-left text-sm border-collapse">
+          <table className="w-full text-left text-sm border-collapse table-fixed">
+            <colgroup>
+              <col className="w-[24%]" />
+              <col className="w-[33%]" />
+              <col className="w-[33%]" />
+              <col className="w-[10%]" />
+            </colgroup>
             <thead className="bg-slate-50 text-slate-500 sticky top-0 z-10 shadow-sm">
               <tr>
-                <th className="p-2 font-semibold w-1/4">Pasajero</th>
-                <th className="p-2 font-semibold text-emerald-700 w-1/3">
+                <th className="p-2 font-semibold">Pasajero</th>
+                <th className="p-2 font-semibold text-emerald-700">
                   Subida (Origen)
                 </th>
-                <th className="p-2 font-semibold text-rose-700 w-1/3">
+                <th className="p-2 font-semibold text-rose-700">
                   Bajada (Destino)
                 </th>
-                <th className="p-2 w-16 text-center">Guardar</th>
+                <th className="p-2 text-center">Guardar</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -431,11 +533,15 @@ export default function BoardingManagerModal({
                     </td>
 
                     <td className="p-2 text-center align-middle">
-                      {data.changed ? (
+                      {data.saving ? (
+                        <span className="inline-flex items-center justify-center w-8 h-8 text-indigo-500">
+                          <IconSave size={16} className="animate-pulse" />
+                        </span>
+                      ) : data.changed ? (
                         <button
                           onClick={() => handleSaveRow(p.id)}
                           className="bg-indigo-600 text-white p-2 rounded-full hover:bg-indigo-700 transition-colors shadow-md transform hover:scale-105"
-                          title="Guardar cambios"
+                          title="Reintentar guardar"
                         >
                           <IconSave size={16} />
                         </button>

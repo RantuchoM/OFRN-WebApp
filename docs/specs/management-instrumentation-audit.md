@@ -44,11 +44,15 @@ Proveer una interfaz centralizada para comparar la instrumentación técnica req
 ## Lógica de Datos
 
 ### 1. Instrumentación Requerida (Req Max)
-- Fuente: campo `instrumentacion` de las **obras** vinculadas al programa.
+- Fuente principal: `obras.instrumentacion` (sincronizada por trigger desde `obras_particellas`; ver `20260630120000_obras_instrumentacion_sync_trigger.sql`).
+- Por fila de programa (`repertorio_obras`):
+  - Si `tiene_asignaciones_multiples = false` → Req de esa obra = `obras.instrumentacion` (vía `buildWorkInstrumentationAuditRow` con `preferObrasInstrumentacion`).
+  - Si `tiene_asignaciones_multiples = true` → Req con lógica completa de seating (`calculateInstrumentationFromSeatingAssignments` + híbrido por familia).
+- Flag `tiene_asignaciones_multiples`: trigger en `seating_asignaciones` cuando algún músico tiene >1 particella de la obra en el programa (`20260630130000_repertorio_obras_asignaciones_multiples.sql`).
 - Relación de datos:
   - `programas` → `programas_repertorios` → `repertorio_obras` → `obras.instrumentacion`
 - Se consideran únicamente las obras no excluidas (`repertorio_obras.excluir` falsy).
-- Para cada obra:
+- Para cada obra (camino rápido o completo según flag):
   - Se toma el string `obras.instrumentacion` (ej: `"2.2.2.2 - 4.3.3.1 - Timp+2 Perc - Hp - Key - Str"`).
   - Para cada instrumento estándar se obtiene el valor numérico usando:
     - `getInstrumentValue(obra.instrumentacion, instrumentKey)` de `src/utils/instrumentation.js`.

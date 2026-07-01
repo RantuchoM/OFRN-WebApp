@@ -115,6 +115,15 @@ export function formatPercussionLabel(total) {
   return `Perc.x${total}`;
 }
 
+/**
+ * PARIDAD BD: `calculateInstrumentation` (y helpers de clasificación/formato de esta sección)
+ * tienen réplica en Postgres: `public.calculate_obra_instrumentacion` +
+ * trigger `obras_particellas_sync_instrumentacion`
+ * (`supabase/migrations/20260630120000_obras_instrumentacion_sync_trigger.sql`).
+ * Si cambiás criterios de clasificación, solistas o formato del string aquí, actualizá también esa migración
+ * (o una nueva migración que reemplace las funciones SQL).
+ */
+
 /** Devuelve la etiqueta corta del instrumento para la lista de solistas (ej: Sax, Vc).
  *  Prioriza la abreviatura proveniente de la tabla `instrumentos` (p.instrumentos.abreviatura
  *  o p.instrumento_abreviatura) y solo si no existe usa heurísticas.
@@ -1016,12 +1025,29 @@ export function buildWorkInstrumentationAuditRow({
   assignments = {},
   musicianAssignments = {},
   particellas = [],
+  preferObrasInstrumentacion = false,
 }) {
   const partsColumnMap = calculateInstrumentationCountsFromParts(parts);
   const unassignedFamilies = getInstrumentationUnassignedFamilies(
     parts,
     particellaCounts,
   );
+
+  if (
+    preferObrasInstrumentacion &&
+    String(manualInstrumentacion || "").trim()
+  ) {
+    const instString = String(manualInstrumentacion).trim();
+    return {
+      instrumentacion_effective: instString,
+      instrumentation_effective_column_map:
+        instrumentationStringToColumnMap(instString),
+      instrumentation_consolidated_families: [],
+      instrumentation_unassigned_families: unassignedFamilies,
+      instrumentation_parts_column_map: partsColumnMap,
+    };
+  }
+
   const fromAssignments = calculateInstrumentationFromSeatingAssignments({
     obraId,
     containers,
@@ -1134,6 +1160,7 @@ export function buildProgramInstrumentationAudit(blocks = [], seatingContext = {
         assignments,
         musicianAssignments,
         particellas,
+        preferObrasInstrumentacion: !ro.tiene_asignaciones_multiples,
       });
 
       const ocList = Array.isArray(obra.obras_compositores)

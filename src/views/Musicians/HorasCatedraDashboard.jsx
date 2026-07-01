@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import NovedadModal from "./NovedadModal";
 import BulkNovedadModal from "./BulkNovedadModal";
+import HorasDeleteGuardModal from "../../components/musicians/HorasDeleteGuardModal";
 import {
   buildFilledHorasDocxBlob,
   downloadFilledHorasDocx,
@@ -71,6 +72,10 @@ export default function HorasCatedraDashboard({ supabase }) {
   const [selectedMusician, setSelectedMusician] = useState(null);
   const [selectedHistory, setSelectedHistory] = useState([]); 
   const [recordToEdit, setRecordToEdit] = useState(null);
+  const [novedadPreset, setNovedadPreset] = useState(null);
+  const [deleteGuardRecord, setDeleteGuardRecord] = useState(null);
+  const [deleteGuardLoading, setDeleteGuardLoading] = useState(false);
+  const [deleteGuardError, setDeleteGuardError] = useState(null);
   const [uploadingNotaId, setUploadingNotaId] = useState(null);
   const [novedadesMesOpen, setNovedadesMesOpen] = useState(false);
   const [novedadesMesBusy, setNovedadesMesBusy] = useState(false);
@@ -286,12 +291,49 @@ export default function HorasCatedraDashboard({ supabase }) {
       setModalOpen(true);
   };
 
-  const handleDeleteRecord = async (id) => {
-      if(!confirm("¿Estás seguro de eliminar este registro histórico?")) return;
+  const openDeleteGuard = (record) => {
+    setDeleteGuardError(null);
+    setDeleteGuardRecord(record);
+  };
+
+  const closeDeleteGuard = () => {
+    if (deleteGuardLoading) return;
+    setDeleteGuardRecord(null);
+    setDeleteGuardError(null);
+  };
+
+  const handleCargarBajaNovedad = () => {
+    const rec = deleteGuardRecord;
+    if (!rec) return;
+    setRecordToEdit(null);
+    setNovedadPreset({
+      origen: rec.origen,
+      mes_inicio: selectedMonth,
+      anio_inicio: selectedYear,
+      observaciones: `Baja ${rec.origen} desde ${selectedMonth}/${selectedYear}`,
+    });
+    setModalOpen(true);
+    toast.message("Cargá la novedad con 0 hs en todos los conceptos y confirmá.", { duration: 5000 });
+  };
+
+  const handleConfirmDeleteRecord = async () => {
+    const id = deleteGuardRecord?.id;
+    if (!id) return;
+    setDeleteGuardLoading(true);
+    setDeleteGuardError(null);
+    try {
       const { error } = await supabase.from("horas_catedra").delete().eq("id", id);
-      if (error) return alert("Error al eliminar: " + error.message);
-      await fetchData(); 
-      if(selectedMusician) setSelectedMusician(null); 
+      if (error) throw error;
+      await fetchData();
+      if (selectedMusician) setSelectedMusician(null);
+      closeDeleteGuard();
+      toast.success("Registro eliminado del historial");
+    } catch (err) {
+      setDeleteGuardError(err.message || "Error al eliminar");
+      throw err;
+    } finally {
+      setDeleteGuardLoading(false);
+    }
   };
 
   const handleDownloadNotaWord = async (record) => {
@@ -694,6 +736,9 @@ export default function HorasCatedraDashboard({ supabase }) {
                             <h4 className="font-black text-slate-700 text-sm">Historial</h4>
                             <p className="text-xs text-slate-500 truncate max-w-[min(16rem,70vw)]">{selectedMusician.apellido}, {selectedMusician.nombre}</p>
                             <p className="text-[10px] text-slate-400 mt-1">Cada registro: Word y Drive.</p>
+                            <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-2 leading-snug">
+                              Para <strong>dar de baja</strong> horas, usá <strong>Novedad</strong> con 0 hs desde el mes correspondiente. No elimines el historial.
+                            </p>
                         </div>
                         <button type="button" onClick={() => setSelectedMusician(null)} aria-label="Cerrar historial"><IconX className="text-slate-400 hover:text-red-500" /></button>
                     </div>
@@ -725,7 +770,7 @@ export default function HorasCatedraDashboard({ supabase }) {
                                         Drive
                                     </button>
                                     <button type="button" onClick={(e) => { e.stopPropagation(); handleEditRecord(h); }} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 text-[10px] font-bold hover:bg-indigo-50 hover:text-indigo-600 transition-colors" title="Editar"><IconEdit size={12}/> Editar</button>
-                                    <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteRecord(h.id); }} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 text-[10px] font-bold hover:bg-red-50 hover:text-red-600 transition-colors" title="Eliminar"><IconTrash size={12}/></button>
+                                    <button type="button" onClick={(e) => { e.stopPropagation(); openDeleteGuard(h); }} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-500 text-[10px] font-bold hover:bg-red-50 hover:text-red-600 transition-colors" title="Eliminar registro (evitar si es una baja de horas)"><IconTrash size={12}/></button>
                                 </div>
                                 <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs text-slate-700 shadow-sm leading-relaxed">
                                     {h.diffText}
@@ -744,13 +789,31 @@ export default function HorasCatedraDashboard({ supabase }) {
             )}
         </div>
 
+        <HorasDeleteGuardModal
+            isOpen={!!deleteGuardRecord}
+            onClose={closeDeleteGuard}
+            onConfirmDelete={handleConfirmDeleteRecord}
+            onCargarBajaNovedad={handleCargarBajaNovedad}
+            musicianName={
+              selectedMusician
+                ? `${selectedMusician.apellido}, ${selectedMusician.nombre}`
+                : "el integrante"
+            }
+            origen={deleteGuardRecord?.origen || "CULTURA"}
+            bajaMes={selectedMonth}
+            bajaAnio={selectedYear}
+            deleteLoading={deleteGuardLoading}
+            deleteError={deleteGuardError}
+        />
+
         <NovedadModal 
             isOpen={modalOpen} 
-            onClose={() => setModalOpen(false)}
+            onClose={() => { setModalOpen(false); setNovedadPreset(null); }}
             supabase={supabase}
             musician={selectedMusician} 
             allMusicians={musicians}
-            recordToEdit={recordToEdit} 
+            recordToEdit={recordToEdit}
+            novedadPreset={novedadPreset}
             onSuccess={() => { fetchData(); if(selectedMusician) handleSelectRow({...selectedMusician, records: allRecords.filter(r=>r.id_integrante===selectedMusician.id)}); }} 
         />
 
