@@ -1,7 +1,7 @@
 import React from "react";
 import "react-quill/dist/quill.snow.css";
 
-import { normalizeLegacyEntradasQuillHtml } from "./quillFontNormalize";
+import { prepareEntradasQuillHtmlForDisplay } from "./quillFontNormalize";
 
 /**
  * Muestra HTML generado por Quill con las mismas reglas que el cuerpo del editor
@@ -14,7 +14,7 @@ export default function EntradasRichTextHtml({
   innerClassName = "",
   isDark = false,
 }) {
-  const raw = normalizeLegacyEntradasQuillHtml(String(html || "").trim());
+  const raw = prepareEntradasQuillHtmlForDisplay(String(html || "").trim());
   if (!raw) return null;
 
   return (

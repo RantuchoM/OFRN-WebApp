@@ -8,6 +8,7 @@
  * el modelo pierde la fuente al optimizar. Con un solo segmento tras `ql-font-`,
  * la clave queda en `ql-font` y coincide con el registro.
  */
+import "./quillCroppedImageRegister";
 import Quill from "quill";
 
 export const QUILL_FONT_SIZES_PX = [

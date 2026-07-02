@@ -665,14 +665,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
   }, [profile?.email, user?.email, programas]);
 
   useEffect(() => {
+    if (section === "catalogo") return;
     if (section !== "admin" || adminTab !== "programas") {
       setConciertoEditor(null);
     }
   }, [section, adminTab]);
 
   useEffect(() => {
+    if (section === "catalogo") return;
     if (section !== "admin" || adminTab !== "programas") {
       setProgramaForm({ id: null, nombre: "", detalle_richtext: "", activo: true });
+      setProgramaEditor(null);
     }
   }, [section, adminTab]);
 
@@ -1013,6 +1016,11 @@ export default function EntradasMain({ user, profile, onLogout }) {
     d.setHours(23, 59, 59, 999);
     return d;
   }, [inicioDiaHoy]);
+
+  const catalogAdminEditing =
+    section === "catalogo"
+    && canAdmin
+    && (programaEditor != null || conciertoEditor != null);
 
   const programasCatalogo = useMemo(
     () =>
@@ -1918,8 +1926,65 @@ export default function EntradasMain({ user, profile, onLogout }) {
     setAdminData(nextAdmin);
     setProgramas(nextProgramas);
     setConciertosConReservaActiva(idsReservados);
-    if (canAdmin && section === "admin") {
+    if (canAdmin && (section === "admin" || section === "catalogo")) {
       await loadAdminOfrnEventos();
+    }
+  };
+
+  const ensureCatalogAdminEditReady = async () => {
+    const needsAdmin = !(adminData.conciertos || []).length;
+    const needsOfrn = !eventosConcierto.length;
+    if (!needsAdmin && !needsOfrn) return adminData;
+    const [nextAdmin] = await Promise.all([
+      needsAdmin ? listAdminData() : Promise.resolve(adminData),
+      needsOfrn ? loadAdminOfrnEventos() : Promise.resolve(),
+    ]);
+    if (needsAdmin) setAdminData(nextAdmin);
+    return needsAdmin ? nextAdmin : adminData;
+  };
+
+  const resolveProgramaParaEdicionAdmin = (programa, admin = adminData) =>
+    (admin.programas || []).find((p) => Number(p.id) === Number(programa.id)) || programa;
+
+  const resolveConciertoParaEdicionAdmin = (concierto, admin = adminData) => {
+    const full = (admin.conciertos || []).find((c) => Number(c.id) === Number(concierto.id));
+    return full ? aplicarDatosEventoAConciertoEntrada(full) : concierto;
+  };
+
+  const closeCatalogAdminEdit = () => {
+    resetProgramaForm();
+    closeConciertoEditor();
+  };
+
+  const scrollCatalogPanelTopMobile = () => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
+  const handleCatalogEditPrograma = async (event, programa) => {
+    event.stopPropagation();
+    if (!canAdmin) return;
+    closeConciertoEditor();
+    try {
+      const admin = await ensureCatalogAdminEditReady();
+      startEditPrograma(resolveProgramaParaEdicionAdmin(programa, admin));
+      scrollCatalogPanelTopMobile();
+    } catch (err) {
+      toast.error(err?.message || "No se pudo abrir el editor del programa.");
+    }
+  };
+
+  const handleCatalogEditConcierto = async (event, concierto) => {
+    event.stopPropagation();
+    if (!canAdmin) return;
+    resetProgramaForm();
+    try {
+      const admin = await ensureCatalogAdminEditReady();
+      startEditConcierto(resolveConciertoParaEdicionAdmin(concierto, admin));
+      scrollCatalogPanelTopMobile();
+    } catch (err) {
+      toast.error(err?.message || "No se pudo abrir el editor del concierto.");
     }
   };
 
@@ -2815,7 +2880,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
           <div className="entradas-catalogo grid grid-cols-1 lg:grid-cols-3 gap-4">
             <section
               className={`lg:col-span-1 entradas-catalog-panel ${ui.section} p-4 space-y-4 ${
-                conciertoSlug ? "hidden lg:block" : ""
+                conciertoSlug || catalogAdminEditing ? "hidden lg:block" : ""
               }`}
             >
               <h2 className={ui.sectionTitle}>Programas y conciertos</h2>
@@ -2825,10 +2890,25 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 )}
                 {programasCatalogo.map((programa) => (
                   <article key={programa.id} className={`${ui.cardInner} p-3 space-y-2`}>
-                    {programa.localidadLabel ? (
-                      <p className={ui.programaLocalidad}>{programa.localidadLabel}</p>
-                    ) : null}
-                    <h3 className={ui.programaTitle}>{programa.nombre}</h3>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        {programa.localidadLabel ? (
+                          <p className={ui.programaLocalidad}>{programa.localidadLabel}</p>
+                        ) : null}
+                        <h3 className={ui.programaTitle}>{programa.nombre}</h3>
+                      </div>
+                      {canAdmin && (
+                        <button
+                          type="button"
+                          title="Editar programa"
+                          aria-label="Editar programa"
+                          onClick={(event) => void handleCatalogEditPrograma(event, programa)}
+                          className={`${ui.btnIcon} shrink-0`}
+                        >
+                          <IconEdit size={18} />
+                        </button>
+                      )}
+                    </div>
                     <EntradasRichTextHtml
                       html={programa.detalle_richtext}
                       isDark={isDark}
@@ -2860,34 +2940,47 @@ export default function EntradasMain({ user, profile, onLogout }) {
                             className={`${ui.catalogConciertoCardWrap(catalogoSeleccionado, entradasAgotadas)} entradas-interactive`}
                           >
                             {renderCatalogReservaEnRecuadro(concierto.id, { embedded: true })}
-                          <button
-                            type="button"
-                            className={ui.catalogConciertoCardBody}
-                            onClick={() => handlePickConcierto(concierto.slug_publico)}
-                          >
-                            <div className="space-y-1">
-                              <p className={`text-sm font-semibold ${textoTarjetaAgotada}`}>{concierto.nombre}</p>
-                              {((!reservasAbiertas && textoAperturaReservas(concierto)) ||
-                                (aceptaRecordatorio && inscriptoRecordatorio)) && (
-                                <div className="flex flex-wrap gap-1">
-                                  {!reservasAbiertas && textoAperturaReservas(concierto) && (
-                                    <span className={ui.badgeRecordatorio}>
-                                      Apertura {textoAperturaReservas(concierto)}
-                                    </span>
-                                  )}
-                                  {aceptaRecordatorio && inscriptoRecordatorio && (
-                                    <span className={ui.badgeRecordatorio}>Recordatorio activo</span>
+                            <div className="flex min-w-0 flex-1 items-stretch">
+                              <button
+                                type="button"
+                                className={`${ui.catalogConciertoCardBody} min-w-0 flex-1`}
+                                onClick={() => handlePickConcierto(concierto.slug_publico)}
+                              >
+                                <div className="space-y-1">
+                                  <p className={`text-sm font-semibold ${textoTarjetaAgotada}`}>{concierto.nombre}</p>
+                                  {((!reservasAbiertas && textoAperturaReservas(concierto)) ||
+                                    (aceptaRecordatorio && inscriptoRecordatorio)) && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {!reservasAbiertas && textoAperturaReservas(concierto) && (
+                                        <span className={ui.badgeRecordatorio}>
+                                          Apertura {textoAperturaReservas(concierto)}
+                                        </span>
+                                      )}
+                                      {aceptaRecordatorio && inscriptoRecordatorio && (
+                                        <span className={ui.badgeRecordatorio}>Recordatorio activo</span>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
+                                <p className={`text-xs mt-0.5 ${textoSecundarioAgotado || ui.textSoft}`}>
+                                  {formatConciertoFechaHoraEs(concierto.fecha_hora)}
+                                </p>
+                                {concierto.lugar_nombre && (
+                                  <p className={`text-xs ${textoSecundarioAgotado || ui.textMuted}`}>{concierto.lugar_nombre}</p>
+                                )}
+                              </button>
+                              {canAdmin && (
+                                <button
+                                  type="button"
+                                  title="Editar concierto"
+                                  aria-label="Editar concierto"
+                                  onClick={(event) => void handleCatalogEditConcierto(event, concierto)}
+                                  className={`${ui.btnIcon} shrink-0 self-center mx-1`}
+                                >
+                                  <IconEdit size={18} />
+                                </button>
                               )}
                             </div>
-                            <p className={`text-xs mt-0.5 ${textoSecundarioAgotado || ui.textSoft}`}>
-                              {formatConciertoFechaHoraEs(concierto.fecha_hora)}
-                            </p>
-                            {concierto.lugar_nombre && (
-                              <p className={`text-xs ${textoSecundarioAgotado || ui.textMuted}`}>{concierto.lugar_nombre}</p>
-                            )}
-                          </button>
                           </div>
                         );
                       })}
@@ -2992,13 +3085,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
             <section
               className={`lg:col-span-2 entradas-catalog-panel ${ui.section} p-4 space-y-3 min-h-[12rem] ${
-                !conciertoSlug ? "hidden lg:block" : ""
+                !conciertoSlug && !catalogAdminEditing ? "hidden lg:block" : ""
               }`}
             >
-              {conciertoSlug && (
+              {(conciertoSlug || catalogAdminEditing) && (
                 <button
                   type="button"
-                  onClick={handleClearCatalogoConcierto}
+                  onClick={catalogAdminEditing ? closeCatalogAdminEdit : handleClearCatalogoConcierto}
                   className={`lg:hidden flex items-center gap-1 text-sm font-bold -mt-1 mb-1 ${
                     isDark ? "text-[#7dd3fc]" : "text-[#0e7490]"
                   }`}
@@ -3007,7 +3100,19 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   Volver al listado
                 </button>
               )}
-              {selectedConciertoLoading && conciertoSlug && (
+              {catalogAdminEditing && programaEditor != null && (
+                <div className={`space-y-3 ${ui.editorHighlight}`}>
+                  <p className={ui.accentEyebrow}>Editar programa</p>
+                  {renderProgramaEditorForm()}
+                </div>
+              )}
+              {catalogAdminEditing && conciertoEditor != null && (
+                <div className={`space-y-3 ${ui.editorHighlight}`}>
+                  <p className={ui.accentEyebrow}>Editar concierto</p>
+                  {renderConciertoEditorForm()}
+                </div>
+              )}
+              {!catalogAdminEditing && selectedConciertoLoading && conciertoSlug && (
                 <div className={`flex flex-col items-center justify-center gap-2 py-10 ${ui.textMuted}`}>
                   <span
                     className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-[#1ebbf0] border-t-transparent"
@@ -3016,13 +3121,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   <span className="text-sm font-medium">Cargando concierto…</span>
                 </div>
               )}
-              {!selectedConciertoLoading && !conciertoSlug && (
+              {!catalogAdminEditing && !selectedConciertoLoading && !conciertoSlug && (
                 <p className={`text-sm ${ui.textMuted}`}>Seleccioná un concierto para ver su URL compartible y reservar.</p>
               )}
-              {!selectedConciertoLoading && conciertoSlug && !selectedConcierto && (
+              {!catalogAdminEditing && !selectedConciertoLoading && conciertoSlug && !selectedConcierto && (
                 <p className={`text-sm ${ui.textMuted}`}>No se pudo mostrar este concierto. Volvé al listado o probá con otro enlace.</p>
               )}
-              {!selectedConciertoLoading && selectedConcierto && (() => {
+              {!catalogAdminEditing && !selectedConciertoLoading && selectedConcierto && (() => {
                 const reservasAbiertasSel = entradaConciertoReservasAbiertas(selectedConcierto);
                 const entradasAgotadasSel = conciertoCatalogoEntradasAgotadas(selectedConcierto);
                 const aceptaRecSel = conciertoAceptaRecordatorioApertura(

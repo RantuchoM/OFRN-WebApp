@@ -56,3 +56,27 @@ export function normalizeDriveImageUrlForStorage(url) {
   if (id) return `https://drive.google.com/file/d/${id}/view`;
   return raw;
 }
+
+const QUILL_IMG_SRC_RE = /<img\b([^>]*?)\ssrc=(["'])(.*?)\2/gi;
+
+/** Convierte src de <img> de Drive a URL mostrable (lh3) en HTML de Quill. */
+export function rewriteQuillHtmlImagesForDisplay(html) {
+  if (html == null || typeof html !== "string") return html;
+  return html.replace(QUILL_IMG_SRC_RE, (full, before, quote, src) => {
+    if (String(src).startsWith("data:")) return full;
+    const display = driveImageDisplayUrl(src);
+    if (!display || display === src) return full;
+    return `<img${before} src=${quote}${display}${quote}`;
+  });
+}
+
+/** Al persistir HTML de Quill: enlaces canónicos de Drive en <img src>. */
+export function rewriteQuillHtmlImagesForStorage(html) {
+  if (html == null || typeof html !== "string") return html;
+  return html.replace(QUILL_IMG_SRC_RE, (full, before, quote, src) => {
+    if (String(src).startsWith("data:")) return full;
+    const stored = normalizeDriveImageUrlForStorage(src);
+    if (!stored || stored === src || !extractGoogleDriveFileId(stored)) return full;
+    return `<img${before} src=${quote}${stored}${quote}`;
+  });
+}

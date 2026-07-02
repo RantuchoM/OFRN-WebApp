@@ -93,6 +93,21 @@ function getHoursForDate(records, date, origen) {
   return validRecords[0] || null;
 }
 
+function syntheticZeroRegistro(origen, year, month) {
+  return {
+    origen,
+    mes_inicio: month,
+    anio_inicio: year,
+    h_basico: 0,
+    h_ensayos: 0,
+    h_ensamble: 0,
+    h_categoria: 0,
+    h_coordinacion: 0,
+    h_desarraigo: 0,
+    h_otros: 0,
+  };
+}
+
 function getTipoCambioConArticulo(prevSum, currSum) {
   if (prevSum === 0 && currSum > 0) {
     return { clave: "alta", texto: "el alta" };
@@ -184,11 +199,19 @@ export function collectNovedadesMesDocJobs(reportRows, year, month) {
     const te = sumHorasRecord(edu);
     const pe = sumHorasRecord(prevEdu);
 
-    if (tc !== pc && cult) {
-      jobs.push({ integrante: row, registro: cult, prev: prevCult });
+    if (tc !== pc && (cult || pc > 0)) {
+      jobs.push({
+        integrante: row,
+        registro: cult || syntheticZeroRegistro("CULTURA", year, month),
+        prev: prevCult,
+      });
     }
-    if (te !== pe && edu) {
-      jobs.push({ integrante: row, registro: edu, prev: prevEdu });
+    if (te !== pe && (edu || pe > 0)) {
+      jobs.push({
+        integrante: row,
+        registro: edu || syntheticZeroRegistro("EDUCACION", year, month),
+        prev: prevEdu,
+      });
     }
   }
   return jobs;

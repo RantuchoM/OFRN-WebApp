@@ -48,3 +48,12 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/entradas-admin-invite-user/deno.json"
 entrypoint = "./functions/entradas-admin-invite-user/index.ts"
+
+[functions.db-backup-cron]
+enabled = true
+verify_jwt = false
+import_map = "./functions/db-backup-cron/deno.json"
+entrypoint = "./functions/db-backup-cron/index.ts"
+# Programar en Dashboard → Edge Functions → db-backup-cron → Cron: 0 9 * * * (09:00 UTC)
+# Header: x-db-backup-cron-secret = valor de DB_BACKUP_CRON_SECRET
+# O invocar manualmente con el mismo header.

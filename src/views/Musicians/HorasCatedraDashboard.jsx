@@ -137,6 +137,10 @@ export default function HorasCatedraDashboard({ supabase }) {
         const prevTotalEdu = sumRecord(prevEdu);
 
         const hasNews = totalCult !== prevTotalCult || totalEdu !== prevTotalEdu;
+        const prevGrandTotal = prevTotalCult + prevTotalEdu;
+        const grandTotal = totalCult + totalEdu;
+        /** Mes en que rige una baja a 0 hs: sigue en nómina solo ese mes (hasNews). */
+        const isBajaMes = hasNews && prevGrandTotal > 0 && grandTotal === 0;
 
         const concepts = {};
         CONCEPTOS.forEach(c => {
@@ -157,6 +161,9 @@ export default function HorasCatedraDashboard({ supabase }) {
             totalCult, totalEdu,
             concepts, 
             hasNews,
+            isBajaMes,
+            prevGrandTotal,
+            grandTotal,
             records 
         };
     }).filter(m => {
@@ -170,14 +177,14 @@ export default function HorasCatedraDashboard({ supabase }) {
             );
         }
 
-        // Filtro de Actividad (Nómina)
-        const hasActiveHours = (m.totalCult + m.totalEdu) > 0;
+        // Nómina activa o mes de baja (0 hs con cambio vs. mes anterior)
+        const showInNomina = (m.totalCult + m.totalEdu) > 0 || m.hasNews;
 
         if (searchTerm !== "") {
              return matchesSearch && matchesEnsemble;
         }
 
-        return matchesSearch && matchesEnsemble && hasActiveHours;
+        return matchesSearch && matchesEnsemble && showInNomina;
     });
   }, [musicians, allRecords, selectedMonth, selectedYear, searchTerm, selectedEnsembles]);
 
@@ -645,7 +652,14 @@ export default function HorasCatedraDashboard({ supabase }) {
                                 `}
                             >
                                 <td className={`p-3 sticky left-0 z-20 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] ${item.hasNews && selectedMusician?.id !== item.id ? 'bg-cyan-50' : selectedMusician?.id === item.id ? 'bg-indigo-50' : 'bg-white'}`}>
-                                    <div className="font-bold text-slate-700 truncate w-48 leading-tight">{item.apellido}, {item.nombre}</div>
+                                    <div className="font-bold text-slate-700 truncate w-48 leading-tight flex items-center gap-1.5 flex-wrap">
+                                      <span>{item.apellido}, {item.nombre}</span>
+                                      {item.isBajaMes && (
+                                        <span className="text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-200 shrink-0">
+                                          Baja
+                                        </span>
+                                      )}
+                                    </div>
                                     <div className="text-[10px] text-slate-400 font-medium flex items-center gap-1 mt-0.5">
                                         <span className="truncate max-w-[100px]">{item.instrumentos?.nombre || "S/D"}</span>
                                         <span className="text-slate-300">|</span>
@@ -664,16 +678,26 @@ export default function HorasCatedraDashboard({ supabase }) {
                                 </td>
                                 
                                 {MAIN_CONCEPTOS.map(c => (
-                                    <td key={c.id} className={`p-2 text-center text-xs font-bold border-l border-slate-100 ${item.concepts[c.id] > 0 ? 'text-slate-700' : 'text-slate-200'}`}>
-                                        {item.concepts[c.id] || "-"}
+                                    <td key={c.id} className={`p-2 text-center text-xs font-bold border-l border-slate-100 ${
+                                      item.concepts[c.id] > 0
+                                        ? "text-slate-700"
+                                        : item.hasNews
+                                          ? "text-rose-500"
+                                          : "text-slate-200"
+                                    }`}>
+                                        {item.concepts[c.id] > 0 ? item.concepts[c.id] : item.hasNews ? "0" : "-"}
                                     </td>
                                 ))}
 
-                                <td className="p-3 text-center border-l border-orange-100 bg-orange-50/30 font-black text-orange-700">
-                                    {item.totalCult}
+                                <td className={`p-3 text-center border-l border-orange-100 font-black ${
+                                  item.totalCult > 0 ? "bg-orange-50/30 text-orange-700" : item.hasNews ? "bg-rose-50/50 text-rose-600" : "bg-orange-50/30 text-orange-700"
+                                }`}>
+                                    {item.hasNews || item.totalCult > 0 ? item.totalCult : "-"}
                                 </td>
-                                <td className="p-3 text-center border-l border-blue-100 bg-blue-50/30 font-black text-blue-700">
-                                    {item.totalEdu}
+                                <td className={`p-3 text-center border-l border-blue-100 font-black ${
+                                  item.totalEdu > 0 ? "bg-blue-50/30 text-blue-700" : item.hasNews ? "bg-rose-50/50 text-rose-600" : "bg-blue-50/30 text-blue-700"
+                                }`}>
+                                    {item.hasNews || item.totalEdu > 0 ? item.totalEdu : "-"}
                                 </td>
                                 <td className={`p-3 text-center border-l border-slate-200 font-bold ${item.concepts['h_otros'] > 0 ? 'bg-slate-100 text-slate-700' : 'text-slate-300'}`}>
                                     {item.concepts['h_otros'] || "-"}

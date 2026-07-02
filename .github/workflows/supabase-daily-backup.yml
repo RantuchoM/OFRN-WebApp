@@ -1,0 +1,96 @@
+# Backup diario de la base OFRN (pg_dump) — artefacto en GitHub + subida opcional a Drive.
+#
+# Secrets (Settings → Secrets → Actions):
+#   SUPABASE_DB_PASSWORD (requerido)
+# Opcionales:
+#   SUPABASE_PROJECT_REF, SUPABASE_DB_REGION, SUPABASE_URL,
+#   SUPABASE_SERVICE_ROLE_KEY, OFRN_BACKUP_DRIVE_FOLDER_ID
+
+name: Supabase daily backup
+
+on:
+  schedule:
+    - cron: "15 8 * * *"
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Dump database
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          DB_REGION: ${{ secrets.SUPABASE_DB_REGION }}
+        run: |
+          if [ -z "$SUPABASE_DB_PASSWORD" ]; then
+            echo "::error::Falta secret SUPABASE_DB_PASSWORD"
+            exit 1
+          fi
+          PROJECT_REF="${PROJECT_REF:-muxrbuivopnawnxlcjxq}"
+          DB_REGION="${DB_REGION:-aws-1-us-east-2}"
+          ENCODED_PASS=$(python -c "import urllib.parse, os; print(urllib.parse.quote(os.environ['SUPABASE_DB_PASSWORD'], safe=''))")
+          DB_URL="postgresql://postgres.${PROJECT_REF}:${ENCODED_PASS}@${DB_REGION}.pooler.supabase.com:6543/postgres"
+          STAMP=$(date -u +%Y-%m-%d)
+          supabase db dump --db-url "$DB_URL" -f "ofrn-db-${STAMP}.sql"
+          gzip -9 "ofrn-db-${STAMP}.sql"
+          ls -lh ofrn-db-*.sql.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ofrn-db-${{ github.run_id }}
+          path: ofrn-db-*.sql.gz
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload to Google Drive (opcional, dumps &lt; 4 MB)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DRIVE_FOLDER_ID: ${{ secrets.OFRN_BACKUP_DRIVE_FOLDER_ID }}
+        run: |
+          if [ -z "$DRIVE_FOLDER_ID" ] || [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "Drive opcional omitido (faltan secrets)."
+            exit 0
+          fi
+          FILE=$(ls ofrn-db-*.sql.gz | head -1)
+          SIZE_MB=$(du -m "$FILE" | cut -f1)
+          if [ "$SIZE_MB" -gt 4 ]; then
+            echo "::warning::Dump ${SIZE_MB}MB > 4MB: solo artefacto GitHub."
+            exit 0
+          fi
+          export BACKUP_FILE="$FILE"
+          python3 << 'PY'
+          import base64, json, os, urllib.request
+          path = os.environ["BACKUP_FILE"]
+          with open(path, "rb") as f:
+              b64 = base64.b64encode(f.read()).decode()
+          body = {
+              "action": "upload_file",
+              "fileName": os.path.basename(path),
+              "fileBase64": b64,
+              "mimeType": "application/gzip",
+              "parentId": os.environ["DRIVE_FOLDER_ID"],
+          }
+          url = os.environ["SUPABASE_URL"].rstrip("/") + "/functions/v1/manage-drive"
+          req = urllib.request.Request(
+              url,
+              data=json.dumps(body).encode(),
+              headers={
+                  "Authorization": "Bearer " + os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+                  "apikey": os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=180) as resp:
+              print(resp.read().decode())
+          PY

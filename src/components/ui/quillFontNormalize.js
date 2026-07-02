@@ -1,3 +1,9 @@
+import {
+  rewriteQuillHtmlImagesForDisplay,
+  rewriteQuillHtmlImagesForStorage,
+} from "../../utils/entradasDriveImage";
+import { enhanceQuillHtmlCropStyles, wrapBareQuillImages } from "../../utils/quillImageCrop";
+
 /**
  * Normaliza clases `ql-font-*` de contenido guardado con la convención antigua
  * (valores con guiones: `ofrn-serif` → clase `ql-font-ofrn-serif`), que Quill 1.3 /
@@ -20,4 +26,16 @@ export function normalizeLegacyEntradasQuillHtml(html) {
     out = out.split(from).join(to);
   }
   return out;
+}
+
+/** HTML de Quill listo para mostrar en editor o vista pública (fuentes + imágenes Drive). */
+export function prepareEntradasQuillHtmlForDisplay(html) {
+  return enhanceQuillHtmlCropStyles(
+    rewriteQuillHtmlImagesForDisplay(wrapBareQuillImages(normalizeLegacyEntradasQuillHtml(html))),
+  );
+}
+
+/** HTML de Quill listo para guardar (enlaces canónicos de Drive en imágenes). */
+export function prepareEntradasQuillHtmlForStorage(html) {
+  return rewriteQuillHtmlImagesForStorage(normalizeLegacyEntradasQuillHtml(html));
 }

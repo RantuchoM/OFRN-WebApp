@@ -27,6 +27,14 @@ Permitir a los administradores dar de alta masivamente a integrantes con condici
 - Aviso persistente en el panel de historial del dashboard y en el lateral del modal de novedad.
 - Componente: `src/components/musicians/HorasDeleteGuardModal.jsx`.
 
+## Mes de baja en la nomina
+- Si un integrante pasa de tener horas el mes anterior a **0 hs** el mes seleccionado, sigue listado ese mes (`hasNews`), con celdas en **0**, etiqueta **Baja** y resaltado cyan.
+- Al mes siguiente (0 vs 0) deja de aparecer en la nomina por defecto.
+- Las notas de novedad del mes incluyen bajas a 0 (`collectNovedadesMesDocJobs`).
+
+## Backup diario
+- Ver `docs/specs/supabase-daily-backup.md` (`pg_dump` + GitHub Actions / script PS).
+
 ## Consulta SQL de Referencia
 ```sql
 SELECT i.id, i.apellido, i.nombre
