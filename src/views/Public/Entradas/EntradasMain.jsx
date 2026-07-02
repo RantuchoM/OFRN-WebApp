@@ -1,7 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
+import EntradasConciertoDatetimeField from "../../../components/entradas/EntradasConciertoDatetimeField";
+import EntradasReservasHabilitadasToggle from "../../../components/entradas/EntradasReservasHabilitadasToggle";
+import EntradasFormCollapsibleSection from "../../../components/entradas/EntradasFormCollapsibleSection";
 import EntradasCompartirConciertoBtn from "../../../components/entradas/EntradasCompartirConciertoBtn";
 import EntradasDisponibilidadBar from "../../../components/entradas/EntradasDisponibilidadBar";
 import EntradasDriveCoverImage from "../../../components/entradas/EntradasDriveCoverImage";
@@ -209,16 +212,27 @@ function formatDateLongEs(value) {
   return `${weekday}, ${day} de ${month} de ${year}`;
 }
 
+/** Día de la semana (es-AR) desde valor de `<input type="datetime-local">`. */
+function formatWeekdayFromDatetimeLocal(value) {
+  if (!value || typeof value !== "string") return "";
+  const [datePart] = value.split("T");
+  if (!datePart) return "";
+  const [y, m, d] = datePart.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const date = new Date(y, m - 1, d);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("es-AR", { weekday: "long" }).format(date).toLowerCase();
+}
+
 function getProgramaNombre(programa) {
   if (!programa) return "Programa sin nombre";
   const nombreEntradas = String(programa.nombre || "").trim();
   if (nombreEntradas) return nombreEntradas;
-  return (
-    programa.nombre_gira
-    || programa.nomenclador
-    || programa.subtitulo
-    || `Programa ${programa.id || "-"}`
-  );
+  const tituloOfrn = tituloOfrnPrograma(programa);
+  if (tituloOfrn) return tituloOfrn;
+  const subt = String(programa.subtitulo || "").trim();
+  if (subt) return subt;
+  return `Programa ${programa.id || "-"}`;
 }
 
 /** Título OFRN para entradas (`nombre_gira`), sin nomenclador. */
@@ -254,6 +268,53 @@ function conciertoFormDefaultsDesdeEventoOfrn(ev, prev = {}) {
   };
 }
 
+function resumenAperturaReservasForm(concierto) {
+  if (!concierto) return { text: "Sin evento", tone: "muted" };
+  if (concierto.reservas_habilitadas === false) {
+    return { text: "Reservas deshabilitadas", tone: "off" };
+  }
+  if (entradaConciertoReservasAbiertas(concierto)) {
+    return { text: "Reservas abiertas", tone: "open" };
+  }
+  const at = aperturaReservasEfectivaAt(concierto);
+  if (at) {
+    return { text: `Abre ${formatConciertoFechaHoraEs(at.toISOString())}`, tone: "pending" };
+  }
+  return { text: "Apertura pendiente", tone: "pending" };
+}
+
+function formatEventoOfrnFechaHora(ev) {
+  if (!ev?.fecha) return "Sin fecha";
+  const hora = String(ev.hora_inicio || "20:00").trim().slice(0, 5);
+  return formatConciertoFechaHoraEs(`${ev.fecha}T${hora}`);
+}
+
+/** Payload mínimo para `adminUpsertConcierto` al alta masiva desde eventos OFRN. */
+function buildConciertoAdminPayloadDesdeEventoOfrn(ev) {
+  const defaults = conciertoFormDefaultsDesdeEventoOfrn(ev, {});
+  let capacidad = defaults.capacidad_maxima;
+  if (capacidad === "" || capacidad == null || Number(capacidad) < 1) capacidad = 100;
+  else capacidad = Number(capacidad);
+
+  return {
+    id: null,
+    ofrn_evento_id: ev.id,
+    nombre: defaults.nombre || tituloOfrnPrograma(ev?.programas) || "Concierto",
+    detalle_richtext: "",
+    imagen_drive_url: "",
+    capacidad_maxima: capacidad,
+    reservas_habilitadas: true,
+    activo: true,
+    apertura_reservas_at: defaults.apertura_reservas_at
+      ? datetimeLocalInputToIso(defaults.apertura_reservas_at)
+      : null,
+    limite_recordatorio_at: null,
+    limite_cierre_reservas_at: null,
+    limite_encuesta_at: null,
+    encuesta_url: null,
+  };
+}
+
 /** ISO timestamptz → valor para `<input type="datetime-local" />` (hora local del navegador). */
 function isoToDatetimeLocalInput(iso) {
   if (!iso) return "";
@@ -271,13 +332,94 @@ function datetimeLocalInputToIso(value) {
   return d.toISOString();
 }
 
+const EMPTY_CONCIERTO_FORM = {
+  id: null,
+  ofrn_evento_id: "",
+  nombre: "",
+  detalle_richtext: "",
+  imagen_drive_url: "",
+  capacidad_maxima: "",
+  reservas_habilitadas: true,
+  activo: true,
+  apertura_reservas_at: "",
+  limite_recordatorio_at: "",
+  limite_cierre_reservas_at: "",
+  limite_encuesta_at: "",
+  encuesta_url: "",
+};
+
+const EMPTY_PROGRAMA_FORM = {
+  id: null,
+  nombre: "",
+  detalle_richtext: "",
+  activo: true,
+};
+
+function snapshotConciertoFormForDirty(form) {
+  return {
+    id: form.id ?? null,
+    ofrn_evento_id: form.ofrn_evento_id === "" ? "" : String(form.ofrn_evento_id),
+    nombre: String(form.nombre || "").trim(),
+    detalle_richtext: form.detalle_richtext || "",
+    imagen_drive_url: String(form.imagen_drive_url || "").trim(),
+    capacidad_maxima:
+      form.capacidad_maxima === "" || form.capacidad_maxima == null ? "" : String(form.capacidad_maxima),
+    reservas_habilitadas: Boolean(form.reservas_habilitadas),
+    activo: form.activo !== false,
+    apertura_reservas_at: form.apertura_reservas_at || "",
+    limite_recordatorio_at: form.limite_recordatorio_at || "",
+    limite_cierre_reservas_at: form.limite_cierre_reservas_at || "",
+    limite_encuesta_at: form.limite_encuesta_at || "",
+    encuesta_url: String(form.encuesta_url || "").trim(),
+  };
+}
+
+function snapshotProgramaFormForDirty(form) {
+  return {
+    id: form.id ?? null,
+    nombre: String(form.nombre || "").trim(),
+    detalle_richtext: form.detalle_richtext || "",
+    activo: form.activo !== false,
+  };
+}
+
+function conciertoFormDirtySnapshot(form) {
+  return JSON.stringify(snapshotConciertoFormForDirty(form));
+}
+
+function programaFormDirtySnapshot(form) {
+  return JSON.stringify(snapshotProgramaFormForDirty(form));
+}
+
 function buildProgramaLabel(programa) {
-  const nombre = getProgramaNombre(programa);
+  const nombre = tituloOfrnPrograma(programa) || getProgramaNombre(programa);
   const prefijos = [programa?.nomenclador, programa?.mes_letra]
     .map((v) => String(v || "").trim())
     .filter(Boolean);
   if (!prefijos.length) return nombre;
   return `${prefijos.join(" · ")} · ${nombre}`;
+}
+
+/** Nombre visible de `entrada_programa`; corrige registros viejos con nomenclador. */
+function nombreProgramaEntradaMostrar(programaRow, conciertosDelPrograma = [], ofrnProgramasPicker = []) {
+  const stored = String(programaRow?.nombre || "").trim();
+  const ofrnId = getOfrnProgramaIdForEntradaPrograma(programaRow, conciertosDelPrograma);
+  const ofrnRow = ofrnId
+    ? (ofrnProgramasPicker || []).find((p) => Number(p.id) === Number(ofrnId))
+    : null;
+  const tituloBd = ofrnRow ? tituloOfrnPrograma(ofrnRow) : "";
+  if (!tituloBd) return stored || getProgramaNombre(programaRow);
+  const nomenclador = String(ofrnRow.nomenclador || "").trim();
+  const mesLetra = String(ofrnRow.mes_letra || "").trim();
+  if (
+    !stored
+    || stored === nomenclador
+    || stored === mesLetra
+    || stored === buildProgramaLabel(ofrnRow)
+  ) {
+    return tituloBd;
+  }
+  return stored;
 }
 
 /** OFRN programa id (id_gira) asociado a un `entrada_programa`, vía conciertos o slug `ofrn-programa-{id}`. */
@@ -445,6 +587,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [conciertoOfrnProgramaContextId, setConciertoOfrnProgramaContextId] = useState(null);
   const [nuevoProgramaOfrnSelect, setNuevoProgramaOfrnSelect] = useState("");
   const [nuevoProgramaModalOpen, setNuevoProgramaModalOpen] = useState(false);
+  const [nuevoProgramaCreando, setNuevoProgramaCreando] = useState(false);
+  /** ofrn evento id → incluir en alta masiva del modal nuevo programa */
+  const [nuevoProgramaEventosEnabled, setNuevoProgramaEventosEnabled] = useState({});
   const [nuevoProgramaTipoSelect, setNuevoProgramaTipoSelect] = useState("Sinfónico");
   const [adminConciertoStatsById, setAdminConciertoStatsById] = useState({});
   const [adminConciertoStatsLoadingById, setAdminConciertoStatsLoadingById] = useState({});
@@ -474,27 +619,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [conciertoEditor, setConciertoEditor] = useState(null);
   /** null | id del programa en edición inline */
   const [programaEditor, setProgramaEditor] = useState(null);
-  const [programaForm, setProgramaForm] = useState({
-    id: null,
-    nombre: "",
-    detalle_richtext: "",
-    activo: true,
-  });
-  const [conciertoForm, setConciertoForm] = useState({
-    id: null,
-    ofrn_evento_id: "",
-    nombre: "",
-    detalle_richtext: "",
-    imagen_drive_url: "",
-    capacidad_maxima: "",
-    reservas_habilitadas: true,
-    activo: true,
-    apertura_reservas_at: "",
-    limite_recordatorio_at: "",
-    limite_cierre_reservas_at: "",
-    limite_encuesta_at: "",
-    encuesta_url: "",
-  });
+  const [programaForm, setProgramaForm] = useState(() => ({ ...EMPTY_PROGRAMA_FORM }));
+  const [conciertoForm, setConciertoForm] = useState(() => ({ ...EMPTY_CONCIERTO_FORM }));
+  const conciertoFormBaselineRef = useRef(conciertoFormDirtySnapshot(EMPTY_CONCIERTO_FORM));
+  const programaFormBaselineRef = useRef(programaFormDirtySnapshot(EMPTY_PROGRAMA_FORM));
+  const pendingUnsavedActionRef = useRef(null);
+  const [unsavedFormConfirmOpen, setUnsavedFormConfirmOpen] = useState(false);
+  const [unsavedFormSaveBusy, setUnsavedFormSaveBusy] = useState(false);
   /** { id, nombre } para confirmar borrado de concierto (admin) */
   const [deleteConciertoTarget, setDeleteConciertoTarget] = useState(null);
   /** { id, nombre } para confirmar borrado de programa (admin) */
@@ -667,17 +798,24 @@ export default function EntradasMain({ user, profile, onLogout }) {
   useEffect(() => {
     if (section === "catalogo") return;
     if (section !== "admin" || adminTab !== "programas") {
-      setConciertoEditor(null);
+      if (conciertoEditor != null || programaEditor != null) {
+        if (
+          (conciertoEditor != null
+            && conciertoFormDirtySnapshot(conciertoForm) !== conciertoFormBaselineRef.current)
+          || (programaEditor != null
+            && programaFormDirtySnapshot(programaForm) !== programaFormBaselineRef.current)
+        ) {
+          return;
+        }
+        setConciertoEditor(null);
+        setConciertoForm({ ...EMPTY_CONCIERTO_FORM });
+        conciertoFormBaselineRef.current = conciertoFormDirtySnapshot(EMPTY_CONCIERTO_FORM);
+        setProgramaForm({ ...EMPTY_PROGRAMA_FORM });
+        setProgramaEditor(null);
+        programaFormBaselineRef.current = programaFormDirtySnapshot(EMPTY_PROGRAMA_FORM);
+      }
     }
-  }, [section, adminTab]);
-
-  useEffect(() => {
-    if (section === "catalogo") return;
-    if (section !== "admin" || adminTab !== "programas") {
-      setProgramaForm({ id: null, nombre: "", detalle_richtext: "", activo: true });
-      setProgramaEditor(null);
-    }
-  }, [section, adminTab]);
+  }, [section, adminTab, conciertoEditor, programaEditor, conciertoForm, programaForm]);
 
   const concertosFlat = useMemo(
     () =>
@@ -963,9 +1101,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
     if (!conciertoOfrnProgramaContextId) return "";
     const id = Number(conciertoOfrnProgramaContextId);
     const row = ofrnProgramasPicker.find((p) => Number(p.id) === id);
-    if (row) return buildProgramaLabel(row);
+    if (row) return tituloOfrnPrograma(row) || buildProgramaLabel(row);
     const ev = eventosConcierto.find((e) => Number(e.id_gira) === id);
-    if (ev?.programas) return buildProgramaLabel(ev.programas);
+    if (ev?.programas) return tituloOfrnPrograma(ev.programas) || buildProgramaLabel(ev.programas);
     return `Programa #${id}`;
   }, [conciertoOfrnProgramaContextId, ofrnProgramasPicker, eventosConcierto]);
 
@@ -982,6 +1120,65 @@ export default function EntradasMain({ user, profile, onLogout }) {
     if (!Number.isFinite(id) || id <= 0) return null;
     return programasOfrnDisponiblesNuevoEntrada.find((p) => Number(p.id) === id) || null;
   }, [nuevoProgramaOfrnSelect, programasOfrnDisponiblesNuevoEntrada]);
+
+  const ofrnEventoIdsYaEnEntradas = useMemo(
+    () =>
+      new Set(
+        (adminData.conciertos || [])
+          .map((c) => Number(c.ofrn_evento_id))
+          .filter((n) => Number.isFinite(n) && n > 0),
+      ),
+    [adminData.conciertos],
+  );
+
+  const eventosConciertoNuevoProgramaModal = useMemo(() => {
+    const gid = Number(nuevoProgramaOfrnSelect);
+    if (!Number.isFinite(gid) || gid <= 0) return [];
+    return eventosConcierto
+      .filter((ev) => Number(ev.id_gira) === gid)
+      .sort((a, b) => {
+        const fa = `${a.fecha || ""}T${a.hora_inicio || ""}`;
+        const fb = `${b.fecha || ""}T${b.hora_inicio || ""}`;
+        return fa.localeCompare(fb);
+      });
+  }, [nuevoProgramaOfrnSelect, eventosConcierto]);
+
+  const nuevoProgramaConciertosSeleccionadosCount = useMemo(
+    () =>
+      eventosConciertoNuevoProgramaModal.filter((ev) => {
+        const id = Number(ev.id);
+        if (ofrnEventoIdsYaEnEntradas.has(id)) return false;
+        return Boolean(nuevoProgramaEventosEnabled[String(ev.id)]);
+      }).length,
+    [eventosConciertoNuevoProgramaModal, ofrnEventoIdsYaEnEntradas, nuevoProgramaEventosEnabled],
+  );
+
+  const nuevoProgramaConciertosPendientesCount = useMemo(
+    () =>
+      eventosConciertoNuevoProgramaModal.filter((ev) => !ofrnEventoIdsYaEnEntradas.has(Number(ev.id))).length,
+    [eventosConciertoNuevoProgramaModal, ofrnEventoIdsYaEnEntradas],
+  );
+
+  useEffect(() => {
+    if (!nuevoProgramaModalOpen) return;
+    const gid = Number(nuevoProgramaOfrnSelect);
+    if (!Number.isFinite(gid) || gid <= 0) {
+      setNuevoProgramaEventosEnabled({});
+      return;
+    }
+    const next = {};
+    for (const ev of eventosConcierto) {
+      if (Number(ev.id_gira) !== gid) continue;
+      const eid = Number(ev.id);
+      next[String(ev.id)] = !ofrnEventoIdsYaEnEntradas.has(eid);
+    }
+    setNuevoProgramaEventosEnabled(next);
+  }, [
+    nuevoProgramaModalOpen,
+    nuevoProgramaOfrnSelect,
+    eventosConcierto,
+    ofrnEventoIdsYaEnEntradas,
+  ]);
 
   /** Gira OFRN vinculada al `entrada_programa` que se está editando (subtítulo de referencia). */
   const ofrnProgramaEnEdicionReferencia = useMemo(() => {
@@ -1021,6 +1218,47 @@ export default function EntradasMain({ user, profile, onLogout }) {
     section === "catalogo"
     && canAdmin
     && (programaEditor != null || conciertoEditor != null);
+
+  const conciertoFormDirty = useMemo(() => {
+    if (conciertoEditor == null) return false;
+    return conciertoFormDirtySnapshot(conciertoForm) !== conciertoFormBaselineRef.current;
+  }, [conciertoEditor, conciertoForm]);
+
+  const programaFormDirty = useMemo(() => {
+    if (programaEditor == null) return false;
+    return programaFormDirtySnapshot(programaForm) !== programaFormBaselineRef.current;
+  }, [programaEditor, programaForm]);
+
+  const entradasFormDirty = conciertoFormDirty || programaFormDirty;
+
+  useEffect(() => {
+    const onBeforeUnload = (event) => {
+      if (!(conciertoEditor != null || programaEditor != null) || !entradasFormDirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [conciertoEditor, programaEditor, entradasFormDirty]);
+
+  const runWithUnsavedGuard = useCallback(
+    (proceed) => {
+      if (!(conciertoEditor != null || programaEditor != null) || !entradasFormDirty) {
+        proceed();
+        return;
+      }
+      pendingUnsavedActionRef.current = proceed;
+      setUnsavedFormConfirmOpen(true);
+    },
+    [conciertoEditor, programaEditor, entradasFormDirty],
+  );
+
+  const navigateEntradasView = useCallback(
+    (params) => {
+      runWithUnsavedGuard(() => setSearchParams(params));
+    },
+    [runWithUnsavedGuard, setSearchParams],
+  );
 
   const programasCatalogo = useMemo(
     () =>
@@ -1529,14 +1767,25 @@ export default function EntradasMain({ user, profile, onLogout }) {
   };
 
   const handlePickConcierto = (slug) => {
-    const params = new URLSearchParams(searchParams);
-    params.set("view", "catalogo");
-    if (slug) params.set("concierto", slug);
-    else params.delete("concierto");
-    setSearchParams(params);
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    const apply = () => {
+      if (conciertoEditor != null || programaEditor != null) {
+        setConciertoEditor(null);
+        setConciertoForm({ ...EMPTY_CONCIERTO_FORM });
+        conciertoFormBaselineRef.current = conciertoFormDirtySnapshot(EMPTY_CONCIERTO_FORM);
+        setProgramaForm({ ...EMPTY_PROGRAMA_FORM });
+        setProgramaEditor(null);
+        programaFormBaselineRef.current = programaFormDirtySnapshot(EMPTY_PROGRAMA_FORM);
+      }
+      const params = new URLSearchParams(searchParams);
+      params.set("view", "catalogo");
+      if (slug) params.set("concierto", slug);
+      else params.delete("concierto");
+      setSearchParams(params);
+      if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    };
+    runWithUnsavedGuard(apply);
   };
 
   const handleClearCatalogoConcierto = () => handlePickConcierto("");
@@ -1888,30 +2137,51 @@ export default function EntradasMain({ user, profile, onLogout }) {
     qrPhotoInputRef.current?.click();
   };
 
-  const resetProgramaForm = () => {
-    setProgramaForm({ id: null, nombre: "", detalle_richtext: "", activo: true });
+  const forceResetProgramaForm = () => {
+    setProgramaForm({ ...EMPTY_PROGRAMA_FORM });
     setProgramaEditor(null);
+    programaFormBaselineRef.current = programaFormDirtySnapshot(EMPTY_PROGRAMA_FORM);
   };
 
-  const startEditPrograma = (programa) => {
-    setProgramaForm({
+  const resetProgramaForm = () => {
+    forceResetProgramaForm();
+  };
+
+  const applyStartEditPrograma = (programa) => {
+    const nextForm = {
       id: programa.id,
       nombre: programa.nombre || "",
       detalle_richtext: programa.detalle_richtext || "",
       activo: programa.activo !== false,
-    });
+    };
+    setProgramaForm(nextForm);
+    programaFormBaselineRef.current = programaFormDirtySnapshot(nextForm);
     setProgramaEditor(programa.id);
+  };
+
+  const startEditPrograma = (programa) => {
+    if (programaEditor != null && Number(programaEditor) === Number(programa.id)) return;
+    runWithUnsavedGuard(() => applyStartEditPrograma(programa));
+  };
+
+  const persistProgramaForm = async () => {
+    if (!String(programaForm.nombre || "").trim()) {
+      toast.error("Indicá el nombre del programa.");
+      return false;
+    }
+    await adminUpsertPrograma(programaForm);
+    toast.success(programaForm.id ? "Programa actualizado." : "Programa guardado.");
+    const [nextAdmin, nextProgramas] = await Promise.all([listAdminData(), listProgramasConConciertos()]);
+    setAdminData(nextAdmin);
+    setProgramas(nextProgramas);
+    forceResetProgramaForm();
+    return true;
   };
 
   const submitPrograma = async (event) => {
     event.preventDefault();
     try {
-      await adminUpsertPrograma(programaForm);
-      toast.success(programaForm.id ? "Programa actualizado." : "Programa guardado.");
-      resetProgramaForm();
-      const [nextAdmin, nextProgramas] = await Promise.all([listAdminData(), listProgramasConConciertos()]);
-      setAdminData(nextAdmin);
-      setProgramas(nextProgramas);
+      await persistProgramaForm();
     } catch (err) {
       toast.error(err?.message || "No se pudo guardar el programa.");
     }
@@ -1952,8 +2222,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
   };
 
   const closeCatalogAdminEdit = () => {
-    resetProgramaForm();
-    closeConciertoEditor();
+    runWithUnsavedGuard(() => {
+      forceResetProgramaForm();
+      forceCloseConciertoEditor();
+    });
   };
 
   const scrollCatalogPanelTopMobile = () => {
@@ -1965,27 +2237,33 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const handleCatalogEditPrograma = async (event, programa) => {
     event.stopPropagation();
     if (!canAdmin) return;
-    closeConciertoEditor();
-    try {
-      const admin = await ensureCatalogAdminEditReady();
-      startEditPrograma(resolveProgramaParaEdicionAdmin(programa, admin));
-      scrollCatalogPanelTopMobile();
-    } catch (err) {
-      toast.error(err?.message || "No se pudo abrir el editor del programa.");
-    }
+    if (programaEditor != null && Number(programaEditor) === Number(programa.id)) return;
+    runWithUnsavedGuard(async () => {
+      forceCloseConciertoEditor();
+      try {
+        const admin = await ensureCatalogAdminEditReady();
+        applyStartEditPrograma(resolveProgramaParaEdicionAdmin(programa, admin));
+        scrollCatalogPanelTopMobile();
+      } catch (err) {
+        toast.error(err?.message || "No se pudo abrir el editor del programa.");
+      }
+    });
   };
 
   const handleCatalogEditConcierto = async (event, concierto) => {
     event.stopPropagation();
     if (!canAdmin) return;
-    resetProgramaForm();
-    try {
-      const admin = await ensureCatalogAdminEditReady();
-      startEditConcierto(resolveConciertoParaEdicionAdmin(concierto, admin));
-      scrollCatalogPanelTopMobile();
-    } catch (err) {
-      toast.error(err?.message || "No se pudo abrir el editor del concierto.");
-    }
+    if (conciertoEditor != null && Number(conciertoEditor) === Number(concierto.id)) return;
+    runWithUnsavedGuard(async () => {
+      forceResetProgramaForm();
+      try {
+        const admin = await ensureCatalogAdminEditReady();
+        applyStartEditConcierto(resolveConciertoParaEdicionAdmin(concierto, admin));
+        scrollCatalogPanelTopMobile();
+      } catch (err) {
+        toast.error(err?.message || "No se pudo abrir el editor del concierto.");
+      }
+    });
   };
 
   const handleConfirmDeleteConcierto = async () => {
@@ -1996,7 +2274,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
       await adminDeleteConcierto(id);
       toast.success("Concierto eliminado.");
       if (conciertoEditor != null && conciertoEditor !== "new" && Number(conciertoEditor) === Number(id)) {
-        closeConciertoEditor();
+        forceCloseConciertoEditor();
       }
       setAdminConciertoStatsById((prev) => {
         const next = { ...prev };
@@ -2031,12 +2309,12 @@ export default function EntradasMain({ user, profile, onLogout }) {
       await adminDeletePrograma(pid);
       toast.success("Programa y conciertos de entradas eliminados.");
       if (programaEditor != null && Number(programaEditor) === pid) {
-        resetProgramaForm();
+        forceResetProgramaForm();
       }
       if (conciertoEditor != null && conciertoEditor !== "new") {
         const cid = Number(conciertoEditor);
         if (lista.some((c) => Number(c.id) === cid)) {
-          closeConciertoEditor();
+          forceCloseConciertoEditor();
         }
       }
       setAdminConciertoStatsById((prev) => {
@@ -2091,27 +2369,94 @@ export default function EntradasMain({ user, profile, onLogout }) {
     }
   };
 
+  const forceCloseConciertoEditor = () => {
+    setConciertoEditor(null);
+    setConciertoForm({ ...EMPTY_CONCIERTO_FORM });
+    conciertoFormBaselineRef.current = conciertoFormDirtySnapshot(EMPTY_CONCIERTO_FORM);
+  };
+
   const resetConciertoForm = () => {
-    setConciertoForm({
-      id: null,
-      ofrn_evento_id: "",
-      nombre: "",
-      detalle_richtext: "",
-      imagen_drive_url: "",
-      capacidad_maxima: "",
-      reservas_habilitadas: true,
-      activo: true,
-      apertura_reservas_at: "",
-      limite_recordatorio_at: "",
-      limite_cierre_reservas_at: "",
-      limite_encuesta_at: "",
-      encuesta_url: "",
-    });
+    setConciertoForm({ ...EMPTY_CONCIERTO_FORM });
+    conciertoFormBaselineRef.current = conciertoFormDirtySnapshot(EMPTY_CONCIERTO_FORM);
   };
 
   const closeConciertoEditor = () => {
-    setConciertoEditor(null);
-    resetConciertoForm();
+    forceCloseConciertoEditor();
+  };
+
+  const requestCloseConciertoEditor = () => {
+    runWithUnsavedGuard(() => forceCloseConciertoEditor());
+  };
+
+  const requestCloseProgramaEditor = () => {
+    runWithUnsavedGuard(() => forceResetProgramaForm());
+  };
+
+  const handleUnsavedDiscard = async () => {
+    forceResetProgramaForm();
+    forceCloseConciertoEditor();
+    const fn = pendingUnsavedActionRef.current;
+    pendingUnsavedActionRef.current = null;
+    fn?.();
+  };
+
+  const persistConciertoForm = async () => {
+    if (!conciertoForm.ofrn_evento_id) {
+      toast.error("Seleccioná un evento OFRN.");
+      return false;
+    }
+    if (!String(conciertoForm.nombre || "").trim()) {
+      toast.error("Indicá el nombre del concierto.");
+      return false;
+    }
+    const cap = Number(conciertoForm.capacidad_maxima);
+    if (!Number.isFinite(cap) || cap < 1) {
+      toast.error("Indicá la capacidad máxima del concierto.");
+      return false;
+    }
+    await adminUpsertConcierto({
+      ...conciertoForm,
+      capacidad_maxima: cap,
+      imagen_drive_url: normalizeDriveImageUrlForStorage(conciertoForm.imagen_drive_url),
+      apertura_reservas_at: datetimeLocalInputToIso(conciertoForm.apertura_reservas_at),
+      limite_recordatorio_at: datetimeLocalInputToIso(conciertoForm.limite_recordatorio_at),
+      limite_cierre_reservas_at: datetimeLocalInputToIso(conciertoForm.limite_cierre_reservas_at),
+      limite_encuesta_at: datetimeLocalInputToIso(conciertoForm.limite_encuesta_at),
+      encuesta_url: conciertoForm.encuesta_url?.trim() || null,
+    });
+    toast.success(conciertoForm.id ? "Concierto actualizado." : "Concierto guardado.");
+    forceCloseConciertoEditor();
+    try {
+      await refreshAdminYCatalogoEntradas();
+    } catch (err) {
+      toast.message(err?.message || "Guardado; no se pudo refrescar la lista. Probá recargar.");
+    }
+    setAdminConciertoStatsById({});
+    setAdminConciertoStatsLoadingById({});
+    return true;
+  };
+
+  const persistOpenEntradasForm = async () => {
+    if (programaEditor != null) return persistProgramaForm();
+    if (conciertoEditor != null) return persistConciertoForm();
+    return true;
+  };
+
+  const handleUnsavedSaveAndContinue = async () => {
+    if (unsavedFormSaveBusy) return;
+    setUnsavedFormSaveBusy(true);
+    try {
+      const ok = await persistOpenEntradasForm();
+      if (!ok) return;
+      const fn = pendingUnsavedActionRef.current;
+      pendingUnsavedActionRef.current = null;
+      setUnsavedFormConfirmOpen(false);
+      fn?.();
+    } catch (err) {
+      toast.error(err?.message || "No se pudo guardar.");
+    } finally {
+      setUnsavedFormSaveBusy(false);
+    }
   };
 
   const confirmarProgramaOfrnParaNuevo = () => {
@@ -2125,24 +2470,74 @@ export default function EntradasMain({ user, profile, onLogout }) {
     return true;
   };
 
-  const openNuevoProgramaModal = () => {
-    setConciertoOfrnProgramaContextId(null);
-    setNuevoProgramaTipoSelect("Sinfónico");
-    setNuevoProgramaOfrnSelect("");
-    if (conciertoEditor === "new") {
-      closeConciertoEditor();
+  const crearProgramaEntradasConConciertos = async () => {
+    const gid = Number(nuevoProgramaOfrnSelect);
+    if (!Number.isFinite(gid) || gid <= 0) {
+      toast.error("Elegí un programa de la lista OFRN.");
+      return false;
     }
-    setNuevoProgramaModalOpen(true);
+    const eventos = eventosConciertoNuevoProgramaModal.filter((ev) => {
+      const eid = Number(ev.id);
+      if (ofrnEventoIdsYaEnEntradas.has(eid)) return false;
+      return Boolean(nuevoProgramaEventosEnabled[String(ev.id)]);
+    });
+    if (eventos.length === 0) {
+      toast.error("Activá al menos un concierto para crear.");
+      return false;
+    }
+    setNuevoProgramaCreando(true);
+    try {
+      for (const ev of eventos) {
+        await adminUpsertConcierto(buildConciertoAdminPayloadDesdeEventoOfrn(ev));
+      }
+      toast.success(
+        `Programa creado con ${eventos.length} concierto${eventos.length === 1 ? "" : "s"}.`,
+      );
+      setConciertoOfrnProgramaContextId(gid);
+      setNuevoProgramaOfrnSelect(String(gid));
+      setNuevoProgramaModalOpen(false);
+      setNuevoProgramaEventosEnabled({});
+      try {
+        await refreshAdminYCatalogoEntradas();
+      } catch (refreshErr) {
+        toast.message(refreshErr?.message || "Creado; no se pudo refrescar la lista. Probá recargar.");
+      }
+      setAdminConciertoStatsById({});
+      setAdminConciertoStatsLoadingById({});
+      return true;
+    } catch (err) {
+      toast.error(err?.message || "No se pudo crear el programa.");
+      return false;
+    } finally {
+      setNuevoProgramaCreando(false);
+    }
+  };
+
+  const openNuevoProgramaModal = () => {
+    runWithUnsavedGuard(() => {
+      setConciertoOfrnProgramaContextId(null);
+      setNuevoProgramaTipoSelect("Sinfónico");
+      setNuevoProgramaOfrnSelect("");
+      setNuevoProgramaEventosEnabled({});
+      forceCloseConciertoEditor();
+      setNuevoProgramaModalOpen(true);
+      if (!eventosConcierto.length) {
+        void loadAdminOfrnEventos().catch((err) => {
+          toast.error(err?.message || "No se pudieron cargar los eventos OFRN.");
+        });
+      }
+    });
   };
 
   const cambiarProgramaOfrnContexto = () => {
-    setConciertoOfrnProgramaContextId(null);
-    setNuevoProgramaOfrnSelect("");
-    setNuevoProgramaTipoSelect("Sinfónico");
-    setNuevoProgramaModalOpen(true);
-    if (conciertoEditor === "new") {
-      closeConciertoEditor();
-    }
+    runWithUnsavedGuard(() => {
+      setConciertoOfrnProgramaContextId(null);
+      setNuevoProgramaOfrnSelect("");
+      setNuevoProgramaTipoSelect("Sinfónico");
+      setNuevoProgramaEventosEnabled({});
+      setNuevoProgramaModalOpen(true);
+      forceCloseConciertoEditor();
+    });
   };
 
   const openNuevoConcierto = (ofrnProgramaIdOverride) => {
@@ -2156,38 +2551,23 @@ export default function EntradasMain({ user, profile, onLogout }) {
       );
       return;
     }
-    setConciertoOfrnProgramaContextId(pid);
-    setNuevoProgramaOfrnSelect(String(pid));
-    resetConciertoForm();
-    setConciertoEditor("new");
+    runWithUnsavedGuard(() => {
+      setConciertoOfrnProgramaContextId(pid);
+      setNuevoProgramaOfrnSelect(String(pid));
+      const nextForm = { ...EMPTY_CONCIERTO_FORM };
+      setConciertoForm(nextForm);
+      conciertoFormBaselineRef.current = conciertoFormDirtySnapshot(nextForm);
+      setConciertoEditor("new");
+    });
   };
 
   const submitConcierto = async (event) => {
     event.preventDefault();
-    const cap = Number(conciertoForm.capacidad_maxima);
-    if (!Number.isFinite(cap) || cap < 1) {
-      toast.error("Indicá la capacidad máxima del concierto.");
-      return;
-    }
-    await adminUpsertConcierto({
-      ...conciertoForm,
-      capacidad_maxima: cap,
-      imagen_drive_url: normalizeDriveImageUrlForStorage(conciertoForm.imagen_drive_url),
-      apertura_reservas_at: datetimeLocalInputToIso(conciertoForm.apertura_reservas_at),
-      limite_recordatorio_at: datetimeLocalInputToIso(conciertoForm.limite_recordatorio_at),
-      limite_cierre_reservas_at: datetimeLocalInputToIso(conciertoForm.limite_cierre_reservas_at),
-      limite_encuesta_at: datetimeLocalInputToIso(conciertoForm.limite_encuesta_at),
-      encuesta_url: conciertoForm.encuesta_url?.trim() || null,
-    });
-    toast.success(conciertoForm.id ? "Concierto actualizado." : "Concierto guardado.");
-    closeConciertoEditor();
     try {
-      await refreshAdminYCatalogoEntradas();
+      await persistConciertoForm();
     } catch (err) {
-      toast.message(err?.message || "Guardado; no se pudo refrescar la lista. Probá recargar.");
+      toast.error(err?.message || "No se pudo guardar el concierto.");
     }
-    setAdminConciertoStatsById({});
-    setAdminConciertoStatsLoadingById({});
   };
 
   const cargarStatsConcierto = async (conciertoId, { force = false } = {}) => {
@@ -2305,7 +2685,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- recargar stats al cambiar apertura en el formulario
   }, [conciertoForm.apertura_reservas_at, conciertoForm.reservas_habilitadas]);
 
-  const startEditConcierto = (concierto) => {
+  const applyStartEditConcierto = (concierto) => {
     const aperturaGuardada = concierto.apertura_reservas_at
       ? isoToDatetimeLocalInput(concierto.apertura_reservas_at)
       : "";
@@ -2314,7 +2694,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
       !aperturaGuardada && fhEdit
         ? isoToDatetimeLocalInput(defaultAperturaReservasAtFromConcierto(fhEdit)?.toISOString())
         : "";
-    setConciertoForm({
+    const nextForm = {
       id: concierto.id,
       ofrn_evento_id: concierto.ofrn_evento_id ?? "",
       nombre: concierto.nombre || "",
@@ -2328,7 +2708,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
       limite_cierre_reservas_at: isoToDatetimeLocalInput(concierto.limite_cierre_reservas_at),
       limite_encuesta_at: isoToDatetimeLocalInput(concierto.limite_encuesta_at),
       encuesta_url: concierto.encuesta_url || "",
-    });
+    };
+    setConciertoForm(nextForm);
+    conciertoFormBaselineRef.current = conciertoFormDirtySnapshot(nextForm);
     setConciertoEditor(concierto.id);
     const reglas = conciertoParaReglasEntradas(
       concierto,
@@ -2349,164 +2731,258 @@ export default function EntradasMain({ user, profile, onLogout }) {
     }
   };
 
+  const startEditConcierto = (concierto) => {
+    if (conciertoEditor != null && Number(conciertoEditor) === Number(concierto.id)) return;
+    runWithUnsavedGuard(() => applyStartEditConcierto(concierto));
+  };
+
   const renderProgramaEditorForm = () => (
-    <form className="space-y-3" onSubmit={submitPrograma}>
-      {ofrnProgramaEnEdicionReferencia && (
-        <div className={ui.inset}>
-          <p className={ui.label}>Gira OFRN (referencia)</p>
-          <p className={`text-xs font-semibold ${ui.textBody}`}>{buildProgramaLabel(ofrnProgramaEnEdicionReferencia)}</p>
-          {String(ofrnProgramaEnEdicionReferencia.subtitulo || "").trim() ? (
-            <p className={`text-xs leading-relaxed ${ui.textSoft}`}>{String(ofrnProgramaEnEdicionReferencia.subtitulo).trim()}</p>
-          ) : (
-            <p className={`text-[11px] italic ${ui.textMuted}`}>Sin subtítulo en la gira OFRN.</p>
-          )}
-        </div>
-      )}
-      <input
-        value={programaForm.nombre}
-        onChange={(event) => setProgramaForm((prev) => ({ ...prev, nombre: event.target.value }))}
-        className={ui.input}
-        placeholder="Nombre del programa"
-        required
-      />
-      <RichTextEditor
-        key={`programa-detalle-${programaForm.id ?? "nuevo"}`}
-        value={programaForm.detalle_richtext}
-        onChange={(value) => setProgramaForm((prev) => ({ ...prev, detalle_richtext: value }))}
-        placeholder="Detalle del programa (texto enriquecido)"
-      />
-      <label className={`flex items-center gap-2 text-sm ${ui.textBody}`}>
+    <form
+      className="space-y-2"
+      key={`programa-form-${programaForm.id ?? "nuevo"}`}
+      onSubmit={submitPrograma}
+    >
+      <EntradasFormCollapsibleSection
+        title="Información del programa"
+        hint="Nombre y referencia de la gira OFRN"
+        panelClassName={ui.insetPanel}
+        isDark={isDark}
+      >
+        {ofrnProgramaEnEdicionReferencia && (
+          <div className={ui.inset}>
+            <p className={ui.label}>Gira OFRN (referencia)</p>
+            <p className={`text-xs font-semibold ${ui.textBody}`}>
+              {tituloOfrnPrograma(ofrnProgramaEnEdicionReferencia) || buildProgramaLabel(ofrnProgramaEnEdicionReferencia)}
+            </p>
+            {String(ofrnProgramaEnEdicionReferencia.subtitulo || "").trim() ? (
+              <p className={`text-xs leading-relaxed ${ui.textSoft}`}>{String(ofrnProgramaEnEdicionReferencia.subtitulo).trim()}</p>
+            ) : (
+              <p className={`text-[11px] italic ${ui.textMuted}`}>Sin subtítulo en la gira OFRN.</p>
+            )}
+          </div>
+        )}
         <input
-          type="checkbox"
-          checked={programaForm.activo}
-          onChange={(event) => setProgramaForm((prev) => ({ ...prev, activo: event.target.checked }))}
-          className={ui.checkbox}
+          value={programaForm.nombre}
+          onChange={(event) => setProgramaForm((prev) => ({ ...prev, nombre: event.target.value }))}
+          className={ui.input}
+          placeholder="Nombre del programa"
         />
-        Programa activo (visible en catálogo cuando tenga conciertos publicados)
-      </label>
-      <div className="flex flex-wrap gap-2">
-        <button type="submit" className={`${ui.btnPrimary} w-auto px-4`}>
+      </EntradasFormCollapsibleSection>
+
+      <EntradasFormCollapsibleSection
+        title="Detalle del programa"
+        hint="Texto enriquecido visible en el catálogo"
+        panelClassName={ui.insetPanel}
+        isDark={isDark}
+      >
+        <RichTextEditor
+          key={`programa-detalle-${programaForm.id ?? "nuevo"}`}
+          value={programaForm.detalle_richtext}
+          onChange={(value) => setProgramaForm((prev) => ({ ...prev, detalle_richtext: value }))}
+          placeholder="Detalle del programa (texto enriquecido)"
+        />
+      </EntradasFormCollapsibleSection>
+
+      <EntradasFormCollapsibleSection
+        title="Visibilidad"
+        hint="Control de publicación en catálogo"
+        panelClassName={ui.insetPanel}
+        isDark={isDark}
+      >
+        <label className={`flex items-center gap-2 text-sm ${ui.textBody}`}>
+          <input
+            type="checkbox"
+            checked={programaForm.activo}
+            onChange={(event) => setProgramaForm((prev) => ({ ...prev, activo: event.target.checked }))}
+            className={ui.checkbox}
+          />
+          Programa activo (visible en catálogo cuando tenga conciertos publicados)
+        </label>
+      </EntradasFormCollapsibleSection>
+
+      <div className="flex flex-nowrap items-center gap-2 pt-1">
+        <button type="submit" className={`${ui.btnPrimary} !w-auto shrink-0 px-5`}>
           Actualizar programa
         </button>
-        <button type="button" onClick={resetProgramaForm} className={ui.btnGhost}>
+        <button type="button" onClick={requestCloseProgramaEditor} className={`${ui.btnGhost} shrink-0`}>
           Cancelar
         </button>
       </div>
     </form>
   );
 
-  const renderConciertoEditorForm = () => (
-    <form className="space-y-3" onSubmit={submitConcierto}>
-      <select
-        value={conciertoForm.ofrn_evento_id === "" ? "" : String(conciertoForm.ofrn_evento_id)}
-        onChange={(event) => {
-          const nextId = event.target.value === "" ? "" : Number(event.target.value);
-          const ev = eventosParaSelectorConcierto.find((row) => Number(row.id) === Number(nextId));
-          if (!ev) {
+  const renderConciertoEditorForm = () => {
+    const evSelApertura = eventosParaSelectorConcierto.find(
+      (row) => Number(row.id) === Number(conciertoForm.ofrn_evento_id),
+    );
+    const conciertoBaseApertura = conciertoForm.id
+      ? adminData.conciertos?.find((c) => Number(c.id) === Number(conciertoForm.id))
+      : evSelApertura
+      ? { evento: evSelApertura, ofrn_evento_id: evSelApertura.id, activo: true, reservas_habilitadas: true }
+      : null;
+    const conciertoReglasApertura = conciertoParaReglasEntradas(
+      conciertoBaseApertura,
+      {
+        apertura_reservas_at: conciertoForm.apertura_reservas_at,
+        reservas_habilitadas: conciertoForm.reservas_habilitadas,
+        activo: conciertoForm.activo,
+      },
+      { editing: Boolean(conciertoBaseApertura) },
+    );
+    const aperturaResumen = resumenAperturaReservasForm(conciertoReglasApertura);
+
+    return (
+    <form
+      className="space-y-2"
+      key={`concierto-form-${conciertoForm.id ?? "nuevo"}`}
+      onSubmit={submitConcierto}
+    >
+      <EntradasFormCollapsibleSection
+        title="Datos del concierto"
+        hint="Evento OFRN, nombre y fecha"
+        panelClassName={ui.insetPanel}
+        isDark={isDark}
+      >
+        <select
+          value={conciertoForm.ofrn_evento_id === "" ? "" : String(conciertoForm.ofrn_evento_id)}
+          onChange={(event) => {
+            const nextId = event.target.value === "" ? "" : Number(event.target.value);
+            const ev = eventosParaSelectorConcierto.find((row) => Number(row.id) === Number(nextId));
+            if (!ev) {
+              setConciertoForm((prev) => ({
+                ...prev,
+                ofrn_evento_id: "",
+                nombre: "",
+                capacidad_maxima: "",
+                apertura_reservas_at: "",
+              }));
+              return;
+            }
             setConciertoForm((prev) => ({
               ...prev,
-              ofrn_evento_id: "",
-              nombre: "",
-              capacidad_maxima: "",
-              apertura_reservas_at: "",
+              ...conciertoFormDefaultsDesdeEventoOfrn(ev, prev),
             }));
-            return;
-          }
-          setConciertoForm((prev) => ({
-            ...prev,
-            ...conciertoFormDefaultsDesdeEventoOfrn(ev, prev),
-          }));
-        }}
-        className={ui.select}
-        required
+          }}
+          className={ui.select}
+        >
+          <option value="">Seleccionar evento OFRN (tipo concierto)</option>
+          {eventosParaSelectorConcierto.map((ev) => (
+            <option key={ev.id} value={String(ev.id)}>
+              {`${buildProgramaLabel(ev.programas)} · ${formatDateLongEs(`${ev.fecha}T00:00:00`)}`}
+            </option>
+          ))}
+        </select>
+        <input
+          value={conciertoForm.nombre}
+          onChange={(event) => setConciertoForm((prev) => ({ ...prev, nombre: event.target.value }))}
+          className={ui.input}
+          placeholder="Nombre del concierto"
+        />
+        {(() => {
+          const evSel = eventosParaSelectorConcierto.find(
+            (row) => Number(row.id) === Number(conciertoForm.ofrn_evento_id),
+          );
+          if (!evSel) return null;
+          const fh = fechaHoraDesdeConciertoEntrada({ evento: evSel });
+          const lugar = lugarNombreDesdeConciertoEntrada({ evento: evSel });
+          return (
+            <div className={`${ui.inset} space-y-1`}>
+              <p className={ui.label}>Fecha, hora y lugar (solo lectura · evento OFRN)</p>
+              <p className={`text-sm font-semibold ${ui.textBody}`}>
+                {fh ? formatConciertoFechaHoraEs(fh) : "—"}
+              </p>
+              <p className={`text-xs ${ui.textMuted}`}>{lugar || "Sin lugar indicado en el evento"}</p>
+            </div>
+          );
+        })()}
+      </EntradasFormCollapsibleSection>
+
+      <EntradasFormCollapsibleSection
+        title="Detalle del concierto"
+        hint="Texto enriquecido de la ficha pública"
+        panelClassName={ui.insetPanel}
+        isDark={isDark}
       >
-        <option value="">Seleccionar evento OFRN (tipo concierto)</option>
-        {eventosParaSelectorConcierto.map((ev) => (
-          <option key={ev.id} value={String(ev.id)}>
-            {`${buildProgramaLabel(ev.programas)} · ${formatDateLongEs(`${ev.fecha}T00:00:00`)}`}
-          </option>
-        ))}
-      </select>
-      <input
-        value={conciertoForm.nombre}
-        onChange={(event) => setConciertoForm((prev) => ({ ...prev, nombre: event.target.value }))}
-        className={ui.input}
-        placeholder="Nombre del concierto"
-        required
-      />
-      {(() => {
-        const evSel = eventosParaSelectorConcierto.find(
-          (row) => Number(row.id) === Number(conciertoForm.ofrn_evento_id),
-        );
-        if (!evSel) return null;
-        const fh = fechaHoraDesdeConciertoEntrada({ evento: evSel });
-        const lugar = lugarNombreDesdeConciertoEntrada({ evento: evSel });
-        return (
-          <div className={`${ui.inset} space-y-1`}>
-            <p className={ui.label}>Fecha, hora y lugar (solo lectura · evento OFRN)</p>
-            <p className={`text-sm font-semibold ${ui.textBody}`}>
-              {fh ? formatConciertoFechaHoraEs(fh) : "—"}
-            </p>
-            <p className={`text-xs ${ui.textMuted}`}>{lugar || "Sin lugar indicado en el evento"}</p>
-          </div>
-        );
-      })()}
-      <input
-        value={conciertoForm.imagen_drive_url}
-        onChange={(event) => setConciertoForm((prev) => ({ ...prev, imagen_drive_url: event.target.value }))}
-        className={ui.input}
-        placeholder="URL pública de portada (Google Drive)"
-      />
-      <input
-        type="number"
-        min={1}
-        value={conciertoForm.capacidad_maxima === "" ? "" : conciertoForm.capacidad_maxima}
-        onChange={(event) => {
-          const raw = event.target.value;
-          setConciertoForm((prev) => ({
-            ...prev,
-            capacidad_maxima: raw === "" ? "" : Number(raw),
-          }));
-        }}
-        className={ui.input}
-        placeholder="Capacidad máxima"
-        required
-      />
-      <div className={ui.insetPanel}>
-        <p className={ui.sectionTitle}>Apertura de reservas</p>
-        <label className={`flex items-center gap-2 text-sm ${ui.textBody}`}>
-          <input
-            type="checkbox"
-            checked={conciertoForm.reservas_habilitadas}
-            onChange={(e) =>
-              setConciertoForm((prev) => ({ ...prev, reservas_habilitadas: e.target.checked }))
-            }
-            className={ui.checkbox}
-          />
-          Reservas habilitadas (flag admin)
-        </label>
-        <label className={`block text-xs font-semibold mt-2 ${ui.textBody}`}>
-          Fecha y hora de apertura
-          <input
-            type="datetime-local"
-            value={conciertoForm.apertura_reservas_at}
-            onChange={(e) => setConciertoForm((prev) => ({ ...prev, apertura_reservas_at: e.target.value }))}
-            className={`mt-1 ${ui.input}`}
-          />
-        </label>
-        <p className={`text-[10px] leading-snug mt-1 ${ui.textMuted}`}>
+        <RichTextEditor
+          key={`detalle-${conciertoForm.id ?? "nuevo"}`}
+          value={conciertoForm.detalle_richtext}
+          onChange={(value) => setConciertoForm((prev) => ({ ...prev, detalle_richtext: value }))}
+          placeholder="Detalle del concierto"
+        />
+      </EntradasFormCollapsibleSection>
+
+      <EntradasFormCollapsibleSection
+        title="Portada y capacidad"
+        hint="Imagen de Google Drive y cupo máximo"
+        panelClassName={ui.insetPanel}
+        isDark={isDark}
+      >
+        <input
+          value={conciertoForm.imagen_drive_url}
+          onChange={(event) => setConciertoForm((prev) => ({ ...prev, imagen_drive_url: event.target.value }))}
+          className={ui.input}
+          placeholder="URL pública de portada (Google Drive)"
+        />
+        <input
+          type="number"
+          min={1}
+          value={conciertoForm.capacidad_maxima === "" ? "" : conciertoForm.capacidad_maxima}
+          onChange={(event) => {
+            const raw = event.target.value;
+            setConciertoForm((prev) => ({
+              ...prev,
+              capacidad_maxima: raw === "" ? "" : Number(raw),
+            }));
+          }}
+          className={ui.input}
+          placeholder="Capacidad máxima"
+        />
+      </EntradasFormCollapsibleSection>
+
+      <EntradasFormCollapsibleSection
+        title="Apertura de reservas"
+        hint="Habilitación y fecha de apertura"
+        summaryStatus={aperturaResumen.text}
+        summaryStatusTone={aperturaResumen.tone}
+        panelClassName={ui.insetPanel}
+        isDark={isDark}
+      >
+        <EntradasConciertoDatetimeField
+          label="Fecha y hora de apertura"
+          value={conciertoForm.apertura_reservas_at}
+          onChange={(e) => setConciertoForm((prev) => ({ ...prev, apertura_reservas_at: e.target.value }))}
+          weekday={formatWeekdayFromDatetimeLocal(conciertoForm.apertura_reservas_at)}
+          inputClassName={ui.inputDatetime}
+          mutedClassName={ui.textMuted}
+          labelClassName={ui.textBody}
+          labelExtra={
+            <EntradasReservasHabilitadasToggle
+              checked={conciertoForm.reservas_habilitadas}
+              onChange={(checked) =>
+                setConciertoForm((prev) => ({ ...prev, reservas_habilitadas: checked }))
+              }
+              isDark={isDark}
+            />
+          }
+        />
+        <p className={`text-[10px] leading-snug ${ui.textMuted}`}>
           Si dejás vacío en base, se usa por defecto el jueves anterior al concierto a las 19:00 (Argentina). Mientras no
           llegue la apertura, en admin solo verás recordatorios programados.
         </p>
-      </div>
-      <div className={ui.insetPanel}>
-        <p className={ui.sectionTitle}>Horarios automáticos</p>
+      </EntradasFormCollapsibleSection>
+
+      <EntradasFormCollapsibleSection
+        title="Horarios automáticos y encuesta"
+        hint="Recordatorios, cierre y enlace de encuesta"
+        panelClassName={ui.insetPanel}
+        isDark={isDark}
+      >
         <p className={`text-[11px] leading-snug ${ui.textMuted}`}>
           Por defecto: recordatorio 1 día antes, cierre de reservas 10 min antes del concierto, encuesta 3 h después (editable).
         </p>
-        <label className={`block text-xs font-semibold ${ui.textBody}`}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span>Recordatorio por mail</span>
+        <EntradasConciertoDatetimeField
+          label="Recordatorio por mail"
+          labelExtra={
             <button
               type="button"
               disabled={testMailBusyTipo != null}
@@ -2515,29 +2991,29 @@ export default function EntradasMain({ user, profile, onLogout }) {
             >
               {testMailBusyTipo === "recordatorio" ? "Enviando…" : "Enviar mail de prueba"}
             </button>
-          </div>
-          <input
-            type="datetime-local"
-            value={conciertoForm.limite_recordatorio_at}
-            onChange={(e) => setConciertoForm((prev) => ({ ...prev, limite_recordatorio_at: e.target.value }))}
-            className={`mt-1 ${ui.input}`}
-          />
-        </label>
-        <label className={`block text-xs font-semibold ${ui.textBody}`}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span>Cierre para sacar entradas</span>
+          }
+          value={conciertoForm.limite_recordatorio_at}
+          onChange={(e) => setConciertoForm((prev) => ({ ...prev, limite_recordatorio_at: e.target.value }))}
+          weekday={formatWeekdayFromDatetimeLocal(conciertoForm.limite_recordatorio_at)}
+          inputClassName={ui.inputDatetime}
+          mutedClassName={ui.textMuted}
+          labelClassName={ui.textBody}
+        />
+        <EntradasConciertoDatetimeField
+          label="Cierre para sacar entradas"
+          labelExtra={
             <span className={`text-[10px] font-normal ${ui.textMuted}`}>Sin correo automático</span>
-          </div>
-          <input
-            type="datetime-local"
-            value={conciertoForm.limite_cierre_reservas_at}
-            onChange={(e) => setConciertoForm((prev) => ({ ...prev, limite_cierre_reservas_at: e.target.value }))}
-            className={`mt-1 ${ui.input}`}
-          />
-        </label>
-        <label className={`block text-xs font-semibold ${ui.textBody}`}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span>Envío encuesta (quienes ingresaron)</span>
+          }
+          value={conciertoForm.limite_cierre_reservas_at}
+          onChange={(e) => setConciertoForm((prev) => ({ ...prev, limite_cierre_reservas_at: e.target.value }))}
+          weekday={formatWeekdayFromDatetimeLocal(conciertoForm.limite_cierre_reservas_at)}
+          inputClassName={ui.inputDatetime}
+          mutedClassName={ui.textMuted}
+          labelClassName={ui.textBody}
+        />
+        <EntradasConciertoDatetimeField
+          label="Envío encuesta (quienes ingresaron)"
+          labelExtra={
             <button
               type="button"
               disabled={testMailBusyTipo != null}
@@ -2546,14 +3022,14 @@ export default function EntradasMain({ user, profile, onLogout }) {
             >
               {testMailBusyTipo === "encuesta" ? "Enviando…" : "Enviar mail de prueba"}
             </button>
-          </div>
-          <input
-            type="datetime-local"
-            value={conciertoForm.limite_encuesta_at}
-            onChange={(e) => setConciertoForm((prev) => ({ ...prev, limite_encuesta_at: e.target.value }))}
-            className={`mt-1 ${ui.input}`}
-          />
-        </label>
+          }
+          value={conciertoForm.limite_encuesta_at}
+          onChange={(e) => setConciertoForm((prev) => ({ ...prev, limite_encuesta_at: e.target.value }))}
+          weekday={formatWeekdayFromDatetimeLocal(conciertoForm.limite_encuesta_at)}
+          inputClassName={ui.inputDatetime}
+          mutedClassName={ui.textMuted}
+          labelClassName={ui.textBody}
+        />
         <label className={`block text-xs font-semibold ${ui.textBody}`}>
           Enlace de la encuesta (Google Form u otro)
           <input
@@ -2576,24 +3052,19 @@ export default function EntradasMain({ user, profile, onLogout }) {
           </a>
           . Un enlace acá reemplaza ese default solo para este concierto.
         </p>
-      </div>
-      <RichTextEditor
-        key={`detalle-${conciertoForm.id ?? "nuevo"}`}
-        defaultOpen
-        value={conciertoForm.detalle_richtext}
-        onChange={(value) => setConciertoForm((prev) => ({ ...prev, detalle_richtext: value }))}
-        placeholder="Detalle del concierto"
-      />
-      <div className="flex flex-wrap gap-2 items-center">
-        <button type="submit" className={`${ui.btnPrimary} w-auto px-4`}>
+      </EntradasFormCollapsibleSection>
+
+      <div className="flex flex-nowrap items-center gap-2 pt-1">
+        <button type="submit" className={`${ui.btnPrimary} !w-auto shrink-0 px-5`}>
           {conciertoForm.id ? "Actualizar concierto" : "Guardar concierto"}
         </button>
-        <button type="button" onClick={closeConciertoEditor} className={ui.btnGhost}>
+        <button type="button" onClick={requestCloseConciertoEditor} className={`${ui.btnGhost} shrink-0`}>
           Cancelar
         </button>
       </div>
     </form>
-  );
+    );
+  };
 
   const renderAdminConciertoItem = (concierto) => {
     const stats = adminConciertoStatsById[concierto.id];
@@ -2830,7 +3301,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
               </button>
               <button
                 type="button"
-                onClick={onLogout}
+                onClick={() => runWithUnsavedGuard(() => onLogout?.())}
                 className={`${ui.headerAction} ${ui.logout} text-xs font-bold`}
               >
                 Cerrar sesión
@@ -2845,14 +3316,14 @@ export default function EntradasMain({ user, profile, onLogout }) {
           <button
             type="button"
             className={section === "catalogo" ? ui.navActive : ui.navIdle}
-            onClick={() => setSearchParams({ view: "catalogo" })}
+            onClick={() => navigateEntradasView({ view: "catalogo" })}
           >
             Catálogo
           </button>
           <button
             type="button"
             className={section === "mis-reservas" ? ui.navActive : ui.navIdle}
-            onClick={() => setSearchParams({ view: "mis-reservas" })}
+            onClick={() => navigateEntradasView({ view: "mis-reservas" })}
           >
             Mis entradas
           </button>
@@ -2860,7 +3331,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
             <button
               type="button"
               className={section === "recepcion" ? ui.navActive : ui.navIdle}
-              onClick={() => setSearchParams({ view: "recepcion" })}
+              onClick={() => navigateEntradasView({ view: "recepcion" })}
             >
               Recepción
             </button>
@@ -2869,7 +3340,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
             <button
               type="button"
               className={section === "admin" ? ui.navActive : ui.navIdle}
-              onClick={() => setSearchParams({ view: "admin" })}
+              onClick={() => navigateEntradasView({ view: "admin" })}
             >
               Admin
             </button>
@@ -2895,7 +3366,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
                         {programa.localidadLabel ? (
                           <p className={ui.programaLocalidad}>{programa.localidadLabel}</p>
                         ) : null}
-                        <h3 className={ui.programaTitle}>{programa.nombre}</h3>
+                        <h3 className={ui.programaTitle}>
+                          {nombreProgramaEntradaMostrar(
+                            programa,
+                            programa.entrada_concierto,
+                            ofrnProgramasPicker,
+                          )}
+                        </h3>
                       </div>
                       {canAdmin && (
                         <button
@@ -2938,16 +3415,22 @@ export default function EntradasMain({ user, profile, onLogout }) {
                           <div
                             key={concierto.id}
                             className={`${ui.catalogConciertoCardWrap(catalogoSeleccionado, entradasAgotadas)} entradas-interactive`}
+                            aria-current={catalogoSeleccionado ? "true" : undefined}
                           >
                             {renderCatalogReservaEnRecuadro(concierto.id, { embedded: true })}
                             <div className="flex min-w-0 flex-1 items-stretch">
                               <button
                                 type="button"
-                                className={`${ui.catalogConciertoCardBody} min-w-0 flex-1`}
+                                className={`${ui.catalogConciertoCardBody(catalogoSeleccionado)} min-w-0 flex-1`}
                                 onClick={() => handlePickConcierto(concierto.slug_publico)}
                               >
                                 <div className="space-y-1">
-                                  <p className={`text-sm font-semibold ${textoTarjetaAgotada}`}>{concierto.nombre}</p>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className={`text-sm font-semibold ${textoTarjetaAgotada}`}>{concierto.nombre}</p>
+                                    {catalogoSeleccionado && (
+                                      <span className={ui.badgeSelected}>Seleccionado</span>
+                                    )}
+                                  </div>
                                   {((!reservasAbiertas && textoAperturaReservas(concierto)) ||
                                     (aceptaRecordatorio && inscriptoRecordatorio)) && (
                                     <div className="flex flex-wrap gap-1">
@@ -3630,8 +4113,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   type="button"
                   className={adminTab === tab ? ui.adminTabActive : ui.adminTabIdle}
                   onClick={() => {
-                    setAdminTab(tab);
-                    if (section !== "admin") setSearchParams({ view: "admin" });
+                    runWithUnsavedGuard(() => {
+                      setAdminTab(tab);
+                      if (section !== "admin") setSearchParams({ view: "admin" });
+                    });
                   }}
                 >
                   {ADMIN_TAB_LABELS[tab] || tab}
@@ -3903,7 +4388,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
                               {programaLocalidadLabel ? (
                                 <p className={ui.programaLocalidad}>{programaLocalidadLabel}</p>
                               ) : null}
-                              <p className={ui.programaTitle}>{programa.nombre}</p>
+                              <p className={ui.programaTitle}>
+                                {nombreProgramaEntradaMostrar(
+                                  programa,
+                                  listaCompleta,
+                                  ofrnProgramasPicker,
+                                )}
+                              </p>
                               {(() => {
                                 const ofrnRow = ofrnPid
                                   ? ofrnProgramasPicker.find((p) => Number(p.id) === ofrnPid)
@@ -4598,11 +5089,11 @@ export default function EntradasMain({ user, profile, onLogout }) {
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 backdrop-blur-sm p-3 sm:p-4"
           role="presentation"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setNuevoProgramaModalOpen(false);
+            if (e.target === e.currentTarget && !nuevoProgramaCreando) setNuevoProgramaModalOpen(false);
           }}
         >
           <div
-            className={`w-full max-w-lg p-5 shadow-2xl animate-in zoom-in-95 duration-200 ${ui.cardInner}`}
+            className={`w-full max-w-xl p-5 shadow-2xl animate-in zoom-in-95 duration-200 ${ui.cardInner}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="entradas-nuevo-programa-titulo"
@@ -4616,13 +5107,15 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 type="button"
                 className={`shrink-0 rounded p-1 ${ui.btnIcon}`}
                 aria-label="Cerrar"
-                onClick={() => setNuevoProgramaModalOpen(false)}
+                disabled={nuevoProgramaCreando}
+                onClick={() => !nuevoProgramaCreando && setNuevoProgramaModalOpen(false)}
               >
                 <IconX size={20} />
               </button>
             </div>
             <p className={`text-[11px] mt-2 leading-relaxed ${ui.textMuted}`}>
-              Elegí el tipo de programa y una gira de la app OFRN que aún no tenga entradas. Luego cargá los conciertos: solo se listan eventos futuros de tipo concierto de esa gira.
+              Elegí la gira OFRN y los conciertos futuros que querés publicar. Se crean el programa y los conciertos
+              seleccionados en un solo paso (capacidad sugerida 115% del aforo de la sala).
             </p>
             <div className="mt-4 space-y-3">
               <label className={`block text-xs font-semibold space-y-1 ${ui.textBody}`}>
@@ -4674,25 +5167,170 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   )}
                 </div>
               )}
+              {ofrnSeleccionadoModal && eventosConciertoNuevoProgramaModal.length > 0 && (
+                <div className={`rounded-lg border p-3 space-y-2 ${isDark ? "border-slate-600 bg-slate-900/50" : "border-slate-200 bg-slate-50"}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className={`text-xs font-bold ${ui.textBody}`}>
+                      Conciertos a crear
+                      {nuevoProgramaConciertosPendientesCount > 0 && (
+                        <span className={`ml-1.5 font-normal ${ui.textMuted}`}>
+                          ({nuevoProgramaConciertosSeleccionadosCount} de {nuevoProgramaConciertosPendientesCount})
+                        </span>
+                      )}
+                    </p>
+                    {nuevoProgramaConciertosPendientesCount > 0 && (
+                      <div className="flex flex-wrap gap-2 text-[11px]">
+                        <button
+                          type="button"
+                          disabled={nuevoProgramaCreando}
+                          className={`font-semibold ${isDark ? "text-[#7dd3fc] hover:underline" : "text-[#0e7490] hover:underline"}`}
+                          onClick={() => {
+                            setNuevoProgramaEventosEnabled((prev) => {
+                              const next = { ...prev };
+                              for (const ev of eventosConciertoNuevoProgramaModal) {
+                                const eid = Number(ev.id);
+                                if (ofrnEventoIdsYaEnEntradas.has(eid)) continue;
+                                next[String(ev.id)] = true;
+                              }
+                              return next;
+                            });
+                          }}
+                        >
+                          Marcar todos
+                        </button>
+                        <button
+                          type="button"
+                          disabled={nuevoProgramaCreando}
+                          className={`font-semibold ${ui.textMuted} hover:underline`}
+                          onClick={() => {
+                            setNuevoProgramaEventosEnabled((prev) => {
+                              const next = { ...prev };
+                              for (const ev of eventosConciertoNuevoProgramaModal) {
+                                const eid = Number(ev.id);
+                                if (ofrnEventoIdsYaEnEntradas.has(eid)) continue;
+                                next[String(ev.id)] = false;
+                              }
+                              return next;
+                            });
+                          }}
+                        >
+                          Desmarcar todos
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <ul className="max-h-52 space-y-2 overflow-y-auto pr-1">
+                    {eventosConciertoNuevoProgramaModal.map((ev) => {
+                      const eid = String(ev.id);
+                      const yaCreado = ofrnEventoIdsYaEnEntradas.has(Number(ev.id));
+                      const lugar = ev.locaciones?.nombre || "Sin lugar";
+                      const capSug = capacidadEntradasSugeridaDesdeLocacion(ev.locaciones);
+                      return (
+                        <li key={ev.id}>
+                          <label
+                            className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-2.5 py-2 ${
+                              yaCreado
+                                ? isDark
+                                  ? "border-slate-700 bg-slate-800/40 opacity-60 cursor-not-allowed"
+                                  : "border-slate-200 bg-white/60 opacity-60 cursor-not-allowed"
+                                : nuevoProgramaEventosEnabled[eid]
+                                ? isDark
+                                  ? "border-[#1ebbf0]/50 bg-[#1ebbf0]/10"
+                                  : "border-[#1ebbf0]/40 bg-[#1ebbf0]/5"
+                                : isDark
+                                ? "border-slate-600 bg-slate-800/60"
+                                : "border-slate-200 bg-white"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 shrink-0"
+                              checked={yaCreado || Boolean(nuevoProgramaEventosEnabled[eid])}
+                              disabled={yaCreado || nuevoProgramaCreando}
+                              onChange={(event) => {
+                                setNuevoProgramaEventosEnabled((prev) => ({
+                                  ...prev,
+                                  [eid]: event.target.checked,
+                                }));
+                              }}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className={`block text-xs font-semibold leading-snug ${ui.textBody}`}>
+                                {formatEventoOfrnFechaHora(ev)}
+                              </span>
+                              <span className={`block text-[11px] mt-0.5 ${ui.textSoft}`}>{lugar}</span>
+                              {capSug ? (
+                                <span className={`block text-[10px] mt-0.5 ${ui.textMuted}`}>
+                                  Capacidad sugerida: {capSug}
+                                </span>
+                              ) : null}
+                              {yaCreado ? (
+                                <span className={`mt-1 inline-block text-[10px] font-bold uppercase tracking-wide ${ui.textMuted}`}>
+                                  Ya en entradas
+                                </span>
+                              ) : null}
+                            </span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+              {ofrnSeleccionadoModal && eventosConciertoNuevoProgramaModal.length === 0 && (
+                <p className={ui.warningBox}>
+                  Esta gira no tiene eventos tipo concierto futuros en OFRN. Revisá fechas o elegí otra gira.
+                </p>
+              )}
               {programasOfrnDisponiblesNuevoEntrada.length === 0 && (
                 <p className={ui.warningBox}>
                   No hay giras de este tipo con inicio a partir de hoy y sin módulo de entradas. Revisá fechas en OFRN o probá con otro tipo.
                 </p>
               )}
             </div>
-            <div className="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-              <button type="button" onClick={() => setNuevoProgramaModalOpen(false)} className={ui.btnGhost}>
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirmarProgramaOfrnParaNuevo()) setNuevoProgramaModalOpen(false);
-                }}
-                className={`${ui.btnPrimary} w-full sm:w-auto px-4`}
-              >
-                Continuar
-              </button>
+            <div className="mt-5 space-y-2">
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={nuevoProgramaCreando}
+                  onClick={() => setNuevoProgramaModalOpen(false)}
+                  className={ui.btnGhost}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    nuevoProgramaCreando
+                    || !nuevoProgramaOfrnSelect
+                    || nuevoProgramaConciertosSeleccionadosCount < 1
+                  }
+                  onClick={() => void crearProgramaEntradasConConciertos()}
+                  className={`${ui.btnPrimary} w-full sm:w-auto px-4 disabled:opacity-50`}
+                >
+                  {nuevoProgramaCreando
+                    ? "Creando…"
+                    : nuevoProgramaConciertosSeleccionadosCount > 0
+                    ? `Crear programa y ${nuevoProgramaConciertosSeleccionadosCount} concierto${
+                        nuevoProgramaConciertosSeleccionadosCount === 1 ? "" : "s"
+                      }`
+                    : "Crear programa"}
+                </button>
+              </div>
+              {ofrnSeleccionadoModal && (
+                <p className={`text-center sm:text-right text-[10px] ${ui.textMuted}`}>
+                  <button
+                    type="button"
+                    disabled={nuevoProgramaCreando}
+                    className="font-semibold hover:underline disabled:opacity-50"
+                    onClick={() => {
+                      if (confirmarProgramaOfrnParaNuevo()) setNuevoProgramaModalOpen(false);
+                    }}
+                  >
+                    Solo elegir programa (cargar conciertos a mano)
+                  </button>
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -4758,6 +5396,28 @@ export default function EntradasMain({ user, profile, onLogout }) {
         confirmText={adminDeleting ? "Eliminando…" : "Sí, eliminar"}
         confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-md"
         onConfirm={handleConfirmDeleteConcierto}
+      />
+
+      <ConfirmModal
+        isOpen={unsavedFormConfirmOpen}
+        onClose={() => {
+          if (unsavedFormSaveBusy) return;
+          pendingUnsavedActionRef.current = null;
+          setUnsavedFormConfirmOpen(false);
+        }}
+        title="Cambios sin guardar"
+        message="Hay cambios sin guardar en el formulario. ¿Querés guardarlos antes de salir?"
+        cancelText="Seguir editando"
+        confirmText="Descartar cambios"
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-md"
+        onConfirm={handleUnsavedDiscard}
+        confirmLoading={unsavedFormSaveBusy}
+        loadingText="Guardando…"
+        secondaryAction={{
+          label: unsavedFormSaveBusy ? "Guardando…" : "Guardar y continuar",
+          onClick: () => void handleUnsavedSaveAndContinue(),
+          disabled: unsavedFormSaveBusy,
+        }}
       />
 
       <ConfirmModal

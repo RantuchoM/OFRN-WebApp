@@ -90,6 +90,9 @@ export function entradasUi(isDark) {
       d
         ? "rounded-lg border border-slate-600 bg-slate-900 text-slate-100 px-3 py-2 text-sm"
         : "rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800",
+    inputDatetime: d
+      ? "w-[13.5rem] max-w-full shrink-0 rounded-lg border border-slate-600 bg-slate-900 text-slate-100 px-2.5 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-900"
+      : "w-[13.5rem] max-w-full shrink-0 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100",
     select: d
       ? "min-w-0 rounded-lg border border-slate-600 bg-slate-900 px-2 py-2.5 text-sm font-medium text-slate-100"
       : "min-w-0 rounded-lg border border-slate-300 bg-white px-2 py-2.5 text-sm font-medium text-slate-800",
@@ -141,26 +144,35 @@ export function entradasUi(isDark) {
     catalogConciertoCardWrap: (selected, agotado = false) =>
       agotado
         ? d
-          ? `entradas-concierto-card overflow-hidden border-2 bg-slate-800/70 border-slate-600 ${
-              selected ? "ring-1 ring-slate-500/60 shadow-sm" : ""
+          ? `entradas-concierto-card overflow-hidden border-2 bg-slate-800/70 ${
+              selected
+                ? "border-[#1ebbf0] border-l-[6px] border-l-[#1ebbf0] shadow-md ring-2 ring-[#1ebbf0]/35"
+                : "border-slate-600"
             }`
-          : `entradas-concierto-card overflow-hidden border-2 bg-slate-100 border-slate-300 ${
-              selected ? "ring-1 ring-slate-400/50 shadow-sm" : ""
+          : `entradas-concierto-card overflow-hidden border-2 bg-slate-100 ${
+              selected
+                ? "border-[#1ebbf0] border-l-[6px] border-l-[#1ebbf0] shadow-md ring-2 ring-[#1ebbf0]/30"
+                : "border-slate-300"
             }`
         : d
-          ? `entradas-concierto-card overflow-hidden border-2 bg-slate-800 ${
+          ? `entradas-concierto-card overflow-hidden border-2 ${
               selected
-                ? "border-[#1ebbf0] shadow-md ring-1 ring-[#1ebbf0]/30"
-                : "border-slate-600 hover:border-[#1ebbf0]/60"
+                ? "border-[#1ebbf0] border-l-[6px] border-l-[#1ebbf0] bg-gradient-to-r from-[#1ebbf0]/20 via-[#1ebbf0]/8 to-slate-800 shadow-lg ring-2 ring-[#1ebbf0]/45"
+                : "border-slate-600 bg-slate-800 hover:border-[#1ebbf0]/60"
             }`
-          : `entradas-concierto-card overflow-hidden border-2 bg-white ${
+          : `entradas-concierto-card overflow-hidden border-2 ${
               selected
-                ? "border-[#1ebbf0] shadow-md ring-1 ring-[#1ebbf0]/25"
-                : "border-[#e8eaed] hover:border-[#1ebbf0]/50"
+                ? "border-[#1ebbf0] border-l-[6px] border-l-[#1ebbf0] bg-gradient-to-r from-[#1ebbf0]/12 via-[#1ebbf0]/5 to-white shadow-lg ring-2 ring-[#1ebbf0]/35"
+                : "border-[#e8eaed] bg-white hover:border-[#1ebbf0]/50"
             }`,
-    catalogConciertoCardBody: d
-      ? "entradas-interactive w-full text-left border-0 bg-transparent px-3 py-2 hover:bg-slate-700/40"
-      : "entradas-interactive w-full text-left border-0 bg-transparent px-3 py-2 hover:bg-slate-50",
+    catalogConciertoCardBody: (selected = false) =>
+      d
+        ? `entradas-interactive w-full text-left border-0 bg-transparent px-3 py-2 ${
+            selected ? "hover:bg-[#1ebbf0]/10" : "hover:bg-slate-700/40"
+          }`
+        : `entradas-interactive w-full text-left border-0 bg-transparent px-3 py-2 ${
+            selected ? "hover:bg-[#1ebbf0]/8" : "hover:bg-slate-50"
+          }`,
     catalogConciertoBtn: (selected) =>
       d
         ? `entradas-concierto-card entradas-interactive w-full text-left border-2 px-3 py-2 bg-slate-800 ${

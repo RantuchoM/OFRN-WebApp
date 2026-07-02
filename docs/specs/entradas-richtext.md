@@ -12,7 +12,8 @@
 - [x] **Google Drive**: enlaces compartidos como «Cualquier persona con el enlace»; mismos patrones que portada (`entradasDriveImage.js`).
 - [x] URLs `https` directas a imágenes públicas también válidas.
 - [x] **Recorte rectangular** opcional (franjas con presets: central, superior, inferior).
-- [x] Recorte persistido en HTML (`data-crop`, `data-img-aspect` + estilos inline).
+- [x] Recorte persistido en `<img data-crop="x,y,w,h" data-img-aspect="…">` (formato guardado en BD).
+- [x] Al mostrar: envoltorio `<span class="ql-image-crop">` con estilos inline (solo presentación).
 - [x] **Edición posterior**: doble clic en la imagen dentro del editor reabre el modal con URL y recorte cargados.
 - [x] Al guardar: `<img src>` de Drive en formato canónico (`drive.google.com/file/d/{id}/view`).
 - [x] Al mostrar/editar: conversión a URL mostrable (`lh3.googleusercontent.com/d/{id}`).

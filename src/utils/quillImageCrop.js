@@ -83,45 +83,88 @@ export function applyCropDomPresentation(wrapper) {
 }
 
 const CROP_WRAP_RE =
-  /<(?:div|span)\b([^>]*\bclass="[^"]*\bql-image-crop\b[^"]*"[^>]*)>(\s*<img\b[^>]*>)\s*<\/(?:div|span)>/gi;
+  /<(?:div|span)\b([^>]*\bclass="[^"]*\bql-image-(?:crop|embed)\b[^"]*"[^>]*)>(\s*<img\b[^>]*>)\s*<\/(?:div|span)>/gi;
+
+const IMG_WITH_CROP_RE = /<img\b([^>]*\bdata-crop="([^"]+)"[^>]*)>/gi;
 
 function readAttr(attrs, name) {
   const m = attrs.match(new RegExp(`\\b${name}="([^"]*)"`, "i"));
   return m?.[1] ?? "";
 }
 
-function upsertStyle(attrs, styleValue) {
-  const re = /\bstyle="([^"]*)"/i;
-  if (re.test(attrs)) return attrs.replace(re, `style="${styleValue}"`);
-  return `${attrs} style="${styleValue}"`;
+function upsertAttrOnFragment(attrs, name, value) {
+  const re = new RegExp(`\\b${name}="[^"]*"`, "i");
+  const chunk = ` ${name}="${value}"`;
+  if (re.test(attrs)) return attrs.replace(re, ` ${name}="${value}"`);
+  return `${attrs}${chunk}`;
 }
 
-/** Envuelve <img> sueltas en span.ql-image-embed para compatibilidad con el blot de Quill. */
-export function wrapBareQuillImages(html) {
+function stripPresentationAttrs(attrs) {
+  return attrs.replace(/\s*style="[^"]*"/gi, "").replace(/\s*class="[^"]*"/gi, "");
+}
+
+function buildStorageImgTag(wrapAttrs, imgTag) {
+  const crop =
+    parseCropAttr(readAttr(wrapAttrs, "data-crop")) || parseCropAttr(readAttr(imgTag, "data-crop"));
+  const aspect = readAttr(wrapAttrs, "data-img-aspect") || readAttr(imgTag, "data-img-aspect");
+  const innerMatch = imgTag.match(/<img\b([^>]*)>/i);
+  let inner = innerMatch?.[1] || imgTag;
+  inner = stripPresentationAttrs(inner);
+
+  if (crop && !isFullCrop(crop)) {
+    inner = upsertAttrOnFragment(inner, "data-crop", serializeCrop(crop));
+    if (aspect) inner = upsertAttrOnFragment(inner, "data-img-aspect", aspect);
+  } else {
+    inner = inner.replace(/\s*data-crop="[^"]*"/gi, "").replace(/\s*data-img-aspect="[^"]*"/gi, "");
+  }
+
+  return `<img${inner}>`;
+}
+
+/** Quita envoltorios de presentación y deja el recorte en atributos del <img> (formato persistido). */
+export function unwrapQuillCropWrappersForStorage(html) {
   if (html == null || typeof html !== "string") return html;
-  return html.replace(/<img\b([^>]*?)\/?>/gi, (full, attrs, offset, whole) => {
+  return html.replace(CROP_WRAP_RE, (full, wrapAttrs, imgTag) => buildStorageImgTag(wrapAttrs, imgTag));
+}
+
+function buildCropWrapperHtml(imgAttrs, cropRaw) {
+  const crop = parseCropAttr(cropRaw);
+  if (!crop || isFullCrop(crop)) return `<img${imgAttrs}>`;
+
+  const aspect = roundAspect(parseFloat(readAttr(imgAttrs, "data-img-aspect"))) || 1;
+  const wrapStyle = buildCropWrapperInlineStyle(crop, aspect);
+  const imgStyle = buildCropImgInlineStyle(crop);
+  const cleanAttrs = stripPresentationAttrs(imgAttrs);
+  const cropAttr = upsertAttrOnFragment(cleanAttrs, "data-crop", cropRaw);
+  const aspectAttr = aspect
+    ? upsertAttrOnFragment(cropAttr, "data-img-aspect", String(aspect))
+    : cropAttr;
+
+  return `<span class="ql-image-embed ql-image-crop" data-crop="${cropRaw}" data-img-aspect="${aspect}" style="${wrapStyle}"><img${aspectAttr} style="${imgStyle}"></span>`;
+}
+
+/** Envuelve <img data-crop> para mostrar el recorte en editor y vista pública. */
+export function wrapCroppedImagesForDisplay(html) {
+  if (html == null || typeof html !== "string") return html;
+  return html.replace(IMG_WITH_CROP_RE, (full, attrs, cropRaw, offset, whole) => {
     const before = whole.slice(0, offset);
-    if (
-      /<(?:div|span)[^>]*class="[^"]*ql-image-(?:embed|crop)[^"]*"[^>]*>\s*$/i.test(before)
-    ) {
+    if (/<(?:div|span)[^>]*class="[^"]*ql-image-(?:embed|crop)[^"]*"[^>]*>\s*$/i.test(before)) {
       return full;
     }
-    return `<span class="ql-image-embed"><img${attrs}></span>`;
+    return buildCropWrapperHtml(attrs, cropRaw);
   });
 }
 
-/** Asegura estilos inline de recorte en HTML persistido (vista pública sin JS). */
+/** Refresca estilos inline en envoltorios de recorte ya existentes. */
 export function enhanceQuillHtmlCropStyles(html) {
   if (html == null || typeof html !== "string") return html;
   return html.replace(CROP_WRAP_RE, (full, wrapAttrs, imgTag) => {
-    const crop = parseCropAttr(readAttr(wrapAttrs, "data-crop"));
+    const crop =
+      parseCropAttr(readAttr(wrapAttrs, "data-crop")) || parseCropAttr(readAttr(imgTag, "data-crop"));
     if (!crop || isFullCrop(crop)) return full;
-    const aspect = roundAspect(parseFloat(readAttr(wrapAttrs, "data-img-aspect"))) || 1;
-    const wrapStyle = buildCropWrapperInlineStyle(crop, aspect);
-    const imgStyle = buildCropImgInlineStyle(crop);
-    const newWrapAttrs = upsertStyle(wrapAttrs, wrapStyle);
-    const newImgTag = upsertStyle(imgTag, imgStyle);
-    const tag = /^<div/i.test(full) ? "div" : "span";
-    return `<${tag}${newWrapAttrs}>${newImgTag}</${tag}>`;
+    const cropRaw = serializeCrop(crop);
+    const innerMatch = imgTag.match(/<img\b([^>]*)>/i);
+    const imgAttrs = innerMatch?.[1] || "";
+    return buildCropWrapperHtml(imgAttrs, cropRaw);
   });
 }

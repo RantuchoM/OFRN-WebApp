@@ -9,7 +9,7 @@ import { FULL_CROP, isFullCrop, parseCropAttr } from "../../utils/quillImageCrop
 import { CroppedImageBlot } from "./quillCroppedImageRegister";
 import { QUILL_FONT_FAMILY_KEYS, QUILL_FONT_SIZES_PX } from "./quillEntradasRegister";
 import {
-  prepareEntradasQuillHtmlForDisplay,
+  prepareEntradasQuillHtmlForEditor,
   prepareEntradasQuillHtmlForStorage,
 } from "./quillFontNormalize";
 import RichTextImageUrlModal from "./RichTextImageUrlModal";
@@ -45,13 +45,7 @@ const IMAGE_MODAL_CLOSED = {
 
 function resolveImageEmbedNode(target) {
   if (!target) return null;
-  if (target.classList?.contains("ql-image-embed") || target.classList?.contains("ql-image-crop")) {
-    return target;
-  }
-  if (target.tagName === "IMG") {
-    return target.closest(".ql-image-embed, .ql-image-crop") || target;
-  }
-  return target.closest(".ql-image-embed, .ql-image-crop, img");
+  return target.closest?.(".ql-image-embed, .ql-image-crop") || (target.tagName === "IMG" ? target : null);
 }
 
 export default function RichTextEditor({
@@ -69,7 +63,7 @@ export default function RichTextEditor({
   const [isEditing, setIsEditing] = useState(Boolean(defaultOpen));
   const [imageModal, setImageModal] = useState(IMAGE_MODAL_CLOSED);
 
-  const normalizedValue = useMemo(() => prepareEntradasQuillHtmlForDisplay(value || ""), [value]);
+  const normalizedValue = useMemo(() => prepareEntradasQuillHtmlForEditor(value || ""), [value]);
 
   const handleChange = useCallback(
     (content, delta, source, editor) => {
@@ -143,9 +137,11 @@ export default function RichTextEditor({
       const index = editor.getIndex(blot);
       const embedValue = CroppedImageBlot.value(node);
       const src =
-        typeof embedValue === "string" ? embedValue : embedValue?.src || node.querySelector?.("img")?.src || "";
+        typeof embedValue === "string" ? embedValue : embedValue?.src || node.getAttribute?.("src") || "";
       const crop =
-        typeof embedValue === "object" && embedValue?.crop ? embedValue.crop : parseCropAttr(node.getAttribute("data-crop"));
+        typeof embedValue === "object" && embedValue?.crop
+          ? embedValue.crop
+          : parseCropAttr(node.getAttribute?.("data-crop"));
       const cropEnabled = Boolean(crop && !isFullCrop(crop));
 
       setImageModal({

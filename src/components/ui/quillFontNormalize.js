@@ -2,7 +2,11 @@ import {
   rewriteQuillHtmlImagesForDisplay,
   rewriteQuillHtmlImagesForStorage,
 } from "../../utils/entradasDriveImage";
-import { enhanceQuillHtmlCropStyles, wrapBareQuillImages } from "../../utils/quillImageCrop";
+import {
+  enhanceQuillHtmlCropStyles,
+  unwrapQuillCropWrappersForStorage,
+  wrapCroppedImagesForDisplay,
+} from "../../utils/quillImageCrop";
 
 /**
  * Normaliza clases `ql-font-*` de contenido guardado con la convención antigua
@@ -28,14 +32,23 @@ export function normalizeLegacyEntradasQuillHtml(html) {
   return out;
 }
 
-/** HTML de Quill listo para mostrar en editor o vista pública (fuentes + imágenes Drive). */
+/** HTML para el editor Quill: Drive + fuentes; el blot aplica el recorte visual. */
+export function prepareEntradasQuillHtmlForEditor(html) {
+  return rewriteQuillHtmlImagesForDisplay(normalizeLegacyEntradasQuillHtml(html));
+}
+
+/** HTML de Quill listo para mostrar en vista pública (fuentes + imágenes Drive + recorte). */
 export function prepareEntradasQuillHtmlForDisplay(html) {
   return enhanceQuillHtmlCropStyles(
-    rewriteQuillHtmlImagesForDisplay(wrapBareQuillImages(normalizeLegacyEntradasQuillHtml(html))),
+    wrapCroppedImagesForDisplay(
+      rewriteQuillHtmlImagesForDisplay(normalizeLegacyEntradasQuillHtml(html)),
+    ),
   );
 }
 
-/** HTML de Quill listo para guardar (enlaces canónicos de Drive en imágenes). */
+/** HTML de Quill listo para guardar (enlaces canónicos de Drive + recorte en <img>). */
 export function prepareEntradasQuillHtmlForStorage(html) {
-  return rewriteQuillHtmlImagesForStorage(normalizeLegacyEntradasQuillHtml(html));
+  return rewriteQuillHtmlImagesForStorage(
+    unwrapQuillCropWrappersForStorage(normalizeLegacyEntradasQuillHtml(html)),
+  );
 }

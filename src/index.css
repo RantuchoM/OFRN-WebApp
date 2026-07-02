@@ -81,6 +81,16 @@ body {
   border-radius: 0.5rem;
   border: 1px solid rgb(226 232 240);
 }
+.entradas-richtext .ql-image-crop > img,
+.rich-text-quill .ql-image-crop > img {
+  max-width: none;
+  width: auto;
+  height: auto;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  position: absolute;
+}
 .entradas-richtext .ql-image-embed {
   display: block;
   margin: 0.5rem 0;

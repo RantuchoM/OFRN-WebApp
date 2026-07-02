@@ -11,11 +11,14 @@ import {
 const Embed = Quill.import("blots/embed");
 
 function buildImageValue(node) {
-  const img = node?.tagName === "IMG" ? node : node.querySelector?.("img");
-  const src = img?.getAttribute("src") || "";
-  const host = img?.closest?.(".ql-image-crop, .ql-image-embed");
-  const crop = parseCropAttr(host?.getAttribute("data-crop"));
-  const aspect = host?.getAttribute("data-img-aspect");
+  const host = node?.classList?.contains("ql-image-embed") ? node : node?.closest?.(".ql-image-embed");
+  const img = host?.querySelector?.("img") || (node?.tagName === "IMG" ? node : null);
+  if (!img) return null;
+
+  const src = img.getAttribute("src") || "";
+  const crop = parseCropAttr(host?.getAttribute("data-crop") || img.getAttribute("data-crop"));
+  const aspect = host?.getAttribute("data-img-aspect") || img.getAttribute("data-img-aspect");
+
   if (crop && !isFullCrop(crop)) {
     return {
       src,
@@ -42,9 +45,16 @@ class CroppedImageBlot extends Embed {
     node.appendChild(img);
 
     if (crop && !isFullCrop(crop)) {
+      const cropRaw = serializeCrop(crop);
+      const aspectRaw = naturalAspect ? String(roundAspect(naturalAspect)) : "";
+
       node.classList.add("ql-image-crop");
-      node.setAttribute("data-crop", serializeCrop(crop));
-      if (naturalAspect) node.setAttribute("data-img-aspect", String(roundAspect(naturalAspect)));
+      node.setAttribute("data-crop", cropRaw);
+      img.setAttribute("data-crop", cropRaw);
+      if (aspectRaw) {
+        node.setAttribute("data-img-aspect", aspectRaw);
+        img.setAttribute("data-img-aspect", aspectRaw);
+      }
       applyCropDomPresentation(node);
     }
 
@@ -75,14 +85,8 @@ class EntradasClipboard extends Clipboard {
     });
 
     this.addMatcher("IMG", (node, delta) => {
-      const src = node.getAttribute("src") || "";
-      if (!src) return delta;
-      const crop = parseCropAttr(node.getAttribute("data-crop"));
-      const aspect = node.getAttribute("data-img-aspect");
-      const value =
-        crop && !isFullCrop(crop)
-          ? { src, crop, naturalAspect: aspect ? parseFloat(aspect) : undefined }
-          : src;
+      const value = buildImageValue(node);
+      if (!value) return delta;
       return new (Quill.import("delta"))().insert({ image: value });
     });
   }
