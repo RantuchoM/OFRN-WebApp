@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import {
   IconFolderMusic,
@@ -27,7 +28,9 @@ import {
   IconChevronRight,
   IconExternalLink,
   IconMoreVertical,
+  IconCopy,
 } from "../../components/ui/Icons";
+import { toast } from "sonner";
 import { format, isBefore, isToday, parseISO, addDays } from "date-fns";
 import { es } from "date-fns/locale";
 import WorkForm from "./WorkForm";
@@ -100,6 +103,17 @@ const IconCalendarPlus = ({ size = 20, className = "" }) => (
 );
 
 // --- 1. HELPERS & UTILIDADES ---
+
+const getPlainRichText = (value) =>
+  stripHtml(value)
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
 
 const sanitizePreviewHtml = (html) => {
   let value = String(html || "");
@@ -394,6 +408,167 @@ const ColumnManager = ({ visibleColumns, onChange }) => {
   );
 };
 
+function WorkRowActionMenu({
+  work,
+  isOpen,
+  onToggle,
+  onClose,
+  menuClassName = "w-48",
+  buttonClassName = "p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded",
+  onAssign,
+  onHistory,
+  onEdit,
+  onDelete,
+  onCopyArchiveLink,
+  onCopyDriveLink,
+  onNewArrangement,
+}) {
+  const rootRef = useRef(null);
+  const buttonRef = useRef(null);
+  const menuRef = useRef(null);
+  const [menuStyle, setMenuStyle] = useState(null);
+
+  const updateMenuPosition = () => {
+    if (!buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    setMenuStyle({
+      top: rect.bottom + 4,
+      left: Math.max(8, rect.right - 192),
+    });
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      setMenuStyle(null);
+      return;
+    }
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (event) => {
+      const target = event.target;
+      if (rootRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      onClose();
+    };
+    const timer = setTimeout(() => {
+      document.addEventListener("click", handleClickOutside);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("click", handleClickOutside);
+    };
+  }, [isOpen, onClose]);
+
+  const runAction = (action) => {
+    action(work);
+    onClose();
+  };
+
+  const menuPanel = isOpen && menuStyle && (
+    <div
+      ref={menuRef}
+      style={{ top: menuStyle.top, left: menuStyle.left }}
+      className={`fixed z-[100] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-xs font-bold shadow-xl ${menuClassName}`}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        onClick={() => runAction(onAssign)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-blue-700 hover:bg-blue-50"
+      >
+        <IconCalendarPlus size={13} /> Asignar a programa
+      </button>
+      <button
+        type="button"
+        onClick={() => runAction(onHistory)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-indigo-700 hover:bg-indigo-50"
+      >
+        <IconHistory size={13} /> Historial
+      </button>
+      {work.link_drive && (
+        <>
+          <a
+            href={work.link_drive}
+            target="_blank"
+            rel="noreferrer"
+            onClick={onClose}
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-green-700 hover:bg-green-50"
+          >
+            <IconDrive size={13} /> Abrir Drive
+          </a>
+          <button
+            type="button"
+            onClick={() => runAction(onCopyDriveLink)}
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-green-700 hover:bg-green-50"
+          >
+            <IconCopy size={13} /> Copiar link Drive
+          </button>
+        </>
+      )}
+      <button
+        type="button"
+        onClick={() => runAction(onCopyArchiveLink)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+      >
+        <IconCopy size={13} /> Copiar enlace al archivo
+      </button>
+      <button
+        type="button"
+        onClick={() => runAction(onNewArrangement)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-indigo-700 hover:bg-indigo-50"
+      >
+        <IconCopy size={13} /> Nuevo arreglo
+      </button>
+      <div className="my-0.5 border-t border-slate-100" />
+      <button
+        type="button"
+        onClick={() => runAction(onEdit)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+      >
+        <IconEdit size={13} /> Editar
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onClose();
+          onDelete(work);
+        }}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-red-600 hover:bg-red-50"
+      >
+        <IconTrash size={13} /> Eliminar
+      </button>
+    </div>
+  );
+
+  return (
+    <div ref={rootRef} className={`relative flex justify-end ${isOpen ? "z-[100]" : ""}`}>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        className={buttonClassName}
+        aria-label="Acciones de obra"
+        aria-expanded={isOpen}
+      >
+        <IconMoreVertical size={16} />
+      </button>
+      {menuPanel && createPortal(menuPanel, document.body)}
+    </div>
+  );
+}
+
 // --- COMPONENTE PRINCIPAL ---
 
 export default function RepertoireView({ supabase, catalogoInstrumentos }) {
@@ -417,14 +592,13 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [showMobileInstrFilter, setShowMobileInstrFilter] = useState(false);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [mobileQuickSearch, setMobileQuickSearch] = useState("");
-  const [mobileWorkActionMenuId, setMobileWorkActionMenuId] = useState(null);
+  const [workActionMenuId, setWorkActionMenuId] = useState(null);
   const [deleteWorkConfirm, setDeleteWorkConfirm] = useState(null);
   const [deletingWork, setDeletingWork] = useState(false);
   const [showSolicitudes, setShowSolicitudes] = useState(false);
   const solicitudesRef = useRef(null);
   const mobileFiltersRef = useRef(null);
   const mobileInstrFilterAnchorRef = useRef(null);
-  const mobileWorkActionMenuRef = useRef(null);
   useEffect(() => {
     const handleClickOutside = (e) => { if (solicitudesRef.current && !solicitudesRef.current.contains(e.target)) setShowSolicitudes(false); };
     document.addEventListener("mousedown", handleClickOutside);
@@ -434,18 +608,6 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     const handleClickOutside = (e) => {
       if (mobileFiltersRef.current && !mobileFiltersRef.current.contains(e.target)) {
         setShowMobileFilters(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (
-        mobileWorkActionMenuRef.current &&
-        !mobileWorkActionMenuRef.current.contains(e.target)
-      ) {
-        setMobileWorkActionMenuId(null);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -682,6 +844,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     const proximaGiraEsPasada = !nextProgram && !!lastPastProgram;
     return {
       ...w,
+      titulo_plain: getPlainRichText(w.titulo),
       instValues,
       compositor_full:
         listComposers
@@ -724,7 +887,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
           ? prev.map((w) => (w.id === processedWork.id ? processedWork : w))
           : [...prev, processedWork];
       return next.sort((a, b) =>
-        (a.titulo || "").localeCompare(b.titulo || "", "es", { sensitivity: "base" }),
+        (a.titulo_plain || "").localeCompare(b.titulo_plain || "", "es", { sensitivity: "base" }),
       );
     });
   };
@@ -807,7 +970,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       }
       if (
         filters.titulo &&
-        !normalizeForSearch(work.titulo).includes(normalizeForSearch(filters.titulo))
+        !normalizeForSearch(work.titulo_plain).includes(normalizeForSearch(filters.titulo))
       )
         return false;
       if (
@@ -866,8 +1029,9 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       }
       return true;
     }).sort((a, b) => {
-      let valA = a[sortConfig.key];
-      let valB = b[sortConfig.key];
+      const sortKey = sortConfig.key === "titulo" ? "titulo_plain" : sortConfig.key;
+      let valA = a[sortKey];
+      let valB = b[sortKey];
       if (sortConfig.key === "fecha_esperada" || sortConfig.key === "proxima_gira_fecha_desde") {
         const fallback =
           sortConfig.direction === "asc" ? "9999-12-31" : "0000-01-01";
@@ -876,6 +1040,10 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       }
       if (typeof valA === "string") valA = valA.toLowerCase();
       if (typeof valB === "string") valB = valB.toLowerCase();
+      if (typeof valA === "string" && typeof valB === "string") {
+        const result = valA.localeCompare(valB, "es", { sensitivity: "base" });
+        return sortConfig.direction === "asc" ? result : -result;
+      }
       if (valA < valB) return sortConfig.direction === "asc" ? -1 : 1;
       if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
       return 0;
@@ -945,7 +1113,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     if (visibleColumns.fecha) cols += "100px ";
     if (visibleColumns.observaciones) cols += "minmax(150px, 1fr) ";
     if (visibleColumns.tags) cols += "minmax(150px, 1fr) ";
-    cols += "120px";
+    cols += "44px";
     return cols;
   };
 
@@ -1000,6 +1168,41 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     setEditingId(work.id);
     const { compositor_full, arreglador_full, pais_nombre, tags_objects, tags_ids, instValues, ...rawData } = work;
     setFormData(rawData); setIsAdding(false);
+  };
+  const startNewArrangement = (work) => {
+    setEditingId(null);
+    setIsAdding(true);
+    setFormData({ arrangementFromWorkId: work.id });
+  };
+  const copyTextToClipboard = async (text, successMessage, errorMessage) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(successMessage);
+    } catch {
+      toast.error(errorMessage);
+    }
+  };
+  const copyArchiveWorkLink = (work) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", "repertorio");
+    url.searchParams.set("editId", String(work.id));
+    return copyTextToClipboard(
+      url.toString(),
+      "Enlace al archivo copiado.",
+      "No se pudo copiar el enlace al archivo.",
+    );
+  };
+  const copyDriveLink = (work) => {
+    const link = (work.link_drive || "").trim();
+    if (!link) {
+      toast.error("Esta obra no tiene link de Drive.");
+      return;
+    }
+    return copyTextToClipboard(
+      link,
+      "Link de Drive copiado.",
+      "No se pudo copiar el link de Drive.",
+    );
   };
   const formatDuration = (secs) => {
     if (!secs && secs !== 0) return "-";
@@ -1226,7 +1429,16 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       <div className="flex-1 overflow-hidden flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm relative">
         {isAdding || editingId ? (
           <div className="absolute inset-0 z-20 w-full bg-white p-2 sm:p-3 overflow-y-auto overflow-x-hidden">
-            <WorkForm supabase={supabase} formData={formData} setFormData={setFormData} onSave={handleSave} onCancel={() => { setIsAdding(false); setEditingId(null); setFormData({}); }} isNew={isAdding} catalogoInstrumentos={catalogoInstrumentos} />
+            <WorkForm
+              key={`workform-${editingId ?? (formData.arrangementFromWorkId ? `arr-${formData.arrangementFromWorkId}` : "new")}`}
+              supabase={supabase}
+              formData={formData}
+              setFormData={setFormData}
+              onSave={handleSave}
+              onCancel={() => { setIsAdding(false); setEditingId(null); setFormData({}); }}
+              isNew={isAdding}
+              catalogoInstrumentos={catalogoInstrumentos}
+            />
           </div>
         ) : (
           <>
@@ -1234,8 +1446,11 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
             <div className="flex-1 overflow-auto relative">
               <div className="min-w-full inline-block align-middle">
                 {/* HEADERS */}
-                <div className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 shadow-sm">
-                  <div className="grid gap-4 px-4 py-3 items-end" style={{ gridTemplateColumns: getGridTemplate() }}>
+                <div className="sticky top-0 z-20 bg-slate-50 border-x border-b border-slate-300/80 shadow-sm">
+                  <div
+                    className="grid gap-0 px-0 py-3 items-end text-center [&>*]:border-r [&>*]:border-slate-300/80 [&>*]:px-3 [&>*:last-child]:border-r-0"
+                    style={{ gridTemplateColumns: getGridTemplate() }}
+                  >
                     <div
                       className="flex flex-col items-center justify-end pb-2 gap-0.5"
                       title="Tildar/destildar todo lo filtrado (no afecta obras fuera del filtro actual)"
@@ -1253,15 +1468,15 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                         Filtro
                       </span>
                     </div>
-                    {visibleColumns.compositor && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("compositor_full")}>Compositor <SortIcon column="compositor_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.compositor} onChange={(e) => setFilters({ ...filters, compositor: e.target.value })} /></div>}
-                    {visibleColumns.obra && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("titulo")}>Obra <SortIcon column="titulo" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.titulo} onChange={(e) => setFilters({ ...filters, titulo: e.target.value })} /></div>}
-                    {visibleColumns.arreglador && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("arreglador_full")}>Arreglador <SortIcon column="arreglador_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.arreglador} onChange={(e) => setFilters({ ...filters, arreglador: e.target.value })} /></div>}
-                    {visibleColumns.organico && <div className="space-y-2 relative"><div className="flex items-center text-xs font-bold text-slate-500 uppercase">Orgánico</div><button onClick={() => setShowInstrFilter(!showInstrFilter)} className={`w-full text-xs p-1.5 border rounded flex items-center justify-between ${instrFilters.length > 0 || stringsFilter !== "all" ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-bold" : "bg-white border-slate-300 text-slate-500"}`}><span>{getInstrumentationFilterLabel(instrFilters, stringsFilter, strictMode)}</span><IconFilter size={10} /></button>{showInstrFilter && <InstrumentationFilterModal onClose={() => setShowInstrFilter(false)} currentFilters={instrFilters} stringsFilter={stringsFilter} setStringsFilter={setStringsFilter} strictMode={strictMode} setStrictMode={setStrictMode} onApply={(newRules) => { setInstrFilters(newRules); setShowInstrFilter(false); }} />}</div>}
-                    {visibleColumns.duracion && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase">Duración (min)</div><div className="flex gap-1"><input className="w-full text-xs p-1 border border-slate-300 rounded text-center outline-none" placeholder="Min" type="number" value={filters.duracionMin} onChange={(e) => setFilters({ ...filters, duracionMin: e.target.value })} /><input className="w-full text-xs p-1 border border-slate-300 rounded text-center outline-none" placeholder="Max" type="number" value={filters.duracionMax} onChange={(e) => setFilters({ ...filters, duracionMax: e.target.value })} /></div></div>}
+                    {visibleColumns.compositor && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("compositor_full")}>Compositor <SortIcon column="compositor_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.compositor} onChange={(e) => setFilters({ ...filters, compositor: e.target.value })} /></div>}
+                    {visibleColumns.obra && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("titulo")}>Obra <SortIcon column="titulo" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.titulo} onChange={(e) => setFilters({ ...filters, titulo: e.target.value })} /></div>}
+                    {visibleColumns.arreglador && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("arreglador_full")}>Arreglador <SortIcon column="arreglador_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.arreglador} onChange={(e) => setFilters({ ...filters, arreglador: e.target.value })} /></div>}
+                    {visibleColumns.organico && <div className="space-y-2 relative"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase">Orgánico</div><button onClick={() => setShowInstrFilter(!showInstrFilter)} className={`w-full text-xs p-1.5 border rounded flex items-center justify-between ${instrFilters.length > 0 || stringsFilter !== "all" ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-bold" : "bg-white border-slate-300 text-slate-500"}`}><span>{getInstrumentationFilterLabel(instrFilters, stringsFilter, strictMode)}</span><IconFilter size={10} /></button>{showInstrFilter && <InstrumentationFilterModal onClose={() => setShowInstrFilter(false)} currentFilters={instrFilters} stringsFilter={stringsFilter} setStringsFilter={setStringsFilter} strictMode={strictMode} setStrictMode={setStrictMode} onApply={(newRules) => { setInstrFilters(newRules); setShowInstrFilter(false); }} />}</div>}
+                    {visibleColumns.duracion && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase">Duración (min)</div><div className="flex gap-1"><input className="w-full text-xs p-1 border border-slate-300 rounded text-center outline-none" placeholder="Min" type="number" value={filters.duracionMin} onChange={(e) => setFilters({ ...filters, duracionMin: e.target.value })} /><input className="w-full text-xs p-1 border border-slate-300 rounded text-center outline-none" placeholder="Max" type="number" value={filters.duracionMax} onChange={(e) => setFilters({ ...filters, duracionMax: e.target.value })} /></div></div>}
                     {visibleColumns.estado && (
                       <div className="space-y-2">
                         <div
-                          className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600"
+                          className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600"
                           onClick={() => handleSort("estado")}
                         >
                           Estado <SortIcon column="estado" />
@@ -1286,7 +1501,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                     {visibleColumns.proxima_gira && (
                       <div className="space-y-2">
                         <div
-                          className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600"
+                          className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600"
                           onClick={() =>
                             handleSort("proxima_gira_fecha_desde")
                           }
@@ -1299,7 +1514,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                     {visibleColumns.fecha && (
                       <div className="space-y-2">
                         <div
-                          className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600"
+                          className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600"
                           onClick={() => handleSort("fecha_esperada")}
                         >
                           F. Esp. <SortIcon column="fecha_esperada" />
@@ -1330,20 +1545,20 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                         </div>
                       </div>
                     )}
-                    {visibleColumns.observaciones && <div className="space-y-2 animate-in fade-in slide-in-from-top-1"><div className="flex items-center text-xs font-bold text-slate-500 uppercase">Observaciones</div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar texto..." value={filters.observaciones} onChange={(e) => setFilters({ ...filters, observaciones: e.target.value })} /></div>}
-                    {visibleColumns.tags && <div className="space-y-2 animate-in fade-in slide-in-from-top-1"><div className="flex items-center text-xs font-bold text-slate-500 uppercase">Tags</div><div className="relative"><TagMultiSelect tags={availableTags} selectedIds={selectedTags} onChange={setSelectedTags} /></div></div>}
-                    <div className="flex justify-end pb-2"><span className="text-[10px] text-slate-300 font-bold uppercase">Acciones</span></div>
+                    {visibleColumns.observaciones && <div className="space-y-2 animate-in fade-in slide-in-from-top-1"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase">Observaciones</div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar texto..." value={filters.observaciones} onChange={(e) => setFilters({ ...filters, observaciones: e.target.value })} /></div>}
+                    {visibleColumns.tags && <div className="space-y-2 animate-in fade-in slide-in-from-top-1"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase">Tags</div><div className="relative"><TagMultiSelect tags={availableTags} selectedIds={selectedTags} onChange={setSelectedTags} /></div></div>}
+                    <div className="flex justify-center pb-2"><span className="text-[10px] text-slate-300 font-bold uppercase">Acciones</span></div>
                   </div>
                 </div>
 
                 {/* CUERPO FILAS */}
-                <div className="flex flex-col divide-y divide-slate-100 bg-white">
+                <div className="flex flex-col divide-y divide-slate-300/70 border-x border-slate-300/70 bg-white">
                   {loading ? (
                     <div className="p-20 text-center text-indigo-500"><IconLoader className="animate-spin inline mr-2" /> Cargando...</div>
                   ) : paginatedWorks.map((work) => (
                     <div
                       key={work.id}
-                      className={`grid gap-4 px-4 py-3 items-center transition-colors group text-sm border-l-[3px] border-transparent ${getObraEstadoArchiveRowClass(work.estado)}`}
+                      className={`grid gap-0 px-0 py-3 items-center transition-colors group text-sm border-l-[3px] border-transparent [&>*]:border-r [&>*]:border-slate-300/70 [&>*]:px-3 [&>*:last-child]:border-r-0 ${getObraEstadoArchiveRowClass(work.estado)}`}
                       style={{ gridTemplateColumns: getGridTemplate() }}
                       title={work.estado === "Entregado" ? "Pendiente de validación por Archivista" : undefined}
                     >
@@ -1494,12 +1709,24 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                       )}
                       {visibleColumns.observaciones && <div className="text-xs text-slate-500 line-clamp-2 bg-slate-50 p-1 rounded border border-slate-100"><RichTextPreview content={work.observaciones || "-"} /></div>}
                       {visibleColumns.tags && <div className="flex flex-wrap gap-1">{work.tags_objects.length > 0 ? work.tags_objects.map((t) => <span key={t.id} className="text-[9px] bg-indigo-50 text-indigo-600 px-1 rounded border border-indigo-100 truncate max-w-[80px]">{t.tag}</span>) : <span className="text-slate-300 text-[10px]">-</span>}</div>}
-                      <div className="flex justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => setAssignWork(work)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><IconCalendarPlus size={16} /></button>
-                        <button onClick={() => setHistoryWork(work)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 rounded"><IconHistory size={16} /></button>
-                        {work.link_drive && <a href={work.link_drive} target="_blank" className="p-1.5 text-green-600 hover:bg-green-50 rounded"><IconDrive size={16} /></a>}
-                        <button onClick={() => startEdit(work)} className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded"><IconEdit size={16} /></button>
-                        <button onClick={() => requestDeleteWork(work)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"><IconTrash size={16} /></button>
+                      <div className="flex justify-end opacity-60 group-hover:opacity-100 transition-opacity">
+                        <WorkRowActionMenu
+                          work={work}
+                          isOpen={workActionMenuId === work.id}
+                          onToggle={() =>
+                            setWorkActionMenuId((prev) =>
+                              prev === work.id ? null : work.id,
+                            )
+                          }
+                          onClose={() => setWorkActionMenuId(null)}
+                          onAssign={setAssignWork}
+                          onHistory={setHistoryWork}
+                          onEdit={startEdit}
+                          onDelete={requestDeleteWork}
+                          onCopyArchiveLink={copyArchiveWorkLink}
+                          onCopyDriveLink={copyDriveLink}
+                          onNewArrangement={startNewArrangement}
+                        />
                       </div>
                     </div>
                   ))}
@@ -1990,66 +2217,25 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                         </div>
 
                         <div className="relative flex w-6 shrink-0 justify-center pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setMobileWorkActionMenuId((prev) =>
+                          <WorkRowActionMenu
+                            work={work}
+                            isOpen={workActionMenuId === work.id}
+                            onToggle={() =>
+                              setWorkActionMenuId((prev) =>
                                 prev === work.id ? null : work.id,
                               )
                             }
-                            className="flex h-6 w-6 items-center justify-center rounded-full bg-white/70 text-slate-500 hover:bg-white hover:text-indigo-600"
-                            aria-label="Acciones de obra"
-                            aria-expanded={mobileWorkActionMenuId === work.id}
-                          >
-                            <IconMoreVertical size={16} />
-                          </button>
-                          {mobileWorkActionMenuId === work.id && (
-                            <div
-                              ref={mobileWorkActionMenuRef}
-                              className="absolute right-0 top-7 z-30 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-xs font-bold shadow-xl"
-                            >
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setAssignWork(work);
-                                  setMobileWorkActionMenuId(null);
-                                }}
-                                className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-blue-700 hover:bg-blue-50"
-                              >
-                                <IconCalendarPlus size={13} /> Asignar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setHistoryWork(work);
-                                  setMobileWorkActionMenuId(null);
-                                }}
-                                className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-indigo-700 hover:bg-indigo-50"
-                              >
-                                <IconHistory size={13} /> Historial
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  startEdit(work);
-                                  setMobileWorkActionMenuId(null);
-                                }}
-                                className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                              >
-                                <IconEdit size={13} /> Editar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setMobileWorkActionMenuId(null);
-                                  requestDeleteWork(work);
-                                }}
-                                className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-red-600 hover:bg-red-50"
-                              >
-                                <IconTrash size={13} /> Eliminar
-                              </button>
-                            </div>
-                          )}
+                            onClose={() => setWorkActionMenuId(null)}
+                            menuClassName="w-48"
+                            buttonClassName="flex h-6 w-6 items-center justify-center rounded-full bg-white/70 text-slate-500 hover:bg-white hover:text-indigo-600"
+                            onAssign={setAssignWork}
+                            onHistory={setHistoryWork}
+                            onEdit={startEdit}
+                            onDelete={requestDeleteWork}
+                            onCopyArchiveLink={copyArchiveWorkLink}
+                          onCopyDriveLink={copyDriveLink}
+                            onNewArrangement={startNewArrangement}
+                          />
                         </div>
                       </div>
                     </li>

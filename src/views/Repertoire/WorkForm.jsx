@@ -528,6 +528,8 @@ export default function WorkForm({
   const titleDropdownRef = useRef(null);
   const titleBlurTimerRef = useRef(null);
   const [draftExitConfirmOpen, setDraftExitConfirmOpen] = useState(false);
+  /** Obra origen al preparar un nuevo arreglo en borrador (referencia al persistir). */
+  const [arrangementSourceWorkId, setArrangementSourceWorkId] = useState(null);
   const [sendingEncargoMail, setSendingEncargoMail] = useState(false);
   const [refsModalOpen, setRefsModalOpen] = useState(false);
   const [refsCount, setRefsCount] = useState(0);
@@ -580,7 +582,7 @@ export default function WorkForm({
     if (initialData?.id) {
       fetchParticellas(initialData.id);
       fetchWorkDetails(initialData.id);
-    } else if (initialData) {
+    } else if (initialData && Object.keys(initialData).length > 0 && !initialData.arrangementFromWorkId) {
       setFormData((prev) => ({ ...prev, ...initialData }));
     }
   }, [initialData?.id]);
@@ -1654,6 +1656,16 @@ export default function WorkForm({
           await handlePartsChange(particellas, newId);
         }
 
+        if (arrangementSourceWorkId) {
+          await seedArregloReferenciaObraOrigen(
+            supabase,
+            newId,
+            arrangementSourceWorkId,
+            stripHtml(formData.titulo),
+          );
+          setArrangementSourceWorkId(null);
+        }
+
         setFormData((prev) => ({ ...prev, id: newId }));
 
         const composerLabels = (selectedComposers || [])
@@ -1709,6 +1721,69 @@ export default function WorkForm({
     onCancel();
   };
 
+  const loadArrangementDraftFromSource = async (sourceWorkId) => {
+    if (!sourceWorkId) return false;
+    try {
+      const { data: source, error: sourceError } = await supabase
+        .from("obras")
+        .select(
+          "*, obras_compositores(rol, id_compositor), obras_palabras_clave (palabras_clave (id, tag))",
+        )
+        .eq("id", sourceWorkId)
+        .single();
+
+      if (sourceError) throw sourceError;
+
+      setFormData({
+        id: null,
+        titulo: source.titulo,
+        duracion: source.duracion_segundos
+          ? formatSecondsToTime(source.duracion_segundos)
+          : "",
+        anio: source.anio_composicion || "",
+        estado: "Solicitud",
+        id_integrante_arreglador: null,
+        fecha_esperada: source.fecha_esperada || "",
+        observaciones: source.observaciones || null,
+        comentarios: source.comentarios || null,
+        link_youtube: source.link_youtube || "",
+        link_drive: "",
+        instrumentacion: source.instrumentacion || "",
+        dificultad: source.dificultad || "",
+      });
+      setSelectedComposers(
+        (source.obras_compositores || [])
+          .filter((oc) => oc.rol === "compositor" || !oc.rol)
+          .map((oc) => oc.id_compositor),
+      );
+      setSelectedArrangers(
+        (source.obras_compositores || [])
+          .filter((oc) => oc.rol === "arreglador")
+          .map((oc) => oc.id_compositor),
+      );
+      setSelectedTags(
+        (source.obras_palabras_clave || [])
+          .map((opc) => opc.palabras_clave?.id)
+          .filter(Boolean),
+      );
+      setParticellas([]);
+      setSelectedPartTempIds(new Set());
+      setDuplicateSuggestionsDismissed(true);
+      setArrangementSourceWorkId(sourceWorkId);
+      setRefsCount(0);
+      toast.success(
+        "Nuevo arreglo en borrador. Creá la solicitud o enviá para arreglar cuando esté listo.",
+      );
+      return true;
+    } catch (err) {
+      console.error(err);
+      toast.error(
+        "Error al preparar el nuevo arreglo: " + (err.message || "Error desconocido"),
+      );
+      return false;
+    }
+  };
+
   const createArrangementFromExistingWork = async (sourceWorkId) => {
     if (!sourceWorkId || !user?.id) {
       toast.error("No se puede crear el arreglo: obra origen o sesión inválida.");
@@ -1716,98 +1791,7 @@ export default function WorkForm({
     }
     setIsSaving(true);
     try {
-      const { data: source, error: sourceError } = await supabase
-        .from("obras")
-        .select("*, obras_compositores(rol, id_compositor)")
-        .eq("id", sourceWorkId)
-        .single();
-
-      if (sourceError) throw sourceError;
-
-      const payload = {
-        titulo: source.titulo,
-        duracion_segundos: source.duracion_segundos ?? null,
-        anio_composicion: source.anio_composicion ?? null,
-        estado: "Solicitud",
-        id_integrante_arreglador: null,
-        fecha_esperada: source.fecha_esperada || null,
-        observaciones: source.observaciones || null,
-        comentarios: source.comentarios || null,
-        link_youtube: source.link_youtube || null,
-        link_drive: null,
-        instrumentacion: source.instrumentacion || null,
-        id_usuario_carga: source.id_usuario_carga ?? user.id,
-      };
-
-      const { data, error } = await supabase
-        .from("obras")
-        .insert([payload])
-        .select()
-        .single();
-
-      if (error) throw error;
-      const newId = data.id;
-
-      const relations = source.obras_compositores || [];
-      if (relations.length > 0) {
-        await supabase.from("obras_compositores").insert(
-          relations.map((r) => ({
-            id_obra: newId,
-            id_compositor: r.id_compositor,
-            rol: r.rol,
-          })),
-        );
-      }
-
-      await seedArregloReferenciaObraOrigen(
-        supabase,
-        newId,
-        sourceWorkId,
-        source.titulo,
-      );
-      await refreshRefsCount(newId);
-
-      const composerLabels = relations
-        .filter((r) => r.rol === "compositor" || !r.rol)
-        .map((r) => composersOptions.find((c) => c.id === r.id_compositor)?.label)
-        .filter(Boolean);
-      const arrangerLabels = relations
-        .filter((r) => r.rol === "arreglador")
-        .map((r) => composersOptions.find((c) => c.id === r.id_compositor)?.label)
-        .filter(Boolean);
-      sendNuevaObraArchivistaMail({
-        titulo: stripHtml(source.titulo),
-        compositores: composerLabels.join("; ") || null,
-        arregladores: arrangerLabels.length ? arrangerLabels.join("; ") : null,
-        duracion: source.duracion_segundos
-          ? formatSecondsToTime(source.duracion_segundos)
-          : null,
-        anio: source.anio_composicion || null,
-        estado: payload.estado,
-        instrumentacion: payload.instrumentacion,
-        link_drive: null,
-        link_youtube: (source.link_youtube || "").trim() || null,
-        observaciones: (source.observaciones || "").trim() || null,
-        comentarios: (source.comentarios || "").trim() || null,
-      });
-
-      await fetchWorkDetails(newId);
-      setParticellas([]);
-      setSelectedPartTempIds(new Set());
-      setDuplicateSuggestionsDismissed(true);
-      if (onSave) {
-        if (isProgramContext) {
-          onSave(newId, true);
-        } else {
-          onSave(newId, false);
-        }
-      }
-      toast.success("Nuevo arreglo creado en Solicitud. Podés editar instrumentación y Drive.");
-      return true;
-    } catch (err) {
-      console.error(err);
-      toast.error("Error al crear el nuevo arreglo: " + (err.message || "Error desconocido"));
-      return false;
+      return await loadArrangementDraftFromSource(sourceWorkId);
     } finally {
       setIsSaving(false);
     }
@@ -1820,6 +1804,13 @@ export default function WorkForm({
     }
     await createArrangementFromExistingWork(formData.id);
   };
+
+  useEffect(() => {
+    if (initialData?.arrangementFromWorkId && !initialData?.id) {
+      loadArrangementDraftFromSource(initialData.arrangementFromWorkId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al montar / cambiar obra origen
+  }, [initialData?.arrangementFromWorkId]);
 
   const handleAddParts = () => {
     let selectedId = genInstrument;

@@ -142,7 +142,9 @@ export async function listProgramasConConciertos() {
   if (error) throw error;
   return (data || []).map((programa) => ({
     ...programa,
-    entrada_concierto: (programa.entrada_concierto || []).map(aplicarDatosEventoAConciertoEntrada),
+    entrada_concierto: (programa.entrada_concierto || [])
+      .filter((c) => c?.activo !== false)
+      .map(aplicarDatosEventoAConciertoEntrada),
   }));
 }
 
@@ -150,13 +152,15 @@ export async function getConciertoBySlug(slug) {
   const { data, error } = await supabaseEntradasPublic
     .from("entrada_concierto")
     .select(
-      `*, entrada_programa(id, nombre, slug_publico, detalle_richtext), evento:eventos!entrada_concierto_ofrn_evento_id_fkey(id, fecha, hora_inicio, id_locacion, descripcion, locaciones(id, nombre, localidades(localidad)))`,
+      `*, entrada_programa!inner(id, nombre, slug_publico, detalle_richtext, activo), evento:eventos!entrada_concierto_ofrn_evento_id_fkey(id, fecha, hora_inicio, id_locacion, descripcion, locaciones(id, nombre, localidades(localidad)))`,
     )
     .eq("slug_publico", slug)
     .eq("activo", true)
+    .eq("entrada_programa.activo", true)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
+  if (data.entrada_programa?.activo === false) return null;
   const concierto = aplicarDatosEventoAConciertoEntrada(data);
   const map = await fetchConciertosDisponibilidad([concierto.id]);
   return aplicarDisponibilidadAConcierto(concierto, map);
@@ -770,6 +774,100 @@ export async function getAdminProgramaMailBuckets(conciertoIds) {
   };
 }
 
+const RESERVA_ADMIN_LIST_SELECT = `id, codigo_reserva, cantidad_solicitada, estado, created_at, email_beneficiario, beneficiario_referencia, reservada_por,
+  concierto:entrada_concierto(id, nombre),
+  usuario:entrada_usuario!entrada_reserva_usuario_id_fkey(id, nombre, apellido, email),
+  entrada_reserva_entrada(id, estado_ingreso)`;
+
+function countEntradasIngresadasReserva(row) {
+  const entradas = Array.isArray(row?.entrada_reserva_entrada) ? row.entrada_reserva_entrada : [];
+  return entradas.filter((e) => e?.estado_ingreso === "ingresada").length;
+}
+
+/** Etiqueta legible del titular/beneficiario para listados admin. */
+export function usuarioLabelReservaAdmin(row) {
+  const u = row?.usuario;
+  const nombre = [u?.apellido, u?.nombre].filter(Boolean).join(", ");
+  const emailBenef = String(row?.email_beneficiario || "").trim();
+  const ref = String(row?.beneficiario_referencia || "").trim();
+  if (emailBenef && row?.reservada_por) {
+    return ref ? `${emailBenef} (${ref})` : emailBenef;
+  }
+  if (nombre && u?.email) return `${nombre} · ${u.email}`;
+  if (nombre) return nombre;
+  return u?.email || emailBenef || "—";
+}
+
+function mapReservaAdminListRow(row) {
+  return {
+    id: Number(row.id),
+    codigoReserva: row.codigo_reserva,
+    usuarioLabel: usuarioLabelReservaAdmin(row),
+    email: String(row?.usuario?.email || row?.email_beneficiario || "").trim(),
+    cantidad: Number(row?.cantidad_solicitada) || 0,
+    ingresadas: countEntradasIngresadasReserva(row),
+    createdAt: row.created_at,
+    conciertoNombre: String(row?.concierto?.nombre || "").trim(),
+    conciertoId: Number(row?.concierto?.id) || null,
+  };
+}
+
+/**
+ * Listado admin de reservas o recordatorios por categoría (misma lógica que mails).
+ * @param {number[]} conciertoIds
+ * @param {"reservaron"|"ingresaron"|"sinIngreso"|"recordatorio"} bucket
+ */
+export async function getAdminReservasList(conciertoIds, bucket) {
+  const ids = [...new Set((conciertoIds || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return [];
+
+  if (bucket === "recordatorio") {
+    const { data, error } = await supabaseEntradasPublic
+      .from("entrada_recordatorio_apertura")
+      .select(
+        "id, email, created_at, concierto_id, concierto:entrada_concierto(id, nombre), usuario:entrada_usuario(nombre, apellido, email)",
+      )
+      .in("concierto_id", ids)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+
+    return (data || []).map((row) => {
+      const u = row.usuario;
+      const nombre = [u?.apellido, u?.nombre].filter(Boolean).join(", ");
+      const email = String(row.email || "").trim();
+      const usuarioLabel = nombre ? `${nombre} · ${email}` : email || "—";
+      return {
+        id: `rec-${row.id}`,
+        codigoReserva: null,
+        usuarioLabel,
+        email,
+        cantidad: null,
+        ingresadas: null,
+        createdAt: row.created_at,
+        conciertoNombre: String(row?.concierto?.nombre || "").trim(),
+        conciertoId: Number(row?.concierto_id) || null,
+      };
+    });
+  }
+
+  const { data, error } = await supabaseEntradasPublic
+    .from("entrada_reserva")
+    .select(RESERVA_ADMIN_LIST_SELECT)
+    .in("concierto_id", ids)
+    .eq("estado", "activa")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+
+  let rows = data || [];
+  if (bucket === "ingresaron") {
+    rows = rows.filter((row) => countEntradasIngresadasReserva(row) > 0);
+  } else if (bucket === "sinIngreso") {
+    rows = rows.filter((row) => countEntradasIngresadasReserva(row) === 0);
+  }
+
+  return rows.map(mapReservaAdminListRow);
+}
+
 export async function adminUpsertPrograma(payload) {
   const { data, error } = await supabaseEntradasPublic.rpc("entrada_admin_upsert_programa", {
     p_id: payload.id ?? null,
@@ -797,6 +895,78 @@ export async function adminDeletePrograma(programaId) {
     p_programa_id: id,
   });
   if (error) throw error;
+}
+
+export async function adminSuspenderPrograma({ programaId, cancelarReservas = false }) {
+  const id = Number(programaId);
+  if (!Number.isFinite(id) || id <= 0) throw new Error("Programa inválido.");
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_admin_suspender_programa", {
+    p_programa_id: id,
+    p_cancelar_reservas: Boolean(cancelarReservas),
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function adminSuspenderConcierto({ conciertoId, cancelarReservas = false }) {
+  const id = Number(conciertoId);
+  if (!Number.isFinite(id) || id <= 0) throw new Error("Concierto inválido.");
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_admin_suspender_concierto", {
+    p_concierto_id: id,
+    p_cancelar_reservas: Boolean(cancelarReservas),
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function adminContarReservasRestaurables(scope, id) {
+  const entityId = Number(id);
+  if (!Number.isFinite(entityId) || entityId <= 0) throw new Error("Entidad inválida.");
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_admin_contar_reservas_restaurables", {
+    p_scope: scope === "programa" ? "programa" : "concierto",
+    p_id: entityId,
+  });
+  if (error) throw error;
+  return {
+    reservas: Number(data?.reservas) || 0,
+    plazas: Number(data?.plazas) || 0,
+  };
+}
+
+export async function adminReactivarPrograma(programaId, { restaurarReservasSuspension = false } = {}) {
+  const id = Number(programaId);
+  if (!Number.isFinite(id) || id <= 0) throw new Error("Programa inválido.");
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_admin_reactivar_programa", {
+    p_programa_id: id,
+    p_restaurar_reservas_suspension: Boolean(restaurarReservasSuspension),
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function adminReactivarConcierto(conciertoId, { restaurarReservasSuspension = false } = {}) {
+  const id = Number(conciertoId);
+  if (!Number.isFinite(id) || id <= 0) throw new Error("Concierto inválido.");
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_admin_reactivar_concierto", {
+    p_concierto_id: id,
+    p_restaurar_reservas_suspension: Boolean(restaurarReservasSuspension),
+  });
+  if (error) throw error;
+  return data;
+}
+
+/** Aviso masivo tras suspender programa con cancelación de reservas. */
+export async function enviarMailCancelacionPrograma({ programaNombre, notificar, appUrl }) {
+  const { data, error } = await supabaseEntradasPublic.functions.invoke("entradas-send-cancelacion", {
+    body: {
+      programaNombre: programaNombre ? String(programaNombre) : "",
+      notificar: Array.isArray(notificar) ? notificar : [],
+      appUrl: appUrl || window.location.origin,
+    },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 /** Mail de prueba de cron (recordatorio / encuesta) al admin logueado. */

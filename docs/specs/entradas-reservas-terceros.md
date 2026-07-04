@@ -44,3 +44,12 @@ Migración: `supabase/migrations/20260619120000_entradas_reservas_terceros.sql`
 ## Edge
 
 - `entradas-send-reserva-email`: envío múltiple (admin + beneficiario) para reservas con `reservada_por`.
+
+## Admin — resúmenes de programa (programas actuales)
+
+- [x] En cada tarjeta de concierto (vista Admin → Programas), junto al botón de copiar mails de cada resumen, ícono **lista** abre modal con buscador.
+- [x] Modal (`EntradasAdminReservasListModal`): usuario, cantidad de entradas, fecha de reserva/inscripción; columna concierto si el listado agrupa varios.
+- [x] Misma categorización que mails: reservaron, ingresaron, sin ingreso, recordatorio de apertura.
+- [x] A nivel programa: botón lista al lado de cada «Mails: …».
+- [x] Barra de disponibilidad (`EntradasDisponibilidadBar`, igual que catálogo) en conciertos con reservas abiertas, vía RPC `entrada_conciertos_disponibilidad`.
+- Servicio: `getAdminReservasList` en `src/services/entradaService.js`.

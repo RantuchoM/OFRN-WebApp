@@ -1,4 +1,4 @@
-import { fechaHoraDesdeConciertoEntrada } from "./entradasConciertoEvento";
+import { compareConciertosPorFechaHora, fechaHoraDesdeConciertoEntrada } from "./entradasConciertoEvento";
 import { ENTRADAS_CONCIERTO_TIMEZONE } from "./entradasReservaCopy";
 
 /**
@@ -87,6 +87,7 @@ export const ADMIN_CONCIERTO_VISTAS = [
   { id: "actuales", label: "Actuales" },
   { id: "futuros", label: "Futuros" },
   { id: "historicos", label: "Históricos" },
+  { id: "inactivos", label: "Inactivos" },
 ];
 
 function fechaHoraConciertoMs(concierto) {
@@ -178,6 +179,10 @@ export function conciertoAdminEsHistorico(concierto, inicioDiaMs = inicioDelDiaA
  * Actuales = hoy o después y reservas abiertas.
  */
 export function conciertoCumpleFiltroAdminVista(concierto, vista, inicioDiaMs = inicioDelDiaArgentinaMs()) {
+  if (vista === "inactivos") {
+    return concierto?.activo === false;
+  }
+
   const ms = fechaHoraConciertoMs(concierto);
   if (ms == null) return vista === "futuros";
 
@@ -196,6 +201,29 @@ export function conciertoCumpleFiltroAdminVista(concierto, vista, inicioDiaMs = 
   }
 
   return true;
+}
+
+/** Conciertos a listar bajo un programa en la vista admin (incluye programa inactivo → todos sus conciertos). */
+export function conciertosListaAdminFiltrada(programa, conciertos, vista) {
+  const lista = Array.isArray(conciertos) ? conciertos : [];
+  if (vista === "inactivos") {
+    if (programa?.activo === false) {
+      return [...lista].sort(compareConciertosPorFechaHora);
+    }
+    return lista.filter((c) => c?.activo === false).sort(compareConciertosPorFechaHora);
+  }
+  return lista
+    .filter((c) => conciertoCumpleFiltroAdminVista(c, vista))
+    .sort(compareConciertosPorFechaHora);
+}
+
+export function programaVisibleEnAdminVista(programa, conciertos, vista) {
+  const lista = Array.isArray(conciertos) ? conciertos : [];
+  if (vista === "inactivos") {
+    if (programa?.activo === false) return true;
+    return lista.some((c) => c?.activo === false);
+  }
+  return conciertosListaAdminFiltrada(programa, lista, vista).length > 0;
 }
 
 /**

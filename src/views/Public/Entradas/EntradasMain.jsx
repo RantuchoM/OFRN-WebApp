@@ -5,6 +5,8 @@ import ConfirmModal from "../../../components/ui/ConfirmModal";
 import EntradasConciertoDatetimeField from "../../../components/entradas/EntradasConciertoDatetimeField";
 import EntradasReservasHabilitadasToggle from "../../../components/entradas/EntradasReservasHabilitadasToggle";
 import EntradasFormCollapsibleSection from "../../../components/entradas/EntradasFormCollapsibleSection";
+import EntradasAdminBajaModal from "../../../components/entradas/EntradasAdminBajaModal";
+import EntradasAdminReservasListModal from "../../../components/entradas/EntradasAdminReservasListModal";
 import EntradasCompartirConciertoBtn from "../../../components/entradas/EntradasCompartirConciertoBtn";
 import EntradasDisponibilidadBar from "../../../components/entradas/EntradasDisponibilidadBar";
 import EntradasDriveCoverImage from "../../../components/entradas/EntradasDriveCoverImage";
@@ -18,6 +20,7 @@ import {
   IconCopy,
   IconEdit,
   IconHelpCircle,
+  IconList,
   IconMail,
   IconMoon,
   IconSun,
@@ -36,6 +39,12 @@ import {
   adminUpsertPrograma,
   adminDeleteConcierto,
   adminDeletePrograma,
+  adminSuspenderPrograma,
+  adminSuspenderConcierto,
+  adminReactivarPrograma,
+  adminReactivarConcierto,
+  adminContarReservasRestaurables,
+  enviarMailCancelacionPrograma,
   blobToPdfBase64ForMail,
   buildEntradasRecordarmeUrl,
   buildEntradasReservaPdfConDataUrls,
@@ -46,6 +55,7 @@ import {
   buscarBeneficiarioPorEmail,
   cancelarReservaTercero,
   fetchConciertosDisponibilidad,
+  aplicarDisponibilidadAConcierto,
   programasConDisponibilidad,
   todosConciertoIdsEnProgramas,
   cancelarReserva,
@@ -90,6 +100,8 @@ import {
   conciertoAceptaRecordatorioApertura,
   conciertoAdminSoloRecordatoriosProgramados,
   conciertoCumpleFiltroAdminVista,
+  conciertosListaAdminFiltrada,
+  programaVisibleEnAdminVista,
   conciertoParaReglasEntradas,
   defaultAperturaReservasAtFromConcierto,
   entradaConciertoReservasAbiertas,
@@ -525,6 +537,26 @@ function motivoBloqueoEliminarPrograma(conciertos, statsById) {
   return null;
 }
 
+function adminBajaTargetConcierto(concierto, bloqueoEliminar) {
+  return {
+    scope: "concierto",
+    id: concierto.id,
+    nombre: concierto.nombre,
+    activo: concierto.activo !== false,
+    bloqueoEliminar: bloqueoEliminar || null,
+  };
+}
+
+function adminBajaTargetPrograma(programa, bloqueoEliminar) {
+  return {
+    scope: "programa",
+    id: programa.id,
+    nombre: programa.nombre,
+    activo: programa.activo !== false,
+    bloqueoEliminar: bloqueoEliminar || null,
+  };
+}
+
 export default function EntradasMain({ user, profile, onLogout }) {
   const { isDark, toggle } = useEntradasDarkMode();
   const ui = entradasUi(isDark);
@@ -611,6 +643,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [copyingAdminMails, setCopyingAdminMails] = useState(false);
   const [copyingProgramaMailsKey, setCopyingProgramaMailsKey] = useState("");
   const [copyingConciertoMailsKey, setCopyingConciertoMailsKey] = useState("");
+  const [adminDisponibilidadById, setAdminDisponibilidadById] = useState({});
+  const [adminDisponibilidadLoading, setAdminDisponibilidadLoading] = useState(false);
+  const [adminReservasListModal, setAdminReservasListModal] = useState(null);
   const [catalogoFuturosVisible, setCatalogoFuturosVisible] = useState(false);
   const [catalogoFuturosLocalidad, setCatalogoFuturosLocalidad] = useState(null);
   const [recordatorioConciertoIds, setRecordatorioConciertoIds] = useState(() => new Set());
@@ -626,10 +661,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const pendingUnsavedActionRef = useRef(null);
   const [unsavedFormConfirmOpen, setUnsavedFormConfirmOpen] = useState(false);
   const [unsavedFormSaveBusy, setUnsavedFormSaveBusy] = useState(false);
-  /** { id, nombre } para confirmar borrado de concierto (admin) */
-  const [deleteConciertoTarget, setDeleteConciertoTarget] = useState(null);
-  /** { id, nombre } para confirmar borrado de programa (admin) */
-  const [deleteProgramaTarget, setDeleteProgramaTarget] = useState(null);
+  /** Modal unificado de baja (programa o concierto): suspender, cancelar reservas o eliminar */
+  const [bajaTarget, setBajaTarget] = useState(null);
+  const [bajaCancelarReservas, setBajaCancelarReservas] = useState(false);
+  const [bajaEnviarMail, setBajaEnviarMail] = useState(false);
+  const [bajaRestaurables, setBajaRestaurables] = useState(null);
+  const [bajaRestaurarReservas, setBajaRestaurarReservas] = useState(false);
+  const [bajaModalError, setBajaModalError] = useState("");
   const [adminDeleting, setAdminDeleting] = useState(false);
   /** 'recordatorio' | 'encuesta' mientras se envía mail de prueba desde config de concierto */
   const [testMailBusyTipo, setTestMailBusyTipo] = useState(null);
@@ -866,19 +904,24 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
   const conciertosByProgramaIdFiltrado = useMemo(() => {
     const m = new Map();
-    for (const [pid, lista] of conciertosByProgramaId.entries()) {
-      const filtrada = lista.filter((c) => conciertoCumpleFiltroAdminVista(c, adminConciertoVista));
-      if (filtrada.length) m.set(pid, filtrada);
+    for (const p of adminData.programas || []) {
+      const lista = conciertosByProgramaId.get(Number(p.id)) || [];
+      const filtrada = conciertosListaAdminFiltrada(p, lista, adminConciertoVista);
+      if (filtrada.length) m.set(Number(p.id), filtrada);
     }
     return m;
-  }, [conciertosByProgramaId, adminConciertoVista]);
+  }, [adminData.programas, conciertosByProgramaId, adminConciertoVista]);
 
   const programasAdminVisibles = useMemo(
     () =>
       (adminData.programas || []).filter((p) =>
-        (conciertosByProgramaIdFiltrado.get(Number(p.id)) || []).length > 0,
+        programaVisibleEnAdminVista(
+          p,
+          conciertosByProgramaId.get(Number(p.id)) || [],
+          adminConciertoVista,
+        ),
       ),
-    [adminData.programas, conciertosByProgramaIdFiltrado],
+    [adminData.programas, conciertosByProgramaId, adminConciertoVista],
   );
 
   const conciertosReservaTercerosAdmin = useMemo(
@@ -1263,10 +1306,12 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const programasCatalogo = useMemo(
     () =>
       programas
+        .filter((p) => p.activo !== false)
         .map((programa) => ({
           ...programa,
           entrada_concierto: (programa.entrada_concierto || [])
             .filter((concierto) => {
+              if (concierto?.activo === false) return false;
               const fhCat = fechaHoraDesdeConciertoEntrada(concierto);
               if (!fhCat) return false;
               const t = new Date(fhCat);
@@ -1368,7 +1413,6 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const conciertosRecepcion = useMemo(() => {
     return concertosFlat
       .filter((c) => {
-        if (!c.activo) return false;
         const fh = fechaHoraDesdeConciertoEntrada(c);
         return fh && new Date(fh) >= inicioDiaHoy;
       })
@@ -2266,78 +2310,214 @@ export default function EntradasMain({ user, profile, onLogout }) {
     });
   };
 
-  const handleConfirmDeleteConcierto = async () => {
-    const id = deleteConciertoTarget?.id;
-    if (!id) return;
-    setAdminDeleting(true);
+  const openAdminBajaModal = (target) => {
+    setBajaCancelarReservas(false);
+    setBajaEnviarMail(false);
+    setBajaRestaurables(null);
+    setBajaRestaurarReservas(false);
+    setBajaModalError("");
+    setBajaTarget(target);
+  };
+
+  useEffect(() => {
+    if (!bajaTarget || bajaTarget.activo !== false) {
+      setBajaRestaurables(null);
+      setBajaRestaurarReservas(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    adminContarReservasRestaurables(bajaTarget.scope, bajaTarget.id)
+      .then((counts) => {
+        if (cancelled) return;
+        setBajaRestaurables(counts);
+        setBajaRestaurarReservas(counts.reservas > 0);
+      })
+      .catch(() => {
+        if (!cancelled) setBajaRestaurables({ reservas: 0, plazas: 0 });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bajaTarget]);
+
+  const enviarMailCancelacionSiCorresponde = async (result, { nombre, cancelarReservas, enviarMail }) => {
+    if (!cancelarReservas || !enviarMail || !Array.isArray(result?.notificar) || !result.notificar.length) {
+      return;
+    }
     try {
-      await adminDeleteConcierto(id);
-      toast.success("Concierto eliminado.");
-      if (conciertoEditor != null && conciertoEditor !== "new" && Number(conciertoEditor) === Number(id)) {
+      const mailOut = await enviarMailCancelacionPrograma({
+        programaNombre: result.programa_nombre || nombre,
+        notificar: result.notificar,
+      });
+      const n = Number(mailOut?.destinatarios || 0);
+      if (n > 0) {
+        toast.message(`Aviso de cancelación enviado a ${n} persona${n === 1 ? "" : "s"}.`);
+      }
+    } catch (mailErr) {
+      toast.message(mailErr?.message || "Suspendido; no se pudo enviar el mail de aviso.");
+    }
+  };
+
+  const cerrarEditoresTrasBajaPrograma = (pid, lista) => {
+    if (programaEditor != null && Number(programaEditor) === pid) {
+      forceResetProgramaForm();
+    }
+    if (conciertoEditor != null && conciertoEditor !== "new") {
+      const cid = Number(conciertoEditor);
+      if (lista.some((c) => Number(c.id) === cid)) {
         forceCloseConciertoEditor();
       }
-      setAdminConciertoStatsById((prev) => {
-        const next = { ...prev };
-        delete next[Number(id)];
-        return next;
+    }
+  };
+
+  const limpiarStatsTrasBajaPrograma = (lista) => {
+    setAdminConciertoStatsById((prev) => {
+      const next = { ...prev };
+      for (const c of lista) {
+        delete next[Number(c.id)];
+      }
+      return next;
+    });
+    setAdminConciertoStatsLoadingById((prev) => {
+      const next = { ...prev };
+      for (const c of lista) {
+        delete next[Number(c.id)];
+      }
+      return next;
+    });
+  };
+
+  const handleBajaSuspender = async () => {
+    const target = bajaTarget;
+    if (!target?.id) return;
+    setAdminDeleting(true);
+    setBajaModalError("");
+    try {
+      const result =
+        target.scope === "programa"
+          ? await adminSuspenderPrograma({
+              programaId: target.id,
+              cancelarReservas: bajaCancelarReservas,
+            })
+          : await adminSuspenderConcierto({
+              conciertoId: target.id,
+              cancelarReservas: bajaCancelarReservas,
+            });
+      await enviarMailCancelacionSiCorresponde(result, {
+        nombre: target.nombre,
+        cancelarReservas: bajaCancelarReservas,
+        enviarMail: bajaEnviarMail,
       });
-      setAdminConciertoStatsLoadingById((prev) => {
-        const next = { ...prev };
-        delete next[Number(id)];
-        return next;
-      });
+      toast.success(
+        bajaCancelarReservas
+          ? `${target.scope === "programa" ? "Programa" : "Concierto"} suspendido y reservas canceladas.`
+          : `${target.scope === "programa" ? "Programa" : "Concierto"} suspendido (venta cerrada; entradas vigentes conservadas).`,
+      );
+      if (target.scope === "programa") {
+        const pid = Number(target.id);
+        const lista = conciertosByProgramaId.get(pid) || [];
+        cerrarEditoresTrasBajaPrograma(pid, lista);
+      } else if (
+        conciertoEditor != null
+        && conciertoEditor !== "new"
+        && Number(conciertoEditor) === Number(target.id)
+      ) {
+        forceCloseConciertoEditor();
+      }
       try {
         await refreshAdminYCatalogoEntradas();
       } catch (refreshErr) {
-        toast.message(refreshErr?.message || "Eliminado; no se pudo refrescar la lista. Probá recargar la página.");
+        toast.message(refreshErr?.message || "Suspendido; no se pudo refrescar la lista. Probá recargar la página.");
       }
+      setBajaTarget(null);
     } catch (err) {
-      toast.error(err?.message || "No se pudo eliminar el concierto.");
+      setBajaModalError(err?.message || "No se pudo suspender.");
       throw err;
     } finally {
       setAdminDeleting(false);
     }
   };
 
-  const handleConfirmDeletePrograma = async () => {
-    const target = deleteProgramaTarget;
-    if (!target?.id) return;
-    const pid = Number(target.id);
-    const lista = conciertosByProgramaId.get(pid) || [];
+  const handleBajaEliminar = async () => {
+    const target = bajaTarget;
+    if (!target?.id || target.bloqueoEliminar) return;
     setAdminDeleting(true);
+    setBajaModalError("");
     try {
-      await adminDeletePrograma(pid);
-      toast.success("Programa y conciertos de entradas eliminados.");
-      if (programaEditor != null && Number(programaEditor) === pid) {
-        forceResetProgramaForm();
-      }
-      if (conciertoEditor != null && conciertoEditor !== "new") {
-        const cid = Number(conciertoEditor);
-        if (lista.some((c) => Number(c.id) === cid)) {
+      if (target.scope === "programa") {
+        const pid = Number(target.id);
+        const lista = conciertosByProgramaId.get(pid) || [];
+        await adminDeletePrograma(pid);
+        toast.success("Programa y conciertos eliminados.");
+        cerrarEditoresTrasBajaPrograma(pid, lista);
+        limpiarStatsTrasBajaPrograma(lista);
+      } else {
+        const id = Number(target.id);
+        await adminDeleteConcierto(id);
+        toast.success("Concierto eliminado.");
+        if (conciertoEditor != null && conciertoEditor !== "new" && Number(conciertoEditor) === id) {
           forceCloseConciertoEditor();
         }
+        setAdminConciertoStatsById((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        setAdminConciertoStatsLoadingById((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
       }
-      setAdminConciertoStatsById((prev) => {
-        const next = { ...prev };
-        for (const c of lista) {
-          delete next[Number(c.id)];
-        }
-        return next;
-      });
-      setAdminConciertoStatsLoadingById((prev) => {
-        const next = { ...prev };
-        for (const c of lista) {
-          delete next[Number(c.id)];
-        }
-        return next;
-      });
       try {
         await refreshAdminYCatalogoEntradas();
       } catch (refreshErr) {
         toast.message(refreshErr?.message || "Eliminado; no se pudo refrescar la lista. Probá recargar la página.");
       }
+      setBajaTarget(null);
     } catch (err) {
-      toast.error(err?.message || "No se pudo eliminar el programa.");
+      setBajaModalError(err?.message || "No se pudo eliminar.");
+      throw err;
+    } finally {
+      setAdminDeleting(false);
+    }
+  };
+
+  const handleBajaReactivar = async () => {
+    const target = bajaTarget;
+    if (!target?.id) return;
+    setAdminDeleting(true);
+    setBajaModalError("");
+    try {
+      const result =
+        target.scope === "programa"
+          ? await adminReactivarPrograma(target.id, {
+              restaurarReservasSuspension: bajaRestaurarReservas,
+            })
+          : await adminReactivarConcierto(target.id, {
+              restaurarReservasSuspension: bajaRestaurarReservas,
+            });
+      const restauradas = Number(result?.reservas_restauradas) || 0;
+      const plazas = Number(result?.plazas_restauradas) || 0;
+      if (target.scope === "programa") {
+        toast.success(
+          restauradas > 0
+            ? `Programa reactivado. ${restauradas} reservas restauradas (${plazas} plazas). Los conciertos siguen inactivos hasta habilitarlos.`
+            : "Programa reactivado. Los conciertos siguen inactivos hasta habilitarlos uno a uno.",
+        );
+      } else {
+        toast.success(
+          restauradas > 0
+            ? `Concierto reactivado. ${restauradas} reservas restauradas (${plazas} plazas). Revisá apertura de reservas si querés volver a vender.`
+            : "Concierto reactivado. Revisá apertura de reservas si querés volver a vender entradas.",
+        );
+      }
+      await refreshAdminYCatalogoEntradas();
+      setBajaTarget(null);
+    } catch (err) {
+      setBajaModalError(err?.message || "No se pudo reactivar.");
       throw err;
     } finally {
       setAdminDeleting(false);
@@ -2664,6 +2844,31 @@ export default function EntradasMain({ user, profile, onLogout }) {
     }
   };
 
+  const abrirListaReservasAdmin = (conciertoIds, bucket, subtitle = "") => {
+    const ids = [...new Set((conciertoIds || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+    if (!ids.length) {
+      toast.message("No hay conciertos para listar.");
+      return;
+    }
+    setAdminReservasListModal({ conciertoIds: ids, bucket, subtitle });
+  };
+
+  useEffect(() => {
+    if (section !== "admin" || !canAdmin || adminTab !== "programas") return;
+    const ids = (adminData.conciertos || [])
+      .map((c) => Number(c.id))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (!ids.length) {
+      setAdminDisponibilidadById({});
+      return;
+    }
+    setAdminDisponibilidadLoading(true);
+    void fetchConciertosDisponibilidad(ids)
+      .then((map) => setAdminDisponibilidadById(map))
+      .catch(() => setAdminDisponibilidadById({}))
+      .finally(() => setAdminDisponibilidadLoading(false));
+  }, [section, canAdmin, adminTab, adminData.conciertos]);
+
   useEffect(() => {
     if (section !== "admin" || !canAdmin || adminTab !== "programas") return;
     for (const c of adminData.conciertos || []) {
@@ -2796,7 +3001,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
             onChange={(event) => setProgramaForm((prev) => ({ ...prev, activo: event.target.checked }))}
             className={ui.checkbox}
           />
-          Programa activo (visible en catálogo cuando tenga conciertos publicados)
+          Programa activo (visible en catálogo cuando tenga conciertos publicados). Para dar de baja, usá el icono de papelera en la lista.
         </label>
       </EntradasFormCollapsibleSection>
 
@@ -2972,6 +3177,29 @@ export default function EntradasMain({ user, profile, onLogout }) {
       </EntradasFormCollapsibleSection>
 
       <EntradasFormCollapsibleSection
+        title="Visibilidad del concierto"
+        hint="Catálogo público y mails automáticos"
+        panelClassName={ui.insetPanel}
+        isDark={isDark}
+      >
+        <label className={`flex items-center gap-2 text-sm ${ui.textBody}`}>
+          <input
+            type="checkbox"
+            checked={conciertoForm.activo}
+            onChange={(event) =>
+              setConciertoForm((prev) => ({ ...prev, activo: event.target.checked }))
+            }
+            className={ui.checkbox}
+          />
+          Concierto activo (visible en catálogo si el programa está activo)
+        </label>
+        <p className={`text-[10px] leading-snug mt-2 ${ui.textMuted}`}>
+          Si lo desactivás, deja de aparecer en el catálogo y no se envían recordatorios ni encuestas automáticas.
+          Las reservas ya emitidas siguen en Mis entradas y en recepción.
+        </p>
+      </EntradasFormCollapsibleSection>
+
+      <EntradasFormCollapsibleSection
         title="Horarios automáticos y encuesta"
         hint="Recordatorios, cierre y enlace de encuesta"
         panelClassName={ui.insetPanel}
@@ -3069,6 +3297,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const renderAdminConciertoItem = (concierto) => {
     const stats = adminConciertoStatsById[concierto.id];
     const loadingStats = Boolean(adminConciertoStatsLoadingById[concierto.id]);
+    const conciertoConDisp = aplicarDisponibilidadAConcierto(concierto, adminDisponibilidadById);
+    const conciertoListaSubtitle = `${formatConciertoFechaHoraEs(concierto.fecha_hora)}${
+      concierto.lugar_nombre ? ` · ${concierto.lugar_nombre}` : ""
+    } · ${concierto.nombre}`;
     const editingThis =
       conciertoEditor != null
       && conciertoEditor !== "new"
@@ -3081,6 +3313,20 @@ export default function EntradasMain({ user, profile, onLogout }) {
     const muestraVerStats = !enVentana && !vistaSoloRecordatorios && !stats && !loadingStats;
     const conciertoMailBusy = copyingConciertoMailsKey.startsWith(`${concierto.id}:`);
     const recordatoriosPendientes = stats?.recordatoriosAperturaPendientes ?? stats?.recordatoriosApertura ?? 0;
+    const statListBtn = (bucket, { disabled = false, title }) => (
+      <button
+        type="button"
+        disabled={disabled}
+        title={title}
+        aria-label={title}
+        onClick={() => {
+          if (!disabled) abrirListaReservasAdmin([concierto.id], bucket, conciertoListaSubtitle);
+        }}
+        className={`shrink-0 ${ui.btnIcon} p-1.5 disabled:opacity-25 disabled:cursor-not-allowed`}
+      >
+        <IconList size={16} />
+      </button>
+    );
     const statMailBtn = (bucket, { disabled = false, title }) => (
       <button
         type="button"
@@ -3095,6 +3341,21 @@ export default function EntradasMain({ user, profile, onLogout }) {
         <IconMail size={16} className={copyingConciertoMailsKey === `${concierto.id}:${bucket}` ? "opacity-40" : ""} />
       </button>
     );
+    const statCardActions = (bucket, { disabled = false, mailTitle, listTitle }) => (
+      <div className="flex shrink-0 items-center gap-0.5">
+        {statListBtn(bucket, { disabled, title: listTitle })}
+        {statMailBtn(bucket, { disabled, title: mailTitle })}
+      </div>
+    );
+    const disponibilidadBar = stats && !vistaSoloRecordatorios ? (
+      <EntradasDisponibilidadBar
+        concierto={conciertoConDisp}
+        isDark={isDark}
+        square
+        loading={adminDisponibilidadLoading && adminDisponibilidadById[concierto.id] == null}
+        className="mt-2"
+      />
+    ) : null;
     const statsGrid = stats && (
       vistaSoloRecordatorios ? (
         <div className="mt-2 space-y-2 text-xs">
@@ -3105,8 +3366,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
               <span className={ui.adminStatLabel("recordatorio")}>Recordatorios programados:</span>{" "}
               <span>{recordatoriosPendientes}</span>
             </div>
-            {statMailBtn("recordatorio", {
-              title: "Copiar mails inscriptos al recordatorio de apertura (pendientes de aviso)",
+            {statCardActions("recordatorio", {
+              listTitle: "Ver listado de inscriptos al recordatorio de apertura",
+              mailTitle: "Copiar mails inscriptos al recordatorio de apertura (pendientes de aviso)",
             })}
           </div>
           <p className={`text-[11px] ${ui.textMuted}`}>Capacidad máxima: {stats.capacidad}</p>
@@ -3120,14 +3382,16 @@ export default function EntradasMain({ user, profile, onLogout }) {
         </div>
       ) : (
       <>
+        {disponibilidadBar}
         <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
           <div className={`rounded-md border px-2 py-1.5 flex items-start justify-between gap-1 ${ui.adminStatCard("reservadas")}`}>
             <div className="min-w-0">
               <span className={ui.adminStatLabel("reservadas")}>Reservadas:</span>{" "}
               <span>{stats.reservadas}</span>
             </div>
-            {statMailBtn("reservaron", {
-              title: "Copiar mails de quienes tienen reserva activa en este concierto",
+            {statCardActions("reservaron", {
+              listTitle: "Ver listado de reservas activas",
+              mailTitle: "Copiar mails de quienes tienen reserva activa en este concierto",
             })}
           </div>
           <div className={`rounded-md border px-2 py-1.5 flex items-start justify-between gap-1 ${ui.adminStatCard("disponibles")}`}>
@@ -3135,9 +3399,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
               <span className={ui.adminStatLabel("disponibles")}>Disponibles:</span>{" "}
               <span>{stats.disponibles}</span>
             </div>
-            {statMailBtn("disponibles", {
+            {statCardActions("disponibles", {
               disabled: true,
-              title: "Sin destinatarios: son plazas libres (no hay mails asociados)",
+              listTitle: "Sin listado: son plazas libres",
+              mailTitle: "Sin destinatarios: son plazas libres (no hay mails asociados)",
             })}
           </div>
           <div className={`rounded-md border px-2 py-1.5 flex items-start justify-between gap-1 ${ui.adminStatCard("ingresadas")}`}>
@@ -3145,16 +3410,18 @@ export default function EntradasMain({ user, profile, onLogout }) {
               <span className={ui.adminStatLabel("ingresadas")}>Ingresadas:</span>{" "}
               <span>{stats.ingresadas}</span>
             </div>
-            {statMailBtn("ingresaron", {
-              title: "Copiar mails con al menos un ingreso registrado en este concierto",
+            {statCardActions("ingresaron", {
+              listTitle: "Ver listado de reservas con al menos un ingreso",
+              mailTitle: "Copiar mails con al menos un ingreso registrado en este concierto",
             })}
           </div>
           <div className={`rounded-md border px-2 py-1.5 flex items-start justify-between gap-1 ${ui.adminStatCard("noUtilizadas")}`}>
             <div className="min-w-0">
               <span className={ui.adminStatLabel("noUtilizadas")}>Reservadas no utilizadas:</span> {stats.noUtilizadas}
             </div>
-            {statMailBtn("sinIngreso", {
-              title:
+            {statCardActions("sinIngreso", {
+              listTitle: "Ver listado de reservas sin ningún ingreso registrado",
+              mailTitle:
                 "Copiar mails con entrada activa sin ningún ingreso registrado en este concierto (no asistieron)",
             })}
           </div>
@@ -3175,27 +3442,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
               </p>
               <p className={`text-xs ${ui.textMuted}`}>{concierto.nombre}</p>
             </div>
-            {bloqueoEliminarConcierto ? (
-              <button
-                type="button"
-                title={bloqueoEliminarConcierto}
-                aria-label={bloqueoEliminarConcierto}
-                disabled
-                className={`${ui.btnIconDanger} opacity-35 cursor-not-allowed`}
-              >
-                <IconTrash size={18} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                title="Eliminar concierto"
-                aria-label="Eliminar concierto"
-                onClick={() => setDeleteConciertoTarget({ id: concierto.id, nombre: concierto.nombre })}
-                className={ui.btnIconDanger}
-              >
-                <IconTrash size={18} />
-              </button>
-            )}
+            <button
+              type="button"
+              title="Dar de baja concierto"
+              aria-label="Dar de baja concierto"
+              onClick={() =>
+                openAdminBajaModal(adminBajaTargetConcierto(concierto, bloqueoEliminarConcierto))
+              }
+              className={ui.btnIconDanger}
+            >
+              <IconTrash size={18} />
+            </button>
           </div>
           {renderConciertoEditorForm()}
           {muestraCargandoStats && (
@@ -3225,27 +3482,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
             >
               <IconEdit size={18} />
             </button>
-            {bloqueoEliminarConcierto ? (
-              <button
-                type="button"
-                title={bloqueoEliminarConcierto}
-                aria-label={bloqueoEliminarConcierto}
-                disabled
-                className={`${ui.btnIconDanger} opacity-35 cursor-not-allowed`}
-              >
-                <IconTrash size={18} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                title="Eliminar concierto"
-                aria-label="Eliminar concierto"
-                onClick={() => setDeleteConciertoTarget({ id: concierto.id, nombre: concierto.nombre })}
-                className={ui.btnIconDanger}
-              >
-                <IconTrash size={18} />
-              </button>
-            )}
+            <button
+              type="button"
+              title="Dar de baja concierto"
+              aria-label="Dar de baja concierto"
+              onClick={() =>
+                openAdminBajaModal(adminBajaTargetConcierto(concierto, bloqueoEliminarConcierto))
+              }
+              className={ui.btnIconDanger}
+            >
+              <IconTrash size={18} />
+            </button>
           </div>
         </div>
         {muestraCargandoStats && <p className={`text-xs mt-2 ${ui.textMuted}`}>Cargando estadísticas…</p>}
@@ -4323,6 +4570,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
                       ? "Hoy o después, con reservas ya abiertas."
                       : adminConciertoVista === "futuros"
                       ? "Hoy o después, reservas aún no abiertas."
+                      : adminConciertoVista === "inactivos"
+                      ? "Programas o conciertos dados de baja (no aparecen en el catálogo público)."
                       : "Funciones de días anteriores (antes de las 00:00 de hoy, hora Argentina)."}
                   </p>
 
@@ -4356,29 +4605,21 @@ export default function EntradasMain({ user, profile, onLogout }) {
                             <div className="space-y-3">
                               <div className="flex items-start justify-between gap-2">
                                 <h4 className={ui.accentEyebrow}>Editar programa</h4>
-                                {bloqueoEliminarPrograma ? (
+                                <div className="flex shrink-0 items-center gap-1">
                                   <button
                                     type="button"
-                                    title={bloqueoEliminarPrograma}
-                                    aria-label={bloqueoEliminarPrograma}
-                                    disabled
-                                    className={`${ui.btnIconDanger} opacity-35 cursor-not-allowed`}
-                                  >
-                                    <IconTrash size={18} />
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    title="Eliminar programa"
-                                    aria-label="Eliminar programa"
+                                    title="Dar de baja programa"
+                                    aria-label="Dar de baja programa"
                                     onClick={() =>
-                                      setDeleteProgramaTarget({ id: programa.id, nombre: programa.nombre })
+                                      openAdminBajaModal(
+                                        adminBajaTargetPrograma(programa, bloqueoEliminarPrograma),
+                                      )
                                     }
                                     className={ui.btnIconDanger}
                                   >
                                     <IconTrash size={18} />
                                   </button>
-                                )}
+                                </div>
                               </div>
                               {renderProgramaEditorForm()}
                             </div>
@@ -4439,88 +4680,95 @@ export default function EntradasMain({ user, profile, onLogout }) {
                               >
                                 <IconEdit size={18} />
                               </button>
-                              {bloqueoEliminarPrograma ? (
-                                <button
-                                  type="button"
-                                  title={bloqueoEliminarPrograma}
-                                  aria-label={bloqueoEliminarPrograma}
-                                  disabled
-                                  className={`${ui.btnIconDanger} opacity-35 cursor-not-allowed`}
-                                >
-                                  <IconTrash size={18} />
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  title="Eliminar programa"
-                                  aria-label="Eliminar programa"
-                                  onClick={() => setDeleteProgramaTarget({ id: programa.id, nombre: programa.nombre })}
-                                  className={ui.btnIconDanger}
-                                >
-                                  <IconTrash size={18} />
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                title="Dar de baja programa"
+                                aria-label="Dar de baja programa"
+                                onClick={() =>
+                                  openAdminBajaModal(
+                                    adminBajaTargetPrograma(programa, bloqueoEliminarPrograma),
+                                  )
+                                }
+                                className={ui.btnIconDanger}
+                              >
+                                <IconTrash size={18} />
+                              </button>
                             </div>
                           </div>
                           )}
                           {lista.length > 0 && (
                             <div className={`rounded-lg border px-3 py-2 space-y-1.5 ${isDark ? "border-slate-600 bg-slate-900/40" : "border-slate-100 bg-slate-50/90"}`}>
-                              <p className={ui.sectionTitle}>Mails del programa (todos los conciertos)</p>
+                              <p className={ui.sectionTitle}>Mails y listados del programa (todos los conciertos)</p>
                               <div className="flex flex-wrap gap-2">
                                 {(() => {
                                   const busy = copyingProgramaMailsKey.startsWith(`${programa.id}:`);
+                                  const programaListaSubtitle = nombreProgramaEntradaMostrar(
+                                    programa,
+                                    listaCompleta,
+                                    ofrnProgramasPicker,
+                                  );
+                                  const programaConciertoIds = listaCompleta.map((c) => c.id);
+                                  const programaBucketGroup = (bucket, mailLabel, mailTitle, listTitle) => (
+                                    <span key={bucket} className="inline-flex items-stretch gap-0.5">
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        title={mailTitle}
+                                        onClick={() => copiarMailsProgramaAdmin(programa.id, listaCompleta, bucket)}
+                                        className={ui.adminMailBucketBtn(bucket)}
+                                      >
+                                        {copyingProgramaMailsKey === `${programa.id}:${bucket}`
+                                          ? "Copiando…"
+                                          : mailLabel}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        title={listTitle}
+                                        aria-label={listTitle}
+                                        onClick={() =>
+                                          abrirListaReservasAdmin(programaConciertoIds, bucket, programaListaSubtitle)
+                                        }
+                                        className={`${ui.btnIcon} px-2 rounded-md border ${
+                                          isDark ? "border-slate-600" : "border-slate-200"
+                                        }`}
+                                      >
+                                        <IconList size={16} />
+                                      </button>
+                                    </span>
+                                  );
                                   return (
                                     <>
-                                      <button
-                                        type="button"
-                                        disabled={busy}
-                                        title="Personas con al menos una reserva activa en cualquier concierto del programa"
-                                        onClick={() => copiarMailsProgramaAdmin(programa.id, listaCompleta, "reservaron")}
-                                        className={ui.adminMailBucketBtn("reservaron")}
-                                      >
-                                        {copyingProgramaMailsKey === `${programa.id}:reservaron`
-                                          ? "Copiando…"
-                                          : "Mails: reservaron"}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={busy}
-                                        title="Personas con al menos una entrada registrada como ingresada (reserva activa)"
-                                        onClick={() => copiarMailsProgramaAdmin(programa.id, listaCompleta, "ingresaron")}
-                                        className={ui.adminMailBucketBtn("ingresaron")}
-                                      >
-                                        {copyingProgramaMailsKey === `${programa.id}:ingresaron`
-                                          ? "Copiando…"
-                                          : "Mails: ingresaron"}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={busy}
-                                        title="Personas con al menos una reserva activa donde ninguna entrada figura como ingresada (no asistieron a esa reserva)"
-                                        onClick={() => copiarMailsProgramaAdmin(programa.id, listaCompleta, "sinIngreso")}
-                                        className={ui.adminMailBucketBtn("sinIngreso")}
-                                      >
-                                        {copyingProgramaMailsKey === `${programa.id}:sinIngreso`
-                                          ? "Copiando…"
-                                          : "Mails: sin ingreso"}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={busy}
-                                        title="Mails inscriptos al recordatorio de apertura en cualquier concierto del programa"
-                                        onClick={() => copiarMailsProgramaAdmin(programa.id, listaCompleta, "recordatorio")}
-                                        className={ui.adminMailBucketBtn("recordatorio")}
-                                      >
-                                        {copyingProgramaMailsKey === `${programa.id}:recordatorio`
-                                          ? "Copiando…"
-                                          : "Mails: recordatorio"}
-                                      </button>
+                                      {programaBucketGroup(
+                                        "reservaron",
+                                        "Mails: reservaron",
+                                        "Personas con al menos una reserva activa en cualquier concierto del programa",
+                                        "Ver listado de reservas activas del programa",
+                                      )}
+                                      {programaBucketGroup(
+                                        "ingresaron",
+                                        "Mails: ingresaron",
+                                        "Personas con al menos una entrada registrada como ingresada (reserva activa)",
+                                        "Ver listado de reservas con ingreso del programa",
+                                      )}
+                                      {programaBucketGroup(
+                                        "sinIngreso",
+                                        "Mails: sin ingreso",
+                                        "Personas con al menos una reserva activa donde ninguna entrada figura como ingresada (no asistieron a esa reserva)",
+                                        "Ver listado de reservas sin ingreso del programa",
+                                      )}
+                                      {programaBucketGroup(
+                                        "recordatorio",
+                                        "Mails: recordatorio",
+                                        "Mails inscriptos al recordatorio de apertura en cualquier concierto del programa",
+                                        "Ver listado de inscriptos al recordatorio del programa",
+                                      )}
                                     </>
                                   );
                                 })()}
                               </div>
                               <p className={`text-[10px] leading-snug ${ui.textMuted}`}>
-                                Solo reservas activas. «Sin ingreso» = esa reserva no tiene ninguna plaza marcada como ingresada.
+                                Solo reservas activas. «Sin ingreso» = esa reserva no tiene ninguna plaza marcada como ingresada. El ícono de lista abre el detalle con buscador.
                               </p>
                             </div>
                           )}
@@ -4903,6 +5151,16 @@ export default function EntradasMain({ user, profile, onLogout }) {
           </div>
         );
       })()}
+
+      <EntradasAdminReservasListModal
+        open={Boolean(adminReservasListModal)}
+        onClose={() => setAdminReservasListModal(null)}
+        bucket={adminReservasListModal?.bucket}
+        conciertoIds={adminReservasListModal?.conciertoIds || []}
+        subtitle={adminReservasListModal?.subtitle || ""}
+        isDark={isDark}
+        ui={ui}
+      />
 
       {catalogQrModalReserva && (
         <div
@@ -5384,18 +5642,26 @@ export default function EntradasMain({ user, profile, onLogout }) {
         onConfirm={handleConfirmCancelReserva}
       />
 
-      <ConfirmModal
-        isOpen={Boolean(deleteConciertoTarget)}
-        onClose={() => !adminDeleting && setDeleteConciertoTarget(null)}
-        title="Eliminar concierto"
-        message={
-          deleteConciertoTarget
-            ? `¿Eliminar el concierto «${deleteConciertoTarget.nombre || "sin nombre"}»?\n\nSolo es posible si no hay reservas activas ni entradas ya ingresadas. Las reservas canceladas y el registro de ingreso asociado se eliminarán.`
-            : ""
-        }
-        confirmText={adminDeleting ? "Eliminando…" : "Sí, eliminar"}
-        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-md"
-        onConfirm={handleConfirmDeleteConcierto}
+      <EntradasAdminBajaModal
+        target={bajaTarget}
+        isDark={isDark}
+        ui={ui}
+        busy={adminDeleting}
+        error={bajaModalError}
+        cancelarReservas={bajaCancelarReservas}
+        onCancelarReservasChange={(checked) => {
+          setBajaCancelarReservas(checked);
+          if (!checked) setBajaEnviarMail(false);
+        }}
+        enviarMail={bajaEnviarMail}
+        onEnviarMailChange={setBajaEnviarMail}
+        restaurarReservas={bajaRestaurarReservas}
+        onRestaurarReservasChange={setBajaRestaurarReservas}
+        restaurables={bajaRestaurables}
+        onClose={() => !adminDeleting && setBajaTarget(null)}
+        onSuspender={handleBajaSuspender}
+        onEliminar={handleBajaEliminar}
+        onReactivar={handleBajaReactivar}
       />
 
       <ConfirmModal
@@ -5420,19 +5686,6 @@ export default function EntradasMain({ user, profile, onLogout }) {
         }}
       />
 
-      <ConfirmModal
-        isOpen={Boolean(deleteProgramaTarget)}
-        onClose={() => !adminDeleting && setDeleteProgramaTarget(null)}
-        title="Eliminar programa"
-        message={
-          deleteProgramaTarget
-            ? `¿Eliminar el programa «${deleteProgramaTarget.nombre || "sin nombre"}» y todos los conciertos de entradas vinculados?\n\nNo debe haber reservas activas ni entradas ingresadas en ninguno de esos conciertos.`
-            : ""
-        }
-        confirmText={adminDeleting ? "Eliminando…" : "Sí, eliminar todo"}
-        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-md"
-        onConfirm={handleConfirmDeletePrograma}
-      />
     </div>
   );
 }

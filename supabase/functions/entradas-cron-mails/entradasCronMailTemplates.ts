@@ -43,6 +43,37 @@ export function formatFechaHoraEntradasMail(iso: string | null | undefined): str
   }).format(date);
 }
 
+export function subjectCancelacion(conciertoNombre: string): string {
+  const nombre = String(conciertoNombre || "Concierto").trim() || "Concierto";
+  return `Concierto cancelado · ${nombre}`;
+}
+
+export function templateCancelacionConcierto(d: {
+  conciertoNombre: string;
+  programaNombre?: string;
+  fechaTexto: string;
+  lugar: string;
+  linkMisEntradas: string;
+}): string {
+  const programaLine = d.programaNombre
+    ? `<p style="margin:0 0 8px;font-size:13px;color:#64748b;">Programa: <strong>${esc(d.programaNombre)}</strong></p>`
+    : "";
+  return `<!DOCTYPE html><html><body style="font-family:Helvetica,Arial,sans-serif;color:#0f172a;line-height:1.5;">
+  <div style="max-width:560px;margin:0 auto;border:2px solid #e11d48;border-radius:12px;padding:24px;">
+    <p style="margin:0 0 12px;font-size:18px;font-weight:700;color:#e11d48;line-height:1.35;">Concierto cancelado</p>
+    <p>Te informamos que el siguiente concierto fue <strong>cancelado</strong> y tu reserva quedó sin efecto:</p>
+    ${programaLine}
+    <p style="margin:16px 0;padding:12px;background:#fff1f2;border-radius:8px;">
+      <strong>${esc(d.conciertoNombre)}</strong><br/>
+      ${esc(d.fechaTexto)}<br/>
+      ${d.lugar ? esc(d.lugar) : ""}
+    </p>
+    <p>Los códigos y QR de esa reserva ya no son válidos para el ingreso.</p>
+    <p>Podés revisar el estado de tus reservas en <a href="${esc(d.linkMisEntradas)}" style="color:#4f46e5;font-weight:700;">Mis entradas</a>.</p>
+    <p style="margin-top:24px;font-size:12px;color:#64748b;">Orquesta Filarmónica de Río Negro</p>
+  </div></body></html>`;
+}
+
 /** Cuerpo genérico para envío masivo por BCC (sin nombre ni código por persona). */
 export function templateRecordatorio(d: {
   conciertoNombre: string;
