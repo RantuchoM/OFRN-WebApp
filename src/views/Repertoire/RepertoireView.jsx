@@ -104,14 +104,18 @@ const IconCalendarPlus = ({ size = 20, className = "" }) => (
 
 // --- 1. HELPERS & UTILIDADES ---
 
+/** Texto visible para ordenar/filtrar títulos: sin HTML, entidades ni comillas. */
+const QUOTE_CHARS_RE = /["'«»„‚‹›\u201C\u201D\u201E\u201F\u2018\u2019\u201A\u201B\u2033\u2036]/g;
+
 const getPlainRichText = (value) =>
   stripHtml(value)
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&(?:quot|ldquo|rdquo|lsquo|rsquo|laquo|raquo);/gi, " ")
+    .replace(/&#39;|&apos;/gi, " ")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
+    .replace(QUOTE_CHARS_RE, "")
     .replace(/\s+/g, " ")
     .trim();
 

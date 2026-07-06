@@ -67,6 +67,7 @@ Garantizar que los eventos marcados con `is_deleted: true` no aparezcan en:
       - Incluye `is_deleted` y `deleted_at` en `EVENT_SELECT`.
       - Permite ver eventos en papelera durante una ventana de 24 h (`visibleEvents` incluye soft-deleted recientes).
   - La UI sigue pudiendo representarlos (tachados, grises o con indicadores) según la lógica ya implementada.
+  - **Actualización incremental (sin saltos de scroll)**: al crear/editar/eliminar/restaurar un evento desde la agenda, no se llama a `fetchAgenda()` completo; se usa `refreshEventById` (merge de un solo evento). El listener realtime sigue activo para cambios de otros usuarios. El auto-scroll al evento «ahora» corre solo en la carga inicial de cada vista de agenda (`giraId`), no tras cada refresco.
 
 **Conclusión**:  
 El filtrado de soft-delete en exportaciones (PDF e ICS) está **implementado y operativo**, manteniendo la visibilidad controlada de eventos eliminados dentro de `UnifiedAgenda` para fines de gestión y auditoría.

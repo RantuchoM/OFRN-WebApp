@@ -333,7 +333,7 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - [x] **Menú de acciones (⋮) en RepertoireView:** botones de fila (desktop y móvil) unificados en `WorkRowActionMenu` con Asignar, Historial, Abrir Drive / Copiar link Drive (si aplica), Copiar enlace al archivo, Nuevo arreglo, Editar y Eliminar.
 - [x] **WorkForm — Nuevo arreglo en borrador:** `loadArrangementDraftFromSource` precarga datos de la obra origen sin persistir; la referencia en `arreglos_referencias` se crea al guardar (`Crear solicitud` / `Guardar y Cerrar`). Aplica desde el menú del archivo, el botón «Nuevo Arreglo» del formulario y las sugerencias de duplicados.
 - [x] **Tabla de archivo:** encabezados centrados y bordes visibles en grilla desktop (`slate-300` con opacidad) para separar filas/celdas sin recargar la lectura.
-- [x] **Orden por obra:** el sorter y el filtro de título usan `titulo_plain` (texto visible sin rich text ni entidades HTML comunes) en vez de `titulo` crudo.
+- [x] **Orden por obra:** el sorter y el filtro de título usan `titulo_plain` (texto visible sin rich text, entidades HTML comunes ni comillas tipográficas) en vez de `titulo` crudo.
 
 ---
 

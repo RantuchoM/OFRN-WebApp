@@ -163,6 +163,7 @@ export function useAgendaData({
   const abortControllerRef = useRef(null);
   const refreshTimeoutRef = useRef(null);
   const mergeSingleEventFromRealtimeRef = useRef(null);
+  const locallyMutatedIdsRef = useRef(new Set());
   const itemsRef = useRef(items);
   useEffect(() => {
     itemsRef.current = items;
@@ -740,10 +741,14 @@ export function useAgendaData({
           return merged;
         });
         setRecentlyUpdatedEventIds((prev) => new Set(prev).add(id));
-        toast.success("Evento actualizado", {
-          id: "event-updated",
-          duration: 2000,
-        });
+        const isOwnMutation = locallyMutatedIdsRef.current.has(id);
+        locallyMutatedIdsRef.current.delete(id);
+        if (!isOwnMutation) {
+          toast.success("Evento actualizado", {
+            id: "event-updated",
+            duration: 2000,
+          });
+        }
       } catch (err) {
         console.warn("Error al fusionar evento en tiempo real:", err);
         toast.error("Error al actualizar evento");
@@ -759,6 +764,20 @@ export function useAgendaData({
   );
 
   mergeSingleEventFromRealtimeRef.current = mergeSingleEventFromRealtime;
+
+  const markLocalEventMutation = useCallback((id) => {
+    if (id != null) locallyMutatedIdsRef.current.add(id);
+  }, []);
+
+  const refreshEventById = useCallback(
+    (id, { eventType = "UPDATE" } = {}) =>
+      mergeSingleEventFromRealtime({
+        eventType,
+        new: eventType === "DELETE" ? undefined : { id },
+        old: eventType === "DELETE" ? { id } : undefined,
+      }),
+    [mergeSingleEventFromRealtime],
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -803,5 +822,7 @@ export function useAgendaData({
     setLastUpdate,
     realtimeStatus,
     processCategories,
+    markLocalEventMutation,
+    refreshEventById,
   };
 }

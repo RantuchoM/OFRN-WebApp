@@ -451,6 +451,8 @@ export default function UnifiedAgenda({
     setLastUpdate,
     realtimeStatus,
     processCategories,
+    markLocalEventMutation,
+    refreshEventById,
   } = useAgendaData({
     supabase,
     effectiveUserId,
@@ -1085,7 +1087,8 @@ export default function UnifiedAgenda({
         .eq("id", id);
       if (error) throw error;
       setIsEditOpen(false);
-      fetchAgenda();
+      markLocalEventMutation(id);
+      await refreshEventById(id);
       if (hadLinks) {
         toast.warning(
           "Evento movido a la papelera. Revisá la logística de integrantes/regiones y creá un evento nuevo para viáticos si corresponde.",
@@ -1113,7 +1116,8 @@ export default function UnifiedAgenda({
         "Evento restaurado exitosamente. Ha vuelto a la agenda activa.",
         { icon: "✅" },
       );
-      fetchAgenda(true);
+      markLocalEventMutation(eventId);
+      await refreshEventById(eventId);
     } catch (err) {
       toast.error("Error al restaurar: " + err.message);
     }
@@ -1128,7 +1132,8 @@ export default function UnifiedAgenda({
       const { error } = await supabase.from("eventos").delete().eq("id", id);
       if (error) throw error;
       toast.success("Evento eliminado definitivamente.");
-      fetchAgenda(true);
+      markLocalEventMutation(id);
+      await refreshEventById(id, { eventType: "DELETE" });
     } catch (err) {
       console.error("Error al eliminar definitivamente:", err);
       toast.error("Error al eliminar definitivamente: " + err.message);
@@ -1202,9 +1207,11 @@ export default function UnifiedAgenda({
         id: newEventId,
         descripcion: payload.descripcion,
       });
-      fetchAgenda();
+      markLocalEventMutation(newEventId);
+      await refreshEventById(newEventId);
     } catch (err) {
       toast.error("Error al duplicar: " + err.message);
+    } finally {
       setLoading(false);
     }
   };
@@ -1270,9 +1277,11 @@ export default function UnifiedAgenda({
 
       setIsEditOpen(false);
       setEditFormData({});
-      fetchAgenda();
+      markLocalEventMutation(editFormData.id);
+      await refreshEventById(editFormData.id);
     } catch (err) {
       toast.error("Error: " + err.message);
+    } finally {
       setLoading(false);
     }
   };
@@ -1353,7 +1362,9 @@ export default function UnifiedAgenda({
     }
 
     setIsCreating(false);
-    fetchAgenda();
+    markLocalEventMutation(data.id);
+    await refreshEventById(data.id);
+    setLoading(false);
   };
 
   const groupedByMonth = useMemo(() => {
@@ -1409,14 +1420,24 @@ export default function UnifiedAgenda({
   }, [filteredItems, currentEvent]);
 
   const [showEarlierToday, setShowEarlierToday] = useState(false);
+  const hasAutoScrolledRef = useRef(false);
+  const autoScrollScopeRef = useRef(giraId);
 
-  // Auto-scroll al evento actual (Agenda General y Agenda de la Gira): al cargar y cuando no hay "anteriores"
+  // Auto-scroll al evento actual solo en la carga inicial de cada agenda (no tras ediciones ni realtime)
   useEffect(() => {
+    if (autoScrollScopeRef.current !== giraId) {
+      autoScrollScopeRef.current = giraId;
+      hasAutoScrolledRef.current = false;
+    }
+    if (hasAutoScrolledRef.current) return;
     if (loading || filteredItems.length === 0 || !currentEventId) return;
     if (earlierTodayEventIds.size > 0) return;
     const timer = setTimeout(() => {
       const el = document.querySelector(`[data-event-id="${currentEventId}"]`);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        hasAutoScrolledRef.current = true;
+      }
     }, 150);
     return () => clearTimeout(timer);
   }, [
@@ -3030,7 +3051,6 @@ export default function UnifiedAgenda({
               myEnsembles={myEnsembleObjects}
               onSuccess={() => {
                 setIsRehearsalEditOpen(false);
-                fetchAgenda();
               }}
               onCancel={() => setIsRehearsalEditOpen(false)}
             />
@@ -3094,7 +3114,7 @@ export default function UnifiedAgenda({
           giraId={giraId}
           currentEvents={items}
           onImported={async () => {
-            await fetchAgenda(false);
+            await fetchAgenda(true);
           }}
         />
       )}
