@@ -3,6 +3,17 @@ export const VIATICO_ORIGEN_SESSION_KEY = "viaticos_manual_viatico_origen_id";
 export const GUEST_BYPASS_SESSION_KEY = "viaticos_manual_guest_bypass";
 export const SCRN_VIATICO_PREFILL_SESSION_KEY = "ofrn_scrn_viatico_prefill";
 
+/** Fuente única de las claves de gasto del formulario de viático. */
+export const VIATICO_GASTO_KEYS = [
+  "gasto_alojamiento",
+  "gasto_pasajes",
+  "gasto_combustible",
+  "gasto_otros",
+  "gastos_capacit",
+  "gastos_movil_otros",
+  "gasto_ceremonial",
+];
+
 export function readGuestBypass() {
   try {
     return sessionStorage.getItem(GUEST_BYPASS_SESSION_KEY) === "1";
@@ -104,16 +115,7 @@ export function hasMeaningfulViaticoData(form) {
     return true;
   }
 
-  const gastoKeys = [
-    "gasto_alojamiento",
-    "gasto_pasajes",
-    "gasto_combustible",
-    "gasto_otros",
-    "gastos_capacit",
-    "gastos_movil_otros",
-    "gasto_ceremonial",
-  ];
-  return gastoKeys.some((key) => toStorageNumber(form[key]) > 0);
+  return VIATICO_GASTO_KEYS.some((key) => toStorageNumber(form[key]) > 0);
 }
 
 export function hasMeaningfulRendicionData(base, ant, rend) {

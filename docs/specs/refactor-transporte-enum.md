@@ -21,6 +21,11 @@ Cualquier evento en la agenda cuyo `id_tipo_evento` sea **35** debe considerarse
 - `useLogistics.js` (`calculateLogisticsSummary`): transportes con `categoria_logistica === 'INTERNO'` se añaden al resumen de transporte de cada integrante no ausente, para que la agenda pueda resolver `myTransportLogistics` de forma coherente.
 - `giraService.js`: `getTransportesByGira` incluye `categoria_logistica` en el select.
 - `useAgendaData.js`: la query de `giras_transportes` incluye `categoria_logistica` para que el cálculo de logística en agenda tenga el dato.
+- `useAgendaData.js`: el cálculo de `myTransportLogistics` usa el mismo enriquecimiento territorial que `useLogistics` (`resolveLocalidadResidencia`, `resolveLocalidadEfectivaViaticos`, catálogo `localidades` e `id_region_residencia`) para que reglas por Región/Localidad de admisión y rutas coincidan con la gestión logística.
+- `useAgendaData.js`: en agenda de gira específica (`giraId`), siempre se calcula logística del usuario salvo `ausente`/`baja`/`no_convocado` explícitos; los integrantes que entran solo por ensamble (p. ej. ECAS) sin fila en `giras_integrantes` ya no quedan excluidos por un `matchesSource` fallido (p. ej. perfil cacheado sin `integrantes_ensambles`). Se reconsultan ensambles si el perfil no los trae.
+- `UnifiedAgenda.jsx`: la detección de transporte asignado (`isMyTransport`) se evalúa siempre; **todas** las paradas del vehículo asignado se muestran aunque la categoría Logística (id 3) esté desactivada por defecto para músicos (no solo subida/bajada).
+- `UnifiedAgenda.jsx`: clave de caché de perfil `profile_cache_*_v2` para forzar refresco con `integrantes_ensambles`.
+- **Visibilidad unificada:** el IconEye en `GirasTransportesManager` y en paradas de transporte de `UnifiedAgenda` escriben `eventos.visible_agenda`. Staff (editor, management, admin) **sigue viendo** paradas con `visible_agenda === false` en agenda (fondo gris); músicos no, salvo su subida/bajada propia. En eventos no logísticos, el ojo de agenda sigue siendo marca **técnica** (`tecnica`).
 
 ## UI móvil de Gestión de Transportes
 

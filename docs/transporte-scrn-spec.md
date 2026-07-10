@@ -27,7 +27,8 @@ Sección pública para la gestión de flota y solicitudes de transporte de pasaj
 - [x] Columnas `viaticos_opciones` (jsonb) en `scrn_reservas`, `scrn_reserva_pasajeros` y `scrn_solicitudes_nuevo_viaje` (migración `20260622120000_scrn_viaticos_opciones.sql`).
 - [x] En solicitud de plaza (`SolicitudModal`) y propuesta de recorrido (`ProponerNuevoViajeModal`): bloque opcional por titular y por cada pasajero (% viático, temporada alta, gastos).
 - [x] En **Mis viajes** (`MisReservas`): botón **Completar viático** para la persona logueada (titular o pasajero invitado), si el recorrido no está cancelado/rechazado y la salida fue hace menos de 30 días.
-- [x] El botón escribe prefill en `sessionStorage` y navega a `/viaticos-manual?prefill=scrn`.
+- [x] El botón pasa el prefill por el estado de navegación (`navigate(state)`) con `sessionStorage` como respaldo, y navega a `/viaticos-manual?prefill=scrn`.
+- [x] **Retorno (badge)**: en **Mis viajes** se muestra "✓ Viático generado" cuando existe un viático del usuario cuyo `datos.scrn_origen` apunta a la reserva/pasajero (estado derivado, sin write-back). Ver `docs/specs/scrn-viatico-retorno.md`.
 - [x] Al aprobar propuesta de nuevo viaje (`AdminSCRNPanel`), se copian `viaticos_opciones` del proponente a la reserva y de cada item de `pasajeros_json` a `scrn_reserva_pasajeros`.
 
 ### Shape `viaticos_opciones`

@@ -1,26 +1,11 @@
 import { savedPaxParadasVal } from "../views/Public/TransporteSCRN/viajeReservaParadasUtils";
+import { VIATICO_GASTO_KEYS as GASTO_KEYS } from "./viaticosManualStorage";
 
 export const EMPTY_VIATICOS_OPCIONES = {
   porcentaje: 100,
   temporada_alta: false,
-  gasto_alojamiento: 0,
-  gasto_pasajes: 0,
-  gasto_combustible: 0,
-  gasto_otros: 0,
-  gastos_capacit: 0,
-  gastos_movil_otros: 0,
-  gasto_ceremonial: 0,
+  ...Object.fromEntries(GASTO_KEYS.map((key) => [key, 0])),
 };
-
-const GASTO_KEYS = [
-  "gasto_alojamiento",
-  "gasto_pasajes",
-  "gasto_combustible",
-  "gasto_otros",
-  "gastos_capacit",
-  "gastos_movil_otros",
-  "gasto_ceremonial",
-];
 
 const toNumber = (v) => {
   if (v === null || v === undefined || v === "") return 0;

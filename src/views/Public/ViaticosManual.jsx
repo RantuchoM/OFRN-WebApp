@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { saveAs } from "file-saver";
 import { exportViaticosToPDFForm } from "../../utils/pdfFormExporter";
 import { calculateDaysDiff } from "../../hooks/viaticos/useViaticosIndividuales";
@@ -221,6 +221,7 @@ const DEFAULT_FORM = {
 
 export default function ViaticosManual() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const {
     session,
     profile,
@@ -465,7 +466,15 @@ export default function ViaticosManual() {
     if (searchParams.get("prefill") !== "scrn") return;
     scrnPrefillHandledRef.current = true;
 
-    const payload = readAndClearScrnViaticoPrefill();
+    // Preferimos el prefill del estado de navegación (in-app, no efímero);
+    // sessionStorage queda como respaldo (y se limpia siempre para evitar datos viejos).
+    const statePrefill = location.state?.scrnViaticoPrefill;
+    const sessionPrefill = readAndClearScrnViaticoPrefill();
+    const payload =
+      statePrefill && typeof statePrefill === "object"
+        ? statePrefill
+        : sessionPrefill;
+
     const next = new URLSearchParams(searchParams);
     next.delete("prefill");
     setSearchParams(next, { replace: true });
@@ -477,7 +486,7 @@ export default function ViaticosManual() {
     } else {
       applyScrnPrefill(payload);
     }
-  }, [searchParams, setSearchParams, applyScrnPrefill]);
+  }, [location.state, searchParams, setSearchParams, applyScrnPrefill]);
 
   const handlePersonaSelect = (id) => {
     const p = (personas || []).find((x) => String(x.id) === String(id));

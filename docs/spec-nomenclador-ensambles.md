@@ -16,7 +16,7 @@ Centralizar en el backend la generación y actualización de nomencladores de gi
 
 ### Orquestas (Sinfónica, Camerata, Filarmónica, etc.)
 
-- Se consideran "orquesta" los programas cuyo `tipo` no es "Ensamble" (p. ej. Sinfónico, Camerata, Jazz, etc.).
+- Se consideran "orquesta" los programas cuyo `tipo` no es "Ensamble" ni **"Comisión"** (p. ej. Sinfónico, Camerata, Jazz, etc.).
 - Se buscan **todas** las giras del mismo tipo en ese año.
 - Se ordenan por `fecha_desde` (y por `id` como desempate).
 - Se asigna correlativo: `Sinf 01/AA`, `Sinf 02/AA`, … (o `CF 01/AA`, `JB 01/AA`, según prefijo del tipo).
@@ -35,6 +35,12 @@ Centralizar en el backend la generación y actualización de nomencladores de gi
 - Formato: `SIGLA1 NN | SIGLA2 MM /AA`.
 - Cada sigla lleva su propio correlativo anual (ordenado por `fecha_desde` entre las giras que incluyen ese ensamble).
 
+### Comisión
+
+- Los programas con `tipo = "Comisión"` **no participan** en la numeración de nomencladores ni en `mes_letra` (mes_fecha).
+- Al sincronizar, si tenían valores auto-asignados, se limpian (`nomenclador` y `mes_letra` vacíos).
+- No desplazan el correlativo de otros programas del mismo mes ni del mismo organismo.
+
 ## Automatización
 
 - Al ejecutar la acción `sync_program` (con o sin ID), el backend:
@@ -49,4 +55,6 @@ Centralizar en el backend la generación y actualización de nomencladores de gi
 
 ## Estado
 
-- Especificación definida; implementación en backend según esta spec.
+- [x] Nomenclador automático (orquestas + ensambles) en `manage-drive`.
+- [x] `mes_letra` / mes_fecha (`MM` + letra por mes) en `sync_program` y `sync_program_metadata`.
+- [x] Exclusión de tipo **Comisión** en correlativos de nomenclador y mes_letra.

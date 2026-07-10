@@ -5,12 +5,16 @@ import { getTodayDateStringLocal } from "../utils/dates";
 import { calculateLogisticsSummary } from "./useLogistics";
 import { membershipActiveOnProgramDate } from "../utils/ensembleMembership";
 import { getEventProgramIds } from "../utils/rehearsalProgramas";
+import {
+  resolveLocalidadEfectivaViaticos,
+  resolveLocalidadResidencia,
+} from "../utils/integranteDomicilioViaticos";
 
 /** tipos_evento.id — Ensayo de ensamble (independiente o en programa). */
 const ID_TIPO_ENSAYO_ENSAMBLE = 13;
 
 const EVENT_SELECT = `
-    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, updated_at, is_deleted, deleted_at, id_estado_venue,
+    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, visible_agenda, updated_at, is_deleted, deleted_at, id_estado_venue,
     giras_transportes ( id, detalle, transportes ( nombre, color, icon ) ),
     tipos_evento ( id, nombre, color, categorias_tipos_eventos (id, nombre) ),
     locaciones ( id, nombre, direccion, link_mapa, localidades (localidad) ),
@@ -21,6 +25,22 @@ const EVENT_SELECT = `
 
 function normalizeEstadoGira(str) {
   return (str || "").toLowerCase().trim();
+}
+
+function matchesGiraFuente(sources, userProfile, ensamblesRows, progFd) {
+  if (!sources?.length) return false;
+  const myFamilySrc = userProfile?.instrumentos?.familia;
+  return sources.some((src) => {
+    if (src.tipo === "ENSAMBLE") {
+      return (ensamblesRows || []).some(
+        (ie) =>
+          Number(ie.id_ensamble) === Number(src.valor_id) &&
+          membershipActiveOnProgramDate(ie, progFd),
+      );
+    }
+    if (src.tipo === "FAMILIA" && src.valor_texto === myFamilySrc) return true;
+    return false;
+  });
 }
 
 function saveToCache(key, data) {
@@ -49,7 +69,7 @@ export function getAgendaCacheKey(
   const scope = giraId
     ? `${giraId}${includeAssociatedEnsembleRehearsals ? "_ensReh" : ""}`
     : "general";
-  return `agenda_cache_${effectiveUserId}_${scope}_v6`;
+  return `agenda_cache_${effectiveUserId}_${scope}_v7`;
 }
 
 function eventBelongsToProgramAgenda(evt, giraId, includeAssociatedEnsembleRehearsals) {
@@ -342,7 +362,16 @@ export function useAgendaData({
         const foundRuleTours = new Set();
 
         if (activeTourIds.size > 0 && userProfile) {
-          const [admRes, routesRes, transRes] = await Promise.all([
+          let ensamblesRows = userProfile.integrantes_ensambles;
+          if (!ensamblesRows?.length && effectiveUserId !== "guest-general") {
+            const { data: ieData } = await supabase
+              .from("integrantes_ensambles")
+              .select("id_ensamble, fecha_desde, fecha_hasta")
+              .eq("id_integrante", effectiveUserId);
+            ensamblesRows = ieData || [];
+          }
+
+          const [admRes, routesRes, transRes, locsRes] = await Promise.all([
             supabase
               .from("giras_logistica_admision")
               .select("*")
@@ -357,11 +386,13 @@ export function useAgendaData({
               .from("giras_transportes")
               .select("id, id_gira, detalle, categoria_logistica, transportes(nombre)")
               .in("id_gira", Array.from(activeTourIds)),
+            supabase.from("localidades").select("id, localidad, id_region"),
           ]);
 
           const admissionData = admRes.data || [];
           const routesData = routesRes.data || [];
           const transportsData = transRes.data || [];
+          const allLocalities = locsRes.data || [];
 
           if (transportsData.length > 0) {
             const admissionByGira = {};
@@ -382,13 +413,35 @@ export function useAgendaData({
               transportsByGira[t.id_gira].push(t);
             });
 
-            const cleanLocId = userProfile.id_localidad
-              ? Number(userProfile.id_localidad)
-              : null;
-            const residenciaObj = userProfile.datos_residencia;
-            const cleanRegionId = residenciaObj?.id_region
-              ? Number(residenciaObj.id_region)
-              : null;
+            const profileWithResidencia = {
+              ...userProfile,
+              _loc_residencia:
+                userProfile.datos_residencia || userProfile._loc_residencia,
+              residencia:
+                userProfile.datos_residencia || userProfile.residencia,
+            };
+            const locViaticos = resolveLocalidadEfectivaViaticos(
+              profileWithResidencia,
+            );
+            const locResidencia = resolveLocalidadResidencia(
+              profileWithResidencia,
+            );
+            const locId =
+              locViaticos.id != null && locViaticos.id !== ""
+                ? String(locViaticos.id)
+                : "";
+            const locObj =
+              allLocalities.find((l) => String(l.id) === locId) ||
+              locViaticos.objeto;
+            const residenciaId =
+              locResidencia.id != null && locResidencia.id !== ""
+                ? String(locResidencia.id)
+                : "";
+            const residenciaObj =
+              allLocalities.find((l) => String(l.id) === residenciaId) ||
+              locResidencia.objeto ||
+              userProfile.datos_residencia ||
+              null;
 
             activeTourIds.forEach((gId) => {
               const sampleEvt = eventsData.find(
@@ -412,33 +465,34 @@ export function useAgendaData({
                     return;
                 }
                 const sources = sampleEvt.programas.giras_fuentes || [];
-                const myFamilySrc = userProfile.instrumentos?.familia;
                 const progFd =
                   sampleEvt.programas.fecha_desde?.slice?.(0, 10) ||
                   String(sampleEvt.programas.fecha_desde || "").slice(0, 10) ||
                   todayStr;
-                const matchesSource = sources.some((src) => {
-                  if (
-                    src.tipo === "ENSAMBLE" &&
-                    userProfile.integrantes_ensambles?.some(
-                      (ie) =>
-                        Number(ie.id_ensamble) === Number(src.valor_id) &&
-                        membershipActiveOnProgramDate(ie, progFd),
-                    )
-                  )
-                    return true;
-                  if (src.tipo === "FAMILIA" && src.valor_texto === myFamilySrc)
-                    return true;
-                  return false;
-                });
-                if (!myRecord && !matchesSource) return;
+                const matchesSource = matchesGiraFuente(
+                  sources,
+                  userProfile,
+                  ensamblesRows,
+                  progFd,
+                );
+                // Agenda de gira: el usuario ya está en esa vista; calcular logística
+                // salvo ausente explícito. En agenda general, exigir roster o fuente.
+                if (!giraId && !myRecord && !matchesSource) return;
               }
 
               const mockPerson = {
-                ...userProfile,
+                ...profileWithResidencia,
                 id: userProfile.id,
-                id_localidad: cleanLocId,
-                localidades: { id: cleanLocId, id_region: cleanRegionId },
+                id_localidad: locId,
+                localidades: locObj || {
+                  id: locId,
+                  id_region:
+                    locResidencia.regionId ?? residenciaObj?.id_region ?? null,
+                },
+                id_localidad_residencia: residenciaId,
+                localidades_residencia: residenciaObj,
+                id_region_residencia:
+                  locResidencia.regionId ?? residenciaObj?.id_region ?? null,
                 instrumentos: userProfile.instrumentos || {},
                 rol_gira: tourRole,
                 estado_gira: estadoGira,
@@ -452,6 +506,7 @@ export function useAgendaData({
                 routesByGira[gId] || [],
                 currentTransports,
                 [],
+                allLocalities,
               );
               const myTransports = result[0]?.logistics?.transports || [];
               myTransports.forEach((t) => {

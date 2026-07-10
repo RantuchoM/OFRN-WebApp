@@ -62,6 +62,8 @@ import {
   getNowLinePlacement,
   getDeadlineStatus,
   getGoogleMapsUrl,
+  getAgendaTransportFlags,
+  ID_TIPO_TRASLADO_INTERNO,
 } from "../../utils/agendaHelpers";
 import { getProgramBadgeClasses } from "../../utils/giraUtils";
 import VenueStatusPin from "../ui/VenueStatusPin";
@@ -80,25 +82,6 @@ import RehearsalCheckInBlock from "./RehearsalCheckInBlock";
 import { useEnsayoCheckin } from "../../hooks/useEnsayoCheckin";
 import { deriveAgendaPermissions } from "../../utils/agendaPermissions";
 
-/** tipos_evento.id: Traslado interno — "mi transporte" para todo integrante activo (sin reglas de asignación). */
-const ID_TIPO_TRASLADO_INTERNO = 35;
-const TIPO_TRANSPORTE_SALIDA = 11;
-const TIPO_TRANSPORTE_LLEGADA = 12;
-
-/**
- * Solo paradas / traslado interno con tramo: si el tipo ya no es transporte pero quedó
- * `id_gira_transporte`, no debe aplicarse el filtro ni el atenuado de “mi vehículo”.
- */
-function isLogisticsTransportEvent(item) {
-  if (!item) return false;
-  const tipo = Number(item.id_tipo_evento);
-  const isTipoTransporte =
-    tipo === TIPO_TRANSPORTE_SALIDA ||
-    tipo === TIPO_TRANSPORTE_LLEGADA ||
-    tipo === ID_TIPO_TRASLADO_INTERNO;
-  if (!isTipoTransporte) return false;
-  return !!item.id_gira_transporte;
-}
 const DELETED_FILTERS_STORAGE_KEY_PREFIX = "unified_agenda_deleted_filters_v1_";
 const RECENT_CHANGES_ACK_STORAGE_KEY_PREFIX =
   "unified_agenda_recent_changes_ack_v1_";
@@ -144,6 +127,88 @@ const TRANSPORT_ICON_MAP = {
   Calculator: IconCalculator,
 };
 
+/** En paradas de transporte: ojo = `visible_agenda` (mismo toggle que GirasTransportesManager). */
+function AgendaEventAdminToggle({
+  evt,
+  isTransportEvent,
+  canEditAdmin,
+  isTechnicianRole,
+  onToggleVisibleAgenda,
+  onToggleTechnica,
+  compact = false,
+}) {
+  const iconSize = compact ? 10 : 12;
+
+  if (isTransportEvent && canEditAdmin) {
+    const hidden = evt.visible_agenda === false;
+    return (
+      <button
+        type="button"
+        onClick={(e) => onToggleVisibleAgenda(e, evt.id, hidden)}
+        className={`flex items-center gap-1 rounded border transition-all text-[9px] font-bold uppercase ${
+          compact ? "px-1 py-0.5" : "px-1.5 py-0.5"
+        } ${
+          hidden
+            ? "bg-slate-700 text-white border-slate-700"
+            : "bg-transparent text-slate-300 border-transparent hover:text-slate-500"
+        }`}
+        title={
+          hidden
+            ? "Mostrar en agenda (todos los músicos)"
+            : "Ocultar de agenda (subida/bajada propias siguen visibles)"
+        }
+      >
+        {hidden ? (
+          compact ? (
+            "TÉC"
+          ) : (
+            <>
+              <IconEyeOff size={10} strokeWidth={4} />
+              <span>TÉC</span>
+            </>
+          )
+        ) : (
+          <IconEye size={iconSize} />
+        )}
+      </button>
+    );
+  }
+
+  if (canEditAdmin) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => onToggleTechnica(e, evt.id, evt.tecnica)}
+        className={`flex items-center gap-1 px-1.5 py-0.5 rounded border transition-all text-[9px] font-bold uppercase ${
+          evt.tecnica
+            ? "bg-slate-700 text-white border-slate-700"
+            : "bg-transparent text-slate-300 border-transparent"
+        }`}
+        title={evt.tecnica ? "Quitar marca técnica" : "Marcar como técnico"}
+      >
+        {evt.tecnica ? (
+          <>
+            <IconEyeOff size={10} strokeWidth={4} />
+            <span>TÉC</span>
+          </>
+        ) : (
+          <IconEye size={12} />
+        )}
+      </button>
+    );
+  }
+
+  if (isTechnicianRole && evt.tecnica) {
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-800 text-white text-[9px] font-bold uppercase">
+        TÉC
+      </span>
+    );
+  }
+
+  return null;
+}
+
 export default function UnifiedAgenda({
   supabase,
   giraId = null,
@@ -182,6 +247,30 @@ export default function UnifiedAgenda({
     } catch (err) {
       console.error("Error al cambiar técnica:", err);
       toast.error("No se pudo guardar el cambio.");
+    }
+  };
+
+  const toggleEventVisibleAgenda = async (e, eventId, currentlyHidden) => {
+    e.stopPropagation();
+    if (!isEditor && !isManagement) return;
+    const nextVisible = currentlyHidden ? true : false;
+    try {
+      const { error } = await supabase
+        .from("eventos")
+        .update({ visible_agenda: nextVisible })
+        .eq("id", eventId);
+      if (error) throw error;
+      markLocalEventMutation(eventId);
+      setItems((prevItems) =>
+        prevItems.map((item) =>
+          item.id === eventId
+            ? { ...item, visible_agenda: nextVisible }
+            : item,
+        ),
+      );
+    } catch (err) {
+      console.error("Error al cambiar visibilidad en agenda:", err);
+      toast.error("No se pudo guardar la visibilidad.");
     }
   };
 
@@ -662,7 +751,7 @@ export default function UnifiedAgenda({
 
   useEffect(() => {
     const fetchProfile = async () => {
-      const PROFILE_CACHE_KEY = `profile_cache_${effectiveUserId}`;
+      const PROFILE_CACHE_KEY = `profile_cache_${effectiveUserId}_v2`;
       const cachedProfile = localStorage.getItem(PROFILE_CACHE_KEY);
       if (cachedProfile) {
         try {
@@ -774,73 +863,61 @@ export default function UnifiedAgenda({
         if (filterDateTo && item.fecha > filterDateTo) return false;
       }
 
-      // Detectar si este evento de transporte es MI subida/bajada (solo si el tipo sigue siendo transporte)
-      const isTransportEvent = isLogisticsTransportEvent(item);
-      let isMyTransport = false;
-      let isMyUpOrDown = false;
-      if (showOnlyMyTransport && isTransportEvent && item.id_gira_transporte) {
-        const tId = String(item.id_gira_transporte);
-        const myStatus = myTransportLogistics[tId];
-        const isTrasladoInterno =
-          Number(item.id_tipo_evento) === ID_TIPO_TRASLADO_INTERNO;
-        if (isTrasladoInterno || myStatus?.assigned) {
-          isMyTransport = true;
-          const itemIdStr = String(item.id);
-          if (
-            isTrasladoInterno ||
-            String(myStatus?.subidaId) === itemIdStr ||
-            String(myStatus?.bajadaId) === itemIdStr
-          ) {
-            isMyUpOrDown = true;
-          }
-        }
-      }
+      const {
+        isTransportEvent,
+        isMyTransport,
+        isMyAssignedTransportParada,
+        blockedByVisibility,
+      } = getAgendaTransportFlags(item, myTransportLogistics);
+
+      // Único toggle de visibilidad (GirasTransportesManager → visible_agenda).
+      // Músicos: oculto salvo subida/bajada propia. Staff: siempre ve paradas ocultas.
+      const canSeeHiddenAgendaContent =
+        filterIsEditor || filterIsManagement || isAdmin;
+      if (blockedByVisibility && !canSeeHiddenAgendaContent) return false;
 
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
 
-      // Filtro de giras activas: permitir siempre mi subida/bajada aunque el programa no esté vigente
+      // Filtro de giras activas: permitir paradas de mi transporte aunque el programa no esté vigente
       if (!showNonActiveForFilter) {
         const estadoGira = item.programas?.estado || "Borrador";
         if (item.isProgramMarker) {
-          if (
-            estadoGira !== "Vigente" &&
-            !(showOnlyMyTransport && isMyUpOrDown)
-          )
+          if (estadoGira !== "Vigente" && !isMyAssignedTransportParada)
             return false;
         } else if (item.programas && estadoGira !== "Vigente") {
-          if (!(showOnlyMyTransport && isMyUpOrDown)) return false;
+          if (!isMyAssignedTransportParada) return false;
         }
       }
 
       if (item.isProgramMarker) return true;
 
-      // Filtro técnico: no debe ocultar mi propia subida/bajada cuando está activo "Mi transporte"
+      // Filtro técnico: no ocultar paradas de mi transporte asignado
       const hasTechVisibility = filterIsManagement || filterIsTechnician;
       if (
         !hasTechVisibility &&
         item.tecnica &&
-        !(showOnlyMyTransport && isMyUpOrDown)
+        !isMyAssignedTransportParada
       )
         return false;
       if (hasTechVisibility) {
         if (
           techFilter === "only_tech" &&
           !item.tecnica &&
-          !(showOnlyMyTransport && isMyUpOrDown)
+          !isMyAssignedTransportParada
         )
           return false;
         if (
           techFilter === "no_tech" &&
           item.tecnica &&
-          !(showOnlyMyTransport && isMyUpOrDown)
+          !isMyAssignedTransportParada
         )
           return false;
       }
 
-      // Filtro por categorías: permitir siempre mi subida/bajada aunque el tipo no esté seleccionado
+      // Filtro por categorías: mostrar todas las paradas de mi vehículo aunque Logística no esté seleccionada
       if (selectedCategoryIds.length > 0) {
         if (catId && !selectedCategoryIds.includes(catId)) {
-          if (!(showOnlyMyTransport && isMyUpOrDown)) return false;
+          if (!isMyAssignedTransportParada) return false;
         }
       }
 
@@ -871,6 +948,7 @@ export default function UnifiedAgenda({
     filterIsManagement,
     filterIsTechnician,
     filterIsEditor,
+    isAdmin,
   ]);
 
   const getRecentChangesThreshold = useCallback(() => {
@@ -1926,11 +2004,29 @@ export default function UnifiedAgenda({
                         .includes("comida");
                     const isNonConvokedMeal = isMeal && !evt.is_convoked;
 
-                    const isTransportEvent = isLogisticsTransportEvent(evt);
-                    let isMyTransport = false;
-                    let isMyUp = false;
-                    let isMyDown = false;
+                    const transportFlags = getAgendaTransportFlags(
+                      evt,
+                      myTransportLogistics,
+                    );
+                    const isTransportEvent = transportFlags.isTransportEvent;
+                    const isMyTransport = transportFlags.isMyTransport;
+                    const myStatus = evt.id_gira_transporte
+                      ? myTransportLogistics[String(evt.id_gira_transporte)]
+                      : null;
+                    const isMyUp =
+                      isMyTransport &&
+                      myStatus &&
+                      String(myStatus.subidaId) === String(evt.id);
+                    const isMyDown =
+                      isMyTransport &&
+                      myStatus &&
+                      String(myStatus.bajadaId) === String(evt.id);
                     let debugReason = null;
+
+                    if (isTransportEvent && !isMyTransport) {
+                      const tourHasRules = toursWithRules.has(evt.id_gira);
+                      debugReason = tourHasRules ? "No Match" : "Sin Reglas";
+                    }
 
                     const transportName =
                       evt.giras_transportes?.transportes?.nombre;
@@ -1941,24 +2037,6 @@ export default function UnifiedAgenda({
                       evt.giras_transportes?.transportes?.icon || "IconBus";
                     const TransportIcon =
                       TRANSPORT_ICON_MAP[transportIconName] || IconBus;
-
-                    if (isTransportEvent && evt.id_gira_transporte) {
-                      const transportIdStr = String(evt.id_gira_transporte);
-                      const myStatus = myTransportLogistics[transportIdStr];
-                      const isTrasladoInterno =
-                        Number(evt.id_tipo_evento) === ID_TIPO_TRASLADO_INTERNO;
-
-                      if (isTrasladoInterno || (myStatus && myStatus.assigned)) {
-                        isMyTransport = true;
-                        if (myStatus && String(myStatus.subidaId) === String(evt.id))
-                          isMyUp = true;
-                        if (myStatus && String(myStatus.bajadaId) === String(evt.id))
-                          isMyDown = true;
-                      } else {
-                        const tourHasRules = toursWithRules.has(evt.id_gira);
-                        debugReason = tourHasRules ? "No Match" : "Sin Reglas";
-                      }
-                    }
 
                     let isTransportDimmed = isTransportEvent && !isMyTransport;
                     if (showNoGray && isTransportEvent)
@@ -1991,6 +2069,10 @@ export default function UnifiedAgenda({
                     const isDeleted = evt.is_deleted === true;
                     const canAdminEditDeleted = isAdmin && showDeletedEvents;
                     const isReadOnlyDeleted = isDeleted && !canAdminEditDeleted;
+                    const isAgendaHiddenTransport =
+                      isTransportEvent &&
+                      evt.visible_agenda === false &&
+                      (filterIsEditor || filterIsManagement || isAdmin);
 
                     return (
                       <React.Fragment key={evt.id}>
@@ -2089,6 +2171,7 @@ export default function UnifiedAgenda({
                                 className={`md:hidden relative flex flex-row items-stretch px-4 py-2 border-b border-slate-200 transition-colors group gap-2
                             ${shouldDim && !isDeleted ? "opacity-50 grayscale hover:bg-slate-50" : ""}
                             ${isDeleted ? "bg-orange-50 opacity-80 line-through" : ""}
+                            ${isAgendaHiddenTransport ? "bg-slate-100 opacity-80" : ""}
                             ${isReadOnlyDeleted ? " pointer-events-none" : ""}
                             ${!isDeleted && evt.is_guest ? "bg-emerald-50/30 hover:bg-slate-50" : ""}
                             ${!isDeleted && isMyTransport ? "bg-indigo-50/30 border-l-4 border-l-indigo-400 hover:bg-slate-50" : ""}
@@ -2155,38 +2238,18 @@ export default function UnifiedAgenda({
                                         {evt.programas.nomenclador}
                                       </span>
                                     )}
-                                    {(isManagement || isEditor) && (
-                                      <button
-                                        onClick={(e) =>
-                                          toggleEventTechnica(
-                                            e,
-                                            evt.id,
-                                            evt.tecnica,
-                                          )
+                                    {(isManagement || isEditor || isTechnician) && (
+                                      <AgendaEventAdminToggle
+                                        evt={evt}
+                                        isTransportEvent={isTransportEvent}
+                                        canEditAdmin={isManagement || isEditor}
+                                        isTechnicianRole={isTechnician}
+                                        onToggleVisibleAgenda={
+                                          toggleEventVisibleAgenda
                                         }
-                                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded border transition-all text-[9px] font-bold uppercase ${evt.tecnica ? "bg-slate-700 text-white border-slate-700" : "bg-transparent text-slate-300 border-transparent"}`}
-                                      >
-                                        {evt.tecnica ? (
-                                          <>
-                                            <IconEyeOff
-                                              size={10}
-                                              strokeWidth={4}
-                                            />
-                                            <span>TÉC</span>
-                                          </>
-                                        ) : (
-                                          <IconEye size={12} />
-                                        )}
-                                      </button>
+                                        onToggleTechnica={toggleEventTechnica}
+                                      />
                                     )}
-                                    {!isManagement &&
-                                      !isEditor &&
-                                      isTechnician &&
-                                      evt.tecnica && (
-                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-800 text-white text-[9px] font-bold uppercase">
-                                          TÉC
-                                        </span>
-                                      )}
                                   </div>
 
                                   {/* Descripción + chips para móvil */}
@@ -2515,6 +2578,7 @@ export default function UnifiedAgenda({
                                 className={`hidden md:grid md:grid-cols-12 gap-2 p-3 pl-4 items-start border-b border-slate-100 transition-colors group relative
                             ${shouldDim && !isDeleted ? "opacity-60 grayscale hover:bg-slate-50" : ""}
                             ${isDeleted ? "bg-orange-50 opacity-80 line-through" : ""}
+                            ${isAgendaHiddenTransport ? "bg-slate-100 opacity-80" : ""}
                             ${isReadOnlyDeleted ? " pointer-events-none" : ""}
                             ${!isDeleted && evt.is_guest ? "bg-emerald-50/30 hover:bg-slate-50" : ""}
                             ${!isDeleted && isMyTransport ? "bg-indigo-50/30 hover:bg-slate-50" : ""}
@@ -2580,32 +2644,19 @@ export default function UnifiedAgenda({
                                     >
                                       {evt.tipos_evento?.nombre}
                                     </span>
-                                    {(isManagement || isEditor) && (
-                                      <button
-                                        onClick={(e) =>
-                                          toggleEventTechnica(
-                                            e,
-                                            evt.id,
-                                            evt.tecnica,
-                                          )
+                                    {(isManagement || isEditor || isTechnician) && (
+                                      <AgendaEventAdminToggle
+                                        evt={evt}
+                                        isTransportEvent={isTransportEvent}
+                                        canEditAdmin={isManagement || isEditor}
+                                        isTechnicianRole={isTechnician}
+                                        onToggleVisibleAgenda={
+                                          toggleEventVisibleAgenda
                                         }
-                                        className={`flex items-center gap-1 px-1 py-0.5 rounded border transition-all text-[9px] font-bold uppercase ${evt.tecnica ? "bg-slate-700 text-white" : "text-slate-300"}`}
-                                      >
-                                        {evt.tecnica ? (
-                                          "TÉC"
-                                        ) : (
-                                          <IconEye size={10} />
-                                        )}
-                                      </button>
+                                        onToggleTechnica={toggleEventTechnica}
+                                        compact
+                                      />
                                     )}
-                                    {!isManagement &&
-                                      !isEditor &&
-                                      isTechnician &&
-                                      evt.tecnica && (
-                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-800 text-white text-[9px] font-bold uppercase">
-                                          TÉC
-                                        </span>
-                                      )}
                                   </div>
                                   {evt.programas?.nomenclador && (
                                     <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0 border border-indigo-100">

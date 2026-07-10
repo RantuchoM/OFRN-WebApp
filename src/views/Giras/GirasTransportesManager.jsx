@@ -4365,8 +4365,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     }`}
                                     title={
                                       evt.visible_agenda === false
-                                        ? "Mostrar en agenda"
-                                        : "Ocultar de agenda"
+                                        ? "Mostrar en agenda (todos los músicos)"
+                                        : "Ocultar de agenda (subida/bajada propias siguen visibles para cada músico)"
                                     }
                                   >
                                     {evt.visible_agenda === false ? (
@@ -4741,8 +4741,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 }`}
                                 title={
                                   evt.visible_agenda === false
-                                    ? "Mostrar en agenda"
-                                    : "Ocultar de agenda"
+                                    ? "Mostrar en agenda (todos los músicos)"
+                                    : "Ocultar de agenda (subida/bajada propias siguen visibles para cada músico)"
                                 }
                               >
                                 {evt.visible_agenda === false ? (

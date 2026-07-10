@@ -10,6 +10,63 @@ import {
   timeStringToMinutes,
 } from "./dates";
 
+export const ID_TIPO_TRASLADO_INTERNO = 35;
+const TIPO_TRANSPORTE_SALIDA = 11;
+const TIPO_TRANSPORTE_LLEGADA = 12;
+
+/** Parada / traslado interno con vehículo vinculado (`id_gira_transporte`). */
+export function isLogisticsTransportEvent(item) {
+  if (!item) return false;
+  const tipo = Number(item.id_tipo_evento);
+  const isTipoTransporte =
+    tipo === TIPO_TRANSPORTE_SALIDA ||
+    tipo === TIPO_TRANSPORTE_LLEGADA ||
+    tipo === ID_TIPO_TRASLADO_INTERNO;
+  if (!isTipoTransporte) return false;
+  return !!item.id_gira_transporte;
+}
+
+/**
+ * Flags de transporte en agenda personal (asignación + subida/bajada obligatorias).
+ * @param {object} item
+ * @param {Record<string, { assigned?: boolean, subidaId?: number|string, bajadaId?: number|string }>} myTransportLogistics
+ */
+export function getAgendaTransportFlags(item, myTransportLogistics = {}) {
+  const isTransportEvent = isLogisticsTransportEvent(item);
+  let isMyTransport = false;
+  let isMyUpOrDown = false;
+
+  if (isTransportEvent && item.id_gira_transporte) {
+    const tId = String(item.id_gira_transporte);
+    const myStatus = myTransportLogistics[tId];
+    const isTrasladoInterno =
+      Number(item.id_tipo_evento) === ID_TIPO_TRASLADO_INTERNO;
+    if (isTrasladoInterno || myStatus?.assigned) {
+      isMyTransport = true;
+      const itemIdStr = String(item.id);
+      if (
+        isTrasladoInterno ||
+        String(myStatus?.subidaId) === itemIdStr ||
+        String(myStatus?.bajadaId) === itemIdStr
+      ) {
+        isMyUpOrDown = true;
+      }
+    }
+  }
+
+  const hiddenFromAgenda =
+    isTransportEvent && item.visible_agenda === false;
+  const blockedByVisibility = hiddenFromAgenda && !isMyUpOrDown;
+
+  return {
+    isTransportEvent,
+    isMyTransport,
+    isMyUpOrDown,
+    isMyAssignedTransportParada: isMyTransport,
+    blockedByVisibility,
+  };
+}
+
 /**
  * Determina dónde dibujar la línea "ahora" en la agenda:
  * - { type: 'inside', eventId, progress } si estamos dentro de un evento (progress 0..1)

@@ -84,6 +84,26 @@ export async function saveViaticoGuardado({ id, etiqueta, datos }) {
   return data;
 }
 
+/**
+ * Viáticos del usuario actual que se originaron desde un recorrido SCRN.
+ * RLS limita el resultado a las filas propias (usuario_id = auth.uid()).
+ * @returns {Promise<Array<{ id: string, created_at: string, scrn_origen: object }>>}
+ */
+export async function listViaticosScrnGenerados() {
+  const { data, error } = await supabaseOficinaExterna
+    .from("viaticos_manual_viatico")
+    .select("id, created_at, datos")
+    .not("datos->scrn_origen", "is", null);
+  if (error) throw error;
+  return (data || [])
+    .map((row) => ({
+      id: row.id,
+      created_at: row.created_at,
+      scrn_origen: row?.datos?.scrn_origen || null,
+    }))
+    .filter((row) => row.scrn_origen && typeof row.scrn_origen === "object");
+}
+
 export async function deleteViaticoGuardado(id) {
   const { error } = await supabaseOficinaExterna
     .from("viaticos_manual_viatico")

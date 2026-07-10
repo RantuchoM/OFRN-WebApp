@@ -420,8 +420,16 @@ const getTypeAbbreviation = (type: string) => {
   return "Sinf";
 };
 
+/** Comisión no participa en mes_letra (mes_fecha) ni en correlativos de nomenclador. */
+function isComisionType(tipo: string | undefined | null): boolean {
+  if (!tipo) return false;
+  const t = tipo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return t.includes("comision");
+}
+
 const isOrquestaType = (tipo: string) => {
   if (!tipo) return true;
+  if (isComisionType(tipo)) return false;
   const t = tipo.toLowerCase();
   return !t.includes("ensamble");
 };
@@ -448,6 +456,7 @@ type ProgramRow = {
   fecha_desde: string;
   tipo?: string;
   nomenclador?: string | null;
+  mes_letra?: string | null;
   giras_fuentes?: Array<{ tipo: string; valor_id: number | null; valor_texto: string | null }>;
 };
 
@@ -461,7 +470,7 @@ async function fetchProgramsByFiscalYear(
   const end = `${yearFull}-12-31`;
   let q = supabase
     .from("programas")
-    .select("id, fecha_desde, tipo, nomenclador, giras_fuentes(tipo, valor_id, valor_texto)")
+    .select("id, fecha_desde, tipo, nomenclador, mes_letra, giras_fuentes(tipo, valor_id, valor_texto)")
     .gte("fecha_desde", start)
     .lte("fecha_desde", end)
     .order("fecha_desde", { ascending: true })
@@ -499,8 +508,10 @@ function computeEnsambleNomenclador(
     const name =
       ensembleIdToName.get(eid) ||
       (s.valor_texto?.trim() ? s.valor_texto.trim() : "Ens");
-    const girasWithThisEnsemble = programsInYear.filter((p) =>
-      (p.giras_fuentes || []).some((f) => f.tipo === "ENSAMBLE" && f.valor_id === eid)
+    const girasWithThisEnsemble = programsInYear.filter(
+      (p) =>
+        !isComisionType(p.tipo || "") &&
+        (p.giras_fuentes || []).some((f) => f.tipo === "ENSAMBLE" && f.valor_id === eid),
     );
     const ordenado = [...girasWithThisEnsemble].sort(
       (a, b) => (a.fecha_desde || "").localeCompare(b.fecha_desde || "") || a.id - b.id
@@ -563,6 +574,13 @@ async function auditAndApplyNomencladores(
     const ensembleDisplayNames = await loadEnsembleDisplayNames(supabase, [...ensembleIds]);
 
     for (const p of programsInYear) {
+      if (isComisionType(p.tipo || "")) {
+        if ((p.nomenclador || "") !== "" && (!limitIds || limitIds.includes(p.id))) {
+          updates.push({ id: p.id, nomenclador: "" });
+        }
+        continue;
+      }
+
       let computed = "";
       if (isOrquestaType(p.tipo || "")) {
         const list = orquestaByPrefix.get(getTypeAbbreviation(p.tipo || "")) || [];
@@ -591,6 +609,67 @@ async function auditAndApplyNomencladores(
   });
 
   return { updated: updates.length, updatedIds, list: listWithNewNomenclador };
+}
+
+// =================================================================================
+// MES_LETRA (mes_fecha): prefijo MM + letra cronológica por mes calendario (03a, 03b…)
+// =================================================================================
+
+async function auditAndApplyMesLetra(
+  supabase: any,
+  programsToSync: ProgramRow[],
+  limitIds?: number[],
+): Promise<{ updated: number; updatedIds: number[] }> {
+  if (programsToSync.length === 0) return { updated: 0, updatedIds: [] };
+
+  const byYear = new Map<string, number[]>();
+  for (const p of programsToSync) {
+    const yy = fiscalYearFromDate(p.fecha_desde);
+    if (!yy) continue;
+    if (!byYear.has(yy)) byYear.set(yy, []);
+    byYear.get(yy)!.push(p.id);
+  }
+
+  const updates: Array<{ id: number; mes_letra: string | null }> = [];
+
+  for (const [year2] of byYear) {
+    const programsInYear = await fetchProgramsByFiscalYear(supabase, year2);
+    const monthCounters: Record<number, number> = {};
+
+    for (const p of programsInYear) {
+      if (!p.fecha_desde) continue;
+
+      if (isComisionType(p.tipo || "")) {
+        if ((p.mes_letra || "") !== "" && (!limitIds || limitIds.includes(p.id))) {
+          updates.push({ id: p.id, mes_letra: null });
+        }
+        continue;
+      }
+
+      const [, m] = p.fecha_desde.split("-").map(Number);
+      if (!m || m < 1 || m > 12) continue;
+
+      const monthIndex = m - 1;
+      const monthNum = m.toString().padStart(2, "0");
+      if (monthCounters[monthIndex] === undefined) monthCounters[monthIndex] = 0;
+      const monthLetter = String.fromCharCode(97 + monthCounters[monthIndex]);
+      monthCounters[monthIndex]++;
+      const computed = `${monthNum}${monthLetter}`;
+
+      if (
+        computed !== (p.mes_letra || "") &&
+        (!limitIds || limitIds.includes(p.id))
+      ) {
+        updates.push({ id: p.id, mes_letra: computed });
+      }
+    }
+  }
+
+  for (const u of updates) {
+    await supabase.from("programas").update({ mes_letra: u.mes_letra }).eq("id", u.id);
+  }
+
+  return { updated: updates.length, updatedIds: updates.map((x) => x.id) };
 }
 
 const getFormattedDateString = (startStr: string, endStr: string) => {
@@ -2855,7 +2934,7 @@ serve(async (req) => {
 
       const { data: progBasic, error: progError } = await supabase
         .from("programas")
-        .select("id, fecha_desde, tipo, nomenclador, giras_fuentes(tipo, valor_id, valor_texto)")
+        .select("id, fecha_desde, tipo, nomenclador, mes_letra, giras_fuentes(tipo, valor_id, valor_texto)")
         .eq("id", targetProgramId)
         .single();
 
@@ -2872,6 +2951,12 @@ serve(async (req) => {
         supabase,
         [progBasic as ProgramRow],
         [targetProgramId]
+      );
+
+      const { updated: mesLetraUpdated } = await auditAndApplyMesLetra(
+        supabase,
+        [progBasic as ProgramRow],
+        [targetProgramId],
       );
 
       const finalProgramId =
@@ -2898,6 +2983,7 @@ serve(async (req) => {
           programId: finalProgramId,
           folderId,
           nomencladorUpdated: nomencladorUpdated ?? 0,
+          mesLetraUpdated: mesLetraUpdated ?? 0,
           ensembleShortcuts: ensembleStats,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -3092,7 +3178,7 @@ serve(async (req) => {
         const today = new Date().toISOString().slice(0, 10);
         const { data: programas, error: listError } = await supabase
           .from("programas")
-          .select("id, fecha_desde, tipo, nomenclador, giras_fuentes(tipo, valor_id, valor_texto)")
+          .select("id, fecha_desde, tipo, nomenclador, mes_letra, giras_fuentes(tipo, valor_id, valor_texto)")
           .eq("estado", "Vigente")
           .gte("fecha_hasta", today);
         if (listError) {
@@ -3104,7 +3190,7 @@ serve(async (req) => {
       } else {
         const { data: prog, error: progError } = await supabase
           .from("programas")
-          .select("id, fecha_desde, tipo, nomenclador, giras_fuentes(tipo, valor_id, valor_texto)")
+          .select("id, fecha_desde, tipo, nomenclador, mes_letra, giras_fuentes(tipo, valor_id, valor_texto)")
           .eq("id", targetProgramId)
           .single();
         if (progError || !prog) {
@@ -3118,6 +3204,14 @@ serve(async (req) => {
         await auditAndApplyNomencladores(supabase, programsToAudit);
       if (nomencladorUpdated > 0) {
         console.log(`[SYNC] Nomencladores actualizados en DB: ${nomencladorUpdated}`);
+      }
+
+      const { updated: mesLetraUpdated } = await auditAndApplyMesLetra(
+        supabase,
+        programsToAudit,
+      );
+      if (mesLetraUpdated > 0) {
+        console.log(`[SYNC] mes_letra actualizados en DB: ${mesLetraUpdated}`);
       }
 
       const idsToSync = [...new Set([...listAfterAudit.map((p) => p.id), ...updatedIds])];
@@ -3146,6 +3240,7 @@ serve(async (req) => {
           success: true,
           synced: list.length,
           nomencladorUpdated: nomencladorUpdated ?? 0,
+          mesLetraUpdated: mesLetraUpdated ?? 0,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );

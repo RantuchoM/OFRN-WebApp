@@ -33,6 +33,7 @@ import {
   puedeAbrirViaticoDesdeReserva,
 } from "../../../utils/scrnViaticoPrefill";
 import { writeScrnViaticoPrefill } from "../../../utils/viaticosManualStorage";
+import { listViaticosScrnGenerados } from "../../../services/viaticosManualService";
 
 const TRAMO_LABEL = { ida: "Ida", vuelta: "Vuelta", ambos: "Ambos" };
 const TRAMO_OPTS = [
@@ -108,6 +109,22 @@ function ResumenParadasPaxReadonly({ reserva, pax }) {
   );
 }
 
+function ViaticoGeneradoBadge({ record }) {
+  if (!record) return null;
+  const fecha = record.created_at
+    ? new Date(record.created_at).toLocaleDateString("es-AR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+    : "";
+  return (
+    <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">
+      ✓ Viático generado{fecha ? ` · ${fecha}` : ""}
+    </span>
+  );
+}
+
 export default function MisReservas({
   user,
   reloadKey = 0,
@@ -130,6 +147,8 @@ export default function MisReservas({
   const [paxRowDraft, setPaxRowDraft] = useState(null);
   const [paxViaticosDraft, setPaxViaticosDraft] = useState(null);
   const [savingPaxRow, setSavingPaxRow] = useState(false);
+  const [viaticoTitularPorReserva, setViaticoTitularPorReserva] = useState({});
+  const [viaticoPorPax, setViaticoPorPax] = useState({});
   const navigate = useNavigate();
 
   const miPerfil = useMemo(
@@ -156,7 +175,9 @@ export default function MisReservas({
       });
 
       writeScrnViaticoPrefill(prefill);
-      navigate("/viaticos-manual?prefill=scrn");
+      navigate("/viaticos-manual?prefill=scrn", {
+        state: { scrnViaticoPrefill: prefill },
+      });
     },
     [miPerfil, navigate],
   );
@@ -504,6 +525,31 @@ export default function MisReservas({
       setReservas(reservaList.map((r) => ({ ...r, pasajeros: paxByReserva[r.id] || [] })));
       setViajesMap(nextMap);
       setComoPasajero(listaComo);
+
+      try {
+        const generados = await listViaticosScrnGenerados();
+        const porReserva = {};
+        const porPax = {};
+        for (const v of generados) {
+          const o = v.scrn_origen || {};
+          if (o.rol === "pasajero" && o.pax_id != null) {
+            const key = String(o.pax_id);
+            if (!porPax[key] || v.created_at > porPax[key].created_at) porPax[key] = v;
+          } else if (o.reserva_id != null) {
+            const key = String(o.reserva_id);
+            if (!porReserva[key] || v.created_at > porReserva[key].created_at) {
+              porReserva[key] = v;
+            }
+          }
+        }
+        setViaticoTitularPorReserva(porReserva);
+        setViaticoPorPax(porPax);
+      } catch (viaticosErr) {
+        console.error("Error cargando viáticos generados (SCRN):", viaticosErr);
+        setViaticoTitularPorReserva({});
+        setViaticoPorPax({});
+      }
+
       setLoading(false);
     };
 
@@ -677,15 +723,20 @@ export default function MisReservas({
 
               {!isEditing &&
                 puedeAbrirViaticoDesdeReserva({ reserva, viaje }) && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      abrirViaticoDesdeRecorrido({ reserva, viaje, rol: "titular" })
-                    }
-                    className="inline-flex items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
-                  >
-                    Completar viático
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        abrirViaticoDesdeRecorrido({ reserva, viaje, rol: "titular" })
+                      }
+                      className="inline-flex items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
+                    >
+                      Completar viático
+                    </button>
+                    <ViaticoGeneradoBadge
+                      record={viaticoTitularPorReserva[String(reserva.id)]}
+                    />
+                  </div>
                 )}
 
               {isEditing && paradaDraft && (
@@ -911,20 +962,23 @@ export default function MisReservas({
                     viaje,
                     estadoPasajero: pax.estado,
                   }) && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        abrirViaticoDesdeRecorrido({
-                          reserva,
-                          viaje,
-                          pax,
-                          rol: "pasajero",
-                        })
-                      }
-                      className="inline-flex items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
-                    >
-                      Completar viático
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          abrirViaticoDesdeRecorrido({
+                            reserva,
+                            viaje,
+                            pax,
+                            rol: "pasajero",
+                          })
+                        }
+                        className="inline-flex items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
+                      >
+                        Completar viático
+                      </button>
+                      <ViaticoGeneradoBadge record={viaticoPorPax[String(pax.id)]} />
+                    </div>
                   )}
 
                 {isEd && paxRowDraft && (

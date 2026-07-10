@@ -5,7 +5,8 @@ Separar la actualización de metadatos del programa (Nomenclador, Mes_Letra) de 
 
 ## Acciones en Edge Function
 1. `sync_program_metadata`: 
-   - Calcula y actualiza `nomenclador` y `mes_letra` en Supabase (limitado estrictamente al `programId` recibido).
+   - Calcula y actualiza `nomenclador` y `mes_letra` (mes_fecha: `MM` + letra cronológica del mes, p. ej. `03a`) en Supabase (limitado estrictamente al `programId` recibido).
+   - **Comisión** queda fuera de ambos correlativos; al sincronizar una comisión se limpian esos campos si estaban asignados.
    - Crea/Renombra la carpeta principal del programa en Drive (solo la raíz del programa, sin tocar subcarpetas de repertorio).
 2. `sync_repertoire_shortcuts`:
    - Gestiona exclusivamente los shortcuts dentro de las subcarpetas de repertorio del programa indicado.
