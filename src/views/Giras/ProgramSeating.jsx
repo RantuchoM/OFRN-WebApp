@@ -855,6 +855,11 @@ const SeatingHistoryModal = React.lazy(
 const GlobalStringsManager = React.lazy(
   () => import("../../components/seating/GlobalStringsManager"),
 );
+
+const STRINGS_PANEL_HEIGHT_KEY = "seating_strings_panel_height_px";
+const DEFAULT_STRINGS_PANEL_HEIGHT = 350;
+const MIN_STRINGS_PANEL_HEIGHT = 140;
+const MIN_SEATING_AREA_HEIGHT = 180;
 const AnnualRotationModal = React.lazy(
   () => import("../../components/seating/AnnualRotationModal"),
 );
@@ -902,6 +907,20 @@ export default function ProgramSeating({
   const [musicianAssignments, setMusicianAssignments] = useState({});
   const [containers, setContainers] = useState([]);
   const [showConfig, setShowConfig] = useState(false);
+  const [stringsPanelHeight, setStringsPanelHeight] = useState(() => {
+    try {
+      const stored = localStorage.getItem(STRINGS_PANEL_HEIGHT_KEY);
+      const parsed = stored ? Number(stored) : NaN;
+      return Number.isFinite(parsed) && parsed >= MIN_STRINGS_PANEL_HEIGHT
+        ? parsed
+        : DEFAULT_STRINGS_PANEL_HEIGHT;
+    } catch {
+      return DEFAULT_STRINGS_PANEL_HEIGHT;
+    }
+  });
+  const splitAreaRef = useRef(null);
+  const stringsPanelHeightLatestRef = useRef(stringsPanelHeight);
+  const stringsPanelResizingRef = useRef(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showRotationModal, setShowRotationModal] = useState(false);
   const [showInstrumentationModal, setShowInstrumentationModal] =
@@ -923,6 +942,58 @@ export default function ProgramSeating({
     });
     return map;
   }, [filteredRoster]);
+
+  useEffect(() => {
+    stringsPanelHeightLatestRef.current = stringsPanelHeight;
+  }, [stringsPanelHeight]);
+
+  const startStringsPanelResize = useCallback((e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+
+    stringsPanelResizingRef.current = true;
+    const startY = e.clientY;
+    const startHeight = stringsPanelHeight;
+
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (ev) => {
+      if (!stringsPanelResizingRef.current) return;
+      const containerH =
+        splitAreaRef.current?.getBoundingClientRect().height ??
+        window.innerHeight;
+      const delta = ev.clientY - startY;
+      const maxHeight = Math.max(
+        MIN_STRINGS_PANEL_HEIGHT,
+        containerH - MIN_SEATING_AREA_HEIGHT,
+      );
+      const next = Math.min(
+        maxHeight,
+        Math.max(MIN_STRINGS_PANEL_HEIGHT, startHeight + delta),
+      );
+      setStringsPanelHeight(next);
+    };
+
+    const onUp = () => {
+      stringsPanelResizingRef.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      try {
+        localStorage.setItem(
+          STRINGS_PANEL_HEIGHT_KEY,
+          String(stringsPanelHeightLatestRef.current),
+        );
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [stringsPanelHeight]);
 
   useEffect(() => {
     if (!showMobileActionsMenu) return undefined;
@@ -2646,26 +2717,50 @@ export default function ProgramSeating({
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden p-1 md:p-4 flex flex-col">
-        <Suspense
-          fallback={
-            <div className="p-4 text-center text-slate-400">Cargando...</div>
-          }
-        >
-          {showConfig && canViewStringsConfig && (
-            <GlobalStringsManager
-              programId={program.id}
-              roster={filteredRoster}
-              containers={containers}
-              onUpdate={fetchContainers}
-              supabase={supabase}
-              readOnly={!canEditStringsConfig}
-            />
-          )}
-        </Suspense>
+      <div
+        ref={splitAreaRef}
+        className="flex-1 overflow-hidden p-1 md:p-4 flex flex-col min-h-0"
+      >
+        {showConfig && canViewStringsConfig && (
+          <>
+            <div
+              className="shrink-0 min-h-0 overflow-hidden flex flex-col"
+              style={{ height: stringsPanelHeight }}
+            >
+              <Suspense
+                fallback={
+                  <div className="p-4 text-center text-slate-400">
+                    Cargando...
+                  </div>
+                }
+              >
+                <GlobalStringsManager
+                  programId={program.id}
+                  roster={filteredRoster}
+                  containers={containers}
+                  onUpdate={fetchContainers}
+                  supabase={supabase}
+                  readOnly={!canEditStringsConfig}
+                  fillHeight
+                />
+              </Suspense>
+            </div>
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Redimensionar panel de cuerdas"
+              aria-valuenow={stringsPanelHeight}
+              onMouseDown={startStringsPanelResize}
+              title="Arrastrá para ajustar el alto del panel de cuerdas"
+              className="shrink-0 h-2.5 cursor-row-resize flex items-center justify-center border-y border-slate-200 bg-slate-100/90 hover:bg-indigo-50 active:bg-indigo-100 transition-colors touch-none select-none"
+            >
+              <div className="w-10 h-1 rounded-full bg-slate-400/70 group-hover:bg-indigo-400" />
+            </div>
+          </>
+        )}
 
         {/* --- VISTA MÓVIL --- */}
-        <div className="md:hidden flex-1 overflow-hidden">
+        <div className="md:hidden flex-1 min-h-0 overflow-hidden">
           <MobileSeatingTable
             user={user}
             obras={obras}
@@ -2687,7 +2782,7 @@ export default function ProgramSeating({
         </div>
 
         {/* --- VISTA ESCRITORIO (OPTIMIZADA) --- */}
-        <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-200 flex-1 overflow-auto max-h-full">
+        <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-200 flex-1 min-h-0 overflow-auto">
           <table className="w-full text-left text-xs border-collapse min-w-[1000px] table-fixed">
             <thead className="bg-slate-800 text-white font-bold sticky top-0 z-30 shadow-md">
               <tr>

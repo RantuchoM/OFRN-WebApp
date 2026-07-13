@@ -447,6 +447,7 @@ export default function GlobalStringsManager({
   onUpdate,
   supabase,
   readOnly,
+  fillHeight = false,
 }) {
   const getItemMatrixPosition = (item, fallbackIndex = 0) =>
     seatingItemMatrixPosition(item, fallbackIndex);
@@ -1310,7 +1311,13 @@ export default function GlobalStringsManager({
   };
 
   return (
-    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4 animate-in fade-in shrink-0">
+    <div
+      className={`bg-slate-50 p-3 rounded-lg border border-slate-200 animate-in fade-in ${
+        fillHeight
+          ? "h-full flex flex-col min-h-0 mb-0"
+          : "shrink-0 mb-4"
+      }`}
+    >
       <ImportSeatingModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} onConfirm={handleImportSeating} currentProgramId={programId} supabase={supabase} />
       {showReorderModal && (
         <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center">
@@ -1520,7 +1527,7 @@ export default function GlobalStringsManager({
           </div>
         </div>
       )}
-      <div className="flex justify-between items-center mb-3">
+      <div className="flex justify-between items-center mb-3 shrink-0">
         <h3 className="font-bold text-slate-700 flex items-center gap-2 text-sm"><IconLayers size={16} /> Disposición de Cuerdas</h3>
         {!readOnly && (
           <div className="flex items-center gap-2">
@@ -1580,7 +1587,11 @@ export default function GlobalStringsManager({
           </div>
         )}
       </div>
-      <div className="grid grid-cols-12 gap-3 h-[350px]">
+      <div
+        className={`grid grid-cols-12 gap-3 ${
+          fillHeight ? "flex-1 min-h-0" : "h-[350px]"
+        }`}
+      >
         {!readOnly && (
           <div className="col-span-2 bg-white border border-slate-200 rounded-lg flex flex-col overflow-hidden shadow-sm min-w-0">
             <div className="px-1.5 py-1 bg-slate-100 border-b border-slate-200 text-[9px] font-bold text-slate-500 uppercase flex justify-between"><span className="truncate">Sin asignar ({available.length})</span></div>

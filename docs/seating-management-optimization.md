@@ -37,4 +37,13 @@
       - **Borrado total:** elimina los contenedores actuales y recrea la configuración desde el programa origen.
   - Todas las operaciones se realizan con operaciones atómicas por contenedor sobre las tablas `seating_contenedores` y `seating_contenedores_items`, respetando el esquema existente y los IDs numéricos de integrantes.
 
+## 5. Panel de cuerdas redimensionable
+
+- **Objetivo:** Cuando la configuración de cuerdas está abierta en Seating, permitir ajustar visualmente cuánto espacio ocupa respecto de la tabla de músicos/particellas.
+- **Implementación:** ✅ En `ProgramSeating`:
+  - Divisor horizontal arrastrable (`cursor-row-resize`) entre `GlobalStringsManager` y el resto de la vista.
+  - Alto inicial 350px; mínimo panel 140px y mínimo área de seating 180px.
+  - Preferencia persistida en `localStorage` (`seating_strings_panel_height_px`).
+  - `GlobalStringsManager` acepta `fillHeight` para ocupar el alto asignado con scroll interno.
+
 
