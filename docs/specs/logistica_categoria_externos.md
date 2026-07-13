@@ -41,7 +41,7 @@ Implementado en `getRuleCategoryTiebreak` y `compareLogisticsRulePrecedence` (`g
 
 ## Implementación
 
-- **Fuente de verdad:** `getCategoriaLogistica` en `src/utils/giraUtils.js` (reexportada por `src/hooks/useLogistics.js`).
+- **Fuente de verdad:** `getCategoriaLogistica` y `ROLES_CATEGORIA_LOGISTICA_PRODUCCION` en `src/utils/giraUtils.js` (reexportadas por `src/hooks/useLogistics.js`). `RoomingManager` y el resto de vistas consumen el resumen vía `useLogistics`, sin lógica duplicada de categorías.
 - **Localía por hito:** `resolveIsLocalForLogisticsCategory` en `giraUtils.js`; `calculateLogisticsSummary` pasa `field` a `getMatchStrength` en comidas.
 - **Reglas y matching:** `getMatchStrength`, `matchesRule` y `calculateLogisticsSummary` usan el mismo valor devuelto para `target_categories` y alcance `Categoria` en rutas/admisión.
 - **Desempate categoría:** `getRuleCategoryTiebreak` + `compareLogisticsRulePrecedence` en hotelería, hitos de comida y proveedores (`prov_*`).

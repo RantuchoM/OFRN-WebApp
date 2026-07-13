@@ -26,6 +26,7 @@ export {
   compareLogisticsRulePrecedence,
   matchesRule,
   getCategoriaLogistica,
+  ROLES_CATEGORIA_LOGISTICA_PRODUCCION,
   resolveTransportAdmissionStatus,
   isPersonAdmittedToTransport,
   isPersonVetoedFromTransport,

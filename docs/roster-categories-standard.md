@@ -22,7 +22,10 @@ Identificadores de categoría (tags de convocatoria). No inventar nuevos.
 | NO_LOCALES| GRP:NO_LOCALES|
 
 ### ROLES_PRODUCCION
-Lista de IDs de rol (tabla `roles`) que pertenecen al grupo Producción: produccion, chofer, acompañante, staff, mus_prod, técnico, iluminacion.
+Lista de IDs de rol (tabla `roles`) que pertenecen al grupo Producción (convocatoria `GRP:PRODUCCION`): produccion, chofer, acompañante, staff, mus_prod, técnico, iluminacion.
+
+### ROLES_CATEGORIA_LOGISTICA_PRODUCCION
+Subconjunto que mapea a la categoría logística `PRODUCCION` en reglas de hotelería, comidas y transporte: produccion, chofer, mus_prod. Fuente: `getCategoriaLogistica` en `giraUtils.js`. **No** incluye staff ni otros roles de `ROLES_PRODUCCION` que tienen categoría propia (`STAFF`) o geográfica (`LOCALES` / `NO_LOCALES`).
 
 ### DEFAULT_ROL_ID, DEFAULT_CARGO
 Valores por defecto para rol no asignado y cargo en exportaciones.

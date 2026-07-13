@@ -400,46 +400,6 @@ export const isUserConvoked = (convocadosList, person, opts = {}) => {
   });
 };
 
-/**
- * Calculates Check-in/Check-out and logistics based on rules.
- * @param {Object} person - Member object
- * @param {Array} rules - Array of logistics rules (giras_logistica_reglas)
- */
-export const calculateLogisticsForMusician = (person, rules) => {
-  // Calculamos fuerza individual para esta persona
-  const rulesWithStrength = rules
-    .map((r) => {
-      let strength = 0;
-      const pId = String(person.id);
-      const pLoc = String(person.id_localidad);
-      const pReg = String(person.localidades?.id_region || "");
-
-      if ((r.target_ids || []).includes(pId)) strength = 5;
-      else if ((r.target_categories || []).length > 0)
-        strength = 4; // Simplificado para utils
-      else if ((r.target_localities || []).includes(pLoc)) strength = 3;
-      else if ((r.target_regions || []).includes(pReg)) strength = 2;
-      else if (r.alcance === "General") strength = 1;
-
-      return { rule: r, strength };
-    })
-    .filter((item) => item.strength > 0)
-    .sort((a, b) => a.strength - b.strength);
-
-  let final = {};
-  rulesWithStrength.forEach(({ rule: r }) => {
-    if (r.fecha_checkin) {
-      final.checkin = r.fecha_checkin;
-      final.checkin_time = r.hora_checkin;
-    }
-    if (r.fecha_checkout) {
-      final.checkout = r.fecha_checkout;
-      final.checkout_time = r.hora_checkout;
-    }
-  });
-  return final;
-};
-
 /* --- MOTOR DE REGLAS DE LOGÍSTICA --- */
 
 /** Roles de producción / staff que no entran en EXTERNOS. */
@@ -452,11 +412,15 @@ const ROLES_EXCLUIDOS_EXTERNOS = new Set([
 ]);
 
 /** Roles que mapean a categoría logística `PRODUCCION` (reglas hotelería, comidas, transporte). */
-const ROLES_CATEGORIA_LOGISTICA_PRODUCCION = new Set([
+export const ROLES_CATEGORIA_LOGISTICA_PRODUCCION = Object.freeze([
   "produccion",
   "chofer",
   "mus_prod",
 ]);
+
+const ROLES_CATEGORIA_LOGISTICA_PRODUCCION_SET = new Set(
+  ROLES_CATEGORIA_LOGISTICA_PRODUCCION,
+);
 
 /**
  * Categoría logística según rol, condición y sede local de la gira (`is_local`).
@@ -470,7 +434,7 @@ export const getCategoriaLogistica = (person) => {
 
   if (rol === "solista") return "SOLISTAS";
   if (rol === "director") return "DIRECTORES";
-  if (ROLES_CATEGORIA_LOGISTICA_PRODUCCION.has(rol)) return "PRODUCCION";
+  if (ROLES_CATEGORIA_LOGISTICA_PRODUCCION_SET.has(rol)) return "PRODUCCION";
   if (rol === "staff") return "STAFF";
 
   const isPlantaEstable = condicion === "estable";
