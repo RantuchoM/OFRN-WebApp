@@ -63,6 +63,7 @@ import {
   getDeadlineStatus,
   getGoogleMapsUrl,
   getAgendaTransportFlags,
+  buildAgendaPdfExportItems,
   ID_TIPO_TRASLADO_INTERNO,
 } from "../../utils/agendaHelpers";
 import { getProgramBadgeClasses } from "../../utils/giraUtils";
@@ -1050,22 +1051,6 @@ export default function UnifiedAgenda({
       setIsRefreshing(false);
     }
   };
-  const handleExportPDF = () => {
-    if (filteredItems.length === 0) {
-      toast.error("No hay eventos para exportar con los filtros actuales.");
-      return;
-    }
-    let subTitle = "";
-    if (userProfile && userProfile.id !== user.id) {
-      subTitle = `Vista simulada: ${userProfile.apellido}, ${userProfile.nombre}`;
-    }
-    if (showNonActiveForFilter) {
-      subTitle += subTitle ? " | Incluye Borradores" : "Incluye Borradores";
-    }
-    const hideGiraColumn = !!giraId;
-    exportAgendaToPDF(filteredItems, title, subTitle, hideGiraColumn);
-  };
-
   const openEditModal = async (evt) => {
     if (
       evt.id_tipo_evento === 13 &&
@@ -1499,6 +1484,84 @@ export default function UnifiedAgenda({
   }, [filteredItems, currentEvent]);
 
   const [showEarlierToday, setShowEarlierToday] = useState(false);
+
+  const agendaPdfExportItems = useMemo(
+    () =>
+      buildAgendaPdfExportItems(filteredItems, {
+        collapsedEarlierTodayIds: showEarlierToday
+          ? new Set()
+          : earlierTodayEventIds,
+      }),
+    [filteredItems, showEarlierToday, earlierTodayEventIds],
+  );
+
+  const handleExportPDF = useCallback(() => {
+    if (agendaPdfExportItems.length === 0) {
+      toast.error("No hay eventos para exportar con los filtros actuales.");
+      return;
+    }
+    let subTitle = "";
+    if (userProfile && userProfile.id !== user.id) {
+      subTitle = `Vista simulada: ${userProfile.apellido}, ${userProfile.nombre}`;
+    }
+    if (showNonActiveForFilter) {
+      subTitle += subTitle ? " | Incluye Borradores" : "Incluye Borradores";
+    }
+    if (filterDateTo) {
+      const rangeLabel = `Desde ${effectiveDateFromForFilter} hasta ${filterDateTo}`;
+      subTitle += subTitle ? ` | ${rangeLabel}` : rangeLabel;
+    } else if (
+      effectiveDateFromForFilter &&
+      effectiveDateFromForFilter !== getTodayDateStringLocal()
+    ) {
+      const rangeLabel = `Desde ${effectiveDateFromForFilter}`;
+      subTitle += subTitle ? ` | ${rangeLabel}` : rangeLabel;
+    }
+    if (
+      availableCategories.length > 0 &&
+      selectedCategoryIds.length > 0 &&
+      selectedCategoryIds.length < availableCategories.length
+    ) {
+      const catNames = availableCategories
+        .filter((c) => selectedCategoryIds.includes(c.id))
+        .map((c) => c.nombre)
+        .join(", ");
+      const catsLabel = `Categorías: ${catNames}`;
+      subTitle += subTitle ? ` | ${catsLabel}` : catsLabel;
+    }
+    if (showOnlyMyTransport) {
+      subTitle += subTitle ? " | Solo mi transporte" : "Solo mi transporte";
+    }
+    if (showOnlyMyMeals) {
+      subTitle += subTitle ? " | Solo mis comidas" : "Solo mis comidas";
+    }
+    if (techFilter === "only_tech") {
+      subTitle += subTitle ? " | Sólo técnica" : "Sólo técnica";
+    } else if (techFilter === "no_tech") {
+      subTitle += subTitle ? " | Sin técnica" : "Sin técnica";
+    }
+    if (hideDeletedEvents) {
+      subTitle += subTitle ? " | Sin eliminados" : "Sin eliminados";
+    }
+    const hideGiraColumn = !!giraId;
+    exportAgendaToPDF(agendaPdfExportItems, title, subTitle, hideGiraColumn);
+  }, [
+    agendaPdfExportItems,
+    userProfile,
+    user.id,
+    showNonActiveForFilter,
+    filterDateTo,
+    effectiveDateFromForFilter,
+    availableCategories,
+    selectedCategoryIds,
+    showOnlyMyTransport,
+    showOnlyMyMeals,
+    techFilter,
+    hideDeletedEvents,
+    giraId,
+    title,
+  ]);
+
   const hasAutoScrolledRef = useRef(false);
   const autoScrollScopeRef = useRef(giraId);
 
@@ -1922,7 +1985,7 @@ export default function UnifiedAgenda({
 
             <button
               onClick={handleExportPDF}
-              disabled={loading || filteredItems.length === 0}
+              disabled={loading || agendaPdfExportItems.length === 0}
               className="p-2 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50 border border-transparent hover:border-indigo-100"
               title="Exportar vista actual a PDF"
             >

@@ -18,11 +18,10 @@ Garantizar que los eventos marcados con `is_deleted: true` no aparezcan en:
 
 #### 2. PDF Exporter `agendaPdfExporter.js`
 - En la función `exportAgendaToPDF`:
-  - Añadir un filtro previo al procesamiento de `items`.
-  - Filtrar la lista `items` para omitir:
-    - Marcadores de programa (`isProgramMarker`)
-    - Eventos donde `evt.is_deleted === true`
-- Resultado esperado: Los eventos eliminados no aparecen en el PDF, aunque sigan visibles en la UI de administración.
+  - La lista `items` llega **ya filtrada** desde `UnifiedAgenda` (`buildAgendaPdfExportItems` sobre `filteredItems`).
+  - El exportador solo omite marcadores de programa (`isProgramMarker`) como defensa; **no** reaplica filtros de negocio (soft-delete, ausentes, categorías, fechas, etc.).
+  - `UnifiedAgenda` respeta `hideDeletedEvents`: si el admin oculta eliminados en la vista, tampoco van al PDF; si los muestra, el PDF los incluye.
+- Resultado esperado: el PDF coincide con la vista filtrada actual (incl. rango de fechas, categorías, transporte/comidas, técnica y colapsado de “eventos anteriores de hoy”).
 
 #### 3. Unified Agenda (Persistencia Visual)
 - **NO** filtrar `is_deleted` en el fetch de la agenda dentro de `UnifiedAgenda`:
@@ -34,8 +33,9 @@ Garantizar que los eventos marcados con `is_deleted: true` no aparezcan en:
 ### Verificación Manual
 
 - **PDF**:
-  - Generar un PDF desde una gira que tenga eventos marcados como `is_deleted = true`.
-  - Confirmar que esos eventos **no aparezcan** en el documento.
+  - Generar un PDF con filtros activos (fechas, categorías, solo mi transporte, etc.) y confirmar que solo aparecen los mismos eventos que en la lista.
+  - Con `hideDeletedEvents` activo: eventos en papelera no deben figurar.
+  - Con `hideDeletedEvents` desactivado (admin): eventos eliminados visibles en la agenda deben figurar en el PDF.
 - **ICS**:
   - Abrir el enlace de calendario ICS para un usuario que tenga eventos soft-deleted.
   - Verificar que dichos eventos **no aparezcan** (o desaparezcan en la siguiente actualización del calendario).
@@ -59,9 +59,9 @@ Garantizar que los eventos marcados con `is_deleted: true` no aparezcan en:
     - Marcadores de programa (día completo): `🏁 {nomenclador} | {nombre_gira} | {zona}`.
   - **Modo personal — ensayos de ensamble** (`id_tipo_evento = 13`): alineado con `useAgendaData` en agenda general. Solo se exportan si el integrante tiene asistencia custom en el evento o pertenece a un ensamble vinculado en `eventos_ensambles` (membresía activa en la fecha del evento). **No** se incluyen por participación en el programa asociado (`eventos_programas_asociados` / familia de instrumento) ni solo por etiquetas `convocados`. En `mode=musical` los ensayos de ensamble siempre pasan el filtro de categoría aunque su `id_categoria` no sea 1 ni 2.
 - **PDF Exporter** (`src/utils/agendaPdfExporter.js`)
-  - Implementado filtro de soft-delete en `exportAgendaToPDF`:
-    - `const events = items.filter(i => !i.isProgramMarker && !i.is_deleted);`
-- **UnifiedAgenda** (`src/components/agenda/UnifiedAgenda.jsx` + `src/hooks/useAgendaData.js`)
+  - `exportAgendaToPDF` confía en la lista pre-filtrada de `UnifiedAgenda`; solo descarta `isProgramMarker` por seguridad.
+- **UnifiedAgenda** (`src/components/agenda/UnifiedAgenda.jsx` + `src/utils/agendaHelpers.js`)
+  - `buildAgendaPdfExportItems` arma la lista de exportación a partir de `filteredItems` (mismos filtros que la lista) y excluye marcadores de programa y eventos colapsados de “hoy”.
   - El fetch principal **no filtra** los eventos por `is_deleted` en el componente:
     - La selección y filtrado se realiza en `useAgendaData`, que:
       - Incluye `is_deleted` y `deleted_at` en `EVENT_SELECT`.

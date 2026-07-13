@@ -222,15 +222,8 @@ export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = ""
   
   cursorY += 5; 
 
-  // --- PREPARACIÓN DE DATOS ---
-  // Excluir marcadores de programa, eventos eliminados (soft delete)
-  // y filas asociadas a integrantes marcados como ausentes.
-  const events = (items || []).filter((i) => {
-    if (!i || i.isProgramMarker || i.is_deleted) return false;
-    const estadoIntegrante = i.estado_gira || i.estado || null;
-    if (estadoIntegrante === 'ausente') return false;
-    return true;
-  });
+  // La lista ya viene filtrada desde UnifiedAgenda (mismos criterios que la vista).
+  const events = (items || []).filter((i) => i && !i.isProgramMarker);
 
   const columns = [
       { header: 'Desde', dataKey: 'desde' },

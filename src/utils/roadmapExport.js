@@ -1,6 +1,3 @@
-import ExcelJS from "exceljs";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import {
   resolveLocalidadEfectivaViaticos,
   resolveLocalidadResidencia,
@@ -11,6 +8,31 @@ import {
   isPersonalRouteScope,
   normalizeLocalidadName,
 } from "./viaticosLogisticsSchedule";
+
+async function loadExcelJS() {
+  const { default: ExcelJS } = await import("exceljs");
+  return ExcelJS;
+}
+
+async function loadPdfLibs() {
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
+  return { jsPDF, autoTable };
+}
+
+function downloadExcelBuffer(buffer, fileName) {
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  window.URL.revokeObjectURL(url);
+}
 
 const formatDateSafe = (dateString) => {
   if (!dateString) return "-";
@@ -551,6 +573,7 @@ export async function generateRoadmapExcel(
     return;
   }
 
+  const ExcelJS = await loadExcelJS();
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet("Hoja de Ruta");
   worksheet.columns = [
@@ -646,19 +669,12 @@ export async function generateRoadmapExcel(
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
-  const url = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `Hoja_Ruta_${transportName}.xlsx`;
-  anchor.click();
-  window.URL.revokeObjectURL(url);
+  downloadExcelBuffer(buffer, `Hoja_Ruta_${transportName}.xlsx`);
 }
 
 function drawPassengerTable(
   doc,
+  autoTable,
   startY,
   title,
   passengers,
@@ -719,6 +735,7 @@ export async function generateRoadmapPdf(
     return;
   }
 
+  const { jsPDF, autoTable } = await loadPdfLibs();
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   let y = 14;
@@ -773,6 +790,7 @@ export async function generateRoadmapPdf(
 
     y = drawPassengerTable(
       doc,
+      autoTable,
       y,
       `SUBEN (${ups.length})`,
       ups,
@@ -788,6 +806,7 @@ export async function generateRoadmapPdf(
 
     y = drawPassengerTable(
       doc,
+      autoTable,
       y,
       `BAJAN (${downs.length})`,
       downs,

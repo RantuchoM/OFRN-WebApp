@@ -13,7 +13,8 @@ Garantizar que el archivo de exportación para la CNRT incluya a la totalidad de
 
 ## Estado
 - [x] Implementado en `src/views/Giras/GirasTransportesManager.jsx`.
-- [x] Alineado también en `src/views/Giras/DataIntegrityIndicator.jsx` para mantener consistencia de exportación CNRT en ambos flujos.
+- [x] Exportación CNRT respeta `exportFormat` del modal (`pdf` por defecto, `excel` opcional) vía `downloadStyledPassengers` en `transportExport.js`.
+- [x] Alineado también en `src/views/Giras/DataIntegrityIndicator.jsx` para mantener consistencia de exportación CNRT en ambos flujos (legacy; pendiente migrar a utils).
 
 ---
 
@@ -23,7 +24,8 @@ Garantizar que el archivo de exportación para la CNRT incluya a la totalidad de
 Exportar por transporte una hoja de ruta con paradas, listas de suben/bajan y total a bordo, en PDF o Excel.
 
 ### Archivos
-- `src/utils/roadmapExport.js` — datos (`buildRoadmapExportData`), alineación viáticos (`resolveViaticosAlignedStops`), generadores PDF/Excel.
+- `src/utils/transportExport.js` — lista CNRT estilizada (`downloadStyledExcel`), cronograma solo paradas (`generateStopsOnlyPdf` / `generateStopsOnlyExcel`), paradas combinadas (`exportCombinedStops`). Lazy-load de `exceljs` / `jspdf`.
+- `src/utils/roadmapExport.js` — datos (`buildRoadmapExportData`), alineación viáticos (`resolveViaticosAlignedStops`), generadores PDF/Excel (lazy-load de libs pesadas).
 - `src/views/Giras/CnrtExportModal.jsx` — modal compartido; checkbox «Alinear con viáticos» solo en hoja de ruta (`showAlignViaticos`).
 - `src/views/Giras/GirasTransportesManager.jsx` — `handleExportRoadmap` respeta `exportFormat` (`pdf` por defecto).
 

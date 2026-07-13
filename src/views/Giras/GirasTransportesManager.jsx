@@ -1,17 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { createPortal } from "react-dom";
-import * as XLSX from "xlsx";
-import ExcelJS from "exceljs";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+﻿import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   format,
-  differenceInYears,
   addDays,
   addHours,
   addMinutes,
 } from "date-fns";
-import { es } from "date-fns/locale";
 
 import {
   IconTrash,
@@ -43,10 +36,7 @@ import {
   IconEye,
   IconEyeOff,
   IconUser,
-  IconMoreVertical,
 } from "../../components/ui/Icons";
-import { useClickOutside } from "../../hooks/useClickOutside";
-import { parseSupabasePublicStorageUrl } from "../../utils/supabaseStorage";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
@@ -57,6 +47,14 @@ import StopRulesManager from "./StopRulesManager";
 import TransportAdmissionModal from "./TransportAdmissionModal";
 import DataIntegrityIndicator from "../../components/DataIntegrityIndicator";
 import ConfirmModal from "../../components/ui/ConfirmModal";
+import TransportShiftScheduleModal from "../../components/giras/transport/TransportShiftScheduleModal";
+import TransportVehicleIdentity, {
+  TransportCornerButton,
+} from "../../components/giras/transport/TransportVehicleIdentity";
+import ChoferPickerDropdown from "../../components/giras/transport/ChoferPickerDropdown";
+import TransportEditForm from "../../components/giras/transport/TransportEditForm";
+import TransportCardActions from "../../components/giras/transport/TransportCardActions";
+import CombinedStopsExportModal from "../../components/giras/transport/CombinedStopsExportModal";
 import {
   useLogistics,
   matchesRule,
@@ -69,1290 +67,28 @@ import {
   generateRoadmapPdf,
 } from "../../utils/roadmapExport";
 import {
+  buildCombinedStopsExportRows,
+  downloadStyledExcel,
+  downloadStyledPassengers,
+  exportCombinedStops,
+  generateStopsOnlyExcel,
+  generateStopsOnlyPdf,
+} from "../../utils/transportExport";
+import {
+  CATEGORIAS_TRANSPORTE,
+  TRANSPORT_ICON_MAP,
+  eventTypeIdForCategoria,
+  sortEventsBySchedule,
+  getTransportScheduleBounds,
+  getChoferDocumentationStatus,
+  extractStoragePathFromUrl,
+} from "../../utils/giraTransportUtils";
+import {
   countEventosByGiraTransporte,
   deleteGiraTransporteCascade,
 } from "../../services/giraService";
 
 import { toast } from "sonner";
-import {
-  CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
-  exportDestaquesCuadroFirmasDocx,
-  exportDestaquesCuadroFirmasPdf,
-  fetchEncargadoCuadroFirmas,
-  parseCuadroFirmasExportOptions,
-  toCuadroFirmasPerson,
-} from "../../utils/destaquesCuadroFirmasPdf";
-
-/** Categoría de uso del transporte → id_tipo_evento de las paradas en `eventos`. */
-const CATEGORIAS_TRANSPORTE = {
-  PASAJEROS: 11,
-  LOGISTICO: 12,
-  INTERNO: 35,
-};
-
-const TRANSPORT_ICON_MAP = {
-  IconBus,
-  IconBusGrande,
-  IconTruck,
-  IconCar,
-  IconVan,
-  IconPlane,
-  IconCalculator,
-  Bus: IconBus,
-  BusGrande: IconBusGrande,
-  Truck: IconTruck,
-  Car: IconCar,
-  Van: IconVan,
-  Plane: IconPlane,
-  Calculator: IconCalculator,
-};
-
-function eventTypeIdForCategoria(categoria) {
-  const c = String(categoria || "PASAJEROS").toUpperCase();
-  if (c === "LOGISTICO") return CATEGORIAS_TRANSPORTE.LOGISTICO;
-  if (c === "INTERNO") return CATEGORIAS_TRANSPORTE.INTERNO;
-  return CATEGORIAS_TRANSPORTE.PASAJEROS;
-}
-
-// --- UTILIDADES ---
-const formatDateSafe = (dateString) => {
-  if (!dateString) return "-";
-  try {
-    const [year, month, day] = dateString.split("-");
-    return `${day}/${month}`;
-  } catch (e) {
-    return dateString;
-  }
-};
-
-const sortEventsBySchedule = (events) =>
-  [...(events || [])].sort((a, b) =>
-    `${a.fecha || ""}${a.hora_inicio || ""}`.localeCompare(
-      `${b.fecha || ""}${b.hora_inicio || ""}`,
-    ),
-  );
-
-const formatEventScheduleLabel = (evt, { withWeekday = false } = {}) => {
-  if (!evt?.fecha) return null;
-  const date = formatDateSafe(evt.fecha);
-  const time = evt.hora_inicio ? String(evt.hora_inicio).slice(0, 5) : "";
-  const dateTime = time ? `${date} ${time}` : date;
-  if (!withWeekday) return dateTime;
-  try {
-    const dateObj = new Date(`${evt.fecha}T12:00:00`);
-    const weekday = format(dateObj, "EEEE", { locale: es });
-    const label = weekday.charAt(0).toLowerCase() + weekday.slice(1);
-    return `${label}, ${dateTime}`;
-  } catch {
-    return dateTime;
-  }
-};
-
-const getTransportScheduleBounds = (events) => {
-  const sorted = sortEventsBySchedule(events);
-  if (!sorted.length) return null;
-  const first = formatEventScheduleLabel(sorted[0], { withWeekday: true });
-  const last = formatEventScheduleLabel(sorted[sorted.length - 1]);
-  if (!first) return null;
-  return {
-    first,
-    last,
-    range: last && last !== first ? `${first} — ${last}` : first,
-    stopCount: sorted.length,
-  };
-};
-
-const getChoferDocumentationStatus = (chofer) => {
-  if (!chofer) return null;
-  const hasCarnet = Boolean(String(chofer.link_carnet || "").trim());
-  const hasDni = Boolean(String(chofer.link_dni_img || "").trim());
-  if (hasCarnet && hasDni) return "complete";
-  return "incomplete";
-};
-
-const htmlToPlainText = (input) => {
-  const raw = String(input || "").trim();
-  if (!raw) return "";
-
-  try {
-    if (typeof window !== "undefined" && typeof DOMParser !== "undefined") {
-      const doc = new DOMParser().parseFromString(raw, "text/html");
-      const body = doc.body;
-
-      body
-        .querySelectorAll("br")
-        .forEach((br) => br.replaceWith(doc.createTextNode("\n")));
-      body.querySelectorAll("div,p,li").forEach((el) => {
-        el.insertAdjacentText("beforeend", "\n");
-      });
-
-      return (body.textContent || "")
-        .replace(/\u00a0/g, " ")
-        .replace(/[ \t]+\n/g, "\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
-    }
-  } catch {
-    // fall through
-  }
-
-  return raw
-    .replace(/<\s*br\s*\/?>/gi, "\n")
-    .replace(/<\/\s*(div|p|li)\s*>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-};
-
-const extractStoragePathFromUrl = (url) => {
-  if (!url) return null;
-  const parsed = parseSupabasePublicStorageUrl(url);
-  if (!parsed?.path) return null;
-  return { bucket: parsed.bucket, path: parsed.path.split("?")[0] };
-};
-
-const generateStopsOnlyPdf = async (transportName, events, startId, endId) => {
-  const sortedEvts = [...(events || [])].sort((a, b) =>
-    (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
-  );
-  const startIndex = sortedEvts.findIndex(
-    (e) => String(e.id) === String(startId),
-  );
-  const endIndex = sortedEvts.findIndex((e) => String(e.id) === String(endId));
-  const activeEvents = sortedEvts.slice(startIndex, endIndex + 1);
-
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const title = transportName || "Transporte";
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.text(title, 105, 14, { align: "center" });
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.text("Cronograma de paradas", 105, 19, { align: "center" });
-
-  const dayLabelFromEvt = (evt) => {
-    if (!evt?.fecha) return "-";
-    const dateObj = new Date(evt.fecha + "T12:00:00");
-    const label = format(dateObj, "EEEE, dd 'de' MMMM 'de' yyyy", {
-      locale: es,
-    });
-    return label.charAt(0).toUpperCase() + label.slice(1);
-  };
-
-  const body = [];
-  let lastDayKey = null;
-  activeEvents.forEach((evt) => {
-    const dayKey = evt?.fecha || "";
-    if (dayKey !== lastDayKey) {
-      const label = dayLabelFromEvt(evt);
-      body.push([
-        {
-          content: label,
-          colSpan: 4,
-          styles: {
-            fillColor: [49, 46, 129],
-            textColor: 255,
-            fontStyle: "bold",
-            halign: "center",
-            valign: "middle",
-          },
-        },
-      ]);
-      lastDayKey = dayKey;
-    }
-
-    const hora = evt.hora_inicio ? evt.hora_inicio.slice(0, 5) : "--:--";
-    const nota = htmlToPlainText(evt.descripcion);
-    const locacion = (evt.locaciones?.nombre || "-").trim();
-    const localidad = (evt.locaciones?.localidades?.localidad || "-").trim();
-    const direccion = (evt.locaciones?.direccion || "-").trim();
-
-    body.push([
-      `${dayLabelFromEvt(evt)}\n${hora} hs.`,
-      nota || "",
-      `${locacion}\n${localidad}`,
-      direccion,
-    ]);
-  });
-
-  autoTable(doc, {
-    startY: 24,
-    head: [["Día\nHora", "Nota", "Locación\nLocalidad", "Dirección"]],
-    body,
-    theme: "grid",
-    styles: {
-      font: "helvetica",
-      fontSize: 10,
-      cellPadding: 2.2,
-      overflow: "linebreak",
-      valign: "top",
-      lineWidth: 0.1,
-    },
-    headStyles: {
-      fillColor: [79, 70, 229],
-      textColor: 255,
-      fontStyle: "bold",
-      halign: "center",
-      valign: "middle",
-    },
-    columnStyles: {
-      0: { cellWidth: 32, halign: "center" },
-      1: { cellWidth: 76 },
-      2: { cellWidth: 38 },
-      3: { cellWidth: 40 },
-    },
-    margin: { left: 8, right: 8 },
-    didParseCell: (data) => {
-      // Columna "Locación / Localidad": un poco más chica para evitar cortes
-      if (data.section === "body" && data.column.index === 2) {
-        // AutoTable usa este texto para calcular altura; lo ocultamos y dibujamos manualmente
-        data.cell.styles.fontSize = 9;
-        data.cell.styles.textColor = [255, 255, 255]; // invisible sobre blanco
-      }
-    },
-    didDrawCell: (data) => {
-      if (data.section !== "body" || data.column.index !== 2) return;
-      if (!data.cell?.raw || typeof data.cell.raw !== "string") return;
-      if (data.cell.raw.includes("colSpan")) return;
-
-      const [loc = "", localidad = ""] = String(data.cell.raw).split("\n");
-
-      const maxWidth =
-        data.cell.width - data.cell.padding("left") - data.cell.padding("right");
-
-      // Redibujamos locación (normal) + localidad (itálica) respetando el layout de autoTable.
-      const fontSize = data.cell.styles.fontSize || 9;
-      const scaleFactor = doc.internal?.scaleFactor || 1;
-      const lhFactor = data.cell.styles.lineHeight || 1.15;
-      const lineHeight = (fontSize / scaleFactor) * lhFactor;
-
-      const textPos = data.cell.textPos || {
-        x: data.cell.x + data.cell.padding("left"),
-        y: data.cell.y + data.cell.padding("top") + lineHeight,
-      };
-
-      doc.setTextColor(0, 0, 0);
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(fontSize);
-      const locLines = doc.splitTextToSize(loc, maxWidth);
-
-      // Locación (normal)
-      locLines.forEach((line, idx) => {
-        doc.text(line, textPos.x, textPos.y + lineHeight * idx);
-      });
-
-      // Localidad (itálica) inmediatamente después de locación
-      doc.setFont("helvetica", "italic");
-      doc.setFontSize(fontSize);
-      const localidadLines = doc.splitTextToSize(localidad, maxWidth);
-      const localityStartIdx = Math.max(1, locLines.length);
-      localidadLines.forEach((line, idx) => {
-        doc.text(line, textPos.x, textPos.y + lineHeight * (localityStartIdx + idx));
-      });
-
-      doc.setFont("helvetica", "normal");
-    },
-  });
-
-  doc.save(`Cronograma_Paradas_${title}.pdf`);
-};
-
-const downloadStyledExcel = async (
-  passengers,
-  fileName = "Lista_Pasajeros.xlsx",
-) => {
-  if (!passengers || passengers.length === 0)
-    return alert("No hay pasajeros para exportar.");
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("Pasajeros");
-
-  worksheet.columns = [
-    { header: "APELLIDO", key: "apellido", width: 25 },
-    { header: "NOMBRE", key: "nombre", width: 25 },
-    { header: "DOC. TIPO", key: "tipo_documento", width: 12 },
-    { header: "NÚMERO", key: "numero_documento", width: 18 },
-    { header: "SEXO", key: "sexo", width: 10 },
-    { header: "MENOR", key: "menor", width: 10 },
-    { header: "BUTACA", key: "ocupa_butaca", width: 12 },
-    { header: "NACIONALIDAD", key: "nacionalidad", width: 18 },
-    { header: "FECHA NAC.", key: "fecha_nacimiento", width: 15 },
-  ];
-
-  worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-  worksheet.getRow(1).fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF2E7D32" },
-  };
-  worksheet.getRow(1).alignment = { horizontal: "center", vertical: "middle" };
-
-  passengers.forEach((p) => {
-    const birthDate = p.fecha_nac ? new Date(p.fecha_nac) : new Date();
-    const age = differenceInYears(new Date(), birthDate);
-    const isMinor = age < 18;
-    let formattedDate = "";
-    if (p.fecha_nac) {
-      const d = new Date(p.fecha_nac);
-      d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
-      formattedDate = format(d, "dd/MMM/yyyy", { locale: es }).toLowerCase();
-    }
-    worksheet.addRow({
-      apellido: p.apellido?.toUpperCase() || "",
-      nombre: p.nombre?.toUpperCase() || "",
-      tipo_documento: "DNI",
-      numero_documento: p.dni || "",
-      sexo: p.genero || "",
-      menor: isMinor ? 1 : 0,
-      ocupa_butaca: isMinor ? "NO" : "SÍ",
-      nacionalidad: p.nacionalidad || "Argentina",
-      fecha_nacimiento: formattedDate,
-    });
-  });
-
-  worksheet.eachRow((row) => {
-    row.eachCell((cell) => {
-      cell.alignment = { horizontal: "center", vertical: "middle" };
-      cell.border = {
-        top: { style: "thin" },
-        left: { style: "thin" },
-        bottom: { style: "thin" },
-        right: { style: "thin" },
-      };
-    });
-  });
-  const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
-  const url = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  window.URL.revokeObjectURL(url);
-};
-
-const generateStopsOnlyExcel = async (
-  transportName,
-  events,
-  startId,
-  endId,
-) => {
-  const sortedEvts = [...events].sort((a, b) =>
-    (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
-  );
-  const startIndex = sortedEvts.findIndex(
-    (e) => String(e.id) === String(startId),
-  );
-  const endIndex = sortedEvts.findIndex((e) => String(e.id) === String(endId));
-  const activeEvents = sortedEvts.slice(startIndex, endIndex + 1);
-
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("Hoja de Paradas");
-  worksheet.pageSetup = {
-    paperSize: 9, // A4
-    orientation: "portrait",
-    fitToPage: true,
-    fitToWidth: 1,
-    fitToHeight: 0,
-    horizontalCentered: true,
-    margins: {
-      left: 0.35,
-      right: 0.35,
-      top: 0.5,
-      bottom: 0.5,
-      header: 0.2,
-      footer: 0.2,
-    },
-  };
-
-  worksheet.columns = [
-    { header: "DÍA\nHORA", key: "dia_hora", width: 20 },
-    { header: "Nota", key: "nota", width: 45 },
-    { header: "Locación\nLocalidad", key: "loc_localidad", width: 34 },
-    { header: "Dirección", key: "direccion", width: 42 },
-  ];
-
-  // Encabezado superior (celdas combinadas) con el nombre del transporte
-  worksheet.insertRow(1, []);
-  const titleCell = worksheet.getCell(1, 1);
-  titleCell.value = transportName || "Transporte";
-  worksheet.mergeCells(1, 1, 1, worksheet.columnCount);
-  worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" }, size: 13 };
-  worksheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
-  worksheet.getRow(1).fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF312E81" },
-  };
-  worksheet.getRow(1).height = 24;
-
-  // Estilo de headers (ahora están en la fila 2)
-  worksheet.getRow(2).font = { bold: true, color: { argb: "FFFFFFFF" }, size: 13 };
-  worksheet.getRow(2).fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF4F46E5" },
-  };
-  worksheet.getRow(2).alignment = {
-    vertical: "middle",
-    horizontal: "center",
-    wrapText: true,
-  };
-  worksheet.getRow(2).height = 32;
-
-  const addDaySeparatorRow = (label) => {
-    const sepRow = worksheet.addRow({ dia_hora: label });
-    worksheet.mergeCells(sepRow.number, 1, sepRow.number, worksheet.columnCount);
-    sepRow.height = 34;
-    const cell = sepRow.getCell(1);
-    cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 13 };
-    cell.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FF312E81" },
-    };
-    cell.alignment = {
-      vertical: "middle",
-      horizontal: "center",
-      wrapText: true,
-    };
-    cell.border = {
-      top: { style: "thin" },
-      left: { style: "thin" },
-      bottom: { style: "thin" },
-      right: { style: "thin" },
-    };
-  };
-
-  const dayLabelFromEvt = (evt) => {
-    if (!evt?.fecha) return "-";
-    const dateObj = new Date(evt.fecha + "T12:00:00");
-    const label = format(dateObj, "EEEE, dd 'de' MMMM 'de' yyyy", {
-      locale: es,
-    });
-    return label.charAt(0).toUpperCase() + label.slice(1);
-  };
-
-  let lastDayKey = null;
-  activeEvents.forEach((evt) => {
-    const dayKey = evt?.fecha || "";
-    if (dayKey !== lastDayKey) {
-      addDaySeparatorRow(dayLabelFromEvt(evt));
-      lastDayKey = dayKey;
-    }
-
-    const hora = evt.hora_inicio ? evt.hora_inicio.slice(0, 5) : "--:--";
-    const nota = htmlToPlainText(evt.descripcion);
-    const locacion = (evt.locaciones?.nombre || "-").trim();
-    const localidad = (evt.locaciones?.localidades?.localidad || "-").trim();
-    const direccion = (evt.locaciones?.direccion || "-").trim();
-
-    const row = worksheet.addRow({
-      dia_hora: `${dayLabelFromEvt(evt)}\n${hora} hs.`,
-      nota,
-      loc_localidad: {
-        richText: [
-          { text: locacion, font: { size: 13 } },
-          { text: "\n" },
-          { text: localidad, font: { size: 13, italic: true } },
-        ],
-      },
-      direccion,
-    });
-
-    // Ajuste de altura de fila según la celda "más alta" (wrap + saltos de línea)
-    const getCellText = (value) => {
-      if (!value) return "";
-      if (typeof value === "object" && Array.isArray(value.richText)) {
-        return value.richText.map((t) => t.text || "").join("");
-      }
-      return String(value);
-    };
-    const getCellFontSize = (cell) => {
-      const v = cell?.value;
-      if (v && typeof v === "object" && Array.isArray(v.richText)) {
-        const sizes = v.richText
-          .map((t) => t?.font?.size)
-          .filter((s) => typeof s === "number" && !Number.isNaN(s));
-        return sizes.length ? Math.max(...sizes) : 13;
-      }
-      return cell?.font?.size || 13;
-    };
-    const estimateWrappedLines = (text, colWidth) => {
-      const width = Math.max(8, Number(colWidth) || 20); // Excel width ~ "chars"
-      // A4/impresión: asumimos menos caracteres por línea (más conservador)
-      const perLine = Math.max(6, Math.floor(width * 0.68) - 1);
-      const segments = String(text || "").split("\n");
-      return segments.reduce((acc, seg) => {
-        const segLen = seg.trim().length;
-        return acc + Math.max(1, Math.ceil(segLen / perLine));
-      }, 0);
-    };
-    const estimateCellHeight = (cell, colWidth) => {
-      const text = getCellText(cell.value);
-      const fontSize = getCellFontSize(cell);
-      const lines = estimateWrappedLines(text, colWidth);
-      // A4/impresión: un poquito más de interlineado + padding
-      const lineHeight = Math.max(16, Math.round(fontSize * 1.6));
-      const base = lines * lineHeight + 12;
-      return Math.ceil(base * 1.15); // margen extra para evitar cortes
-    };
-
-    let maxHeight = 20;
-    for (let c = 1; c <= worksheet.columnCount; c += 1) {
-      const cell = row.getCell(c);
-      const colWidth = worksheet.getColumn(c).width;
-      maxHeight = Math.max(maxHeight, estimateCellHeight(cell, colWidth));
-    }
-    row.height = maxHeight;
-  });
-
-  worksheet.eachRow((row, rowNumber) => {
-    row.eachCell((cell) => {
-      cell.border = {
-        top: { style: "thin" },
-        left: { style: "thin" },
-        bottom: { style: "thin" },
-        right: { style: "thin" },
-      };
-
-      // Fuente base
-      const isRichText =
-        cell?.value &&
-        typeof cell.value === "object" &&
-        Array.isArray(cell.value.richText);
-      if (!isRichText && !cell.font?.size) {
-        cell.font = { ...(cell.font || {}), size: 13 };
-      }
-
-      // Alignments
-      if (rowNumber >= 3) {
-        const isDiaHora = cell.col === 1;
-        cell.alignment = {
-          vertical: "top",
-          horizontal: isDiaHora ? "center" : "left",
-          wrapText: true,
-        };
-      }
-    });
-  });
-
-  const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
-  const url = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `Cronograma_Paradas_${transportName}.xlsx`;
-  anchor.click();
-  window.URL.revokeObjectURL(url);
-};
-
-const ShiftScheduleModal = ({
-  isOpen,
-  onClose,
-  onApply,
-  transportName,
-  events = [],
-}) => {
-  const [shift, setShift] = useState({ days: 0, hours: 0, minutes: 0 });
-
-  const sorted = useMemo(() => {
-    return [...events].sort((a, b) =>
-      (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
-    );
-  }, [events]);
-
-  if (!isOpen) return null;
-
-  const first = sorted[0];
-  const last = sorted[sorted.length - 1];
-
-  const getPreview = (evt) => {
-    if (!evt) return null;
-    const current = new Date(`${evt.fecha}T${evt.hora_inicio || "00:00:00"}`);
-    let next = addDays(current, shift.days);
-    next = addHours(next, shift.hours);
-    next = addMinutes(next, shift.minutes);
-    return {
-      old: `${format(current, "dd/MM")} ${format(current, "HH:mm")}`,
-      new: `${format(next, "dd/MM")} ${format(next, "HH:mm")}`,
-      label: evt.descripcion || "Sin descripción",
-    };
-  };
-
-  const previewFirst = getPreview(first);
-  const previewLast = getPreview(last);
-
-  return (
-    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
-        <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
-          <h3 className="font-bold text-slate-700">
-            Mover Horarios: {transportName}
-          </h3>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600"
-          >
-            <IconX size={20} />
-          </button>
-        </div>
-        <div className="p-5 space-y-4">
-          <div className="grid grid-cols-3 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-black text-slate-400 uppercase text-center">
-                Días
-              </label>
-              <input
-                type="number"
-                className="border rounded p-2 text-center font-bold text-sm"
-                value={shift.days}
-                onChange={(e) =>
-                  setShift({ ...shift, days: parseInt(e.target.value) || 0 })
-                }
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-black text-slate-400 uppercase text-center">
-                Horas
-              </label>
-              <input
-                type="number"
-                className="border rounded p-2 text-center font-bold text-sm"
-                value={shift.hours}
-                onChange={(e) =>
-                  setShift({ ...shift, hours: parseInt(e.target.value) || 0 })
-                }
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-black text-slate-400 uppercase text-center">
-                Minutos
-              </label>
-              <input
-                type="number"
-                className="border rounded p-2 text-center font-bold text-sm"
-                value={shift.minutes}
-                onChange={(e) =>
-                  setShift({ ...shift, minutes: parseInt(e.target.value) || 0 })
-                }
-              />
-            </div>
-          </div>
-          {(shift.days !== 0 || shift.hours !== 0 || shift.minutes !== 0) && (
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-3">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-1">
-                Previsualización de impacto
-              </p>
-              <div className="flex flex-col gap-2">
-                {[
-                  { title: "PRIMERA PARADA", data: previewFirst },
-                  { title: "ÚLTIMA PARADA", data: previewLast },
-                ].map(
-                  (item, idx) =>
-                    item.data && (
-                      <div key={idx} className="flex flex-col">
-                        <span className="text-[9px] font-bold text-indigo-500">
-                          {item.title}
-                        </span>
-                        <p className="text-[10px] font-medium text-slate-600 truncate">
-                          {item.data.label}
-                        </p>
-                        <div className="flex items-center gap-2 text-[11px]">
-                          <span className="text-slate-400 line-through">
-                            {item.data.old}
-                          </span>
-                          <span className="text-slate-400">→</span>
-                          <span className="font-bold text-indigo-600 bg-indigo-50 px-1 rounded">
-                            {item.data.new}
-                          </span>
-                        </div>
-                      </div>
-                    ),
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="p-4 bg-slate-50 border-t flex gap-2">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-300"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={() => onApply(shift)}
-            className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-md"
-          >
-            Aplicar a todos
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-function TransportVehicleIdentity({
-  patente,
-  nombre,
-  transport,
-  onOpenDocs,
-  scheduleBounds,
-}) {
-  return (
-    <div className="relative shrink-0 w-full max-w-full overflow-visible">
-      <div className="rounded border border-slate-200 overflow-hidden w-full bg-white/90">
-        <div className="flex items-stretch min-w-0">
-          <span className="bg-slate-800 text-white px-1.5 py-0.5 text-[9px] font-mono tracking-tighter text-center truncate min-h-[1.125rem] leading-tight w-[4.75rem] shrink-0">
-            {patente || "—"}
-          </span>
-          <span
-            className="inline-flex items-center justify-center min-w-0 flex-1 px-1.5 py-0.5 border-l border-slate-200 bg-slate-100 text-[10px] font-medium text-slate-600 leading-none whitespace-nowrap min-h-[1.125rem] truncate text-center"
-            title={nombre || "Bus"}
-          >
-            {nombre || "Bus"}
-          </span>
-        </div>
-        <div
-          className="flex items-center justify-center gap-1 px-1.5 py-0.5 border-t border-slate-200 bg-slate-50/80 text-[10px] font-medium text-slate-600 min-w-0 text-center"
-          title={
-            scheduleBounds
-              ? `${scheduleBounds.stopCount} parada${scheduleBounds.stopCount === 1 ? "" : "s"}`
-              : undefined
-          }
-        >
-          <IconClock size={10} className="text-slate-400 shrink-0" />
-          <span className="font-semibold text-slate-700 tabular-nums truncate min-w-0 text-center">
-            {scheduleBounds ? scheduleBounds.range : "—"}
-          </span>
-        </div>
-      </div>
-      {transport && onOpenDocs && (
-        <VehicleDocCornerButton transport={transport} onOpen={onOpenDocs} />
-      )}
-    </div>
-  );
-}
-
-function TransportCornerButton({ onClick, title, className = "", children }) {
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick?.(e);
-      }}
-      className={`absolute -top-1 -right-1 z-10 flex items-center justify-center w-4 h-4 rounded-full bg-white border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors ${className}`}
-      title={title}
-    >
-      {children}
-    </button>
-  );
-}
-
-function VehicleDocCornerButton({ transport, onOpen }) {
-  const hasDoc = transport.transportes?.documentacion;
-  return (
-    <TransportCornerButton
-      onClick={() => onOpen(transport)}
-      className={
-        hasDoc
-          ? "text-emerald-600 hover:text-emerald-700"
-          : "text-amber-500 hover:text-amber-600 animate-pulse"
-      }
-      title={
-        hasDoc
-          ? "Editar documentación de vehículo"
-          : "Cargar documentación de vehículo"
-      }
-    >
-      <IconFileText size={10} />
-    </TransportCornerButton>
-  );
-}
-
-function ChoferPickerDropdown({
-  anchorRef,
-  isOpen,
-  search,
-  onSearchChange,
-  options,
-  currentChoferId,
-  onSelect,
-}) {
-  const [dropdownStyle, setDropdownStyle] = useState(null);
-
-  useEffect(() => {
-    if (!isOpen || !anchorRef?.current) return;
-
-    const updatePosition = () => {
-      const rect = anchorRef.current.getBoundingClientRect();
-      const estimatedHeight = 280;
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const dropUp =
-        spaceBelow < estimatedHeight && rect.top > estimatedHeight;
-
-      setDropdownStyle({
-        position: "fixed",
-        left: rect.left,
-        width: Math.max(rect.width, 288),
-        zIndex: 150,
-        ...(dropUp
-          ? {
-              top: "auto",
-              bottom: window.innerHeight - rect.top + 4,
-            }
-          : {
-              top: rect.bottom + 4,
-              bottom: "auto",
-            }),
-      });
-    };
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [isOpen, anchorRef]);
-
-  if (!isOpen || !dropdownStyle) return null;
-
-  const query = String(search || "").toLowerCase();
-  const filteredOptions = options.filter((c) => {
-    const haystack = `${c.label} ${c.dni || ""}`.toLowerCase();
-    return haystack.includes(query);
-  });
-
-  return createPortal(
-    <div
-      className="chofer-picker-portal rounded-xl border border-slate-200 bg-white shadow-2xl p-2"
-      style={dropdownStyle}
-      onClick={(e) => e.stopPropagation()}
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      <input
-        type="text"
-        value={search}
-        onChange={(e) => onSearchChange(e.target.value)}
-        placeholder="Buscar chofer..."
-        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-indigo-400"
-        autoFocus
-      />
-      <div className="mt-2 max-h-56 overflow-y-auto space-y-1">
-        <button
-          type="button"
-          onClick={() => onSelect("")}
-          className={`w-full text-left rounded-md px-2 py-1.5 text-xs ${
-            !currentChoferId
-              ? "bg-slate-100 text-slate-700 font-bold"
-              : "text-slate-600 hover:bg-slate-50"
-          }`}
-        >
-          Sin chofer
-        </button>
-        {filteredOptions.map((c) => (
-          <button
-            key={c.value}
-            type="button"
-            onClick={() => onSelect(c.value)}
-            className={`w-full text-left rounded-md px-2 py-1.5 text-xs ${
-              String(currentChoferId || "") === String(c.value)
-                ? "bg-emerald-50 text-emerald-700 font-bold"
-                : "text-slate-700 hover:bg-indigo-50"
-            }`}
-          >
-            {c.label} {c.dni ? `(${c.dni})` : ""}
-          </button>
-        ))}
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-const EDIT_CATEGORIA_OPTIONS = [
-  { key: "PASAJEROS", label: "Pasajeros", activeClass: "text-slate-800" },
-  { key: "LOGISTICO", label: "Solo logístico", activeClass: "text-amber-700" },
-  { key: "INTERNO", label: "Trasl. interno", activeClass: "text-violet-700" },
-];
-
-function TransportEditForm({
-  editFormData,
-  setEditFormData,
-  catalog,
-  choferOptions,
-  defaultTransporteId,
-  onSave,
-  onCancel,
-}) {
-  return (
-    <div className="flex-1 min-w-0 space-y-3" onClick={(e) => e.stopPropagation()}>
-      <div className="grid grid-cols-1 sm:grid-cols-[10rem_1fr] gap-2 sm:gap-3">
-        <div>
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1 block">
-            Vehículo
-          </label>
-          <select
-            className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-200 outline-none"
-            value={editFormData.id_transporte || defaultTransporteId}
-            onChange={(e) =>
-              setEditFormData({ ...editFormData, id_transporte: e.target.value })
-            }
-          >
-            {catalog.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nombre}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1 block">
-            Nombre del recorrido
-          </label>
-          <input
-            type="text"
-            value={editFormData.detalle}
-            onChange={(e) =>
-              setEditFormData({ ...editFormData, detalle: e.target.value })
-            }
-            className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-200 outline-none"
-            placeholder="Ej: Bus 1 — Ida a Córdoba"
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
-        <div>
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1 block">
-            Capacidad
-          </label>
-          <input
-            type="number"
-            min="0"
-            value={editFormData.capacidad}
-            onChange={(e) =>
-              setEditFormData({ ...editFormData, capacidad: e.target.value })
-            }
-            className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
-            placeholder="Butacas"
-          />
-        </div>
-        <div>
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1 block">
-            Costo
-          </label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={editFormData.costo}
-            onChange={(e) =>
-              setEditFormData({ ...editFormData, costo: e.target.value })
-            }
-            className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
-            placeholder="$"
-          />
-        </div>
-        <div className="col-span-2 sm:col-span-1">
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1 block">
-            Chofer
-          </label>
-          <select
-            className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-200 outline-none"
-            value={editFormData.id_chofer || ""}
-            onChange={(e) =>
-              setEditFormData({ ...editFormData, id_chofer: e.target.value })
-            }
-          >
-            <option value="">Sin chofer</option>
-            {choferOptions.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label} {c.dni ? `(${c.dni})` : ""}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div>
-        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5 block">
-          Categoría
-        </label>
-        <div
-          className="inline-flex w-full sm:w-auto rounded-lg border border-slate-200 bg-slate-100 p-0.5"
-          role="group"
-        >
-          {EDIT_CATEGORIA_OPTIONS.map(({ key, label, activeClass }) => {
-            const active = editFormData.categoria_logistica === key;
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() =>
-                  setEditFormData({ ...editFormData, categoria_logistica: key })
-                }
-                className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap ${
-                  active
-                    ? `bg-white shadow-sm ${activeClass}`
-                    : "text-slate-400 hover:text-slate-600"
-                }`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 pt-0.5">
-        <button
-          type="button"
-          onClick={onSave}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 transition-colors"
-        >
-          <IconCheck size={14} />
-          Guardar
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-xs font-bold hover:bg-slate-200 transition-colors"
-        >
-          <IconX size={14} />
-          Cancelar
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function TransportCardActions({
-  incompleteCount,
-  isMediosPropios,
-  isExpanded,
-  exportingFirmas,
-  onShowIncomplete,
-  onAdmission,
-  onBoarding,
-  onItinerary,
-  onStopsExport,
-  onShift,
-  onRoadmap,
-  onCnrt,
-  onExportFirmasPdf,
-  onExportFirmasDocx,
-  onExportFirmasDocxMerge,
-  onDelete,
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [awaitingNoteFile, setAwaitingNoteFile] = useState(false);
-  const menuRef = useRef(null);
-  const fileInputRef = useRef(null);
-  useClickOutside(menuRef, () => setMenuOpen(false));
-
-  const infoBtnClass =
-    "flex items-center justify-center gap-1 px-1.5 py-1 sm:px-2.5 sm:py-1.5 rounded-lg text-[10px] font-bold transition-colors whitespace-nowrap";
-
-  const showPending = incompleteCount > 0 && !isMediosPropios;
-
-  const menuItems = [
-    {
-      key: "itinerary",
-      label: "Plantilla de Itinerario",
-      icon: IconMapPin,
-      onClick: onItinerary,
-    },
-    {
-      key: "stops",
-      label: "Cronograma de paradas",
-      icon: IconList,
-      onClick: onStopsExport,
-    },
-    {
-      key: "shift",
-      label: "Mover horarios",
-      icon: IconClock,
-      onClick: onShift,
-    },
-    { key: "roadmap", label: "Hoja de ruta", icon: IconFileText, onClick: onRoadmap },
-    { key: "cnrt", label: "Exportar CNRT", icon: IconDownload, onClick: onCnrt },
-    {
-      key: "firmas-pdf",
-      label: "Cuadro de firmas (PDF)",
-      icon: IconFileText,
-      onClick: onExportFirmasPdf,
-      disabled: exportingFirmas,
-    },
-    {
-      key: "firmas-docx",
-      label: "Cuadro de firmas (Word)",
-      icon: IconFileText,
-      onClick: onExportFirmasDocx,
-      disabled: exportingFirmas,
-    },
-    {
-      key: "firmas-merge",
-      label: "Cuadro + nota Word",
-      icon: IconUpload,
-      onClick: () => {
-        setAwaitingNoteFile(true);
-        fileInputRef.current?.click();
-      },
-      disabled: exportingFirmas,
-    },
-  ];
-
-  const handleMenuAction = (item) => {
-    if (item.disabled) return;
-    setMenuOpen(false);
-    item.onClick?.();
-  };
-
-  const handleNoteFileChange = (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file || !awaitingNoteFile) return;
-    setAwaitingNoteFile(false);
-    if (!/\.docx$/i.test(file.name)) {
-      toast.error("Seleccioná un archivo .docx");
-      return;
-    }
-    onExportFirmasDocxMerge?.(file);
-  };
-
-  return (
-    <div
-      className="flex flex-wrap items-center justify-end gap-1 sm:gap-1.5 shrink-0 w-full md:w-auto max-w-full"
-      onClick={(e) => e.stopPropagation()}
-    >
-
-      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-0.5 shadow-sm overflow-visible">
-        <button
-          type="button"
-          onClick={onAdmission}
-          className={`${infoBtnClass} text-indigo-600 hover:bg-indigo-50`}
-          title="Admisión de pasajeros"
-        >
-          <IconUsers size={14} />
-          <span className="hidden sm:inline">Admisión</span>
-        </button>
-        <div className="w-px h-4 bg-slate-200 shrink-0" />
-        <div className="relative overflow-visible">
-          {showPending && (
-            <button
-              type="button"
-              onClick={onShowIncomplete}
-              className="absolute -top-1.5 -right-1.5 z-10 flex items-center justify-center min-w-[1.125rem] h-[1.125rem] px-1 rounded-full bg-rose-500 text-white text-[8px] font-black leading-none shadow-md ring-2 ring-white animate-pulse"
-              title={`${incompleteCount} pendiente${incompleteCount === 1 ? "" : "s"} de subida/bajada`}
-            >
-              {incompleteCount}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onBoarding}
-            className={`${infoBtnClass} text-amber-600 hover:bg-amber-50`}
-            title="Abordaje y subida/bajada"
-          >
-            <IconCheckCircle size={14} />
-            <span className="hidden sm:inline">Abordaje</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="relative" ref={menuRef}>
-        <button
-          type="button"
-          onClick={() => setMenuOpen((v) => !v)}
-          className={`flex items-center gap-1 px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-xl border text-[10px] font-bold transition-colors ${
-            menuOpen
-              ? "bg-slate-800 text-white border-slate-800"
-              : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-          }`}
-          title="Más acciones"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-        >
-          {exportingFirmas ? (
-            <IconLoader size={14} className="animate-spin" />
-          ) : (
-            <IconMoreVertical size={14} />
-          )}
-          <span className="hidden sm:inline">Acciones</span>
-        </button>
-
-        {menuOpen && (
-          <div
-            className="absolute right-0 top-[calc(100%+4px)] z-[140] min-w-[210px] rounded-xl border border-slate-200 bg-white shadow-2xl py-1 overflow-hidden"
-            role="menu"
-          >
-            {menuItems.map((item) => {
-              const ItemIcon = item.icon;
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  role="menuitem"
-                  disabled={item.disabled}
-                  onClick={() => handleMenuAction(item)}
-                  className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors ${
-                    item.disabled
-                      ? "text-slate-300 cursor-not-allowed"
-                      : "text-slate-700 hover:bg-slate-50"
-                  }`}
-                >
-                  <ItemIcon size={14} className="text-slate-400 shrink-0" />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-            <div className="my-1 border-t border-slate-100" />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                onDelete?.();
-              }}
-              className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 text-rose-600 hover:bg-rose-50 transition-colors"
-            >
-              <IconTrash size={14} className="shrink-0" />
-              <span>Eliminar transporte</span>
-            </button>
-          </div>
-        )}
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          className="hidden"
-          onChange={handleNoteFileChange}
-        />
-      </div>
-
-      <div
-        className={`text-slate-300 transition-transform shrink-0 ${isExpanded ? "rotate-180" : ""}`}
-      >
-        <IconChevronDown size={16} />
-      </div>
-    </div>
-  );
-}
-
 export default function GirasTransportesManager({ supabase, gira }) {
   const {
     summary: rawSummary,
@@ -1661,7 +397,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           <div className="p-4 overflow-y-auto flex-1 bg-white/50">
             {infoListModal.list.length === 0 ? (
               <p className="text-center text-slate-500 italic">
-                La lista está vacía.
+                La lista estÃ¡ vacÃ­a.
               </p>
             ) : (
               renderContent()
@@ -2121,14 +857,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
         const reg = regionsList.find(
           (x) => String(x.id) === String(r.id_region),
         );
-        label = reg ? reg.region : "Región";
+        label = reg ? reg.region : "RegiÃ³n";
       } else if (scope === "Localidad") {
         const loc = localitiesList.find(
           (x) => String(x.id) === String(r.id_localidad),
         );
         label = loc ? loc.localidad : "Loc";
       } else if (scope === "Categoria") {
-        label = r.target_ids?.[0] || "Categoría";
+        label = r.target_ids?.[0] || "CategorÃ­a";
       } else {
         label = scope;
       }
@@ -2301,35 +1037,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
       return;
     }
 
-    const compactTransportLabel = (fullName) => {
-      const raw = String(fullName || "").trim();
-      if (!raw) return "Transporte";
-      const parts = raw.split("-");
-      if (parts.length < 2) return raw;
-      const right = parts.slice(1).join("-").trim();
-      return right || raw;
-    };
-
-    const rows = [];
-    selectedIds.forEach((tid) => {
-      const t = (transports || []).find((x) => String(x.id) === String(tid));
-      const tName = t
-        ? `${t.transportes?.nombre || "Transporte"}${t.detalle ? ` - ${t.detalle}` : ""}`
-        : "Transporte";
-      const evts = [...(transportEvents[tid] || [])].sort((a, b) =>
-        (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
-      );
-      evts.forEach((evt) => {
-        rows.push({
-          transporte: compactTransportLabel(tName),
-          fecha: evt.fecha || "",
-          hora: evt.hora_inicio ? evt.hora_inicio.slice(0, 5) : "",
-          nota: htmlToPlainText(evt.descripcion || ""),
-          locacion: evt.locaciones?.nombre || "",
-          localidad: evt.locaciones?.localidades?.localidad || "",
-          direccion: evt.locaciones?.direccion || "",
-        });
-      });
+    const rows = buildCombinedStopsExportRows({
+      selectedTransportIds: selectedIds,
+      transports,
+      transportEvents,
     });
 
     if (rows.length === 0) {
@@ -2337,230 +1048,18 @@ export default function GirasTransportesManager({ supabase, gira }) {
       return;
     }
 
-    rows.sort((a, b) =>
-      `${a.fecha}${a.hora}`.localeCompare(`${b.fecha}${b.hora}`),
-    );
-
-    if (combinedStopsModal.exportFormat === "excel") {
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet("Paradas Combinadas");
-      worksheet.pageSetup = {
-        paperSize: 9,
-        orientation: "portrait",
-        fitToPage: true,
-        fitToWidth: 1,
-        fitToHeight: 0,
-        horizontalCentered: true,
-        margins: { left: 0.35, right: 0.35, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
-      };
-
-      worksheet.columns = [
-        { header: "DIA\nHORA", key: "dia_hora", width: 20 },
-        { header: "Nota", key: "nota", width: 39 },
-        { header: "Locacion\nLocalidad", key: "loc_localidad", width: 30 },
-        { header: "Direccion", key: "direccion", width: 36 },
-        { header: "Transp.", key: "transporte", width: 13 },
-      ];
-
-      worksheet.insertRow(1, []);
-      const titleCell = worksheet.getCell(1, 1);
-      titleCell.value = "Paradas Combinadas";
-      worksheet.mergeCells(1, 1, 1, worksheet.columnCount);
-      worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" }, size: 13 };
-      worksheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
-      worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF312E81" } };
-      worksheet.getRow(1).height = 24;
-
-      worksheet.getRow(2).font = { bold: true, color: { argb: "FFFFFFFF" }, size: 12 };
-      worksheet.getRow(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4F46E5" } };
-      worksheet.getRow(2).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
-      worksheet.getRow(2).height = 30;
-
-      const dayLabelFromDate = (dateStr) => {
-        if (!dateStr) return "-";
-        const dateObj = new Date(dateStr + "T12:00:00");
-        const label = format(dateObj, "EEEE, dd 'de' MMMM 'de' yyyy", { locale: es });
-        return label.charAt(0).toUpperCase() + label.slice(1);
-      };
-
-      let lastDayKey = null;
-      rows.forEach((r) => {
-        if (r.fecha !== lastDayKey) {
-          const sepRow = worksheet.addRow({ transporte: dayLabelFromDate(r.fecha) });
-          worksheet.mergeCells(sepRow.number, 1, sepRow.number, worksheet.columnCount);
-          sepRow.height = 30;
-          const cell = sepRow.getCell(1);
-          cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 12 };
-          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF312E81" } };
-          cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
-          lastDayKey = r.fecha;
-        }
-        const row = worksheet.addRow({
-          dia_hora: `${dayLabelFromDate(r.fecha)}\n${r.hora || "--:--"} hs.`,
-          nota: r.nota || "",
-          loc_localidad: {
-            richText: [
-              { text: (r.locacion || "-").trim(), font: { size: 12 } },
-              { text: "\n" },
-              { text: (r.localidad || "-").trim(), font: { size: 12, italic: true } },
-            ],
-          },
-          direccion: (r.direccion || "-").trim(),
-          transporte: r.transporte,
-        });
-        row.getCell(5).font = { ...(row.getCell(5).font || {}), size: 8 };
-      });
-
-      worksheet.eachRow((row, rowNumber) => {
-        row.eachCell((cell) => {
-          cell.border = {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          };
-          if (rowNumber >= 3) {
-            cell.alignment = {
-              vertical: "top",
-              horizontal: cell.col === 1 ? "center" : "left",
-              wrapText: true,
-            };
-          }
-        });
-      });
-
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `Paradas_Combinadas_Gira${giraId}.xlsx`;
-      anchor.click();
-      window.URL.revokeObjectURL(url);
-    } else {
-      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(14);
-      doc.text("Paradas Combinadas", 105, 14, { align: "center" });
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.text("Cronograma de paradas", 105, 19, { align: "center" });
-
-      const dayLabelFromDate = (dateStr) => {
-        if (!dateStr) return "-";
-        const dateObj = new Date(dateStr + "T12:00:00");
-        const label = format(dateObj, "EEEE, dd 'de' MMMM 'de' yyyy", { locale: es });
-        return label.charAt(0).toUpperCase() + label.slice(1);
-      };
-
-      const body = [];
-      let lastDayKey = null;
-      rows.forEach((r) => {
-        if (r.fecha !== lastDayKey) {
-          body.push([
-            {
-              content: dayLabelFromDate(r.fecha),
-              colSpan: 5,
-              styles: {
-                fillColor: [49, 46, 129],
-                textColor: 255,
-                fontStyle: "bold",
-                halign: "center",
-                valign: "middle",
-              },
-            },
-          ]);
-          lastDayKey = r.fecha;
-        }
-        body.push([
-          `${dayLabelFromDate(r.fecha)}\n${r.hora || "--:--"} hs.`,
-          r.nota || "",
-          `${(r.locacion || "-").trim()}\n${(r.localidad || "-").trim()}`,
-          (r.direccion || "-").trim(),
-          r.transporte || "",
-        ]);
-      });
-
-      autoTable(doc, {
-        startY: 24,
-        head: [["Dia\nHora", "Nota", "Locacion\nLocalidad", "Direccion", "Transp."]],
-        body,
-        theme: "grid",
-        styles: {
-          font: "helvetica",
-          fontSize: 10,
-          cellPadding: 2.2,
-          overflow: "linebreak",
-          valign: "top",
-          lineWidth: 0.1,
-        },
-        headStyles: {
-          fillColor: [79, 70, 229],
-          textColor: 255,
-          fontStyle: "bold",
-          halign: "center",
-          valign: "middle",
-        },
-        columnStyles: {
-          0: { cellWidth: 29, halign: "center" },
-          1: { cellWidth: 63 },
-          2: { cellWidth: 36 },
-          3: { cellWidth: 40 },
-          4: { cellWidth: 14, fontSize: 7 },
-        },
-        margin: { left: 8, right: 8 },
-        didParseCell: (data) => {
-          if (data.section === "body" && data.column.index === 4) {
-            data.cell.styles.fontSize = 7;
-          }
-          if (data.section === "body" && data.column.index === 2) {
-            data.cell.styles.fontSize = 9;
-            data.cell.styles.textColor = [255, 255, 255];
-          }
-        },
-        didDrawCell: (data) => {
-          if (data.section !== "body" || data.column.index !== 2) return;
-          if (!data.cell?.raw || typeof data.cell.raw !== "string") return;
-          if (data.cell.raw.includes("colSpan")) return;
-          const [loc = "", localidad = ""] = String(data.cell.raw).split("\n");
-          const maxWidth =
-            data.cell.width - data.cell.padding("left") - data.cell.padding("right");
-          const fontSize = data.cell.styles.fontSize || 9;
-          const scaleFactor = doc.internal?.scaleFactor || 1;
-          const lhFactor = data.cell.styles.lineHeight || 1.15;
-          const lineHeight = (fontSize / scaleFactor) * lhFactor;
-          const textPos = data.cell.textPos || {
-            x: data.cell.x + data.cell.padding("left"),
-            y: data.cell.y + data.cell.padding("top") + lineHeight,
-          };
-          doc.setTextColor(0, 0, 0);
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(fontSize);
-          const locLines = doc.splitTextToSize(loc, maxWidth);
-          locLines.forEach((line, idx) => {
-            doc.text(line, textPos.x, textPos.y + lineHeight * idx);
-          });
-          doc.setFont("helvetica", "italic");
-          const localidadLines = doc.splitTextToSize(localidad, maxWidth);
-          const localityStartIdx = Math.max(1, locLines.length);
-          localidadLines.forEach((line, idx) => {
-            doc.text(line, textPos.x, textPos.y + lineHeight * (localityStartIdx + idx));
-          });
-          doc.setFont("helvetica", "normal");
-        },
-      });
-
-      doc.save(`Paradas_Combinadas_Gira${giraId}.pdf`);
-    }
+    await exportCombinedStops({
+      rows,
+      exportFormat: combinedStopsModal.exportFormat,
+      giraId,
+    });
 
     setCombinedStopsModal({ isOpen: false, selectedTransportIds: [], exportFormat: "pdf" });
   };
 
   const openDeleteTransportModal = async (transportId) => {
     deleteTransportTargetRef.current = transportId;
-    const toastId = toast.loading("Preparando confirmación…");
+    const toastId = toast.loading("Preparando confirmaciÃ³nâ€¦");
     const n = await countEventosByGiraTransporte(supabase, transportId);
     toast.dismiss(toastId);
     setDeleteTransportModal({ isOpen: true, eventCount: n });
@@ -2574,14 +1073,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const handleConfirmDeleteTransport = async () => {
     const tid = deleteTransportTargetRef.current;
     if (!tid) return;
-    const toastId = toast.loading("Eliminando transporte…");
+    const toastId = toast.loading("Eliminando transporteâ€¦");
     const result = await deleteGiraTransporteCascade(supabase, tid);
     toast.dismiss(toastId);
     closeDeleteTransportModal();
     if (!result.ok) {
       toast.error(
         result.error ||
-          "No se pudo eliminar el transporte. Revisa vínculos en la base de datos.",
+          "No se pudo eliminar el transporte. Revisa vÃ­nculos en la base de datos.",
       );
       return;
     }
@@ -2676,14 +1175,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
     if (totalAffected > 0) {
       const message =
-        `⚠️ ADVERTENCIA DE INTEGRIDAD \n\n` +
-        `Este evento se usa en ${totalAffected} reglas logísticas (subidas/bajadas).\n` +
-        `Si continúas, esas reglas serán DESVINCULADAS automáticamente (se pondrán en blanco) para evitar errores.\n\n` +
-        `¿Confirmas borrar el evento y limpiar las reglas asociadas?`;
+        `âš ï¸ ADVERTENCIA DE INTEGRIDAD \n\n` +
+        `Este evento se usa en ${totalAffected} reglas logÃ­sticas (subidas/bajadas).\n` +
+        `Si continÃºas, esas reglas serÃ¡n DESVINCULADAS automÃ¡ticamente (se pondrÃ¡n en blanco) para evitar errores.\n\n` +
+        `Â¿Confirmas borrar el evento y limpiar las reglas asociadas?`;
 
       if (!confirm(message)) return;
     } else {
-      if (!confirm("¿Borrar parada?")) return;
+      if (!confirm("Â¿Borrar parada?")) return;
     }
 
     try {
@@ -2751,7 +1250,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       if (error) {
         console.error("Error al borrar evento", { eventId, error });
         alert(
-          "No se pudo borrar la parada. Puede haber vínculos en otras tablas.\n\nDetalle técnico: " +
+          "No se pudo borrar la parada. Puede haber vÃ­nculos en otras tablas.\n\nDetalle tÃ©cnico: " +
             (error.message || JSON.stringify(error)),
         );
         return;
@@ -2761,9 +1260,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
       fetchData();
       refresh();
     } catch (err) {
-      console.error("Excepción al borrar evento", { eventId, err });
+      console.error("ExcepciÃ³n al borrar evento", { eventId, err });
       alert(
-        "Ocurrió un error inesperado al borrar la parada:\n\n" +
+        "OcurriÃ³ un error inesperado al borrar la parada:\n\n" +
           (err.message || JSON.stringify(err)),
       );
     }
@@ -2813,7 +1312,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     if (!personId || !boardingModal.transportId) return;
     if (
       !confirm(
-        "¿Eliminar la excepción personalizada y volver a la regla general?",
+        "Â¿Eliminar la excepciÃ³n personalizada y volver a la regla general?",
       )
     )
       return;
@@ -2833,12 +1332,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
     }
   };
 
-  const handleExportGlobal = () => {
-    // passengerList ya está filtrado (sin ausentes)
+  const handleExportGlobal = async () => {
     const travelingPax = passengerList.filter(
       (p) => p.logistics?.transports?.length > 0,
     );
-    downloadStyledExcel(travelingPax, `Transporte_General_Gira${giraId}.xlsx`);
+    await downloadStyledExcel(travelingPax, `Transporte_General_Gira${giraId}.xlsx`);
   };
 
   const handleExportOnlyStops = async (startId, endId, exportFormat = "pdf") => {
@@ -2856,67 +1354,54 @@ export default function GirasTransportesManager({ supabase, gira }) {
     setStopsExportModal({ isOpen: false, transportId: null });
   };
 
-  const handleExportCNRT = async (startId, endId, onlyStops = false) => {
+  const handleExportCNRT = async (startId, endId, exportFormat = "pdf") => {
     const currentTransportId = cnrtModal.transportId;
     if (!currentTransportId) return;
 
     const tInfo = transports.find((t) => t.id === currentTransportId);
     if (!tInfo) return;
 
-    if (onlyStops === true) {
-      await generateStopsOnlyExcel(
-        tInfo.detalle || tInfo.transportes?.nombre || "Transporte",
-        transportEvents[currentTransportId] || [],
-        startId,
-        endId,
-      );
-    } else {
-      const events = transportEvents[currentTransportId] || [];
-      const sortedEvts = [...events].sort((a, b) =>
-        (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
-      );
-      const startIndex = sortedEvts.findIndex((e) => String(e.id) === String(startId));
-      const endIndex = sortedEvts.findIndex((e) => String(e.id) === String(endId));
-      if (startIndex === -1 || endIndex === -1 || startIndex >= endIndex) {
-        alert("Rango inválido");
-        return;
-      }
-
-      // Base CNRT: TODOS los pasajeros asignados al transporte.
-      // 1) Preferimos pasajeros_ids del transporte.
-      // 2) Fallback al roster logístico si ese array no está disponible.
-      const transportPassengerIds = Array.isArray(tInfo.pasajeros_ids)
-        ? tInfo.pasajeros_ids.map((id) => Number(id))
-        : [];
-      const tPaxBase =
-        transportPassengerIds.length > 0
-          ? passengerList.filter((p) => transportPassengerIds.includes(Number(p.id)))
-          : passengerList.filter((p) =>
-              p.logistics?.transports?.some(
-                (t) => String(t.id) === String(currentTransportId),
-              ),
-            );
-
-      // Inyectamos fallback de paradas para quienes no tengan subida/bajada definidas.
-      // Esto evita exclusiones por datos de ruta incompletos.
-      const tPax = tPaxBase.map((p) => {
-        const transportData = p.logistics?.transports?.find(
-          (t) => String(t.id) === String(currentTransportId),
-        );
-        const subidaId = transportData?.subidaId ?? startId;
-        const bajadaId = transportData?.bajadaId ?? endId;
-        return {
-          ...p,
-          cnrtStops: {
-            subidaId,
-            bajadaId,
-            usedFallback: !transportData?.subidaId || !transportData?.bajadaId,
-          },
-        };
-      });
-
-      await downloadStyledExcel(tPax, `CNRT_${tInfo.detalle}.xlsx`);
+    const events = transportEvents[currentTransportId] || [];
+    const sortedEvts = [...events].sort((a, b) =>
+      (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
+    );
+    const startIndex = sortedEvts.findIndex((e) => String(e.id) === String(startId));
+    const endIndex = sortedEvts.findIndex((e) => String(e.id) === String(endId));
+    if (startIndex === -1 || endIndex === -1 || startIndex >= endIndex) {
+      alert("Rango inválido");
+      return;
     }
+
+    const transportPassengerIds = Array.isArray(tInfo.pasajeros_ids)
+      ? tInfo.pasajeros_ids.map((id) => Number(id))
+      : [];
+    const tPaxBase =
+      transportPassengerIds.length > 0
+        ? passengerList.filter((p) => transportPassengerIds.includes(Number(p.id)))
+        : passengerList.filter((p) =>
+            p.logistics?.transports?.some(
+              (t) => String(t.id) === String(currentTransportId),
+            ),
+          );
+
+    const tPax = tPaxBase.map((p) => {
+      const transportData = p.logistics?.transports?.find(
+        (t) => String(t.id) === String(currentTransportId),
+      );
+      const subidaId = transportData?.subidaId ?? startId;
+      const bajadaId = transportData?.bajadaId ?? endId;
+      return {
+        ...p,
+        cnrtStops: {
+          subidaId,
+          bajadaId,
+          usedFallback: !transportData?.subidaId || !transportData?.bajadaId,
+        },
+      };
+    });
+
+    const baseName = `CNRT_${tInfo.detalle || tInfo.transportes?.nombre || "Transporte"}`;
+    await downloadStyledPassengers(tPax, baseName, exportFormat);
 
     setCnrtModal({ isOpen: false, transportId: null });
   };
@@ -2941,14 +1426,6 @@ export default function GirasTransportesManager({ supabase, gira }) {
     [passengerList],
   );
 
-  const resolveEncargadoCuadroFirmas = useCallback(async () => {
-    const fromRoster = (roster || []).find(
-      (p) => Number(p.id) === CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
-    );
-    if (fromRoster) return toCuadroFirmasPerson(fromRoster);
-    return fetchEncargadoCuadroFirmas(supabase);
-  }, [roster, supabase]);
-
   const handleExportCuadroFirmasTransport = async (
     e,
     transport,
@@ -2956,13 +1433,29 @@ export default function GirasTransportesManager({ supabase, gira }) {
   ) => {
     e?.stopPropagation();
     if (!transport?.id || exportingFirmasTransportId) return;
+
+    const {
+      CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
+      exportDestaquesCuadroFirmasDocx,
+      exportDestaquesCuadroFirmasPdf,
+      fetchEncargadoCuadroFirmas,
+      parseCuadroFirmasExportOptions,
+      toCuadroFirmasPerson,
+    } = await import("../../utils/destaquesCuadroFirmasPdf");
+
     const { format, hostDocxFile } =
       parseCuadroFirmasExportOptions(formatOrOptions);
 
     const people = getTransportPassengers(transport)
       .map(toCuadroFirmasPerson)
       .filter(Boolean);
-    const encargado = await resolveEncargadoCuadroFirmas();
+
+    const fromRoster = (roster || []).find(
+      (p) => Number(p.id) === CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
+    );
+    const encargado = fromRoster
+      ? toCuadroFirmasPerson(fromRoster)
+      : await fetchEncargadoCuadroFirmas(supabase);
 
     if (people.length === 0 && !encargado) {
       toast.error("No hay personas para el cuadro de firmas en este recorrido.");
@@ -3028,8 +1521,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
     setRoadmapModal({ isOpen: false, transportId: null });
   };
 
-  // Marcar automáticamente como ocultos los eventos que sean solo de bajada (sin subidas),
-  // pero solo cuando aún no tienen preferencia de visibilidad definida (visible_agenda == null)
+  // Marcar automÃ¡ticamente como ocultos los eventos que sean solo de bajada (sin subidas),
+  // pero solo cuando aÃºn no tienen preferencia de visibilidad definida (visible_agenda == null)
   useEffect(() => {
     if (!routeRules || !transportEvents) return;
 
@@ -3043,9 +1536,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
           0,
         );
 
-        // Por defecto: si solo hay bajadas y ninguna subida, y el evento aún no
+        // Por defecto: si solo hay bajadas y ninguna subida, y el evento aÃºn no
         // tiene visible_agenda definido (null/undefined), lo marcamos como oculto.
-        // Esto respeta cualquier cambio manual posterior (true/false explícito).
+        // Esto respeta cualquier cambio manual posterior (true/false explÃ­cito).
         if (
           totalUps === 0 &&
           totalDowns > 0 &&
@@ -3094,7 +1587,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       );
       const typeName =
         editFormData.categoria_logistica === "LOGISTICO"
-          ? "Solo logístico"
+          ? "Solo logÃ­stico"
           : editFormData.categoria_logistica === "INTERNO"
             ? "Traslado interno"
             : "De pasajeros";
@@ -3225,10 +1718,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
       await updateVehicleDocumentationUrl(vehicleDocsModal.vehicleId, publicUrl);
       setVehicleDocsModal((prev) => ({ ...prev, currentUrl: publicUrl }));
       await fetchData();
-      toast.success("Documentación del vehículo guardada");
+      toast.success("DocumentaciÃ³n del vehÃ­culo guardada");
     } catch (error) {
       console.error(error);
-      toast.error("No se pudo guardar la documentación del vehículo");
+      toast.error("No se pudo guardar la documentaciÃ³n del vehÃ­culo");
     } finally {
       setVehicleDocUploading(false);
     }
@@ -3265,10 +1758,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
       await updateVehicleDocumentationUrl(vehicleDocsModal.vehicleId, "");
       setVehicleDocsModal((prev) => ({ ...prev, currentUrl: "" }));
       await fetchData();
-      toast.success("Documentación eliminada");
+      toast.success("DocumentaciÃ³n eliminada");
     } catch (error) {
       console.error(error);
-      toast.error("No se pudo eliminar la documentación");
+      toast.error("No se pudo eliminar la documentaciÃ³n");
     } finally {
       setVehicleDocUploading(false);
     }
@@ -3385,7 +1878,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     <div className="h-full overflow-y-auto p-3 sm:p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-6xl mx-auto">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-bold text-slate-700 flex items-center gap-2">
-          <IconTruck className="text-indigo-600" /> Gestión de Transportes
+          <IconTruck className="text-indigo-600" /> GestiÃ³n de Transportes
         </h3>
       </div>
 
@@ -3419,7 +1912,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onClick={() =>
             setInfoListModal({
               isOpen: true,
-              title: "Pasajeros en Múltiples Transportes",
+              title: "Pasajeros en MÃºltiples Transportes",
               list: coverageStats.multiple,
               allowInternalToggle: true,
               showInternal: false,
@@ -3436,7 +1929,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             </div>
             <div className="text-[9px] sm:text-[10px] text-amber-600 font-bold uppercase tracking-tight mt-1 leading-tight underline decoration-dashed underline-offset-4">
               <span className="sm:hidden">Multi transp.</span>
-              <span className="hidden sm:inline">Más de un Transporte</span>
+              <span className="hidden sm:inline">MÃ¡s de un Transporte</span>
             </div>
           </div>
         </div>
@@ -3666,8 +2159,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
           });
 
           // 2) Pasajeros NO admitidos (el transporte no aparece en logistics),
-          // pero que ESPECÍFICAMENTE tienen reglas de subida+bajada para este transporte
-          // (localidad / persona / región / etc. según alcance de las reglas).
+          // pero que ESPECÃFICAMENTE tienen reglas de subida+bajada para este transporte
+          // (localidad / persona / regiÃ³n / etc. segÃºn alcance de las reglas).
           const missingAdmissionPax = passengerList.filter((p) => {
             if (
               isPersonVetoedFromTransport(
@@ -3683,7 +2176,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             const tr = p.logistics?.transports?.find(
               (x) => String(x.id) === String(t.id),
             );
-            if (tr) return false; // ya está admitido: pertenece al caso (1)
+            if (tr) return false; // ya estÃ¡ admitido: pertenece al caso (1)
 
             const hasUp = routeRulesForTransport.some(
               (r) => r.id_evento_subida && matchesRule(r, p, localitiesList),
@@ -3870,7 +2363,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 }`}
                                 title={
                                   choferDocsStatus === "complete"
-                                    ? "Documentación del chofer completa"
+                                    ? "DocumentaciÃ³n del chofer completa"
                                     : "Falta carnet y/o DNI del chofer"
                                 }
                               >
@@ -3914,7 +2407,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             </span>
                             {categoria === "LOGISTICO" && (
                               <span className="inline-flex items-center h-5 px-2 rounded-md border border-amber-200 bg-amber-50 text-[10px] font-bold text-amber-700 leading-none shrink-0">
-                                Solo logístico
+                                Solo logÃ­stico
                               </span>
                             )}
                             {categoria === "INTERNO" && (
@@ -4041,7 +2534,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             Hora
                           </th>
                           <th className="p-3" style={{ width: "20%" }}>
-                            Locación (Destino)
+                            LocaciÃ³n (Destino)
                           </th>
                           <th className="p-3" style={{ width: "20%" }}>
                             Detalle
@@ -4246,7 +2739,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     onClick={() => setActiveDetailEventId(evt.id)}
                                     onBlur={(e) => {
                                       const html = e.currentTarget.innerHTML;
-                                      // Cerrar solo si el foco no se va a un botón del toolbar de este mismo detalle
+                                      // Cerrar solo si el foco no se va a un botÃ³n del toolbar de este mismo detalle
                                       setTimeout(() => {
                                         const active = document.activeElement;
                                         if (
@@ -4295,7 +2788,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     {totalUps > 0
                                       ? totalUps
                                       : upAlert
-                                        ? "0 ⚠️"  
+                                        ? "0 âš ï¸"  
                                         : "+"}
                                   </div>
                                   {upsSummary.map((s, i) => (
@@ -4331,7 +2824,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     {totalDowns > 0
                                       ? totalDowns
                                       : downAlert
-                                        ? "0 ⚠️"
+                                        ? "0 âš ï¸"
                                         : "+"}
                                   </div>
                                   {downsSummary.map((s, i) => (
@@ -4365,8 +2858,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     }`}
                                     title={
                                       evt.visible_agenda === false
-                                        ? "Mostrar en agenda (todos los músicos)"
-                                        : "Ocultar de agenda (subida/bajada propias siguen visibles para cada músico)"
+                                        ? "Mostrar en agenda (todos los mÃºsicos)"
+                                        : "Ocultar de agenda (subida/bajada propias siguen visibles para cada mÃºsico)"
                                     }
                                   >
                                     {evt.visible_agenda === false ? (
@@ -4547,7 +3040,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
                               <div className="block space-y-1">
                                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                                  Locación
+                                  LocaciÃ³n
                                 </span>
                                 <LocationSelectWithCreate
                                   supabase={supabase}
@@ -4741,8 +3234,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 }`}
                                 title={
                                   evt.visible_agenda === false
-                                    ? "Mostrar en agenda (todos los músicos)"
-                                    : "Ocultar de agenda (subida/bajada propias siguen visibles para cada músico)"
+                                    ? "Mostrar en agenda (todos los mÃºsicos)"
+                                    : "Ocultar de agenda (subida/bajada propias siguen visibles para cada mÃºsico)"
                                 }
                               >
                                 {evt.visible_agenda === false ? (
@@ -4794,7 +3287,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                         </div>
                         <div className="mt-2 block space-y-1">
                           <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
-                            Locación
+                            LocaciÃ³n
                           </span>
                           <LocationSelectWithCreate
                             supabase={supabase}
@@ -4864,7 +3357,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h4 className="text-sm font-black text-slate-800 uppercase tracking-wide">
-                  Documentación de vehículo
+                  DocumentaciÃ³n de vehÃ­culo
                 </h4>
                 <p className="text-[11px] text-slate-500">
                   {vehicleDocsModal.transportLabel}
@@ -4912,7 +3405,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                     ) : (
                       <img
                         src={vehicleDocsModal.currentUrl}
-                        alt="Documento vehículo"
+                        alt="Documento vehÃ­culo"
                         className="w-full h-full object-contain p-2"
                       />
                     )}
@@ -4957,7 +3450,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                       )}
                       {vehicleDocDragging && (
                         <span className="text-[9px] font-black mt-2 text-indigo-500 uppercase">
-                          Soltar aquí
+                          Soltar aquÃ­
                         </span>
                       )}
                     </div>
@@ -4987,7 +3480,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                 )}
               </div>
               <p className="text-[11px] text-slate-500">
-                Arrastrá un archivo o usá pegar/subir. Formatos recomendados: PDF o imagen.
+                ArrastrÃ¡ un archivo o usÃ¡ pegar/subir. Formatos recomendados: PDF o imagen.
               </p>
             </div>
           </div>
@@ -5000,7 +3493,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h4 className="text-sm font-semibold text-slate-800">
-                  Documentación del chofer
+                  DocumentaciÃ³n del chofer
                 </h4>
                 <p className="text-[11px] text-slate-500">{choferDocsModal.choferLabel}</p>
               </div>
@@ -5089,7 +3582,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           transport={transports.find((t) => t.id === cnrtModal.transportId)}
           events={transportEvents[cnrtModal.transportId] || []}
           onClose={() => setCnrtModal({ isOpen: false, transportId: null })}
-          onExport={(sid, eid, stops) => handleExportCNRT(sid, eid, stops)}
+          onExport={(sid, eid, format) => handleExportCNRT(sid, eid, format)}
         />
       )}
 
@@ -5108,98 +3601,24 @@ export default function GirasTransportesManager({ supabase, gira }) {
         />
       )}
 
-      {combinedStopsModal.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh]">
-            <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                <IconList className="text-emerald-600" /> Paradas Combinadas
-              </h3>
-              <button
-                onClick={() =>
-                  setCombinedStopsModal({ isOpen: false, selectedTransportIds: [] })
-                }
-                className="p-1 hover:bg-slate-200 rounded-full text-slate-400"
-              >
-                <IconX size={18} />
-              </button>
-            </div>
-            <div className="p-4 overflow-y-auto flex-1 space-y-2">
-              <p className="text-xs text-slate-500">
-                Selecciona 2 o mas transportes para exportar una sola lista de paradas.
-              </p>
-              <div className="flex gap-2 pb-1">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setCombinedStopsModal((prev) => ({ ...prev, exportFormat: "pdf" }))
-                  }
-                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
-                    combinedStopsModal.exportFormat === "pdf"
-                      ? "bg-indigo-600 text-white border-indigo-600"
-                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  PDF
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setCombinedStopsModal((prev) => ({ ...prev, exportFormat: "excel" }))
-                  }
-                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
-                    combinedStopsModal.exportFormat === "excel"
-                      ? "bg-indigo-600 text-white border-indigo-600"
-                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  Excel
-                </button>
-              </div>
-              {(transports || []).map((t) => (
-                <label
-                  key={t.id}
-                  className="flex items-center justify-between gap-2 p-2 rounded border border-slate-200 hover:bg-slate-50"
-                >
-                  <span className="text-sm text-slate-700">
-                    {t.transportes?.nombre || "Transporte"}
-                    {t.detalle ? ` - ${t.detalle}` : ""}
-                  </span>
-                  <input
-                    type="checkbox"
-                    className="rounded border-slate-300 text-emerald-600"
-                    checked={combinedStopsModal.selectedTransportIds.includes(t.id)}
-                    onChange={(e) =>
-                      handleToggleCombinedTransport(t.id, e.target.checked)
-                    }
-                  />
-                </label>
-              ))}
-            </div>
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
-              <button
-                onClick={() =>
-                  setCombinedStopsModal({
-                    isOpen: false,
-                    selectedTransportIds: [],
-                    exportFormat: "pdf",
-                  })
-                }
-                className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-200 rounded-lg transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleExportCombinedStops}
-                className="px-5 py-2 text-xs font-bold text-white rounded-lg shadow-lg transition-all flex items-center gap-2 active:scale-95 bg-emerald-600 shadow-emerald-200 hover:bg-emerald-700"
-              >
-                <IconDownload size={14} />
-                Exportar {combinedStopsModal.exportFormat === "pdf" ? "PDF" : "Excel"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CombinedStopsExportModal
+        isOpen={combinedStopsModal.isOpen}
+        transports={transports || []}
+        selectedTransportIds={combinedStopsModal.selectedTransportIds}
+        exportFormat={combinedStopsModal.exportFormat}
+        onClose={() =>
+          setCombinedStopsModal({
+            isOpen: false,
+            selectedTransportIds: [],
+            exportFormat: "pdf",
+          })
+        }
+        onToggleTransport={handleToggleCombinedTransport}
+        onExportFormatChange={(format) =>
+          setCombinedStopsModal((prev) => ({ ...prev, exportFormat: format }))
+        }
+        onExport={handleExportCombinedStops}
+      />
 
       {roadmapModal.isOpen && (
         <CnrtExportModal
@@ -5278,7 +3697,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         />
       )}
 
-      <ShiftScheduleModal
+      <TransportShiftScheduleModal
         isOpen={shiftModal.isOpen}
         transportName={shiftModal.transportName}
         events={(transportEvents[shiftModal.transportId] || []).filter((e) =>
@@ -5300,7 +3719,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           void handleConfirmDeleteTransport();
         }}
         title="Eliminar transporte"
-        message={`¿Estás seguro? Se eliminarán también ${deleteTransportModal.eventCount} evento${deleteTransportModal.eventCount === 1 ? "" : "s"} de traslado asociado${deleteTransportModal.eventCount === 1 ? "" : "s"} a este vehículo.`}
+        message={`Â¿EstÃ¡s seguro? Se eliminarÃ¡n tambiÃ©n ${deleteTransportModal.eventCount} evento${deleteTransportModal.eventCount === 1 ? "" : "s"} de traslado asociado${deleteTransportModal.eventCount === 1 ? "" : "s"} a este vehÃ­culo.`}
         confirmText="Eliminar"
         cancelText="Cancelar"
       />

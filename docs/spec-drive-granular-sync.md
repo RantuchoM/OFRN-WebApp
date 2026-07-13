@@ -11,6 +11,7 @@ Separar la actualización de metadatos del programa (Nomenclador, Mes_Letra) de 
 2. `sync_repertoire_shortcuts`:
    - Gestiona exclusivamente los shortcuts dentro de las subcarpetas de repertorio del programa indicado.
    - Implementa la numeración `01, 02...` y la limpieza de huérfanos (solo dentro del programa indicado).
+   - **Obras con `excluir`**: siguen recibiendo shortcut numerado en Drive de la gira. El flag `excluir` solo las oculta del programa público (difusión, duración neta, informes); no debe impedir el acceso de estudio en la carpeta de la gira.
 
 ## Interfaz de Usuario
 - Se añade un botón de **"Sincronizar Drive"** (icono `RefreshCw`/`IconRefresh`) al lado de **"Importar Repertorio"** en la vista de repertorio del programa.

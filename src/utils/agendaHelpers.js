@@ -27,6 +27,21 @@ export function isLogisticsTransportEvent(item) {
 }
 
 /**
+ * Lista de eventos para exportar a PDF: misma vista filtrada, sin marcadores de programa
+ * ni filas colapsadas ("eventos anteriores de hoy").
+ */
+export function buildAgendaPdfExportItems(
+  filteredItems,
+  { collapsedEarlierTodayIds = new Set() } = {},
+) {
+  return (filteredItems || []).filter((item) => {
+    if (!item || item.isProgramMarker) return false;
+    if (collapsedEarlierTodayIds.has(item.id)) return false;
+    return true;
+  });
+}
+
+/**
  * Flags de transporte en agenda personal (asignación + subida/bajada obligatorias).
  * @param {object} item
  * @param {Record<string, { assigned?: boolean, subidaId?: number|string, bajadaId?: number|string }>} myTransportLogistics

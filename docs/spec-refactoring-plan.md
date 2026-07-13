@@ -20,7 +20,7 @@ Documentar el plan de refactorización del proyecto OFRN-WebApp paso a paso, par
 | 4    | GiraRoster                     | completada | 4.1 useRosterDropdownData; 4.3 RosterTableRow |
 | 5    | MusicianForm                   | completada | 5.1, 5.2 y 5.3 hechos |
 | 6    | Errores y carga                | completada | 6.1 criterio + primera pasada alert→toast |
-| 7    | Otros archivos grandes         | pendiente| -     |
+| 7    | Otros archivos grandes         | en curso | 7.1 exports + 7.2 UI tarjeta transporte |
 
 ---
 
@@ -284,7 +284,7 @@ Documentar el plan de refactorización del proyecto OFRN-WebApp paso a paso, par
 
 **Archivos candidatos (orden sugerido):**
 
-1. `GirasTransportesManager.jsx` (~2400)
+1. `GirasTransportesManager.jsx` (~3525 tras 7.2; ~4337 tras 7.1; antes ~5000)
 2. `EnsembleCoordinatorView.jsx` (~2285)
 3. `RoomingManager.jsx` (~2105)
 4. `RepertoireManager.jsx` (~1924)
@@ -296,6 +296,32 @@ Para cada uno (cuando se aborde):
 - [ ] Identificar: bloque de "fetch/datos", "acciones async", "lista/tabla/tarjeta".
 - [ ] Extraer hooks de datos y/o acciones; extraer filas/tarjetas a componentes.
 - [ ] Anotar en este spec: "Fase 7 – [Nombre del archivo]: hecho (fecha opcional)."
+
+### 7.1 GirasTransportesManager – pipeline de exportación
+
+- [x] Extraer generadores a `src/utils/transportExport.js`: `downloadStyledExcel`, `generateStopsOnlyPdf`, `generateStopsOnlyExcel`, `buildCombinedStopsExportRows`, `exportCombinedStops`, `htmlToPlainText`.
+- [x] Lazy-load de `exceljs`, `jspdf` y `jspdf-autotable` en `transportExport.js` y en `generateRoadmapExcel` / `generateRoadmapPdf` de `roadmapExport.js` (las funciones de datos siguen importándose de forma estática).
+- [x] Dynamic import de `destaquesCuadroFirmasPdf` solo al exportar cuadro de firmas desde transporte.
+- [x] Eliminar import muerto de `xlsx` en `GirasTransportesManager.jsx`.
+
+**Hecho:** `GirasTransportesManager.jsx` pasa de ~4995 a ~4337 líneas (7.1). Los handlers `handleExportGlobal`, `handleExportOnlyStops`, `handleExportCNRT`, `handleExportCombinedStops` y `handleExportRoadmap` delegan en los utils; comportamiento de descarga sin cambios.
+
+**Cómo probar:** En Logística → Transportes de una gira: exportar lista general, CNRT, solo paradas (PDF/Excel), paradas combinadas, hoja de ruta (PDF/Excel), cuadro de firmas (PDF/DOCX).
+
+### 7.2 GirasTransportesManager – componentes de UI de tarjeta
+
+- [x] Extraer utils puros a `src/utils/giraTransportUtils.js` (`CATEGORIAS_TRANSPORTE`, `TRANSPORT_ICON_MAP`, `eventTypeIdForCategoria`, bounds de cronograma, estado doc chofer, etc.).
+- [x] Extraer componentes a `src/components/giras/transport/`:
+  - `TransportShiftScheduleModal`
+  - `TransportVehicleIdentity` (incl. botón doc vehículo)
+  - `ChoferPickerDropdown`
+  - `TransportEditForm`
+  - `TransportCardActions` (menú admisión/abordaje/export/eliminar)
+  - `CombinedStopsExportModal`
+
+**Hecho:** `GirasTransportesManager.jsx` baja a ~3525 líneas. Mismas props y handlers; sin cambio de comportamiento visible.
+
+**Cómo probar:** Editar transporte, elegir chofer (dropdown portal), abrir menú Acciones, mover horarios, paradas combinadas, badge doc chofer/vehículo.
 
 **Criterios de done:** Por archivo: reducción de líneas y responsabilidades más claras; mismo comportamiento.
 

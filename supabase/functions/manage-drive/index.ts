@@ -1113,7 +1113,8 @@ async function syncProgramRepertoireShortcuts(supabase: any, drive: any, prog: a
     for (const [oI, oW] of obrasSorted.entries()) {
       const posNumber = (oI + 1).toString().padStart(2, "0");
       const targetId = extractFileId(oW.obras?.link_drive);
-      if (!targetId || oW.excluir) continue;
+      // `excluir` solo afecta programa/difusión/duración neta; los músicos deben poder estudiar desde Drive.
+      if (!targetId) continue;
       let originalFolderName = oW.obras.titulo;
       try {
         const metaObra = await drive.files.get({ fileId: targetId, fields: "name" });
