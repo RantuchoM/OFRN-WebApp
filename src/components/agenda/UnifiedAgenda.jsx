@@ -75,6 +75,7 @@ import ConnectionBadge from "./ConnectionBadge";
 import DriveSmartButton from "./DriveSmartButton";
 import TourDivider from "./TourDivider";
 import AgendaMealActionModal from "./AgendaMealActionModal";
+import EventTranspositionModal from "./EventTranspositionModal";
 import EventHistoryModal from "../giras/EventHistoryModal";
 import ConfirmModal from "../ui/ConfirmModal";
 import ConfirmDialog from "../ui/ConfirmDialog";
