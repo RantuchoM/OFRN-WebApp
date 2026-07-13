@@ -8,13 +8,13 @@ Permitir que las reglas de logística (transporte, check-in/out, rutas por categ
 
 Un integrante se clasifica como `EXTERNOS` cuando cumple **todas** estas condiciones:
 
-1. Su rol normalizado **no** es `staff`, `produccion`, `director` ni `chofer` (estos se mapean a sus categorías propias antes de evaluar EXTERNOS).
+1. Su rol normalizado **no** es `staff`, `produccion`, `mus_prod`, `director` ni `chofer` (estos se mapean a sus categorías propias antes de evaluar EXTERNOS).
 2. Su `condicion` (tabla `integrantes` o equivalente en el objeto persona) **no** es `estable` (comparación case-insensitive vía `normalize`).
 3. No es local respecto a la gira: `is_local === false` (según sedes / `giras_localidades` y la lógica existente en el roster enriquecido).
 
 ## Orden de evaluación en `getCategoriaLogistica`
 
-1. `SOLISTAS`, `DIRECTORES`, `PRODUCCION`, `STAFF`, `CHOFER` — categorías fijas por rol.
+1. `SOLISTAS`, `DIRECTORES`, `PRODUCCION` (`produccion`, `chofer`, `mus_prod`), `STAFF`, `CHOFER` — categorías fijas por rol.
 2. `EXTERNOS` — si aplica según las reglas anteriores.
 3. `LOCALES` o `NO_LOCALES` — según `is_local` (flag global del roster).
 

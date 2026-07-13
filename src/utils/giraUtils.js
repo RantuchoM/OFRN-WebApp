@@ -446,8 +446,16 @@ export const calculateLogisticsForMusician = (person, rules) => {
 const ROLES_EXCLUIDOS_EXTERNOS = new Set([
   "staff",
   "produccion",
+  "mus_prod",
   "director",
   "chofer",
+]);
+
+/** Roles que mapean a categoría logística `PRODUCCION` (reglas hotelería, comidas, transporte). */
+const ROLES_CATEGORIA_LOGISTICA_PRODUCCION = new Set([
+  "produccion",
+  "chofer",
+  "mus_prod",
 ]);
 
 /**
@@ -462,7 +470,7 @@ export const getCategoriaLogistica = (person) => {
 
   if (rol === "solista") return "SOLISTAS";
   if (rol === "director") return "DIRECTORES";
-  if (rol === "produccion" || rol === "chofer") return "PRODUCCION";
+  if (ROLES_CATEGORIA_LOGISTICA_PRODUCCION.has(rol)) return "PRODUCCION";
   if (rol === "staff") return "STAFF";
 
   const isPlantaEstable = condicion === "estable";
