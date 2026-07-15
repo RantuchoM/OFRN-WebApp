@@ -30,10 +30,12 @@ Permitir a los editores importar cronogramas completos de giras pasadas hacia la
 - **Columna Izquierda (Filtros y Configuración)**  
   - Selector `SearchableSelect` para elegir la **Gira Origen** (programa de `programas` distinto de la gira destino).
   - Input numérico para `deltaDays` (entero, admite positivos y negativos).
-  - Opción `Eliminar todos los eventos similares` (checkbox, activada por defecto):
+  - Opción `Reemplazar todos los eventos similares` (checkbox, activada por defecto):
     - Identifica los tipos de los eventos efectivamente seleccionados para importar.
-    - Previsualiza cuántos eventos existentes en la gira destino se eliminarán por tipo.
-    - Si está activa, el flujo aplica reemplazo (elimina primero, luego importa).
+    - Previsualiza cuántos eventos existentes en la gira destino se reemplazarán por tipo.
+    - Si está activa, busca un evento destino equivalente por `id_tipo_evento` y fecha transpuesta. Cuando hay más de uno el mismo día, elige el de hora de inicio más cercana.
+    - El evento equivalente se actualiza en el lugar, conservando su `id` y, por lo tanto, sus reglas logísticas, asistencias y demás relaciones.
+    - Los eventos importados sin equivalente se crean como filas nuevas. Los eventos destino de tipos reemplazados que queden sin equivalente se mueven a la papelera.
   - Filtros por tipo de evento (checklist basada en `tipos_evento` de los eventos origen).
 - **Columna Derecha (Vista previa)**  
   - Contenedor con scroll que reutiliza la estética de `UnifiedAgenda`:
@@ -60,7 +62,9 @@ Permitir a los editores importar cronogramas completos de giras pasadas hacia la
 
 ### Persistencia y Guardado Masivo
 - La trasposición genera **nuevos registros** en la tabla de eventos (agenda) asociados a la gira destino.
-- Cuando la opción de reemplazo está activa, los eventos existentes de tipos equivalentes en destino se eliminan de forma **física** (hard delete), sin usar soft delete.
+- Cuando la opción de reemplazo está activa, los eventos equivalentes se actualizan sin modificar su clave primaria. Solo los eventos destino sin equivalente se mueven a la papelera (`is_deleted = true`, `deleted_at = now()`).
+- Las actualizaciones copian fecha, horas, técnica, descripción, convocados, tipo, locación y estado de venue. Conservan el transporte de la gira destino; una fila nueva nunca copia `id_gira_transporte` desde la gira origen.
+- Si una actualización o inserción falla, el flujo restaura tanto los eventos actualizados como los que acababa de mover a la papelera antes de informar el error.
 - **Reglas de inserción**:
   - Solo se insertan los eventos cuyo checkbox permanezca seleccionado.
   - Cada evento insertado debe tener:

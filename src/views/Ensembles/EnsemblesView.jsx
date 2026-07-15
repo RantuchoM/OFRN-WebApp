@@ -788,8 +788,7 @@ export default function EnsemblesView({ supabase }) {
                                         return (
                                             <div
                                                 key={musician.membershipId}
-                                                onClick={() => !isToggling && toggleMembership(musician.id)}
-                                                className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg border cursor-pointer transition-all select-none ${isMember ? 'bg-indigo-50 shadow-sm z-10' : 'bg-white'} ${isCoordinator ? 'border-2 border-amber-400' : isMember ? 'border-indigo-200' : 'border-slate-200 hover:border-indigo-300'}`}
+                                                className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg border transition-all select-none ${isMember ? 'bg-indigo-50 shadow-sm z-10' : 'bg-white'} ${isCoordinator ? 'border-2 border-amber-400' : isMember ? 'border-indigo-200' : 'border-slate-200'}`}
                                             >
                                                 <div className="flex items-center gap-3 min-w-0 flex-1">
                                                     <div className={`w-6 h-6 shrink-0 rounded border flex items-center justify-center transition-colors ${isMember ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300'}`}>{isToggling ? (<IconLoader size={14} className={isMember ? "text-white" : "text-indigo-600"}/>) : (isMember && <IconCheck size={14} className="text-white"/>)}</div>

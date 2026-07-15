@@ -37,6 +37,12 @@ function formatIsoDate(iso) {
   }
 }
 
+function timeToMinutes(value) {
+  if (!value) return 0;
+  const [hours = "0", minutes = "0"] = String(value).split(":");
+  return Number(hours) * 60 + Number(minutes);
+}
+
 export default function EventTranspositionModal({
   isOpen,
   onClose,
@@ -390,6 +396,60 @@ export default function EventTranspositionModal({
     [eventsToHardDelete],
   );
 
+  const replacementPlan = useMemo(() => {
+    const matchesByOriginId = new Map();
+    const matchedExistingIds = new Set();
+    if (!removeSimilarEvents) {
+      return {
+        matchesByOriginId,
+        matchedExistingIds,
+        unmatchedExisting: [],
+      };
+    }
+
+    const candidatesByTypeAndDate = new Map();
+    eventsToHardDelete.forEach((evt) => {
+      if (!evt?.fecha || evt.id_tipo_evento == null) return;
+      const key = `${evt.id_tipo_evento}|${evt.fecha}`;
+      const group = candidatesByTypeAndDate.get(key) || [];
+      group.push(evt);
+      candidatesByTypeAndDate.set(key, group);
+    });
+
+    selectedImportEvents.forEach((originEvent) => {
+      const newDate = computeNewDateIso(originEvent);
+      if (!newDate || originEvent.id_tipo_evento == null) return;
+      const key = `${originEvent.id_tipo_evento}|${newDate}`;
+      const available = (candidatesByTypeAndDate.get(key) || []).filter(
+        (candidate) => !matchedExistingIds.has(candidate.id),
+      );
+      if (available.length === 0) return;
+
+      const originMinutes = timeToMinutes(originEvent.hora_inicio);
+      available.sort(
+        (a, b) =>
+          Math.abs(timeToMinutes(a.hora_inicio) - originMinutes) -
+          Math.abs(timeToMinutes(b.hora_inicio) - originMinutes),
+      );
+      const match = available[0];
+      matchesByOriginId.set(originEvent.id, match);
+      matchedExistingIds.add(match.id);
+    });
+
+    return {
+      matchesByOriginId,
+      matchedExistingIds,
+      unmatchedExisting: eventsToHardDelete.filter(
+        (evt) => !matchedExistingIds.has(evt.id),
+      ),
+    };
+  }, [
+    removeSimilarEvents,
+    eventsToHardDelete,
+    selectedImportEvents,
+    deltaDays,
+  ]);
+
   const mixedTimeline = useMemo(() => {
     const existing = (currentEvents || [])
       .filter((e) => e && e.fecha && !e.isProgramMarker)
@@ -397,7 +457,10 @@ export default function EventTranspositionModal({
         kind: "existing",
         id: `existing-${e.id}`,
         baseId: e.id,
-        willBeRemoved: eventsToHardDeleteIdSet.has(e.id),
+        willBeUpdated: replacementPlan.matchedExistingIds.has(e.id),
+        willBeRemoved:
+          eventsToHardDeleteIdSet.has(e.id) &&
+          !replacementPlan.matchedExistingIds.has(e.id),
         date: e.fecha,
         timeStart: e.hora_inicio || "00:00:00",
         timeEnd: e.hora_fin || null,
@@ -428,6 +491,7 @@ export default function EventTranspositionModal({
         tipo: e.tipos_evento?.nombre || null,
         color: e.tipos_evento?.color || "#6366f1",
         checked: selectedEventIds.has(e.id),
+        updatesExisting: replacementPlan.matchesByOriginId.has(e.id),
       };
     });
 
@@ -458,6 +522,7 @@ export default function EventTranspositionModal({
     deltaDays,
     originProgram,
     eventsToHardDeleteIdSet,
+    replacementPlan,
   ]);
 
   const existingKeys = useMemo(() => {
@@ -510,35 +575,64 @@ export default function EventTranspositionModal({
     }
 
     const destinationId = giraDestino?.id || giraId;
-    const payload = [];
+    const insertPayload = [];
+    const updateOperations = [];
+    const eventValues = (evt, fecha) => ({
+      fecha,
+      hora_inicio: evt.hora_inicio ?? null,
+      hora_fin: evt.hora_fin ?? null,
+      tecnica: evt.tecnica ?? false,
+      descripcion: evt.descripcion ?? null,
+      convocados: evt.convocados ?? [],
+      id_tipo_evento: evt.id_tipo_evento ?? null,
+      id_locacion: evt.id_locacion ?? null,
+      id_estado_venue: evt.id_estado_venue ?? null,
+    });
+
     selectedImportEvents.forEach((evt) => {
       const newIso = computeNewDateIso(evt);
       if (!newIso) return;
-      payload.push({
-        fecha: newIso,
-        hora_inicio: evt.hora_inicio,
-        hora_fin: evt.hora_fin,
-        tecnica: evt.tecnica,
-        descripcion: evt.descripcion,
-        convocados: evt.convocados,
-        id_tipo_evento: evt.id_tipo_evento,
-        id_locacion: evt.id_locacion,
-        id_gira: destinationId,
-        id_gira_transporte: evt.id_gira_transporte,
-        id_estado_venue: evt.id_estado_venue,
-      });
+      const matchedExisting = replacementPlan.matchesByOriginId.get(evt.id);
+      if (matchedExisting) {
+        updateOperations.push({
+          id: matchedExisting.id,
+          patch: eventValues(evt, newIso),
+          original: eventValues(matchedExisting, matchedExisting.fecha),
+        });
+      } else {
+        insertPayload.push({
+          ...eventValues(evt, newIso),
+          id_gira: destinationId,
+          // Un transporte de la gira origen nunca debe vincularse a la destino.
+          id_gira_transporte: null,
+        });
+      }
     });
 
-    if (payload.length === 0) {
+    if (insertPayload.length === 0 && updateOperations.length === 0) {
       toast.error("No hay eventos válidos para importar con el delta actual.");
       return;
     }
 
+    const replacedIds = [];
+    const completedUpdates = [];
+    let importCompleted = false;
     try {
       setSaving(true);
-      let deletedCount = 0;
-      if (removeSimilarEvents && eventsToHardDelete.length > 0) {
-        const idsToDelete = eventsToHardDelete
+      for (const operation of updateOperations) {
+        const { error: updateError } = await supabase
+          .from("eventos")
+          .update(operation.patch)
+          .eq("id", operation.id);
+        if (updateError) throw updateError;
+        completedUpdates.push(operation);
+      }
+
+      if (
+        removeSimilarEvents &&
+        replacementPlan.unmatchedExisting.length > 0
+      ) {
+        const idsToDelete = replacementPlan.unmatchedExisting
           .map((evt) => evt.id)
           .filter((id) => id != null);
         const chunkSize = 250;
@@ -546,28 +640,70 @@ export default function EventTranspositionModal({
           const chunk = idsToDelete.slice(i, i + chunkSize);
           const { error: deleteError } = await supabase
             .from("eventos")
-            .delete()
+            .update({
+              is_deleted: true,
+              deleted_at: new Date().toISOString(),
+            })
             .in("id", chunk);
           if (deleteError) throw deleteError;
-          deletedCount += chunk.length;
+          replacedIds.push(...chunk);
         }
       }
-      const { error } = await supabase.from("eventos").insert(payload);
-      if (error) throw error;
-      if (deletedCount > 0) {
-        toast.success(
-          `Se eliminaron ${deletedCount} evento(s) existente(s) y se importaron ${payload.length} evento(s).`,
-        );
-      } else {
-        toast.success(`Se importaron ${payload.length} evento(s) correctamente.`);
+
+      if (insertPayload.length > 0) {
+        const { error } = await supabase.from("eventos").insert(insertPayload);
+        if (error) throw error;
       }
+      importCompleted = true;
+      const resultParts = [];
+      if (updateOperations.length > 0) {
+        resultParts.push(`${updateOperations.length} actualizado(s)`);
+      }
+      if (insertPayload.length > 0) {
+        resultParts.push(`${insertPayload.length} creado(s)`);
+      }
+      if (replacedIds.length > 0) {
+        resultParts.push(`${replacedIds.length} movido(s) a la papelera`);
+      }
+      toast.success(`Eventos procesados: ${resultParts.join(", ")}.`);
       if (onImported) {
         await onImported();
       }
       onClose();
     } catch (err) {
+      // El reemplazo usa papelera para conservar referencias de logística,
+      // asistencia y difusión. Si falla antes del alta, restauramos lo reemplazado.
+      if (!importCompleted && replacedIds.length > 0) {
+        for (let i = 0; i < replacedIds.length; i += 250) {
+          const chunk = replacedIds.slice(i, i + 250);
+          const { error: restoreError } = await supabase
+            .from("eventos")
+            .update({ is_deleted: false, deleted_at: null })
+            .in("id", chunk);
+          if (restoreError) {
+            console.error(
+              "[EventTranspositionModal] Error restaurando eventos tras un insert fallido:",
+              restoreError,
+            );
+          }
+        }
+      }
+      if (!importCompleted && completedUpdates.length > 0) {
+        for (const operation of completedUpdates.reverse()) {
+          const { error: rollbackError } = await supabase
+            .from("eventos")
+            .update(operation.original)
+            .eq("id", operation.id);
+          if (rollbackError) {
+            console.error(
+              "[EventTranspositionModal] Error revirtiendo un evento actualizado:",
+              rollbackError,
+            );
+          }
+        }
+      }
       console.error("[EventTranspositionModal] Error importando eventos:", err);
-      toast.error("No se pudieron importar los eventos.");
+      toast.error(`No se pudieron importar los eventos: ${err?.message || "error desconocido"}`);
     } finally {
       setSaving(false);
     }
@@ -576,7 +712,7 @@ export default function EventTranspositionModal({
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col border border-slate-200 overflow-hidden">
         {/* Header */}
         <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3 bg-slate-50">
@@ -691,23 +827,32 @@ export default function EventTranspositionModal({
                 />
                 <span className="text-[11px] text-slate-700">
                   <span className="font-semibold">
-                    Eliminar todos los eventos similares
+                    Reemplazar todos los eventos similares
                   </span>
                   <span className="block text-slate-500">
-                    Borra definitivamente los eventos actuales de la gira destino
-                    que tengan los mismos tipos que los eventos seleccionados para
+                    Mueve a la papelera los eventos actuales de la gira destino que
+                    tengan los mismos tipos que los eventos seleccionados para
                     importar.
                   </span>
                 </span>
               </label>
               <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
                 <p className="text-[11px] text-slate-600">
-                  Se eliminarán:{" "}
+                  Se actualizarán conservando sus vínculos:{" "}
                   <span className="font-semibold text-slate-800">
-                    {removeSimilarEvents ? eventsToHardDelete.length : 0}
+                    {removeSimilarEvents
+                      ? replacementPlan.matchedExistingIds.size
+                      : 0}
                   </span>{" "}
                   evento(s).
                 </p>
+                {removeSimilarEvents &&
+                  replacementPlan.unmatchedExisting.length > 0 && (
+                    <p className="mt-1 text-[10px] text-amber-700">
+                      Sin equivalente: {replacementPlan.unmatchedExisting.length}{" "}
+                      evento(s) se moverán a la papelera.
+                    </p>
+                  )}
                 {removeSimilarEvents && eventsToHardDeleteByType.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1">
                     {eventsToHardDeleteByType.map((row) => (
@@ -722,7 +867,7 @@ export default function EventTranspositionModal({
                 )}
                 {removeSimilarEvents && eventsToHardDelete.length === 0 && (
                   <p className="mt-1 text-[10px] text-slate-500 italic">
-                    No hay eventos existentes para eliminar con los tipos
+                    No hay eventos existentes para reemplazar con los tipos
                     actualmente seleccionados.
                   </p>
                 )}
@@ -842,8 +987,8 @@ export default function EventTranspositionModal({
                   Solo se importarán los eventos marcados. Los eventos actuales
                   de la gira destino se muestran a la derecha como referencia.
                   {removeSimilarEvents
-                    ? " Los que tengan tipos similares se eliminarán por reemplazo."
-                    : " No se eliminará ningún evento existente."}
+                    ? " Los equivalentes se actualizarán sin cambiar su ID ni sus vínculos."
+                    : " No se reemplazará ningún evento existente."}
                 </span>
               </p>
             </div>
@@ -935,7 +1080,12 @@ export default function EventTranspositionModal({
                                 </span>
                                 {isExisting && row.willBeRemoved && (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-rose-100 text-rose-700">
-                                    Se elimina
+                                    A papelera
+                                  </span>
+                                )}
+                                {isExisting && row.willBeUpdated && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-sky-100 text-sky-700">
+                                    Se actualiza
                                   </span>
                                 )}
                                 {row.tipo && !row.willBeRemoved && (
@@ -966,13 +1116,20 @@ export default function EventTranspositionModal({
                                       Posible solapamiento
                                     </span>
                                   )}
+                                  {row.updatesExisting && (
+                                    <span className="px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 font-semibold">
+                                      Conserva ID y vínculos
+                                    </span>
+                                  )}
                                 </div>
                               )}
                               {isExisting && (
                                 <p className="mt-0.5 text-[10px] text-slate-500 italic">
                                   {row.willBeRemoved
-                                    ? "Evento existente que será eliminado al importar."
-                                    : "Evento existente en la gira destino (solo lectura)."}
+                                    ? "Evento sin equivalente que se moverá a la papelera."
+                                    : row.willBeUpdated
+                                      ? "Evento existente que conservará su ID y reglas logísticas."
+                                      : "Evento existente en la gira destino (solo lectura)."}
                                 </p>
                               )}
                             </div>
@@ -993,8 +1150,8 @@ export default function EventTranspositionModal({
             <IconAlertTriangle size={14} className="text-amber-500" />
             <span>
               {removeSimilarEvents
-                ? `Se eliminarán definitivamente ${eventsToHardDelete.length} evento(s) existentes con tipos similares y luego se crearán los nuevos.`
-                : "Los eventos se crearán como nuevas filas en la agenda de la gira destino, sin eliminar los existentes."}
+                ? `${replacementPlan.matchedExistingIds.size} evento(s) conservarán su ID; ${selectedImportEvents.length - replacementPlan.matchesByOriginId.size} se crearán y ${replacementPlan.unmatchedExisting.length} quedarán en papelera.`
+                : "Los eventos se crearán como nuevas filas en la agenda de la gira destino, sin reemplazar los existentes."}
             </span>
           </div>
           <div className="flex items-center justify-end gap-2">

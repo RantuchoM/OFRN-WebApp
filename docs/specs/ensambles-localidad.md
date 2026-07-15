@@ -14,3 +14,4 @@ Asociar cada ensamble a una localidad (tabla `localidades`) como sede/base del g
 
 - [x] **Ensambles** (`EnsemblesView.jsx`): selector de localidad al editar cabecera del ensamble; lectura en panel y listado lateral.
 - [x] **Datos** (`DataView.jsx` → `UniversalTable`): columna `id_localidad` editable en pestaña Ensambles.
+- [x] En el listado de integrantes vigentes, la tarjeta es informativa: la baja solo se carga desde el control **Cargar baja** o editando su fecha, nunca al hacer clic en el resto de la tarjeta.
