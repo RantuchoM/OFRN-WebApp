@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconChevronDown, IconChevronUp, IconMap, IconX } from "../../../components/ui/Icons";
 import {
@@ -136,6 +136,7 @@ export default function DestaquesRecorridosModal({
   const [recorrido2, setRecorrido2] = useState([]);
   const [useSecond, setUseSecond] = useState(false);
   const [personalizados, setPersonalizados] = useState({});
+  const wasOpenRef = useRef(false);
 
   const localitiesById = useMemo(() => {
     const m = {};
@@ -155,7 +156,10 @@ export default function DestaquesRecorridosModal({
   }, [localities]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    const isOpening = isOpen && !wasOpenRef.current;
+    wasOpenRef.current = isOpen;
+    if (!isOpening) return;
+
     const parsed = parseLugarComisionStored(storedValue);
     if (parsed.tipo === "recorridos" && parsed.recorridos.length > 0) {
       setRecorrido1(parsed.recorridos[0] || []);

@@ -38,6 +38,7 @@ Permitir que el usuario defina un "Lugar de Comisión" específico para el proce
 - [x] Un caso particular vacío conserva el cálculo normal; los recorridos guardados anteriormente siguen siendo compatibles.
 - [x] La configuración se guarda en el mismo JSON de recorridos mediante `personalizados`, usando el ID numérico de localidad como clave.
 - [x] El modal se renderiza mediante React Portal en `document.body` con `z-[100]`.
+- [x] El estado editable se inicializa únicamente al abrir el modal; renders o cambios de referencia en la lista de localidades no descartan recorridos ni casos particulares aún sin guardar.
 
 ### Cuadro de Firmas
 
