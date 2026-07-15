@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { IconChevronDown, IconChevronUp, IconMap, IconX } from "../../../components/ui/Icons";
 import {
   formatRecorridosSummary,
@@ -134,6 +135,7 @@ export default function DestaquesRecorridosModal({
   const [recorrido1, setRecorrido1] = useState([]);
   const [recorrido2, setRecorrido2] = useState([]);
   const [useSecond, setUseSecond] = useState(false);
+  const [personalizados, setPersonalizados] = useState({});
 
   const localitiesById = useMemo(() => {
     const m = {};
@@ -159,11 +161,13 @@ export default function DestaquesRecorridosModal({
       setRecorrido1(parsed.recorridos[0] || []);
       setRecorrido2(parsed.recorridos[1] || []);
       setUseSecond(parsed.recorridos.length > 1);
+      setPersonalizados(parsed.personalizados || {});
     } else {
       const allIds = localities.map((l) => l.id);
       setRecorrido1(allIds);
       setRecorrido2([]);
       setUseSecond(false);
+      setPersonalizados({});
     }
   }, [isOpen, storedValue, localities]);
 
@@ -195,14 +199,23 @@ export default function DestaquesRecorridosModal({
   }, [recorrido1, recorrido2, useSecond]);
 
   const previewRows = useMemo(() => {
-    const serialized = serializeRecorridos(previewParsed.recorridos);
+    const serialized = serializeRecorridos(previewParsed.recorridos, personalizados);
     return localities.map((loc) => ({
       ...loc,
       lugar: resolveLugarComisionDestaque(serialized, loc.id, nameById) || "—",
+      personalizado: personalizados[String(loc.id)] || "",
       enR1: recorrido1.includes(loc.id),
       enR2: useSecond && recorrido2.includes(loc.id),
     }));
-  }, [previewParsed, localities, nameById, recorrido1, recorrido2, useSecond]);
+  }, [
+    previewParsed,
+    localities,
+    nameById,
+    recorrido1,
+    recorrido2,
+    useSecond,
+    personalizados,
+  ]);
 
   const summary = formatRecorridosSummary(previewParsed, nameById);
 
@@ -235,14 +248,15 @@ export default function DestaquesRecorridosModal({
       alert("Agregá al menos una localidad a un recorrido.");
       return;
     }
-    onSave(serializeRecorridos(recs));
+    onSave(serializeRecorridos(recs, personalizados));
     onClose();
   };
 
   if (!isOpen) return null;
+  if (typeof document === "undefined") return null;
 
-  return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4">
       <div
         className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-slate-200"
         role="dialog"
@@ -327,12 +341,17 @@ export default function DestaquesRecorridosModal({
                 <h4 className="text-xs font-bold text-slate-600 uppercase mb-2">
                   Vista previa — Lugar de comisión por localidad
                 </h4>
+                <p className="mb-2 text-[11px] text-slate-500">
+                  Escribí un caso particular para reemplazar el cálculo automático solo
+                  en esa localidad.
+                </p>
                 <div className="border border-slate-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-slate-100 sticky top-0">
                       <tr>
                         <th className="text-left px-2 py-1.5 font-bold">Localidad</th>
                         <th className="text-left px-2 py-1.5 font-bold">En</th>
+                        <th className="text-left px-2 py-1.5 font-bold">Caso particular</th>
                         <th className="text-left px-2 py-1.5 font-bold">Lugar comisión (PDF)</th>
                       </tr>
                     </thead>
@@ -342,6 +361,22 @@ export default function DestaquesRecorridosModal({
                           <td className="px-2 py-1 font-medium text-slate-800">{row.name}</td>
                           <td className="px-2 py-1 text-slate-500 whitespace-nowrap">
                             {[row.enR1 && "R1", row.enR2 && "R2"].filter(Boolean).join(", ") || "—"}
+                          </td>
+                          <td className="px-2 py-1">
+                            <input
+                              type="text"
+                              value={row.personalizado}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setPersonalizados((prev) => ({
+                                  ...prev,
+                                  [String(row.id)]: value,
+                                }));
+                              }}
+                              placeholder="Automático"
+                              className="w-full min-w-[130px] rounded border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200"
+                              aria-label={`Lugar de comisión particular para ${row.name}`}
+                            />
                           </td>
                           <td className="px-2 py-1 text-slate-600">{row.lugar}</td>
                         </tr>
@@ -388,6 +423,7 @@ export default function DestaquesRecorridosModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

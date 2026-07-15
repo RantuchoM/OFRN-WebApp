@@ -1,8 +1,14 @@
 /**
  * Lugar de comisión para destaques: texto plano o JSON de recorridos.
- * JSON: { "v": 1, "tipo": "recorridos", "recorridos": [{ "ids": [1,2,3] }, ...] }
+ * JSON: {
+ *   "v": 2,
+ *   "tipo": "recorridos",
+ *   "recorridos": [{ "ids": [1,2,3] }, ...],
+ *   "personalizados": { "3": "Lugar particular para la localidad 3" }
+ * }
  * Cada integrante ve las localidades posteriores a su punto de corte en el recorrido
  * (referencia: id localidad de viáticos, fallback residencia).
+ * Los valores personalizados por localidad tienen prioridad sobre el recorrido.
  */
 
 export function parseLugarComisionStored(raw) {
@@ -19,7 +25,19 @@ export function parseLugarComisionStored(raw) {
           return (ids || []).map((id) => Number(id)).filter((id) => !Number.isNaN(id));
         })
         .filter((ids) => ids.length > 0);
-      return { tipo: "recorridos", recorridos, v: j.v ?? 1 };
+      const personalizados = {};
+      if (j.personalizados && typeof j.personalizados === "object") {
+        Object.entries(j.personalizados).forEach(([id, value]) => {
+          const text = String(value ?? "").trim();
+          if (text) personalizados[String(id)] = text;
+        });
+      }
+      return {
+        tipo: "recorridos",
+        recorridos,
+        personalizados,
+        v: j.v ?? 1,
+      };
     }
   } catch {
     /* texto que parecía JSON inválido → plano */
@@ -27,11 +45,21 @@ export function parseLugarComisionStored(raw) {
   return { tipo: "plano", texto: t };
 }
 
-export function serializeRecorridos(recorridosIds) {
+export function serializeRecorridos(recorridosIds, personalizadosPorLocalidad = {}) {
   const recorridos = (recorridosIds || [])
     .filter((ids) => Array.isArray(ids) && ids.length > 0)
     .map((ids) => ({ ids: ids.map((id) => Number(id)) }));
-  return JSON.stringify({ v: 1, tipo: "recorridos", recorridos });
+  const personalizados = {};
+  Object.entries(personalizadosPorLocalidad || {}).forEach(([id, value]) => {
+    const text = String(value ?? "").trim();
+    if (text) personalizados[String(id)] = text;
+  });
+  return JSON.stringify({
+    v: 2,
+    tipo: "recorridos",
+    recorridos,
+    ...(Object.keys(personalizados).length > 0 ? { personalizados } : {}),
+  });
 }
 
 export function isRecorridosConfig(raw) {
@@ -160,6 +188,16 @@ export function resolveLugarComisionDestaque(
 ) {
   const parsed = parseLugarComisionStored(storedValue);
   if (parsed.tipo === "recorridos") {
+    const personalizado =
+      referenciaLocalidadId == null
+        ? ""
+        : String(
+            parsed.personalizados?.[referenciaLocalidadId] ??
+              parsed.personalizados?.[String(referenciaLocalidadId)] ??
+              "",
+          ).trim();
+    if (personalizado) return personalizado;
+
     const fromRoute = lugarComisionFromRecorridos(
       parsed,
       referenciaLocalidadId,
@@ -175,7 +213,9 @@ export function resolveLugarComisionDestaque(
 /** Vista previa por localidad del panel */
 export function buildRecorridosPreview(parsed, localities, nameById = {}) {
   const serialized =
-    parsed.tipo === "recorridos" ? serializeRecorridos(parsed.recorridos) : "";
+    parsed.tipo === "recorridos"
+      ? serializeRecorridos(parsed.recorridos, parsed.personalizados)
+      : "";
   return (localities || []).map((loc) => {
     const fromRoute = resolveLugarComisionDestaque(serialized, loc.id, nameById);
     const fromRouteText = fromRoute != null ? String(fromRoute).trim() : "";

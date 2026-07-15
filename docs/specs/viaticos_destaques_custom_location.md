@@ -32,6 +32,13 @@ Permitir que el usuario defina un "Lugar de Comisión" específico para el proce
 - [x] El checkbox **Todas las localidades**: 1.er clic selecciona solo localidades **no sede**; 2.º clic agrega las sedes locales; 3.er clic deselecciona todo.
 - [x] Badge visual **Sede local** en grupos correspondientes.
 
+### Recorridos y casos particulares
+
+- [x] El modal permite definir un **lugar de comisión particular por localidad**, con prioridad sobre el cálculo automático del recorrido.
+- [x] Un caso particular vacío conserva el cálculo normal; los recorridos guardados anteriormente siguen siendo compatibles.
+- [x] La configuración se guarda en el mismo JSON de recorridos mediante `personalizados`, usando el ID numérico de localidad como clave.
+- [x] El modal se renderiza mediante React Portal en `document.body` con `z-[100]`.
+
 ### Cuadro de Firmas
 
 - [x] La grilla PDF limita la altura vertical de cada celda/firma a un máximo de **1/6 de hoja A4** cuando hay pocas firmas, evitando que una fila única ocupe toda la página.
