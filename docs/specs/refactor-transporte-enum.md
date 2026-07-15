@@ -18,6 +18,7 @@ Cualquier evento en la agenda cuyo `id_tipo_evento` sea **35** debe considerarse
 
 - Constante `CATEGORIAS_TRANSPORTE` en `src/utils/giraTransportUtils.js`: mapea categoría → `id_tipo_evento` (11, 12, 35). Consumida por `GirasTransportesManager.jsx`.
 - `UnifiedAgenda.jsx`: `isMyTransport` incluye `id_tipo_evento === 35`; eventos tipo 35 no se atenúan (shouldDim) y pasan el filtro "Solo mi transporte".
+- `UnifiedAgenda.jsx`: las paradas asignadas respetan el filtro de categoría. Si Transporte/Logística está desmarcado, solo se muestran cuando el usuario activa explícitamente `Solo mi transporte`; con ambas opciones desmarcadas permanecen ocultas.
 - `useLogistics.js` (`calculateLogisticsSummary`): transportes con `categoria_logistica === 'INTERNO'` se añaden al resumen de transporte de cada integrante no ausente, para que la agenda pueda resolver `myTransportLogistics` de forma coherente.
 - `giraService.js`: `getTransportesByGira` incluye `categoria_logistica` en el select.
 - `useAgendaData.js`: la query de `giras_transportes` incluye `categoria_logistica` para que el cálculo de logística en agenda tenga el dato.

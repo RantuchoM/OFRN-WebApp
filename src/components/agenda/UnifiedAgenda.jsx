@@ -916,10 +916,12 @@ export default function UnifiedAgenda({
           return false;
       }
 
-      // Filtro por categorías: mostrar todas las paradas de mi vehículo aunque Logística no esté seleccionada
+      // Las paradas propias solo pueden saltar el filtro de categoría cuando
+      // el usuario activó explícitamente "Solo mi transporte".
       if (selectedCategoryIds.length > 0) {
         if (catId && !selectedCategoryIds.includes(catId)) {
-          if (!isMyAssignedTransportParada) return false;
+          if (!(showOnlyMyTransport && isMyAssignedTransportParada))
+            return false;
         }
       }
 
