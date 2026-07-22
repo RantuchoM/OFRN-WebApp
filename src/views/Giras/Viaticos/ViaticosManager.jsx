@@ -71,6 +71,7 @@ import {
   resolveLugarViaticosIndividual,
   resolveMotivoViaticosIndividual,
 } from "../../../utils/viaticosExportMotivoLugar";
+import { VIATICOS_ROOT_FOLDER_URL } from "../../../utils/driveFolders";
 
 const uint8ArrayToBase64 = (uint8Array) => {
   let binary = "";
@@ -2046,6 +2047,15 @@ const collectTransportSupportDocs = (personData) => {
                     )}
                   </button>
 
+                  <a
+                    href={VIATICOS_ROOT_FOLDER_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-center gap-2 text-xs font-bold"
+                    title="Abrir carpeta general de Viáticos en Drive"
+                  >
+                    <IconDrive size={18} /> General
+                  </a>
                   {config.link_drive ? (
                     <button
                       onClick={() =>
@@ -2320,6 +2330,15 @@ const collectTransportSupportDocs = (personData) => {
               className="flex items-center gap-2 flex-wrap"
               onClick={(e) => e.stopPropagation()}
             >
+              <a
+                href={VIATICOS_ROOT_FOLDER_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 shrink-0"
+                title="Abrir carpeta general de Viáticos en Drive"
+              >
+                <IconDrive size={14} /> Carpeta general
+              </a>
               {config?.link_drive ? (
                 <a
                   href={`https://drive.google.com/drive/folders/${config.link_drive}`}
@@ -2327,7 +2346,7 @@ const collectTransportSupportDocs = (personData) => {
                   rel="noreferrer"
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-100 shrink-0"
                 >
-                  <IconDrive size={14} /> Carpeta Viáticos
+                  <IconDrive size={14} /> Carpeta gira
                 </a>
               ) : null}
               <button

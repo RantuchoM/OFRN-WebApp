@@ -34,6 +34,7 @@ Cualquier evento en la agenda cuyo `id_tipo_evento` sea **35** debe considerarse
 - [x] La barra de acciones, filtros y formulario de alta de transporte se adaptan a mobile con controles apilados o de ancho completo.
 - [x] Al abrir un transporte en mobile, las paradas se renderizan como cards: fecha, hora, locación y detalle quedan apilados; las reglas de subida/bajada quedan en una columna lateral.
 - [x] En desktop se mantiene la tabla original de paradas para preservar densidad de edición.
+- [x] El menú **Acciones** de cada tarjeta se renderiza con React Portal en `document.body` (`z-[100]`, posición `fixed`) para no quedar recortado por el `overflow` de la tarjeta ni tapado por la siguiente.
 
 ## Migración SQL
 

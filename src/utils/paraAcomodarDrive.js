@@ -1,9 +1,9 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
 
-/** Carpeta Drive «Para acomodar» (staging antes de archivo oficial). */
-export const PARA_ACOMODAR_DRIVE_FOLDER_ID = "10ap1aEjq3X9bFRB3z4DQ-F0fB7y3JutI";
-
-export const ARCHIVO_OBRAS_DRIVE_FOLDER_ID = "10JQJW7YX7UNmWciqgJ-EiqaldM_e0Tvi";
+export {
+  PARA_ACOMODAR_DRIVE_FOLDER_ID,
+  ARCHIVO_OBRAS_DRIVE_FOLDER_ID,
+} from "./driveFolders";
 
 export async function readManageDriveResponseBody(fnError, fnData) {
   if (fnData && (fnData.code || fnData.error || fnData.success)) return fnData;

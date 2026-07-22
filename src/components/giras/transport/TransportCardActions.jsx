@@ -1,6 +1,6 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { useClickOutside } from "../../../hooks/useClickOutside";
 import {
   IconTrash,
   IconMapPin,
@@ -15,6 +15,9 @@ import {
   IconUpload,
   IconMoreVertical,
 } from "../../ui/Icons";
+
+const MENU_MIN_WIDTH = 210;
+const MENU_ESTIMATED_HEIGHT = 360;
 
 export default function TransportCardActions({
   incompleteCount,
@@ -36,9 +39,10 @@ export default function TransportCardActions({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [awaitingNoteFile, setAwaitingNoteFile] = useState(false);
+  const [menuStyle, setMenuStyle] = useState(null);
   const menuRef = useRef(null);
+  const triggerRef = useRef(null);
   const fileInputRef = useRef(null);
-  useClickOutside(menuRef, () => setMenuOpen(false));
 
   const infoBtnClass =
     "flex items-center justify-center gap-1 px-1.5 py-1 sm:px-2.5 sm:py-1.5 rounded-lg text-[10px] font-bold transition-colors whitespace-nowrap";
@@ -110,6 +114,68 @@ export default function TransportCardActions({
     onExportFirmasDocxMerge?.(file);
   };
 
+  useLayoutEffect(() => {
+    if (!menuOpen || !triggerRef.current) {
+      setMenuStyle(null);
+      return;
+    }
+
+    const updatePosition = () => {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const width = Math.max(rect.width, MENU_MIN_WIDTH);
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const dropUp =
+        spaceBelow < MENU_ESTIMATED_HEIGHT && rect.top > MENU_ESTIMATED_HEIGHT;
+      const left = Math.min(
+        Math.max(8, rect.right - width),
+        window.innerWidth - width - 8,
+      );
+
+      setMenuStyle({
+        position: "fixed",
+        left,
+        width,
+        zIndex: 100,
+        ...(dropUp
+          ? {
+              top: "auto",
+              bottom: window.innerHeight - rect.top + 4,
+            }
+          : {
+              top: rect.bottom + 4,
+              bottom: "auto",
+            }),
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    const onPointerDown = (e) => {
+      const target = e.target;
+      if (triggerRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousedown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [menuOpen]);
+
   return (
     <div
       className="flex flex-wrap items-center justify-end gap-1 sm:gap-1.5 shrink-0 w-full md:w-auto max-w-full"
@@ -149,8 +215,9 @@ export default function TransportCardActions({
         </div>
       </div>
 
-      <div className="relative" ref={menuRef}>
+      <div className="relative">
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => setMenuOpen((v) => !v)}
           className={`flex items-center gap-1 px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-xl border text-[10px] font-bold transition-colors ${
@@ -170,46 +237,54 @@ export default function TransportCardActions({
           <span className="hidden sm:inline">Acciones</span>
         </button>
 
-        {menuOpen && (
-          <div
-            className="absolute right-0 top-[calc(100%+4px)] z-[140] min-w-[210px] rounded-xl border border-slate-200 bg-white shadow-2xl py-1 overflow-hidden"
-            role="menu"
-          >
-            {menuItems.map((item) => {
-              const ItemIcon = item.icon;
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  role="menuitem"
-                  disabled={item.disabled}
-                  onClick={() => handleMenuAction(item)}
-                  className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors ${
-                    item.disabled
-                      ? "text-slate-300 cursor-not-allowed"
-                      : "text-slate-700 hover:bg-slate-50"
-                  }`}
-                >
-                  <ItemIcon size={14} className="text-slate-400 shrink-0" />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-            <div className="my-1 border-t border-slate-100" />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                onDelete?.();
-              }}
-              className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 text-rose-600 hover:bg-rose-50 transition-colors"
+        {menuOpen &&
+          menuStyle &&
+          typeof document !== "undefined" &&
+          createPortal(
+            <div
+              ref={menuRef}
+              className="rounded-xl border border-slate-200 bg-white shadow-2xl py-1 overflow-hidden"
+              style={menuStyle}
+              role="menu"
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
             >
-              <IconTrash size={14} className="shrink-0" />
-              <span>Eliminar transporte</span>
-            </button>
-          </div>
-        )}
+              {menuItems.map((item) => {
+                const ItemIcon = item.icon;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    role="menuitem"
+                    disabled={item.disabled}
+                    onClick={() => handleMenuAction(item)}
+                    className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors ${
+                      item.disabled
+                        ? "text-slate-300 cursor-not-allowed"
+                        : "text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <ItemIcon size={14} className="text-slate-400 shrink-0" />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+              <div className="my-1 border-t border-slate-100" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDelete?.();
+                }}
+                className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 text-rose-600 hover:bg-rose-50 transition-colors"
+              >
+                <IconTrash size={14} className="shrink-0" />
+                <span>Eliminar transporte</span>
+              </button>
+            </div>,
+            document.body,
+          )}
 
         <input
           ref={fileInputRef}

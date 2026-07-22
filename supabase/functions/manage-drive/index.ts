@@ -14,6 +14,7 @@ const OBRAS_REAL_STORAGE_ID = "1p2mIZhko_BGDKwxJUwzhb9pl8JXChFvO";
 const ROOT_FOLDER_ID = "1vlIkMhbc61ZPHRuXwbwVYi2E42rGok9z";
 const PARTICELLA_SETS_ROOT_ID = "1BK8yhY1dvAZRrDwEDXg3VR3QlnmdOH4u";
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+/** Carpeta general de Viáticos en Drive (padre de las carpetas por gira). Espejo en `src/utils/driveFolders.js` (VIATICOS_ROOT_FOLDER_ID). */
 const GIRAS_ROOT_ID = "1PRWEbGKUBxfhF9HIf2DgpOWKDRwslsCc";
 const ARCHIVO_OBRAS_FOLDER_ID = "10JQJW7YX7UNmWciqgJ-EiqaldM_e0Tvi";
 /** Carpeta «Misceláneos» del Archivo (selecciones ad-hoc del catálogo). */
@@ -2075,14 +2076,14 @@ serve(async (req) => {
         throw new Error("No se pudo obtener información de la gira para nombrar la carpeta.");
       }
 
-      // 2. Construir el nombre: "mes_letra nomenclador | zona | nombre_gira"
-      // Ejemplo: "03a Sinf 01/24 | Valle Medio | Concierto Apertura"
+      // 2. Construir el nombre: "Viáticos - mes_letra nomenclador | zona | nombre_gira"
+      // Ejemplo: "Viáticos - 03a Sinf 01/24 | Valle Medio | Concierto Apertura"
       const parte1 = `${giraData.mes_letra || ''} ${giraData.nomenclador || ''}`.trim();
       const parte2 = giraData.zona || '';
       const parte3 = giraData.nombre_gira || 'Gira sin nombre';
 
       // Usamos filter(Boolean) para que no queden separadores " | " sueltos si falta algún dato (ej: si no hay zona)
-      const folderName = [parte1, parte2, parte3].filter(Boolean).join(" | ");
+      const folderName = `Viáticos - ${[parte1, parte2, parte3].filter(Boolean).join(" | ")}`;
 
       // 3. Crear carpeta en Drive en la NUEVA ubicación
       const file = await drive.files.create({

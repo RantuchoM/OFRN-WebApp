@@ -71,33 +71,72 @@ function ruleHasRouteEvent(rule, eventField) {
   return rule[idField] != null && rule[idField] !== "";
 }
 
+function eventDateTimeFromRule(rule, eventField) {
+  const evt = rule?.[eventField];
+  if (!evt) return null;
+  return parseDateTime(evt.fecha, evt.hora_inicio || evt.hora);
+}
+
+function scoreRouteRule(rule, locId, regionId) {
+  const scope = normalizeScope(rule.alcance);
+  const byLocalidad =
+    String(rule.id_localidad || "") === String(locId) ||
+    (Array.isArray(rule.target_localities) &&
+      rule.target_localities.some((x) => String(x) === String(locId)));
+  const byRegion =
+    String(rule.id_region || "") === String(regionId) ||
+    (Array.isArray(rule.target_regions) &&
+      rule.target_regions.some((x) => String(x) === String(regionId)));
+
+  if (scope === "localidad" && byLocalidad) return 3;
+  if (scope === "region" && byRegion) return 2;
+  if (scope === "general") return 1;
+  if (byLocalidad) return 3;
+  if (byRegion) return 2;
+  return 0;
+}
+
+/**
+ * Mejor regla de ruta para una localidad/región.
+ * Empate de alcance: subida = evento más temprano; bajada = más tardío.
+ */
 export function findBestRouteRule(routeRules, locId, regionId, eventField) {
   const rules = Array.isArray(routeRules) ? routeRules : [];
-  let best = null;
   let bestScore = -1;
+  const candidates = [];
 
   rules.forEach((rule) => {
     if (!ruleHasRouteEvent(rule, eventField)) return;
-    const scope = normalizeScope(rule.alcance);
-    const byLocalidad =
-      String(rule.id_localidad || "") === String(locId) ||
-      (Array.isArray(rule.target_localities) &&
-        rule.target_localities.some((x) => String(x) === String(locId)));
-    const byRegion =
-      String(rule.id_region || "") === String(regionId) ||
-      (Array.isArray(rule.target_regions) &&
-        rule.target_regions.some((x) => String(x) === String(regionId)));
-
-    let score = 0;
-    if (scope === "localidad" && byLocalidad) score = 3;
-    else if (scope === "region" && byRegion) score = 2;
-    else if (scope === "general") score = 1;
-    else if (byLocalidad) score = 3;
-    else if (byRegion) score = 2;
-
+    const score = scoreRouteRule(rule, locId, regionId);
+    if (score <= 0) return;
     if (score > bestScore) {
-      best = rule;
       bestScore = score;
+      candidates.length = 0;
+      candidates.push(rule);
+    } else if (score === bestScore) {
+      candidates.push(rule);
+    }
+  });
+
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  const preferEarliest = eventField === "evento_subida";
+  let best = null;
+  let bestDt = null;
+
+  candidates.forEach((rule) => {
+    const dt = eventDateTimeFromRule(rule, eventField);
+    if (!dt) {
+      if (!best) best = rule;
+      return;
+    }
+    if (
+      !bestDt ||
+      (preferEarliest ? dt < bestDt : dt > bestDt)
+    ) {
+      best = rule;
+      bestDt = dt;
     }
   });
 

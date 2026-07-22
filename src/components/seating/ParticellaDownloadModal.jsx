@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { mergeSequential } from "../../utils/docMerger";
 import { IconDownload, IconLayers, IconLoader } from "../ui/Icons";
+import { PARTICELLA_SETS_ROOT_ID } from "../../utils/driveFolders";
 
 function bytesFromBase64(base64) {
   const binaryString = atob(base64);
@@ -35,8 +36,6 @@ const isStringInstrumentId = (id) =>
   ["01", "02", "03", "04"].includes(String(id || ""));
 
 // Carpeta raíz en Drive donde se almacenan los sets unificados de particellas.
-// Coincide con PARTICELLA_SETS_ROOT_ID en la Edge Function `manage-drive`.
-const PARTICELLA_SETS_ROOT_ID = "1BK8yhY1dvAZRrDwEDXg3VR3QlnmdOH4u";
 
 export default function ParticellaDownloadModal({
   isOpen,
