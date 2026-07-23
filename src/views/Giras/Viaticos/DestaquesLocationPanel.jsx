@@ -19,7 +19,7 @@ import {
 import { resolveLocalidadEfectivaViaticos } from "../../../utils/integranteDomicilioViaticos";
 import {
     headerInfoToTravelSchedule,
-    mergeTravelDataForViaticosPapeles,
+    mergeTravelPreferringLocality,
     findBestRouteRule,
 } from "../../../utils/viaticosLogisticsSchedule";
 import { calculateDaysDiff } from "../../../utils/viaticosDiasComputables";
@@ -1035,19 +1035,23 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
             const grp = groups[locName];
             if (!grp) return;
 
+            // Completar huecos del header grupal (ciudad de viáticos) sin pisar
+            // el horario general con asignaciones personales.
+            if (grp.headerInfo && !grp.headerInfo.hora_llegada && baseTravel.fecha_llegada) {
+                grp.headerInfo.fecha_llegada = formatDateVisual(baseTravel.fecha_llegada);
+                grp.headerInfo.fecha_llegada_iso = baseTravel.fecha_llegada;
+                grp.headerInfo.hora_llegada = baseTravel.hora_llegada?.slice(0, 5);
+            }
+
             const localityTravel = grp.headerInfo
                 ? headerInfoToTravelSchedule(grp.headerInfo)
                 : null;
-            let travelData = mergeTravelDataForViaticosPapeles(
+            // Destaques por localidad: todos los miembros usan el mismo día/horario
+            // de la ciudad de viáticos; la logística personal solo rellena huecos.
+            const travelData = mergeTravelPreferringLocality(
                 baseTravel,
                 localityTravel,
-                person,
             );
-
-            if (grp.headerInfo && !grp.headerInfo.hora_llegada && travelData.fecha_llegada) {
-                grp.headerInfo.fecha_llegada = formatDateVisual(travelData.fecha_llegada);
-                grp.headerInfo.hora_llegada = travelData.hora_llegada?.slice(0, 5);
-            }
 
             if (travelData.fecha_salida || travelData.fecha_llegada) {
                 grp.people.push({ ...person, travelData, hasIndividual });
@@ -1208,10 +1212,10 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
                         _massConfigId: groupId,
                         _groupName: group.name,
                         _diasComputablesLocalidad: localityDays,
-                        travelData: mergeTravelDataForViaticosPapeles(
+                        // Misma fecha/hora general de la localidad para todo el grupo.
+                        travelData: mergeTravelPreferringLocality(
                             p.travelData,
                             travelFromHeader,
-                            p,
                         ),
                     }),
                 );

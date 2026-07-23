@@ -418,13 +418,35 @@ export function mergeTravelPreferringPersonal(personalTravel, localityTravel) {
   };
 }
 
+/**
+ * Combina horarios: el de la localidad (ciudad de viáticos) gana; personal solo rellena huecos.
+ * Usado en destaques masivos por localidad para que todo el grupo exporte el mismo día/horario.
+ */
+export function mergeTravelPreferringLocality(personalTravel, localityTravel) {
+  const personal = personalTravel || {};
+  const locality = localityTravel || {};
+  return {
+    ...personal,
+    ...locality,
+    fecha_salida: locality.fecha_salida || personal.fecha_salida,
+    hora_salida: locality.hora_salida || personal.hora_salida,
+    fecha_llegada: locality.fecha_llegada || personal.fecha_llegada,
+    hora_llegada: locality.hora_llegada || personal.hora_llegada,
+    transporte_salida: locality.transporte_salida || personal.transporte_salida,
+    transporte_llegada: locality.transporte_llegada || personal.transporte_llegada,
+    lugar_salida: locality.lugar_salida || personal.lugar_salida,
+    lugar_llegada: locality.lugar_llegada || personal.lugar_llegada,
+    patente: locality.patente || personal.patente,
+  };
+}
+
 /** @deprecated alias — usar mergeTravelPreferringPersonal */
 export function applyLocalidadViaticosScheduleToLogistics(personalTravel, localityTravel) {
   return mergeTravelPreferringPersonal(personalTravel, localityTravel);
 }
 
 /**
- * Combina logística personal y de localidad para viáticos/destaques.
+ * Combina logística personal y de localidad para viáticos individuales.
  * Subida/bajada individual en transporte prevalece; horario grupal de localidad solo rellena vacíos.
  */
 export function mergeTravelDataForViaticosPapeles(
