@@ -337,6 +337,16 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 
 ---
 
+### Completado (2026-07-23) — Filtro «Ya programado»
+- [x] **Toggle «Ya programado»** en toolbar desktop y filtros móviles (chip removible + Limpiar Filtros). Muestra solo obras con al menos un `programas` asociado en estado **Vigente** (pasadas y futuras).
+- [x] **Columna condicional:** con el filtro activo, el slot `proxima_gira` muestra **Programas** (lista multilínea `dd/MM/yy - nomenclador. nombre_gira`, únicos por id, ordenados por fecha). Sin filtro, se mantiene **Próxima Gira**. Ordenable por `primer_programa_fecha_desde` (fecha del programa vigente más antigua).
+- [x] **Select ampliado:** `programas` incluye `nomenclador` y `estado`; campos derivados `programas_vigentes` / `ya_programado` / `primer_programa_fecha_desde`.
+- [x] **Orden por defecto:** `compositor_full` asc con desempate `titulo_plain` (también en `upsertWorkLocally`).
+- [x] **Descargar (solo con Ya programado activo):** modal `YaProgramadoExportModal` (portal `z-[100]`) con filtro por tipo de programa (`PROGRAM_TYPES`), período (todos / solo histórico / solo futuro), orden multicriterio (añadir columnas Asc/Desc), y export Excel/PDF. Columnas visibles del Archivo **sin Estado**; Programas filtrados por tipo y período. Utils: `prepareYaProgramadoExportWorks` + `repertoireYaProgramadoExport.js`.
+- [x] **Ordenar selección:** barra y modal «Editar orden» permiten reordenar por Compositor / Obra / Giras programadas (`repertoireSelectionSort.js`).
+
+---
+
 ### Completado (2026-06-13)
 - [x] Barra «Instrumento / Cant.»: input de cantidad y botón `+` agrupados con `shrink-0` para evitar desborde horizontal junto al scroll del modal.
 - [x] Eliminación individual y masiva de particella con `ConfirmDialog` (estilo destructivo), alineado con el design system del proyecto.

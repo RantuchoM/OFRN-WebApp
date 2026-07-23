@@ -19,6 +19,7 @@ import RepertoireSelectionDriveLoadModal from "./RepertoireSelectionDriveLoadMod
 import { exportRepertoireSelectionPdf } from "../../utils/repertoireSelectionPdf";
 import { getRepertoireSelectionPdfTitle, getRepertoireSelectionPdfFileName } from "../../utils/repertoireSelectionStorage";
 import { syncArchivoSelectionToDrive } from "../../services/repertoireSelectionDriveService";
+import { sortSelectionIds } from "../../utils/repertoireSelectionSort";
 
 const stripHtml = (html) =>
   String(html || "")
@@ -52,11 +53,20 @@ export default function RepertoireSelectionBar({
   const [showProgramModal, setShowProgramModal] = useState(false);
   const [showDriveLoadModal, setShowDriveLoadModal] = useState(false);
   const [driveLoading, setDriveLoading] = useState(false);
+  const [showSortMenu, setShowSortMenu] = useState(false);
   const mobileMenuRef = useRef(null);
+  const sortMenuRef = useRef(null);
 
   const hasSelection = orderedIds.length > 0;
 
   const pdfTitle = getRepertoireSelectionPdfTitle(selectionName);
+
+  const applySortCriterion = (criterion) => {
+    if (!hasSelection) return;
+    const next = sortSelectionIds(orderedIds, worksById, criterion);
+    onUpdateOrder(next);
+    setShowSortMenu(false);
+  };
 
   const handleExportPdf = () => {
     if (selectedWorks.length === 0) {
@@ -117,6 +127,17 @@ export default function RepertoireSelectionBar({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [variant]);
+
+  useEffect(() => {
+    if (!showSortMenu) return undefined;
+    const handleClickOutside = (event) => {
+      if (sortMenuRef.current && !sortMenuRef.current.contains(event.target)) {
+        setShowSortMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showSortMenu]);
 
   const openAndCloseMenu = (callback) => {
     callback();
@@ -185,6 +206,34 @@ export default function RepertoireSelectionBar({
                     >
                       <IconList size={14} /> Editar orden
                     </button>
+                    <div className="rounded-lg border border-slate-100 bg-slate-50/80 px-2 py-1.5">
+                      <div className="mb-1 text-[10px] font-black uppercase text-slate-400">
+                        Ordenar por
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => openAndCloseMenu(() => applySortCriterion("compositor"))}
+                          className="rounded px-1.5 py-1 text-left text-[11px] font-bold text-slate-700 hover:bg-white"
+                        >
+                          Compositor
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openAndCloseMenu(() => applySortCriterion("obra"))}
+                          className="rounded px-1.5 py-1 text-left text-[11px] font-bold text-slate-700 hover:bg-white"
+                        >
+                          Obra
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openAndCloseMenu(() => applySortCriterion("giras"))}
+                          className="rounded px-1.5 py-1 text-left text-[11px] font-bold text-slate-700 hover:bg-white"
+                        >
+                          Giras programadas
+                        </button>
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={() => openAndCloseMenu(() => setShowTagsModal(true))}
@@ -329,6 +378,42 @@ export default function RepertoireSelectionBar({
                 >
                   Editar orden
                 </button>
+                <div className="relative" ref={sortMenuRef}>
+                  <button
+                    type="button"
+                    onClick={() => setShowSortMenu((v) => !v)}
+                    className="text-xs font-bold px-3 py-1.5 rounded-lg border border-indigo-300 bg-white text-indigo-700 hover:bg-indigo-100 flex items-center gap-1.5"
+                    title="Reordenar la selección por criterio"
+                  >
+                    Ordenar por
+                    <IconChevronDown size={12} className={showSortMenu ? "rotate-180" : ""} />
+                  </button>
+                  {showSortMenu && (
+                    <div className="absolute right-0 top-full z-40 mt-1 min-w-[180px] rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                      <button
+                        type="button"
+                        onClick={() => applySortCriterion("compositor")}
+                        className="block w-full px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50"
+                      >
+                        Compositor
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applySortCriterion("obra")}
+                        className="block w-full px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50"
+                      >
+                        Obra
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applySortCriterion("giras")}
+                        className="block w-full px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50"
+                      >
+                        Giras programadas
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowTagsModal(true)}

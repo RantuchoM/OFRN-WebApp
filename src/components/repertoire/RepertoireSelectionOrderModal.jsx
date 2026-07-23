@@ -14,6 +14,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { IconX, IconGripVertical, IconCheck, IconArrowUp, IconArrowDown } from "../ui/Icons";
+import { sortSelectionIds } from "../../utils/repertoireSelectionSort";
 
 const stripHtml = (html) =>
   String(html || "")
@@ -158,6 +159,10 @@ export default function RepertoireSelectionOrderModal({
     });
   };
 
+  const applySortCriterion = (criterion) => {
+    setDraftIds((prev) => sortSelectionIds(prev, worksById, criterion));
+  };
+
   return (
     <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
@@ -177,6 +182,36 @@ export default function RepertoireSelectionOrderModal({
             <IconX size={20} />
           </button>
         </div>
+
+        {draftWorks.length > 0 && (
+          <div className="px-4 py-2.5 border-b border-slate-100 bg-white flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-bold uppercase text-slate-400 shrink-0">
+              Ordenar por
+            </span>
+            <button
+              type="button"
+              onClick={() => applySortCriterion("compositor")}
+              className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-800"
+            >
+              Compositor
+            </button>
+            <button
+              type="button"
+              onClick={() => applySortCriterion("obra")}
+              className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-800"
+            >
+              Obra
+            </button>
+            <button
+              type="button"
+              onClick={() => applySortCriterion("giras")}
+              className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-800"
+              title="Por fecha del primer programa vigente"
+            >
+              Giras programadas
+            </button>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50 space-y-2">
           {draftWorks.length === 0 ? (

@@ -29,6 +29,7 @@ import {
   IconExternalLink,
   IconMoreVertical,
   IconCopy,
+  IconDownload,
 } from "../../components/ui/Icons";
 import { toast } from "sonner";
 import { format, isBefore, isToday, parseISO, addDays } from "date-fns";
@@ -48,6 +49,8 @@ import {
   saveRepertoireSelection,
   clearRepertoireSelection,
 } from "../../utils/repertoireSelectionStorage";
+import { formatProgramaVigenteLine } from "../../utils/repertoireProgramaFormat";
+import YaProgramadoExportModal from "../../components/repertoire/YaProgramadoExportModal";
 import { useAuth } from "../../context/AuthContext";
 import AssignProgramModal from "../../components/repertoire/AssignProgramModal";
 import {
@@ -640,8 +643,10 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [stringsFilter, setStringsFilter] = useState("all");
   const [strictMode, setStrictMode] = useState(false);
   const [showLegacyOficialSinDrive, setShowLegacyOficialSinDrive] = useState(false);
+  const [showYaProgramado, setShowYaProgramado] = useState(false);
+  const [showYaProgramadoExportModal, setShowYaProgramadoExportModal] = useState(false);
 
-  const [sortConfig, setSortConfig] = useState({ key: "titulo", direction: "asc" });
+  const [sortConfig, setSortConfig] = useState({ key: "compositor_full", direction: "asc" });
   const [selectionOrderedIds, setSelectionOrderedIds] = useState(
     () => loadRepertoireSelection().orderedIds,
   );
@@ -755,8 +760,11 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
         programas (
           id,
           nombre_gira,
+          nomenclador,
           fecha_desde,
-          fecha_hasta
+          fecha_hasta,
+          estado,
+          tipo
         )
       )
     )
@@ -793,7 +801,11 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   }, [newObraParam]);
 
   // Resetear página al filtrar
-  useEffect(() => { setCurrentPage(1); }, [filters, selectedTags, instrFilters, stringsFilter, strictMode, sortConfig, pageSize, mobileQuickSearch]);
+  useEffect(() => { setCurrentPage(1); }, [filters, selectedTags, instrFilters, stringsFilter, strictMode, sortConfig, pageSize, mobileQuickSearch, showYaProgramado]);
+
+  useEffect(() => {
+    if (!showYaProgramado) setShowYaProgramadoExportModal(false);
+  }, [showYaProgramado]);
 
   const setSortByFechaEstimada = (direction) => {
     setSortConfig({ key: "fecha_esperada", direction });
@@ -828,9 +840,19 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     let nextProgramStart = null;
     let lastPastProgram = null;
     let lastPastProgramStart = null;
+    const vigentesById = new Map();
     (w.repertorio_obras || []).forEach((rel) => {
       const prog = rel.programas_repertorios?.programas;
       if (!prog || !prog.fecha_desde) return;
+      if (prog.estado === "Vigente" && !vigentesById.has(prog.id)) {
+        vigentesById.set(prog.id, {
+          id: prog.id,
+          fecha_desde: prog.fecha_desde,
+          nomenclador: prog.nomenclador || "",
+          nombre_gira: prog.nombre_gira || "",
+          tipo: prog.tipo || "",
+        });
+      }
       const startDate = parseISO(prog.fecha_desde);
       if (isBefore(startDate, today)) {
         if (!lastPastProgramStart || isBefore(lastPastProgramStart, startDate)) {
@@ -846,6 +868,9 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     });
     const displayProgram = nextProgram || lastPastProgram;
     const proximaGiraEsPasada = !nextProgram && !!lastPastProgram;
+    const programas_vigentes = Array.from(vigentesById.values()).sort((a, b) =>
+      (a.fecha_desde || "").localeCompare(b.fecha_desde || ""),
+    );
     return {
       ...w,
       titulo_plain: getPlainRichText(w.titulo),
@@ -879,6 +904,9 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       proxima_gira_fecha_desde: displayProgram?.fecha_desde || null,
       proxima_gira_fecha_hasta: displayProgram?.fecha_hasta || null,
       proxima_gira_es_pasada: proximaGiraEsPasada,
+      programas_vigentes,
+      ya_programado: programas_vigentes.length > 0,
+      primer_programa_fecha_desde: programas_vigentes[0]?.fecha_desde || null,
     };
   };
 
@@ -890,9 +918,17 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
         existingIndex >= 0
           ? prev.map((w) => (w.id === processedWork.id ? processedWork : w))
           : [...prev, processedWork];
-      return next.sort((a, b) =>
-        (a.titulo_plain || "").localeCompare(b.titulo_plain || "", "es", { sensitivity: "base" }),
-      );
+      return next.sort((a, b) => {
+        const byComposer = (a.compositor_full || "").localeCompare(
+          b.compositor_full || "",
+          "es",
+          { sensitivity: "base" },
+        );
+        if (byComposer !== 0) return byComposer;
+        return (a.titulo_plain || "").localeCompare(b.titulo_plain || "", "es", {
+          sensitivity: "base",
+        });
+      });
     });
   };
 
@@ -953,6 +989,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     setFilters({ titulo: "", compositor: "", arreglador: "", estado: "Todos", solicitante: "", duracionMin: "", duracionMax: "", fechaDesde: "", fechaHasta: "", observaciones: "" });
     setSelectedTags(new Set()); setInstrFilters([]); setStringsFilter("all"); setStrictMode(false);
     setShowLegacyOficialSinDrive(false);
+    setShowYaProgramado(false);
     setMobileQuickSearch("");
   };
 
@@ -998,6 +1035,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       ) {
         return false;
       }
+      if (showYaProgramado && !work.ya_programado) return false;
       if (filters.solicitante && String(work.id_usuario_carga) !== String(filters.solicitante)) return false;
 
       const duration = work.duracion_segundos || 0;
@@ -1036,7 +1074,11 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       const sortKey = sortConfig.key === "titulo" ? "titulo_plain" : sortConfig.key;
       let valA = a[sortKey];
       let valB = b[sortKey];
-      if (sortConfig.key === "fecha_esperada" || sortConfig.key === "proxima_gira_fecha_desde") {
+      if (
+        sortConfig.key === "fecha_esperada" ||
+        sortConfig.key === "proxima_gira_fecha_desde" ||
+        sortConfig.key === "primer_programa_fecha_desde"
+      ) {
         const fallback =
           sortConfig.direction === "asc" ? "9999-12-31" : "0000-01-01";
         valA = valA || fallback;
@@ -1044,15 +1086,22 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       }
       if (typeof valA === "string") valA = valA.toLowerCase();
       if (typeof valB === "string") valB = valB.toLowerCase();
+      let primary = 0;
       if (typeof valA === "string" && typeof valB === "string") {
-        const result = valA.localeCompare(valB, "es", { sensitivity: "base" });
-        return sortConfig.direction === "asc" ? result : -result;
+        primary = valA.localeCompare(valB, "es", { sensitivity: "base" });
+        primary = sortConfig.direction === "asc" ? primary : -primary;
+      } else if (valA < valB) {
+        primary = sortConfig.direction === "asc" ? -1 : 1;
+      } else if (valA > valB) {
+        primary = sortConfig.direction === "asc" ? 1 : -1;
       }
-      if (valA < valB) return sortConfig.direction === "asc" ? -1 : 1;
-      if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
-      return 0;
+      if (primary !== 0) return primary;
+      if (sortConfig.key === "titulo") return 0;
+      return (a.titulo_plain || "").localeCompare(b.titulo_plain || "", "es", {
+        sensitivity: "base",
+      });
     });
-  }, [works, filters, selectedTags, instrFilters, stringsFilter, sortConfig, strictMode, showLegacyOficialSinDrive, mobileQuickSearch]);
+  }, [works, filters, selectedTags, instrFilters, stringsFilter, sortConfig, strictMode, showLegacyOficialSinDrive, showYaProgramado, mobileQuickSearch]);
 
   const filteredWorkIds = useMemo(
     () => allFilteredWorks.map((w) => w.id),
@@ -1113,7 +1162,9 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     if (visibleColumns.organico) cols += "minmax(120px, 0.8fr) ";
     if (visibleColumns.duracion) cols += "100px ";
     if (visibleColumns.estado) cols += "100px ";
-    if (visibleColumns.proxima_gira) cols += "minmax(140px, 1fr) ";
+    if (visibleColumns.proxima_gira) {
+      cols += showYaProgramado ? "minmax(200px, 1.4fr) " : "minmax(140px, 1fr) ";
+    }
     if (visibleColumns.fecha) cols += "100px ";
     if (visibleColumns.observaciones) cols += "minmax(150px, 1fr) ";
     if (visibleColumns.tags) cols += "minmax(150px, 1fr) ";
@@ -1322,6 +1373,14 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
         onRemove: () => setShowLegacyOficialSinDrive(false),
       });
     }
+    if (showYaProgramado) {
+      chips.push({
+        key: "ya-programado",
+        label: "Ya programado",
+        tone: "indigo",
+        onRemove: () => setShowYaProgramado(false),
+      });
+    }
     return chips;
   }, [
     filters,
@@ -1330,6 +1389,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     selectedTagObjects,
     selectedTags,
     showLegacyOficialSinDrive,
+    showYaProgramado,
     stringsFilter,
     strictMode,
     mobileQuickSearch,
@@ -1383,6 +1443,29 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
             )}
           </div>
           <button onClick={clearAllFilters} className="hidden md:inline text-xs text-slate-400 hover:text-red-500 font-bold underline px-2">Limpiar Filtros</button>
+          <button
+            type="button"
+            onClick={() => setShowYaProgramado((v) => !v)}
+            className={`hidden md:inline-flex text-xs font-bold px-3 py-1.5 rounded border transition-colors ${
+              showYaProgramado
+                ? "bg-indigo-50 border-indigo-300 text-indigo-800"
+                : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+            }`}
+            title="Mostrar obras asociadas a giras vigentes"
+          >
+            Ya programado
+          </button>
+          {showYaProgramado && (
+            <button
+              type="button"
+              onClick={() => setShowYaProgramadoExportModal(true)}
+              className="hidden md:inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded border border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700"
+              title="Descargar tabla filtrada (Excel o PDF)"
+            >
+              <IconDownload size={14} />
+              Descargar
+            </button>
+          )}
           {legacyOficialSinDriveCount > 0 && (
             <button
               type="button"
@@ -1504,15 +1587,25 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                     )}
                     {visibleColumns.proxima_gira && (
                       <div className="space-y-2">
-                        <div
-                          className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600"
-                          onClick={() =>
-                            handleSort("proxima_gira_fecha_desde")
-                          }
-                        >
-                          Próxima Gira{" "}
-                          <SortIcon column="proxima_gira_fecha_desde" />
-                        </div>
+                        {showYaProgramado ? (
+                          <div
+                            className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600"
+                            onClick={() => handleSort("primer_programa_fecha_desde")}
+                          >
+                            Programas{" "}
+                            <SortIcon column="primer_programa_fecha_desde" />
+                          </div>
+                        ) : (
+                          <div
+                            className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600"
+                            onClick={() =>
+                              handleSort("proxima_gira_fecha_desde")
+                            }
+                          >
+                            Próxima Gira{" "}
+                            <SortIcon column="proxima_gira_fecha_desde" />
+                          </div>
+                        )}
                       </div>
                     )}
                     {visibleColumns.fecha && (
@@ -1661,37 +1754,51 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                         </div>
                       )}
                       {visibleColumns.proxima_gira && (
-                        <div
-                          className={`text-xs text-center ${work.proxima_gira_es_pasada ? "text-slate-500" : "text-slate-700"}`}
-                        >
-                          {work.proxima_gira_nombre ? (
-                            <div className="leading-tight">
-                              {work.proxima_gira_es_pasada && (
-                                <div className="text-[9px] font-bold uppercase text-slate-400 mb-0.5">
-                                  Última
+                        showYaProgramado ? (
+                          <div className="text-[11px] text-left text-slate-700 leading-snug space-y-0.5">
+                            {(work.programas_vigentes || []).length > 0 ? (
+                              work.programas_vigentes.map((prog) => (
+                                <div key={prog.id} className="break-words">
+                                  {formatProgramaVigenteLine(prog)}
                                 </div>
-                              )}
-                              <div className="truncate">
-                                {work.proxima_gira_nombre}
+                              ))
+                            ) : (
+                              <span className="text-slate-300">-</span>
+                            )}
+                          </div>
+                        ) : (
+                          <div
+                            className={`text-xs text-center ${work.proxima_gira_es_pasada ? "text-slate-500" : "text-slate-700"}`}
+                          >
+                            {work.proxima_gira_nombre ? (
+                              <div className="leading-tight">
+                                {work.proxima_gira_es_pasada && (
+                                  <div className="text-[9px] font-bold uppercase text-slate-400 mb-0.5">
+                                    Última
+                                  </div>
+                                )}
+                                <div className="truncate">
+                                  {work.proxima_gira_nombre}
+                                </div>
+                                {work.proxima_gira_fecha_hasta && (
+                                  <div className="text-[10px] text-slate-500">
+                                    {work.proxima_gira_es_pasada
+                                      ? format(
+                                          parseISO(work.proxima_gira_fecha_hasta),
+                                          "dd/MM/yy",
+                                        )
+                                      : `(hasta ${format(
+                                          parseISO(work.proxima_gira_fecha_hasta),
+                                          "dd/MM/yy",
+                                        )})`}
+                                  </div>
+                                )}
                               </div>
-                              {work.proxima_gira_fecha_hasta && (
-                                <div className="text-[10px] text-slate-500">
-                                  {work.proxima_gira_es_pasada
-                                    ? format(
-                                        parseISO(work.proxima_gira_fecha_hasta),
-                                        "dd/MM/yy",
-                                      )
-                                    : `(hasta ${format(
-                                        parseISO(work.proxima_gira_fecha_hasta),
-                                        "dd/MM/yy",
-                                      )})`}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-slate-300">-</span>
-                          )}
-                        </div>
+                            ) : (
+                              <span className="text-slate-300">-</span>
+                            )}
+                          </div>
+                        )
                       )}
                       {visibleColumns.fecha && (
                         <div className="text-center">
@@ -2076,6 +2183,28 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                           Legacy
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => setShowYaProgramado((v) => !v)}
+                        className={`h-8 shrink-0 rounded-lg border px-2 text-[10px] font-bold ${
+                          showYaProgramado
+                            ? "border-indigo-300 bg-indigo-50 text-indigo-800"
+                            : "border-slate-200 bg-white text-slate-600"
+                        }`}
+                        title="Mostrar obras asociadas a giras vigentes"
+                      >
+                        Ya programado
+                      </button>
+                      {showYaProgramado && (
+                        <button
+                          type="button"
+                          onClick={() => setShowYaProgramadoExportModal(true)}
+                          className="h-8 shrink-0 rounded-lg border border-indigo-300 bg-indigo-600 px-2 text-[10px] font-bold text-white"
+                          title="Descargar Excel o PDF"
+                        >
+                          Descargar
+                        </button>
+                      )}
                     </div>
 
                     <div className="mt-1 flex justify-end gap-2 border-t border-slate-100 pt-2">
@@ -2183,12 +2312,22 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                             }`}>
                               {work.instrumentacion || "-"}
                             </span>
-                            {work.proxima_gira_nombre && (
-                              <span className="max-w-[10rem] truncate rounded border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
-                                {work.proxima_gira_es_pasada ? "Últ. " : ""}
-                                {work.proxima_gira_nombre}
-                              </span>
-                            )}
+                            {showYaProgramado
+                              ? (work.programas_vigentes || []).length > 0 && (
+                                  <div className="w-full basis-full space-y-0.5 rounded border border-indigo-100 bg-indigo-50 px-1.5 py-1 text-[10px] font-medium leading-snug text-indigo-800">
+                                    {work.programas_vigentes.map((prog) => (
+                                      <div key={prog.id} className="break-words">
+                                        {formatProgramaVigenteLine(prog)}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )
+                              : work.proxima_gira_nombre && (
+                                  <span className="max-w-[10rem] truncate rounded border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                                    {work.proxima_gira_es_pasada ? "Últ. " : ""}
+                                    {work.proxima_gira_nombre}
+                                  </span>
+                                )}
                           </div>
 
                           {work.tags_objects?.length > 0 && (
@@ -2306,6 +2445,13 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
           isEditor={isEditor}
         />
       )}
+
+      <YaProgramadoExportModal
+        isOpen={showYaProgramadoExportModal}
+        onClose={() => setShowYaProgramadoExportModal(false)}
+        works={allFilteredWorks}
+        visibleColumns={visibleColumns}
+      />
 
       <ConfirmDialog
         isOpen={!!deleteWorkConfirm}

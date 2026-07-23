@@ -125,9 +125,10 @@ Para cada obra procesada en `RepertoireView` se añaden los campos:
 ### Estado de Implementación
 
 - **Estado**: Completado
-- **Última revisión**: 2026-02-25
+- **Última revisión**: 2026-07-23
 - **Notas**:
   - `fetchWorks` en `RepertoireView` ya incluye la relación `repertorio_obras → programas_repertorios → programas` y calcula los campos derivados de próxima gira.
   - La vista de repertorio muestra la columna `"Próxima Gira"` con formato `{nombre_gira} (hasta dd/MM/yy)` y permite ordenar por `proxima_gira_fecha_desde`.
   - La columna está integrada en `ColumnManager` y en el sistema de `visibleColumns`.
+  - Con el filtro **«Ya programado»** activo, el mismo slot de columna muestra **Programas** (giras `Vigente` asociadas, multilínea). Ver `docs/specs/repertoire-ux-evolution.md`.
 

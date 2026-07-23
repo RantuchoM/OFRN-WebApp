@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import {
   getConciertosFullData,
@@ -20,12 +20,19 @@ import GestionParticipantesCell from "../../components/giras/GestionParticipante
 import {
   IconChevronDown,
   IconChevronUp,
+  IconCloudUpload,
   IconDownload,
+  IconExternalLink,
   IconFileExcel,
   IconMusic,
 } from "../../components/ui/Icons";
 
 const normalize = (val) => String(val || "").trim().toLowerCase();
+
+/** Sheet vivo de conciertos (enlace ya compartido; no cambiar). */
+const CONCIERTOS_SHEET_URL =
+  "https://docs.google.com/spreadsheets/d/1Mkc-vPhOCQlxia6n-LdqKp5limVEXyWSh-khv8gDeJg/edit?gid=0#gid=0";
+const CONCIERTOS_SHEET_ID = "1Mkc-vPhOCQlxia6n-LdqKp5limVEXyWSh-khv8gDeJg";
 
 const formatHora = (raw) => (raw ? String(raw).slice(0, 5) : "-");
 
@@ -142,8 +149,11 @@ function DetailModal({ open, title, subtitle, children, onClose }) {
 }
 
 export default function ConciertosView({ supabase }) {
-  const { userId } = useAuth();
+  const { userId, isManagement, isAdmin } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [syncingSheet, setSyncingSheet] = useState(false);
+  const [sheetSyncMsg, setSheetSyncMsg] = useState("");
+  const [sheetUrl, setSheetUrl] = useState(CONCIERTOS_SHEET_URL);
   const [locacionesOptions, setLocacionesOptions] = useState([]);
   const [rows, setRows] = useState([]);
   const [programasSinConciertos, setProgramasSinConciertos] = useState([]);
@@ -155,6 +165,31 @@ export default function ConciertosView({ supabase }) {
   const [repertorioModalRow, setRepertorioModalRow] = useState(null);
   const [observacionesModalRow, setObservacionesModalRow] = useState(null);
   const [headerExpanded, setHeaderExpanded] = useState(false);
+  const [sheetMenuOpen, setSheetMenuOpen] = useState(false);
+  const sheetMenuRef = useRef(null);
+  const canSyncSheet = isAdmin || isManagement;
+
+  const loadSheetUrl = useCallback(async () => {
+    if (!supabase) return CONCIERTOS_SHEET_URL;
+    const { data, error } = await supabase
+      .from("conciertos_sheet_sync")
+      .select("spreadsheet_url, spreadsheet_id")
+      .eq("id", 1)
+      .maybeSingle();
+    if (error) {
+      console.warn("[ConciertosView] sheet url:", error.message);
+      setSheetUrl(CONCIERTOS_SHEET_URL);
+      return CONCIERTOS_SHEET_URL;
+    }
+    const id = data?.spreadsheet_id || CONCIERTOS_SHEET_ID;
+    const url =
+      id === CONCIERTOS_SHEET_ID
+        ? CONCIERTOS_SHEET_URL
+        : data?.spreadsheet_url ||
+          `https://docs.google.com/spreadsheets/d/${id}/edit?gid=0#gid=0`;
+    setSheetUrl(url);
+    return url;
+  }, [supabase]);
 
   const fetchLocations = useCallback(async () => {
     if (!supabase) return;
@@ -168,6 +203,26 @@ export default function ConciertosView({ supabase }) {
   useEffect(() => {
     fetchLocations();
   }, [fetchLocations]);
+
+  useEffect(() => {
+    if (!sheetMenuOpen) return;
+    const onDocClick = (e) => {
+      if (sheetMenuRef.current && !sheetMenuRef.current.contains(e.target)) {
+        setSheetMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [sheetMenuOpen]);
+
+  useEffect(() => {
+    if (!supabase || !canSyncSheet) return;
+    loadSheetUrl();
+  }, [supabase, canSyncSheet, loadSheetUrl]);
+
+  useEffect(() => {
+    if (sheetMenuOpen && canSyncSheet) loadSheetUrl();
+  }, [sheetMenuOpen, canSyncSheet, loadSheetUrl]);
 
   const loadConciertos = async () => {
     setLoading(true);
@@ -396,6 +451,37 @@ export default function ConciertosView({ supabase }) {
     exportConciertosToPDF(tableRows, "Gestión de Conciertos", subtitle);
   };
 
+  const handleSyncSheet = async () => {
+    if (!supabase || syncingSheet) return;
+    setSheetMenuOpen(false);
+    setSyncingSheet(true);
+    setSheetSyncMsg("");
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-conciertos-sheet", {
+        body: { force: true },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      if (data?.spreadsheetUrl) setSheetUrl(data.spreadsheetUrl);
+      setSheetSyncMsg(
+        data?.debounced
+          ? "Sync diferido (debounce)."
+          : `Sheet actualizado (${data?.rowCount ?? 0} conciertos).`,
+      );
+    } catch (err) {
+      console.error("[ConciertosView] sync sheet:", err);
+      setSheetSyncMsg(err?.message || "Error al sincronizar Sheet");
+    } finally {
+      setSyncingSheet(false);
+    }
+  };
+
+  const handleOpenSheet = async () => {
+    setSheetMenuOpen(false);
+    const url = (await loadSheetUrl()) || CONCIERTOS_SHEET_URL;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
   const handleOpenProgramAgenda = (programId) => {
     if (!programId) return;
     const url = `${window.location.pathname}?tab=giras&view=AGENDA&giraId=${programId}`;
@@ -425,15 +511,61 @@ export default function ConciertosView({ supabase }) {
               />
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setHeaderExpanded((prev) => !prev)}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
-          >
-            {headerExpanded ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
-            Filtros
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {canSyncSheet && (
+              <div className="relative" ref={sheetMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setSheetMenuOpen((o) => !o)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800 hover:bg-sky-100"
+                  disabled={syncingSheet}
+                  aria-expanded={sheetMenuOpen}
+                  aria-haspopup="menu"
+                >
+                  <IconCloudUpload size={14} />
+                  {syncingSheet ? "Sincronizando…" : "Google Sheet"}
+                  <IconChevronDown size={14} />
+                </button>
+                {sheetMenuOpen && !syncingSheet ? (
+                  <div
+                    role="menu"
+                    className="absolute right-0 z-[110] mt-1 min-w-[11rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleOpenSheet}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      <IconExternalLink size={14} />
+                      Abrir Sheet
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleSyncSheet}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-sky-800 hover:bg-sky-50"
+                    >
+                      <IconCloudUpload size={14} />
+                      Sincronizar ahora
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setHeaderExpanded((prev) => !prev)}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
+            >
+              {headerExpanded ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+              Filtros
+            </button>
+          </div>
         </div>
+        {sheetSyncMsg ? (
+          <p className="mt-2 text-xs text-slate-600">{sheetSyncMsg}</p>
+        ) : null}
 
         {headerExpanded && (
           <>

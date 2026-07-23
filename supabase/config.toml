@@ -63,3 +63,10 @@ entrypoint = "./functions/db-backup-cron/index.ts"
 # Programar en Dashboard → Edge Functions → db-backup-cron → Cron: 0 9 * * * (09:00 UTC)
 # Header: x-db-backup-cron-secret = valor de DB_BACKUP_CRON_SECRET
 # O invocar manualmente con el mismo header.
+
+[functions.sync-conciertos-sheet]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/sync-conciertos-sheet/index.ts"
+# Cron/trigger: header x-conciertos-sheet-cron-secret = CONCIERTOS_SHEET_CRON_SECRET
+# UI: Authorization Bearer (usuario management).
