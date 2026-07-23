@@ -1,0 +1,1 @@
+SELECT spreadsheet_id, spreadsheet_url FROM public.conciertos_sheet_sync WHERE id = 1;

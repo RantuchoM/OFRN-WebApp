@@ -1,0 +1,1 @@
+UPDATE public.conciertos_sheet_sync SET spreadsheet_id = '1Mkc-vPhOCQlxia6n-LdqKp5limVEXyWSh-khv8gDeJg', spreadsheet_url = 'https://docs.google.com/spreadsheets/d/1Mkc-vPhOCQlxia6n-LdqKp5limVEXyWSh-khv8gDeJg/edit?gid=0#gid=0' WHERE id = 1;
