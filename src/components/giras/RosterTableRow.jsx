@@ -39,6 +39,7 @@ export default function RosterTableRow({
   pendingBajaForRow,
   onCopyLink,
   onOpenMotivoModal,
+  grupoTags = [],
 }) {
   const showMotivoStick =
     Boolean(m.en_giras_integrantes) &&
@@ -161,13 +162,30 @@ export default function RosterTableRow({
         className={`py-1.5 px-1 md:px-3 border-r border-slate-100/50 font-bold text-slate-700 w-[30%] md:w-56 md:max-w-[16rem] min-w-0 ${mutedCell}`}
       >
         <div className="flex flex-col gap-0.5 md:gap-1.5 min-w-0 truncate">
-          <div className="flex items-center gap-1 md:gap-2 truncate text-[10px] md:text-sm">
-            {m.apellido}, {m.nombre}
+          <div className="flex items-center gap-1 md:gap-2 truncate text-[10px] md:text-sm flex-wrap">
+            <span className="truncate">
+              {m.apellido}, {m.nombre}
+            </span>
             {m.es_simulacion && (
               <span className="bg-amber-100 text-amber-700 text-[8px] md:text-[9px] px-0.5 md:px-1 rounded border border-amber-200 font-black tracking-wider shrink-0">
                 VACANTE
               </span>
             )}
+            {!ausenteMuted &&
+              (grupoTags || []).map((g) => (
+                <span
+                  key={g.id}
+                  className="inline-flex items-center px-1 py-0 rounded text-[8px] md:text-[9px] font-black uppercase tracking-tight shrink-0 border"
+                  style={{
+                    backgroundColor: `${g.color || "#6366f1"}18`,
+                    color: g.color || "#4338ca",
+                    borderColor: `${g.color || "#6366f1"}44`,
+                  }}
+                  title={g.nombre}
+                >
+                  {g.nombre}
+                </span>
+              ))}
           </div>
           {m.nota_interna && (
             <div className="hidden md:block group relative w-fit">

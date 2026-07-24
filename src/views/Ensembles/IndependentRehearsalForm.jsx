@@ -15,6 +15,7 @@ import {
   IconUserX,
   IconTrash,
   IconChevronDown,
+  IconTag,
 } from "../../components/ui/Icons";
 import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext";
@@ -25,6 +26,11 @@ import {
 } from "../../utils/rehearsalProgramas";
 import { useRehearsalProgramasOptions } from "../../hooks/useRehearsalProgramasOptions";
 import RepertorioPreparacionSelect from "../../components/ensembles/RepertorioPreparacionSelect";
+import {
+  fetchGiraGrupos,
+  setEventoGrupos,
+  GIRA_GRUPO_DEFAULT_COLORS,
+} from "../../services/giraGruposService";
 
 function mapLocationsOptions(data) {
   return (data || []).map((l) => ({
@@ -206,6 +212,7 @@ export default function IndependentRehearsalForm({
     asistencia: false,
     repertorio: false,
   });
+  const [gruposOptions, setGruposOptions] = useState([]);
 
   const { data: programasFromQuery = [], isLoading: programasQueryLoading, memberIds: resolvedMemberIds } =
     useRehearsalProgramasOptions(supabase, {
@@ -217,6 +224,37 @@ export default function IndependentRehearsalForm({
   const programasOptions = programasOptionsProp ?? programasFromQuery;
   const programasLoading =
     programasOptionsProp == null && programasQueryLoading;
+
+  useEffect(() => {
+    let cancelled = false;
+    const progIds = formData.selectedProgramas || [];
+    if (!supabase || progIds.length === 0) {
+      setGruposOptions([]);
+      return;
+    }
+    (async () => {
+      const results = await Promise.all(
+        progIds.map((id) => fetchGiraGrupos(supabase, id)),
+      );
+      if (cancelled) return;
+      const byId = new Map();
+      results.forEach(({ grupos }) => {
+        (grupos || []).forEach((g) => {
+          if (!byId.has(g.id)) {
+            byId.set(g.id, {
+              id: g.id,
+              label: g.nombre,
+              color: g.color || GIRA_GRUPO_DEFAULT_COLORS[0],
+            });
+          }
+        });
+      });
+      setGruposOptions([...byId.values()]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, formData.selectedProgramas]);
 
   const activeMembersSet = useMemo(() => {
     const ids = activeMemberIds?.length ? activeMemberIds : resolvedMemberIds;
@@ -317,6 +355,10 @@ export default function IndependentRehearsalForm({
                   "id_integrante, tipo, nota, integrantes(nombre, apellido)",
                 )
                 .eq("id_evento", initialData.id),
+              supabase
+                .from("eventos_grupos")
+                .select("id_grupo")
+                .eq("id_evento", initialData.id),
             ])
           : Promise.resolve(null);
 
@@ -341,7 +383,7 @@ export default function IndependentRehearsalForm({
         let finalCustom = seeded.customAttendance;
 
         if (relationRes) {
-          const [relsEns, relsProg, relsCustom] = relationRes;
+          const [relsEns, relsProg, relsCustom, relsGrupos] = relationRes;
           finalForm = {
             ...seeded.form,
             selectedEnsambles:
@@ -350,6 +392,10 @@ export default function IndependentRehearsalForm({
             selectedProgramas:
               relsProg.data?.map((r) => r.id_programa) ||
               seeded.form.selectedProgramas,
+            selectedGrupos:
+              relsGrupos.data?.map((r) => r.id_grupo) ||
+              seeded.form.selectedGrupos ||
+              [],
           };
           finalCustom =
             relsCustom.data?.map((c) => ({
@@ -514,6 +560,7 @@ export default function IndependentRehearsalForm({
               .from("eventos_asistencia_custom")
               .delete()
               .eq("id_evento", eventId),
+            supabase.from("eventos_grupos").delete().eq("id_evento", eventId),
           ]);
         }
 
@@ -534,6 +581,16 @@ export default function IndependentRehearsalForm({
           }));
           await supabase.from("eventos_ensambles").insert(ensamblesPayload);
         }
+
+        const validGrupoIds = (formData.selectedGrupos || []).filter((id) =>
+          gruposOptions.some((o) => Number(o.id) === Number(id)),
+        );
+        const { error: gruposError } = await setEventoGrupos(
+          supabase,
+          eventId,
+          validGrupoIds,
+        );
+        if (gruposError) throw gruposError;
 
         if (customAttendance.length > 0) {
           const customPayload = customAttendance.map((item) => ({
@@ -678,6 +735,25 @@ export default function IndependentRehearsalForm({
             <p className="text-[9px] text-slate-400 mt-1 ml-1">
               * Tus ensambles coordinados aparecen al principio marcados con ★
             </p>
+            {gruposOptions.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-slate-200">
+                <label className="text-[9px] text-slate-400 uppercase mb-1 flex items-center gap-1">
+                  <IconTag size={10} /> Grupos de convocatoria (opcional)
+                </label>
+                <MultiSelect
+                  placeholder="Sin filtro de grupo..."
+                  options={gruposOptions}
+                  selectedIds={formData.selectedGrupos || []}
+                  onChange={(ids) =>
+                    setFormData({ ...formData, selectedGrupos: ids })
+                  }
+                />
+                <p className="text-[9px] text-slate-400 mt-1 ml-1">
+                  Solo integrantes de esos grupos verán el ensayo (editores ven
+                  todos).
+                </p>
+              </div>
+            )}
           </MobileCollapsibleSection>
 
           <MobileCollapsibleSection

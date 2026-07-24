@@ -21,6 +21,7 @@ import {
   IconArrowRight,
   IconSend,
   IconBell,
+  IconTag,
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { deleteVacancyFromGira } from "../../services/giraService";
@@ -43,7 +44,12 @@ import RosterTableRow from "../../components/giras/RosterTableRow";
 import RosterGroupSeparatorRow from "../../components/giras/RosterGroupSeparatorRow";
 import RosterMotivoModal from "../../components/giras/RosterMotivoModal";
 import RosterBajaModal from "../../components/giras/RosterBajaModal";
+import RosterGroupsModal from "../../components/giras/RosterGroupsModal";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
+import {
+  buildIntegranteGruposMap,
+  fetchGiraGrupos,
+} from "../../services/giraGruposService";
 import { toast } from "sonner";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
 import UniversalExporter from "../../components/ui/UniversalExporter";
@@ -610,6 +616,31 @@ export default function GiraRoster({
   const [instrumentationWorks, setInstrumentationWorks] = useState([]);
 
   const [motivoModalMusician, setMotivoModalMusician] = useState(null);
+  const [showGruposModal, setShowGruposModal] = useState(false);
+  const [giraGrupos, setGiraGrupos] = useState([]);
+
+  const loadGiraGrupos = async () => {
+    if (!supabase || gira?.id == null) {
+      setGiraGrupos([]);
+      return;
+    }
+    const { grupos, error } = await fetchGiraGrupos(supabase, gira.id);
+    if (error) {
+      console.warn("GiraRoster grupos:", error.message);
+      return;
+    }
+    setGiraGrupos(grupos);
+  };
+
+  useEffect(() => {
+    loadGiraGrupos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, gira?.id]);
+
+  const integranteGruposMap = useMemo(
+    () => buildIntegranteGruposMap(giraGrupos, rawRoster),
+    [giraGrupos, rawRoster],
+  );
 
   const [showOrderMenu, setShowOrderMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -2953,6 +2984,21 @@ export default function GiraRoster({
             )}
           </div>
 
+          {isEditor && (
+            <button
+              type="button"
+              onClick={() => setShowGruposModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50"
+              title="Grupos de convocatoria para ensayos/eventos"
+            >
+              <IconTag size={12} />
+              <span className="hidden sm:inline">
+                Grupos
+                {giraGrupos.length > 0 ? ` (${giraGrupos.length})` : ""}
+              </span>
+            </button>
+          )}
+
           {/* BOTÓN COPIAR MAILS (sigue disponible cuando hay selección) */}
           {selectedIds.size > 0 && (
             <button
@@ -3267,6 +3313,7 @@ export default function GiraRoster({
                       rolesList={rolesList}
                       instrumentsList={instrumentsList}
                       defaultRolId={DEFAULT_ROL_ID}
+                      grupoTags={integranteGruposMap.get(String(m.id)) || []}
                       onToggleSelection={handleRowCheckboxClick}
                       onChangeRole={changeRole}
                       onChangeInstrument={changeInstrument}
@@ -3320,6 +3367,15 @@ export default function GiraRoster({
         isEditor={isEditor}
         onClose={cancelBaja}
         onConfirm={confirmBaja}
+      />
+
+      <RosterGroupsModal
+        isOpen={showGruposModal}
+        onClose={() => setShowGruposModal(false)}
+        supabase={supabase}
+        giraId={gira?.id}
+        roster={rawRoster}
+        onChanged={loadGiraGrupos}
       />
 
       {/* --- MODAL CREACIÓN (DETALLADO) --- */}

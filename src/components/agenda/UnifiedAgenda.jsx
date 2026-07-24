@@ -44,6 +44,11 @@ import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
 import EventForm from "../forms/EventForm";
+import {
+  eventGrupoIdsFromEvent,
+  eventGruposMetaFromEvent,
+  setEventoGrupos,
+} from "../../services/giraGruposService";
 import IndependentRehearsalForm from "../../views/Ensembles/IndependentRehearsalForm";
 import SearchableSelect from "../ui/SearchableSelect";
 import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
@@ -1095,6 +1100,7 @@ export default function UnifiedAgenda({
       tecnica: evt.tecnica || false,
       id_estado_venue: evt.id_estado_venue || null,
       venue_status_note: lastVenueNote,
+      selectedGrupos: eventGrupoIdsFromEvent(evt),
     });
     setIsEditOpen(true);
   };
@@ -1239,7 +1245,7 @@ export default function UnifiedAgenda({
       const newEventId = newEvent.id;
       const originalId = editFormData.id;
 
-      const [ensambles, programas] = await Promise.all([
+      const [ensambles, programas, grupos] = await Promise.all([
         supabase
           .from("eventos_ensambles")
           .select("id_ensamble")
@@ -1247,6 +1253,10 @@ export default function UnifiedAgenda({
         supabase
           .from("eventos_programas_asociados")
           .select("id_programa")
+          .eq("id_evento", originalId),
+        supabase
+          .from("eventos_grupos")
+          .select("id_grupo")
           .eq("id_evento", originalId),
       ]);
 
@@ -1266,6 +1276,13 @@ export default function UnifiedAgenda({
         promises.push(
           supabase.from("eventos_programas_asociados").insert(progPayload),
         );
+      }
+      if (grupos.data?.length > 0) {
+        const grupPayload = grupos.data.map((g) => ({
+          id_evento: newEventId,
+          id_grupo: g.id_grupo,
+        }));
+        promises.push(supabase.from("eventos_grupos").insert(grupPayload));
       }
       await Promise.all(promises);
       setEditFormData({
@@ -1326,6 +1343,13 @@ export default function UnifiedAgenda({
         .eq("id", editFormData.id);
       if (error) throw error;
 
+      const { error: gruposError } = await setEventoGrupos(
+        supabase,
+        editFormData.id,
+        editFormData.selectedGrupos || [],
+      );
+      if (gruposError) throw gruposError;
+
       // Log de cambio de estado de venue (solo conciertos)
 
       if (prevStatus !== newStatus && newStatus != null) {
@@ -1365,6 +1389,7 @@ export default function UnifiedAgenda({
       tecnica: false,
       id_estado_venue: null,
       venue_status_note: "",
+      selectedGrupos: [],
     });
     setIsCreating(true);
   };
@@ -1407,6 +1432,17 @@ export default function UnifiedAgenda({
     if (error) {
       setLoading(false);
       toast.error("Error al crear evento: " + error.message);
+      return;
+    }
+
+    const { error: gruposError } = await setEventoGrupos(
+      supabase,
+      data.id,
+      newFormData.selectedGrupos || [],
+    );
+    if (gruposError) {
+      setLoading(false);
+      toast.error("Evento creado, pero falló asignar grupos: " + gruposError.message);
       return;
     }
 
@@ -2367,6 +2403,21 @@ export default function UnifiedAgenda({
                                               S/E
                                             </span>
                                           )}
+                                          {eventGruposMetaFromEvent(evt).map(
+                                            (g) => (
+                                              <span
+                                                key={`grp-${g.id}`}
+                                                className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-tight"
+                                                style={{
+                                                  backgroundColor: `${g.color || "#6366f1"}18`,
+                                                  color: g.color || "#4338ca",
+                                                  borderColor: `${g.color || "#6366f1"}44`,
+                                                }}
+                                              >
+                                                {g.nombre}
+                                              </span>
+                                            ),
+                                          )}
                                         </div>
                                       </div>
 
@@ -2420,6 +2471,26 @@ export default function UnifiedAgenda({
                                         />
                                       ) : (
                                         <span>{evt.tipos_evento?.nombre}</span>
+                                      )}
+                                      {eventGruposMetaFromEvent(evt).length >
+                                        0 && (
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                          {eventGruposMetaFromEvent(evt).map(
+                                            (g) => (
+                                              <span
+                                                key={`grp-m-${g.id}`}
+                                                className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-tight"
+                                                style={{
+                                                  backgroundColor: `${g.color || "#6366f1"}18`,
+                                                  color: g.color || "#4338ca",
+                                                  borderColor: `${g.color || "#6366f1"}44`,
+                                                }}
+                                              >
+                                                {g.nombre}
+                                              </span>
+                                            ),
+                                          )}
+                                        </div>
                                       )}
                                     </div>
                                   )}
@@ -2810,8 +2881,44 @@ export default function UnifiedAgenda({
                                             S/E
                                           </span>
                                         )}
+                                        {eventGruposMetaFromEvent(evt).map(
+                                          (g) => (
+                                            <span
+                                              key={`grp-d-${g.id}`}
+                                              className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-tight"
+                                              style={{
+                                                backgroundColor: `${g.color || "#6366f1"}18`,
+                                                color: g.color || "#4338ca",
+                                                borderColor: `${g.color || "#6366f1"}44`,
+                                              }}
+                                            >
+                                              {g.nombre}
+                                            </span>
+                                          ),
+                                        )}
                                       </div>
                                     )}
+                                    {evt.id_tipo_evento !== 13 &&
+                                      eventGruposMetaFromEvent(evt).length >
+                                        0 && (
+                                        <div className="flex flex-wrap gap-1 shrink-0">
+                                          {eventGruposMetaFromEvent(evt).map(
+                                            (g) => (
+                                              <span
+                                                key={`grp-d2-${g.id}`}
+                                                className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-tight"
+                                                style={{
+                                                  backgroundColor: `${g.color || "#6366f1"}18`,
+                                                  color: g.color || "#4338ca",
+                                                  borderColor: `${g.color || "#6366f1"}44`,
+                                                }}
+                                              >
+                                                {g.nombre}
+                                              </span>
+                                            ),
+                                          )}
+                                        </div>
+                                      )}
                                     {/* Badges de Logística Personal (Escritorio) */}
                                     <div className="flex flex-wrap gap-1 mt-1">
                                       {isMyUp && (

@@ -297,7 +297,8 @@ export function eventHasEmbeddedRelations(evt) {
   return (
     Array.isArray(evt.eventos_ensambles) ||
     Array.isArray(evt.eventos_programas_asociados) ||
-    Array.isArray(evt.eventos_asistencia_custom)
+    Array.isArray(evt.eventos_asistencia_custom) ||
+    Array.isArray(evt.eventos_grupos)
   );
 }
 
@@ -341,6 +342,9 @@ export function buildRehearsalFormFromEvent(initialData, myEnsembles = []) {
           ? [myEnsembles[0].id]
           : [],
     selectedProgramas,
+    selectedGrupos: (initialData?.eventos_grupos || [])
+      .map((r) => r.id_grupo ?? r.giras_grupos?.id)
+      .filter((id) => id != null),
   };
 
   return { form, customAttendance };

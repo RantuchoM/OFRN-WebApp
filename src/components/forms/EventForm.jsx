@@ -1,4 +1,9 @@
 import React, { useMemo, useState, useRef, useEffect } from "react";
+import MultiSelectDropdown from "../ui/MultiSelectDropdown";
+import {
+  fetchGiraGrupos,
+  GIRA_GRUPO_DEFAULT_COLORS,
+} from "../../services/giraGruposService";
 import {
   IconLoader,
   IconX,
@@ -8,6 +13,7 @@ import {
   IconCopy,
   IconSettings,
   IconBus,
+  IconTag,
 } from "../ui/Icons";
 import DateInput from "../ui/DateInput";
 import TimeInput from "../ui/TimeInput";
@@ -43,6 +49,7 @@ export default function EventForm({
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [transportesList, setTransportesList] = useState([]);
   const [isEditingVenueStatus, setIsEditingVenueStatus] = useState(false);
+  const [gruposOptions, setGruposOptions] = useState([]);
 
   // Usar giraId del evento si el padre no pasó giraId (ej. agenda sin gira en URL)
   const effectiveGiraId = giraId ?? formData?.id_gira ?? null;
@@ -61,6 +68,27 @@ export default function EventForm({
       if (!cancelled) setTransportesList(list || []);
     });
     return () => { cancelled = true; };
+  }, [supabase, effectiveGiraId]);
+
+  useEffect(() => {
+    if (!supabase || effectiveGiraId == null || effectiveGiraId === "") {
+      setGruposOptions([]);
+      return;
+    }
+    let cancelled = false;
+    fetchGiraGrupos(supabase, effectiveGiraId).then(({ grupos }) => {
+      if (cancelled) return;
+      setGruposOptions(
+        (grupos || []).map((g) => ({
+          value: g.id,
+          label: g.nombre,
+          color: g.color || GIRA_GRUPO_DEFAULT_COLORS[0],
+        })),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [supabase, effectiveGiraId]);
 
   // Al crear un evento tipo concierto (1), estado de venue por defecto "Solicitado" (id 2)
@@ -483,6 +511,26 @@ export default function EventForm({
             </label>
           </div>
         )}
+
+        {effectiveGiraId != null &&
+          effectiveGiraId !== "" &&
+          gruposOptions.length > 0 && (
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                <IconTag size={12} /> Grupos de convocatoria
+              </label>
+              <MultiSelectDropdown
+                placeholder="Todos (sin filtro de grupo)"
+                options={gruposOptions}
+                value={(formData.selectedGrupos || []).map(Number)}
+                onChange={(arr) => handleChange("selectedGrupos", arr)}
+              />
+              <p className="text-[9px] text-slate-400">
+                Vacío = visible para todo el roster. Con grupos = solo esos
+                miembros (editores ven todos).
+              </p>
+            </div>
+          )}
       </div>
 
       {/* FOOTER */}

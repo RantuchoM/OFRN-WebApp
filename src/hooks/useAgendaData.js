@@ -20,11 +20,54 @@ const EVENT_SELECT = `
     locaciones ( id, nombre, direccion, link_mapa, localidades (localidad) ),
     programas ( id, nombre_gira, nomenclador, google_drive_folder_id, mes_letra, fecha_desde, fecha_hasta, tipo, zona, estado, fecha_confirmacion_limite, giras_fuentes(tipo, valor_id, valor_texto), giras_integrantes(id_integrante, estado, rol) ),
     eventos_programas_asociados ( programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador, estado, tipo ) ),
-    eventos_ensambles ( ensambles ( id, ensamble ) )
+    eventos_ensambles ( ensambles ( id, ensamble ) ),
+    eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )
   `;
 
 function normalizeEstadoGira(str) {
   return (str || "").toLowerCase().trim();
+}
+
+/** Evento sin grupos → visible; con grupos → solo si el usuario pertenece a alguno (o skipFilter). */
+function passesEventoGruposFilter(item, myGrupoIds, skipFilter) {
+  if (skipFilter) return true;
+  const grupos = item?.eventos_grupos || [];
+  if (grupos.length === 0) return true;
+  return grupos.some((eg) => {
+    const gid = Number(eg.id_grupo ?? eg.giras_grupos?.id);
+    return Number.isFinite(gid) && myGrupoIds.has(gid);
+  });
+}
+
+/**
+ * Membresías de grupos del usuario, excluyendo giras donde está ausente/baja/no_convocado.
+ */
+function buildMyGrupoIdsFromRows(membershipRows, eventsData, effectiveUserId) {
+  const blockedGiras = new Set();
+  (eventsData || []).forEach((e) => {
+    const members = e.programas?.giras_integrantes || [];
+    const myRecord = members.find(
+      (i) => String(i.id_integrante) === String(effectiveUserId),
+    );
+    if (
+      myRecord &&
+      ["ausente", "baja", "no_convocado"].includes(
+        normalizeEstadoGira(myRecord.estado),
+      )
+    ) {
+      const gid = e.id_gira ?? e.programas?.id;
+      if (gid != null) blockedGiras.add(String(gid));
+    }
+  });
+
+  const myGrupoIds = new Set();
+  (membershipRows || []).forEach((row) => {
+    const giraOfGrupo = row.giras_grupos?.id_gira;
+    if (giraOfGrupo != null && blockedGiras.has(String(giraOfGrupo))) return;
+    const gid = Number(row.id_grupo);
+    if (Number.isFinite(gid)) myGrupoIds.add(gid);
+  });
+  return myGrupoIds;
 }
 
 function matchesGiraFuente(sources, userProfile, ensamblesRows, progFd) {
@@ -69,7 +112,7 @@ export function getAgendaCacheKey(
   const scope = giraId
     ? `${giraId}${includeAssociatedEnsembleRehearsals ? "_ensReh" : ""}`
     : "general";
-  return `agenda_cache_${effectiveUserId}_${scope}_v7`;
+  return `agenda_cache_${effectiveUserId}_${scope}_v8`;
 }
 
 function eventBelongsToProgramAgenda(evt, giraId, includeAssociatedEnsembleRehearsals) {
@@ -284,7 +327,7 @@ export function useAgendaData({
           myFamily = userProfile.instrumentos?.familia;
         }
 
-        const [customAttendance, ensembleEvents, feriadosData] =
+        const [customAttendance, ensembleEvents, feriadosData, myGruposRes] =
           await Promise.all([
             supabase
               .from("eventos_asistencia_custom")
@@ -297,6 +340,12 @@ export function useAgendaData({
                   .in("id_ensamble", Array.from(myEnsembles))
               : Promise.resolve({ data: [] }),
             supabase.from("feriados").select("*").order("fecha", { ascending: true }),
+            effectiveUserId && effectiveUserId !== "guest-general"
+              ? supabase
+                  .from("giras_grupos_integrantes")
+                  .select("id_grupo, giras_grupos ( id, id_gira )")
+                  .eq("id_integrante", effectiveUserId)
+              : Promise.resolve({ data: [] }),
           ]);
 
         if (signal.aborted) return;
@@ -524,6 +573,21 @@ export function useAgendaData({
         setMyTransportLogistics(logisticsMap);
         setToursWithRules(foundRuleTours);
 
+        const isManagementProfile = [
+          "admin",
+          "editor",
+          "coord_general",
+          "director",
+        ].includes(profileRole);
+        const skipGrupoFilter =
+          isManagementProfile || Boolean(isEditor) || Boolean(isManagement);
+
+        const myGrupoIds = buildMyGrupoIdsFromRows(
+          myGruposRes?.data,
+          eventsData,
+          effectiveUserId,
+        );
+
         const visibleEvents = (eventsData || []).filter((item) => {
           if (!item.fecha) return false;
 
@@ -549,17 +613,30 @@ export function useAgendaData({
             return false;
           }
 
-          // Resto de eventos (no eliminados) siguen la lógica original de visibilidad.
-          if (giraId) return true;
-          const isManagementProfile = [
-            "admin",
-            "editor",
-            "coord_general",
-            "director",
-          ].includes(profileRole);
+          // Agenda de gira: todos los eventos de la gira, salvo filtro por grupos.
+          if (giraId) {
+            return passesEventoGruposFilter(
+              item,
+              myGrupoIds,
+              skipGrupoFilter,
+            );
+          }
+
           if (isManagementProfile) return true;
-          if (customMap.has(item.id)) return true;
-          if (myEnsembleEventIds.has(item.id)) return true;
+          if (customMap.has(item.id)) {
+            return passesEventoGruposFilter(
+              item,
+              myGrupoIds,
+              skipGrupoFilter,
+            );
+          }
+          if (myEnsembleEventIds.has(item.id)) {
+            return passesEventoGruposFilter(
+              item,
+              myGrupoIds,
+              skipGrupoFilter,
+            );
+          }
           if (item.programas) {
             const overrides = item.programas.giras_integrantes || [];
             const sources = item.programas.giras_fuentes || [];
@@ -571,12 +648,22 @@ export function useAgendaData({
                 ["baja", "no_convocado", "ausente"].includes(myOverride.estado)
               )
                 return false;
-              return true;
+              return passesEventoGruposFilter(
+                item,
+                myGrupoIds,
+                skipGrupoFilter,
+              );
             }
-            return sources.some(
+            const matchesFuente = sources.some(
               (s) =>
                 (s.tipo === "ENSAMBLE" && myEnsembles.has(s.valor_id)) ||
                 (s.tipo === "FAMILIA" && s.valor_texto === myFamily),
+            );
+            if (!matchesFuente) return false;
+            return passesEventoGruposFilter(
+              item,
+              myGrupoIds,
+              skipGrupoFilter,
             );
           }
           return false;
@@ -701,6 +788,8 @@ export function useAgendaData({
       processCategories,
       includeDeletedBeyond24h,
       includeAssociatedEnsembleRehearsals,
+      isEditor,
+      isManagement,
     ],
   );
 
@@ -778,6 +867,38 @@ export function useAgendaData({
           ? false
           : checkIsConvoked(evt.convocados, myTourRole);
 
+        const rawProfileRoleRt = userProfile?.rol_sistema;
+        const profileRoleRt = (() => {
+          if (rawProfileRoleRt == null) return "musico";
+          if (Array.isArray(rawProfileRoleRt))
+            return (
+              rawProfileRoleRt[0]?.toLowerCase?.()?.trim() || "musico"
+            );
+          return String(rawProfileRoleRt).toLowerCase().trim() || "musico";
+        })();
+        const skipGrupoFilterRt =
+          ["admin", "editor", "coord_general", "director"].includes(
+            profileRoleRt,
+          ) ||
+          Boolean(isEditor) ||
+          Boolean(isManagement);
+
+        if (!skipGrupoFilterRt && (evt.eventos_grupos || []).length > 0) {
+          const { data: memb } = await supabase
+            .from("giras_grupos_integrantes")
+            .select("id_grupo, giras_grupos ( id, id_gira )")
+            .eq("id_integrante", effectiveUserId);
+          const myGrupoIdsRt = buildMyGrupoIdsFromRows(
+            memb,
+            [evt],
+            effectiveUserId,
+          );
+          if (!passesEventoGruposFilter(evt, myGrupoIdsRt, false)) {
+            setItems((prev) => prev.filter((item) => item.id !== id));
+            return;
+          }
+        }
+
         setItems((prev) => {
           const without = prev.filter((item) => item.id !== id);
           const merged = [...without, evt].sort((a, b) => {
@@ -815,6 +936,9 @@ export function useAgendaData({
       effectiveUserId,
       checkIsConvoked,
       includeAssociatedEnsembleRehearsals,
+      userProfile,
+      isEditor,
+      isManagement,
     ],
   );
 
