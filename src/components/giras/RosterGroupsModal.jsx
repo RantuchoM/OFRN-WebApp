@@ -235,11 +235,11 @@ export default function RosterGroupsModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 z-[100]"
+      className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-[100]"
       onClick={onClose}
     >
       <div
-        className="bg-white w-full max-w-3xl max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95"
+        className="bg-white w-full sm:max-w-3xl h-[92vh] sm:h-auto sm:max-h-[90vh] rounded-t-2xl sm:rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom sm:zoom-in-95"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
@@ -256,8 +256,8 @@ export default function RosterGroupsModal({
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[220px_1fr] overflow-hidden">
-          <aside className="border-b md:border-b-0 md:border-r border-slate-100 p-3 space-y-3 overflow-y-auto bg-slate-50/50">
+        <div className="flex-1 min-h-0 flex flex-col md:grid md:grid-cols-[220px_1fr] overflow-y-auto md:overflow-hidden">
+          <aside className="border-b md:border-b-0 md:border-r border-slate-100 p-3 space-y-3 md:overflow-y-auto bg-slate-50/50 shrink-0 md:min-h-0">
             <div className="flex gap-1">
               <input
                 type="text"

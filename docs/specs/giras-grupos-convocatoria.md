@@ -26,6 +26,7 @@ Migración: `supabase/migrations/20260724120000_giras_grupos.sql`.
 ## UI
 
 - **Roster** (`GiraRoster`): botón “Grupos de convocatoria” → CRUD de grupos y checklist de miembros (solo confirmados). Tags junto al nombre en `RosterTableRow` (no en ausentes).
+  - **Móvil**: el header duplicado (Volver + título) se oculta; la toolbar queda compacta/scrolleable con el botón **Grupos** siempre con etiqueta visible; modal en sheet inferior (`RosterGroupsModal`) scrolleable.
 - **Agenda** (`EventForm`, `IndependentRehearsalForm`): multi-select de grupos de la gira; persistencia en create/edit/duplicate.
 - **Chips** en `UnifiedAgenda` (móvil y desktop) junto a ensambles cuando el evento tiene grupos.
 
@@ -41,3 +42,4 @@ Implementada en `useAgendaData` sobre el select que incluye `eventos_grupos ( gi
 - [x] Filtro en `useAgendaData` (editores ven todo)
 - [x] Chips + asignación en `EventForm` / `IndependentRehearsalForm` / `UnifiedAgenda`
 - [x] Push migración a main
+- [x] Acceso al gestor de grupos en vista móvil del roster (header compacto + botón visible)

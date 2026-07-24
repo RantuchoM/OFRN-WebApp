@@ -2495,9 +2495,9 @@ export default function GiraRoster({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in duration-300">
-      {/* HEADER */}
-      <div className="bg-white p-4 border-b border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between shrink-0 gap-4 relative z-50">
-        <div className="flex items-center gap-4">
+      {/* HEADER — en móvil se compacta: el padre (GirasView) ya muestra título/tabs */}
+      <div className="bg-white px-3 py-2 md:p-4 border-b border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between shrink-0 gap-2 md:gap-4 relative z-50">
+        <div className="hidden md:flex items-center gap-4">
           <button
             onClick={() => {
               if (pendingBaja) {
@@ -2554,7 +2554,32 @@ export default function GiraRoster({
             </div>
           </div>
         </div>
-        <div className="flex gap-3 items-center">
+        {/* Fuentes de convocatoria: visibles también en móvil (sin el título duplicado) */}
+        {sources.length > 0 && (
+          <div className="flex md:hidden gap-1.5 flex-wrap">
+            {sources.map((s) => (
+              <span
+                key={s.id}
+                className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${
+                  s.tipo === "EXCL_ENSAMBLE"
+                    ? "bg-red-50 text-red-700"
+                    : "bg-fixed-indigo-50 text-fixed-indigo-700"
+                }`}
+              >
+                {s.tipo === "ENSAMBLE" || s.tipo === "EXCL_ENSAMBLE"
+                  ? ensemblesList.find((e) => e.value === s.valor_id)?.label
+                  : s.valor_texto}
+                <button
+                  onClick={() => removeSource(s.id, s.tipo)}
+                  className="ml-1 hover:text-black/70"
+                >
+                  <IconX size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2 md:gap-3 items-center overflow-x-auto no-scrollbar min-w-0 pb-0.5 md:pb-0 md:overflow-visible">
           <MetricBadge
             label="Vacantes"
             items={listaVacantes}
@@ -2579,12 +2604,14 @@ export default function GiraRoster({
             colorBase="bg-amber-50 text-amber-700 border-amber-100"
             icon={<span className="text-xs">+</span>}
           />
-          <UniversalExporter
-            data={exportDataRoster}
-            columns={exportColumnsRoster}
-            fileName={gira?.nomenclador || gira?.nombre_gira || "gira_roster"}
-            orientation="l"
-          />
+          <div className="shrink-0">
+            <UniversalExporter
+              data={exportDataRoster}
+              columns={exportColumnsRoster}
+              fileName={gira?.nomenclador || gira?.nombre_gira || "gira_roster"}
+              orientation="l"
+            />
+          </div>
         </div>
       </div>
 
@@ -2673,11 +2700,11 @@ export default function GiraRoster({
         </div>
       )}
 
-      {/* TOOLBAR */}
-      <div className="px-4 py-2 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-4 z-40 relative">
-        <div className="flex items-center gap-2 flex-wrap">
+      {/* TOOLBAR — en móvil fila scrolleable para no perder Grupos fuera de viewport */}
+      <div className="px-3 md:px-4 py-2 bg-white border-b border-slate-100 flex items-center justify-between gap-2 md:gap-4 z-40 relative sticky top-0 md:static shadow-sm md:shadow-none">
+        <div className="flex items-center gap-2 flex-nowrap md:flex-wrap overflow-x-auto no-scrollbar min-w-0 flex-1 pb-0.5 md:pb-0 md:overflow-visible">
           {/* ORDEN */}
-          <div className="inline-flex items-stretch rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="inline-flex items-stretch rounded-lg border border-slate-200 bg-white shadow-sm shrink-0">
             <div className="relative" ref={orderMenuRef}>
               <button
                 type="button"
@@ -2988,11 +3015,15 @@ export default function GiraRoster({
             <button
               type="button"
               onClick={() => setShowGruposModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50"
+              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold transition-colors ${
+                giraGrupos.length > 0
+                  ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+                  : "bg-white text-slate-600 hover:bg-slate-50 border-slate-200"
+              }`}
               title="Grupos de convocatoria para ensayos/eventos"
             >
               <IconTag size={12} />
-              <span className="hidden sm:inline">
+              <span>
                 Grupos
                 {giraGrupos.length > 0 ? ` (${giraGrupos.length})` : ""}
               </span>
@@ -3012,7 +3043,7 @@ export default function GiraRoster({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {/* Toggle Notificaciones Automáticas */}
           <button
             type="button"
@@ -3029,7 +3060,7 @@ export default function GiraRoster({
                 .update({ notificaciones_habilitadas: newValue })
                 .eq("id", gira.id);
             }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 border rounded text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 border rounded text-xs font-bold transition-all ${
               notificacionesHabilitadas
                 ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
                 : "bg-slate-100 border-slate-300 text-slate-500 hover:bg-slate-200"
@@ -3049,7 +3080,7 @@ export default function GiraRoster({
             </span>
           </button>
 
-          <div className="relative" ref={columnMenuRef}>
+          <div className="relative hidden sm:block" ref={columnMenuRef}>
             <button
               onClick={() => setShowColumnMenu(!showColumnMenu)}
               className={`flex items-center gap-1 px-3 py-1.5 border rounded text-xs font-bold transition-all ${
