@@ -33,3 +33,8 @@
 ## 6. Manejo de Tiempos y Duraciones
 - **Segundos a Texto**: Usar `formatSecondsToTime` (ej: 305 -> "5:05").
 - **Inputs**: Usar `inputToSeconds`. Si el usuario ingresa un entero (ej: "5"), interpretarlo siempre como MINUTOS (300s).
+
+## 7. Deploy de Migraciones Supabase (Obligatorio)
+- Toda migración nueva o cambiada en `supabase/migrations/` debe aplicarse al proyecto **linked** antes de cerrar la tarea (`npx supabase db push`, o `db query --linked -f …` + `migration repair --status applied`).
+- Verificar con `npx supabase migration list` que Local y Remote coinciden para la versión nueva.
+- Nunca marcar `applied` sin haber ejecutado el SQL en remoto. Detalle: `.cursor/rules/supabase-migration-deploy.mdc`.

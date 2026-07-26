@@ -1,0 +1,19 @@
+---
+description: Siempre desplegar migraciones SQL a Supabase linked al terminar cambios de schema
+alwaysApply: true
+---
+
+# Deploy obligatorio de migraciones Supabase
+
+Cuando crees o modifiques archivos en `supabase/migrations/`:
+
+1. **Aplicar al proyecto linked** antes de dar la tarea por terminada (no alcanza con dejar el `.sql` en el repo).
+2. Flujo preferido:
+   - `npx supabase db push` (si el historial local/remoto está alineado).
+   - Si `db push` falla por historial desfasado o riesgo de re-ejecutar migraciones viejas: aplicar solo el SQL nuevo con `npx supabase db query --linked -f supabase/migrations/<archivo>.sql` y luego `npx supabase migration repair --status applied <version> --yes`.
+3. **Verificar** con `npx supabase migration list` que la versión nueva figure en Local **y** Remote.
+4. No marcar una migración como `applied` en el historial sin haber ejecutado el SQL en la DB linked.
+5. No uses `db query` sin `--linked` (por defecto apunta a local y puede fallar o no tocar producción).
+6. Si hay versiones solo en Remote (huérfanas), `migration repair --status reverted <versions>` antes de seguir; si hay locales ya reflejadas en el schema pero ausentes en Remote, `repair --status applied` (sin re-ejecutar el SQL).
+
+El objetivo es que el historial de `supabase_migrations.schema_migrations` y el schema remoto no se desactualicen respecto al repo.
