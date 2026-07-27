@@ -23,6 +23,7 @@ function computeSectionTotals(section, adjustments, bedsPerRoom) {
   let totalPax = 0;
   let totalBeds = 0;
   let suggestedRooms = 0;
+  let totalCunas = 0;
 
   section.sortedKeys.forEach((rangeKey) => {
     const g = section.groups[rangeKey];
@@ -38,9 +39,10 @@ function computeSectionTotals(section, adjustments, bedsPerRoom) {
     totalPax += pax;
     totalBeds += pax * g.nights;
     suggestedRooms += computeSuggestedRooms(totalF, totalM, bedsPerRoom);
+    totalCunas += Array.isArray(g.cunas) ? g.cunas.length : 0;
   });
 
-  return { basePax, totalPax, totalBeds, suggestedRooms };
+  return { basePax, totalPax, totalBeds, suggestedRooms, totalCunas };
 }
 
 function SectionSummaryBox({ title, totals, bedsPerRoom }) {
@@ -64,6 +66,16 @@ function SectionSummaryBox({ title, totals, bedsPerRoom }) {
         </div>
         <div className="text-lg font-bold text-indigo-700">{totals.totalPax}</div>
       </div>
+      {(totals.totalCunas || 0) > 0 && (
+        <div>
+          <div className="text-emerald-700 font-semibold uppercase text-[10px]">
+            Cunas
+          </div>
+          <div className="text-lg font-bold text-emerald-700">
+            {totals.totalCunas}
+          </div>
+        </div>
+      )}
       {roomsLabel && (
         <div>
           <div className="text-slate-500 font-semibold uppercase text-[10px]">
@@ -281,8 +293,15 @@ const RoomingInitialAdjustmentModal = ({
           totalPax: acc.totalPax + totals.totalPax,
           totalBeds: acc.totalBeds + totals.totalBeds,
           suggestedRooms: acc.suggestedRooms + totals.suggestedRooms,
+          totalCunas: acc.totalCunas + (totals.totalCunas || 0),
         }),
-        { basePax: 0, totalPax: 0, totalBeds: 0, suggestedRooms: 0 },
+        {
+          basePax: 0,
+          totalPax: 0,
+          totalBeds: 0,
+          suggestedRooms: 0,
+          totalCunas: 0,
+        },
       ),
     [visibleSectionEntries],
   );
@@ -320,6 +339,9 @@ const RoomingInitialAdjustmentModal = ({
             </th>
             <th className="border border-slate-200 bg-slate-50 px-2 py-1">
               Base Total
+            </th>
+            <th className="border border-slate-200 bg-slate-50 px-2 py-1 text-emerald-800">
+              Cunas
             </th>
             <th className="border border-slate-200 bg-slate-50 px-2 py-1 bg-slate-100">
               + STD F
@@ -363,6 +385,12 @@ const RoomingInitialAdjustmentModal = ({
               bedsPerRoom,
             );
             const totalBedsRow = totalPaxRow * g.nights;
+            const cunaCount = Array.isArray(g.cunas) ? g.cunas.length : 0;
+            const cunaTitle = (g.cunas || [])
+              .map((c) =>
+                [c.apellido, c.nombre].filter(Boolean).join(", ") || c.label,
+              )
+              .join(" · ");
 
             return (
               <tr key={`${section.segmentId}-${rangeKey}`}>
@@ -380,6 +408,12 @@ const RoomingInitialAdjustmentModal = ({
                 </td>
                 <td className="border border-slate-200 px-2 py-1 text-center font-semibold">
                   {g.baseCount}
+                </td>
+                <td
+                  className="border border-slate-200 px-2 py-1 text-center font-semibold text-emerald-700"
+                  title={cunaTitle || undefined}
+                >
+                  {cunaCount > 0 ? cunaCount : "—"}
                 </td>
                 <td className="border border-slate-200 px-2 py-1 bg-slate-50">
                   <input

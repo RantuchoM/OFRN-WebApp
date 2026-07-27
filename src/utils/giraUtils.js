@@ -347,7 +347,7 @@ export const resolveTourRoleOverride = (manualRole, member, fallbackRole) => {
  * Determines if a member is convoked to an event based on tags.
  * @param {Array<string>} convocadosList - Array of event tags (e.g., ["GRP:TUTTI", "LOC:1"])
  * @param {Object} person - Member object processed by useGiraRoster (must have is_local, rol_gira)
- * @param {{ hospedajeExcluidosIds?: Array<number|string> }} [opts] - Si viene `hospedajeExcluidosIds`, "GRP:NO_LOCALES" (Solo alojados en comidas) excluye quienes están en Hotelería como "No alojados".
+ * @param {{ hospedajeExcluidosIds?: Array<number|string>, cunaExcluidosIds?: Array<number|string> }} [opts] - `hospedajeExcluidosIds`: "GRP:NO_LOCALES" (Solo alojados) excluye "No alojados". Bebés en cuna (`en_cuna` / `ocupa_cama: false` / `cunaExcluidosIds`) quedan fuera de **cualquier** tag.
  */
 function personIsLocalForConvocado(person, opts) {
   const { fecha, servicio, segments, hora } = opts;
@@ -365,6 +365,15 @@ function personIsLocalForConvocado(person, opts) {
 
 export const isUserConvoked = (convocadosList, person, opts = {}) => {
   if (!convocadosList || convocadosList.length === 0) return false;
+
+  // Bebé en cuna (rooming): no consume → nunca convocado a comidas / eventos por tags.
+  if (person?.en_cuna === true || person?.ocupa_cama === false) return false;
+  if (
+    opts.cunaExcluidosIds?.length &&
+    opts.cunaExcluidosIds.some((id) => String(id) === String(person?.id))
+  ) {
+    return false;
+  }
 
   const hospedajeExcluidosIds = opts.hospedajeExcluidosIds;
   const excluidosHotel =

@@ -20,6 +20,7 @@ import { es } from "date-fns/locale";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 import { isUserConvoked, normalize } from "../../utils/giraUtils";
+import { resolveEnCunaFromRooms } from "../../utils/mealLogistics";
 
 export default function MealsAttendancePersonal({ supabase, gira, userId }) {
   // 1. Obtener la verdad única del Roster
@@ -58,39 +59,71 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
         return;
       }
 
-      setUserData(myUser);
-
       const estadoTour = normalize(myUser.estado_gira || myUser.estado || "");
       if (
         estadoTour === "ausente" ||
         estadoTour === "baja" ||
         estadoTour === "no_convocado"
       ) {
+        setUserData(myUser);
         setAnswers({});
         setMyEvents([]);
         setLoading(false);
         return;
       }
 
-      const [{ data: exclRows }, { data: events, error: eventError }] =
-        await Promise.all([
-          supabase
-            .from("giras_hospedajes_excluidos")
-            .select("id_integrante")
-            .eq("id_programa", gira.id),
-          supabase
-            .from("eventos")
-            .select(
-              "*, locaciones(nombre,localidades(localidad)), tipos_evento(nombre)",
-            )
-            .eq("id_gira", gira.id)
-            .eq("is_deleted", false)
-            .in("id_tipo_evento", [7, 8, 9, 10])
-            .order("fecha", { ascending: true })
-            .order("hora_inicio", { ascending: true }),
-        ]);
+      const [
+        { data: exclRows },
+        { data: hospRows },
+        { data: events, error: eventError },
+      ] = await Promise.all([
+        supabase
+          .from("giras_hospedajes_excluidos")
+          .select("id_integrante")
+          .eq("id_programa", gira.id),
+        supabase
+          .from("programas_hospedajes")
+          .select("id")
+          .eq("id_programa", gira.id),
+        supabase
+          .from("eventos")
+          .select(
+            "*, locaciones(nombre,localidades(localidad)), tipos_evento(nombre)",
+          )
+          .eq("id_gira", gira.id)
+          .eq("is_deleted", false)
+          .in("id_tipo_evento", [7, 8, 9, 10])
+          .order("fecha", { ascending: true })
+          .order("hora_inicio", { ascending: true }),
+      ]);
 
       if (eventError) throw eventError;
+
+      const hospIds = (hospRows || []).map((h) => h.id);
+      let rooms = [];
+      if (hospIds.length > 0) {
+        const { data: roomRows } = await supabase
+          .from("hospedaje_habitaciones")
+          .select("asignaciones_config")
+          .in("id_hospedaje", hospIds);
+        rooms = roomRows || [];
+      }
+
+      const en_cuna = resolveEnCunaFromRooms(userId, rooms);
+      const myUserEnriched = {
+        ...myUser,
+        en_cuna,
+        ...(en_cuna ? { ocupa_cama: false } : {}),
+      };
+      setUserData(myUserEnriched);
+
+      // Bebé en cuna: no consume → sin comidas personales.
+      if (en_cuna) {
+        setAnswers({});
+        setMyEvents([]);
+        setLoading(false);
+        return;
+      }
 
       const hospedajeExcluidosIds = (exclRows || []).map(
         (r) => r.id_integrante,
@@ -110,7 +143,9 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
 
       // 5. Filtrar convocatoria usando el helper y los datos del hook
       const relevantEvents = (events || []).filter((evt) =>
-        isUserConvoked(evt.convocados, myUser, { hospedajeExcluidosIds }),
+        isUserConvoked(evt.convocados, myUserEnriched, {
+          hospedajeExcluidosIds,
+        }),
       );
       setMyEvents(relevantEvents);
     } catch (error) {

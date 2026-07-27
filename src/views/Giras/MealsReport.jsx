@@ -295,16 +295,36 @@ export default function MealsReport({
           );
         }
         const extraText = extras.length > 0 ? ` (${extras.join(", ")})` : "";
+        const paxLabel = group.pax === 1 ? "pasajero" : "pasajeros";
         return (
           `Grupo ingreso ${formatDayRange(group.inDate)} al ${formatDayRange(group.outDate)}\n` +
-          `${group.pax} pasajeros${extraText}`
+          `${group.pax} ${paxLabel}${extraText}`
         );
       });
 
+    const stayPaxTotal = Object.values(groupedByStay).reduce(
+      (sum, group) => sum + group.pax,
+      0,
+    );
+
+    // Para alimentación: el total debe reflejar comidas (pico por servicio),
+    // no el conteo de hospedaje no local (que puede no coincidir con ningún servicio).
+    const mealPeak = filteredReport.reduce(
+      (max, row) => Math.max(max, row.counts?.Total || 0),
+      0,
+    );
+
     const blocks = [];
-    blocks.push(`Cantidad de pax: ${nonLocalRoster.length} pax`);
+    if (mealPeak > 0) {
+      blocks.push(`Cantidad de pasajeros: ${mealPeak}`);
+    }
     if (mealBlocks.length > 0) blocks.push(mealBlocks.join("\n\n"));
     blocks.push("Fecha de ingreso y egreso.");
+    if (stayPaxTotal > 0) {
+      blocks.push(
+        `Hospedaje (no locales): ${stayPaxTotal} ${stayPaxTotal === 1 ? "pasajero" : "pasajeros"}`,
+      );
+    }
     if (stayBlocks.length > 0) blocks.push(stayBlocks.join("\n\n"));
     return blocks.join("\n\n");
   }, [filteredReport, nonLocalRoster]);

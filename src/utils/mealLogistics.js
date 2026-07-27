@@ -9,6 +9,43 @@ export const MEAL_SERVICE_ORDER = {
   Cena: 3,
 };
 
+/**
+ * Bebé / menor en cuna (`ocupa_cama: false` en rooming): no consume, no cuenta en comidas.
+ */
+export function isPersonInCuna(person) {
+  if (!person) return false;
+  if (person.en_cuna === true) return true;
+  if (person.ocupa_cama === false) return true;
+  return false;
+}
+
+/** ¿El integrante está en cuna según `asignaciones_config` de las habitaciones? */
+export function resolveEnCunaFromRooms(personId, rooms = []) {
+  if (personId == null) return false;
+  for (const room of rooms || []) {
+    const cfg = Array.isArray(room.asignaciones_config)
+      ? room.asignaciones_config.find(
+          (c) => c?.id != null && String(c.id) === String(personId),
+        )
+      : null;
+    if (cfg) return cfg.ocupa_cama === false;
+  }
+  return false;
+}
+
+/** IDs de ocupantes en cuna (no consumen comidas). */
+export function collectCunaOccupantIds(rooms = []) {
+  const ids = new Set();
+  (rooms || []).forEach((room) => {
+    (Array.isArray(room.asignaciones_config) ? room.asignaciones_config : []).forEach(
+      (c) => {
+        if (c?.id != null && c.ocupa_cama === false) ids.add(Number(c.id));
+      },
+    );
+  });
+  return ids;
+}
+
 export const MEAL_TYPE_ID_TO_SERVICE = {
   7: "Desayuno",
   8: "Almuerzo",
@@ -64,6 +101,14 @@ export function isPersonEligibleForMealSlot(
   options = {},
 ) {
   if (!person || person.estado_gira !== "confirmado") return false;
+  // Bebé en cuna: no consume, fuera de cualquier criterio de convocados.
+  if (isPersonInCuna(person)) return false;
+  if (
+    options.cunaExcluidosIds?.length &&
+    options.cunaExcluidosIds.some((id) => String(id) === String(person.id))
+  ) {
+    return false;
+  }
 
   if (convocados?.length) {
     if (

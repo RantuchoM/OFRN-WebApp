@@ -46,6 +46,7 @@ Implementado en `getRuleCategoryTiebreak` y `compareLogisticsRulePrecedence` (`g
 - **Reglas y matching:** `getMatchStrength`, `matchesRule` y `calculateLogisticsSummary` usan el mismo valor devuelto para `target_categories` y alcance `Categoria` en rutas/admisión.
 - **Desempate categoría:** `getRuleCategoryTiebreak` + `compareLogisticsRulePrecedence` en hotelería, hitos de comida y proveedores (`prov_*`).
 - **UI:** selectores de categoría incluyen el valor exacto `EXTERNOS` (p. ej. `StopRulesManager.jsx`, `LogisticsManager.jsx`).
+- **Sync roster → comidas:** `LogisticsDashboard` refresca su `useLogistics` al entrar a matriz/asistencia/reporte, y `LogisticsManager` notifica `onLogisticsChange` al guardar reglas (evita datos stale sin F5).
 
 ## Base de datos
 

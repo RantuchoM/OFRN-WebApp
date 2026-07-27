@@ -243,8 +243,47 @@ function getRoomOccupantIds(room) {
   return ids;
 }
 
+/** Todos los asignados a la habitación, incluidas cunas (para fechas de estadía). */
+function getAllRoomPersonIds(room) {
+  const ids = new Set();
+  (room.occupants || []).forEach((o) => {
+    if (o?.id != null) ids.add(Number(o.id));
+  });
+  const cfg = Array.isArray(room.asignaciones_config)
+    ? room.asignaciones_config
+    : [];
+  cfg.forEach((c) => {
+    if (c?.id != null) ids.add(Number(c.id));
+  });
+  (room.id_integrantes_asignados || []).forEach((id) => ids.add(Number(id)));
+  return ids;
+}
+
 function isAssignedToSegmentRoom(personId, room) {
   return getRoomOccupantIds(room).has(Number(personId));
+}
+
+/** Bebé / menor en cuna: no suma pax ni noches pagas. */
+function isPersonInCunaForPedido(personId, segmentRooms, person) {
+  if (person?.en_cuna === true || person?.ocupa_cama === false) return true;
+  for (const room of segmentRooms || []) {
+    const cfg = Array.isArray(room.asignaciones_config)
+      ? room.asignaciones_config.find(
+          (c) => c?.id != null && String(c.id) === String(personId),
+        )
+      : null;
+    if (cfg) return cfg.ocupa_cama === false;
+    const occ = (room.occupants || []).find(
+      (o) => o?.id != null && String(o.id) === String(personId),
+    );
+    if (occ && occ.ocupa_cama === false) return true;
+  }
+  return false;
+}
+
+function personCunaLabel(person) {
+  const name = [person?.apellido, person?.nombre].filter(Boolean).join(", ");
+  return name || (person?.id != null ? `ID ${person.id}` : "Cuna");
 }
 
 function getSegmentRooms(rooms, segmentBookingIds) {
@@ -397,8 +436,39 @@ function resolvePersonForPedido(personId, rosterById, segmentRooms) {
       (o) => Number(o.id) === Number(personId),
     );
     if (occ) return { ...fromRoster, ...occ };
+    const cfg = Array.isArray(room.asignaciones_config)
+      ? room.asignaciones_config.find(
+          (c) => c?.id != null && Number(c.id) === Number(personId),
+        )
+      : null;
+    if (cfg) {
+      return {
+        ...fromRoster,
+        ocupa_cama: cfg.ocupa_cama !== false,
+        en_cuna: cfg.ocupa_cama === false,
+      };
+    }
   }
   return fromRoster;
+}
+
+function ensureDateGroup(dateGroups, key, clippedIn, clippedOut, nights) {
+  if (!dateGroups[key]) {
+    dateGroups[key] = {
+      rangeLabel: key,
+      checkIn: clippedIn,
+      checkOut: clippedOut,
+      nights,
+      baseCount: 0,
+      baseStd: 0,
+      basePlus: 0,
+      baseM: 0,
+      baseF: 0,
+      cunas: [],
+    };
+  }
+  if (!Array.isArray(dateGroups[key].cunas)) dateGroups[key].cunas = [];
+  return dateGroups[key];
 }
 
 function addPersonToDateGroups({
@@ -412,6 +482,7 @@ function addPersonToDateGroups({
   isPersonInPlus,
   formatD,
   formatT,
+  asCuna = false,
 }) {
   if (!dIn || !dOut || isNaN(dIn.getTime()) || isNaN(dOut.getTime())) return;
 
@@ -437,22 +508,31 @@ function addPersonToDateGroups({
     if (nights <= 0) return;
 
     const key = `${formatD(clippedIn)} ${formatT(clippedIn)} - ${formatD(clippedOut)} ${formatT(clippedOut)}`;
+    const group = ensureDateGroup(
+      dateGroups,
+      key,
+      clippedIn,
+      clippedOut,
+      nights,
+    );
 
-    if (!dateGroups[key]) {
-      dateGroups[key] = {
-        rangeLabel: key,
-        checkIn: clippedIn,
-        checkOut: clippedOut,
-        nights,
-        baseCount: 0,
-        baseStd: 0,
-        basePlus: 0,
-        baseM: 0,
-        baseF: 0,
-      };
+    // Cuna: informar fechas/nombre; no suma pax ni noches pagas.
+    if (asCuna) {
+      const pid = Number(person.id);
+      if (!group.cunas.some((c) => Number(c.id) === pid)) {
+        group.cunas.push({
+          id: person.id,
+          apellido: person.apellido || "",
+          nombre: person.nombre || "",
+          label: personCunaLabel(person),
+          checkIn: clippedIn,
+          checkOut: clippedOut,
+          nights,
+        });
+      }
+      return;
     }
 
-    const group = dateGroups[key];
     group.baseCount++;
     if (isPersonInPlus(person.id)) group.basePlus++;
     else group.baseStd++;
@@ -514,7 +594,7 @@ export function buildInitialDateGroups({
 
   segmentRooms.forEach((room) => {
     const booking = bookingById.get(room.id_hospedaje);
-    getRoomOccupantIds(room).forEach((personId) => {
+    getAllRoomPersonIds(room).forEach((personId) => {
       if (!assignedBookingByPerson.has(personId)) {
         assignedBookingByPerson.set(personId, booking);
       }
@@ -548,6 +628,8 @@ export function buildInitialDateGroups({
       return;
     }
 
+    const asCuna = isPersonInCunaForPedido(personId, segmentRooms, enriched);
+
     const log = logisticsMap[person.id] ?? logisticsMap[personId];
     const assignedBooking = assignedBookingByPerson.get(personId);
     let dIn;
@@ -571,6 +653,7 @@ export function buildInitialDateGroups({
       isPersonInPlus,
       formatD,
       formatT,
+      asCuna,
     });
   });
 
@@ -651,6 +734,8 @@ export function buildInitialOrderSections({
       const totalF = group.baseF + (adj.std_f || 0) + (adj.plus_f || 0);
       const totalM = group.baseM + (adj.std_m || 0) + (adj.plus_m || 0);
       const suggestedRooms = computeSuggestedRooms(totalF, totalM, bedsPerRoom);
+      const cunas = Array.isArray(group.cunas) ? group.cunas : [];
+      const cunaCount = cunas.length;
 
       return {
         group,
@@ -661,14 +746,20 @@ export function buildInitialOrderSections({
         plusNights,
         totalRowNights,
         suggestedRooms,
+        cunas,
+        cunaCount,
       };
     });
+
+    const allCunas = computedRows.flatMap((row) => row.cunas);
 
     return {
       segmentId: segRow?.id ?? null,
       title: segRow && hasTramos ? formatTramoLabel(idx) : null,
       sortedGroups,
       computedRows,
+      cunas: allCunas,
+      totalCunas: allCunas.length,
       totalPax: computedRows.reduce((acc, row) => acc + row.totalRowPax, 0),
       totalBedNights: computedRows.reduce(
         (acc, row) => acc + row.totalRowNights,
@@ -717,6 +808,27 @@ function formatStayRangeText(checkIn, checkOut) {
   return `Check-in: ${inD} - check-out: ${outD}`;
 }
 
+function formatCunaDateTime(date) {
+  if (!date || Number.isNaN(date.getTime())) return "";
+  const d = formatDateDDMM(date);
+  const t = format(date, "HH:mm");
+  return `${d} ${t}`;
+}
+
+/** Línea de pedido para una cuna (no factura noche). */
+function formatCunaOrderLine(cuna) {
+  const inPart = formatCunaDateTime(cuna.checkIn);
+  const outPart = formatCunaDateTime(cuna.checkOut);
+  const name =
+    [cuna.apellido, cuna.nombre].filter(Boolean).join(", ") ||
+    cuna.label ||
+    "Cuna";
+  if (!inPart || !outPart) {
+    return `1 cuna — ${name}`;
+  }
+  return `1 cuna. Check-in ${inPart} - Check-out ${outPart} — ${name}`;
+}
+
 function sumSectionsForText(sections) {
   return (sections || []).reduce(
     (acc, section) => ({
@@ -730,6 +842,7 @@ function sumSectionsForText(sections) {
         acc.grandTotalPlusNights + (section.grandTotalPlusNights || 0),
       totalSuggestedRooms:
         acc.totalSuggestedRooms + (section.totalSuggestedRooms || 0),
+      totalCunas: acc.totalCunas + (section.totalCunas || 0),
     }),
     {
       totalPax: 0,
@@ -739,44 +852,54 @@ function sumSectionsForText(sections) {
       grandTotalStdNights: 0,
       grandTotalPlusNights: 0,
       totalSuggestedRooms: 0,
+      totalCunas: 0,
     },
   );
 }
 
 function appendTextSummaryBlock(lines, totals, { title, bedsPerRoom } = {}) {
-  if (!totals?.totalPax) return;
+  if (!totals?.totalPax && !totals?.totalCunas) return;
 
   lines.push("");
   if (title) lines.push(title);
 
-  lines.push(`Total pasajeros: ${totals.totalPax}`);
+  if (totals.totalPax > 0) {
+    lines.push(`Total pasajeros: ${totals.totalPax}`);
 
-  const paxParts = [];
-  if (totals.totalStdPax > 0) {
-    paxParts.push(`${totals.totalStdPax} estándar`);
-  }
-  if (totals.totalPlusPax > 0) {
-    paxParts.push(`${totals.totalPlusPax} superior`);
-  }
-  if (paxParts.length > 1) {
-    lines.push(`Desglose: ${paxParts.join(" · ")}`);
+    const paxParts = [];
+    if (totals.totalStdPax > 0) {
+      paxParts.push(`${totals.totalStdPax} estándar`);
+    }
+    if (totals.totalPlusPax > 0) {
+      paxParts.push(`${totals.totalPlusPax} superior`);
+    }
+    if (paxParts.length > 1) {
+      lines.push(`Desglose: ${paxParts.join(" · ")}`);
+    }
+
+    lines.push(`Noches básicas (camas): ${totals.grandTotalStdNights}`);
+    if (totals.grandTotalPlusNights > 0) {
+      lines.push(`Noches superiores (camas): ${totals.grandTotalPlusNights}`);
+    }
+    lines.push(`Total camas noche: ${totals.totalBedNights}`);
+
+    const roomsLabel = getSuggestedRoomsLabel(bedsPerRoom);
+    if (roomsLabel && totals.totalSuggestedRooms > 0) {
+      lines.push(`${roomsLabel}: ${totals.totalSuggestedRooms}`);
+    }
   }
 
-  lines.push(`Noches básicas (camas): ${totals.grandTotalStdNights}`);
-  if (totals.grandTotalPlusNights > 0) {
-    lines.push(`Noches superiores (camas): ${totals.grandTotalPlusNights}`);
-  }
-  lines.push(`Total camas noche: ${totals.totalBedNights}`);
-
-  const roomsLabel = getSuggestedRoomsLabel(bedsPerRoom);
-  if (roomsLabel && totals.totalSuggestedRooms > 0) {
-    lines.push(`${roomsLabel}: ${totals.totalSuggestedRooms}`);
+  if (totals.totalCunas > 0) {
+    lines.push(
+      `Total cunas (no facturan noche): ${totals.totalCunas}`,
+    );
   }
 }
 
 /**
  * Texto plano para enviar a hotelería (mismo criterio de filas que el pedido tabular).
  * Ej: "15 pasajeros. Check-in: jueves, 18/6 - check-out: sábado, 20/6"
+ * Cunas: "1 cuna. Check-in DD/MM HH:MM - Check-out DD/MM HH:MM — Apellido, Nombre"
  */
 export function buildInitialOrderTextSummary(
   sections = [],
@@ -793,23 +916,34 @@ export function buildInitialOrderTextSummary(
     }
 
     (section.computedRows || []).forEach((row) => {
-      const { stdPax, plusPax, group } = row;
+      const { stdPax, plusPax, group, cunas } = row;
       const datePart = formatStayRangeText(group?.checkIn, group?.checkOut);
-      if (!datePart) return;
+      const rowCunas = Array.isArray(cunas)
+        ? cunas
+        : Array.isArray(group?.cunas)
+          ? group.cunas
+          : [];
 
-      if (stdPax > 0) {
-        lines.push(
-          `${stdPax} ${pasajeroLabel(stdPax)}. ${datePart}`,
-        );
+      if (datePart) {
+        if (stdPax > 0) {
+          lines.push(`${stdPax} ${pasajeroLabel(stdPax)}. ${datePart}`);
+        }
+        if (plusPax > 0) {
+          lines.push(
+            `${plusPax} ${pasajeroLabel(plusPax)} ${superiorRoomLabel}. ${datePart}`,
+          );
+        }
       }
-      if (plusPax > 0) {
-        lines.push(
-          `${plusPax} ${pasajeroLabel(plusPax)} ${superiorRoomLabel}. ${datePart}`,
-        );
-      }
+
+      rowCunas.forEach((cuna) => {
+        lines.push(formatCunaOrderLine(cuna));
+      });
     });
 
-    if (showTramoHeaders && section.totalPax > 0) {
+    if (
+      showTramoHeaders &&
+      (section.totalPax > 0 || section.totalCunas > 0)
+    ) {
       appendTextSummaryBlock(lines, section, {
         title: `Resumen · ${section.title ?? "Tramo"}`,
         bedsPerRoom,
@@ -827,7 +961,7 @@ export function buildInitialOrderTextSummary(
   });
 
   const grandTotals = sumSectionsForText(sections);
-  if (grandTotals.totalPax > 0) {
+  if (grandTotals.totalPax > 0 || grandTotals.totalCunas > 0) {
     appendTextSummaryBlock(lines, grandTotals, {
       title: showTramoHeaders
         ? `Total general (${sections.length} tramos)`

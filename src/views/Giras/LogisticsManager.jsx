@@ -766,6 +766,7 @@ export default function LogisticsManager({
   supabase,
   gira,
   activeTramoIdx = 0,
+  onLogisticsChange,
 }) {
   const {
     summary,
@@ -773,10 +774,15 @@ export default function LogisticsManager({
     logisticsRules,
     allEvents,
     sedeIds,
-    refresh,
+    refresh: refreshLocal,
     allLocalities,
     segments,
   } = useLogistics(supabase, gira);
+
+  const refresh = () => {
+    refreshLocal();
+    onLogisticsChange?.();
+  };
   const [localRules, setLocalRules] = useState([]);
   const [savingStatus, setSavingStatus] = useState({});
   const [collapsedGroups, setCollapsedGroups] = useState({

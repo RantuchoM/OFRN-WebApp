@@ -141,6 +141,16 @@ export default function LogisticsDashboard({
     setIsMealsMenuOpen(false);
   };
 
+  // Cobertura usa su propio useLogistics; al ir a comidas/asistencia/reporte
+  // hay que refrescar el summary del dashboard para no mostrar reglas stale.
+  useEffect(() => {
+    if (["meals", "attendance", "report"].includes(activeTab)) {
+      refreshLogistics();
+    }
+    // Solo al cambiar de pestaña (refreshLogistics no es identity-estable).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tab enter only
+  }, [activeTab]);
+
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
       {/* HEADER UNIF ICADO */}
@@ -421,6 +431,7 @@ export default function LogisticsDashboard({
               gira={gira}
               onBack={null}
               activeTramoIdx={activeTramoIdx}
+              onLogisticsChange={refreshLogistics}
             />
           )}
 

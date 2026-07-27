@@ -88,11 +88,23 @@ export const calculateLogisticsSummary = (
   return roster.map((person) => {
     const pId = person.id || person.id_integrante;
     const habitacion =
-      allRooms?.find((room) =>
-        (room.id_integrantes_asignados || []).some(
-          (id) => String(id) === String(pId),
-        ),
+      allRooms?.find(
+        (room) =>
+          (room.id_integrantes_asignados || []).some(
+            (id) => String(id) === String(pId),
+          ) ||
+          (Array.isArray(room.asignaciones_config) &&
+            room.asignaciones_config.some(
+              (c) => c?.id != null && String(c.id) === String(pId),
+            )),
       ) || null;
+
+    const cunaCfg = Array.isArray(habitacion?.asignaciones_config)
+      ? habitacion.asignaciones_config.find(
+          (c) => c?.id != null && String(c.id) === String(pId),
+        )
+      : null;
+    const en_cuna = cunaCfg?.ocupa_cama === false;
 
     let log = {
       checkin: {},
@@ -303,7 +315,14 @@ export const calculateLogisticsSummary = (
       });
     });
 
-    return { ...person, habitacion, ...log, logistics: log };
+    return {
+      ...person,
+      habitacion,
+      en_cuna,
+      ...(cunaCfg ? { ocupa_cama: cunaCfg.ocupa_cama !== false } : {}),
+      ...log,
+      logistics: log,
+    };
   });
 };
 // --- 3. HOOK useLogistics PRINCIPAL ---
@@ -518,6 +537,11 @@ export function useLogistics(supabase, gira, trigger = 0) {
     return res;
   }, [baseRoster, db]);
 
+  const refresh = useCallback(() => {
+    refreshRoster();
+    fetchAll();
+  }, [refreshRoster, fetchAll]);
+
   return {
     summary: summary || [],
     roster: baseRoster,
@@ -533,10 +557,7 @@ export function useLogistics(supabase, gira, trigger = 0) {
     segments: db.segments,
     cortesCount: db.cortesCount,
     loading: rosterLoading || loading,
-    refresh: () => {
-      refreshRoster();
-      fetchAll();
-    },
+    refresh,
     helpers: { matchesRule },
   };
 }

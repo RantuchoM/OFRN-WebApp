@@ -25,6 +25,7 @@ function sumSectionTotals(sections) {
         acc.grandTotalPlusNights + section.grandTotalPlusNights,
       totalSuggestedRooms:
         acc.totalSuggestedRooms + section.totalSuggestedRooms,
+      totalCunas: acc.totalCunas + (section.totalCunas || 0),
     }),
     {
       totalPax: 0,
@@ -32,8 +33,17 @@ function sumSectionTotals(sections) {
       grandTotalStdNights: 0,
       grandTotalPlusNights: 0,
       totalSuggestedRooms: 0,
+      totalCunas: 0,
     },
   );
+}
+
+function formatCunaDetail(cuna) {
+  const name =
+    [cuna.apellido, cuna.nombre].filter(Boolean).join(", ") ||
+    cuna.label ||
+    "Cuna";
+  return name;
 }
 
 function SectionSummaryBox({ title, totals, className = "", bedsPerRoom = 2 }) {
@@ -79,6 +89,16 @@ function SectionSummaryBox({ title, totals, className = "", bedsPerRoom = 2 }) {
           {totals.totalBedNights}
         </div>
       </div>
+      {(totals.totalCunas || 0) > 0 && (
+        <div className="summary-item summary-divider">
+          <div className="text-xs text-emerald-700 uppercase font-bold summary-label">
+            Cunas
+          </div>
+          <div className="text-2xl font-bold text-emerald-700 summary-value">
+            {totals.totalCunas}
+          </div>
+        </div>
+      )}
       {roomsLabel && (
         <div className="summary-item summary-divider">
           <div className="text-xs text-slate-500 uppercase font-bold text-slate-700 summary-label">
@@ -379,28 +399,32 @@ const InitialOrderReportModal = ({
                         )}
                         <h3 className="desglose-heading">Desglose por Fechas y Categoría</h3>
                         <p className="print-note text-[10px] text-slate-400 mb-2 italic">
-                          * Referencia: (Pax × Noches) = Total Camas Noche
+                          * Referencia: (Pax × Noches) = Total Camas Noche. Las cunas no se facturan como noche; se informan para preparación del hotel.
                         </p>
 
                         <table>
                           <thead>
                             <tr>
-                              <th style={{width: '22%'}}>Fecha In / Out</th>
-                              <th style={{width: '7%'}}>Noches</th>
-                              <th style={{width: '8%'}}>Total Pax</th>
-                              <th className="bg-std text-std" style={{width: '8%'}}>Pax Bás</th>
-                              <th className="bg-std text-std" style={{width: '9%'}}>Camas Bás</th>
-                              <th className="bg-plus text-plus" style={{width: '8%'}}>Pax Sup</th>
-                              <th className="bg-plus text-plus" style={{width: '9%'}}>Camas Sup</th>
-                              <th style={{width: '10%'}}>Total Camas</th>
+                              <th style={{width: '20%'}}>Fecha In / Out</th>
+                              <th style={{width: '6%'}}>Noches</th>
+                              <th style={{width: '7%'}}>Total Pax</th>
+                              <th className="bg-std text-std" style={{width: '7%'}}>Pax Bás</th>
+                              <th className="bg-std text-std" style={{width: '8%'}}>Camas Bás</th>
+                              <th className="bg-plus text-plus" style={{width: '7%'}}>Pax Sup</th>
+                              <th className="bg-plus text-plus" style={{width: '8%'}}>Camas Sup</th>
+                              <th style={{width: '9%'}}>Total Camas</th>
+                              <th style={{width: '8%'}}>Cunas</th>
                               {showRoomsColumn && (
-                                <th style={{width: '11%'}}>Habs Sugeridas</th>
+                                <th style={{width: '10%'}}>Habs Sugeridas</th>
                               )}
                             </tr>
                           </thead>
                           <tbody>
                             {section.computedRows.map((row, idx) => {
-                              const { group, stdPax, plusPax, totalRowPax, stdNights, plusNights, totalRowNights, suggestedRooms } = row;
+                              const { group, stdPax, plusPax, totalRowPax, stdNights, plusNights, totalRowNights, suggestedRooms, cunaCount, cunas } = row;
+                              const cunaTitle = (cunas || [])
+                                .map(formatCunaDetail)
+                                .join(" · ");
                               return (
                                 <tr key={idx}>
                                   <td className="date-col">{group.rangeLabel}</td>
@@ -411,13 +435,24 @@ const InitialOrderReportModal = ({
                                   <td className="bg-plus">{plusPax > 0 ? plusPax : '-'}</td>
                                   <td className="bg-plus font-bold text-plus">{plusNights > 0 ? plusNights : '-'}</td>
                                   <td className="text-total">{totalRowNights}</td>
+                                  <td
+                                    className={cunaCount > 0 ? "font-bold text-emerald-700" : ""}
+                                    title={cunaTitle || undefined}
+                                  >
+                                    {cunaCount > 0 ? cunaCount : "-"}
+                                    {cunaCount > 0 && (
+                                      <div className="text-[9px] font-normal text-emerald-800/80 leading-tight mt-0.5">
+                                        {(cunas || []).map(formatCunaDetail).join(", ")}
+                                      </div>
+                                    )}
+                                  </td>
                                   {showRoomsColumn && <td>{suggestedRooms}</td>}
                                 </tr>
                               );
                             })}
                             {section.sortedGroups.length === 0 && (
                               <tr>
-                                <td colSpan={showRoomsColumn ? 9 : 8} style={{textAlign:'center', color: '#94a3b8', padding: '20px'}}>
+                                <td colSpan={showRoomsColumn ? 10 : 9} style={{textAlign:'center', color: '#94a3b8', padding: '20px'}}>
                                   No hay requerimientos en este tramo.
                                 </td>
                               </tr>
@@ -434,6 +469,9 @@ const InitialOrderReportModal = ({
                                 <td className="bg-plus">{section.totalPlusPax}</td>
                                 <td className="bg-plus">{section.grandTotalPlusNights}</td>
                                 <td className="text-total">{section.totalBedNights}</td>
+                                <td className={section.totalCunas > 0 ? "font-bold text-emerald-700" : ""}>
+                                  {section.totalCunas > 0 ? section.totalCunas : "-"}
+                                </td>
                                 {showRoomsColumn && (
                                   <td>{section.totalSuggestedRooms}</td>
                                 )}
