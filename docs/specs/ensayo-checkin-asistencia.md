@@ -3,48 +3,74 @@
 ## Alcance
 
 - Eventos `id_tipo_evento = 13` (ensayo de ensamble).
-- Check-in desde **Agenda** (`UnifiedAgenda`) el día del ensayo (TZ Argentina en servidor).
+- Check-in / check-out desde **Agenda** (`UnifiedAgenda`) el día del ensayo (TZ Argentina en servidor).
 - Control y reportes en **Gestión → Asistencia a ensayos** (roles `admin` y `editor`).
 
 ## Datos (Supabase)
 
 - `eventos_checkin_ensayo`: un registro por (evento, integrante).
-- `eventos_checkin_pase`: tokens QR efímeros (20 s) para prestar ubicación GPS.
+  - Llegada: `registrado_at`, `modo`, geo (`latitud`/`longitud`/…).
+  - Salida (opcional): `salida_at`, `modo_salida`, geo propia (`salida_latitud`/…).
+- `eventos_checkin_pase`: tokens QR efímeros (20 s) para prestar ubicación GPS; columna `proposito` (`entrada` | `salida`).
 - `locaciones.latitud` / `longitud`: opcional; comparación RRHH (`distancia_sede_m`), no bloquea check-in.
 
 ### Modos de registro
 
-| modo | Origen |
+| modo / modo_salida | Origen |
 |------|--------|
 | `gps` | Músico, app agenda |
 | `peer_pase` | Músico escanea QR de compañero con GPS |
 | `admin` | Carga/edición desde Gestión |
 
+### Reglas de salida
+
+- Opcional: puede existir solo llegada.
+- Exige llegada previa.
+- Músico: idempotente (si ya hay `salida_at` → `ya_registrado`); no sobrescribe.
+- Validación: `salida_at >= registrado_at`.
+- Geo de salida en columnas propias (no pisa la de llegada).
+- Escaneo de QR de ubicación: si el músico ya tiene llegada y no salida, el pase cierra la salida (mismo token de coords).
+
 ### Flags admin
 
 - `justificado = true`: cuenta en export como cualquier llegada; **sin** presencia física (repertorio no exigió ir). Solo visible en UI Gestión (violeta).
 - `editado_por_admin = true`: corrección/carga presencial por admin (ámbar en UI).
-- Los Excel/PDF **no** incluyen estas marcas; solo hora `registrado_at`.
+- Los Excel/PDF **no** incluyen estas marcas; solo horas `registrado_at` / `salida_at`.
 
 ## RPC
 
-- `ensayo_checkin_gps`, `ensayo_generar_pase_ubicacion`, `ensayo_checkin_pase`, `ensayo_checkin_estado`
-- `ensayo_checkin_admin_upsert`, `ensayo_checkin_admin_delete`
+- `ensayo_checkin_gps`, `ensayo_checkout_gps`
+- `ensayo_generar_pase_ubicacion` (`p_proposito` entrada|salida), `ensayo_checkin_pase`, `ensayo_checkin_estado`
+- `ensayo_checkin_admin_upsert` (`p_salida_at` opcional), `ensayo_checkin_admin_delete`
 
-Migración: `supabase/migrations/20260603120000_ensayo_checkin_asistencia.sql`
+Migraciones:
+- `supabase/migrations/20260603120000_ensayo_checkin_asistencia.sql`
+- `supabase/migrations/20260727180000_ensayo_checkin_salida.sql`
 
 ## UI Agenda
 
-- Componente `RehearsalCheckInBlock` bajo `hora_fin` en columna de hora.
-- Botones solo si `fecha === hoy` (local) y usuario integrante autenticado.
+- Componente `RehearsalCheckInBlock` bajo `hora_fin` en columna de hora (`UnifiedAgenda`).
+- Misma visibilidad para **tarjeta** y **banner global**:
+  - Gate de prueba: el usuario **real** debe ser `admin` (`isActuallyAdmin`); permite testear con “Ver como”.
+  - Solo ensayos a los que el usuario **activo** está **convocado** (`is_ensayo_convoked`: membresía de ensamble en la fecha del evento, o `eventos_asistencia_custom` adicional/invitado; no ausente). Un admin ve todos los ensayos en agenda, pero el check-in solo en los suyos (o del “Ver como”).
+- Banner global `GlobalRehearsalAttendanceBanner` (shell de la app, cualquier vista):
+  - Desde **15 min antes** de `hora_inicio` hasta fin del día: banner de **ingreso**.
+  - Tras llegada sin salida: banner **activo** (verde) con timer + acciones de **salida**.
+  - Íconos: GPS, escanear QR, ofrecer QR (si `modo=gps`), con confirmación.
+- Componente `RehearsalCheckInBlock`: en columna de hora, **emparejado** con el horario del ensayo (`09:00` + llegada · `12:00` + salida); acciones GPS/QR debajo.
+- Visibilidad (tarjeta y banner): usuario **real** admin (`isActuallyAdmin`) **y** convocado al ensayo (`isIntegranteConvocadoAEnsayo`, calculado en vivo desde el perfil; no solo flag de cache).
+- Ofrecer QR de ubicación (`modo=gps`): solo mientras no haya salida, o hasta **10 min** después de `salida_at` (`puedeOfrecerPaseGps`).
+- Botones del bloque en tarjeta: solo si `fecha === hoy` (local), permiso de check-in y convocatoria.
+- Flujo tarjeta: sin llegada → ingreso; con llegada sin salida → botones de salida al lado de hora_fin; ambas → badges junto a inicio/fin.
 
 ## UI Gestión
 
 - Filtros: fechas, ensambles.
-- Vistas: matriz (un bloque por ensamble con sus columnas de ensayo) y lista.
-- Export matriz: Excel/PDF en un solo archivo con secciones por ensamble (título + columnas propias); no una tabla con todos los ensayos mezclados.
-- Export lista: Excel/PDF por persona (filas detalladas).
+- Vistas: matriz (un bloque por ensamble; cada ensayo con subcolumnas **Llegada** | **Salida**) y lista (columnas Llegada y Salida).
+- Formatea y edita horas como hora de pared (cara UTC del timestamptz; sin reaplicar UTC−3).
+- Modal admin: hora de llegada + hora de salida opcional; links a ambas ubicaciones si existen.
+- Export matriz/lista: Excel/PDF con dos columnas de hora por ensayo / por fila.
 
 ## Despliegue
 
-Aplicar la migración en Supabase antes de usar check-in o reportes en producción.
+Aplicar las migraciones en Supabase antes de usar check-in o reportes en producción.

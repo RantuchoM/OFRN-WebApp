@@ -18,6 +18,7 @@ import {
   buildCheckinLookup,
   buildEnsambleMatrixSections,
   formatRegistradoHora,
+  buildRegistradoAtArgentina,
   eventColumnLabel,
   isEnsambleSelectableForCheckinReport,
   checkinGoogleMapsUrl,
@@ -42,11 +43,6 @@ import {
 } from "../../utils/dates";
 import { locacionHasStoredCoords } from "../../utils/mapsCoords";
 
-function buildRegistradoAt(fecha, timeHHmm) {
-  const t = (timeHHmm || "00:00").slice(0, 5);
-  return `${fecha}T${t}:00`;
-}
-
 function formatFilterDateLabel(iso) {
   if (!iso) return "";
   try {
@@ -65,10 +61,20 @@ function cellUiClass(checkin) {
   return "bg-emerald-50 border-emerald-200 text-emerald-800";
 }
 
-function CheckinMapPin({ checkin, evt, size = 11, className = "", showDistance = false }) {
-  const url = checkinGoogleMapsUrl(checkin);
+function CheckinMapPin({
+  checkin,
+  evt,
+  kind = "llegada",
+  size = 11,
+  className = "",
+  showDistance = false,
+}) {
+  const url = checkinGoogleMapsUrl(checkin, kind);
   if (!url) return null;
-  const distLabel = formatDistanciaSedeM(resolveCheckinDistanciaSedeM(checkin, evt));
+  const distLabel = formatDistanciaSedeM(
+    resolveCheckinDistanciaSedeM(checkin, evt, kind),
+  );
+  const title = checkinMapPinTitle(checkin, evt, kind);
   return (
     <span className={`inline-flex items-center gap-0.5 ${className}`}>
       {showDistance && distLabel && (
@@ -80,10 +86,14 @@ function CheckinMapPin({ checkin, evt, size = 11, className = "", showDistance =
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        title={checkinMapPinTitle(checkin, evt)}
-        aria-label={checkinMapPinTitle(checkin, evt)}
+        title={title}
+        aria-label={title}
         onClick={(e) => e.stopPropagation()}
-        className="inline-flex items-center justify-center rounded text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50"
+        className={`inline-flex items-center justify-center rounded hover:bg-indigo-50 ${
+          kind === "salida"
+            ? "text-sky-600 hover:text-sky-800"
+            : "text-indigo-600 hover:text-indigo-800"
+        }`}
       >
         <IconMapPin size={size} />
       </a>
@@ -110,6 +120,7 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
   const [editCell, setEditCell] = useState(null);
   const [editTipo, setEditTipo] = useState("presencial");
   const [editTime, setEditTime] = useState("09:00");
+  const [editSalidaTime, setEditSalidaTime] = useState("");
   const [editNota, setEditNota] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -260,14 +271,17 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
     if (existing?.justificado) {
       setEditTipo("justificado");
       setEditTime(formatRegistradoHora(existing.registrado_at) || evt.hora_inicio?.slice(0, 5) || "09:00");
+      setEditSalidaTime(formatRegistradoHora(existing.salida_at) || "");
       setEditNota(existing.nota_justificacion || "");
     } else if (existing) {
       setEditTipo("presencial");
       setEditTime(formatRegistradoHora(existing.registrado_at) || "09:00");
+      setEditSalidaTime(formatRegistradoHora(existing.salida_at) || "");
       setEditNota("");
     } else {
       setEditTipo("presencial");
       setEditTime(evt.hora_inicio?.slice(0, 5) || "09:00");
+      setEditSalidaTime(evt.hora_fin?.slice(0, 5) || "");
       setEditNota("");
     }
     setConfirmDelete(false);
@@ -275,14 +289,23 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
 
   const handleSaveEdit = async () => {
     if (!editCell || !user?.id) return;
+    const salidaTrim = (editSalidaTime || "").trim();
+    if (salidaTrim && editTime && salidaTrim < editTime.slice(0, 5)) {
+      toast.error("La hora de salida no puede ser anterior a la de llegada");
+      return;
+    }
     setSaving(true);
     try {
       const { evt, person } = editCell;
-      const registradoAt = buildRegistradoAt(evt.fecha, editTime);
+      const registradoAt = buildRegistradoAtArgentina(evt.fecha, editTime);
+      const salidaAt = salidaTrim
+        ? buildRegistradoAtArgentina(evt.fecha, salidaTrim)
+        : null;
       await ensayoCheckinAdminUpsert({
         eventoId: evt.id,
         integranteId: person.id,
         registradoAt,
+        salidaAt,
         editorId: user.id,
         justificado: editTipo === "justificado",
         notaJustificacion: editTipo === "justificado" ? editNota : null,
@@ -364,13 +387,17 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
     );
   };
 
-  const renderCheckinCell = (evt, p) => {
+  const renderCheckinCell = (evt, p, field) => {
     const chk = checkinMap.get(`${evt.id}-${p.id}`);
-    const hora = chk ? formatRegistradoHora(chk.registrado_at) : "";
-    const mapsUrl = checkinGoogleMapsUrl(chk);
-    const distLabel = formatDistanciaSedeM(resolveCheckinDistanciaSedeM(chk, evt));
+    const iso = field === "salida" ? chk?.salida_at : chk?.registrado_at;
+    const hora = iso ? formatRegistradoHora(iso) : "";
+    const mapsUrl = checkinGoogleMapsUrl(chk, field);
+    const distLabel = formatDistanciaSedeM(
+      resolveCheckinDistanciaSedeM(chk, evt, field),
+    );
+    const emptyHint = field === "llegada" ? "+" : "·";
     return (
-      <td key={evt.id} className="border p-0.5 text-center">
+      <td key={`${evt.id}-${field}`} className="border p-0.5 text-center">
         <div className="relative min-h-[28px]">
           <button
             type="button"
@@ -383,13 +410,14 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                 : chk?.editado_por_admin
                   ? "Editado por admin"
                   : chk
-                    ? checkinMapPinTitle(chk, evt) || "Check-in app"
+                    ? checkinMapPinTitle(chk, evt, field) ||
+                      (field === "llegada" ? "Check-in app" : "Salida")
                     : canEdit
                       ? "Cargar asistencia"
                       : ""
             }
           >
-            {hora || (canEdit ? "+" : "")}
+            {hora || (canEdit ? emptyHint : "")}
           </button>
           {mapsUrl && (
             <div className="absolute bottom-0 right-0 left-0 flex items-center justify-end gap-0.5 px-0.5 pointer-events-none">
@@ -401,6 +429,7 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
               <CheckinMapPin
                 checkin={chk}
                 evt={evt}
+                kind={field}
                 size={10}
                 className="pointer-events-auto"
               />
@@ -564,8 +593,9 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
               <span className="text-violet-700 font-bold">J</span> justif.
             </span>
             <span className="text-slate-300">|</span>
-            <span className="inline-flex items-center gap-0.5" title="Check-in con GPS (no cargas admin)">
-              <IconMapPin size={11} className="text-indigo-600" /> mapa + m
+            <span className="inline-flex items-center gap-0.5" title="Pins GPS: índigo llegada · cielo salida">
+              <IconMapPin size={11} className="text-indigo-600" /> lleg. ·{" "}
+              <IconMapPin size={11} className="text-sky-600" /> sal. + m
             </span>
             <span className="text-slate-300">|</span>
             <button type="button" className="font-bold text-indigo-600 hover:underline" onClick={() => downloadEnsayoCheckinPorPersonaExcel(exportBase)}>
@@ -602,16 +632,24 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
           </p>
         )}
         {!loading && events.length > 0 && viewMode === "matriz" && (
-          <div className="space-y-6 p-3">
+          <div
+            className="grid gap-3 p-3 items-start"
+            style={{
+              gridTemplateColumns:
+                "repeat(auto-fit, minmax(min(100%, 26rem), 1fr))",
+            }}
+          >
             {matrixSections.length === 0 ? (
-              <p className="text-sm text-slate-400 text-center py-6">
+              <p className="col-span-full text-sm text-slate-400 text-center py-6">
                 No hay ensayos o integrantes para los ensambles seleccionados.
               </p>
             ) : (
               matrixSections.map((section) => (
                 <section
                   key={section.ensambleId}
-                  className="rounded-lg border border-indigo-100 overflow-hidden"
+                  className={`rounded-lg border border-indigo-100 overflow-hidden min-w-0 ${
+                    section.events.length >= 3 ? "col-span-full" : ""
+                  }`}
                 >
                   <div className="bg-indigo-100 border-b border-indigo-200 px-3 py-2">
                     <h3 className="text-sm font-black text-indigo-900 uppercase tracking-wide">
@@ -623,37 +661,73 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                     </p>
                   </div>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs border-collapse">
+                    <table className="w-full table-fixed text-xs border-collapse">
+                      <colgroup>
+                        <col className="w-[11.5rem]" style={{ width: "11.5rem" }} />
+                        <col className="w-[6.5rem]" style={{ width: "6.5rem" }} />
+                        {section.events.map((evt) => (
+                          <React.Fragment key={`${evt.id}-cols`}>
+                            <col />
+                            <col />
+                          </React.Fragment>
+                        ))}
+                      </colgroup>
                       <thead className="bg-slate-100">
                         <tr>
-                          <th className="sticky left-0 z-10 bg-slate-100 border p-2 text-left min-w-[140px]">
+                          <th
+                            rowSpan={2}
+                            className="sticky left-0 z-10 bg-slate-100 border p-2 text-left"
+                          >
                             Integrante
                           </th>
-                          <th className="border p-2 text-left min-w-[80px] bg-slate-100">
+                          <th
+                            rowSpan={2}
+                            className="border p-2 text-left bg-slate-100"
+                          >
                             Instrumento
                           </th>
                           {section.events.map((evt) => (
                             <th
                               key={evt.id}
-                              className="border p-0.5 text-center font-bold text-[10px] min-w-[56px] align-bottom"
+                              colSpan={2}
+                              className="border p-0.5 text-center font-bold text-[10px] align-bottom"
                             >
                               {renderEventColumnHeader(evt)}
                             </th>
+                          ))}
+                        </tr>
+                        <tr>
+                          {section.events.map((evt) => (
+                            <React.Fragment key={`${evt.id}-sub`}>
+                              <th className="border px-0.5 py-0.5 text-[8px] font-bold text-slate-500 uppercase tracking-tight">
+                                Lleg.
+                              </th>
+                              <th className="border px-0.5 py-0.5 text-[8px] font-bold text-slate-500 uppercase tracking-tight">
+                                Sal.
+                              </th>
+                            </React.Fragment>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {section.integrantes.map((p) => (
                           <tr key={p.id} className="hover:bg-slate-50">
-                            <td className="sticky left-0 z-10 bg-white border p-2 font-medium">
+                            <td
+                              className="sticky left-0 z-10 bg-white border p-2 font-medium truncate"
+                              title={`${p.apellido}, ${p.nombre}`}
+                            >
                               {p.apellido}, {p.nombre}
                             </td>
-                            <td className="border p-2 text-slate-500 text-[10px]">
+                            <td
+                              className="border p-2 text-slate-500 text-[10px] truncate"
+                              title={p.instrumento || ""}
+                            >
                               {p.instrumento}
                             </td>
-                            {section.events.map((evt) =>
-                              renderCheckinCell(evt, p),
-                            )}
+                            {section.events.flatMap((evt) => [
+                              renderCheckinCell(evt, p, "llegada"),
+                              renderCheckinCell(evt, p, "salida"),
+                            ])}
                           </tr>
                         ))}
                       </tbody>
@@ -692,6 +766,7 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                           <th className="p-2 text-left">Ensayo</th>
                           <th className="p-2">Hora</th>
                           <th className="p-2">Llegada</th>
+                          <th className="p-2">Salida</th>
                           <th className="p-2 text-left">Sede</th>
                         </tr>
                       </thead>
@@ -730,6 +805,30 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                                     <CheckinMapPin
                                       checkin={chk}
                                       evt={evt}
+                                      kind="llegada"
+                                      size={14}
+                                      showDistance
+                                    />
+                                  </div>
+                                </td>
+                                <td className="p-2 text-center">
+                                  <div className="inline-flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      disabled={!canEdit}
+                                      onClick={() => openEdit(evt, p, chk)}
+                                      className={`font-mono font-bold px-2 py-0.5 rounded border text-xs ${cellUiClass(chk)}`}
+                                    >
+                                      {chk?.salida_at
+                                        ? formatRegistradoHora(chk.salida_at)
+                                        : canEdit
+                                          ? "·"
+                                          : ""}
+                                    </button>
+                                    <CheckinMapPin
+                                      checkin={chk}
+                                      evt={evt}
+                                      kind="salida"
                                       size={14}
                                       showDistance
                                     />
@@ -762,27 +861,73 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
               {editCell.person.apellido}, {editCell.person.nombre} —{" "}
               {editCell.evt.fecha} {editCell.evt.hora_inicio?.slice(0, 5)}
             </p>
-            {editCell.existing && checkinGoogleMapsUrl(editCell.existing) && (
-              <div className="space-y-1">
-                <a
-                  href={checkinGoogleMapsUrl(editCell.existing)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm font-bold text-indigo-600 hover:text-indigo-800 hover:underline"
-                >
-                  <IconMapPin size={16} />
-                  Ver ubicación en Google Maps
-                </a>
-                {formatDistanciaSedeM(
-                  resolveCheckinDistanciaSedeM(editCell.existing, editCell.evt),
-                ) && (
-                  <p className="text-xs text-slate-500">
-                    Aprox.{" "}
+            {editCell.existing &&
+              (checkinGoogleMapsUrl(editCell.existing, "llegada") ||
+                checkinGoogleMapsUrl(editCell.existing, "salida")) && (
+              <div className="space-y-2">
+                {checkinGoogleMapsUrl(editCell.existing, "llegada") && (
+                  <div className="space-y-0.5">
+                    <a
+                      href={checkinGoogleMapsUrl(editCell.existing, "llegada")}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-sm font-bold text-indigo-600 hover:text-indigo-800 hover:underline"
+                    >
+                      <IconMapPin size={16} />
+                      Ubicación de llegada
+                    </a>
                     {formatDistanciaSedeM(
-                      resolveCheckinDistanciaSedeM(editCell.existing, editCell.evt),
-                    )}{" "}
-                    de {editCell.evt.locaciones?.nombre || "la sede"}
-                  </p>
+                      resolveCheckinDistanciaSedeM(
+                        editCell.existing,
+                        editCell.evt,
+                        "llegada",
+                      ),
+                    ) && (
+                      <p className="text-xs text-slate-500">
+                        Aprox.{" "}
+                        {formatDistanciaSedeM(
+                          resolveCheckinDistanciaSedeM(
+                            editCell.existing,
+                            editCell.evt,
+                            "llegada",
+                          ),
+                        )}{" "}
+                        de {editCell.evt.locaciones?.nombre || "la sede"}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {checkinGoogleMapsUrl(editCell.existing, "salida") && (
+                  <div className="space-y-0.5">
+                    <a
+                      href={checkinGoogleMapsUrl(editCell.existing, "salida")}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-sm font-bold text-sky-600 hover:text-sky-800 hover:underline"
+                    >
+                      <IconMapPin size={16} />
+                      Ubicación de salida
+                    </a>
+                    {formatDistanciaSedeM(
+                      resolveCheckinDistanciaSedeM(
+                        editCell.existing,
+                        editCell.evt,
+                        "salida",
+                      ),
+                    ) && (
+                      <p className="text-xs text-slate-500">
+                        Aprox.{" "}
+                        {formatDistanciaSedeM(
+                          resolveCheckinDistanciaSedeM(
+                            editCell.existing,
+                            editCell.evt,
+                            "salida",
+                          ),
+                        )}{" "}
+                        de {editCell.evt.locaciones?.nombre || "la sede"}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -814,6 +959,24 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                 Hora de llegada / nominal
               </label>
               <TimeInput value={editTime} onChange={setEditTime} />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase">
+                Hora de salida (opcional)
+              </label>
+              <TimeInput
+                value={editSalidaTime}
+                onChange={setEditSalidaTime}
+              />
+              {editSalidaTime ? (
+                <button
+                  type="button"
+                  className="mt-1 text-[11px] text-slate-500 underline"
+                  onClick={() => setEditSalidaTime("")}
+                >
+                  Quitar salida
+                </button>
+              ) : null}
             </div>
             {editTipo === "justificado" && (
               <div>

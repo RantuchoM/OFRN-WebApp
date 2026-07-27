@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { getTodayDateStringLocal } from "../utils/dates";
 import { calculateLogisticsSummary } from "./useLogistics";
 import { membershipActiveOnProgramDate } from "../utils/ensembleMembership";
+import { isIntegranteConvocadoAEnsayo } from "../utils/ensayoCheckinBanner";
 import { getEventProgramIds } from "../utils/rehearsalProgramas";
 import {
   resolveLocalidadEfectivaViaticos,
@@ -20,7 +21,7 @@ const EVENT_SELECT = `
     locaciones ( id, nombre, direccion, link_mapa, localidades (localidad) ),
     programas ( id, nombre_gira, nomenclador, google_drive_folder_id, mes_letra, fecha_desde, fecha_hasta, tipo, zona, estado, fecha_confirmacion_limite, giras_fuentes(tipo, valor_id, valor_texto), giras_integrantes(id_integrante, estado, rol) ),
     eventos_programas_asociados ( programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador, estado, tipo ) ),
-    eventos_ensambles ( ensambles ( id, ensamble ) ),
+    eventos_ensambles ( id_ensamble, ensambles ( id, ensamble ) ),
     eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )
   `;
 
@@ -705,6 +706,7 @@ export function useAgendaData({
 
         processCategories(visibleEvents);
 
+        const integrantesEnsambles = userProfile?.integrantes_ensambles || [];
         visibleEvents.forEach((evt) => {
           const custom = customMap.get(evt.id);
           if (custom) {
@@ -712,6 +714,13 @@ export function useAgendaData({
               evt.is_guest = true;
               evt.guest_note = custom.nota;
             } else if (custom.tipo === "ausente") evt.is_absent = true;
+          }
+          if (Number(evt.id_tipo_evento) === ID_TIPO_ENSAYO_ENSAMBLE) {
+            evt.is_ensayo_convoked = isIntegranteConvocadoAEnsayo(
+              evt,
+              custom,
+              integrantesEnsambles,
+            );
           }
         });
 
@@ -851,6 +860,13 @@ export function useAgendaData({
             evt.is_guest = true;
             evt.guest_note = custom.nota;
           } else if (custom.tipo === "ausente") evt.is_absent = true;
+        }
+        if (Number(evt.id_tipo_evento) === ID_TIPO_ENSAYO_ENSAMBLE) {
+          evt.is_ensayo_convoked = isIntegranteConvocadoAEnsayo(
+            evt,
+            custom,
+            userProfile?.integrantes_ensambles || [],
+          );
         }
         if (attendanceRes.data) evt.mi_asistencia = attendanceRes.data.estado;
         const myTourRecord = evt.programas?.giras_integrantes?.find(

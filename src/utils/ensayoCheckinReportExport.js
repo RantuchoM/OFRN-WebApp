@@ -26,15 +26,19 @@ function personLabel(p) {
 
 /**
  * @param {Map<string, object>} checkinMap
+ * @param {'llegada'|'salida'} field
  */
-function cellHora(evt, personId, checkinMap) {
+function cellHora(evt, personId, checkinMap, field = "llegada") {
   const c = checkinMap.get(`${evt.id}-${personId}`);
-  return c ? formatRegistradoHora(c.registrado_at) : "";
+  if (!c) return "";
+  return formatRegistradoHora(
+    field === "salida" ? c.salida_at : c.registrado_at,
+  );
 }
 
 function appendMatrizSectionToSheet(sheet, section, checkinMap, { startRow = 1 } = {}) {
   let row = startRow;
-  const colCount = 2 + section.events.length;
+  const colCount = 2 + section.events.length * 2;
   const titleRow = sheet.getRow(row);
   titleRow.getCell(1).value = section.ensamble.ensamble || `Ensamble ${section.ensambleId}`;
   titleRow.font = { bold: true, size: 12 };
@@ -52,7 +56,9 @@ function appendMatrizSectionToSheet(sheet, section, checkinMap, { startRow = 1 }
   headerRow.getCell(1).value = "Integrante";
   headerRow.getCell(2).value = "Instrumento";
   section.events.forEach((evt, idx) => {
-    headerRow.getCell(3 + idx).value = eventColumnLabel(evt);
+    const base = 3 + idx * 2;
+    headerRow.getCell(base).value = `${eventColumnLabel(evt)} — Llegada`;
+    headerRow.getCell(base + 1).value = `${eventColumnLabel(evt)} — Salida`;
   });
   headerRow.font = { bold: true };
   headerRow.eachCell((cell) => {
@@ -70,8 +76,11 @@ function appendMatrizSectionToSheet(sheet, section, checkinMap, { startRow = 1 }
     dataRow.getCell(1).value = personLabel(p);
     dataRow.getCell(2).value = p.instrumento || "";
     section.events.forEach((evt, idx) => {
-      dataRow.getCell(3 + idx).value = cellHora(evt, p.id, checkinMap);
-      dataRow.getCell(3 + idx).alignment = { horizontal: "center" };
+      const base = 3 + idx * 2;
+      dataRow.getCell(base).value = cellHora(evt, p.id, checkinMap, "llegada");
+      dataRow.getCell(base).alignment = { horizontal: "center" };
+      dataRow.getCell(base + 1).value = cellHora(evt, p.id, checkinMap, "salida");
+      dataRow.getCell(base + 1).alignment = { horizontal: "center" };
     });
     row += 1;
   }
@@ -101,6 +110,7 @@ export async function downloadEnsayoCheckinPorPersonaExcel({
     "Fecha",
     "Hora ensayo",
     "Hora llegada",
+    "Hora salida",
     "Sede",
   ]);
   sheet.getRow(sheet.rowCount).font = { bold: true };
@@ -122,7 +132,8 @@ export async function downloadEnsayoCheckinPorPersonaExcel({
         ensNames,
         evt.fecha,
         evt.hora_inicio?.slice(0, 5) || "",
-        cellHora(evt, p.id, checkinMap),
+        cellHora(evt, p.id, checkinMap, "llegada"),
+        cellHora(evt, p.id, checkinMap, "salida"),
         evt.locaciones?.nombre || "",
       ]);
     }
@@ -169,7 +180,8 @@ export function downloadEnsayoCheckinPorPersonaPdf({
         ensNames,
         evt.fecha,
         evt.hora_inicio?.slice(0, 5) || "",
-        cellHora(evt, p.id, checkinMap),
+        cellHora(evt, p.id, checkinMap, "llegada"),
+        cellHora(evt, p.id, checkinMap, "salida"),
         evt.locaciones?.nombre || "",
       ]);
     }
@@ -184,6 +196,7 @@ export function downloadEnsayoCheckinPorPersonaPdf({
         "Fecha",
         "Hora ensayo",
         "Llegada",
+        "Salida",
         "Sede",
       ],
     ],
@@ -265,20 +278,24 @@ export function downloadEnsayoCheckinMatrizPdf({
     doc.setFont(undefined, "normal");
     y += 6;
 
+    const headCols = ["Integrante", "Inst."];
+    section.events.forEach((e) => {
+      const label = eventColumnLabel(e);
+      headCols.push(`${label} L`);
+      headCols.push(`${label} S`);
+    });
+
     autoTable(doc, {
       startY: y,
-      head: [
-        [
-          "Integrante",
-          "Inst.",
-          ...section.events.map((e) => eventColumnLabel(e)),
-        ],
-      ],
-      body: section.integrantes.map((p) => [
-        personLabel(p),
-        p.instrumento,
-        ...section.events.map((evt) => cellHora(evt, p.id, checkinMap)),
-      ]),
+      head: [headCols],
+      body: section.integrantes.map((p) => {
+        const row = [personLabel(p), p.instrumento];
+        section.events.forEach((evt) => {
+          row.push(cellHora(evt, p.id, checkinMap, "llegada"));
+          row.push(cellHora(evt, p.id, checkinMap, "salida"));
+        });
+        return row;
+      }),
       styles: { fontSize: 6 },
       headStyles: { fillColor: [79, 70, 229] },
       margin: { left: 14 },

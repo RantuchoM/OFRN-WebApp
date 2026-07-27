@@ -20,10 +20,35 @@ export async function ensayoCheckinGps({
   return data;
 }
 
-export async function ensayoGenerarPaseUbicacion(eventoId, prestadorId) {
+export async function ensayoCheckoutGps({
+  eventoId,
+  integranteId,
+  lat,
+  lng,
+  precisionM,
+  userAgent,
+}) {
+  const { data, error } = await supabase.rpc("ensayo_checkout_gps", {
+    p_evento_id: eventoId,
+    p_integrante_id: integranteId,
+    p_lat: lat ?? null,
+    p_lng: lng ?? null,
+    p_precision_m: precisionM ?? null,
+    p_user_agent: userAgent ?? null,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function ensayoGenerarPaseUbicacion(
+  eventoId,
+  prestadorId,
+  proposito = "entrada",
+) {
   const { data, error } = await supabase.rpc("ensayo_generar_pase_ubicacion", {
     p_evento_id: eventoId,
     p_prestador_id: prestadorId,
+    p_proposito: proposito || "entrada",
   });
   if (error) throw error;
   return data;
@@ -58,6 +83,7 @@ export async function ensayoCheckinAdminUpsert({
   notaJustificacion = null,
   lat = null,
   lng = null,
+  salidaAt = null,
 }) {
   const { data, error } = await supabase.rpc("ensayo_checkin_admin_upsert", {
     p_evento_id: eventoId,
@@ -68,6 +94,7 @@ export async function ensayoCheckinAdminUpsert({
     p_nota_justificacion: notaJustificacion,
     p_lat: lat,
     p_lng: lng,
+    p_salida_at: salidaAt,
   });
   if (error) throw error;
   return data;

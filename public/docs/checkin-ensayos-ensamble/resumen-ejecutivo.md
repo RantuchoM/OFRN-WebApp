@@ -6,13 +6,14 @@
 
 ## Qué controla el sistema
 
-Registra la **hora de ingreso** de cada integrante a los **ensayos de ensamble** programados en la agenda institucional. Cada músico se identifica con credenciales personales y registra su llegada **solo el día del ensayo**, desde su agenda en la plataforma web (teléfono o tablet).
+Registra la **hora de ingreso** y, opcionalmente, la **hora de salida** de cada integrante a los **ensayos de ensamble** programados en la agenda institucional. Cada músico se identifica con credenciales personales y registra su llegada (y luego su salida) **solo el día del ensayo**, desde su agenda en la plataforma web (teléfono o tablet).
 
 ---
 
 ## Cómo funciona el registro
 
 1. El integrante pulsa **«Registrar hora de llegada»** en el ensayo del día.
+2. Al finalizar, puede registrar la **hora de salida** con el mismo flujo (GPS / QR / solo hora).
 2. El dispositivo obtiene su **ubicación GPS** (alta precisión, lectura en el momento).
 3. El **servidor** valida el ensayo, fija la **hora oficial de ingreso** (independiente del reloj del teléfono) y guarda coordenadas, precisión del GPS y distancia a la sede del ensayo.
 4. Si el GPS falla, puede **escanear un QR de un compañero presente** (válido 20 segundos, un solo uso).

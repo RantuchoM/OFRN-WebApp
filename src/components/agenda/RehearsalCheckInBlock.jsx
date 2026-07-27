@@ -1,5 +1,4 @@
 import React, { useRef, useState, useEffect } from "react";
-import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import QRCode from "qrcode";
 import {
@@ -11,22 +10,16 @@ import {
 } from "../ui/Icons";
 import {
   ensayoCheckinGps,
+  ensayoCheckoutGps,
   ensayoGenerarPaseUbicacion,
   ensayoCheckinPase,
 } from "../../services/ensayoCheckinService";
+import { formatRegistradoHora } from "../../services/ensayoCheckinReportService";
 import { requestPosition, geolocationErrorMessage, geolocationAndroidOverlayHint, isAndroidDevice } from "../../utils/geolocation";
 import { decodeQrFromImageFile } from "../../utils/qrDecodeFromImage";
+import { puedeOfrecerPaseGps } from "../../utils/ensayoCheckinBanner";
 
-function formatHoraLlegada(iso) {
-  if (!iso) return "";
-  try {
-    const d = typeof iso === "string" ? parseISO(iso) : new Date(iso);
-    if (isNaN(d.getTime())) return "";
-    return format(d, "HH:mm");
-  } catch {
-    return "";
-  }
-}
+const formatHora = formatRegistradoHora;
 
 export default function RehearsalCheckInBlock({
   evt,
@@ -34,20 +27,37 @@ export default function RehearsalCheckInBlock({
   isToday,
   estado,
   onSuccess,
+  /** Si true, renderiza hora_inicio/fin del evento emparejadas con llegada/salida. */
+  pairWithSchedule = false,
+  /** Clases para las horas de agenda (solo con pairWithSchedule). */
+  scheduleTimeClassName = "text-sm font-bold text-slate-600",
+  scheduleEndClassName = "text-sm font-normal text-slate-600",
 }) {
   const [busy, setBusy] = useState(false);
   const [showPeer, setShowPeer] = useState(false);
   const [paseToken, setPaseToken] = useState(null);
   const [paseQrUrl, setPaseQrUrl] = useState(null);
   const [paseExpiresAt, setPaseExpiresAt] = useState(null);
+  const [paseProposito, setPaseProposito] = useState("entrada");
   const [countdown, setCountdown] = useState(0);
   const qrPhotoRef = useRef(null);
   const [decodingQr, setDecodingQr] = useState(false);
   const [geoAssist, setGeoAssist] = useState(null);
+  /** 'entrada' | 'salida' — contexto del modal GPS / escaneo */
+  const [phase, setPhase] = useState("entrada");
+  const [now, setNow] = useState(() => new Date());
 
   const yaIngreso = !!estado?.registrado_at;
+  const yaSalida = !!estado?.salida_at;
   const puedeGenerarPase =
-    yaIngreso && estado?.modo === "gps" && isToday;
+    isToday && puedeOfrecerPaseGps(estado, now);
+
+  // Actualizar margen post-salida del QR (~10 min)
+  useEffect(() => {
+    if (!yaSalida || !estado?.modo || estado.modo !== "gps") return undefined;
+    const id = setInterval(() => setNow(new Date()), 15_000);
+    return () => clearInterval(id);
+  }, [yaSalida, estado?.modo]);
 
   useEffect(() => {
     if (!paseExpiresAt) {
@@ -83,8 +93,8 @@ export default function RehearsalCheckInBlock({
     if (res?.ok) {
       toast.success(
         res.ya_registrado
-          ? `Ya registraste ingreso a las ${formatHoraLlegada(res.registrado_at)}`
-          : `Ingreso registrado (${formatHoraLlegada(res.registrado_at)})`,
+          ? `Ya registraste ingreso a las ${formatHora(res.registrado_at)}`
+          : `Ingreso registrado (${formatHora(res.registrado_at)})`,
       );
       setGeoAssist(null);
       onSuccess?.();
@@ -92,16 +102,46 @@ export default function RehearsalCheckInBlock({
     return res;
   };
 
-  const handleCheckIn = async () => {
+  const submitCheckOutGps = async ({ lat, lng, precisionM }) => {
+    const res = await ensayoCheckoutGps({
+      eventoId: evt.id,
+      integranteId,
+      lat,
+      lng,
+      precisionM,
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+    });
+    if (res?.ok) {
+      toast.success(
+        res.ya_registrado
+          ? `Ya registraste salida a las ${formatHora(res.salida_at)}`
+          : `Salida registrada (${formatHora(res.salida_at)})`,
+      );
+      setGeoAssist(null);
+      onSuccess?.();
+    }
+    return res;
+  };
+
+  const handleGpsAction = async (forPhase) => {
     if (!integranteId || busy) return;
+    setPhase(forPhase);
     setBusy(true);
     try {
       const pos = await requestPosition();
-      await submitCheckInGps({
-        lat: pos.lat,
-        lng: pos.lng,
-        precisionM: pos.accuracy,
-      });
+      if (forPhase === "salida") {
+        await submitCheckOutGps({
+          lat: pos.lat,
+          lng: pos.lng,
+          precisionM: pos.accuracy,
+        });
+      } else {
+        await submitCheckInGps({
+          lat: pos.lat,
+          lng: pos.lng,
+          precisionM: pos.accuracy,
+        });
+      }
     } catch (err) {
       if (
         err?.code === "denied" ||
@@ -112,9 +152,15 @@ export default function RehearsalCheckInBlock({
         setGeoAssist({
           code: err.code,
           message: geolocationErrorMessage(err),
+          phase: forPhase,
         });
       } else {
-        toast.error(err?.message || "No se pudo registrar el ingreso");
+        toast.error(
+          err?.message ||
+            (forPhase === "salida"
+              ? "No se pudo registrar la salida"
+              : "No se pudo registrar el ingreso"),
+        );
       }
     } finally {
       setBusy(false);
@@ -123,14 +169,23 @@ export default function RehearsalCheckInBlock({
 
   const handleRetryGeolocation = async () => {
     if (!integranteId || busy) return;
+    const forPhase = geoAssist?.phase || phase;
     setBusy(true);
     try {
       const pos = await requestPosition({ maximumAge: 0 });
-      await submitCheckInGps({
-        lat: pos.lat,
-        lng: pos.lng,
-        precisionM: pos.accuracy,
-      });
+      if (forPhase === "salida") {
+        await submitCheckOutGps({
+          lat: pos.lat,
+          lng: pos.lng,
+          precisionM: pos.accuracy,
+        });
+      } else {
+        await submitCheckInGps({
+          lat: pos.lat,
+          lng: pos.lng,
+          precisionM: pos.accuracy,
+        });
+      }
     } catch (err) {
       if (
         err?.code === "denied" ||
@@ -141,6 +196,7 @@ export default function RehearsalCheckInBlock({
         setGeoAssist({
           code: err.code,
           message: geolocationErrorMessage(err),
+          phase: forPhase,
         });
         if (err.code === "denied") {
           toast.info(
@@ -150,20 +206,35 @@ export default function RehearsalCheckInBlock({
           );
         }
       } else {
-        toast.error(err?.message || "No se pudo registrar el ingreso");
+        toast.error(
+          err?.message ||
+            (forPhase === "salida"
+              ? "No se pudo registrar la salida"
+              : "No se pudo registrar el ingreso"),
+        );
       }
     } finally {
       setBusy(false);
     }
   };
 
-  const handleCheckInSinUbicacion = async () => {
+  const handleSinUbicacion = async () => {
     if (!integranteId || busy) return;
+    const forPhase = geoAssist?.phase || phase;
     setBusy(true);
     try {
-      await submitCheckInGps({ lat: null, lng: null, precisionM: null });
+      if (forPhase === "salida") {
+        await submitCheckOutGps({ lat: null, lng: null, precisionM: null });
+      } else {
+        await submitCheckInGps({ lat: null, lng: null, precisionM: null });
+      }
     } catch (e) {
-      toast.error(e.message || "No se pudo registrar el ingreso");
+      toast.error(
+        e.message ||
+          (forPhase === "salida"
+            ? "No se pudo registrar la salida"
+            : "No se pudo registrar el ingreso"),
+      );
     } finally {
       setBusy(false);
     }
@@ -171,28 +242,39 @@ export default function RehearsalCheckInBlock({
 
   const goToQrScan = () => {
     setGeoAssist(null);
-    openScanPeer();
+    openScanPeer(geoAssist?.phase || phase);
   };
 
-  const openScanPeer = () => {
+  const openScanPeer = (forPhase = "entrada") => {
+    setPhase(forPhase);
+    setPaseProposito(forPhase);
     setPaseQrUrl(null);
     setPaseToken(null);
     setPaseExpiresAt(null);
     setShowPeer(true);
   };
 
-  const handleGenerarPase = async () => {
+  const handleGenerarPase = async (forPhase = "entrada") => {
     if (!integranteId || busy) return;
     setBusy(true);
     try {
-      const res = await ensayoGenerarPaseUbicacion(evt.id, integranteId);
+      const res = await ensayoGenerarPaseUbicacion(
+        evt.id,
+        integranteId,
+        forPhase,
+      );
       if (res?.ok && res.token) {
+        setPaseProposito(forPhase);
         setPaseToken(res.token);
         setPaseExpiresAt(res.expires_at);
         const url = await QRCode.toDataURL(res.token, { margin: 1, width: 280 });
         setPaseQrUrl(url);
         setShowPeer(true);
-        toast.success("Mostrá este QR a tu compañero (20 s)");
+        toast.success(
+          forPhase === "salida"
+            ? "Mostrá este QR de salida a tu compañero (20 s)"
+            : "Mostrá este QR a tu compañero (20 s)",
+        );
       }
     } catch (e) {
       toast.error(e.message || "No se pudo generar el pase");
@@ -226,11 +308,20 @@ export default function RehearsalCheckInBlock({
         toast.error(msg);
         return;
       }
-      toast.success(
-        res.ya_registrado
-          ? `Ya tenías ingreso (${formatHoraLlegada(res.registrado_at)})`
-          : `Ingreso registrado (${formatHoraLlegada(res.registrado_at)})`,
-      );
+      const isSalida = res.proposito === "salida" || !!res.salida_at;
+      if (isSalida) {
+        toast.success(
+          res.ya_registrado
+            ? `Ya tenías salida (${formatHora(res.salida_at)})`
+            : `Salida registrada (${formatHora(res.salida_at)})`,
+        );
+      } else {
+        toast.success(
+          res.ya_registrado
+            ? `Ya tenías ingreso (${formatHora(res.registrado_at)})`
+            : `Ingreso registrado (${formatHora(res.registrado_at)})`,
+        );
+      }
       setShowPeer(false);
       onSuccess?.();
     } catch (err) {
@@ -241,76 +332,137 @@ export default function RehearsalCheckInBlock({
     }
   };
 
-  if (!isToday) return null;
+  if (!isToday && !pairWithSchedule) return null;
 
   const iconBtnClass =
     "p-1 rounded border disabled:opacity-50 flex items-center justify-center shrink-0";
 
-  return (
-    <div
-      className="mt-1 flex flex-col gap-0.5 items-center"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {yaIngreso ? (
-        <div className="flex flex-col items-center gap-0.5">
-          <span
-            className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 py-0.5 text-center leading-tight flex items-center gap-0.5"
-            title="Hora de ingreso"
-          >
-            <IconCheck size={10} />
-            {formatHoraLlegada(estado.registrado_at)}
-          </span>
-          {puedeGenerarPase && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={handleGenerarPase}
-              className={`${iconBtnClass} text-violet-700 bg-violet-50 border-violet-200 hover:bg-violet-100`}
-              title="Mostrar QR a compañero (20 s)"
-              aria-label="Mostrar QR a compañero"
-            >
-              {busy ? (
-                <IconLoader size={16} className="animate-spin" />
-              ) : (
-                <IconQr size={16} />
-              )}
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={handleCheckIn}
-            className={`${iconBtnClass} text-indigo-700 bg-indigo-50 border-indigo-200 hover:bg-indigo-100`}
-            title="Registrar hora de llegada"
-            aria-label="Registrar hora de llegada"
-          >
-            {busy ? (
-              <IconLoader size={16} className="animate-spin" />
-            ) : (
-              <IconWatch size={16} />
-            )}
-          </button>
-          <button
-            type="button"
-            disabled={busy || decodingQr}
-            onClick={openScanPeer}
-            className={`${iconBtnClass} text-slate-700 bg-slate-50 border-slate-200 hover:bg-slate-100`}
-            title="Escanear QR de compañero"
-            aria-label="Escanear QR de compañero"
-          >
-            {decodingQr ? (
-              <IconLoader size={16} className="animate-spin" />
-            ) : (
-              <IconCameraScanQr size={16} />
-            )}
-          </button>
-        </div>
-      )}
+  const geoPhase = geoAssist?.phase || phase;
+  const showGeoModal = !!geoAssist && isToday && (
+    (geoPhase === "entrada" && !yaIngreso) ||
+    (geoPhase === "salida" && yaIngreso && !yaSalida)
+  );
+  const showScanModal =
+    isToday &&
+    showPeer &&
+    !paseQrUrl &&
+    ((phase === "entrada" && !yaIngreso) ||
+      (phase === "salida" && yaIngreso && !yaSalida));
 
-      {geoAssist && !yaIngreso && (
+  const hi = evt.hora_inicio?.slice(0, 5) || "";
+  const hf =
+    evt.hora_fin && evt.hora_fin !== evt.hora_inicio
+      ? evt.hora_fin.slice(0, 5)
+      : "";
+
+  const llegadaBadge = yaIngreso ? (
+    <span
+      className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 py-0.5 text-center leading-tight inline-flex items-center gap-0.5 shrink-0"
+      title="Hora de ingreso"
+    >
+      <IconCheck size={10} />
+      {formatHora(estado.registrado_at)}
+    </span>
+  ) : null;
+
+  const salidaBadge = yaSalida ? (
+    <span
+      className="text-[9px] font-bold text-sky-800 bg-sky-50 border border-sky-200 rounded px-1 py-0.5 text-center leading-tight shrink-0"
+      title="Hora de salida"
+    >
+      ↓ {formatHora(estado.salida_at)}
+    </span>
+  ) : null;
+
+  const exitActions =
+    isToday && yaIngreso && !yaSalida ? (
+      <>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => handleGpsAction("salida")}
+          className={`${iconBtnClass} text-sky-700 bg-sky-50 border-sky-200 hover:bg-sky-100`}
+          title="Registrar hora de salida"
+          aria-label="Registrar hora de salida"
+        >
+          {busy && phase === "salida" ? (
+            <IconLoader size={16} className="animate-spin" />
+          ) : (
+            <IconWatch size={16} />
+          )}
+        </button>
+        <button
+          type="button"
+          disabled={busy || decodingQr}
+          onClick={() => openScanPeer("salida")}
+          className={`${iconBtnClass} text-slate-700 bg-slate-50 border-slate-200 hover:bg-slate-100`}
+          title="Escanear QR de compañero (salida)"
+          aria-label="Escanear QR de compañero para salida"
+        >
+          {decodingQr && phase === "salida" ? (
+            <IconLoader size={16} className="animate-spin" />
+          ) : (
+            <IconCameraScanQr size={16} />
+          )}
+        </button>
+      </>
+    ) : null;
+
+  const entryActions =
+    isToday && !yaIngreso ? (
+      <>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => handleGpsAction("entrada")}
+          className={`${iconBtnClass} text-indigo-700 bg-indigo-50 border-indigo-200 hover:bg-indigo-100`}
+          title="Registrar hora de llegada"
+          aria-label="Registrar hora de llegada"
+        >
+          {busy ? (
+            <IconLoader size={16} className="animate-spin" />
+          ) : (
+            <IconWatch size={16} />
+          )}
+        </button>
+        <button
+          type="button"
+          disabled={busy || decodingQr}
+          onClick={() => openScanPeer("entrada")}
+          className={`${iconBtnClass} text-slate-700 bg-slate-50 border-slate-200 hover:bg-slate-100`}
+          title="Escanear QR de compañero"
+          aria-label="Escanear QR de compañero"
+        >
+          {decodingQr ? (
+            <IconLoader size={16} className="animate-spin" />
+          ) : (
+            <IconCameraScanQr size={16} />
+          )}
+        </button>
+      </>
+    ) : null;
+
+  const qrButton =
+    isToday && puedeGenerarPase ? (
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => handleGenerarPase("entrada")}
+        className={`${iconBtnClass} text-violet-700 bg-violet-50 border-violet-200 hover:bg-violet-100`}
+        title="Mostrar QR a compañero (20 s)"
+        aria-label="Mostrar QR a compañero"
+      >
+        {busy ? (
+          <IconLoader size={16} className="animate-spin" />
+        ) : (
+          <IconQr size={16} />
+        )}
+      </button>
+    ) : null;
+
+  const modals = (
+    <>
+      {showGeoModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
           <div
             className="bg-white rounded-xl shadow-xl max-w-sm w-full p-4 space-y-3"
@@ -361,7 +513,7 @@ export default function RehearsalCheckInBlock({
             <button
               type="button"
               disabled={busy}
-              onClick={handleCheckInSinUbicacion}
+              onClick={handleSinUbicacion}
               className="w-full text-[11px] text-slate-500 underline"
             >
               Registrar solo la hora (sin ubicación)
@@ -377,47 +529,38 @@ export default function RehearsalCheckInBlock({
         </div>
       )}
 
-      {showPeer && !yaIngreso && (
+      {showScanModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
           <div
             className="bg-white rounded-xl shadow-xl max-w-sm w-full p-4 text-center"
             onClick={(e) => e.stopPropagation()}
           >
             <p className="text-sm font-bold text-slate-800 mb-2">
-              {paseQrUrl ? "QR para compañero" : "Escanear QR de compañero"}
+              {phase === "salida"
+                ? "Escanear QR de salida"
+                : "Escanear QR de compañero"}
             </p>
-            {paseQrUrl ? (
-              <>
-                <img src={paseQrUrl} alt="QR pase" className="mx-auto w-56 rounded" />
-                <p className="text-xs text-slate-500 mt-2">
-                  Vence en {countdown}s
-                </p>
-              </>
-            ) : (
-              <>
-                <input
-                  ref={qrPhotoRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={handleScanPase}
-                />
-                <button
-                  type="button"
-                  disabled={decodingQr}
-                  onClick={() => qrPhotoRef.current?.click()}
-                  className="flex items-center justify-center gap-2 w-full py-3 rounded-lg border-2 border-indigo-200 text-indigo-700 font-bold"
-                >
-                  {decodingQr ? (
-                    <IconLoader className="animate-spin" size={20} />
-                  ) : (
-                    <IconCameraScanQr size={22} />
-                  )}
-                  Escanear QR
-                </button>
-              </>
-            )}
+            <input
+              ref={qrPhotoRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleScanPase}
+            />
+            <button
+              type="button"
+              disabled={decodingQr}
+              onClick={() => qrPhotoRef.current?.click()}
+              className="flex items-center justify-center gap-2 w-full py-3 rounded-lg border-2 border-indigo-200 text-indigo-700 font-bold"
+            >
+              {decodingQr ? (
+                <IconLoader className="animate-spin" size={20} />
+              ) : (
+                <IconCameraScanQr size={22} />
+              )}
+              Escanear QR
+            </button>
             <button
               type="button"
               className="mt-3 text-xs text-slate-500 underline w-full"
@@ -433,9 +576,14 @@ export default function RehearsalCheckInBlock({
         </div>
       )}
 
-      {showPeer && yaIngreso && paseQrUrl && (
+      {showPeer && paseQrUrl && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl p-4 text-center max-w-sm w-full">
+            <p className="text-sm font-bold text-slate-800 mb-2">
+              {paseProposito === "salida"
+                ? "QR de salida para compañero"
+                : "QR para compañero"}
+            </p>
             <img src={paseQrUrl} alt="QR" className="mx-auto w-56" />
             <p className="text-xs mt-2">Vence en {countdown}s</p>
             <button
@@ -444,6 +592,7 @@ export default function RehearsalCheckInBlock({
               onClick={() => {
                 setShowPeer(false);
                 setPaseQrUrl(null);
+                setPaseToken(null);
               }}
             >
               Cerrar
@@ -451,6 +600,50 @@ export default function RehearsalCheckInBlock({
           </div>
         </div>
       )}
+    </>
+  );
+
+  if (pairWithSchedule) {
+    return (
+      <div
+        className="font-mono flex flex-col gap-0.5 items-stretch min-w-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-1 min-w-0">
+          <span className={`shrink-0 ${scheduleTimeClassName}`}>{hi}</span>
+          {isToday && llegadaBadge}
+        </div>
+        {(hf || (isToday && (yaIngreso || exitActions))) && (
+          <div className="flex items-center gap-1 min-w-0 flex-wrap">
+            {hf ? (
+              <span className={`shrink-0 ${scheduleEndClassName}`}>{hf}</span>
+            ) : null}
+            {isToday && (salidaBadge || exitActions)}
+          </div>
+        )}
+        {isToday && (entryActions || qrButton) && (
+          <div className="flex items-center gap-0.5 mt-0.5 flex-wrap">
+            {entryActions}
+            {qrButton}
+          </div>
+        )}
+        {modals}
+      </div>
+    );
+  }
+
+  if (!isToday) return null;
+
+  return (
+    <div
+      className="flex flex-row flex-wrap items-center gap-1"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {llegadaBadge}
+      {salidaBadge || exitActions}
+      {entryActions}
+      {qrButton}
+      {modals}
     </div>
   );
 }

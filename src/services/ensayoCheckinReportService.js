@@ -83,7 +83,7 @@ export async function fetchEnsayoCheckinReportData(supabase, {
     const { data: chk, error: chkErr } = await supabase
       .from("eventos_checkin_ensayo")
       .select(
-        "id, id_evento, id_integrante, registrado_at, latitud, longitud, precision_m, distancia_sede_m, modo, justificado, editado_por_admin, nota_justificacion",
+        "id, id_evento, id_integrante, registrado_at, salida_at, latitud, longitud, precision_m, distancia_sede_m, modo, modo_salida, justificado, editado_por_admin, nota_justificacion, salida_latitud, salida_longitud, salida_precision_m, salida_distancia_sede_m",
       )
       .in("id_evento", eventIds);
     if (chkErr) throw chkErr;
@@ -170,25 +170,59 @@ export function eventColumnLabel(evt) {
   return `${ddmm} ${hi}`.trim();
 }
 
+/** TZ institucional del check-in de ensayos (igual que RPCs `ensayo_hoy_ar`). */
+export const ENSAYO_CHECKIN_TZ = "America/Argentina/Buenos_Aires";
+
+/**
+ * Formatea `registrado_at` / `salida_at` como HH:mm.
+ * Supabase/PostgREST entrega timestamptz en UTC (`…+00:00`); la hora de pared
+ * institucional coincide con esa cara UTC (no reaplicar UTC−3 en el cliente).
+ */
 export function formatRegistradoHora(iso) {
   if (!iso) return "";
   try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return "";
-    const h = d.getHours();
-    const m = String(d.getMinutes()).padStart(2, "0");
-    return `${String(h).padStart(2, "0")}:${m}`;
+    if (typeof iso === "string") {
+      const m = iso.match(/T(\d{2}):(\d{2})/);
+      if (m) return `${m[1]}:${m[2]}`;
+    }
+    const d = typeof iso === "number" ? new Date(iso) : iso instanceof Date ? iso : new Date(iso);
+    if (!(d instanceof Date) || isNaN(d.getTime())) return "";
+    return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
   } catch {
     return "";
   }
 }
 
-/** Check-in con ubicación real (app GPS o QR), no carga manual admin. */
-export function checkinHasMapLocation(checkin) {
+/**
+ * Instant para admin upsert: la HH:mm cargada se persiste como cara UTC
+ * (mismo criterio que `formatRegistradoHora`).
+ */
+export function buildRegistradoAtArgentina(fecha, timeHHmm) {
+  const t = (timeHHmm || "00:00").slice(0, 5);
+  if (!fecha) return null;
+  return `${fecha}T${t}:00.000Z`;
+}
+
+/**
+ * Ubicación GPS/QR real.
+ * Llegada: pin si hay coords (aunque luego se edite la hora/salida por admin).
+ * Salida: pin solo si hay coords propias de salida (no carga admin sin GPS).
+ * @param {object | null | undefined} checkin
+ * @param {'llegada'|'salida'} [kind='llegada']
+ */
+export function checkinHasMapLocation(checkin, kind = "llegada") {
   if (!checkin) return false;
-  if (checkin.modo === "admin" || checkin.editado_por_admin || checkin.justificado) {
-    return false;
+  if (checkin.justificado) return false;
+
+  if (kind === "salida") {
+    if (checkin.modo_salida === "admin") return false;
+    const lat = Number(checkin.salida_latitud);
+    const lng = Number(checkin.salida_longitud);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+    if (Math.abs(lat) < 1e-5 && Math.abs(lng) < 1e-5) return false;
+    return true;
   }
+
   const lat = Number(checkin.latitud);
   const lng = Number(checkin.longitud);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
@@ -196,9 +230,12 @@ export function checkinHasMapLocation(checkin) {
   return true;
 }
 
-/** @param {{ latitud?: number | null, longitud?: number | null } | null | undefined} checkin */
-export function checkinGoogleMapsUrl(checkin) {
-  if (!checkinHasMapLocation(checkin)) return null;
+/** @param {object | null | undefined} checkin @param {'llegada'|'salida'} [kind='llegada'] */
+export function checkinGoogleMapsUrl(checkin, kind = "llegada") {
+  if (!checkinHasMapLocation(checkin, kind)) return null;
+  if (kind === "salida") {
+    return googleMapsUrlForCoords(checkin.salida_latitud, checkin.salida_longitud);
+  }
   return googleMapsUrlForCoords(checkin.latitud, checkin.longitud);
 }
 
@@ -213,39 +250,52 @@ export function formatDistanciaSedeM(meters) {
  * Distancia a la sede del ensayo: usa valor guardado o estima con coords de locación.
  * @param {object | null | undefined} checkin
  * @param {{ locaciones?: { latitud?: number | null, longitud?: number | null } } | null | undefined} evt
+ * @param {'llegada'|'salida'} [kind='llegada']
  */
-export function resolveCheckinDistanciaSedeM(checkin, evt) {
-  if (!checkinHasMapLocation(checkin)) return null;
-  const stored = checkin.distancia_sede_m;
+export function resolveCheckinDistanciaSedeM(checkin, evt, kind = "llegada") {
+  if (!checkinHasMapLocation(checkin, kind)) return null;
+  const stored =
+    kind === "salida" ? checkin.salida_distancia_sede_m : checkin.distancia_sede_m;
   if (stored != null && Number.isFinite(Number(stored))) {
     return Number(stored);
   }
   const locCoords = resolveLocacionCoords(evt?.locaciones);
   if (!locCoords) return null;
-  const d = haversineMeters(
-    { lat: Number(checkin.latitud), lng: Number(checkin.longitud) },
-    locCoords,
-  );
+  const lat =
+    kind === "salida" ? Number(checkin.salida_latitud) : Number(checkin.latitud);
+  const lng =
+    kind === "salida" ? Number(checkin.salida_longitud) : Number(checkin.longitud);
+  const d = haversineMeters({ lat, lng }, locCoords);
   return Number.isFinite(d) ? d : null;
 }
 
-/** @param {{ latitud?: number | null, longitud?: number | null, precision_m?: number | null, distancia_sede_m?: number | null, modo?: string } | null | undefined} checkin */
-export function checkinMapPinTitle(checkin, evt) {
-  if (!checkinHasMapLocation(checkin)) return "";
-  const lat = Number(checkin.latitud);
-  const lng = Number(checkin.longitud);
-  const parts = [`Ubicación del check-in: ${lat.toFixed(5)}, ${lng.toFixed(5)}`];
-  if (checkin.precision_m != null) {
-    parts.push(`precisión ±${Math.round(checkin.precision_m)} m`);
+/**
+ * @param {object | null | undefined} checkin
+ * @param {object | null | undefined} evt
+ * @param {'llegada'|'salida'} [kind='llegada']
+ */
+export function checkinMapPinTitle(checkin, evt, kind = "llegada") {
+  if (!checkinHasMapLocation(checkin, kind)) return "";
+  const lat =
+    kind === "salida" ? Number(checkin.salida_latitud) : Number(checkin.latitud);
+  const lng =
+    kind === "salida" ? Number(checkin.salida_longitud) : Number(checkin.longitud);
+  const precision =
+    kind === "salida" ? checkin.salida_precision_m : checkin.precision_m;
+  const modo = kind === "salida" ? checkin.modo_salida : checkin.modo;
+  const label = kind === "salida" ? "Ubicación de salida" : "Ubicación del check-in";
+  const parts = [`${label}: ${lat.toFixed(5)}, ${lng.toFixed(5)}`];
+  if (precision != null) {
+    parts.push(`precisión ±${Math.round(precision)} m`);
   }
-  const dist = resolveCheckinDistanciaSedeM(checkin, evt);
+  const dist = resolveCheckinDistanciaSedeM(checkin, evt, kind);
   const distLabel = formatDistanciaSedeM(dist);
   if (distLabel) {
     parts.push(`${distLabel} de la sede${evt?.locaciones?.nombre ? ` (${evt.locaciones.nombre})` : ""}`);
   } else if (evt?.locaciones?.nombre) {
     parts.push(`sede sin coordenadas (${evt.locaciones.nombre})`);
   }
-  if (checkin.modo === "peer_pase") {
+  if (modo === "peer_pase") {
     parts.push("vía QR de compañero");
   }
   return `${parts.join(" · ")} — Abrir en Google Maps`;

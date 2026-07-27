@@ -92,6 +92,7 @@ import ConfirmModal from "../ui/ConfirmModal";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import RehearsalCheckInBlock from "./RehearsalCheckInBlock";
 import { useEnsayoCheckin } from "../../hooks/useEnsayoCheckin";
+import { isIntegranteConvocadoAEnsayo } from "../../utils/ensayoCheckinBanner";
 import { deriveAgendaPermissions } from "../../utils/agendaPermissions";
 
 const DELETED_FILTERS_STORAGE_KEY_PREFIX = "unified_agenda_deleted_filters_v1_";
@@ -292,6 +293,7 @@ export default function UnifiedAgenda({
     isManagement,
     isGuest,
     isAdmin: isAdminFlag,
+    isActuallyAdmin,
     isTechnician,
   } = useAuth();
   // Estado para el modal de comida en móvil
@@ -712,16 +714,42 @@ export default function UnifiedAgenda({
   }, [giraId, items]);
 
   const todayStr = getTodayDateStringLocal();
-  // Solo admin mientras se prueba check-in en producción (deploy oculto al resto).
+  // Solo admin (sesión real) mientras se prueba check-in en producción.
+  // El integrante efectivo (incl. “Ver como”) debe estar autenticado numérico.
   const canEnsayoCheckIn =
-    isAdmin &&
+    isActuallyAdmin &&
     effectiveUserId &&
     effectiveUserId !== "guest-general" &&
     !Number.isNaN(Number(effectiveUserId));
+  const showEnsayoCheckInBlock = useCallback(
+    (evt) => {
+      if (Number(evt?.id_tipo_evento) !== 13 || !canEnsayoCheckIn) return false;
+      if (!userProfile || userProfile.id === "guest-general") return false;
+      if (evt.is_deleted) return false;
+      const custom = evt.is_absent
+        ? { tipo: "ausente" }
+        : evt.is_guest
+          ? { tipo: "invitado" }
+          : null;
+      return isIntegranteConvocadoAEnsayo(
+        evt,
+        custom,
+        userProfile.integrantes_ensambles || [],
+      );
+    },
+    [canEnsayoCheckIn, userProfile],
+  );
+  const ensayoCheckInEvents = useMemo(
+    () =>
+      canEnsayoCheckIn
+        ? (items || []).filter((e) => showEnsayoCheckInBlock(e))
+        : [],
+    [canEnsayoCheckIn, items, showEnsayoCheckInBlock],
+  );
   const { getEstado: getEnsayoCheckinEstado, refresh: refreshEnsayoCheckin } =
     useEnsayoCheckin({
       integranteId: canEnsayoCheckIn ? effectiveUserId : null,
-      events: items,
+      events: ensayoCheckInEvents,
       todayStr,
     });
   const isGiraFinishedTour = Boolean(
@@ -871,7 +899,7 @@ export default function UnifiedAgenda({
 
   useEffect(() => {
     const fetchProfile = async () => {
-      const PROFILE_CACHE_KEY = `profile_cache_${effectiveUserId}_v2`;
+      const PROFILE_CACHE_KEY = `profile_cache_${effectiveUserId}_v3`;
       const cachedProfile = localStorage.getItem(PROFILE_CACHE_KEY);
       if (cachedProfile) {
         try {
@@ -2610,25 +2638,33 @@ export default function UnifiedAgenda({
                                 ></div>
 
                                 <div
-                                  className={`w-10 font-mono shrink-0 flex flex-col items-center pt-1 ${isDeleted ? "text-orange-700" : "text-slate-600"}`}
+                                  className={`font-mono shrink-0 flex flex-col items-stretch pt-1 ${showEnsayoCheckInBlock(evt) ? "min-w-[6.5rem]" : "w-10 items-center"} ${isDeleted ? "text-orange-700" : "text-slate-600"}`}
                                 >
-                                  <span className="text-sm font-bold">{evt.hora_inicio?.slice(0, 5)}</span>
-                                  {evt.hora_fin &&
-                                    evt.hora_fin !== evt.hora_inicio && (
-                                      <span
-                                        className={`text-sm font-normal block ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
-                                      >
-                                        {evt.hora_fin.slice(0, 5)}
-                                      </span>
-                                    )}
-                                  {evt.id_tipo_evento === 13 && canEnsayoCheckIn && (
+                                  {showEnsayoCheckInBlock(evt) ? (
                                     <RehearsalCheckInBlock
                                       evt={evt}
                                       integranteId={effectiveUserId}
                                       isToday={evt.fecha === todayStr}
                                       estado={getEnsayoCheckinEstado(evt.id)}
                                       onSuccess={refreshEnsayoCheckin}
+                                      pairWithSchedule
+                                      scheduleTimeClassName={`text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-600"}`}
+                                      scheduleEndClassName={`text-sm font-normal ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
                                     />
+                                  ) : (
+                                    <>
+                                      <span className="text-sm font-bold text-center">
+                                        {evt.hora_inicio?.slice(0, 5)}
+                                      </span>
+                                      {evt.hora_fin &&
+                                        evt.hora_fin !== evt.hora_inicio && (
+                                          <span
+                                            className={`text-sm font-normal block text-center ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
+                                          >
+                                            {evt.hora_fin.slice(0, 5)}
+                                          </span>
+                                        )}
+                                    </>
                                   )}
                                 </div>
 
@@ -3032,28 +3068,34 @@ export default function UnifiedAgenda({
                                 ></div>
 
                                 {/* COLUMNA 1: HORA */}
-                                <div className="col-span-1">
-                                  <div
-                                    className={`font-mono text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
-                                  >
-                                    {evt.hora_inicio?.slice(0, 5)}
-                                  </div>
-                                  {evt.hora_fin &&
-                                    evt.hora_fin !== evt.hora_inicio && (
-                                      <div
-                                        className={`font-mono text-sm font-normal ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
-                                      >
-                                        {evt.hora_fin.slice(0, 5)}
-                                      </div>
-                                    )}
-                                  {evt.id_tipo_evento === 13 && canEnsayoCheckIn && (
+                                <div className="col-span-1 min-w-0">
+                                  {showEnsayoCheckInBlock(evt) ? (
                                     <RehearsalCheckInBlock
                                       evt={evt}
                                       integranteId={effectiveUserId}
                                       isToday={evt.fecha === todayStr}
                                       estado={getEnsayoCheckinEstado(evt.id)}
                                       onSuccess={refreshEnsayoCheckin}
+                                      pairWithSchedule
+                                      scheduleTimeClassName={`text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
+                                      scheduleEndClassName={`text-sm font-normal ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
                                     />
+                                  ) : (
+                                    <>
+                                      <div
+                                        className={`font-mono text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
+                                      >
+                                        {evt.hora_inicio?.slice(0, 5)}
+                                      </div>
+                                      {evt.hora_fin &&
+                                        evt.hora_fin !== evt.hora_inicio && (
+                                          <div
+                                            className={`font-mono text-sm font-normal ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
+                                          >
+                                            {evt.hora_fin.slice(0, 5)}
+                                          </div>
+                                        )}
+                                    </>
                                   )}
                                 </div>
 

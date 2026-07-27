@@ -10,7 +10,7 @@ Orquesta Filarmónica de Río Negro (OFRN) — Plataforma de gestión institucio
 
 La Orquesta Filarmónica de Río Negro (OFRN) dispone de un **sistema digital de registro de asistencia** a los **ensayos de ensamble**: actividades programadas en la agenda institucional como eventos de tipo «ensayo de ensamble».
 
-El sistema permite documentar, de forma **objetiva y verificable**, la **hora de ingreso** de cada integrante convocado a un ensayo, complementando el control de presencia con **datos de geolocalización** cuando el dispositivo del músico lo permite. Los registros alimentan **reportes de gestión** exportables (Excel y PDF) destinados al seguimiento administrativo y al control de cumplimiento de la jornada de ensayo.
+El sistema permite documentar, de forma **objetiva y verificable**, la **hora de ingreso** y la **hora de salida** (opcional) de cada integrante convocado a un ensayo, complementando el control de presencia con **datos de geolocalización** cuando el dispositivo del músico lo permite. Los registros alimentan **reportes de gestión** exportables (Excel y PDF) destinados al seguimiento administrativo y al control de cumplimiento de la jornada de ensayo.
 
 ---
 
@@ -137,12 +137,12 @@ Los pases de ubicación se generan con identificadores aleatorios (`ENS-PASE-…
 El módulo **Asistencia a ensayos** (Gestión) permite al personal autorizado:
 
 - Filtrar por **rango de fechas** y **ensambles**.
-- Visualizar una **matriz de asistencia** (integrantes × ensayos) con hora de ingreso en cada celda.
+- Visualizar una **matriz de asistencia** (integrantes × ensayos) con columnas de **llegada** y **salida** en cada ensayo.
 - Consultar una **vista detallada por persona**.
 - **Exportar** reportes en Excel y PDF para archivo, RRHH o presentación ante organismos de control.
 - Verificar en mapa la **coherencia geográfica** de cada registro (pin en Google Maps + distancia a la sede).
 
-Los reportes exportados incluyen la **hora de ingreso** (`registrado_at`).
+Los reportes exportados incluyen la **hora de ingreso** (`registrado_at`) y la **hora de salida** (`salida_at`) cuando está registrada.
 
 ---
 
