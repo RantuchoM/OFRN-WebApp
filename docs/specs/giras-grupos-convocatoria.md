@@ -25,10 +25,11 @@ Migración: `supabase/migrations/20260724120000_giras_grupos.sql`.
 
 ## UI
 
-- **Roster** (`GiraRoster`): botón “Grupos de convocatoria” → CRUD de grupos y checklist de miembros (solo confirmados). Tags junto al nombre en `RosterTableRow` (no en ausentes).
+- **Roster** (`GiraRoster`): botón “Grupos de convocatoria” → CRUD de grupos y tabla de miembros (solo confirmados) con columnas Nombre / Instrumento / Localidad (residencia) / Ensamble/s, filtros por columna y ordenación (al cargar o reordenar, los ya seleccionados quedan arriba; tildar no reordena). Tags junto al nombre en `RosterTableRow` (no en ausentes); los editores pueden quitar del grupo con la cruz del chip (confirmación).
   - **Móvil**: el header duplicado (Volver + título) se oculta; la toolbar queda compacta/scrolleable con el botón **Grupos** siempre con etiqueta visible; modal en sheet inferior (`RosterGroupsModal`) scrolleable.
 - **Agenda** (`EventForm`, `IndependentRehearsalForm`): multi-select de grupos de la gira; persistencia en create/edit/duplicate.
 - **Chips** en `UnifiedAgenda` (móvil y desktop) junto a ensambles cuando el evento tiene grupos.
+- Al eliminar un grupo: el panel lista eventos asociados y permite **conservarlos desasociados** o **enviarlos a la papelera** (`is_deleted`) junto con el grupo.
 
 ## Visibilidad
 
@@ -43,3 +44,6 @@ Implementada en `useAgendaData` sobre el select que incluye `eventos_grupos ( gi
 - [x] Chips + asignación en `EventForm` / `IndependentRehearsalForm` / `UnifiedAgenda`
 - [x] Push migración a main
 - [x] Acceso al gestor de grupos en vista móvil del roster (header compacto + botón visible)
+- [x] Tabla de miembros con 4 columnas, filtros y orden
+- [x] Cruz en chips de grupo del roster para quitar (con confirmación)
+- [x] Al eliminar grupo: listar eventos y elegir conservar (desasociar) o eliminar (papelera)

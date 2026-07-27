@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
   IconCheck,
+  IconChevronDown,
+  IconChevronUp,
   IconLoader,
   IconPlus,
   IconTrash,
@@ -13,11 +15,49 @@ import {
   GIRA_GRUPO_DEFAULT_COLORS,
   createGiraGrupo,
   deleteGiraGrupo,
+  fetchEventosByGiraGrupo,
   fetchGiraGrupos,
   setGiraGrupoMembers,
+  softDeleteEventos,
   updateGiraGrupo,
 } from "../../services/giraGruposService";
 import { integranteKey } from "../../utils/integranteIds";
+import { format, parseISO } from "date-fns";
+import { es } from "date-fns/locale";
+
+function getMemberNombre(m) {
+  return `${m.apellido || ""}, ${m.nombre || ""}`.trim();
+}
+
+function getMemberInstrumento(m) {
+  return m.instrumentos?.instrumento || m.id_instr || "-";
+}
+
+function getMemberLocalidad(m) {
+  return (
+    m._loc_residencia?.localidad ||
+    m.residencia?.localidad ||
+    m.localidades_residencia?.localidad ||
+    "-"
+  );
+}
+
+function getMemberEnsambles(m) {
+  const names = (m.integrantes_ensambles || [])
+    .map((ie) => ie.ensambles?.ensamble)
+    .filter(Boolean);
+  if (names.length === 0 && Array.isArray(m.ensambles)) {
+    return m.ensambles.map((e) => e.ensamble || e).filter(Boolean).join(", ") || "-";
+  }
+  return names.length > 0 ? names.join(", ") : "-";
+}
+
+const MEMBER_COLUMNS = [
+  { key: "nombre", label: "Nombre", getValue: getMemberNombre },
+  { key: "instrumento", label: "Instrumento", getValue: getMemberInstrumento },
+  { key: "localidad", label: "Localidad", getValue: getMemberLocalidad },
+  { key: "ensambles", label: "Ensamble/s", getValue: getMemberEnsambles },
+];
 
 /**
  * Modal portal: CRUD de grupos de convocatoria de una gira + checklist de miembros.
@@ -38,7 +78,26 @@ export default function RosterGroupsModal({
   const [editNombre, setEditNombre] = useState("");
   const [editColor, setEditColor] = useState(GIRA_GRUPO_DEFAULT_COLORS[0]);
   const [memberIds, setMemberIds] = useState(() => new Set());
-  const [memberSearch, setMemberSearch] = useState("");
+  /** Snapshot de seleccionados para fijar arriba; se actualiza al cargar/cambiar grupo o al reordenar, no al tildar. */
+  const [pinnedSelectedIds, setPinnedSelectedIds] = useState(() => new Set());
+  const [columnFilters, setColumnFilters] = useState({
+    nombre: "",
+    instrumento: "",
+    localidad: "",
+    ensambles: "",
+  });
+  const [sortBy, setSortBy] = useState("nombre");
+  const [sortDir, setSortDir] = useState("asc");
+  /** null | { loading, eventos, error } — panel de confirmación al eliminar grupo */
+  const [deletePanel, setDeletePanel] = useState(null);
+
+  const syncMembersFromGrupo = (g) => {
+    const ids = new Set(
+      (g?.giras_grupos_integrantes || []).map((r) => String(r.id_integrante)),
+    );
+    setMemberIds(ids);
+    setPinnedSelectedIds(new Set(ids));
+  };
 
   const confirmados = useMemo(
     () =>
@@ -50,14 +109,35 @@ export default function RosterGroupsModal({
     [roster],
   );
 
-  const filteredConfirmados = useMemo(() => {
-    const q = memberSearch.trim().toLowerCase();
-    if (!q) return confirmados;
-    return confirmados.filter((m) => {
-      const name = `${m.apellido || ""} ${m.nombre || ""}`.toLowerCase();
-      return name.includes(q);
+  const filteredSortedConfirmados = useMemo(() => {
+    const filters = Object.fromEntries(
+      Object.entries(columnFilters).map(([k, v]) => [
+        k,
+        String(v || "").trim().toLowerCase(),
+      ]),
+    );
+    let rows = confirmados.filter((m) =>
+      MEMBER_COLUMNS.every((col) => {
+        const q = filters[col.key];
+        if (!q) return true;
+        return String(col.getValue(m) || "")
+          .toLowerCase()
+          .includes(q);
+      }),
+    );
+    const col =
+      MEMBER_COLUMNS.find((c) => c.key === sortBy) || MEMBER_COLUMNS[0];
+    rows = [...rows].sort((a, b) => {
+      const aPinned = pinnedSelectedIds.has(String(a.id)) ? 0 : 1;
+      const bPinned = pinnedSelectedIds.has(String(b.id)) ? 0 : 1;
+      if (aPinned !== bPinned) return aPinned - bPinned;
+      const av = String(col.getValue(a) || "").toLowerCase();
+      const bv = String(col.getValue(b) || "").toLowerCase();
+      const cmp = av.localeCompare(bv, "es", { sensitivity: "base" });
+      return sortDir === "asc" ? cmp : -cmp;
     });
-  }, [confirmados, memberSearch]);
+    return rows;
+  }, [confirmados, columnFilters, sortBy, sortDir, pinnedSelectedIds]);
 
   const selectedGrupo = useMemo(
     () => grupos.find((g) => Number(g.id) === Number(selectedGrupoId)) || null,
@@ -84,18 +164,13 @@ export default function RosterGroupsModal({
       if (g) {
         setEditNombre(g.nombre || "");
         setEditColor(g.color || GIRA_GRUPO_DEFAULT_COLORS[0]);
-        setMemberIds(
-          new Set(
-            (g.giras_grupos_integrantes || []).map((r) =>
-              String(r.id_integrante),
-            ),
-          ),
-        );
+        syncMembersFromGrupo(g);
       }
     } else {
       setSelectedGrupoId(null);
       setEditNombre("");
       setMemberIds(new Set());
+      setPinnedSelectedIds(new Set());
     }
   };
 
@@ -109,13 +184,8 @@ export default function RosterGroupsModal({
     if (!selectedGrupo) return;
     setEditNombre(selectedGrupo.nombre || "");
     setEditColor(selectedGrupo.color || GIRA_GRUPO_DEFAULT_COLORS[0]);
-    setMemberIds(
-      new Set(
-        (selectedGrupo.giras_grupos_integrantes || []).map((r) =>
-          String(r.id_integrante),
-        ),
-      ),
-    );
+    syncMembersFromGrupo(selectedGrupo);
+    setDeletePanel(null);
   }, [selectedGrupoId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isOpen) return null;
@@ -194,23 +264,47 @@ export default function RosterGroupsModal({
 
   const handleDelete = async () => {
     if (!selectedGrupo) return;
-    if (
-      !window.confirm(
-        `¿Eliminar el grupo "${selectedGrupo.nombre}"? Se quitará de los eventos asignados.`,
-      )
-    ) {
-      return;
-    }
-    setSaving(true);
-    const { error } = await deleteGiraGrupo(supabase, selectedGrupo.id);
-    setSaving(false);
+    setDeletePanel({ loading: true, eventos: [], error: null });
+    const { eventos, error } = await fetchEventosByGiraGrupo(
+      supabase,
+      selectedGrupo.id,
+    );
     if (error) {
-      toast.error("Error al eliminar: " + error.message);
+      setDeletePanel(null);
+      toast.error("No se pudieron cargar eventos del grupo: " + error.message);
       return;
     }
-    toast.success("Grupo eliminado");
-    setSelectedGrupoId(null);
-    await notifyChanged();
+    setDeletePanel({ loading: false, eventos, error: null });
+  };
+
+  const cancelDeletePanel = () => setDeletePanel(null);
+
+  const finishDeleteGrupo = async ({ deleteEvents }) => {
+    if (!selectedGrupo) return;
+    setSaving(true);
+    try {
+      if (deleteEvents && deletePanel?.eventos?.length > 0) {
+        const { error: evErr } = await softDeleteEventos(
+          supabase,
+          deletePanel.eventos.map((e) => e.id),
+        );
+        if (evErr) throw evErr;
+      }
+      const { error } = await deleteGiraGrupo(supabase, selectedGrupo.id);
+      if (error) throw error;
+      toast.success(
+        deleteEvents && deletePanel?.eventos?.length > 0
+          ? `Grupo eliminado y ${deletePanel.eventos.length} evento(s) a la papelera`
+          : "Grupo eliminado (eventos conservados, desasociados)",
+      );
+      setDeletePanel(null);
+      setSelectedGrupoId(null);
+      await notifyChanged();
+    } catch (err) {
+      toast.error("Error al eliminar: " + (err.message || err));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const toggleMember = (id) => {
@@ -226,12 +320,22 @@ export default function RosterGroupsModal({
   const selectAllFiltered = () => {
     setMemberIds((prev) => {
       const next = new Set(prev);
-      filteredConfirmados.forEach((m) => next.add(String(m.id)));
+      filteredSortedConfirmados.forEach((m) => next.add(String(m.id)));
       return next;
     });
   };
 
   const clearAll = () => setMemberIds(new Set());
+
+  const toggleSort = (key) => {
+    setPinnedSelectedIds(new Set(memberIds));
+    if (sortBy === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(key);
+      setSortDir("asc");
+    }
+  };
 
   return createPortal(
     <div
@@ -239,7 +343,7 @@ export default function RosterGroupsModal({
       onClick={onClose}
     >
       <div
-        className="bg-white w-full sm:max-w-3xl h-[92vh] sm:h-auto sm:max-h-[90vh] rounded-t-2xl sm:rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom sm:zoom-in-95"
+        className="bg-white w-full sm:max-w-5xl h-[92vh] sm:h-auto sm:max-h-[90vh] rounded-t-2xl sm:rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom sm:zoom-in-95"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
@@ -256,7 +360,7 @@ export default function RosterGroupsModal({
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 flex flex-col md:grid md:grid-cols-[220px_1fr] overflow-y-auto md:overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col md:grid md:grid-cols-[200px_1fr] overflow-y-auto md:overflow-hidden">
           <aside className="border-b md:border-b-0 md:border-r border-slate-100 p-3 space-y-3 md:overflow-y-auto bg-slate-50/50 shrink-0 md:min-h-0">
             <div className="flex gap-1">
               <input
@@ -361,7 +465,7 @@ export default function RosterGroupsModal({
                     <button
                       type="button"
                       onClick={handleSaveMeta}
-                      disabled={saving}
+                      disabled={saving || !!deletePanel}
                       className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1"
                     >
                       {saving ? (
@@ -374,7 +478,7 @@ export default function RosterGroupsModal({
                     <button
                       type="button"
                       onClick={handleDelete}
-                      disabled={saving}
+                      disabled={saving || !!deletePanel}
                       className="px-3 py-1.5 border border-red-200 text-red-600 rounded-lg text-xs font-bold hover:bg-red-50 disabled:opacity-50 flex items-center gap-1"
                     >
                       <IconTrash size={12} />
@@ -383,10 +487,134 @@ export default function RosterGroupsModal({
                   </div>
                 </div>
 
+                {deletePanel && (
+                  <div className="border border-amber-200 bg-amber-50/80 rounded-lg p-3 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-bold text-amber-900">
+                          ¿Eliminar el grupo “{selectedGrupo.nombre}”?
+                        </p>
+                        <p className="text-[11px] text-amber-800/80 mt-0.5">
+                          Al borrar el grupo se desasocian sus vínculos. Elegí qué
+                          hacer con los eventos asignados.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={cancelDeletePanel}
+                        disabled={saving}
+                        className="p-1 rounded text-amber-700/70 hover:bg-amber-100"
+                        aria-label="Cancelar"
+                      >
+                        <IconX size={14} />
+                      </button>
+                    </div>
+
+                    {deletePanel.loading ? (
+                      <div className="flex items-center gap-2 text-xs text-amber-800 py-2">
+                        <IconLoader size={14} className="animate-spin" />
+                        Buscando eventos asociados…
+                      </div>
+                    ) : deletePanel.eventos.length === 0 ? (
+                      <p className="text-xs text-slate-600 italic">
+                        Este grupo no tiene eventos asociados.
+                      </p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-bold uppercase text-amber-900/70">
+                          {deletePanel.eventos.length} evento
+                          {deletePanel.eventos.length === 1 ? "" : "s"} asociado
+                          {deletePanel.eventos.length === 1 ? "" : "s"}
+                        </p>
+                        <ul className="max-h-40 overflow-y-auto border border-amber-200/80 rounded-md bg-white divide-y divide-slate-100">
+                          {deletePanel.eventos.map((ev) => {
+                            let fechaLabel = ev.fecha || "";
+                            try {
+                              if (ev.fecha) {
+                                fechaLabel = format(
+                                  parseISO(ev.fecha),
+                                  "EEE d MMM",
+                                  { locale: es },
+                                );
+                              }
+                            } catch {
+                              /* keep raw */
+                            }
+                            const hora = (ev.hora_inicio || "").slice(0, 5);
+                            const tipo = ev.tipos_evento?.nombre || "Evento";
+                            const desc = (ev.descripcion || "")
+                              .replace(/<[^>]+>/g, "")
+                              .trim();
+                            return (
+                              <li
+                                key={ev.id}
+                                className="px-2.5 py-1.5 text-[11px] text-slate-700"
+                              >
+                                <span className="font-semibold text-slate-800">
+                                  {fechaLabel}
+                                  {hora ? ` · ${hora}` : ""}
+                                </span>
+                                <span className="text-slate-400"> · </span>
+                                <span>{tipo}</span>
+                                {desc ? (
+                                  <span className="block truncate text-slate-500">
+                                    {desc}
+                                  </span>
+                                ) : null}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={cancelDeletePanel}
+                        disabled={saving || deletePanel.loading}
+                        className="px-3 py-1.5 text-xs font-bold text-slate-600 border border-slate-200 rounded-lg hover:bg-white disabled:opacity-50"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          finishDeleteGrupo({ deleteEvents: false })
+                        }
+                        disabled={saving || deletePanel.loading}
+                        className="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 disabled:opacity-50"
+                      >
+                        {deletePanel.eventos.length > 0
+                          ? "Conservar eventos (desasociar)"
+                          : "Eliminar grupo"}
+                      </button>
+                      {deletePanel.eventos.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            finishDeleteGrupo({ deleteEvents: true })
+                          }
+                          disabled={saving || deletePanel.loading}
+                          className="px-3 py-1.5 text-xs font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {saving ? (
+                            <IconLoader size={12} className="animate-spin" />
+                          ) : (
+                            <IconTrash size={12} />
+                          )}
+                          Eliminar también los eventos
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div className="border-t border-slate-100 pt-3 space-y-2 flex-1 min-h-0 flex flex-col">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <label className="text-[10px] font-bold uppercase text-slate-500">
-                      Miembros ({memberIds.size}) — solo confirmados
+                      Miembros ({memberIds.size}) — {filteredSortedConfirmados.length}{" "}
+                      visibles / solo confirmados
                     </label>
                     <div className="flex gap-2 text-[10px]">
                       <button
@@ -405,40 +633,111 @@ export default function RosterGroupsModal({
                       </button>
                     </div>
                   </div>
-                  <input
-                    type="search"
-                    value={memberSearch}
-                    onChange={(e) => setMemberSearch(e.target.value)}
-                    placeholder="Buscar integrante..."
-                    className="w-full text-xs border border-slate-200 rounded-lg px-3 py-1.5"
-                  />
-                  <div className="flex-1 min-h-[180px] max-h-[320px] overflow-y-auto border border-slate-100 rounded-lg divide-y divide-slate-50">
-                    {filteredConfirmados.length === 0 ? (
-                      <p className="p-3 text-xs text-slate-400 italic">
-                        No hay integrantes confirmados para asignar.
-                      </p>
-                    ) : (
-                      filteredConfirmados.map((m) => {
-                        const key = String(m.id);
-                        const checked = memberIds.has(key);
-                        return (
-                          <label
-                            key={integranteKey(m)}
-                            className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 cursor-pointer text-xs"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => toggleMember(m.id)}
-                              className="rounded text-indigo-600"
-                            />
-                            <span className="font-medium text-slate-700 truncate">
-                              {m.apellido}, {m.nombre}
-                            </span>
-                          </label>
-                        );
-                      })
-                    )}
+
+                  <div className="flex-1 min-h-[220px] max-h-[420px] overflow-auto border border-slate-100 rounded-lg">
+                    <table className="w-full min-w-[640px] text-left border-collapse">
+                      <thead className="sticky top-0 z-10 bg-slate-50">
+                        <tr className="border-b border-slate-200">
+                          <th className="w-8 px-2 py-1.5" />
+                          {MEMBER_COLUMNS.map((col) => (
+                            <th
+                              key={`filter-${col.key}`}
+                              className="px-1.5 py-1.5"
+                            >
+                              <input
+                                type="search"
+                                value={columnFilters[col.key]}
+                                onChange={(e) =>
+                                  setColumnFilters((prev) => ({
+                                    ...prev,
+                                    [col.key]: e.target.value,
+                                  }))
+                                }
+                                placeholder={`Filtrar ${col.label.toLowerCase()}…`}
+                                className="w-full text-[10px] border border-slate-200 rounded px-1.5 py-1 bg-white"
+                              />
+                            </th>
+                          ))}
+                        </tr>
+                        <tr className="border-b border-slate-200 text-[10px] uppercase tracking-wide text-slate-500">
+                          <th className="w-8 px-2 py-1.5" />
+                          {MEMBER_COLUMNS.map((col) => {
+                            const active = sortBy === col.key;
+                            return (
+                              <th key={`sort-${col.key}`} className="px-1.5 py-1">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleSort(col.key)}
+                                  className={`inline-flex items-center gap-0.5 font-bold hover:text-indigo-700 ${
+                                    active ? "text-indigo-700" : ""
+                                  }`}
+                                >
+                                  {col.label}
+                                  {active ? (
+                                    sortDir === "asc" ? (
+                                      <IconChevronUp size={12} />
+                                    ) : (
+                                      <IconChevronDown size={12} />
+                                    )
+                                  ) : (
+                                    <IconChevronDown
+                                      size={12}
+                                      className="opacity-30"
+                                    />
+                                  )}
+                                </button>
+                              </th>
+                            );
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredSortedConfirmados.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={5}
+                              className="p-3 text-xs text-slate-400 italic"
+                            >
+                              No hay integrantes confirmados para asignar.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredSortedConfirmados.map((m) => {
+                            const key = String(m.id);
+                            const checked = memberIds.has(key);
+                            return (
+                              <tr
+                                key={integranteKey(m)}
+                                className={`border-b border-slate-50 hover:bg-slate-50/80 text-xs ${
+                                  checked ? "bg-indigo-50/40" : ""
+                                }`}
+                              >
+                                <td className="px-2 py-1.5 align-middle">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleMember(m.id)}
+                                    className="rounded text-indigo-600"
+                                  />
+                                </td>
+                                <td className="px-1.5 py-1.5 font-medium text-slate-700 max-w-[12rem] truncate">
+                                  {getMemberNombre(m)}
+                                </td>
+                                <td className="px-1.5 py-1.5 text-slate-600 max-w-[8rem] truncate">
+                                  {getMemberInstrumento(m)}
+                                </td>
+                                <td className="px-1.5 py-1.5 text-slate-600 max-w-[8rem] truncate">
+                                  {getMemberLocalidad(m)}
+                                </td>
+                                <td className="px-1.5 py-1.5 text-slate-600 max-w-[12rem] truncate">
+                                  {getMemberEnsambles(m)}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                   <button
                     type="button"

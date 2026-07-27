@@ -111,6 +111,43 @@ export async function deleteGiraGrupo(supabase, id) {
 }
 
 /**
+ * Eventos asociados a un grupo (vía eventos_grupos).
+ * @returns {{ eventos: Array<{id, fecha, hora_inicio, descripcion, tipos_evento}>, error }}
+ */
+export async function fetchEventosByGiraGrupo(supabase, idGrupo) {
+  const { data, error } = await supabase
+    .from("eventos_grupos")
+    .select(
+      "id_evento, eventos ( id, fecha, hora_inicio, descripcion, is_deleted, tipos_evento ( nombre ) )",
+    )
+    .eq("id_grupo", idGrupo);
+  if (error) return { eventos: [], error };
+  const eventos = (data || [])
+    .map((row) => row.eventos)
+    .filter((e) => e && e.is_deleted !== true);
+  eventos.sort((a, b) => {
+    const da = `${a.fecha || ""}T${a.hora_inicio || "00:00"}`;
+    const db = `${b.fecha || ""}T${b.hora_inicio || "00:00"}`;
+    return da.localeCompare(db);
+  });
+  return { eventos, error: null };
+}
+
+/** Soft-delete de eventos (papelera), mismo patrón que la agenda. */
+export async function softDeleteEventos(supabase, eventIds) {
+  const ids = [...new Set((eventIds || []).map(Number).filter(Boolean))];
+  if (ids.length === 0) return { error: null };
+  const { error } = await supabase
+    .from("eventos")
+    .update({
+      is_deleted: true,
+      deleted_at: new Date().toISOString(),
+    })
+    .in("id", ids);
+  return { error };
+}
+
+/**
  * Reemplaza la membresía completa de un grupo.
  * @param {number[]} integranteIds
  */
@@ -127,6 +164,20 @@ export async function setGiraGrupoMembers(supabase, idGrupo, integranteIds) {
   const { error } = await supabase.from("giras_grupos_integrantes").insert(
     ids.map((id_integrante) => ({ id_grupo: idGrupo, id_integrante })),
   );
+  return { error };
+}
+
+/** Quita un integrante de un grupo (sin tocar el resto de la membresía). */
+export async function removeIntegranteFromGiraGrupo(
+  supabase,
+  idGrupo,
+  idIntegrante,
+) {
+  const { error } = await supabase
+    .from("giras_grupos_integrantes")
+    .delete()
+    .eq("id_grupo", idGrupo)
+    .eq("id_integrante", idIntegrante);
   return { error };
 }
 

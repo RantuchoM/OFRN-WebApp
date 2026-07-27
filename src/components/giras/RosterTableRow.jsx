@@ -40,6 +40,7 @@ export default function RosterTableRow({
   onCopyLink,
   onOpenMotivoModal,
   grupoTags = [],
+  onRemoveFromGrupo,
 }) {
   const showMotivoStick =
     Boolean(m.en_giras_integrantes) &&
@@ -175,7 +176,7 @@ export default function RosterTableRow({
               (grupoTags || []).map((g) => (
                 <span
                   key={g.id}
-                  className="inline-flex items-center px-1 py-0 rounded text-[8px] md:text-[9px] font-black uppercase tracking-tight shrink-0 border"
+                  className="inline-flex items-center gap-0.5 pl-1 pr-0.5 py-0 rounded text-[8px] md:text-[9px] font-black uppercase tracking-tight shrink-0 border"
                   style={{
                     backgroundColor: `${g.color || "#6366f1"}18`,
                     color: g.color || "#4338ca",
@@ -184,6 +185,21 @@ export default function RosterTableRow({
                   title={g.nombre}
                 >
                   {g.nombre}
+                  {isEditor && onRemoveFromGrupo && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onRemoveFromGrupo(m, g);
+                      }}
+                      className="inline-flex items-center justify-center w-3 h-3 rounded-sm hover:bg-black/10 opacity-70 hover:opacity-100"
+                      title={`Quitar de ${g.nombre}`}
+                      aria-label={`Quitar de ${g.nombre}`}
+                    >
+                      <IconX size={8} />
+                    </button>
+                  )}
                 </span>
               ))}
           </div>

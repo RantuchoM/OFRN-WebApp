@@ -49,6 +49,7 @@ import NotificationQueuePanel from "../../components/giras/NotificationQueuePane
 import {
   buildIntegranteGruposMap,
   fetchGiraGrupos,
+  removeIntegranteFromGiraGrupo,
 } from "../../services/giraGruposService";
 import { toast } from "sonner";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
@@ -641,6 +642,29 @@ export default function GiraRoster({
     () => buildIntegranteGruposMap(giraGrupos, rawRoster),
     [giraGrupos, rawRoster],
   );
+
+  const handleRemoveFromGrupo = async (musician, grupo) => {
+    if (!musician?.id || !grupo?.id) return;
+    const nombrePersona = `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
+    if (
+      !window.confirm(
+        `¿Quitar a ${nombrePersona} del grupo "${grupo.nombre}"?`,
+      )
+    ) {
+      return;
+    }
+    const { error } = await removeIntegranteFromGiraGrupo(
+      supabase,
+      grupo.id,
+      musician.id,
+    );
+    if (error) {
+      toast.error("No se pudo quitar del grupo: " + error.message);
+      return;
+    }
+    toast.success(`Quitado de ${grupo.nombre}`);
+    await loadGiraGrupos();
+  };
 
   const [showOrderMenu, setShowOrderMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -3345,6 +3369,9 @@ export default function GiraRoster({
                       instrumentsList={instrumentsList}
                       defaultRolId={DEFAULT_ROL_ID}
                       grupoTags={integranteGruposMap.get(String(m.id)) || []}
+                      onRemoveFromGrupo={
+                        isEditor ? handleRemoveFromGrupo : undefined
+                      }
                       onToggleSelection={handleRowCheckboxClick}
                       onChangeRole={changeRole}
                       onChangeInstrument={changeInstrument}
