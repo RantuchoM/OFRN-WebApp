@@ -11,7 +11,7 @@ const cleanOptionText = (value) => {
 };
 
 export default function SearchableSelect({ 
-    options = [], // Array de { id, label, subLabel }
+    options = [], // Array de { id, label, subLabel?, color? }
     value,        // ID o Array de IDs (si es multi)
     onChange, 
     placeholder = "Buscar...", 
@@ -55,13 +55,13 @@ export default function SearchableSelect({
             .slice(0, 80);
     }, [normalizedOptions, search]);
 
-    // Calcular etiqueta seleccionada (Single); trim para alinear con datos viejos con espacios
-    const selectedLabel = useMemo(() => {
-        if (isMulti) return "";
+    // Opción seleccionada (Single); trim para alinear con datos viejos con espacios
+    const selectedOption = useMemo(() => {
+        if (isMulti) return null;
         const v = value == null ? "" : String(value).trim();
-        const found = normalizedOptions.find((o) => String(o.id).trim() === v);
-        return found ? found.label : "";
+        return normalizedOptions.find((o) => String(o.id).trim() === v) || null;
     }, [normalizedOptions, value, isMulti]);
+    const selectedLabel = selectedOption?.label || "";
 
     // Calcular etiquetas seleccionadas (Multi)
     const selectedItems = useMemo(() => {
@@ -192,9 +192,18 @@ export default function SearchableSelect({
                     </div>
                 ) : (
                     selectedLabel ? (
-                        <div className="flex items-center justify-between w-full">
-                            <span className="truncate text-slate-700 font-medium">{selectedLabel}</span>
-                            <button onClick={(e) => { e.stopPropagation(); onChange(null); }} className="p-0.5 hover:bg-slate-100 rounded text-slate-400"><IconX size={12}/></button>
+                        <div className="flex items-center justify-between w-full gap-2 min-w-0">
+                            <div className="flex items-center gap-2 min-w-0">
+                                {selectedOption?.color ? (
+                                    <span
+                                        className="w-2.5 h-2.5 rounded-full border border-slate-200 shrink-0 shadow-sm"
+                                        style={{ backgroundColor: selectedOption.color }}
+                                        aria-hidden
+                                    />
+                                ) : null}
+                                <span className="truncate text-slate-700 font-medium">{selectedLabel}</span>
+                            </div>
+                            <button onClick={(e) => { e.stopPropagation(); onChange(null); }} className="p-0.5 hover:bg-slate-100 rounded text-slate-400 shrink-0"><IconX size={12}/></button>
                         </div>
                     ) : <span className="text-slate-400">{placeholder}</span>
                 )}
@@ -238,13 +247,22 @@ export default function SearchableSelect({
                                     <div 
                                         key={opt.id} 
                                         onClick={() => handleSelect(opt.id)} 
-                                        className={`px-3 py-2 text-xs cursor-pointer border-b border-slate-50 last:border-0 flex items-center justify-between ${isSelected ? 'bg-indigo-50' : ''} ${hoverClass} ${optionStatusClass}`}
+                                        className={`px-3 py-2 text-xs cursor-pointer border-b border-slate-50 last:border-0 flex items-center justify-between gap-2 ${isSelected ? 'bg-indigo-50' : ''} ${hoverClass} ${optionStatusClass}`}
                                     >
-                                        <div className="flex flex-col">
-                                            <span className={`font-bold ${optionLabelClass}`}>{opt.label}</span>
-                                            {opt.subLabel && <span className={optionSubLabelClass}>{opt.subLabel}</span>}
+                                        <div className="flex items-start gap-2 min-w-0">
+                                            {opt.color ? (
+                                                <span
+                                                    className="mt-0.5 w-2.5 h-2.5 rounded-full border border-slate-200 shrink-0 shadow-sm"
+                                                    style={{ backgroundColor: opt.color }}
+                                                    aria-hidden
+                                                />
+                                            ) : null}
+                                            <div className="flex flex-col min-w-0">
+                                                <span className={`font-bold ${optionLabelClass}`}>{opt.label}</span>
+                                                {opt.subLabel && <span className={optionSubLabelClass}>{opt.subLabel}</span>}
+                                            </div>
                                         </div>
-                                        {isSelected && <IconCheck size={14} className="text-indigo-600"/>}
+                                        {isSelected && <IconCheck size={14} className="text-indigo-600 shrink-0"/>}
                                     </div>
                                 )
                             })

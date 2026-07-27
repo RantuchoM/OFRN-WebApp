@@ -39,6 +39,7 @@ import {
   IconHistory,
   IconRefresh,
   IconTrash,
+  IconTag,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -47,10 +48,14 @@ import EventForm from "../forms/EventForm";
 import {
   eventGrupoIdsFromEvent,
   eventGruposMetaFromEvent,
+  fetchGiraGrupos,
+  GIRA_GRUPO_DEFAULT_COLORS,
   setEventoGrupos,
 } from "../../services/giraGruposService";
 import IndependentRehearsalForm from "../../views/Ensembles/IndependentRehearsalForm";
 import SearchableSelect from "../ui/SearchableSelect";
+import MultiSelectDropdown from "../ui/MultiSelectDropdown";
+import EventGruposAssignModal from "./EventGruposAssignModal";
 import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
 import { calculateLogisticsSummary } from "../../hooks/useLogistics";
 import { useClickOutside } from "../../hooks/useClickOutside";
@@ -216,6 +221,61 @@ function AgendaEventAdminToggle({
   return null;
 }
 
+/** Tag de asignación + chips de grupo apilados en vertical. */
+function AgendaEventGruposBlock({
+  evt,
+  canManage,
+  onOpenAssign,
+  compact = false,
+}) {
+  const grupos = eventGruposMetaFromEvent(evt);
+  if (!canManage && grupos.length === 0) return null;
+
+  const iconSize = compact ? 10 : 12;
+  const hasGrupos = grupos.length > 0;
+
+  return (
+    <div className="flex items-start gap-1 min-w-0">
+      {canManage && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenAssign?.(evt);
+          }}
+          className={`flex items-center justify-center shrink-0 rounded border transition-all ${
+            compact ? "px-1 py-0.5" : "px-1.5 py-0.5"
+          } ${
+            hasGrupos
+              ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+              : "bg-transparent text-slate-300 border-transparent hover:text-indigo-500"
+          }`}
+          title="Asignar grupos de convocatoria"
+        >
+          <IconTag size={iconSize} />
+        </button>
+      )}
+      {hasGrupos && (
+        <div className="flex flex-col gap-1 min-w-0">
+          {grupos.map((g) => (
+            <span
+              key={`grp-${g.id}`}
+              className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-tight w-fit max-w-full truncate"
+              style={{
+                backgroundColor: `${g.color || "#6366f1"}18`,
+                color: g.color || "#4338ca",
+                borderColor: `${g.color || "#6366f1"}44`,
+              }}
+            >
+              {g.nombre}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function UnifiedAgenda({
   supabase,
   giraId = null,
@@ -283,6 +343,10 @@ export default function UnifiedAgenda({
 
   const [viewAsUserId, setViewAsUserId] = useState(null);
   const [musicianOptions, setMusicianOptions] = useState([]);
+  const [giraGrupos, setGiraGrupos] = useState([]);
+  const [filterGrupoIds, setFilterGrupoIds] = useState([]);
+  const [includeGeneralEvents, setIncludeGeneralEvents] = useState(true);
+  const [gruposAssignTarget, setGruposAssignTarget] = useState(null);
 
   const effectiveUserId = viewAsUserId || user.id;
   const isViewAsMode = !!viewAsUserId;
@@ -378,6 +442,19 @@ export default function UnifiedAgenda({
   const isAdmin = isAdminFlag || userRoles.includes("admin");
   const isGlobalEditor = userRoles.some((role) => editorRoles.includes(role));
   const canEdit = isGlobalEditor || coordinatedEnsembles.size > 0;
+  /** Filtro / Tag de grupos: solo editores y admins, y solo si la gira ya tiene grupos. */
+  const canManageGiraGrupos =
+    !!giraId && (isEditor || isAdmin) && giraGrupos.length > 0;
+
+  const grupoFilterOptions = useMemo(
+    () =>
+      giraGrupos.map((g) => ({
+        value: Number(g.id),
+        label: g.nombre,
+        color: g.color || GIRA_GRUPO_DEFAULT_COLORS[0],
+      })),
+    [giraGrupos],
+  );
 
   const canUserEditEvent = (evt) => {
     if (isGlobalEditor) return true;
@@ -568,6 +645,15 @@ export default function UnifiedAgenda({
     includeAssociatedEnsembleRehearsals,
   });
 
+  /** Reserva columna de chips de grupo alineada (misma gira / hay asignaciones). */
+  const showGruposColumn = useMemo(() => {
+    if (!giraId) return false;
+    if (canManageGiraGrupos) return true;
+    return items.some(
+      (i) => !i.isProgramMarker && eventGrupoIdsFromEvent(i).length > 0,
+    );
+  }, [giraId, canManageGiraGrupos, items]);
+
   useEffect(() => {
     if (!isAdmin) return;
     fetchAgenda();
@@ -730,6 +816,7 @@ export default function UnifiedAgenda({
   const [newFormData, setNewFormData] = useState({});
   const [formEventTypes, setFormEventTypes] = useState([]);
   const [formLocations, setFormLocations] = useState([]);
+  const [formSaving, setFormSaving] = useState(false);
   useEffect(() => {
     const fetchMusicians = async () => {
       if (isGlobalEditor && navigator.onLine) {
@@ -755,6 +842,32 @@ export default function UnifiedAgenda({
     };
     fetchMusicians();
   }, [isGlobalEditor, supabase]);
+
+  useEffect(() => {
+    if (!giraId || !(isEditor || isAdmin)) {
+      setGiraGrupos([]);
+      setFilterGrupoIds([]);
+      return;
+    }
+    if (!navigator.onLine) return;
+    let cancelled = false;
+    fetchGiraGrupos(supabase, giraId).then(({ grupos, error }) => {
+      if (cancelled) return;
+      if (error) {
+        console.warn("UnifiedAgenda grupos:", error.message);
+        setGiraGrupos([]);
+        return;
+      }
+      setGiraGrupos(grupos || []);
+      const validIds = new Set((grupos || []).map((g) => Number(g.id)));
+      setFilterGrupoIds((prev) =>
+        prev.filter((id) => validIds.has(Number(id))),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [giraId, isEditor, isAdmin, supabase]);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -817,7 +930,7 @@ export default function UnifiedAgenda({
       try {
         const { data: types } = await supabase
           .from("tipos_evento")
-          .select("id, nombre")
+          .select("id, nombre, color, categorias_tipos_eventos ( id, nombre )")
           .order("nombre");
         const { data: locs } = await supabase
           .from("locaciones")
@@ -941,6 +1054,18 @@ export default function UnifiedAgenda({
           item.tipos_evento?.nombre?.toLowerCase().includes("comida");
         if (isMeal && !item.is_convoked) return false;
       }
+
+      // Filtro por grupos de convocatoria (editores/admins en agenda de gira)
+      if (filterGrupoIds.length > 0) {
+        const evtGrupoIds = eventGrupoIdsFromEvent(item);
+        if (evtGrupoIds.length === 0) {
+          if (!includeGeneralEvents) return false;
+        } else {
+          const selected = new Set(filterGrupoIds.map(Number));
+          if (!evtGrupoIds.some((id) => selected.has(Number(id)))) return false;
+        }
+      }
+
       return true;
     });
   }, [
@@ -958,6 +1083,8 @@ export default function UnifiedAgenda({
     filterIsTechnician,
     filterIsEditor,
     isAdmin,
+    filterGrupoIds,
+    includeGeneralEvents,
   ]);
 
   const getRecentChangesThreshold = useCallback(() => {
@@ -1305,16 +1432,18 @@ export default function UnifiedAgenda({
       return;
     }
 
-    // Validar nota obligatoria si hay cambio de estado de venue
+    // Validar nota obligatoria si hay cambio de estado de venue (solo conciertos)
+    const isConcierto = Number(editFormData.id_tipo_evento) === 1;
     const prevStatus =
       editingEventObj?.id_estado_venue == null
         ? null
         : editingEventObj.id_estado_venue;
-    const newStatus =
-      editFormData.id_estado_venue == null
+    const newStatus = !isConcierto
+      ? null
+      : editFormData.id_estado_venue == null
         ? null
         : editFormData.id_estado_venue;
-    if (prevStatus !== newStatus && newStatus != null) {
+    if (isConcierto && prevStatus !== newStatus && newStatus != null) {
       if (
         !editFormData.venue_status_note ||
         !editFormData.venue_status_note.trim()
@@ -1324,7 +1453,7 @@ export default function UnifiedAgenda({
       }
     }
 
-    setLoading(true);
+    setFormSaving(true);
     try {
       const payload = {
         descripcion: editFormData.descripcion,
@@ -1335,7 +1464,9 @@ export default function UnifiedAgenda({
         id_locacion: editFormData.id_locacion || null,
         id_gira_transporte: editFormData.id_gira_transporte ?? null,
         tecnica: editFormData.tecnica || false,
-        id_estado_venue: editFormData.id_estado_venue || null,
+        id_estado_venue: isConcierto
+          ? editFormData.id_estado_venue || null
+          : null,
       };
       const { error } = await supabase
         .from("eventos")
@@ -1365,14 +1496,64 @@ export default function UnifiedAgenda({
         }
       }
 
+      const editId = editFormData.id;
+      const tipoMeta = formEventTypes.find(
+        (t) => String(t.id) === String(payload.id_tipo_evento),
+      );
+      const locMeta = formLocations.find(
+        (l) => String(l.id) === String(payload.id_locacion),
+      );
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.id !== editId) return item;
+          return {
+            ...item,
+            ...payload,
+            tipos_evento: tipoMeta
+              ? {
+                  id: tipoMeta.id,
+                  nombre: tipoMeta.nombre,
+                  color: tipoMeta.color,
+                  categorias_tipos_eventos:
+                    tipoMeta.categorias_tipos_eventos || null,
+                }
+              : item.tipos_evento,
+            locaciones: locMeta
+              ? {
+                  ...(item.locaciones || {}),
+                  id: locMeta.id,
+                  nombre: locMeta.nombre,
+                  localidades: locMeta.localidades || item.locaciones?.localidades,
+                }
+              : payload.id_locacion
+                ? item.locaciones
+                : null,
+            eventos_grupos: (editFormData.selectedGrupos || []).map((gid) => {
+              const g = giraGrupos.find((x) => Number(x.id) === Number(gid));
+              return {
+                id_grupo: Number(gid),
+                giras_grupos: g
+                  ? { id: g.id, nombre: g.nombre, color: g.color }
+                  : {
+                      id: Number(gid),
+                      nombre: `Grupo ${gid}`,
+                      color: "#6366f1",
+                    },
+              };
+            }),
+            updated_at: new Date().toISOString(),
+          };
+        }),
+      );
+
       setIsEditOpen(false);
       setEditFormData({});
-      markLocalEventMutation(editFormData.id);
-      await refreshEventById(editFormData.id);
+      markLocalEventMutation(editId);
+      void refreshEventById(editId);
     } catch (err) {
       toast.error("Error: " + err.message);
     } finally {
-      setLoading(false);
+      setFormSaving(false);
     }
   };
 
@@ -1389,10 +1570,30 @@ export default function UnifiedAgenda({
       tecnica: false,
       id_estado_venue: null,
       venue_status_note: "",
-      selectedGrupos: [],
+      selectedGrupos:
+        filterGrupoIds.length > 0 ? filterGrupoIds.map(Number) : [],
     });
     setIsCreating(true);
   };
+
+  const upsertAgendaItem = useCallback(
+    (evt) => {
+      if (!evt?.id) return;
+      setItems((prev) => {
+        const without = prev.filter((item) => item.id !== evt.id);
+        return [...without, evt].sort((a, b) => {
+          const dateA = new Date(`${a.fecha}T${a.hora_inicio || "00:00:00"}`);
+          const dateB = new Date(`${b.fecha}T${b.hora_inicio || "00:00:00"}`);
+          if (dateA < dateB) return -1;
+          if (dateA > dateB) return 1;
+          if (a.isProgramMarker && !b.isProgramMarker) return -1;
+          if (!a.isProgramMarker && b.isProgramMarker) return 1;
+          return 0;
+        });
+      });
+    },
+    [setItems],
+  );
 
   const handleCreateSave = async () => {
     if (!newFormData.fecha || !newFormData.hora_inicio) {
@@ -1400,8 +1601,9 @@ export default function UnifiedAgenda({
       return;
     }
 
-    // Validar nota obligatoria si se asigna estado de venue al crear
-    if (newFormData.id_estado_venue) {
+    // Validar nota obligatoria si se asigna estado de venue al crear (solo conciertos)
+    const isConcierto = Number(newFormData.id_tipo_evento) === 1;
+    if (isConcierto && newFormData.id_estado_venue) {
       if (
         !newFormData.venue_status_note ||
         !newFormData.venue_status_note.trim()
@@ -1411,7 +1613,7 @@ export default function UnifiedAgenda({
       }
     }
 
-    setLoading(true); // Bloqueamos para crear
+    setFormSaving(true);
     const payload = {
       id_gira: giraId,
       descripcion: newFormData.descripcion || null,
@@ -1422,7 +1624,9 @@ export default function UnifiedAgenda({
       id_locacion: newFormData.id_locacion || null,
       id_gira_transporte: newFormData.id_gira_transporte ?? null,
       tecnica: newFormData.tecnica,
-      id_estado_venue: newFormData.id_estado_venue || null,
+      id_estado_venue: isConcierto
+        ? newFormData.id_estado_venue || null
+        : null,
     };
     const { data, error } = await supabase
       .from("eventos")
@@ -1430,24 +1634,27 @@ export default function UnifiedAgenda({
       .select()
       .single();
     if (error) {
-      setLoading(false);
+      setFormSaving(false);
       toast.error("Error al crear evento: " + error.message);
       return;
     }
 
+    const selectedGrupoIds = (newFormData.selectedGrupos || []).map(Number);
     const { error: gruposError } = await setEventoGrupos(
       supabase,
       data.id,
-      newFormData.selectedGrupos || [],
+      selectedGrupoIds,
     );
     if (gruposError) {
-      setLoading(false);
-      toast.error("Evento creado, pero falló asignar grupos: " + gruposError.message);
+      setFormSaving(false);
+      toast.error(
+        "Evento creado, pero falló asignar grupos: " + gruposError.message,
+      );
       return;
     }
 
-    // Log inicial de estado de venue si corresponde
-    if (newFormData.id_estado_venue) {
+    // Log inicial de estado de venue si corresponde (solo conciertos)
+    if (isConcierto && newFormData.id_estado_venue) {
       try {
         await supabase.from("eventos_venue_log").insert({
           id_evento: data.id,
@@ -1463,10 +1670,67 @@ export default function UnifiedAgenda({
       }
     }
 
-    setIsCreating(false);
+    // Pintar de inmediato en la lista (sin esperar el refetch completo)
+    const tipoMeta = formEventTypes.find(
+      (t) => String(t.id) === String(data.id_tipo_evento),
+    );
+    const locMeta = formLocations.find(
+      (l) => String(l.id) === String(data.id_locacion),
+    );
+    const programaSeed =
+      items.find(
+        (i) =>
+          Number(i.id_gira) === Number(giraId) ||
+          Number(i.programas?.id) === Number(giraId),
+      )?.programas || null;
+    const optimisticEvent = {
+      ...data,
+      visible_agenda: data.visible_agenda !== false,
+      updated_at: data.updated_at || new Date().toISOString(),
+      is_deleted: false,
+      deleted_at: null,
+      tipos_evento: tipoMeta
+        ? {
+            id: tipoMeta.id,
+            nombre: tipoMeta.nombre,
+            color: tipoMeta.color,
+            categorias_tipos_eventos: tipoMeta.categorias_tipos_eventos || null,
+          }
+        : null,
+      locaciones: locMeta
+        ? {
+            id: locMeta.id,
+            nombre: locMeta.nombre,
+            direccion: locMeta.direccion || null,
+            link_mapa: locMeta.link_mapa || null,
+            localidades: locMeta.localidades || null,
+          }
+        : null,
+      programas: programaSeed,
+      giras_transportes: null,
+      eventos_programas_asociados: [],
+      eventos_ensambles: [],
+      eventos_grupos: selectedGrupoIds.map((gid) => {
+        const g = giraGrupos.find((x) => Number(x.id) === Number(gid));
+        return {
+          id_grupo: gid,
+          giras_grupos: g
+            ? { id: g.id, nombre: g.nombre, color: g.color }
+            : { id: gid, nombre: `Grupo ${gid}`, color: "#6366f1" },
+        };
+      }),
+      is_convoked: true,
+    };
+
     markLocalEventMutation(data.id);
-    await refreshEventById(data.id);
-    setLoading(false);
+    upsertAgendaItem(optimisticEvent);
+    setIsCreating(false);
+    setNewFormData({});
+    setFormSaving(false);
+    toast.success("Evento creado");
+
+    // Hidratar relaciones completas en segundo plano
+    void refreshEventById(data.id);
   };
 
   const groupedByMonth = useMemo(() => {
@@ -2007,6 +2271,51 @@ export default function UnifiedAgenda({
                   )}
                 </div>
 
+                {canManageGiraGrupos && (
+                  <div
+                    className={`inline-flex items-stretch rounded-lg border overflow-visible h-[34px] shadow-sm ${
+                      filterGrupoIds.length > 0
+                        ? "border-indigo-400 bg-indigo-50"
+                        : "border-slate-200 bg-white"
+                    }`}
+                    title="Filtro por grupos de convocatoria"
+                  >
+                    <div className="relative min-w-[7.5rem] sm:min-w-[8.5rem]">
+                      <MultiSelectDropdown
+                        compact
+                        label="Grupos"
+                        placeholder="Grupos..."
+                        options={grupoFilterOptions}
+                        value={filterGrupoIds.map(Number)}
+                        onChange={(arr) =>
+                          setFilterGrupoIds(arr.map(Number))
+                        }
+                        className="w-full [&_button]:w-full [&_button]:h-[32px] [&_button]:border-0 [&_button]:rounded-none [&_button]:bg-transparent [&_button]:shadow-none [&_button]:hover:border-transparent"
+                      />
+                    </div>
+                    {filterGrupoIds.length > 0 && (
+                      <label
+                        className={`inline-flex items-center px-2.5 border-l text-[10px] font-bold cursor-pointer select-none shrink-0 transition-colors ${
+                          includeGeneralEvents
+                            ? "bg-slate-800 text-white border-slate-700"
+                            : "bg-transparent text-slate-500 border-indigo-200 hover:bg-white/70"
+                        }`}
+                        title="Incluir eventos sin grupo asignado (generales)"
+                      >
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={includeGeneralEvents}
+                          onChange={(e) =>
+                            setIncludeGeneralEvents(e.target.checked)
+                          }
+                        />
+                        <span>+ Gen.</span>
+                      </label>
+                    )}
+                  </div>
+                )}
+
                 {canEdit && musicianOptions.length > 0 && (
                   <div className="w-[140px] sm:w-[160px]">
                     <SearchableSelect
@@ -2324,33 +2633,48 @@ export default function UnifiedAgenda({
                                 </div>
 
                                 <div className="flex-1 min-w-0 flex flex-col gap-1 py-1">
-                                  <div className="flex items-center gap-2 mb-0.5">
-                                    <span
-                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-[120px]"
-                                      style={{
-                                        color: eventColor,
-                                        borderColor: `${eventColor}40`,
-                                        backgroundColor: `${eventColor}10`,
-                                      }}
-                                    >
-                                      {evt.tipos_evento?.nombre}
-                                    </span>
-                                    {evt.programas?.nomenclador && (
-                                      <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">
-                                        {evt.programas.nomenclador}
+                                  <div className="flex items-start gap-1.5 mb-0.5">
+                                    <div className="w-[7rem] shrink-0 flex flex-wrap gap-1 items-center">
+                                      <span
+                                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-full"
+                                        style={{
+                                          color: eventColor,
+                                          borderColor: `${eventColor}40`,
+                                          backgroundColor: `${eventColor}10`,
+                                        }}
+                                      >
+                                        {evt.tipos_evento?.nombre}
                                       </span>
-                                    )}
-                                    {(isManagement || isEditor || isTechnician) && (
-                                      <AgendaEventAdminToggle
-                                        evt={evt}
-                                        isTransportEvent={isTransportEvent}
-                                        canEditAdmin={isManagement || isEditor}
-                                        isTechnicianRole={isTechnician}
-                                        onToggleVisibleAgenda={
-                                          toggleEventVisibleAgenda
-                                        }
-                                        onToggleTechnica={toggleEventTechnica}
-                                      />
+                                      {evt.programas?.nomenclador && (
+                                        <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">
+                                          {evt.programas.nomenclador}
+                                        </span>
+                                      )}
+                                      {(isManagement ||
+                                        isEditor ||
+                                        isTechnician) && (
+                                        <AgendaEventAdminToggle
+                                          evt={evt}
+                                          isTransportEvent={isTransportEvent}
+                                          canEditAdmin={
+                                            isManagement || isEditor
+                                          }
+                                          isTechnicianRole={isTechnician}
+                                          onToggleVisibleAgenda={
+                                            toggleEventVisibleAgenda
+                                          }
+                                          onToggleTechnica={toggleEventTechnica}
+                                        />
+                                      )}
+                                    </div>
+                                    {showGruposColumn && (
+                                      <div className="min-w-0 flex-1">
+                                        <AgendaEventGruposBlock
+                                          evt={evt}
+                                          canManage={canManageGiraGrupos}
+                                          onOpenAssign={setGruposAssignTarget}
+                                        />
+                                      </div>
                                     )}
                                   </div>
 
@@ -2402,21 +2726,6 @@ export default function UnifiedAgenda({
                                             <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-tight">
                                               S/E
                                             </span>
-                                          )}
-                                          {eventGruposMetaFromEvent(evt).map(
-                                            (g) => (
-                                              <span
-                                                key={`grp-${g.id}`}
-                                                className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-tight"
-                                                style={{
-                                                  backgroundColor: `${g.color || "#6366f1"}18`,
-                                                  color: g.color || "#4338ca",
-                                                  borderColor: `${g.color || "#6366f1"}44`,
-                                                }}
-                                              >
-                                                {g.nombre}
-                                              </span>
-                                            ),
                                           )}
                                         </div>
                                       </div>
@@ -2471,26 +2780,6 @@ export default function UnifiedAgenda({
                                         />
                                       ) : (
                                         <span>{evt.tipos_evento?.nombre}</span>
-                                      )}
-                                      {eventGruposMetaFromEvent(evt).length >
-                                        0 && (
-                                        <div className="flex flex-wrap gap-1 mt-1">
-                                          {eventGruposMetaFromEvent(evt).map(
-                                            (g) => (
-                                              <span
-                                                key={`grp-m-${g.id}`}
-                                                className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-tight"
-                                                style={{
-                                                  backgroundColor: `${g.color || "#6366f1"}18`,
-                                                  color: g.color || "#4338ca",
-                                                  borderColor: `${g.color || "#6366f1"}44`,
-                                                }}
-                                              >
-                                                {g.nombre}
-                                              </span>
-                                            ),
-                                          )}
-                                        </div>
                                       )}
                                     </div>
                                   )}
@@ -2769,7 +3058,9 @@ export default function UnifiedAgenda({
                                 </div>
 
                                 {/* COLUMNA 2: TIPO */}
-                                <div className="col-span-2 flex flex-col items-start gap-1.5 min-w-0">
+                                <div
+                                  className={`${showGruposColumn ? "col-span-1" : "col-span-2"} flex flex-col items-start gap-1.5 min-w-0`}
+                                >
                                   <div className="flex flex-wrap gap-1 items-center">
                                     <span
                                       className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-full"
@@ -2781,7 +3072,9 @@ export default function UnifiedAgenda({
                                     >
                                       {evt.tipos_evento?.nombre}
                                     </span>
-                                    {(isManagement || isEditor || isTechnician) && (
+                                    {(isManagement ||
+                                      isEditor ||
+                                      isTechnician) && (
                                       <AgendaEventAdminToggle
                                         evt={evt}
                                         isTransportEvent={isTransportEvent}
@@ -2827,8 +3120,21 @@ export default function UnifiedAgenda({
                                   </div>
                                 </div>
 
+                                {showGruposColumn && (
+                                  <div className="col-span-1 min-w-0">
+                                    <AgendaEventGruposBlock
+                                      evt={evt}
+                                      canManage={canManageGiraGrupos}
+                                      onOpenAssign={setGruposAssignTarget}
+                                      compact
+                                    />
+                                  </div>
+                                )}
+
                                 {/* COLUMNA 3: DESCRIPCIÓN + ENSAMBLES + PROGRAMAS */}
-                                <div className="col-span-4 min-w-0">
+                                <div
+                                  className={`${showGruposColumn ? "col-span-5" : "col-span-4"} min-w-0`}
+                                >
                                   <div className="flex items-start gap-2">
                                     <div
                                       className={`flex-1 text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
@@ -2881,44 +3187,8 @@ export default function UnifiedAgenda({
                                             S/E
                                           </span>
                                         )}
-                                        {eventGruposMetaFromEvent(evt).map(
-                                          (g) => (
-                                            <span
-                                              key={`grp-d-${g.id}`}
-                                              className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-tight"
-                                              style={{
-                                                backgroundColor: `${g.color || "#6366f1"}18`,
-                                                color: g.color || "#4338ca",
-                                                borderColor: `${g.color || "#6366f1"}44`,
-                                              }}
-                                            >
-                                              {g.nombre}
-                                            </span>
-                                          ),
-                                        )}
                                       </div>
                                     )}
-                                    {evt.id_tipo_evento !== 13 &&
-                                      eventGruposMetaFromEvent(evt).length >
-                                        0 && (
-                                        <div className="flex flex-wrap gap-1 shrink-0">
-                                          {eventGruposMetaFromEvent(evt).map(
-                                            (g) => (
-                                              <span
-                                                key={`grp-d2-${g.id}`}
-                                                className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-tight"
-                                                style={{
-                                                  backgroundColor: `${g.color || "#6366f1"}18`,
-                                                  color: g.color || "#4338ca",
-                                                  borderColor: `${g.color || "#6366f1"}44`,
-                                                }}
-                                              >
-                                                {g.nombre}
-                                              </span>
-                                            ),
-                                          )}
-                                        </div>
-                                      )}
                                     {/* Badges de Logística Personal (Escritorio) */}
                                     <div className="flex flex-wrap gap-1 mt-1">
                                       {isMyUp && (
@@ -2974,7 +3244,9 @@ export default function UnifiedAgenda({
                                 </div>
 
                                 {/* COLUMNA 4: LOCACIÓN */}
-                                <div className="col-span-3 min-w-0">
+                                <div
+                                  className={`${showGruposColumn ? "col-span-2" : "col-span-3"} min-w-0`}
+                                >
                                   {shouldShowLocacionEnEvento(evt) && (
                                     <div
                                       className={`flex items-start gap-1.5 ${isDeleted ? "text-orange-700" : ""}`}
@@ -3207,6 +3479,18 @@ export default function UnifiedAgenda({
       </div>
 
       {/* MODALES */}
+      <EventGruposAssignModal
+        isOpen={!!gruposAssignTarget}
+        evt={gruposAssignTarget}
+        grupoOptions={grupoFilterOptions}
+        supabase={supabase}
+        onClose={() => setGruposAssignTarget(null)}
+        onSaved={async (eventId) => {
+          if (!eventId) return;
+          markLocalEventMutation(eventId);
+          await refreshEventById(eventId);
+        }}
+      />
       <ConfirmDialog
         isOpen={isHideRecentChangesOpen}
         onClose={() => setIsHideRecentChangesOpen(false)}
@@ -3256,7 +3540,7 @@ export default function UnifiedAgenda({
             onClose={() => setIsEditOpen(false)}
             onDelete={handleDeleteEvent}
             onDuplicate={handleDuplicateEvent}
-            loading={loading}
+            loading={formSaving}
             eventTypes={formEventTypes}
             locations={formLocations}
             isNew={false}
@@ -3303,7 +3587,7 @@ export default function UnifiedAgenda({
             setFormData={setNewFormData}
             onSave={handleCreateSave}
             onClose={() => setIsCreating(false)}
-            loading={loading}
+            loading={formSaving}
             eventTypes={formEventTypes}
             locations={formLocations}
             isNew={true}

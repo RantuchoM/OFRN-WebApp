@@ -23,4 +23,8 @@ Permitir el seguimiento administrativo del estado de confirmación de los lugare
 4. El modal de historial de estado de venue en `UnifiedAgenda`:
    - Consulta `eventos_venue_log` filtrando por `id_evento`, incluyendo relaciones `venue_status_types` (como `status`) e `integrantes` (como `integrante`).
    - Ordena el historial por `created_at` descendente y muestra fecha, estado, nota y nombre del integrante.
+5. **Venue solo aplica a Conciertos (tipo 1)**:
+   - Al crear, si se elige Concierto se precarga `id_estado_venue = 2` (Solicitado).
+   - Si el usuario cambia el tipo a otro (p. ej. selección accidental), `EventForm` limpia `id_estado_venue` y `venue_status_note`.
+   - `UnifiedAgenda` solo exige nota / persiste `id_estado_venue` / escribe log cuando el tipo final es Concierto.
 

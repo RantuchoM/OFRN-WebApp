@@ -260,7 +260,7 @@ export default function WeeklyCalendar({
   const fetchCatalogs = async () => {
     const { data: types } = await supabase
       .from("tipos_evento")
-      .select("id, nombre")
+      .select("id, nombre, color, categorias_tipos_eventos ( id, nombre )")
       .order("nombre");
     const { data: locs } = await supabase
       .from("locaciones")

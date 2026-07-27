@@ -91,11 +91,42 @@ export default function EventForm({
     };
   }, [supabase, effectiveGiraId]);
 
-  // Al crear un evento tipo concierto (1), estado de venue por defecto "Solicitado" (id 2)
+  // Al crear un evento tipo concierto (1), estado de venue por defecto "Solicitado" (id 2).
+  // Si el usuario cambia a otro tipo (p. ej. tocó Concierto por error), limpiar venue.
   useEffect(() => {
     if (!isNew) return;
-    if (Number(formData.id_tipo_evento) === 1 && (formData.id_estado_venue == null || formData.id_estado_venue === "")) {
-      setFormData((prev) => ({ ...prev, id_estado_venue: 2 }));
+    const isConcierto = Number(formData.id_tipo_evento) === 1;
+    if (isConcierto) {
+      if (formData.id_estado_venue == null || formData.id_estado_venue === "") {
+        setFormData((prev) => ({ ...prev, id_estado_venue: 2 }));
+      }
+      return;
+    }
+    if (
+      formData.id_estado_venue != null &&
+      formData.id_estado_venue !== ""
+    ) {
+      setFormData((prev) => ({
+        ...prev,
+        id_estado_venue: null,
+        venue_status_note: "",
+      }));
+    }
+  }, [isNew, formData.id_tipo_evento]);
+
+  // En edición: si dejan de ser concierto, no conservar estado/nota de venue en el form.
+  useEffect(() => {
+    if (isNew) return;
+    if (Number(formData.id_tipo_evento) === 1) return;
+    if (
+      (formData.id_estado_venue != null && formData.id_estado_venue !== "") ||
+      (formData.venue_status_note && String(formData.venue_status_note).trim())
+    ) {
+      setFormData((prev) => ({
+        ...prev,
+        id_estado_venue: null,
+        venue_status_note: "",
+      }));
     }
   }, [isNew, formData.id_tipo_evento]);
 
@@ -151,13 +182,20 @@ export default function EventForm({
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const getSelectedTypeColor = () => {
-    if (!formData.id_tipo_evento) return "transparent";
-    const type = eventTypes.find(
-      (t) => String(t.id) === String(formData.id_tipo_evento),
-    );
-    return type?.color || "#94a3b8";
-  };
+  const eventTypeOptions = useMemo(
+    () =>
+      (eventTypes || []).map((t) => ({
+        id: t.id,
+        label: t.nombre,
+        subLabel:
+          t.categorias_tipos_eventos?.nombre ||
+          t.categoria?.nombre ||
+          t.categoria_nombre ||
+          null,
+        color: t.color || "#94a3b8",
+      })),
+    [eventTypes],
+  );
 
   // 3. FUNCIONES DE CIERRE (Ajustadas a tu ConfirmModal)
   const handleSafeClose = (e) => {
@@ -296,29 +334,15 @@ export default function EventForm({
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
               Tipo de Evento
             </label>
-            <div className="relative">
-              <div
-                className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border border-slate-200 shadow-sm pointer-events-none z-10"
-                style={{ backgroundColor: getSelectedTypeColor() }}
-              ></div>
-              <select
-                className="w-full border border-slate-300 rounded-lg py-2 pl-7 pr-8 text-sm focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white cursor-pointer hover:bg-slate-50 transition-colors"
-                value={formData.id_tipo_evento || ""}
-                onChange={(e) => handleChange("id_tipo_evento", e.target.value)}
-              >
-                <option value="">-- Seleccionar --</option>
-                {eventTypes.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.nombre}
-                  </option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
-                <svg className="h-4 w-4 fill-current" viewBox="0 0 20 20">
-                  <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
-                </svg>
-              </div>
-            </div>
+            <SearchableSelect
+              options={eventTypeOptions}
+              value={formData.id_tipo_evento || null}
+              onChange={(id) =>
+                handleChange("id_tipo_evento", id == null ? "" : id)
+              }
+              placeholder="Buscar tipo..."
+              dropdownMinWidth={280}
+            />
           </div>
         </div>
 

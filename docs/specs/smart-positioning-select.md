@@ -52,6 +52,13 @@ Modificar el `useEffect` de posicionamiento para que:
     - **Scroll**: al hacer scroll se cierra (`setIsOpen(false)`), sin cambios.
   - No se modifican ni la lógica de filtrado ni el comportamiento de multi-select.
 
+## Color opcional en opciones
+
+- Cada opción puede incluir `color` (hex/CSS). Si está presente:
+  - En el valor cerrado (single): punto de color a la izquierda del label.
+  - En el desplegable: mismo punto a la izquierda de label + `subLabel`.
+- Uso en `EventForm` (tipo de evento): searchable con `subLabel` = categoría (`categorias_tipos_eventos.nombre`) y `color` del tipo. Los catálogos que alimentan el form (`UnifiedAgenda`, calendarios, logística) seleccionan `color` + join de categoría.
+
 ## Notas Técnicas
 
 - El umbral de 250px se alinea con la altura máxima (`max-h-60`) del listado + cabecera de búsqueda, adelantando el cambio de dirección antes de llegar al borde real del viewport.

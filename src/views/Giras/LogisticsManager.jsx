@@ -828,7 +828,7 @@ export default function LogisticsManager({
         supabase
           .from("locaciones")
           .select("id, nombre, id_localidad, localidades(localidad)"),
-        supabase.from("tipos_evento").select("id, nombre"),
+        supabase.from("tipos_evento").select("id, nombre, color, categorias_tipos_eventos ( id, nombre )"),
       ]);
 
       setCatalogs({
