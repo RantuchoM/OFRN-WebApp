@@ -24,6 +24,16 @@ function esc(s: string) {
   return (s || "").replace(/</g, "&lt;")
 }
 
+/** Convierte ruta relativa del bucket en URL pública; deja intactas las URLs absolutas. */
+function resolveScreenshotUrl(path: string | null | undefined): string | null {
+  if (!path) return null
+  if (/^https?:\/\//i.test(path)) return path
+  const base = (Deno.env.get("SUPABASE_URL") || "").replace(/\/$/, "")
+  if (!base) return path
+  const clean = path.replace(/^\//, "")
+  return `${base}/storage/v1/object/public/archivos_generales/${clean}`
+}
+
 async function sendGmailMail(to: string | string[], subject: string, html: string) {
   if (!GMAIL_USER || !GMAIL_PASS) {
     throw new Error("GMAIL_USER o GMAIL_PASS no configurados")
@@ -157,6 +167,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     // --- Trigger de BD: nuevo feedback (mail a admins) ---
     console.log(`[send-feedback-email] NUEVO FEEDBACK ID: ${record.id} -> enviando a admins`)
+    const screenshotUrl = resolveScreenshotUrl(record.screenshot_path)
     await sendGmailMail(
       ADMIN_EMAIL,
       `📢 Nuevo Feedback: ${record.titulo || "Sin título"}`,
@@ -170,7 +181,7 @@ const handler = async (req: Request): Promise<Response> => {
             <strong>Mensaje:</strong><br/>
             ${esc(record.mensaje)}
           </div>
-          ${record.screenshot_path ? `<p>📸 <a href="${record.screenshot_path}">Ver Captura de Pantalla</a></p>` : ""}
+          ${screenshotUrl ? `<p>📸 <a href="${screenshotUrl}">Ver Captura de Pantalla</a></p>` : ""}
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
           <small>ID: ${record.id} | Enviado automáticamente por Supabase Edge Functions</small>
         </div>

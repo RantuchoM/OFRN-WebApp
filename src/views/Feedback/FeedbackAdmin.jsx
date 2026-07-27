@@ -79,6 +79,18 @@ function getTipoConfig(tipo) {
 const TAB_ADMIN = "admin";       // Gestión General (solo admin)
 const TAB_MIS_PEDIDOS = "mis_pedidos"; // Mis Reportes
 
+const FEEDBACK_SCREENSHOT_BUCKET = "archivos_generales";
+
+/** Resuelve ruta de Storage o URL absoluta a un href usable. */
+function resolveFeedbackScreenshotUrl(supabase, path) {
+  if (!path) return null;
+  if (/^https?:\/\//i.test(path)) return path;
+  const { data } = supabase.storage
+    .from(FEEDBACK_SCREENSHOT_BUCKET)
+    .getPublicUrl(path);
+  return data?.publicUrl || path;
+}
+
 /** Tipos usados en filtro (valores en BD pueden ser Sugerencia, Error, BUG, Ayuda). */
 const TIPO_FILTER_KEYS = ["Sugerencia", "Error", "Ayuda"];
 
@@ -755,7 +767,12 @@ export default function FeedbackAdmin({ supabase }) {
                             <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded">{item.ruta_pantalla}</span>
                           )}
                           {item.screenshot_path && (
-                            <a href={item.screenshot_path} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
+                            <a
+                              href={resolveFeedbackScreenshotUrl(supabase, item.screenshot_path)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-indigo-600 hover:underline"
+                            >
                               Ver captura
                             </a>
                           )}

@@ -632,7 +632,12 @@ export default function FeedbackWidget({ supabase }) {
           .from("archivos_generales")
           .upload(fileName, screenshot);
         if (uploadError) throw uploadError;
-        uploadedPath = uploadData.path;
+        // Guardar URL pública (no la ruta relativa del bucket, que el browser
+        // resolvería contra el dominio de la app → 404 en Vercel).
+        const { data: urlData } = supabase.storage
+          .from("archivos_generales")
+          .getPublicUrl(uploadData.path);
+        uploadedPath = urlData.publicUrl;
       }
 
       let userInfo = "Anónimo";

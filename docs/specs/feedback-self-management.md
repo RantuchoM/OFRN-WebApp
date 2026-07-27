@@ -109,3 +109,4 @@ La Edge Function `send-feedback-email` aplica en el HTML del mail los mismos cri
 ## Estado
 - **Completado:** Implementado pestañas (Mis Pedidos / Administración), edición de pedidos Pendientes con modal y notificación por `is_update`, resolución con `admin_comments` y notificación al usuario por `is_resolution`. Edge Function actualizada para ambos flujos.
 - **Completado (UX/email):** Barra izquierda por estado (naranja/azul/verde); iconos por tipo en Admin y Widget; email de resolución con tipo y mensaje del pedido y estética por tipo.
+- **Completado (capturas):** `screenshot_path` se guarda como URL pública de Storage (`archivos_generales`). En Admin y en el mail de nuevo feedback, las rutas relativas legacy se resuelven con `getPublicUrl` / `SUPABASE_URL` para que "Ver captura" no apunte al dominio de Vercel.
