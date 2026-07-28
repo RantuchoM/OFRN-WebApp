@@ -62,7 +62,7 @@ El reporte seguía asumiendo que `log.checkin` y `log.checkout` eran siempre str
 - [x] Botón **Texto pedido** en `RoomingInitialOrderReport.jsx` (mismo patrón que `MealsReport.jsx`).
 - [x] Helper `buildInitialOrderTextSummary` en `roomingInitialOrder.js`: genera líneas por rango de fechas y categoría.
 - [x] Formato estándar: `{n} pasajeros. Check-in: jueves, 18/6 - check-out: sábado, 20/6`.
-- [x] Formato superior (Plus): `{n} pasajeros habitación superior (single). Check-in: …`.
+- [x] Formato superior (Plus): `{n} pasajeros habitación superior (single). Check-in: …` para Plus **no** matrimoniales; `{n} pasajeros habitación superior (matrimonial). Check-in: …` cuando la habitación asignada tiene `es_matrimonial`. Los ajustes manuales Plus (sin flag) van como single.
 - [x] Bloque **Resumen** al final (y por tramo si hay varios): total pax, desglose estándar/superior, noches básicas/superiores, camas noche y habitaciones sugeridas.
 - [x] La vista tabular / impresión existente se mantiene sin cambios; el texto es opcional vía modal con copiar al portapapeles.
 

@@ -462,12 +462,18 @@ function ensureDateGroup(dateGroups, key, clippedIn, clippedOut, nights) {
       baseCount: 0,
       baseStd: 0,
       basePlus: 0,
+      /** Plus en habitación no matrimonial (single / twin). */
+      basePlusSingle: 0,
+      /** Plus en habitación matrimonial. */
+      basePlusMatri: 0,
       baseM: 0,
       baseF: 0,
       cunas: [],
     };
   }
   if (!Array.isArray(dateGroups[key].cunas)) dateGroups[key].cunas = [];
+  if (dateGroups[key].basePlusSingle == null) dateGroups[key].basePlusSingle = 0;
+  if (dateGroups[key].basePlusMatri == null) dateGroups[key].basePlusMatri = 0;
   return dateGroups[key];
 }
 
@@ -479,7 +485,7 @@ function addPersonToDateGroups({
   segments,
   tramoIndice,
   segmentRow,
-  isPersonInPlus,
+  getPlusRoomForPerson,
   formatD,
   formatT,
   asCuna = false,
@@ -534,8 +540,14 @@ function addPersonToDateGroups({
     }
 
     group.baseCount++;
-    if (isPersonInPlus(person.id)) group.basePlus++;
-    else group.baseStd++;
+    const plusRoom = getPlusRoomForPerson?.(person.id) || null;
+    if (plusRoom) {
+      group.basePlus++;
+      if (plusRoom.es_matrimonial) group.basePlusMatri++;
+      else group.basePlusSingle++;
+    } else {
+      group.baseStd++;
+    }
     if (person.genero === "F") group.baseF++;
     else group.baseM++;
   });
@@ -573,15 +585,17 @@ export function buildInitialDateGroups({
     resolvedIndice,
   );
 
-  const isPersonInPlus = (personId) => {
-    if (!rooms?.length) return false;
-    return rooms.some((r) => {
-      if (segmentBookingIds && !segmentBookingIds.has(r.id_hospedaje)) {
-        return false;
-      }
-      if (r.tipo !== "Plus") return false;
-      return isAssignedToSegmentRoom(personId, r);
-    });
+  const getPlusRoomForPerson = (personId) => {
+    if (!rooms?.length) return null;
+    return (
+      rooms.find((r) => {
+        if (segmentBookingIds && !segmentBookingIds.has(r.id_hospedaje)) {
+          return false;
+        }
+        if (r.tipo !== "Plus") return false;
+        return isAssignedToSegmentRoom(personId, r);
+      }) || null
+    );
   };
 
   const dateGroups = {};
@@ -650,7 +664,7 @@ export function buildInitialDateGroups({
       segments,
       tramoIndice: resolvedIndice,
       segmentRow,
-      isPersonInPlus,
+      getPlusRoomForPerson,
       formatD,
       formatT,
       asCuna,
@@ -726,7 +740,10 @@ export function buildInitialOrderSections({
       const extraStd = (adj.std_m || 0) + (adj.std_f || 0);
       const extraPlus = (adj.plus_m || 0) + (adj.plus_f || 0);
       const stdPax = group.baseStd + extraStd;
-      const plusPax = group.basePlus + extraPlus;
+      // Ajustes manuales Plus no tienen flag matrimonial → se tratan como single.
+      const plusSinglePax = (group.basePlusSingle || 0) + extraPlus;
+      const plusMatriPax = group.basePlusMatri || 0;
+      const plusPax = plusSinglePax + plusMatriPax;
       const totalRowPax = stdPax + plusPax;
       const stdNights = stdPax * group.nights;
       const plusNights = plusPax * group.nights;
@@ -741,6 +758,8 @@ export function buildInitialOrderSections({
         group,
         stdPax,
         plusPax,
+        plusSinglePax,
+        plusMatriPax,
         totalRowPax,
         stdNights,
         plusNights,
@@ -907,7 +926,8 @@ export function buildInitialOrderTextSummary(
 ) {
   const lines = [];
   const showTramoHeaders = sections.length > 1;
-  const superiorRoomLabel = "habitación superior (single)";
+  const superiorSingleLabel = "habitación superior (single)";
+  const superiorMatriLabel = "habitación superior (matrimonial)";
 
   sections.forEach((section, sectionIdx) => {
     if (showTramoHeaders && section.title) {
@@ -916,7 +936,7 @@ export function buildInitialOrderTextSummary(
     }
 
     (section.computedRows || []).forEach((row) => {
-      const { stdPax, plusPax, group, cunas } = row;
+      const { stdPax, plusPax, plusSinglePax, plusMatriPax, group, cunas } = row;
       const datePart = formatStayRangeText(group?.checkIn, group?.checkOut);
       const rowCunas = Array.isArray(cunas)
         ? cunas
@@ -924,13 +944,25 @@ export function buildInitialOrderTextSummary(
           ? group.cunas
           : [];
 
+      // Compat: filas viejas sin desglose single/matri → todo Plus como single.
+      const singlePax =
+        plusSinglePax != null
+          ? plusSinglePax
+          : Math.max(0, (plusPax || 0) - (plusMatriPax || 0));
+      const matriPax = plusMatriPax || 0;
+
       if (datePart) {
         if (stdPax > 0) {
           lines.push(`${stdPax} ${pasajeroLabel(stdPax)}. ${datePart}`);
         }
-        if (plusPax > 0) {
+        if (singlePax > 0) {
           lines.push(
-            `${plusPax} ${pasajeroLabel(plusPax)} ${superiorRoomLabel}. ${datePart}`,
+            `${singlePax} ${pasajeroLabel(singlePax)} ${superiorSingleLabel}. ${datePart}`,
+          );
+        }
+        if (matriPax > 0) {
+          lines.push(
+            `${matriPax} ${pasajeroLabel(matriPax)} ${superiorMatriLabel}. ${datePart}`,
           );
         }
       }
