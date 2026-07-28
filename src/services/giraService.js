@@ -49,7 +49,7 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
       } else {
         const { data: prodOverrides } = await supabase
           .from("giras_integrantes")
-          .select("id_integrante, estado, abona_reemplazo")
+          .select("id_integrante, estado, abona_reemplazo, abona_licencia")
           .eq("id_gira", giraId);
         overrides = prodOverrides || [];
       }
@@ -58,7 +58,7 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
         supabase.from("giras_fuentes").select("*").eq("id_gira", giraId),
         supabase
           .from("giras_integrantes")
-          .select("id_integrante, estado, abona_reemplazo")
+          .select("id_integrante, estado, abona_reemplazo, abona_licencia")
           .eq("id_gira", giraId),
       ]);
       fuentes = fuentesRes.data || [];
@@ -161,10 +161,15 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
       });
     }
 
-    // G. Ausentes (sin abono de reemplazo) vs. ausentes que abonan reemplazo (cuentan servicio)
+    // G. Ausentes (sin abono) vs. ausentes que abonan reemplazo o licencia (cuentan servicio)
     const ausentesIds = new Set(
       overrides
-        .filter((o) => o.estado === "ausente" && !o.abona_reemplazo)
+        .filter(
+          (o) =>
+            o.estado === "ausente" &&
+            !o.abona_reemplazo &&
+            !o.abona_licencia,
+        )
         .map((o) => integranteKey(o.id_integrante)),
     );
     const reemplazoIds = new Set(
@@ -172,13 +177,18 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
         .filter((o) => o.estado === "ausente" && o.abona_reemplazo)
         .map((o) => integranteKey(o.id_integrante)),
     );
+    const licenciaIds = new Set(
+      overrides
+        .filter((o) => o.estado === "ausente" && o.abona_licencia)
+        .map((o) => integranteKey(o.id_integrante)),
+    );
 
-    // Resultado: convocados MINUS excluidos por ensamble MINUS ausentes (sin reemplazo)
+    // Resultado: convocados MINUS excluidos por ensamble MINUS ausentes (sin abono)
     const allIds = Array.from(integrantesIds).filter(
       (id) =>
         !excludedByEnsamble.has(id) && !ausentesIds.has(id),
     );
-    for (const id of reemplazoIds) {
+    for (const id of [...reemplazoIds, ...licenciaIds]) {
       if (!excludedByEnsamble.has(id) && !allIds.includes(id)) {
         allIds.push(id);
       }
@@ -187,6 +197,7 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
     const countedIds = new Set();
     const preAltaIds = new Set();
     const reemplazoCountedIds = new Set();
+    const licenciaCountedIds = new Set();
     if (allIds.length > 0) {
       const idList = allIds.map(integranteIdForDb).filter(Boolean);
       const { data: vigenciaFinal } = await supabase
@@ -207,13 +218,22 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
           if (reemplazoIds.has(key)) {
             reemplazoCountedIds.add(key);
           }
+          if (licenciaIds.has(key)) {
+            licenciaCountedIds.add(key);
+          }
         } else {
           preAltaIds.add(key);
         }
       });
     }
 
-    return { allIds, countedIds, preAltaIds, reemplazoIds: reemplazoCountedIds };
+    return {
+      allIds,
+      countedIds,
+      preAltaIds,
+      reemplazoIds: reemplazoCountedIds,
+      licenciaIds: licenciaCountedIds,
+    };
   } catch (error) {
     console.error("[GiraService] Error resolviendo roster IDs:", error);
     return {
@@ -221,6 +241,7 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
       countedIds: new Set(),
       preAltaIds: new Set(),
       reemplazoIds: new Set(),
+      licenciaIds: new Set(),
     };
   }
 }
@@ -233,7 +254,7 @@ export const resolveGiraRosterIds = async (supabase, giraId) => {
 
 /**
  * Nómina para matriz de convocatorias: separa convocatoria contabilizada vs. pre-alta.
- * @returns {{ allIds: string[], countedIds: Set<string>, preAltaIds: Set<string>, reemplazoIds: Set<string> }}
+ * @returns {{ allIds: string[], countedIds: Set<string>, preAltaIds: Set<string>, reemplazoIds: Set<string>, licenciaIds: Set<string> }}
  */
 export const resolveGiraRosterForMatrix = resolveGiraRosterDetail;
 

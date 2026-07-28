@@ -164,7 +164,7 @@ export function diffInstrumentationConvoked(prodMap, draftMap) {
  * Total de servicios Sinf+CF para un integrante.
  * @param {number|string} integranteId
  * @param {Array<{ id: number|string, tipo?: string }>} programas
- * @param {Record<string, { counted?: Set<string>, reemplazo?: Set<string> }>} rosterByGiraId
+ * @param {Record<string, { counted?: Set<string>, reemplazo?: Set<string>, licencia?: Set<string> }>} rosterByGiraId
  */
 export function computeMemberSinfCfTotal(integranteId, programas, rosterByGiraId) {
   const iid = integranteKey(integranteId);
@@ -172,7 +172,7 @@ export function computeMemberSinfCfTotal(integranteId, programas, rosterByGiraId
   for (const g of programas) {
     if (!SANDBOX_SINF_CF_TIPOS.includes(g.tipo)) continue;
     const mark = getAsistenciaMatrixCellMark(rosterByGiraId[g.id], iid);
-    if (mark === "counted" || mark === "reemplazo") total += 1;
+    if (mark === "counted" || mark === "reemplazo" || mark === "licencia") total += 1;
   }
   return total;
 }
@@ -317,6 +317,7 @@ export function matrixEntryFromRosterDetail(detail) {
     counted: detail.countedIds || new Set(),
     preAlta: detail.preAltaIds || new Set(),
     reemplazo: detail.reemplazoIds || new Set(),
+    licencia: detail.licenciaIds || new Set(),
   };
 }
 
@@ -451,7 +452,12 @@ function resolveMatrixRosterFromCache(program, sandboxMap, cache) {
 
   const ausentesIds = new Set(
     overrides
-      .filter((o) => o.estado === "ausente" && !o.abona_reemplazo)
+      .filter(
+        (o) =>
+          o.estado === "ausente" &&
+          !o.abona_reemplazo &&
+          !o.abona_licencia,
+      )
       .map((o) => integranteKey(o.id_integrante)),
   );
   const reemplazoIds = new Set(
@@ -459,11 +465,16 @@ function resolveMatrixRosterFromCache(program, sandboxMap, cache) {
       .filter((o) => o.estado === "ausente" && o.abona_reemplazo)
       .map((o) => integranteKey(o.id_integrante)),
   );
+  const licenciaIds = new Set(
+    overrides
+      .filter((o) => o.estado === "ausente" && o.abona_licencia)
+      .map((o) => integranteKey(o.id_integrante)),
+  );
 
   const allIds = Array.from(integrantesIds).filter(
     (id) => !excludedByEnsamble.has(id) && !ausentesIds.has(id),
   );
-  for (const id of reemplazoIds) {
+  for (const id of [...reemplazoIds, ...licenciaIds]) {
     if (!excludedByEnsamble.has(id) && !allIds.includes(id)) {
       allIds.push(id);
     }
@@ -472,6 +483,7 @@ function resolveMatrixRosterFromCache(program, sandboxMap, cache) {
   const countedIds = new Set();
   const preAltaIds = new Set();
   const reemplazoCountedIds = new Set();
+  const licenciaCountedIds = new Set();
   for (const id of allIds) {
     const row = cache.vigenciaById.get(id);
     if (
@@ -482,6 +494,9 @@ function resolveMatrixRosterFromCache(program, sandboxMap, cache) {
       if (reemplazoIds.has(id)) {
         reemplazoCountedIds.add(id);
       }
+      if (licenciaIds.has(id)) {
+        licenciaCountedIds.add(id);
+      }
     } else {
       preAltaIds.add(id);
     }
@@ -491,6 +506,7 @@ function resolveMatrixRosterFromCache(program, sandboxMap, cache) {
     countedIds,
     preAltaIds,
     reemplazoIds: reemplazoCountedIds,
+    licenciaIds: licenciaCountedIds,
   };
 }
 
@@ -538,7 +554,7 @@ export async function createMatrixRosterResolverCache(
     programIds.length
       ? supabase
           .from("giras_integrantes")
-          .select("id_gira, id_integrante, estado, abona_reemplazo")
+          .select("id_gira, id_integrante, estado, abona_reemplazo, abona_licencia")
           .in("id_gira", programIds)
       : Promise.resolve({ data: [], error: null }),
     supabase.from("integrantes").select("id, fecha_alta, fecha_baja"),
@@ -574,6 +590,7 @@ export async function createMatrixRosterResolverCache(
       id_integrante: Number(row.id_integrante),
       estado: row.estado ?? "confirmado",
       abona_reemplazo: Boolean(row.abona_reemplazo),
+      abona_licencia: Boolean(row.abona_licencia),
     });
   }
 

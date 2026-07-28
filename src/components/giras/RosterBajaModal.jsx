@@ -23,7 +23,8 @@ export default function RosterBajaModal({
 }) {
   const [selectedMotivo, setSelectedMotivo] = useState("");
   const [otroText, setOtroText] = useState("");
-  const [abonaReemplazo, setAbonaReemplazo] = useState(false);
+  /** @type {['ninguno'|'reemplazo'|'licencia', Function]} */
+  const [ausenciaAbono, setAusenciaAbono] = useState("ninguno");
   const [confirmSkipNotify, setConfirmSkipNotify] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectionById, setSelectionById] = useState({});
@@ -36,7 +37,7 @@ export default function RosterBajaModal({
     if (!pendingBaja) return;
     setSelectedMotivo("");
     setOtroText("");
-    setAbonaReemplazo(false);
+    setAusenciaAbono("ninguno");
     setConfirmSkipNotify(false);
     setSubmitting(false);
     if (GROUP_BAJA_ACTIONS.has(pendingBaja.action) || GROUP_ALTA_ACTIONS.has(pendingBaja.action)) {
@@ -140,7 +141,8 @@ export default function RosterBajaModal({
         motivoText: isGroupAlta ? "" : motivoText,
         motivoId: isGroupAlta ? "" : selectedMotivo,
         notify,
-        abonaReemplazo: !isGroupChange && abonaReemplazo,
+        abonaReemplazo: !isGroupChange && ausenciaAbono === "reemplazo",
+        abonaLicencia: !isGroupChange && ausenciaAbono === "licencia",
         selectionById: isGroupChange ? selectionById : undefined,
       });
     } finally {
@@ -356,20 +358,58 @@ export default function RosterBajaModal({
                 />
               )}
 
-              <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-sky-200 bg-sky-50/50 cursor-pointer hover:border-sky-300 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={abonaReemplazo}
-                  onChange={(e) => setAbonaReemplazo(e.target.checked)}
-                  className="mt-0.5 text-sky-600 focus:ring-sky-400 rounded"
-                />
-                <span className="text-sm text-slate-800">
-                  <span className="font-semibold text-sky-800">Abona reemplazo</span>
-                  <span className="block text-[11px] text-slate-500 mt-0.5 leading-snug">
-                    Cuenta como servicio en el resumen anual y en Convocatorias (marca R).
-                  </span>
-                </span>
-              </label>
+              <fieldset className="space-y-2">
+                <legend className="text-xs font-semibold text-slate-600 mb-1">
+                  Opción de ausencia (cuenta servicio)
+                </legend>
+                {[
+                  {
+                    id: "ninguno",
+                    label: "Ninguna",
+                    hint: "No suma en Convocatorias ni en el resumen anual.",
+                    border: "border-slate-200 hover:border-slate-300",
+                    bg: "bg-slate-50/50",
+                    labelClass: "text-slate-800",
+                  },
+                  {
+                    id: "reemplazo",
+                    label: "Abona reemplazo (R)",
+                    hint: "Cuenta como servicio en resumen anual y Convocatorias.",
+                    border: "border-sky-200 hover:border-sky-300",
+                    bg: "bg-sky-50/50",
+                    labelClass: "text-sky-800",
+                  },
+                  {
+                    id: "licencia",
+                    label: "Licencia (L)",
+                    hint: "Cuenta como servicio; no asiste a la gira.",
+                    border: "border-amber-200 hover:border-amber-300",
+                    bg: "bg-amber-50/50",
+                    labelClass: "text-amber-900",
+                  },
+                ].map((opt) => (
+                  <label
+                    key={opt.id}
+                    className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${opt.border} ${opt.bg}`}
+                  >
+                    <input
+                      type="radio"
+                      name="ausencia-abono"
+                      checked={ausenciaAbono === opt.id}
+                      onChange={() => setAusenciaAbono(opt.id)}
+                      className="mt-0.5 text-slate-600 focus:ring-slate-400"
+                    />
+                    <span className="text-sm text-slate-800">
+                      <span className={`font-semibold ${opt.labelClass}`}>
+                        {opt.label}
+                      </span>
+                      <span className="block text-[11px] text-slate-500 mt-0.5 leading-snug">
+                        {opt.hint}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
             </>
           )}
 

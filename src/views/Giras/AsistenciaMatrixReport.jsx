@@ -556,11 +556,16 @@ export default function AsistenciaMatrixReport({ supabase }) {
       setRosterLoading(true);
       const entries = await Promise.all(
         giras.map(async (g) => {
-          const { countedIds, preAltaIds, reemplazoIds } =
+          const { countedIds, preAltaIds, reemplazoIds, licenciaIds } =
             await resolveGiraRosterForMatrix(supabase, g.id);
           return [
             g.id,
-            { counted: countedIds, preAlta: preAltaIds, reemplazo: reemplazoIds },
+            {
+              counted: countedIds,
+              preAlta: preAltaIds,
+              reemplazo: reemplazoIds,
+              licencia: licenciaIds,
+            },
           ];
         }),
       );
@@ -969,6 +974,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
           <span className="font-semibold text-slate-600 dark:text-slate-300">X</span>{" "}
           convocado ·{" "}
           <span className="font-semibold text-sky-500">R</span> abona reemplazo ·{" "}
+          <span className="font-semibold text-amber-500">L</span> licencia ·{" "}
           <span className="font-semibold text-slate-400">*</span> participó antes del
           alta (no suma en totales).
         </p>
@@ -1392,6 +1398,13 @@ export default function AsistenciaMatrixReport({ supabase }) {
                                     title="Ausente que abona reemplazo (cuenta en totales)"
                                   >
                                     R
+                                  </span>
+                                ) : mark === "licencia" ? (
+                                  <span
+                                    className="text-base font-bold text-amber-500 dark:text-amber-400"
+                                    title="Ausente en licencia (cuenta en totales)"
+                                  >
+                                    L
                                   </span>
                                 ) : mark === "pre_alta" ? (
                                   <span

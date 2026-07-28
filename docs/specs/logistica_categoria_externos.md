@@ -51,6 +51,7 @@ Implementado en `getRuleCategoryTiebreak` y `compareLogisticsRulePrecedence` (`g
   - `LOC:` = localidad de **residencia** del músico (`resolveLocalidadResidencia` / `id_localidad_residencia`), no viáticos.
   - `ENS:` = membresía en `ensambles` / `integrantes_ensambles` del roster.
   - UI Comidas→Agenda: selector searchable con pestañas Categorías / Localidades (solo residencias del roster) / Ensambles (solo ensambles del roster); cada solapa muestra badge de cantidad, abre por defecto la solapa con selección y lista primero los ítems ya seleccionados al abrir.
+  - **GiraCard (indicador de comidas):** perfil alineado con el matcher — `integrantes_ensambles` vigentes al `fecha_desde` del programa (`GIRAS_LIST_SELECT` + `filterMembershipRowsForProgramDate`) y residencia explícita para `LOC:`. Si el usuario no figura en `giras_integrantes`, fallback React Query (`gira-card-convocado-profile`) con ensambles/residencia.
 
 ## Base de datos
 

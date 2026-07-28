@@ -264,7 +264,7 @@ export default function MusicianTourManager({ supabase, musician }) {
 
       const { data: overridesData } = await supabase
         .from("giras_integrantes")
-        .select("id, id_gira, estado, rol, abona_reemplazo")
+        .select("id, id_gira, estado, rol, abona_reemplazo, abona_licencia")
         .eq("id_integrante", musician.id)
         .in("id_gira", giraIds);
 
@@ -434,6 +434,10 @@ export default function MusicianTourManager({ supabase, musician }) {
             targetStatus === "ausente"
               ? Boolean(currentOverride?.abona_reemplazo)
               : false,
+          abona_licencia:
+            targetStatus === "ausente"
+              ? Boolean(currentOverride?.abona_licencia)
+              : false,
         };
 
         const { data: savedData, error } = await supabase
@@ -552,6 +556,8 @@ export default function MusicianTourManager({ supabase, musician }) {
                     const isConvocado = gira.computedStatus === "CONVOCADO";
                     const isAusente = gira.computedStatus === "AUSENTE";
                     const abonaReemplazo = Boolean(gira.override?.abona_reemplazo);
+                    const abonaLicencia = Boolean(gira.override?.abona_licencia);
+                    const abonaServicio = abonaReemplazo || abonaLicencia;
                     
                     const bgClass = style.color.match(/bg-[-\w]+-\d+/)?.[0] || "bg-slate-50";
                     const borderClass = style.color.match(/border-[-\w]+-\d+/)?.[0] || "border-slate-200";
@@ -560,7 +566,7 @@ export default function MusicianTourManager({ supabase, musician }) {
                     let cardClasses = "";
                     
                     if (isAusente) {
-                        cardClasses = abonaReemplazo
+                        cardClasses = abonaServicio
                           ? "bg-slate-100 border border-slate-200 border-l-4 border-l-slate-400"
                           : "bg-red-50 border border-red-200 border-l-4 border-l-red-400 opacity-90";
                     } else if (isConvocado) {
@@ -655,7 +661,9 @@ export default function MusicianTourManager({ supabase, musician }) {
                                         title={
                                           abonaReemplazo
                                             ? "Ausente — abona reemplazo"
-                                            : "Ausente"
+                                            : abonaLicencia
+                                              ? "Ausente — licencia"
+                                              : "Ausente"
                                         }
                                       >
                                         <span className="w-full h-full rounded flex items-center justify-center text-[10px] font-bold bg-white text-red-600 border border-red-200 shadow-sm">
@@ -664,6 +672,11 @@ export default function MusicianTourManager({ supabase, musician }) {
                                         {abonaReemplazo && (
                                           <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-sky-500 text-white border border-sky-600 shadow flex items-center justify-center text-[8px] font-bold leading-none">
                                             R
+                                          </span>
+                                        )}
+                                        {abonaLicencia && (
+                                          <span className="absolute -top-0.5 -left-0.5 w-3.5 h-3.5 rounded-full bg-amber-500 text-white border border-amber-600 shadow flex items-center justify-center text-[8px] font-bold leading-none">
+                                            L
                                           </span>
                                         )}
                                       </div>

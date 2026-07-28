@@ -17,7 +17,7 @@ import {
 const GIRAS_YEAR_SELECT = `
   id, nombre_gira, fecha_desde, fecha_hasta, tipo, estado,
   giras_fuentes(*),
-  giras_integrantes(id_integrante, estado, abona_reemplazo),
+  giras_integrantes(id_integrante, estado, abona_reemplazo, abona_licencia),
   eventos(id, fecha, id_tipo_evento)
 `;
 
@@ -116,7 +116,8 @@ async function fetchYearProgramsForUser(
       if (
         myOverride &&
         myOverride.estado === "ausente" &&
-        !myOverride.abona_reemplazo
+        !myOverride.abona_reemplazo &&
+        !myOverride.abona_licencia
       ) {
         return false;
       }

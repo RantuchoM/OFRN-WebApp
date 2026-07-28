@@ -696,6 +696,7 @@ export default function GiraRoster({
   // Baja con modal de motivo: ausente o desconvocar. No reordenar ni notificar hasta confirmar.
   const [pendingBaja, setPendingBaja] = useState(null);
   const [reemplazoFlashId, setReemplazoFlashId] = useState(null);
+  const [licenciaFlashId, setLicenciaFlashId] = useState(null);
 
   const notificationQueueRef = useRef(null);
 
@@ -1760,6 +1761,7 @@ export default function GiraRoster({
     motivoId,
     notify,
     abonaReemplazo,
+    abonaLicencia,
     selectionById,
     desconvocateById,
   }) => {
@@ -1847,6 +1849,7 @@ export default function GiraRoster({
         buildGiraIntegranteUpsert(gira.id, musician, {
           estado: "confirmado",
           abona_reemplazo: false,
+          abona_licencia: false,
           motivo_estado: null,
           motivo_estado_actualizado_at: null,
         }),
@@ -1874,6 +1877,7 @@ export default function GiraRoster({
         buildGiraIntegranteUpsert(gira.id, musician, {
           estado: "ausente",
           abona_reemplazo: Boolean(abonaReemplazo),
+          abona_licencia: Boolean(abonaLicencia) && !abonaReemplazo,
           ...motivoPayload,
         }),
         { onConflict: "id_gira, id_integrante" },
@@ -1907,11 +1911,12 @@ export default function GiraRoster({
           },
         ]);
       }
-      if (abonaReemplazo) {
+      if (abonaReemplazo || abonaLicencia) {
         await supabase.from("giras_integrantes").upsert(
           buildGiraIntegranteUpsert(gira.id, musician, {
             estado: "ausente",
-            abona_reemplazo: true,
+            abona_reemplazo: Boolean(abonaReemplazo),
+            abona_licencia: Boolean(abonaLicencia) && !abonaReemplazo,
             ...motivoPayload,
           }),
           { onConflict: "id_gira, id_integrante" },
@@ -1933,13 +1938,16 @@ export default function GiraRoster({
     const next = !musician.abona_reemplazo;
     setLocalRoster((prev) =>
       prev.map((m) =>
-        m.id === musician.id ? { ...m, abona_reemplazo: next } : m,
+        m.id === musician.id
+          ? { ...m, abona_reemplazo: next, abona_licencia: next ? false : m.abona_licencia }
+          : m,
       ),
     );
     const { error } = await supabase.from("giras_integrantes").upsert(
       buildGiraIntegranteUpsert(gira.id, musician, {
         estado: "ausente",
         abona_reemplazo: next,
+        abona_licencia: false,
       }),
       { onConflict: "id_gira, id_integrante" },
     );
@@ -1959,6 +1967,46 @@ export default function GiraRoster({
     setReemplazoFlashId(musician.id);
     window.setTimeout(() => {
       setReemplazoFlashId((current) =>
+        current === musician.id ? null : current,
+      );
+    }, 1800);
+    refreshRoster();
+  };
+
+  const toggleAbonaLicencia = async (musician) => {
+    if (!isEditor || musician.estado_gira !== "ausente") return;
+    const next = !musician.abona_licencia;
+    setLocalRoster((prev) =>
+      prev.map((m) =>
+        m.id === musician.id
+          ? { ...m, abona_licencia: next, abona_reemplazo: next ? false : m.abona_reemplazo }
+          : m,
+      ),
+    );
+    const { error } = await supabase.from("giras_integrantes").upsert(
+      buildGiraIntegranteUpsert(gira.id, musician, {
+        estado: "ausente",
+        abona_licencia: next,
+        abona_reemplazo: false,
+      }),
+      { onConflict: "id_gira, id_integrante" },
+    );
+    if (error) {
+      toast.error("No se pudo actualizar licencia: " + error.message);
+      await refreshRoster();
+      return;
+    }
+    const nombre =
+      musician.nombre_completo ||
+      `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
+    toast.success(
+      next
+        ? `${nombre} en licencia`
+        : `Se quitó la licencia de ${nombre}`,
+    );
+    setLicenciaFlashId(musician.id);
+    window.setTimeout(() => {
+      setLicenciaFlashId((current) =>
         current === musician.id ? null : current,
       );
     }, 1800);
@@ -2389,7 +2437,7 @@ export default function GiraRoster({
     }
 
     if (m.estado_gira === "ausente") {
-      if (m.abona_reemplazo) {
+      if (m.abona_reemplazo || m.abona_licencia) {
         baseStyle.className +=
           " bg-slate-100 text-slate-700 border-l-slate-400";
       } else {
@@ -3363,6 +3411,7 @@ export default function GiraRoster({
                       rowStyle={rowStyle}
                       ausenteMuted={Boolean(ausenteMuted)}
                       isReemplazoFlashing={reemplazoFlashId === m.id}
+                      isLicenciaFlashing={licenciaFlashId === m.id}
                       visibleColumns={visibleColumns}
                       isEditor={isEditor}
                       rolesList={rolesList}
@@ -3379,6 +3428,7 @@ export default function GiraRoster({
                       onSwap={setSwapTarget}
                       onDeleteVacancy={handleDeleteVacancy}
                       onToggleAbonaReemplazo={toggleAbonaReemplazo}
+                      onToggleAbonaLicencia={toggleAbonaLicencia}
                       onRequestBaja={requestBaja}
                       pendingBajaForRow={
                         pendingBaja && pendingBaja.integranteId === m.id

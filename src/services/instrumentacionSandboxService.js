@@ -43,7 +43,7 @@ export function describeSandboxLoadError(error) {
  * @property {string} sandbox_id
  * @property {number} id_gira
  * @property {Array<{ tipo: string, valor_id?: number, valor_texto?: string }>} fuentes
- * @property {Array<{ id_integrante: number, estado?: string, rol?: string, id_instr?: string, abona_reemplazo?: boolean }>} integrantes
+ * @property {Array<{ id_integrante: number, estado?: string, rol?: string, id_instr?: string, abona_reemplazo?: boolean, abona_licencia?: boolean }>} integrantes
  */
 
 /**
@@ -117,7 +117,7 @@ export async function cloneProductionConvocatoria(supabase, giraId) {
     supabase.from("giras_fuentes").select("tipo, valor_id, valor_texto").eq("id_gira", gid),
     supabase
       .from("giras_integrantes")
-      .select("id_integrante, estado, rol, id_instr, abona_reemplazo")
+      .select("id_integrante, estado, rol, id_instr, abona_reemplazo, abona_licencia")
       .eq("id_gira", gid),
   ]);
   if (fuentesRes.error) throw fuentesRes.error;
@@ -135,6 +135,7 @@ export async function cloneProductionConvocatoria(supabase, giraId) {
     ...(o.rol != null ? { rol: o.rol } : {}),
     ...(o.id_instr != null ? { id_instr: o.id_instr } : {}),
     abona_reemplazo: Boolean(o.abona_reemplazo),
+    abona_licencia: Boolean(o.abona_licencia),
   }));
 
   return { fuentes, integrantes };
@@ -156,7 +157,7 @@ export async function batchFetchProductionConvocatoria(supabase, giraIds = []) {
       .in("id_gira", ids),
     supabase
       .from("giras_integrantes")
-      .select("id_gira, id_integrante, estado, rol, id_instr, abona_reemplazo")
+      .select("id_gira, id_integrante, estado, rol, id_instr, abona_reemplazo, abona_licencia")
       .in("id_gira", ids),
   ]);
   if (fuentesRes.error) throw fuentesRes.error;
@@ -187,6 +188,7 @@ export async function batchFetchProductionConvocatoria(supabase, giraIds = []) {
       ...(o.rol != null ? { rol: o.rol } : {}),
       ...(o.id_instr != null ? { id_instr: o.id_instr } : {}),
       abona_reemplazo: Boolean(o.abona_reemplazo),
+      abona_licencia: Boolean(o.abona_licencia),
     });
   }
 
@@ -307,6 +309,7 @@ export async function applyGiraDraftToProduction(supabase, sandboxId, giraId) {
       ...(o.rol != null ? { rol: o.rol } : {}),
       ...(o.id_instr != null ? { id_instr: o.id_instr } : {}),
       abona_reemplazo: Boolean(o.abona_reemplazo),
+      abona_licencia: Boolean(o.abona_licencia),
     };
     const { error: upsertErr } = await supabase
       .from("giras_integrantes")

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { format, parseISO, isToday, isTomorrow, isPast } from "date-fns";
 import { es } from "date-fns/locale";
 import { useAuth } from "../../context/AuthContext";
@@ -23,6 +24,7 @@ import CommentButton from "../../components/comments/CommentButton";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import GiraActionMenu from "./GiraActionMenu";
 import { getProgramStyle, checkIsConvoked } from "../../utils/giraUtils";
+import { filterMembershipRowsForProgramDate } from "../../utils/ensembleMembership";
 import { getMyRoomingStatus } from "../../services/giraService";
 import { createPortal } from "react-dom";
 
@@ -176,27 +178,66 @@ export default function GiraCard({
     }
   };
 
-  const getMealStatusConfig = () => {
+  /** Fallback compartido (todas las cards): ensambles + residencia si no viene en giras_integrantes. */
+  const { data: meConvocadoFallback } = useQuery({
+    queryKey: ["gira-card-convocado-profile", user?.id],
+    enabled: Boolean(supabase && user?.id && user.id !== "guest-general"),
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("integrantes")
+        .select(
+          "id_localidad, instrumentos(familia), integrantes_ensambles(id_ensamble, fecha_desde, fecha_hasta)",
+        )
+        .eq("id", user.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const mealConfig = useMemo(() => {
     if (!gira.eventos || !user) {
       return { color: "text-slate-300", animate: false, title: "Sin datos" };
     }
     const memberRecord = gira.giras_integrantes?.find(
       (i) => String(i.id_integrante) === String(user.id),
     );
-    const userData = memberRecord?.integrantes;
+    const userData = memberRecord?.integrantes || meConvocadoFallback || null;
+    const residenciaId = userData?.id_localidad ?? null;
     let isLocal = false;
-    if (userData?.id_localidad && gira.giras_localidades) {
+    if (residenciaId != null && gira.giras_localidades) {
       const tourLocIds = gira.giras_localidades.map((l) => l.id_localidad);
-      isLocal = tourLocIds.includes(userData.id_localidad);
+      isLocal = tourLocIds.some(
+        (id) => String(id) === String(residenciaId),
+      );
     } else if (memberRecord?.integrantes?.is_local !== undefined) {
       isLocal = memberRecord.integrantes.is_local;
     }
+
+    const ieSource =
+      userData?.integrantes_ensambles ||
+      meConvocadoFallback?.integrantes_ensambles ||
+      [];
+    const ieForProgram = filterMembershipRowsForProgramDate(
+      ieSource,
+      gira.fecha_desde,
+    );
     const userProfile = {
       id: user.id,
       is_local: isLocal,
-      id_localidad: userData?.id_localidad || null,
-      instrumentos: userData?.instrumentos || { familia: "" },
+      id_localidad: residenciaId,
+      id_localidad_residencia: residenciaId,
+      residencia: residenciaId != null ? { id: residenciaId } : null,
+      instrumentos:
+        userData?.instrumentos ||
+        meConvocadoFallback?.instrumentos ||
+        { familia: "" },
       rol_gira: memberRecord?.rol || "musico",
+      integrantes_ensambles: ieForProgram,
+      ensambles: ieForProgram
+        .map((ie) => ({ id: ie.id_ensamble }))
+        .filter((e) => e.id != null),
     };
     const myMeals = gira.eventos.filter((e) => {
       const isMeal =
@@ -242,9 +283,8 @@ export default function GiraCard({
       };
     }
     return { color: "text-amber-500", animate: false, title: "Pendientes" };
-  };
+  }, [gira, user, meConvocadoFallback]);
 
-  const mealConfig = getMealStatusConfig();
   const repertoireSectionEnabled =
     showRepertoireInCards || defaultOpenSection === "repertoire";
   const [manualRepertoireExpanded, setManualRepertoireExpanded] = useState(

@@ -469,6 +469,7 @@ CREATE TABLE public.giras_integrantes (
   motivo_estado text,
   motivo_estado_actualizado_at timestamp with time zone,
   abona_reemplazo boolean NOT NULL DEFAULT false,
+  abona_licencia boolean NOT NULL DEFAULT false,
   id_instr text,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   rol text DEFAULT 'musico'::text,
@@ -476,7 +477,8 @@ CREATE TABLE public.giras_integrantes (
   CONSTRAINT giras_integrantes_pkey PRIMARY KEY (id),
   CONSTRAINT giras_integrantes_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
   CONSTRAINT giras_integrantes_id_integrante_fkey FOREIGN KEY (id_integrante) REFERENCES public.integrantes(id),
-  CONSTRAINT giras_integrantes_id_instr_fkey FOREIGN KEY (id_instr) REFERENCES public.instrumentos(id)
+  CONSTRAINT giras_integrantes_id_instr_fkey FOREIGN KEY (id_instr) REFERENCES public.instrumentos(id),
+  CONSTRAINT giras_integrantes_abona_reemplazo_licencia_excl CHECK (NOT (abona_reemplazo AND abona_licencia))
 );
 CREATE TABLE public.giras_localidades (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,

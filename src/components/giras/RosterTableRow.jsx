@@ -23,6 +23,7 @@ export default function RosterTableRow({
   rowStyle,
   ausenteMuted = false,
   isReemplazoFlashing = false,
+  isLicenciaFlashing = false,
   visibleColumns,
   isEditor,
   rolesList,
@@ -35,6 +36,7 @@ export default function RosterTableRow({
   onSwap,
   onDeleteVacancy,
   onToggleAbonaReemplazo,
+  onToggleAbonaLicencia,
   onRequestBaja,
   pendingBajaForRow,
   onCopyLink,
@@ -77,7 +79,9 @@ export default function RosterTableRow({
     <tr
       id={`row-integrante-${m.id}`}
       className={`${rowClassName || ""} border-b border-slate-100 ${
-        isReemplazoFlashing ? "animate-roster-reemplazo-flash" : ""
+        isReemplazoFlashing || isLicenciaFlashing
+          ? "animate-roster-reemplazo-flash"
+          : ""
       }`}
       style={rowStyle}
     >
@@ -362,31 +366,58 @@ export default function RosterTableRow({
                 A
               </button>
               {isEditor && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onToggleAbonaReemplazo?.(m);
-                  }}
-                  className={`absolute -top-0.5 -right-0.5 w-3 h-3 md:w-4 md:h-4 rounded-full border shadow flex items-center justify-center text-[7px] md:text-[8px] font-bold z-[6] transition-colors ${
-                    m.abona_reemplazo
-                      ? "bg-sky-500 text-white border-sky-600 hover:bg-sky-600"
-                      : "bg-white text-sky-400 border-sky-200 hover:bg-sky-50 hover:text-sky-600 hover:border-sky-300"
-                  }`}
-                  title={
-                    m.abona_reemplazo
-                      ? "Quitar abono reemplazo"
-                      : "Abona reemplazo (cuenta como servicio)"
-                  }
-                  aria-label={
-                    m.abona_reemplazo
-                      ? "Quitar abono reemplazo"
-                      : "Marcar abono reemplazo"
-                  }
-                >
-                  R
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onToggleAbonaReemplazo?.(m);
+                    }}
+                    className={`absolute -top-0.5 -right-0.5 w-3 h-3 md:w-4 md:h-4 rounded-full border shadow flex items-center justify-center text-[7px] md:text-[8px] font-bold z-[6] transition-colors ${
+                      m.abona_reemplazo
+                        ? "bg-sky-500 text-white border-sky-600 hover:bg-sky-600"
+                        : "bg-white text-sky-400 border-sky-200 hover:bg-sky-50 hover:text-sky-600 hover:border-sky-300"
+                    }`}
+                    title={
+                      m.abona_reemplazo
+                        ? "Quitar abono reemplazo"
+                        : "Abona reemplazo (cuenta como servicio)"
+                    }
+                    aria-label={
+                      m.abona_reemplazo
+                        ? "Quitar abono reemplazo"
+                        : "Marcar abono reemplazo"
+                    }
+                  >
+                    R
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onToggleAbonaLicencia?.(m);
+                    }}
+                    className={`absolute -top-0.5 -left-0.5 w-3 h-3 md:w-4 md:h-4 rounded-full border shadow flex items-center justify-center text-[7px] md:text-[8px] font-bold z-[6] transition-colors ${
+                      m.abona_licencia
+                        ? "bg-amber-500 text-white border-amber-600 hover:bg-amber-600"
+                        : "bg-white text-amber-400 border-amber-200 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-300"
+                    }`}
+                    title={
+                      m.abona_licencia
+                        ? "Quitar licencia"
+                        : "Licencia (cuenta como servicio)"
+                    }
+                    aria-label={
+                      m.abona_licencia
+                        ? "Quitar licencia"
+                        : "Marcar licencia"
+                    }
+                  >
+                    L
+                  </button>
+                </>
               )}
               {motivoStick}
             </div>
