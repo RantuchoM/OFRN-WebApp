@@ -76,7 +76,7 @@ import {
   buildAgendaPdfExportItems,
   ID_TIPO_TRASLADO_INTERNO,
 } from "../../utils/agendaHelpers";
-import { getProgramBadgeClasses } from "../../utils/giraUtils";
+import { getProgramBadgeClasses, isUserConvoked } from "../../utils/giraUtils";
 import VenueStatusPin from "../ui/VenueStatusPin";
 import LocacionNombreSpan, {
   shouldShowLocacionEnEvento,
@@ -542,10 +542,6 @@ export default function UnifiedAgenda({
 
   const [userProfile, setUserProfile] = useState(null);
   const [hospedajeExcluidosIds, setHospedajeExcluidosIds] = useState([]);
-  const hospedajeExcluidosSet = useMemo(
-    () => new Set((hospedajeExcluidosIds || []).map((id) => Number(id))),
-    [hospedajeExcluidosIds],
-  );
 
   useEffect(() => {
     if (!supabase || !giraId) {
@@ -572,40 +568,18 @@ export default function UnifiedAgenda({
 
   const checkIsConvoked = useCallback(
     (convocadosList, tourRole) => {
-      if (!convocadosList || convocadosList.length === 0) return false;
       if (!userProfile) return false;
-      return convocadosList.some((tag) => {
-        if (tag === "GRP:TUTTI") return true;
-        if (tag === "GRP:LOCALES") return userProfile.is_local;
-        if (tag === "GRP:NO_LOCALES") {
-          if (userProfile.is_local) return false;
-          if (hospedajeExcluidosSet.has(Number(effectiveUserId)))
-            return false;
-          return true;
-        }
-        if (tag === "GRP:PRODUCCION") {
-          // Mantenemos aquí una lista acotada por compatibilidad con vistas antiguas
-          const rolesProduccion = [
-            "produccion",
-            "chofer",
-            "acompañante",
-            "staff",
-            "mus_prod",
-            "técnico",
-            "iluminacion",
-          ];
-          return rolesProduccion.includes(userProfile.rol_gira);
-        }
-        if (tag === "GRP:SOLISTAS") return tourRole === "solista";
-        if (tag === "GRP:DIRECTORES") return tourRole === "director";
-        if (tag.startsWith("LOC:"))
-          return userProfile.id_localidad === parseInt(tag.split(":")[1]);
-        if (tag.startsWith("FAM:"))
-          return userProfile.instrumentos?.familia === tag.split(":")[1];
-        return false;
-      });
+      return isUserConvoked(
+        convocadosList,
+        {
+          ...userProfile,
+          id: userProfile.id ?? effectiveUserId,
+          rol_gira: tourRole || userProfile.rol_gira,
+        },
+        { hospedajeExcluidosIds },
+      );
     },
-    [userProfile, hospedajeExcluidosSet, effectiveUserId],
+    [userProfile, hospedajeExcluidosIds, effectiveUserId],
   );
 
   const {

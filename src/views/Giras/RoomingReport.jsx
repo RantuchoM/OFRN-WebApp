@@ -124,46 +124,38 @@ const RoomingReportModal = ({
     cuna: 0,
   });
 
-  // --- HELPER ACTUALIZADO PARA CAMPOS DE BD ---
+  // Misma resolución que roomingInitialOrder.getLogisticsDates (string | evento | {}).
   const getLogisticsDates = (log) => {
-    let dateIn = null;
-    let dateOut = null;
-
-    // Check-In
-    if (log?.checkin) {
-      let dStr, tStr;
-      if (typeof log.checkin === "object") {
-        dStr = log.checkin.fecha || log.checkin.date;
+    const parseMilestone = (raw, siblingTime, defaultTime) => {
+      if (raw == null || raw === "") return null;
+      let dStr = null;
+      let tStr = null;
+      if (typeof raw === "string") {
+        dStr = raw;
+        tStr = siblingTime || defaultTime;
+      } else if (typeof raw === "object") {
+        dStr = raw.fecha || raw.date || null;
+        if (!dStr) return null;
         tStr =
-          log.checkin.hora_inicio ||
-          log.checkin.hora ||
-          log.checkin.time ||
-          "14:00";
+          raw.hora_inicio ||
+          raw.hora ||
+          raw.time ||
+          siblingTime ||
+          defaultTime;
       } else {
-        dStr = log.checkin;
-        tStr = log.checkin_time || "14:00";
+        return null;
       }
-      if (dStr) dateIn = new Date(`${dStr}T${tStr.slice(0, 5)}`);
-    }
+      const day = String(dStr).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+      const safeTime = String(tStr || defaultTime).slice(0, 5);
+      const parsed = new Date(`${day}T${safeTime}`);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
 
-    // Check-Out
-    if (log?.checkout) {
-      let dStr, tStr;
-      if (typeof log.checkout === "object") {
-        dStr = log.checkout.fecha || log.checkout.date;
-        tStr =
-          log.checkout.hora_inicio ||
-          log.checkout.hora ||
-          log.checkout.time ||
-          "10:00";
-      } else {
-        dStr = log.checkout;
-        tStr = log.checkout_time || "10:00";
-      }
-      if (dStr) dateOut = new Date(`${dStr}T${tStr.slice(0, 5)}`);
-    }
-
-    return { dateIn, dateOut };
+    return {
+      dateIn: parseMilestone(log?.checkin, log?.checkin_time, "14:00"),
+      dateOut: parseMilestone(log?.checkout, log?.checkout_time, "10:00"),
+    };
   };
 
   const getBookingSegmentBounds = (bk, segmentRow) => {

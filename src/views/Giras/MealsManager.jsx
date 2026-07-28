@@ -15,10 +15,12 @@ import {
   IconBold,
   IconItalic,
   IconUnderline,
+  IconSearch,
 } from "../../components/ui/Icons";
 import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
-import { isUserConvoked, ROLES_PRODUCCION } from "../../utils/giraUtils";
+import { ROLES_PRODUCCION, normalize } from "../../utils/giraUtils";
+import { resolveLocalidadResidencia } from "../../utils/integranteDomicilioViaticos";
 import { isPersonEligibleForMealSlot } from "../../utils/mealLogistics";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import {
@@ -91,10 +93,15 @@ const getGroupLabelShort = (id, catalogs) => {
   if (id === "GRP:DIRECTORES") return "Dir.";
   if (id.startsWith("LOC:")) {
     const locId = id.split(":")[1];
-    const loc = catalogs?.localidades?.find(
-      (l) => String(l.id) === String(locId),
-    );
+    const loc =
+      catalogs?.localidades?.find((l) => String(l.id) === String(locId)) ||
+      catalogs?.localidadesLookup?.find((l) => String(l.id) === String(locId));
     return loc ? loc.localidad : "Loc";
+  }
+  if (id.startsWith("ENS:")) {
+    const ensId = id.split(":")[1];
+    const ens = catalogs?.ensambles?.find((e) => String(e.id) === String(ensId));
+    return ens ? ens.ensamble : "Ens";
   }
   if (id.startsWith("FAM:")) return id.split(":")[1];
   return id;
@@ -120,8 +127,56 @@ const getKnownGroupLabels = (catalogs) => {
   const locs = (catalogs?.localidades || [])
     .map((l) => l.localidad)
     .filter(Boolean);
+  const ens = (catalogs?.ensambles || []).map((e) => e.ensamble).filter(Boolean);
   const fams = catalogs?.familias || [];
-  return [...fixed, ...aliases, ...locs, ...fams];
+  return [...fixed, ...aliases, ...locs, ...ens, ...fams];
+};
+
+/** Localidades de residencia presentes en el roster confirmado. */
+const collectRosterResidenciaLocalidades = (roster = []) => {
+  const map = new Map();
+  for (const p of roster) {
+    if (p?.estado_gira && p.estado_gira !== "confirmado") continue;
+    const res = resolveLocalidadResidencia(p);
+    const id = res.id ?? p.id_localidad_residencia;
+    if (id == null || id === "") continue;
+    const key = String(id);
+    if (map.has(key)) continue;
+    const nombre =
+      res.nombre ||
+      p.localidades_residencia?.localidad ||
+      p._loc_residencia?.localidad ||
+      p.residencia?.localidad ||
+      "";
+    map.set(key, { id: Number(id) || id, localidad: nombre || `Loc ${id}` });
+  }
+  return [...map.values()].sort((a, b) =>
+    String(a.localidad).localeCompare(String(b.localidad), "es"),
+  );
+};
+
+/** Ensambles a los que pertenecen músicos del roster confirmado. */
+const collectRosterEnsambles = (roster = []) => {
+  const map = new Map();
+  const add = (id, nombre) => {
+    if (id == null || id === "") return;
+    const key = String(id);
+    if (map.has(key)) return;
+    map.set(key, { id: Number(id) || id, ensamble: nombre || `Ens ${id}` });
+  };
+  for (const p of roster) {
+    if (p?.estado_gira && p.estado_gira !== "confirmado") continue;
+    for (const e of p.ensambles || []) {
+      add(e?.id, e?.ensamble);
+    }
+    for (const ie of p.integrantes_ensambles || []) {
+      const ens = ie?.ensambles;
+      add(ie?.id_ensamble ?? ens?.id, ens?.ensamble);
+    }
+  }
+  return [...map.values()].sort((a, b) =>
+    String(a.ensamble).localeCompare(String(b.ensamble), "es"),
+  );
 };
 
 const splitFlexiblePlus = (text) =>
@@ -519,6 +574,45 @@ const GridLocationSelect = ({
 };
 
 // --- MULTI SELECT DE GRUPOS ---
+const CONV_TABS = [
+  { id: "categorias", label: "Categorías" },
+  { id: "localidades", label: "Localidades" },
+  { id: "ensambles", label: "Ensambles" },
+];
+
+const CATEGORY_OPTIONS = [
+  { id: "GRP:TUTTI", label: "Tutti" },
+  { id: "GRP:NO_LOCALES", label: "Solo alojados" },
+  { id: "GRP:LOCALES", label: "Locales" },
+  { id: "GRP:PRODUCCION", label: "Producción" },
+  { id: "GRP:SOLISTAS", label: "Solistas" },
+  { id: "GRP:DIRECTORES", label: "Directores" },
+];
+
+const convTagTab = (id) => {
+  if (!id) return null;
+  if (String(id).startsWith("LOC:")) return "localidades";
+  if (String(id).startsWith("ENS:")) return "ensambles";
+  if (String(id).startsWith("GRP:") || String(id).startsWith("FAM:"))
+    return "categorias";
+  return null;
+};
+
+const resolveDefaultConvTab = (selected = []) => {
+  const counts = { categorias: 0, localidades: 0, ensambles: 0 };
+  for (const id of selected) {
+    const t = convTagTab(id);
+    if (t) counts[t] += 1;
+  }
+  const withSel = CONV_TABS.filter((t) => counts[t.id] > 0);
+  if (withSel.length === 1) return withSel[0].id;
+  if (withSel.length > 1) {
+    // Si hay varias, prioriza la que concentra más selección.
+    return [...withSel].sort((a, b) => counts[b.id] - counts[a.id])[0].id;
+  }
+  return "categorias";
+};
+
 const MultiGroupSelect = ({
   value = [],
   onChange,
@@ -530,7 +624,33 @@ const MultiGroupSelect = ({
   compact = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [tab, setTab] = useState("categorias");
+  const [search, setSearch] = useState("");
+  const [openUp, setOpenUp] = useState(false);
   const containerRef = useRef(null);
+  const searchRef = useRef(null);
+  const DROPDOWN_EST_HEIGHT = 320; // max-h-80
+
+  const selectedByTab = useMemo(() => {
+    const groups = { categorias: [], localidades: [], ensambles: [] };
+    for (const id of value || []) {
+      const t = convTagTab(id);
+      if (t) groups[t].push(id);
+    }
+    return groups;
+  }, [value]);
+
+  const tabCounts = useMemo(
+    () => ({
+      categorias: selectedByTab.categorias.length,
+      localidades: selectedByTab.localidades.length,
+      ensambles: selectedByTab.ensambles.length,
+    }),
+    [selectedByTab],
+  );
+
+  /** Snapshot de seleccionados al abrir: fija el orden “seleccionados primero” en la lista. */
+  const selectedOrderAtOpenRef = useRef(new Set());
 
   useEffect(() => {
     const handleClick = (e) => {
@@ -545,14 +665,37 @@ const MultiGroupSelect = ({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [isOpen]);
 
-  const groups = [
-    { id: "GRP:TUTTI", label: "Tutti" },
-    { id: "GRP:NO_LOCALES", label: "Solo alojados" },
-    { id: "GRP:LOCALES", label: "Locales" },
-    { id: "GRP:PRODUCCION", label: "Producción" },
-    { id: "GRP:SOLISTAS", label: "Solistas" },
-    { id: "GRP:DIRECTORES", label: "Directores" },
-  ];
+  useEffect(() => {
+    if (!isOpen) {
+      setSearch("");
+      return;
+    }
+    const t = setTimeout(() => searchRef.current?.focus(), 30);
+    return () => clearTimeout(t);
+  }, [isOpen]);
+
+  useEffect(() => {
+    setSearch("");
+  }, [tab]);
+
+  const openOrClose = () => {
+    if (disabled) return;
+    if (!isOpen) {
+      setTab(resolveDefaultConvTab(value));
+      selectedOrderAtOpenRef.current = new Set(value || []);
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        setOpenUp(
+          spaceBelow < DROPDOWN_EST_HEIGHT && spaceAbove > spaceBelow,
+        );
+      } else {
+        setOpenUp(false);
+      }
+    }
+    setIsOpen(!isOpen);
+  };
 
   const toggleOption = (id) => {
     let created = [...(value || [])];
@@ -565,10 +708,43 @@ const MultiGroupSelect = ({
     onChange(created);
   };
 
+  const q = normalize(search);
+  const tabOptions = useMemo(() => {
+    let options = [];
+    if (tab === "categorias") {
+      options = CATEGORY_OPTIONS.filter(
+        (o) => !q || normalize(o.label).includes(q),
+      );
+    } else if (tab === "localidades") {
+      options = (catalogs?.localidades || [])
+        .filter((l) => !q || normalize(l.localidad).includes(q))
+        .map((l) => ({ id: `LOC:${l.id}`, label: l.localidad }));
+    } else {
+      options = (catalogs?.ensambles || [])
+        .filter((e) => !q || normalize(e.ensamble).includes(q))
+        .map((e) => ({ id: `ENS:${e.id}`, label: e.ensamble }));
+    }
+
+    const pinned = selectedOrderAtOpenRef.current;
+    return [...options].sort((a, b) => {
+      const aPin = pinned.has(a.id) ? 0 : 1;
+      const bPin = pinned.has(b.id) ? 0 : 1;
+      if (aPin !== bPin) return aPin - bPin;
+      return 0;
+    });
+  }, [tab, catalogs, q, isOpen]);
+
+  const emptyHint =
+    tab === "categorias"
+      ? "Sin categorías"
+      : tab === "localidades"
+        ? "Sin localidades de residencia en el roster"
+        : "Sin ensambles en el roster";
+
   return (
     <div className="relative w-full" ref={containerRef}>
       <div
-        onClick={() => !disabled && setIsOpen(!isOpen)}
+        onClick={openOrClose}
         className={`${compact ? "min-h-[26px] px-1 py-0.5 gap-0.5" : "min-h-[28px] px-2 py-1 gap-1"} border rounded cursor-pointer flex flex-wrap items-center transition-all ${
           darkMode
             ? "bg-indigo-800 border-indigo-600 text-white hover:border-indigo-400"
@@ -602,33 +778,93 @@ const MultiGroupSelect = ({
         ))}
       </div>
       {isOpen && (
-        <div className="absolute top-full left-0 w-72 bg-white border border-slate-300 shadow-xl rounded-lg z-[999] mt-1 p-2 max-h-60 overflow-y-auto space-y-2">
-          <div className="grid grid-cols-2 gap-1">
-            {groups.map((g) => (
-              <div
-                key={g.id}
-                onClick={() => toggleOption(g.id)}
-                className={`text-[10px] p-1.5 rounded border cursor-pointer transition-colors ${value.includes(g.id) ? "bg-indigo-100 border-indigo-300 text-indigo-900 font-bold" : "bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700"}`}
-              >
-                {g.label}
-              </div>
-            ))}
-          </div>
-          <div className="border-t pt-2">
-            <div className="text-[9px] font-bold text-slate-400 uppercase mb-1">
-              Por Localidad
-            </div>
-            <div className="grid grid-cols-2 gap-1">
-              {catalogs.localidades.map((l) => (
-                <div
-                  key={l.id}
-                  onClick={() => toggleOption(`LOC:${l.id}`)}
-                  className={`text-[10px] p-1.5 rounded border cursor-pointer truncate ${value.includes(`LOC:${l.id}`) ? "bg-purple-100 border-purple-300 font-bold text-purple-900" : "bg-slate-50 text-slate-700"}`}
+        <div
+          className={`absolute left-0 w-[22rem] bg-white border border-slate-300 shadow-xl rounded-lg z-[999] p-2 max-h-80 flex flex-col gap-2 ${
+            openUp ? "bottom-full mb-1" : "top-full mt-1"
+          }`}
+        >
+          <div className="grid grid-cols-3 gap-1">
+            {CONV_TABS.map((t) => {
+              const count = tabCounts[t.id];
+              const active = tab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTab(t.id);
+                  }}
+                  className={`relative text-[9px] font-black uppercase tracking-wide px-1 py-1.5 rounded border transition-colors ${
+                    active
+                      ? "bg-indigo-600 text-white border-indigo-600"
+                      : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                  }`}
                 >
-                  {l.localidad}
-                </div>
-              ))}
-            </div>
+                  <span className="pr-3">{t.label}</span>
+                  <span
+                    className={`absolute -top-1.5 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[8px] font-black flex items-center justify-center border ${
+                      count > 0
+                        ? active
+                          ? "bg-white text-indigo-700 border-white"
+                          : "bg-indigo-600 text-white border-indigo-600"
+                        : active
+                          ? "bg-indigo-500 text-indigo-100 border-indigo-500"
+                          : "bg-slate-200 text-slate-500 border-slate-200"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="relative">
+            <IconSearch
+              size={12}
+              className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+            />
+            <input
+              ref={searchRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              placeholder={`Buscar ${CONV_TABS.find((t) => t.id === tab)?.label.toLowerCase() || ""}...`}
+              className="w-full text-[11px] border border-slate-200 rounded pl-7 pr-2 py-1.5 outline-none focus:border-indigo-400"
+            />
+          </div>
+          <div className="overflow-y-auto flex-1 min-h-0 space-y-0.5">
+            {tabOptions.length === 0 ? (
+              <div className="text-[10px] text-slate-400 italic text-center py-3">
+                {q ? "Sin resultados" : emptyHint}
+              </div>
+            ) : (
+              tabOptions.map((opt) => {
+                const selected = value.includes(opt.id);
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleOption(opt.id);
+                    }}
+                    className={`w-full text-left text-[11px] px-2 py-1.5 rounded border transition-colors truncate ${
+                      selected
+                        ? tab === "localidades"
+                          ? "bg-purple-100 border-purple-300 font-bold text-purple-900"
+                          : tab === "ensambles"
+                            ? "bg-teal-100 border-teal-300 font-bold text-teal-900"
+                            : "bg-indigo-100 border-indigo-300 font-bold text-indigo-900"
+                        : "bg-slate-50 border-transparent hover:bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })
+            )}
           </div>
         </div>
       )}
@@ -708,6 +944,8 @@ export default function MealsManager({
   const [catalogs, setCatalogs] = useState({
     locaciones: [],
     localidades: [],
+    localidadesLookup: [],
+    ensambles: [],
     familias: [],
   });
   const [savingRows, setSavingRows] = useState(new Set());
@@ -783,6 +1021,20 @@ export default function MealsManager({
     if (gira?.id) fetchAllData();
   }, [gira?.id]);
 
+  useEffect(() => {
+    const localidades = collectRosterResidenciaLocalidades(roster);
+    const ensambles = collectRosterEnsambles(roster);
+    const fams = [
+      ...new Set((roster || []).map((m) => m.instrumentos?.familia).filter(Boolean)),
+    ];
+    setCatalogs((prev) => ({
+      ...prev,
+      localidades,
+      ensambles,
+      familias: fams,
+    }));
+  }, [roster]);
+
   const fetchAllData = async () => {
     setLoading(true);
     try {
@@ -794,17 +1046,21 @@ export default function MealsManager({
         .from("localidades")
         .select("id, localidad")
         .order("localidad");
-      const fams = [
-        ...new Set(roster.map((m) => m.instrumentos?.familia).filter(Boolean)),
-      ];
-      setCatalogs({
+      setCatalogs((prev) => ({
+        ...prev,
         locaciones: (locs || []).map((l) => ({
           id: l.id,
           label: `${l.nombre} (${l.localidades?.localidad || ""})`,
         })),
-        localidades: locsGeo || [],
-        familias: fams,
-      });
+        localidadesLookup: locsGeo || [],
+        localidades: collectRosterResidenciaLocalidades(roster),
+        ensambles: collectRosterEnsambles(roster),
+        familias: [
+          ...new Set(
+            (roster || []).map((m) => m.instrumentos?.familia).filter(Boolean),
+          ),
+        ],
+      }));
       await refreshGridData();
     } catch (e) {
       console.error(e);

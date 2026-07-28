@@ -47,6 +47,10 @@ Implementado en `getRuleCategoryTiebreak` y `compareLogisticsRulePrecedence` (`g
 - **Desempate categoría:** `getRuleCategoryTiebreak` + `compareLogisticsRulePrecedence` en hotelería, hitos de comida y proveedores (`prov_*`).
 - **UI:** selectores de categoría incluyen el valor exacto `EXTERNOS` (p. ej. `StopRulesManager.jsx`, `LogisticsManager.jsx`).
 - **Sync roster → comidas:** `LogisticsDashboard` refresca su `useLogistics` al entrar a matriz/asistencia/reporte, y `LogisticsManager` notifica `onLogisticsChange` al guardar reglas (evita datos stale sin F5).
+- **Convocados (`isUserConvoked`):** única fuente de verdad para tags `GRP:` / `LOC:` / `ENS:` / `FAM:` / ID personal. `checkIsConvoked` y Agenda delegan ahí.
+  - `LOC:` = localidad de **residencia** del músico (`resolveLocalidadResidencia` / `id_localidad_residencia`), no viáticos.
+  - `ENS:` = membresía en `ensambles` / `integrantes_ensambles` del roster.
+  - UI Comidas→Agenda: selector searchable con pestañas Categorías / Localidades (solo residencias del roster) / Ensambles (solo ensambles del roster); cada solapa muestra badge de cantidad, abre por defecto la solapa con selección y lista primero los ítems ya seleccionados al abrir.
 
 ## Base de datos
 

@@ -57,5 +57,5 @@ Sección pública para la gestión de flota y solicitudes de transporte de pasaj
 ## Catálogo de rutas (corredores)
 - [x] Migración `20260622150000_scrn_rutas_rio_negro.sql`: tablas `scrn_rutas` + `scrn_ruta_paradas` (FK a `localidades.id`), vista `scrn_ruta_aristas`, funciones `scrn_resolve_localidad_id`, `scrn_paradas_entre`, `scrn_paradas_intermedias`.
 - Corredores seed (Río Negro + Neuquén tránsito): `rn22_costa`, `rn22_alto_valle`, `cipolletti_bariloche`, `linea_sur`, `rn237_el_bolson`. Empalmes en **Río Colorado**, **San Antonio Oeste**, **Cipolletti**, **Dina Huapi**.
-- Consulta ejemplo: `select * from scrn_paradas_entre('Viedma', 'San Carlos de Bariloche', 1);` — devuelve caminos posibles (vía Cipolletti/Neuquén o vía Línea Sur).
+- Consulta ejemplo: `select * from scrn_paradas_entre('Viedma', 'San Carlos de Bariloche', 1);` — devuelve caminos posibles (vía Cipolletti/Neuquén o vía Línea Sur). El alias textual `Bariloche` también resuelve a la misma localidad (`scrn_resolve_localidad_id`); la fila duplicada id 143 se unificó en id 5 (`20260728120000_merge_bariloche.sql`).
 - [x] UI: filtrar opciones de subida/bajada en `SolicitudModal`, `ProponerNuevoViajeModal` y `MisReservas` vía RPC `scrn_paradas_entre` (`useScrnParadasViaje`, `scrnRutasParadasUtils.js`, `scrnRutasService.js`).

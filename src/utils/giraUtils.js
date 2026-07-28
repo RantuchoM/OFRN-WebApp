@@ -12,6 +12,50 @@ const MEAL_RULE_FIELDS = new Set(["comida_inicio", "comida_fin"]);
 
 export const normalize = (str) => (str || "").toLowerCase().trim();
 
+/**
+ * ¿La persona matchea un tag de convocatoria `LOC:<id>`?
+ * Usa **residencia** (no viáticos): `id_localidad_residencia` / `resolveLocalidadResidencia`.
+ */
+export const personMatchesLocConvocadoTag = (person, tag) => {
+  if (!person || !tag || !String(tag).startsWith("LOC:")) return false;
+  const locId = String(tag).slice(4);
+  if (!locId) return false;
+
+  const resId = resolveLocalidadResidencia(person).id;
+  if (resId != null && String(resId) === locId) return true;
+
+  if (
+    person.id_localidad_residencia != null &&
+    person.id_localidad_residencia !== "" &&
+    String(person.id_localidad_residencia) === locId
+  ) {
+    return true;
+  }
+  return false;
+};
+
+/**
+ * ¿La persona matchea un tag `ENS:<id_ensamble>` por membresía vigente en el roster?
+ */
+export const personMatchesEnsConvocadoTag = (person, tag) => {
+  if (!person || !tag || !String(tag).startsWith("ENS:")) return false;
+  const ensId = String(tag).slice(4);
+  if (!ensId) return false;
+
+  if (
+    (person.ensambles || []).some(
+      (e) => e?.id != null && String(e.id) === ensId,
+    )
+  ) {
+    return true;
+  }
+
+  return (person.integrantes_ensambles || []).some((ie) => {
+    const id = ie?.id_ensamble ?? ie?.ensambles?.id;
+    return id != null && String(id) === ensId;
+  });
+};
+
 /** Subidas/bajadas y admisión por territorio usan residencia, no viáticos. */
 export const isTransportTerritoryRule = (rule) =>
   Boolean(
@@ -345,9 +389,9 @@ export const resolveTourRoleOverride = (manualRole, member, fallbackRole) => {
 
 /**
  * Determines if a member is convoked to an event based on tags.
- * @param {Array<string>} convocadosList - Array of event tags (e.g., ["GRP:TUTTI", "LOC:1"])
+ * @param {Array<string>} convocadosList - Array of event tags (e.g., ["GRP:TUTTI", "LOC:1", "ENS:3"])
  * @param {Object} person - Member object processed by useGiraRoster (must have is_local, rol_gira)
- * @param {{ hospedajeExcluidosIds?: Array<number|string>, cunaExcluidosIds?: Array<number|string> }} [opts] - `hospedajeExcluidosIds`: "GRP:NO_LOCALES" (Solo alojados) excluye "No alojados". Bebés en cuna (`en_cuna` / `ocupa_cama: false` / `cunaExcluidosIds`) quedan fuera de **cualquier** tag.
+ * @param {{ hospedajeExcluidosIds?: Array<number|string>, cunaExcluidosIds?: Array<number|string>, fecha?: string, servicio?: string, segments?: Array, hora?: string }} [opts] - `hospedajeExcluidosIds`: "GRP:NO_LOCALES" (Solo alojados) excluye "No alojados". Bebés en cuna (`en_cuna` / `ocupa_cama: false` / `cunaExcluidosIds`) quedan fuera de **cualquier** tag. `LOC:` = residencia; `ENS:` = membresía de ensamble.
  */
 function personIsLocalForConvocado(person, opts) {
   const { fecha, servicio, segments, hora } = opts;
@@ -365,12 +409,14 @@ function personIsLocalForConvocado(person, opts) {
 
 export const isUserConvoked = (convocadosList, person, opts = {}) => {
   if (!convocadosList || convocadosList.length === 0) return false;
+  if (!person) return false;
 
   // Bebé en cuna (rooming): no consume → nunca convocado a comidas / eventos por tags.
-  if (person?.en_cuna === true || person?.ocupa_cama === false) return false;
+  if (person.en_cuna === true || person.ocupa_cama === false) return false;
+  const personId = person.id ?? person.id_integrante;
   if (
     opts.cunaExcluidosIds?.length &&
-    opts.cunaExcluidosIds.some((id) => String(id) === String(person?.id))
+    opts.cunaExcluidosIds.some((id) => String(id) === String(personId))
   ) {
     return false;
   }
@@ -381,29 +427,35 @@ export const isUserConvoked = (convocadosList, person, opts = {}) => {
       ? new Set(hospedajeExcluidosIds.map((id) => Number(id)))
       : null;
 
+  const rol = normalize(person.rol_gira ?? person.rol);
+  const userFamily = normalize(person.instrumentos?.familia);
+
   return convocadosList.some((tag) => {
+    // Convocatoria personal por ID numérico (tags legacy sin prefijo).
+    if (personId != null && String(tag) === String(personId)) return true;
+
     if (tag === ROSTER_CATEGORIES.TUTTI) return true;
 
     if (tag === ROSTER_CATEGORIES.LOCALES)
       return personIsLocalForConvocado(person, opts);
     if (tag === ROSTER_CATEGORIES.NO_LOCALES) {
       if (personIsLocalForConvocado(person, opts)) return false;
-      if (excluidosHotel?.has(Number(person.id))) return false;
+      if (excluidosHotel?.has(Number(personId))) return false;
       return true;
     }
 
     if (tag === ROSTER_CATEGORIES.PRODUCCION)
-      return ROLES_PRODUCCION.includes(person.rol_gira);
-    if (tag === ROSTER_CATEGORIES.SOLISTAS) return person.rol_gira === "solista";
-    if (tag === ROSTER_CATEGORIES.DIRECTORES)
-      return person.rol_gira === "director";
-    if (tag === ROSTER_CATEGORIES.STAFF) return person.rol_gira === "staff";
+      return ROLES_PRODUCCION.includes(rol) || rol === "coordinacion";
+    if (tag === ROSTER_CATEGORIES.SOLISTAS) return rol === "solista";
+    if (tag === ROSTER_CATEGORIES.DIRECTORES) return rol === "director";
+    if (tag === ROSTER_CATEGORIES.STAFF) return rol === "staff";
 
-    // Specific checks
     if (tag.startsWith("LOC:"))
-      return person.id_localidad === parseInt(tag.split(":")[1]);
+      return personMatchesLocConvocadoTag(person, tag);
+    if (tag.startsWith("ENS:"))
+      return personMatchesEnsConvocadoTag(person, tag);
     if (tag.startsWith("FAM:"))
-      return person.instrumentos?.familia === tag.split(":")[1];
+      return userFamily === normalize(tag.split(":")[1]);
 
     return false;
   });
@@ -954,48 +1006,25 @@ export const getProgramBadgeClasses = (program) => {
 // src/utils/giraUtils.js
 
 /**
- * Verifica si un usuario está convocado a un evento basado en etiquetas y su perfil.
+ * Wrapper de compatibilidad: delega en `isUserConvoked` con el rol de gira.
  * @param {Array<string>} convocadosList - Lista de etiquetas (ej: ["GRP:TUTTI", "123"])
  * @param {Object} userProfile - Objeto del usuario (debe tener id, id_localidad, instrumentos, etc.)
  * @param {string} tourRole - Rol del usuario en ESTA gira específica (ej: "solista", "produccion")
+ * @param {{ hospedajeExcluidosIds?: Array<number|string>, cunaExcluidosIds?: Array<number|string>, fecha?: string, servicio?: string, segments?: Array, hora?: string }} [opts]
  */
-export const checkIsConvoked = (convocadosList, userProfile, tourRole) => {
-  if (!convocadosList || convocadosList.length === 0) return false;
+export const checkIsConvoked = (
+  convocadosList,
+  userProfile,
+  tourRole,
+  opts = {},
+) => {
   if (!userProfile) return false;
-
-  const normalizedRole = (tourRole || "").toLowerCase();
-  // Normalizamos familia de instrumento si existe
-  const userFamily = userProfile.instrumentos?.familia?.toLowerCase() || "";
-
-  return convocadosList.some((tag) => {
-    if (tag === String(userProfile.id)) return true;
-
-    if (tag === ROSTER_CATEGORIES.TUTTI) return true;
-    if (tag === ROSTER_CATEGORIES.LOCALES) return !!userProfile.is_local;
-    if (tag === ROSTER_CATEGORIES.NO_LOCALES) return !userProfile.is_local;
-
-    if (tag === ROSTER_CATEGORIES.PRODUCCION)
-      return (
-        ROLES_PRODUCCION.includes(normalizedRole) ||
-        normalizedRole === "coordinacion"
-      );
-    if (tag === ROSTER_CATEGORIES.STAFF) return normalizedRole === "staff";
-    if (tag === ROSTER_CATEGORIES.SOLISTAS) return normalizedRole === "solista";
-    if (tag === ROSTER_CATEGORIES.DIRECTORES)
-      return normalizedRole === "director";
-
-    // 4. Etiquetas de Localidad (LOC:123)
-    if (tag.startsWith("LOC:")) {
-      const locId = parseInt(tag.split(":")[1]);
-      return userProfile.id_localidad === locId;
-    }
-
-    // 5. Etiquetas de Familia de Instrumento (FAM:Cuerdas)
-    if (tag.startsWith("FAM:")) {
-      const targetFamily = tag.split(":")[1].toLowerCase();
-      return userFamily === targetFamily;
-    }
-
-    return false;
-  });
+  return isUserConvoked(
+    convocadosList,
+    {
+      ...userProfile,
+      rol_gira: tourRole || userProfile.rol_gira || userProfile.rol,
+    },
+    opts,
+  );
 };

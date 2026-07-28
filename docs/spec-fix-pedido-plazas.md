@@ -45,11 +45,24 @@ El reporte seguía asumiendo que `log.checkin` y `log.checkout` eran siempre str
   - Desglose por rangos de fechas y categorías.
 - La lógica es compatible tanto con datos antiguos (strings manuales) como con el nuevo modelo basado en eventos, evitando errores de fechas inválidas o `NaN` en los totales.
 
+### Prioridad de fechas check-in/out (completado)
+
+- [x] Bug: con tramos o habitación asignada, `getStayDatesForTramo` usaba **booking → tramo** y **nunca** la logística personal (el fallback a logística solo corría sin `fecha_desde`/`fecha_hasta` de segmento). Resultado: varias personas con CI/CO distintos quedaban con el bloque del hotel/tramo.
+- [x] Prioridad alineada con `RoomingReport`: por lado (in y out) **logística personal → booking → tramo (+ cortes)**.
+- [x] `getLogisticsDates` ignora `{}` vacío de `useLogistics`, normaliza `fecha` a `YYYY-MM-DD` y valida `Date` (string legacy, evento enriquecido o campos `date`/`time`).
+- [x] Helper de parseo en `RoomingReport.jsx` actualizado con el mismo criterio para coherencia.
+
 ### Check-in temprano vs. inicio de tramo (completado)
 
 - [x] Si el integrante hace check-in **antes** de la primera noche contada en el tramo (p. ej. Producción 04/08 16:00 con tramo oficial desde 05/08), el rango del pedido conserva la **fecha y hora reales** de logística, no medianoche del primer día del tramo.
 - [x] Fix en `buildClippedRange` (`roomingInitialOrder.js`): ya no usa `startOfDay` ciego al recortar; compara `dIn` con el inicio de la primera noche elegible.
 - [x] La **noche del día de check-in** se incluye en el conteo del tramo correspondiente aunque el tramo oficial empiece después (`isEarlyCheckInNight` + `collectEligibleNights`). Cada tramo calcula sus noches de forma independiente.
+
+### Check-out posterior al fin de gira/tramo (completado)
+
+- [x] Caso gira 10 (`Paisajes de España`): `fecha_hasta` 22/08; habitación Plus matrimonial (IDs `48028286` + acompañante) con regla de logística → evento check-out **24/08 08:00**. El pedido de texto mostraba check-out **domingo 23** porque `collectEligibleNights` descartaba la noche del 23 (posterior al fin oficial) y `buildClippedRange` inventaba salida el 23.
+- [x] `isLateCheckOutNight`: en el **último** tramo, incluye noches entre el fin oficial y la mañana de check-out personal (simétrico a llegada anticipada).
+- [x] Con eso, el rango del pedido conserva el check-out real (p. ej. lunes 24) y cuenta la noche del domingo.
 
 ### Títulos de tramo en pedido (completado)
 

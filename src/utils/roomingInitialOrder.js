@@ -51,64 +51,74 @@ export function getSuggestedRoomsLabel(bedsPerRoom = DEFAULT_BEDS_PER_ROOM) {
   return `Habs Sugeridas (×${cap})`;
 }
 
+/** Extrae fecha/hora de un hito de logística (string, evento enriquecido u objeto legacy). */
+function parseLogisticsMilestone(raw, siblingTime, defaultTime) {
+  if (raw == null || raw === "") return { date: null };
+
+  let dStr = null;
+  let tStr = null;
+
+  if (typeof raw === "string") {
+    dStr = raw;
+    tStr = siblingTime || defaultTime;
+  } else if (typeof raw === "object") {
+    // useLogistics inicializa checkin/checkout como `{}` (truthy sin fecha).
+    dStr = raw.fecha || raw.date || null;
+    if (!dStr) return { date: null };
+    tStr =
+      raw.hora_inicio ||
+      raw.hora ||
+      raw.time ||
+      siblingTime ||
+      defaultTime;
+  } else {
+    return { date: null };
+  }
+
+  const day = String(dStr).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return { date: null };
+  const safeTime = String(tStr || defaultTime).slice(0, 5);
+  const parsed = new Date(`${day}T${safeTime}`);
+  if (Number.isNaN(parsed.getTime())) return { date: null };
+  return { date: parsed };
+}
+
 export function getLogisticsDates(log) {
-  let dateIn = null;
-  let dateOut = null;
-
-  if (log?.checkin) {
-    let dStr;
-    let tStr;
-    if (typeof log.checkin === "object") {
-      dStr = log.checkin.fecha || log.checkin.date;
-      tStr =
-        log.checkin.hora_inicio ||
-        log.checkin.hora ||
-        log.checkin.time ||
-        log.checkin_time ||
-        "14:00";
-    } else {
-      dStr = log.checkin;
-      tStr = log.checkin_time || "14:00";
-    }
-    if (dStr) {
-      const safeTime = (tStr || "14:00").slice(0, 5);
-      dateIn = new Date(`${dStr}T${safeTime}`);
-    }
-  }
-
-  if (log?.checkout) {
-    let dStr;
-    let tStr;
-    if (typeof log.checkout === "object") {
-      dStr = log.checkout.fecha || log.checkout.date;
-      tStr =
-        log.checkout.hora_inicio ||
-        log.checkout.hora ||
-        log.checkout.time ||
-        log.checkout_time ||
-        "10:00";
-    } else {
-      dStr = log.checkout;
-      tStr = log.checkout_time || "10:00";
-    }
-    if (dStr) {
-      const safeTime = (tStr || "10:00").slice(0, 5);
-      dateOut = new Date(`${dStr}T${safeTime}`);
-    }
-  }
-
-  return { dateIn, dateOut };
+  const checkin = parseLogisticsMilestone(
+    log?.checkin,
+    log?.checkin_time,
+    "14:00",
+  );
+  const checkout = parseLogisticsMilestone(
+    log?.checkout,
+    log?.checkout_time,
+    "10:00",
+  );
+  return { dateIn: checkin.date, dateOut: checkout.date };
 }
 
 export function getDatesFromBooking(booking) {
-  if (!booking?.fecha_checkin || !booking?.fecha_checkout) {
-    return { dateIn: null, dateOut: null };
-  }
-  const inTime = (booking.hora_checkin || "14:00").slice(0, 5);
-  const outTime = (booking.hora_checkout || "10:00").slice(0, 5);
+  const inDay = booking?.fecha_checkin
+    ? String(booking.fecha_checkin).slice(0, 10)
+    : null;
+  const outDay = booking?.fecha_checkout
+    ? String(booking.fecha_checkout).slice(0, 10)
+    : null;
+  const inTime = (booking?.hora_checkin || "14:00").slice(0, 5);
+  const outTime = (booking?.hora_checkout || "10:00").slice(0, 5);
+
+  const dateIn =
+    inDay && /^\d{4}-\d{2}-\d{2}$/.test(inDay)
+      ? new Date(`${inDay}T${inTime}`)
+      : null;
+  const dateOut =
+    outDay && /^\d{4}-\d{2}-\d{2}$/.test(outDay)
+      ? new Date(`${outDay}T${outTime}`)
+      : null;
+
   return {
-    dateIn: new Date(`${booking.fecha_checkin}T${inTime}`),
-    dateOut: new Date(`${booking.fecha_checkout}T${outTime}`),
+    dateIn: dateIn && !Number.isNaN(dateIn.getTime()) ? dateIn : null,
+    dateOut: dateOut && !Number.isNaN(dateOut.getTime()) ? dateOut : null,
   };
 }
 
@@ -179,53 +189,88 @@ function bumpDateIso(isoDate, days = 1) {
   return format(addDays(d, days), "yyyy-MM-dd");
 }
 
-/** Fechas de estadía para pedido: booking → tramo (+ transiciones) → logística. */
+/** Fechas del tramo (+ cortes de transición). Usado como fallback del pedido. */
+function getDatesFromSegment(booking, segmentRow, segmentSpec) {
+  if (!segmentRow?.fecha_desde || !segmentRow?.fecha_hasta) {
+    return { dateIn: null, dateOut: null };
+  }
+
+  let inDate = String(segmentRow.fecha_desde).slice(0, 10);
+  let outDate = String(segmentRow.fecha_hasta).slice(0, 10);
+  let inTime = sliceTime(booking?.hora_checkin) || "14:00";
+  let outTime = sliceTime(booking?.hora_checkout) || "10:00";
+
+  const corteIn = segmentSpec?.corte_entrada;
+  const corteOut = segmentSpec?.corte_salida;
+  const isLastSegment = segmentSpec != null && !corteOut;
+
+  if (corteIn && Number(segmentSpec.indice) > 0) {
+    inDate = String(corteIn.fecha_checkin || corteIn.fecha || inDate).slice(
+      0,
+      10,
+    );
+    inTime = sliceTime(corteIn.hora_checkin) || inTime;
+  }
+  if (corteOut) {
+    outDate = String(
+      corteOut.fecha_checkout || corteOut.fecha || outDate,
+    ).slice(0, 10);
+    outTime = sliceTime(corteOut.hora_checkout) || outTime;
+  } else if (isLastSegment && outDate === inDate) {
+    // Último tramo con mismo día in/out en el calendario del segmento
+    outDate = bumpDateIso(inDate, 1);
+  }
+
+  if (outDate <= inDate) {
+    outDate = bumpDateIso(inDate, 1);
+  }
+
+  return {
+    dateIn: new Date(`${inDate}T${inTime}`),
+    dateOut: new Date(`${outDate}T${outTime}`),
+  };
+}
+
+/**
+ * Fechas de estadía para pedido.
+ * Prioridad por lado (in/out), alineada con RoomingReport:
+ * logística personal → booking del hotel → tramo (+ cortes).
+ * Así check-in/out individuales (llegada anticipada, salida distinta) no se
+ * pisan con el bloque del hospedaje cuando hay tramos o habitación asignada.
+ */
 export function getStayDatesForTramo(booking, segmentRow, segmentSpec, log) {
+  const fromLog = getLogisticsDates(log);
   const fromBooking = getDatesFromBooking(booking);
-  if (fromBooking.dateIn && fromBooking.dateOut) {
-    return { ...fromBooking, source: "booking" };
+  const fromSegment = getDatesFromSegment(booking, segmentRow, segmentSpec);
+
+  const dateIn =
+    fromLog.dateIn || fromBooking.dateIn || fromSegment.dateIn || null;
+  const dateOut =
+    fromLog.dateOut || fromBooking.dateOut || fromSegment.dateOut || null;
+
+  let source = "none";
+  if (fromLog.dateIn && fromLog.dateOut) source = "logistics";
+  else if (
+    !fromLog.dateIn &&
+    !fromLog.dateOut &&
+    fromBooking.dateIn &&
+    fromBooking.dateOut
+  ) {
+    source = "booking";
+  } else if (
+    !fromLog.dateIn &&
+    !fromLog.dateOut &&
+    !fromBooking.dateIn &&
+    !fromBooking.dateOut &&
+    fromSegment.dateIn &&
+    fromSegment.dateOut
+  ) {
+    source = "segment";
+  } else if (dateIn && dateOut) {
+    source = "mixed";
   }
 
-  if (segmentRow?.fecha_desde && segmentRow?.fecha_hasta) {
-    let inDate = String(segmentRow.fecha_desde).slice(0, 10);
-    let outDate = String(segmentRow.fecha_hasta).slice(0, 10);
-    let inTime = sliceTime(booking?.hora_checkin) || "14:00";
-    let outTime = sliceTime(booking?.hora_checkout) || "10:00";
-
-    const corteIn = segmentSpec?.corte_entrada;
-    const corteOut = segmentSpec?.corte_salida;
-    const isLastSegment = segmentSpec != null && !corteOut;
-
-    if (corteIn && Number(segmentSpec.indice) > 0) {
-      inDate = String(corteIn.fecha_checkin || corteIn.fecha || inDate).slice(
-        0,
-        10,
-      );
-      inTime = sliceTime(corteIn.hora_checkin) || inTime;
-    }
-    if (corteOut) {
-      outDate = String(
-        corteOut.fecha_checkout || corteOut.fecha || outDate,
-      ).slice(0, 10);
-      outTime = sliceTime(corteOut.hora_checkout) || outTime;
-    } else if (isLastSegment && outDate === inDate) {
-      // Último tramo con mismo día in/out en el calendario del segmento
-      outDate = bumpDateIso(inDate, 1);
-    }
-
-    if (outDate <= inDate) {
-      outDate = bumpDateIso(inDate, 1);
-    }
-
-    return {
-      dateIn: new Date(`${inDate}T${inTime}`),
-      dateOut: new Date(`${outDate}T${outTime}`),
-      source: "segment",
-    };
-  }
-
-  const { dateIn, dateOut } = getLogisticsDates(log);
-  return { dateIn, dateOut, source: "logistics" };
+  return { dateIn, dateOut, source };
 }
 
 function getRoomOccupantIds(room) {
@@ -401,6 +446,54 @@ function isEarlyCheckInNight(dIn, fecha, segments, tramoIndice, segmentRow) {
   return desde ? day < desde : false;
 }
 
+/**
+ * Noches posteriores al fin oficial del tramo/gira cuando el check-out personal
+ * es más tarde (p. ej. gira hasta 22/08 y check-out 24/08). Se imputan al
+ * último tramo; sin eso el pedido recorta el check-out al día siguiente del
+ * fin oficial (23) y pierde la noche previa a la salida real.
+ */
+function isLateCheckOutNight(dOut, fecha, segments, tramoIndice, segmentRow) {
+  if (
+    !dOut ||
+    !fecha ||
+    tramoIndice == null ||
+    Number.isNaN(Number(tramoIndice))
+  ) {
+    return false;
+  }
+
+  const checkoutDay = format(startOfDay(dOut), "yyyy-MM-dd");
+  const day = String(fecha).slice(0, 10);
+  if (day >= checkoutDay) return false;
+
+  const idx = Number(tramoIndice);
+  const isLast = !segments?.length || idx === segments.length - 1;
+  // Solo el último tramo absorbe la extensión de salida tardía.
+  if (segments?.length > 1 && !isLast) return false;
+
+  const spec = segments?.find((s) => Number(s.indice) === idx);
+  const dOutInstant = `${checkoutDay}T${format(dOut, "HH:mm:ss").slice(0, 5)}`;
+
+  if (spec?.instant_hasta) {
+    if (dOutInstant.localeCompare(spec.instant_hasta) <= 0) return false;
+    const nightInstant = `${day}T20:00`;
+    return nightInstant.localeCompare(spec.instant_hasta) > 0;
+  }
+
+  const hasta =
+    (segmentRow?.fecha_hasta
+      ? String(segmentRow.fecha_hasta).slice(0, 10)
+      : null) ??
+    (spec?.fecha_hasta ? String(spec.fecha_hasta).slice(0, 10) : null);
+
+  // Sin cota de tramo: nightBelongsToTramo suele devolver false; incluir la
+  // estadía completa hasta el check-out personal.
+  if (!hasta) return true;
+
+  if (checkoutDay <= hasta) return false;
+  return day > hasta;
+}
+
 function collectEligibleNights(
   dIn,
   dOut,
@@ -419,7 +512,8 @@ function collectEligibleNights(
     if (
       tramoIndice != null &&
       !nightBelongsToTramo(fecha, segments, tramoIndice, segmentRow) &&
-      !isEarlyCheckInNight(dIn, fecha, segments, tramoIndice, segmentRow)
+      !isEarlyCheckInNight(dIn, fecha, segments, tramoIndice, segmentRow) &&
+      !isLateCheckOutNight(dOut, fecha, segments, tramoIndice, segmentRow)
     ) {
       continue;
     }
