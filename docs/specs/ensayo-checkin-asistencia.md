@@ -66,7 +66,9 @@ Migraciones:
 ## UI Gestión
 
 - Filtros: panel colapsable (botón **Filtros**); ensambles en lista con «Seleccionar todos» / «Ninguno» (estética Gestión).
+- **Móvil:** botón **Cargar** siempre visible en la barra de filtros; panel con altura máxima y scroll interno + CTA «Aplicar y cargar» sticky al pie (solo &lt; md). Fechas en 2 columnas; padding reducido en secciones fullscreen.
 - Vistas: matriz (un bloque por ensamble; cada ensayo con subcolumnas **Llegada** | **Salida**) y lista (columnas Llegada y Salida).
+- **Móvil / matriz:** tabla `min-w-max` con scroll horizontal (`overflow-x-auto`); columnas angostas (integrante ~7.5rem, instrumento ~4rem, llegada/salida ~2.75rem c/u). Vista lista también con scroll horizontal.
 - Formatea y edita horas como hora de pared (cara UTC del timestamptz; sin reaplicar UTC−3).
 - Modal admin: hora de llegada + hora de salida opcional; links a ambas ubicaciones si existen.
 - **Tardanza de llegada** (vista + Excel/PDF): amarillo ≤10 min, naranja ≤15 min, rojo >15 min respecto de `hora_inicio` (no aplica a justificados).

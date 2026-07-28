@@ -295,7 +295,7 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
           isHomeView
             ? "flex-1 overflow-y-auto p-5"
             : isFullscreenSection
-            ? "flex min-h-0 flex-1 flex-col overflow-hidden p-4"
+            ? "flex min-h-0 flex-1 flex-col overflow-hidden p-2 sm:p-4"
             : "flex-1 overflow-y-auto p-4"
         }
       >

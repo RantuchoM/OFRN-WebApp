@@ -519,7 +519,7 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
       <>
         <span className="block font-bold tabular-nums leading-tight">{datetime}</span>
         <span
-          className={`block text-[9px] font-normal leading-tight mt-0.5 truncate max-w-[5.5rem] mx-auto ${
+          className={`block text-[8px] font-normal leading-tight mt-0.5 truncate max-w-[4.5rem] mx-auto ${
             canEditLoc ? "text-indigo-700" : "text-slate-500"
           }`}
         >
@@ -566,13 +566,17 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
     const lejos = isCheckinGeoLejos(chk, evt, field);
     const emptyHint = field === "llegada" ? "+" : "·";
     return (
-      <td key={`${evt.id}-${field}`} className="border p-0.5 text-center">
-        <div className="relative min-h-[28px]">
+      <td
+        key={`${evt.id}-${field}`}
+        className="border p-px text-center"
+        style={{ minWidth: "2.75rem", width: "2.75rem" }}
+      >
+        <div className="relative min-h-[26px]">
           <button
             type="button"
             disabled={!canEdit}
             onClick={() => openEdit(evt, p, chk)}
-            className={`w-full min-h-[28px] rounded border text-[10px] font-bold tabular-nums ${checkinCellUiClass(chk, evt, field)} ${canEdit ? "cursor-pointer hover:ring-1 hover:ring-indigo-300" : "cursor-default"} ${mapsUrl ? "pr-3 pb-2.5" : ""}`}
+            className={`w-full min-h-[26px] rounded border px-0.5 text-[9px] font-bold tabular-nums leading-tight ${checkinCellUiClass(chk, evt, field)} ${canEdit ? "cursor-pointer hover:ring-1 hover:ring-indigo-300" : "cursor-default"} ${mapsUrl ? "pr-2.5 pb-2" : ""}`}
             title={
               chk?.justificado
                 ? "Justificado"
@@ -613,14 +617,36 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
     );
   };
 
+  const applyFiltersButton = (
+    <button
+      type="button"
+      onClick={handleApplyFilters}
+      disabled={loading}
+      className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600 px-3 text-xs font-black text-white hover:bg-indigo-700 disabled:opacity-50 sm:px-4 sm:text-sm"
+    >
+      {loading ? (
+        <>
+          <IconLoader size={16} className="mr-1.5 animate-spin sm:mr-2" />
+          <span className="sm:hidden">…</span>
+          <span className="hidden sm:inline">Cargando…</span>
+        </>
+      ) : (
+        <>
+          <span className="sm:hidden">Cargar</span>
+          <span className="hidden sm:inline">Aplicar y cargar</span>
+        </>
+      )}
+    </button>
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-      <div className="shrink-0 space-y-2">
-        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
+      <div className="flex max-h-[min(52vh,26rem)] shrink-0 flex-col gap-2 md:max-h-none">
+        <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 sm:gap-2">
           <button
             type="button"
             onClick={() => setFiltersOpen((v) => !v)}
-            className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-bold transition-colors ${
+            className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-lg border px-2 text-xs font-bold transition-colors sm:gap-1.5 sm:px-2.5 ${
               filtersOpen
                 ? "border-indigo-400 bg-indigo-100 text-indigo-800"
                 : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -629,120 +655,123 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
             aria-label={filtersOpen ? "Ocultar filtros" : "Mostrar filtros"}
           >
             <IconFilter size={16} />
-            Filtros
+            <span>Filtros</span>
             <IconChevronDown
               size={14}
               className={`transition-transform ${filtersOpen ? "rotate-180" : ""}`}
             />
           </button>
-          <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-600">
+          <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-slate-600 sm:text-xs">
             {filterSummary}
           </span>
+          {applyFiltersButton}
         </div>
 
         {filtersOpen && (
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div>
-                <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-500">
-                  Rango de fechas
-                </p>
-                <div className="mb-3 inline-flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
-                  {ENSAYO_CHECKIN_DATE_PRESETS.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => applyDatePreset(preset.id)}
-                      className={`rounded-md px-2.5 py-1.5 text-xs font-bold transition-colors ${
-                        activeDatePreset === preset.id
-                          ? "bg-white text-indigo-800 shadow-sm ring-1 ring-slate-200/80"
-                          : "text-slate-600 hover:bg-white/80"
-                      }`}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                  <div className="min-w-0 flex-1">
-                    <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-400">
-                      Desde
-                    </label>
-                    <DateInput
-                      value={desde}
-                      onChange={(v) => {
-                        setDesde(v);
-                        setActiveDatePreset(null);
-                      }}
-                      showDayName={false}
-                      showCalendarPicker={false}
-                      className="!pl-2 border border-slate-300 bg-white rounded-lg text-sm py-2 pr-2 min-h-[2.25rem]"
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-400">
-                      Hasta
-                    </label>
-                    <DateInput
-                      value={hasta}
-                      onChange={(v) => {
-                        setHasta(v);
-                        setActiveDatePreset(null);
-                      }}
-                      showDayName={false}
-                      showCalendarPicker={false}
-                      className="!pl-2 border border-slate-300 bg-white rounded-lg text-sm py-2 pr-2 min-h-[2.25rem]"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-black uppercase tracking-wider text-slate-500">
-                    Ensambles
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm md:flex-none md:overflow-visible">
+            <div className="min-h-0 flex-1 overflow-y-auto p-3 md:overflow-visible md:p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
+                <div>
+                  <p className="mb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-500 sm:mb-2 sm:text-xs">
+                    Rango de fechas
                   </p>
-                  <div className="flex items-center gap-2 text-[11px] font-bold">
-                    <button
-                      type="button"
-                      onClick={selectAllEnsambles}
-                      className="text-indigo-600 hover:underline"
-                    >
-                      Seleccionar todos
-                    </button>
-                    <span className="text-slate-300">·</span>
-                    <button
-                      type="button"
-                      onClick={clearAllEnsambles}
-                      className="text-slate-500 hover:underline"
-                    >
-                      Ninguno
-                    </button>
+                  <div className="mb-2 inline-flex max-w-full flex-wrap gap-0.5 rounded-lg border border-slate-200 bg-slate-50 p-0.5 sm:mb-3 sm:gap-1 sm:p-1">
+                    {ENSAYO_CHECKIN_DATE_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => applyDatePreset(preset.id)}
+                        className={`rounded-md px-2 py-1 text-[11px] font-bold transition-colors sm:px-2.5 sm:py-1.5 sm:text-xs ${
+                          activeDatePreset === preset.id
+                            ? "bg-white text-indigo-800 shadow-sm ring-1 ring-slate-200/80"
+                            : "text-slate-600 hover:bg-white/80"
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-row sm:items-end">
+                    <div className="min-w-0 flex-1">
+                      <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-400">
+                        Desde
+                      </label>
+                      <DateInput
+                        value={desde}
+                        onChange={(v) => {
+                          setDesde(v);
+                          setActiveDatePreset(null);
+                        }}
+                        showDayName={false}
+                        showCalendarPicker={false}
+                        className="!pl-2 border border-slate-300 bg-white rounded-lg text-sm py-1.5 pr-2 min-h-[2.25rem] sm:py-2"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-400">
+                        Hasta
+                      </label>
+                      <DateInput
+                        value={hasta}
+                        onChange={(v) => {
+                          setHasta(v);
+                          setActiveDatePreset(null);
+                        }}
+                        showDayName={false}
+                        showCalendarPicker={false}
+                        className="!pl-2 border border-slate-300 bg-white rounded-lg text-sm py-1.5 pr-2 min-h-[2.25rem] sm:py-2"
+                      />
+                    </div>
                   </div>
                 </div>
-                <MultiSelect
-                  label={null}
-                  options={ensamblesOptions}
-                  selectedIds={selectedEnsambleIds}
-                  onChange={(ids) =>
-                    setSelectedEnsambleIds(ids.map((id) => Number(id)))
-                  }
-                  showChips={false}
-                  placeholder="Seleccionar ensambles…"
-                />
-                <p className="mt-1.5 text-[10px] text-slate-400">
-                  {selectedEnsambleIds.length} de {ensamblesOptions.length}{" "}
-                  seleccionado(s)
-                </p>
+
+                <div>
+                  <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 sm:mb-2">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 sm:text-xs">
+                      Ensambles
+                    </p>
+                    <div className="flex items-center gap-2 text-[11px] font-bold">
+                      <button
+                        type="button"
+                        onClick={selectAllEnsambles}
+                        className="text-indigo-600 hover:underline"
+                      >
+                        Seleccionar todos
+                      </button>
+                      <span className="text-slate-300">·</span>
+                      <button
+                        type="button"
+                        onClick={clearAllEnsambles}
+                        className="text-slate-500 hover:underline"
+                      >
+                        Ninguno
+                      </button>
+                    </div>
+                  </div>
+                  <MultiSelect
+                    label={null}
+                    options={ensamblesOptions}
+                    selectedIds={selectedEnsambleIds}
+                    onChange={(ids) =>
+                      setSelectedEnsambleIds(ids.map((id) => Number(id)))
+                    }
+                    showChips={false}
+                    placeholder="Seleccionar ensambles…"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-400 sm:mt-1.5">
+                    {selectedEnsambleIds.length} de {ensamblesOptions.length}{" "}
+                    seleccionado(s)
+                  </p>
+                </div>
               </div>
             </div>
 
-            <div className="mt-4 flex justify-end border-t border-slate-100 pt-3">
+            <div className="flex shrink-0 justify-stretch border-t border-slate-100 bg-white p-2.5 sm:justify-end sm:p-3 md:hidden">
               <button
                 type="button"
                 onClick={handleApplyFilters}
                 disabled={loading}
-                className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-black text-white hover:bg-indigo-700 disabled:opacity-50"
+                className="inline-flex w-full items-center justify-center rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-black text-white hover:bg-indigo-700 disabled:opacity-50"
               >
                 {loading ? (
                   <>
@@ -756,69 +785,69 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
             </div>
           </div>
         )}
-
-        {events.length > 0 && (
-          <div className="flex flex-wrap gap-x-2 gap-y-1.5 items-center text-[10px] text-slate-500 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
-            <div className="inline-flex rounded border border-slate-200 p-px font-bold shrink-0">
-              <button
-                type="button"
-                className={`px-2 py-0.5 rounded-sm text-[10px] ${viewMode === "matriz" ? "bg-indigo-600 text-white" : "text-slate-600"}`}
-                onClick={() => setViewMode("matriz")}
-              >
-                Matriz
-              </button>
-              <button
-                type="button"
-                className={`px-2 py-0.5 rounded-sm text-[10px] ${viewMode === "lista" ? "bg-indigo-600 text-white" : "text-slate-600"}`}
-                onClick={() => setViewMode("lista")}
-              >
-                Lista
-              </button>
-            </div>
-            <span className="hidden sm:inline text-slate-300">|</span>
-            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-              <LegendSwatch
-                boxClass="bg-amber-100 border-amber-400"
-                label="Admin"
-                title="Carga o corrección presencial por administración"
-              />
-              <LegendSwatch
-                boxClass="bg-violet-100 border-violet-400"
-                label="Justificado"
-                title="Ausencia justificada (sin presencia física)"
-              />
-              <LegendSwatch
-                boxClass="bg-yellow-100 border-yellow-400"
-                label="Tarde hasta 10 min"
-                title="Llegada hasta 10 minutos después de la hora de inicio"
-              />
-              <LegendSwatch
-                boxClass="bg-orange-100 border-orange-400"
-                label="Tarde hasta 15 min"
-                title="Llegada entre 11 y 15 minutos tarde"
-              />
-              <LegendSwatch
-                boxClass="bg-red-100 border-red-400"
-                label="Tarde más de 15 min"
-                title="Llegada más de 15 minutos después del inicio"
-              />
-              <span
-                className="inline-flex items-center gap-1 text-[10px] text-slate-600"
-                title={`Ubicación GPS · naranja si distancia a la sede > ${ENSAYO_GEO_LEJOS_M} m`}
-              >
-                <IconMapPin size={11} className="text-indigo-600" />
-                Llegada
-                <IconMapPin size={11} className="text-sky-600" />
-                Salida
-                <IconMapPin size={11} className="text-orange-600" />
-                &gt;{ENSAYO_GEO_LEJOS_M} m
-              </span>
-            </div>
-            <span className="ml-auto" />
-            <CheckinExportMenu exportBase={exportBase} label="Exportar" />
-          </div>
-        )}
       </div>
+
+      {events.length > 0 && (
+        <div className="flex shrink-0 flex-wrap gap-x-2 gap-y-1.5 items-center text-[10px] text-slate-500 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
+          <div className="inline-flex rounded border border-slate-200 p-px font-bold shrink-0">
+            <button
+              type="button"
+              className={`px-2 py-0.5 rounded-sm text-[10px] ${viewMode === "matriz" ? "bg-indigo-600 text-white" : "text-slate-600"}`}
+              onClick={() => setViewMode("matriz")}
+            >
+              Matriz
+            </button>
+            <button
+              type="button"
+              className={`px-2 py-0.5 rounded-sm text-[10px] ${viewMode === "lista" ? "bg-indigo-600 text-white" : "text-slate-600"}`}
+              onClick={() => setViewMode("lista")}
+            >
+              Lista
+            </button>
+          </div>
+          <span className="hidden sm:inline text-slate-300">|</span>
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <LegendSwatch
+              boxClass="bg-amber-100 border-amber-400"
+              label="Admin"
+              title="Carga o corrección presencial por administración"
+            />
+            <LegendSwatch
+              boxClass="bg-violet-100 border-violet-400"
+              label="Justificado"
+              title="Ausencia justificada (sin presencia física)"
+            />
+            <LegendSwatch
+              boxClass="bg-yellow-100 border-yellow-400"
+              label="Tarde hasta 10 min"
+              title="Llegada hasta 10 minutos después de la hora de inicio"
+            />
+            <LegendSwatch
+              boxClass="bg-orange-100 border-orange-400"
+              label="Tarde hasta 15 min"
+              title="Llegada entre 11 y 15 minutos tarde"
+            />
+            <LegendSwatch
+              boxClass="bg-red-100 border-red-400"
+              label="Tarde más de 15 min"
+              title="Llegada más de 15 minutos después del inicio"
+            />
+            <span
+              className="inline-flex items-center gap-1 text-[10px] text-slate-600"
+              title={`Ubicación GPS · naranja si distancia a la sede > ${ENSAYO_GEO_LEJOS_M} m`}
+            >
+              <IconMapPin size={11} className="text-indigo-600" />
+              Llegada
+              <IconMapPin size={11} className="text-sky-600" />
+              Salida
+              <IconMapPin size={11} className="text-orange-600" />
+              &gt;{ENSAYO_GEO_LEJOS_M} m
+            </span>
+          </div>
+          <span className="ml-auto" />
+          <CheckinExportMenu exportBase={exportBase} label="Exportar" />
+        </div>
+      )}
 
       {loadError && (
         <p className="text-sm text-red-600 px-2">{loadError}</p>
@@ -839,10 +868,10 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
         )}
         {!loading && events.length > 0 && viewMode === "matriz" && (
           <div
-            className="grid gap-3 p-3 items-start"
+            className="grid gap-2 p-2 items-start sm:gap-3 sm:p-3"
             style={{
               gridTemplateColumns:
-                "repeat(auto-fit, minmax(min(100%, 26rem), 1fr))",
+                "repeat(auto-fit, minmax(min(100%, 18rem), 1fr))",
             }}
           >
             {matrixSections.length === 0 ? (
@@ -857,9 +886,9 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                     section.events.length >= 3 ? "col-span-full" : ""
                   }`}
                 >
-                  <div className="bg-indigo-100 border-b border-indigo-200 px-3 py-2 flex items-start justify-between gap-2">
+                  <div className="bg-indigo-100 border-b border-indigo-200 px-2.5 py-1.5 flex items-start justify-between gap-2 sm:px-3 sm:py-2">
                     <div className="min-w-0">
-                      <h3 className="text-sm font-black text-indigo-900 uppercase tracking-wide">
+                      <h3 className="text-xs font-black text-indigo-900 uppercase tracking-wide sm:text-sm">
                         {section.ensamble.ensamble}
                       </h3>
                       <p className="text-[10px] text-indigo-700/80">
@@ -872,15 +901,15 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                       exportBase={exportBase}
                     />
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full table-fixed text-xs border-collapse">
+                  <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <table className="min-w-max border-collapse text-[11px]">
                       <colgroup>
-                        <col className="w-[11.5rem]" style={{ width: "11.5rem" }} />
-                        <col className="w-[6.5rem]" style={{ width: "6.5rem" }} />
+                        <col style={{ width: "7.5rem" }} />
+                        <col style={{ width: "4rem" }} />
                         {section.events.map((evt) => (
                           <React.Fragment key={`${evt.id}-cols`}>
-                            <col />
-                            <col />
+                            <col style={{ width: "2.75rem" }} />
+                            <col style={{ width: "2.75rem" }} />
                           </React.Fragment>
                         ))}
                       </colgroup>
@@ -888,21 +917,24 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                         <tr>
                           <th
                             rowSpan={2}
-                            className="sticky left-0 z-10 bg-slate-100 border p-2 text-left"
+                            className="sticky left-0 z-10 bg-slate-100 border px-1.5 py-1 text-left text-[10px] font-bold"
+                            style={{ minWidth: "7.5rem", width: "7.5rem" }}
                           >
                             Integrante
                           </th>
                           <th
                             rowSpan={2}
-                            className="border p-2 text-left bg-slate-100"
+                            className="border px-1 py-1 text-left bg-slate-100 text-[10px] font-bold"
+                            style={{ minWidth: "4rem", width: "4rem" }}
                           >
-                            Instrumento
+                            Instr.
                           </th>
                           {section.events.map((evt) => (
                             <th
                               key={evt.id}
                               colSpan={2}
-                              className="border p-0.5 text-center font-bold text-[10px] align-bottom"
+                              className="border p-0.5 text-center font-bold text-[9px] align-bottom"
+                              style={{ minWidth: "5.5rem" }}
                             >
                               {renderEventColumnHeader(evt)}
                             </th>
@@ -911,10 +943,16 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                         <tr>
                           {section.events.map((evt) => (
                             <React.Fragment key={`${evt.id}-sub`}>
-                              <th className="border px-0.5 py-0.5 text-[8px] font-bold text-slate-500 uppercase tracking-tight">
+                              <th
+                                className="border px-0 py-0.5 text-[7px] font-bold text-slate-500 uppercase tracking-tight"
+                                style={{ minWidth: "2.75rem", width: "2.75rem" }}
+                              >
                                 Lleg.
                               </th>
-                              <th className="border px-0.5 py-0.5 text-[8px] font-bold text-slate-500 uppercase tracking-tight">
+                              <th
+                                className="border px-0 py-0.5 text-[7px] font-bold text-slate-500 uppercase tracking-tight"
+                                style={{ minWidth: "2.75rem", width: "2.75rem" }}
+                              >
                                 Sal.
                               </th>
                             </React.Fragment>
@@ -925,13 +963,15 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                         {section.integrantes.map((p) => (
                           <tr key={p.id} className="hover:bg-slate-50">
                             <td
-                              className="sticky left-0 z-10 bg-white border p-2 font-medium truncate"
+                              className="sticky left-0 z-10 bg-white border px-1.5 py-1 font-medium truncate max-w-[7.5rem]"
+                              style={{ minWidth: "7.5rem", width: "7.5rem" }}
                               title={`${p.apellido}, ${p.nombre}`}
                             >
                               {p.apellido}, {p.nombre}
                             </td>
                             <td
-                              className="border p-2 text-slate-500 text-[10px] truncate"
+                              className="border px-1 py-1 text-slate-500 text-[9px] truncate max-w-[4rem]"
+                              style={{ minWidth: "4rem", width: "4rem" }}
                               title={p.instrumento || ""}
                             >
                               {p.instrumento}
@@ -976,16 +1016,26 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                       exportBase={exportBase}
                     />
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                  <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <table className="min-w-max text-xs sm:text-sm">
                       <thead className="bg-slate-50">
                         <tr>
-                          <th className="p-2 text-left">Integrante</th>
-                          <th className="p-2 text-left">Ensayo</th>
-                          <th className="p-2">Hora</th>
-                          <th className="p-2">Llegada</th>
-                          <th className="p-2">Salida</th>
-                          <th className="p-2 text-left">Sede</th>
+                          <th className="p-1.5 text-left whitespace-nowrap sm:p-2">
+                            Integrante
+                          </th>
+                          <th className="p-1.5 text-left whitespace-nowrap sm:p-2">
+                            Ensayo
+                          </th>
+                          <th className="p-1.5 whitespace-nowrap sm:p-2">Hora</th>
+                          <th className="p-1.5 whitespace-nowrap sm:p-2">
+                            Llegada
+                          </th>
+                          <th className="p-1.5 whitespace-nowrap sm:p-2">
+                            Salida
+                          </th>
+                          <th className="p-1.5 text-left whitespace-nowrap sm:p-2">
+                            Sede
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -997,22 +1047,22 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                                 key={`${p.id}-${evt.id}`}
                                 className="border-t border-slate-100"
                               >
-                                <td className="p-2 font-medium">
+                                <td className="p-1.5 font-medium whitespace-nowrap sm:p-2">
                                   {p.apellido}, {p.nombre}
                                 </td>
-                                <td className="p-2 text-[11px] text-slate-600">
+                                <td className="p-1.5 text-[11px] text-slate-600 whitespace-nowrap sm:p-2">
                                   {eventColumnLabel(evt)}
                                 </td>
-                                <td className="p-2 text-center font-mono text-xs">
+                                <td className="p-1.5 text-center font-mono text-[11px] whitespace-nowrap sm:p-2 sm:text-xs">
                                   {evt.hora_inicio?.slice(0, 5)}
                                 </td>
-                                <td className="p-2 text-center">
+                                <td className="p-1.5 text-center whitespace-nowrap sm:p-2">
                                   <div className="inline-flex items-center gap-1">
                                     <button
                                       type="button"
                                       disabled={!canEdit}
                                       onClick={() => openEdit(evt, p, chk)}
-                                      className={`font-mono font-bold px-2 py-0.5 rounded border text-xs ${checkinCellUiClass(chk, evt, "llegada")}`}
+                                      className={`font-mono font-bold px-1.5 py-0.5 rounded border text-[11px] sm:px-2 sm:text-xs ${checkinCellUiClass(chk, evt, "llegada")}`}
                                     >
                                       {chk
                                         ? formatRegistradoHora(chk.registrado_at)
@@ -1029,13 +1079,13 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                                     />
                                   </div>
                                 </td>
-                                <td className="p-2 text-center">
+                                <td className="p-1.5 text-center whitespace-nowrap sm:p-2">
                                   <div className="inline-flex items-center gap-1">
                                     <button
                                       type="button"
                                       disabled={!canEdit}
                                       onClick={() => openEdit(evt, p, chk)}
-                                      className={`font-mono font-bold px-2 py-0.5 rounded border text-xs ${checkinCellUiClass(chk, evt, "salida")}`}
+                                      className={`font-mono font-bold px-1.5 py-0.5 rounded border text-[11px] sm:px-2 sm:text-xs ${checkinCellUiClass(chk, evt, "salida")}`}
                                     >
                                       {chk?.salida_at
                                         ? formatRegistradoHora(chk.salida_at)
@@ -1052,7 +1102,7 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                                     />
                                   </div>
                                 </td>
-                                <td className="p-2 text-slate-600 text-xs">
+                                <td className="p-1.5 text-slate-600 text-[11px] whitespace-nowrap sm:p-2 sm:text-xs">
                                   {evt.locaciones?.nombre}
                                 </td>
                               </tr>
