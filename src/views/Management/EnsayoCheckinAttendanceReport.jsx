@@ -2,17 +2,19 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext";
-import DateInput from "../../components/ui/DateInput";
-import TimeInput from "../../components/ui/TimeInput";
-import ConfirmModal from "../../components/ui/ConfirmModal";
-import LocationManagerModal from "../../components/locations/LocationManagerModal";
 import {
   IconChevronDown,
   IconDownload,
+  IconFilter,
   IconLoader,
   IconMapPin,
   IconTrash,
 } from "../../components/ui/Icons";
+import MultiSelect from "../../components/ui/MultiSelect";
+import DateInput from "../../components/ui/DateInput";
+import TimeInput from "../../components/ui/TimeInput";
+import ConfirmModal from "../../components/ui/ConfirmModal";
+import LocationManagerModal from "../../components/locations/LocationManagerModal";
 import {
   fetchEnsayoCheckinReportData,
   buildCheckinLookup,
@@ -25,6 +27,9 @@ import {
   checkinMapPinTitle,
   formatDistanciaSedeM,
   resolveCheckinDistanciaSedeM,
+  checkinCellUiClass,
+  isCheckinGeoLejos,
+  ENSAYO_GEO_LEJOS_M,
 } from "../../services/ensayoCheckinReportService";
 import {
   ensayoCheckinAdminUpsert,
@@ -52,15 +57,6 @@ function formatFilterDateLabel(iso) {
   }
 }
 
-function cellUiClass(checkin) {
-  if (!checkin) return "bg-white border-slate-200 text-slate-300";
-  if (checkin.justificado)
-    return "bg-violet-50 border-violet-300 text-violet-900";
-  if (checkin.editado_por_admin)
-    return "bg-amber-50 border-amber-300 text-amber-900";
-  return "bg-emerald-50 border-emerald-200 text-emerald-800";
-}
-
 function CheckinMapPin({
   checkin,
   evt,
@@ -71,14 +67,18 @@ function CheckinMapPin({
 }) {
   const url = checkinGoogleMapsUrl(checkin, kind);
   if (!url) return null;
-  const distLabel = formatDistanciaSedeM(
-    resolveCheckinDistanciaSedeM(checkin, evt, kind),
-  );
+  const distM = resolveCheckinDistanciaSedeM(checkin, evt, kind);
+  const distLabel = formatDistanciaSedeM(distM);
+  const lejos = isCheckinGeoLejos(checkin, evt, kind);
   const title = checkinMapPinTitle(checkin, evt, kind);
   return (
     <span className={`inline-flex items-center gap-0.5 ${className}`}>
       {showDistance && distLabel && (
-        <span className="text-[9px] font-semibold text-slate-500 tabular-nums">
+        <span
+          className={`text-[9px] font-semibold tabular-nums ${
+            lejos ? "text-orange-600 font-black" : "text-slate-500"
+          }`}
+        >
           {distLabel}
         </span>
       )}
@@ -90,14 +90,185 @@ function CheckinMapPin({
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
         className={`inline-flex items-center justify-center rounded hover:bg-indigo-50 ${
-          kind === "salida"
-            ? "text-sky-600 hover:text-sky-800"
-            : "text-indigo-600 hover:text-indigo-800"
+          lejos
+            ? "text-orange-600 hover:text-orange-800"
+            : kind === "salida"
+              ? "text-sky-600 hover:text-sky-800"
+              : "text-indigo-600 hover:text-indigo-800"
         }`}
       >
         <IconMapPin size={size} />
       </a>
     </span>
+  );
+}
+
+function LegendSwatch({ boxClass, label, title }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] text-slate-600"
+      title={title}
+    >
+      <span
+        className={`inline-block h-2.5 w-2.5 shrink-0 rounded-sm border ${boxClass}`}
+        aria-hidden
+      />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+/** Menú de descarga (global o por ensamble). */
+function CheckinExportMenu({
+  ensambleId = null,
+  ensambleLabel = null,
+  exportBase,
+  buttonClassName = "inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-white px-2.5 py-1 text-[11px] font-bold text-indigo-700 hover:bg-indigo-50",
+  label = "Exportar",
+  iconOnly = false,
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const run = async (kind, includeGeo) => {
+    setOpen(false);
+    const params = {
+      ...exportBase,
+      includeGeo,
+      ...(ensambleId != null
+        ? {
+            ensambleId,
+            ensambleLabels: [ensambleLabel].filter(Boolean),
+          }
+        : {}),
+    };
+    try {
+      if (kind === "xlsx-mat") await downloadEnsayoCheckinMatrizExcel(params);
+      else if (kind === "pdf-mat") downloadEnsayoCheckinMatrizPdf(params);
+      else if (kind === "xlsx-pers")
+        await downloadEnsayoCheckinPorPersonaExcel(params);
+      else if (kind === "pdf-pers") downloadEnsayoCheckinPorPersonaPdf(params);
+    } catch (e) {
+      toast.error(e.message || "Error al exportar");
+    }
+  };
+
+  const title = ensambleLabel
+    ? `Descargar informe de ${ensambleLabel}`
+    : "Descargar informes de asistencia";
+
+  return (
+    <div className="relative shrink-0" ref={rootRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={buttonClassName}
+        title={title}
+        aria-label={title}
+        aria-expanded={open}
+      >
+        <IconDownload size={iconOnly ? 14 : 13} />
+        {!iconOnly && (
+          <>
+            {label}
+            <IconChevronDown
+              size={12}
+              className={`transition-transform ${open ? "rotate-180" : ""}`}
+            />
+          </>
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 z-30 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg text-left normal-case tracking-normal">
+          <p className="px-2.5 py-1 text-[9px] font-bold uppercase text-slate-400">
+            Vista matriz
+          </p>
+          <button
+            type="button"
+            className="w-full px-2.5 py-1.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-indigo-50"
+            onClick={() => run("xlsx-mat", false)}
+          >
+            Excel — sin geolocalización
+          </button>
+          <button
+            type="button"
+            className="w-full px-2.5 py-1.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-indigo-50"
+            onClick={() => run("xlsx-mat", true)}
+          >
+            Excel — con geolocalización
+          </button>
+          <button
+            type="button"
+            className="w-full px-2.5 py-1.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-indigo-50"
+            onClick={() => run("pdf-mat", false)}
+          >
+            PDF — sin geolocalización
+          </button>
+          <button
+            type="button"
+            className="w-full px-2.5 py-1.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-indigo-50"
+            onClick={() => run("pdf-mat", true)}
+          >
+            PDF — con geolocalización
+          </button>
+          <div className="my-1 border-t border-slate-100" />
+          <p className="px-2.5 py-1 text-[9px] font-bold uppercase text-slate-400">
+            Lista por persona
+          </p>
+          <button
+            type="button"
+            className="w-full px-2.5 py-1.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-indigo-50"
+            onClick={() => run("xlsx-pers", false)}
+          >
+            Excel — sin geolocalización
+          </button>
+          <button
+            type="button"
+            className="w-full px-2.5 py-1.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-indigo-50"
+            onClick={() => run("xlsx-pers", true)}
+          >
+            Excel — con geolocalización
+          </button>
+          <button
+            type="button"
+            className="w-full px-2.5 py-1.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-indigo-50"
+            onClick={() => run("pdf-pers", false)}
+          >
+            PDF — sin geolocalización
+          </button>
+          <button
+            type="button"
+            className="w-full px-2.5 py-1.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-indigo-50"
+            onClick={() => run("pdf-pers", true)}
+          >
+            PDF — con geolocalización
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EnsambleExportMenu({ section, exportBase }) {
+  return (
+    <CheckinExportMenu
+      ensambleId={section.ensambleId}
+      ensambleLabel={section.ensamble.ensamble}
+      exportBase={exportBase}
+      iconOnly
+      buttonClassName="inline-flex items-center justify-center rounded-md border border-indigo-300 bg-white p-1 text-indigo-700 hover:bg-indigo-50"
+    />
   );
 }
 
@@ -147,18 +318,10 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
       setEnsamblesOptions(
         (data || [])
           .filter((e) => isEnsambleSelectableForCheckinReport(e.ensamble))
-          .map((e) => ({ id: e.id, label: e.ensamble })),
+          .map((e) => ({ id: Number(e.id), label: e.ensamble })),
       );
     })();
   }, [supabase]);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 768px)");
-    const sync = () => setFiltersOpen(mq.matches);
-    sync();
-    mq.addEventListener("change", sync);
-    return () => mq.removeEventListener("change", sync);
-  }, []);
 
   useEffect(() => {
     if (!ensamblesOptions.length || autoLoadDoneRef.current) return;
@@ -188,11 +351,12 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
     })();
   }, [ensamblesOptions, supabase]);
 
-  const toggleEnsambleId = (id) => {
-    const n = Number(id);
-    setSelectedEnsambleIds((prev) =>
-      prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n],
-    );
+  const selectAllEnsambles = () => {
+    setSelectedEnsambleIds(ensamblesOptions.map((o) => Number(o.id)));
+  };
+
+  const clearAllEnsambles = () => {
+    setSelectedEnsambleIds([]);
   };
 
   const loadReport = useCallback(async () => {
@@ -219,6 +383,11 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
       setLoading(false);
     }
   }, [supabase, desde, hasta, selectedEnsambleIds]);
+
+  const handleApplyFilters = async () => {
+    await loadReport();
+    setFiltersOpen(false);
+  };
 
   const checkinMap = useMemo(() => buildCheckinLookup(checkins), [checkins]);
 
@@ -392,9 +561,9 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
     const iso = field === "salida" ? chk?.salida_at : chk?.registrado_at;
     const hora = iso ? formatRegistradoHora(iso) : "";
     const mapsUrl = checkinGoogleMapsUrl(chk, field);
-    const distLabel = formatDistanciaSedeM(
-      resolveCheckinDistanciaSedeM(chk, evt, field),
-    );
+    const distM = resolveCheckinDistanciaSedeM(chk, evt, field);
+    const distLabel = formatDistanciaSedeM(distM);
+    const lejos = isCheckinGeoLejos(chk, evt, field);
     const emptyHint = field === "llegada" ? "+" : "·";
     return (
       <td key={`${evt.id}-${field}`} className="border p-0.5 text-center">
@@ -403,7 +572,7 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
             type="button"
             disabled={!canEdit}
             onClick={() => openEdit(evt, p, chk)}
-            className={`w-full min-h-[28px] rounded border text-[10px] font-bold tabular-nums ${cellUiClass(chk)} ${canEdit ? "cursor-pointer hover:ring-1 hover:ring-indigo-300" : "cursor-default"} ${mapsUrl ? "pr-3 pb-2.5" : ""}`}
+            className={`w-full min-h-[28px] rounded border text-[10px] font-bold tabular-nums ${checkinCellUiClass(chk, evt, field)} ${canEdit ? "cursor-pointer hover:ring-1 hover:ring-indigo-300" : "cursor-default"} ${mapsUrl ? "pr-3 pb-2.5" : ""}`}
             title={
               chk?.justificado
                 ? "Justificado"
@@ -422,7 +591,11 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
           {mapsUrl && (
             <div className="absolute bottom-0 right-0 left-0 flex items-center justify-end gap-0.5 px-0.5 pointer-events-none">
               {distLabel && (
-                <span className="text-[7px] font-bold text-slate-500 tabular-nums leading-none">
+                <span
+                  className={`text-[7px] font-bold tabular-nums leading-none ${
+                    lejos ? "text-orange-600" : "text-slate-500"
+                  }`}
+                >
                   {distLabel}
                 </span>
               )}
@@ -441,175 +614,208 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
-      <div className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 space-y-1">
-        <div className="flex md:hidden items-center gap-1.5">
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+      <div className="shrink-0 space-y-2">
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
           <button
             type="button"
             onClick={() => setFiltersOpen((v) => !v)}
-            className="flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-left"
+            className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-bold transition-colors ${
+              filtersOpen
+                ? "border-indigo-400 bg-indigo-100 text-indigo-800"
+                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+            }`}
             aria-expanded={filtersOpen}
+            aria-label={filtersOpen ? "Ocultar filtros" : "Mostrar filtros"}
           >
+            <IconFilter size={16} />
+            Filtros
             <IconChevronDown
-              size={16}
-              className={`shrink-0 text-slate-500 transition-transform ${filtersOpen ? "rotate-180" : ""}`}
+              size={14}
+              className={`transition-transform ${filtersOpen ? "rotate-180" : ""}`}
             />
-            <span className="text-[11px] font-bold text-slate-700 truncate">
-              {filterSummary}
-            </span>
           </button>
-          {!filtersOpen && (
-            <button
-              type="button"
-              onClick={loadReport}
-              disabled={loading}
-              className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-black hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {loading ? "…" : "Cargar"}
-            </button>
-          )}
+          <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-600">
+            {filterSummary}
+          </span>
         </div>
 
-        <div
-          className={`${filtersOpen ? "flex" : "hidden"} md:flex flex-col md:flex-row md:items-stretch gap-2`}
-        >
-          <div className="flex gap-2 shrink-0 md:contents">
-          <div className="grid grid-cols-2 grid-rows-2 gap-0.5 w-[9.25rem] shrink-0 self-stretch">
-            {ENSAYO_CHECKIN_DATE_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => applyDatePreset(preset.id)}
-                title={preset.label}
-                className={`h-full min-h-0 w-full flex items-center justify-center px-0.5 rounded text-[9px] font-bold border leading-tight text-center ${
-                  activeDatePreset === preset.id
-                    ? "bg-indigo-600 text-white border-indigo-600"
-                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-indigo-50"
-                }`}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-col gap-1 w-[10.5rem] shrink-0 self-stretch justify-center">
-            <div>
-              <label className="text-[9px] font-bold text-slate-400 uppercase leading-none block mb-0.5">
-                Desde
-              </label>
-              <DateInput
-                value={desde}
-                onChange={(v) => {
-                  setDesde(v);
-                  setActiveDatePreset(null);
-                }}
-                showDayName={false}
-                showCalendarPicker={false}
-                className="!pl-1 border border-slate-300 bg-white rounded text-xs py-1 pr-1 min-h-[1.75rem]"
-              />
-            </div>
-            <div>
-              <label className="text-[9px] font-bold text-slate-400 uppercase leading-none block mb-0.5">
-                Hasta
-              </label>
-              <DateInput
-                value={hasta}
-                onChange={(v) => {
-                  setHasta(v);
-                  setActiveDatePreset(null);
-                }}
-                showDayName={false}
-                showCalendarPicker={false}
-                className="!pl-1 border border-slate-300 bg-white rounded text-xs py-1 pr-1 min-h-[1.75rem]"
-              />
-            </div>
-          </div>
-          </div>
-          <div className="flex-1 min-w-0 flex flex-col gap-0.5 self-stretch min-h-0">
-            <label className="text-[9px] font-bold text-slate-400 uppercase leading-none shrink-0">
-              Ensambles
-            </label>
-            <div className="flex-1 min-h-0 max-h-28 md:max-h-none overflow-y-auto md:overflow-visible grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-0.5 auto-rows-[minmax(1.25rem,1fr)]">
-              {ensamblesOptions.length === 0 ? (
-                <p className="col-span-full text-[10px] text-slate-400 self-center">
-                  Sin ensambles
+        {filtersOpen && (
+          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-500">
+                  Rango de fechas
                 </p>
-              ) : (
-                ensamblesOptions.map((opt) => {
-                  const selected = selectedEnsambleIds.includes(Number(opt.id));
-                  return (
+                <div className="mb-3 inline-flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
+                  {ENSAYO_CHECKIN_DATE_PRESETS.map((preset) => (
                     <button
-                      key={opt.id}
+                      key={preset.id}
                       type="button"
-                      onClick={() => toggleEnsambleId(opt.id)}
-                      title={opt.label}
-                      className={`h-full min-h-[1.35rem] w-full flex items-center justify-center px-0.5 rounded text-[9px] font-bold border leading-tight truncate ${
-                        selected
-                          ? "bg-indigo-600 text-white border-indigo-600"
-                          : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-indigo-50"
+                      onClick={() => applyDatePreset(preset.id)}
+                      className={`rounded-md px-2.5 py-1.5 text-xs font-bold transition-colors ${
+                        activeDatePreset === preset.id
+                          ? "bg-white text-indigo-800 shadow-sm ring-1 ring-slate-200/80"
+                          : "text-slate-600 hover:bg-white/80"
                       }`}
                     >
-                      {opt.label}
+                      {preset.label}
                     </button>
-                  );
-                })
-              )}
+                  ))}
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <div className="min-w-0 flex-1">
+                    <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-400">
+                      Desde
+                    </label>
+                    <DateInput
+                      value={desde}
+                      onChange={(v) => {
+                        setDesde(v);
+                        setActiveDatePreset(null);
+                      }}
+                      showDayName={false}
+                      showCalendarPicker={false}
+                      className="!pl-2 border border-slate-300 bg-white rounded-lg text-sm py-2 pr-2 min-h-[2.25rem]"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-400">
+                      Hasta
+                    </label>
+                    <DateInput
+                      value={hasta}
+                      onChange={(v) => {
+                        setHasta(v);
+                        setActiveDatePreset(null);
+                      }}
+                      showDayName={false}
+                      showCalendarPicker={false}
+                      className="!pl-2 border border-slate-300 bg-white rounded-lg text-sm py-2 pr-2 min-h-[2.25rem]"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-black uppercase tracking-wider text-slate-500">
+                    Ensambles
+                  </p>
+                  <div className="flex items-center gap-2 text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={selectAllEnsambles}
+                      className="text-indigo-600 hover:underline"
+                    >
+                      Seleccionar todos
+                    </button>
+                    <span className="text-slate-300">·</span>
+                    <button
+                      type="button"
+                      onClick={clearAllEnsambles}
+                      className="text-slate-500 hover:underline"
+                    >
+                      Ninguno
+                    </button>
+                  </div>
+                </div>
+                <MultiSelect
+                  label={null}
+                  options={ensamblesOptions}
+                  selectedIds={selectedEnsambleIds}
+                  onChange={(ids) =>
+                    setSelectedEnsambleIds(ids.map((id) => Number(id)))
+                  }
+                  showChips={false}
+                  placeholder="Seleccionar ensambles…"
+                />
+                <p className="mt-1.5 text-[10px] text-slate-400">
+                  {selectedEnsambleIds.length} de {ensamblesOptions.length}{" "}
+                  seleccionado(s)
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end border-t border-slate-100 pt-3">
+              <button
+                type="button"
+                onClick={handleApplyFilters}
+                disabled={loading}
+                className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-black text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {loading ? (
+                  <>
+                    <IconLoader size={16} className="mr-2 animate-spin" />
+                    Cargando…
+                  </>
+                ) : (
+                  "Aplicar y cargar"
+                )}
+              </button>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              loadReport();
-              if (window.matchMedia("(max-width: 767px)").matches) {
-                setFiltersOpen(false);
-              }
-            }}
-            disabled={loading}
-            className="shrink-0 w-full md:w-14 lg:w-16 h-10 md:h-auto md:self-stretch rounded-lg bg-indigo-600 text-white text-xs sm:text-sm font-black hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center px-1 leading-tight"
-          >
-            {loading ? "…" : "Cargar"}
-          </button>
-        </div>
+        )}
+
         {events.length > 0 && (
-          <div className="flex flex-wrap gap-x-1.5 gap-y-0.5 items-center text-[9px] text-slate-500 border-t border-slate-100 pt-1">
+          <div className="flex flex-wrap gap-x-2 gap-y-1.5 items-center text-[10px] text-slate-500 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
             <div className="inline-flex rounded border border-slate-200 p-px font-bold shrink-0">
               <button
                 type="button"
-                className={`px-1.5 py-0.5 rounded-sm ${viewMode === "matriz" ? "bg-indigo-600 text-white" : "text-slate-600"}`}
+                className={`px-2 py-0.5 rounded-sm text-[10px] ${viewMode === "matriz" ? "bg-indigo-600 text-white" : "text-slate-600"}`}
                 onClick={() => setViewMode("matriz")}
               >
                 Matriz
               </button>
               <button
                 type="button"
-                className={`px-1.5 py-0.5 rounded-sm ${viewMode === "lista" ? "bg-indigo-600 text-white" : "text-slate-600"}`}
+                className={`px-2 py-0.5 rounded-sm text-[10px] ${viewMode === "lista" ? "bg-indigo-600 text-white" : "text-slate-600"}`}
                 onClick={() => setViewMode("lista")}
               >
                 Lista
               </button>
             </div>
-            <span className="text-slate-300">|</span>
-            <span title="Ámbar: admin presencial; violeta: justificado (solo pantalla)">
-              <span className="text-amber-700 font-bold">A</span> admin ·{" "}
-              <span className="text-violet-700 font-bold">J</span> justif.
-            </span>
-            <span className="text-slate-300">|</span>
-            <span className="inline-flex items-center gap-0.5" title="Pins GPS: índigo llegada · cielo salida">
-              <IconMapPin size={11} className="text-indigo-600" /> lleg. ·{" "}
-              <IconMapPin size={11} className="text-sky-600" /> sal. + m
-            </span>
-            <span className="text-slate-300">|</span>
-            <button type="button" className="font-bold text-indigo-600 hover:underline" onClick={() => downloadEnsayoCheckinPorPersonaExcel(exportBase)}>
-              XLS pers.
-            </button>
-            <button type="button" className="font-bold text-indigo-600 hover:underline" onClick={() => downloadEnsayoCheckinPorPersonaPdf(exportBase)}>
-              PDF pers.
-            </button>
-            <button type="button" className="font-bold text-indigo-600 hover:underline" onClick={() => downloadEnsayoCheckinMatrizExcel(exportBase)}>
-              XLS mat.
-            </button>
-            <button type="button" className="font-bold text-indigo-600 hover:underline" onClick={() => downloadEnsayoCheckinMatrizPdf(exportBase)}>
-              PDF mat.
-            </button>
+            <span className="hidden sm:inline text-slate-300">|</span>
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+              <LegendSwatch
+                boxClass="bg-amber-100 border-amber-400"
+                label="Admin"
+                title="Carga o corrección presencial por administración"
+              />
+              <LegendSwatch
+                boxClass="bg-violet-100 border-violet-400"
+                label="Justificado"
+                title="Ausencia justificada (sin presencia física)"
+              />
+              <LegendSwatch
+                boxClass="bg-yellow-100 border-yellow-400"
+                label="Tarde hasta 10 min"
+                title="Llegada hasta 10 minutos después de la hora de inicio"
+              />
+              <LegendSwatch
+                boxClass="bg-orange-100 border-orange-400"
+                label="Tarde hasta 15 min"
+                title="Llegada entre 11 y 15 minutos tarde"
+              />
+              <LegendSwatch
+                boxClass="bg-red-100 border-red-400"
+                label="Tarde más de 15 min"
+                title="Llegada más de 15 minutos después del inicio"
+              />
+              <span
+                className="inline-flex items-center gap-1 text-[10px] text-slate-600"
+                title={`Ubicación GPS · naranja si distancia a la sede > ${ENSAYO_GEO_LEJOS_M} m`}
+              >
+                <IconMapPin size={11} className="text-indigo-600" />
+                Llegada
+                <IconMapPin size={11} className="text-sky-600" />
+                Salida
+                <IconMapPin size={11} className="text-orange-600" />
+                &gt;{ENSAYO_GEO_LEJOS_M} m
+              </span>
+            </div>
+            <span className="ml-auto" />
+            <CheckinExportMenu exportBase={exportBase} label="Exportar" />
           </div>
         )}
       </div>
@@ -628,7 +834,7 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
           <p className="p-8 text-center text-slate-400 text-sm">
             {desde === hasta && desde === today
               ? "No hay ensayos de ensamble hoy para los filtros elegidos."
-              : "No hay ensayos con estos filtros. Ajustá fechas o ensambles y presioná Cargar."}
+              : "No hay ensayos con estos filtros. Abrí Filtros, ajustá fechas o ensambles y aplicá."}
           </p>
         )}
         {!loading && events.length > 0 && viewMode === "matriz" && (
@@ -651,14 +857,20 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                     section.events.length >= 3 ? "col-span-full" : ""
                   }`}
                 >
-                  <div className="bg-indigo-100 border-b border-indigo-200 px-3 py-2">
-                    <h3 className="text-sm font-black text-indigo-900 uppercase tracking-wide">
-                      {section.ensamble.ensamble}
-                    </h3>
-                    <p className="text-[10px] text-indigo-700/80">
-                      {section.events.length} ensayo(s) · {section.integrantes.length}{" "}
-                      integrante(s)
-                    </p>
+                  <div className="bg-indigo-100 border-b border-indigo-200 px-3 py-2 flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-black text-indigo-900 uppercase tracking-wide">
+                        {section.ensamble.ensamble}
+                      </h3>
+                      <p className="text-[10px] text-indigo-700/80">
+                        {section.events.length} ensayo(s) ·{" "}
+                        {section.integrantes.length} integrante(s)
+                      </p>
+                    </div>
+                    <EnsambleExportMenu
+                      section={section}
+                      exportBase={exportBase}
+                    />
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full table-fixed text-xs border-collapse">
@@ -750,13 +962,19 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                   key={section.ensambleId}
                   className="rounded-lg border border-indigo-100 overflow-hidden"
                 >
-                  <div className="bg-indigo-100 border-b border-indigo-200 px-3 py-2">
-                    <h3 className="text-sm font-black text-indigo-900 uppercase tracking-wide">
-                      {section.ensamble.ensamble}
-                    </h3>
-                    <p className="text-[10px] text-indigo-700/80">
-                      {section.events.length} ensayo(s)
-                    </p>
+                  <div className="bg-indigo-100 border-b border-indigo-200 px-3 py-2 flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-black text-indigo-900 uppercase tracking-wide">
+                        {section.ensamble.ensamble}
+                      </h3>
+                      <p className="text-[10px] text-indigo-700/80">
+                        {section.events.length} ensayo(s)
+                      </p>
+                    </div>
+                    <EnsambleExportMenu
+                      section={section}
+                      exportBase={exportBase}
+                    />
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -794,7 +1012,7 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                                       type="button"
                                       disabled={!canEdit}
                                       onClick={() => openEdit(evt, p, chk)}
-                                      className={`font-mono font-bold px-2 py-0.5 rounded border text-xs ${cellUiClass(chk)}`}
+                                      className={`font-mono font-bold px-2 py-0.5 rounded border text-xs ${checkinCellUiClass(chk, evt, "llegada")}`}
                                     >
                                       {chk
                                         ? formatRegistradoHora(chk.registrado_at)
@@ -817,7 +1035,7 @@ export default function EnsayoCheckinAttendanceReport({ supabase }) {
                                       type="button"
                                       disabled={!canEdit}
                                       onClick={() => openEdit(evt, p, chk)}
-                                      className={`font-mono font-bold px-2 py-0.5 rounded border text-xs ${cellUiClass(chk)}`}
+                                      className={`font-mono font-bold px-2 py-0.5 rounded border text-xs ${checkinCellUiClass(chk, evt, "salida")}`}
                                     >
                                       {chk?.salida_at
                                         ? formatRegistradoHora(chk.salida_at)

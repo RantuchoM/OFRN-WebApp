@@ -1,5 +1,6 @@
 import { membershipActiveOnProgramDate } from "../utils/ensembleMembership";
 import { googleMapsUrlForCoords, haversineMeters, resolveLocacionCoords } from "../utils/mapsCoords";
+import { timeStringToMinutes } from "../utils/dates";
 
 const ID_TIPO_ENSAYO = 13;
 
@@ -246,6 +247,75 @@ export function formatDistanciaSedeM(meters) {
   return `${(n / 1000).toFixed(1)} km`;
 }
 
+/** Umbral UI/export: distancia a sede marcada en naranja. */
+export const ENSAYO_GEO_LEJOS_M = 100;
+
+/** Minutos de tardanza: amarillo ≤10, naranja ≤15, rojo >15. */
+export const ENSAYO_TARDANZA_AMARILLO_MAX = 10;
+export const ENSAYO_TARDANZA_NARANJA_MAX = 15;
+
+/**
+ * Minutos de llegada respecto de `hora_inicio` del ensayo (cara de pared).
+ * Negativo = temprano; 0 = puntual; positivo = tarde.
+ * @returns {number|null}
+ */
+export function llegadaTardanzaMinutes(checkin, evt) {
+  if (!checkin?.registrado_at || checkin.justificado) return null;
+  const hi = timeStringToMinutes(evt?.hora_inicio);
+  if (!Number.isFinite(hi)) return null;
+  const llegadaHora = formatRegistradoHora(checkin.registrado_at);
+  if (!llegadaHora) return null;
+  const li = timeStringToMinutes(llegadaHora);
+  if (!Number.isFinite(li)) return null;
+  return li - hi;
+}
+
+/**
+ * @returns {null|'ok'|'yellow'|'orange'|'red'}
+ */
+export function llegadaTardanzaTier(checkin, evt) {
+  const mins = llegadaTardanzaMinutes(checkin, evt);
+  if (mins == null) return null;
+  if (mins <= 0) return "ok";
+  if (mins <= ENSAYO_TARDANZA_AMARILLO_MAX) return "yellow";
+  if (mins <= ENSAYO_TARDANZA_NARANJA_MAX) return "orange";
+  return "red";
+}
+
+/** Colores ARGB Excel / RGB PDF para tardanza de llegada. */
+export const TARDANZA_COLORS = {
+  yellow: { argb: "FFFEF08A", rgb: [254, 240, 138], tw: "bg-yellow-100 border-yellow-400 text-yellow-950" },
+  orange: { argb: "FFFDBA74", rgb: [253, 186, 116], tw: "bg-orange-100 border-orange-400 text-orange-950" },
+  red: { argb: "FFFECACA", rgb: [254, 202, 202], tw: "bg-red-100 border-red-400 text-red-900" },
+};
+
+export const GEO_LEJOS_COLOR = {
+  argb: "FFFDBA74",
+  rgb: [253, 186, 116],
+  tw: "text-orange-600",
+};
+
+/**
+ * Clases UI de celda de asistencia.
+ * @param {object|null|undefined} checkin
+ * @param {object|null|undefined} [evt]
+ * @param {'llegada'|'salida'} [field='llegada']
+ */
+export function checkinCellUiClass(checkin, evt = null, field = "llegada") {
+  if (!checkin) return "bg-white border-slate-200 text-slate-300";
+  if (checkin.justificado)
+    return "bg-violet-50 border-violet-300 text-violet-900";
+  if (field === "llegada") {
+    const tier = llegadaTardanzaTier(checkin, evt);
+    if (tier === "yellow" || tier === "orange" || tier === "red") {
+      return TARDANZA_COLORS[tier].tw;
+    }
+  }
+  if (checkin.editado_por_admin)
+    return "bg-amber-50 border-amber-300 text-amber-900";
+  return "bg-emerald-50 border-emerald-200 text-emerald-800";
+}
+
 /**
  * Distancia a la sede del ensayo: usa valor guardado o estima con coords de locación.
  * @param {object | null | undefined} checkin
@@ -267,6 +337,11 @@ export function resolveCheckinDistanciaSedeM(checkin, evt, kind = "llegada") {
     kind === "salida" ? Number(checkin.salida_longitud) : Number(checkin.longitud);
   const d = haversineMeters({ lat, lng }, locCoords);
   return Number.isFinite(d) ? d : null;
+}
+
+export function isCheckinGeoLejos(checkin, evt, kind = "llegada") {
+  const d = resolveCheckinDistanciaSedeM(checkin, evt, kind);
+  return d != null && d > ENSAYO_GEO_LEJOS_M;
 }
 
 /**

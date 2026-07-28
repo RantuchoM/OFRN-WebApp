@@ -65,12 +65,20 @@ Migraciones:
 
 ## UI Gestión
 
-- Filtros: fechas, ensambles.
+- Filtros: panel colapsable (botón **Filtros**); ensambles en lista con «Seleccionar todos» / «Ninguno» (estética Gestión).
 - Vistas: matriz (un bloque por ensamble; cada ensayo con subcolumnas **Llegada** | **Salida**) y lista (columnas Llegada y Salida).
 - Formatea y edita horas como hora de pared (cara UTC del timestamptz; sin reaplicar UTC−3).
 - Modal admin: hora de llegada + hora de salida opcional; links a ambas ubicaciones si existen.
-- Export matriz/lista: Excel/PDF con dos columnas de hora por ensayo / por fila.
+- **Tardanza de llegada** (vista + Excel/PDF): amarillo ≤10 min, naranja ≤15 min, rojo >15 min respecto de `hora_inicio` (no aplica a justificados).
+- **Geolocalización**: pin + distancia a la sede; **naranja** si distancia > 100 m (vista y exports con geo).
+- Descarga por ensamble: ícono ↓ junto al nombre → Excel/PDF matriz o por persona, **con o sin geolocalización**.
+- Export global: checkbox «Geo en export» + XLS/PDF pers./mat.
+- Export matriz/lista: Excel/PDF con dos columnas de hora por ensayo / por fila; con geo incluye distancia en celda o columnas.
 
 ## Despliegue
 
 Aplicar las migraciones en Supabase antes de usar check-in o reportes en producción.
+
+## Datos de prueba (seed)
+
+- `supabase/seed_ensayo_checkin_vs_junio_2026.sql`: asistencia inventada VS (junio 2026) con tempranos/tardíos, GPS cerca/lejos, peer_pase, admin/editado, justificados, solo llegada, ausentes custom y un hueco sin registro. Aplicar con `npx supabase db query --linked -f supabase/seed_ensayo_checkin_vs_junio_2026.sql`.
