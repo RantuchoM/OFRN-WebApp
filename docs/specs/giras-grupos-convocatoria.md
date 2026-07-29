@@ -30,7 +30,7 @@ Migraciones: `20260724120000_giras_grupos.sql`, `20260728200000_giras_transporte
 
 - **Roster** (`GiraRoster`): botón “Grupos de convocatoria” → CRUD de grupos y tabla de miembros (solo confirmados) con columnas Nombre / Instrumento / Localidad (residencia) / Ensamble/s, filtros por columna y ordenación (al cargar o reordenar, los ya seleccionados quedan arriba; tildar no reordena). Tags junto al nombre en `RosterTableRow` (no en ausentes); los editores pueden quitar del grupo con la cruz del chip (confirmación).
   - **Móvil**: el header duplicado (Volver + título) se oculta; la toolbar queda compacta/scrolleable con el botón **Grupos** siempre con etiqueta visible; modal en sheet inferior (`RosterGroupsModal`) scrolleable.
-- **Filtro global** (`GirasView` header sticky, a la izquierda de los tabs Agenda/Logística/…): `GiraGruposFilterControl` + estado en `useGiraGruposFilter` (sessionStorage por gira). Mismo filtro alimenta Agenda, Comidas y Transportes. Resumen plegado: nombres unidos con ` + ` (`summaryMode="names"`), no `Grupos (N)`.
+- **Filtro global** (`GirasView` header sticky, a la izquierda de los tabs Agenda/Logística/…): `GiraGruposFilterControl` + estado en `useGiraGruposFilter` (sessionStorage por gira). Mismo filtro alimenta Agenda, Comidas y Transportes. Resumen plegado: nombres unidos con ` + ` (`summaryMode="names"`), no `Grupos (N)`; si las opciones traen `color`, el resumen se dibuja como chips con el color del grupo y el listado del desplegable pinta el checkbox/fila con ese color.
 - **Agenda** (`EventForm`, `IndependentRehearsalForm`): multi-select de grupos de la gira; persistencia en create/edit/duplicate. El filtro de toolbar local se oculta cuando el shell ya muestra el filtro global.
 - **Chips** en `UnifiedAgenda` apilados en vertical en columna propia; el `IconTag` queda a la izquierda del primer chip (o solo, si no hay grupos).
 - **Tag rápido** (`IconTag` junto al ojo/técnico): abre `EventGruposAssignModal` con **checklist** de grupos (no desplegable) para asignar sin abrir el form completo. Solo editores/admins y solo si la gira ya tiene grupos.
@@ -61,5 +61,6 @@ El filtro de header es una vista editorial adicional (no cambia la visibilidad b
 - [x] Precarga de grupos al crear evento desde filtro activo
 - [x] Migración `giras_transportes_grupos` + deploy linked
 - [x] Filtro global en header `GirasView` + sessionStorage + `summaryMode="names"`
+- [x] Color del grupo en chips del trigger y en las filas del desplegable (`MultiSelectDropdown`)
 - [x] Comidas: varios eventos del mismo servicio por día (+ sibling)
 - [x] Transportes: default vehículo, copia al crear, bulk Aplicar, override por parada

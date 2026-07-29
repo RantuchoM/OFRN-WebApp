@@ -72,14 +72,16 @@ export default function MultiSelect({
     onChange(newValue);
   };
 
-  const selectedLabels = () =>
-    value
-      .map(
-        (v) =>
-          options.find((o) => o.value === v || String(o.value) === String(v))
-            ?.label,
-      )
-      .filter(Boolean);
+  const findOption = (v) =>
+    options.find((o) => o.value === v || String(o.value) === String(v));
+
+  const selectedOptions = () => value.map(findOption).filter(Boolean);
+
+  const selectedLabels = () => selectedOptions().map((o) => o.label);
+
+  /** Hex de 6 dígitos + alpha; si no es hex válido devuelve el color tal cual. */
+  const withAlpha = (color, alpha) =>
+    /^#[0-9a-f]{6}$/i.test(String(color || "")) ? `${color}${alpha}` : color;
 
   const getButtonText = () => {
     if (value.length === 0) return compact ? (label || placeholder) : placeholder;
@@ -119,6 +121,17 @@ export default function MultiSelect({
     summaryMode === "names" && value.length > 0
       ? selectedLabels().join(" + ") || undefined
       : undefined;
+
+  /** Chips de color en el trigger cuando las opciones traen color (grupos). */
+  const triggerChips = (() => {
+    if (summaryMode !== "names" || value.length === 0) return null;
+    const opts = selectedOptions();
+    if (opts.length === 0 || !opts.some((o) => o.color)) return null;
+    return {
+      shown: opts.slice(0, summaryMaxNames),
+      rest: Math.max(0, opts.length - summaryMaxNames),
+    };
+  })();
 
   const menu =
     isOpen &&
@@ -163,6 +176,7 @@ export default function MultiSelect({
               const isSelected =
                 value.includes(opt.value) ||
                 value.some((v) => String(v) === String(opt.value));
+              const color = opt.color || null;
               return (
                 <div
                   key={opt.value}
@@ -172,20 +186,41 @@ export default function MultiSelect({
                       transition-colors
                       ${
                         isSelected
-                          ? "bg-indigo-50 text-indigo-700 font-bold"
+                          ? color
+                            ? "font-bold"
+                            : "bg-indigo-50 text-indigo-700 font-bold"
                           : "hover:bg-slate-50 text-slate-600"
                       }
                     `}
+                  style={
+                    isSelected && color
+                      ? {
+                          backgroundColor: withAlpha(color, "18"),
+                          color,
+                        }
+                      : undefined
+                  }
                 >
                   <div
                     className={`
                         w-4 h-4 border rounded flex items-center justify-center shrink-0 transition-all
                         ${
                           isSelected
-                            ? "bg-indigo-600 border-indigo-600"
-                            : "border-slate-300 bg-white"
+                            ? color
+                              ? ""
+                              : "bg-indigo-600 border-indigo-600"
+                            : color
+                              ? "bg-white"
+                              : "border-slate-300 bg-white"
                         }
                       `}
+                    style={
+                      color
+                        ? isSelected
+                          ? { backgroundColor: color, borderColor: color }
+                          : { borderColor: withAlpha(color, "88") }
+                        : undefined
+                    }
                   >
                     {isSelected && (
                       <IconCheck
@@ -230,15 +265,44 @@ export default function MultiSelect({
           }
         `}
       >
-        <span
-          className={`truncate ${
-            value.length > 0
-              ? "text-indigo-700 font-bold"
-              : "text-slate-500 font-medium"
-          }`}
-        >
-          {getButtonText()}
-        </span>
+        {triggerChips ? (
+          <span className="flex items-center gap-1 min-w-0 overflow-hidden">
+            {triggerChips.shown.map((opt) => (
+              <span
+                key={opt.value}
+                className={`px-1.5 py-0.5 rounded border text-[10px] font-bold truncate ${
+                  triggerChips.shown.length > 1 ? "max-w-[4.5rem]" : "max-w-[9rem]"
+                }`}
+                style={{
+                  backgroundColor: opt.color
+                    ? withAlpha(opt.color, "18")
+                    : "#eef2ff",
+                  borderColor: opt.color
+                    ? withAlpha(opt.color, "55")
+                    : "#c7d2fe",
+                  color: opt.color || "#4338ca",
+                }}
+              >
+                {opt.label}
+              </span>
+            ))}
+            {triggerChips.rest > 0 && (
+              <span className="text-[10px] font-bold text-slate-500 shrink-0">
+                +{triggerChips.rest}
+              </span>
+            )}
+          </span>
+        ) : (
+          <span
+            className={`truncate ${
+              value.length > 0
+                ? "text-indigo-700 font-bold"
+                : "text-slate-500 font-medium"
+            }`}
+          >
+            {getButtonText()}
+          </span>
+        )}
         <IconChevronDown
           size={14}
           className={`text-slate-400 ml-2 transition-transform ${
