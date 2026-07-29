@@ -213,3 +213,104 @@ export function eventGruposMetaFromEvent(evt) {
     .map((eg) => eg.giras_grupos)
     .filter(Boolean);
 }
+
+/** ¿El evento pasa el filtro editorial de grupos? */
+export function eventPassesEditorialGrupoFilter(
+  evt,
+  filterGrupoIds = [],
+  includeGeneralEvents = true,
+) {
+  const selected = (filterGrupoIds || []).map(Number).filter(Number.isFinite);
+  if (selected.length === 0) return true;
+  const eventIds = eventGrupoIdsFromEvent(evt);
+  if (eventIds.length === 0) return includeGeneralEvents;
+  return eventIds.some((id) => selected.includes(id));
+}
+
+/**
+ * ¿La persona pertenece a al menos uno de los grupos del evento?
+ * Sin grupos en el evento → true (comportamiento histórico).
+ */
+export function personPassesEventoGrupos(personId, eventoGrupoIds, personGrupoIds) {
+  const required = [...new Set((eventoGrupoIds || []).map(Number).filter(Number.isFinite))];
+  if (required.length === 0) return true;
+  if (personId == null) return false;
+  const mine =
+    personGrupoIds instanceof Set
+      ? personGrupoIds
+      : new Set([...(personGrupoIds || [])].map(Number).filter(Number.isFinite));
+  return required.some((id) => mine.has(id));
+}
+
+/** Grupos default de un vehículo físico. */
+export async function fetchGiraTransporteGrupos(supabase, idGiraTransporte) {
+  if (!supabase || idGiraTransporte == null) {
+    return { grupoIds: [], error: null };
+  }
+  const { data, error } = await supabase
+    .from("giras_transportes_grupos")
+    .select("id_grupo")
+    .eq("id_gira_transporte", idGiraTransporte);
+  if (error) return { grupoIds: [], error };
+  return {
+    grupoIds: (data || []).map((r) => Number(r.id_grupo)).filter(Number.isFinite),
+    error: null,
+  };
+}
+
+/** Mapa id_gira_transporte → grupoIds para varios vehículos. */
+export async function fetchGiraTransportesGruposMap(supabase, transportIds) {
+  const ids = [...new Set((transportIds || []).map(Number).filter(Boolean))];
+  if (!supabase || ids.length === 0) return { map: new Map(), error: null };
+  const { data, error } = await supabase
+    .from("giras_transportes_grupos")
+    .select("id_gira_transporte, id_grupo")
+    .in("id_gira_transporte", ids);
+  if (error) return { map: new Map(), error };
+  const map = new Map();
+  (data || []).forEach((row) => {
+    const tid = Number(row.id_gira_transporte);
+    const gid = Number(row.id_grupo);
+    if (!Number.isFinite(tid) || !Number.isFinite(gid)) return;
+    if (!map.has(tid)) map.set(tid, []);
+    map.get(tid).push(gid);
+  });
+  return { map, error: null };
+}
+
+/** Reemplaza grupos default de un vehículo. */
+export async function setGiraTransporteGrupos(supabase, idGiraTransporte, grupoIds) {
+  const { error: delError } = await supabase
+    .from("giras_transportes_grupos")
+    .delete()
+    .eq("id_gira_transporte", idGiraTransporte);
+  if (delError) return { error: delError };
+
+  const ids = [...new Set((grupoIds || []).map(Number).filter(Boolean))];
+  if (ids.length === 0) return { error: null };
+
+  const { error } = await supabase.from("giras_transportes_grupos").insert(
+    ids.map((id_grupo) => ({
+      id_gira_transporte: idGiraTransporte,
+      id_grupo,
+    })),
+  );
+  return { error };
+}
+
+/**
+ * Copia los grupos default del vehículo a N eventos (reemplaza eventos_grupos).
+ */
+export async function applyTransporteGruposToEventos(
+  supabase,
+  eventIds,
+  grupoIds,
+) {
+  const ids = [...new Set((eventIds || []).map(Number).filter(Boolean))];
+  if (ids.length === 0) return { error: null };
+  for (const idEvento of ids) {
+    const { error } = await setEventoGrupos(supabase, idEvento, grupoIds);
+    if (error) return { error };
+  }
+  return { error: null };
+}

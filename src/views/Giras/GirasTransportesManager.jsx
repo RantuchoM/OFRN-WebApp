@@ -36,6 +36,7 @@ import {
   IconEye,
   IconEyeOff,
   IconUser,
+  IconTag,
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
@@ -87,9 +88,25 @@ import {
   countEventosByGiraTransporte,
   deleteGiraTransporteCascade,
 } from "../../services/giraService";
+import {
+  applyTransporteGruposToEventos,
+  eventGrupoIdsFromEvent,
+  eventPassesEditorialGrupoFilter,
+  fetchGiraTransportesGruposMap,
+  setEventoGrupos,
+  setGiraTransporteGrupos,
+} from "../../services/giraGruposService";
+import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
+import EventGruposAssignModal from "../../components/agenda/EventGruposAssignModal";
 
 import { toast } from "sonner";
-export default function GirasTransportesManager({ supabase, gira }) {
+export default function GirasTransportesManager({
+  supabase,
+  gira,
+  giraGrupos = [],
+  filterGrupoIds = [],
+  includeGeneralEvents = true,
+}) {
   const {
     summary: rawSummary,
     routeRules,
@@ -214,6 +231,18 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const [localitiesList, setLocalitiesList] = useState([]);
   const [musiciansList, setMusiciansList] = useState([]);
   const [transportEvents, setTransportEvents] = useState({});
+  const [transportGruposMap, setTransportGruposMap] = useState(() => new Map());
+  const [gruposAssignTarget, setGruposAssignTarget] = useState(null);
+  const hasGiraGrupos = (giraGrupos || []).length > 0;
+  const giraGrupoOptions = useMemo(
+    () =>
+      (giraGrupos || []).map((g) => ({
+        value: Number(g.id),
+        label: g.nombre,
+        color: g.color,
+      })),
+    [giraGrupos],
+  );
   const [paxLocalities, setPaxLocalities] = useState({});
   const [loading, setLoading] = useState(false);
 
@@ -397,7 +426,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           <div className="p-4 overflow-y-auto flex-1 bg-white/50">
             {infoListModal.list.length === 0 ? (
               <p className="text-center text-slate-500 italic">
-                La lista estÃ¡ vacÃ­a.
+                La lista está vacía.
               </p>
             ) : (
               renderContent()
@@ -618,11 +647,36 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   const filteredTransports = useMemo(() => {
     if (!transportTypeFilter || transportTypeFilter.size === 0) return [];
-    const filtered = (transports || []).filter((t) =>
-      transportTypeFilter.has(
-        String(t.categoria_logistica || "PASAJEROS").toUpperCase(),
-      ),
+    const grupoFilterOn =
+      hasGiraGrupos && (filterGrupoIds || []).length > 0;
+    const selectedGrupoSet = new Set(
+      (filterGrupoIds || []).map(Number).filter(Number.isFinite),
     );
+
+    const filtered = (transports || []).filter((t) => {
+      if (
+        !transportTypeFilter.has(
+          String(t.categoria_logistica || "PASAJEROS").toUpperCase(),
+        )
+      ) {
+        return false;
+      }
+      if (!grupoFilterOn) return true;
+
+      const vehicleGrupoIds = transportGruposMap.get(Number(t.id)) || [];
+      // Vehículo etiquetado: solo si intersecta los grupos tildados.
+      if (vehicleGrupoIds.length > 0) {
+        return vehicleGrupoIds.some((id) => selectedGrupoSet.has(Number(id)));
+      }
+
+      const events = transportEvents[t.id] || [];
+      // Vehículo general: visible con "+ Gen." o si alguna parada es del grupo filtrado.
+      if (includeGeneralEvents) return true;
+      return events.some((evt) =>
+        eventPassesEditorialGrupoFilter(evt, filterGrupoIds, false),
+      );
+    });
+
     return filtered.sort((a, b) => {
       const aFirst = sortEventsBySchedule(transportEvents[a.id] || [])[0];
       const bFirst = sortEventsBySchedule(transportEvents[b.id] || [])[0];
@@ -633,7 +687,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
         `${bFirst.fecha || ""}${bFirst.hora_inicio || ""}`,
       );
     });
-  }, [transports, transportTypeFilter, transportEvents]);
+  }, [
+    transports,
+    transportTypeFilter,
+    transportEvents,
+    hasGiraGrupos,
+    filterGrupoIds,
+    includeGeneralEvents,
+    transportGruposMap,
+  ]);
 
   const toggleTransportTypeFilter = (key) => {
     setTransportTypeFilter((prev) => {
@@ -704,7 +766,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         const { data: evts } = await supabase
           .from("eventos")
           .select(
-            `id, fecha, hora_inicio, descripcion, id_tipo_evento, visible_agenda, id_gira_transporte, id_locacion, is_deleted, locaciones(nombre, direccion, localidades(localidad))`,
+            `id, fecha, hora_inicio, descripcion, id_tipo_evento, visible_agenda, id_gira_transporte, id_locacion, is_deleted, locaciones(nombre, direccion, localidades(localidad)), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )`,
           )
           .in("id_gira_transporte", tIds)
           .eq("is_deleted", false)
@@ -717,7 +779,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
           map[e.id_gira_transporte].push(e);
         });
         setTransportEvents(map);
+
+        const { map: gMap } = await fetchGiraTransportesGruposMap(supabase, tIds);
+        setTransportGruposMap(gMap);
         refresh();
+      } else {
+        setTransportEvents({});
+        setTransportGruposMap(new Map());
       }
     } catch (e) {
       console.error(e);
@@ -857,14 +925,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
         const reg = regionsList.find(
           (x) => String(x.id) === String(r.id_region),
         );
-        label = reg ? reg.region : "RegiÃ³n";
+        label = reg ? reg.region : "Región";
       } else if (scope === "Localidad") {
         const loc = localitiesList.find(
           (x) => String(x.id) === String(r.id_localidad),
         );
         label = loc ? loc.localidad : "Loc";
       } else if (scope === "Categoria") {
-        label = r.target_ids?.[0] || "CategorÃ­a";
+        label = r.target_ids?.[0] || "Categoría";
       } else {
         label = scope;
       }
@@ -953,6 +1021,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
         if (error) throw error;
         const eventId = eventDB.id;
+
+        if (hasGiraGrupos) {
+          const defaultGrupos = transportGruposMap.get(Number(tId)) || [];
+          if (defaultGrupos.length > 0) {
+            await setEventoGrupos(supabase, eventId, defaultGrupos);
+          }
+        }
 
         const routeRulesToInsert = [];
 
@@ -1059,7 +1134,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   const openDeleteTransportModal = async (transportId) => {
     deleteTransportTargetRef.current = transportId;
-    const toastId = toast.loading("Preparando confirmaciÃ³nâ€¦");
+    const toastId = toast.loading("Preparando confirmación…");
     const n = await countEventosByGiraTransporte(supabase, transportId);
     toast.dismiss(toastId);
     setDeleteTransportModal({ isOpen: true, eventCount: n });
@@ -1073,14 +1148,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const handleConfirmDeleteTransport = async () => {
     const tid = deleteTransportTargetRef.current;
     if (!tid) return;
-    const toastId = toast.loading("Eliminando transporteâ€¦");
+    const toastId = toast.loading("Eliminando transporte…");
     const result = await deleteGiraTransporteCascade(supabase, tid);
     toast.dismiss(toastId);
     closeDeleteTransportModal();
     if (!result.ok) {
       toast.error(
         result.error ||
-          "No se pudo eliminar el transporte. Revisa vÃ­nculos en la base de datos.",
+          "No se pudo eliminar el transporte. Revisa vínculos en la base de datos.",
       );
       return;
     }
@@ -1107,7 +1182,16 @@ export default function GirasTransportesManager({ supabase, gira }) {
       };
 
       if (String(editingEventId).startsWith("new-")) {
-        await supabase.from("eventos").insert([payload]);
+        const { data: created, error } = await supabase
+          .from("eventos")
+          .insert([payload])
+          .select()
+          .single();
+        if (error) throw error;
+        if (hasGiraGrupos && created?.id) {
+          const defaultGrupos = transportGruposMap.get(Number(transportId)) || [];
+          await setEventoGrupos(supabase, created.id, defaultGrupos);
+        }
       } else {
         await supabase.from("eventos").update(payload).eq("id", editingEventId);
       }
@@ -1124,6 +1208,52 @@ export default function GirasTransportesManager({ supabase, gira }) {
       refresh();
     } catch (e) {
       alert("Error al guardar");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveVehicleGrupos = async (transportId, grupoIds) => {
+    const ids = (grupoIds || []).map(Number).filter(Number.isFinite);
+    const { error } = await setGiraTransporteGrupos(supabase, transportId, ids);
+    if (error) {
+      toast.error("No se pudieron guardar los grupos del vehículo: " + error.message);
+      return;
+    }
+    setTransportGruposMap((prev) => {
+      const next = new Map(prev);
+      next.set(Number(transportId), ids);
+      return next;
+    });
+    toast.success("Grupos del vehículo actualizados");
+  };
+
+  const handleApplyVehicleGruposToStops = async (transportId) => {
+    const events = transportEvents[transportId] || [];
+    if (events.length === 0) {
+      toast.info("No hay paradas para actualizar.");
+      return;
+    }
+    if (
+      !confirm(
+        `¿Aplicar los grupos del vehículo a las ${events.length} parada(s)? Se reemplazan las etiquetas actuales de cada parada.`,
+      )
+    ) {
+      return;
+    }
+    const grupoIds = transportGruposMap.get(Number(transportId)) || [];
+    setLoading(true);
+    try {
+      const { error } = await applyTransporteGruposToEventos(
+        supabase,
+        events.map((e) => e.id),
+        grupoIds,
+      );
+      if (error) throw error;
+      toast.success("Grupos aplicados a las paradas");
+      await fetchData();
+    } catch (e) {
+      toast.error("No se pudieron aplicar los grupos: " + (e?.message || e));
     } finally {
       setLoading(false);
     }
@@ -1175,14 +1305,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
     if (totalAffected > 0) {
       const message =
-        `âš ï¸ ADVERTENCIA DE INTEGRIDAD \n\n` +
-        `Este evento se usa en ${totalAffected} reglas logÃ­sticas (subidas/bajadas).\n` +
-        `Si continÃºas, esas reglas serÃ¡n DESVINCULADAS automÃ¡ticamente (se pondrÃ¡n en blanco) para evitar errores.\n\n` +
-        `Â¿Confirmas borrar el evento y limpiar las reglas asociadas?`;
+        `⚠️ ADVERTENCIA DE INTEGRIDAD \n\n` +
+        `Este evento se usa en ${totalAffected} reglas logísticas (subidas/bajadas).\n` +
+        `Si continúas, esas reglas serán DESVINCULADAS automáticamente (se pondrán en blanco) para evitar errores.\n\n` +
+        `¿Confirmas borrar el evento y limpiar las reglas asociadas?`;
 
       if (!confirm(message)) return;
     } else {
-      if (!confirm("Â¿Borrar parada?")) return;
+      if (!confirm("¿Borrar parada?")) return;
     }
 
     try {
@@ -1250,7 +1380,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       if (error) {
         console.error("Error al borrar evento", { eventId, error });
         alert(
-          "No se pudo borrar la parada. Puede haber vÃ­nculos en otras tablas.\n\nDetalle tÃ©cnico: " +
+          "No se pudo borrar la parada. Puede haber vínculos en otras tablas.\n\nDetalle técnico: " +
             (error.message || JSON.stringify(error)),
         );
         return;
@@ -1260,9 +1390,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
       fetchData();
       refresh();
     } catch (err) {
-      console.error("ExcepciÃ³n al borrar evento", { eventId, err });
+      console.error("Excepción al borrar evento", { eventId, err });
       alert(
-        "OcurriÃ³ un error inesperado al borrar la parada:\n\n" +
+        "Ocurrió un error inesperado al borrar la parada:\n\n" +
           (err.message || JSON.stringify(err)),
       );
     }
@@ -1312,7 +1442,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     if (!personId || !boardingModal.transportId) return;
     if (
       !confirm(
-        "Â¿Eliminar la excepciÃ³n personalizada y volver a la regla general?",
+        "¿Eliminar la excepción personalizada y volver a la regla general?",
       )
     )
       return;
@@ -1521,8 +1651,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
     setRoadmapModal({ isOpen: false, transportId: null });
   };
 
-  // Marcar automÃ¡ticamente como ocultos los eventos que sean solo de bajada (sin subidas),
-  // pero solo cuando aÃºn no tienen preferencia de visibilidad definida (visible_agenda == null)
+  // Marcar automáticamente como ocultos los eventos que sean solo de bajada (sin subidas),
+  // pero solo cuando aún no tienen preferencia de visibilidad definida (visible_agenda == null)
   useEffect(() => {
     if (!routeRules || !transportEvents) return;
 
@@ -1536,9 +1666,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
           0,
         );
 
-        // Por defecto: si solo hay bajadas y ninguna subida, y el evento aÃºn no
+        // Por defecto: si solo hay bajadas y ninguna subida, y el evento aún no
         // tiene visible_agenda definido (null/undefined), lo marcamos como oculto.
-        // Esto respeta cualquier cambio manual posterior (true/false explÃ­cito).
+        // Esto respeta cualquier cambio manual posterior (true/false explícito).
         if (
           totalUps === 0 &&
           totalDowns > 0 &&
@@ -1587,7 +1717,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       );
       const typeName =
         editFormData.categoria_logistica === "LOGISTICO"
-          ? "Solo logÃ­stico"
+          ? "Solo logístico"
           : editFormData.categoria_logistica === "INTERNO"
             ? "Traslado interno"
             : "De pasajeros";
@@ -1718,10 +1848,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
       await updateVehicleDocumentationUrl(vehicleDocsModal.vehicleId, publicUrl);
       setVehicleDocsModal((prev) => ({ ...prev, currentUrl: publicUrl }));
       await fetchData();
-      toast.success("DocumentaciÃ³n del vehÃ­culo guardada");
+      toast.success("Documentación del vehículo guardada");
     } catch (error) {
       console.error(error);
-      toast.error("No se pudo guardar la documentaciÃ³n del vehÃ­culo");
+      toast.error("No se pudo guardar la documentación del vehículo");
     } finally {
       setVehicleDocUploading(false);
     }
@@ -1758,10 +1888,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
       await updateVehicleDocumentationUrl(vehicleDocsModal.vehicleId, "");
       setVehicleDocsModal((prev) => ({ ...prev, currentUrl: "" }));
       await fetchData();
-      toast.success("DocumentaciÃ³n eliminada");
+      toast.success("Documentación eliminada");
     } catch (error) {
       console.error(error);
-      toast.error("No se pudo eliminar la documentaciÃ³n");
+      toast.error("No se pudo eliminar la documentación");
     } finally {
       setVehicleDocUploading(false);
     }
@@ -1878,7 +2008,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     <div className="h-full overflow-y-auto p-3 sm:p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-6xl mx-auto">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-bold text-slate-700 flex items-center gap-2">
-          <IconTruck className="text-indigo-600" /> GestiÃ³n de Transportes
+          <IconTruck className="text-indigo-600" /> Gestión de Transportes
         </h3>
       </div>
 
@@ -1912,7 +2042,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onClick={() =>
             setInfoListModal({
               isOpen: true,
-              title: "Pasajeros en MÃºltiples Transportes",
+              title: "Pasajeros en Múltiples Transportes",
               list: coverageStats.multiple,
               allowInternalToggle: true,
               showInternal: false,
@@ -1929,7 +2059,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             </div>
             <div className="text-[9px] sm:text-[10px] text-amber-600 font-bold uppercase tracking-tight mt-1 leading-tight underline decoration-dashed underline-offset-4">
               <span className="sm:hidden">Multi transp.</span>
-              <span className="hidden sm:inline">MÃ¡s de un Transporte</span>
+              <span className="hidden sm:inline">Más de un Transporte</span>
             </div>
           </div>
         </div>
@@ -2126,7 +2256,18 @@ export default function GirasTransportesManager({ supabase, gira }) {
       <div className="space-y-4">
         {filteredTransports.map((t) => {
           const isExpanded = activeTransportId === t.id;
-          const myEvents = transportEvents[t.id] || [];
+          const myEventsAll = transportEvents[t.id] || [];
+          const myEvents =
+            hasGiraGrupos && (filterGrupoIds || []).length > 0
+              ? myEventsAll.filter((evt) =>
+                  eventPassesEditorialGrupoFilter(
+                    evt,
+                    filterGrupoIds,
+                    includeGeneralEvents,
+                  ),
+                )
+              : myEventsAll;
+          const vehicleGrupoIds = transportGruposMap.get(Number(t.id)) || [];
           const isMediosPropios = String(t.id_transporte) === "9";
 
           const tPax = passengerList.filter((p) =>
@@ -2159,8 +2300,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
           });
 
           // 2) Pasajeros NO admitidos (el transporte no aparece en logistics),
-          // pero que ESPECÃFICAMENTE tienen reglas de subida+bajada para este transporte
-          // (localidad / persona / regiÃ³n / etc. segÃºn alcance de las reglas).
+          // pero que ESPECÍFICAMENTE tienen reglas de subida+bajada para este transporte
+          // (localidad / persona / región / etc. según alcance de las reglas).
           const missingAdmissionPax = passengerList.filter((p) => {
             if (
               isPersonVetoedFromTransport(
@@ -2176,7 +2317,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             const tr = p.logistics?.transports?.find(
               (x) => String(x.id) === String(t.id),
             );
-            if (tr) return false; // ya estÃ¡ admitido: pertenece al caso (1)
+            if (tr) return false; // ya está admitido: pertenece al caso (1)
 
             const hasUp = routeRulesForTransport.some(
               (r) => r.id_evento_subida && matchesRule(r, p, localitiesList),
@@ -2308,6 +2449,35 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             {t.detalle || "Sin detalle"}
                           </h4>
                           <div className="flex flex-wrap items-center gap-1 min-w-0">
+                          {hasGiraGrupos && (
+                            <div
+                              className="flex items-center gap-1 w-full sm:w-auto min-w-0"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="min-w-[8rem] max-w-[12rem]">
+                                <MultiSelectDropdown
+                                  compact
+                                  summaryMode="names"
+                                  summaryMaxNames={2}
+                                  label="Grupos"
+                                  placeholder="Grupos…"
+                                  options={giraGrupoOptions}
+                                  value={vehicleGrupoIds.map(Number)}
+                                  onChange={(arr) =>
+                                    handleSaveVehicleGrupos(t.id, arr.map(Number))
+                                  }
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                title="Aplicar grupos del vehículo a todas las paradas"
+                                onClick={() => handleApplyVehicleGruposToStops(t.id)}
+                                className="shrink-0 px-1.5 h-7 rounded border border-indigo-200 bg-indigo-50 text-[9px] font-black uppercase text-indigo-700 hover:bg-indigo-100"
+                              >
+                                Aplicar
+                              </button>
+                            </div>
+                          )}
                           <div
                             className="relative w-full sm:w-36 md:w-36 shrink-0 overflow-visible"
                             ref={
@@ -2363,7 +2533,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 }`}
                                 title={
                                   choferDocsStatus === "complete"
-                                    ? "DocumentaciÃ³n del chofer completa"
+                                    ? "Documentación del chofer completa"
                                     : "Falta carnet y/o DNI del chofer"
                                 }
                               >
@@ -2407,7 +2577,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             </span>
                             {categoria === "LOGISTICO" && (
                               <span className="inline-flex items-center h-5 px-2 rounded-md border border-amber-200 bg-amber-50 text-[10px] font-bold text-amber-700 leading-none shrink-0">
-                                Solo logÃ­stico
+                                Solo logístico
                               </span>
                             )}
                             {categoria === "INTERNO" && (
@@ -2534,7 +2704,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             Hora
                           </th>
                           <th className="p-3" style={{ width: "20%" }}>
-                            LocaciÃ³n (Destino)
+                            Locación (Destino)
                           </th>
                           <th className="p-3" style={{ width: "20%" }}>
                             Detalle
@@ -2739,7 +2909,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     onClick={() => setActiveDetailEventId(evt.id)}
                                     onBlur={(e) => {
                                       const html = e.currentTarget.innerHTML;
-                                      // Cerrar solo si el foco no se va a un botÃ³n del toolbar de este mismo detalle
+                                      // Cerrar solo si el foco no se va a un botón del toolbar de este mismo detalle
                                       setTimeout(() => {
                                         const active = document.activeElement;
                                         if (
@@ -2788,7 +2958,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     {totalUps > 0
                                       ? totalUps
                                       : upAlert
-                                        ? "0 âš ï¸"  
+                                        ? "0 ⚠️"  
                                         : "+"}
                                   </div>
                                   {upsSummary.map((s, i) => (
@@ -2824,7 +2994,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     {totalDowns > 0
                                       ? totalDowns
                                       : downAlert
-                                        ? "0 âš ï¸"
+                                        ? "0 ⚠️"
                                         : "+"}
                                   </div>
                                   {downsSummary.map((s, i) => (
@@ -2843,6 +3013,20 @@ export default function GirasTransportesManager({ supabase, gira }) {
                               </td>
                               <td className="p-2 text-right align-middle">
                                 <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                  {hasGiraGrupos && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setGruposAssignTarget(evt)}
+                                      className={`transition-colors ${
+                                        eventGrupoIdsFromEvent(evt).length > 0
+                                          ? "text-indigo-600"
+                                          : "text-slate-300 hover:text-indigo-500"
+                                      }`}
+                                      title="Asignar grupos de convocatoria"
+                                    >
+                                      <IconTag size={14} />
+                                    </button>
+                                  )}
                                   <button
                                     onClick={() =>
                                       handleUpdateEvent(
@@ -2858,8 +3042,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     }`}
                                     title={
                                       evt.visible_agenda === false
-                                        ? "Mostrar en agenda (todos los mÃºsicos)"
-                                        : "Ocultar de agenda (subida/bajada propias siguen visibles para cada mÃºsico)"
+                                        ? "Mostrar en agenda (todos los músicos)"
+                                        : "Ocultar de agenda (subida/bajada propias siguen visibles para cada músico)"
                                     }
                                   >
                                     {evt.visible_agenda === false ? (
@@ -3040,7 +3224,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
                               <div className="block space-y-1">
                                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                                  LocaciÃ³n
+                                  Locación
                                 </span>
                                 <LocationSelectWithCreate
                                   supabase={supabase}
@@ -3234,8 +3418,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 }`}
                                 title={
                                   evt.visible_agenda === false
-                                    ? "Mostrar en agenda (todos los mÃºsicos)"
-                                    : "Ocultar de agenda (subida/bajada propias siguen visibles para cada mÃºsico)"
+                                    ? "Mostrar en agenda (todos los músicos)"
+                                    : "Ocultar de agenda (subida/bajada propias siguen visibles para cada músico)"
                                 }
                               >
                                 {evt.visible_agenda === false ? (
@@ -3287,7 +3471,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                         </div>
                         <div className="mt-2 block space-y-1">
                           <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
-                            LocaciÃ³n
+                            Locación
                           </span>
                           <LocationSelectWithCreate
                             supabase={supabase}
@@ -3357,7 +3541,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h4 className="text-sm font-black text-slate-800 uppercase tracking-wide">
-                  DocumentaciÃ³n de vehÃ­culo
+                  Documentación de vehículo
                 </h4>
                 <p className="text-[11px] text-slate-500">
                   {vehicleDocsModal.transportLabel}
@@ -3405,7 +3589,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                     ) : (
                       <img
                         src={vehicleDocsModal.currentUrl}
-                        alt="Documento vehÃ­culo"
+                        alt="Documento vehículo"
                         className="w-full h-full object-contain p-2"
                       />
                     )}
@@ -3450,7 +3634,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                       )}
                       {vehicleDocDragging && (
                         <span className="text-[9px] font-black mt-2 text-indigo-500 uppercase">
-                          Soltar aquÃ­
+                          Soltar aquí
                         </span>
                       )}
                     </div>
@@ -3480,7 +3664,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                 )}
               </div>
               <p className="text-[11px] text-slate-500">
-                ArrastrÃ¡ un archivo o usÃ¡ pegar/subir. Formatos recomendados: PDF o imagen.
+                Arrastrá un archivo o usá pegar/subir. Formatos recomendados: PDF o imagen.
               </p>
             </div>
           </div>
@@ -3493,7 +3677,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h4 className="text-sm font-semibold text-slate-800">
-                  DocumentaciÃ³n del chofer
+                  Documentación del chofer
                 </h4>
                 <p className="text-[11px] text-slate-500">{choferDocsModal.choferLabel}</p>
               </div>
@@ -3712,6 +3896,39 @@ export default function GirasTransportesManager({ supabase, gira }) {
         }}
       />
 
+      <EventGruposAssignModal
+        isOpen={!!gruposAssignTarget}
+        evt={gruposAssignTarget}
+        grupoOptions={giraGrupoOptions}
+        supabase={supabase}
+        onClose={() => setGruposAssignTarget(null)}
+        onSaved={(eventId, selectedIds) => {
+          setTransportEvents((prev) => {
+            const next = { ...prev };
+            for (const tId of Object.keys(next)) {
+              next[tId] = (next[tId] || []).map((e) => {
+                if (e.id !== eventId) return e;
+                return {
+                  ...e,
+                  eventos_grupos: (selectedIds || []).map((gid) => {
+                    const g = (giraGrupos || []).find(
+                      (x) => Number(x.id) === Number(gid),
+                    );
+                    return {
+                      id_grupo: Number(gid),
+                      giras_grupos: g
+                        ? { id: g.id, nombre: g.nombre, color: g.color }
+                        : { id: Number(gid) },
+                    };
+                  }),
+                };
+              });
+            }
+            return next;
+          });
+        }}
+      />
+
       <ConfirmModal
         isOpen={deleteTransportModal.isOpen}
         onClose={closeDeleteTransportModal}
@@ -3719,7 +3936,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           void handleConfirmDeleteTransport();
         }}
         title="Eliminar transporte"
-        message={`Â¿EstÃ¡s seguro? Se eliminarÃ¡n tambiÃ©n ${deleteTransportModal.eventCount} evento${deleteTransportModal.eventCount === 1 ? "" : "s"} de traslado asociado${deleteTransportModal.eventCount === 1 ? "" : "s"} a este vehÃ­culo.`}
+        message={`¿Estás seguro? Se eliminarán también ${deleteTransportModal.eventCount} evento${deleteTransportModal.eventCount === 1 ? "" : "s"} de traslado asociado${deleteTransportModal.eventCount === 1 ? "" : "s"} a este vehículo.`}
         confirmText="Eliminar"
         cancelText="Cancelar"
       />

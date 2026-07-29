@@ -453,6 +453,15 @@ CREATE TABLE public.eventos_grupos (
   CONSTRAINT eventos_grupos_id_grupo_fkey FOREIGN KEY (id_grupo) REFERENCES public.giras_grupos(id) ON DELETE CASCADE,
   CONSTRAINT eventos_grupos_evento_grupo_key UNIQUE (id_evento, id_grupo)
 );
+CREATE TABLE public.giras_transportes_grupos (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_gira_transporte bigint NOT NULL,
+  id_grupo bigint NOT NULL,
+  CONSTRAINT giras_transportes_grupos_pkey PRIMARY KEY (id),
+  CONSTRAINT giras_transportes_grupos_id_gira_transporte_fkey FOREIGN KEY (id_gira_transporte) REFERENCES public.giras_transportes(id) ON DELETE CASCADE,
+  CONSTRAINT giras_transportes_grupos_id_grupo_fkey FOREIGN KEY (id_grupo) REFERENCES public.giras_grupos(id) ON DELETE CASCADE,
+  CONSTRAINT giras_transportes_grupos_transporte_grupo_key UNIQUE (id_gira_transporte, id_grupo)
+);
 CREATE TABLE public.giras_hospedajes_excluidos (
   id_programa bigint NOT NULL,
   id_integrante bigint NOT NULL,

@@ -54,6 +54,8 @@ import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer
 import CommentButton from "../../components/comments/CommentButton";
 import GiraDifusion from "./GiraDifusion";
 import SectionStatusControl from "../../components/giras/SectionStatusControl";
+import GiraGruposFilterControl from "../../components/giras/GiraGruposFilterControl";
+import { useGiraGruposFilter } from "../../hooks/useGiraGruposFilter";
 import { deleteGira } from "../../services/giraActions";
 import { toast } from "sonner";
 
@@ -222,6 +224,21 @@ export default function GirasView({ supabase, trigger = 0 }) {
   }, [giraId, selectedGiraFromList, loading, supabase]);
 
   const selectedGira = selectedGiraFromList ?? deepLinkedGira;
+
+  const canManageGiraGruposFilter =
+    (isEditor || isAdmin || isCoordGeneral) && !!selectedGira?.id;
+  const {
+    hasGrupos: hasGiraGrupos,
+    filterGrupoIds,
+    setFilterGrupoIds,
+    includeGeneralEvents,
+    setIncludeGeneralEvents,
+    grupoFilterOptions,
+    giraGrupos,
+  } = useGiraGruposFilter(supabase, selectedGira?.id, {
+    enabled: canManageGiraGruposFilter,
+  });
+  const showGiraGruposFilter = canManageGiraGruposFilter && hasGiraGrupos;
 
   const getActiveSection = () => {
     if (!selectedGira) return null;
@@ -1431,7 +1448,18 @@ export default function GirasView({ supabase, trigger = 0 }) {
               </div>
             )}
             {(isEditor || isPersonal || isGuest || isDifusion) && ( // <--- AGREGAR isDifusion aquí
-              <div className="flex items-center justify-between gap-0.5 bg-slate-100 p-0.5 sm:p-1 rounded-lg w-full sm:w-auto overflow-hidden max-w-full">
+              <div className="flex items-center justify-end gap-1.5 sm:gap-2 w-full sm:w-auto min-w-0 flex-wrap sm:flex-nowrap">
+                {showGiraGruposFilter && (
+                  <GiraGruposFilterControl
+                    options={grupoFilterOptions}
+                    filterGrupoIds={filterGrupoIds}
+                    onFilterChange={setFilterGrupoIds}
+                    includeGeneralEvents={includeGeneralEvents}
+                    onIncludeGeneralChange={setIncludeGeneralEvents}
+                    className="shrink-0"
+                  />
+                )}
+                <div className="flex items-center justify-between gap-0.5 bg-slate-100 p-0.5 sm:p-1 rounded-lg flex-1 sm:flex-none overflow-hidden max-w-full min-w-0">
                 {tourNavItems
                   .filter((item) => {
                     // RESTRICCIÓN PARA ROL DIFUSIÓN: Solo ve la tab de Difusión
@@ -1469,6 +1497,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
                       </button>
                     );
                   })}
+                </div>
               </div>
             )}
           </div>
@@ -1530,6 +1559,12 @@ export default function GirasView({ supabase, trigger = 0 }) {
             supabase={supabase}
             gira={selectedGira}
             onBack={() => updateView("LIST")}
+            giraGrupos={giraGrupos}
+            filterGrupoIds={filterGrupoIds}
+            setFilterGrupoIds={setFilterGrupoIds}
+            includeGeneralEvents={includeGeneralEvents}
+            setIncludeGeneralEvents={setIncludeGeneralEvents}
+            hideGruposToolbarFilter
           />
         )}
         {mode === "REPERTOIRE" && selectedGira && (
@@ -1574,6 +1609,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
             onBack={() => updateView("LIST")}
             onDataChange={handleChildDataChange}
             hospedajeExcluidosIds={hospedajeExcluidosIds}
+            giraGrupos={giraGrupos}
+            filterGrupoIds={filterGrupoIds}
+            includeGeneralEvents={includeGeneralEvents}
           />
         )}
         {mode === "MEALS_PERSONAL" && selectedGira && (

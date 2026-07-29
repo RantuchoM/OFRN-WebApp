@@ -286,6 +286,13 @@ export default function UnifiedAgenda({
   onViewChange = null,
   /** Agenda de un programa Ensamble: incluir ensayos de ensamble asociados por eventos_programas_asociados */
   includeAssociatedEnsembleRehearsals = false,
+  /** Grupos / filtro controlados desde el shell de gira (opcionales). */
+  giraGruposProp = null,
+  filterGrupoIds: filterGrupoIdsProp = null,
+  setFilterGrupoIds: setFilterGrupoIdsProp = null,
+  includeGeneralEvents: includeGeneralEventsProp = null,
+  setIncludeGeneralEvents: setIncludeGeneralEventsProp = null,
+  hideGruposToolbarFilter = false,
 }) {
   const {
     user,
@@ -318,7 +325,6 @@ export default function UnifiedAgenda({
       toast.error("No se pudo guardar el cambio.");
     }
   };
-
   const toggleEventVisibleAgenda = async (e, eventId, currentlyHidden) => {
     e.stopPropagation();
     if (!isEditor && !isManagement) return;
@@ -345,10 +351,31 @@ export default function UnifiedAgenda({
 
   const [viewAsUserId, setViewAsUserId] = useState(null);
   const [musicianOptions, setMusicianOptions] = useState([]);
-  const [giraGrupos, setGiraGrupos] = useState([]);
-  const [filterGrupoIds, setFilterGrupoIds] = useState([]);
-  const [includeGeneralEvents, setIncludeGeneralEvents] = useState(true);
+  const [giraGruposLocal, setGiraGruposLocal] = useState([]);
+  const [filterGrupoIdsLocal, setFilterGrupoIdsLocal] = useState([]);
+  const [includeGeneralEventsLocal, setIncludeGeneralEventsLocal] =
+    useState(true);
   const [gruposAssignTarget, setGruposAssignTarget] = useState(null);
+
+  const filterControlled =
+    filterGrupoIdsProp != null && setFilterGrupoIdsProp != null;
+  const giraGrupos =
+    giraGruposProp != null ? giraGruposProp : giraGruposLocal;
+  const setGiraGrupos = setGiraGruposLocal;
+  const filterGrupoIds = filterControlled
+    ? filterGrupoIdsProp
+    : filterGrupoIdsLocal;
+  const setFilterGrupoIds = filterControlled
+    ? setFilterGrupoIdsProp
+    : setFilterGrupoIdsLocal;
+  const includeGeneralEvents =
+    includeGeneralEventsProp != null
+      ? includeGeneralEventsProp
+      : includeGeneralEventsLocal;
+  const setIncludeGeneralEvents =
+    setIncludeGeneralEventsProp != null
+      ? setIncludeGeneralEventsProp
+      : setIncludeGeneralEventsLocal;
 
   const effectiveUserId = viewAsUserId || user.id;
   const isViewAsMode = !!viewAsUserId;
@@ -846,9 +873,10 @@ export default function UnifiedAgenda({
   }, [isGlobalEditor, supabase]);
 
   useEffect(() => {
+    if (giraGruposProp != null) return;
     if (!giraId || !(isEditor || isAdmin)) {
-      setGiraGrupos([]);
-      setFilterGrupoIds([]);
+      setGiraGruposLocal([]);
+      if (!filterControlled) setFilterGrupoIdsLocal([]);
       return;
     }
     if (!navigator.onLine) return;
@@ -857,19 +885,28 @@ export default function UnifiedAgenda({
       if (cancelled) return;
       if (error) {
         console.warn("UnifiedAgenda grupos:", error.message);
-        setGiraGrupos([]);
+        setGiraGruposLocal([]);
         return;
       }
-      setGiraGrupos(grupos || []);
-      const validIds = new Set((grupos || []).map((g) => Number(g.id)));
-      setFilterGrupoIds((prev) =>
-        prev.filter((id) => validIds.has(Number(id))),
-      );
+      setGiraGruposLocal(grupos || []);
+      if (!filterControlled) {
+        const validIds = new Set((grupos || []).map((g) => Number(g.id)));
+        setFilterGrupoIdsLocal((prev) =>
+          prev.filter((id) => validIds.has(Number(id))),
+        );
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [giraId, isEditor, isAdmin, supabase]);
+  }, [
+    giraId,
+    isEditor,
+    isAdmin,
+    supabase,
+    giraGruposProp,
+    filterControlled,
+  ]);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -2273,7 +2310,7 @@ export default function UnifiedAgenda({
                   )}
                 </div>
 
-                {canManageGiraGrupos && (
+                {canManageGiraGrupos && !hideGruposToolbarFilter && (
                   <div
                     className={`inline-flex items-stretch rounded-lg border overflow-visible h-[34px] shadow-sm ${
                       filterGrupoIds.length > 0
@@ -2285,6 +2322,7 @@ export default function UnifiedAgenda({
                     <div className="relative min-w-[7.5rem] sm:min-w-[8.5rem]">
                       <MultiSelectDropdown
                         compact
+                        summaryMode="names"
                         label="Grupos"
                         placeholder="Grupos..."
                         options={grupoFilterOptions}

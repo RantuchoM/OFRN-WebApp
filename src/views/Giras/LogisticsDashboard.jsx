@@ -39,6 +39,9 @@ export default function LogisticsDashboard({
   onBack,
   onDataChange,
   hospedajeExcluidosIds = [],
+  giraGrupos = [],
+  filterGrupoIds = [],
+  includeGeneralEvents = true,
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [isMealsMenuOpen, setIsMealsMenuOpen] = useState(false);
@@ -442,6 +445,9 @@ export default function LogisticsDashboard({
               roster={summary}
               onDataChange={onDataChange}
               hospedajeExcluidosIds={hospedajeExcluidosIds}
+              giraGrupos={giraGrupos}
+              filterGrupoIds={filterGrupoIds}
+              includeGeneralEvents={includeGeneralEvents}
             />
           )}
           {activeTab === "attendance" && (
@@ -476,6 +482,9 @@ export default function LogisticsDashboard({
               supabase={supabase}
               gira={gira}
               onDataChange={onDataChange}
+              giraGrupos={giraGrupos}
+              filterGrupoIds={filterGrupoIds}
+              includeGeneralEvents={includeGeneralEvents}
             />
           )}
 

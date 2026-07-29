@@ -97,7 +97,7 @@ export function getMealCoverageBounds(logistics) {
  */
 export function isPersonEligibleForMealSlot(
   person,
-  { fecha, servicio, convocados, hora },
+  { fecha, servicio, convocados, hora, grupoIds },
   options = {},
 ) {
   if (!person || person.estado_gira !== "confirmado") return false;
@@ -120,6 +120,20 @@ export function isPersonEligibleForMealSlot(
     ) {
       return false;
     }
+  }
+
+  const requiredGrupos = [
+    ...new Set((grupoIds || []).map(Number).filter(Number.isFinite)),
+  ];
+  if (requiredGrupos.length > 0) {
+    const personGrupoIds =
+      options.personGrupoIds instanceof Set
+        ? options.personGrupoIds
+        : options.integranteGruposMap?.get(String(person.id));
+    const mine = new Set(
+      (personGrupoIds || []).map((g) => Number(g?.id ?? g)).filter(Number.isFinite),
+    );
+    if (!requiredGrupos.some((id) => mine.has(id))) return false;
   }
 
   const mealKey = mealSlotKey(fecha, servicio);

@@ -16,6 +16,7 @@ import {
   IconItalic,
   IconUnderline,
   IconSearch,
+  IconPlus,
 } from "../../components/ui/Icons";
 import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
@@ -29,6 +30,13 @@ import {
   isLocalAt,
   mealBelongsToSegment,
 } from "../../utils/giraTramos";
+import {
+  buildIntegranteGruposMap,
+  eventGrupoIdsFromEvent,
+  eventPassesEditorialGrupoFilter,
+  setEventoGrupos,
+} from "../../services/giraGruposService";
+import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner"; 
@@ -938,6 +946,9 @@ export default function MealsManager({
   gira,
   roster,
   hospedajeExcluidosIds = [],
+  giraGrupos = [],
+  filterGrupoIds = [],
+  includeGeneralEvents = true,
 }) {
   const [loading, setLoading] = useState(false);
   const [grid, setGrid] = useState([]);
@@ -972,6 +983,21 @@ export default function MealsManager({
     [gira, cortes],
   );
   const activeSegment = segments[activeSegmentIdx] ?? segments[0] ?? null;
+
+  const hasGiraGrupos = (giraGrupos || []).length > 0;
+  const integranteGruposMap = useMemo(
+    () => buildIntegranteGruposMap(giraGrupos, roster || []),
+    [giraGrupos, roster],
+  );
+  const giraGrupoOptions = useMemo(
+    () =>
+      (giraGrupos || []).map((g) => ({
+        value: Number(g.id),
+        label: g.nombre,
+        color: g.color,
+      })),
+    [giraGrupos],
+  );
 
   const isLocalInActiveTramo = useCallback(
     (person) => {
@@ -1072,10 +1098,12 @@ export default function MealsManager({
   const refreshGridData = async () => {
     const { data: meals } = await supabase
       .from("eventos")
-      .select("*")
+      .select("*, eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )")
       .eq("id_gira", gira.id)
       .eq("is_deleted", false)
-      .in("id_tipo_evento", [7, 8, 9, 10]);
+      .in("id_tipo_evento", [7, 8, 9, 10])
+      .order("fecha", { ascending: true })
+      .order("hora_inicio", { ascending: true });
     const { data: rules } = await supabase
       .from("giras_logistica_reglas")
       .select("*")
@@ -1083,86 +1111,153 @@ export default function MealsManager({
     calculateGrid(meals || [], rules || []);
   };
 
+  const makeTempMealRow = (fecha, servicio) => ({
+    id: `temp-${fecha}-${servicio}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    fecha,
+    servicio,
+    hora_inicio: "",
+    hora_fin: "",
+    descripcion: "",
+    id_locacion: "",
+    convocados: [],
+    selectedGrupos: [],
+    visible_agenda: true,
+    tecnica: false,
+    isTemp: true,
+    dirty: false,
+  });
+
+  const toDateKey = (raw) => {
+    if (!raw) return null;
+    const s = String(raw).slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+  };
+
+  const formatLocalYmd = (date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
   const calculateGrid = (mealsData, rulesData) => {
-    const normalizedMeals = mealsData.map((m) => ({
-      ...m,
-      servicio: ID_TO_SERVICE[m.id_tipo_evento],
-      hora_inicio: m.hora_inicio?.slice(0, 5),
-      hora_fin: m.hora_fin?.slice(0, 5),
-      dirty: false,
-    }));
-    const toIntKey = (d, s) =>
-      d ? parseInt(`${d.replaceAll("-", "")}${SERVICE_VALS[s]}`) : null;
+    const normalizedMeals = mealsData
+      .map((m) => {
+        const fecha = toDateKey(m.fecha);
+        const servicio = ID_TO_SERVICE[m.id_tipo_evento];
+        if (!fecha || !servicio) return null;
+        return {
+          ...m,
+          fecha,
+          servicio,
+          hora_inicio: m.hora_inicio?.slice(0, 5),
+          hora_fin: m.hora_fin?.slice(0, 5),
+          selectedGrupos: eventGrupoIdsFromEvent(m),
+          dirty: false,
+        };
+      })
+      .filter(Boolean);
+    const toIntKey = (d, s) => {
+      const fecha = toDateKey(d);
+      if (!fecha || SERVICE_VALS[s] == null) return null;
+      return parseInt(`${fecha.replaceAll("-", "")}${SERVICE_VALS[s]}`, 10);
+    };
     let minKey = Infinity,
       maxKey = -Infinity;
     rulesData.forEach((r) => {
-      if (r.comida_inicio_fecha)
-        minKey = Math.min(
-          minKey,
-          toIntKey(
-            r.comida_inicio_fecha,
-            r.comida_inicio_servicio || "Desayuno",
-          ),
+      if (r.comida_inicio_fecha) {
+        const k = toIntKey(
+          r.comida_inicio_fecha,
+          r.comida_inicio_servicio || "Desayuno",
         );
-      if (r.comida_fin_fecha)
-        maxKey = Math.max(
-          maxKey,
-          toIntKey(r.comida_fin_fecha, r.comida_fin_servicio || "Cena"),
+        if (k != null) minKey = Math.min(minKey, k);
+      }
+      if (r.comida_fin_fecha) {
+        const k = toIntKey(
+          r.comida_fin_fecha,
+          r.comida_fin_servicio || "Cena",
         );
+        if (k != null) maxKey = Math.max(maxKey, k);
+      }
     });
     normalizedMeals.forEach((m) => {
       const k = toIntKey(m.fecha, m.servicio);
+      if (k == null) return;
       if (k < minKey) minKey = k;
       if (k > maxKey) maxKey = k;
     });
+    // Sin reglas ni comidas: usar fechas de la gira para poder crear desde vacantes.
     if (minKey === Infinity) {
+      const from = toDateKey(gira?.fecha_desde);
+      const to = toDateKey(gira?.fecha_hasta);
+      if (from && to) {
+        minKey = toIntKey(from, "Desayuno");
+        maxKey = toIntKey(to, "Cena");
+      }
+    }
+    if (minKey === Infinity || maxKey === -Infinity || minKey == null || maxKey == null) {
       setGrid([]);
       return;
     }
     const newGrid = [];
     const minStr = String(minKey);
     let curDate = new Date(
-      parseInt(minStr.substring(0, 4)),
-      parseInt(minStr.substring(4, 6)) - 1,
-      parseInt(minStr.substring(6, 8)),
+      parseInt(minStr.substring(0, 4), 10),
+      parseInt(minStr.substring(4, 6), 10) - 1,
+      parseInt(minStr.substring(6, 8), 10),
     );
     const maxStr = String(maxKey);
     const endDate = new Date(
-      parseInt(maxStr.substring(0, 4)),
-      parseInt(maxStr.substring(4, 6)) - 1,
-      parseInt(maxStr.substring(6, 8)),
+      parseInt(maxStr.substring(0, 4), 10),
+      parseInt(maxStr.substring(4, 6), 10) - 1,
+      parseInt(maxStr.substring(6, 8), 10),
     );
     while (curDate <= endDate) {
-      const dStr = curDate.toISOString().split("T")[0];
+      const dStr = formatLocalYmd(curDate);
       SERVICIOS.forEach((svc) => {
         const k = toIntKey(dStr, svc);
-        if (k >= minKey && k <= maxKey) {
-          const existing = normalizedMeals.find(
-            (m) => m.fecha === dStr && m.servicio === svc,
-          );
-          newGrid.push(
-            existing
-              ? { ...existing, isTemp: false, dirty: false }
-              : {
-                  id: `temp-${dStr}-${svc}`,
-                  fecha: dStr,
-                  servicio: svc,
-                  hora_inicio: "",
-                  hora_fin: "",
-                  descripcion: "",
-                  id_locacion: "",
-                  convocados: [],
-                  visible_agenda: true,
-                  tecnica: false,
-                  isTemp: true,
-                  dirty: false,
-                },
-          );
+        if (k == null || k < minKey || k > maxKey) return;
+        const existing = normalizedMeals
+          .filter((m) => m.fecha === dStr && m.servicio === svc)
+          .sort((a, b) => {
+            const ha = a.hora_inicio || "";
+            const hb = b.hora_inicio || "";
+            if (ha !== hb) return ha.localeCompare(hb);
+            return Number(a.id) - Number(b.id);
+          });
+        if (existing.length === 0) {
+          // Solo vacante si aún no hay comida de ese servicio ese día.
+          newGrid.push(makeTempMealRow(dStr, svc));
+        } else {
+          existing.forEach((m) => {
+            newGrid.push({ ...m, isTemp: false, dirty: false });
+          });
         }
       });
       curDate.setDate(curDate.getDate() + 1);
     }
     setGrid(newGrid);
+  };
+
+  /** Agrega otra fila del mismo día/servicio (p. ej. 2.º almuerzo para otro grupo). */
+  const addSiblingMeal = (row) => {
+    if (!row?.fecha || !row?.servicio) return;
+    const newRow = makeTempMealRow(row.fecha, row.servicio);
+    setGrid((prev) => {
+      const idx = prev.findIndex((r) => r.id === row.id);
+      if (idx === -1) return [...prev, newRow];
+      let insertAt = idx + 1;
+      while (
+        insertAt < prev.length &&
+        prev[insertAt].fecha === row.fecha &&
+        prev[insertAt].servicio === row.servicio
+      ) {
+        insertAt += 1;
+      }
+      const copy = [...prev];
+      copy.splice(insertAt, 0, newRow);
+      return copy;
+    });
   };
 
   const getEligiblePeople = (row) => {
@@ -1175,8 +1270,13 @@ export default function MealsManager({
           servicio: row.servicio,
           convocados: row.convocados,
           hora: row.hora_inicio,
+          grupoIds: row.selectedGrupos || eventGrupoIdsFromEvent(row),
         },
-        { hospedajeExcluidosIds, segments },
+        {
+          hospedajeExcluidosIds,
+          segments,
+          integranteGruposMap,
+        },
       ),
     );
   };
@@ -1320,9 +1420,42 @@ export default function MealsManager({
       const { data } = row.isTemp
         ? await supabase.from("eventos").insert([payload]).select().single()
         : await supabase.from("eventos").update(payload).eq("id", row.id).select().single();
-      
+
+      const savedId = data?.id;
+      if (savedId != null && hasGiraGrupos) {
+        const { error: gruposError } = await setEventoGrupos(
+          supabase,
+          savedId,
+          row.selectedGrupos || [],
+        );
+        if (gruposError) {
+          toast.error("Comida guardada, pero falló asignar grupos: " + gruposError.message);
+        }
+      }
+
+      const eventos_grupos = (row.selectedGrupos || []).map((gid) => {
+        const g = (giraGrupos || []).find((x) => Number(x.id) === Number(gid));
+        return {
+          id_grupo: Number(gid),
+          giras_grupos: g
+            ? { id: g.id, nombre: g.nombre, color: g.color }
+            : { id: Number(gid) },
+        };
+      });
+
       setGrid((prev) =>
-        prev.map((r) => r.id === row.id ? { ...data, servicio: ID_TO_SERVICE[data.id_tipo_evento], isTemp: false, dirty: false } : r)
+        prev.map((r) =>
+          r.id === row.id
+            ? {
+                ...data,
+                servicio: ID_TO_SERVICE[data.id_tipo_evento],
+                selectedGrupos: row.selectedGrupos || [],
+                eventos_grupos,
+                isTemp: false,
+                dirty: false,
+              }
+            : r,
+        ),
       );
 
       // --- DESTELLO VERDE ---
@@ -1348,7 +1481,15 @@ export default function MealsManager({
   };
 
   const deleteRow = async (row) => {
-    if (row.isTemp) return;
+    if (row.isTemp) {
+      const siblings = grid.filter(
+        (r) => r.fecha === row.fecha && r.servicio === row.servicio,
+      );
+      // Si es el único slot vacío del día/servicio, no lo quites (queda placeholder).
+      if (siblings.length <= 1) return;
+      setGrid((prev) => prev.filter((r) => r.id !== row.id));
+      return;
+    }
     if (!confirm("¿Borrar este evento?")) return;
     setSavingRows((prev) => new Set(prev).add(row.id));
     await supabase.from("eventos").delete().eq("id", row.id);
@@ -1370,20 +1511,48 @@ export default function MealsManager({
   }, [grid, serviceFilter]);
 
   const visibleGrid = useMemo(() => {
-    if (cortesCount === 0 || !activeSegment) return filteredGrid;
-    return filteredGrid.filter((row) =>
-      mealBelongsToSegment(
-        {
-          fecha: row.fecha,
-          servicio: row.servicio,
-          hora_inicio: row.hora_inicio,
-        },
-        activeSegment,
-        activeSegmentIdx,
-        segments,
-      ),
-    );
-  }, [filteredGrid, activeSegment, activeSegmentIdx, cortesCount, segments]);
+    let rows =
+      cortesCount === 0 || !activeSegment
+        ? filteredGrid
+        : filteredGrid.filter((row) =>
+            mealBelongsToSegment(
+              {
+                fecha: row.fecha,
+                servicio: row.servicio,
+                hora_inicio: row.hora_inicio,
+              },
+              activeSegment,
+              activeSegmentIdx,
+              segments,
+            ),
+          );
+    if (hasGiraGrupos && (filterGrupoIds || []).length > 0) {
+      rows = rows.filter((row) => {
+        // Vacantes siempre visibles para poder crear (aunque el filtro oculte generales).
+        if (row.isTemp) return true;
+        return eventPassesEditorialGrupoFilter(
+          {
+            ...row,
+            eventos_grupos: (row.selectedGrupos || []).map((gid) => ({
+              id_grupo: gid,
+            })),
+          },
+          filterGrupoIds,
+          includeGeneralEvents,
+        );
+      });
+    }
+    return rows;
+  }, [
+    filteredGrid,
+    activeSegment,
+    activeSegmentIdx,
+    cortesCount,
+    segments,
+    hasGiraGrupos,
+    filterGrupoIds,
+    includeGeneralEvents,
+  ]);
 
   const realEventIds = useMemo(() => grid.filter((r) => !r.isTemp).map((r) => r.id), [grid]);
 
@@ -1691,6 +1860,9 @@ export default function MealsManager({
                 <th className="px-3 py-3 w-44 border-b border-slate-200">Lugar</th>
                 <th className="px-3 py-3 w-64 border-b border-slate-200">Descripción</th>
                 <th className="px-1 py-3 w-28 max-w-28 border-b border-slate-200">Convocados</th>
+                {hasGiraGrupos && (
+                  <th className="px-1 py-3 w-36 max-w-36 border-b border-slate-200">Grupos</th>
+                )}
                 <th className="px-3 py-3 w-24 text-center border-b border-slate-200">Comensales</th>
                 <th className="px-3 py-3 w-12 text-center border-b border-slate-200">Téc</th>
                 <th className="px-3 py-3 w-10 sticky right-0 bg-slate-100 border-b border-slate-200"></th>
@@ -1750,7 +1922,19 @@ export default function MealsManager({
                     </td>
                     <td className="px-3 py-3 font-bold border-r border-slate-200 text-slate-700">{format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}</td>
                     <td className="px-3">
-                      <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${row.servicio === "Almuerzo" ? "bg-amber-50 text-amber-700 border-amber-200" : row.servicio === "Cena" ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-slate-100 text-slate-400"}`}>{row.servicio}</span>
+                      <div className="flex items-center gap-1">
+                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${row.servicio === "Almuerzo" ? "bg-amber-50 text-amber-700 border-amber-200" : row.servicio === "Cena" ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-slate-100 text-slate-400"}`}>{row.servicio}</span>
+                        {!row.isTemp && (
+                          <button
+                            type="button"
+                            onClick={() => addSiblingMeal(row)}
+                            className="p-0.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                            title={`Agregar otro ${row.servicio.toLowerCase()} este día`}
+                          >
+                            <IconPlus size={14} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="px-1">
                       <TimeInput value={row.hora_inicio || ""} onChange={(v) => handleGridChange(idx, "hora_inicio", v)} disabled={isSaving} isDirty={isDirty} />
@@ -1779,6 +1963,23 @@ export default function MealsManager({
                     <td className="px-1 w-28 max-w-28">
                       <MultiGroupSelect value={row.convocados} onChange={(v) => handleGridChange(idx, "convocados", v)} catalogs={catalogs} disabled={isSaving} isDirty={isDirty} showAlert={!isTemp && (!row.convocados || row.convocados.length === 0)} compact />
                     </td>
+                    {hasGiraGrupos && (
+                      <td className="px-1 w-36 max-w-36">
+                        <MultiSelectDropdown
+                          compact
+                          summaryMode="names"
+                          summaryMaxNames={2}
+                          label="Grupos"
+                          placeholder="Todos…"
+                          options={giraGrupoOptions}
+                          value={(row.selectedGrupos || []).map(Number)}
+                          onChange={(arr) =>
+                            handleGridChange(idx, "selectedGrupos", arr.map(Number))
+                          }
+                          className={`w-full ${isDirty ? "[&_button]:border-amber-300" : ""}`}
+                        />
+                      </td>
+                    )}
                     <td className="px-3 text-center relative">
                       <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-black cursor-pointer transition-all relative tooltip-bridge ${eligible.length > 0 ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-slate-100 text-slate-400"}`} onMouseEnter={() => setExpandedStats(row.id)} onMouseLeave={() => setExpandedStats(null)}>
                         <IconUsers size={12} /> {eligible.length}
@@ -1800,7 +2001,21 @@ export default function MealsManager({
                     <td className="px-3 text-center">
                       <button onClick={() => handleGridChange(idx, "tecnica", !row.tecnica)} className={`transition-colors p-1 rounded-full hover:bg-slate-100 ${row.tecnica ? "text-indigo-600 bg-indigo-50" : "text-slate-300"}`}>{row.tecnica ? <IconEyeOff size={18} /> : <IconEye size={18} />}</button>
                     </td>
-                    <td className="px-2 text-center sticky right-0 bg-white shadow-[-4px_0_10_px_-4px_rgba(0,0,0,0.1)] group-hover:bg-slate-50">{isSaving ? <IconLoader className="animate-spin text-indigo-500 mx-auto" size={14} /> : !isTemp && <button onClick={() => deleteRow(row)} className="text-slate-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><IconTrash size={14} /></button>}</td>
+                    <td className="px-2 text-center sticky right-0 bg-white shadow-[-4px_0_10_px_-4px_rgba(0,0,0,0.1)] group-hover:bg-slate-50">{isSaving ? <IconLoader className="animate-spin text-indigo-500 mx-auto" size={14} /> : (
+                      <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                        <button
+                          type="button"
+                          onClick={() => addSiblingMeal(row)}
+                          className="text-slate-300 hover:text-indigo-600"
+                          title={`Agregar otro ${row.servicio.toLowerCase()} este día`}
+                        >
+                          <IconPlus size={14} />
+                        </button>
+                        {( !isTemp || grid.filter((r) => r.fecha === row.fecha && r.servicio === row.servicio).length > 1) && (
+                          <button onClick={() => deleteRow(row)} className="text-slate-200 hover:text-red-500"><IconTrash size={14} /></button>
+                        )}
+                      </div>
+                    )}</td>
                   </tr>
                 );
               })}
@@ -1853,6 +2068,14 @@ export default function MealsManager({
                       >
                         {row.servicio}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => addSiblingMeal(row)}
+                        className="p-1 rounded border border-slate-200 text-indigo-600 bg-white"
+                        title={`Agregar otro ${row.servicio.toLowerCase()}`}
+                      >
+                        <IconPlus size={12} />
+                      </button>
                       <button
                         type="button"
                         onClick={() => setMobileEditingRow(row)}

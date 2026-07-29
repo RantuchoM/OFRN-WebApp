@@ -752,9 +752,13 @@ export function useAgendaData({
               "no_convocado",
               "ausente",
             ].includes(estadoTour);
-            evt.is_convoked = noParticipaEnGira
+            const convocadosOk = noParticipaEnGira
               ? false
               : checkIsConvoked(evt.convocados, myTourRole);
+            // is_convoked también exige pertenecer a algún grupo del evento (AND).
+            evt.is_convoked =
+              convocadosOk &&
+              passesEventoGruposFilter(evt, myGrupoIds, false);
           });
         }
 
@@ -899,16 +903,25 @@ export function useAgendaData({
           Boolean(isEditor) ||
           Boolean(isManagement);
 
-        if (!skipGrupoFilterRt && (evt.eventos_grupos || []).length > 0) {
+        let myGrupoIdsRt = new Set();
+        if ((evt.eventos_grupos || []).length > 0) {
           const { data: memb } = await supabase
             .from("giras_grupos_integrantes")
             .select("id_grupo, giras_grupos ( id, id_gira )")
             .eq("id_integrante", effectiveUserId);
-          const myGrupoIdsRt = buildMyGrupoIdsFromRows(
+          myGrupoIdsRt = buildMyGrupoIdsFromRows(
             memb,
             [evt],
             effectiveUserId,
           );
+        }
+        if (!noParticipaEnGira) {
+          evt.is_convoked =
+            checkIsConvoked(evt.convocados, myTourRole) &&
+            passesEventoGruposFilter(evt, myGrupoIdsRt, false);
+        }
+
+        if (!skipGrupoFilterRt && (evt.eventos_grupos || []).length > 0) {
           if (!passesEventoGruposFilter(evt, myGrupoIdsRt, false)) {
             setItems((prev) => prev.filter((item) => item.id !== id));
             return;
