@@ -34,7 +34,7 @@ export const handlePrintExport = (ref, title = "Reporte") => {
     /* Tablas */
     table { width: 100%; border-collapse: collapse; font-size: ${isCompactReport ? '7px' : '12px'}; margin-top: ${isCompactReport ? '4px' : '10px'}; }
     th, td { padding: ${isCompactReport ? '2px 4px' : '8px'}; border: 1px solid #e2e8f0; text-align: left; }
-    th { background-color: #f8fafc; font-weight: 700; text-transform: uppercase; font-size: ${isCompactReport ? '7px' : '11px'}; color: #64748b; }
+    th { background-color: #f8fafc; font-weight: 700; text-transform: uppercase; font-size: ${isCompactReport ? '7px' : '11px'}; color: #1e293b; }
     
     /* Alineación */
     .text-right { text-align: right; }
@@ -63,6 +63,14 @@ export const handlePrintExport = (ref, title = "Reporte") => {
     .bg-indigo-50 { background-color: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
     .bg-slate-50-badge { background-color: #f8fafc; color: #475569; border-color: #e2e8f0; }
 
+    /* Badges resaltados: texto negro sobre color de servicio.
+       Se usa selector de elemento para ganar a la regla base 'span.rounded'. */
+    span.bg-sky-200 { background-color: #bae6fd; color: #0f172a; border-color: #38bdf8; }
+    span.bg-amber-200 { background-color: #fde68a; color: #0f172a; border-color: #f59e0b; }
+    span.bg-rose-200 { background-color: #fecdd3; color: #0f172a; border-color: #fb7185; }
+    span.bg-indigo-200 { background-color: #c7d2fe; color: #0f172a; border-color: #818cf8; }
+    span.bg-slate-200 { background-color: #e2e8f0; color: #0f172a; border-color: #94a3b8; }
+
     /* Tipografía */
     .font-bold { font-weight: 700; }
     .font-black { font-weight: 900; }
@@ -71,6 +79,9 @@ export const handlePrintExport = (ref, title = "Reporte") => {
     ${isCompactReport ? '.meals-report-export h1 { font-size: 10px !important; } .meals-report-export p, .meals-report-export * { font-size: 7px !important; }' : ''}
     .text-slate-500 { color: #64748b; }
     .text-slate-600 { color: #475569; }
+    .text-slate-700 { color: #334155; }
+    .text-slate-800 { color: #1e293b; }
+    .text-slate-900 { color: #0f172a; }
     
     /* Utilidades de impresión */
     @media print {

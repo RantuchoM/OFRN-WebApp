@@ -23,6 +23,14 @@ const SERVICE_IDS = {
   10: "Cena",
 };
 
+// Tag de servicio: letra negra sobre fondo resaltado del color de la comida.
+const SERVICE_BADGE_CLASSES = {
+  Desayuno: "bg-sky-200 border-sky-400",
+  Almuerzo: "bg-amber-200 border-amber-400",
+  Merienda: "bg-rose-200 border-rose-400",
+  Cena: "bg-indigo-200 border-indigo-400",
+};
+
 // IMPORTANTE: Ahora usamos la prop 'roster' que viene del LogisticsDashboard
 export default function MealsReport({
   supabase,
@@ -430,7 +438,7 @@ export default function MealsReport({
       <div className="meals-report-export flex-1 overflow-auto p-8" ref={reportRef}>
         <div className="mb-6 hidden print:block">
           <h1 className="text-2xl font-bold">{gira.nombre_gira}</h1>
-          <p className="text-slate-500">
+          <p className="text-slate-700">
             Reporte de Alimentación - Cantidades por Dieta
           </p>
         </div>
@@ -446,7 +454,7 @@ export default function MealsReport({
               {allDiets.map((d) => (
                 <th
                   key={d}
-                  className="py-2 px-1 w-0 text-right border-l text-xs uppercase text-slate-500 font-bold whitespace-nowrap"
+                  className="py-2 px-1 w-0 text-right border-l text-xs uppercase text-slate-800 font-bold whitespace-nowrap"
                   title={d}
                 >
                   {d.length <= 4 ? d : d.slice(0, 4)}
@@ -460,21 +468,18 @@ export default function MealsReport({
                 <td className="py-3 px-2 font-medium">
                   {format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}
                 </td>
-                <td className="py-3 px-2 text-slate-500">{row.hora}</td>
+                <td className="py-3 px-2 text-slate-800">{row.hora}</td>
                 <td className="py-3 px-2">
                   <span
-                    className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
-                      row.servicio === "Almuerzo"
-                        ? "bg-amber-50 border-amber-200 text-amber-700"
-                        : row.servicio === "Cena"
-                          ? "bg-indigo-50 border-indigo-200 text-indigo-700"
-                          : "bg-slate-50 border-slate-200 text-slate-600"
+                    className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border text-slate-900 ${
+                      SERVICE_BADGE_CLASSES[row.servicio] ||
+                      "bg-slate-200 border-slate-400"
                     }`}
                   >
                     {row.servicio}
                   </span>
                 </td>
-                <td className="py-3 px-2 text-slate-600">{row.lugar}</td>
+                <td className="py-3 px-2 text-slate-800">{row.lugar}</td>
                 <td className="py-3 px-2 text-right font-black text-lg bg-slate-50">
                   {row.counts.Total}
                 </td>
