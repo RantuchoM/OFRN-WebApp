@@ -21,6 +21,7 @@ import {
   mealServicioFromEvent,
 } from "../../utils/mealLogistics";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 // Condiciones estándar (estas pueden seguir fijas si no tienes tabla de condiciones)
 const CONDICIONES_OPTIONS = [
@@ -37,6 +38,7 @@ export default function MealsAttendance({
   roster: enrichedRoster,
   hospedajeExcluidosIds = [],
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState([]);
   const [attendanceMap, setAttendanceMap] = useState({});
@@ -314,9 +316,11 @@ export default function MealsAttendance({
     }
 
     if (
-      !confirm(
-        `¿Enviar mail de aviso a ${recipients.length} integrantes?\n\nSe enviará una COPIA OCULTA (BCC) a todos.`,
-      )
+      !(await confirm({
+        title: "Enviar avisos",
+        message: `¿Enviar mail de aviso a ${recipients.length} integrantes?\n\nSe enviará una COPIA OCULTA (BCC) a todos.`,
+        confirmText: "Enviar",
+      }))
     )
       return;
 
@@ -372,6 +376,7 @@ export default function MealsAttendance({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
+      {dialog}
       {/* HEADER SUPERIOR */}
       <div className="bg-white p-4 border-b border-slate-200 shrink-0 flex flex-col gap-4">
         <div className="flex justify-between items-start">

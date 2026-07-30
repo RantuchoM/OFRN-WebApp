@@ -17,6 +17,7 @@ import {
   removePlaceholderOpcion,
   assignDefinitivePlaceholder,
 } from "../../services/repertorioPlaceholderOpciones";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 function secondsToMmSsDurationInput(seconds) {
   const n = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -50,6 +51,7 @@ export default function RepertorioPlaceholderManageModal({
   onDelete,
   onAssigned,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [tab, setTab] = useState(initialTab);
   const [draft, setDraft] = useState({
     titulo: "",
@@ -133,9 +135,11 @@ export default function RepertorioPlaceholderManageModal({
 
   const handleDelete = async () => {
     if (
-      !confirm(
-        "¿Eliminar este slot a definir? Se borrarán también sus opciones.",
-      )
+      !(await confirm({
+        title: "Eliminar slot",
+        message: "¿Eliminar este slot a definir? Se borrarán también sus opciones.",
+        destructive: true,
+      }))
     ) {
       return;
     }
@@ -171,11 +175,12 @@ export default function RepertorioPlaceholderManageModal({
 
   const handleAssign = async (obraIds) => {
     if (
-      !confirm(
-        obraIds.length === 1
+      !(await confirm({
+        title: "Confirmar asignación",
+        message: obraIds.length === 1
           ? "¿Confirmar asignación definitiva de esta obra? El slot a definir será reemplazado."
           : `¿Confirmar asignación de ${obraIds.length} obras? El slot será reemplazado.`,
-      )
+      }))
     ) {
       return;
     }
@@ -211,6 +216,7 @@ export default function RepertorioPlaceholderManageModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
+      {dialog}
       <div
         className="bg-white w-full max-w-2xl rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 max-h-[92vh]"
         onMouseDown={(e) => e.stopPropagation()}

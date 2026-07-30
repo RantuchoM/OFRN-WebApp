@@ -15,6 +15,7 @@ import {
   IconPencil,
 } from "../../components/ui/Icons";
 import UniversalExporter from "../../components/ui/UniversalExporter";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 const toDateInputValue = (v) => {
   if (v == null || v === "") return "";
@@ -677,6 +678,7 @@ export default function UniversalTable({
   onDirtyChange,
   warningMessage // <--- NUEVA PROP RECIBIDA
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const sortDefault = defaultSort ?? primaryKey;
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -875,7 +877,11 @@ export default function UniversalTable({
         setData((prev) => prev.filter((r) => r.id !== id));
         return;
     }
-    if (!confirm("¿Eliminar este registro permanentemente?")) return;
+    if (!(await confirm({
+      title: "Eliminar registro",
+      message: "¿Eliminar este registro permanentemente?",
+      destructive: true,
+    }))) return;
     try {
       const { error } = await supabase.from(tableName).delete().eq(primaryKey, id);
       if (error) throw error;
@@ -990,6 +996,8 @@ export default function UniversalTable({
     columns.length + (hasExplicitId ? 1 : 2);
 
   return (
+    <>
+    {dialog}
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-full min-h-0 overflow-hidden">
       {/* Header */}
       <div className="px-2 py-2 sm:px-3 sm:py-2.5 md:px-4 md:py-3 border-b border-slate-200 bg-white flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-start md:items-center shrink-0 z-20">
@@ -1192,5 +1200,6 @@ export default function UniversalTable({
         isSavingNew={isSavingNew}
       />
     </div>
+    </>
   );
 }

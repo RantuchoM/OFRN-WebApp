@@ -22,6 +22,7 @@ import {
 import { format, isBefore, isToday, addDays, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { useAuth } from "../../context/AuthContext";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 // --- HELPER PARA NORMALIZAR IDs ---
 const normalizeId = (id) => {
@@ -474,6 +475,7 @@ export default function GlobalCommentsViewer({
   onCountsChange,
 }) {
   const { user, isAdmin } = useAuth();
+  const { confirm, dialog } = useConfirmDialog();
 
   const [threads, setThreads] = useState([]);
   const [filteredThreads, setFilteredThreads] = useState([]);
@@ -899,7 +901,10 @@ export default function GlobalCommentsViewer({
   };
 
   const handleResolveThread = async (thread) => {
-    if (!confirm("¿Marcar todo este hilo como resuelto?")) return;
+    if (!(await confirm({
+      title: "Resolver hilo",
+      message: "¿Marcar todo este hilo como resuelto?",
+    }))) return;
     const ids = thread.messages.map((m) => m.id);
     await supabase
       .from("sistema_comentarios")
@@ -913,7 +918,11 @@ export default function GlobalCommentsViewer({
   };
 
   const handleArchiveMsg = async (id) => {
-    if (!confirm("¿Eliminar este mensaje?")) return;
+    if (!(await confirm({
+      title: "Eliminar mensaje",
+      message: "¿Eliminar este mensaje?",
+      destructive: true,
+    }))) return;
     await supabase
       .from("sistema_comentarios")
       .update({ deleted: true })
@@ -939,6 +948,7 @@ export default function GlobalCommentsViewer({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
+      {dialog}
       <div className="bg-white w-full max-w-4xl h-[85vh] rounded-xl shadow-2xl flex flex-col relative">
         <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
           <div className="flex items-center gap-3">

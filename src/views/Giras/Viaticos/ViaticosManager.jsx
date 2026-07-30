@@ -300,6 +300,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     splitViaticoRow,
     mergeViaticoTramos,
     restoreViaticoRow,
+    confirmDialog,
     feedback: feedbackIndividual,
   } = useViaticosIndividuales(
     supabase,
@@ -1916,6 +1917,7 @@ const collectTransportSupportDocs = (personData) => {
   return (
     <div className="flex flex-col h-full bg-slate-50 relative overflow-y-auto">
       {/* ELIMINADO EL TOASTER DUPLICADO, USAMOS EL DE APP.JSX */}
+      {confirmDialog}
 
       <ConfirmDialog
         isOpen={!!fusionarConfirm}

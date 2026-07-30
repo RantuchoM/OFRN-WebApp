@@ -29,6 +29,7 @@ import BoardingManagerModal from "./BoardingManagerModal";
 import StopRulesManager from "./StopRulesManager";
 import TransportPassengersModal from "./TransportPassengersModal";
 import { useLogistics, matchesRule } from "../../hooks/useLogistics";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 // --- UTILIDADES ---
 const formatDateSafe = (dateString) => {
@@ -367,6 +368,7 @@ const DataIntegrityIndicator = ({ passengers }) => {
 // =================================================================================================
 
 export default function GirasTransportesManager({ supabase, gira }) {
+  const { confirm, dialog } = useConfirmDialog();
   const {
     summary: rawSummary,
     transportRules,
@@ -752,7 +754,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
   };
 
   const handleDeleteTransport = async (id) => {
-    if (!confirm("Se borrará el transporte y SUS EVENTOS. ¿Seguro?")) return;
+    if (
+      !(await confirm({
+        title: "Eliminar transporte",
+        message: "Se borrará el transporte y SUS EVENTOS. ¿Seguro?",
+        destructive: true,
+        confirmText: "Eliminar",
+      }))
+    )
+      return;
     await supabase.from("giras_transportes").delete().eq("id", id);
     fetchData();
   };
@@ -812,7 +822,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
         `Si continúas, esas reglas serán DESVINCULADAS automáticamente (se pondrán en blanco) para evitar errores.\n\n` +
         `¿Confirmas borrar el evento y limpiar las reglas asociadas?`;
 
-      if (!confirm(message)) return;
+      if (
+        !(await confirm({
+          title: "Borrar evento",
+          message,
+          destructive: true,
+          confirmText: "Borrar",
+        }))
+      )
+        return;
 
       if (rulesAffectingUp.length > 0) {
         await supabase.from("giras_logistica_reglas_transportes").update({ id_evento_subida: null }).eq("id_evento_subida", eventId);
@@ -821,7 +839,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
         await supabase.from("giras_logistica_reglas_transportes").update({ id_evento_bajada: null }).eq("id_evento_bajada", eventId);
       }
     } else {
-      if (!confirm("¿Borrar parada?")) return;
+      if (
+        !(await confirm({
+          title: "Borrar parada",
+          message: "¿Borrar parada?",
+          destructive: true,
+          confirmText: "Borrar",
+        }))
+      )
+        return;
     }
 
     await supabase.from("eventos").delete().eq("id", eventId);
@@ -948,6 +974,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   return (
     <div className="h-full overflow-y-auto p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-6xl mx-auto">
+      {dialog}
       {/* 1. DASHBOARD DE COBERTURA */}
       <div className="mb-6 grid grid-cols-3 gap-4">
         {/* ASIGNADOS OK */}

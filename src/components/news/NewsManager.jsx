@@ -14,6 +14,7 @@ import {
   IconUpload, // Nuevo Icono
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 // --- HOOK: COMPRESIÓN Y SUBIDA (Copia esto al inicio) ---
 const compressImage = (file) => {
@@ -224,6 +225,7 @@ const NewsContentRenderer = ({ content }) => {
 // --- COMPONENTE PRINCIPAL ---
 export default function NewsManager({ supabase }) {
   const { user } = useAuth();
+  const { confirm, dialog } = useConfirmDialog();
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -279,7 +281,11 @@ export default function NewsManager({ supabase }) {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm("¿Eliminar esta novedad? Se borrará para todos.")) return;
+    if (!(await confirm({
+      title: "Eliminar novedad",
+      message: "¿Eliminar esta novedad? Se borrará para todos.",
+      destructive: true,
+    }))) return;
     const { error } = await supabase
       .from("sistema_novedades")
       .delete()
@@ -356,6 +362,7 @@ export default function NewsManager({ supabase }) {
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
+      {dialog}
       {/* Header */}
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm shrink-0">
         <div>

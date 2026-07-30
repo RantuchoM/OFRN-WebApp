@@ -8,6 +8,7 @@ import {
   IconLoader,
   IconAlertCircle,
 } from "../ui/Icons";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 const ModalPortal = ({ children }) =>
   createPortal(
@@ -171,6 +172,7 @@ export default function BowingSetManager({
   // edit mode: optional callback after list change
   onArcosChange,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [arcosList, setArcosList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(null);
@@ -238,7 +240,11 @@ export default function BowingSetManager({
   };
 
   const handleDeleteArco = async (id) => {
-    if (!confirm("¿Eliminar este set de arcos?")) return;
+    if (!(await confirm({
+      title: "Eliminar set de arcos",
+      message: "¿Eliminar este set de arcos?",
+      destructive: true,
+    }))) return;
     await supabase.from("obras_arcos").delete().eq("id", id);
     fetchArcos(workId);
   };
@@ -258,6 +264,7 @@ export default function BowingSetManager({
     const selectedArco = assignOptions.find((a) => a.id == selectedArcoId);
     return (
       <div className="flex flex-row items-center gap-2 w-full max-w-[160px]">
+        {dialog}
         <div className="relative flex-1 min-w-0 group">
           {loading && assignOptions.length === 0 ? (
             <div className="flex items-center justify-center px-2 py-1 rounded-full border border-slate-200 text-[10px] text-slate-400">
@@ -333,6 +340,7 @@ export default function BowingSetManager({
   // --- mode="edit" ---
   return (
     <div className="border-t pt-6">
+      {dialog}
       <h3 className="text-sm font-bold uppercase text-slate-500 mb-3 flex items-center gap-2">
         Gestión de Arcos / Bowings
       </h3>

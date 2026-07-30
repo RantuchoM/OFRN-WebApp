@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { IconMap, IconGlobe, IconMapPin, IconBuilding, IconPlus, IconTrash, IconLoader, IconEdit, IconX, IconCheck, IconFilter, IconHotel } from '../../components/ui/Icons';
+import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 export default function LocationsView({ supabase }) {
+    const { confirm, dialog } = useConfirmDialog();
     const [activeTab, setActiveTab] = useState('locaciones'); // 'regiones' | 'localidades' | 'locaciones' | 'hoteles'
     const [dataList, setDataList] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -116,7 +118,11 @@ export default function LocationsView({ supabase }) {
 
     const cancelEdit = () => { setEditingId(null); setFormData({}); };
     const handleDelete = async (id) => {
-        if(!confirm("¿Eliminar?")) return;
+        if (!(await confirm({
+            title: "Eliminar registro",
+            message: "¿Eliminar este registro?",
+            destructive: true,
+        }))) return;
         setLoading(true);
         const { error } = await supabase.from(activeTab).delete().eq('id', id);
         if (error) alert("Error: " + error.message); else fetchData();
@@ -173,6 +179,8 @@ export default function LocationsView({ supabase }) {
     };
 
     return (
+        <>
+        {dialog}
         <div className="space-y-4 h-full flex flex-col">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm shrink-0">
                 <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2"><IconBuilding className="text-indigo-600"/> Sedes y Territorio</h2>
@@ -241,5 +249,6 @@ export default function LocationsView({ supabase }) {
                 </table>
             </div>
         </div>
+        </>
     );
 }

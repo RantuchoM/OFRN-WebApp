@@ -4,8 +4,10 @@ import RoomingManager from './RoomingManager';
 import { ensureDefaultSegment } from '../../services/giraSegmentosService';
 import { useGiraSegmentos } from '../../hooks/useGiraSegmentos';
 import { buildSegmentSpecs, formatTramoTitle } from '../../utils/giraTramos';
+import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 export default function ProgramHoteleria({ supabase, program, onBack }) {
+    const { confirm, dialog } = useConfirmDialog();
     const [bookings, setBookings] = useState([]);
     const [hotelsList, setHotelsList] = useState([]);
     const [localidadesPrograma, setLocalidadesPrograma] = useState([]);
@@ -112,7 +114,12 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
     };
 
     const handleDeleteBooking = async (id) => {
-        if (!confirm("¿Eliminar esta reserva y todas las asignaciones de habitaciones?")) return;
+        if (!(await confirm({
+            title: "Eliminar reserva",
+            message: "¿Eliminar esta reserva y todas las asignaciones de habitaciones?",
+            destructive: true,
+            confirmText: "Eliminar",
+        }))) return;
         setLoading(true);
         await supabase.from('programas_hospedajes').delete().eq('id', id);
         loadData();
@@ -143,6 +150,7 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
 
     return (
         <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
+            {dialog}
             <div className="bg-white p-4 border-b border-slate-200 shadow-sm flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="text-slate-400 hover:text-indigo-600 font-medium text-sm flex items-center gap-1">← Volver</button>

@@ -20,6 +20,7 @@
     IconPalette // Agregamos ícono de paleta si lo tienes, si no usa IconEdit
   } from "../ui/Icons";
   import SearchableSelect from "../ui/SearchableSelect";
+  import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
   // --- CONSTANTES DE ESTILO ---
   const labelClass =
@@ -96,6 +97,7 @@
     supabase,
     onUpdate,
   }) {
+    const { confirm, dialog } = useConfirmDialog();
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [uploadingField, setUploadingField] = useState(null);
@@ -288,8 +290,12 @@
       }
     };
 
-    const handleSafeClose = () => {
-      if (isDirty && !window.confirm("Cambios sin guardar. ¿Salir?")) return;
+    const handleSafeClose = async () => {
+      if (isDirty && !(await confirm({
+        title: "Salir sin guardar",
+        message: "Cambios sin guardar. ¿Salir?",
+        destructive: true,
+      }))) return;
       onClose();
     };
 
@@ -461,6 +467,7 @@
 
     return (
       <ModalPortal>
+        {dialog}
         <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-in zoom-in-95 max-h-[95vh] border border-slate-100">
           <div className="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0">
             <div className="flex items-center gap-2">

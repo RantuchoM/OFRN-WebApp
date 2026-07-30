@@ -19,6 +19,7 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { format, isBefore, addDays, parseISO, isToday } from "date-fns";
 import { es } from "date-fns/locale";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 // --- COMPONENTE DE AVATAR (Modificado para click) ---
 const UserAvatar = ({ user, size = "sm", onClick }) => {
@@ -306,6 +307,7 @@ export default function CommentsManager({
   onClose,
 }) {
   const { user, isAdmin } = useAuth();
+  const { confirm, dialog } = useConfirmDialog();
   const [comments, setComments] = useState([]);
   const [replyingTo, setReplyingTo] = useState(null);
   const [newComment, setNewComment] = useState("");
@@ -490,7 +492,11 @@ export default function CommentsManager({
   };
 
   const softDeleteComment = async (id, currentStatus) => {
-    if (!currentStatus && !confirm("¿Archivar hilo?")) return;
+    if (!currentStatus && !(await confirm({
+      title: "Archivar hilo",
+      message: "¿Archivar hilo?",
+      destructive: true,
+    }))) return;
     const idsToUpdate = [id];
     comments.forEach((c) => {
       if (c.parent_id === id) idsToUpdate.push(c.id);
@@ -530,6 +536,7 @@ export default function CommentsManager({
 
   return (
     <div className="flex flex-col h-full bg-white shadow-2xl border-l border-slate-200 w-full md:w-[450px] animate-in slide-in-from-right duration-300 relative z-[60]">
+      {dialog}
       <div className="p-4 border-b border-slate-100 flex flex-col gap-3 bg-slate-50 shrink-0">
         <div className="flex justify-between items-start">
           <div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { IconUserPlus, IconExchange, IconLoader, IconCheck, IconX, IconTrash } from '../ui/Icons';
 import SearchableSelect from '../ui/SearchableSelect'; 
+import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 // --- MODAL 1: CREAR VACANTE (CORREGIDO) ---
 export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, localities, instruments, giraNomenclador }) => {
@@ -160,6 +161,7 @@ export const SwapVacancyModal = ({ isOpen, onClose, giraId, placeholder, supabas
     const [searching, setSearching] = useState(false);
     const [candidates, setCandidates] = useState([]);
     const [selectedRealId, setSelectedRealId] = useState(null);
+    const { confirm, dialog } = useConfirmDialog();
 
     useEffect(() => {
         if(isOpen) fetchCandidates();
@@ -188,7 +190,10 @@ export const SwapVacancyModal = ({ isOpen, onClose, giraId, placeholder, supabas
 
     const handleSwap = async () => {
         if (!selectedRealId) return;
-        if (!confirm(`¿Confirmar asignación? \n\nToda la logística de "${placeholder.apellido}" será transferida.`)) return;
+        if (!(await confirm({
+            title: 'Asignar titular',
+            message: `¿Confirmar asignación? Toda la logística de "${placeholder.apellido}" será transferida.`,
+        }))) return;
 
         setLoading(true);
         try {
@@ -235,6 +240,7 @@ export const SwapVacancyModal = ({ isOpen, onClose, giraId, placeholder, supabas
 
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            {dialog}
             <div className="bg-white rounded-lg shadow-2xl w-full max-w-md animate-in slide-in-from-bottom-10">
                 <div className="p-4 border-b bg-indigo-600 text-white rounded-t-lg flex justify-between items-center">
                     <h3 className="font-bold flex items-center gap-2">

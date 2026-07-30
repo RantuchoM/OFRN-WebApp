@@ -36,6 +36,7 @@ import {
   toLocalDateString,
 } from "../../utils/giraDateRange";
 import { useLogistics } from "../../hooks/useLogistics";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 
 // Sub-vistas
@@ -71,6 +72,7 @@ import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 
 export default function GirasView({ supabase, trigger = 0 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const {
     user,
     isEditor,
@@ -722,9 +724,12 @@ export default function GirasView({ supabase, trigger = 0 }) {
 
   const handleGlobalSync = async () => {
     if (
-      !confirm(
-        "¿Recalcular nomencladores y carpetas de Drive para TODAS las giras vigentes?",
-      )
+      !(await confirm({
+        title: "Sincronizar giras",
+        message:
+          "¿Recalcular nomencladores y carpetas de Drive para las giras vigentes de hoy en adelante?",
+        confirmText: "Recalcular",
+      }))
     )
       return;
     const btn = document.getElementById("btn-sync-global");
@@ -732,16 +737,47 @@ export default function GirasView({ supabase, trigger = 0 }) {
       btn.disabled = true;
       btn.classList.add("opacity-50", "cursor-wait");
     }
+    const toastId = toast.loading("Sincronizando giras...");
     try {
-      const { error } = await supabase.functions.invoke("manage-drive", {
-        body: { action: "sync_program" },
-      });
-      if (error) throw error;
-      toast.success("Sincronización completada.");
+      // La Edge Function corta por tiempo y devuelve los programas pendientes,
+      // así que se continúa por lotes hasta que no quede ninguno.
+      let pendingIds = [];
+      let totalSynced = 0;
+      let totalFailed = 0;
+      for (let round = 0; round < 20; round++) {
+        const body = { action: "sync_program" };
+        if (pendingIds.length) body.programIds = pendingIds;
+        const { data, error } = await supabase.functions.invoke("manage-drive", {
+          body,
+        });
+        if (error) throw error;
+        totalSynced += data?.synced ?? 0;
+        totalFailed += data?.failedIds?.length ?? 0;
+        pendingIds = data?.pendingIds ?? [];
+        if (!pendingIds.length) break;
+        toast.loading(
+          `Sincronizando giras... ${totalSynced} listas, ${pendingIds.length} pendientes.`,
+          { id: toastId },
+        );
+      }
+      const detalleFallidos = totalFailed
+        ? ` ${totalFailed} con error (ver consola).`
+        : "";
+      if (pendingIds.length) {
+        toast.warning(
+          `Sincronizadas ${totalSynced} giras; quedaron ${pendingIds.length} pendientes. Volvé a ejecutar para terminar.${detalleFallidos}`,
+          { id: toastId },
+        );
+      } else {
+        toast.success(
+          `Sincronización completada: ${totalSynced} gira(s).${detalleFallidos}`,
+          { id: toastId },
+        );
+      }
       await fetchGiras();
     } catch (err) {
       console.error(err);
-      toast.error("Error al sincronizar: " + err.message);
+      toast.error("Error al sincronizar: " + err.message, { id: toastId });
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -893,7 +929,15 @@ export default function GirasView({ supabase, trigger = 0 }) {
   };
   const handleDelete = async (e, id) => {
     if (e) e.stopPropagation();
-    if (!confirm("¿Eliminar?")) return;
+    if (
+      !(await confirm({
+        title: "Eliminar gira",
+        message: "¿Eliminar?",
+        destructive: true,
+        confirmText: "Eliminar",
+      }))
+    )
+      return;
     setFormSaving(true);
     await supabase.functions.invoke("drive-manager", {
       body: { action: "delete_program", programId: id },
@@ -1376,6 +1420,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
 
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col bg-slate-50">
+      {dialog}
       <div className="bg-white border-b border-slate-200 sticky top-0 shadow-sm shrink-0 z-40">
         {isDetailView ? (
           <div className="px-2.5 sm:px-4 py-1.5 sm:py-2 flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-3 print:hidden">

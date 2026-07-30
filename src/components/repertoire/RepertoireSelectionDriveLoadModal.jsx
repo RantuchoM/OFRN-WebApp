@@ -9,6 +9,7 @@ import {
   matchSelectionItemsToWorkIds,
 } from "../../services/repertoireSelectionDriveService";
 import { normalizeForSearch } from "../../utils/sanitize";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 export default function RepertoireSelectionDriveLoadModal({
   supabase,
@@ -17,6 +18,7 @@ export default function RepertoireSelectionDriveLoadModal({
   onClose,
   onLoad,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [folders, setFolders] = useState([]);
   const [foldersLoading, setFoldersLoading] = useState(true);
   const [foldersError, setFoldersError] = useState("");
@@ -90,9 +92,10 @@ export default function RepertoireSelectionDriveLoadModal({
     }
 
     if (currentSelectionCount > 0) {
-      const ok = confirm(
-        `¿Reemplazar la selección actual (${currentSelectionCount} obra(s)) por «${preview.folderName}»?`,
-      );
+      const ok = await confirm({
+        title: "Reemplazar selección",
+        message: `¿Reemplazar la selección actual (${currentSelectionCount} obra(s)) por «${preview.folderName}»?`,
+      });
       if (!ok) return;
     }
 
@@ -115,6 +118,7 @@ export default function RepertoireSelectionDriveLoadModal({
 
   return (
     <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
+      {dialog}
       <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
           <div>

@@ -24,6 +24,7 @@ import {
   IconTag,
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { deleteVacancyFromGira } from "../../services/giraService";
 import { useRosterDropdownData } from "../../hooks/useRosterDropdownData";
 import {
@@ -437,6 +438,7 @@ export default function GiraRoster({
   onNotificacionInicialSent,
   onRefreshGira = null,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const { user } = useAuth();
   const {
     roster: rawRoster,
@@ -647,9 +649,12 @@ export default function GiraRoster({
     if (!musician?.id || !grupo?.id) return;
     const nombrePersona = `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
     if (
-      !window.confirm(
-        `¿Quitar a ${nombrePersona} del grupo "${grupo.nombre}"?`,
-      )
+      !(await confirm({
+        title: "Quitar del grupo",
+        message: `¿Quitar a ${nombrePersona} del grupo "${grupo.nombre}"?`,
+        destructive: true,
+        confirmText: "Quitar",
+      }))
     ) {
       return;
     }
@@ -1179,9 +1184,12 @@ export default function GiraRoster({
   // --- CRUD GIRA ---
   const handleDeleteVacancy = async (vacancy) => {
     if (
-      !confirm(
-        `¿Eliminar definitivamente la vacante "${vacancy.apellido}"?\n\nSe quitará del roster y se liberará su logística (habitación, transporte, etc.).`,
-      )
+      !(await confirm({
+        title: "Eliminar vacante",
+        message: `¿Eliminar definitivamente la vacante "${vacancy.apellido}"?\n\nSe quitará del roster y se liberará su logística (habitación, transporte, etc.).`,
+        destructive: true,
+        confirmText: "Eliminar",
+      }))
     )
       return;
 
@@ -1660,7 +1668,14 @@ export default function GiraRoster({
         groupUpdate.selectedFamilies.delete(
           String(source.valor_texto || "").trim(),
         );
-      } else if (!confirm("¿Quitar fuente?")) {
+      } else if (
+        !(await confirm({
+          title: "Quitar fuente",
+          message: "¿Quitar fuente?",
+          destructive: true,
+          confirmText: "Quitar",
+        }))
+      ) {
         return;
       } else {
         await supabase.from("giras_fuentes").delete().eq("id", id);
@@ -2188,7 +2203,12 @@ export default function GiraRoster({
 
   const handleLiberarPlaza = async (integrante) => {
     if (
-      !confirm(`¿Liberar plaza de ${integrante.nombre}? Se creará una vacante.`)
+      !(await confirm({
+        title: "Liberar plaza",
+        message: `¿Liberar plaza de ${integrante.nombre}? Se creará una vacante.`,
+        destructive: true,
+        confirmText: "Liberar",
+      }))
     )
       return;
     setLoadingAction(true);
@@ -2250,7 +2270,13 @@ export default function GiraRoster({
         token = existingAccess.token;
       } else {
         // Si no existe, confirmar creación
-        if (!confirm(`¿Generar enlace privado para ${integrante.nombre}?`))
+        if (
+          !(await confirm({
+            title: "Generar enlace",
+            message: `¿Generar enlace privado para ${integrante.nombre}?`,
+            confirmText: "Generar",
+          }))
+        )
           return;
 
         // Crear nuevo registro en giras_accesos (NO TOCAMOS giras_integrantes)
@@ -2567,6 +2593,7 @@ export default function GiraRoster({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in duration-300">
+      {dialog}
       {/* HEADER — en móvil se compacta: el padre (GirasView) ya muestra título/tabs */}
       <div className="bg-white px-3 py-2 md:p-4 border-b border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between shrink-0 gap-2 md:gap-4 relative z-50">
         <div className="hidden md:flex items-center gap-4">

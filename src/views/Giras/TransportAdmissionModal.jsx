@@ -10,6 +10,7 @@ import {
 } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { matchesRule } from "../../hooks/useLogistics";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 const SCOPES = [
   { val: "General", label: "General (Todos)", prio: 1 },
@@ -38,6 +39,7 @@ export default function TransportAdmissionModal({
   giraId,
   onUpdate,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [rules, setRules] = useState([]);
   const [allTourRules, setAllTourRules] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -270,7 +272,15 @@ export default function TransportAdmissionModal({
   };
 
   const handleDeleteRule = async (id) => {
-    if (!confirm("¿Borrar esta regla?")) return;
+    if (
+      !(await confirm({
+        title: "Borrar regla",
+        message: "¿Borrar esta regla?",
+        destructive: true,
+        confirmText: "Borrar",
+      }))
+    )
+      return;
     await supabase.from("giras_logistica_admision").delete().eq("id", id);
     fetchInitialData();
     onUpdate && onUpdate();
@@ -385,6 +395,7 @@ export default function TransportAdmissionModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 backdrop-blur-sm">
+      {dialog}
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[95vh] animate-in zoom-in-95 duration-300 border border-white/20 overflow-hidden">
         <div className="p-6 border-b flex justify-between items-center bg-slate-50/80">
           <div className="flex items-center gap-4">

@@ -21,6 +21,7 @@ import DateInput from "../../components/ui/DateInput";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 // MultiSelect import
 import MultiSelect from "../../components/ui/MultiSelect";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 // Helper simple para sumar minutos sin dependencias externas en este archivo
 const addMinutesToDate = (date, minutes) => {
@@ -37,6 +38,7 @@ export default function ItineraryManagerModal({
   transportName,
   roster = [],
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [mode, setMode] = useState("list"); // 'list', 'create', 'apply'
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -657,6 +659,7 @@ export default function ItineraryManagerModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm">
+      {dialog}
       <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 relative">
         <div className="p-4 border-b flex justify-between items-center bg-slate-50 rounded-t-lg">
           <h3 className="font-bold text-slate-700 flex items-center gap-2">
@@ -709,10 +712,18 @@ export default function ItineraryManagerModal({
                             <IconEdit size={14} />
                           </button>
                           <button
-                            onClick={() => {
-                              if (confirm("¿Eliminar plantilla?")) {
-                                /* Add delete logic */
-                              }
+                            onClick={async () => {
+                              if (
+                                !(await confirm({
+                                  title: "Eliminar plantilla",
+                                  message: "¿Eliminar plantilla?",
+                                  destructive: true,
+                                  confirmText: "Eliminar",
+                                  overlayClassName: "z-[10000]",
+                                }))
+                              )
+                                return;
+                              /* Add delete logic */
                             }}
                             className="text-slate-300 hover:text-red-500 p-1"
                           >

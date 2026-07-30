@@ -30,6 +30,7 @@ import ImportHotelModal from "./ImportHotelModal";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { useLogistics } from "../../hooks/useLogistics"; // <--- CAMBIO CLAVE
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { ensureDefaultSegment } from "../../services/giraSegmentosService";
 import GiraCorteTransitionsPanel from "./GiraCorteTransitionsPanel";
 import {
@@ -1334,6 +1335,7 @@ export default function RoomingManager({
   onBack,
   onDataChange,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const { roster, loading: rosterLoading } = useGiraRoster(supabase, program);
   const {
     summary: logisticsSummary,
@@ -1651,7 +1653,7 @@ export default function RoomingManager({
   };
 
   /** API única para asignar selección a habitación (modal móvil y botón + en RoomCard). Hace validación de habitación mixta. */
-  const handleMoveToRoom = (targetRoomId, ids) => {
+  const handleMoveToRoom = async (targetRoomId, ids) => {
     const idList = Array.isArray(ids) ? ids : Array.from(ids);
     if (idList.length === 0) return;
     if (targetRoomId != null) {
@@ -1670,7 +1672,15 @@ export default function RoomingManager({
         const futureGender = calculateRoomGender(futureOccupants);
         const currentGender = calculateRoomGender(targetRoom.occupants);
         if (futureGender === "Mixto" && currentGender !== "Mixto" && selectedPeople.some((p) => p.genero)) {
-          if (!window.confirm("Esta habitación quedaría mixta (hombres y mujeres). ¿Continuar?")) return;
+          if (
+            !(await confirm({
+              title: "Habitación mixta",
+              message:
+                "Esta habitación quedaría mixta (hombres y mujeres). ¿Continuar?",
+              confirmText: "Continuar",
+            }))
+          )
+            return;
         }
       }
     }
@@ -2310,7 +2320,15 @@ export default function RoomingManager({
     }
   };
   const handleDeleteHotel = async (bookingId) => {
-    if (!confirm("¿Eliminar hotel y habitaciones?")) return;
+    if (
+      !(await confirm({
+        title: "Eliminar hotel",
+        message: "¿Eliminar hotel y habitaciones?",
+        destructive: true,
+        confirmText: "Eliminar",
+      }))
+    )
+      return;
     setLoading(true);
     await supabase.from("programas_hospedajes").delete().eq("id", bookingId);
     await fetchInitialData();
@@ -2716,6 +2734,7 @@ export default function RoomingManager({
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden bg-slate-50 animate-in fade-in relative">
+      {dialog}
       <div className="bg-white px-3 py-2 border-b border-slate-200 shadow-sm shrink-0">
         <div className="flex justify-between items-center mb-1">
           <div className="flex items-center gap-2">

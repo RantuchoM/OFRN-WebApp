@@ -21,6 +21,7 @@ import {
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { isProtectedIntegrante } from "../../utils/protectedIntegrantes";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 // Roles asignables en Gestión de Usuarios (multi-selección, alineado con AuthContext y docs de permisos)
 const ROLES_OPTIONS = [
@@ -94,6 +95,7 @@ const INTEGRANTES_SELECT = `*,
   integrantes_ensambles(ensambles(id, ensamble))`;
 
 export default function UsersManager({ supabase }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [integrantes, setIntegrantes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -363,7 +365,11 @@ export default function UsersManager({ supabase }) {
       toast.error("No se puede eliminar una cuenta protegida.");
       return;
     }
-    if (!window.confirm("¿Estás seguro de eliminar este integrante?")) return;
+    if (!(await confirm({
+      title: "Eliminar integrante",
+      message: "¿Estás seguro de eliminar este integrante?",
+      destructive: true,
+    }))) return;
     const { error } = await supabase.from("integrantes").delete().eq("id", id);
     if (error) alert("Error: " + error.message);
     else if (integrantes.length === 1 && currentPage > 1) {
@@ -375,6 +381,7 @@ export default function UsersManager({ supabase }) {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
+      {dialog}
       <div className="bg-white p-4 border-b border-slate-200 shadow-sm flex justify-between items-center shrink-0">
         <div className="flex items-center gap-4">
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">

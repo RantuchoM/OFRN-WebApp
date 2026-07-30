@@ -33,6 +33,7 @@ import {
 } from "../../utils/ensembleMembership";
 import UniversalExporter from "../../components/ui/UniversalExporter";
 import { normalizeForSearch } from "../../utils/sanitize";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 // --- CONFIGURACIÓN ---
 const MISSING_DATA_OPTIONS = [
@@ -1191,6 +1192,7 @@ const MassEditModal = ({
 
 // --- COMPONENTE PRINCIPAL ---
 export default function MusiciansView({ supabase, catalogoInstrumentos }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [resultados, setResultados] = useState([]);
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -1835,6 +1837,8 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   }
 
   return (
+    <>
+    {dialog}
     <div className="space-y-4 h-full flex flex-col overflow-hidden animate-in fade-in">
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 shrink-0 transition-all overflow-hidden">
         <div
@@ -2282,7 +2286,11 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                       </button>
                       <button
                         onClick={async () => {
-                          if (confirm("¿Eliminar?")) {
+                          if (await confirm({
+                            title: "Eliminar integrante",
+                            message: "¿Eliminar este integrante?",
+                            destructive: true,
+                          })) {
                             await supabase
                               .from("integrantes")
                               .delete()
@@ -2442,5 +2450,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         </div>
       )}
     </div>
+    </>
   );
 }

@@ -13,23 +13,10 @@ import { handlePrintExport } from "../../utils/PrintWrapper";
 import {
   isPersonEligibleForMealSlot,
   mealServicioFromEvent,
+  MEAL_TYPE_ID_TO_SERVICE,
+  getMealServiceStyle,
 } from "../../utils/mealLogistics";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
-
-const SERVICE_IDS = {
-  7: "Desayuno",
-  8: "Almuerzo",
-  9: "Merienda",
-  10: "Cena",
-};
-
-// Tag de servicio: letra negra sobre fondo resaltado del color de la comida.
-const SERVICE_BADGE_CLASSES = {
-  Desayuno: "bg-sky-200 border-sky-400",
-  Almuerzo: "bg-amber-200 border-amber-400",
-  Merienda: "bg-rose-200 border-rose-400",
-  Cena: "bg-indigo-200 border-indigo-400",
-};
 
 // IMPORTANTE: Ahora usamos la prop 'roster' que viene del LogisticsDashboard
 export default function MealsReport({
@@ -143,7 +130,9 @@ export default function MealsReport({
           id: evt.id,
           fecha: evt.fecha,
           hora: evt.hora_inicio?.slice(0, 5),
-          servicio: SERVICE_IDS[evt.id_tipo_evento] || evt.tipos_evento?.nombre,
+          servicio:
+            MEAL_TYPE_ID_TO_SERVICE[evt.id_tipo_evento] ||
+            evt.tipos_evento?.nombre,
           lugar: locCity ? `${locName} - ${locCity}` : locName,
           counts,
         };
@@ -471,9 +460,8 @@ export default function MealsReport({
                 <td className="py-3 px-2 text-slate-800">{row.hora}</td>
                 <td className="py-3 px-2">
                   <span
-                    className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border text-slate-900 ${
-                      SERVICE_BADGE_CLASSES[row.servicio] ||
-                      "bg-slate-200 border-slate-400"
+                    className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
+                      getMealServiceStyle(row.servicio).reportTag
                     }`}
                   >
                     {row.servicio}

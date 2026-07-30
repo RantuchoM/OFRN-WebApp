@@ -23,8 +23,10 @@ import {
   IconChevronDown,
 } from "../../components/ui/Icons";
 import SheetEditor from "./SheetEditor";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 export default function DataView({ supabase }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [activeTab, setActiveTab] = useState("regiones");
   const [isDirty, setIsDirty] = useState(false);
   const [mobilePickerOpen, setMobilePickerOpen] = useState(false);
@@ -117,14 +119,17 @@ export default function DataView({ supabase }) {
     return () => document.removeEventListener("mousedown", onDocDown);
   }, [mobilePickerOpen]);
 
-  /** @returns {boolean} true si la pestaña cambió (o ya era la activa) */
-  const handleTabChange = (newTabKey) => {
+  /** @returns {Promise<boolean>} true si la pestaña cambió (o ya era la activa) */
+  const handleTabChange = async (newTabKey) => {
     if (activeTab === newTabKey) return true;
     if (isDirty) {
       if (
-        !window.confirm(
-          "Tienes elementos nuevos sin guardar. ¿Seguro que quieres cambiar de tabla y perderlos?",
-        )
+        !(await confirm({
+          title: "Descartar cambios",
+          message:
+            "Tienes elementos nuevos sin guardar. ¿Seguro que quieres cambiar de tabla y perderlos?",
+          destructive: true,
+        }))
       ) {
         return false;
       }
@@ -415,6 +420,8 @@ export default function DataView({ supabase }) {
   const SelectedMobileIcon = selectedMobileItem?.Icon ?? IconFileText;
 
   return (
+    <>
+    {dialog}
     <div className="flex flex-col md:flex-row h-full min-h-0 bg-slate-50 gap-4 p-4">
       {/* Móvil / tablet: desplegable con iconos (orden alfabético) */}
       <div
@@ -455,8 +462,8 @@ export default function DataView({ supabase }) {
                 <li key={item.value} role="option" aria-selected={isActive}>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (handleTabChange(item.value)) {
+                    onClick={async () => {
+                      if (await handleTabChange(item.value)) {
                         setMobilePickerOpen(false);
                       }
                     }}
@@ -559,5 +566,6 @@ export default function DataView({ supabase }) {
         )}
       </div>
     </div>
+    </>
   );
 }

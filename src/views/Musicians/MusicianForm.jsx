@@ -68,9 +68,6 @@ export default function MusicianForm({
     condicionColors[formData.condicion] || "bg-slate-100 text-slate-800";
 
   const pendingTrash = ctx.pendingMembershipTrashRow;
-  const pendingTrashOpen =
-    pendingTrash &&
-    (pendingTrash.fecha_hasta == null || pendingTrash.fecha_hasta === "");
   const pendingTrashEnsLabel =
     pendingTrash &&
     ((ctx.ensemblesOptions || []).find(
@@ -209,13 +206,13 @@ export default function MusicianForm({
           isOpen={!!pendingTrash}
           onClose={ctx.cancelMembershipTrashConfirm}
           onConfirm={ctx.confirmMembershipTrash}
-          title={pendingTrashOpen ? "Cerrar membresía" : "Eliminar tramo"}
+          title="Eliminar membresía"
           message={
-            pendingTrashOpen
-              ? `¿Cerrar la membresía en «${pendingTrashEnsLabel}»? Se registrará la fecha de baja con el día de hoy.`
-              : `¿Eliminar del historial el tramo en «${pendingTrashEnsLabel}»? Esta acción no se puede deshacer.`
+            pendingTrash
+              ? `¿Eliminar el registro de membresía en «${pendingTrashEnsLabel}»? Se borrará este tramo (alta/baja) del ensamble.`
+              : ""
           }
-          confirmText={pendingTrashOpen ? "Cerrar membresía" : "Eliminar"}
+          confirmText="Eliminar"
           confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98]"
         />
 

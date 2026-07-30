@@ -41,6 +41,7 @@ import { getProgramStyle } from "../../utils/giraUtils";
 import { syncSingleSegmentDates } from "../../services/giraSegmentosService";
 import GiraTramosEditor from "./GiraTramosEditor";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 const ZONA_PRESETS = ["Andina", "Atlántica", "Valle"];
 
@@ -54,6 +55,7 @@ const ConcertFormModal = ({
   locationsList,
   onRefreshLocations,
 }) => {
+  const { confirm, dialog } = useConfirmDialog();
   const [formData, setFormData] = useState({
     fecha: initialData?.fecha || "",
     hora_inicio: initialData?.hora_inicio || "20:00",
@@ -109,7 +111,15 @@ const ConcertFormModal = ({
     const msg = restoring
       ? "¿Restaurar este concierto?"
       : "¿Marcar este concierto como eliminado? Se ocultará de la vista activa.";
-    if (!confirm(msg)) return;
+    if (
+      !(await confirm({
+        title: restoring ? "Restaurar concierto" : "Eliminar concierto",
+        message: msg,
+        destructive: !restoring,
+        confirmText: restoring ? "Restaurar" : "Eliminar",
+      }))
+    )
+      return;
     setLoading(true);
     try {
       const { error } = await supabase
@@ -138,6 +148,7 @@ const ConcertFormModal = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-in fade-in">
+      {dialog}
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
         <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex justify-between items-center">
           <h3 className="font-bold text-slate-800 flex items-center gap-2">
@@ -458,6 +469,7 @@ export default function GiraForm({
   isCoordinator = false,
   coordinatedEnsembles = null, // Puede ser Set o Array
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [isCreatingDetailed, setIsCreatingDetailed] = useState(false);
   const [tempName, setTempName] = useState({ nombre: "", apellido: "" });
   const [fieldStatuses, setFieldStatuses] = useState({});
@@ -957,7 +969,14 @@ export default function GiraForm({
     if (enableAutoSave) await handleAutoSave("token_publico", newToken);
   };
   const regenerateLink = async () => {
-    if (!confirm("Se invalidará el enlace anterior. ¿Seguir?")) return;
+    if (
+      !(await confirm({
+        title: "Regenerar enlace",
+        message: "Se invalidará el enlace anterior. ¿Seguir?",
+        confirmText: "Regenerar",
+      }))
+    )
+      return;
     const newToken = self.crypto.randomUUID();
     setFormData((prev) => ({ ...prev, token_publico: newToken }));
     if (enableAutoSave) await handleAutoSave("token_publico", newToken);
@@ -1018,6 +1037,7 @@ export default function GiraForm({
     <div
       className={`p-4 rounded-xl border shadow-sm animate-in fade-in zoom-in-95 duration-200 relative ${isNew ? "bg-fixed-indigo-50 border-fixed-indigo-200" : `${getProgramBackgroundClass()} ring-2 ring-fixed-indigo-500 border-fixed-indigo-500 z-10`}`}
     >
+      {dialog}
       <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-4 border-b border-fixed-indigo-100 pb-2 gap-2">
         <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
           <h3 className="text-fixed-indigo-900 font-bold flex items-center gap-2">

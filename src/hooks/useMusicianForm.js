@@ -355,7 +355,7 @@ export function useMusicianForm(musician, supabase, onSave) {
   const handleUpdateMembershipRow = useCallback(
     async (rowId, patch) => {
       const idIntegrante = getValues("id");
-      if (!idIntegrante || !supabase) return;
+      if (!idIntegrante || !supabase) return false;
       const payload = {};
       if (patch.fecha_desde !== undefined)
         payload.fecha_desde = patch.fecha_desde || defaultMembershipFechaDesde();
@@ -366,8 +366,12 @@ export function useMusicianForm(musician, supabase, onSave) {
         .update(payload)
         .eq("id", rowId)
         .eq("id_integrante", idIntegrante);
-      if (error) toast.error(error.message);
-      else await reloadEnsembleMembershipRows();
+      if (error) {
+        toast.error(error.message);
+        return false;
+      }
+      await reloadEnsembleMembershipRows();
+      return true;
     },
     [
       getValues,
@@ -377,27 +381,68 @@ export function useMusicianForm(musician, supabase, onSave) {
     ],
   );
 
-  const handleCloseMembershipRow = useCallback(
+  const handleCloseOpenMemberships = useCallback(
+    async (fechaHasta) => {
+      const idIntegrante = getValues("id");
+      if (!idIntegrante || !supabase || !fechaHasta) return false;
+
+      const openRows = ensembleMembershipRows.filter(
+        (row) => row.fecha_hasta == null || row.fecha_hasta === "",
+      );
+      if (openRows.length === 0) return true;
+
+      const invalidRow = openRows.find((row) => {
+        const desde = String(row.fecha_desde || "").slice(0, 10);
+        return desde && fechaHasta < desde;
+      });
+      if (invalidRow) {
+        const ensembleLabel =
+          ensemblesOptions.find(
+            (option) =>
+              Number(option.value) === Number(invalidRow.id_ensamble),
+          )?.label || `Ensamble #${invalidRow.id_ensamble}`;
+        toast.error(
+          `La baja no puede ser anterior al alta en «${ensembleLabel}».`,
+        );
+        return false;
+      }
+
+      const { error } = await supabase
+        .from("integrantes_ensambles")
+        .update({ fecha_hasta: fechaHasta })
+        .eq("id_integrante", idIntegrante)
+        .in(
+          "id",
+          openRows.map((row) => row.id),
+        );
+      if (error) {
+        toast.error(
+          error.message || "No se pudieron cerrar las membresías de ensamble.",
+        );
+        return false;
+      }
+
+      await reloadEnsembleMembershipRows();
+      return true;
+    },
+    [
+      ensembleMembershipRows,
+      ensemblesOptions,
+      getValues,
+      reloadEnsembleMembershipRows,
+      supabase,
+    ],
+  );
+
+  const handleDeleteMembershipRow = useCallback(
     async (row) => {
       const idIntegrante = getValues("id");
       if (!idIntegrante || !supabase) return false;
-      const hoy = new Date().toISOString().slice(0, 10);
-      let error = null;
-      if (row.fecha_hasta == null || row.fecha_hasta === "") {
-        const res = await supabase
-          .from("integrantes_ensambles")
-          .update({ fecha_hasta: hoy })
-          .eq("id", row.id)
-          .eq("id_integrante", idIntegrante);
-        error = res.error;
-      } else {
-        const res = await supabase
-          .from("integrantes_ensambles")
-          .delete()
-          .eq("id", row.id)
-          .eq("id_integrante", idIntegrante);
-        error = res.error;
-      }
+      const { error } = await supabase
+        .from("integrantes_ensambles")
+        .delete()
+        .eq("id", row.id)
+        .eq("id_integrante", idIntegrante);
       if (error) {
         toast.error(error.message);
         return false;
@@ -422,9 +467,9 @@ export function useMusicianForm(musician, supabase, onSave) {
   const confirmMembershipTrash = useCallback(async () => {
     const row = pendingMembershipTrashRow;
     if (!row) return;
-    const ok = await handleCloseMembershipRow(row);
+    const ok = await handleDeleteMembershipRow(row);
     if (!ok) throw new Error("membership_trash_failed");
-  }, [pendingMembershipTrashRow, handleCloseMembershipRow]);
+  }, [pendingMembershipTrashRow, handleDeleteMembershipRow]);
 
   const uploadToSupabase = useCallback(
     async (file, field, oldUrl) => {
@@ -841,7 +886,8 @@ export function useMusicianForm(musician, supabase, onSave) {
     defaultMembershipFechaDesde,
     handleAddEnsembleMembership,
     handleUpdateMembershipRow,
-    handleCloseMembershipRow,
+    handleCloseOpenMemberships,
+    handleDeleteMembershipRow,
     pendingMembershipTrashRow,
     requestMembershipTrash,
     cancelMembershipTrashConfirm,

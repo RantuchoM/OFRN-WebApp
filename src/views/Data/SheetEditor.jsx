@@ -3,6 +3,7 @@ import {
   IconLoader, IconSave, IconDownload, IconCloudUpload, IconTrash, 
   IconPlus, IconSearch, IconPrinter 
 } from "../../components/ui/Icons";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 // --- UTILIDADES DE GOOGLE SHEETS PARSER ---
 const parseGoogleSheetData = (sheetData) => {
@@ -89,6 +90,7 @@ const Cell = ({ rowIndex, colIndex, cellData, isSelected, onSelect, onChange, on
 };
 
 export default function SheetEditor({ supabase }) {
+  const { confirm, dialog } = useConfirmDialog();
   // Estado de la Hoja
   // Estructura: [ { id: 0, cells: { 0: { value: "A1", style: {...} }, 1: ... } } ]
   const [rows, setRows] = useState([]);
@@ -140,7 +142,10 @@ export default function SheetEditor({ supabase }) {
       console.error(err);
       // MODO FALLBACK (Para pruebas si no tienes la Edge Function configurada aún):
       // Simula una importación local para que veas que funciona la UI
-      if (confirm("Error de conexión API. ¿Cargar datos de prueba?")) {
+      if (await confirm({
+        title: "Cargar datos de prueba",
+        message: "Error de conexión API. ¿Cargar datos de prueba?",
+      })) {
          const mockRows = Array.from({ length: 10 }).map((_, i) => ({ id: i, cells: { 
              0: { value: `Fila ${i}`, style: { fontWeight: i===0?'bold':'normal', backgroundColor: i%2===0 ? '#f0f9ff' : 'white' } },
              1: { value: Math.floor(Math.random()*100), style: {} }
@@ -203,6 +208,8 @@ export default function SheetEditor({ supabase }) {
   };
 
   return (
+    <>
+    {dialog}
     <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
       {/* TOOLBAR */}
       <div className="bg-slate-50 border-b border-slate-200 p-2 flex flex-wrap items-center gap-2">
@@ -311,5 +318,6 @@ export default function SheetEditor({ supabase }) {
         </div>
       </div>
     </div>
+    </>
   );
 }

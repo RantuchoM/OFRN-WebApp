@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { IconTag, IconPlus, IconTrash, IconEdit, IconSearch, IconX, IconCheck, IconLoader } from '../../components/ui/Icons';
 import { normalizeForSearch } from '../../utils/sanitize';
+import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 export default function TagsManager({ supabase, onClose }) {
+    const { confirm, dialog } = useConfirmDialog();
     const [tags, setTags] = useState([]);
     const [loading, setLoading] = useState(false);
     const [search, setSearch] = useState("");
@@ -34,7 +36,11 @@ export default function TagsManager({ supabase, onClose }) {
     };
 
     const handleDelete = async (id) => {
-        if (!confirm("¿Eliminar etiqueta?")) return;
+        if (!(await confirm({
+            title: "Eliminar etiqueta",
+            message: "¿Eliminar etiqueta?",
+            destructive: true,
+        }))) return;
         setLoading(true);
         const { error } = await supabase.from('palabras_clave').delete().eq('id', id);
         if (error) alert("Error: " + error.message);
@@ -47,6 +53,8 @@ export default function TagsManager({ supabase, onClose }) {
     );
 
     return (
+        <>
+        {dialog}
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
             <div className="bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col max-h-[85vh]">
                 <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-xl">
@@ -89,5 +97,6 @@ export default function TagsManager({ supabase, onClose }) {
                 </div>
             </div>
         </div>
+        </>
     );
 }

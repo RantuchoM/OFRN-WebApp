@@ -428,6 +428,13 @@ function isComisionType(tipo: string | undefined | null): boolean {
   return t.includes("comision");
 }
 
+/** Solo Sinfónico y Camerata/Filarmónica consumen la letra cronológica del mes. */
+function usesMesLetraSequence(tipo: string | undefined | null): boolean {
+  if (!tipo) return false;
+  const t = tipo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return t.includes("sinfon") || t.includes("camerata") || t.includes("filarm");
+}
+
 const isOrquestaType = (tipo: string) => {
   if (!tipo) return true;
   if (isComisionType(tipo)) return false;
@@ -613,7 +620,7 @@ async function auditAndApplyNomencladores(
 }
 
 // =================================================================================
-// MES_LETRA (mes_fecha): prefijo MM + letra cronológica por mes calendario (03a, 03b…)
+// MES_LETRA (mes_fecha): Sinfónico/Camerata usan MM + letra cronológica; los demás, solo MM.
 // =================================================================================
 
 async function auditAndApplyMesLetra(
@@ -652,10 +659,14 @@ async function auditAndApplyMesLetra(
 
       const monthIndex = m - 1;
       const monthNum = m.toString().padStart(2, "0");
-      if (monthCounters[monthIndex] === undefined) monthCounters[monthIndex] = 0;
-      const monthLetter = String.fromCharCode(97 + monthCounters[monthIndex]);
-      monthCounters[monthIndex]++;
-      const computed = `${monthNum}${monthLetter}`;
+      let computed = monthNum;
+
+      if (usesMesLetraSequence(p.tipo)) {
+        if (monthCounters[monthIndex] === undefined) monthCounters[monthIndex] = 0;
+        const monthLetter = String.fromCharCode(97 + monthCounters[monthIndex]);
+        monthCounters[monthIndex]++;
+        computed = `${monthNum}${monthLetter}`;
+      }
 
       if (
         computed !== (p.mes_letra || "") &&
@@ -3175,8 +3186,22 @@ serve(async (req) => {
         programas_repertorios(*, repertorio_obras(*, obras(*))),
         giras_fuentes(*)
       `;
+      const batchIds: number[] = Array.isArray(body.programIds)
+        ? body.programIds.map((x: any) => Number(x)).filter((x: number) => Number.isFinite(x))
+        : [];
       let programsToAudit: ProgramRow[];
-      if (!targetProgramId) {
+      if (batchIds.length) {
+        const { data: programas, error: batchError } = await supabase
+          .from("programas")
+          .select("id, fecha_desde, tipo, nomenclador, mes_letra, giras_fuentes(tipo, valor_id, valor_texto)")
+          .in("id", batchIds);
+        if (batchError) {
+          console.error("[SYNC] Error listando lote:", batchError);
+          throw new Error("No se pudieron listar los programas del lote.");
+        }
+        programsToAudit = (programas || []) as ProgramRow[];
+        console.log(`[SYNC] Lote de continuación: ${programsToAudit.length} programa(s).`);
+      } else if (!targetProgramId) {
         const today = new Date().toISOString().slice(0, 10);
         const { data: programas, error: listError } = await supabase
           .from("programas")
@@ -3202,8 +3227,12 @@ serve(async (req) => {
         programsToAudit = [prog as ProgramRow];
       }
 
+      // Los correlativos se calculan sobre todo el año, pero solo se escriben y se
+      // renombran en Drive los programas del alcance pedido (sin ID: de hoy en adelante).
+      const scopeIds = programsToAudit.map((p) => p.id);
+
       const { updated: nomencladorUpdated, updatedIds, list: listAfterAudit } =
-        await auditAndApplyNomencladores(supabase, programsToAudit);
+        await auditAndApplyNomencladores(supabase, programsToAudit, scopeIds);
       if (nomencladorUpdated > 0) {
         console.log(`[SYNC] Nomencladores actualizados en DB: ${nomencladorUpdated}`);
       }
@@ -3211,6 +3240,7 @@ serve(async (req) => {
       const { updated: mesLetraUpdated } = await auditAndApplyMesLetra(
         supabase,
         programsToAudit,
+        scopeIds,
       );
       if (mesLetraUpdated > 0) {
         console.log(`[SYNC] mes_letra actualizados en DB: ${mesLetraUpdated}`);
@@ -3229,18 +3259,38 @@ serve(async (req) => {
         }
         list = fullPrograms || [];
       }
+      // Cada programa dispara varias llamadas a Drive, así que un lote grande agota el
+      // tiempo de la Edge Function. Se sincroniza hasta agotar el presupuesto y los
+      // restantes se devuelven en pendingIds para continuar en una invocación nueva.
+      const budgetMs = Number(body.budgetMs) > 0 ? Number(body.budgetMs) : 60_000;
+      const startedAt = Date.now();
+      const pendingIds: number[] = [];
+      const failedIds: number[] = [];
+      let synced = 0;
       for (const prog of list) {
+        if (Date.now() - startedAt > budgetMs) {
+          pendingIds.push(prog.id);
+          continue;
+        }
         try {
           await syncOneProgram(supabase, drive, prog);
+          synced++;
         } catch (e) {
+          failedIds.push(prog.id);
           console.error(`[SYNC] Error en programa ${prog.id}:`, (e as Error).message);
         }
       }
-      console.log("[SYNC] Sincronización Drive finalizada.");
+      console.log(
+        `[SYNC] Sincronización Drive finalizada. OK: ${synced}, fallidos: ${failedIds.length}, pendientes: ${pendingIds.length}.`,
+      );
       return new Response(
         JSON.stringify({
           success: true,
-          synced: list.length,
+          synced,
+          total: list.length,
+          pending: pendingIds.length,
+          pendingIds,
+          failedIds,
           nomencladorUpdated: nomencladorUpdated ?? 0,
           mesLetraUpdated: mesLetraUpdated ?? 0,
         }),

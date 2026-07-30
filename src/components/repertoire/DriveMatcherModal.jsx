@@ -29,6 +29,7 @@ import {
   getUncoveredDrivePartSuggestions,
   suggestDriveLinksForParts,
 } from "../../utils/drivePartMatcher";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 const capitalize = (s) => s && s[0].toUpperCase() + s.slice(1);
 
@@ -67,6 +68,7 @@ export default function DriveMatcherModal({
   supabase,
   catalogoInstrumentos,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [closing, setClosing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [driveFiles, setDriveFiles] = useState([]);
@@ -477,19 +479,27 @@ export default function DriveMatcherModal({
     );
   };
 
-  const handleDeletePart = (tempId) => {
-    if (!confirm("¿Eliminar?")) return;
+  const handleDeletePart = async (tempId) => {
+    if (!(await confirm({
+      title: "Eliminar particella",
+      message: "¿Eliminar esta particella?",
+      destructive: true,
+    }))) return;
     if (onPartsChange) onPartsChange(parts.filter((p) => p.tempId !== tempId));
   };
 
-  const handleBulkDeleteSelectedParticellas = () => {
+  const handleBulkDeleteSelectedParticellas = async () => {
     const n = selectedPartTempIds.size;
     if (n === 0) return;
     const msg =
       n === 1
         ? "¿Eliminar esta particella?"
         : `¿Eliminar las ${n} particellas seleccionadas?`;
-    if (!window.confirm(msg)) return;
+    if (!(await confirm({
+      title: "Eliminar particellas",
+      message: msg,
+      destructive: true,
+    }))) return;
     const sel = selectedPartTempIds;
     if (onPartsChange)
       onPartsChange(parts.filter((x) => !sel.has(x.tempId)));
@@ -680,6 +690,7 @@ export default function DriveMatcherModal({
 
   return (
     <ModalPortal>
+      {dialog}
       <div className="bg-white w-full max-w-6xl h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
         {/* HEADER */}
         <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-center shrink-0">

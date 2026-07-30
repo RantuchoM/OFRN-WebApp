@@ -22,8 +22,9 @@ import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
 import { ROLES_PRODUCCION, normalize } from "../../utils/giraUtils";
 import { resolveLocalidadResidencia } from "../../utils/integranteDomicilioViaticos";
-import { isPersonEligibleForMealSlot } from "../../utils/mealLogistics";
+import { isPersonEligibleForMealSlot, getMealServiceStyle } from "../../utils/mealLogistics";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import {
   buildSegmentSpecs,
   formatTramoTitle,
@@ -950,6 +951,7 @@ export default function MealsManager({
   filterGrupoIds = [],
   includeGeneralEvents = true,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [loading, setLoading] = useState(false);
   const [grid, setGrid] = useState([]);
   const [catalogs, setCatalogs] = useState({
@@ -1367,9 +1369,11 @@ export default function MealsManager({
       toast.info("No hay comidas guardadas para restablecer.");
       return;
     }
-    const ok = window.confirm(
-      `¿Actualizar el tramo de convocados en ${rowsToUpdate.length} comida(s)? Se conservan aclaraciones de producción (ej. "a bordo", "pausa y merienda").`,
-    );
+    const ok = await confirm({
+      title: "Actualizar comidas",
+      message: `¿Actualizar el tramo de convocados en ${rowsToUpdate.length} comida(s)? Se conservan aclaraciones de producción (ej. "a bordo", "pausa y merienda").`,
+      confirmText: "Actualizar",
+    });
     if (!ok) return;
 
     setResettingNames(true);
@@ -1490,7 +1494,15 @@ export default function MealsManager({
       setGrid((prev) => prev.filter((r) => r.id !== row.id));
       return;
     }
-    if (!confirm("¿Borrar este evento?")) return;
+    if (
+      !(await confirm({
+        title: "Borrar evento",
+        message: "¿Borrar este evento?",
+        destructive: true,
+        confirmText: "Borrar",
+      }))
+    )
+      return;
     setSavingRows((prev) => new Set(prev).add(row.id));
     await supabase.from("eventos").delete().eq("id", row.id);
     refreshGridData();
@@ -1610,6 +1622,7 @@ export default function MealsManager({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 overflow-hidden">
+      {dialog}
       <div className="bg-white p-3 md:p-4 border-b border-slate-200 shadow-sm flex justify-between items-center shrink-0 z-40 relative overflow-visible">
         <div className="flex items-center min-w-0 overflow-visible">
           <div className="flex items-center gap-2 shrink-0">
@@ -1923,7 +1936,7 @@ export default function MealsManager({
                     <td className="px-3 py-3 font-bold border-r border-slate-200 text-slate-700">{format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}</td>
                     <td className="px-3">
                       <div className="flex items-center gap-1">
-                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${row.servicio === "Almuerzo" ? "bg-amber-50 text-amber-700 border-amber-200" : row.servicio === "Cena" ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-slate-100 text-slate-400"}`}>{row.servicio}</span>
+                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${getMealServiceStyle(row.servicio).tag}`}>{row.servicio}</span>
                         {!row.isTemp && (
                           <button
                             type="button"
@@ -2032,21 +2045,7 @@ export default function MealsManager({
             {visibleGrid.map((row) => {
               const eligible = getEligiblePeople(row);
               const isDirty = row.dirty;
-              const tone =
-                row.servicio === "Almuerzo"
-                  ? {
-                      tag: "bg-amber-50 text-amber-700 border-amber-200",
-                      card: "bg-amber-50/25 border-amber-200",
-                    }
-                  : row.servicio === "Cena"
-                    ? {
-                        tag: "bg-indigo-50 text-indigo-700 border-indigo-200",
-                        card: "bg-indigo-50/25 border-indigo-200",
-                      }
-                    : {
-                        tag: "bg-slate-100 text-slate-500 border-slate-200",
-                        card: "bg-slate-50/50 border-slate-200",
-                      };
+              const tone = getMealServiceStyle(row.servicio);
 
               return (
                 <div
@@ -2194,6 +2193,7 @@ export default function MealsManager({
 }
 
 function MobileMealEditor({ row, catalogs, onCancel, onSave }) {
+  const { confirm, dialog } = useConfirmDialog();
   const descEditorRef = useRef(null);
   const initialRef = useRef({
     hora_inicio: row.hora_inicio || "",
@@ -2224,11 +2224,13 @@ function MobileMealEditor({ row, catalogs, onCancel, onSave }) {
     );
   }, [draft]);
 
-  const handleRequestClose = () => {
+  const handleRequestClose = async () => {
     if (hasUnsavedChanges) {
-      const shouldClose = window.confirm(
-        "Hay cambios sin guardar. ¿Deseas cerrar sin guardar?",
-      );
+      const shouldClose = await confirm({
+        title: "Cerrar sin guardar",
+        message: "Hay cambios sin guardar. ¿Deseas cerrar sin guardar?",
+        confirmText: "Cerrar",
+      });
       if (!shouldClose) return;
     }
     onCancel();
@@ -2236,6 +2238,7 @@ function MobileMealEditor({ row, catalogs, onCancel, onSave }) {
 
   return (
     <div className="fixed inset-0 z-[95] bg-black/40 md:hidden flex items-end">
+      {dialog}
       <div className="w-full h-[80vh] bg-white rounded-t-2xl border-t border-slate-200 flex flex-col">
       <div className="shrink-0 p-2 border-b border-slate-200 flex items-center justify-between">
         <div className="text-sm font-black text-slate-700">Editar Comida</div>

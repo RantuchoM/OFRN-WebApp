@@ -100,6 +100,7 @@ import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import EventGruposAssignModal from "../../components/agenda/EventGruposAssignModal";
 
 import { toast } from "sonner";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 export default function GirasTransportesManager({
   supabase,
   gira,
@@ -107,6 +108,7 @@ export default function GirasTransportesManager({
   filterGrupoIds = [],
   includeGeneralEvents = true,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const {
     summary: rawSummary,
     routeRules,
@@ -1235,9 +1237,11 @@ export default function GirasTransportesManager({
       return;
     }
     if (
-      !confirm(
-        `¿Aplicar los grupos del vehículo a las ${events.length} parada(s)? Se reemplazan las etiquetas actuales de cada parada.`,
-      )
+      !(await confirm({
+        title: "Aplicar grupos",
+        message: `¿Aplicar los grupos del vehículo a las ${events.length} parada(s)? Se reemplazan las etiquetas actuales de cada parada.`,
+        confirmText: "Aplicar",
+      }))
     ) {
       return;
     }
@@ -1310,9 +1314,25 @@ export default function GirasTransportesManager({
         `Si continúas, esas reglas serán DESVINCULADAS automáticamente (se pondrán en blanco) para evitar errores.\n\n` +
         `¿Confirmas borrar el evento y limpiar las reglas asociadas?`;
 
-      if (!confirm(message)) return;
+      if (
+        !(await confirm({
+          title: "Borrar evento",
+          message,
+          destructive: true,
+          confirmText: "Borrar",
+        }))
+      )
+        return;
     } else {
-      if (!confirm("¿Borrar parada?")) return;
+      if (
+        !(await confirm({
+          title: "Borrar parada",
+          message: "¿Borrar parada?",
+          destructive: true,
+          confirmText: "Borrar",
+        }))
+      )
+        return;
     }
 
     try {
@@ -1441,9 +1461,13 @@ export default function GirasTransportesManager({
   const handleDeleteBoardingRule = async (personId) => {
     if (!personId || !boardingModal.transportId) return;
     if (
-      !confirm(
-        "¿Eliminar la excepción personalizada y volver a la regla general?",
-      )
+      !(await confirm({
+        title: "Eliminar excepción",
+        message:
+          "¿Eliminar la excepción personalizada y volver a la regla general?",
+        destructive: true,
+        confirmText: "Eliminar",
+      }))
     )
       return;
 
@@ -2006,6 +2030,7 @@ export default function GirasTransportesManager({
 
   return (
     <div className="h-full overflow-y-auto p-3 sm:p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-6xl mx-auto">
+      {dialog}
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-bold text-slate-700 flex items-center gap-2">
           <IconTruck className="text-indigo-600" /> Gestión de Transportes

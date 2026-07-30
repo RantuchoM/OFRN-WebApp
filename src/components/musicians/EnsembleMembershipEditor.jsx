@@ -1,9 +1,13 @@
 import React, { useMemo, useState } from "react";
+import { toast } from "sonner";
 import SearchableSelect from "../ui/SearchableSelect";
+import { BajaDateField, BajaDateModal } from "../ui/BajaDateControls";
 import { IconLayers, IconTrash } from "../ui/Icons";
+import { toIsoDateString } from "../../utils/ensembleMembership";
 
 /**
  * Lista de tramos de membresía a ensambles (fecha_desde / fecha_hasta opcional).
+ * Baja: mismo patrón que EnsemblesView (botón «Cargar baja» + modal Hoy/personalizada).
  */
 export default function EnsembleMembershipEditor({
   rows,
@@ -14,6 +18,8 @@ export default function EnsembleMembershipEditor({
   onCloseRow,
 }) {
   const [pendingEnsId, setPendingEnsId] = useState(null);
+  const [bajaModal, setBajaModal] = useState(null);
+  const [bajaBusy, setBajaBusy] = useState(false);
 
   const optionsForSearch = useMemo(
     () =>
@@ -44,8 +50,34 @@ export default function EnsembleMembershipEditor({
     });
   }, [rows, labelById]);
 
+  const confirmBaja = async (fecha) => {
+    const row = bajaModal?.row;
+    if (!row || !fecha) return;
+    const desde = toIsoDateString(row.fecha_desde);
+    if (desde && fecha < desde) {
+      toast.error("La fecha de baja no puede ser anterior a la fecha de alta.");
+      return;
+    }
+    setBajaBusy(true);
+    try {
+      const ok = await onUpdateRow(row.id, { fecha_hasta: fecha });
+      if (ok !== false) setBajaModal(null);
+    } finally {
+      setBajaBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
+      <BajaDateModal
+        isOpen={!!bajaModal}
+        subjectLabel={bajaModal?.label}
+        description="Elegí la fecha de baja del ensamble:"
+        busy={bajaBusy}
+        onClose={() => setBajaModal(null)}
+        onConfirm={confirmBaja}
+      />
+
       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block ml-1">
         Ensambles (desde / hasta)
       </label>
@@ -65,10 +97,10 @@ export default function EnsembleMembershipEditor({
               String(row.fecha_desde || "").slice(0, 10);
             const hasta =
               row.fecha_hasta == null
-                ? ""
+                ? null
                 : row.fecha_hasta?.slice?.(0, 10) ||
-                  String(row.fecha_hasta).slice(0, 10);
-            const abierto = row.fecha_hasta == null || hasta === "";
+                  String(row.fecha_hasta).slice(0, 10) ||
+                  null;
             return (
               <div
                 key={row.id}
@@ -99,29 +131,24 @@ export default function EnsembleMembershipEditor({
                       }
                     />
                   </div>
-                  <div>
-                    <div className="text-[9px] uppercase font-bold text-slate-400 mb-0.5">
-                      Hasta
-                    </div>
-                    <input
-                      type="date"
-                      className="border border-slate-200 rounded-lg px-2 py-1 text-xs"
-                      value={hasta}
-                      placeholder="—"
-                      onChange={(e) =>
-                        onUpdateRow(row.id, {
-                          fecha_hasta: e.target.value ? e.target.value : null,
-                        })
+                  <BajaDateField
+                    value={hasta}
+                    wrapperClassName="w-[124px] shrink-0"
+                    dateInputClassName="border border-slate-200 bg-white text-xs py-0.5 pl-6 min-h-[2rem]"
+                    onOpenBajaModal={() => setBajaModal({ row, label })}
+                    onChange={(iso) => {
+                      if (iso != null && desde && iso < desde) {
+                        toast.error(
+                          "La fecha de baja no puede ser anterior a la fecha de alta.",
+                        );
+                        return;
                       }
-                    />
-                  </div>
+                      void onUpdateRow(row.id, { fecha_hasta: iso });
+                    }}
+                  />
                   <button
                     type="button"
-                    title={
-                      abierto
-                        ? "Cerrar membresía (hasta hoy)"
-                        : "Eliminar este tramo"
-                    }
+                    title="Eliminar este tramo de membresía"
                     onClick={() => onCloseRow(row)}
                     className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
                   >

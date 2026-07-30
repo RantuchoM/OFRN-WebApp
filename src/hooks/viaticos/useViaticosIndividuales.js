@@ -14,6 +14,7 @@ import {
 } from "../../utils/viaticosParadasIntegrante";
 import { calculateDaysDiff } from "../../utils/viaticosDiasComputables";
 import { calcValorDiarioProporcional } from "../../utils/viaticosValorDiarioProporcional";
+import { useConfirmDialog } from "../useConfirmDialog";
 
 export { calculateDaysDiff, explainViaticosDiasCalculation } from "../../utils/viaticosDiasComputables";
 
@@ -102,6 +103,7 @@ export function useViaticosIndividuales(
   logisticsSummary = [],
   vigencias = [],
 ) {
+  const { confirm, dialog } = useConfirmDialog();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -360,7 +362,11 @@ export function useViaticosIndividuales(
   };
 
   const deleteRow = async (id) => {
-    if (!confirm(`¿Eliminar de la lista de viáticos?`)) return;
+    if (!(await confirm({
+      title: "Eliminar viático",
+      message: "¿Eliminar de la lista de viáticos?",
+      destructive: true,
+    }))) return;
     setDeletingRows((prev) => new Set(prev).add(id));
     try {
       await supabase.from("giras_viaticos_detalle").delete().eq("id", id);
@@ -800,6 +806,7 @@ export function useViaticosIndividuales(
     splitViaticoRow,
     mergeViaticoTramos,
     restoreViaticoRow,
+    confirmDialog: dialog,
     feedback: { updatingFields, successFields, errorFields, deletingRows },
   };
 }

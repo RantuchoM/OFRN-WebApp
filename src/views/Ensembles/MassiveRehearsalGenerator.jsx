@@ -8,8 +8,10 @@ import { IconCalendar, IconCheck, IconLoader } from "../../components/ui/Icons";
 import { eachDayOfInterval, getDay, format } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner"; // Usamos sonner para feedback consistente
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCancel, myEnsembles = [] }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [loading, setLoading] = useState(false);
   const [ensamblesOptions, setEnsamblesOptions] = useState([]);
   const [locationsOptions, setLocationsOptions] = useState([]);
@@ -123,7 +125,10 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
           return toast.error("Debes incluir al menos un ensamble que coordines para crear el evento.");
       }
 
-      if (!confirm(`¿Generar ${previewDates.length} ensayos?`)) return;
+      if (!(await confirm({
+        title: "Generar ensayos",
+        message: `¿Generar ${previewDates.length} ensayos?`,
+      }))) return;
 
       setLoading(true);
       try {
@@ -175,6 +180,8 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
   ];
 
   return (
+    <>
+    {dialog}
     <div className="bg-white p-6 rounded-lg shadow-xl border border-slate-200 w-full max-w-3xl mx-auto max-h-[90vh] overflow-y-auto">
       <div className="flex justify-between items-center mb-6 border-b pb-4">
         <div>
@@ -295,5 +302,6 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
           </div>
       </div>
     </div>
+    </>
   );
 }

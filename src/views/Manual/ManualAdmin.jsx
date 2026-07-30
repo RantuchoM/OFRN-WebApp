@@ -40,6 +40,7 @@ import {
   IconLock,
   IconLockOpen,
 } from "../../components/ui/Icons";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 // --- COMPONENTE DE ÍTEM DEL ÁRBOL ---
 const TreeItem = ({
@@ -166,6 +167,7 @@ const EDITOR_MODULES = {
 };
 
 export default function ManualAdmin({ supabase }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -540,7 +542,12 @@ export default function ManualAdmin({ supabase }) {
   };
 
   const handleDelete = async () => {
-    if (!formData.id || !confirm("¿Borrar sección y sus hijos?")) return;
+    if (!formData.id) return;
+    if (!(await confirm({
+      title: "Eliminar sección",
+      message: "¿Borrar sección y sus hijos?",
+      destructive: true,
+    }))) return;
     try {
       await manualService.delete(formData.id);
       setItems((prev) => prev.filter((i) => i.id !== formData.id));
@@ -556,6 +563,8 @@ export default function ManualAdmin({ supabase }) {
   );
 
   return (
+    <>
+    {dialog}
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
@@ -802,5 +811,6 @@ export default function ManualAdmin({ supabase }) {
         </DragOverlay>
       </div>
     </DndContext>
+    </>
   );
 }

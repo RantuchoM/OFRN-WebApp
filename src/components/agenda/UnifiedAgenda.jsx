@@ -90,6 +90,7 @@ import EventTranspositionModal from "./EventTranspositionModal";
 import EventHistoryModal from "../giras/EventHistoryModal";
 import ConfirmModal from "../ui/ConfirmModal";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import RehearsalCheckInBlock from "./RehearsalCheckInBlock";
 import { useEnsayoCheckin } from "../../hooks/useEnsayoCheckin";
 import { isIntegranteConvocadoAEnsayo } from "../../utils/ensayoCheckinBanner";
@@ -294,6 +295,7 @@ export default function UnifiedAgenda({
   setIncludeGeneralEvents: setIncludeGeneralEventsProp = null,
   hideGruposToolbarFilter = false,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const {
     user,
     isEditor,
@@ -1382,10 +1384,11 @@ export default function UnifiedAgenda({
 
   const handleDuplicateEvent = async () => {
     if (!editFormData.id) return;
-    const confirm = window.confirm(
-      "¿Deseas duplicar este evento? Se abrirá la copia para editar.",
-    );
-    if (!confirm) return;
+    const confirmed = await confirm({
+      title: "Duplicar evento",
+      message: "¿Deseas duplicar este evento? Se abrirá la copia para editar.",
+    });
+    if (!confirmed) return;
 
     setLoading(true);
     try {
@@ -1933,6 +1936,7 @@ export default function UnifiedAgenda({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in relative">
+      {dialog}
       {isOfflineMode && (
         <div className="bg-amber-100 border-b border-amber-200 px-4 py-1 text-[10px] sm:text-xs font-bold text-amber-800 text-center flex items-center justify-center gap-2 sticky top-0 z-40">
           <IconAlertTriangle size={14} />

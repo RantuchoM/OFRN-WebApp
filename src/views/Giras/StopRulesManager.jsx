@@ -20,6 +20,7 @@ import {
 } from "../../hooks/useLogistics";
 import { toast } from "sonner";
 import SearchableSelect from "../../components/ui/SearchableSelect";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 /** Opciones de categoría logística (valor guardado en reglas = `id`). */
 const CATEGORIA_LOGISTICA_OPTIONS = [
@@ -105,6 +106,7 @@ export default function StopRulesManager({
   admissionRules = [],
   onRefresh,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [existingRules, setExistingRules] = useState([]);
   const [transportAdmissionRules, setTransportAdmissionRules] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -350,12 +352,15 @@ export default function StopRulesManager({
 
         if (conflict) {
           const actionLabel = type === "up" ? "subida" : "bajada";
-          const confirmReplace = window.confirm(
-            `Ya existe una ${actionLabel.toUpperCase()} definida para este alcance en otro evento.\n\n` +
+          const confirmReplace = await confirm({
+            title: "Reemplazar parada",
+            message:
+              `Ya existe una ${actionLabel.toUpperCase()} definida para este alcance en otro evento.\n\n` +
               `¿Querés reemplazarla por esta parada?\n\n` +
               `Aceptar: reemplazar la ${actionLabel} anterior.\n` +
               `Cancelar: dejar todo como está para este objetivo.`,
-          );
+            confirmText: "Reemplazar",
+          });
 
           if (!confirmReplace) {
             continue;
@@ -456,7 +461,15 @@ export default function StopRulesManager({
   const handleDeleteRule = async (ruleId) => {
     // Aquí solo "desvinculamos" el evento de la regla, o borramos la regla si solo servía para esto.
     // Para simplificar UX, borramos la regla de la tabla de rutas.
-    if (!confirm("¿Eliminar esta definición de parada?")) return;
+    if (
+      !(await confirm({
+        title: "Eliminar definición",
+        message: "¿Eliminar esta definición de parada?",
+        destructive: true,
+        confirmText: "Eliminar",
+      }))
+    )
+      return;
     try {
       await supabase.from("giras_logistica_rutas").delete().eq("id", ruleId);
       fetchRules();
@@ -488,10 +501,13 @@ export default function StopRulesManager({
         .map((r) => `• ${r.alcance} — ${resolveTargetName(r)}`)
         .join("\n");
 
-      const confirmed = window.confirm(
-        `Se crearán ${pending.length} regla(s) de ADMISIÓN para este transporte:\n\n${lines}\n\n` +
+      const confirmed = await confirm({
+        title: "Crear admisiones",
+        message:
+          `Se crearán ${pending.length} regla(s) de ADMISIÓN para este transporte:\n\n${lines}\n\n` +
           "¿Deseás continuar?",
-      );
+        confirmText: "Crear",
+      });
       if (!confirmed) return;
 
       setLoading(true);
@@ -843,6 +859,7 @@ export default function StopRulesManager({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 backdrop-blur-sm">
+      {dialog}
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] animate-in zoom-in-95">
         {/* Header */}
         <div

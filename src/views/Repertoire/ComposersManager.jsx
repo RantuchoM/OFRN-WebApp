@@ -6,6 +6,7 @@ import {
 } from '../../components/ui/Icons';
 import DateInput from '../../components/ui/DateInput';
 import { normalizeForSearch } from '../../utils/sanitize';
+import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 // --- 1. SUB-COMPONENTE: SELECTOR CON BÚSQUEDA ---
 const SearchableSelect = ({ label, options, value, onChange, placeholder, colorClass, iconColorClass }) => {
@@ -94,6 +95,7 @@ const SearchableSelect = ({ label, options, value, onChange, placeholder, colorC
 
 // --- 2. MODAL DE FUSIÓN (Merge) ---
 const MergeComposersModal = ({ isOpen, onClose, composers, supabase, onMergeSuccess }) => {
+    const { confirm, dialog } = useConfirmDialog();
     const [sourceId, setSourceId] = useState("");
     const [targetId, setTargetId] = useState("");
     const [merging, setMerging] = useState(false);
@@ -107,7 +109,11 @@ const MergeComposersModal = ({ isOpen, onClose, composers, supabase, onMergeSucc
         if (!sourceId || !targetId) return alert("Selecciona ambos compositores.");
         if (sourceId === targetId) return alert("No puedes fusionar un compositor consigo mismo.");
 
-        if (!confirm("⚠️ ESTA ACCIÓN ES IRREVERSIBLE.\n\nSe eliminará el compositor duplicado y todas sus obras pasarán al compositor destino.\n\n¿Estás seguro?")) return;
+        if (!(await confirm({
+            title: "Fusionar compositores",
+            message: "⚠️ ESTA ACCIÓN ES IRREVERSIBLE.\n\nSe eliminará el compositor duplicado y todas sus obras pasarán al compositor destino.\n\n¿Estás seguro?",
+            destructive: true,
+        }))) return;
 
         setMerging(true);
         try {
@@ -169,6 +175,8 @@ const MergeComposersModal = ({ isOpen, onClose, composers, supabase, onMergeSucc
     };
 
     return (
+        <>
+        {dialog}
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
             <div className="bg-white w-full max-w-md rounded-xl shadow-2xl p-6 border border-slate-200 flex flex-col max-h-[90vh]">
                 <div className="flex justify-between items-center mb-4 shrink-0">
@@ -223,6 +231,7 @@ const MergeComposersModal = ({ isOpen, onClose, composers, supabase, onMergeSucc
                 </div>
             </div>
         </div>
+        </>
     );
 };
 
@@ -343,6 +352,7 @@ const ComposerDetail = ({
 
 // --- 4. COMPONENTE PRINCIPAL ---
 export default function ComposersManager({ supabase, onClose, initialSelectedId = null, formOnly = false }) {
+    const { confirm, dialog } = useConfirmDialog();
     const [composers, setComposers] = useState([]);
     const [paises, setPaises] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -441,7 +451,11 @@ export default function ComposersManager({ supabase, onClose, initialSelectedId 
 
     const handleDelete = async () => {
         if (!selectedId) return;
-        if (!confirm("¿Eliminar compositor? Esto podría fallar si tiene obras vinculadas.")) return;
+        if (!(await confirm({
+            title: "Eliminar compositor",
+            message: "¿Eliminar compositor? Esto podría fallar si tiene obras vinculadas.",
+            destructive: true,
+        }))) return;
         
         setLoading(true);
         const { error } = await supabase.from('compositores').delete().eq('id', selectedId);
@@ -478,6 +492,8 @@ export default function ComposersManager({ supabase, onClose, initialSelectedId 
     );
 
     return (
+        <>
+        {dialog}
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
             <div className={`bg-white w-full ${formOnly ? "max-w-3xl h-auto max-h-[85vh]" : "max-w-6xl h-[85vh]"} rounded-2xl shadow-2xl flex overflow-hidden border border-slate-200`}>
                 
@@ -596,5 +612,6 @@ export default function ComposersManager({ supabase, onClose, initialSelectedId 
                 />
             )}
         </div>
+        </>
     );
 }

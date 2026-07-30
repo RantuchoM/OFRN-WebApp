@@ -16,6 +16,7 @@ import ScrnViaticosOpcionesFields, {
   EMPTY_VIATICOS_OPCIONES,
   normalizeViaticosOpciones,
 } from "./ScrnViaticosOpcionesFields";
+import { useConfirmDialog } from "../../../hooks/useConfirmDialog";
 
 const initialFormState = {
   tramo: "ambos",
@@ -58,6 +59,7 @@ export default function SolicitudModal({
   onSubmitted,
 }) {
   const esAdmin = Boolean(profile?.es_admin);
+  const { confirm, dialog } = useConfirmDialog();
   const [form, setForm] = useState(initialFormState);
   const [extra, setExtra] = useState([]);
   const [draftManual, setDraftManual] = useState({ nombre: "", apellido: "", email: "" });
@@ -265,7 +267,15 @@ export default function SolicitudModal({
 
   const cancelarReserva = async () => {
     if (!existingReserva?.id) return;
-    if (!window.confirm("¿Cancelar tu solicitud/carga en este recorrido?")) return;
+    if (
+      !(await confirm({
+        title: "Cancelar solicitud",
+        message: "¿Cancelar tu solicitud/carga en este recorrido?",
+        destructive: true,
+        confirmText: "Cancelar solicitud",
+      }))
+    )
+      return;
     setSaving(true);
     setError("");
     const { error: cancelErr } = await supabase
@@ -317,7 +327,15 @@ export default function SolicitudModal({
 
   const cancelarPaquete = async () => {
     if (!existingPaquete?.id) return;
-    if (!window.confirm("¿Cancelar tu paquete en este recorrido?")) return;
+    if (
+      !(await confirm({
+        title: "Cancelar paquete",
+        message: "¿Cancelar tu paquete en este recorrido?",
+        destructive: true,
+        confirmText: "Cancelar paquete",
+      }))
+    )
+      return;
     setSaving(true);
     setError("");
     const { error: cancelErr } = await supabase
@@ -372,7 +390,7 @@ export default function SolicitudModal({
     ? filasNuevas.length > 0
     : extra.length > 0;
 
-  if (!isOpen || !viaje) return null;
+  if (!isOpen || !viaje) return dialog;
 
   const setField = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
@@ -640,7 +658,10 @@ export default function SolicitudModal({
     onClose?.();
   };
 
-  return createPortal(
+  return (
+    <>
+      {dialog}
+      {createPortal(
     <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
@@ -1103,5 +1124,7 @@ export default function SolicitudModal({
       </div>
     </div>,
     document.body,
+  )}
+    </>
   );
 }

@@ -17,6 +17,7 @@ import { useAuth } from "../../context/AuthContext";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { generateSeatingPdf } from "../../utils/seatingPdfExporter"; // <--- IMPORTAR AQUÍ
 import ConciertosDifusionPanel from "../../components/difusion/ConciertosDifusionPanel";
 import MusiciansListModal from "../../components/difusion/MusiciansListModal";
@@ -77,6 +78,7 @@ const formatHeaderDates = (events) => {
 
 // --- COMPONENTE: GESTOR DE LOGOS GENERALES ---
 const GeneralLogosManager = ({ supabase }) => {
+  const { confirm, dialog } = useConfirmDialog();
   const [logos, setLogos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newLogo, setNewLogo] = useState({ nombre: "", url: "" });
@@ -140,7 +142,15 @@ const GeneralLogosManager = ({ supabase }) => {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm("¿Eliminar este logo?")) return;
+    if (
+      !(await confirm({
+        title: "Eliminar logo",
+        message: "¿Eliminar este logo?",
+        destructive: true,
+        confirmText: "Eliminar",
+      }))
+    )
+      return;
     const { error } = await supabase
       .from("logos_generales")
       .delete()
@@ -151,6 +161,7 @@ const GeneralLogosManager = ({ supabase }) => {
 
   return (
     <div className="mb-8 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+      {dialog}
       <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
         <IconLink size={14} /> Logos Generales Disponibles
       </h4>

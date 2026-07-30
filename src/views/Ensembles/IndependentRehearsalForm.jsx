@@ -31,6 +31,7 @@ import {
   setEventoGrupos,
   GIRA_GRUPO_DEFAULT_COLORS,
 } from "../../services/giraGruposService";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 function mapLocationsOptions(data) {
   return (data || []).map((l) => ({
@@ -179,6 +180,7 @@ export default function IndependentRehearsalForm({
   activeMemberIds = null,
 }) {
   const { isEditor, isManagement } = useAuth();
+  const { confirm, dialog } = useConfirmDialog();
   const [loading, setLoading] = useState(false);
   const [staticLoading, setStaticLoading] = useState(
     () =>
@@ -466,9 +468,12 @@ export default function IndependentRehearsalForm({
   const handleDelete = async () => {
     if (!initialData) return;
     if (
-      !confirm(
-        "¿Marcar este ensayo como eliminado? Se ocultará de la vista activa y se eliminará definitivamente en 24 horas.",
-      )
+      !(await confirm({
+        title: "Eliminar ensayo",
+        message:
+          "¿Marcar este ensayo como eliminado? Se ocultará de la vista activa y se eliminará definitivamente en 24 horas.",
+        destructive: true,
+      }))
     )
       return;
 
@@ -633,6 +638,7 @@ export default function IndependentRehearsalForm({
 
   return (
     <>
+      {dialog}
       <div className="bg-white p-4 md:p-5 rounded-lg shadow-lg border border-slate-200 w-full max-w-2xl mx-auto max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-3 md:mb-4 border-b pb-2">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">

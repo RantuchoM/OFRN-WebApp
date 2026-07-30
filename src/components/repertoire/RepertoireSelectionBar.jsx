@@ -20,6 +20,7 @@ import { exportRepertoireSelectionPdf } from "../../utils/repertoireSelectionPdf
 import { getRepertoireSelectionPdfTitle, getRepertoireSelectionPdfFileName } from "../../utils/repertoireSelectionStorage";
 import { syncArchivoSelectionToDrive } from "../../services/repertoireSelectionDriveService";
 import { sortSelectionIds } from "../../utils/repertoireSelectionSort";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 const stripHtml = (html) =>
   String(html || "")
@@ -46,6 +47,7 @@ export default function RepertoireSelectionBar({
   variant = "bar",
   mobileExtraActions = null,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const [expanded, setExpanded] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
@@ -60,6 +62,15 @@ export default function RepertoireSelectionBar({
   const hasSelection = orderedIds.length > 0;
 
   const pdfTitle = getRepertoireSelectionPdfTitle(selectionName);
+
+  const handleClearSelection = async () => {
+    if (!(await confirm({
+      title: "Vaciar selección",
+      message: "¿Vaciar toda la selección?",
+      destructive: true,
+    }))) return;
+    onClear();
+  };
 
   const applySortCriterion = (criterion) => {
     if (!hasSelection) return;
@@ -147,6 +158,7 @@ export default function RepertoireSelectionBar({
   if (variant === "mobile-menu") {
     return (
       <>
+        {dialog}
         <div className="relative shrink-0" ref={mobileMenuRef}>
           <button
             type="button"
@@ -271,9 +283,7 @@ export default function RepertoireSelectionBar({
                     <button
                       type="button"
                       onClick={() =>
-                        openAndCloseMenu(() => {
-                          if (confirm("¿Vaciar toda la selección?")) onClear();
-                        })
+                        openAndCloseMenu(handleClearSelection)
                       }
                       className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-rose-700 hover:bg-rose-50"
                     >
@@ -338,6 +348,7 @@ export default function RepertoireSelectionBar({
 
   return (
     <>
+      {dialog}
       <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 shrink-0 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {hasSelection ? (
@@ -453,9 +464,7 @@ export default function RepertoireSelectionBar({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (confirm("¿Vaciar toda la selección?")) onClear();
-                  }}
+                  onClick={handleClearSelection}
                   className="text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 flex items-center gap-1"
                   title="Vaciar selección"
                 >

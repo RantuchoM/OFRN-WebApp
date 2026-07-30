@@ -10,6 +10,7 @@ import LocationMultiSelect from "../../components/filters/LocationMultiSelect";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import {
   addCorte,
   removeCorte,
@@ -397,6 +398,7 @@ export default function GiraTramosEditor({
   saveFlushRef,
   embedded = false,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const gira = { id: giraId, ...formData };
   const {
     cortes,
@@ -470,7 +472,15 @@ export default function GiraTramosEditor({
   };
 
   const handleRemoveCorte = async (corteId) => {
-    if (!confirm("¿Eliminar este corte? Se unirán las localías adyacentes."))
+    if (
+      !(await confirm({
+        title: "Eliminar corte",
+        message:
+          "¿Eliminar este corte? Se unirán las localías adyacentes.",
+        destructive: true,
+        confirmText: "Eliminar",
+      }))
+    )
       return;
     setBusy(true);
     try {
@@ -618,6 +628,7 @@ export default function GiraTramosEditor({
         embedded ? "" : "col-span-12 pt-2 border-t border-slate-100 mt-1"
       }
     >
+      {dialog}
       <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
         <label className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
           <IconScissors size={12} className="text-indigo-500" />

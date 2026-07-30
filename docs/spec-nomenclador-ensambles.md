@@ -24,6 +24,7 @@ Centralizar en el backend la generación y actualización de nomencladores de gi
 ### Ensambles
 
 - Programa con `tipo = "Ensamble"` y fuentes en `giras_fuentes` con `tipo = 'ENSAMBLE'`.
+- En `mes_letra` reciben únicamente el mes en formato `MM` (p. ej. `09`): no llevan letra ni consumen una posición del correlativo mensual.
 - La **sigla** del ensamble se toma de forma directa:
   - Si la tabla `ensambles` tiene columna `sigla`, se usa.
   - Si no, se deriva del nombre (iniciales de cada palabra, p. ej. "Viento Sur" → VS, "Ensamble de Cámara" → EdC).
@@ -41,12 +42,20 @@ Centralizar en el backend la generación y actualización de nomencladores de gi
 - Al sincronizar, si tenían valores auto-asignados, se limpian (`nomenclador` y `mes_letra` vacíos).
 - No desplazan el correlativo de otros programas del mismo mes ni del mismo organismo.
 
+### Correlativo mensual (`mes_letra`)
+
+- Solo los programas de tipo **Sinfónico** y **Camerata Filarmónica** usan `MM` + letra cronológica (`09a`, `09b`, etc.).
+- El correlativo se calcula ignorando Ensamble y los demás tipos, por lo que estos no desplazan las letras de Sinfónico/Camerata.
+- Ensamble y otros tipos no secuenciales conservan únicamente `MM`.
+- Comisión continúa fuera del nomenclador mensual y mantiene `mes_letra` vacío.
+
 ## Automatización
 
 - Al ejecutar la acción `sync_program` (con o sin ID), el backend:
   1. **Audita** el nomenclador: calcula el nomenclador correcto según las reglas anteriores.
   2. **Persiste**: si el nomenclador calculado es distinto al guardado en la tabla `programas`, se actualiza en Supabase.
   3. **Drive**: se llama a `syncOneProgram` para que la carpeta en Google Drive refleje el nombre actualizado (incluyendo el nomenclador en el nombre de la carpeta).
+- Sin ID, el alcance de escritura es solo programas vigentes con `fecha_hasta >= hoy`: el cálculo usa todo el año fiscal, pero los programas pasados no se reescriben ni se renombran en Drive. Detalle del procesamiento por lotes en `docs/spec-drive-granular-sync.md`.
 
 ## Componentes
 
@@ -56,5 +65,5 @@ Centralizar en el backend la generación y actualización de nomencladores de gi
 ## Estado
 
 - [x] Nomenclador automático (orquestas + ensambles) en `manage-drive`.
-- [x] `mes_letra` / mes_fecha (`MM` + letra por mes) en `sync_program` y `sync_program_metadata`.
+- [x] `mes_letra` / mes_fecha en `sync_program` y `sync_program_metadata`: letra mensual solo para Sinfónico y Camerata; Ensamble y otros tipos usan `MM`.
 - [x] Exclusión de tipo **Comisión** en correlativos de nomenclador y mes_letra.

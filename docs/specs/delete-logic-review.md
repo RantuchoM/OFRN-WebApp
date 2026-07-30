@@ -111,3 +111,7 @@ No fue necesario actualizar ninguna View en SQL: la Edge Function `calendar-expo
 
 - Schema: `supabase/schema.sql` (tabla `eventos`, columnas `is_deleted`, `deleted_at`).
 - Validación de transporte al eliminar: `docs/specs/delete-transport-validation.md`.
+
+## 8. Confirmaciones UI
+
+Las confirmaciones nativas (`confirm` / `window.confirm`) de eliminación de ensayos y del resto de la app se migraron a `useConfirmDialog`. Detalle: `docs/specs/confirm-dialog-migration.md`.

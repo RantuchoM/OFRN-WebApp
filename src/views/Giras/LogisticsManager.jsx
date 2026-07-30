@@ -40,6 +40,11 @@ import {
   personIsLocalAtHit,
 } from "../../utils/giraUtils";
 import { toInstantKey } from "../../utils/giraTramos";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import {
+  MEAL_TYPE_ID_TO_SERVICE,
+  getMealServiceStyle,
+} from "../../utils/mealLogistics";
 import EventForm from "../../components/forms/EventForm";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 
@@ -314,28 +319,14 @@ const getEventTypeTheme = (idTipoEvento) => {
       icon: "text-orange-300",
     };
   }
-  if (id === 8) {
+  const mealService = MEAL_TYPE_ID_TO_SERVICE[id];
+  if (mealService) {
+    const style = getMealServiceStyle(mealService);
     return {
-      chip: "bg-amber-50 text-amber-700 border-amber-200",
-      row: "hover:bg-amber-50/70",
-      date: "text-amber-700",
-      icon: "text-amber-300",
-    };
-  }
-  if (id === 10) {
-    return {
-      chip: "bg-indigo-50 text-indigo-700 border-indigo-200",
-      row: "hover:bg-indigo-50/70",
-      date: "text-indigo-700",
-      icon: "text-indigo-300",
-    };
-  }
-  if ([7, 9].includes(id)) {
-    return {
-      chip: "bg-slate-100 text-slate-600 border-slate-200",
-      row: "hover:bg-slate-50",
-      date: "text-slate-700",
-      icon: "text-slate-300",
+      chip: style.tag,
+      row: style.rowHover,
+      date: style.date,
+      icon: style.icon,
     };
   }
   return {
@@ -382,6 +373,7 @@ const MultiSelectCell = ({
   placeholder,
   colorClass,
 }) => {
+  const { confirm, dialog } = useConfirmDialog();
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const containerRef = useRef(null);
@@ -549,7 +541,15 @@ const EventCellEditor = ({
 
   const handleUnlink = async (e) => {
     e.stopPropagation();
-    if (!confirm("¿Desvincular evento de esta regla?")) return;
+    if (
+      !(await confirm({
+        title: "Desvincular evento",
+        message: "¿Desvincular evento de esta regla?",
+        destructive: true,
+        confirmText: "Desvincular",
+      }))
+    )
+      return;
 
     setIsProcessing(true);
     try {
@@ -568,6 +568,7 @@ const EventCellEditor = ({
   if (event) {
     return (
       <div className="group relative bg-white border border-slate-200 rounded-lg p-2 flex flex-col justify-center shadow-sm w-full min-h-[56px]">
+        {dialog}
         <div className="flex justify-between items-center mb-1 shrink-0">
           <span
             className={`text-[6px] font-black uppercase px-1 rounded ${field.includes("comida") ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700"}`}
@@ -768,6 +769,7 @@ export default function LogisticsManager({
   activeTramoIdx = 0,
   onLogisticsChange,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const {
     summary,
     roster,
@@ -1238,6 +1240,7 @@ export default function LogisticsManager({
 
   return (
     <div className="flex flex-col h-full bg-slate-200 animate-in fade-in font-sans overflow-hidden">
+      {dialog}
       <div className="flex-1 overflow-auto p-4 space-y-8">
         {/* HEADER */}
         <div className="bg-white border-2 border-slate-300 rounded-xl shadow-2xl overflow-hidden overflow-x-auto">
@@ -1535,13 +1538,20 @@ export default function LogisticsManager({
                   <td className="p-1 text-center w-10 shrink-0">
                     <button
                       onClick={async () => {
-                        if (confirm("¿Eliminar bloque de reglas?")) {
-                          await supabase
-                            .from("giras_logistica_reglas")
-                            .delete()
-                            .eq("id", row.id);
-                          refresh();
-                        }
+                        if (
+                          !(await confirm({
+                            title: "Eliminar bloque",
+                            message: "¿Eliminar bloque de reglas?",
+                            destructive: true,
+                            confirmText: "Eliminar",
+                          }))
+                        )
+                          return;
+                        await supabase
+                          .from("giras_logistica_reglas")
+                          .delete()
+                          .eq("id", row.id);
+                        refresh();
                       }}
                       className="mx-auto w-7 h-7 flex items-center justify-center rounded-full text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all border border-transparent hover:border-red-100"
                     >

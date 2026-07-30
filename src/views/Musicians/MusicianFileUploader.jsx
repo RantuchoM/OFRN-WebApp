@@ -10,12 +10,14 @@ import {
 } from "../../components/ui/Icons";
 import { useMusicianFormContext } from "./MusicianFormContext";
 import { parseSupabasePublicStorageUrl } from "../../utils/supabaseStorage";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 /**
  * Uploader con drag & drop para documentos del músico (DNI, CUIL, CBU, firma, etc.).
  * Usa MusicianFormContext para fieldStatuses, uploadToSupabase, deleteOldFile, handleStartCrop, updateField, handleClipboardClick.
  */
 export default function MusicianFileUploader({ label, field, value }) {
+  const { confirm, dialog } = useConfirmDialog();
   const {
     fieldStatuses,
     uploadToSupabase,
@@ -122,6 +124,8 @@ export default function MusicianFileUploader({ label, field, value }) {
   };
 
   return (
+    <>
+    {dialog}
     <div className="flex flex-col gap-2">
       <label className="text-[9px] font-black uppercase text-slate-400 ml-1 tracking-tighter">
         {label}
@@ -195,7 +199,11 @@ export default function MusicianFileUploader({ label, field, value }) {
               <button
                 type="button"
                 onClick={async () => {
-                  if (confirm("¿Eliminar?")) {
+                  if (await confirm({
+                    title: "Eliminar archivo",
+                    message: "¿Eliminar este archivo?",
+                    destructive: true,
+                  })) {
                     await deleteOldFile(value, bucket);
                     updateField(field, "");
                   }
@@ -248,5 +256,6 @@ export default function MusicianFileUploader({ label, field, value }) {
         )}
       </div>
     </div>
+    </>
   );
 }

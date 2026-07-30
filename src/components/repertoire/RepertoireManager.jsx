@@ -68,6 +68,7 @@ import {
   RepertorioPlaceholderDesktopCells,
 } from "./RepertorioPlaceholderRows";
 import RepertorioPlaceholderManageModal from "./RepertorioPlaceholderManageModal";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 const ModalPortal = ({ children, onClose = null, closeOnBackdrop = false }) => {
   useEffect(() => {
     if (!onClose) return undefined;
@@ -1598,6 +1599,7 @@ export default function RepertoireManager({
   onSyncArco,
 }) {
   const { user, isEditor: isGlobalEditor, isAdmin } = useAuth();
+  const { confirm, dialog } = useConfirmDialog();
 
   const isEditor = readOnly !== undefined ? !readOnly : isGlobalEditor;
   // Notas internas (post-it) visibles para quien puede editar en general, aunque la vista esté en readOnly
@@ -2186,9 +2188,11 @@ export default function RepertoireManager({
   const removePlaceholder = async (itemId) => {
     if (!isEditor) return;
     if (
-      !confirm(
-        "¿Eliminar esta reserva de planificación? Se borrará directamente del programa.",
-      )
+      !(await confirm({
+        title: "Eliminar reserva",
+        message: "¿Eliminar esta reserva de planificación? Se borrará directamente del programa.",
+        destructive: true,
+      }))
     ) {
       return;
     }
@@ -2214,7 +2218,11 @@ export default function RepertoireManager({
       return;
     }
 
-    if (!confirm("¿Eliminar esta obra del bloque de repertorio?")) return;
+    if (!(await confirm({
+      title: "Eliminar obra",
+      message: "¿Eliminar esta obra del bloque de repertorio?",
+      destructive: true,
+    }))) return;
 
     // Buscar la obra para obtener su id (la EF resuelve el nombre desde link_drive)
     let workObraId = null;
@@ -2264,9 +2272,11 @@ export default function RepertoireManager({
 
   const deleteRepertoireBlock = async (id) => {
     if (
-      !confirm(
-        "¿Eliminar bloque? Se borrarán las obras del bloque y su carpeta en Drive.",
-      )
+      !(await confirm({
+        title: "Eliminar bloque",
+        message: "¿Eliminar bloque? Se borrarán las obras del bloque y su carpeta en Drive.",
+        destructive: true,
+      }))
     ) {
       return;
     }
@@ -2751,6 +2761,7 @@ export default function RepertoireManager({
 
   return (
     <div className={containerClasses(isCompact)}>
+      {dialog}
       {savingPosition && (
         <div className="sticky top-0 z-20 flex items-center justify-center py-2 bg-amber-100 border-b border-amber-200 text-amber-800 text-sm font-bold shadow-sm">
           <IconLoader size={16} className="animate-spin mr-2" />

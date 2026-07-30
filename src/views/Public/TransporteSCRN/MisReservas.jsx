@@ -34,6 +34,7 @@ import {
 } from "../../../utils/scrnViaticoPrefill";
 import { writeScrnViaticoPrefill } from "../../../utils/viaticosManualStorage";
 import { listViaticosScrnGenerados } from "../../../services/viaticosManualService";
+import { useConfirmDialog } from "../../../hooks/useConfirmDialog";
 
 const TRAMO_LABEL = { ida: "Ida", vuelta: "Vuelta", ambos: "Ambos" };
 const TRAMO_OPTS = [
@@ -150,6 +151,7 @@ export default function MisReservas({
   const [viaticoTitularPorReserva, setViaticoTitularPorReserva] = useState({});
   const [viaticoPorPax, setViaticoPorPax] = useState({});
   const navigate = useNavigate();
+  const { confirm, dialog } = useConfirmDialog();
 
   const miPerfil = useMemo(
     () => (scrnPerfiles || []).find((p) => p.id === user?.id) || null,
@@ -329,7 +331,15 @@ export default function MisReservas({
 
   const cancelarReserva = useCallback(
     async (id) => {
-      if (!window.confirm("¿Anular esta reservación? El equipo de transporte lo verá para gestionar.")) {
+      if (
+        !(await confirm({
+          title: "Anular reservación",
+          message:
+            "¿Anular esta reservación? El equipo de transporte lo verá para gestionar.",
+          destructive: true,
+          confirmText: "Anular",
+        }))
+      ) {
         return;
       }
       const { error } = await supabase
@@ -344,7 +354,7 @@ export default function MisReservas({
       refetchPaxYReservas();
       afterCambioQueRequiereGestion();
     },
-    [refetchPaxYReservas, afterCambioQueRequiereGestion],
+    [confirm, refetchPaxYReservas, afterCambioQueRequiereGestion],
   );
 
   const guardarMiFilaPasajero = useCallback(async () => {
@@ -576,6 +586,7 @@ export default function MisReservas({
 
   return (
     <section className="bg-white rounded-2xl border border-slate-200 p-4 md:p-5 space-y-3">
+      {dialog}
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="text-sm md:text-base font-extrabold text-slate-800 uppercase tracking-wide">

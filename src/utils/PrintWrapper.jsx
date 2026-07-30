@@ -1,3 +1,5 @@
+import { buildMealServicePrintBadgeCss } from "./mealLogistics";
+
 /**
  * Exportación inteligente para impresión.
  * Inyecta estilos críticos manualmente para garantizar que el reporte se vea bien
@@ -58,18 +60,9 @@ export const handlePrintExport = (ref, title = "Reporte") => {
       border: 1px solid #e2e8f0;
     }
     
-    /* Colores de badges (Hardcoded para que siempre se vean) */
-    .bg-amber-50 { background-color: #fffbeb; color: #b45309; border-color: #fcd34d; }
-    .bg-indigo-50 { background-color: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
-    .bg-slate-50-badge { background-color: #f8fafc; color: #475569; border-color: #e2e8f0; }
-
-    /* Badges resaltados: texto negro sobre color de servicio.
-       Se usa selector de elemento para ganar a la regla base 'span.rounded'. */
-    span.bg-sky-200 { background-color: #bae6fd; color: #0f172a; border-color: #38bdf8; }
-    span.bg-amber-200 { background-color: #fde68a; color: #0f172a; border-color: #f59e0b; }
-    span.bg-rose-200 { background-color: #fecdd3; color: #0f172a; border-color: #fb7185; }
-    span.bg-indigo-200 { background-color: #c7d2fe; color: #0f172a; border-color: #818cf8; }
-    span.bg-slate-200 { background-color: #e2e8f0; color: #0f172a; border-color: #94a3b8; }
+    /* Badges de servicio: fuente unica MEAL_SERVICE_STYLES (mealLogistics).
+       Selector span.clase para ganar a la regla base span.rounded. */
+    ${buildMealServicePrintBadgeCss()}
 
     /* Tipografía */
     .font-bold { font-weight: 700; }

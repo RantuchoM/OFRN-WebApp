@@ -19,6 +19,7 @@ import {
   shiftSeatingLine,
 } from "../../services/giraService";
 import { getDuplicateSeatingStringItemIds } from "../../utils/seatingStringItemsDedupe";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 const PROGRAM_TYPES = [
   { value: "Todos", label: "Todos" },
@@ -449,6 +450,7 @@ export default function GlobalStringsManager({
   readOnly,
   fillHeight = false,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   const getItemMatrixPosition = (item, fallbackIndex = 0) =>
     seatingItemMatrixPosition(item, fallbackIndex);
   const getMusicianTooltip = (musician) => {
@@ -615,9 +617,10 @@ export default function GlobalStringsManager({
   const createBaseContainers = async () => {
     if (readOnly || isCreatingBase) return;
     if (containers.length > 0) {
-      const ok = window.confirm(
-        "Se agregarán Violín 1, Violín 2, Viola, Cello y Contrabajo al final de los grupos existentes. ¿Continuar?",
-      );
+      const ok = await confirm({
+        title: "Agregar grupos base",
+        message: "Se agregarán Violín 1, Violín 2, Viola, Cello y Contrabajo al final de los grupos existentes. ¿Continuar?",
+      });
       if (!ok) return;
     }
     setIsCreatingBase(true);
@@ -695,7 +698,11 @@ export default function GlobalStringsManager({
   };
   const deleteContainer = async (id) => {
     if (readOnly) return;
-    if (!confirm("¿Eliminar este grupo?")) return;
+    if (!(await confirm({
+      title: "Eliminar grupo",
+      message: "¿Eliminar este grupo?",
+      destructive: true,
+    }))) return;
     await supabase.from("seating_contenedores").delete().eq("id", id);
     await refreshAfterContainerChange();
   };
@@ -980,9 +987,11 @@ export default function GlobalStringsManager({
       // Si el modo es full_replace, limpiamos todos los contenedores del programa actual
       if (mode === "full_replace") {
         if (
-          !window.confirm(
-            "Esto eliminará todos los grupos y sus integrantes actuales. ¿Continuar?",
-          )
+          !(await confirm({
+            title: "Reemplazar disposición",
+            message: "Esto eliminará todos los grupos y sus integrantes actuales. ¿Continuar?",
+            destructive: true,
+          }))
         ) {
           setIsImporting(false);
           return;
@@ -1318,6 +1327,7 @@ export default function GlobalStringsManager({
           : "shrink-0 mb-4"
       }`}
     >
+      {dialog}
       <ImportSeatingModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} onConfirm={handleImportSeating} currentProgramId={programId} supabase={supabase} />
       {showReorderModal && (
         <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center">

@@ -25,3 +25,8 @@ Se deben filtrar los eventos de la tabla `eventos` (eventos de gira) para exclui
   - La vista "Mis Comidas" del músico (`MealsAttendancePersonal`).
   - Los listados de eventos de gira usados por logística cuando se trate de eventos de comida.
 
+### Estilos de servicio de comida (completado)
+- [x] Fuente única `MEAL_SERVICE_STYLES` / `getMealServiceStyle` / `buildMealServicePrintBadgeCss` en `mealLogistics.js`.
+- [x] Consumidores: `MealsReport` (`reportTag`), `MealsManager` (`tag`/`card`), `LogisticsManager` (`tag`/`rowHover`/`date`/`icon`), `PrintWrapper` (CSS de impresión generado).
+- [x] Variante reporte: texto negro sobre fondo saturado; variante UI: texto coloreado sobre fondo suave.
+

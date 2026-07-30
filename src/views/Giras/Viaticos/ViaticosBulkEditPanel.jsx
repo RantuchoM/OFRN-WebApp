@@ -18,6 +18,7 @@ import {
   IconEdit,
 } from "../../../components/ui/Icons";
 import RenunciaViaticosExportOption from "./RenunciaViaticosExportOption";
+import { useConfirmDialog } from "../../../hooks/useConfirmDialog";
 
 // --- COMPONENTE AUXILIAR ACCORDION ---
 const AccordionSection = ({
@@ -76,6 +77,7 @@ export default function ViaticosBulkEditPanel({
   exportStatus,
   exportDetail,
 }) {
+  const { confirm, dialog } = useConfirmDialog();
   // ESTADOS DE VISTA: 'home' | 'edit' | 'export'
   const [currentView, setCurrentView] = useState("home");
 
@@ -119,12 +121,15 @@ export default function ViaticosBulkEditPanel({
   // --- NAVEGACIÓN SEGURA ---
 
   // Intentar volver al Home o Cerrar
-  const handleSafeNavigation = (targetView) => {
+  const handleSafeNavigation = async (targetView) => {
     // Solo verificamos cambios si estamos en modo edición
     if (currentView === "edit" && hasChanges) {
-      const confirmDiscard = window.confirm(
-        "Tienes cambios pendientes en el formulario.\n¿Deseas descartarlos?",
-      );
+      const confirmDiscard = await confirm({
+        title: "Descartar cambios",
+        message:
+          "Tienes cambios pendientes en el formulario.\n¿Deseas descartarlos?",
+        confirmText: "Descartar",
+      });
       if (!confirmDiscard) return;
     }
 
@@ -162,6 +167,7 @@ export default function ViaticosBulkEditPanel({
 
   return (
     <div className="fixed top-0 right-0 bottom-0 w-96 bg-white border-l border-slate-200 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 z-[60]">
+      {dialog}
       {/* --- HEADER --- */}
       <div className="p-4 border-b flex justify-between items-center bg-indigo-50 shrink-0">
         <div>
