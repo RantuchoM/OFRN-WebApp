@@ -506,6 +506,7 @@ const EventCellEditor = ({
   onEditEvent,
   isExternalProcessing,
 }) => {
+  const { confirm, dialog } = useConfirmDialog();
   const [isOpen, setIsOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const loading = isProcessing || isExternalProcessing;
