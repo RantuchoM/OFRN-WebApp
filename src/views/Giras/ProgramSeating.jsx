@@ -2394,9 +2394,10 @@ export default function ProgramSeating({
             program={program}
             obras={obras}
             assignments={assignments}
+            musicianAssignments={musicianAssignments}
             containers={containers}
             particellas={particellas}
-            rawRoster={rawRoster}
+            filteredRoster={filteredRoster}
           />
         )}
       </Suspense>

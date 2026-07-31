@@ -23,3 +23,6 @@ export const driveFolderUrl = (folderId) =>
 
 /** URL de la carpeta general de Viáticos. */
 export const VIATICOS_ROOT_FOLDER_URL = driveFolderUrl(VIATICOS_ROOT_FOLDER_ID);
+
+/** URL pública de la carpeta de sets de particellas. */
+export const PARTICELLA_SETS_ROOT_URL = driveFolderUrl(PARTICELLA_SETS_ROOT_ID);

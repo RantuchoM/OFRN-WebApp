@@ -8,7 +8,15 @@ const detectType = (buffer) => {
   return 'jpg';
 };
 
-export const mergeSequential = async (items) => {
+/**
+ * Une buffers en un PDF secuencial.
+ * @param {Array<{ buffer: Uint8Array }>} items
+ * @param {{ padOddPages?: boolean }} [options]
+ *   padOddPages (Doble Faz): si un ítem aporta páginas impares, agrega una hoja
+ *   en blanco del mismo tamaño para que la siguiente particella empiece en anverso.
+ */
+export const mergeSequential = async (items, options = {}) => {
+  const { padOddPages = false } = options;
   const mergedPdf = await PDFDocument.create();
   for (const item of items) {
     if (!item.buffer) continue;
@@ -16,8 +24,14 @@ export const mergeSequential = async (items) => {
       const type = detectType(item.buffer);
       if (type === 'pdf') {
         const srcDoc = await PDFDocument.load(item.buffer);
+        const pageCount = srcDoc.getPageCount();
         const copiedPages = await mergedPdf.copyPages(srcDoc, srcDoc.getPageIndices());
         copiedPages.forEach((page) => mergedPdf.addPage(page));
+        if (padOddPages && pageCount % 2 === 1) {
+          const last = copiedPages[copiedPages.length - 1];
+          const { width, height } = last.getSize();
+          mergedPdf.addPage([width, height]);
+        }
       } else {
         const page = mergedPdf.addPage();
         const image = type === 'png' ? await mergedPdf.embedPng(item.buffer) : await mergedPdf.embedJpg(item.buffer);
@@ -27,6 +41,10 @@ export const mergeSequential = async (items) => {
           y: page.getHeight() / 2 - height / 2,
           width, height
         });
+        // Una imagen = 1 página → con Doble Faz siempre se rellena.
+        if (padOddPages) {
+          mergedPdf.addPage([page.getWidth(), page.getHeight()]);
+        }
       }
     } catch (e) { console.error("Error item secuencial:", e); }
   }

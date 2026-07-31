@@ -5,8 +5,9 @@ Módulo para la descarga masiva y unificación de particellas de un programa, in
 
 ## Lógica de Negocio
 1. **Conteo de Copias**  
-   - **Cuerdas**: Basado en `seating_contenedores`. Cada ítem de un contenedor (que no esté ausente) cuenta como un músico. Generalmente se imprime una particella por atril (2 músicos).  
-   - **Vientos/Percusión**: 1 copia por cada integrante con la particella asignada.
+   - **Cuerdas**: Basado en `seating_contenedores`. Toggle **1 por atril** (default ON): `ceil(n/2)` copias por contenedor (ej. 9 músicos → 5). Si se desactiva: 1 copia por músico (`n`).  
+   - **Vientos/Percusión/Director**: 1 copia por asignación en `musicianAssignments` (no el mapa de contenedores). Incluye roles director/solista del roster confirmado.  
+   - **Ajuste manual**: el cálculo es tope; se puede restar por fila (tablets) hasta 0.
 2. **Filtrado**  
    - Excluir estrictamente integrantes con `estado_gira === 'ausente'`.
 3. **Multi-versión**  
@@ -30,27 +31,31 @@ Módulo para la descarga masiva y unificación de particellas de un programa, in
 - `supabase`: cliente de Supabase (para invocar la Edge Function `manage-drive`).
 - `program`: programa/gira actual (se usa `id` y `nomenclador` para nombrar los sets).
 - `obras`: lista de obras ya construida en `ProgramSeating` (incluye `obra_id`, `composer`, `title`, etc.).
-- `assignments`: mapa de asignaciones de particellas (`M-id_musico-id_obra` y `C-id_contenedor-id_obra`).
+- `assignments`: mapa de asignaciones de contenedores (`C-id_contenedor-id_obra`).
+- `musicianAssignments`: mapa de asignaciones individuales (`M-id_musico-id_obra` → array de `id_particella`).
 - `containers`: contenedores de cuerdas ya filtrados a integrantes confirmados de la gira.
 - `particellas`: rows de `obras_particellas` (incluyendo `url_archivo`).
-- `rawRoster`: roster completo de la gira (sirve para filtrar ausentes y no-músicos).
+- `filteredRoster`: roster confirmado de seating (incluye director/solista; excluye staff).
 
 #### Cálculo de copias
 - **Cuerdas**:
   - Se trabaja por contenedor (`seating_contenedores`).
   - Se usan solo los `items` presentes en `containers` (ya filtrados a integrantes confirmados y no ausentes).
   - Para cada obra, si existe asignación contenedor `C-{id_contenedor}-{id_obra}`, se cuenta:
-    - Músicos del contenedor = `items.length`.
-    - Copias sugeridas = **1 por músico** (se usa directamente `items.length`).
-- **Vientos/Percusión**:
-  - Se parte de `rawRoster`, filtrando:
-    - `estado_gira !== 'ausente'`.
-    - `rol_gira` vacío o `"musico"` (se excluyen staff/producción, etc.).
-  - Para cada obra, se toma la asignación `M-{id_musico}-{id_obra}` (solo instrumentos no cuerdas).
-  - Cada músico presente con particella asignada suma **1 copia** para ese instrumento.
+    - Músicos del contenedor = `n = items.length`.
+    - Con toggle **1 por atril** activo (default): copias = `Math.ceil(n / 2)`.
+    - Con toggle desactivado: copias = `n` (1 por músico).
+- **Vientos / Percusión / Director / Solistas**:
+  - Se usan las asignaciones individuales en `musicianAssignments` (`M-{id_musico}-{id_obra}` → array de `id_particella`), **no** el mapa `assignments` de contenedores.
+  - Roster: `filteredRoster` de ProgramSeating (`isConfirmedConvocadoForSeatingReports`), misma regla que `otherMusicians` (no cuerdas, salvo solistas de cuerda).
+  - Cada particella asignada a un músico presente suma **1** al tope.
+- **Ajuste manual de copias**:
+  - El valor calculado es un **tope**. En cada fila hay controles −/+ para bajar (p. ej. músicos con tablet) hasta 0; no se puede superar el tope.
+  - La generación usa la cantidad efectiva (override o tope).
 
-Los conteos se agregan por **obra + instrumento lógico**, y se muestran como “X copias sugeridas” en la UI del modal.  
-En la generación del PDF, el buffer de cada particella seleccionada se duplica tantas veces como copias tenga asignadas, de manera que el set resultante ya incluye todas las copias físicas.
+Los conteos se agregan por **obra + particella**, y se muestran como `efectivas/tope` en la UI del modal.  
+Las filas (y el orden dentro del PDF unificado) se ordenan por `id_instrumento` (numérico-aware) y, en empate, por nombre de archivo.  
+En la generación del PDF, el buffer de cada particella seleccionada se duplica tantas veces como copias efectivas tenga, de manera que el set resultante ya incluye todas las copias físicas.
 
 #### Multi-versión de particellas
 - Para cada combinación obra/instrumento se construye una lista de opciones a partir de `obras_particellas`:
@@ -79,15 +84,28 @@ En la generación del PDF, el buffer de cada particella seleccionada se duplica 
   - Se construye un arreglo de objetos `{ buffer }` (uno por copia).
   - `mergeSequential` detecta tipo (PDF/imagen) y unifica todo en un único PDF.
   - Se genera **un PDF por obra**, que contiene todas las particellas seleccionadas y repetidas según el conteo de copias.
+  - **Doble faz** (`padOddPages: true`, activo por defecto en el modal): tras cada ítem (copia) con cantidad de páginas impar, se inserta una hoja en blanco del mismo tamaño que la última página, para que la siguiente particella empiece en anverso al imprimir a doble faz. Las imágenes (1 página) también reciben hoja en blanco.
+
+#### UI del modal (actualizado)
+- Portal a `document.body`, `z-[100]`, overlay con blur; Escape / clic fuera cierra (si no está corriendo).
+- Toolbar: Seleccionar todo / Limpiar, resumen de selección, toggles **1 por atril** (cuerdas) y **Doble faz**.
+- Árbol de obras con checkbox indeterminado, badge de selección y filas en grilla (particella / asignado / **copias −/+** / archivo / copiar).
+- Footer con hint de seating + estado de doble faz y CTA deshabilitado si no hay selección.
 
 #### Progreso y resultado
 - El modal muestra una barra de progreso basada en:
   - Descarga de cada particella.
   - Unión de PDFs por obra.
-  - Subida de cada set a Drive.
+  - Subida de cada set a Drive **o** descarga local al navegador (`file-saver`).
+- Enlace permanente a la carpeta de sets: `PARTICELLA_SETS_ROOT_URL`.
+- Acciones por fila:
+  - **Bajar**: descarga el PDF suelto al navegador.
+  - **A Drive**: copia el archivo suelto a la carpeta de sets (`copy_file`), sin bajarlo al PC.
+- Footer: **Descargar PDF** (sets unificados locales) y **Subir a Drive**.
 - Al finalizar se muestra un listado de resultados por obra con:
-  - Enlace clicable a Drive (`webViewLink`) cuando la subida fue exitosa.
-  - Mensaje de error por obra si falló la subida o unificación.
+  - Enlace clicable a Drive (`webViewLink`) cuando la subida/copia fue exitosa.
+  - “Descargado” si fue local.
+  - Mensaje de error por obra si falló.
 
 ### Backend: Edge Function `manage-drive`
 

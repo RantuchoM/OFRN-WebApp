@@ -1,20 +1,27 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { saveAs } from "file-saver";
 import { mergeSequential } from "../../utils/docMerger";
-import { IconDownload, IconLayers, IconLoader } from "../ui/Icons";
-import { PARTICELLA_SETS_ROOT_ID } from "../../utils/driveFolders";
-
-function bytesFromBase64(base64) {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i += 1) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
+import {
+  IconChevronRight,
+  IconCopy,
+  IconDownload,
+  IconExternalLink,
+  IconFolder,
+  IconLayers,
+  IconLoader,
+  IconPlus,
+  IconPrinter,
+  IconUsers,
+  IconX,
+} from "../ui/Icons";
+import {
+  PARTICELLA_SETS_ROOT_ID,
+  PARTICELLA_SETS_ROOT_URL,
+} from "../../utils/driveFolders";
+import { isConfirmedConvocadoForSeatingReports } from "../../utils/seatingRosterGate";
 
 function getDriveFileLabel(_url, fallbackIndex) {
-  // Fallback genérico mientras no tengamos nombre real
   if (fallbackIndex === 0) return "Principal";
   return `Versión ${fallbackIndex + 1}`;
 }
@@ -35,7 +42,36 @@ function getDriveKeyFromId(id) {
 const isStringInstrumentId = (id) =>
   ["01", "02", "03", "04"].includes(String(id || ""));
 
-// Carpeta raíz en Drive donde se almacenan los sets unificados de particellas.
+function stripHtml(html) {
+  if (typeof html !== "string") return html || "";
+  return html.replace(/<[^>]*>?/gm, "");
+}
+
+function getMusicianPartIds(musicianAssignments, key) {
+  const ids = musicianAssignments?.[key];
+  if (!Array.isArray(ids)) return [];
+  return ids.filter(
+    (id, index) =>
+      id &&
+      ids.findIndex((candidate) => String(candidate) === String(id)) === index,
+  );
+}
+
+function musicianDisplayName(m) {
+  return (
+    m.apellido_nombre ||
+    m.nombre_completo ||
+    [m.apellido, m.nombre].filter(Boolean).join(", ") ||
+    [m.nombre, m.apellido].filter(Boolean).join(" ") ||
+    m.display_name ||
+    m.name ||
+    `Músico ${m.id}`
+  );
+}
+
+function copyOverrideKey(obraId, partKey) {
+  return `${obraId}:${partKey}`;
+}
 
 export default function ParticellaDownloadModal({
   isOpen,
@@ -44,8 +80,11 @@ export default function ParticellaDownloadModal({
   program,
   obras,
   assignments,
+  musicianAssignments = {},
   containers,
   particellas,
+  filteredRoster,
+  /** @deprecated usar filteredRoster; se mantiene por compat. */
   rawRoster,
 }) {
   const [selectedByObra, setSelectedByObra] = useState(() => {
@@ -63,42 +102,69 @@ export default function ParticellaDownloadModal({
     return initial;
   });
   const [linkIndexByPart, setLinkIndexByPart] = useState({});
-  const [driveNamesByObra, setDriveNamesByObra] = useState({}); // { [obraId]: { [key]: name } }
+  const [driveNamesByObra, setDriveNamesByObra] = useState({});
   const [hasLoadedDriveNames, setHasLoadedDriveNames] = useState(false);
   const [googleAccessToken, setGoogleAccessToken] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
+  /** 'drive' | 'local' | 'copy' | null */
+  const [runningMode, setRunningMode] = useState(null);
   const [progress, setProgress] = useState({ current: 0, total: 0, label: "" });
   const [results, setResults] = useState([]);
   const [error, setError] = useState(null);
+  const [dobleFaz, setDobleFaz] = useState(true);
+  /** Cuerdas: ceil(n/2) por atril (default) vs 1 copia por músico. */
+  const [copiasPorAtril, setCopiasPorAtril] = useState(true);
+  /** Override de copias por fila: tope = sugerido; se puede bajar (tablets). */
+  const [copyOverrides, setCopyOverrides] = useState({});
 
-  const presentRoster = useMemo(
-    () =>
-      (rawRoster || []).filter(
-        (m) =>
-          m.estado_gira !== "ausente" &&
-          (!m.rol_gira || (m.rol_gira || "").toLowerCase() === "musico"),
-      ),
-    [rawRoster],
-  );
+  const presentRoster = useMemo(() => {
+    const source = filteredRoster != null ? filteredRoster : rawRoster || [];
+    if (filteredRoster != null) return source;
+    return (source || []).filter((m) => {
+      if (isConfirmedConvocadoForSeatingReports(m)) return true;
+      const role = (m.rol_gira || "").toLowerCase();
+      return (
+        m.estado_gira !== "ausente" &&
+        (!role || ["musico", "director", "solista"].includes(role))
+      );
+    });
+  }, [filteredRoster, rawRoster]);
+
+  const individualMusicians = useMemo(() => {
+    return presentRoster.filter((m) => {
+      const idInstr = String(m.id_instr || "");
+      const role = (m.rol_gira || "").toLowerCase();
+      const esCuerda = isStringInstrumentId(idInstr);
+      const esSolista = role.includes("solista");
+      // Misma regla que ProgramSeating.otherMusicians
+      if (esCuerda && esSolista) return true;
+      return !esCuerda;
+    });
+  }, [presentRoster]);
 
   const tree = useMemo(() => {
-    // Agrupación por particella (no por instrumento)
     return obras.map((obra) => {
       const obraId = obra.obra_id;
 
-      // Copias por id_particella para esta obra
       const copiesByPartId = {};
       const whoByPartId = {};
 
-      // Cuerdas: contenedores (1 copia por músico presente)
+      const bump = (partId, copies, whoLabel) => {
+        const key = String(partId);
+        copiesByPartId[key] = (copiesByPartId[key] || 0) + copies;
+        if (!whoByPartId[key]) whoByPartId[key] = [];
+        if (whoLabel) whoByPartId[key].push(whoLabel);
+      };
+
+      // Cuerdas: contenedores
       containers.forEach((c) => {
         const assignedPartId = assignments[`C-${c.id}-${obraId}`];
         if (!assignedPartId) return;
         const musiciansCount = (c.items || []).length;
         if (!musiciansCount) return;
-        const copies = musiciansCount;
-        copiesByPartId[assignedPartId] =
-          (copiesByPartId[assignedPartId] || 0) + copies;
+        const copies = copiasPorAtril
+          ? Math.ceil(musiciansCount / 2)
+          : musiciansCount;
 
         const containerLabel =
           c.nombre ||
@@ -107,41 +173,39 @@ export default function ParticellaDownloadModal({
           c.titulo ||
           c.title ||
           `Contenedor ${c.id}`;
-        if (!whoByPartId[assignedPartId]) whoByPartId[assignedPartId] = [];
-        whoByPartId[assignedPartId].push(
-          `${containerLabel} (${musiciansCount} músico${musiciansCount > 1 ? "s" : ""})`,
-        );
+        const whoDetail = copiasPorAtril
+          ? `${containerLabel} (${musiciansCount} mús. → ${copies} atril${copies !== 1 ? "es" : ""})`
+          : `${containerLabel} (${musiciansCount} músico${musiciansCount > 1 ? "s" : ""})`;
+        bump(assignedPartId, copies, whoDetail);
       });
 
-      // Vientos / percusión: 1 copia por músico presente
-      presentRoster.forEach((m) => {
-        if (isStringInstrumentId(m.id_instr)) return;
-        const assignedPartId = assignments[`M-${m.id}-${obraId}`];
-        if (!assignedPartId) return;
-        copiesByPartId[assignedPartId] =
-          (copiesByPartId[assignedPartId] || 0) + 1;
+      // Vientos / percusión / director / solistas: musicianAssignments (arrays)
+      individualMusicians.forEach((m) => {
+        const key = `M-${m.id}-${obraId}`;
+        const partIds = getMusicianPartIds(musicianAssignments, key);
+        if (!partIds.length) return;
 
-        const musicianName =
-          m.apellido_nombre ||
-          m.nombre_completo ||
-          [m.nombre, m.apellido].filter(Boolean).join(" ") ||
-          m.display_name ||
-          m.name ||
-          `Músico ${m.id}`;
+        const name = musicianDisplayName(m);
         const instrumentLabel = m.instrumento || m.instrument || m.id_instr;
+        const role = (m.rol_gira || "").toLowerCase();
+        const roleSuffix =
+          role && role !== "musico" ? ` · ${role}` : "";
         const label = instrumentLabel
-          ? `${musicianName} (${instrumentLabel})`
-          : musicianName;
-        if (!whoByPartId[assignedPartId]) whoByPartId[assignedPartId] = [];
-        whoByPartId[assignedPartId].push(label);
+          ? `${name} (${instrumentLabel}${roleSuffix})`
+          : `${name}${roleSuffix}`;
+
+        partIds.forEach((partId) => {
+          bump(partId, 1, label);
+        });
       });
 
-      const obraParts = particellas.filter((p) => p.id_obra === obraId);
+      const obraParts = particellas.filter(
+        (p) => String(p.id_obra) === String(obraId),
+      );
 
       const rows = obraParts
         .map((p) => {
-          const copies = copiesByPartId[p.id] || 0;
-          // Parseo de links múltiple (url_archivo puede ser string o JSON de array)
+          const maxCopies = copiesByPartId[String(p.id)] || 0;
           let links = [];
           if (p.url_archivo) {
             try {
@@ -149,19 +213,15 @@ export default function ParticellaDownloadModal({
               if (trimmed.startsWith("[")) {
                 const parsed = JSON.parse(trimmed);
                 if (Array.isArray(parsed)) {
-                  // Para múltiples versiones solo guardamos la URL;
-                  // el nombre real vendrá de la carpeta de la obra en Drive.
                   links = parsed.map((l) => ({
                     url: l.url,
                   }));
                 }
               } else {
-                const url = p.url_archivo;
-                links = [{ url }];
+                links = [{ url: p.url_archivo }];
               }
             } catch (e) {
-              const url = p.url_archivo;
-              links = [{ url }];
+              links = [{ url: p.url_archivo }];
             }
           }
 
@@ -172,17 +232,28 @@ export default function ParticellaDownloadModal({
             partId: p.id,
             partKey,
             obra,
-            copies,
+            maxCopies,
             links,
             hasMultipleLinks,
-            who: whoByPartId[p.id] || [],
+            who: whoByPartId[String(p.id)] || [],
+            idInstrumento: p.id_instrumento ?? p.instrumentos?.id ?? "",
             displayName:
               p.nombre_archivo ||
               p.instrumentos?.instrumento ||
               `Particella ${p.id}`,
           };
         })
-        .filter((row) => row.copies > 0);
+        .filter((row) => row.maxCopies > 0)
+        .sort((a, b) => {
+          const ia = String(a.idInstrumento || "");
+          const ib = String(b.idInstrumento || "");
+          if (ia !== ib) return ia.localeCompare(ib, undefined, { numeric: true });
+          return String(a.displayName || "").localeCompare(
+            String(b.displayName || ""),
+            "es",
+            { sensitivity: "base" },
+          );
+        });
 
       return {
         obra,
@@ -190,7 +261,124 @@ export default function ParticellaDownloadModal({
         rows,
       };
     });
-  }, [assignments, containers, obras, particellas, presentRoster]);
+  }, [
+    assignments,
+    musicianAssignments,
+    containers,
+    obras,
+    particellas,
+    individualMusicians,
+    copiasPorAtril,
+  ]);
+
+  const getEffectiveCopies = (obraId, row) => {
+    const max = row.maxCopies || 0;
+    const override = copyOverrides[copyOverrideKey(obraId, row.partKey)];
+    if (override == null) return max;
+    return Math.max(0, Math.min(max, Number(override) || 0));
+  };
+
+  const setCopiesForRow = (obraId, row, nextValue) => {
+    const max = row.maxCopies || 0;
+    const clamped = Math.max(0, Math.min(max, Number(nextValue) || 0));
+    const key = copyOverrideKey(obraId, row.partKey);
+    setCopyOverrides((prev) => {
+      if (clamped === max) {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: clamped };
+    });
+  };
+
+  const selectionStats = useMemo(() => {
+    let obrasCount = 0;
+    let partsCount = 0;
+    let copiesCount = 0;
+    tree.forEach(({ obraId, rows }) => {
+      const conf = selectedByObra[obraId] || { enabled: false, parts: {} };
+      if (!conf.enabled) return;
+      const selected = rows.filter((row) => !!conf.parts[row.partKey]);
+      if (!selected.length) return;
+      const withCopies = selected.filter(
+        (row) => getEffectiveCopies(obraId, row) > 0,
+      );
+      if (!withCopies.length) return;
+      obrasCount += 1;
+      partsCount += withCopies.length;
+      copiesCount += withCopies.reduce(
+        (acc, row) => acc + getEffectiveCopies(obraId, row),
+        0,
+      );
+    });
+    return { obrasCount, partsCount, copiesCount };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getEffectiveCopies usa copyOverrides
+  }, [tree, selectedByObra, copyOverrides]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape" && !isRunning) onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isOpen, isRunning, onClose]);
+
+  useEffect(() => {
+    if (!isOpen || hasLoadedDriveNames) return;
+
+    setHasLoadedDriveNames(true);
+
+    const obrasToLoad = (obras || []).filter((o) => o.link);
+    if (!obrasToLoad.length) return;
+
+    const loadAll = async () => {
+      for (const obra of obrasToLoad) {
+        const obraId = obra.obra_id;
+        try {
+          const { data, error: listError } = await supabase.functions.invoke(
+            "manage-drive",
+            {
+              body: {
+                action: "list_folder_files_subfolders",
+                folderUrl: obra.link,
+              },
+            },
+          );
+
+          if (!listError && Array.isArray(data?.files)) {
+            const updates = {};
+            data.files.forEach((file) => {
+              const idKey = getDriveKeyFromId(file.id);
+              const urlKey = file.webViewLink
+                ? getDriveKeyFromUrl(file.webViewLink)
+                : null;
+              if (idKey) updates[idKey] = file.name;
+              if (urlKey) updates[urlKey] = file.name;
+            });
+
+            setDriveNamesByObra((prev) => ({
+              ...prev,
+              [obraId]: {
+                ...(prev[obraId] || {}),
+                ...updates,
+              },
+            }));
+          }
+        } catch (e) {
+          console.error(
+            "[ParticellaDownloadModal] Error en list_folder_files_subfolders",
+            obraId,
+            e,
+          );
+        }
+      }
+    };
+
+    loadAll();
+  }, [isOpen, obras, supabase, hasLoadedDriveNames]);
 
   if (!isOpen) return null;
 
@@ -259,97 +447,68 @@ export default function ParticellaDownloadModal({
     }));
   };
 
+  const handleSelectAll = () => {
+    setSelectedByObra(() => {
+      const next = {};
+      tree.forEach(({ obraId, rows }) => {
+        const parts = {};
+        rows.forEach((row) => {
+          parts[row.partKey] = true;
+        });
+        next[obraId] = {
+          enabled: rows.length > 0,
+          parts,
+        };
+      });
+      return next;
+    });
+  };
+
+  const handleClearAll = () => {
+    setSelectedByObra(() => {
+      const next = {};
+      tree.forEach(({ obraId }) => {
+        next[obraId] = { enabled: false, parts: {} };
+      });
+      return next;
+    });
+  };
+
   const computeSelection = () => {
     const selection = [];
     tree.forEach(({ obraId, obra, rows }) => {
       const conf = selectedByObra[obraId] || { enabled: false, parts: {} };
       if (!conf.enabled) return;
-      const selectedRows = rows.filter((row) => {
-        const flag = conf.parts[row.partKey];
-        return !!flag;
-      });
+      const selectedRows = rows
+        .filter((row) => !!conf.parts[row.partKey])
+        .map((row) => ({
+          ...row,
+          copies: getEffectiveCopies(obraId, row),
+        }))
+        .filter((row) => row.copies > 0);
       if (!selectedRows.length) return;
       selection.push({ obraId, obra, rows: selectedRows });
     });
     return selection;
   };
 
-  // Carga perezosa de nombres de Drive al abrir el modal (una sola vez) usando list_folder_files_subfolders
-  useEffect(() => {
-    if (!isOpen || hasLoadedDriveNames) return;
-
-    // Marcamos inmediatamente como cargado para evitar dobles ejecuciones en modo estricto
-    setHasLoadedDriveNames(true);
-
-    const obrasToLoad = (obras || []).filter((o) => o.link);
-    if (!obrasToLoad.length) return;
-
-    const loadAll = async () => {
-      for (const obra of obrasToLoad) {
-        const obraId = obra.obra_id;
-        try {
-          const { data, error } = await supabase.functions.invoke(
-            "manage-drive",
-            {
-              body: {
-                action: "list_folder_files_subfolders",
-                folderUrl: obra.link,
-              },
-            },
-          );
-
-          // eslint-disable-next-line no-console
-          console.log(
-            "[ParticellaDownloadModal] list_folder_files_subfolders respuesta",
-            obraId,
-            { data, error },
-          );
-
-          if (!error && Array.isArray(data?.files)) {
-            const updates = {};
-            data.files.forEach((file) => {
-              const idKey = getDriveKeyFromId(file.id);
-              const urlKey = file.webViewLink
-                ? getDriveKeyFromUrl(file.webViewLink)
-                : null;
-              if (idKey) updates[idKey] = file.name;
-              if (urlKey) updates[urlKey] = file.name;
-            });
-
-            setDriveNamesByObra((prev) => ({
-              ...prev,
-              [obraId]: {
-                ...(prev[obraId] || {}),
-                ...updates,
-              },
-            }));
-          }
-        } catch (e) {
-          console.error(
-            "[ParticellaDownloadModal] Error en list_folder_files_subfolders",
-            obraId,
-            e,
-          );
-        }
-      }
-    };
-
-    loadAll();
-  }, [isOpen, obras, supabase, hasLoadedDriveNames]);
-
   const ensureGoogleAccessToken = async () => {
     if (googleAccessToken) return googleAccessToken;
     try {
-      const { data, error } = await supabase.functions.invoke("manage-drive", {
-        body: { action: "get_temp_token" },
-      });
-      if (error || !data?.accessToken) {
-        throw new Error(error?.message || "No se pudo obtener token de Drive");
+      const { data, error: tokenError } = await supabase.functions.invoke(
+        "manage-drive",
+        {
+          body: { action: "get_temp_token" },
+        },
+      );
+      if (tokenError || !data?.accessToken) {
+        throw new Error(
+          tokenError?.message || "No se pudo obtener token de Drive",
+        );
       }
       setGoogleAccessToken(data.accessToken);
       return data.accessToken;
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error("[DownloadFlow] Error obteniendo token de Drive", e);
       throw e;
     }
@@ -361,11 +520,52 @@ export default function ParticellaDownloadModal({
     return match ? match[0] : null;
   };
 
-  const handleCopySinglePart = async (obraSel, row) => {
-    if (!row?.links?.length) return;
+  const buildSafeFileBase = (obraSel, row) => {
+    const safeComposer = (obraSel.obra.composer || "Comp").replace(
+      /[^a-zA-Z0-9-_]+/g,
+      "_",
+    );
+    const obraTitleClean = stripHtml(obraSel.obra.title);
+    const safeTitle = (obraTitleClean || "Obra").replace(
+      /[^a-zA-Z0-9-_]+/g,
+      "_",
+    );
+    const baseName =
+      `${row.displayName || "Particella"}_${safeComposer}_${safeTitle}`.replace(
+        /[^a-zA-Z0-9-_]+/g,
+        "_",
+      );
+    return { baseName, obraTitleClean };
+  };
+
+  const fetchPartBuffer = async (chosenLink) => {
+    if (!chosenLink?.url) throw new Error("Sin URL de particella");
+    if (chosenLink.url.includes("drive.google.com")) {
+      const fileId = extractFileIdFromUrl(chosenLink.url);
+      if (!fileId) throw new Error("No se pudo extraer ID de Drive");
+      const token = await ensureGoogleAccessToken();
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) throw new Error("Error descargando desde Drive");
+      return new Uint8Array(await res.arrayBuffer());
+    }
+    const res = await fetch(chosenLink.url);
+    if (!res.ok) throw new Error("Error descargando archivo");
+    return new Uint8Array(await res.arrayBuffer());
+  };
+
+  const getChosenLink = (row) => {
+    if (!row?.links?.length) return null;
     const chosenLinkIdx =
       linkIndexByPart[row.partId] != null ? linkIndexByPart[row.partId] : 0;
-    const chosenLink = row.links[chosenLinkIdx] || row.links[0];
+    return row.links[chosenLinkIdx] || row.links[0];
+  };
+
+  /** Copia el PDF suelto a la carpeta de sets en Drive (no lo baja al PC). */
+  const handleCopySinglePart = async (obraSel, row) => {
+    const chosenLink = getChosenLink(row);
     if (!chosenLink?.url || !chosenLink.url.includes("drive.google.com")) {
       setError("Solo se pueden copiar particellas que estén en Google Drive.");
       return;
@@ -373,45 +573,32 @@ export default function ParticellaDownloadModal({
 
     try {
       setIsRunning(true);
+      setRunningMode("copy");
       setProgress((prev) => ({
         ...prev,
-        label: `Copiando ${row.displayName}...`,
+        label: `Copiando ${row.displayName} a Drive...`,
       }));
 
       const fileId = extractFileIdFromUrl(chosenLink.url);
-      if (!fileId) {
-        throw new Error("No se pudo extraer el ID de Drive.");
-      }
+      if (!fileId) throw new Error("No se pudo extraer el ID de Drive.");
 
-      const safeComposer = (obraSel.obra.composer || "Comp").replace(
-        /[^a-zA-Z0-9-_]+/g,
-        "_",
-      );
-      const obraTitleClean =
-        typeof obraSel.obra.title === "string"
-          ? obraSel.obra.title.replace(/<[^>]*>?/gm, "")
-          : obraSel.obra.title;
-      const safeTitle = (obraTitleClean || "Obra").replace(
-        /[^a-zA-Z0-9-_]+/g,
-        "_",
-      );
-      const baseName = `${row.displayName || "Particella"}_${safeComposer}_${safeTitle}`.replace(
-        /[^a-zA-Z0-9-_]+/g,
-        "_",
-      );
+      const { baseName, obraTitleClean } = buildSafeFileBase(obraSel, row);
 
-      const { data, error } = await supabase.functions.invoke("manage-drive", {
-        body: {
-          action: "copy_file",
-          fileId,
-          destinationFolderId: PARTICELLA_SETS_ROOT_ID,
-          newName: `${baseName}.pdf`,
+      const { data, error: copyError } = await supabase.functions.invoke(
+        "manage-drive",
+        {
+          body: {
+            action: "copy_file",
+            fileId,
+            destinationFolderId: PARTICELLA_SETS_ROOT_ID,
+            newName: `${baseName}.pdf`,
+          },
         },
-      });
+      );
 
-      if (error || !data?.success) {
+      if (copyError || !data?.success) {
         throw new Error(
-          error?.message || data?.error || "Error al copiar particella.",
+          copyError?.message || data?.error || "Error al copiar particella.",
         );
       }
 
@@ -419,26 +606,69 @@ export default function ParticellaDownloadModal({
         ...prev,
         {
           obraId: obraSel.obraId,
-          title:
-            typeof obraSel.obra.title === "string"
-              ? obraSel.obra.title.replace(/<[^>]*>?/gm, "")
-              : obraSel.obra.title,
+          title: `${obraTitleClean} · ${row.displayName}`,
           link: data.file?.webViewLink || null,
           copiedSingle: true,
         },
       ]);
       setError(null);
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error("[ParticellaDownloadModal] Error al copiar particella:", e);
       setError(e.message || "Error al copiar particella.");
     } finally {
       setIsRunning(false);
+      setRunningMode(null);
       setProgress((prev) => ({ ...prev, label: "" }));
     }
   };
 
-  const handleGenerateAndUpload = async () => {
+  /** Descarga el PDF suelto al navegador (1 archivo, sin unificar). */
+  const handleDownloadSinglePart = async (obraSel, row) => {
+    const chosenLink = getChosenLink(row);
+    if (!chosenLink?.url) {
+      setError("Esta particella no tiene archivo.");
+      return;
+    }
+
+    try {
+      setIsRunning(true);
+      setRunningMode("local");
+      setProgress((prev) => ({
+        ...prev,
+        label: `Descargando ${row.displayName}...`,
+      }));
+
+      const buffer = await fetchPartBuffer(chosenLink);
+      const { baseName, obraTitleClean } = buildSafeFileBase(obraSel, row);
+      saveAs(new Blob([buffer], { type: "application/pdf" }), `${baseName}.pdf`);
+
+      setResults((prev) => [
+        ...prev,
+        {
+          obraId: obraSel.obraId,
+          title: `${obraTitleClean} · ${row.displayName}`,
+          downloadedLocal: true,
+        },
+      ]);
+      setError(null);
+    } catch (e) {
+      console.error(
+        "[ParticellaDownloadModal] Error al descargar particella:",
+        e,
+      );
+      setError(e.message || "Error al descargar particella.");
+    } finally {
+      setIsRunning(false);
+      setRunningMode(null);
+      setProgress((prev) => ({ ...prev, label: "" }));
+    }
+  };
+
+  /**
+   * Genera sets unificados.
+   * @param {'drive' | 'local'} destination
+   */
+  const handleGenerateSets = async (destination) => {
     const selection = computeSelection();
     if (!selection.length) {
       setError("Seleccioná al menos una obra/instrumento.");
@@ -446,6 +676,7 @@ export default function ParticellaDownloadModal({
     }
     setError(null);
     setIsRunning(true);
+    setRunningMode(destination);
     setResults([]);
 
     const totalParts = selection.reduce(
@@ -461,10 +692,7 @@ export default function ParticellaDownloadModal({
     try {
       for (const obraSel of selection) {
         const buffersForObra = [];
-        const obraTitleClean =
-          typeof obraSel.obra.title === "string"
-            ? obraSel.obra.title.replace(/<[^>]*>?/gm, "")
-            : obraSel.obra.title;
+        const obraTitleClean = stripHtml(obraSel.obra.title);
 
         for (const row of obraSel.rows) {
           if (!row.links.length) {
@@ -477,12 +705,9 @@ export default function ParticellaDownloadModal({
             continue;
           }
 
-          const chosenLinkIdx =
-            linkIndexByPart[row.partId] != null ? linkIndexByPart[row.partId] : 0;
-          const chosenLink = row.links[chosenLinkIdx] || row.links[0];
+          const chosenLink = getChosenLink(row);
 
           if (!chosenLink || !chosenLink.url) {
-            // eslint-disable-next-line no-console
             console.warn(
               "[DownloadFlow] Fila sin URL, saltando:",
               row.displayName,
@@ -502,39 +727,10 @@ export default function ParticellaDownloadModal({
             continue;
           }
 
-          // eslint-disable-next-line no-console
-          console.log(
-            "[DownloadFlow] Iniciando descarga de:",
-            row.displayName,
-          );
-
           let buffer;
           try {
-            if (chosenLink.url.includes("drive.google.com")) {
-              const fileId = extractFileIdFromUrl(chosenLink.url);
-              if (!fileId) {
-                throw new Error("No se pudo extraer ID de Drive");
-              }
-              const token = await ensureGoogleAccessToken();
-              const res = await fetch(
-                `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-                {
-                  headers: {
-                    Authorization: `Bearer ${token}`,
-                  },
-                },
-              );
-              if (!res.ok) throw new Error("Error descargando desde Drive");
-              const arr = await res.arrayBuffer();
-              buffer = new Uint8Array(arr);
-            } else {
-              const res = await fetch(chosenLink.url);
-              if (!res.ok) throw new Error("Error descargando archivo");
-              const arr = await res.arrayBuffer();
-              buffer = new Uint8Array(arr);
-            }
+            buffer = await fetchPartBuffer(chosenLink);
           } catch (e) {
-            // eslint-disable-next-line no-console
             console.error(
               "[DownloadFlow] Error descargando particella",
               {
@@ -554,7 +750,6 @@ export default function ParticellaDownloadModal({
           }
 
           const copies = row.copies || 1;
-
           for (let i = 0; i < copies; i += 1) {
             buffersForObra.push({ buffer });
           }
@@ -573,7 +768,9 @@ export default function ParticellaDownloadModal({
 
         let mergedBytes;
         try {
-          mergedBytes = await mergeSequential(buffersForObra);
+          mergedBytes = await mergeSequential(buffersForObra, {
+            padOddPages: dobleFaz,
+          });
         } catch (e) {
           console.error("Error unificando PDFs", e);
           currentStep += 1;
@@ -585,14 +782,6 @@ export default function ParticellaDownloadModal({
           continue;
         }
 
-        currentStep += 1;
-        setProgress({
-          current: currentStep,
-          total: totalSteps,
-          label: "Subiendo a Drive...",
-        });
-
-        const token = await ensureGoogleAccessToken();
         const bytes = new Uint8Array(mergedBytes);
         const blob = new Blob([bytes], { type: "application/pdf" });
 
@@ -606,19 +795,52 @@ export default function ParticellaDownloadModal({
         );
         const fileName = `SetParticellas_${program?.nomenclador || program?.id || "Prog"}_${safeComposer}_${safeTitle}.pdf`;
 
-        const metadata = {
-          name: fileName,
-          parents: [PARTICELLA_SETS_ROOT_ID],
-        };
+        if (destination === "local") {
+          currentStep += 1;
+          setProgress({
+            current: currentStep,
+            total: totalSteps,
+            label: `Descargando ${obraTitleClean}...`,
+          });
+          try {
+            saveAs(blob, fileName);
+            globalResults.push({
+              obraId: obraSel.obraId,
+              title: obraTitleClean,
+              downloadedLocal: true,
+            });
+          } catch (e) {
+            console.error("Error descargando set local", e);
+            globalResults.push({
+              obraId: obraSel.obraId,
+              title: obraTitleClean,
+              error: e.message || "Error al descargar",
+            });
+          }
+          continue;
+        }
 
-        const form = new FormData();
-        form.append(
-          "metadata",
-          new Blob([JSON.stringify(metadata)], { type: "application/json" }),
-        );
-        form.append("file", blob);
+        currentStep += 1;
+        setProgress({
+          current: currentStep,
+          total: totalSteps,
+          label: "Subiendo a Drive...",
+        });
 
         try {
+          const token = await ensureGoogleAccessToken();
+          const metadata = {
+            name: fileName,
+            parents: [PARTICELLA_SETS_ROOT_ID],
+          };
+
+          const form = new FormData();
+          form.append(
+            "metadata",
+            new Blob([JSON.stringify(metadata)], { type: "application/json" }),
+          );
+          form.append("file", blob);
+
           const uploadRes = await fetch(
             "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
             {
@@ -661,6 +883,7 @@ export default function ParticellaDownloadModal({
       });
     } finally {
       setIsRunning(false);
+      setRunningMode(null);
     }
   };
 
@@ -669,193 +892,433 @@ export default function ParticellaDownloadModal({
       ? Math.round((progress.current / progress.total) * 100)
       : 0;
 
-  return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60">
-      <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full mx-4 max-h-[90vh] flex flex-col overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-          <div className="flex items-center gap-2">
-            <IconLayers className="text-indigo-600" />
-            <div className="flex flex-col">
-              <span className="text-sm font-bold text-slate-800">
-                Gestor de Descargas de Particellas
-              </span>
-              <span className="text-[11px] text-slate-500">
-                Seleccioná qué obras y particellas incluir y generá un set
-                unificado por obra en Drive.
-              </span>
+  const resolveLinkLabel = (obraId, link, idx) => {
+    const key = getDriveKeyFromUrl(link.url);
+    return driveNamesByObra[obraId]?.[key] || getDriveFileLabel(link.url, idx);
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-3 sm:p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="particella-download-title"
+      onClick={() => {
+        if (!isRunning) onClose();
+      }}
+    >
+      <div
+        className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 bg-slate-50 px-5 py-4">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
+              <IconLayers size={18} />
+            </div>
+            <div className="min-w-0">
+              <h2
+                id="particella-download-title"
+                className="text-base sm:text-lg font-bold text-slate-800"
+              >
+                Descargar particellas
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Elegí obras y partes; generá un PDF unificado por obra (descarga
+                local o carpeta de sets en Drive).
+                {program?.nomenclador || program?.nombre ? (
+                  <>
+                    {" "}
+                    <span className="font-semibold text-slate-600">
+                      {program.nomenclador || program.nombre}
+                    </span>
+                  </>
+                ) : null}
+              </p>
+              <a
+                href={PARTICELLA_SETS_ROOT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:underline"
+              >
+                <IconFolder size={12} />
+                Abrir carpeta de sets en Drive
+                <IconExternalLink size={11} />
+              </a>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-xs font-medium text-slate-500 hover:text-slate-800"
             disabled={isRunning}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-40"
+            aria-label="Cerrar"
           >
-            Cerrar
+            <IconX size={18} />
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
+        {/* Toolbar */}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-white px-5 py-2.5">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleSelectAll}
+              disabled={isRunning}
+              className="text-[11px] font-bold text-indigo-600 hover:underline disabled:opacity-40"
+            >
+              Seleccionar todo
+            </button>
+            <button
+              type="button"
+              onClick={handleClearAll}
+              disabled={isRunning}
+              className="text-[11px] font-bold text-slate-400 hover:text-slate-600 hover:underline disabled:opacity-40"
+            >
+              Limpiar
+            </button>
+            {selectionStats.partsCount > 0 && (
+              <span className="hidden sm:inline text-[11px] text-slate-500">
+                {selectionStats.obrasCount} obra
+                {selectionStats.obrasCount !== 1 ? "s" : ""} ·{" "}
+                {selectionStats.partsCount} particella
+                {selectionStats.partsCount !== 1 ? "s" : ""} ·{" "}
+                {selectionStats.copiesCount} copia
+                {selectionStats.copiesCount !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label
+              className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
+                copiasPorAtril
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+              title={
+                copiasPorAtril
+                  ? "Cuerdas: 1 copia por atril (ceil de músicos / 2). Desactivá para 1 por músico."
+                  : "Cuerdas: 1 copia por músico. Activá para 1 por atril."
+              }
+            >
+              <input
+                type="checkbox"
+                className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                checked={copiasPorAtril}
+                disabled={isRunning}
+                onChange={(e) => setCopiasPorAtril(e.target.checked)}
+              />
+              <IconUsers size={14} className="shrink-0" />
+              <span className="font-semibold">1 por atril</span>
+              <span className="hidden sm:inline text-[10px] font-normal text-slate-500">
+                cuerdas · ceil(n/2)
+              </span>
+            </label>
+
+            <label
+              className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
+                dobleFaz
+                  ? "border-indigo-200 bg-indigo-50 text-indigo-800"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+              title="Si una particella tiene páginas impares, agrega una hoja en blanco para impresión a doble faz."
+            >
+              <input
+                type="checkbox"
+                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                checked={dobleFaz}
+                disabled={isRunning}
+                onChange={(e) => setDobleFaz(e.target.checked)}
+              />
+              <IconPrinter size={14} className="shrink-0" />
+              <span className="font-semibold">Doble faz</span>
+              <span className="hidden sm:inline text-[10px] font-normal text-slate-500">
+                hoja en blanco si páginas impares
+              </span>
+            </label>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
           {error && (
-            <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
               {error}
             </div>
           )}
 
-          <div className="space-y-2">
-            {tree.map(({ obra, obraId, rows }) => (
-              <div
-                key={obraId}
-                className="border border-slate-200 rounded-lg overflow-hidden"
-              >
-                <div className="flex items-center justify-between bg-slate-100 px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="text-xs text-slate-500 hover:text-slate-700 transition-transform"
-                      onClick={() => handleToggleExpand(obraId)}
-                    >
-                      <span
-                        className={`inline-block transform transition-transform ${
-                          expandedByObra[obraId] ? "rotate-90" : ""
-                        }`}
-                      >
-                        ▶
-                      </span>
-                    </button>
-                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-800">
-                      <input
-                        type="checkbox"
-                        className="rounded border-slate-300 text-indigo-600"
-                        checked={
-                          !!selectedByObra[obraId]?.enabled && rows.length > 0
-                        }
+          {tree.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+              No hay obras en este programa.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {tree.map(({ obra, obraId, rows }) => {
+                const conf = selectedByObra[obraId] || {
+                  enabled: false,
+                  parts: {},
+                };
+                const selectedCount = rows.filter(
+                  (row) => !!conf.parts[row.partKey],
+                ).length;
+                const allSelected =
+                  rows.length > 0 && selectedCount === rows.length;
+                const someSelected =
+                  selectedCount > 0 && selectedCount < rows.length;
+                const expanded = !!expandedByObra[obraId];
+                const totalCopies = rows.reduce(
+                  (acc, row) => acc + getEffectiveCopies(obraId, row),
+                  0,
+                );
+
+                return (
+                  <div
+                    key={obraId}
+                    className={`overflow-hidden rounded-lg border transition-colors ${
+                      selectedCount > 0
+                        ? "border-indigo-200 bg-indigo-50/30"
+                        : "border-slate-200 bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 bg-slate-50/80 px-3 py-2.5">
+                      <button
+                        type="button"
+                        className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-40"
+                        onClick={() => handleToggleExpand(obraId)}
                         disabled={rows.length === 0}
-                        onChange={() => handleToggleWork(obraId, rows)}
-                      />
-                      <span>
-                        {obra.composer} —{" "}
-                        <span
-                          className="font-bold"
-                          dangerouslySetInnerHTML={{ __html: obra.title }}
+                        aria-expanded={expanded}
+                        aria-label={expanded ? "Colapsar" : "Expandir"}
+                      >
+                        <IconChevronRight
+                          size={14}
+                          className={`transition-transform ${expanded ? "rotate-90" : ""}`}
                         />
-                      </span>
-                    </label>
-                  </div>
-                  <span className="text-[11px] text-slate-500">
-                    {rows.length} particellas
-                  </span>
-                </div>
-                {rows.length > 0 && expandedByObra[obraId] && (
-                  <div className="divide-y divide-slate-100 bg-white">
-                    {rows.map((row) => {
-                      return (
-                        <div
-                          key={row.partKey}
-                          className="flex items-center justify-between px-3 py-1.5 text-xs"
-                        >
-                          <div className="flex items-center gap-2 flex-1">
-                            <input
-                              type="checkbox"
-                              className="rounded border-slate-300 text-indigo-600 mt-0.5"
-                              checked={
-                                !!selectedByObra[obraId]?.parts[row.partKey]
-                              }
-                              onChange={() =>
-                                handleTogglePart(obraId, row.partKey, rows)
-                              }
-                            />
-                            <div className="flex flex-col">
-                              <span className="font-semibold text-slate-800">
-                                {row.displayName}
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                {row.copies} copias sugeridas
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-center gap-2 flex-1 text-center">
-                            {row.who && row.who.length > 0 && (
-                              <span className="text-[11px] text-emerald-600 truncate">
-                                {row.who.join(", ")}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {row.hasMultipleLinks ? (
-                              <select
-                                className="text-[11px] border border-slate-300 rounded px-1.5 py-0.5 bg-white"
-                                value={
-                                  linkIndexByPart[row.partId] != null
-                                    ? linkIndexByPart[row.partId]
-                                    : 0
-                                }
-                                onChange={(e) =>
-                                  handleChangeLinkIndex(
-                                    row.partId,
-                                    Number(e.target.value),
-                                  )
-                                }
-                              >
-                                {row.links.map((link, idx) => {
-                                  const key = getDriveKeyFromUrl(link.url);
-                                  const remoteName =
-                                    driveNamesByObra[row.obra.obra_id]?.[key];
-                                  const label =
-                                    remoteName ||
-                                    getDriveFileLabel(link.url, idx);
-                                  return (
-                                    <option key={idx} value={idx}>
-                                      {label}
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                            ) : (
-                              <span className="text-[11px] text-slate-600">
-                                {row.links[0]?.url
-                                  ? driveNamesByObra[row.obra.obra_id]?.[
-                                      getDriveKeyFromUrl(row.links[0].url)
-                                    ] || getDriveFileLabel(row.links[0].url, 0)
-                                  : "Particella"}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              className="text-[11px] px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-                              disabled={isRunning || !row.links[0]?.url}
-                              onClick={() =>
-                                handleCopySinglePart(
-                                  { obraId, obra },
-                                  row,
-                                )
-                              }
-                            >
-                              Copiar archivo
-                            </button>
-                          </div>
+                      </button>
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          checked={allSelected}
+                          ref={(el) => {
+                            if (el) el.indeterminate = someSelected;
+                          }}
+                          disabled={rows.length === 0}
+                          onChange={() => handleToggleWork(obraId, rows)}
+                        />
+                        <span className="min-w-0 truncate text-xs font-semibold text-slate-800">
+                          <span className="text-slate-500 font-medium">
+                            {obra.composer}
+                          </span>
+                          <span className="mx-1 text-slate-300">—</span>
+                          <span
+                            className="font-bold"
+                            dangerouslySetInnerHTML={{ __html: obra.title }}
+                          />
+                        </span>
+                      </label>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {selectedCount > 0 && (
+                          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
+                            {selectedCount}/{rows.length}
+                          </span>
+                        )}
+                        <span className="text-[11px] text-slate-500">
+                          {rows.length === 0
+                            ? "Sin asignaciones"
+                            : `${rows.length} part. · ${totalCopies} cop.`}
+                        </span>
+                      </div>
+                    </div>
+
+                    {rows.length > 0 && expanded && (
+                      <div className="divide-y divide-slate-100 border-t border-slate-100 bg-white">
+                        {/* Column headers — desktop */}
+                        <div className="hidden sm:grid grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_5.5rem_minmax(0,0.9fr)_auto] gap-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400 bg-slate-50/50">
+                          <span>Particella</span>
+                          <span>Asignado a</span>
+                          <span className="text-center">Copias</span>
+                          <span>Archivo</span>
+                          <span className="w-[8.5rem] text-right">Acciones</span>
                         </div>
-                      );
-                    })}
+                        {rows.map((row) => {
+                          const isSelected = !!conf.parts[row.partKey];
+                          const effective = getEffectiveCopies(obraId, row);
+                          const reduced = effective < row.maxCopies;
+                          return (
+                            <div
+                              key={row.partKey}
+                              className={`grid grid-cols-1 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_5.5rem_minmax(0,0.9fr)_auto] gap-2 sm:gap-2 items-center px-3 py-2 text-xs ${
+                                isSelected ? "bg-indigo-50/40" : ""
+                              }`}
+                            >
+                              <label className="flex min-w-0 cursor-pointer items-start gap-2">
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                  checked={isSelected}
+                                  onChange={() =>
+                                    handleTogglePart(obraId, row.partKey, rows)
+                                  }
+                                />
+                                <span className="min-w-0">
+                                  <span className="block font-semibold text-slate-800 truncate">
+                                    {row.displayName}
+                                  </span>
+                                  <span className="text-[11px] text-slate-500 sm:hidden">
+                                    Tope {row.maxCopies}
+                                    {reduced ? ` → ${effective}` : ""}
+                                  </span>
+                                </span>
+                              </label>
+
+                              <div className="min-w-0 pl-6 sm:pl-0">
+                                {row.who.length > 0 ? (
+                                  <span
+                                    className="block truncate text-[11px] text-emerald-700"
+                                    title={row.who.join(", ")}
+                                  >
+                                    {row.who.join(", ")}
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] text-slate-400 italic">
+                                    —
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center justify-center gap-0.5 pl-6 sm:pl-0">
+                                <button
+                                  type="button"
+                                  className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30"
+                                  disabled={isRunning || effective <= 0}
+                                  onClick={() =>
+                                    setCopiesForRow(obraId, row, effective - 1)
+                                  }
+                                  aria-label="Restar copia"
+                                  title="Restar (músico con tablet)"
+                                >
+                                  −
+                                </button>
+                                <div
+                                  className={`min-w-[2.25rem] text-center tabular-nums text-[11px] font-bold ${
+                                    reduced
+                                      ? "text-amber-700"
+                                      : "text-slate-800"
+                                  }`}
+                                  title={
+                                    reduced
+                                      ? `Reducido de ${row.maxCopies} (tope seating)`
+                                      : `Tope seating: ${row.maxCopies}`
+                                  }
+                                >
+                                  {effective}
+                                  <span className="font-normal text-slate-400">
+                                    /{row.maxCopies}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-30"
+                                  disabled={
+                                    isRunning || effective >= row.maxCopies
+                                  }
+                                  onClick={() =>
+                                    setCopiesForRow(obraId, row, effective + 1)
+                                  }
+                                  aria-label="Sumar copia"
+                                >
+                                  <IconPlus size={12} />
+                                </button>
+                              </div>
+
+                              <div className="min-w-0 pl-6 sm:pl-0">
+                                {row.hasMultipleLinks ? (
+                                  <select
+                                    className="w-full max-w-full truncate rounded border border-slate-300 bg-white px-1.5 py-1 text-[11px] focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                                    value={
+                                      linkIndexByPart[row.partId] != null
+                                        ? linkIndexByPart[row.partId]
+                                        : 0
+                                    }
+                                    onChange={(e) =>
+                                      handleChangeLinkIndex(
+                                        row.partId,
+                                        Number(e.target.value),
+                                      )
+                                    }
+                                  >
+                                    {row.links.map((link, idx) => (
+                                      <option key={idx} value={idx}>
+                                        {resolveLinkLabel(obraId, link, idx)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <span className="block truncate text-[11px] text-slate-600">
+                                    {row.links[0]?.url
+                                      ? resolveLinkLabel(
+                                          obraId,
+                                          row.links[0],
+                                          0,
+                                        )
+                                      : "Sin archivo"}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex justify-end gap-1 pl-6 sm:pl-0">
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                                  disabled={isRunning || !row.links[0]?.url}
+                                  onClick={() =>
+                                    handleDownloadSinglePart(
+                                      { obraId, obra },
+                                      row,
+                                    )
+                                  }
+                                  title="Descargar este PDF al navegador (archivo suelto, sin unificar)"
+                                >
+                                  <IconDownload size={12} />
+                                  Bajar
+                                </button>
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                                  disabled={isRunning || !row.links[0]?.url}
+                                  onClick={() =>
+                                    handleCopySinglePart({ obraId, obra }, row)
+                                  }
+                                  title="Copia este PDF suelto a la carpeta de sets en Drive (no lo descarga al PC)"
+                                >
+                                  <IconCopy size={12} />
+                                  A Drive
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
 
           {progress.total > 0 && (
-            <div className="mt-2">
-              <div className="flex items-center justify-between text-[11px] mb-1">
-                <span className="text-slate-600">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+              <div className="mb-1.5 flex items-center justify-between text-[11px]">
+                <span className="font-medium text-slate-600">
                   {progress.label || "Progreso"}
                 </span>
-                <span className="text-slate-500">{pct}%</span>
+                <span className="tabular-nums text-slate-500">{pct}%</span>
               </div>
-              <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
                 <div
-                  className="h-full bg-indigo-500 transition-all"
+                  className="h-full rounded-full bg-indigo-500 transition-all duration-300"
                   style={{ width: `${pct}%` }}
                 />
               </div>
@@ -863,14 +1326,17 @@ export default function ParticellaDownloadModal({
           )}
 
           {results.length > 0 && (
-            <div className="mt-3 border border-slate-200 rounded-lg p-2 bg-slate-50">
-              <div className="text-[11px] font-semibold text-slate-700 mb-1">
+            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
                 Resultados
               </div>
-              <ul className="space-y-0.5 text-[11px] text-slate-700">
-                {results.map((r) => (
-                  <li key={r.obraId}>
-                    {r.title}:{" "}
+              <ul className="space-y-1.5 text-xs text-slate-700">
+                {results.map((r, idx) => (
+                  <li
+                    key={`${r.obraId}-${idx}`}
+                    className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5"
+                  >
+                    <span className="font-semibold">{r.title}</span>
                     {r.error ? (
                       <span className="text-red-600">{r.error}</span>
                     ) : r.link ? (
@@ -878,10 +1344,14 @@ export default function ParticellaDownloadModal({
                         href={r.link}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-indigo-600 underline"
+                        className="font-medium text-indigo-600 hover:underline"
                       >
-                        Ver en Drive
+                        {r.copiedSingle
+                          ? "Archivo en Drive"
+                          : "Ver set en Drive"}
                       </a>
+                    ) : r.downloadedLocal ? (
+                      <span className="text-emerald-700">Descargado</span>
                     ) : (
                       <span className="text-slate-500">OK</span>
                     )}
@@ -892,32 +1362,87 @@ export default function ParticellaDownloadModal({
           )}
         </div>
 
-        <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
-          <div className="text-[11px] text-slate-500">
-            Las copias se calculan automáticamente a partir del Seating
-            (cuerdas por atril, vientos por músico presente).
-          </div>
-          <button
-            type="button"
-            onClick={handleGenerateAndUpload}
-            disabled={isRunning}
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-wait shadow-sm"
-          >
-            {isRunning ? (
+        {/* Footer */}
+        <div className="flex shrink-0 flex-col gap-3 border-t border-slate-100 bg-slate-50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] leading-relaxed text-slate-500 max-w-md">
+            Vientos/perc./director: 1 por músico (asignación individual). Podés
+            restar copias si alguien usa tablet.
+            {copiasPorAtril ? (
               <>
-                <IconLoader className="animate-spin" size={14} />
-                Generando sets...
+                {" "}
+                Cuerdas:{" "}
+                <span className="font-medium text-emerald-700">
+                  1 por atril (ceil n/2)
+                </span>
+                .
               </>
             ) : (
               <>
-                <IconDownload size={14} />
-                Generar y subir a Drive
+                {" "}
+                Cuerdas:{" "}
+                <span className="font-medium text-slate-600">
+                  1 por músico
+                </span>
+                .
               </>
             )}
-          </button>
+            {dobleFaz && (
+              <>
+                {" "}
+                <span className="font-medium text-indigo-600">
+                  Doble faz:
+                </span>{" "}
+                hoja en blanco si páginas impares.
+              </>
+            )}
+          </p>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => handleGenerateSets("local")}
+              disabled={isRunning || selectionStats.partsCount === 0}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isRunning && runningMode === "local" ? (
+                <>
+                  <IconLoader className="animate-spin" size={14} />
+                  Descargando…
+                </>
+              ) : (
+                <>
+                  <IconDownload size={14} />
+                  Descargar PDF
+                  {selectionStats.obrasCount > 0
+                    ? ` (${selectionStats.obrasCount})`
+                    : ""}
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleGenerateSets("drive")}
+              disabled={isRunning || selectionStats.partsCount === 0}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isRunning && runningMode === "drive" ? (
+                <>
+                  <IconLoader className="animate-spin" size={14} />
+                  Subiendo…
+                </>
+              ) : (
+                <>
+                  <IconFolder size={14} />
+                  Subir a Drive
+                  {selectionStats.obrasCount > 0
+                    ? ` (${selectionStats.obrasCount})`
+                    : ""}
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
-
