@@ -1,4 +1,4 @@
-## Fix: Pedido Inicial de Alojamiento (Pedido de Plazas)
+﻿## Fix: Pedido Inicial de Alojamiento (Pedido de Plazas)
 
 ### Contexto
 
@@ -78,4 +78,11 @@ El reporte seguía asumiendo que `log.checkin` y `log.checkout` eran siempre str
 - [x] Formato superior (Plus): `{n} pasajeros habitación superior (single). Check-in: …` para Plus **no** matrimoniales; `{n} pasajeros habitación superior (matrimonial). Check-in: …` cuando la habitación asignada tiene `es_matrimonial`. Los ajustes manuales Plus (sin flag) van como single.
 - [x] Bloque **Resumen** al final (y por tramo si hay varios): total pax, desglose estándar/superior, noches básicas/superiores, camas noche y habitaciones sugeridas.
 - [x] La vista tabular / impresión existente se mantiene sin cambios; el texto es opcional vía modal con copiar al portapapeles.
+
+### Desglose por sexo en texto de pedido (completado)
+
+- [x] Contadores por género × categoría en grupos de fechas (aseStdM/F, asePlusSingleM/F, asePlusMatriM/F); los ajustes manuales std_m/f y plus_m/f se suman al desglose.
+- [x] Texto hotelería: líneas separadas por sexo, p. ej. `{n} pasajeros hombres. Check-in: …` / `{n} pasajeros mujeres. Check-in: …` (también en superior single/matrimonial).
+- [x] Bloque Resumen: línea `Sexo: X hombres · Y mujeres`.
+- [x] Reporte de Rooming (RoomingReport.jsx): columna **Sexo** (genero) en la lista de pasajeros.
 

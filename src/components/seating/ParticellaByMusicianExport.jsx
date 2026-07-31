@@ -47,6 +47,7 @@ export default function ParticellaByMusicianExport({
   particellas = [],
   filteredRoster = [],
   onBusyChange,
+  onProgressChange,
 }) {
   const [selectedObraIds, setSelectedObraIds] = useState(() =>
     new Set((obras || []).map((o) => String(o.obra_id))),
@@ -70,7 +71,39 @@ export default function ParticellaByMusicianExport({
   }, [isRunning, onBusyChange]);
 
   useEffect(() => {
-    setSelectedObraIds(new Set((obras || []).map((o) => String(o.obra_id))));
+    onProgressChange?.(progress);
+  }, [progress, onProgressChange]);
+
+  const prevObraIdSetRef = useRef(null);
+
+  // Sync obras: solo si cambian los IDs reales (no al recrearse el array `obras`).
+  // Respeta destildes manuales; auto-tilda obras nuevas del programa.
+  useEffect(() => {
+    const ids = (obras || []).map((o) => String(o.obra_id));
+    const nextSet = new Set(ids);
+    const prevSet = prevObraIdSetRef.current;
+
+    if (
+      prevSet &&
+      prevSet.size === nextSet.size &&
+      ids.every((id) => prevSet.has(id))
+    ) {
+      return;
+    }
+
+    prevObraIdSetRef.current = nextSet;
+
+    setSelectedObraIds((prev) => {
+      if (prevSet == null) return nextSet;
+      const merged = new Set();
+      for (const id of prev) {
+        if (nextSet.has(id)) merged.add(id);
+      }
+      for (const id of ids) {
+        if (!prevSet.has(id)) merged.add(id);
+      }
+      return merged;
+    });
   }, [obras]);
 
   useEffect(() => {
@@ -494,11 +527,6 @@ export default function ParticellaByMusicianExport({
     }
   };
 
-  const pct =
-    progress.total > 0
-      ? Math.round((progress.current / progress.total) * 100)
-      : 0;
-
   return (
     <>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-100 bg-white px-5 py-2.5">
@@ -787,23 +815,6 @@ export default function ParticellaByMusicianExport({
             </div>
           )}
         </section>
-
-        {progress.total > 0 && (
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-            <div className="mb-1.5 flex justify-between text-[11px]">
-              <span className="font-medium text-slate-600">
-                {progress.label || "Progreso"}
-              </span>
-              <span className="tabular-nums text-slate-500">{pct}%</span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-              <div
-                className="h-full rounded-full bg-indigo-500 transition-all"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          </div>
-        )}
 
         {results.length > 0 && (
           <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">

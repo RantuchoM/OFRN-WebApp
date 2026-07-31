@@ -504,6 +504,9 @@ const RoomingReportModal = ({
                       </th>
                       <th style={{ width: "180px" }}>Detalle Habitación</th>
                       <th>Apellido y Nombre</th>
+                      <th style={{ width: "40px" }} className="center">
+                        Sexo
+                      </th>
                       <th style={{ width: "70px" }}>DNI</th>
                       <th style={{ width: "70px" }}>F. Nac</th>
                       <th style={{ width: "85px" }}>Check In</th>
@@ -560,6 +563,9 @@ const RoomingReportModal = ({
                                 <b>{occ.apellido}</b>, {occ.nombre}
                                 {occ.ocupa_cama === false ? " (Cuna)" : ""}
                               </td>
+                              <td className="center" style={{ verticalAlign: "middle" }}>
+                                {occ.genero || "-"}
+                              </td>
                               <td className="date-col">{occ.dni || "-"}</td>
                               <td className="date-col">
                                 {formatDOB(occ.fecha_nac)}
@@ -600,7 +606,7 @@ const RoomingReportModal = ({
                                 ))}
                               </td>
                               <td
-                                colSpan="5"
+                                colSpan="6"
                                 style={{
                                   color: "#cbd5e1",
                                   fontStyle: "italic",

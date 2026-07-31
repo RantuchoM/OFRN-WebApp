@@ -12,7 +12,8 @@ Módulo para la descarga masiva y unificación de particellas de un programa, in
    - Binder por persona: portada + particellas de todas las obras tildadas donde tiene asignación.  
    - Portada: nombre, `mes_letra`, `nomenclador`, `nombre_gira`, ensambles activos. Con Doble faz ON → portada de 2 páginas (reverso en blanco).  
    - 1 PDF de la parte por obra (cuerdas vía contenedor; no multiplica atriles).  
-   - Obras y músicos: todos ON por defecto, destildables.  
+   - Obras y músicos: todos ON por defecto, destildables. La sync de selección solo reacciona a cambios de IDs (no a nueva referencia del array `obras`/`allBundles`), para no re-tildar lo destildado a mano.
+   - Durante exportación: overlay a pantalla del modal + aviso «no cierres la pestaña»; `beforeunload` pide confirmación del navegador al cerrar/recargar.  
    - Orden: alfabético / `id_instr` / ensamble regional (`isRegionalConvocatoriaEnsamble`); desempate apellido.  
    - Salida: un PDF único, o un PDF por músico (ZIP local / subcarpeta Drive con timestamp si el nombre base ya existe).  
    - Multi-versión: selector; default primera.
@@ -84,7 +85,7 @@ En la generación del PDF, el buffer de cada particella seleccionada se duplica 
 - Si se desactiva la obra, no se genera ningún set para ella.  
 - Si se desactiva un instrumento concreto, sus copias no se incluyen en el set.
 - **Score / Director / partitura** (`id_instrumento` 50 o nombre con score/director/conductor/partitura): aparecen en la lista pero **no se tildan** al marcar la obra ni con «Seleccionar todo»; se pueden activar a mano.
-- **Sin seating** (toggle **on** por defecto): al activarlo, se listan particellas de la obra sin nadie asignado (p. ej. arpa), con tope de **1 copia**, borde/badge violeta «Sin seating». Al lado del título de la obra se muestra `{n} sin seating`. Al marcar obra / Seleccionar todo también se incluyen (salvo Scores).
+- **Sin seating** (toggle **on** por defecto): lista particellas sin asignación (p. ej. arpa) con 1 copia; badge violeta. El header de cada obra muestra `{n} sin seating`.
 
 #### Descarga de buffers
 - Para cada particella seleccionada:

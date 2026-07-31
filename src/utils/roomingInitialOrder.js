@@ -562,12 +562,24 @@ function ensureDateGroup(dateGroups, key, clippedIn, clippedOut, nights) {
       basePlusMatri: 0,
       baseM: 0,
       baseF: 0,
+      baseStdM: 0,
+      baseStdF: 0,
+      basePlusSingleM: 0,
+      basePlusSingleF: 0,
+      basePlusMatriM: 0,
+      basePlusMatriF: 0,
       cunas: [],
     };
   }
   if (!Array.isArray(dateGroups[key].cunas)) dateGroups[key].cunas = [];
   if (dateGroups[key].basePlusSingle == null) dateGroups[key].basePlusSingle = 0;
   if (dateGroups[key].basePlusMatri == null) dateGroups[key].basePlusMatri = 0;
+  if (dateGroups[key].baseStdM == null) dateGroups[key].baseStdM = 0;
+  if (dateGroups[key].baseStdF == null) dateGroups[key].baseStdF = 0;
+  if (dateGroups[key].basePlusSingleM == null) dateGroups[key].basePlusSingleM = 0;
+  if (dateGroups[key].basePlusSingleF == null) dateGroups[key].basePlusSingleF = 0;
+  if (dateGroups[key].basePlusMatriM == null) dateGroups[key].basePlusMatriM = 0;
+  if (dateGroups[key].basePlusMatriF == null) dateGroups[key].basePlusMatriF = 0;
   return dateGroups[key];
 }
 
@@ -634,15 +646,25 @@ function addPersonToDateGroups({
     }
 
     group.baseCount++;
+    const isF = person.genero === "F";
     const plusRoom = getPlusRoomForPerson?.(person.id) || null;
     if (plusRoom) {
       group.basePlus++;
-      if (plusRoom.es_matrimonial) group.basePlusMatri++;
-      else group.basePlusSingle++;
+      if (plusRoom.es_matrimonial) {
+        group.basePlusMatri++;
+        if (isF) group.basePlusMatriF++;
+        else group.basePlusMatriM++;
+      } else {
+        group.basePlusSingle++;
+        if (isF) group.basePlusSingleF++;
+        else group.basePlusSingleM++;
+      }
     } else {
       group.baseStd++;
+      if (isF) group.baseStdF++;
+      else group.baseStdM++;
     }
-    if (person.genero === "F") group.baseF++;
+    if (isF) group.baseF++;
     else group.baseM++;
   });
 }
@@ -831,8 +853,12 @@ export function buildInitialOrderSections({
         segRow?.id ?? null,
         group.rangeLabel,
       );
-      const extraStd = (adj.std_m || 0) + (adj.std_f || 0);
-      const extraPlus = (adj.plus_m || 0) + (adj.plus_f || 0);
+      const extraStdM = adj.std_m || 0;
+      const extraStdF = adj.std_f || 0;
+      const extraPlusM = adj.plus_m || 0;
+      const extraPlusF = adj.plus_f || 0;
+      const extraStd = extraStdM + extraStdF;
+      const extraPlus = extraPlusM + extraPlusF;
       const stdPax = group.baseStd + extraStd;
       // Ajustes manuales Plus no tienen flag matrimonial → se tratan como single.
       const plusSinglePax = (group.basePlusSingle || 0) + extraPlus;
@@ -842,8 +868,8 @@ export function buildInitialOrderSections({
       const stdNights = stdPax * group.nights;
       const plusNights = plusPax * group.nights;
       const totalRowNights = totalRowPax * group.nights;
-      const totalF = group.baseF + (adj.std_f || 0) + (adj.plus_f || 0);
-      const totalM = group.baseM + (adj.std_m || 0) + (adj.plus_m || 0);
+      const totalF = group.baseF + extraStdF + extraPlusF;
+      const totalM = group.baseM + extraStdM + extraPlusM;
       const suggestedRooms = computeSuggestedRooms(totalF, totalM, bedsPerRoom);
       const cunas = Array.isArray(group.cunas) ? group.cunas : [];
       const cunaCount = cunas.length;
@@ -854,6 +880,15 @@ export function buildInitialOrderSections({
         plusPax,
         plusSinglePax,
         plusMatriPax,
+        stdM: (group.baseStdM || 0) + extraStdM,
+        stdF: (group.baseStdF || 0) + extraStdF,
+        // Ajustes Plus sin flag → single.
+        plusSingleM: (group.basePlusSingleM || 0) + extraPlusM,
+        plusSingleF: (group.basePlusSingleF || 0) + extraPlusF,
+        plusMatriM: group.basePlusMatriM || 0,
+        plusMatriF: group.basePlusMatriF || 0,
+        totalM,
+        totalF,
         totalRowPax,
         stdNights,
         plusNights,
@@ -906,6 +941,25 @@ function pasajeroLabel(count) {
   return count === 1 ? "pasajero" : "pasajeros";
 }
 
+function genderWord(gender, count) {
+  if (gender === "F") return count === 1 ? "mujer" : "mujeres";
+  return count === 1 ? "hombre" : "hombres";
+}
+
+/** Línea de pedido con desglose por sexo en el mismo rango de fechas.
+ * Ej: "7 hombres, 1 mujer. Check-in: …" / "3 hombres habitación superior (single). Check-in: …"
+ */
+function pushGenderedOrderLines(lines, countM, countF, categorySuffix, datePart) {
+  if (!datePart) return;
+  if (countM <= 0 && countF <= 0) return;
+
+  const parts = [];
+  if (countM > 0) parts.push(`${countM} ${genderWord("M", countM)}`);
+  if (countF > 0) parts.push(`${countF} ${genderWord("F", countF)}`);
+  const suffix = categorySuffix ? ` ${categorySuffix}` : "";
+  lines.push(`${parts.join(", ")}${suffix}. ${datePart}`);
+}
+
 function formatCheckDate(date) {
   if (!date || Number.isNaN(date.getTime())) return "";
   const weekday = format(date, "EEEE", { locale: es }).toLowerCase();
@@ -942,25 +996,42 @@ function formatCunaOrderLine(cuna) {
   return `1 cuna. Check-in ${inPart} - Check-out ${outPart} — ${name}`;
 }
 
+function sumGenderFromRows(rows) {
+  return (rows || []).reduce(
+    (acc, row) => ({
+      totalM: acc.totalM + (row.totalM || 0),
+      totalF: acc.totalF + (row.totalF || 0),
+    }),
+    { totalM: 0, totalF: 0 },
+  );
+}
+
 function sumSectionsForText(sections) {
   return (sections || []).reduce(
-    (acc, section) => ({
-      totalPax: acc.totalPax + (section.totalPax || 0),
-      totalStdPax: acc.totalStdPax + (section.totalStdPax || 0),
-      totalPlusPax: acc.totalPlusPax + (section.totalPlusPax || 0),
-      totalBedNights: acc.totalBedNights + (section.totalBedNights || 0),
-      grandTotalStdNights:
-        acc.grandTotalStdNights + (section.grandTotalStdNights || 0),
-      grandTotalPlusNights:
-        acc.grandTotalPlusNights + (section.grandTotalPlusNights || 0),
-      totalSuggestedRooms:
-        acc.totalSuggestedRooms + (section.totalSuggestedRooms || 0),
-      totalCunas: acc.totalCunas + (section.totalCunas || 0),
-    }),
+    (acc, section) => {
+      const gender = sumGenderFromRows(section.computedRows);
+      return {
+        totalPax: acc.totalPax + (section.totalPax || 0),
+        totalStdPax: acc.totalStdPax + (section.totalStdPax || 0),
+        totalPlusPax: acc.totalPlusPax + (section.totalPlusPax || 0),
+        totalM: acc.totalM + gender.totalM,
+        totalF: acc.totalF + gender.totalF,
+        totalBedNights: acc.totalBedNights + (section.totalBedNights || 0),
+        grandTotalStdNights:
+          acc.grandTotalStdNights + (section.grandTotalStdNights || 0),
+        grandTotalPlusNights:
+          acc.grandTotalPlusNights + (section.grandTotalPlusNights || 0),
+        totalSuggestedRooms:
+          acc.totalSuggestedRooms + (section.totalSuggestedRooms || 0),
+        totalCunas: acc.totalCunas + (section.totalCunas || 0),
+      };
+    },
     {
       totalPax: 0,
       totalStdPax: 0,
       totalPlusPax: 0,
+      totalM: 0,
+      totalF: 0,
       totalBedNights: 0,
       grandTotalStdNights: 0,
       grandTotalPlusNights: 0,
@@ -978,6 +1049,17 @@ function appendTextSummaryBlock(lines, totals, { title, bedsPerRoom } = {}) {
 
   if (totals.totalPax > 0) {
     lines.push(`Total pasajeros: ${totals.totalPax}`);
+
+    const genderParts = [];
+    if (totals.totalM > 0) {
+      genderParts.push(`${totals.totalM} ${genderWord("M", totals.totalM)}`);
+    }
+    if (totals.totalF > 0) {
+      genderParts.push(`${totals.totalF} ${genderWord("F", totals.totalF)}`);
+    }
+    if (genderParts.length > 0) {
+      lines.push(`Sexo: ${genderParts.join(" · ")}`);
+    }
 
     const paxParts = [];
     if (totals.totalStdPax > 0) {
@@ -1011,7 +1093,7 @@ function appendTextSummaryBlock(lines, totals, { title, bedsPerRoom } = {}) {
 
 /**
  * Texto plano para enviar a hotelería (mismo criterio de filas que el pedido tabular).
- * Ej: "15 pasajeros. Check-in: jueves, 18/6 - check-out: sábado, 20/6"
+ * Ej: "7 hombres, 1 mujer. Check-in: jueves, 18/6 - check-out: sábado, 20/6"
  * Cunas: "1 cuna. Check-in DD/MM HH:MM - Check-out DD/MM HH:MM — Apellido, Nombre"
  */
 export function buildInitialOrderTextSummary(
@@ -1030,7 +1112,22 @@ export function buildInitialOrderTextSummary(
     }
 
     (section.computedRows || []).forEach((row) => {
-      const { stdPax, plusPax, plusSinglePax, plusMatriPax, group, cunas } = row;
+      const {
+        stdPax,
+        plusPax,
+        plusSinglePax,
+        plusMatriPax,
+        stdM,
+        stdF,
+        plusSingleM,
+        plusSingleF,
+        plusMatriM,
+        plusMatriF,
+        totalM,
+        totalF,
+        group,
+        cunas,
+      } = row;
       const datePart = formatStayRangeText(group?.checkIn, group?.checkOut);
       const rowCunas = Array.isArray(cunas)
         ? cunas
@@ -1045,7 +1142,32 @@ export function buildInitialOrderTextSummary(
           : Math.max(0, (plusPax || 0) - (plusMatriPax || 0));
       const matriPax = plusMatriPax || 0;
 
-      if (datePart) {
+      const hasGenderSplit =
+        stdM != null ||
+        stdF != null ||
+        plusSingleM != null ||
+        plusSingleF != null ||
+        totalM != null ||
+        totalF != null;
+
+      if (datePart && hasGenderSplit) {
+        pushGenderedOrderLines(lines, stdM || 0, stdF || 0, "", datePart);
+        pushGenderedOrderLines(
+          lines,
+          plusSingleM || 0,
+          plusSingleF || 0,
+          superiorSingleLabel,
+          datePart,
+        );
+        pushGenderedOrderLines(
+          lines,
+          plusMatriM || 0,
+          plusMatriF || 0,
+          superiorMatriLabel,
+          datePart,
+        );
+      } else if (datePart) {
+        // Fallback legacy sin contadores por sexo.
         if (stdPax > 0) {
           lines.push(`${stdPax} ${pasajeroLabel(stdPax)}. ${datePart}`);
         }
@@ -1070,10 +1192,15 @@ export function buildInitialOrderTextSummary(
       showTramoHeaders &&
       (section.totalPax > 0 || section.totalCunas > 0)
     ) {
-      appendTextSummaryBlock(lines, section, {
-        title: `Resumen · ${section.title ?? "Tramo"}`,
-        bedsPerRoom,
-      });
+      const gender = sumGenderFromRows(section.computedRows);
+      appendTextSummaryBlock(
+        lines,
+        { ...section, ...gender },
+        {
+          title: `Resumen · ${section.title ?? "Tramo"}`,
+          bedsPerRoom,
+        },
+      );
     }
 
     if (

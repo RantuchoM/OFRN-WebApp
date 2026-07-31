@@ -21,6 +21,7 @@ import {
 } from "../../utils/driveFolders";
 import { isConfirmedConvocadoForSeatingReports } from "../../utils/seatingRosterGate";
 import ParticellaByMusicianExport from "./ParticellaByMusicianExport";
+import ParticellaExportBusyOverlay from "./ParticellaExportBusyOverlay";
 
 function getDriveFileLabel(_url, fallbackIndex) {
   if (fallbackIndex === 0) return "Principal";
@@ -134,6 +135,11 @@ export default function ParticellaDownloadModal({
   /** 'obra' | 'musico' */
   const [exportMode, setExportMode] = useState("obra");
   const [musicianBusy, setMusicianBusy] = useState(false);
+  const [musicianProgress, setMusicianProgress] = useState({
+    current: 0,
+    total: 0,
+    label: "",
+  });
 
   const presentRoster = useMemo(() => {
     const source = filteredRoster != null ? filteredRoster : rawRoster || [];
@@ -395,6 +401,17 @@ export default function ParticellaDownloadModal({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [isOpen, isRunning, musicianBusy, onClose]);
+
+  // Aviso nativo del navegador al intentar cerrar/recargar la pestaña durante exportación.
+  useEffect(() => {
+    if (!isOpen || !(isRunning || musicianBusy)) return undefined;
+    const onBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [isOpen, isRunning, musicianBusy]);
 
   useEffect(() => {
     if (!isOpen || hasLoadedDriveNames) return;
@@ -960,11 +977,7 @@ export default function ParticellaDownloadModal({
   };
 
   const busy = isRunning || musicianBusy;
-
-  const pct =
-    progress.total > 0
-      ? Math.round((progress.current / progress.total) * 100)
-      : 0;
+  const overlayProgress = musicianBusy ? musicianProgress : progress;
 
   const resolveLinkLabel = (obraId, link, idx) => {
     const key = getDriveKeyFromUrl(link.url);
@@ -982,9 +995,16 @@ export default function ParticellaDownloadModal({
       }}
     >
       <div
-        className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+        className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
+        {busy && (
+          <ParticellaExportBusyOverlay
+            current={overlayProgress.current}
+            total={overlayProgress.total}
+            label={overlayProgress.label}
+          />
+        )}
         {/* Header */}
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 bg-slate-50 px-5 py-4">
           <div className="flex items-start gap-3 min-w-0">
@@ -1077,6 +1097,7 @@ export default function ParticellaDownloadModal({
             particellas={particellas}
             filteredRoster={presentRoster}
             onBusyChange={setMusicianBusy}
+            onProgressChange={setMusicianProgress}
           />
         ) : (
           <>
@@ -1255,17 +1276,19 @@ export default function ParticellaDownloadModal({
                           disabled={rows.length === 0}
                           onChange={() => handleToggleWork(obraId, rows)}
                         />
-                        <span className="min-w-0 truncate text-xs font-semibold text-slate-800">
-                          <span className="text-slate-500 font-medium">
-                            {obra.composer}
+                        <span className="min-w-0 flex flex-wrap items-baseline gap-x-1.5 text-xs font-semibold text-slate-800">
+                          <span className="min-w-0">
+                            <span className="text-slate-500 font-medium">
+                              {obra.composer}
+                            </span>
+                            <span className="mx-1 text-slate-300">—</span>
+                            <span
+                              className="font-bold"
+                              dangerouslySetInnerHTML={{ __html: obra.title }}
+                            />
                           </span>
-                          <span className="mx-1 text-slate-300">—</span>
-                          <span
-                            className="font-bold"
-                            dangerouslySetInnerHTML={{ __html: obra.title }}
-                          />
                           {sinSeatingCount > 0 ? (
-                            <span className="ml-1.5 whitespace-nowrap text-[10px] font-bold text-violet-700">
+                            <span className="shrink-0 text-[10px] font-bold text-violet-700">
                               {sinSeatingCount} sin seating
                             </span>
                           ) : null}
@@ -1482,21 +1505,6 @@ export default function ParticellaDownloadModal({
             </div>
           )}
 
-          {progress.total > 0 && (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-              <div className="mb-1.5 flex items-center justify-between text-[11px]">
-                <span className="font-medium text-slate-600">
-                  {progress.label || "Progreso"}
-                </span>
-                <span className="tabular-nums text-slate-500">{pct}%</span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
-                <div
-                  className="h-full rounded-full bg-indigo-500 transition-all duration-300"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            </div>
           )}
 
           {results.length > 0 && (
