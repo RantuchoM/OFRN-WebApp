@@ -330,16 +330,18 @@ const InitialOrderReportModal = ({
                         h2 { font-size: 12px; margin: 0 0 12px; color: #64748b; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
                         h3 { font-size: 12px; color: #312e81; margin: 18px 0 8px; border-bottom: 1px solid #c7d2fe; padding-bottom: 4px; page-break-after: avoid; }
                         table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 11px; }
-                        th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; vertical-align: middle; }
+                        th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: center; vertical-align: middle; }
                         th { background-color: #e2e8f0; font-weight: 700; color: #334155; text-transform: uppercase; font-size: 10px; }
+                        th:nth-child(2), td:nth-child(2) { text-align: left; }
                         .center { text-align: center; }
-                        .date-col { white-space: nowrap; font-family: Consolas, monospace; font-size: 11px; }
+                        .date-col { white-space: nowrap; font-family: Consolas, monospace; font-size: 11px; text-align: center; }
                         .text-muted { color: #94a3b8; font-size: 10px; }
                         .checkin-day-sep td {
                             background-color: #f1f5f9 !important;
                             font-weight: 700;
                             color: #0f172a;
                             font-size: 11px;
+                            text-align: left;
                             border-top: 2px solid #64748b;
                             -webkit-print-color-adjust: exact;
                             print-color-adjust: exact;
@@ -775,17 +777,20 @@ const InitialOrderReportModal = ({
                               <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-12 uppercase text-[10px]">
                                 Sexo
                               </th>
-                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-left w-[70px] uppercase text-[10px]">
+                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-[70px] uppercase text-[10px]">
                                 DNI
                               </th>
-                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-left w-[70px] uppercase text-[10px]">
+                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-[70px] uppercase text-[10px]">
                                 F. Nac
                               </th>
-                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-left w-[90px] uppercase text-[10px]">
+                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-[90px] uppercase text-[10px]">
                                 Check In
                               </th>
-                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-left w-[90px] uppercase text-[10px]">
+                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-[90px] uppercase text-[10px]">
                                 Check Out
+                              </th>
+                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-14 uppercase text-[10px]">
+                                Noches
                               </th>
                             </tr>
                           </thead>
@@ -799,7 +804,7 @@ const InitialOrderReportModal = ({
                                 return (
                                   <tr>
                                     <td
-                                      colSpan={7}
+                                      colSpan={8}
                                       className="border border-slate-300 px-3 py-4 text-center text-slate-400 italic"
                                     >
                                       Sin pasajeros en este tramo.
@@ -814,7 +819,7 @@ const InitialOrderReportModal = ({
                                     className="checkin-day-sep"
                                   >
                                     <td
-                                      colSpan={7}
+                                      colSpan={8}
                                       className="border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-bold text-slate-800 text-[11px] border-t-2 border-t-slate-500"
                                     >
                                       Ingreso {group.dayLabel}
@@ -827,6 +832,18 @@ const InitialOrderReportModal = ({
                                 const rows = group.passengers.map((p) => {
                                   rowNum += 1;
                                   const n = rowNum;
+                                  const nights =
+                                    p.nights != null
+                                      ? p.nights
+                                      : p.dateIn && p.dateOut
+                                        ? Math.max(
+                                            0,
+                                            Math.round(
+                                              (p.dateOut - p.dateIn) /
+                                                (1000 * 60 * 60 * 24),
+                                            ),
+                                          )
+                                        : "-";
                                   return (
                                     <tr key={`${p.id}-${n}`}>
                                       <td className="border border-slate-300 px-2 py-1.5 text-center align-middle">
@@ -839,23 +856,26 @@ const InitialOrderReportModal = ({
                                       <td className="border border-slate-300 px-2 py-1.5 text-center align-middle">
                                         {p.genero || "-"}
                                       </td>
-                                      <td className="border border-slate-300 px-2 py-1.5 date-col align-middle font-mono text-[11px]">
+                                      <td className="border border-slate-300 px-2 py-1.5 date-col text-center align-middle font-mono text-[11px]">
                                         {p.dni || "-"}
                                       </td>
-                                      <td className="border border-slate-300 px-2 py-1.5 date-col align-middle font-mono text-[11px]">
+                                      <td className="border border-slate-300 px-2 py-1.5 date-col text-center align-middle font-mono text-[11px]">
                                         {formatDetailDob(p.fecha_nac)}
                                       </td>
-                                      <td className="border border-slate-300 px-2 py-1.5 date-col align-middle font-mono text-[11px]">
+                                      <td className="border border-slate-300 px-2 py-1.5 date-col text-center align-middle font-mono text-[11px]">
                                         {formatDetailDate(p.dateIn)}{" "}
                                         <span className="text-muted text-slate-400 text-[10px]">
                                           {formatDetailTime(p.dateIn)}
                                         </span>
                                       </td>
-                                      <td className="border border-slate-300 px-2 py-1.5 date-col align-middle font-mono text-[11px]">
+                                      <td className="border border-slate-300 px-2 py-1.5 date-col text-center align-middle font-mono text-[11px]">
                                         {formatDetailDate(p.dateOut)}{" "}
                                         <span className="text-muted text-slate-400 text-[10px]">
                                           {formatDetailTime(p.dateOut)}
                                         </span>
+                                      </td>
+                                      <td className="border border-slate-300 px-2 py-1.5 text-center align-middle font-bold text-slate-800">
+                                        {nights}
                                       </td>
                                     </tr>
                                   );

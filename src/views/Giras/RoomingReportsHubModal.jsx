@@ -15,7 +15,7 @@ const OPTIONS = [
     description:
       "Pedido de plazas por fechas, texto para hotelería y detalle de pasajeros.",
     icon: IconList,
-    accent: "emerald",
+    accent: "amber",
   },
   {
     id: "texto",
@@ -44,6 +44,11 @@ const OPTIONS = [
 ];
 
 const ACCENT = {
+  amber: {
+    border: "border-amber-200 hover:border-amber-400",
+    bg: "hover:bg-amber-50",
+    icon: "bg-amber-100 text-amber-700",
+  },
   emerald: {
     border: "border-emerald-200 hover:border-emerald-400",
     bg: "hover:bg-emerald-50",

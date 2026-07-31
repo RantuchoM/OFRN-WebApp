@@ -1079,6 +1079,7 @@ export function buildInitialOrderPassengerDetailSections({
         fecha_nac: enriched.fecha_nac || null,
         dateIn: firstClip.clippedIn,
         dateOut: lastClip.clippedOut,
+        nights: eligibleNights.length,
         en_cuna: isPersonInCunaForPedido(personId, segmentRooms, enriched),
       });
     });
