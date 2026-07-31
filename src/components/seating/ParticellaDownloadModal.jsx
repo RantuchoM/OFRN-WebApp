@@ -127,8 +127,8 @@ export default function ParticellaDownloadModal({
   const [dobleFaz, setDobleFaz] = useState(true);
   /** Cuerdas: ceil(n/2) por atril (default) vs 1 copia por músico. */
   const [copiasPorAtril, setCopiasPorAtril] = useState(true);
-  /** Incluir particellas sin asignación de seating (1 copia). Off por defecto. */
-  const [includeUnassigned, setIncludeUnassigned] = useState(false);
+  /** Incluir particellas sin asignación de seating (1 copia). On por defecto. */
+  const [includeUnassigned, setIncludeUnassigned] = useState(true);
   /** Override de copias por fila: tope = sugerido; se puede bajar (tablets). */
   const [copyOverrides, setCopyOverrides] = useState({});
   /** 'obra' | 'musico' */
@@ -276,7 +276,6 @@ export default function ParticellaDownloadModal({
         .filter(Boolean)
         .map((row) => ({ ...row, isScore: isScorePartRow(row) }))
         .sort((a, b) => {
-          // Asignadas primero; sin seating al final (mismo instrumento)
           if (!!a.sinSeating !== !!b.sinSeating) {
             return a.sinSeating ? 1 : -1;
           }
@@ -290,10 +289,15 @@ export default function ParticellaDownloadModal({
           );
         });
 
+      const sinSeatingTotal = obraParts.filter(
+        (p) => !(copiesByPartId[String(p.id)] > 0),
+      ).length;
+
       return {
         obra,
         obraId,
         rows,
+        sinSeatingTotal,
       };
     });
   }, [
@@ -1151,7 +1155,7 @@ export default function ParticellaDownloadModal({
               />
               <span className="font-semibold">Sin seating</span>
               <span className="hidden sm:inline text-[10px] font-normal text-slate-500">
-                1 copia · off por defecto
+                1 copia
               </span>
             </label>
 
@@ -1193,7 +1197,7 @@ export default function ParticellaDownloadModal({
             </div>
           ) : (
             <div className="space-y-2">
-              {tree.map(({ obra, obraId, rows }) => {
+              {tree.map(({ obra, obraId, rows, sinSeatingTotal }) => {
                 const conf = selectedByObra[obraId] || {
                   enabled: false,
                   parts: {},
@@ -1211,6 +1215,7 @@ export default function ParticellaDownloadModal({
                 const someSelected =
                   selectedCount > 0 && !allSelected;
                 const expanded = !!expandedByObra[obraId];
+                const sinSeatingCount = sinSeatingTotal || 0;
                 const totalCopies = rows.reduce(
                   (acc, row) => acc + getEffectiveCopies(obraId, row),
                   0,
@@ -1259,6 +1264,11 @@ export default function ParticellaDownloadModal({
                             className="font-bold"
                             dangerouslySetInnerHTML={{ __html: obra.title }}
                           />
+                          {sinSeatingCount > 0 ? (
+                            <span className="ml-1.5 whitespace-nowrap text-[10px] font-bold text-violet-700">
+                              {sinSeatingCount} sin seating
+                            </span>
+                          ) : null}
                         </span>
                       </label>
                       <div className="flex shrink-0 items-center gap-2">

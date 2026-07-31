@@ -84,7 +84,7 @@ En la generación del PDF, el buffer de cada particella seleccionada se duplica 
 - Si se desactiva la obra, no se genera ningún set para ella.  
 - Si se desactiva un instrumento concreto, sus copias no se incluyen en el set.
 - **Score / Director / partitura** (`id_instrumento` 50 o nombre con score/director/conductor/partitura): aparecen en la lista pero **no se tildan** al marcar la obra ni con «Seleccionar todo»; se pueden activar a mano.
-- **Sin seating** (toggle off por defecto): al activarlo, se listan particellas de la obra sin nadie asignado (p. ej. arpa), con tope de **1 copia**, borde/badge violeta «Sin seating». Al marcar obra / Seleccionar todo también se incluyen (salvo Scores).
+- **Sin seating** (toggle **on** por defecto): al activarlo, se listan particellas de la obra sin nadie asignado (p. ej. arpa), con tope de **1 copia**, borde/badge violeta «Sin seating». Al lado del título de la obra se muestra `{n} sin seating`. Al marcar obra / Seleccionar todo también se incluyen (salvo Scores).
 
 #### Descarga de buffers
 - Para cada particella seleccionada:

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { saveAs } from "file-saver";
 import PizZip from "pizzip";
 import { mergeSequential } from "../../utils/docMerger";
@@ -18,7 +18,15 @@ import { PARTICELLA_SETS_ROOT_ID } from "../../utils/driveFolders";
 
 function stripHtml(html) {
   if (typeof html !== "string") return html || "";
-  return html.replace(/<[^>]*>?/gm, "");
+  return html
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]*>?/gm, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function getDriveFileLabel(_url, fallbackIndex) {
@@ -125,18 +133,26 @@ export default function ParticellaByMusicianExport({
     ],
   );
 
-  // Default-select musicians when the eligible set changes
+  const prevEligibleMusicianIdsRef = useRef(null);
+
+  // Sync selección: al montar / al aparecer músicos nuevos por obras.
+  // No re-tilda a quien el usuario destildó a mano.
   useEffect(() => {
     const eligible = allBundles.map((b) => String(b.musicianId));
     const eligibleSet = new Set(eligible);
+    const prevEligible = prevEligibleMusicianIdsRef.current;
+    prevEligibleMusicianIdsRef.current = eligibleSet;
+
     setSelectedMusicianIds((prev) => {
-      if (prev == null) return new Set(eligible);
+      if (prev == null || prevEligible == null) {
+        return new Set(eligible);
+      }
       const next = new Set();
       for (const id of prev) {
         if (eligibleSet.has(id)) next.add(id);
       }
       for (const id of eligible) {
-        if (!prev.has(id)) next.add(id);
+        if (!prevEligible.has(id)) next.add(id);
       }
       return next;
     });
@@ -146,6 +162,34 @@ export default function ParticellaByMusicianExport({
     const sel = selectedMusicianIds || new Set();
     return allBundles.filter((b) => sel.has(String(b.musicianId)));
   }, [allBundles, selectedMusicianIds]);
+
+  /** Grupos con separador cuando orden = instrumento | ensamble */
+  const musicianGroups = useMemo(() => {
+    if (sortMode !== "instrument" && sortMode !== "ensamble") {
+      return [{ key: "_all", label: null, bundles: allBundles }];
+    }
+    const groups = [];
+    const indexByKey = new Map();
+    for (const b of allBundles) {
+      let key;
+      let label;
+      if (sortMode === "instrument") {
+        key = b.idInstr || "_sin_instr";
+        label =
+          b.instrumentoLabel ||
+          (b.idInstr ? `Instrumento ${b.idInstr}` : "Sin instrumento");
+      } else {
+        key = b.regionalKey || "_sin_ensamble";
+        label = b.regionalKey || "Sin ensamble regional";
+      }
+      if (!indexByKey.has(key)) {
+        indexByKey.set(key, groups.length);
+        groups.push({ key, label, bundles: [] });
+      }
+      groups[indexByKey.get(key)].bundles.push(b);
+    }
+    return groups;
+  }, [allBundles, sortMode]);
 
   const toggleObra = (obraId) => {
     const key = String(obraId);
@@ -163,6 +207,20 @@ export default function ParticellaByMusicianExport({
       const next = new Set(prev || []);
       if (next.has(key)) next.delete(key);
       else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleMusicianGroup = (bundles) => {
+    const ids = bundles.map((b) => String(b.musicianId));
+    setSelectedMusicianIds((prev) => {
+      const next = new Set(prev || []);
+      const allOn = ids.length > 0 && ids.every((id) => next.has(id));
+      if (allOn) {
+        ids.forEach((id) => next.delete(id));
+      } else {
+        ids.forEach((id) => next.add(id));
+      }
       return next;
     });
   };
@@ -526,14 +584,14 @@ export default function ParticellaByMusicianExport({
               </button>
             </div>
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-col gap-1">
             {(obras || []).map((obra) => {
               const id = String(obra.obra_id);
               const on = selectedObraIds.has(id);
               return (
                 <label
                   key={id}
-                  className={`inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] ${
+                  className={`flex w-full cursor-pointer items-start gap-2 rounded-md border px-2.5 py-1.5 text-[11px] ${
                     on
                       ? "border-indigo-200 bg-indigo-50 text-indigo-900"
                       : "border-slate-200 bg-white text-slate-500"
@@ -541,14 +599,20 @@ export default function ParticellaByMusicianExport({
                 >
                   <input
                     type="checkbox"
-                    className="rounded border-slate-300 text-indigo-600"
+                    className="mt-0.5 shrink-0 rounded border-slate-300 text-indigo-600"
                     checked={on}
                     disabled={isRunning}
                     onChange={() => toggleObra(obra.obra_id)}
                   />
-                  <span className="truncate">
-                    {obra.composer ? `${obra.composer} — ` : ""}
-                    {stripHtml(obra.title) || "Obra"}
+                  <span className="min-w-0 leading-snug">
+                    {obra.composer ? (
+                      <span className="font-medium text-slate-500">
+                        {obra.composer} —{" "}
+                      </span>
+                    ) : null}
+                    <span className="font-semibold">
+                      {stripHtml(obra.title) || "Obra"}
+                    </span>
                   </span>
                 </label>
               );
@@ -586,82 +650,137 @@ export default function ParticellaByMusicianExport({
               seleccionadas.
             </p>
           ) : (
-            <div className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200">
-              {allBundles.map((bundle) => {
-                const mid = String(bundle.musicianId);
-                const on = (selectedMusicianIds || new Set()).has(mid);
+            <div className="overflow-hidden rounded-lg border border-slate-200">
+              {musicianGroups.map((group) => {
+                const sel = selectedMusicianIds || new Set();
+                const groupIds = group.bundles.map((b) =>
+                  String(b.musicianId),
+                );
+                const selectedInGroup = groupIds.filter((id) =>
+                  sel.has(id),
+                ).length;
+                const allOn =
+                  groupIds.length > 0 && selectedInGroup === groupIds.length;
+                const someOn =
+                  selectedInGroup > 0 && selectedInGroup < groupIds.length;
+                const showHeader = !!group.label;
+
                 return (
                   <div
-                    key={mid}
-                    className={`px-3 py-2 ${on ? "bg-white" : "bg-slate-50/80 opacity-70"}`}
+                    key={group.key}
+                    className={
+                      showHeader ? "border-b border-slate-200 last:border-b-0" : ""
+                    }
                   >
-                    <label className="flex cursor-pointer items-start gap-2">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 rounded border-slate-300 text-indigo-600"
-                        checked={on}
-                        disabled={isRunning}
-                        onChange={() => toggleMusician(bundle.musicianId)}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-xs font-bold text-slate-800">
-                          {bundle.displayName}
-                          {bundle.instrumentoLabel ? (
-                            <span className="ml-1 font-normal text-slate-500">
-                              · {bundle.instrumentoLabel}
-                            </span>
-                          ) : null}
+                    {showHeader && (
+                      <label className="flex cursor-pointer items-center gap-2 bg-slate-100 px-3 py-2 border-b border-slate-200">
+                        <input
+                          type="checkbox"
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          checked={allOn}
+                          ref={(el) => {
+                            if (el) el.indeterminate = someOn;
+                          }}
+                          disabled={isRunning}
+                          onChange={() => toggleMusicianGroup(group.bundles)}
+                        />
+                        <span className="min-w-0 flex-1 text-xs font-bold text-slate-800">
+                          {group.label}
                         </span>
-                        {bundle.ensambles.length > 0 && (
-                          <span className="block text-[10px] text-slate-500">
-                            {bundle.ensambles.join(", ")}
-                          </span>
-                        )}
-                        <span className="mt-0.5 block text-[10px] text-slate-400">
-                          {bundle.parts.length} parte
-                          {bundle.parts.length !== 1 ? "s" : ""}
+                        <span className="shrink-0 text-[10px] font-semibold tabular-nums text-slate-500">
+                          {selectedInGroup}/{groupIds.length}
                         </span>
-                      </span>
-                    </label>
-                    {on &&
-                      bundle.parts.some((p) => p.hasMultipleLinks) && (
-                        <div className="mt-1.5 space-y-1 pl-6">
-                          {bundle.parts
-                            .filter((p) => p.hasMultipleLinks)
-                            .map((p) => (
-                              <div
-                                key={p.partKey}
-                                className="flex flex-wrap items-center gap-2 text-[11px]"
-                              >
-                                <span className="text-slate-500">
-                                  {stripHtml(p.obra?.title) || "Obra"} ·{" "}
-                                  {p.displayName}:
+                      </label>
+                    )}
+                    <div className="divide-y divide-slate-100">
+                      {group.bundles.map((bundle) => {
+                        const mid = String(bundle.musicianId);
+                        const on = sel.has(mid);
+                        return (
+                          <div
+                            key={mid}
+                            className={`px-3 py-2 ${on ? "bg-white" : "bg-slate-50/80 opacity-70"} ${showHeader ? "pl-5" : ""}`}
+                          >
+                            <label className="flex cursor-pointer items-start gap-2">
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 rounded border-slate-300 text-indigo-600"
+                                checked={on}
+                                disabled={isRunning}
+                                onChange={() =>
+                                  toggleMusician(bundle.musicianId)
+                                }
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-xs font-bold text-slate-800">
+                                  {bundle.displayName}
+                                  {sortMode !== "instrument" &&
+                                  bundle.instrumentoLabel ? (
+                                    <span className="ml-1 font-normal text-slate-500">
+                                      · {bundle.instrumentoLabel}
+                                    </span>
+                                  ) : null}
                                 </span>
-                                <select
-                                  className="rounded border border-slate-300 bg-white px-1.5 py-0.5"
-                                  value={
-                                    linkIndexByPart[p.partId] != null
-                                      ? linkIndexByPart[p.partId]
-                                      : 0
-                                  }
-                                  disabled={isRunning}
-                                  onChange={(e) =>
-                                    setLinkIndexByPart((prev) => ({
-                                      ...prev,
-                                      [p.partId]: Number(e.target.value),
-                                    }))
-                                  }
-                                >
-                                  {p.links.map((link, idx) => (
-                                    <option key={idx} value={idx}>
-                                      {getDriveFileLabel(link.url, idx)}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            ))}
-                        </div>
-                      )}
+                                {sortMode !== "ensamble" &&
+                                  bundle.ensambles.length > 0 && (
+                                    <span className="block text-[10px] text-slate-500">
+                                      {bundle.ensambles.join(", ")}
+                                    </span>
+                                  )}
+                                <span className="mt-0.5 block text-[10px] text-slate-400">
+                                  {bundle.parts.length} parte
+                                  {bundle.parts.length !== 1 ? "s" : ""}
+                                </span>
+                              </span>
+                            </label>
+                            {on &&
+                              bundle.parts.some((p) => p.hasMultipleLinks) && (
+                                <div className="mt-1.5 space-y-1 pl-6">
+                                  {bundle.parts
+                                    .filter((p) => p.hasMultipleLinks)
+                                    .map((p) => (
+                                      <div
+                                        key={p.partKey}
+                                        className="flex flex-wrap items-center gap-2 text-[11px]"
+                                      >
+                                        <span className="text-slate-500">
+                                          {stripHtml(p.obra?.title) || "Obra"} ·{" "}
+                                          {p.displayName}:
+                                        </span>
+                                        <select
+                                          className="rounded border border-slate-300 bg-white px-1.5 py-0.5"
+                                          value={
+                                            linkIndexByPart[p.partId] != null
+                                              ? linkIndexByPart[p.partId]
+                                              : 0
+                                          }
+                                          disabled={isRunning}
+                                          onChange={(e) =>
+                                            setLinkIndexByPart((prev) => ({
+                                              ...prev,
+                                              [p.partId]: Number(
+                                                e.target.value,
+                                              ),
+                                            }))
+                                          }
+                                        >
+                                          {p.links.map((link, idx) => (
+                                            <option key={idx} value={idx}>
+                                              {getDriveFileLabel(
+                                                link.url,
+                                                idx,
+                                              )}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    ))}
+                                </div>
+                              )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
