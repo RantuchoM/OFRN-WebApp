@@ -2572,6 +2572,57 @@ serve(async (req) => {
       );
     }
 
+    // --- ACCIÓN: CARPETA ÚNICA BAJO SETS DE PARTICELLAS (por músico) ---
+    // Si `folderName` ya existe como hijo de PARTICELLA_SETS_ROOT_ID, crea
+    // `${folderName}_${timestamp}` en su lugar (nunca reutiliza).
+    if (action === "create_particella_musician_folder") {
+      const baseNameRaw = String(body.folderName || body.name || "").trim();
+      if (!baseNameRaw) {
+        throw new Error("Falta folderName para create_particella_musician_folder");
+      }
+      const baseName = baseNameRaw.replace(/[\\/]+/g, "_").slice(0, 120);
+
+      const existing = await drive.files.list({
+        q:
+          `name = '${escapeDriveQueryLiteral(baseName)}' and ` +
+          `'${PARTICELLA_SETS_ROOT_ID}' in parents and ` +
+          `mimeType = '${FOLDER_MIME}' and trashed = false`,
+        fields: "files(id, name)",
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+      });
+
+      let finalName = baseName;
+      if (existing.data.files?.length) {
+        const stamp = new Date()
+          .toISOString()
+          .replace(/[-:TZ.]/g, "")
+          .slice(0, 14);
+        finalName = `${baseName}_${stamp}`;
+      }
+
+      const created = await drive.files.create({
+        requestBody: {
+          name: finalName,
+          mimeType: FOLDER_MIME,
+          parents: [PARTICELLA_SETS_ROOT_ID],
+        },
+        fields: "id, name, webViewLink",
+        supportsAllDrives: true,
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          folderId: created.data.id,
+          name: created.data.name,
+          webViewLink: created.data.webViewLink,
+          renamed: finalName !== baseName,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // --- ACCIÓN: LISTAR ARCHIVOS DE UNA CARPETA (SOLO NIVEL SUPERIOR) ---
     if (action === "list_folder_files") {
       console.log("DEBUG [Edge]: Iniciando list_folder_files.");

@@ -4,21 +4,34 @@
 Módulo para la descarga masiva y unificación de particellas de un programa, integrando el conteo de copias basado en el Seating y la exportación a Google Drive.
 
 ## Lógica de Negocio
-1. **Conteo de Copias**  
+1. **Conteo de Copias** (modo **Por obra**)  
    - **Cuerdas**: Basado en `seating_contenedores`. Toggle **1 por atril** (default ON): `ceil(n/2)` copias por contenedor (ej. 9 músicos → 5). Si se desactiva: 1 copia por músico (`n`).  
    - **Vientos/Percusión/Director**: 1 copia por asignación en `musicianAssignments` (no el mapa de contenedores). Incluye roles director/solista del roster confirmado.  
    - **Ajuste manual**: el cálculo es tope; se puede restar por fila (tablets) hasta 0.
-2. **Filtrado**  
+2. **Modo «Toda la gira por músico»**  
+   - Binder por persona: portada + particellas de todas las obras tildadas donde tiene asignación.  
+   - Portada: nombre, `mes_letra`, `nomenclador`, `nombre_gira`, ensambles activos. Con Doble faz ON → portada de 2 páginas (reverso en blanco).  
+   - 1 PDF de la parte por obra (cuerdas vía contenedor; no multiplica atriles).  
+   - Obras y músicos: todos ON por defecto, destildables.  
+   - Orden: alfabético / `id_instr` / ensamble regional (`isRegionalConvocatoriaEnsamble`); desempate apellido.  
+   - Salida: un PDF único, o un PDF por músico (ZIP local / subcarpeta Drive con timestamp si el nombre base ya existe).  
+   - Multi-versión: selector; default primera.
+3. **Filtrado**  
    - Excluir estrictamente integrantes con `estado_gira === 'ausente'`.
-3. **Multi-versión**  
-   - Si `obras_particellas` devuelve múltiples registros para un mismo instrumento/obra, permitir selección vía dropdown.
-4. **Almacenamiento**  
-   - Los PDFs generados deben subirse a la carpeta de Drive `1BK8yhY1dvAZRrDwEDXg3VR3QlnmdOH4u` mediante la Edge Function `manage-drive`.
+4. **Multi-versión**  
+   - Si `obras_particellas` tiene varios links, permitir selección vía dropdown.
+5. **Almacenamiento**  
+   - Carpeta Drive `PARTICELLA_SETS_ROOT_ID` (`1BK8yhY1dvAZRrDwEDXg3VR3QlnmdOH4u`).  
+   - Acción EF `create_particella_musician_folder` para subcarpetas por-músico.
 
 ## Componentes Afectados
 - `src/views/Giras/ProgramSeating.jsx`: Inclusión del botón y modal.
-- `supabase/functions/manage-drive/index.ts`: Nuevo case `upload_particella_set`.
-- `src/utils/docMerger.js`: Utilizado para la unión de los buffers descargados.
+- `src/components/seating/ParticellaDownloadModal.jsx`: pestañas Por obra / Por músico.
+- `src/components/seating/ParticellaByMusicianExport.jsx`: UI y generación por músico.
+- `src/utils/particellaMusicianCover.js`: portada/separador.
+- `src/utils/buildMusicianParticellaBundles.js`: mapa músico→partes + orden.
+- `supabase/functions/manage-drive/index.ts`: `upload_particella_set`, `create_particella_musician_folder`.
+- `src/utils/docMerger.js`: unión de buffers + `padOddPages`.
 
 ## Notas de Implementación
 
@@ -70,6 +83,8 @@ En la generación del PDF, el buffer de cada particella seleccionada se duplica 
   - **Nivel 2 (Instrumento)**: checkbox por fila (instrumento lógico) dentro de la obra.
 - Si se desactiva la obra, no se genera ningún set para ella.  
 - Si se desactiva un instrumento concreto, sus copias no se incluyen en el set.
+- **Score / Director / partitura** (`id_instrumento` 50 o nombre con score/director/conductor/partitura): aparecen en la lista pero **no se tildan** al marcar la obra ni con «Seleccionar todo»; se pueden activar a mano.
+- **Sin seating** (toggle off por defecto): al activarlo, se listan particellas de la obra sin nadie asignado (p. ej. arpa), con tope de **1 copia**, borde/badge violeta «Sin seating». Al marcar obra / Seleccionar todo también se incluyen (salvo Scores).
 
 #### Descarga de buffers
 - Para cada particella seleccionada:

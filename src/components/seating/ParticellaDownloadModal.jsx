@@ -20,6 +20,7 @@ import {
   PARTICELLA_SETS_ROOT_URL,
 } from "../../utils/driveFolders";
 import { isConfirmedConvocadoForSeatingReports } from "../../utils/seatingRosterGate";
+import ParticellaByMusicianExport from "./ParticellaByMusicianExport";
 
 function getDriveFileLabel(_url, fallbackIndex) {
   if (fallbackIndex === 0) return "Principal";
@@ -73,6 +74,18 @@ function copyOverrideKey(obraId, partKey) {
   return `${obraId}:${partKey}`;
 }
 
+/** Score / director / partitura general: no se tilda al seleccionar obra o «todo». */
+function isScorePartRow(row) {
+  const id = String(row?.idInstrumento || "");
+  if (id === "50") return true;
+  const blob = `${row?.displayName || ""} ${row?.instrumentoNombre || ""}`;
+  return /\b(director|conductor|score|partitura)\b/i.test(blob);
+}
+
+function defaultSelectableRows(rows) {
+  return (rows || []).filter((row) => !isScorePartRow(row));
+}
+
 export default function ParticellaDownloadModal({
   isOpen,
   onClose,
@@ -114,8 +127,13 @@ export default function ParticellaDownloadModal({
   const [dobleFaz, setDobleFaz] = useState(true);
   /** Cuerdas: ceil(n/2) por atril (default) vs 1 copia por músico. */
   const [copiasPorAtril, setCopiasPorAtril] = useState(true);
+  /** Incluir particellas sin asignación de seating (1 copia). Off por defecto. */
+  const [includeUnassigned, setIncludeUnassigned] = useState(false);
   /** Override de copias por fila: tope = sugerido; se puede bajar (tablets). */
   const [copyOverrides, setCopyOverrides] = useState({});
+  /** 'obra' | 'musico' */
+  const [exportMode, setExportMode] = useState("obra");
+  const [musicianBusy, setMusicianBusy] = useState(false);
 
   const presentRoster = useMemo(() => {
     const source = filteredRoster != null ? filteredRoster : rawRoster || [];
@@ -205,7 +223,11 @@ export default function ParticellaDownloadModal({
 
       const rows = obraParts
         .map((p) => {
-          const maxCopies = copiesByPartId[String(p.id)] || 0;
+          const seatedCopies = copiesByPartId[String(p.id)] || 0;
+          const sinSeating = seatedCopies === 0;
+          if (sinSeating && !includeUnassigned) return null;
+
+          const maxCopies = sinSeating ? 1 : seatedCopies;
           let links = [];
           if (p.url_archivo) {
             try {
@@ -227,24 +249,37 @@ export default function ParticellaDownloadModal({
 
           const hasMultipleLinks = links.length > 1;
           const partKey = `P-${p.id}`;
+          const displayName =
+            p.nombre_archivo ||
+            p.instrumentos?.instrumento ||
+            `Particella ${p.id}`;
+          const idInstrumento = p.id_instrumento ?? p.instrumentos?.id ?? "";
+          const instrumentoNombre = p.instrumentos?.instrumento || "";
 
           return {
             partId: p.id,
             partKey,
             obra,
             maxCopies,
+            sinSeating,
             links,
             hasMultipleLinks,
-            who: whoByPartId[String(p.id)] || [],
-            idInstrumento: p.id_instrumento ?? p.instrumentos?.id ?? "",
-            displayName:
-              p.nombre_archivo ||
-              p.instrumentos?.instrumento ||
-              `Particella ${p.id}`,
+            who: sinSeating
+              ? []
+              : whoByPartId[String(p.id)] || [],
+            idInstrumento,
+            instrumentoNombre,
+            displayName,
+            isScore: false,
           };
         })
-        .filter((row) => row.maxCopies > 0)
+        .filter(Boolean)
+        .map((row) => ({ ...row, isScore: isScorePartRow(row) }))
         .sort((a, b) => {
+          // Asignadas primero; sin seating al final (mismo instrumento)
+          if (!!a.sinSeating !== !!b.sinSeating) {
+            return a.sinSeating ? 1 : -1;
+          }
           const ia = String(a.idInstrumento || "");
           const ib = String(b.idInstrumento || "");
           if (ia !== ib) return ia.localeCompare(ib, undefined, { numeric: true });
@@ -269,7 +304,38 @@ export default function ParticellaDownloadModal({
     particellas,
     individualMusicians,
     copiasPorAtril,
+    includeUnassigned,
   ]);
+
+  // Al apagar «sin seating», quitar de la selección partKeys que ya no están en el árbol
+  useEffect(() => {
+    if (includeUnassigned) return;
+    setSelectedByObra((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const { obraId, rows } of tree) {
+        const conf = next[obraId];
+        if (!conf?.parts) continue;
+        const keep = { ...conf.parts };
+        let removed = false;
+        const valid = new Set(rows.map((r) => r.partKey));
+        Object.keys(keep).forEach((pk) => {
+          if (!valid.has(pk)) {
+            delete keep[pk];
+            removed = true;
+          }
+        });
+        if (removed) {
+          changed = true;
+          next[obraId] = {
+            enabled: Object.keys(keep).length > 0,
+            parts: keep,
+          };
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [includeUnassigned, tree]);
 
   const getEffectiveCopies = (obraId, row) => {
     const max = row.maxCopies || 0;
@@ -320,11 +386,11 @@ export default function ParticellaDownloadModal({
   useEffect(() => {
     if (!isOpen) return undefined;
     const onKey = (e) => {
-      if (e.key === "Escape" && !isRunning) onClose();
+      if (e.key === "Escape" && !isRunning && !musicianBusy) onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [isOpen, isRunning, onClose]);
+  }, [isOpen, isRunning, musicianBusy, onClose]);
 
   useEffect(() => {
     if (!isOpen || hasLoadedDriveNames) return;
@@ -386,21 +452,23 @@ export default function ParticellaDownloadModal({
     setSelectedByObra((prev) => {
       const next = { ...prev };
       const current = next[obraId] || { enabled: false, parts: {} };
-      const allSelected =
-        rows && rows.length
-          ? rows.every((row) => !!current.parts[row.partKey])
+      const defaultRows = defaultSelectableRows(rows);
+      const allDefaultSelected =
+        defaultRows.length > 0
+          ? defaultRows.every((row) => !!current.parts[row.partKey])
           : false;
 
-      const newEnabled = !allSelected && (rows || []).length > 0;
+      // Si ya están todas las no-Score, deseleccionar todo (incl. Scores).
+      // Si no, seleccionar solo las no-Score (Scores quedan destildados).
       const newParts = {};
-      if (newEnabled) {
-        (rows || []).forEach((row) => {
+      if (!allDefaultSelected && defaultRows.length > 0) {
+        defaultRows.forEach((row) => {
           newParts[row.partKey] = true;
         });
       }
 
       next[obraId] = {
-        enabled: newEnabled,
+        enabled: Object.keys(newParts).length > 0,
         parts: newParts,
       };
       return next;
@@ -452,11 +520,11 @@ export default function ParticellaDownloadModal({
       const next = {};
       tree.forEach(({ obraId, rows }) => {
         const parts = {};
-        rows.forEach((row) => {
+        defaultSelectableRows(rows).forEach((row) => {
           parts[row.partKey] = true;
         });
         next[obraId] = {
-          enabled: rows.length > 0,
+          enabled: Object.keys(parts).length > 0,
           parts,
         };
       });
@@ -887,6 +955,8 @@ export default function ParticellaDownloadModal({
     }
   };
 
+  const busy = isRunning || musicianBusy;
+
   const pct =
     progress.total > 0
       ? Math.round((progress.current / progress.total) * 100)
@@ -904,7 +974,7 @@ export default function ParticellaDownloadModal({
       aria-modal="true"
       aria-labelledby="particella-download-title"
       onClick={() => {
-        if (!isRunning) onClose();
+        if (!busy) onClose();
       }}
     >
       <div
@@ -925,13 +995,18 @@ export default function ParticellaDownloadModal({
                 Descargar particellas
               </h2>
               <p className="mt-0.5 text-xs text-slate-500">
-                Elegí obras y partes; generá un PDF unificado por obra (descarga
-                local o carpeta de sets en Drive).
-                {program?.nomenclador || program?.nombre ? (
+                {exportMode === "musico"
+                  ? "Binder por músico: portada + todas sus obras del programa."
+                  : "Sets por obra: unificá partes y subí a Drive o descargá."}
+                {program?.nomenclador ||
+                program?.nombre_gira ||
+                program?.nombre ? (
                   <>
                     {" "}
                     <span className="font-semibold text-slate-600">
-                      {program.nomenclador || program.nombre}
+                      {program.nomenclador ||
+                        program.nombre_gira ||
+                        program.nombre}
                     </span>
                   </>
                 ) : null}
@@ -951,7 +1026,7 @@ export default function ParticellaDownloadModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={isRunning}
+            disabled={busy}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-40"
             aria-label="Cerrar"
           >
@@ -959,6 +1034,48 @@ export default function ParticellaDownloadModal({
           </button>
         </div>
 
+        {/* Mode tabs */}
+        <div className="flex shrink-0 gap-1 border-b border-slate-100 bg-white px-5 pt-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setExportMode("obra")}
+            className={`rounded-t-lg px-3 py-2 text-xs font-bold transition-colors ${
+              exportMode === "obra"
+                ? "border border-b-white border-slate-200 bg-white text-indigo-700 -mb-px"
+                : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            Por obra
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setExportMode("musico")}
+            className={`rounded-t-lg px-3 py-2 text-xs font-bold transition-colors ${
+              exportMode === "musico"
+                ? "border border-b-white border-slate-200 bg-white text-indigo-700 -mb-px"
+                : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            Toda la gira por músico
+          </button>
+        </div>
+
+        {exportMode === "musico" ? (
+          <ParticellaByMusicianExport
+            supabase={supabase}
+            program={program}
+            obras={obras}
+            assignments={assignments}
+            musicianAssignments={musicianAssignments}
+            containers={containers}
+            particellas={particellas}
+            filteredRoster={presentRoster}
+            onBusyChange={setMusicianBusy}
+          />
+        ) : (
+          <>
         {/* Toolbar */}
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-white px-5 py-2.5">
           <div className="flex items-center gap-3">
@@ -1019,6 +1136,27 @@ export default function ParticellaDownloadModal({
 
             <label
               className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
+                includeUnassigned
+                  ? "border-violet-200 bg-violet-50 text-violet-900"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+              title="Incluye particellas de la obra sin nadie asignado en seating (p. ej. arpa), con 1 copia."
+            >
+              <input
+                type="checkbox"
+                className="rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                checked={includeUnassigned}
+                disabled={isRunning}
+                onChange={(e) => setIncludeUnassigned(e.target.checked)}
+              />
+              <span className="font-semibold">Sin seating</span>
+              <span className="hidden sm:inline text-[10px] font-normal text-slate-500">
+                1 copia · off por defecto
+              </span>
+            </label>
+
+            <label
+              className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
                 dobleFaz
                   ? "border-indigo-200 bg-indigo-50 text-indigo-800"
                   : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -1060,13 +1198,18 @@ export default function ParticellaDownloadModal({
                   enabled: false,
                   parts: {},
                 };
+                const defaultRows = defaultSelectableRows(rows);
                 const selectedCount = rows.filter(
                   (row) => !!conf.parts[row.partKey],
                 ).length;
+                const defaultSelectedCount = defaultRows.filter(
+                  (row) => !!conf.parts[row.partKey],
+                ).length;
                 const allSelected =
-                  rows.length > 0 && selectedCount === rows.length;
+                  defaultRows.length > 0 &&
+                  defaultSelectedCount === defaultRows.length;
                 const someSelected =
-                  selectedCount > 0 && selectedCount < rows.length;
+                  selectedCount > 0 && !allSelected;
                 const expanded = !!expandedByObra[obraId];
                 const totalCopies = rows.reduce(
                   (acc, row) => acc + getEffectiveCopies(obraId, row),
@@ -1149,8 +1292,12 @@ export default function ParticellaDownloadModal({
                           return (
                             <div
                               key={row.partKey}
-                              className={`grid grid-cols-1 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_5.5rem_minmax(0,0.9fr)_auto] gap-2 sm:gap-2 items-center px-3 py-2 text-xs ${
-                                isSelected ? "bg-indigo-50/40" : ""
+                              className={`grid grid-cols-1 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_5.5rem_minmax(0,0.9fr)_auto] gap-2 sm:gap-2 items-center px-3 py-2 text-xs border-l-4 ${
+                                row.sinSeating
+                                  ? "border-l-violet-400 bg-violet-50/70"
+                                  : isSelected
+                                    ? "border-l-transparent bg-indigo-50/40"
+                                    : "border-l-transparent"
                               }`}
                             >
                               <label className="flex min-w-0 cursor-pointer items-start gap-2">
@@ -1165,16 +1312,33 @@ export default function ParticellaDownloadModal({
                                 <span className="min-w-0">
                                   <span className="block font-semibold text-slate-800 truncate">
                                     {row.displayName}
+                                    {row.sinSeating ? (
+                                      <span className="ml-1.5 rounded bg-violet-200/80 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-900">
+                                        Sin seating
+                                      </span>
+                                    ) : null}
+                                    {row.isScore ? (
+                                      <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                                        Score
+                                      </span>
+                                    ) : null}
                                   </span>
                                   <span className="text-[11px] text-slate-500 sm:hidden">
                                     Tope {row.maxCopies}
                                     {reduced ? ` → ${effective}` : ""}
+                                    {row.isScore
+                                      ? " · Score off por defecto"
+                                      : ""}
                                   </span>
                                 </span>
                               </label>
 
                               <div className="min-w-0 pl-6 sm:pl-0">
-                                {row.who.length > 0 ? (
+                                {row.sinSeating ? (
+                                  <span className="text-[11px] italic text-violet-700">
+                                    Sin asignación en seating
+                                  </span>
+                                ) : row.who.length > 0 ? (
                                   <span
                                     className="block truncate text-[11px] text-emerald-700"
                                     title={row.who.join(", ")}
@@ -1441,6 +1605,8 @@ export default function ParticellaDownloadModal({
             </button>
           </div>
         </div>
+          </>
+        )}
       </div>
     </div>,
     document.body,
