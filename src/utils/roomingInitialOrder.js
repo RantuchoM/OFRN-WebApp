@@ -937,6 +937,168 @@ export function buildInitialOrderSections({
   return segmentRows.map((segRow, idx) => buildSection(segRow, idx));
 }
 
+function comparePassengersByCheckIn(a, b) {
+  const aIn = a.dateIn?.getTime?.() ?? Infinity;
+  const bIn = b.dateIn?.getTime?.() ?? Infinity;
+  if (aIn !== bIn) return aIn - bIn;
+  const ap = (a.apellido || "").localeCompare(b.apellido || "", "es");
+  if (ap !== 0) return ap;
+  return (a.nombre || "").localeCompare(b.nombre || "", "es");
+}
+
+/**
+ * Lista de pasajeros del pedido (sin habitaciones), ordenada por check-in.
+ * Mismo universo y fechas que el Pedido Inicial (tramos, exclusiones, locales).
+ */
+export function buildInitialOrderPassengerDetailSections({
+  roster,
+  logisticsMap,
+  rooms = [],
+  bookings = [],
+  segmentRows = [],
+  segments = [],
+  cortesCount = 0,
+  excludedPersonIds = null,
+}) {
+  const defaultSegmentId = segmentRows[0]?.id ?? null;
+  const excludedIds =
+    excludedPersonIds instanceof Set
+      ? excludedPersonIds
+      : excludedPersonIds?.length
+        ? new Set(excludedPersonIds.map(Number))
+        : null;
+  const hasTramos = cortesCount > 0 && segmentRows.length > 0;
+  const rosterById = new Map((roster || []).map((p) => [Number(p.id), p]));
+  const bookingById = new Map((bookings || []).map((b) => [b.id, b]));
+
+  const buildSection = (segRow, idx) => {
+    const tramoIndice = Number(
+      segRow?.indice != null && !Number.isNaN(Number(segRow.indice))
+        ? segRow.indice
+        : idx,
+    );
+    const bookingIds = segRow
+      ? resolveSegmentBookingIds(
+          bookings,
+          segRow,
+          segmentRows,
+          defaultSegmentId,
+        )
+      : null;
+    const segmentSpec = resolveSegmentSpec(segments, segRow, tramoIndice);
+    const tramoLocalidadIds = getTramoLocalidadIds(
+      segRow,
+      segmentSpec,
+      segmentRows,
+      tramoIndice,
+    );
+    const segmentRooms = getSegmentRooms(rooms, bookingIds);
+    const assignedBookingByPerson = new Map();
+    segmentRooms.forEach((room) => {
+      const booking = bookingById.get(room.id_hospedaje);
+      getAllRoomPersonIds(room).forEach((personId) => {
+        if (!assignedBookingByPerson.has(personId)) {
+          assignedBookingByPerson.set(personId, booking);
+        }
+      });
+    });
+
+    const passengers = [];
+
+    (roster || []).forEach((person) => {
+      const personId = Number(person.id);
+      const est = normalize(person.estado_gira || person.estado);
+      if (est === "ausente" || est === "baja") return;
+      if (excludedIds?.has(personId)) return;
+
+      const enriched = resolvePersonForPedido(
+        personId,
+        rosterById,
+        segmentRooms,
+      );
+      if (!enriched) return;
+
+      if (
+        isLocalInPedidoTramo(
+          enriched,
+          segmentSpec,
+          tramoLocalidadIds,
+          segRow,
+          segments,
+          segmentRows,
+          tramoIndice,
+        )
+      ) {
+        return;
+      }
+
+      const log = logisticsMap?.[person.id] ?? logisticsMap?.[personId];
+      const assignedBooking = assignedBookingByPerson.get(personId);
+      const { dateIn: dIn, dateOut: dOut } = getStayDatesForTramo(
+        assignedBooking ?? null,
+        segRow,
+        segmentSpec,
+        log,
+      );
+      if (!dIn || !dOut || isNaN(dIn.getTime()) || isNaN(dOut.getTime())) {
+        return;
+      }
+
+      const totalNights = differenceInCalendarDays(dOut, dIn);
+      if (totalNights <= 0) return;
+
+      const eligibleNights = collectEligibleNights(
+        dIn,
+        dOut,
+        segments,
+        tramoIndice,
+        segRow,
+      );
+      if (!eligibleNights.length) return;
+
+      const nightGroups = groupConsecutiveNights(eligibleNights);
+      const firstClip = buildClippedRange(
+        dIn,
+        dOut,
+        nightGroups[0],
+        totalNights,
+      );
+      const lastClip = buildClippedRange(
+        dIn,
+        dOut,
+        nightGroups[nightGroups.length - 1],
+        totalNights,
+      );
+
+      passengers.push({
+        id: enriched.id,
+        apellido: enriched.apellido || "",
+        nombre: enriched.nombre || "",
+        genero: enriched.genero || "",
+        dni: enriched.dni || "",
+        fecha_nac: enriched.fecha_nac || null,
+        dateIn: firstClip.clippedIn,
+        dateOut: lastClip.clippedOut,
+        en_cuna: isPersonInCunaForPedido(personId, segmentRooms, enriched),
+      });
+    });
+
+    passengers.sort(comparePassengersByCheckIn);
+
+    return {
+      segmentId: segRow?.id ?? null,
+      title: segRow && hasTramos ? formatTramoLabel(idx) : null,
+      passengers,
+    };
+  };
+
+  if (!hasTramos) {
+    return [buildSection(null, 0)];
+  }
+
+  return segmentRows.map((segRow, idx) => buildSection(segRow, idx));
+}
+
 function pasajeroLabel(count) {
   return count === 1 ? "pasajero" : "pasajeros";
 }

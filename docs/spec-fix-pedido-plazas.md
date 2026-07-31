@@ -86,3 +86,16 @@ El reporte seguía asumiendo que `log.checkin` y `log.checkout` eran siempre str
 - [x] Bloque Resumen: línea `Sexo: X hombres · Y mujeres`.
 - [x] Reporte de Rooming (RoomingReport.jsx): columna **Sexo** (genero) en la lista de pasajeros.
 
+### Detalle de pasajeros en Pedido Inicial (completado)
+
+- [x] Botón **Detalle** en RoomingInitialOrderReport.jsx (junto a Texto pedido / Imprimir).
+- [x] Helper `buildInitialOrderPassengerDetailSections`: mismo universo que el pedido (tramos, exclusiones, locales, cunas); una fila por persona; orden por check-in (luego apellido/nombre).
+- [x] Reporte imprimible estilo lista de pasajeros del Rooming, **sin** columnas de habitación: #, Apellido y Nombre, Sexo, DNI, F. Nac, Check In, Check Out.
+- [x] Separador por día de ingreso en Detalle (fila `Ingreso DD/MM` con cantidad).
+
+### Hub de Reportes (completado)
+
+- [x] Un solo botón **Reportes** en Rooming (desktop y móvil) abre `RoomingReportsHubModal`.
+- [x] Opciones: Pedido Inicial, Detalle de pasajeros, Texto pedido, Reporte de habitaciones.
+- [x] Pedido / Detalle / Texto pasan por el ajuste previo; `initialView` abre Detalle o Texto al confirmar.
+- [x] Reporte de habitaciones abre el modal de Rooming existente.

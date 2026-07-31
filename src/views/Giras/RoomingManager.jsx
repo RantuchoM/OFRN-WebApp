@@ -14,7 +14,6 @@ import {
   IconFileText,
   IconRefresh,
   IconX,
-  IconList,
   IconHelpCircle,
   IconAlertTriangle, // <--- AGREGAR ESTE
   IconUser,
@@ -26,6 +25,7 @@ import CommentButton from "../../components/comments/CommentButton";
 import RoomingReportModal from "./RoomingReport";
 import InitialOrderReportModal from "./RoomingInitialOrderReport";
 import RoomingInitialAdjustmentModal from "./RoomingInitialAdjustmentModal";
+import RoomingReportsHubModal from "./RoomingReportsHubModal";
 import ImportHotelModal from "./ImportHotelModal";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { useLogistics } from "../../hooks/useLogistics"; // <--- CAMBIO CLAVE
@@ -1419,6 +1419,8 @@ export default function RoomingManager({
   const [logisticsMap, setLogisticsMap] = useState({});
   const [showReport, setShowReport] = useState(false);
   const [showInitialOrder, setShowInitialOrder] = useState(false);
+  const [showReportsHub, setShowReportsHub] = useState(false);
+  const [initialOrderView, setInitialOrderView] = useState("order");
   const [showHelp, setShowHelp] = useState(false); // Estado para ayuda
 
   // Estados UI
@@ -2784,19 +2786,11 @@ export default function RoomingManager({
               <IconCopy size={16} /> Importar hotel
             </button>
             <button
-              onClick={async () => {
-                await refreshSegmentos();
-                setShowInitialAdjust(true);
-              }}
-              className="bg-white text-slate-600 px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] font-bold hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-1.5 shadow-sm"
-            >
-              <IconList size={16} /> Pedido Inicial
-            </button>
-            <button
-              onClick={() => setShowReport(true)}
+              type="button"
+              onClick={() => setShowReportsHub(true)}
               className="bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg border border-indigo-200 text-[11px] font-bold hover:bg-indigo-100 flex items-center gap-1.5"
             >
-              <IconFileText size={16} /> Reporte
+              <IconFileText size={16} /> Reportes
             </button>
           </div>
         </div>
@@ -2948,19 +2942,11 @@ export default function RoomingManager({
                   <IconCopy size={14} /> Importar
                 </button>
                 <button
-                  onClick={async () => {
-                await refreshSegmentos();
-                setShowInitialAdjust(true);
-              }}
-                  className="bg-white text-slate-600 px-2 py-1 rounded-lg border border-slate-200 text-[10px] font-bold flex items-center gap-1 shadow-sm"
-                >
-                  <IconList size={14} /> Pedido
-                </button>
-                <button
-                  onClick={() => setShowReport(true)}
+                  type="button"
+                  onClick={() => setShowReportsHub(true)}
                   className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded-lg border border-indigo-200 text-[10px] font-bold flex items-center gap-1"
                 >
-                  <IconFileText size={14} /> Reporte
+                  <IconFileText size={14} /> Reportes
                 </button>
               </div>
             </div>
@@ -3049,6 +3035,28 @@ export default function RoomingManager({
         </div>
       </div>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showReportsHub && (
+        <RoomingReportsHubModal
+          onClose={() => setShowReportsHub(false)}
+          onSelect={async (optionId) => {
+            setShowReportsHub(false);
+            if (optionId === "rooming") {
+              setShowReport(true);
+              return;
+            }
+            if (optionId === "detalle") {
+              setInitialOrderView("detail");
+              await refreshSegmentos();
+              setShowInitialOrder(true);
+              return;
+            }
+            // pedido | texto → ajuste previo del pedido
+            setInitialOrderView(optionId === "texto" ? "text" : "order");
+            await refreshSegmentos();
+            setShowInitialAdjust(true);
+          }}
+        />
+      )}
       {showReport && (
         <RoomingReportModal
           bookings={bookings}
@@ -3095,7 +3103,11 @@ export default function RoomingManager({
           selectedTramoIndices={initialOrderTramoIndices}
           bedsPerRoom={initialOrderBedsPerRoom}
           excludedPersonIds={excludedHospedajeIds}
-          onClose={() => setShowInitialOrder(false)}
+          initialView={initialOrderView}
+          onClose={() => {
+            setShowInitialOrder(false);
+            setInitialOrderView("order");
+          }}
           programName={`${program.nomenclador || ""} | ${program.zona || ""}`}
         />
       )}
