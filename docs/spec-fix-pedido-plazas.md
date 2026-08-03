@@ -55,8 +55,9 @@ El reporte seguía asumiendo que `log.checkin` y `log.checkout` eran siempre str
 ### Check-in temprano vs. inicio de tramo (completado)
 
 - [x] Si el integrante hace check-in **antes** de la primera noche contada en el tramo (p. ej. Producción 04/08 16:00 con tramo oficial desde 05/08), el rango del pedido conserva la **fecha y hora reales** de logística, no medianoche del primer día del tramo.
-- [x] Fix en `buildClippedRange` (`roomingInitialOrder.js`): ya no usa `startOfDay` ciego al recortar; compara `dIn` con el inicio de la primera noche elegible.
-- [x] La **noche del día de check-in** se incluye en el conteo del tramo correspondiente aunque el tramo oficial empiece después (`isEarlyCheckInNight` + `collectEligibleNights`). Cada tramo calcula sus noches de forma independiente.
+- [x] Fix en `buildClippedRange` (`roomingInitialOrder.js`): primera noche de la estadía personal (`firstIdx === 0`) conserva `dIn`; si el bloque elegible empieza a mitad de estadía, usa la fecha de esa primera noche con la hora de logística (no reutiliza el check-in original: eso duplicaba rangos).
+- [x] **Todas** las noches entre check-in personal y el inicio oficial del tramo se imputan al **primer** tramo (`isEarlyCheckInNight` + `collectEligibleNights`), no solo la noche del día de llegada.
+- [x] Bug gira 12 (pedido texto): tramo 16–20/9 + llegada 14/9 → solo se contaba la noche del 14; el 15 quedaba hueco y `groupConsecutiveNights` partía en dos líneas idénticas en pax (`14/9–15/9` fantasma + `14/9–21/9`). Con noches previas continua → una sola línea `14/9–21/9`.
 
 ### Check-out posterior al fin de gira/tramo (completado)
 

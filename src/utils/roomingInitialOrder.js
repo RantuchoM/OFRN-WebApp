@@ -388,17 +388,17 @@ function buildClippedRange(dIn, dOut, nightGroup, totalNights) {
 
   let clippedIn;
   if (firstIdx === 0) {
+    // Primera noche de la estadía personal: conservar fecha/hora reales de logística.
     clippedIn = dIn;
   } else {
+    // Primer bloque elegible a mitad de estadía (p. ej. tramo intermedio):
+    // no reutilizar dIn original — eso inventaba un check-in anterior al tramo
+    // y duplicaba líneas cuando había huecos (llegada anticipada multi-noche).
     const firstNightStart = addDays(startOfDay(dIn), firstIdx);
-    if (dIn < firstNightStart) {
-      clippedIn = dIn;
-    } else {
-      const checkInTime = format(dIn, "HH:mm:ss").slice(0, 5);
-      clippedIn = new Date(
-        `${format(firstNightStart, "yyyy-MM-dd")}T${checkInTime}`,
-      );
-    }
+    const checkInTime = format(dIn, "HH:mm:ss").slice(0, 5);
+    clippedIn = new Date(
+      `${format(firstNightStart, "yyyy-MM-dd")}T${checkInTime}`,
+    );
   }
 
   let clippedOut;
@@ -418,24 +418,38 @@ function buildClippedRange(dIn, dOut, nightGroup, totalNights) {
 }
 
 /**
- * Noche del día de check-in cuando la llegada es anterior al inicio oficial del tramo.
- * Cuenta en el pedido de ese tramo aunque `nightBelongsToTramo` la excluya por instante 20:00.
+ * Noches anteriores al inicio oficial del tramo cuando el check-in personal
+ * es más temprano (p. ej. llegada 14/9 con tramo desde 16/9 → noches 14 y 15).
+ * Se imputan al primer tramo (simétrico a `isLateCheckOutNight` en el último).
+ * Solo la noche del día de check-in era insuficiente: dejaba un hueco y el
+ * pedido partía en dos líneas la misma gente (14/9–15/9 + 14/9–checkout).
  */
 function isEarlyCheckInNight(dIn, fecha, segments, tramoIndice, segmentRow) {
   if (!dIn || !fecha || tramoIndice == null || Number.isNaN(Number(tramoIndice))) {
     return false;
   }
 
+  const idx = Number(tramoIndice);
+  if (segments?.length > 1) {
+    const minIdx = Math.min(
+      ...segments.map((s) => Number(s.indice)).filter((n) => !Number.isNaN(n)),
+    );
+    if (idx !== minIdx) return false;
+  }
+
   const checkInDay = format(startOfDay(dIn), "yyyy-MM-dd");
   const day = String(fecha).slice(0, 10);
-  if (day !== checkInDay) return false;
+  // Noche de la estadía: no anterior al día de check-in personal.
+  if (day < checkInDay) return false;
 
   const dInInstant = `${checkInDay}T${format(dIn, "HH:mm:ss").slice(0, 5)}`;
-  const idx = Number(tramoIndice);
   const spec = segments?.find((s) => Number(s.indice) === idx);
 
   if (spec?.instant_desde) {
-    return dInInstant.localeCompare(spec.instant_desde) < 0;
+    // Check-in personal anterior al inicio del tramo, y esta noche aún no cae en él.
+    if (dInInstant.localeCompare(spec.instant_desde) >= 0) return false;
+    const nightInstant = `${day}T20:00`;
+    return nightInstant.localeCompare(spec.instant_desde) < 0;
   }
 
   const desde =
@@ -443,7 +457,9 @@ function isEarlyCheckInNight(dIn, fecha, segments, tramoIndice, segmentRow) {
       ? String(segmentRow.fecha_desde).slice(0, 10)
       : null) ??
     (spec?.fecha_desde ? String(spec.fecha_desde).slice(0, 10) : null);
-  return desde ? day < desde : false;
+  if (!desde) return false;
+  // Llegada antes del tramo y noche estrictamente previa al `fecha_desde` oficial.
+  return checkInDay < desde && day < desde;
 }
 
 /**
