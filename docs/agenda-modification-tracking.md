@@ -33,7 +33,7 @@ Permitir que los músicos visualicen cambios recientes (24h) y habilitar una "Pa
 
 | Superficie | Comportamiento |
 |------------|----------------|
-| **GiraCard** (listado inicial) | Los conciertos con `is_deleted = true` no se muestran en la vista compacta ni en el listado de escritorio. El aviso «No hay conciertos definidos» solo considera conciertos activos. |
+| **GiraCard** (listado inicial) | Los conciertos con `is_deleted = true` no se muestran en la vista compacta ni en el listado de escritorio. El aviso «No hay conciertos definidos» solo considera conciertos activos. Si el usuario puede editar el programa (`isEditor` / coordinador), el aviso incluye `IconEdit` que abre la edición del programa con `focusSection: "conciertos"` (scroll a la sección y modal de alta). En un solo día la fecha se muestra como `05` (no `05-05`). |
 | **GiraForm → Conciertos y Funciones** (Edición) | Se listan todos los conciertos del programa, incluidos los eliminados. Los eliminados se muestran con `line-through` y `opacity-50`. El botón «Eliminar» del modal hace soft delete (`is_deleted` + `deleted_at`); si ya está eliminado, alterna a «Restaurar». |
 | **useGirasList** | El select de `eventos` incluye `is_deleted` para filtrar en cliente. |
 | **giraDateRange** | `isConcertEvent` ignora eventos con `is_deleted` al calcular fechas de orden y solapamiento. |

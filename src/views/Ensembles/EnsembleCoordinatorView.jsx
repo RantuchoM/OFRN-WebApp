@@ -521,7 +521,11 @@ const CoordinatorProgramGiraCard = ({
         isEditor={canEdit}
         isPersonal={false}
         userRole={null}
-        startEdit={canEdit ? () => onEdit(gira) : () => {}}
+        startEdit={
+          canEdit
+            ? (g, options) => onEdit(g || gira, options)
+            : () => {}
+        }
         setGlobalCommentsGiraId={() => {}}
         setCommentsState={() => {}}
         activeMenuId={activeMenuId}
@@ -1940,6 +1944,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const [selectedLocations, setSelectedLocations] = useState(new Set());
   const [selectedStaff, setSelectedStaff] = useState([]);
   const [editingProgram, setEditingProgram] = useState(null);
+  const [formFocusSection, setFormFocusSection] = useState(null);
   const [proposalToLink, setProposalToLink] = useState(null);
 
   // Efecto para preseleccionar tu ensamble cuando se abre el modal
@@ -2010,7 +2015,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   };
 
   const handleEditProgram = useCallback(
-    async (program) => {
+    async (program, options = {}) => {
       if (!supabase || !program?.id) return;
       try {
         const [progRes, locRes, fuentesRes, staffRes, difusionRes] = await Promise.all([
@@ -2091,6 +2096,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
         }));
         setSelectedStaff(staff);
 
+        setFormFocusSection(options.focusSection || null);
         setEditingProgram(program);
       } catch (err) {
         console.error("[EnsembleCoordinator] handleEditProgram:", err);
@@ -4470,6 +4476,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
               formData={giraFormData}
               setFormData={setGiraFormData}
               onCancel={() => {
+                setFormFocusSection(null);
                 if (editingProgram) {
                   setEditingProgram(null);
                   queryClient.invalidateQueries(["coordinator-programs"]);
@@ -4495,6 +4502,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
               selectedLocations={editingProgram ? selectedLocations : new Set()}
               setSelectedLocations={editingProgram ? setSelectedLocations : () => {}}
               locationsList={locationsList}
+              focusSection={formFocusSection}
+              onFocusSectionConsumed={() => setFormFocusSection(null)}
             />
           </div>
         </div>

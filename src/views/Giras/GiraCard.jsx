@@ -15,6 +15,7 @@ import {
   IconUsers,
   IconClock,
   IconAlertTriangle,
+  IconEdit,
 } from "../../components/ui/Icons";
 import VenueStatusPin from "../../components/ui/VenueStatusPin";
 import LocacionNombreSpan, {
@@ -625,6 +626,12 @@ export default function GiraCard({
   const showSinConciertosAlert =
     concerts.length === 0 && gira.tipo !== "Comisión";
 
+  const handleEditConciertos = (e) => {
+    e?.stopPropagation?.();
+    if (!isEditor || typeof startEdit !== "function") return;
+    startEdit(gira, { focusSection: "conciertos" });
+  };
+
   const renderSinConciertosAlert = (className = "") => {
     if (!showSinConciertosAlert) return null;
     return (
@@ -634,6 +641,17 @@ export default function GiraCard({
       >
         <IconAlertTriangle size={16} className="shrink-0" />
         No hay conciertos definidos
+        {isEditor ? (
+          <button
+            type="button"
+            onClick={handleEditConciertos}
+            className="ml-0.5 shrink-0 rounded-md p-1 text-amber-800 hover:bg-amber-200/80 hover:text-amber-950 transition-colors animate-none"
+            title="Cargar conciertos"
+            aria-label="Cargar conciertos"
+          >
+            <IconEdit size={14} />
+          </button>
+        ) : null}
       </div>
     );
   };
@@ -803,31 +821,44 @@ export default function GiraCard({
               </div>
               <div className="flex flex-col items-center justify-center flex-1">
                 {dateInfo ? (
-                  <div className="flex items-baseline gap-2">
+                  dateInfo.d1 === dateInfo.d2 && dateInfo.m1 === dateInfo.m2 ? (
                     <div className="text-center">
                       <span
                         className={`text-3xl font-black leading-none ${titleColorClass}`}
                       >
                         {dateInfo.d1}
                       </span>
-                      {dateInfo.m1 !== dateInfo.m2 && (
-                        <span className="text-[13px] font-bold opacity-70 ml-1">
-                          {dateInfo.m1}
+                      <span className="text-[15px] font-bold opacity-70 ml-1">
+                        {dateInfo.m1}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-baseline gap-2">
+                      <div className="text-center">
+                        <span
+                          className={`text-3xl font-black leading-none ${titleColorClass}`}
+                        >
+                          {dateInfo.d1}
                         </span>
-                      )}
+                        {dateInfo.m1 !== dateInfo.m2 && (
+                          <span className="text-[15px] font-bold opacity-70 ml-1">
+                            {dateInfo.m1}
+                          </span>
+                        )}
+                      </div>
+                      <div className="h-px w-4 bg-current opacity-30 self-center"></div>
+                      <div className="text-center">
+                        <span
+                          className={`text-3xl font-black leading-none ${titleColorClass}`}
+                        >
+                          {dateInfo.d2}
+                        </span>
+                        <span className="text-[15px] font-bold opacity-70 ml-1">
+                          {dateInfo.m2}
+                        </span>
+                      </div>
                     </div>
-                    <div className="h-px w-4 bg-current opacity-30 self-center"></div>
-                    <div className="text-center">
-                      <span
-                        className={`text-3xl font-black leading-none ${titleColorClass}`}
-                      >
-                        {dateInfo.d2}
-                      </span>
-                      <span className="text-[23px] font-bold opacity-70 ml-1">
-                        {dateInfo.m2}
-                      </span>
-                    </div>
-                  </div>
+                  )
                 ) : (
                   <span className="opacity-40 italic text-xs">Sin fecha</span>
                 )}
@@ -885,9 +916,11 @@ export default function GiraCard({
                 <span
                   className={`text-2xl font-black leading-none ${titleColorClass}`}
                 >
-                  {dateInfo.d1}-{dateInfo.d2}
+                  {dateInfo.d1 === dateInfo.d2
+                    ? dateInfo.d1
+                    : `${dateInfo.d1}-${dateInfo.d2}`}
                 </span>
-                <span className="text-[10px] font-bold uppercase opacity-60 leading-tight">
+                <span className="text-[12px] font-bold uppercase opacity-60 leading-tight">
                   {dateInfo.m1}
                   {dateInfo.m2 !== dateInfo.m1 ? ` - ${dateInfo.m2}` : ""}
                 </span>

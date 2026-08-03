@@ -340,6 +340,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
   ];
   const [editingId, setEditingId] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [formFocusSection, setFormFocusSection] = useState(null);
   const [formData, setFormData] = useState({
     nombre_gira: "",
     subtitulo: "",
@@ -1116,19 +1117,21 @@ export default function GirasView({ supabase, trigger = 0 }) {
       },
     );
   };
-  const startEdit = async (gira) => {
+  const startEdit = async (gira, options = {}) => {
     if (scrollContainerRef.current) {
       sessionStorage.setItem(
         "giras_edit_scroll",
         scrollContainerRef.current.scrollTop,
       );
     }
+    setFormFocusSection(options.focusSection || null);
     await loadGiraIntoForm(gira);
     setIsAdding(false);
   };
   const closeForm = () => {
     setIsAdding(false);
     setEditingId(null);
+    setFormFocusSection(null);
     setFormData({
       nombre_gira: "",
       subtitulo: "",
@@ -1342,6 +1345,8 @@ export default function GirasView({ supabase, trigger = 0 }) {
           setSelectedStaff={setSelectedStaff}
           isCoordinator={isCoordinator}
           coordinatedEnsembles={coordinatedEnsembles}
+          focusSection={formFocusSection}
+          onFocusSectionConsumed={() => setFormFocusSection(null)}
         />
       </div>
     ),
@@ -1364,6 +1369,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       setSelectedStaff,
       isCoordinator,
       coordinatedEnsembles,
+      formFocusSection,
     ],
   );
 

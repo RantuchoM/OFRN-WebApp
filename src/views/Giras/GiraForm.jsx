@@ -468,6 +468,8 @@ export default function GiraForm({
   enableAutoSave = false,
   isCoordinator = false,
   coordinatedEnsembles = null, // Puede ser Set o Array
+  focusSection = null,
+  onFocusSectionConsumed,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const [isCreatingDetailed, setIsCreatingDetailed] = useState(false);
@@ -481,6 +483,7 @@ export default function GiraForm({
   const [staffRole, setStaffRole] = useState("director");
   const [syncStatus, setSyncStatus] = useState("idle"); // idle | pending | saving | saved | error
   const zonaDatalistId = useId();
+  const conciertosSectionRef = useRef(null);
   const trackedFields = useMemo(
     () => [
       "nombre_gira",
@@ -549,6 +552,20 @@ export default function GiraForm({
   const [concerts, setConcerts] = useState([]);
   const [showConcertModal, setShowConcertModal] = useState(false);
   const [editingConcert, setEditingConcert] = useState(null);
+
+  useEffect(() => {
+    if (focusSection !== "conciertos" || isNew || !giraId) return;
+    const timer = setTimeout(() => {
+      conciertosSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      setEditingConcert(null);
+      setShowConcertModal(true);
+      onFocusSectionConsumed?.();
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [focusSection, isNew, giraId]); // onFocusSectionConsumed is optional one-shot
 
   // Cargar locaciones disponibles para conciertos
   const [allLocationsForConcerts, setAllLocationsForConcerts] = useState([]);
@@ -1246,7 +1263,11 @@ export default function GiraForm({
 
       {/* SECCIÓN DE CONCIERTOS */}
       {!isNew && (
-        <div className="mt-6 pt-4 border-t border-fixed-indigo-100">
+        <div
+          ref={conciertosSectionRef}
+          id={`gira-form-conciertos-${giraId}`}
+          className="mt-6 pt-4 border-t border-fixed-indigo-100"
+        >
           <div className="flex justify-between items-center mb-3">
             <h4 className="text-sm font-bold text-pink-700 flex items-center gap-2">
               <IconMusic size={16} /> Conciertos y Funciones
