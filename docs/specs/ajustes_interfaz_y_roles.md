@@ -31,3 +31,9 @@
 - **Salir de "Ver como"**: restaura los filtros guardados del usuario logueado.
 - **Implementación**: `deriveAgendaPermissions` en `src/utils/agendaPermissions.js`; `useAgendaFilters` recibe `isViewAsMode` y permisos efectivos desde `UnifiedAgenda`.
 
+## 6. Consulta General: sin eventos Téc / ocultos en Agenda
+- **Estado**: Completado.
+- **Comportamiento**: Con rol efectivo `consulta_general`, la Agenda oculta eventos `tecnica: true` y paradas con `visible_agenda === false` (salvo subida/bajada propia). Sin UI de "Filtro Técnica" ni toggle de marca Téc.
+- **Permisos**: `canSeeTechEvents` / `canSeeHiddenAgendaEvents` en `deriveAgendaPermissions` (excluyen `consulta_general`; siguen incluyendo admin/editor/curador/coord_general/produccion_general/director y, para Téc, `tecnico`).
+- **Implementación**: `agendaPermissions.js`, `useAgendaFilters.js`, `UnifiedAgenda.jsx`.
+

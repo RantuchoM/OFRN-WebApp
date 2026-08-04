@@ -29,6 +29,7 @@ function applyRoleDefaultFilters({
   isEditor,
   isManagement,
   isTechnician,
+  canSeeTechEvents = false,
   defaultPersonalFilter,
   isViewAsMode = false,
   isPersonalGuest = false,
@@ -48,7 +49,7 @@ function applyRoleDefaultFilters({
     setShowOnlyMyMeals(usePersonalAgendaView);
     setShowNoGray(false);
     setShowNonActive(false);
-    setTechFilter(isManagement || isTechnician ? "all" : "no_tech");
+    setTechFilter(canSeeTechEvents ? "all" : "no_tech");
     if (availableCategories.length > 0) {
       setSelectedCategoryIds(
         availableCategories
@@ -64,7 +65,7 @@ function applyRoleDefaultFilters({
   setShowOnlyMyTransport(defaultPersonalFilter);
   setShowOnlyMyMeals(defaultPersonalFilter);
   setShowNoGray(false);
-  setTechFilter(isManagement || isTechnician ? "all" : "no_tech");
+  setTechFilter(canSeeTechEvents ? "all" : "no_tech");
 }
 
 function loadFiltersFromStorage({
@@ -129,6 +130,7 @@ export function useAgendaFilters({
   defaultPersonalFilter = false,
   isPersonalGuest = false,
   isTechnician = false,
+  canSeeTechEvents = false,
   isViewAsMode = false,
 }) {
   const baseKey = `${STORAGE_KEY_PREFIX}${effectiveUserId}`;
@@ -176,7 +178,7 @@ export function useAgendaFilters({
   );
   const [filterDateTo, setFilterDateTo] = useState(null);
   const [techFilter, setTechFilter] = useState(
-    isManagement || isTechnician ? "all" : "no_tech",
+    canSeeTechEvents ? "all" : "no_tech",
   );
 
   const roleDefaultsArgs = useCallback(
@@ -186,6 +188,7 @@ export function useAgendaFilters({
       isEditor,
       isManagement,
       isTechnician,
+      canSeeTechEvents,
       defaultPersonalFilter,
       isViewAsMode,
       isPersonalGuest,
@@ -202,6 +205,7 @@ export function useAgendaFilters({
       isEditor,
       isManagement,
       isTechnician,
+      canSeeTechEvents,
       defaultPersonalFilter,
       isViewAsMode,
       isPersonalGuest,
@@ -210,14 +214,12 @@ export function useAgendaFilters({
 
   useEffect(() => {
     if (isViewAsMode) {
-      if (isTechnician) setTechFilter("all");
-      else if (!isManagement) setTechFilter("no_tech");
-      else setTechFilter("all");
+      setTechFilter(canSeeTechEvents ? "all" : "no_tech");
       return;
     }
-    if (!isManagement && !isTechnician) setTechFilter("no_tech");
+    if (!canSeeTechEvents) setTechFilter("no_tech");
     if (isTechnician) setTechFilter("all");
-  }, [isManagement, isTechnician, isViewAsMode]);
+  }, [canSeeTechEvents, isTechnician, isViewAsMode]);
 
   // Persistencia: solo cuando no hay gira y no es modo "Ver como"
   useEffect(() => {
@@ -247,6 +249,7 @@ export function useAgendaFilters({
     isEditor,
     isManagement,
     isTechnician,
+    canSeeTechEvents,
     defaultPersonalFilter,
   });
   const hasAppliedGiraDefaultsRef = useRef(false);
@@ -284,6 +287,7 @@ export function useAgendaFilters({
       isEditor,
       isManagement,
       isTechnician,
+      canSeeTechEvents,
       defaultPersonalFilter,
     };
   }, [
@@ -293,6 +297,7 @@ export function useAgendaFilters({
     isEditor,
     isManagement,
     isTechnician,
+    canSeeTechEvents,
     defaultPersonalFilter,
     roleDefaultsArgs,
   ]);
@@ -304,6 +309,7 @@ export function useAgendaFilters({
         isEditor,
         isManagement,
         isTechnician,
+        canSeeTechEvents,
         defaultPersonalFilter,
       };
       return;
@@ -313,6 +319,7 @@ export function useAgendaFilters({
       prev.isEditor !== isEditor ||
       prev.isManagement !== isManagement ||
       prev.isTechnician !== isTechnician ||
+      prev.canSeeTechEvents !== canSeeTechEvents ||
       prev.defaultPersonalFilter !== defaultPersonalFilter;
     if (!permissionsChanged) return;
     hasAppliedGiraDefaultsRef.current = false;
@@ -321,6 +328,7 @@ export function useAgendaFilters({
       isEditor,
       isManagement,
       isTechnician,
+      canSeeTechEvents,
       defaultPersonalFilter,
     };
   }, [
@@ -328,6 +336,7 @@ export function useAgendaFilters({
     isEditor,
     isManagement,
     isTechnician,
+    canSeeTechEvents,
     defaultPersonalFilter,
     roleDefaultsArgs,
   ]);

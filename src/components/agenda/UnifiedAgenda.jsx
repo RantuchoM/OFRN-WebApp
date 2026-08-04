@@ -298,6 +298,7 @@ export default function UnifiedAgenda({
   const { confirm, dialog } = useConfirmDialog();
   const {
     user,
+    roles,
     isEditor,
     isManagement,
     isGuest,
@@ -305,12 +306,18 @@ export default function UnifiedAgenda({
     isActuallyAdmin,
     isTechnician,
   } = useAuth();
+  const selfAgendaPermissions = useMemo(
+    () => deriveAgendaPermissions(roles),
+    [roles],
+  );
+  const canEditAgendaTechVisibility =
+    (isManagement || isEditor) && selfAgendaPermissions.canSeeTechEvents;
   // Estado para el modal de comida en móvil
   const [mealActionTarget, setMealActionTarget] = useState(null);
   const [isTranspositionOpen, setIsTranspositionOpen] = useState(false);
   const toggleEventTechnica = async (e, eventId, currentValue) => {
     e.stopPropagation();
-    if (!isEditor && !isManagement) return;
+    if (!canEditAgendaTechVisibility) return;
     try {
       const { error } = await supabase
         .from("eventos")
@@ -329,7 +336,7 @@ export default function UnifiedAgenda({
   };
   const toggleEventVisibleAgenda = async (e, eventId, currentlyHidden) => {
     e.stopPropagation();
-    if (!isEditor && !isManagement) return;
+    if (!canEditAgendaTechVisibility) return;
     const nextVisible = currentlyHidden ? true : false;
     try {
       const { error } = await supabase
@@ -398,23 +405,22 @@ export default function UnifiedAgenda({
       return viewAsPermissions ?? deriveAgendaPermissions(["musico"]);
     }
     return {
-      isEditor,
-      isManagement,
-      isTechnician,
+      ...deriveAgendaPermissions(roles),
+      // Respetar defaultPersonalFilter ya calculado (guest / personal link)
       defaultPersonalFilter,
     };
   }, [
     isViewAsMode,
     viewAsPermissions,
-    isEditor,
-    isManagement,
-    isTechnician,
+    roles,
     defaultPersonalFilter,
   ]);
   const {
     isEditor: filterIsEditor,
     isManagement: filterIsManagement,
     isTechnician: filterIsTechnician,
+    canSeeTechEvents: filterCanSeeTechEvents,
+    canSeeHiddenAgendaEvents: filterCanSeeHiddenAgendaEvents,
     defaultPersonalFilter: filterDefaultPersonalFilter,
   } = filterPermissions;
   // --- ESTADOS ---
@@ -566,6 +572,7 @@ export default function UnifiedAgenda({
     defaultPersonalFilter: filterDefaultPersonalFilter,
     isPersonalGuest,
     isTechnician: filterIsTechnician,
+    canSeeTechEvents: filterCanSeeTechEvents,
     isViewAsMode,
   });
 
@@ -800,12 +807,12 @@ export default function UnifiedAgenda({
       !isGiraFinishedTour ||
       loading ||
       finishedGiraTechDefaultsRef.current ||
-      !(filterIsManagement || filterIsTechnician)
+      !filterCanSeeTechEvents
     )
       return;
     finishedGiraTechDefaultsRef.current = true;
     setTechFilter("all");
-  }, [isGiraFinishedTour, loading, filterIsManagement, filterIsTechnician]);
+  }, [isGiraFinishedTour, loading, filterCanSeeTechEvents]);
 
   // Alinear el control "Desde" con la fecha real del filtro (evita mostrar "hoy" cuando la vista ya es toda la gira)
   useEffect(() => {
@@ -1032,10 +1039,9 @@ export default function UnifiedAgenda({
       } = getAgendaTransportFlags(item, myTransportLogistics);
 
       // Único toggle de visibilidad (GirasTransportesManager → visible_agenda).
-      // Músicos: oculto salvo subida/bajada propia. Staff: siempre ve paradas ocultas.
-      const canSeeHiddenAgendaContent =
-        filterIsEditor || filterIsManagement || isAdmin;
-      if (blockedByVisibility && !canSeeHiddenAgendaContent) return false;
+      // Músicos / Consulta General: oculto salvo subida/bajada propia.
+      // Staff de gestión (sin consulta_general): siempre ve paradas ocultas.
+      if (blockedByVisibility && !filterCanSeeHiddenAgendaEvents) return false;
 
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
 
@@ -1053,14 +1059,14 @@ export default function UnifiedAgenda({
       if (item.isProgramMarker) return true;
 
       // Filtro técnico: no ocultar paradas de mi transporte asignado
-      const hasTechVisibility = filterIsManagement || filterIsTechnician;
+      // Consulta General no ve eventos `tecnica` (igual que músicos).
       if (
-        !hasTechVisibility &&
+        !filterCanSeeTechEvents &&
         item.tecnica &&
         !isMyAssignedTransportParada
       )
         return false;
-      if (hasTechVisibility) {
+      if (filterCanSeeTechEvents) {
         if (
           techFilter === "only_tech" &&
           !item.tecnica &&
@@ -1120,10 +1126,8 @@ export default function UnifiedAgenda({
     hideDeletedEvents,
     myTransportLogistics,
     techFilter,
-    filterIsManagement,
-    filterIsTechnician,
-    filterIsEditor,
-    isAdmin,
+    filterCanSeeTechEvents,
+    filterCanSeeHiddenAgendaEvents,
     filterGrupoIds,
     includeGeneralEvents,
   ]);
@@ -2072,11 +2076,9 @@ export default function UnifiedAgenda({
                             }
                             setFilterDateTo(null);
                             if (isGiraFinishedTour) setShowNonActive(true);
-                            if (filterIsManagement || filterIsTechnician) {
-                              setTechFilter("all");
-                            } else {
-                              setTechFilter("no_tech");
-                            }
+                            setTechFilter(
+                              filterCanSeeTechEvents ? "all" : "no_tech",
+                            );
                           }}
                           className="text-[10px] text-indigo-600 hover:underline font-bold"
                         >
@@ -2085,7 +2087,7 @@ export default function UnifiedAgenda({
                       </div>
                       <div className="max-h-[60vh] overflow-y-auto">
                         {/* ... (Resto de filtros) ... */}
-                        {(filterIsManagement || filterIsTechnician) && (
+                        {filterCanSeeTechEvents && (
                           <div className="p-2 border-b border-slate-100">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block px-2 mb-1">
                               Filtro Técnica
@@ -2527,7 +2529,7 @@ export default function UnifiedAgenda({
                     const isAgendaHiddenTransport =
                       isTransportEvent &&
                       evt.visible_agenda === false &&
-                      (filterIsEditor || filterIsManagement || isAdmin);
+                      filterCanSeeHiddenAgendaEvents;
 
                     return (
                       <React.Fragment key={evt.id}>
@@ -2702,14 +2704,13 @@ export default function UnifiedAgenda({
                                           {evt.programas.nomenclador}
                                         </span>
                                       )}
-                                      {(isManagement ||
-                                        isEditor ||
+                                      {(canEditAgendaTechVisibility ||
                                         isTechnician) && (
                                         <AgendaEventAdminToggle
                                           evt={evt}
                                           isTransportEvent={isTransportEvent}
                                           canEditAdmin={
-                                            isManagement || isEditor
+                                            canEditAgendaTechVisibility
                                           }
                                           isTechnicianRole={isTechnician}
                                           onToggleVisibleAgenda={
@@ -3130,13 +3131,14 @@ export default function UnifiedAgenda({
                                     >
                                       {evt.tipos_evento?.nombre}
                                     </span>
-                                    {(isManagement ||
-                                      isEditor ||
+                                    {(canEditAgendaTechVisibility ||
                                       isTechnician) && (
                                       <AgendaEventAdminToggle
                                         evt={evt}
                                         isTransportEvent={isTransportEvent}
-                                        canEditAdmin={isManagement || isEditor}
+                                        canEditAdmin={
+                                          canEditAgendaTechVisibility
+                                        }
                                         isTechnicianRole={isTechnician}
                                         onToggleVisibleAgenda={
                                           toggleEventVisibleAgenda
