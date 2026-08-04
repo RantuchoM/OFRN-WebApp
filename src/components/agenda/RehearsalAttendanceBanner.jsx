@@ -30,8 +30,13 @@ import {
   formatElapsedHms,
   parseEnsayoParedLocal,
   puedeOfrecerPaseGps,
+  resolveSalidaUrgency,
   ENSAYO_CHECKIN_PRE_MINUTES,
+  ENSAYO_SALIDA_PRE_MINUTES,
+  ENSAYO_SALIDA_POST_MINUTES,
 } from "../../utils/ensayoCheckinBanner";
+import { maybeFireSoftFromEstado } from "../../utils/ensayoSalidaReminders";
+import { ensureWebPushSubscription } from "../../utils/webPushSubscribe";
 
 /**
  * Banner sticky: mismo set de íconos que RehearsalCheckInBlock (GPS / escanear / ofrecer QR),
@@ -55,6 +60,7 @@ export default function RehearsalAttendanceBanner({
   const [decodingQr, setDecodingQr] = useState(false);
   const [scanPhase, setScanPhase] = useState("entrada");
   const qrPhotoRef = useRef(null);
+  const pushSubscribedRef = useRef(false);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -91,6 +97,8 @@ export default function RehearsalAttendanceBanner({
   const evt = target?.evt || null;
   const estado = target?.estado || null;
   const phase = target?.phase || "idle";
+  const salidaUrgency =
+    phase === "activo" ? resolveSalidaUrgency(evt, estado, now) : "none";
   const title = evt ? ensayoBannerTitle(evt) : "";
   const subtitle = evt ? ensayoBannerSubtitle(evt) : "";
   const label = [title, subtitle].filter(Boolean).join(" · ");
@@ -101,6 +109,62 @@ export default function RehearsalAttendanceBanner({
     : 0;
   const puedeGenerarPase = puedeOfrecerPaseGps(estado, now);
   const actionPhase = phase === "activo" ? "salida" : "ingreso";
+
+  // Soft Notification (pestaña abierta) en ventanas T−10 y T+15
+  useEffect(() => {
+    if (phase !== "activo" || !evt || !estado) return undefined;
+    let cancelled = false;
+    const run = async () => {
+      if (cancelled) return;
+      await maybeFireSoftFromEstado(evt, estado, now);
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+    // Reevaluar cuando cambian urgencia / evento; `now` cada segundo es intencional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- disparo anclado a ventana de urgencia
+  }, [phase, evt?.id, estado?.registrado_at, estado?.salida_at, salidaUrgency]);
+
+  // Suscribir Web Push al entrar en "activo" (para cron T−10 / T+15)
+  useEffect(() => {
+    if (phase !== "activo" || !integranteId || pushSubscribedRef.current) return;
+    pushSubscribedRef.current = true;
+    ensureWebPushSubscription(integranteId).then((res) => {
+      if (!res.ok) pushSubscribedRef.current = false;
+    });
+  }, [phase, integranteId]);
+
+  const bannerChrome =
+    phase === "activo"
+      ? salidaUrgency === "post_aviso"
+        ? {
+            bar: "bg-rose-700 border-rose-800 text-white",
+            eyebrow: `Sin salida · +${ENSAYO_SALIDA_POST_MINUTES} min del fin programado`,
+            btnBorder: "text-rose-900 border-rose-100",
+          }
+        : salidaUrgency === "post_hora"
+          ? {
+              bar: "bg-orange-600 border-orange-700 text-white",
+              eyebrow: "Ensayo terminado · falta marcar salida",
+              btnBorder: "text-orange-900 border-orange-100",
+            }
+          : salidaUrgency === "pre_cierre"
+            ? {
+                bar: "bg-amber-600 border-amber-700 text-white",
+                eyebrow: `Cierre en ~${ENSAYO_SALIDA_PRE_MINUTES} min · registrá la salida`,
+                btnBorder: "text-amber-900 border-amber-100",
+              }
+            : {
+                bar: "bg-emerald-600 border-emerald-700 text-white",
+                eyebrow: "En ensayo · ingreso marcado",
+                btnBorder: "text-emerald-800 border-emerald-200",
+              }
+      : {
+          bar: "bg-amber-500 border-amber-600 text-white",
+          eyebrow: `Pendiente de ingreso · desde ${ENSAYO_CHECKIN_PRE_MINUTES} min antes`,
+          btnBorder: "text-amber-800 border-amber-200",
+        };
 
   const submitGps = async (kind, { lat, lng, precisionM }) => {
     if (!evt?.id) return null;
@@ -326,19 +390,13 @@ export default function RehearsalAttendanceBanner({
   return (
     <>
       <div
-        className={`shrink-0 border-b px-3 py-2 ${
-          phase === "activo"
-            ? "bg-emerald-600 border-emerald-700 text-white"
-            : "bg-amber-500 border-amber-600 text-white"
-        }`}
+        className={`shrink-0 border-b px-3 py-2 ${bannerChrome.bar}`}
         role="status"
       >
         <div className="flex items-center gap-2 max-w-5xl mx-auto">
           <div className="min-w-0 flex-1">
             <p className="text-[10px] font-bold uppercase tracking-wide opacity-95">
-              {phase === "activo"
-                ? "En ensayo · ingreso marcado"
-                : `Pendiente de ingreso · desde ${ENSAYO_CHECKIN_PRE_MINUTES} min antes`}
+              {bannerChrome.eyebrow}
             </p>
             <p className="text-sm font-black truncate leading-tight">{title}</p>
             {subtitle ? (
@@ -370,7 +428,7 @@ export default function RehearsalAttendanceBanner({
               }
               className={`${iconBtnClass} ${
                 actionPhase === "salida"
-                  ? "text-emerald-800 border-emerald-200"
+                  ? bannerChrome.btnBorder
                   : "text-amber-800 border-amber-200"
               }`}
               title={

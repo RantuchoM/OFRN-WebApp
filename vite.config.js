@@ -50,6 +50,8 @@ export default defineConfig({
         clientsClaim: true,
         skipWaiting: false,
         navigateFallbackDenylist: [/^\/manifest\.webmanifest$/, /^\/version\.json$/],
+        // Push + notificationclick (ver public/sw-push-handlers.js)
+        importScripts: ["/sw-push-handlers.js"],
       },
       manifest: {
         id: "/",

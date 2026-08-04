@@ -46,6 +46,7 @@
 Migraciones:
 - `supabase/migrations/20260603120000_ensayo_checkin_asistencia.sql`
 - `supabase/migrations/20260727180000_ensayo_checkin_salida.sql`
+- `supabase/migrations/20260804120000_ensayo_salida_recordatorios.sql` (push/email recordatorios + `web_push_subscriptions`)
 
 ## UI Agenda
 
@@ -55,13 +56,33 @@ Migraciones:
   - Solo ensayos a los que el usuario **activo** está **convocado** (`is_ensayo_convoked`: membresía de ensamble en la fecha del evento, o `eventos_asistencia_custom` adicional/invitado; no ausente). Un admin ve todos los ensayos en agenda, pero el check-in solo en los suyos (o del “Ver como”).
 - Banner global `GlobalRehearsalAttendanceBanner` (shell de la app, cualquier vista):
   - Desde **15 min antes** de `hora_inicio` hasta fin del día: banner de **ingreso**.
-  - Tras llegada sin salida: banner **activo** (verde) con timer + acciones de **salida**.
+  - Tras llegada sin salida: banner **activo** con timer + acciones de **salida**.
+  - **Urgencia de salida** (`resolveSalidaUrgency`):
+    - hasta T−10 de `hora_fin`: verde «En ensayo».
+    - **T−10 → `hora_fin`**: ámbar «Cierre en ~10 min · registrá la salida».
+    - **`hora_fin` → T+15**: naranja «Ensayo terminado · falta marcar salida».
+    - **desde T+15**: rojo «Sin salida · +15 min del fin programado».
+  - **Soft notification** (Notification API / SW, solo pestaña visible): una vez por sesión en T−10 (`pre_cierre`) y en T+15 (`post_aviso`).
+  - Al entrar en fase `activo`: intento de **suscripción Web Push** (`web_push_subscribe`) si hay `VITE_VAPID_PUBLIC_KEY` y permiso concedido.
   - Íconos: GPS, escanear QR, ofrecer QR (si `modo=gps`), con confirmación.
 - Componente `RehearsalCheckInBlock`: en columna de hora, **emparejado** con el horario del ensayo (`09:00` + llegada · `12:00` + salida); acciones GPS/QR debajo.
 - Visibilidad (tarjeta y banner): usuario **real** admin (`isActuallyAdmin`) **y** convocado al ensayo (`isIntegranteConvocadoAEnsayo`, calculado en vivo desde el perfil; no solo flag de cache).
 - Ofrecer QR de ubicación (`modo=gps`): solo mientras no haya salida, o hasta **10 min** después de `salida_at` (`puedeOfrecerPaseGps`).
 - Botones del bloque en tarjeta: solo si `fecha === hoy` (local), permiso de check-in y convocatoria.
 - Flujo tarjeta: sin llegada → ingreso; con llegada sin salida → botones de salida al lado de hora_fin; ambas → badges junto a inicio/fin.
+
+## Recordatorios de salida (cron)
+
+| Momento | Canal | Condición |
+|---------|--------|-----------|
+| T−10 de `hora_fin` | Web Push + soft (app abierta) | `registrado_at` sí, `salida_at` no, no justificado |
+| T+15 de `hora_fin` | Web Push + soft + **email** | igual |
+
+- Edge Function: `ensayo-salida-recordatorios` (pg_cron cada 5 min, migración `20260804120000_ensayo_salida_recordatorios.sql`).
+- Idempotencia: tabla `eventos_checkin_recordatorios` (`tipo` pre_cierre|post_cierre, `canal` push|email) — máx. 1 push pre, 1 push post, 1 mail post por (evento, integrante).
+- Suscripciones: `web_push_subscriptions` + RPC `web_push_subscribe`.
+- Secrets: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` (Edge), `VITE_VAPID_PUBLIC_KEY` (front, misma public), `GMAIL_*`, `ENSAYO_SALIDA_CRON_SECRET` (o reutiliza `DB_BACKUP_CRON_SECRET`), `APP_BASE_URL`.
+- Hora de pared ART (UTC−3) para comparar `eventos.fecha` + `hora_fin`.
 
 ## UI Gestión
 

@@ -5,6 +5,10 @@ import { membershipActiveOnProgramDate } from "./ensembleMembership";
 export const ENSAYO_CHECKIN_PRE_MINUTES = 15;
 /** Tras registrar salida, el QR de préstamo GPS sigue disponible este margen. */
 export const ENSAYO_QR_AFTER_EXIT_GRACE_MINUTES = 10;
+/** Recordatorio de cierre: minutos antes de `hora_fin` si aún no hay salida. */
+export const ENSAYO_SALIDA_PRE_MINUTES = 10;
+/** Aviso de cierre pendiente: minutos después de `hora_fin` si aún no hay salida. */
+export const ENSAYO_SALIDA_POST_MINUTES = 15;
 const ID_TIPO_ENSAYO_ENSAMBLE = 13;
 
 /**
@@ -97,6 +101,28 @@ export function ensayoEndMs(evt) {
   const [y, m, d] = String(evt.fecha).split("-").map(Number);
   const hf = timeStringToMinutes(evt.hora_fin || evt.hora_inicio);
   return new Date(y, m - 1, d, Math.floor(hf / 60), hf % 60, 0, 0).getTime();
+}
+
+/**
+ * Urgencia de marcación de salida mientras fase = activo (llegada sí, salida no).
+ * @returns {'none'|'activo'|'pre_cierre'|'post_hora'|'post_aviso'}
+ * - pre_cierre: desde T−10 hasta hora_fin
+ * - post_hora: desde hora_fin hasta T+15
+ * - post_aviso: desde T+15 en adelante
+ */
+export function resolveSalidaUrgency(evt, estado, now = new Date()) {
+  if (!estado?.registrado_at || estado?.salida_at || estado?.justificado) {
+    return "none";
+  }
+  const end = ensayoEndMs(evt);
+  if (!Number.isFinite(end)) return "activo";
+  const t = now.getTime();
+  const preFrom = end - ENSAYO_SALIDA_PRE_MINUTES * 60 * 1000;
+  const postFrom = end + ENSAYO_SALIDA_POST_MINUTES * 60 * 1000;
+  if (t >= postFrom) return "post_aviso";
+  if (t >= end) return "post_hora";
+  if (t >= preFrom) return "pre_cierre";
+  return "activo";
 }
 
 /**
