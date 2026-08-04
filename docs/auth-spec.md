@@ -22,6 +22,7 @@ role: Rol del sistema normalizado en minúsculas.
 - isManagement: Permite acceso a vistas de gestión general; incluye `admin`, `editor`, `curador`, `coord_general`, `consulta_general`, `produccion_general`, `director`.
 - isPersonal: true para músicos y personal que consulta su propia información.
 - isGuest: Usuarios con acceso limitado o invitados.
+- Agenda (deriveAgendaPermissions): `consulta_general` es management pero **no** tiene `canSeeTechEvents` ni `canSeeHiddenAgendaEvents` (no ve eventos Téc ni paradas ocultas).
 
 5. Funciones Clave
 login(email, password): Valida credenciales contra la tabla integrantes.
