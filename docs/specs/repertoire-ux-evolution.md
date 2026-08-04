@@ -303,6 +303,20 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - [x] PDFs procesados y sincronizados a Drive
 - [x] Seed ejecutado en Supabase (obra 3537, 5 particellas)
 
+### Massenet — Méditation de Thaïs (2026-08-03)
+- Carpeta [Para acomodar](https://drive.google.com/open?id=11dToRcA16WjUXoyGZBOOXRsIkhdh6kSC): **19 PDFs** ya canónicos → **21 particellas** (Cornos `1y2` / `3y4` expandidos).
+- Obra BD **id 3559** (insert nueva, Jules Massenet): `Vn - 2.2.2.2 - 4.0.0.0 - Hp - Str + Coro`.
+- Sin split/crop: nombres `Instrumento - Título - Massenet, J.pdf`; `link_drive` directo a la carpeta original.
+- Incluye Violín SOLO (`es_solista`), Coro SATB, SCORE, Arpa, cuerdas y vientos dobles.
+
+| Script | Rol |
+|--------|-----|
+| `scripts/lib/massenetMeditationCatalog.mjs` | Metadata + Drive folder id (obra 3559) |
+| `scripts/generate-massenet-meditation-sync.mjs` | Genera `supabase/seed_massenet_meditation_sync.sql` |
+
+- [x] Matcher: 19/19 PDFs → 21 particellas
+- [x] Seed ejecutado en Supabase (obra 3559, 21 particellas)
+
 ---
 
 ## 9. Gestión de particellas en WorkForm
