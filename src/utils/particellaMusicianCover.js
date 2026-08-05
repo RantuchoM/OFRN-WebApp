@@ -67,5 +67,6 @@ export async function buildMusicianCoverPdf({
     pdf.addPage(A4);
   }
 
-  return pdf.save();
+  // Sin object streams: coherente con mergeSequential / marcadores.
+  return pdf.save({ useObjectStreams: false });
 }

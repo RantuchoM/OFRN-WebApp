@@ -840,7 +840,11 @@ export default function ParticellaDownloadModal({
 
           const copies = row.copies || 1;
           for (let i = 0; i < copies; i += 1) {
-            buffersForObra.push({ buffer });
+            const bookmarkTitle =
+              copies > 1
+                ? `${row.displayName} (${i + 1}/${copies})`
+                : row.displayName;
+            buffersForObra.push({ buffer, title: bookmarkTitle });
           }
 
           currentStep += 1;

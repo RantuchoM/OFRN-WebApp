@@ -52,7 +52,7 @@ const sortPartsByInstrumentAndName = (list) =>
 
 const ModalPortal = ({ children }) => {
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       {children}
     </div>,
     document.body,
@@ -484,6 +484,7 @@ export default function DriveMatcherModal({
       title: "Eliminar particella",
       message: "¿Eliminar esta particella?",
       destructive: true,
+      overlayClassName: "z-[110]",
     }))) return;
     if (onPartsChange) onPartsChange(parts.filter((p) => p.tempId !== tempId));
   };
@@ -499,6 +500,7 @@ export default function DriveMatcherModal({
       title: "Eliminar particellas",
       message: msg,
       destructive: true,
+      overlayClassName: "z-[110]",
     }))) return;
     const sel = selectedPartTempIds;
     if (onPartsChange)

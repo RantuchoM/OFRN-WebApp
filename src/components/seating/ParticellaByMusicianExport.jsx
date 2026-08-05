@@ -34,6 +34,11 @@ function getDriveFileLabel(_url, fallbackIndex) {
   return `Versión ${fallbackIndex + 1}`;
 }
 
+function bundlePartsCountForObra(bundle, obraId) {
+  const key = String(obraId);
+  return (bundle?.parts || []).filter((p) => String(p.obraId) === key).length;
+}
+
 /**
  * Modal body + footer for «Toda la gira por músico».
  */
@@ -328,6 +333,18 @@ export default function ParticellaByMusicianExport({
   };
 
   const buildMusicianPdfBuffers = async (bundle, stepRef) => {
+    const obraOutlineTitle = (part) => {
+      const title = stripHtml(part.obra?.title) || "Obra";
+      const composer = (part.obra?.composer || "").trim();
+      const obraLabel = composer ? `${composer} — ${title}` : title;
+      // Si el músico tiene más de una parte en la misma obra, distinguir.
+      const sameObraParts = bundlePartsCountForObra(bundle, part.obraId);
+      if (sameObraParts > 1 && part.displayName) {
+        return `${obraLabel} · ${part.displayName}`;
+      }
+      return obraLabel;
+    };
+
     const coverBytes = await buildMusicianCoverPdf({
       musicianName: bundle.displayName,
       mesLetra: program?.mes_letra || "",
@@ -338,7 +355,8 @@ export default function ParticellaByMusicianExport({
       padBlankBack: dobleFaz,
     });
 
-    const items = [{ buffer: coverBytes }];
+    // Marcadores: Portada + una por obra (índices relativos al PDF del músico).
+    const items = [{ buffer: coverBytes, title: "Portada" }];
 
     for (const part of bundle.parts) {
       const idx =
@@ -360,7 +378,7 @@ export default function ParticellaByMusicianExport({
             await mergeSequential([{ buffer }], { padOddPages: true }),
           );
         }
-        items.push({ buffer });
+        items.push({ buffer, title: obraOutlineTitle(part) });
         stepRef.current += 1;
         setProgress({
           current: stepRef.current,
@@ -378,9 +396,11 @@ export default function ParticellaByMusicianExport({
       }
     }
 
-    return new Uint8Array(
-      await mergeSequential(items, { padOddPages: false }),
-    );
+    const { bytes, outlines } = await mergeSequential(items, {
+      padOddPages: false,
+      returnOutlines: true,
+    });
+    return { bytes: new Uint8Array(bytes), outlines };
   };
 
   const handleGenerate = async (destination) => {
@@ -419,8 +439,16 @@ export default function ParticellaByMusicianExport({
             total: totalSteps,
             label: `Portada: ${bundle.displayName}`,
           });
-          const bytes = await buildMusicianPdfBuffers(bundle, stepRef);
-          allItems.push({ buffer: bytes });
+          const { bytes, outlines } = await buildMusicianPdfBuffers(
+            bundle,
+            stepRef,
+          );
+          // Marcador por músico; obras (y portada) anidadas debajo.
+          allItems.push({
+            buffer: bytes,
+            title: bundle.displayName,
+            outlineChildren: outlines,
+          });
         }
         const merged = await mergeSequential(allItems, { padOddPages: false });
         const blob = new Blob([merged], { type: "application/pdf" });
@@ -452,7 +480,7 @@ export default function ParticellaByMusicianExport({
             total: totalSteps,
             label: `Armando: ${bundle.displayName}`,
           });
-          const bytes = await buildMusicianPdfBuffers(bundle, stepRef);
+          const { bytes } = await buildMusicianPdfBuffers(bundle, stepRef);
           const fileName = `${safeFileToken(bundle.sortName, "Musico")}_${nom}.pdf`;
           pdfs.push({
             fileName,

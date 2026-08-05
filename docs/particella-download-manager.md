@@ -16,6 +16,7 @@ Módulo para la descarga masiva y unificación de particellas de un programa, in
    - Durante exportación: overlay a pantalla del modal + aviso «no cierres la pestaña»; `beforeunload` pide confirmación del navegador al cerrar/recargar.  
    - Orden: alfabético / `id_instr` / ensamble regional (`isRegionalConvocatoriaEnsamble`); desempate apellido.  
    - Salida: un PDF único, o un PDF por músico (ZIP local / subcarpeta Drive con timestamp si el nombre base ya existe).  
+   - **Marcadores**: PDF por músico → Portada + obra; PDF unificado → músico (hijos: Portada + obras).  
    - Multi-versión: selector; default primera.
 3. **Filtrado**  
    - Excluir estrictamente integrantes con `estado_gira === 'ausente'`.
@@ -32,7 +33,7 @@ Módulo para la descarga masiva y unificación de particellas de un programa, in
 - `src/utils/particellaMusicianCover.js`: portada/separador.
 - `src/utils/buildMusicianParticellaBundles.js`: mapa músico→partes + orden.
 - `supabase/functions/manage-drive/index.ts`: `upload_particella_set`, `create_particella_musician_folder`.
-- `src/utils/docMerger.js`: unión de buffers + `padOddPages`.
+- `src/utils/docMerger.js`: unión de buffers + `padOddPages` + marcadores PDF (`attachPdfBookmarks`).
 
 ## Notas de Implementación
 
@@ -97,9 +98,15 @@ En la generación del PDF, el buffer de cada particella seleccionada se duplica 
 
 #### Unión de PDFs
 - Se usa `mergeSequential` de `src/utils/docMerger.js`:
-  - Se construye un arreglo de objetos `{ buffer }` (uno por copia).
+  - Se construye un arreglo de objetos `{ buffer, title? }` (uno por copia).
   - `mergeSequential` detecta tipo (PDF/imagen) y unifica todo en un único PDF.
   - Se genera **un PDF por obra**, que contiene todas las particellas seleccionadas y repetidas según el conteo de copias.
+  - **Marcadores PDF (bookmarks/outline)**:
+    - **Por obra**: un marcador por particella (si hay varias copias: `Nombre (i/n)`).
+    - **Por músico · PDF por músico**: Portada + un marcador por obra (con part name si hay más de una parte en la misma obra).
+    - **Por músico · PDF unificado**: un marcador por músico, con obras (y portada) anidadas.
+    - Implementación: `attachPdfBookmarks` escribe el árbol `/Outlines` (UTF-16 vía `PDFHexString`, dest `/Fit`) y abre el panel con `PageMode /UseOutlines`.
+    - Los PDF se guardan con `useObjectStreams: false` para que el outline no quede solo dentro de object streams (algunos editores online, p. ej. Smallpdf, no los muestran y dicen "No Bookmarks").
   - **Doble faz** (`padOddPages: true`, activo por defecto en el modal): tras cada ítem (copia) con cantidad de páginas impar, se inserta una hoja en blanco del mismo tamaño que la última página, para que la siguiente particella empiece en anverso al imprimir a doble faz. Las imágenes (1 página) también reciben hoja en blanco.
 
 #### UI del modal (actualizado)
