@@ -60,9 +60,8 @@ Migraciones:
   - **Urgencia de salida** (`resolveSalidaUrgency`):
     - hasta T−10 de `hora_fin`: verde «En ensayo».
     - **T−10 → `hora_fin`**: ámbar «Cierre en ~10 min · registrá la salida».
-    - **`hora_fin` → T+15**: naranja «Ensayo terminado · falta marcar salida».
-    - **desde T+15**: rojo «Sin salida · +15 min del fin programado».
-  - **Soft notification** (Notification API / SW, solo pestaña visible): una vez por sesión en T−10 (`pre_cierre`) y en T+15 (`post_aviso`).
+    - **desde `hora_fin`** (POST = 0, justo en horario): rojo «Hora de fin · falta marcar la salida».
+  - **Soft notification** (Notification API / SW, solo pestaña visible): una vez por sesión en T−10 (`pre_cierre`) y a `hora_fin` (`post_aviso`).
   - Al entrar en fase `activo`: intento de **suscripción Web Push** (`web_push_subscribe`) si hay `VITE_VAPID_PUBLIC_KEY` y permiso concedido.
   - Íconos: GPS, escanear QR, ofrecer QR (si `modo=gps`), con confirmación.
 - Componente `RehearsalCheckInBlock`: en columna de hora, **emparejado** con el horario del ensayo (`09:00` + llegada · `12:00` + salida); acciones GPS/QR debajo.
@@ -76,9 +75,9 @@ Migraciones:
 | Momento | Canal | Condición |
 |---------|--------|-----------|
 | T−10 de `hora_fin` | Web Push + soft (app abierta) | `registrado_at` sí, `salida_at` no, no justificado |
-| T+15 de `hora_fin` | Web Push + soft + **email** | igual |
+| Justo a `hora_fin` (POST=0) | Web Push + soft + **email** | igual |
 
-- Edge Function: `ensayo-salida-recordatorios` (pg_cron cada 5 min, migración `20260804120000_ensayo_salida_recordatorios.sql`).
+- Edge Function: `ensayo-salida-recordatorios` (pg_cron **cada 1 min**, migraciones `20260804120000` + `20260805000000_ensayo_salida_cron_1min.sql`).
 - Idempotencia: tabla `eventos_checkin_recordatorios` (`tipo` pre_cierre|post_cierre, `canal` push|email) — máx. 1 push pre, 1 push post, 1 mail post por (evento, integrante).
 - Suscripciones: `web_push_subscriptions` + RPC `web_push_subscribe`.
 - Secrets: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` (Edge), `VITE_VAPID_PUBLIC_KEY` (front, misma public), `GMAIL_*`, `ENSAYO_SALIDA_CRON_SECRET` (o reutiliza `DB_BACKUP_CRON_SECRET`), `APP_BASE_URL`.

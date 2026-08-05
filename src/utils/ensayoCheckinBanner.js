@@ -7,8 +7,8 @@ export const ENSAYO_CHECKIN_PRE_MINUTES = 15;
 export const ENSAYO_QR_AFTER_EXIT_GRACE_MINUTES = 10;
 /** Recordatorio de cierre: minutos antes de `hora_fin` si aún no hay salida. */
 export const ENSAYO_SALIDA_PRE_MINUTES = 10;
-/** Aviso de cierre pendiente: minutos después de `hora_fin` si aún no hay salida. */
-export const ENSAYO_SALIDA_POST_MINUTES = 15;
+/** Aviso de cierre pendiente: minutos después de `hora_fin` (0 = justo a `hora_fin`). */
+export const ENSAYO_SALIDA_POST_MINUTES = 0;
 const ID_TIPO_ENSAYO_ENSAMBLE = 13;
 
 /**
@@ -106,9 +106,9 @@ export function ensayoEndMs(evt) {
 /**
  * Urgencia de marcación de salida mientras fase = activo (llegada sí, salida no).
  * @returns {'none'|'activo'|'pre_cierre'|'post_hora'|'post_aviso'}
- * - pre_cierre: desde T−10 hasta hora_fin
- * - post_hora: desde hora_fin hasta T+15
- * - post_aviso: desde T+15 en adelante
+ * - pre_cierre: desde T−10 hasta `hora_fin` (no incluido)
+ * - post_hora: entre `hora_fin` y hora_fin+POST (si POST>0)
+ * - post_aviso: desde hora_fin+POST (con POST=0 = justo a `hora_fin`)
  */
 export function resolveSalidaUrgency(evt, estado, now = new Date()) {
   if (!estado?.registrado_at || estado?.salida_at || estado?.justificado) {

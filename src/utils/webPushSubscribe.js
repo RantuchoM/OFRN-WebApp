@@ -29,7 +29,7 @@ export function isWebPushSupported() {
 }
 
 /**
- * Guarda suscripción Web Push del integrante (para cron T−10 / T+15).
+ * Guarda suscripción Web Push del integrante (para cron T−10 / hora_fin).
  * Idempotente por endpoint.
  *
  * @param {number|string} integranteId

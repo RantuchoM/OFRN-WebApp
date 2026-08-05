@@ -1,7 +1,7 @@
 /**
  * Cron: recordatorios de salida de ensayo.
  * - T−10 min de hora_fin (si hay llegada y no salida): Web Push
- * - T+15 min de hora_fin: Web Push + email
+ * - Justo a hora_fin (POST_MIN=0): Web Push + email
  * Idempotente vía eventos_checkin_recordatorios.
  *
  * Auth: header x-ensayo-salida-cron-secret (o fallback DB_BACKUP_CRON_SECRET).
@@ -30,7 +30,8 @@ const APP_BASE = (
 ).replace(/\/$/, "");
 
 const PRE_MIN = 10;
-const POST_MIN = 15;
+/** Minutos tras hora_fin para el aviso post (0 = justo en horario de fin). */
+const POST_MIN = 0;
 const MAX_AGE_HOURS = 12;
 const TIPO_ENSAYO = 13;
 
@@ -83,9 +84,13 @@ function eventoLabel(ev: {
 
 function templatePostEmail(nombre: string, label: string, link: string): string {
   const saludo = nombre ? `Hola ${nombre},` : "Hola,";
+  const cuando =
+    POST_MIN > 0
+      ? `Pasaron <strong>${POST_MIN} minutos</strong> del fin programado de <strong>${label}</strong>`
+      : `Llegó el fin programado de <strong>${label}</strong>`;
   return `<!DOCTYPE html><html><body style="font-family:Helvetica,Arial,sans-serif;color:#333;line-height:1.5;font-size:14px;">
   <p>${saludo}</p>
-  <p>Pasaron <strong>${POST_MIN} minutos</strong> del fin programado de <strong>${label}</strong> y todavía no registraste la hora de salida.</p>
+  <p>${cuando} y todavía no registraste la hora de salida.</p>
   <p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#be123c;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;">Abrir agenda y marcar salida</a></p>
   <p style="font-size:12px;color:#666;">Si ya la marcaste, podés ignorar este mail.</p>
   </body></html>`;
@@ -366,7 +371,9 @@ serve(async (req) => {
       if (!hasSent(row.id_evento, row.id_integrante, "post_cierre", "push")) {
         const title = "Falta marcar la salida";
         const body =
-          `Pasaron ${POST_MIN} min del fin de «${label}» y aún no registraste la salida.`;
+          POST_MIN > 0
+            ? `Pasaron ${POST_MIN} min del fin de «${label}» y aún no registraste la salida.`
+            : `Llegó el fin de «${label}» y aún no registraste la salida.`;
         await sendPush(
           row.id_integrante,
           title,
@@ -417,7 +424,7 @@ serve(async (req) => {
         }
       }
     } else {
-      // Pre: solo push (T−10 … T+15 no alcanzado)
+      // Pre: solo push (T−10 … antes de hora_fin / post)
       if (!hasSent(row.id_evento, row.id_integrante, "pre_cierre", "push")) {
         const title = "Cierre de ensayo en breve";
         const body =

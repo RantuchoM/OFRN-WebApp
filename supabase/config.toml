@@ -69,7 +69,7 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/ensayo-salida-recordatorios/deno.json"
 entrypoint = "./functions/ensayo-salida-recordatorios/index.ts"
-# pg_cron cada 5 min (migración 20260804120000). Secrets:
+# pg_cron cada 1 min (migración 20260805000000). Secrets:
 #   ENSAYO_SALIDA_CRON_SECRET (o DB_BACKUP_CRON_SECRET), GMAIL_*, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
 #   VAPID_SUBJECT (opcional), APP_BASE_URL / FRONTEND_URL
 # Header: x-ensayo-salida-cron-secret

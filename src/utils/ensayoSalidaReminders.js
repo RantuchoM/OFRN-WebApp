@@ -57,7 +57,9 @@ function buildSoftBodies(evt, tipo) {
   const body =
     tipo === "pre_cierre"
       ? `Quedan ~${ENSAYO_SALIDA_PRE_MINUTES} min para el fin programado de «${label}». Recordá registrar la hora de salida.`
-      : `Pasaron ${ENSAYO_SALIDA_POST_MINUTES} min del fin de «${label}» y aún no registraste la salida.`;
+      : ENSAYO_SALIDA_POST_MINUTES > 0
+        ? `Pasaron ${ENSAYO_SALIDA_POST_MINUTES} min del fin de «${label}» y aún no registraste la salida.`
+        : `Llegó el fin programado de «${label}» y aún no registraste la salida.`;
   return { title, body };
 }
 

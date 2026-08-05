@@ -110,7 +110,7 @@ export default function RehearsalAttendanceBanner({
   const puedeGenerarPase = puedeOfrecerPaseGps(estado, now);
   const actionPhase = phase === "activo" ? "salida" : "ingreso";
 
-  // Soft Notification (pestaña abierta) en ventanas T−10 y T+15
+  // Soft Notification (pestaña abierta) en ventanas T−10 y a hora_fin
   useEffect(() => {
     if (phase !== "activo" || !evt || !estado) return undefined;
     let cancelled = false;
@@ -126,7 +126,7 @@ export default function RehearsalAttendanceBanner({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- disparo anclado a ventana de urgencia
   }, [phase, evt?.id, estado?.registrado_at, estado?.salida_at, salidaUrgency]);
 
-  // Suscribir Web Push al entrar en "activo" (para cron T−10 / T+15)
+  // Suscribir Web Push al entrar en "activo" (para cron T−10 / hora_fin)
   useEffect(() => {
     if (phase !== "activo" || !integranteId || pushSubscribedRef.current) return;
     pushSubscribedRef.current = true;
@@ -140,7 +140,10 @@ export default function RehearsalAttendanceBanner({
       ? salidaUrgency === "post_aviso"
         ? {
             bar: "bg-rose-700 border-rose-800 text-white",
-            eyebrow: `Sin salida · +${ENSAYO_SALIDA_POST_MINUTES} min del fin programado`,
+            eyebrow:
+              ENSAYO_SALIDA_POST_MINUTES > 0
+                ? `Sin salida · +${ENSAYO_SALIDA_POST_MINUTES} min del fin programado`
+                : "Hora de fin · falta marcar la salida",
             btnBorder: "text-rose-900 border-rose-100",
           }
         : salidaUrgency === "post_hora"
