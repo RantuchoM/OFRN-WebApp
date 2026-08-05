@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import "./scrnTransporteLayout.css";
 import { exportControlVehiculoToPDF } from "../../../utils/pdfFormExporter";
 import { IconCheckCircle, IconClock, IconEdit, IconLoader } from "../../../components/ui/Icons";
 
@@ -596,7 +597,7 @@ export default function ViajeControlVehiculoModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-5xl max-h-[92vh] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        className="w-full max-w-5xl max-h-[92vh] overflow-hidden scrn-square rounded-none border border-slate-200 bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3">
@@ -640,7 +641,7 @@ export default function ViajeControlVehiculoModal({
           ) : null}
 
           <div className="grid md:grid-cols-2 gap-4">
-            <section className="rounded-xl border border-slate-200 p-3 space-y-3">
+            <section className="rounded-none border border-slate-200 p-3 space-y-3">
               <h4 className="text-xs font-black uppercase text-slate-700">Control por viaje</h4>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -670,7 +671,7 @@ export default function ViajeControlVehiculoModal({
               </div>
             </section>
 
-            <section className="rounded-xl border border-slate-200 p-3 space-y-3">
+            <section className="rounded-none border border-slate-200 p-3 space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-black uppercase text-slate-700">Limpieza post-viaje</h4>
                 <button
@@ -751,7 +752,7 @@ export default function ViajeControlVehiculoModal({
             </section>
           </div>
 
-          <section className="rounded-xl border border-slate-200 p-3 space-y-3">
+          <section className="rounded-none border border-slate-200 p-3 space-y-3">
             <div className="grid w-full gap-2 md:grid-cols-2">
               <div className="rounded border border-slate-200 p-2">
                 <div className="flex items-center gap-2">
@@ -1181,4 +1182,3 @@ export default function ViajeControlVehiculoModal({
     </div>
   );
 }
-

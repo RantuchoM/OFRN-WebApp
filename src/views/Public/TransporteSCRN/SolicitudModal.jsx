@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import "./scrnTransporteLayout.css";
 import { createPortal } from "react-dom";
 import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { ensureScrnPerfilForNewEmail } from "../../../services/scrnCreatePerfil";
@@ -663,7 +664,7 @@ export default function SolicitudModal({
       {dialog}
       {createPortal(
     <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto scrn-square bg-white rounded-none border border-slate-200 shadow-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h3 className="text-base font-extrabold text-slate-800">Solicitar plazas</h3>
@@ -788,7 +789,7 @@ export default function SolicitudModal({
 
         <form onSubmit={handleSubmit} className="p-5 space-y-3">
           {!paradasCustom ? (
-            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
+            <div className="rounded-none border border-slate-200 bg-slate-50/80 p-3 space-y-2">
               <p className="text-xs font-bold text-slate-800">Recorrido completo (por defecto)</p>
               <p className="text-[11px] text-slate-600 leading-relaxed">
                 Se solicita con el tramo <span className="font-semibold">ambos</span>, subida en{" "}
@@ -813,7 +814,7 @@ export default function SolicitudModal({
               </button>
             </div>
           ) : (
-            <div className="space-y-3 border border-amber-200/80 rounded-xl p-3 bg-amber-50/40">
+            <div className="space-y-3 border border-amber-200/80 rounded-none p-3 bg-amber-50/40">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-[11px] text-amber-900 font-semibold">Paradas a tu medida</p>
                 <button
@@ -915,7 +916,7 @@ export default function SolicitudModal({
           )}
 
           {!noHayLugarParaMiNuevaReserva && !sinLugarParaAcompanantes && (
-            <div className="border border-slate-200 rounded-xl p-3 space-y-2 bg-slate-50">
+            <div className="border border-slate-200 rounded-none p-3 space-y-2 bg-slate-50">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-extrabold text-slate-700 uppercase tracking-wide">
                   Solicitar plaza para:
@@ -932,7 +933,7 @@ export default function SolicitudModal({
                 Cada fila se gestionará como una solicitud individual. Podés quitarte si solo cargás
                 la solicitud para otra persona.
               </p>
-              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+              <div className="overflow-hidden scrn-square rounded-none border border-slate-200 bg-white">
                 <table className="min-w-full text-xs">
                   <thead className="bg-slate-100 text-slate-600">
                     <tr>

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import "./scrnTransporteLayout.css";
 import { createPortal } from "react-dom";
 import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { ensureScrnPerfilForNewEmail } from "../../../services/scrnCreatePerfil";
@@ -341,7 +342,7 @@ export default function ProponerNuevoViajeModal({
   return createPortal(
     <>
     <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
+      <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto scrn-square bg-white rounded-none border border-slate-200 shadow-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-2">
           <div>
             <h3 className="text-base font-extrabold text-slate-800">Proponer un recorrido nuevo</h3>
@@ -384,7 +385,7 @@ export default function ProponerNuevoViajeModal({
               Paradas de tu reserva
             </h4>
             {!paradasCustom ? (
-              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
+              <div className="rounded-none border border-slate-200 bg-slate-50/80 p-3 space-y-2">
                 <p className="text-xs font-bold text-slate-800">Recorrido completo (por defecto)</p>
                 <p className="text-[11px] text-slate-600 leading-relaxed">
                   Se pide con tramo <span className="font-semibold">ambos</span>, subida en el origen
@@ -400,7 +401,7 @@ export default function ProponerNuevoViajeModal({
                 </button>
               </div>
             ) : (
-              <div className="space-y-3 border border-amber-200/80 rounded-xl p-3 bg-amber-50/40">
+              <div className="space-y-3 border border-amber-200/80 rounded-none p-3 bg-amber-50/40">
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-[11px] text-amber-900 font-semibold">Paradas a tu medida</p>
                   <button
@@ -504,7 +505,7 @@ export default function ProponerNuevoViajeModal({
             )}
           </div>
 
-          <div className="border border-slate-200 rounded-xl p-3 space-y-2 bg-slate-50">
+          <div className="border border-slate-200 rounded-none p-3 space-y-2 bg-slate-50">
             <p className="text-xs font-extrabold text-slate-700 uppercase tracking-wide">
               Otras personas (inicial)
             </p>

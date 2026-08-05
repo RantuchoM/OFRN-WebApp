@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import "./scrnTransporteLayout.css";
 import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { IconBell, IconX } from "../../../components/ui/Icons";
 
@@ -212,7 +213,7 @@ export default function ScrnNotificacionesDropdown({ user, reloadToken = 0 }) {
 
       {open && (
         <div
-          className="fixed left-3 right-3 top-16 z-50 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-1 sm:w-[22rem]"
+          className="fixed left-3 right-3 top-16 z-50 overflow-hidden scrn-square rounded-none border border-slate-200 bg-white shadow-lg sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-1 sm:w-[22rem]"
           role="dialog"
           aria-label="Notificaciones"
         >

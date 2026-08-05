@@ -12,12 +12,17 @@ export default function ManagementSectionCard({
   onClick,
   to,
   badge = null,
+  /** Esquinas rectas (estética institucional / SCRN tipo rionegro.gov.ar) */
+  square = false,
 }) {
-  const className = `group block w-full rounded-xl border bg-white p-5 text-left shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 ${cardClasses}`;
+  const radiusCard = square ? "rounded-none" : "rounded-xl";
+  const radiusIcon = square ? "rounded-none" : "rounded-lg";
+  const radiusBadge = square ? "rounded-none" : "rounded-full";
+  const className = `group block w-full ${radiusCard} border bg-white p-5 text-left shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 ${cardClasses}`;
 
   const inner = (
       <div className="flex items-start gap-4">
-        <div className={`rounded-lg p-3 transition-colors ${iconClasses}`}>
+        <div className={`${radiusIcon} p-3 transition-colors ${iconClasses}`}>
           <Icon size={24} />
         </div>
         <div className="min-w-0 flex-1 space-y-1">
@@ -27,7 +32,7 @@ export default function ManagementSectionCard({
             </h3>
             {badge != null && (
               <span
-                className={`shrink-0 min-w-7 rounded-full px-1.5 py-0.5 text-center text-xs font-extrabold ${
+                className={`shrink-0 min-w-7 ${radiusBadge} px-1.5 py-0.5 text-center text-xs font-extrabold ${
                   Number(badge) > 0
                     ? "border border-amber-600 bg-amber-500 text-white shadow-sm"
                     : "border border-slate-300 bg-slate-200 text-slate-600"

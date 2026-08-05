@@ -51,8 +51,15 @@ Sección pública para la gestión de flota y solicitudes de transporte de pasaj
 - `src/views/Public/TransporteSCRN/ScrnViaticosOpcionesFields.jsx` — UI reutilizable.
 
 ## Estética
-- Uniforme con el resto de la App.
+- Lenguaje visual institucional tipo [Gobierno de Río Negro](https://rionegro.gov.ar/):
+  **ángulos rectos**, azul oficial `#0054a6` / `#003d7a`, fondos planos sin soft-blur.
+- CSS: `scrnTransporteLayout.css` (`.scrn-shell` / `.scrn-square` fuerzan `border-radius: 0`).
 - Uso del logo: `public/pictures/ofrn.jpg`.
+- [x] Shell responsive (`TransporteSCRNMain` + layout CSS):
+  - Header sticky con franja azul inferior; bottom nav móvil con borde institucional.
+  - Filtros colapsables con contador y “Limpiar”; toggle Calendario/Agenda.
+  - Agenda en grilla; badges rectangulares; calendario con cabecera azul.
+  - Login con borde superior azul y tipografía en mayúsculas en CTAs.
 
 ## Catálogo de rutas (corredores)
 - [x] Migración `20260622150000_scrn_rutas_rio_negro.sql`: tablas `scrn_rutas` + `scrn_ruta_paradas` (FK a `localidades.id`), vista `scrn_ruta_aristas`, funciones `scrn_resolve_localidad_id`, `scrn_paradas_entre`, `scrn_paradas_intermedias`.

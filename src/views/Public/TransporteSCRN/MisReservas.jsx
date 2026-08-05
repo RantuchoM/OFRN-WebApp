@@ -585,14 +585,15 @@ export default function MisReservas({
   }, [comoPasajero, verHistorial]);
 
   return (
-    <section className="bg-white rounded-2xl border border-slate-200 p-4 md:p-5 space-y-3">
+    <section className="space-y-3 rounded-none border border-slate-200/90 bg-white p-4 shadow-sm md:p-5">
       {dialog}
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h3 className="text-sm md:text-base font-extrabold text-slate-800 uppercase tracking-wide">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#0054a6]">Tu agenda</p>
+          <h3 className="text-lg font-black tracking-tight text-slate-900 md:text-xl">
             Mis viajes
           </h3>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
             Como <span className="font-semibold">titular</span> podés editar la solicitud y acompañantes; como{" "}
             <span className="font-semibold">pasajero con perfil</span> (otra persona te cargó) editás solo tu
             fila. Con cambios relevantes, la solicitud puede volver a{" "}
@@ -604,7 +605,7 @@ export default function MisReservas({
           <button
             type="button"
             onClick={() => setVerHistorial((x) => !x)}
-            className="shrink-0 self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+            className="shrink-0 self-start rounded-none border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
           >
             {verHistorial ? "Ocultar historial" : "Ver historial"}
           </button>
@@ -655,7 +656,7 @@ export default function MisReservas({
           return (
             <article
               key={reserva.id}
-              className="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-2"
+              className="border border-slate-200 rounded-none p-3 bg-slate-50 space-y-2"
             >
               <div className="space-y-1.5">
                 <h4 className="text-sm font-bold text-slate-800 leading-snug break-words w-full pr-0">
@@ -667,7 +668,7 @@ export default function MisReservas({
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <span
-                      className={`text-[11px] font-bold uppercase tracking-wide border px-2 py-1 rounded-full ${scrnEstadoBadgeClass(estado)}`}
+                      className={`text-[11px] font-bold uppercase tracking-wide border px-2 py-1 rounded-none ${scrnEstadoBadgeClass(estado)}`}
                     >
                       {estado}
                     </span>
@@ -890,7 +891,7 @@ export default function MisReservas({
             return (
               <article
                 key={`pax-${pax.id}`}
-                className="border border-indigo-200/80 rounded-xl p-3 bg-indigo-50/40 space-y-2"
+                className="border border-indigo-200/80 rounded-none p-3 bg-indigo-50/40 space-y-2"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
@@ -903,7 +904,7 @@ export default function MisReservas({
                     <p className="text-[11px] text-slate-600 mt-0.5">
                       Tu plaza:{" "}
                       <span
-                        className={`font-bold uppercase text-[10px] border px-1.5 py-0.5 rounded-full ${scrnEstadoBadgeClass(estadoMiFila)}`}
+                        className={`font-bold uppercase text-[10px] border px-1.5 py-0.5 rounded-none ${scrnEstadoBadgeClass(estadoMiFila)}`}
                       >
                         {estadoMiFila}
                       </span>

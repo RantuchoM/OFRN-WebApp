@@ -158,8 +158,15 @@ export default function TransporteSCRNPage() {
 
   if (loading || magicLinkPending || (session?.user && !profileChecked)) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100">
-        <div className="text-sm font-semibold tracking-wide text-slate-500 uppercase">
+      <div
+        className="flex min-h-screen flex-col items-center justify-center gap-3 px-4"
+        style={{ background: "#eef1f4" }}
+      >
+        <div
+          className="h-8 w-8 animate-spin rounded-full border-2 border-t-transparent"
+          style={{ borderColor: "#0054a6", borderTopColor: "transparent" }}
+        />
+        <div className="text-xs font-bold uppercase tracking-wide text-slate-600">
           {magicLinkPending ? "Accediendo con enlace seguro…" : "Cargando transporte SCRN…"}
         </div>
       </div>

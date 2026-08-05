@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   IconUtensils,
   IconLoader,
@@ -115,6 +116,182 @@ const getGroupLabelShort = (id, catalogs) => {
   if (id.startsWith("FAM:")) return id.split(":")[1];
   return id;
 };
+
+const personLocalidadLabel = (person) => {
+  const res = resolveLocalidadResidencia(person);
+  return (
+    res.nombre ||
+    person?.localidades_residencia?.localidad ||
+    person?._loc_residencia?.localidad ||
+    person?.residencia?.localidad ||
+    "Sin localidad"
+  );
+};
+
+/** Resumen de dietas + listado agrupado por localidad para el modal de comensales. */
+const buildComensalesDetail = (people = []) => {
+  const dietCounts = {};
+  (people || []).forEach((p) => {
+    const diet = (p.alimentacion || "Estándar").trim() || "Estándar";
+    dietCounts[diet] = (dietCounts[diet] || 0) + 1;
+  });
+  const dietSummary = Object.entries(dietCounts).sort(([a], [b]) =>
+    a === "Estándar" ? -1 : b === "Estándar" ? 1 : a.localeCompare(b, "es"),
+  );
+
+  const sorted = [...(people || [])].sort((a, b) => {
+    const la = personLocalidadLabel(a);
+    const lb = personLocalidadLabel(b);
+    if (la !== lb) return la.localeCompare(lb, "es");
+    const ap = `${a.apellido || ""}, ${a.nombre || ""}`;
+    const bp = `${b.apellido || ""}, ${b.nombre || ""}`;
+    return ap.localeCompare(bp, "es");
+  });
+
+  const byLocalidad = [];
+  for (const p of sorted) {
+    const label = personLocalidadLabel(p);
+    const last = byLocalidad[byLocalidad.length - 1];
+    if (!last || last.label !== label) {
+      byLocalidad.push({ label, people: [p] });
+    } else {
+      last.people.push(p);
+    }
+  }
+
+  return { dietSummary, byLocalidad, total: people.length };
+};
+
+function ComensalesDetailModal({ row, people, catalogs, onClose }) {
+  const detail = useMemo(() => buildComensalesDetail(people), [people]);
+  const convLabels = (row?.convocados || [])
+    .map((id) => getGroupLabelShort(id, catalogs))
+    .filter(Boolean);
+
+  if (typeof document === "undefined") return null;
+
+  const fechaLabel = row?.fecha
+    ? format(parseISO(row.fecha), "EEE dd/MM", { locale: es })
+    : "";
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 print:hidden"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="w-full max-w-md max-h-[85vh] bg-white rounded-xl shadow-2xl border border-slate-200 flex flex-col animate-in zoom-in-95 fade-in duration-150"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="comensales-modal-title"
+      >
+        <div className="px-4 py-3 border-b border-slate-200 flex items-start justify-between gap-3 shrink-0">
+          <div className="min-w-0">
+            <h3
+              id="comensales-modal-title"
+              className="text-sm font-bold text-slate-800 flex items-center gap-2"
+            >
+              <IconUsers size={16} className="text-emerald-600 shrink-0" />
+              Comensales
+              <span className="text-[11px] font-black bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full">
+                {detail.total}
+              </span>
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+              {[fechaLabel, row?.servicio, row?.hora_inicio]
+                .filter(Boolean)
+                .join(" · ")}
+              {convLabels.length > 0 ? ` · ${convLabels.join(" + ")}` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 text-slate-400 hover:text-slate-700 rounded"
+            title="Cerrar"
+          >
+            <IconX size={18} />
+          </button>
+        </div>
+
+        <div className="px-4 py-3 border-b border-slate-100 shrink-0">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-2">
+            Cantidades por tipo
+          </div>
+          {detail.dietSummary.length === 0 ? (
+            <p className="text-xs text-slate-400 italic">Sin comensales</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {detail.dietSummary.map(([diet, n]) => (
+                <span
+                  key={diet}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 rounded-full px-2.5 py-1"
+                >
+                  <span className="text-slate-500 font-medium">{diet}</span>
+                  <span className="tabular-nums font-black text-slate-900">
+                    {n}
+                  </span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto min-h-0 px-4 py-2">
+          {detail.byLocalidad.length === 0 ? (
+            <p className="text-xs text-slate-400 italic py-4 text-center">
+              Nadie elegible para este servicio
+            </p>
+          ) : (
+            detail.byLocalidad.map((group) => (
+              <div key={group.label} className="mb-3 last:mb-1">
+                <div className="sticky top-0 bg-white/95 backdrop-blur-sm py-1.5 flex items-center justify-between border-b border-slate-100 z-10">
+                  <span className="text-[10px] font-black uppercase tracking-wide text-indigo-600">
+                    {group.label}
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-400 tabular-nums">
+                    {group.people.length}
+                  </span>
+                </div>
+                <ul className="divide-y divide-slate-50">
+                  {group.people.map((p) => (
+                    <li
+                      key={p.id}
+                      className="flex items-center justify-between gap-2 py-1.5 text-xs"
+                    >
+                      <span className="font-medium text-slate-800 truncate">
+                        {p.apellido}, {p.nombre}
+                      </span>
+                      <span className="text-[10px] text-slate-400 uppercase truncate max-w-[40%] text-right shrink-0">
+                        {(p.alimentacion && p.alimentacion !== "Estándar"
+                          ? p.alimentacion
+                          : null) ||
+                          p.instrumentos?.instrumento ||
+                          ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="px-4 py-2.5 border-t border-slate-100 flex justify-end shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-900"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -963,7 +1140,7 @@ export default function MealsManager({
   });
   const [savingRows, setSavingRows] = useState(new Set());
   const [justSavedRows, setJustSavedRows] = useState(new Set()); // Para el destello verde
-  const [expandedStats, setExpandedStats] = useState(null);
+  const [comensalesDetailRow, setComensalesDetailRow] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
   // Filtros por tipo de servicio (D/A/M/C)
   const [serviceFilter, setServiceFilter] = useState(
@@ -1513,7 +1690,6 @@ export default function MealsManager({
   const [toolbarPos, setToolbarPos] = useState({ top: 0, left: 0, visible: false });
   const editorRef = useRef(null);
   const [mobileEditingRow, setMobileEditingRow] = useState(null);
-  const [mobileComensalesRow, setMobileComensalesRow] = useState(null);
   const [mobileGroupsOpen, setMobileGroupsOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
@@ -1993,23 +2169,26 @@ export default function MealsManager({
                         />
                       </td>
                     )}
-                    <td className="px-3 text-center relative">
-                      <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-black cursor-pointer transition-all relative tooltip-bridge ${eligible.length > 0 ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-slate-100 text-slate-400"}`} onMouseEnter={() => setExpandedStats(row.id)} onMouseLeave={() => setExpandedStats(null)}>
+                    <td className="px-3 text-center">
+                      <button
+                        type="button"
+                        disabled={eligible.length === 0}
+                        onClick={() =>
+                          eligible.length > 0 && setComensalesDetailRow(row)
+                        }
+                        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-black transition-all ${
+                          eligible.length > 0
+                            ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            : "bg-slate-100 text-slate-400 cursor-default"
+                        }`}
+                        title={
+                          eligible.length > 0
+                            ? "Ver comensales"
+                            : "Sin comensales"
+                        }
+                      >
                         <IconUsers size={12} /> {eligible.length}
-                        {expandedStats === row.id && eligible.length > 0 && (
-                          <div className="absolute top-[calc(100%+6px)] left-1/2 -translate-x-1/2 w-64 bg-slate-800 text-white rounded-lg shadow-2xl z-[100] p-3 text-[10px] animate-in zoom-in-95 origin-top border border-white/10 text-left">
-                            <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45 border-l border-t border-white/10"></div>
-                            <div className="relative z-10">
-                              <div className="font-bold border-b border-white/10 pb-1 mb-2 uppercase tracking-tighter flex justify-between"><span>Comensales</span><span className="bg-white/20 px-1 rounded">{eligible.length}</span></div>
-                              <div className="max-h-48 overflow-y-auto custom-scrollbar pr-1">
-                                {eligible.sort((a, b) => a.apellido.localeCompare(b.apellido)).map((p) => (
-                                  <div key={p.id} className="flex justify-between border-b border-white/5 py-1 last:border-0 hover:bg-white/5 px-1 rounded"><span className="truncate pr-2">{p.apellido}, {p.nombre[0]}.</span><span className="opacity-50 text-[8px] uppercase shrink-0 italic">{p.instrumentos?.instrumento?.substring(0, 10)}</span></div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      </button>
                     </td>
                     <td className="px-3 text-center">
                       <button onClick={() => handleGridChange(idx, "tecnica", !row.tecnica)} className={`transition-colors p-1 rounded-full hover:bg-slate-100 ${row.tecnica ? "text-indigo-600 bg-indigo-50" : "text-slate-300"}`}>{row.tecnica ? <IconEyeOff size={18} /> : <IconEye size={18} />}</button>
@@ -2110,8 +2289,11 @@ export default function MealsManager({
                     </div>
                     <button
                       type="button"
-                      onClick={() => setMobileComensalesRow(row)}
-                      className="shrink-0 text-[10px] px-2 py-1 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold"
+                      onClick={() =>
+                        eligible.length > 0 && setComensalesDetailRow(row)
+                      }
+                      disabled={eligible.length === 0}
+                      className="shrink-0 text-[10px] px-2 py-1 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold disabled:opacity-50"
                     >
                       <IconUsers size={11} className="inline mr-1" />
                       {eligible.length}
@@ -2125,40 +2307,13 @@ export default function MealsManager({
         </div>
       </div>
 
-      {mobileComensalesRow && (
-        <div className="fixed inset-0 z-[90] bg-black/40 flex items-end md:hidden">
-          <div className="w-full max-h-[70vh] bg-white rounded-t-xl border-t border-slate-200 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-black text-slate-700 uppercase tracking-wide">
-                Comensales ({getEligiblePeople(mobileComensalesRow).length})
-              </div>
-              <button
-                type="button"
-                onClick={() => setMobileComensalesRow(null)}
-                className="p-1 rounded text-slate-500"
-              >
-                <IconX size={16} />
-              </button>
-            </div>
-            <div className="overflow-y-auto max-h-[56vh] space-y-1">
-              {getEligiblePeople(mobileComensalesRow)
-                .sort((a, b) => a.apellido.localeCompare(b.apellido))
-                .map((p) => (
-                  <div
-                    key={`mobile-eater-${p.id}`}
-                    className="text-xs py-1 border-b border-slate-100 flex items-center justify-between"
-                  >
-                    <span className="truncate pr-2">
-                      {p.apellido}, {p.nombre}
-                    </span>
-                    <span className="text-[10px] text-slate-400 truncate max-w-[35%]">
-                      {p.instrumentos?.instrumento || ""}
-                    </span>
-                  </div>
-                ))}
-            </div>
-          </div>
-        </div>
+      {comensalesDetailRow && (
+        <ComensalesDetailModal
+          row={comensalesDetailRow}
+          people={getEligiblePeople(comensalesDetailRow)}
+          catalogs={catalogs}
+          onClose={() => setComensalesDetailRow(null)}
+        />
       )}
 
       {mobileEditingRow && (

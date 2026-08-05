@@ -5,6 +5,7 @@ import {
   verifyOficinaExternaEmailCode,
   SCRN_APP,
 } from "../../../services/oficinaExternaAuthService";
+import "./scrnTransporteLayout.css";
 
 const initialProfileForm = {
   nombre: "",
@@ -129,19 +130,26 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
-        <div className="text-center space-y-2">
+    <div
+      className="scrn-square flex min-h-screen items-center justify-center px-4 py-10"
+      style={{ background: "#eef1f4" }}
+    >
+      <div className="w-full max-w-md space-y-6 border border-[#c5d0dc] border-t-[4px] border-t-[#0054a6] bg-white p-6 sm:p-7">
+        <div className="space-y-2 text-center">
           <img
             src="/pictures/ofrn.jpg"
             alt="Logo OFRN"
-            className="h-16 w-auto max-w-[220px] rounded-xl object-contain mx-auto border border-slate-200 bg-white p-1"
+            className="mx-auto h-16 w-auto max-w-[220px] rounded-none border border-[#c5d0dc] bg-white object-contain p-1"
           />
-          <h1 className="text-xl font-extrabold text-slate-800">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#0054a6]">
+            Gobierno de Río Negro · SCRN
+          </p>
+          <h1 className="text-xl font-black uppercase tracking-tight text-slate-900 sm:text-2xl">
             Transporte SCRN
           </h1>
-          <p className="text-sm text-slate-500">
-            Acceso por código de 8 dígitos enviado a tu correo. La misma cuenta sirve para viáticos manual.
+          <p className="text-sm leading-relaxed text-slate-500">
+            Acceso por código de 8 dígitos a tu correo. La misma cuenta sirve para viáticos
+            manual.
           </p>
         </div>
 
@@ -157,13 +165,13 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
                 required
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-none border border-[#c5d0dc] px-3 py-2.5 text-sm focus:border-[#0054a6] focus:outline-none focus:ring-1 focus:ring-[#0054a6]"
                 placeholder="tu.mail@dominio.com"
               />
               <button
                 type="submit"
                 disabled={sendingOtp || !email.trim() || Date.now() < nextOtpAllowedAt}
-                className="w-full rounded-lg bg-blue-700 hover:bg-blue-800 disabled:bg-slate-300 text-white text-sm font-semibold py-2 transition-colors"
+                className="w-full rounded-none bg-[#0054a6] py-2.5 text-sm font-bold uppercase tracking-wide text-white transition-colors hover:bg-[#003d7a] disabled:bg-slate-300"
               >
                 {sendingOtp
                   ? "Enviando..."
@@ -188,7 +196,7 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
                     setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 8))
                   }
                   maxLength={8}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm tracking-[0.3em] text-center focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-none border border-[#c5d0dc] px-3 py-2.5 text-center text-sm tracking-[0.3em] focus:border-[#0054a6] focus:outline-none focus:ring-1 focus:ring-[#0054a6]"
                   placeholder="12345678"
                 />
                 <button
@@ -198,7 +206,7 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
                     otpCode.trim().length < 8 ||
                     otpCode.trim().length > 8
                   }
-                  className="w-full rounded-lg bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white text-sm font-semibold py-2 transition-colors"
+                  className="w-full rounded-none bg-slate-900 py-2.5 text-sm font-bold uppercase tracking-wide text-white transition-colors hover:bg-slate-800 disabled:bg-slate-300"
                 >
                   {verifyingOtp ? "Validando..." : "Verificar código"}
                 </button>
@@ -219,39 +227,39 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
               required
               value={formData.nombre}
               onChange={handleProfileInput("nombre")}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-none border border-slate-300 px-3 py-2 text-sm"
               placeholder="Nombre"
             />
             <input
               required
               value={formData.apellido}
               onChange={handleProfileInput("apellido")}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-none border border-slate-300 px-3 py-2 text-sm"
               placeholder="Apellido"
             />
             <input
               value={formData.dni}
               onChange={handleProfileInput("dni")}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-none border border-slate-300 px-3 py-2 text-sm"
               placeholder="DNI (opcional)"
             />
             <input
               type="date"
               value={formData.fecha_nacimiento}
               onChange={handleProfileInput("fecha_nacimiento")}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-none border border-slate-300 px-3 py-2 text-sm"
               title="Fecha de nacimiento (opcional)"
             />
             <input
               value={formData.cargo}
               onChange={handleProfileInput("cargo")}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-none border border-slate-300 px-3 py-2 text-sm"
               placeholder="Cargo (opcional)"
             />
             <select
               value={formData.genero}
               onChange={handleProfileInput("genero")}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+              className="w-full rounded-none border border-slate-300 px-3 py-2 text-sm bg-white"
             >
               <option value="M">M</option>
               <option value="F">F</option>
@@ -260,7 +268,7 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
             <button
               type="submit"
               disabled={savingProfile}
-              className="w-full rounded-lg bg-blue-700 hover:bg-blue-800 disabled:bg-slate-300 text-white text-sm font-semibold py-2 transition-colors"
+              className="w-full rounded-none bg-[#0054a6] py-2.5 text-sm font-bold uppercase tracking-wide text-white transition-colors hover:bg-[#003d7a] disabled:bg-slate-300"
             >
               {savingProfile ? "Guardando..." : "Guardar perfil"}
             </button>
@@ -268,17 +276,17 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
         )}
 
         {bootError && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          <div className="rounded-none border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
             {bootError}
           </div>
         )}
         {error && (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          <div className="rounded-none border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
             {error}
           </div>
         )}
         {message && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+          <div className="rounded-none border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
             {message}
           </div>
         )}

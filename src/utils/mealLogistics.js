@@ -1,4 +1,4 @@
-import { isUserConvoked } from "./giraUtils";
+import { isUserConvoked, personMatchesLocConvocadoTag } from "./giraUtils";
 import { isLocalAtMealSlot } from "./giraTramos";
 
 /** Orden del día para comparar inicio/fin de cobertura de comidas. */
@@ -233,6 +233,21 @@ export function isPersonEligibleForMealSlot(
       (personGrupoIds || []).map((g) => Number(g?.id ?? g)).filter(Number.isFinite),
     );
     if (!requiredGrupos.some((id) => mine.has(id))) return false;
+  }
+
+  // Convocatoria explícita por residencia (LOC:): cuenta a quienes viven
+  // en esa ciudad aunque el tramo activo sea otra sede o el slot quede
+  // fuera de comida_inicio/fin (p. ej. vianda de regreso el día siguiente).
+  // No aplica a quien entró solo por GRP:/ENS:/FAM: vía OR en la misma lista.
+  if (
+    Array.isArray(convocados) &&
+    convocados.some(
+      (tag) =>
+        String(tag).startsWith("LOC:") &&
+        personMatchesLocConvocadoTag(person, tag),
+    )
+  ) {
+    return true;
   }
 
   const mealKey = mealSlotKey(fecha, servicio);

@@ -7,6 +7,7 @@ import {
   IconX,
   IconCheck,
 } from "../../components/ui/Icons";
+import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { handlePrintExport } from "../../utils/PrintWrapper";
@@ -16,7 +17,151 @@ import {
   MEAL_TYPE_ID_TO_SERVICE,
   getMealServiceStyle,
 } from "../../utils/mealLogistics";
+import { resolveLocalidadResidencia } from "../../utils/integranteDomicilioViaticos";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
+
+/** Etiquetas fijas de tags GRP: (alineado con MealsManager). */
+const CONV_TAG_LABELS = {
+  "GRP:TUTTI": "Tutti",
+  "GRP:NO_LOCALES": "Solo alojados",
+  "GRP:LOCALES": "Locales",
+  "GRP:PRODUCCION": "Producción",
+  "GRP:SOLISTAS": "Solistas",
+  "GRP:DIRECTORES": "Directores",
+  "GRP:STAFF": "Staff",
+};
+
+const NO_LOCATION_KEY = "__none__";
+const NO_LOCALIDAD_KEY = "__none_localidad__";
+
+/** Mapa id → nombre desde roster confirmado (residencias + ensambles). */
+const buildTagNameMapsFromRoster = (roster = []) => {
+  const localidadesById = new Map();
+  const ensamblesById = new Map();
+
+  for (const p of roster || []) {
+    if (p?.estado_gira && p.estado_gira !== "confirmado") continue;
+
+    const res = resolveLocalidadResidencia(p);
+    const locId = res.id ?? p.id_localidad_residencia;
+    if (locId != null && locId !== "") {
+      const key = String(locId);
+      if (!localidadesById.has(key) || !localidadesById.get(key)) {
+        const nombre =
+          res.nombre ||
+          p.localidades_residencia?.localidad ||
+          p._loc_residencia?.localidad ||
+          p.residencia?.localidad ||
+          "";
+        if (nombre) localidadesById.set(key, nombre);
+        else if (!localidadesById.has(key)) localidadesById.set(key, null);
+      }
+    }
+
+    const addEns = (id, nombre) => {
+      if (id == null || id === "") return;
+      const key = String(id);
+      if (nombre && (!ensamblesById.has(key) || !ensamblesById.get(key))) {
+        ensamblesById.set(key, nombre);
+      } else if (!ensamblesById.has(key)) {
+        ensamblesById.set(key, null);
+      }
+    };
+    for (const e of p.ensambles || []) {
+      addEns(e?.id, e?.ensamble);
+    }
+    for (const ie of p.integrantes_ensambles || []) {
+      const ens = ie?.ensambles;
+      addEns(ie?.id_ensamble ?? ens?.id, ens?.ensamble);
+    }
+  }
+
+  return { localidadesById, ensamblesById };
+};
+
+const collectTagIdsFromEvents = (events = []) => {
+  const locIds = new Set();
+  const ensIds = new Set();
+  for (const evt of events || []) {
+    for (const tag of evt?.convocados || []) {
+      const t = String(tag);
+      if (t.startsWith("LOC:")) {
+        const id = t.slice(4);
+        if (id) locIds.add(id);
+      } else if (t.startsWith("ENS:")) {
+        const id = t.slice(4);
+        if (id) ensIds.add(id);
+      }
+    }
+  }
+  return { locIds, ensIds };
+};
+
+/** Completa mapas con nombres faltantes vía Supabase. */
+const hydrateTagNameMaps = async (supabase, maps, locIds, ensIds) => {
+  const localidadesById = new Map(maps.localidadesById);
+  const ensamblesById = new Map(maps.ensamblesById);
+
+  const missingLoc = [...locIds].filter(
+    (id) => !localidadesById.get(String(id)),
+  );
+  if (missingLoc.length > 0) {
+    const { data } = await supabase
+      .from("localidades")
+      .select("id, localidad")
+      .in(
+        "id",
+        missingLoc.map((id) =>
+          Number.isSafeInteger(Number(id)) ? Number(id) : id,
+        ),
+      );
+    (data || []).forEach((row) => {
+      if (row?.id != null && row.localidad) {
+        localidadesById.set(String(row.id), row.localidad);
+      }
+    });
+  }
+
+  const missingEns = [...ensIds].filter(
+    (id) => !ensamblesById.get(String(id)),
+  );
+  if (missingEns.length > 0) {
+    const { data } = await supabase
+      .from("ensambles")
+      .select("id, ensamble")
+      .in(
+        "id",
+        missingEns.map((id) =>
+          Number.isSafeInteger(Number(id)) ? Number(id) : id,
+        ),
+      );
+    (data || []).forEach((row) => {
+      if (row?.id != null && row.ensamble) {
+        ensamblesById.set(String(row.id), row.ensamble);
+      }
+    });
+  }
+
+  return { localidadesById, ensamblesById };
+};
+
+const labelForConvTag = (tag, catalogs = null) => {
+  if (!tag) return "Sin convocados";
+  if (CONV_TAG_LABELS[tag]) return CONV_TAG_LABELS[tag];
+  const t = String(tag);
+  if (t.startsWith("LOC:")) {
+    const id = t.slice(4);
+    const name = catalogs?.localidadesById?.get?.(String(id));
+    return name || `Localidad ${id}`;
+  }
+  if (t.startsWith("ENS:")) {
+    const id = t.slice(4);
+    const name = catalogs?.ensamblesById?.get?.(String(id));
+    return name || `Ensamble ${id}`;
+  }
+  if (t.startsWith("FAM:")) return t.slice(4);
+  return t;
+};
 
 // IMPORTANTE: Ahora usamos la prop 'roster' que viene del LogisticsDashboard
 export default function MealsReport({
@@ -28,12 +173,22 @@ export default function MealsReport({
   const reportRef = useRef(null);
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState([]);
+  const [tagCatalogs, setTagCatalogs] = useState({
+    localidadesById: new Map(),
+    ensamblesById: new Map(),
+  });
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [copied, setCopied] = useState(false);
   const [selectedTypes, setSelectedTypes] = useState(
-    new Set(["Desayuno", "Almuerzo", "Merienda", "Cena"]),
+    new Set(["Almuerzo", "Merienda", "Cena"]),
   );
-  const [includePending, setIncludePending] = useState(false);
+  const [includePending, setIncludePending] = useState(true);
+  /** Vacío = todas las locaciones (venue). */
+  const [selectedLocationKeys, setSelectedLocationKeys] = useState([]);
+  /** Vacío = todas las localidades (ciudad de la locación). */
+  const [selectedLocalidadKeys, setSelectedLocalidadKeys] = useState([]);
+  /** Vacío = todos los grupos de convocados presentes en el evento. */
+  const [selectedConvTags, setSelectedConvTags] = useState([]);
   const { segments } = useGiraSegmentos(supabase, gira, {
     enabled: Boolean(gira?.id),
   });
@@ -54,6 +209,10 @@ export default function MealsReport({
 
       if (activeRoster.length === 0) {
         setReportData([]);
+        setTagCatalogs({
+          localidadesById: new Map(),
+          ensamblesById: new Map(),
+        });
         return;
       }
 
@@ -61,7 +220,7 @@ export default function MealsReport({
       const { data: events } = await supabase
         .from("eventos")
         .select(
-          "*, tipos_evento(nombre), locaciones(nombre, localidades(localidad)), convocados",
+          "*, tipos_evento(nombre), locaciones(id, nombre, id_localidad, localidades(id, localidad)), convocados",
         )
         .eq("id_gira", gira.id)
         .eq("is_deleted", false)
@@ -71,8 +230,19 @@ export default function MealsReport({
 
       if (!events || events.length === 0) {
         setReportData([]);
+        setTagCatalogs(buildTagNameMapsFromRoster(activeRoster));
         return;
       }
+
+      // 2b. Catálogo de nombres para LOC:/ENS: (roster + lookup BD de faltantes)
+      const { locIds, ensIds } = collectTagIdsFromEvents(events);
+      const catalogs = await hydrateTagNameMaps(
+        supabase,
+        buildTagNameMapsFromRoster(activeRoster),
+        locIds,
+        ensIds,
+      );
+      setTagCatalogs(catalogs);
 
       // 3. Obtener Asistencias manuales
       const eventIds = events.map((e) => e.id);
@@ -124,8 +294,25 @@ export default function MealsReport({
           }
         });
 
+        const locId = evt.id_locacion ?? evt.locaciones?.id ?? null;
+        const locKey =
+          locId != null && locId !== "" ? String(locId) : NO_LOCATION_KEY;
         const locName = evt.locaciones?.nombre || "Sin ubicación";
         const locCity = evt.locaciones?.localidades?.localidad;
+        const ciudadId =
+          evt.locaciones?.id_localidad ??
+          evt.locaciones?.localidades?.id ??
+          null;
+        const ciudadKey =
+          ciudadId != null && ciudadId !== ""
+            ? String(ciudadId)
+            : locCity
+              ? `name:${locCity}`
+              : NO_LOCALIDAD_KEY;
+        const ciudadLabel = locCity || "Sin localidad";
+        const convocados = Array.isArray(evt.convocados)
+          ? evt.convocados.map(String)
+          : [];
         return {
           id: evt.id,
           fecha: evt.fecha,
@@ -134,6 +321,11 @@ export default function MealsReport({
             MEAL_TYPE_ID_TO_SERVICE[evt.id_tipo_evento] ||
             evt.tipos_evento?.nombre,
           lugar: locCity ? `${locName} - ${locCity}` : locName,
+          locacionLabel: locName,
+          locKey,
+          ciudadKey,
+          ciudadLabel,
+          convocados,
           counts,
         };
       });
@@ -159,9 +351,169 @@ export default function MealsReport({
     );
   }, [reportData]);
 
-  const filteredReport = reportData.filter((r) =>
-    selectedTypes.has(r.servicio),
-  );
+  const locationOptions = useMemo(() => {
+    const map = new Map();
+    reportData.forEach((row) => {
+      if (!map.has(row.locKey)) {
+        map.set(row.locKey, {
+          value: row.locKey,
+          label: row.locacionLabel || row.lugar,
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, "es"),
+    );
+  }, [reportData]);
+
+  const localidadOptions = useMemo(() => {
+    const map = new Map();
+    reportData.forEach((row) => {
+      if (!map.has(row.ciudadKey)) {
+        map.set(row.ciudadKey, {
+          value: row.ciudadKey,
+          label: row.ciudadLabel || "Sin localidad",
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.value === NO_LOCALIDAD_KEY) return 1;
+      if (b.value === NO_LOCALIDAD_KEY) return -1;
+      return a.label.localeCompare(b.label, "es");
+    });
+  }, [reportData]);
+
+  const convTagOptions = useMemo(() => {
+    const tags = new Set();
+    reportData.forEach((row) => {
+      if (!row.convocados?.length) {
+        tags.add("__empty__");
+        return;
+      }
+      row.convocados.forEach((t) => tags.add(t));
+    });
+    const preferredOrder = Object.keys(CONV_TAG_LABELS);
+    return Array.from(tags)
+      .map((tag) => ({
+        value: tag,
+        label:
+          tag === "__empty__"
+            ? "Sin convocados"
+            : labelForConvTag(tag, tagCatalogs),
+      }))
+      .sort((a, b) => {
+        const ia = preferredOrder.indexOf(a.value);
+        const ib = preferredOrder.indexOf(b.value);
+        if (a.value === "__empty__") return 1;
+        if (b.value === "__empty__") return -1;
+        if (ia !== -1 || ib !== -1) {
+          return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        }
+        return a.label.localeCompare(b.label, "es");
+      });
+  }, [reportData, tagCatalogs]);
+
+  // Descartar selecciones que ya no existan en los datos cargados
+  useEffect(() => {
+    if (selectedLocationKeys.length === 0) return;
+    const valid = new Set(locationOptions.map((o) => o.value));
+    const next = selectedLocationKeys.filter((k) => valid.has(k));
+    if (next.length !== selectedLocationKeys.length) {
+      setSelectedLocationKeys(next);
+    }
+  }, [locationOptions, selectedLocationKeys]);
+
+  useEffect(() => {
+    if (selectedLocalidadKeys.length === 0) return;
+    const valid = new Set(localidadOptions.map((o) => o.value));
+    const next = selectedLocalidadKeys.filter((k) => valid.has(k));
+    if (next.length !== selectedLocalidadKeys.length) {
+      setSelectedLocalidadKeys(next);
+    }
+  }, [localidadOptions, selectedLocalidadKeys]);
+
+  useEffect(() => {
+    if (selectedConvTags.length === 0) return;
+    const valid = new Set(convTagOptions.map((o) => o.value));
+    const next = selectedConvTags.filter((k) => valid.has(k));
+    if (next.length !== selectedConvTags.length) {
+      setSelectedConvTags(next);
+    }
+  }, [convTagOptions, selectedConvTags]);
+
+  const filteredReport = useMemo(() => {
+    const locSet =
+      selectedLocationKeys.length > 0
+        ? new Set(selectedLocationKeys.map(String))
+        : null;
+    const ciudadSet =
+      selectedLocalidadKeys.length > 0
+        ? new Set(selectedLocalidadKeys.map(String))
+        : null;
+    const convSet =
+      selectedConvTags.length > 0
+        ? new Set(selectedConvTags.map(String))
+        : null;
+
+    return reportData.filter((r) => {
+      if (!selectedTypes.has(r.servicio)) return false;
+      if (locSet && !locSet.has(String(r.locKey))) return false;
+      if (ciudadSet && !ciudadSet.has(String(r.ciudadKey))) return false;
+      if (convSet) {
+        const tags = r.convocados?.length ? r.convocados : ["__empty__"];
+        const matches = tags.some((t) => convSet.has(String(t)));
+        if (!matches) return false;
+      }
+      return true;
+    });
+  }, [
+    reportData,
+    selectedTypes,
+    selectedLocationKeys,
+    selectedLocalidadKeys,
+    selectedConvTags,
+  ]);
+
+  const filterSummaryLabel = useMemo(() => {
+    const parts = [];
+    if (selectedLocalidadKeys.length > 0) {
+      const labels = selectedLocalidadKeys
+        .map(
+          (k) =>
+            localidadOptions.find((o) => o.value === k)?.label || k,
+        )
+        .filter(Boolean);
+      if (labels.length) parts.push(`Localidad: ${labels.join(", ")}`);
+    }
+    if (selectedLocationKeys.length > 0) {
+      const labels = selectedLocationKeys
+        .map(
+          (k) =>
+            locationOptions.find((o) => o.value === k)?.label || k,
+        )
+        .filter(Boolean);
+      if (labels.length) parts.push(`Locación: ${labels.join(", ")}`);
+    }
+    if (selectedConvTags.length > 0) {
+      const labels = selectedConvTags
+        .map(
+          (k) =>
+            convTagOptions.find((o) => o.value === k)?.label ||
+            labelForConvTag(k, tagCatalogs),
+        )
+        .filter(Boolean);
+      if (labels.length) parts.push(`Convocados: ${labels.join(", ")}`);
+    }
+    return parts.length ? parts.join(" · ") : null;
+  }, [
+    selectedLocationKeys,
+    selectedLocalidadKeys,
+    selectedConvTags,
+    locationOptions,
+    localidadOptions,
+    convTagOptions,
+    tagCatalogs,
+  ]);
 
   const activeRoster = useMemo(
     () => (enrichedRoster || []).filter((p) => p.estado_gira === "confirmado"),
@@ -363,62 +715,133 @@ export default function MealsReport({
   return (
     <div className="flex flex-col h-full bg-white animate-in fade-in">
       {/* Barra de Filtros */}
-      <div className="p-4 border-b border-slate-200 flex flex-wrap justify-between items-center gap-4 bg-slate-50 print:hidden">
-        <div className="flex flex-col gap-2">
-          <h2 className="text-lg font-bold text-slate-800">
-            Reporte de Comidas
-          </h2>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1 gap-1">
-              {["Desayuno", "Almuerzo", "Merienda", "Cena"].map((type) => (
-                <button
-                  key={type}
-                  onClick={() =>
-                    setSelectedTypes((prev) => {
-                      const next = new Set(prev);
-                      next.has(type) ? next.delete(type) : next.add(type);
-                      return next;
-                    })
-                  }
-                  className={`px-3 py-1 text-xs font-bold rounded transition-colors ${
-                    selectedTypes.has(type)
-                      ? "bg-indigo-600 text-white"
-                      : "text-slate-500 hover:bg-slate-100"
-                  }`}
-                >
-                  {type.charAt(0)}
-                </button>
-              ))}
-            </div>
-            <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700">
-              <input
-                type="checkbox"
-                className="sr-only peer"
-                checked={includePending}
-                onChange={() => setIncludePending(!includePending)}
-              />
-              <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:bg-indigo-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full relative"></div>
-              Incluir Pendientes
-            </label>
+      <div className="p-3 sm:p-4 border-b border-slate-200 flex flex-wrap items-center gap-x-3 gap-y-2 bg-slate-50 print:hidden">
+        <h2 className="text-base sm:text-lg font-bold text-slate-800 shrink-0">
+          Reporte de Comidas
+        </h2>
+
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <div className="flex items-center bg-white border border-slate-200 rounded-lg p-0.5 gap-0.5 h-[34px] shrink-0">
+            {["Desayuno", "Almuerzo", "Merienda", "Cena"].map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() =>
+                  setSelectedTypes((prev) => {
+                    const next = new Set(prev);
+                    next.has(type) ? next.delete(type) : next.add(type);
+                    return next;
+                  })
+                }
+                className={`px-2.5 h-full min-w-[1.75rem] text-xs font-bold rounded-md transition-colors ${
+                  selectedTypes.has(type)
+                    ? "bg-indigo-600 text-white"
+                    : "text-slate-500 hover:bg-slate-100"
+                }`}
+              >
+                {type.charAt(0)}
+              </button>
+            ))}
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowSummaryModal(true)}
-            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700"
+
+          <div
+            className={`inline-flex items-stretch rounded-lg border overflow-visible h-[34px] shadow-sm bg-white shrink-0 ${
+              selectedLocalidadKeys.length > 0 ||
+              selectedLocationKeys.length > 0 ||
+              selectedConvTags.length > 0
+                ? "border-indigo-400"
+                : "border-slate-200"
+            }`}
+            title="Filtros de lugar y convocados"
           >
-            <IconClipboard size={18} /> Texto pedido
+            <div className="w-[7.5rem] sm:w-[8.75rem]">
+              <MultiSelectDropdown
+                compact
+                summaryMode="names"
+                summaryMaxNames={1}
+                label="Localidad"
+                placeholder="Localidad…"
+                options={localidadOptions}
+                value={selectedLocalidadKeys}
+                onChange={setSelectedLocalidadKeys}
+                className="w-full [&_button]:w-full [&_button]:h-[32px] [&_button]:border-0 [&_button]:rounded-none [&_button]:bg-transparent [&_button]:shadow-none [&_button]:hover:border-transparent [&_button]:px-2"
+              />
+            </div>
+            <div className="w-[7.5rem] sm:w-[8.75rem] border-l border-slate-200">
+              <MultiSelectDropdown
+                compact
+                summaryMode="names"
+                summaryMaxNames={1}
+                label="Locación"
+                placeholder="Locación…"
+                options={locationOptions}
+                value={selectedLocationKeys}
+                onChange={setSelectedLocationKeys}
+                className="w-full [&_button]:w-full [&_button]:h-[32px] [&_button]:border-0 [&_button]:rounded-none [&_button]:bg-transparent [&_button]:shadow-none [&_button]:hover:border-transparent [&_button]:px-2"
+              />
+            </div>
+            <div className="w-[7.5rem] sm:w-[8.75rem] border-l border-slate-200">
+              <MultiSelectDropdown
+                compact
+                summaryMode="names"
+                summaryMaxNames={1}
+                label="Convocados"
+                placeholder="Convocados…"
+                options={convTagOptions}
+                value={selectedConvTags}
+                onChange={setSelectedConvTags}
+                className="w-full [&_button]:w-full [&_button]:h-[32px] [&_button]:border-0 [&_button]:rounded-none [&_button]:bg-transparent [&_button]:shadow-none [&_button]:hover:border-transparent [&_button]:px-2"
+              />
+            </div>
+          </div>
+
+          {(selectedLocalidadKeys.length > 0 ||
+            selectedLocationKeys.length > 0 ||
+            selectedConvTags.length > 0) && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedLocalidadKeys([]);
+                setSelectedLocationKeys([]);
+                setSelectedConvTags([]);
+              }}
+              className="text-[11px] font-bold text-slate-500 hover:text-indigo-600 underline-offset-2 hover:underline shrink-0"
+            >
+              Limpiar
+            </button>
+          )}
+
+          <label className="flex items-center gap-1.5 cursor-pointer text-xs font-medium text-slate-700 shrink-0">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={includePending}
+              onChange={() => setIncludePending(!includePending)}
+            />
+            <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:bg-indigo-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full relative"></div>
+            Pendientes
+          </label>
+        </div>
+
+        <div className="flex items-center gap-2 ml-auto shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowSummaryModal(true)}
+            className="flex items-center gap-1.5 bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-indigo-700 h-[34px]"
+          >
+            <IconClipboard size={16} /> Texto pedido
           </button>
           <button
+            type="button"
             onClick={() =>
               handlePrintExport(
                 reportRef,
                 `Reporte Comidas - ${gira.nombre_gira}`,
               )
             }
-            className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-700"
+            className="flex items-center gap-1.5 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-slate-700 h-[34px]"
           >
-            <IconPrinter size={18} /> Exportar PDF
+            <IconPrinter size={16} /> Exportar PDF
           </button>
         </div>
       </div>
@@ -430,7 +853,19 @@ export default function MealsReport({
           <p className="text-slate-700">
             Reporte de Alimentación - Cantidades por Dieta
           </p>
+          {filterSummaryLabel && (
+            <p className="text-sm text-slate-600 mt-1">{filterSummaryLabel}</p>
+          )}
         </div>
+
+        {filterSummaryLabel && (
+          <div className="mb-4 print:hidden text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+            Exportando / vista filtrada · {filterSummaryLabel}
+            {filteredReport.length === 0
+              ? " · sin filas con estos criterios"
+              : ` · ${filteredReport.length} servicio(s)`}
+          </div>
+        )}
 
         <table className="w-full text-left border-collapse text-sm">
           <thead>
@@ -439,7 +874,7 @@ export default function MealsReport({
               <th className="py-2 px-1 w-0 whitespace-nowrap" title="Hora">Hora</th>
               <th className="py-2 px-1 w-0 whitespace-nowrap" title="Servicio">Serv</th>
               <th className="py-2 px-2 min-w-0">Lugar</th>
-              <th className="py-2 px-1 w-0 text-right bg-slate-100 whitespace-nowrap" title="Total">Tota</th>
+              <th className="py-2 px-1 w-0 text-right bg-slate-100 whitespace-nowrap" title="Total">Total</th>
               {allDiets.map((d) => (
                 <th
                   key={d}

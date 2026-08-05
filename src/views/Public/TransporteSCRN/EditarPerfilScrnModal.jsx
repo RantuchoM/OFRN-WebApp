@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import "./scrnTransporteLayout.css";
 import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { IconX } from "../../../components/ui/Icons";
 
@@ -90,7 +91,7 @@ export default function EditarPerfilScrnModal({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-md border border-slate-200 p-4 max-h-[min(90vh,640px)] overflow-y-auto"
+        className="scrn-square bg-white rounded-none shadow-xl w-full max-w-md border border-slate-200 p-4 max-h-[min(90vh,640px)] overflow-y-auto"
         onClick={(ev) => ev.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2 mb-3">

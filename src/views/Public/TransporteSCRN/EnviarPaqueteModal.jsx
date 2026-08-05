@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import "./scrnTransporteLayout.css";
 import { createPortal } from "react-dom";
 import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { scrnTransporteColorFromEntity } from "./scrnTransporteColor";
@@ -65,7 +66,7 @@ export default function EnviarPaqueteModal({
 
   return createPortal(
     <div className="fixed inset-0 z-[105] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto scrn-square bg-white rounded-none border border-slate-200 shadow-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200">
           <h3 className="text-base font-extrabold text-slate-800">Enviar un paquete</h3>
           <p className="text-xs text-slate-500">

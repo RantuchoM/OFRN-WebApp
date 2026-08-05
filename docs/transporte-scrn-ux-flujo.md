@@ -34,19 +34,19 @@ Archivos clave:
 1. **Acceso** (`TransporteSCRNPage.jsx`): login por magic-link (`?magic=<token>`,
    `verifyEntradasMagicLink({ app: "scrn" })`) y carga de perfil desde `scrn_perfiles`.
    Si no hay perfil → pantalla de alta de perfil (`LoginSCRN`).
-2. **Header** (siempre visible): Inicio · Pendientes (solo admin, con badge de conteo) ·
-   Notificaciones (`ScrnNotificacionesDropdown`) · Mi Perfil (`EditarPerfilScrnModal`) · Salir.
-3. **Landing (`area = inicio`)**: tarjetas de navegación → Gestión (admin) · Explorar ·
-   Mis viajes · Mis paquetes.
+2. **Header** (siempre visible, sticky): branding + Inicio (desktop) · Pendientes (admin,
+   badge) · Notificaciones · Perfil · Salir. En móvil, la navegación principal de áreas
+   vive en un **bottom bar** (Inicio · Explorar · Viajes · Paquetes).
+3. **Landing (`area = inicio`)**: saludo, tarjetas de navegación → Gestión (admin) · Explorar ·
+   Mis viajes · Mis paquetes; bloque opcional “Próximas salidas” (top 3).
 4. **Explorar (`area = explorar`)**:
    - Menú de 3 acciones: *Enviar un paquete* · *Sumarme a un viaje* · *Proponer un viaje*.
-   - Barra de filtros (transporte, fecha desde/hasta, destino, mín. plazas libres) +
-     botón *Proponer un recorrido nuevo*.
-   - **Calendario** (`react-big-calendar`, vista mes): eventos coloreados por transporte,
-     indicadores 🔴/🟡/🟢 de disponibilidad y anillos según el estado de tu reserva.
-   - **Agenda** (tarjetas): origen→destino, plazas disponibles, motivo, badge de bodega llena,
-     fechas salida/llegada, transporte, chofer y botón *Solicitar plaza* / *Enviar un paquete*.
-     Toggle *Ver historial* para incluir viajes pasados.
+   - Toolbar: modo activo · toggle Calendario/Agenda · filtros colapsables (vehículo,
+     fechas, destino, mín. plazas) + limpiar + *Proponer*.
+   - **Calendario** (`react-big-calendar` + `scrnTransporteLayout.css`): mes responsive,
+     eventos coloreados, 🔴/🟡/🟢 de vacantes, anillos según estado de reserva, `popup` show-more.
+   - **Agenda** (grilla de tarjetas): ruta, motivo, plazas/bodega, fechas, transporte, chofer,
+     CTA contextual. Toggle *Ver historial*.
    - Disponibilidad en vivo: `cupoPasajerosViaje(viaje) − reservasAceptadas`.
 5. **Mis viajes (`area = viajes` → `MisReservas`)**: reservas propias, edición de paradas/viáticos,
    cancelación y botón **Completar viático** (puente a viáticos-manual, ver §4).
@@ -172,3 +172,7 @@ la reserva SCRN.
   `scrn_reservas` para actualizar plazas sin recargar.
 - **Tests de integración del puente** SCRN → viáticos (build → write → read → apply) para blindar
   el contrato ante refactors.
+- **UX shell responsive** — *aplicado*: bottom nav móvil, filtros colapsables, agenda en grilla,
+  calendario estilizado, home con próximas salidas.
+- **Estética institucional RN** — *aplicado*: ángulos rectos + azul `#0054a6` alineado al
+  lenguaje visual de [rionegro.gov.ar](https://rionegro.gov.ar/).

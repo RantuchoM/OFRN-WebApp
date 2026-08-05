@@ -1,0 +1,258 @@
+/* Transporte SCRN — estética institucional (tipo Gobierno Río Negro)
+   Ángulos rectos, azul oficial, planos sin soft-UI.
+   Ref: https://rionegro.gov.ar/
+*/
+
+.scrn-shell,
+.scrn-square {
+  --scrn-blue: #0054a6;
+  --scrn-blue-dark: #003d7a;
+  --scrn-blue-deep: #002b57;
+  --scrn-blue-soft: #e8f1fa;
+  --scrn-border: #c5d0dc;
+  --scrn-ink: #1a2332;
+  --scrn-muted: #5a6a7a;
+  --scrn-surface: #ffffff;
+  --scrn-canvas: #eef1f4;
+  --scrn-radius: 0px;
+}
+
+.scrn-shell {
+  min-height: 100vh;
+  color: var(--scrn-ink);
+  background: var(--scrn-canvas);
+}
+
+/* Forzar geometría cuadrada dentro del shell y de paneles portaleados */
+.scrn-shell :where(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md, .rounded-sm, .rounded),
+.scrn-square :where(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md, .rounded-sm, .rounded),
+.scrn-shell.rounded-2xl,
+.scrn-shell.rounded-xl,
+.scrn-square.rounded-2xl,
+.scrn-square.rounded-xl {
+  border-radius: var(--scrn-radius) !important;
+}
+
+/* Badges “pill” → rectángulos (excepto spinners y puntos de color minúsculos) */
+.scrn-shell :where(.rounded-full):not(.animate-spin):not([aria-hidden="true"]),
+.scrn-square :where(.rounded-full):not(.animate-spin):not([aria-hidden="true"]) {
+  border-radius: var(--scrn-radius) !important;
+}
+
+.scrn-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--scrn-surface);
+  border-bottom: 3px solid var(--scrn-blue);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+.scrn-header-bar {
+  height: 4px;
+  background: var(--scrn-blue);
+}
+
+/* Botones institucionales */
+.scrn-shell .scrn-btn-primary,
+.scrn-square .scrn-btn-primary {
+  background: var(--scrn-blue);
+  color: #fff;
+  border: 1px solid var(--scrn-blue-dark);
+  border-radius: 0;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.scrn-shell .scrn-btn-primary:hover:not(:disabled),
+.scrn-square .scrn-btn-primary:hover:not(:disabled) {
+  background: var(--scrn-blue-dark);
+}
+.scrn-shell .scrn-btn-primary:disabled,
+.scrn-square .scrn-btn-primary:disabled {
+  background: #94a3b8;
+  border-color: #94a3b8;
+}
+
+.scrn-shell .scrn-btn-ghost,
+.scrn-square .scrn-btn-ghost {
+  background: #fff;
+  color: var(--scrn-ink);
+  border: 1px solid var(--scrn-border);
+  border-radius: 0;
+  font-weight: 700;
+}
+.scrn-shell .scrn-btn-ghost:hover,
+.scrn-square .scrn-btn-ghost:hover {
+  background: var(--scrn-blue-soft);
+  border-color: var(--scrn-blue);
+  color: var(--scrn-blue-dark);
+}
+
+/* Bottom nav cuadrada institucional */
+.scrn-bottom-nav {
+  border-top: 2px solid var(--scrn-blue);
+  background: #fff;
+  box-shadow: none;
+}
+
+.scrn-bottom-nav button[data-active="true"] {
+  background: var(--scrn-blue-soft);
+  color: var(--scrn-blue-dark);
+  border-top: 2px solid var(--scrn-blue);
+}
+
+/* —— Calendario —— */
+.scrn-rbc.rbc-calendar {
+  font-family: inherit;
+  min-height: 100%;
+}
+
+.scrn-rbc .rbc-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--scrn-blue);
+}
+
+.scrn-rbc .rbc-toolbar-label {
+  flex: 1 1 auto;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--scrn-ink);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0 0.25rem;
+}
+
+.scrn-rbc .rbc-btn-group {
+  display: inline-flex;
+  border-radius: 0;
+  overflow: hidden;
+  border: 1px solid var(--scrn-border);
+  background: #fff;
+}
+
+.scrn-rbc .rbc-toolbar button {
+  color: var(--scrn-ink);
+  border: 0;
+  border-right: 1px solid var(--scrn-border);
+  background: transparent;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: none;
+  border-radius: 0 !important;
+}
+
+.scrn-rbc .rbc-toolbar button:last-child {
+  border-right: 0;
+}
+
+.scrn-rbc .rbc-toolbar button:hover,
+.scrn-rbc .rbc-toolbar button:focus {
+  background: var(--scrn-blue-soft);
+  color: var(--scrn-blue-dark);
+}
+
+.scrn-rbc .rbc-toolbar button.rbc-active {
+  background: var(--scrn-blue);
+  color: #fff;
+}
+
+.scrn-rbc .rbc-month-view {
+  border: 1px solid var(--scrn-border);
+  border-radius: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+.scrn-rbc .rbc-header {
+  padding: 0.5rem 0.2rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  border-bottom: 1px solid var(--scrn-blue-dark);
+  background: var(--scrn-blue);
+}
+
+.scrn-rbc .rbc-date-cell {
+  padding: 0.25rem 0.35rem 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.scrn-rbc .rbc-off-range-bg {
+  background: #f4f6f8;
+}
+
+.scrn-rbc .rbc-today {
+  background: var(--scrn-blue-soft);
+}
+
+.scrn-rbc .rbc-event {
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 1px 4px;
+  font-size: 0.68rem;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.scrn-rbc .rbc-show-more {
+  color: var(--scrn-blue);
+  font-weight: 800;
+  font-size: 0.68rem;
+  background: transparent;
+  text-transform: uppercase;
+}
+
+.scrn-rbc .rbc-row-segment .rbc-event-content {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 640px) {
+  .scrn-rbc .rbc-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .scrn-rbc .rbc-toolbar-label {
+    order: -1;
+    font-size: 0.85rem;
+  }
+
+  .scrn-rbc .rbc-btn-group {
+    width: 100%;
+  }
+
+  .scrn-rbc .rbc-toolbar button {
+    flex: 1 1 0;
+    padding: 0.55rem 0.4rem;
+  }
+
+  .scrn-rbc .rbc-header {
+    font-size: 0.58rem;
+    padding: 0.4rem 0.1rem;
+  }
+
+  .scrn-rbc .rbc-event {
+    font-size: 0.58rem;
+    padding: 0 2px;
+  }
+
+  .scrn-rbc .rbc-date-cell {
+    font-size: 0.68rem;
+  }
+}

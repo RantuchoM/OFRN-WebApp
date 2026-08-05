@@ -48,10 +48,11 @@ Implementado en `getRuleCategoryTiebreak` y `compareLogisticsRulePrecedence` (`g
 - **UI:** selectores de categoría incluyen el valor exacto `EXTERNOS` (p. ej. `StopRulesManager.jsx`, `LogisticsManager.jsx`).
 - **Sync roster → comidas:** `LogisticsDashboard` refresca su `useLogistics` al entrar a matriz/asistencia/reporte, y `LogisticsManager` notifica `onLogisticsChange` al guardar reglas (evita datos stale sin F5).
 - **Convocados (`isUserConvoked`):** única fuente de verdad para tags `GRP:` / `LOC:` / `ENS:` / `FAM:` / ID personal. `checkIsConvoked` y Agenda delegan ahí.
-  - `LOC:` = localidad de **residencia** del músico (`resolveLocalidadResidencia` / `id_localidad_residencia`), no viáticos.
+  - `LOC:` = localidad de **residencia** del músico (`resolveLocalidadResidencia` / `id_localidad_residencia` / `localidades_residencia` / `_loc_residencia`), no viáticos.
   - `ENS:` = membresía en `ensambles` / `integrantes_ensambles` del roster.
   - UI Comidas→Agenda: selector searchable con pestañas Categorías / Localidades (solo residencias del roster) / Ensambles (solo ensambles del roster); cada solapa muestra badge de cantidad, abre por defecto la solapa con selección y lista primero los ítems ya seleccionados al abrir.
   - **GiraCard (indicador de comidas):** perfil alineado con el matcher — `integrantes_ensambles` vigentes al `fecha_desde` del programa (`GIRAS_LIST_SELECT` + `filterMembershipRowsForProgramDate`) y residencia explícita para `LOC:`. Si el usuario no figura en `giras_integrantes`, fallback React Query (`gira-card-convocado-profile`) con ensambles/residencia.
+  - **Cobertura de slot (`isPersonEligibleForMealSlot`):** si la persona entra al evento por un tag `LOC:` (residencia), **no** se exige ventana `comida_inicio`/`comida_fin` ni ser “local” del tramo activo. Motivo: viandas/comidas de regreso post-tramo (p. ej. `LOC:5` + `LOC:23` el día después del `fecha_hasta` del segmento) contaban 0 aunque el roster tuviera residentes de esas ciudades. GRP/ENS/FAM siguen con cobertura normal.
 
 ## Base de datos
 

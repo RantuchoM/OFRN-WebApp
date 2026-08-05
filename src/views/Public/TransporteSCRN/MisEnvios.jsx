@@ -122,7 +122,7 @@ export default function MisEnvios({ user, reloadKey = 0, onGestionCambiada }) {
   if (!user?.id) return null;
 
   return (
-    <section className="bg-white rounded-2xl border border-slate-200 p-4 md:p-5 space-y-3">
+    <section className="space-y-3 rounded-none border border-slate-200/90 bg-white p-4 shadow-sm md:p-5">
       <AlertModal
         isOpen={Boolean(alertModal)}
         onClose={() => setAlertModal(null)}
@@ -144,8 +144,11 @@ export default function MisEnvios({ user, reloadKey = 0, onGestionCambiada }) {
       />
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-sm font-extrabold text-slate-800 uppercase tracking-wide">Mis paquetes</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#0054a6]">Envíos</p>
+          <h2 className="text-lg font-black tracking-tight text-slate-900 md:text-xl">
+            Mis paquetes
+          </h2>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
             Solicitudes de envío de paquetes: cada una pasa por aprobación de un administrador.
             Si está pendiente o aceptada, podés cancelarla.
           </p>
@@ -154,7 +157,7 @@ export default function MisEnvios({ user, reloadKey = 0, onGestionCambiada }) {
           <button
             type="button"
             onClick={() => setVerHistorial((x) => !x)}
-            className="shrink-0 self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+            className="shrink-0 self-start rounded-none border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
           >
             {verHistorial ? "Ocultar historial" : "Ver historial"}
           </button>
@@ -188,7 +191,7 @@ export default function MisEnvios({ user, reloadKey = 0, onGestionCambiada }) {
           <button
             type="button"
             onClick={() => setVerHistorial(true)}
-            className="text-xs font-bold text-indigo-700 underline hover:text-indigo-900"
+            className="text-xs font-bold text-[#0054a6] underline hover:text-[#002b57]"
           >
             Ver historial
           </button>
@@ -206,7 +209,7 @@ export default function MisEnvios({ user, reloadKey = 0, onGestionCambiada }) {
             return (
               <article
                 key={p.id}
-                className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm"
+                className="rounded-none border border-slate-200 bg-slate-50/50 p-3 text-sm"
                 style={
                   tr
                     ? { borderLeftWidth: 4, borderLeftColor: scrnTransporteColorFromEntity(tr) }
@@ -233,7 +236,7 @@ export default function MisEnvios({ user, reloadKey = 0, onGestionCambiada }) {
                   </div>
                   <div className="flex items-center gap-2 self-start shrink-0">
                     <span
-                      className={`text-xs font-bold px-2 py-0.5 rounded-full ${badgeClassEstadoPaquete(p.estado)}`}
+                      className={`text-xs font-bold px-2 py-0.5 rounded-none ${badgeClassEstadoPaquete(p.estado)}`}
                     >
                       {labelEstadoPaquete(p.estado)}
                     </span>

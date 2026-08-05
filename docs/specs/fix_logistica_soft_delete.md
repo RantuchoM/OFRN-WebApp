@@ -30,3 +30,10 @@ Se deben filtrar los eventos de la tabla `eventos` (eventos de gira) para exclui
 - [x] Consumidores: `MealsReport` (`reportTag`), `MealsManager` (`tag`/`card`), `LogisticsManager` (`tag`/`rowHover`/`date`/`icon`), `PrintWrapper` (CSS de impresión generado).
 - [x] Variante reporte: texto negro sobre fondo saturado; variante UI: texto coloreado sobre fondo suave.
 
+### Filtros de exportación en Reporte de Comidas (completado)
+- [x] `MealsReport`: multi-select de **localidad** (ciudad de la locación), **locación** (venue) y de **tags de convocados** del evento (Tutti, Solo alojados, Locales, Prod., etc. y tags LOC:/ENS: presentes).
+- [x] Vacío en cada selector = sin filtro en ese eje; se combinan con el toggle de tipo de servicio (D/A/M/C). Default: A/M/C activos (Desayuno destildado); «Incluir Pendientes» activo.
+- [x] La tabla, totales, «Texto pedido» y PDF (`handlePrintExport`) respetan la vista filtrada; el PDF imprime el resumen de filtros activos.
+- [x] Etiquetas `LOC:` / `ENS:` resueltas a nombre (roster + `localidades` / `ensambles` en BD); no más `Ens. 12` / `Loc. 3`.
+- [x] `MealsManager`: comensales abre modal (click) con cantidades por dieta y listado agrupado por localidad de residencia; reemplaza el tooltip hover.
+

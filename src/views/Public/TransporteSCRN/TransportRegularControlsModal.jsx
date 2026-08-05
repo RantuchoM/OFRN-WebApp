@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import "./scrnTransporteLayout.css";
 
 export default function TransportRegularControlsModal({
   supabase,
@@ -139,7 +140,7 @@ export default function TransportRegularControlsModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        className="w-full max-w-4xl max-h-[90vh] overflow-hidden scrn-square rounded-none border border-slate-200 bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
@@ -152,7 +153,7 @@ export default function TransportRegularControlsModal({
         <div className="p-4 space-y-4 overflow-y-auto max-h-[calc(90vh-64px)]">
           {errorMsg ? <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded px-3 py-2">{errorMsg}</div> : null}
 
-          <section className="rounded-xl border border-slate-200 p-3 space-y-3">
+          <section className="rounded-none border border-slate-200 p-3 space-y-3">
             <h4 className="text-xs font-black uppercase text-slate-700">Controles por fecha</h4>
             <div className="grid md:grid-cols-4 gap-2">
               <input value={nuevoFecha.tipo} onChange={(e) => setNuevoFecha((p) => ({ ...p, tipo: e.target.value }))} placeholder="Tipo" className="rounded border border-slate-300 px-2 py-1.5 text-sm" />
@@ -173,7 +174,7 @@ export default function TransportRegularControlsModal({
             </div>
           </section>
 
-          <section className="rounded-xl border border-slate-200 p-3 space-y-3">
+          <section className="rounded-none border border-slate-200 p-3 space-y-3">
             <h4 className="text-xs font-black uppercase text-slate-700">Controles por kilometraje</h4>
             <div className="text-[11px] text-slate-600">Km actual: {kmActual ?? "—"}</div>
             <div className="grid md:grid-cols-4 gap-2">
@@ -199,4 +200,3 @@ export default function TransportRegularControlsModal({
     </div>
   );
 }
-

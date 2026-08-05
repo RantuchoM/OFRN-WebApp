@@ -39,7 +39,18 @@ import {
   IconManagement,
   IconHome,
   IconSpiralNotebook,
+  IconFilter,
+  IconCalendar,
+  IconList,
+  IconClock,
+  IconMapPin,
+  IconPlus,
+  IconUser,
+  IconLogOut,
+  IconChevronDown,
+  IconX,
 } from "../../../components/ui/Icons";
+import "./scrnTransporteLayout.css";
 
 const localizer = dateFnsLocalizer({
   format,
@@ -50,12 +61,47 @@ const localizer = dateFnsLocalizer({
 });
 
 function formatDateTime(value) {
-  if (!value) return "-";
+  if (!value) return "—";
   return new Date(value).toLocaleString("es-AR", {
     dateStyle: "medium",
     timeStyle: "short",
   });
 }
+
+function formatDateShort(value) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("es-AR", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function plazasBadgeClass(n) {
+  const libres = Math.max(Number(n) || 0, 0);
+  if (libres <= 0) {
+    return "border-red-200 bg-red-50 text-red-800";
+  }
+  if (libres <= 2) {
+    return "border-amber-200 bg-amber-50 text-amber-900";
+  }
+  return "border-emerald-200 bg-emerald-50 text-emerald-900";
+}
+
+const EMPTY_FILTERS = {
+  idTransporte: "",
+  fechaDesde: "",
+  fechaHasta: "",
+  destino: "",
+  minDisponibles: "",
+};
+
+const filterFieldClass =
+  "w-full rounded-none border border-[#c5d0dc] bg-white px-3 py-2.5 text-sm text-slate-800 transition focus:border-[#0054a6] focus:outline-none focus:ring-1 focus:ring-[#0054a6]";
+const filterLabelClass =
+  "mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500";
 
 /** prioridad si hubiera varias reservas en el mismo viaje */
 const RANK_ESTADO_RESERVA = { aceptada: 3, pendiente: 2, cancelada: 1 };
@@ -105,17 +151,16 @@ const USER_AREAS = ["inicio", "explorar", "viajes", "envios"];
 const ADMIN_VIEWS = ["pendientes", "recorridos", "datos_generales"];
 const PENDIENTE_SECCION = ["viajes", "pasajeros", "paquetes"];
 
-/** Badge de cantidad: gris si 0, naranja/ámbar si hay pendientes. `selected` = sobre fondo indigo (pestaña activa). */
 function scrnPendienteBadgeClass(count, selected = false) {
   const n = Math.max(0, Number(count) || 0);
   if (n <= 0) {
     return selected
-      ? "border border-white/30 bg-white/20 text-white"
+      ? "border border-white/40 bg-white/15 text-white"
       : "border border-slate-300 bg-slate-200 text-slate-600";
   }
   return selected
-    ? "border border-amber-400/90 bg-amber-300 text-amber-950"
-    : "border border-amber-600 bg-amber-500 text-white shadow-sm";
+    ? "border border-amber-300 bg-amber-400 text-amber-950"
+    : "border border-amber-600 bg-amber-500 text-white";
 }
 
 export default function TransporteSCRNMain({
@@ -163,18 +208,15 @@ export default function TransporteSCRNMain({
   const [deepLinkNotice, setDeepLinkNotice] = useState("");
   const [agendaVerHistorial, setAgendaVerHistorial] = useState(false);
   const [gestionLandingOpen, setGestionLandingOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 768 : true,
+  );
   const urlActionControlRef = useRef(false);
   const ignoreUrlSolicitudRef = useRef(false);
   const ignoreUrlProponerRef = useRef(false);
   const pendingUrlSyncRef = useRef(null);
   const lastWrittenQueryRef = useRef("");
-  const [filters, setFilters] = useState({
-    idTransporte: "",
-    fechaDesde: "",
-    fechaHasta: "",
-    destino: "",
-    minDisponibles: "",
-  });
+  const [filters, setFilters] = useState({ ...EMPTY_FILTERS });
 
   const refreshData = useCallback(async () => {
     if (!initialDataLoaded.current) {
@@ -395,6 +437,45 @@ export default function TransporteSCRNMain({
     [pendienteCounts],
   );
 
+  const activeFilterCount = useMemo(
+    () =>
+      Object.values(filters).filter((v) => String(v || "").trim() !== "").length,
+    [filters],
+  );
+
+  const clearFilters = useCallback(() => {
+    setFilters({ ...EMPTY_FILTERS });
+  }, []);
+
+  const proximosViajesInicio = useMemo(() => {
+    return [...viajesEnriched]
+      .filter((v) => isSalidaHoyOFutura(v.fecha_salida))
+      .sort((a, b) => String(a.fecha_salida || "").localeCompare(String(b.fecha_salida || "")))
+      .slice(0, 3);
+  }, [viajesEnriched]);
+
+  const goHome = useCallback(() => {
+    setUserArea("inicio");
+    setExplorarFase("menu");
+    if (viewMode === "gestion") setViewMode("calendario");
+  }, [viewMode]);
+
+  const goExplorar = useCallback(() => {
+    setUserArea("explorar");
+    setExplorarFase("menu");
+    setViewMode("calendario");
+  }, []);
+
+  const goViajes = useCallback(() => {
+    setUserArea("viajes");
+    if (viewMode === "gestion") setViewMode("calendario");
+  }, [viewMode]);
+
+  const goEnvios = useCallback(() => {
+    setUserArea("envios");
+    if (viewMode === "gestion") setViewMode("calendario");
+  }, [viewMode]);
+
   const refreshPendienteCounts = useCallback(async () => {
     if (!isAdmin) {
       setPendienteCounts({ viajes: 0, pasajeros: 0, paquetes: 0 });
@@ -456,6 +537,8 @@ export default function TransporteSCRNMain({
       const same = Object.keys(nextFilters).every((k) => prev[k] === nextFilters[k]);
       return same ? prev : nextFilters;
     });
+    const hasUrlFilters = Object.values(nextFilters).some((v) => String(v || "").trim());
+    if (hasUrlFilters) setFiltersOpen(true);
 
     const qpArea = (searchParams.get("area") || "inicio").toLowerCase();
     const nextArea = USER_AREAS.includes(qpArea) ? qpArea : "inicio";
@@ -708,35 +791,36 @@ export default function TransporteSCRNMain({
   }, [viewMode]);
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex items-center gap-3">
+    <div className="scrn-shell pb-[4.5rem] md:pb-0">
+      <header className="scrn-header">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-3 py-3 sm:px-4 sm:py-3.5 md:flex-row md:items-center md:justify-between">
+          <button
+            type="button"
+            onClick={goHome}
+            className="flex min-w-0 items-center gap-2.5 text-left sm:gap-3"
+          >
             <img
               src="/pictures/ofrn.jpg"
               alt="Logo OFRN"
-              className="h-12 w-auto max-w-[180px] rounded-lg object-contain border border-slate-200 bg-white p-1"
+              className="h-10 w-auto max-w-[140px] shrink-0 rounded-none border border-[#c5d0dc] bg-white object-contain p-0.5 sm:h-11 sm:max-w-[160px]"
             />
-            <div>
-              <h1 className="text-xl font-black text-slate-800">
-                Sistema de Transporte SCRN
+            <div className="min-w-0">
+              <h1 className="truncate text-base font-black uppercase tracking-tight text-slate-900 sm:text-lg">
+                Transporte SCRN
               </h1>
-              <p className="text-xs text-slate-500">
-                Bienvenido/a {profile.nombre} {profile.apellido}
+              <p className="truncate text-[11px] text-slate-500 sm:text-xs">
+                {profile.nombre} {profile.apellido}
               </p>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          </button>
+
+          <div className="flex flex-wrap items-center gap-1.5 sm:justify-end sm:gap-2">
             <button
               type="button"
-              onClick={() => {
-                setUserArea("inicio");
-                setExplorarFase("menu");
-                if (viewMode === "gestion") setViewMode("calendario");
-              }}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors ${
+              onClick={goHome}
+              className={`hidden items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold uppercase tracking-wide transition-colors md:inline-flex ${
                 userArea === "inicio" && viewMode !== "gestion"
-                  ? "bg-indigo-600 text-white shadow-sm"
+                  ? "bg-[#0054a6] text-white shadow-sm"
                   : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
               }`}
             >
@@ -752,14 +836,18 @@ export default function TransporteSCRNMain({
                   setAdminView("pendientes");
                   setViewMode("gestion");
                 }}
-                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                className={`inline-flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-xs font-bold uppercase tracking-wide transition-colors sm:px-3 ${
+                  viewMode === "gestion" && adminView === "pendientes" && !gestionLandingOpen
+                    ? "bg-[#0054a6] text-white shadow-sm"
+                    : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                }`}
               >
                 <IconSpiralNotebook size={15} />
                 <span className="hidden sm:inline">Pendientes</span>
                 <span
                   className={`min-w-6 rounded-full px-1.5 py-0.5 text-center text-[10px] font-extrabold ${scrnPendienteBadgeClass(
                     totalPendientes,
-                    false,
+                    viewMode === "gestion" && adminView === "pendientes" && !gestionLandingOpen,
                   )}`}
                 >
                   {totalPendientes}
@@ -770,22 +858,27 @@ export default function TransporteSCRNMain({
             <button
               type="button"
               onClick={() => setPerfilEditOpen(true)}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:px-3"
+              title="Mi perfil"
             >
-              Mi Perfil
+              <IconUser size={14} />
+              <span className="hidden sm:inline">Perfil</span>
             </button>
             <button
               type="button"
               onClick={onLogout}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 hover:border-rose-400"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs font-bold uppercase tracking-wide text-rose-700 hover:border-rose-300 hover:bg-rose-100 sm:px-3"
+              title="Salir"
             >
-              Salir
+              <IconLogOut size={14} />
+              <span className="hidden sm:inline">Salir</span>
             </button>
           </div>
         </div>
+
         {isAdmin && viewMode === "gestion" && !gestionLandingOpen && (
-          <div className="border-t border-slate-200 bg-slate-50/80">
-            <div className="max-w-7xl mx-auto px-4 py-2.5 space-y-2">
+          <div className="border-t border-slate-200/80 bg-slate-50/90">
+            <div className="mx-auto max-w-7xl space-y-2 px-3 py-2.5 sm:px-4">
               <div className="md:hidden">
                 <select
                   value={adminView}
@@ -794,14 +887,14 @@ export default function TransporteSCRNMain({
                     if (v === "pendientes") setAdminPendienteSeccion(null);
                     setAdminView(v);
                   }}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700"
                 >
                   <option value="pendientes">Pendientes ({totalPendientes})</option>
                   <option value="recorridos">Recorridos</option>
                   <option value="datos_generales">Datos generales</option>
                 </select>
               </div>
-              <div className="hidden md:flex flex-wrap gap-2">
+              <div className="hidden flex-wrap gap-2 md:flex">
                 {[
                   { id: "pendientes", label: "Pendientes", badge: totalPendientes },
                   { id: "recorridos", label: "Recorridos" },
@@ -811,15 +904,13 @@ export default function TransporteSCRNMain({
                     key={tab.id}
                     type="button"
                     onClick={() => {
-                      if (tab.id === "pendientes") {
-                        setAdminPendienteSeccion(null);
-                      }
+                      if (tab.id === "pendientes") setAdminPendienteSeccion(null);
                       setAdminView(tab.id);
                     }}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors ${
+                    className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold uppercase tracking-wide transition-colors ${
                       adminView === tab.id
-                        ? "bg-indigo-600 text-white shadow-sm"
-                        : "bg-white text-slate-700 border border-slate-200 hover:border-slate-300"
+                        ? "bg-[#0054a6] text-white shadow-sm"
+                        : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300"
                     }`}
                   >
                     {tab.label}
@@ -841,22 +932,29 @@ export default function TransporteSCRNMain({
         )}
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-5 space-y-4">
+      <main className="mx-auto max-w-7xl space-y-4 px-3 py-4 sm:px-4 sm:py-5">
         {deepLinkNotice && (
-          <section className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <section className="rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs leading-relaxed text-amber-900">
             {deepLinkNotice}
           </section>
         )}
+
         {isAdmin && viewMode === "gestion" && gestionLandingOpen && (
-          <section className="mx-auto w-full max-w-5xl space-y-3">
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">Gestión</h2>
-              <p className="text-sm text-slate-500 mt-0.5">
-                Elegí una sección para administrar solicitudes, recorridos y datos generales.
+          <section className="mx-auto w-full max-w-5xl space-y-4">
+            <div className="space-y-1">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-[#0054a6]">
+                Administración
+              </p>
+              <h2 className="text-xl font-black tracking-tight text-slate-900 sm:text-2xl">
+                Gestión
+              </h2>
+              <p className="max-w-2xl text-sm text-slate-600">
+                Solicitudes pendientes, recorridos y datos maestros de la flota.
               </p>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <ManagementSectionCard
+                  square
                 title="Pendientes"
                 subtitle="Solicitudes y aprobaciones"
                 icon={IconSpiralNotebook}
@@ -871,24 +969,26 @@ export default function TransporteSCRNMain({
                 }}
               />
               <ManagementSectionCard
+                  square
                 title="Recorridos"
                 subtitle="Alta, edición y historial"
                 icon={IconCar}
-                cardClasses="border-indigo-100 hover:border-indigo-300 hover:shadow-md focus-visible:ring-indigo-300"
-                iconClasses="bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white"
-                titleClasses="text-indigo-900 group-hover:text-indigo-700"
+                cardClasses="border-[#b8d0e8] hover:border-[#0054a6] hover:shadow-md focus-visible:ring-[#8fb4d9]"
+                iconClasses="bg-[#e8f1fa] text-[#0054a6] group-hover:bg-[#0054a6] group-hover:text-white"
+                titleClasses="text-[#001f40] group-hover:text-[#003d7a]"
                 onClick={() => {
                   setGestionLandingOpen(false);
                   setAdminView("recorridos");
                 }}
               />
               <ManagementSectionCard
+                  square
                 title="Datos Generales"
                 subtitle="Transportes, localidades y usuarios"
                 icon={IconManagement}
-                cardClasses="border-violet-100 hover:border-violet-300 hover:shadow-md focus-visible:ring-violet-300"
-                iconClasses="bg-violet-50 text-violet-600 group-hover:bg-violet-600 group-hover:text-white"
-                titleClasses="text-violet-900 group-hover:text-violet-700"
+                cardClasses="border-sky-100 hover:border-sky-300 hover:shadow-md focus-visible:ring-sky-300"
+                iconClasses="bg-sky-50 text-sky-700 group-hover:bg-sky-600 group-hover:text-white"
+                titleClasses="text-sky-950 group-hover:text-sky-800"
                 onClick={() => {
                   setGestionLandingOpen(false);
                   setAdminView("datos_generales");
@@ -897,516 +997,769 @@ export default function TransporteSCRNMain({
             </div>
           </section>
         )}
+
         {viewMode !== "gestion" && (
           <>
-        {userArea === "inicio" && (
-          <div className="mx-auto w-full max-w-5xl space-y-4">
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">Inicio</h2>
-              <p className="text-sm text-slate-500 mt-0.5 max-w-2xl">
-                Acceso rápido a Explorar, tus viajes, tus envíos y (si tenés permisos) la gestión
-                de transporte.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {isAdmin && (
-                <ManagementSectionCard
-                  title="Gestión"
-                  subtitle="Administración SCRN"
-                  icon={IconManagement}
-                  cardClasses="border-violet-100 hover:border-violet-300 hover:shadow-md focus-visible:ring-violet-300"
-                  iconClasses="bg-violet-50 text-violet-600 group-hover:bg-violet-600 group-hover:text-white"
-                  titleClasses="text-violet-900 group-hover:text-violet-700"
-                  onClick={() => {
-                    setGestionLandingOpen(true);
-                    setViewMode("gestion");
-                  }}
-                />
-              )}
-              <ManagementSectionCard
-                title="Explorar"
-                subtitle="Plazas, enviar paquetes o proponer un recorrido"
-                icon={IconSearch}
-                cardClasses="border-indigo-100 hover:border-indigo-300 hover:shadow-md focus-visible:ring-indigo-300"
-                iconClasses="bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white"
-                titleClasses="text-indigo-900 group-hover:text-indigo-700"
-                onClick={() => {
-                  setUserArea("explorar");
-                  setExplorarFase("menu");
-                  setViewMode("calendario");
-                }}
-              />
-              <ManagementSectionCard
-                title="Mis viajes"
-                subtitle="Tus reservas y plazas"
-                icon={IconCar}
-                cardClasses="border-emerald-100 hover:border-emerald-300 hover:shadow-md focus-visible:ring-emerald-300"
-                iconClasses="bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white"
-                titleClasses="text-emerald-900 group-hover:text-emerald-700"
-                onClick={() => {
-                  setUserArea("viajes");
-                }}
-              />
-              <ManagementSectionCard
-                title="Mis paquetes"
-                subtitle="Envíos en viajes existentes"
-                icon={IconSend}
-                cardClasses="border-rose-100 hover:border-rose-300 hover:shadow-md focus-visible:ring-rose-300"
-                iconClasses="bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white"
-                titleClasses="text-rose-900 group-hover:text-rose-700"
-                onClick={() => {
-                  setUserArea("envios");
-                }}
-              />
-            </div>
-          </div>
-        )}
+            {userArea === "inicio" && (
+              <div className="mx-auto w-full max-w-5xl space-y-5">
+                <section className="border border-[#c5d0dc] bg-white px-4 py-5 sm:px-6 sm:py-6">
+                  <div className="border-l-4 border-[#0054a6] pl-3 space-y-1">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-[#0054a6]">
+                      Oficina SCRN
+                    </p>
+                    <h2 className="text-xl font-black tracking-tight text-slate-900 sm:text-2xl">
+                      Hola, {profile.nombre}
+                    </h2>
+                    <p className="max-w-2xl text-sm leading-relaxed text-slate-600">
+                      Reservá plazas, enviá paquetes o proponé un recorrido. Tus pendientes y la
+                      agenda de flota están en un solo lugar.
+                    </p>
+                  </div>
+                </section>
 
-        {userArea === "explorar" && viewMode !== "gestion" && explorarFase === "menu" && (
-          <div className="mx-auto w-full max-w-5xl space-y-3">
-            <h2 className="text-lg font-bold text-slate-800">Explorar</h2>
-            <p className="text-sm text-slate-500">Elegí qué querés hacer.</p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <ManagementSectionCard
-                title="Enviar un paquete"
-                subtitle="Recorridos con bodega disponible"
-                icon={IconSend}
-                cardClasses="border-rose-100 hover:border-rose-300 hover:shadow-md focus-visible:ring-rose-300"
-                iconClasses="bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white"
-                titleClasses="text-rose-900 group-hover:text-rose-700"
-                onClick={() => {
-                  setExplorarFase("paquetes");
-                  setViewMode("calendario");
-                }}
-              />
-              <ManagementSectionCard
-                title="Sumarme a un viaje"
-                subtitle="Recorridos con plazas libres"
-                icon={IconCar}
-                cardClasses="border-emerald-100 hover:border-emerald-300 hover:shadow-md focus-visible:ring-emerald-300"
-                iconClasses="bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white"
-                titleClasses="text-emerald-900 group-hover:text-emerald-700"
-                onClick={() => {
-                  setExplorarFase("pasajeros");
-                  setViewMode("calendario");
-                }}
-              />
-              <ManagementSectionCard
-                title="Proponer un viaje"
-                subtitle="Nuevo recorrido"
-                icon={IconSearch}
-                cardClasses="border-indigo-100 hover:border-indigo-300 hover:shadow-md focus-visible:ring-indigo-300"
-                iconClasses="bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white"
-                titleClasses="text-indigo-900 group-hover:text-indigo-700"
-                onClick={openProponerNuevo}
-              />
-            </div>
-          </div>
-        )}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {isAdmin && (
+                    <ManagementSectionCard
+                  square
+                      title="Gestión"
+                      subtitle="Administración SCRN"
+                      icon={IconManagement}
+                      badge={totalPendientes > 0 ? String(totalPendientes) : null}
+                      cardClasses="border-sky-100 hover:border-sky-300 hover:shadow-md focus-visible:ring-sky-300"
+                      iconClasses="bg-sky-50 text-sky-700 group-hover:bg-sky-600 group-hover:text-white"
+                      titleClasses="text-sky-950 group-hover:text-sky-800"
+                      onClick={() => {
+                        setGestionLandingOpen(true);
+                        setViewMode("gestion");
+                      }}
+                    />
+                  )}
+                  <ManagementSectionCard
+                  square
+                    title="Explorar"
+                    subtitle="Plazas, paquetes o proponer"
+                    icon={IconSearch}
+                    cardClasses="border-[#b8d0e8] hover:border-[#0054a6] hover:shadow-md focus-visible:ring-[#8fb4d9]"
+                    iconClasses="bg-[#e8f1fa] text-[#0054a6] group-hover:bg-[#0054a6] group-hover:text-white"
+                    titleClasses="text-[#001f40] group-hover:text-[#003d7a]"
+                    onClick={goExplorar}
+                  />
+                  <ManagementSectionCard
+                  square
+                    title="Mis viajes"
+                    subtitle="Reservas y plazas"
+                    icon={IconCar}
+                    cardClasses="border-emerald-100 hover:border-emerald-300 hover:shadow-md focus-visible:ring-emerald-300"
+                    iconClasses="bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white"
+                    titleClasses="text-emerald-900 group-hover:text-emerald-700"
+                    onClick={goViajes}
+                  />
+                  <ManagementSectionCard
+                  square
+                    title="Mis paquetes"
+                    subtitle="Envíos en viajes"
+                    icon={IconSend}
+                    cardClasses="border-rose-100 hover:border-rose-300 hover:shadow-md focus-visible:ring-rose-300"
+                    iconClasses="bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white"
+                    titleClasses="text-rose-900 group-hover:text-rose-700"
+                    onClick={goEnvios}
+                  />
+                </div>
 
-        {userArea === "explorar" && viewMode !== "gestion" && explorarFase !== "menu" && (
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setExplorarFase("menu")}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold text-indigo-700 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100"
-            >
-              Elegir otra opción
-            </button>
-            <span className="text-xs text-slate-500 hidden sm:inline">
-              {explorarFase === "paquetes" ? "Modo: enviar paquete" : "Modo: sumarme a un viaje"}
-            </span>
-            <div className="w-full sm:w-auto sm:ml-auto flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setViewMode("calendario")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors ${
-                viewMode === "calendario"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
-              }`}
-            >
-              Calendario
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("agenda")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors ${
-                viewMode === "agenda"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
-              }`}
-            >
-              Agenda
-            </button>
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => {
-                  setGestionLandingOpen(true);
-                  setViewMode("gestion");
-                }}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide border border-slate-200 bg-white text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
-              >
-                Gestión
-              </button>
+                {!loading && proximosViajesInicio.length > 0 && (
+                  <section className="space-y-3">
+                    <div className="flex items-end justify-between gap-2">
+                      <div>
+                        <h3 className="text-sm font-extrabold uppercase tracking-wide text-slate-800">
+                          Próximas salidas
+                        </h3>
+                        <p className="text-xs text-slate-500">Vista rápida de la agenda</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUserArea("explorar");
+                          setExplorarFase("pasajeros");
+                          setViewMode("agenda");
+                        }}
+                        className="text-xs font-bold text-[#0054a6] hover:text-[#002b57]"
+                      >
+                        Ver todas
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {proximosViajesInicio.map((viaje) => (
+                        <button
+                          key={viaje.id}
+                          type="button"
+                          onClick={() => {
+                            setUserArea("explorar");
+                            setExplorarFase("pasajeros");
+                            setViewMode("agenda");
+                            openSolicitud(viaje);
+                          }}
+                          className="rounded-2xl border border-slate-200/90 bg-white p-3.5 text-left shadow-sm transition hover:border-[#0054a6] hover:shadow-md"
+                          style={scrnTransporteAccentStyle(viaje.scrn_transportes)}
+                        >
+                          <p className="text-sm font-bold leading-snug text-slate-900">
+                            {viaje.origen} → {viaje.destino_final}
+                          </p>
+                          <p className="mt-1.5 flex items-center gap-1 text-[11px] font-medium text-slate-500">
+                            <IconClock size={12} />
+                            {formatDateShort(viaje.fecha_salida)}
+                          </p>
+                          <p className="mt-2">
+                            <span
+                              className={`inline-flex rounded-lg border px-2 py-0.5 text-[11px] font-bold ${plazasBadgeClass(
+                                viaje.plazasDisponibles,
+                              )}`}
+                            >
+                              {viaje.plazasDisponibles} plazas
+                            </span>
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </div>
             )}
-            </div>
-          </div>
-        )}
 
-        {userArea === "explorar" && explorarFase !== "menu" && (
-        <section className="bg-white rounded-2xl border border-slate-200 p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
-          <select
-            value={filters.idTransporte}
-            onChange={(event) =>
-              setFilters((prev) => ({ ...prev, idTransporte: event.target.value }))
-            }
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm min-w-0"
-            title="Solo recorridos asignados a este vehículo"
-          >
-            <option value="">Vehículo (todos)</option>
-            {transportes.map((t) => (
-              <option key={t.id} value={String(t.id)}>
-                {(t.nombre || "").trim() || `Vehículo #${t.id}`}
-                {(t.patente || "").trim() ? ` · ${(t.patente || "").trim()}` : ""}
-              </option>
-            ))}
-          </select>
+            {userArea === "explorar" && viewMode !== "gestion" && explorarFase === "menu" && (
+              <div className="mx-auto w-full max-w-5xl space-y-4">
+                <div className="space-y-1">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-[#0054a6]">
+                    Buscar
+                  </p>
+                  <h2 className="text-xl font-black tracking-tight text-slate-900">Explorar</h2>
+                  <p className="text-sm text-slate-600">Elegí la acción y después el recorrido.</p>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <ManagementSectionCard
+                  square
+                    title="Enviar un paquete"
+                    subtitle="Bodega disponible"
+                    icon={IconSend}
+                    cardClasses="border-rose-100 hover:border-rose-300 hover:shadow-md focus-visible:ring-rose-300"
+                    iconClasses="bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white"
+                    titleClasses="text-rose-900 group-hover:text-rose-700"
+                    onClick={() => {
+                      setExplorarFase("paquetes");
+                      setViewMode("calendario");
+                    }}
+                  />
+                  <ManagementSectionCard
+                  square
+                    title="Sumarme a un viaje"
+                    subtitle="Plazas libres"
+                    icon={IconCar}
+                    cardClasses="border-emerald-100 hover:border-emerald-300 hover:shadow-md focus-visible:ring-emerald-300"
+                    iconClasses="bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white"
+                    titleClasses="text-emerald-900 group-hover:text-emerald-700"
+                    onClick={() => {
+                      setExplorarFase("pasajeros");
+                      setViewMode("calendario");
+                    }}
+                  />
+                  <ManagementSectionCard
+                  square
+                    title="Proponer un viaje"
+                    subtitle="Nuevo recorrido"
+                    icon={IconPlus}
+                    cardClasses="border-[#b8d0e8] hover:border-[#0054a6] hover:shadow-md focus-visible:ring-[#8fb4d9]"
+                    iconClasses="bg-[#e8f1fa] text-[#0054a6] group-hover:bg-[#0054a6] group-hover:text-white"
+                    titleClasses="text-[#001f40] group-hover:text-[#003d7a]"
+                    onClick={openProponerNuevo}
+                  />
+                </div>
+              </div>
+            )}
 
-          <div>
-            <label
-              htmlFor="scr-fecha-desde"
-              className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5"
-            >
-              Fecha salida desde
-            </label>
-            <input
-              id="scr-fecha-desde"
-              type="date"
-              value={filters.fechaDesde}
-              onChange={(event) =>
-                setFilters((prev) => ({ ...prev, fechaDesde: event.target.value }))
-              }
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="scr-fecha-hasta"
-              className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5"
-            >
-              Fecha salida hasta
-            </label>
-            <input
-              id="scr-fecha-hasta"
-              type="date"
-              value={filters.fechaHasta}
-              onChange={(event) =>
-                setFilters((prev) => ({ ...prev, fechaHasta: event.target.value }))
-              }
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-
-          <input
-            value={filters.destino}
-            onChange={(event) =>
-              setFilters((prev) => ({ ...prev, destino: event.target.value }))
-            }
-            placeholder="Filtrar por destino"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-
-          <input
-            type="number"
-            min={0}
-            value={filters.minDisponibles}
-            onChange={(event) =>
-              setFilters((prev) => ({
-                ...prev,
-                minDisponibles: event.target.value,
-              }))
-            }
-            placeholder="Al menos X plazas libres"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-        </section>
-        )}
-
-        {userArea === "explorar" && explorarFase !== "menu" && (
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={loading}
-            onClick={openProponerNuevo}
-            className="px-3 py-2 rounded-lg border border-slate-800 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 disabled:border-slate-300 text-white text-xs font-bold uppercase tracking-wide"
-          >
-            Proponer un recorrido nuevo
-          </button>
-        </div>
-        )}
-
-        {userArea === "explorar" && explorarFase !== "menu" && loading && (
-          <section className="bg-white rounded-2xl border border-slate-200 p-4 text-sm text-slate-500">
-            Cargando viajes y disponibilidad...
-          </section>
-        )}
-
-        {userArea === "explorar" && explorarFase !== "menu" && !loading && viewMode === "calendario" && (
-          <section className="bg-white rounded-2xl border border-slate-200 p-4">
-            <div className="h-[520px]">
-              <Calendar
-                localizer={localizer}
-                events={calendarEvents}
-                startAccessor="start"
-                endAccessor="end"
-                eventPropGetter={(event) => {
-                  const v = event.resource;
-                  const base = rbcEventStyleFromViajeResource(v);
-                  const est = user?.id ? estadoMiReservaPorViajeId[v.id] : null;
-                  const sh = est ? boxShadowReservaEnViaje(est) : null;
-                  if (!sh) return base;
-                  return {
-                    ...base,
-                    style: {
-                      ...base.style,
-                      boxShadow: sh,
-                    },
-                  };
-                }}
-                defaultView={Views.MONTH}
-                views={[Views.MONTH]}
-                date={calendarDate}
-                onNavigate={(nextDate, _view, action) => {
-                  if (action === Navigate.NEXT || action === Navigate.PREVIOUS) {
-                    setCalendarDate(nextDate);
-                  }
-                }}
-                messages={{
-                  month: "Mes",
-                  previous: "Anterior",
-                  next: "Siguiente",
-                  today: "Hoy",
-                  date: "Fecha",
-                  time: "Hora",
-                  event: "Viaje",
-                  noEventsInRange: "No hay viajes para este rango.",
-                }}
-                onSelectEvent={(event) =>
-                  explorarFase === "paquetes"
-                    ? openEnviarPaquete(event.resource)
-                    : openSolicitud(event.resource)
-                }
-              />
-            </div>
-          </section>
-        )}
-
-        {userArea === "explorar" && explorarFase !== "menu" && !loading && viewMode === "agenda" && (
-          <section className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-              <p className="text-xs text-slate-600">
-                {agendaVerHistorial
-                  ? "Mostrando todos los recorridos que cumplen los filtros (incluye fechas pasadas)."
-                  : "Solo recorridos con salida hoy o posteriores."}
-              </p>
-              <button
-                type="button"
-                onClick={() => setAgendaVerHistorial((v) => !v)}
-                className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
-              >
-                {agendaVerHistorial ? "Ocultar historial" : "Ver historial"}
-              </button>
-            </div>
-
-            {viajesExplorarFiltrados.length === 0 && (
-              <div className="bg-white rounded-2xl border border-slate-200 p-4 text-sm text-slate-500 space-y-2">
-                <p>
-                  {explorarFase === "paquetes"
-                    ? "No hay recorridos con bodega de paquetería disponible que coincidan con los filtros."
-                    : "No hay recorridos con plazas libres que coincidan con los filtros."}
-                </p>
-                {explorarFase === "pasajeros" && (
-                  <div className="pt-1">
-                    <p className="text-xs text-slate-600 mb-2">Podés proponer un recorrido nuevo y lo evaluamos.</p>
+            {userArea === "explorar" && viewMode !== "gestion" && explorarFase !== "menu" && (
+              <div className="space-y-3">
+                <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/90 bg-white/90 p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-3.5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      disabled={loading}
-                      onClick={openProponerNuevo}
-                      className="px-3 py-2 rounded-lg border border-slate-800 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white text-xs font-bold uppercase tracking-wide"
+                      onClick={() => setExplorarFase("menu")}
+                      className="inline-flex items-center gap-1 rounded-xl border border-[#8fb4d9] bg-[#e8f1fa] px-3 py-2 text-xs font-bold text-[#003d7a] hover:bg-[#d6e6f5]"
                     >
-                      Proponer un recorrido nuevo
+                      ← Opciones
                     </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {viajesExplorarFiltrados.length > 0 && agendaViajesDisplayed.length === 0 && !agendaVerHistorial && (
-              <div className="bg-white rounded-2xl border border-slate-200 p-4 text-sm text-slate-600">
-                No hay recorridos próximos con estos filtros (las fechas de salida son anteriores a hoy).
-                <button
-                  type="button"
-                  onClick={() => setAgendaVerHistorial(true)}
-                  className="ml-2 text-xs font-bold text-indigo-700 underline hover:text-indigo-900"
-                >
-                  Ver historial
-                </button>
-              </div>
-            )}
-
-            {agendaViajesDisplayed.map((viaje) => {
-              const estReserva = user?.id ? estadoMiReservaPorViajeId[viaje.id] : null;
-              const tengoReservaAqui = Boolean(estReserva);
-              const reservaActiva =
-                estReserva === "aceptada" || estReserva === "pendiente";
-              const articleRingClass =
-                estReserva === "aceptada"
-                  ? "border-emerald-300 ring-2 ring-emerald-500/90 ring-offset-1 shadow-sm"
-                  : estReserva === "pendiente"
-                    ? "border-amber-300 ring-2 ring-amber-400/90 ring-offset-1 shadow-sm"
-                    : estReserva === "cancelada"
-                      ? "border-red-300 ring-2 ring-red-500/85 ring-offset-1 shadow-sm"
-                      : "border-slate-200";
-              const badgeReservaClass =
-                estReserva === "aceptada"
-                  ? "text-emerald-900 bg-emerald-100 border border-emerald-200/90"
-                  : estReserva === "pendiente"
-                    ? "text-amber-900 bg-amber-100 border border-amber-200/90"
-                    : estReserva === "cancelada"
-                      ? "text-red-900 bg-red-100 border border-red-200/90"
-                      : "";
-              return (
-              <article
-                key={viaje.id}
-                className={`bg-white rounded-2xl border p-4 md:p-5 space-y-2 pl-2 ${articleRingClass}`}
-                style={scrnTransporteAccentStyle(viaje.scrn_transportes)}
-              >
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                  <h3 className="text-sm md:text-base font-extrabold text-slate-800">
-                    {viaje.origen} - {viaje.destino_final}
-                  </h3>
-                  <div className="flex flex-wrap items-center justify-end gap-1.5">
-                    {tengoReservaAqui && (
-                      <span
-                        className={`text-xs font-bold px-2 py-1 rounded-full ${badgeReservaClass}`}
-                      >
-                        {labelEstadoReservaScrn(estReserva)}
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                        explorarFase === "paquetes"
+                          ? "bg-rose-50 text-rose-800 border border-rose-200"
+                          : "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                      }`}
+                    >
+                      {explorarFase === "paquetes" ? (
+                        <>
+                          <IconSend size={12} /> Enviar paquete
+                        </>
+                      ) : (
+                        <>
+                          <IconCar size={12} /> Sumarme a un viaje
+                        </>
+                      )}
+                    </span>
+                    {!loading && (
+                      <span className="text-[11px] font-semibold text-slate-500">
+                        {viewMode === "agenda"
+                          ? `${agendaViajesDisplayed.length} en lista`
+                          : `${viajesExplorarFiltrados.length} en calendario`}
                       </span>
                     )}
-                    <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-full">
-                      {viaje.plazasDisponibles} plazas disponibles
-                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex rounded-xl border border-slate-200 bg-slate-100/80 p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setViewMode("calendario")}
+                        className={`inline-flex items-center gap-1.5 rounded-[0.65rem] px-3 py-1.5 text-xs font-bold transition-colors ${
+                          viewMode === "calendario"
+                            ? "bg-white text-slate-900 shadow-sm"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        <IconCalendar size={14} />
+                        Calendario
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setViewMode("agenda")}
+                        className={`inline-flex items-center gap-1.5 rounded-[0.65rem] px-3 py-1.5 text-xs font-bold transition-colors ${
+                          viewMode === "agenda"
+                            ? "bg-white text-slate-900 shadow-sm"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        <IconList size={14} />
+                        Agenda
+                      </button>
+                    </div>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGestionLandingOpen(true);
+                          setViewMode("gestion");
+                        }}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-600 hover:bg-slate-50"
+                      >
+                        Gestión
+                      </button>
+                    )}
                   </div>
                 </div>
-                {viaje.motivo && (
-                  <div className="text-xs text-slate-600">
-                    <span className="font-bold">Motivo:</span> {viaje.motivo}
-                  </div>
-                )}
-                {viaje.paquetes_bodega_llena ? (
-                  <div className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200/90 rounded-lg px-2 py-1 inline-block">
-                    Bodega de paquetería: llena
-                  </div>
-                ) : null}
-                <div className="grid md:grid-cols-3 gap-2 text-xs text-slate-600">
-                  <span>Salida: {formatDateTime(viaje.fecha_salida)}</span>
-                  <span>Llega a origen: {formatDateTime(viaje.fecha_llegada_estimada)}</span>
-                  <span className="inline-flex items-center gap-1.5 flex-wrap min-w-0">
-                    <span>Transporte:</span>
-                    <span
-                      className="inline-block h-3.5 w-3.5 rounded border border-slate-300/90 shrink-0"
-                      style={{ backgroundColor: scrnTransporteColorFromEntity(viaje.scrn_transportes) }}
-                      title={viaje.scrn_transportes?.nombre || ""}
-                      aria-hidden
-                    />
-                    <span>
-                      {viaje.scrn_transportes?.nombre || "-"} ({viaje.scrn_transportes?.tipo || "-"})
-                    </span>
-                  </span>
-                </div>
-                {viaje.chofer && (
-                  <div className="flex items-center gap-2 text-xs text-slate-600">
-                    <div>
-                      <span className="font-bold text-slate-700">Chofer: </span>
-                      {`${viaje.chofer.apellido || ""}, ${viaje.chofer.nombre || ""}`
-                        .replace(/^,\s*/, "")
-                        .trim() || "—"}
+
+                <section className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5 sm:px-4">
+                    <button
+                      type="button"
+                      onClick={() => setFiltersOpen((v) => !v)}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
+                    >
+                      <IconFilter size={14} />
+                      Filtros
+                      {activeFilterCount > 0 && (
+                        <span className="min-w-5 rounded-full bg-[#0054a6] px-1.5 py-0.5 text-center text-[10px] font-extrabold text-white">
+                          {activeFilterCount}
+                        </span>
+                      )}
+                      <IconChevronDown
+                        size={14}
+                        className={`transition-transform ${filtersOpen ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {activeFilterCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={clearFilters}
+                          className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                        >
+                          <IconX size={12} />
+                          Limpiar
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={openProponerNuevo}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-slate-800 disabled:bg-slate-300"
+                      >
+                        <IconPlus size={14} />
+                        <span className="hidden xs:inline sm:inline">Proponer</span>
+                        <span className="sm:hidden">Nuevo</span>
+                      </button>
                     </div>
                   </div>
-                )}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
-                  {explorarFase === "paquetes" && (
-                  <button
-                    type="button"
-                    onClick={() => openEnviarPaquete(viaje)}
-                    disabled={Boolean(viaje.paquetes_bodega_llena)}
-                    className="px-3 py-1.5 rounded-lg border border-slate-500 bg-white hover:bg-slate-50 disabled:bg-slate-200 disabled:text-slate-500 disabled:border-slate-300 text-slate-800 text-xs font-bold uppercase tracking-wide w-full sm:w-auto"
-                  >
-                    Enviar un paquete
-                  </button>
+
+                  {filtersOpen && (
+                    <div className="grid grid-cols-1 gap-3 border-b border-slate-100 bg-slate-50/60 p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-3 xl:grid-cols-5">
+                      <div className="min-w-0">
+                        <label htmlFor="scr-veh" className={filterLabelClass}>
+                          Vehículo
+                        </label>
+                        <select
+                          id="scr-veh"
+                          value={filters.idTransporte}
+                          onChange={(event) =>
+                            setFilters((prev) => ({
+                              ...prev,
+                              idTransporte: event.target.value,
+                            }))
+                          }
+                          className={filterFieldClass}
+                          title="Solo recorridos de este vehículo"
+                        >
+                          <option value="">Todos</option>
+                          {transportes.map((t) => (
+                            <option key={t.id} value={String(t.id)}>
+                              {(t.nombre || "").trim() || `Vehículo #${t.id}`}
+                              {(t.patente || "").trim()
+                                ? ` · ${(t.patente || "").trim()}`
+                                : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="min-w-0">
+                        <label htmlFor="scr-fecha-desde" className={filterLabelClass}>
+                          Salida desde
+                        </label>
+                        <input
+                          id="scr-fecha-desde"
+                          type="date"
+                          value={filters.fechaDesde}
+                          onChange={(event) =>
+                            setFilters((prev) => ({
+                              ...prev,
+                              fechaDesde: event.target.value,
+                            }))
+                          }
+                          className={filterFieldClass}
+                        />
+                      </div>
+
+                      <div className="min-w-0">
+                        <label htmlFor="scr-fecha-hasta" className={filterLabelClass}>
+                          Salida hasta
+                        </label>
+                        <input
+                          id="scr-fecha-hasta"
+                          type="date"
+                          value={filters.fechaHasta}
+                          onChange={(event) =>
+                            setFilters((prev) => ({
+                              ...prev,
+                              fechaHasta: event.target.value,
+                            }))
+                          }
+                          className={filterFieldClass}
+                        />
+                      </div>
+
+                      <div className="min-w-0">
+                        <label htmlFor="scr-destino" className={filterLabelClass}>
+                          Destino
+                        </label>
+                        <input
+                          id="scr-destino"
+                          value={filters.destino}
+                          onChange={(event) =>
+                            setFilters((prev) => ({
+                              ...prev,
+                              destino: event.target.value,
+                            }))
+                          }
+                          placeholder="Ej: Bariloche"
+                          className={filterFieldClass}
+                        />
+                      </div>
+
+                      <div className="min-w-0">
+                        <label htmlFor="scr-plazas" className={filterLabelClass}>
+                          Mín. plazas libres
+                        </label>
+                        <input
+                          id="scr-plazas"
+                          type="number"
+                          min={0}
+                          value={filters.minDisponibles}
+                          onChange={(event) =>
+                            setFilters((prev) => ({
+                              ...prev,
+                              minDisponibles: event.target.value,
+                            }))
+                          }
+                          placeholder="0"
+                          className={filterFieldClass}
+                        />
+                      </div>
+                    </div>
                   )}
-                  {explorarFase === "pasajeros" && (
-                  <button
-                    type="button"
-                    onClick={() => openSolicitud(viaje)}
-                    disabled={viaje.plazasDisponibles <= 0}
-                    className={`px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-800 disabled:bg-slate-300 text-white text-xs font-bold w-full sm:w-auto ${
-                      reservaActiva
-                        ? "inline-flex flex-col items-end leading-tight"
-                        : "uppercase tracking-wide"
-                    }`}
-                  >
-                    {reservaActiva ? (
-                      <>
-                        <span className="uppercase tracking-wide">Solicitar plaza</span>
-                        <span className="text-[10px] font-semibold text-white/95 normal-case">
-                          para otra persona
-                        </span>
-                      </>
-                    ) : (
-                      "Solicitar plaza"
+                </section>
+              </div>
+            )}
+
+            {userArea === "explorar" && explorarFase !== "menu" && loading && (
+              <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="h-4 w-40 animate-pulse rounded bg-slate-200" />
+                <div className="h-24 animate-pulse rounded-xl bg-slate-100" />
+                <div className="h-24 animate-pulse rounded-xl bg-slate-100" />
+              </section>
+            )}
+
+            {userArea === "explorar" &&
+              explorarFase !== "menu" &&
+              !loading &&
+              viewMode === "calendario" && (
+                <section className="rounded-2xl border border-slate-200/90 bg-white p-2 shadow-sm sm:p-4">
+                  <div className="h-[min(70vh,560px)] min-h-[420px] sm:h-[560px] md:h-[620px]">
+                    <Calendar
+                      className="scrn-rbc h-full"
+                      localizer={localizer}
+                      events={calendarEvents}
+                      startAccessor="start"
+                      endAccessor="end"
+                      eventPropGetter={(event) => {
+                        const v = event.resource;
+                        const base = rbcEventStyleFromViajeResource(v);
+                        const est = user?.id ? estadoMiReservaPorViajeId[v.id] : null;
+                        const sh = est ? boxShadowReservaEnViaje(est) : null;
+                        if (!sh) return base;
+                        return {
+                          ...base,
+                          style: {
+                            ...base.style,
+                            boxShadow: sh,
+                          },
+                        };
+                      }}
+                      defaultView={Views.MONTH}
+                      views={[Views.MONTH]}
+                      date={calendarDate}
+                      onNavigate={(nextDate, _view, action) => {
+                        if (action === Navigate.NEXT || action === Navigate.PREVIOUS) {
+                          setCalendarDate(nextDate);
+                        }
+                      }}
+                      popup
+                      messages={{
+                        month: "Mes",
+                        previous: "Ant.",
+                        next: "Sig.",
+                        today: "Hoy",
+                        date: "Fecha",
+                        time: "Hora",
+                        event: "Viaje",
+                        showMore: (total) => `+${total} más`,
+                        noEventsInRange: "No hay viajes para este rango.",
+                      }}
+                      onSelectEvent={(event) =>
+                        explorarFase === "paquetes"
+                          ? openEnviarPaquete(event.resource)
+                          : openSolicitud(event.resource)
+                      }
+                    />
+                  </div>
+                  <p className="mt-2 px-1 text-[11px] text-slate-500 sm:px-0">
+                    Tocá un día con viajes para solicitar plaza o enviar paquete. El anillo de color
+                    indica el estado de tu reserva.
+                  </p>
+                </section>
+              )}
+
+            {userArea === "explorar" &&
+              explorarFase !== "menu" &&
+              !loading &&
+              viewMode === "agenda" && (
+                <section className="space-y-3">
+                  <div className="flex flex-col gap-2 rounded-2xl border border-slate-200/90 bg-white px-3 py-2.5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs leading-relaxed text-slate-600">
+                      {agendaVerHistorial
+                        ? "Incluye recorridos con salida pasada."
+                        : "Solo salidas de hoy en adelante."}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setAgendaVerHistorial((v) => !v)}
+                      className="shrink-0 self-start rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 sm:self-auto"
+                    >
+                      {agendaVerHistorial ? "Ocultar historial" : "Ver historial"}
+                    </button>
+                  </div>
+
+                  {viajesExplorarFiltrados.length === 0 && (
+                    <div className="space-y-3 rounded-2xl border border-dashed border-slate-300 bg-white/80 p-5 text-center sm:p-8">
+                      <p className="text-sm font-semibold text-slate-700">
+                        {explorarFase === "paquetes"
+                          ? "No hay recorridos con bodega disponible con estos filtros."
+                          : "No hay recorridos con plazas libres con estos filtros."}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Probá ampliar fechas o limpiar filtros.
+                      </p>
+                      <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                        {activeFilterCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={clearFilters}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                          >
+                            Limpiar filtros
+                          </button>
+                        )}
+                        {explorarFase === "pasajeros" && (
+                          <button
+                            type="button"
+                            disabled={loading}
+                            onClick={openProponerNuevo}
+                            className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-slate-800 disabled:bg-slate-300"
+                          >
+                            Proponer un recorrido
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {viajesExplorarFiltrados.length > 0 &&
+                    agendaViajesDisplayed.length === 0 &&
+                    !agendaVerHistorial && (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+                        No hay recorridos próximos con estos filtros.
+                        <button
+                          type="button"
+                          onClick={() => setAgendaVerHistorial(true)}
+                          className="ml-1 text-xs font-bold text-[#0054a6] underline hover:text-[#002b57]"
+                        >
+                          Ver historial
+                        </button>
+                      </div>
                     )}
-                  </button>
-                  )}
-                </div>
-              </article>
-            );
-            })}
-          </section>
-        )}
 
-        {userArea === "viajes" && (
-          <MisReservas
-            user={user}
-            reloadKey={reloadKey}
-            scrnPerfiles={scrnPerfiles}
-            localidades={localidades}
-            onGestionCambiada={() => {
-              setReloadKey((k) => k + 1);
-            }}
-          />
-        )}
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    {agendaViajesDisplayed.map((viaje) => {
+                      const estReserva = user?.id
+                        ? estadoMiReservaPorViajeId[viaje.id]
+                        : null;
+                      const tengoReservaAqui = Boolean(estReserva);
+                      const reservaActiva =
+                        estReserva === "aceptada" || estReserva === "pendiente";
+                      const articleRingClass =
+                        estReserva === "aceptada"
+                          ? "border-emerald-300 ring-2 ring-emerald-500/80 ring-offset-1"
+                          : estReserva === "pendiente"
+                            ? "border-amber-300 ring-2 ring-amber-400/80 ring-offset-1"
+                            : estReserva === "cancelada"
+                              ? "border-red-300 ring-2 ring-red-500/70 ring-offset-1"
+                              : "border-slate-200/90";
+                      const badgeReservaClass =
+                        estReserva === "aceptada"
+                          ? "text-emerald-900 bg-emerald-100 border border-emerald-200/90"
+                          : estReserva === "pendiente"
+                            ? "text-amber-900 bg-amber-100 border border-amber-200/90"
+                            : estReserva === "cancelada"
+                              ? "text-red-900 bg-red-100 border border-red-200/90"
+                              : "";
+                      return (
+                        <article
+                          key={viaje.id}
+                          className={`flex flex-col rounded-2xl border bg-white p-4 shadow-sm transition hover:shadow-md ${articleRingClass}`}
+                          style={scrnTransporteAccentStyle(viaje.scrn_transportes)}
+                        >
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0 space-y-1">
+                              <h3 className="text-base font-extrabold leading-snug text-slate-900">
+                                <span className="inline-flex items-start gap-1.5">
+                                  <IconMapPin
+                                    size={16}
+                                    className="mt-0.5 shrink-0 text-[#0054a6]"
+                                  />
+                                  <span>
+                                    {viaje.origen}
+                                    <span className="mx-1 font-semibold text-slate-400">→</span>
+                                    {viaje.destino_final}
+                                  </span>
+                                </span>
+                              </h3>
+                              {viaje.motivo && (
+                                <p className="line-clamp-2 pl-6 text-xs text-slate-600">
+                                  {viaje.motivo}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
+                              {tengoReservaAqui && (
+                                <span
+                                  className={`rounded-full px-2 py-1 text-[11px] font-bold ${badgeReservaClass}`}
+                                >
+                                  {labelEstadoReservaScrn(estReserva)}
+                                </span>
+                              )}
+                              {explorarFase === "pasajeros" && (
+                                <span
+                                  className={`rounded-full border px-2 py-1 text-[11px] font-bold ${plazasBadgeClass(
+                                    viaje.plazasDisponibles,
+                                  )}`}
+                                >
+                                  {viaje.plazasDisponibles} plazas
+                                </span>
+                              )}
+                              {viaje.paquetes_bodega_llena ? (
+                                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-900">
+                                  Bodega llena
+                                </span>
+                              ) : explorarFase === "paquetes" ? (
+                                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-900">
+                                  Bodega libre
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
 
-        {userArea === "envios" && (
-          <MisEnvios
-            user={user}
-            reloadKey={reloadKey}
-            onGestionCambiada={() => {
-              setReloadKey((k) => k + 1);
-            }}
-          />
-        )}
+                          <div className="mt-3 grid grid-cols-1 gap-2 border-t border-slate-100 pt-3 text-xs text-slate-600 sm:grid-cols-2">
+                            <div className="flex items-start gap-1.5">
+                              <IconClock size={14} className="mt-0.5 shrink-0 text-slate-400" />
+                              <div>
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                  Salida
+                                </p>
+                                <p className="font-semibold text-slate-800">
+                                  {formatDateTime(viaje.fecha_salida)}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-start gap-1.5">
+                              <IconClock size={14} className="mt-0.5 shrink-0 text-slate-400" />
+                              <div>
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                  Llega a origen
+                                </p>
+                                <p className="font-semibold text-slate-800">
+                                  {formatDateTime(viaje.fecha_llegada_estimada)}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-start gap-1.5 sm:col-span-2">
+                              <IconCar size={14} className="mt-0.5 shrink-0 text-slate-400" />
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                  Transporte
+                                </p>
+                                <p className="inline-flex min-w-0 flex-wrap items-center gap-1.5 font-semibold text-slate-800">
+                                  <span
+                                    className="inline-block h-3 w-3 shrink-0 rounded border border-slate-300/90"
+                                    style={{
+                                      backgroundColor: scrnTransporteColorFromEntity(
+                                        viaje.scrn_transportes,
+                                      ),
+                                    }}
+                                    aria-hidden
+                                  />
+                                  <span className="truncate">
+                                    {viaje.scrn_transportes?.nombre || "—"}
+                                    {viaje.scrn_transportes?.tipo
+                                      ? ` · ${viaje.scrn_transportes.tipo}`
+                                      : ""}
+                                  </span>
+                                </p>
+                              </div>
+                            </div>
+                            {viaje.chofer && (
+                              <div className="flex items-start gap-1.5 sm:col-span-2">
+                                <IconUser size={14} className="mt-0.5 shrink-0 text-slate-400" />
+                                <div>
+                                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                    Chofer
+                                  </p>
+                                  <p className="font-semibold text-slate-800">
+                                    {`${viaje.chofer.apellido || ""}, ${viaje.chofer.nombre || ""}`
+                                      .replace(/^,\s*/, "")
+                                      .trim() || "—"}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="mt-auto flex flex-col gap-2 pt-4 sm:flex-row sm:justify-end">
+                            {explorarFase === "paquetes" && (
+                              <button
+                                type="button"
+                                onClick={() => openEnviarPaquete(viaje)}
+                                disabled={Boolean(viaje.paquetes_bodega_llena)}
+                                className="w-full rounded-xl border border-rose-300 bg-rose-50 px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-rose-800 hover:bg-rose-100 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 sm:w-auto sm:min-w-[10rem]"
+                              >
+                                Enviar paquete
+                              </button>
+                            )}
+                            {explorarFase === "pasajeros" && (
+                              <button
+                                type="button"
+                                onClick={() => openSolicitud(viaje)}
+                                disabled={viaje.plazasDisponibles <= 0}
+                                className={`w-full rounded-xl bg-[#0054a6] px-3 py-2.5 text-xs font-bold text-white hover:bg-[#003d7a] disabled:bg-slate-300 sm:w-auto sm:min-w-[10rem] ${
+                                  reservaActiva
+                                    ? "inline-flex flex-col items-center leading-tight sm:items-end"
+                                    : "uppercase tracking-wide"
+                                }`}
+                              >
+                                {reservaActiva ? (
+                                  <>
+                                    <span className="uppercase tracking-wide">Solicitar plaza</span>
+                                    <span className="text-[10px] font-semibold normal-case text-white/90">
+                                      para otra persona
+                                    </span>
+                                  </>
+                                ) : (
+                                  "Solicitar plaza"
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+            {userArea === "viajes" && (
+              <MisReservas
+                user={user}
+                reloadKey={reloadKey}
+                scrnPerfiles={scrnPerfiles}
+                localidades={localidades}
+                onGestionCambiada={() => {
+                  setReloadKey((k) => k + 1);
+                }}
+              />
+            )}
+
+            {userArea === "envios" && (
+              <MisEnvios
+                user={user}
+                reloadKey={reloadKey}
+                onGestionCambiada={() => {
+                  setReloadKey((k) => k + 1);
+                }}
+              />
+            )}
           </>
         )}
 
         {isAdmin && viewMode === "gestion" && !gestionLandingOpen && (
           <>
             {loading && (
-              <section className="bg-white rounded-2xl border border-slate-200 p-4 text-sm text-slate-500">
-                Cargando viajes y disponibilidad...
+              <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="h-4 w-48 animate-pulse rounded bg-slate-200" />
+                <div className="h-28 animate-pulse rounded-xl bg-slate-100" />
               </section>
             )}
             {!loading && (
@@ -1432,6 +1785,65 @@ export default function TransporteSCRNMain({
           </>
         )}
       </main>
+
+      {/* Navegación inferior — móvil */}
+      {viewMode !== "gestion" && (
+        <nav
+          className="scrn-bottom-nav fixed inset-x-0 bottom-0 z-40 px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-0 md:hidden"
+          aria-label="Navegación principal"
+        >
+          <div className="mx-auto grid max-w-lg grid-cols-4 gap-0.5">
+            {[
+              {
+                id: "inicio",
+                label: "Inicio",
+                icon: IconHome,
+                active: userArea === "inicio",
+                onClick: goHome,
+              },
+              {
+                id: "explorar",
+                label: "Explorar",
+                icon: IconSearch,
+                active: userArea === "explorar",
+                onClick: goExplorar,
+              },
+              {
+                id: "viajes",
+                label: "Viajes",
+                icon: IconCar,
+                active: userArea === "viajes",
+                onClick: goViajes,
+              },
+              {
+                id: "envios",
+                label: "Paquetes",
+                icon: IconSend,
+                active: userArea === "envios",
+                onClick: goEnvios,
+              },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={item.onClick}
+                  data-active={item.active ? "true" : "false"}
+                  className={`flex flex-col items-center gap-0.5 rounded-none px-1 py-2 text-[10px] font-bold uppercase tracking-wide transition-colors ${
+                    item.active
+                      ? "bg-[#e8f1fa] text-[#003d7a]"
+                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                  }`}
+                >
+                  <Icon size={18} />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      )}
 
       <SolicitudModal
         isOpen={modalOpen}
@@ -1481,3 +1893,4 @@ export default function TransporteSCRNMain({
     </div>
   );
 }
+

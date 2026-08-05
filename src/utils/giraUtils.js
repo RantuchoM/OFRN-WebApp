@@ -22,7 +22,9 @@ export const personMatchesLocConvocadoTag = (person, tag) => {
   if (!locId) return false;
 
   const resId = resolveLocalidadResidencia(person).id;
-  if (resId != null && String(resId) === locId) return true;
+  if (resId != null && !Number.isNaN(Number(resId)) && String(resId) === locId) {
+    return true;
+  }
 
   if (
     person.id_localidad_residencia != null &&
@@ -31,6 +33,17 @@ export const personMatchesLocConvocadoTag = (person, tag) => {
   ) {
     return true;
   }
+
+  // Campos enriquecidos de roster/logística (pueden no estar en resolveLocalidadResidencia).
+  const nestedIds = [
+    person.localidades_residencia?.id,
+    person._loc_residencia?.id,
+    person.residencia?.id,
+  ];
+  if (nestedIds.some((id) => id != null && id !== "" && String(id) === locId)) {
+    return true;
+  }
+
   return false;
 };
 
