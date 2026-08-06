@@ -39,6 +39,14 @@ import {
   isLocalForTramoIndex,
 } from "../../utils/giraTramos";
 import { bookingBelongsToSegment } from "../../utils/roomingInitialOrder";
+import {
+  enforceUniquePersonPerHotel,
+  normalizeIntegranteId,
+  removePersonFromScopedRooms,
+  roomHasOccupant,
+  sameIntegranteId,
+  sanitizeImportedRoomAssignments,
+} from "../../utils/roomingUniqueness";
 
 function resolveSegmentRowByIdx(segmentRows, idx) {
   if (!segmentRows?.length) return null;
@@ -46,11 +54,6 @@ function resolveSegmentRowByIdx(segmentRows, idx) {
   if (byIndice) return byIndice;
   return segmentRows[idx] ?? null;
 }
-
-const normalizeIntegranteId = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
 
 const normalizeStatus = (value) =>
   String(value || "")
@@ -1379,10 +1382,13 @@ export default function RoomingManager({
   );
   const allPersonsMap = useMemo(() => {
     const map = new Map();
-    (logisticsSummary || []).forEach((p) => map.set(p.id, p));
-    (roster || []).forEach((p) => {
-      if (!map.has(p.id)) map.set(p.id, p);
-    });
+    const put = (p) => {
+      const nid = normalizeIntegranteId(p?.id);
+      if (nid == null || map.has(nid)) return;
+      map.set(nid, { ...p, id: nid });
+    };
+    (logisticsSummary || []).forEach(put);
+    (roster || []).forEach(put);
     return map;
   }, [logisticsSummary, roster]);
   const enrichForSegment = useCallback(
@@ -1454,16 +1460,26 @@ export default function RoomingManager({
   const musicians = useMemo(() => {
     const assignedIds = new Set();
     visibleRooms.forEach((r) =>
-      (r.occupants || []).forEach((o) => assignedIds.add(o.id)),
+      (r.occupants || []).forEach((o) => {
+        const nid = normalizeIntegranteId(o.id);
+        if (nid != null) assignedIds.add(nid);
+      }),
     );
-    const excludedSet = new Set(excludedHospedajeIds);
+    const excludedSet = new Set(
+      (excludedHospedajeIds || [])
+        .map(normalizeIntegranteId)
+        .filter((n) => n != null),
+    );
     return Array.from(allPersonsMap.values())
-      .filter(
-        (m) =>
-          !assignedIds.has(m.id) &&
+      .filter((m) => {
+        const nid = normalizeIntegranteId(m.id);
+        return (
+          nid != null &&
+          !assignedIds.has(nid) &&
           isActiveForRooming(m) &&
-          !excludedSet.has(m.id),
-      )
+          !excludedSet.has(nid)
+        );
+      })
       .map(enrichForSegment)
       .sort(sortMusiciansForRooming);
   }, [allPersonsMap, visibleRooms, excludedHospedajeIds, enrichForSegment]);
@@ -1508,17 +1524,25 @@ export default function RoomingManager({
 
   // --- LÓGICA DE SELECCIÓN ---
   const handleMusicianClick = (e, musician, contextList) => {
-    const newSelected = new Set(selectedIds);
-    const id = musician.id;
+    const newSelected = new Set(
+      [...selectedIds]
+        .map(normalizeIntegranteId)
+        .filter((n) => n != null),
+    );
+    const id = normalizeIntegranteId(musician.id);
+    if (id == null) return;
 
     if (e.shiftKey && lastSelectedId && contextList) {
-      const start = contextList.findIndex((p) => p.id === lastSelectedId);
-      const end = contextList.findIndex((p) => p.id === id);
+      const start = contextList.findIndex((p) =>
+        sameIntegranteId(p.id, lastSelectedId),
+      );
+      const end = contextList.findIndex((p) => sameIntegranteId(p.id, id));
       if (start !== -1 && end !== -1) {
         const low = Math.min(start, end);
         const high = Math.max(start, end);
         for (let i = low; i <= high; i++) {
-          newSelected.add(contextList[i].id);
+          const nid = normalizeIntegranteId(contextList[i].id);
+          if (nid != null) newSelected.add(nid);
         }
       }
     } else if (e.ctrlKey || e.metaKey) {
@@ -1555,12 +1579,18 @@ export default function RoomingManager({
   }, [rooms]);
   // --- DRAG HANDLERS ---
   const handleDragStart = (e, musician, sourceRoomId = null) => {
+    const musicianId = normalizeIntegranteId(musician.id);
     let itemsToDrag = [];
-    if (selectedIds.has(musician.id)) {
-      itemsToDrag = Array.from(selectedIds);
+    const selectedNorm = new Set(
+      [...selectedIds].map(normalizeIntegranteId).filter((n) => n != null),
+    );
+    if (musicianId != null && selectedNorm.has(musicianId)) {
+      itemsToDrag = [...selectedNorm];
+    } else if (musicianId != null) {
+      itemsToDrag = [musicianId];
+      setSelectedIds(new Set([musicianId]));
     } else {
-      itemsToDrag = [musician.id];
-      setSelectedIds(new Set([musician.id]));
+      return;
     }
     e.dataTransfer.setData(
       "application/json",
@@ -1601,6 +1631,8 @@ export default function RoomingManager({
 
   const processDrop = (targetRoomId, draggedIds, options = {}) => {
     let newRooms = [...rooms];
+    const scopeBookingIds = [...visibleBookingIds];
+    const roomsToSync = new Set();
 
     let targetRoomIndex = -1;
     if (targetRoomId) {
@@ -1609,30 +1641,47 @@ export default function RoomingManager({
       if (!visibleBookingIds.has(newRooms[targetRoomIndex].id_hospedaje)) return;
     }
 
-    draggedIds.forEach((id) => {
+    draggedIds.forEach((rawId) => {
+      const id = normalizeIntegranteId(rawId);
+      if (id == null) return;
       let musicianObj = allPersonsMap.get(id) ?? null;
 
+      // Quitar de todas las habitaciones del tramo (unicidad hotel+tramo y
+      // una sola asignación operativa por tramo). Comparación por ID normalizado.
       for (let i = 0; i < newRooms.length; i++) {
         const room = newRooms[i];
         if (!visibleBookingIds.has(room.id_hospedaje)) continue;
-        const occupantIndex = room.occupants.findIndex((m) => m.id === id);
-        if (occupantIndex === -1) continue;
-
-        musicianObj = musicianObj ?? room.occupants[occupantIndex];
-        const srcRoom = { ...room, occupants: [...room.occupants] };
-        srcRoom.occupants.splice(occupantIndex, 1);
+        if (!roomHasOccupant(room, id)) continue;
+        musicianObj =
+          musicianObj ??
+          room.occupants.find((m) => sameIntegranteId(m.id, id)) ??
+          null;
+        const srcRoom = {
+          ...room,
+          occupants: room.occupants.filter((m) => !sameIntegranteId(m.id, id)),
+        };
         srcRoom.roomGender = calculateRoomGender(srcRoom.occupants);
         newRooms[i] = srcRoom;
-        syncRoomOccupants(srcRoom.id, srcRoom.occupants);
-        break;
+        roomsToSync.add(srcRoom.id);
       }
+
+      // Defensa: por si quedó en algún hotel del tramo con tipado raro
+      const stripped = removePersonFromScopedRooms(
+        newRooms,
+        id,
+        scopeBookingIds,
+      );
+      newRooms = stripped.rooms;
+      stripped.changedRoomIds.forEach((rid) => roomsToSync.add(rid));
 
       if (!musicianObj) return;
 
       if (targetRoomId) {
+        targetRoomIndex = newRooms.findIndex((r) => r.id === targetRoomId);
+        if (targetRoomIndex === -1) return;
         const targetRoom = { ...newRooms[targetRoomIndex] };
-        if (!targetRoom.occupants.find((m) => m.id === id)) {
-          const base = enrichForSegment(musicianObj);
+        if (!roomHasOccupant(targetRoom, id)) {
+          const base = enrichForSegment({ ...musicianObj, id });
           const finalMusician =
             options.toCuna && targetRoom.con_cuna
               ? { ...base, ocupa_cama: false }
@@ -1640,13 +1689,20 @@ export default function RoomingManager({
           targetRoom.occupants = [...targetRoom.occupants, finalMusician];
           targetRoom.roomGender = calculateRoomGender(targetRoom.occupants);
           newRooms[targetRoomIndex] = targetRoom;
+          roomsToSync.add(targetRoomId);
         }
       }
     });
 
-    if (targetRoomId) {
-      syncRoomOccupants(targetRoomId, newRooms[targetRoomIndex].occupants);
-    }
+    // Unicidad final por hotel del tramo activo
+    const deduped = enforceUniquePersonPerHotel(newRooms);
+    newRooms = deduped.rooms;
+    deduped.changedRoomIds.forEach((rid) => roomsToSync.add(rid));
+
+    roomsToSync.forEach((roomId) => {
+      const room = newRooms.find((r) => r.id === roomId);
+      if (room) syncRoomOccupants(roomId, room.occupants || []);
+    });
 
     updateLocalState(newRooms);
     setSelectedIds(new Set());
@@ -1656,7 +1712,13 @@ export default function RoomingManager({
 
   /** API única para asignar selección a habitación (modal móvil y botón + en RoomCard). Hace validación de habitación mixta. */
   const handleMoveToRoom = async (targetRoomId, ids) => {
-    const idList = Array.isArray(ids) ? ids : Array.from(ids);
+    const idList = [
+      ...new Set(
+        (Array.isArray(ids) ? ids : Array.from(ids))
+          .map(normalizeIntegranteId)
+          .filter((n) => n != null),
+      ),
+    ];
     if (idList.length === 0) return;
     if (targetRoomId != null) {
       const targetRoom = rooms.find((r) => r.id === targetRoomId);
@@ -1664,13 +1726,21 @@ export default function RoomingManager({
         const selectedPeople = [];
         idList.forEach((id) => {
           const m =
-            musicians.find((x) => x.id === id) ||
-            targetRoom.occupants.find((x) => x.id === id) ||
-            visibleRooms.flatMap((r) => r.occupants).find((x) => x.id === id) ||
+            musicians.find((x) => sameIntegranteId(x.id, id)) ||
+            targetRoom.occupants.find((x) => sameIntegranteId(x.id, id)) ||
+            visibleRooms
+              .flatMap((r) => r.occupants)
+              .find((x) => sameIntegranteId(x.id, id)) ||
             allPersonsMap.get(id);
           if (m) selectedPeople.push(m);
         });
-        const futureOccupants = [...targetRoom.occupants, ...selectedPeople];
+        const futureOccupants = [
+          ...targetRoom.occupants.filter(
+            (o) =>
+              !selectedPeople.some((p) => sameIntegranteId(p.id, o.id)),
+          ),
+          ...selectedPeople,
+        ];
         const futureGender = calculateRoomGender(futureOccupants);
         const currentGender = calculateRoomGender(targetRoom.occupants);
         if (futureGender === "Mixto" && currentGender !== "Mixto" && selectedPeople.some((p) => p.genero)) {
@@ -2017,47 +2087,64 @@ export default function RoomingManager({
       const allMusiciansMap = new Map();
 
       logisticsSummary.forEach((person) => {
+        const nid = normalizeIntegranteId(person.id);
+        if (nid == null) return;
         // Guardamos el objeto completo de logística para el reporte
-        logMap[person.id] = person.logistics;
-        allMusiciansMap.set(person.id, person);
+        logMap[nid] = person.logistics;
+        allMusiciansMap.set(nid, { ...person, id: nid });
       });
       // Fallback defensivo: si logística aún no resolvió completo, usamos roster base
       // para no "vaciar" asignaciones válidas al sincronizar habitaciones.
       (roster || []).forEach((person) => {
-        if (!allMusiciansMap.has(person.id)) {
-          allMusiciansMap.set(person.id, person);
-        }
+        const nid = normalizeIntegranteId(person.id);
+        if (nid == null || allMusiciansMap.has(nid)) return;
+        allMusiciansMap.set(nid, { ...person, id: nid });
       });
       setLogisticsMap(logMap);
 
       // 4. Mapear ocupantes a habitaciones usando asignaciones_config
       const roomsToSyncAssignment = [];
 
-      const roomsWithDetails = roomsData.map((room) => {
+      // Orden: habitaciones más nuevas primero → al deduplicar por hotel se conserva esa.
+      const roomsDataOrdered = [...roomsData].sort(
+        (a, b) => (b.orden || 0) - (a.orden || 0),
+      );
+
+      const roomsWithDetailsRaw = roomsDataOrdered.map((room) => {
         const asignacionesRaw = Array.isArray(room.asignaciones_config)
           ? room.asignaciones_config
           : [];
         const configById = new Map();
         asignacionesRaw.forEach((cfg) => {
-          if (cfg && cfg.id != null && cfg.id !== "") {
-            configById.set(Number(cfg.id), cfg.ocupa_cama !== false);
+          const cfgId = normalizeIntegranteId(cfg?.id);
+          if (cfgId != null) {
+            configById.set(cfgId, cfg.ocupa_cama !== false);
           }
         });
 
         const rawIds = Array.isArray(room.id_integrantes_asignados)
           ? room.id_integrantes_asignados
           : [];
-        const unresolvedIds = rawIds.filter((id) => !allMusiciansMap.has(id));
+        const normalizedRawIds = rawIds
+          .map(normalizeIntegranteId)
+          .filter((n) => n != null);
+        const unresolvedIds = normalizedRawIds.filter(
+          (id) => !allMusiciansMap.has(id),
+        );
 
-        const occupants = rawIds
-          .map((id) => allMusiciansMap.get(id))
-          .filter((p) => p && isActiveForRooming(p))
-          .map((p) => ({
+        const occupants = [];
+        const seenInRoom = new Set();
+        for (const id of normalizedRawIds) {
+          if (seenInRoom.has(id)) continue;
+          const p = allMusiciansMap.get(id);
+          if (!p || !isActiveForRooming(p)) continue;
+          seenInRoom.add(id);
+          occupants.push({
             ...p,
-            ocupa_cama: configById.has(Number(p.id))
-              ? configById.get(Number(p.id))
-              : true,
-          }));
+            id,
+            ocupa_cama: configById.has(id) ? configById.get(id) : true,
+          });
+        }
 
         const desiredIds = occupants.map((o) => o.id);
         const newAsignacionesConfig = occupants.map((m) => ({
@@ -2094,8 +2181,42 @@ export default function RoomingManager({
         };
       });
 
-      if (roomsToSyncAssignment.length > 0) {
-        for (const patch of roomsToSyncAssignment) {
+      // 5. Unicidad: misma persona una sola vez por hotel (tramo = booking).
+      const { rooms: roomsUnique, changedRoomIds: hotelDedupeIds } =
+        enforceUniquePersonPerHotel(roomsWithDetailsRaw);
+      const roomsWithDetails = roomsUnique.map((room) => ({
+        ...room,
+        roomGender: calculateRoomGender(room.occupants || []),
+      }));
+
+      const syncById = new Map(
+        roomsToSyncAssignment.map((p) => [p.id, p]),
+      );
+      for (const roomId of hotelDedupeIds) {
+        const room = roomsWithDetails.find((r) => r.id === roomId);
+        if (!room) continue;
+        // No pisar DB si aún hay IDs sin resolver en el roster (carga parcial).
+        const rawIds = Array.isArray(
+          roomsData.find((r) => r.id === roomId)?.id_integrantes_asignados,
+        )
+          ? roomsData.find((r) => r.id === roomId).id_integrantes_asignados
+          : [];
+        const unresolved = rawIds
+          .map(normalizeIntegranteId)
+          .filter((id) => id != null && !allMusiciansMap.has(id));
+        if (unresolved.length > 0) continue;
+        syncById.set(roomId, {
+          id: roomId,
+          id_integrantes_asignados: (room.occupants || []).map((o) => o.id),
+          asignaciones_config: (room.occupants || []).map((m) => ({
+            id: m.id,
+            ocupa_cama: m.ocupa_cama !== false,
+          })),
+        });
+      }
+
+      if (syncById.size > 0) {
+        for (const patch of syncById.values()) {
           const { error: syncErr } = await supabase
             .from("hospedaje_habitaciones")
             .update({
@@ -2124,10 +2245,22 @@ export default function RoomingManager({
     setRooms(newRooms);
   };
   const syncRoomOccupants = async (roomId, occupants) => {
-    const ids = occupants.map((m) => m.id);
-    const asignacionesConfig = occupants.map((m) => ({
-      id: m.id,
-      ocupa_cama: m.ocupa_cama !== false,
+    const ids = [];
+    const seen = new Set();
+    for (const m of occupants || []) {
+      const nid = normalizeIntegranteId(m.id);
+      if (nid == null || seen.has(nid)) continue;
+      seen.add(nid);
+      ids.push(nid);
+    }
+    const byId = new Map(
+      (occupants || [])
+        .map((m) => [normalizeIntegranteId(m.id), m])
+        .filter(([nid]) => nid != null),
+    );
+    const asignacionesConfig = ids.map((id) => ({
+      id,
+      ocupa_cama: byId.get(id)?.ocupa_cama !== false,
     }));
 
     const { error } = await supabase
@@ -2167,41 +2300,75 @@ export default function RoomingManager({
   };
 
   const assignPeopleToSegmentRoom = (currentRooms, targetRoomObj, ids) => {
-    const roomsCopy = [...currentRooms];
+    let roomsCopy = [...currentRooms];
     const movedPeople = [];
+    const scopeBookingIds = [...visibleBookingIds];
+    const roomsToSync = new Set();
 
-    ids.forEach((id) => {
+    ids.forEach((rawId) => {
+      const id = normalizeIntegranteId(rawId);
+      if (id == null) return;
       let person = allPersonsMap.get(id) ?? null;
+
       for (let i = 0; i < roomsCopy.length; i++) {
         const room = roomsCopy[i];
         if (room.id === targetRoomObj.id) continue;
         if (!visibleBookingIds.has(room.id_hospedaje)) continue;
-        const occIdx = room.occupants.findIndex((m) => m.id === id);
-        if (occIdx === -1) continue;
-        person = person ?? room.occupants[occIdx];
+        if (!roomHasOccupant(room, id)) continue;
+        person =
+          person ??
+          room.occupants.find((m) => sameIntegranteId(m.id, id)) ??
+          null;
         const newSrc = {
           ...room,
-          occupants: room.occupants.filter((m) => m.id !== id),
+          occupants: room.occupants.filter((m) => !sameIntegranteId(m.id, id)),
         };
         newSrc.roomGender = calculateRoomGender(newSrc.occupants);
         roomsCopy[i] = newSrc;
-        syncRoomOccupants(newSrc.id, newSrc.occupants);
-        break;
+        roomsToSync.add(newSrc.id);
       }
-      if (person) {
-        movedPeople.push(enrichForSegment({ ...person, ocupa_cama: true }));
+
+      const stripped = removePersonFromScopedRooms(
+        roomsCopy,
+        id,
+        scopeBookingIds,
+      );
+      roomsCopy = stripped.rooms;
+      stripped.changedRoomIds.forEach((rid) => roomsToSync.add(rid));
+
+      if (person && !movedPeople.some((m) => sameIntegranteId(m.id, id))) {
+        movedPeople.push(
+          enrichForSegment({ ...person, id, ocupa_cama: true }),
+        );
       }
     });
 
     const targetIdx = roomsCopy.findIndex((r) => r.id === targetRoomObj.id);
     if (targetIdx !== -1) {
+      // Conservar ocupantes previos del target y agregar sin duplicar
+      const prior = (roomsCopy[targetIdx].occupants || []).filter(
+        (o) =>
+          !movedPeople.some((m) => sameIntegranteId(m.id, o.id)),
+      );
+      const nextOccupants = [...prior, ...movedPeople];
       roomsCopy[targetIdx] = {
+        ...roomsCopy[targetIdx],
         ...targetRoomObj,
-        occupants: movedPeople,
-        roomGender: calculateRoomGender(movedPeople),
+        occupants: nextOccupants,
+        roomGender: calculateRoomGender(nextOccupants),
       };
-      syncRoomOccupants(targetRoomObj.id, movedPeople);
+      roomsToSync.add(targetRoomObj.id);
     }
+
+    const deduped = enforceUniquePersonPerHotel(roomsCopy);
+    roomsCopy = deduped.rooms;
+    deduped.changedRoomIds.forEach((rid) => roomsToSync.add(rid));
+
+    roomsToSync.forEach((roomId) => {
+      const room = roomsCopy.find((r) => r.id === roomId);
+      if (room) syncRoomOccupants(roomId, room.occupants || []);
+    });
+
     return roomsCopy;
   };
 
@@ -2384,14 +2551,14 @@ export default function RoomingManager({
     if (rErr) throw rErr;
 
     if (srcRooms?.length) {
-      const rows = srcRooms.map((r) => {
+      const sanitized = sanitizeImportedRoomAssignments(srcRooms);
+      const rows = sanitized.map((r) => {
         const { id: _id, id_hospedaje, created_at: _ca, ...rest } = r;
         return {
           ...rest,
           id_hospedaje: newBooking.id,
-          id_integrantes_asignados: Array.isArray(r.id_integrantes_asignados)
-            ? r.id_integrantes_asignados
-            : [],
+          id_integrantes_asignados: r.id_integrantes_asignados,
+          asignaciones_config: r.asignaciones_config,
         };
       });
       const { error: insRooms } = await supabase
@@ -2463,6 +2630,7 @@ export default function RoomingManager({
         .update({ id_hospedaje: targetId })
         .eq("id_hospedaje", sourceId);
       await supabase.from("programas_hospedajes").delete().eq("id", sourceId);
+      // fetchInitialData aplica enforceUniquePersonPerHotel sobre el hotel fusionado.
       await fetchInitialData();
       setHotelToMerge(null);
     } catch (err) {
@@ -2532,6 +2700,47 @@ export default function RoomingManager({
         }
       }
       if (targetBookingId) {
+        // Si la persona ya está en otra habitación del hotel destino (mismo tramo),
+        // la quitamos de ahí para no duplicar alojamiento en el mismo hotel+tramo.
+        const transferIds = (room.occupants || [])
+          .map((o) => normalizeIntegranteId(o.id))
+          .filter((n) => n != null);
+        if (transferIds.length) {
+          const { data: targetRooms } = await supabase
+            .from("hospedaje_habitaciones")
+            .select("id, id_integrantes_asignados, asignaciones_config")
+            .eq("id_hospedaje", targetBookingId)
+            .neq("id", room.id);
+          for (const tr of targetRooms || []) {
+            const raw = Array.isArray(tr.id_integrantes_asignados)
+              ? tr.id_integrantes_asignados
+              : [];
+            const nextIds = raw
+              .map(normalizeIntegranteId)
+              .filter((id) => id != null && !transferIds.includes(id));
+            if (nextIds.length === raw.length) continue;
+            const cfgRaw = Array.isArray(tr.asignaciones_config)
+              ? tr.asignaciones_config
+              : [];
+            const nextCfg = nextIds.map((id) => {
+              const prev = cfgRaw.find((c) =>
+                sameIntegranteId(c?.id, id),
+              );
+              return {
+                id,
+                ocupa_cama: prev ? prev.ocupa_cama !== false : true,
+              };
+            });
+            await supabase
+              .from("hospedaje_habitaciones")
+              .update({
+                id_integrantes_asignados: nextIds,
+                asignaciones_config: nextCfg,
+              })
+              .eq("id", tr.id);
+          }
+        }
+
         await supabase
           .from("hospedaje_habitaciones")
           .update({ id_hospedaje: targetBookingId })
@@ -2551,7 +2760,7 @@ export default function RoomingManager({
     let newRooms = [...rooms];
     const targetRoom = { ...newRooms[roomIndex] };
     targetRoom.occupants = targetRoom.occupants.filter(
-      (m) => m.id !== musician.id,
+      (m) => !sameIntegranteId(m.id, musician.id),
     );
     if (targetRoom.occupants.length === 0) {
       newRooms.splice(roomIndex, 1);
@@ -2567,7 +2776,9 @@ export default function RoomingManager({
     const room = rooms.find((r) => r.id === roomId);
     if (!room) return;
     const updatedOccupants = (room.occupants || []).map((m) =>
-      m.id === musicianId ? { ...m, ocupa_cama: ocupaCama } : m,
+      sameIntegranteId(m.id, musicianId)
+        ? { ...m, ocupa_cama: ocupaCama }
+        : m,
     );
     const updatedRoom = {
       ...room,

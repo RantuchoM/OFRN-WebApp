@@ -13,6 +13,7 @@ Permitir la clonación de un hotel completo, incluyendo la distribución de mús
 
 - Un **bulk insert** de habitaciones minimiza round-trips a Supabase.
 - No se permite importar si el mismo `id_hotel` ya está cargado en el **tramo activo** del programa actual (el mismo hotel puede existir en tramos distintos).
+- Al copiar habitaciones, `sanitizeImportedRoomAssignments` evita que la misma persona quede en más de una habitación del hotel importado (unicidad hotel+tramo; ver `rooming-unicidad-hotel-tramo.md`).
 - Cada `programas_hospedajes` debe persistir `id_segmento` del tramo activo al crear o trasladar reservas.
 - El listado de hoteles en `RoomingManager` filtra con `bookingBelongsToSegment` (no asignar por defecto al tramo 1 salvo datos legacy en índice 0).
 - La tabla `giras_hospedajes_excluidos` documenta a quienes no se les gestiona hotel; la importación no la modifica.
