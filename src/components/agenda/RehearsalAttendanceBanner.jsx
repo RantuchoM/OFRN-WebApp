@@ -38,10 +38,13 @@ import {
 import { maybeFireSoftFromEstado } from "../../utils/ensayoSalidaReminders";
 import { ensureWebPushSubscription } from "../../utils/webPushSubscribe";
 import {
-  scheduleLocalSalidaReminders,
   cancelLocalSalidaReminders,
   pingLocalSalidaReminders,
 } from "../../utils/ensayoLocalSalidaReminders";
+import {
+  onEnsayoAltaLocalReminders,
+  syncEnsayoLocalReminders,
+} from "../../utils/ensayoLocalRemindersSync";
 
 /**
  * Banner sticky: mismo set de íconos que RehearsalCheckInBlock (GPS / escanear / ofrecer QR),
@@ -158,7 +161,7 @@ export default function RehearsalAttendanceBanner({
     const scheduleKey = `${evt.id}:${estado.registrado_at}:${evt.hora_fin || ""}`;
     if (localScheduledKeyRef.current !== scheduleKey) {
       localScheduledKeyRef.current = scheduleKey;
-      scheduleLocalSalidaReminders(evt, estado).catch(() => {});
+      onEnsayoAltaLocalReminders(evt, estado).catch(() => {});
     }
 
     if (integranteId && !pushSubscribedRef.current) {
@@ -240,6 +243,9 @@ export default function RehearsalAttendanceBanner({
         );
         setGeoAssist(null);
         cancelLocalSalidaReminders(evt.id);
+        if (integranteId) {
+          syncEnsayoLocalReminders(integranteId).catch(() => {});
+        }
         onSuccess?.();
       }
       return res;
@@ -260,7 +266,7 @@ export default function RehearsalAttendanceBanner({
       );
       setGeoAssist(null);
       // Programar offline: el estado puede no estar refrescado aún
-      scheduleLocalSalidaReminders(evt, {
+      onEnsayoAltaLocalReminders(evt, {
         registrado_at: res.registrado_at || new Date().toISOString(),
         salida_at: null,
       });
@@ -426,8 +432,11 @@ export default function RehearsalAttendanceBanner({
       );
       if (isSalida) {
         cancelLocalSalidaReminders(evt.id);
+        if (integranteId) {
+          syncEnsayoLocalReminders(integranteId).catch(() => {});
+        }
       } else {
-        scheduleLocalSalidaReminders(evt, {
+        onEnsayoAltaLocalReminders(evt, {
           registrado_at: res.registrado_at || new Date().toISOString(),
           salida_at: null,
         });

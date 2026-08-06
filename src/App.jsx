@@ -14,6 +14,7 @@ import ReloadPrompt from "./components/ui/ReloadPrompt";
 import PwaOrientationHint from "./components/ui/PwaOrientationHint";
 import BirthdayBanner from "./components/ui/BirthdayBanner";
 import GlobalRehearsalAttendanceBanner from "./components/agenda/GlobalRehearsalAttendanceBanner";
+import EnsayoLocalRemindersSync from "./components/agenda/EnsayoLocalRemindersSync";
 import BirthdaySidebarControl from "./components/ui/BirthdaySidebarControl";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import NewsModal from "./components/news/NewsModal";
@@ -1130,6 +1131,7 @@ const ProtectedApp = ({ initialTab }) => {
 
       {/* MAIN */}
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <EnsayoLocalRemindersSync />
         <GlobalRehearsalAttendanceBanner />
         <header className="h-14 md:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-4 sm:px-8 shrink-0 z-30 gap-2 md:gap-4">
           {/* 1. SECCIÓN IZQUIERDA (Logo/Título/Suplantación) */}

@@ -50,7 +50,7 @@ export default defineConfig({
         clientsClaim: true,
         skipWaiting: false,
         navigateFallbackDenylist: [/^\/manifest\.webmanifest$/, /^\/version\.json$/],
-        // Push + local salida + notificationclick
+        // Push + local inicio/salida ensayo + notificationclick
         importScripts: [
           "/sw-push-handlers.js",
           "/sw-local-salida-reminders.js",

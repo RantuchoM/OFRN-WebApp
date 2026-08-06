@@ -1,32 +1,31 @@
 /**
- * Recordatorios locales de salida (dispositivo / PWA), sin red en el disparo.
- * Se programan al dar el alta (llegada) y se cancelan al marcar salida.
+ * Recordatorios locales de inicio/llegada (dispositivo / PWA), sin red en el disparo.
+ * Se programan al abrir la app (próximo ensayo convocado) y se cancelan al marcar alta.
  */
 import {
-  ensayoEndMs,
-  ENSAYO_SALIDA_PRE_MINUTES,
-  ENSAYO_SALIDA_POST_MINUTES,
+  ensayoStartMs,
+  ENSAYO_CHECKIN_PRE_MINUTES,
 } from "./ensayoCheckinBanner";
 import {
-  buildSalidaReminderBodies,
-  localSalidaNotificationTag,
-  markSoftReminderFired,
-  wasSoftReminderFired,
-} from "./ensayoSalidaReminders";
+  buildInicioReminderBodies,
+  localInicioNotificationTag,
+} from "./ensayoInicioReminders";
 
 const MSG_SCHEDULE = "ofrn-salida-schedule";
 const MSG_CANCEL = "ofrn-salida-cancel";
 const MSG_PING = "ofrn-salida-ping";
 
+const INICIO_TIPOS = ["pre_inicio"];
+
 /** Timeouts en el hilo de la página (mientras el proceso de la PWA vive). */
 const pageTimeouts = new Map();
 
 function pageTimeoutKey(eventoId, tipo) {
-  return `${eventoId}:${tipo}`;
+  return `inicio:${eventoId}:${tipo}`;
 }
 
 function clearPageTimeoutsForEvento(eventoId) {
-  const prefix = `${eventoId}:`;
+  const prefix = `inicio:${eventoId}:`;
   for (const [key, handle] of [...pageTimeouts.entries()]) {
     if (key.startsWith(prefix)) {
       clearTimeout(handle);
@@ -35,42 +34,49 @@ function clearPageTimeoutsForEvento(eventoId) {
   }
 }
 
+function clearAllInicioPageTimeouts() {
+  for (const [key, handle] of [...pageTimeouts.entries()]) {
+    if (key.startsWith("inicio:")) {
+      clearTimeout(handle);
+      pageTimeouts.delete(key);
+    }
+  }
+}
+
 /**
  * @param {object} evt
- * @returns {Array<{ tipo: 'pre_cierre'|'post_aviso', atMs: number, title: string, body: string, tag: string, eventoId: number|string, url: string }>}
+ * @returns {Array<{ tipo: 'pre_inicio', atMs: number, title: string, body: string, tag: string, eventoId: number|string, url: string }>}
  */
-export function buildLocalSalidaReminderPayloads(evt, nowMs = Date.now()) {
+export function buildLocalInicioReminderPayloads(evt, nowMs = Date.now()) {
   if (!evt?.id) return [];
-  const end = ensayoEndMs(evt);
-  if (!Number.isFinite(end)) return [];
+  const start = ensayoStartMs(evt);
+  if (!Number.isFinite(start)) return [];
 
-  const preAt = end - ENSAYO_SALIDA_PRE_MINUTES * 60 * 1000;
-  const postAt = end + ENSAYO_SALIDA_POST_MINUTES * 60 * 1000;
-  /** Gracia: si llegó justo al minuto, aún disparamos inmediato. */
-  const GRACE_MS = 30_000;
-  const out = [];
+  const preAt = start - ENSAYO_CHECKIN_PRE_MINUTES * 60 * 1000;
+  /** Gracia: si abrió justo en la ventana, aún disparamos. */
+  const GRACE_MS = 60_000;
+  // No programar si el ensayo ya terminó hace rato (lo resuelve el sync)
+  const endGrace = 12 * 60 * 60 * 1000;
+  if (nowMs > start + endGrace) return [];
+  // Si T−15 ya pasó por ≥ gracia, disparar casi inmediato (recordar cargar)
+  if (nowMs > preAt + GRACE_MS && nowMs > start + GRACE_MS) {
+    // Ya pasó el inicio con margen: solo si aún es el día / ventana útil
+    // (sync ya filtró ensayos terminados; acá avisamos “marcá ingreso”)
+  }
 
-  for (const { tipo, atMs } of [
-    { tipo: "pre_cierre", atMs: preAt },
-    { tipo: "post_aviso", atMs: postAt },
-  ]) {
-    // No programar pre si ya pasó por ≥ gracia (evitar spam al reabrir tarde)
-    if (tipo === "pre_cierre" && nowMs > atMs + GRACE_MS) continue;
-    // Post sí puede quedar “a mostrar ya” si el ensayo recién terminó
-    if (tipo === "post_aviso" && nowMs > atMs + 12 * 60 * 60 * 1000) continue;
-
-    const { title, body } = buildSalidaReminderBodies(evt, tipo);
-    out.push({
+  const atMs = nowMs >= preAt ? nowMs + 800 : preAt;
+  const { title, body } = buildInicioReminderBodies(evt, "pre_inicio");
+  return [
+    {
       eventoId: evt.id,
-      tipo,
-      atMs: nowMs >= atMs ? nowMs + 800 : atMs,
+      tipo: "pre_inicio",
+      atMs,
       title,
       body,
-      tag: localSalidaNotificationTag(evt.id, tipo),
+      tag: localInicioNotificationTag(evt.id, "pre_inicio"),
       url: "/",
-    });
-  }
-  return out;
+    },
+  ];
 }
 
 async function ensureNotificationPermission() {
@@ -87,8 +93,6 @@ async function ensureNotificationPermission() {
   }
   return permission === "granted";
 }
-
-const SALIDA_TIPOS = ["pre_cierre", "post_aviso"];
 
 async function postToServiceWorker(message) {
   if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
@@ -118,12 +122,11 @@ async function showViaRegistration(payload) {
             url: payload.url || "/",
             eventoId: payload.eventoId,
             tipo: payload.tipo,
-            source: "local-salida-page",
+            source: "local-inicio-page",
           },
           icon: "/pwa-192x192.png",
           badge: "/pwa-192x192.png",
         });
-        markSoftReminderFired(payload.eventoId, payload.tipo);
         return true;
       }
     }
@@ -132,7 +135,6 @@ async function showViaRegistration(payload) {
       body: payload.body,
       tag: payload.tag,
     });
-    markSoftReminderFired(payload.eventoId, payload.tipo);
     return true;
   } catch {
     return false;
@@ -147,7 +149,6 @@ function armPageTimeout(payload) {
   const delay = Number(payload.atMs) - Date.now();
   const run = () => {
     pageTimeouts.delete(key);
-    if (wasSoftReminderFired(payload.eventoId, payload.tipo)) return;
     showViaRegistration(payload);
   };
 
@@ -160,33 +161,23 @@ function armPageTimeout(payload) {
 }
 
 /**
- * Programa recordatorios locales para un ensayo con llegada y sin salida.
- * Idempotente: reescribe el plan del evento.
- *
+ * Programa el recordatorio local del próximo ensayo (reemplaza cualquier inicio previo).
  * @param {object} evt
- * @param {{ registrado_at?: string, salida_at?: string, justificado?: boolean }|null} [estado]
  * @returns {Promise<{ ok: boolean, reason?: string, scheduled?: number }>}
  */
-export async function scheduleLocalSalidaReminders(evt, estado = null) {
+export async function scheduleLocalInicioReminders(evt) {
   if (!evt?.id) return { ok: false, reason: "no_evento" };
-  if (estado?.salida_at || estado?.justificado) {
-    await cancelLocalSalidaReminders(evt.id);
-    return { ok: false, reason: "ya_cerrado" };
-  }
-  if (!estado?.registrado_at) {
-    return { ok: false, reason: "sin_llegada" };
-  }
 
   const granted = await ensureNotificationPermission();
   if (!granted) return { ok: false, reason: "permission" };
 
-  const reminders = buildLocalSalidaReminderPayloads(evt);
+  const reminders = buildLocalInicioReminderPayloads(evt);
   if (!reminders.length) {
-    await cancelLocalSalidaReminders(evt.id);
+    await cancelAllLocalInicioReminders();
     return { ok: false, reason: "nothing_to_schedule" };
   }
 
-  clearPageTimeoutsForEvento(evt.id);
+  clearAllInicioPageTimeouts();
   for (const r of reminders) {
     armPageTimeout(r);
   }
@@ -195,36 +186,31 @@ export async function scheduleLocalSalidaReminders(evt, estado = null) {
     type: MSG_SCHEDULE,
     eventoId: evt.id,
     reminders,
-    /** Solo reescribe salida de este evento; no toca pre_inicio de otros */
+    /** Solo un “próximo ensayo” a la vez */
+    replaceTipos: INICIO_TIPOS,
+    /** No borrar alarms de salida del mismo evento al reprogramar inicio */
     clearEventoFirst: false,
-    clearEventoTipos: SALIDA_TIPOS,
   });
 
   return { ok: true, scheduled: reminders.length };
 }
 
 /**
- * Cancela alarms locales de un evento (tras marcar salida o justificado).
+ * Cancela alarms locales de inicio de un evento.
  * @param {number|string} eventoId
  */
-export async function cancelLocalSalidaReminders(eventoId) {
+export async function cancelLocalInicioReminders(eventoId) {
   if (eventoId == null) return;
   clearPageTimeoutsForEvento(eventoId);
   await postToServiceWorker({
     type: MSG_CANCEL,
     eventoId,
-    tipos: SALIDA_TIPOS,
+    tipos: INICIO_TIPOS,
   });
-  // Cerrar notificaciones visibles del evento
   try {
     if ("serviceWorker" in navigator) {
       const reg = await navigator.serviceWorker.ready;
-      const tags = [
-        localSalidaNotificationTag(eventoId, "pre_cierre"),
-        localSalidaNotificationTag(eventoId, "post_aviso"),
-        `ensayo-salida-${eventoId}-pre_cierre`,
-        `ensayo-salida-${eventoId}-post_aviso`,
-      ];
+      const tags = [localInicioNotificationTag(eventoId, "pre_inicio")];
       for (const tag of tags) {
         const list = await reg.getNotifications({ tag });
         for (const n of list) n.close();
@@ -235,10 +221,18 @@ export async function cancelLocalSalidaReminders(eventoId) {
   }
 }
 
+/** Cancela todos los recordatorios locales de inicio (cualquier evento). */
+export async function cancelAllLocalInicioReminders() {
+  clearAllInicioPageTimeouts();
+  await postToServiceWorker({
+    type: MSG_CANCEL,
+    tipos: INICIO_TIPOS,
+  });
+}
+
 /** Pide al SW rehidratar timeouts (p.ej. al volver a la app). */
-export async function pingLocalSalidaReminders() {
+export async function pingLocalInicioReminders() {
   await postToServiceWorker({ type: MSG_PING });
 }
 
-// Re-export tags/bodies por conveniencia de import único en call sites
-export { buildSalidaReminderBodies, localSalidaNotificationTag };
+export { localInicioNotificationTag, buildInicioReminderBodies };

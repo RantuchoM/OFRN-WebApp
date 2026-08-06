@@ -18,10 +18,11 @@ import { formatRegistradoHora } from "../../services/ensayoCheckinReportService"
 import { requestPosition, geolocationErrorMessage, geolocationAndroidOverlayHint, isAndroidDevice } from "../../utils/geolocation";
 import { decodeQrFromImageFile } from "../../utils/qrDecodeFromImage";
 import { puedeOfrecerPaseGps } from "../../utils/ensayoCheckinBanner";
+import { cancelLocalSalidaReminders } from "../../utils/ensayoLocalSalidaReminders";
 import {
-  scheduleLocalSalidaReminders,
-  cancelLocalSalidaReminders,
-} from "../../utils/ensayoLocalSalidaReminders";
+  onEnsayoAltaLocalReminders,
+  syncEnsayoLocalReminders,
+} from "../../utils/ensayoLocalRemindersSync";
 
 const formatHora = formatRegistradoHora;
 
@@ -71,7 +72,7 @@ export default function RehearsalCheckInBlock({
       return;
     }
     if (yaIngreso && estado?.registrado_at) {
-      scheduleLocalSalidaReminders(evt, estado).catch(() => {});
+      onEnsayoAltaLocalReminders(evt, estado).catch(() => {});
     }
   }, [isToday, evt, yaIngreso, yaSalida, estado?.registrado_at]);
 
@@ -113,7 +114,7 @@ export default function RehearsalCheckInBlock({
           : `Ingreso registrado (${formatHora(res.registrado_at)})`,
       );
       setGeoAssist(null);
-      scheduleLocalSalidaReminders(evt, {
+      onEnsayoAltaLocalReminders(evt, {
         registrado_at: res.registrado_at || new Date().toISOString(),
         salida_at: null,
       });
@@ -139,6 +140,9 @@ export default function RehearsalCheckInBlock({
       );
       setGeoAssist(null);
       cancelLocalSalidaReminders(evt.id);
+      if (integranteId) {
+        syncEnsayoLocalReminders(integranteId).catch(() => {});
+      }
       onSuccess?.();
     }
     return res;
@@ -337,13 +341,16 @@ export default function RehearsalCheckInBlock({
             : `Salida registrada (${formatHora(res.salida_at)})`,
         );
         cancelLocalSalidaReminders(evt.id);
+        if (integranteId) {
+          syncEnsayoLocalReminders(integranteId).catch(() => {});
+        }
       } else {
         toast.success(
           res.ya_registrado
             ? `Ya tenías ingreso (${formatHora(res.registrado_at)})`
             : `Ingreso registrado (${formatHora(res.registrado_at)})`,
         );
-        scheduleLocalSalidaReminders(evt, {
+        onEnsayoAltaLocalReminders(evt, {
           registrado_at: res.registrado_at || new Date().toISOString(),
           salida_at: null,
         });

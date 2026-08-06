@@ -62,7 +62,9 @@ Migraciones:
     - **T−10 → `hora_fin`**: ámbar «Cierre en ~10 min · registrá la salida».
     - **desde `hora_fin`** (POST = 0, justo en horario): rojo «Hora de fin · falta marcar la salida».
   - **Soft notification** (Notification API / SW, solo pestaña visible): una vez por sesión en T−10 (`pre_cierre`) y a `hora_fin` (`post_aviso`).
-  - **Alarma local offline** (sin datos al disparar): al registrar **alta/llegada** (GPS, QR o rehidratación en fase `activo`) se programan en el dispositivo T−10 y `hora_fin` vía Service Worker (`public/sw-local-salida-reminders.js` + `ensayoLocalSalidaReminders.js`). IndexedDB + `setTimeout` en página/SW; `TimestampTrigger` si el motor lo expone. Cancelación automática al marcar salida. Tags iguales al push del cron (`ensayo-salida-pre|post-{eventoId}`) para coalesce.
+  - **Alarma local offline — inicio** (sin datos al disparar): al abrir/volver a la app se sincroniza el **próximo** ensayo convocado (horizonte 30 días) y se programa T−15 de `hora_inicio` (`ensayoLocalInicioReminders.js` + `syncEnsayoLocalReminders`). Tags `ensayo-inicio-pre-{eventoId}`. Solo un próximo a la vez (`replaceTipos: pre_inicio`).
+  - **Alarma local offline — salida**: al registrar **alta/llegada** (GPS, QR o rehidratación en fase `activo`) se **cancela el inicio** del evento y se programan T−10 y `hora_fin` (`onEnsayoAltaLocalReminders` → `ensayoLocalSalidaReminders.js`). SW compartido (`public/sw-local-salida-reminders.js`): IndexedDB + `setTimeout` en página/SW; `TimestampTrigger` si el motor lo expone. Cancelación automática al marcar salida. Tags iguales al push del cron (`ensayo-salida-pre|post-{eventoId}`) para coalesce.
+  - **Gate de prueba (igual que el banner)**: sync de alarmas locales (`EnsayoLocalRemindersSync`) solo si el usuario **real** es `admin` (`isActuallyAdmin`). Cuando se abra el check-in a todos los músicos, quitar el mismo gate del sync.
   - Al entrar en fase `activo`: intento de **suscripción Web Push** (`web_push_subscribe`) si hay `VITE_VAPID_PUBLIC_KEY` y permiso concedido.
   - Íconos: GPS, escanear QR, ofrecer QR (si `modo=gps`), con confirmación.
 - Componente `RehearsalCheckInBlock`: en columna de hora, **emparejado** con el horario del ensayo (`09:00` + llegada · `12:00` + salida); acciones GPS/QR debajo.
@@ -81,7 +83,10 @@ Migraciones:
 - Edge Function: `ensayo-salida-recordatorios` (pg_cron **cada 1 min**, migraciones `20260804120000` + `20260805000000_ensayo_salida_cron_1min.sql`).
 - Idempotencia: tabla `eventos_checkin_recordatorios` (`tipo` pre_cierre|post_cierre, `canal` push|email) — máx. 1 push pre, 1 push post, 1 mail post por (evento, integrante).
 - Suscripciones: `web_push_subscriptions` + RPC `web_push_subscribe`.
-- **Local offline (cliente)**: se agenda al alta en SW/IDB (`ofrn-salida-schedule` / `ofrn-salida-cancel`); no requiere red en el momento del disparo si el proceso o TimestampTrigger sobreviven. Límite de plataforma: en iOS / algunos browsers con app killada el SW se suspende → el push/email siguen como red de seguridad.
+- **Local offline (cliente)**:
+  - Inicio: sync en mount / `visibilitychange` / `focus` / cada 60 s (`useEnsayoLocalRemindersSync` → `syncEnsayoLocalReminders`).
+  - Salida: se agenda al alta en SW/IDB (`ofrn-salida-schedule` / `ofrn-salida-cancel`); no requiere red en el momento del disparo si el proceso o TimestampTrigger sobreviven.
+  - Límite de plataforma: en iOS / algunos browsers con app killada el SW se suspende → el push/email siguen como red de seguridad (salida). Inicio por ahora solo local (sin cron de servidor).
 - Secrets: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` (Edge), `VITE_VAPID_PUBLIC_KEY` (front, misma public), `GMAIL_*`, `ENSAYO_SALIDA_CRON_SECRET` (o reutiliza `DB_BACKUP_CRON_SECRET`), `APP_BASE_URL`.
 - Hora de pared ART (UTC−3) para comparar `eventos.fecha` + `hora_fin`.
 
@@ -98,6 +103,14 @@ Migraciones:
 - Descarga por ensamble: ícono ↓ junto al nombre → Excel/PDF matriz o por persona, **con o sin geolocalización**.
 - Export global: checkbox «Geo en export» + XLS/PDF pers./mat.
 - Export matriz/lista: Excel/PDF con dos columnas de hora por ensayo / por fila; con geo incluye distancia en celda o columnas.
+
+## Alarmas locales — checklist
+
+- [x] Recordatorio local de **inicio** del próximo ensayo convocado (T−15), sync al abrir/volver a la app
+- [x] Al **alta**, cancelar inicio y programar salida (T−10 / `hora_fin`)
+- [x] Tras **salida**, re-sync para programar el siguiente inicio
+- [x] Gate de prueba admin (`EnsayoLocalRemindersSync` + banner); abrir a todos cuando salga de prueba
+- [ ] Cron/push de inicio en servidor (opcional; hoy solo local)
 
 ## Despliegue
 

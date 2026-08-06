@@ -1,6 +1,6 @@
 /**
- * Recordatorios locales de salida de ensayo (sin red).
- * Programados al check-in / fase activo; cancelados al marcar salida.
+ * Recordatorios locales de ensayo (inicio/llegada y salida), sin red.
+ * Programados desde la app; cancelados al marcar alta/salida según corresponda.
  * Cargado vía workbox.importScripts junto a sw-push-handlers.js.
  *
  * - TimestampTrigger cuando el motor lo soporta (Chrome/Android experimental).
@@ -14,6 +14,9 @@ const OFRN_LOCAL_DB_VER = 1;
 const MSG_SCHEDULE = "ofrn-salida-schedule";
 const MSG_CANCEL = "ofrn-salida-cancel";
 const MSG_PING = "ofrn-salida-ping";
+
+const SALIDA_TIPOS = ["pre_cierre", "post_aviso"];
+const INICIO_TIPOS = ["pre_inicio"];
 
 /** @type {Map<string, ReturnType<typeof setTimeout>>} */
 const localTimeouts = new Map();
@@ -62,13 +65,27 @@ async function idbDeleteKey(key) {
   });
 }
 
-async function idbDeleteByEvento(eventoId) {
+async function idbDeleteByEvento(eventoId, tipos = null) {
   const all = await idbGetAll();
   const sid = String(eventoId);
+  const tipoSet = Array.isArray(tipos) && tipos.length ? new Set(tipos) : null;
   await Promise.all(
     all
-      .filter((r) => String(r.eventoId) === sid)
+      .filter((r) => {
+        if (String(r.eventoId) !== sid) return false;
+        if (tipoSet && !tipoSet.has(r.tipo)) return false;
+        return true;
+      })
       .map((r) => idbDeleteKey(r.key)),
+  );
+}
+
+async function idbDeleteByTipos(tipos) {
+  if (!Array.isArray(tipos) || !tipos.length) return;
+  const tipoSet = new Set(tipos);
+  const all = await idbGetAll();
+  await Promise.all(
+    all.filter((r) => tipoSet.has(r.tipo)).map((r) => idbDeleteKey(r.key)),
   );
 }
 
@@ -96,11 +113,67 @@ function clearTimeoutForKey(key) {
   }
 }
 
+function clearTimeoutsMatching({ eventoId = null, tipos = null } = {}) {
+  const tipoSet = Array.isArray(tipos) && tipos.length ? new Set(tipos) : null;
+  const sid = eventoId != null ? String(eventoId) : null;
+  for (const [key, t] of [...localTimeouts.entries()]) {
+    const [eid, tipo] = String(key).split(":");
+    if (sid != null && eid !== sid) continue;
+    if (tipoSet && !tipoSet.has(tipo)) continue;
+    clearTimeout(t);
+    localTimeouts.delete(key);
+  }
+}
+
+function defaultTagFor(tipo, eventoId) {
+  if (tipo === "pre_inicio") return `ensayo-inicio-pre-${eventoId}`;
+  if (tipo === "pre_cierre") return `ensayo-salida-pre-${eventoId}`;
+  if (tipo === "post_aviso") return `ensayo-salida-post-${eventoId}`;
+  return `ensayo-${tipo}-${eventoId}`;
+}
+
+function tagsForEventoTipos(eventoId, tipos) {
+  const list = Array.isArray(tipos) && tipos.length ? tipos : [
+    ...SALIDA_TIPOS,
+    ...INICIO_TIPOS,
+    "pre_cierre",
+    "post_aviso",
+  ];
+  const tags = [];
+  for (const tipo of list) {
+    tags.push(defaultTagFor(tipo, eventoId));
+    // legado salida
+    if (tipo === "pre_cierre") {
+      tags.push(`ensayo-salida-${eventoId}-pre_cierre`);
+    }
+    if (tipo === "post_aviso") {
+      tags.push(`ensayo-salida-${eventoId}-post_aviso`);
+    }
+  }
+  return tags;
+}
+
+async function closeNotificationsByTags(tags) {
+  if (!tags?.length) return;
+  try {
+    for (const tag of tags) {
+      const list = await self.registration.getNotifications({ tag });
+      for (const n of list) n.close();
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 async function showImmediate(record) {
   const title = record.title || "OFRN";
+  const fallbackBody =
+    record.tipo === "pre_inicio"
+      ? "Recordá marcar el ingreso al ensayo"
+      : "Recordá marcar la salida del ensayo";
   const options = {
-    body: record.body || "Recordá marcar la salida del ensayo",
-    tag: record.tag || `ensayo-salida-${record.eventoId}`,
+    body: record.body || fallbackBody,
+    tag: record.tag || defaultTagFor(record.tipo, record.eventoId),
     renotify: true,
     icon: "/pwa-192x192.png",
     badge: "/pwa-192x192.png",
@@ -108,7 +181,7 @@ async function showImmediate(record) {
       url: record.url || "/",
       eventoId: record.eventoId,
       tipo: record.tipo,
-      source: "local-salida",
+      source: "local-ensayo",
     },
   };
   await self.registration.showNotification(title, options);
@@ -133,7 +206,7 @@ async function tryScheduleWithTrigger(record) {
         url: record.url || "/",
         eventoId: record.eventoId,
         tipo: record.tipo,
-        source: "local-salida-trigger",
+        source: "local-ensayo-trigger",
       },
     });
     return true;
@@ -151,7 +224,7 @@ function armTimeout(record) {
     fireAndConsume(record);
     return;
   }
-  // setTimeout max ~24.8 days; ensayos son el mismo día.
+  // setTimeout max ~24.8 days
   const safeDelay = Math.min(delay, 2_147_483_647);
   const handle = setTimeout(() => {
     localTimeouts.delete(key);
@@ -202,29 +275,46 @@ async function rehydrateFromIdb() {
   }
 }
 
+function normalizeTipo(rawTipo) {
+  if (rawTipo === "post_aviso") return "post_aviso";
+  if (rawTipo === "pre_inicio") return "pre_inicio";
+  if (rawTipo === "pre_cierre") return "pre_cierre";
+  // legado / default salida
+  return rawTipo || "pre_cierre";
+}
+
 async function handleSchedule(payload) {
   const reminders = Array.isArray(payload?.reminders) ? payload.reminders : [];
   const eventoId = payload?.eventoId;
-  if (eventoId != null) {
-    // Limpiar timeouts previos de este evento
-    for (const [key, t] of [...localTimeouts.entries()]) {
-      if (key.startsWith(`${eventoId}:`)) {
-        clearTimeout(t);
-        localTimeouts.delete(key);
-      }
-    }
-    await idbDeleteByEvento(eventoId).catch(() => {});
-    // Cancelar notifs programadas con tag (Triggers / previas)
+  const replaceTipos = Array.isArray(payload?.replaceTipos)
+    ? payload.replaceTipos
+    : null;
+  const clearEventoTipos = Array.isArray(payload?.clearEventoTipos)
+    ? payload.clearEventoTipos
+    : null;
+  // Por defecto limpia todo el evento (legado salida). Opt-out con clearEventoFirst:false.
+  const clearEventoFirst = payload?.clearEventoFirst !== false;
+
+  if (replaceTipos?.length) {
+    clearTimeoutsMatching({ tipos: replaceTipos });
+    await idbDeleteByTipos(replaceTipos).catch(() => {});
+    // Cerrar notifs visibles de esos tipos (cualquier evento)
     try {
-      const shown = await self.registration.getNotifications({
-        // sin filtro tag limpia solo las de tags conocidas más abajo
-      });
+      const shown = await self.registration.getNotifications({});
       for (const n of shown) {
+        const tag = String(n.tag || "");
         if (
-          n.tag === `ensayo-salida-pre-${eventoId}` ||
-          n.tag === `ensayo-salida-post-${eventoId}` ||
-          n.tag === `ensayo-salida-${eventoId}-pre_cierre` ||
-          n.tag === `ensayo-salida-${eventoId}-post_aviso`
+          replaceTipos.includes("pre_inicio") &&
+          tag.startsWith("ensayo-inicio-")
+        ) {
+          n.close();
+        }
+        if (
+          (replaceTipos.includes("pre_cierre") ||
+            replaceTipos.includes("post_aviso")) &&
+          (tag.startsWith("ensayo-salida-pre-") ||
+            tag.startsWith("ensayo-salida-post-") ||
+            /ensayo-salida-\d+-(pre_cierre|post_aviso)/.test(tag))
         ) {
           n.close();
         }
@@ -234,8 +324,22 @@ async function handleSchedule(payload) {
     }
   }
 
+  if (eventoId != null && clearEventoTipos?.length) {
+    clearTimeoutsMatching({ eventoId, tipos: clearEventoTipos });
+    await idbDeleteByEvento(eventoId, clearEventoTipos).catch(() => {});
+    await closeNotificationsByTags(
+      tagsForEventoTipos(eventoId, clearEventoTipos),
+    );
+  } else if (eventoId != null && clearEventoFirst) {
+    clearTimeoutsMatching({ eventoId });
+    await idbDeleteByEvento(eventoId).catch(() => {});
+    await closeNotificationsByTags(
+      tagsForEventoTipos(eventoId, [...SALIDA_TIPOS, ...INICIO_TIPOS]),
+    );
+  }
+
   for (const raw of reminders) {
-    const tipo = raw.tipo === "post_aviso" ? "post_aviso" : "pre_cierre";
+    const tipo = normalizeTipo(raw.tipo);
     const eid = raw.eventoId ?? eventoId;
     if (eid == null || !raw.atMs) continue;
     const key = reminderKey(eid, tipo);
@@ -246,20 +350,15 @@ async function handleSchedule(payload) {
       atMs: Number(raw.atMs),
       title: raw.title || "OFRN",
       body: raw.body || "",
-      tag:
-        raw.tag ||
-        (tipo === "pre_cierre"
-          ? `ensayo-salida-pre-${eid}`
-          : `ensayo-salida-post-${eid}`),
+      tag: raw.tag || defaultTagFor(tipo, eid),
       url: raw.url || "/",
     };
     await idbPut(record).catch(() => {});
     const usedTrigger = await tryScheduleWithTrigger(record);
-    // Siempre armar timeout como red de seguridad (si Triggers falla o no hay API)
+    // Siempre armar timeout como red de seguridad
     if (!usedTrigger || Number(record.atMs) <= Date.now() + 1500) {
       armTimeout(record);
     } else {
-      // Triggers ok: igual timeout por si el flag no honra la alarma
       armTimeout(record);
     }
   }
@@ -267,28 +366,43 @@ async function handleSchedule(payload) {
 
 async function handleCancel(payload) {
   const eventoId = payload?.eventoId;
+  const tipos = Array.isArray(payload?.tipos) ? payload.tipos : null;
+
+  if (eventoId == null && tipos?.length) {
+    clearTimeoutsMatching({ tipos });
+    await idbDeleteByTipos(tipos).catch(() => {});
+    try {
+      const shown = await self.registration.getNotifications({});
+      for (const n of shown) {
+        const tag = String(n.tag || "");
+        if (tipos.includes("pre_inicio") && tag.startsWith("ensayo-inicio-")) {
+          n.close();
+        }
+        if (
+          (tipos.includes("pre_cierre") || tipos.includes("post_aviso")) &&
+          (tag.startsWith("ensayo-salida-pre-") ||
+            tag.startsWith("ensayo-salida-post-") ||
+            /ensayo-salida-\d+-(pre_cierre|post_aviso)/.test(tag))
+        ) {
+          n.close();
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+
   if (eventoId == null) return;
-  for (const [key, t] of [...localTimeouts.entries()]) {
-    if (key.startsWith(`${eventoId}:`)) {
-      clearTimeout(t);
-      localTimeouts.delete(key);
-    }
-  }
-  await idbDeleteByEvento(eventoId).catch(() => {});
-  try {
-    const tags = [
-      `ensayo-salida-pre-${eventoId}`,
-      `ensayo-salida-post-${eventoId}`,
-      `ensayo-salida-${eventoId}-pre_cierre`,
-      `ensayo-salida-${eventoId}-post_aviso`,
-    ];
-    for (const tag of tags) {
-      const list = await self.registration.getNotifications({ tag });
-      for (const n of list) n.close();
-    }
-  } catch {
-    /* ignore */
-  }
+
+  clearTimeoutsMatching({ eventoId, tipos });
+  await idbDeleteByEvento(eventoId, tipos).catch(() => {});
+  await closeNotificationsByTags(
+    tagsForEventoTipos(
+      eventoId,
+      tipos || [...SALIDA_TIPOS, ...INICIO_TIPOS],
+    ),
+  );
 }
 
 self.addEventListener("message", (event) => {
