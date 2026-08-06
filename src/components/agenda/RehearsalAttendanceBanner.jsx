@@ -37,6 +37,11 @@ import {
 } from "../../utils/ensayoCheckinBanner";
 import { maybeFireSoftFromEstado } from "../../utils/ensayoSalidaReminders";
 import { ensureWebPushSubscription } from "../../utils/webPushSubscribe";
+import {
+  scheduleLocalSalidaReminders,
+  cancelLocalSalidaReminders,
+  pingLocalSalidaReminders,
+} from "../../utils/ensayoLocalSalidaReminders";
 
 /**
  * Banner sticky: mismo set de íconos que RehearsalCheckInBlock (GPS / escanear / ofrecer QR),
@@ -61,10 +66,23 @@ export default function RehearsalAttendanceBanner({
   const [scanPhase, setScanPhase] = useState("entrada");
   const qrPhotoRef = useRef(null);
   const pushSubscribedRef = useRef(false);
+  const localScheduledKeyRef = useRef(null);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
+  }, []);
+
+  // Rehidratar alarms locales del SW al volver a la app
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        pingLocalSalidaReminders();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    pingLocalSalidaReminders();
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
   useEffect(() => {
@@ -126,14 +144,46 @@ export default function RehearsalAttendanceBanner({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- disparo anclado a ventana de urgencia
   }, [phase, evt?.id, estado?.registrado_at, estado?.salida_at, salidaUrgency]);
 
-  // Suscribir Web Push al entrar en "activo" (para cron T−10 / hora_fin)
+  // Suscribir Web Push + programar alarms locales (offline) al entrar en "activo"
   useEffect(() => {
-    if (phase !== "activo" || !integranteId || pushSubscribedRef.current) return;
-    pushSubscribedRef.current = true;
-    ensureWebPushSubscription(integranteId).then((res) => {
-      if (!res.ok) pushSubscribedRef.current = false;
-    });
-  }, [phase, integranteId]);
+    if (phase !== "activo" || !evt?.id || !estado?.registrado_at) {
+      return undefined;
+    }
+    if (estado.salida_at || estado.justificado) {
+      cancelLocalSalidaReminders(evt.id);
+      localScheduledKeyRef.current = null;
+      return undefined;
+    }
+
+    const scheduleKey = `${evt.id}:${estado.registrado_at}:${evt.hora_fin || ""}`;
+    if (localScheduledKeyRef.current !== scheduleKey) {
+      localScheduledKeyRef.current = scheduleKey;
+      scheduleLocalSalidaReminders(evt, estado).catch(() => {});
+    }
+
+    if (integranteId && !pushSubscribedRef.current) {
+      pushSubscribedRef.current = true;
+      ensureWebPushSubscription(integranteId).then((res) => {
+        if (!res.ok) pushSubscribedRef.current = false;
+      });
+    }
+    return undefined;
+  }, [
+    phase,
+    evt,
+    estado?.registrado_at,
+    estado?.salida_at,
+    estado?.justificado,
+    integranteId,
+  ]);
+
+  // Cancelar alarms locales al cerrar (done / sin banner)
+  useEffect(() => {
+    if ((phase === "done" || estado?.salida_at) && evt?.id) {
+      cancelLocalSalidaReminders(evt.id);
+      localScheduledKeyRef.current = null;
+    }
+  }, [phase, estado?.salida_at, evt?.id]);
 
   const bannerChrome =
     phase === "activo"
@@ -189,6 +239,7 @@ export default function RehearsalAttendanceBanner({
             : `Salida registrada (${formatRegistradoHora(res.salida_at)})`,
         );
         setGeoAssist(null);
+        cancelLocalSalidaReminders(evt.id);
         onSuccess?.();
       }
       return res;
@@ -208,6 +259,11 @@ export default function RehearsalAttendanceBanner({
           : `Ingreso registrado (${formatRegistradoHora(res.registrado_at)})`,
       );
       setGeoAssist(null);
+      // Programar offline: el estado puede no estar refrescado aún
+      scheduleLocalSalidaReminders(evt, {
+        registrado_at: res.registrado_at || new Date().toISOString(),
+        salida_at: null,
+      });
       onSuccess?.();
     }
     return res;
@@ -368,6 +424,14 @@ export default function RehearsalAttendanceBanner({
             ? `Ya tenías ingreso (${formatRegistradoHora(res.registrado_at)})`
             : `Ingreso registrado (${formatRegistradoHora(res.registrado_at)})`,
       );
+      if (isSalida) {
+        cancelLocalSalidaReminders(evt.id);
+      } else {
+        scheduleLocalSalidaReminders(evt, {
+          registrado_at: res.registrado_at || new Date().toISOString(),
+          salida_at: null,
+        });
+      }
       setShowPeer(false);
       onSuccess?.();
     } catch (err) {

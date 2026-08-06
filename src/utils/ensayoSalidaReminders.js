@@ -1,3 +1,7 @@
+/**
+ * Soft notifications (pestaña visible) + builders/tags compartidos con
+ * recordatorios locales y push del cron.
+ */
 import {
   ensayoBannerTitle,
   ensayoBannerSubtitle,
@@ -7,6 +11,34 @@ import {
 } from "./ensayoCheckinBanner";
 
 const STORAGE_PREFIX = "ofrn:ensayo-salida-soft:";
+
+/**
+ * Tags alineados al push del cron (coalesce si llegan ambos o con local).
+ * @param {number|string} eventoId
+ * @param {'pre_cierre'|'post_aviso'} tipo
+ */
+export function localSalidaNotificationTag(eventoId, tipo) {
+  return tipo === "pre_cierre"
+    ? `ensayo-salida-pre-${eventoId}`
+    : `ensayo-salida-post-${eventoId}`;
+}
+
+export function buildSalidaReminderBodies(evt, tipo) {
+  const title =
+    tipo === "pre_cierre"
+      ? "Cierre de ensayo en breve"
+      : "Falta marcar la salida";
+  const name = ensayoBannerTitle(evt);
+  const sub = ensayoBannerSubtitle(evt);
+  const label = [name, sub].filter(Boolean).join(" · ");
+  const body =
+    tipo === "pre_cierre"
+      ? `Quedan ~${ENSAYO_SALIDA_PRE_MINUTES} min para el fin programado de «${label}». Recordá registrar la hora de salida.`
+      : ENSAYO_SALIDA_POST_MINUTES > 0
+        ? `Pasaron ${ENSAYO_SALIDA_POST_MINUTES} min del fin de «${label}» y aún no registraste la salida.`
+        : `Llegó el fin programado de «${label}» y aún no registraste la salida.`;
+  return { title, body };
+}
 
 /**
  * @param {number|string} eventoId
@@ -46,26 +78,10 @@ export function softReminderTipoFromUrgency(urgency) {
   return null;
 }
 
-function buildSoftBodies(evt, tipo) {
-  const title =
-    tipo === "pre_cierre"
-      ? "Cierre de ensayo en breve"
-      : "Falta marcar la salida";
-  const name = ensayoBannerTitle(evt);
-  const sub = ensayoBannerSubtitle(evt);
-  const label = [name, sub].filter(Boolean).join(" · ");
-  const body =
-    tipo === "pre_cierre"
-      ? `Quedan ~${ENSAYO_SALIDA_PRE_MINUTES} min para el fin programado de «${label}». Recordá registrar la hora de salida.`
-      : ENSAYO_SALIDA_POST_MINUTES > 0
-        ? `Pasaron ${ENSAYO_SALIDA_POST_MINUTES} min del fin de «${label}» y aún no registraste la salida.`
-        : `Llegó el fin programado de «${label}» y aún no registraste la salida.`;
-  return { title, body };
-}
-
 /**
  * Notification API solo con pestaña/app abierta (sin push backend).
  * Una vez por (evento, tipo) en la sesión del navegador.
+ * Tags alineados a push/local (`ensayo-salida-pre|post-*`) para coalesce.
  *
  * @param {object} evt
  * @param {'pre_cierre'|'post_aviso'} tipo
@@ -93,7 +109,8 @@ export async function maybeFireSoftSalidaNotification(evt, tipo) {
   }
   if (permission !== "granted") return false;
 
-  const { title, body } = buildSoftBodies(evt, tipo);
+  const { title, body } = buildSalidaReminderBodies(evt, tipo);
+  const tag = localSalidaNotificationTag(evt.id, tipo);
   try {
     // Preferir SW showNotification si hay registration (mejor en móvil)
     if ("serviceWorker" in navigator) {
@@ -101,7 +118,7 @@ export async function maybeFireSoftSalidaNotification(evt, tipo) {
       if (reg?.showNotification) {
         await reg.showNotification(title, {
           body,
-          tag: `ensayo-salida-${evt.id}-${tipo}`,
+          tag,
           renotify: true,
           data: { url: "/", tipo, eventoId: evt.id },
         });
@@ -112,7 +129,7 @@ export async function maybeFireSoftSalidaNotification(evt, tipo) {
     // eslint-disable-next-line no-new
     new Notification(title, {
       body,
-      tag: `ensayo-salida-${evt.id}-${tipo}`,
+      tag,
     });
     markSoftReminderFired(evt.id, tipo);
     return true;

@@ -62,6 +62,7 @@ Migraciones:
     - **T−10 → `hora_fin`**: ámbar «Cierre en ~10 min · registrá la salida».
     - **desde `hora_fin`** (POST = 0, justo en horario): rojo «Hora de fin · falta marcar la salida».
   - **Soft notification** (Notification API / SW, solo pestaña visible): una vez por sesión en T−10 (`pre_cierre`) y a `hora_fin` (`post_aviso`).
+  - **Alarma local offline** (sin datos al disparar): al registrar **alta/llegada** (GPS, QR o rehidratación en fase `activo`) se programan en el dispositivo T−10 y `hora_fin` vía Service Worker (`public/sw-local-salida-reminders.js` + `ensayoLocalSalidaReminders.js`). IndexedDB + `setTimeout` en página/SW; `TimestampTrigger` si el motor lo expone. Cancelación automática al marcar salida. Tags iguales al push del cron (`ensayo-salida-pre|post-{eventoId}`) para coalesce.
   - Al entrar en fase `activo`: intento de **suscripción Web Push** (`web_push_subscribe`) si hay `VITE_VAPID_PUBLIC_KEY` y permiso concedido.
   - Íconos: GPS, escanear QR, ofrecer QR (si `modo=gps`), con confirmación.
 - Componente `RehearsalCheckInBlock`: en columna de hora, **emparejado** con el horario del ensayo (`09:00` + llegada · `12:00` + salida); acciones GPS/QR debajo.
@@ -74,12 +75,13 @@ Migraciones:
 
 | Momento | Canal | Condición |
 |---------|--------|-----------|
-| T−10 de `hora_fin` | Web Push + soft (app abierta) | `registrado_at` sí, `salida_at` no, no justificado |
-| Justo a `hora_fin` (POST=0) | Web Push + soft + **email** | igual |
+| T−10 de `hora_fin` | Web Push + soft (app abierta) + **alarma local** | `registrado_at` sí, `salida_at` no, no justificado |
+| Justo a `hora_fin` (POST=0) | Web Push + soft + **email** + **alarma local** | igual |
 
 - Edge Function: `ensayo-salida-recordatorios` (pg_cron **cada 1 min**, migraciones `20260804120000` + `20260805000000_ensayo_salida_cron_1min.sql`).
 - Idempotencia: tabla `eventos_checkin_recordatorios` (`tipo` pre_cierre|post_cierre, `canal` push|email) — máx. 1 push pre, 1 push post, 1 mail post por (evento, integrante).
 - Suscripciones: `web_push_subscriptions` + RPC `web_push_subscribe`.
+- **Local offline (cliente)**: se agenda al alta en SW/IDB (`ofrn-salida-schedule` / `ofrn-salida-cancel`); no requiere red en el momento del disparo si el proceso o TimestampTrigger sobreviven. Límite de plataforma: en iOS / algunos browsers con app killada el SW se suspende → el push/email siguen como red de seguridad.
 - Secrets: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` (Edge), `VITE_VAPID_PUBLIC_KEY` (front, misma public), `GMAIL_*`, `ENSAYO_SALIDA_CRON_SECRET` (o reutiliza `DB_BACKUP_CRON_SECRET`), `APP_BASE_URL`.
 - Hora de pared ART (UTC−3) para comparar `eventos.fecha` + `hora_fin`.
 
