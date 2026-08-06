@@ -74,6 +74,16 @@ entrypoint = "./functions/ensayo-salida-recordatorios/index.ts"
 #   VAPID_SUBJECT (opcional), APP_BASE_URL / FRONTEND_URL
 # Header: x-ensayo-salida-cron-secret
 
+[functions.ensayo-inicio-recordatorios]
+enabled = true
+verify_jwt = false
+import_map = "./functions/ensayo-inicio-recordatorios/deno.json"
+entrypoint = "./functions/ensayo-inicio-recordatorios/index.ts"
+# pg_cron cada 1 min (migración 20260806140000). Secrets:
+#   ENSAYO_INICIO_CRON_SECRET (o ENSAYO_SALIDA / DB_BACKUP), GMAIL_*, VAPID_*, APP_BASE_URL
+# Header: x-ensayo-inicio-cron-secret (también acepta x-ensayo-salida-cron-secret / x-db-backup-cron-secret)
+# Gate ONLY_ADMINS=true en código hasta abrir check-in a músicos.
+
 [functions.sync-conciertos-sheet]
 enabled = true
 verify_jwt = false

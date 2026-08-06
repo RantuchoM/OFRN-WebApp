@@ -46,7 +46,8 @@
 Migraciones:
 - `supabase/migrations/20260603120000_ensayo_checkin_asistencia.sql`
 - `supabase/migrations/20260727180000_ensayo_checkin_salida.sql`
-- `supabase/migrations/20260804120000_ensayo_salida_recordatorios.sql` (push/email recordatorios + `web_push_subscriptions`)
+- `supabase/migrations/20260804120000_ensayo_salida_recordatorios.sql` (push/email salida + `web_push_subscriptions`)
+- `supabase/migrations/20260806140000_ensayo_inicio_recordatorios.sql` (`pre_inicio` + cron ingreso)
 
 ## UI Agenda
 
@@ -64,8 +65,8 @@ Migraciones:
   - **Soft notification** (Notification API / SW, solo pestaña visible): una vez por sesión en T−10 (`pre_cierre`) y a `hora_fin` (`post_aviso`).
   - **Alarma local offline — inicio** (sin datos al disparar): al abrir/volver a la app se sincroniza el **próximo** ensayo convocado (horizonte 30 días) y se programa T−15 de `hora_inicio` (`ensayoLocalInicioReminders.js` + `syncEnsayoLocalReminders`). Tags `ensayo-inicio-pre-{eventoId}`. Solo un próximo a la vez (`replaceTipos: pre_inicio`).
   - **Alarma local offline — salida**: al registrar **alta/llegada** (GPS, QR o rehidratación en fase `activo`) se **cancela el inicio** del evento y se programan T−10 y `hora_fin` (`onEnsayoAltaLocalReminders` → `ensayoLocalSalidaReminders.js`). SW compartido (`public/sw-local-salida-reminders.js`): IndexedDB + `setTimeout` en página/SW; `TimestampTrigger` si el motor lo expone. Cancelación automática al marcar salida. Tags iguales al push del cron (`ensayo-salida-pre|post-{eventoId}`) para coalesce.
-  - **Gate de prueba (igual que el banner)**: sync de alarmas locales (`EnsayoLocalRemindersSync`) solo si el usuario **real** es `admin` (`isActuallyAdmin`). Cuando se abra el check-in a todos los músicos, quitar el mismo gate del sync.
-  - Al entrar en fase `activo`: intento de **suscripción Web Push** (`web_push_subscribe`) si hay `VITE_VAPID_PUBLIC_KEY` y permiso concedido.
+  - **Gate de prueba (igual que el banner)**: sync de alarmas locales (`EnsayoLocalRemindersSync`) solo si el usuario **real** es `admin` (`isActuallyAdmin`). Incluye suscripción Web Push al montar (para cron de ingreso T−15). Cuando se abra el check-in a todos los músicos, quitar el mismo gate del sync y `ONLY_ADMINS` en la Edge Function.
+  - Al entrar en fase `activo`: reintento de **suscripción Web Push** (`web_push_subscribe`) si hay permisos (también se pide en el sync de admin al abrir la app).
   - Íconos: GPS, escanear QR, ofrecer QR (si `modo=gps`), con confirmación.
 - Componente `RehearsalCheckInBlock`: en columna de hora, **emparejado** con el horario del ensayo (`09:00` + llegada · `12:00` + salida); acciones GPS/QR debajo.
 - Visibilidad (tarjeta y banner): usuario **real** admin (`isActuallyAdmin`) **y** convocado al ensayo (`isIntegranteConvocadoAEnsayo`, calculado en vivo desde el perfil; no solo flag de cache).
@@ -81,14 +82,24 @@ Migraciones:
 | Justo a `hora_fin` (POST=0) | Web Push + soft + **email** + **alarma local** | igual |
 
 - Edge Function: `ensayo-salida-recordatorios` (pg_cron **cada 1 min**, migraciones `20260804120000` + `20260805000000_ensayo_salida_cron_1min.sql`).
-- Idempotencia: tabla `eventos_checkin_recordatorios` (`tipo` pre_cierre|post_cierre, `canal` push|email) — máx. 1 push pre, 1 push post, 1 mail post por (evento, integrante).
-- Suscripciones: `web_push_subscriptions` + RPC `web_push_subscribe`.
+- Idempotencia: tabla `eventos_checkin_recordatorios` (`tipo` pre_cierre|post_cierre|**pre_inicio**, `canal` push|email).
+
+## Recordatorios de ingreso / inicio (cron)
+
+| Momento | Canal | Condición |
+|---------|--------|-----------|
+| T−15 de `hora_inicio` (ventana hasta T+3 h) | Web Push + **email** + alarma local | convocado, sin `registrado_at`, no justificado |
+
+- Edge Function: `ensayo-inicio-recordatorios` (pg_cron **cada 1 min**, migración `20260806140000_ensayo_inicio_recordatorios.sql`).
+- **Gate de prueba:** solo integrantes con `admin` en `rol_sistema` (`ONLY_ADMINS = true` en la función). Al abrir check-in a músicos: poner `ONLY_ADMINS = false` y quitar el gate de `EnsayoLocalRemindersSync` / banner.
+- Tags push alineados a local: `ensayo-inicio-pre-{eventoId}`.
+- Suscripciones: `web_push_subscriptions` + RPC `web_push_subscribe` (se renueva al montar sync de admin).
 - **Local offline (cliente)**:
   - Inicio: sync en mount / `visibilitychange` / `focus` / cada 60 s (`useEnsayoLocalRemindersSync` → `syncEnsayoLocalReminders`).
   - Salida: se agenda al alta en SW/IDB (`ofrn-salida-schedule` / `ofrn-salida-cancel`); no requiere red en el momento del disparo si el proceso o TimestampTrigger sobreviven.
-  - Límite de plataforma: en iOS / algunos browsers con app killada el SW se suspende → el push/email siguen como red de seguridad (salida). Inicio por ahora solo local (sin cron de servidor).
-- Secrets: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` (Edge), `VITE_VAPID_PUBLIC_KEY` (front, misma public), `GMAIL_*`, `ENSAYO_SALIDA_CRON_SECRET` (o reutiliza `DB_BACKUP_CRON_SECRET`), `APP_BASE_URL`.
-- Hora de pared ART (UTC−3) para comparar `eventos.fecha` + `hora_fin`.
+  - Límite de plataforma: en iOS / algunos browsers con app killada el SW se suspende → el push/email cubren ingreso y salida con red.
+- Secrets: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` (Edge), `VITE_VAPID_PUBLIC_KEY` (front, misma public), `GMAIL_*`, `ENSAYO_INICIO_CRON_SECRET` (o reutiliza `ENSAYO_SALIDA_CRON_SECRET` / `DB_BACKUP_CRON_SECRET`), `APP_BASE_URL`.
+- Hora de pared ART (UTC−3) para comparar `eventos.fecha` + `hora_inicio` / `hora_fin`.
 
 ## UI Gestión
 
@@ -110,7 +121,7 @@ Migraciones:
 - [x] Al **alta**, cancelar inicio y programar salida (T−10 / `hora_fin`)
 - [x] Tras **salida**, re-sync para programar el siguiente inicio
 - [x] Gate de prueba admin (`EnsayoLocalRemindersSync` + banner); abrir a todos cuando salga de prueba
-- [ ] Cron/push de inicio en servidor (opcional; hoy solo local)
+- [x] Cron Web Push + email de **ingreso** en servidor (`ensayo-inicio-recordatorios`, solo admins)
 
 ## Despliegue
 
