@@ -52,7 +52,7 @@ const sortPartsByInstrumentAndName = (list) =>
 
 const ModalPortal = ({ children }) => {
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in duration-200">
       {children}
     </div>,
     document.body,
@@ -87,6 +87,8 @@ export default function DriveMatcherModal({
 
   const [editingPartId, setEditingPartId] = useState(null);
   const [editingName, setEditingName] = useState("");
+  /** En móvil: pestaña activa del cuerpo (dos columnas en md+). */
+  const [mobilePane, setMobilePane] = useState("parts"); // "parts" | "drive"
 
   const instrumentInputRef = useRef(null);
   const editInputRef = useRef(null);
@@ -187,6 +189,7 @@ export default function DriveMatcherModal({
     if (folderUrl) fetchFiles();
     else setDriveFiles([]);
     setSelectedFiles([]);
+    setMobilePane("parts");
   }, [isOpen, folderUrl]);
 
   useEffect(() => {
@@ -484,7 +487,7 @@ export default function DriveMatcherModal({
       title: "Eliminar particella",
       message: "¿Eliminar esta particella?",
       destructive: true,
-      overlayClassName: "z-[110]",
+      overlayClassName: "z-[10050]",
     }))) return;
     if (onPartsChange) onPartsChange(parts.filter((p) => p.tempId !== tempId));
   };
@@ -500,7 +503,7 @@ export default function DriveMatcherModal({
       title: "Eliminar particellas",
       message: msg,
       destructive: true,
-      overlayClassName: "z-[110]",
+      overlayClassName: "z-[10050]",
     }))) return;
     const sel = selectedPartTempIds;
     if (onPartsChange)
@@ -693,15 +696,21 @@ export default function DriveMatcherModal({
   return (
     <ModalPortal>
       {dialog}
-      <div className="bg-white w-full max-w-6xl h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Asistente de Enlaces Drive"
+        className="bg-white w-full max-w-6xl h-[100dvh] sm:h-[90vh] rounded-none sm:rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom sm:zoom-in-95 duration-200"
+      >
         {/* HEADER */}
-        <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-center shrink-0">
-          <div className="flex flex-col gap-1">
-            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <IconDrive className="text-blue-600" /> Asistente de Enlaces Drive
+        <div className="bg-slate-50 px-3 py-3 sm:p-4 border-b border-slate-200 flex justify-between items-start gap-2 shrink-0">
+          <div className="flex flex-col gap-1 min-w-0 flex-1">
+            <h3 className="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2 min-w-0">
+              <IconDrive className="text-blue-600 shrink-0" />
+              <span className="truncate">Asistente de Enlaces Drive</span>
             </h3>
-            <div className="flex flex-col gap-1">
-              <div className="text-sm font-mono font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 inline-block w-fit">
+            <div className="flex flex-col gap-1 min-w-0">
+              <div className="text-xs sm:text-sm font-mono font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 inline-block w-fit max-w-full truncate">
                 {currentInstrumentation || "Sin instrumentación"}
               </div>
               {suggestedParts.length > 0 && parts.length === 0 && (
@@ -784,15 +793,18 @@ export default function DriveMatcherModal({
               )}
             </div>
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-1 sm:gap-2 items-center shrink-0">
             <div className="text-xs text-slate-400 mr-2 text-right hidden md:block">
               Shift+Click = Selección múltiple
               <br />
               Asignación en cascada automática
             </div>
             <button
+              type="button"
               onClick={fetchFiles}
               className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
+              title="Actualizar archivos de Drive"
+              aria-label="Actualizar archivos de Drive"
             >
               <IconRefresh
                 size={18}
@@ -803,18 +815,72 @@ export default function DriveMatcherModal({
               type="button"
               disabled={closing}
               onClick={() => void requestClose()}
-              className="text-slate-400 hover:text-slate-600 disabled:opacity-50"
+              className="p-2 text-slate-400 hover:text-slate-600 disabled:opacity-50 rounded-full hover:bg-slate-200"
               title={closing ? "Guardando cambios…" : "Cerrar"}
+              aria-label="Cerrar"
             >
-              <IconX size={24} />
+              <IconX size={22} />
             </button>
           </div>
         </div>
 
+        {/* Tabs móviles: evita dos columnas ilegibles en pantallas angostas */}
+        <div className="md:hidden flex border-b border-slate-200 shrink-0 bg-white">
+          <button
+            type="button"
+            onClick={() => setMobilePane("parts")}
+            className={`flex-1 px-3 py-2.5 text-xs font-bold uppercase tracking-wide transition-colors ${
+              mobilePane === "parts"
+                ? "text-indigo-700 border-b-2 border-indigo-600 bg-indigo-50/60"
+                : "text-slate-500 hover:bg-slate-50"
+            }`}
+          >
+            Particellas ({parts.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobilePane("drive")}
+            className={`flex-1 px-3 py-2.5 text-xs font-bold uppercase tracking-wide transition-colors flex items-center justify-center gap-1.5 ${
+              mobilePane === "drive"
+                ? "text-indigo-700 border-b-2 border-indigo-600 bg-indigo-50/60"
+                : "text-slate-500 hover:bg-slate-50"
+            }`}
+          >
+            Drive ({driveFiles.length})
+            {selectedFiles.length > 0 && (
+              <span className="normal-case tracking-normal bg-blue-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                {selectedFiles.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {selectedFiles.length > 0 && mobilePane === "drive" && (
+          <div className="md:hidden shrink-0 px-3 py-2 bg-blue-50 border-b border-blue-100 flex items-center justify-between gap-2">
+            <span className="text-[11px] text-blue-900 font-medium truncate">
+              {selectedFiles.length === 1
+                ? `Seleccionado: ${selectedFiles[0]?.name || "archivo"}`
+                : `${selectedFiles.length} archivos seleccionados`}
+            </span>
+            <button
+              type="button"
+              onClick={() => setMobilePane("parts")}
+              className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 text-white text-[11px] font-bold hover:bg-blue-700"
+            >
+              Asignar
+              <IconArrowRight size={12} />
+            </button>
+          </div>
+        )}
+
         {/* BODY */}
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex overflow-hidden min-h-0">
           {/* IZQUIERDA: PARTICELLAS */}
-          <div className="w-7/12 border-r border-slate-200 flex flex-col bg-slate-50/30">
+          <div
+            className={`${
+              mobilePane === "parts" ? "flex" : "hidden"
+            } md:flex w-full md:w-7/12 md:border-r border-slate-200 flex-col bg-slate-50/30 min-h-0`}
+          >
             {/* BARRA CREAR */}
             <div className="p-2 bg-white border-b border-slate-200 flex flex-wrap gap-2 shadow-sm z-20 items-center">
               <div className="flex min-w-0 flex-1 basis-[12rem] gap-2 items-center">
@@ -884,6 +950,24 @@ export default function DriveMatcherModal({
                 onAdd={handleAddPartsFromOrganico}
               />
             </div>
+
+            {selectedFiles.length > 0 && (
+              <div className="md:hidden mx-2 mt-1 mb-1 flex items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 text-[11px] shadow-sm shrink-0">
+                <span className="font-medium text-blue-900 truncate">
+                  Tocá una particella para asignar{" "}
+                  {selectedFiles.length === 1
+                    ? "el archivo"
+                    : `${selectedFiles.length} archivos (cascada)`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedFiles([])}
+                  className="shrink-0 rounded border border-blue-200 bg-white px-2 py-0.5 font-bold text-blue-800"
+                >
+                  Cancelar
+                </button>
+              </div>
+            )}
 
             {selectedPartTempIds.size > 0 && (
               <div className="mx-2 mt-1 mb-1 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50/90 px-2 py-1.5 text-[11px] shadow-sm shrink-0">
@@ -1076,17 +1160,21 @@ export default function DriveMatcherModal({
                               </span>
                             )}
                             <button
+                              type="button"
                               onClick={(e) => startEditing(e, part)}
-                              className="text-slate-300 hover:text-indigo-600 opacity-0 group-hover:opacity-100 p-1 transition-opacity"
+                              className="text-slate-400 hover:text-indigo-600 opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1.5 sm:p-1 transition-opacity"
+                              aria-label="Editar nombre"
                             >
                               <IconEdit size={12} />
                             </button>
                             <button
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeletePart(part.tempId);
                               }}
-                              className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 p-1 transition-opacity"
+                              className="text-slate-400 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1.5 sm:p-1 transition-opacity"
+                              aria-label="Eliminar particella"
                             >
                               <IconTrash size={12} />
                             </button>
@@ -1114,7 +1202,7 @@ export default function DriveMatcherModal({
                             key={i}
                             className="flex items-center justify-between text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded shadow-sm group-hover:border-slate-300"
                           >
-                            <div className="flex items-center gap-1 truncate max-w-[350px]">
+                            <div className="flex items-center gap-1 truncate min-w-0 max-w-full sm:max-w-[350px]">
                               <IconLink
                                 size={10}
                                 className="text-blue-400 shrink-0"
@@ -1140,9 +1228,9 @@ export default function DriveMatcherModal({
                       </div>
                     )}
                     {selectedFiles.length > 0 && !isEditing && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-blue-500/5 opacity-0 hover:opacity-100 rounded transition-opacity pointer-events-none">
-                        <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded shadow flex items-center gap-1">
-                          <IconCheck size={12} />{" "}
+                      <div className="hidden md:flex absolute inset-0 items-center justify-center bg-blue-500/5 opacity-0 hover:opacity-100 rounded transition-opacity pointer-events-none">
+                        <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded shadow flex items-center gap-1 max-w-[90%] truncate">
+                          <IconCheck size={12} className="shrink-0" />{" "}
                           {selectedFiles.length > 1
                             ? `Asignar ${selectedFiles.length} (Cascada)`
                             : `Asignar: ${selectedFiles[0]?.name.substring(
@@ -1159,7 +1247,11 @@ export default function DriveMatcherModal({
           </div>
 
           {/* DERECHA: DRIVE */}
-          <div className="w-5/12 flex flex-col bg-white border-l border-slate-200 shadow-xl z-20">
+          <div
+            className={`${
+              mobilePane === "drive" ? "flex" : "hidden"
+            } md:flex w-full md:w-5/12 flex-col bg-white md:border-l border-slate-200 md:shadow-xl z-20 min-h-0`}
+          >
             <div className="p-3 bg-indigo-50 border-b border-indigo-100 text-xs font-bold text-indigo-700 uppercase flex justify-between items-center shadow-sm">
               <span>Archivos Drive ({driveFiles.length})</span>
               {loading && <IconLoader className="animate-spin" size={12} />}
@@ -1240,12 +1332,12 @@ export default function DriveMatcherModal({
             </div>
           </div>
         </div>
-        <div className="p-4 border-t border-slate-200 bg-white flex justify-end shrink-0 z-30">
+        <div className="p-3 sm:p-4 border-t border-slate-200 bg-white flex justify-end shrink-0 z-30 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4">
           <button
             type="button"
             disabled={closing}
             onClick={() => void requestClose()}
-            className="flex items-center gap-2 px-6 py-2 rounded bg-indigo-600 text-white font-bold hover:bg-indigo-700 shadow text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+            className="flex items-center justify-center gap-2 w-full sm:w-auto px-6 py-2.5 sm:py-2 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700 shadow text-sm disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {closing ? (
               <>

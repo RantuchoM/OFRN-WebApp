@@ -369,6 +369,14 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 
 ---
 
+### Completado (2026-08-10) — DriveMatcherModal móvil
+- [x] **Z-index:** overlay del portal a `z-[9999]` (alineado con `LinksManagerModal` y por encima del sidebar móvil de `App.jsx` en `z-[100]`). Confirmaciones destructivas del matcher en `z-[10050]`.
+- [x] **Layout móvil:** sheet a pantalla completa (`100dvh`, sin padding del overlay); en `md+` se mantiene el modal centrado `90vh`.
+- [x] **Pestañas Particellas / Drive** bajo `md` (dos columnas solo en desktop). CTA «Asignar» al seleccionar archivos en Drive; banner de instrucción en Particellas.
+- [x] **Touch:** acciones editar/eliminar visibles sin hover; botón Cerrar a ancho completo en móvil; safe-area inferior.
+
+---
+
 ## 10. Mis Partes — descarga ZIP
 
 ### Objetivo
