@@ -128,7 +128,7 @@ export default function ServiciosCantidadReport({ supabase }) {
   const [grupoMemberRows, setGrupoMemberRows] = useState([]);
 
   const [selectedTypes, setSelectedTypes] = useState(
-    () => new Set(["Sinfónico", "Camerata Filarmónica"]),
+    () => new Set(TIPOS_PROGRAMA_ASISTENCIA_MATRIZ),
   );
   const [showPastInYear, setShowPastInYear] = useState(true);
   const [groupByEnsambles, setGroupByEnsambles] = useState(false);

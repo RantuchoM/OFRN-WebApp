@@ -40,7 +40,7 @@ Informe en **Gestión → Servicios** con cantidad de servicios por integrante, 
 ## Filtros (paridad Convocatorias)
 
 - Toggle Ensambles / Cameratas / Regiones + árbol con selección por modo (mismas etiquetas cortas que Convocatorias; título completo debajo).
-- Tipos de programa (`TIPOS_PROGRAMA_ASISTENCIA_MATRIZ`).
+- Tipos de programa (`TIPOS_PROGRAMA_ASISTENCIA_MATRIZ`; **todos activos por defecto**).
 - Toggle **“Año actual”** (`showPastInYear`, **activo por defecto**): incluye programas y eventos pasados del año calendario en curso además de los futuros.
 - Agrupar filas por ensamble.
 

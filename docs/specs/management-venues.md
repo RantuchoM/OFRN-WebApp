@@ -42,11 +42,13 @@ Se asume la existencia de la tabla `venue_status_types` y la columna `id_estado_
   - Cada tarjeta representa un informe/sección habilitada por `managementSections`.
   - Los módulos (Venues, Seating, Instrumentación, Convocatorias, Conciertos) se renderizan **bajo demanda** al seleccionar una tarjeta.
   - Al abrir un informe, se muestra botón **"Menú de informes"** para volver a la portada principal.
+  - **Selector de informe** (desktop y móvil): desplegable compacto (`ManagementReportPicker`) con icono + título + subtítulo de cada informe, en lugar de la fila horizontal de pestañas (que se estiraba al sumar secciones). Cierre con click afuera o Escape.
 - **Checklist de implementación:**
   - [x] Definir estado inicial en portada (`home`) en lugar de `venues`.
   - [x] Incorporar cards visuales para selección de informe.
   - [x] Mantener navegación rápida entre informes y retorno al menú.
   - [x] Evitar carga automática del módulo de Venues al ingresar a Gestión.
+  - [x] Reemplazar pestañas horizontales del header por desplegable de informes.
 
 ### Refactor de mantenibilidad (deuda técnica)
 - Se extrajo el bloque visual de tarjetas a un componente reutilizable:

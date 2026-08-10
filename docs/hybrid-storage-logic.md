@@ -88,7 +88,7 @@ Se utilizan cuando necesitamos **manipular bytes** (unir PDFs, rellenar formular
 - En configuración de viáticos:
   - `giras_viaticos_config.link_drive` almacena el **ID de la carpeta de Drive** de la gira (no la URL completa).
   - El frontend usa directamente ese ID como `parentId` al subir PDFs con el token temporal.
-  - Las carpetas por gira se crean con `create_viaticos_folder` bajo la carpeta general (`GIRAS_ROOT_ID` / `VIATICOS_ROOT_FOLDER_ID`), con nombre `Viáticos - {mes} {nomenclador} | {zona} | {nombre_gira}`.
+  - Las carpetas por gira se crean con `create_viaticos_folder` bajo la carpeta general (`GIRAS_ROOT_ID` / `VIATICOS_ROOT_FOLDER_ID`), con nombre `{mes} {nomenclador} | {zona} | {nombre_gira} - Viáticos`.
   - El UI de Viáticos expone un enlace permanente a esa carpeta general además del enlace a la carpeta de la gira.
 
 ### 5. Principios de Diseño

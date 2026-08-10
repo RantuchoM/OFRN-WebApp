@@ -1,5 +1,11 @@
-import React, { useCallback, useEffect, useMemo } from "react";
-import { useNavigate, useLocation, Link } from "react-router-dom";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   IconSettingsWheel,
   IconHistory,
@@ -10,6 +16,8 @@ import {
   IconArrowLeft,
   IconMusic,
   IconClipboard,
+  IconChevronDown,
+  IconCheck,
 } from "../../components/ui/Icons";
 import { VenuesManager } from "../../components/management/VenuesManager";
 import SeatingReports from "./SeatingReports";
@@ -178,10 +186,135 @@ const SECTION_CONFIG = {
   },
 };
 
-export default function ManagementView({ supabase, managementSections = DEFAULT_SECTIONS }) {
+/** Selector compacto de informe (reemplaza la fila de pestañas). */
+function ManagementReportPicker({
+  availableSections,
+  activeTab,
+  onSelect,
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const activeConfig = SECTION_CONFIG[activeTab];
+  const ActiveIcon = activeConfig?.icon;
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [activeTab]);
+
+  return (
+    <div ref={rootRef} className="relative min-w-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex w-full max-w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-left text-xs font-bold text-slate-800 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 sm:min-w-[13rem]"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Elegir informe de Gestión"
+      >
+        {ActiveIcon && (
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-600">
+            <ActiveIcon size={14} aria-hidden />
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate">
+          {activeConfig?.title || "Informe"}
+        </span>
+        <IconChevronDown
+          size={14}
+          className={`shrink-0 text-slate-400 transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+          aria-hidden
+        />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label="Informes de Gestión"
+          className="absolute right-0 z-[50] mt-1 max-h-[min(20rem,70vh)] w-[min(18rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+        >
+          {availableSections.map((sectionKey) => {
+            const cfg = SECTION_CONFIG[sectionKey];
+            const Icon = cfg.icon;
+            const isActive = sectionKey === activeTab;
+            return (
+              <button
+                key={sectionKey}
+                type="button"
+                role="option"
+                aria-selected={isActive}
+                onClick={() => {
+                  onSelect(sectionKey);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-start gap-2.5 px-2.5 py-2 text-left transition-colors ${
+                  isActive
+                    ? "bg-indigo-50 text-indigo-900"
+                    : "text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <span
+                  className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
+                    isActive
+                      ? "bg-indigo-100 text-indigo-700"
+                      : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  <Icon size={14} aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-bold leading-tight">
+                    {cfg.title}
+                  </span>
+                  <span className="mt-0.5 block text-[10px] font-medium leading-snug text-slate-500">
+                    {cfg.subtitle}
+                  </span>
+                </span>
+                {isActive && (
+                  <IconCheck
+                    size={14}
+                    className="mt-1 shrink-0 text-indigo-600"
+                    aria-hidden
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ManagementView({
+  supabase,
+  managementSections = DEFAULT_SECTIONS,
+}) {
   const navigate = useNavigate();
   const location = useLocation();
-  const enabledSections = useMemo(() => new Set(managementSections), [managementSections]);
+  const enabledSections = useMemo(
+    () => new Set(managementSections),
+    [managementSections],
+  );
   const availableSections = useMemo(
     () => SECTION_ORDER.filter((section) => enabledSections.has(section)),
     [enabledSections],
@@ -223,89 +356,50 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
     : activeConfig?.subtitle;
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <div className="flex h-full flex-col bg-slate-50">
       <div className="border-b border-slate-200 bg-white px-4 py-2.5 lg:py-3">
-        {/* Móvil: título corto, descripción a ancho completo, sección en desplegable */}
-        <div className="flex flex-col gap-1.5 lg:hidden">
-          {isHomeView ? (
-            <>
-              <h2 className="text-lg font-bold leading-tight text-slate-800">Gestión</h2>
-              <p className="w-full text-xs leading-snug text-slate-500">{headerSubtitle}</p>
-            </>
-          ) : (
-            <>
-              <div className="flex min-w-0 items-center gap-2">
-                <h2 className="shrink-0 text-lg font-bold leading-tight text-slate-800">
-                  Gestión
-                </h2>
-                <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab(HOME_VIEW)}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-800"
-                    aria-label="Volver al menú de informes"
-                  >
-                    <IconArrowLeft size={14} aria-hidden />
-                    <span className="max-w-[6.5rem] truncate sm:max-w-none">Menú</span>
-                  </button>
-                  <select
-                    id="management-section-mobile"
-                    value={activeTab}
-                    onChange={(e) => setActiveTab(e.target.value)}
-                    className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white py-1.5 pl-2 pr-7 text-xs font-bold text-slate-800 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                    aria-label="Elegir sección de Gestión"
-                  >
-                    {availableSections.map((key) => (
-                      <option key={key} value={key}>
-                        {SECTION_CONFIG[key].title}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <p className="w-full text-xs leading-snug text-slate-500">{headerSubtitle}</p>
-            </>
-          )}
-        </div>
-
-        {/* Escritorio: encabezado original con pestañas */}
-        <div className="hidden items-center justify-between gap-4 lg:flex">
+        {isHomeView ? (
           <div className="min-w-0">
-            <h2 className="text-lg font-bold text-slate-800">Módulo de Gestión</h2>
-            <p className="text-xs text-slate-500">{headerSubtitle}</p>
+            <h2 className="text-lg font-bold leading-tight text-slate-800">
+              <span className="lg:hidden">Gestión</span>
+              <span className="hidden lg:inline">Módulo de Gestión</span>
+            </h2>
+            <p className="mt-0.5 text-xs leading-snug text-slate-500">
+              {headerSubtitle}
+            </p>
           </div>
-          {!isHomeView && (
-            <div className="flex shrink-0 items-center gap-2">
+        ) : (
+          <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <div className="min-w-0">
+              <h2 className="text-lg font-bold leading-tight text-slate-800">
+                <span className="lg:hidden">Gestión</span>
+                <span className="hidden lg:inline">Módulo de Gestión</span>
+              </h2>
+              <p className="mt-0.5 text-xs leading-snug text-slate-500">
+                {headerSubtitle}
+              </p>
+            </div>
+            <div className="flex min-w-0 shrink-0 items-center justify-end gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={() => setActiveTab(HOME_VIEW)}
-                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-800"
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-800 sm:px-3"
+                aria-label="Volver al menú de informes"
               >
-                <IconArrowLeft size={14} />
-                <span>Menú de informes</span>
+                <IconArrowLeft size={14} aria-hidden />
+                <span className="max-w-[6.5rem] truncate sm:max-w-none">
+                  <span className="sm:hidden">Menú</span>
+                  <span className="hidden sm:inline">Menú de informes</span>
+                </span>
               </button>
-              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs font-bold">
-                {availableSections.map((sectionKey) => {
-                  const { tabLabel, icon: SectionIcon } = SECTION_CONFIG[sectionKey];
-                  return (
-                    <Link
-                      key={sectionKey}
-                      to={managementSectionPath(sectionKey)}
-                      className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
-                        activeTab === sectionKey
-                          ? "bg-white text-indigo-700 shadow-sm"
-                          : "text-slate-500 hover:text-slate-700"
-                      }`}
-                    >
-                      <SectionIcon size={14} />
-                      <span>{tabLabel}</span>
-                    </Link>
-                  );
-                })}
-              </div>
+              <ManagementReportPicker
+                availableSections={availableSections}
+                activeTab={activeTab}
+                onSelect={setActiveTab}
+              />
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <div
@@ -313,15 +407,15 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
           isHomeView
             ? "flex-1 overflow-y-auto p-5"
             : isFullscreenSection
-            ? "flex min-h-0 flex-1 flex-col overflow-hidden p-2 sm:p-4"
-            : "flex-1 overflow-y-auto p-4"
+              ? "flex min-h-0 flex-1 flex-col overflow-hidden p-2 sm:p-4"
+              : "flex-1 overflow-y-auto p-4"
         }
       >
         {isHomeView && (
           <div className="mx-auto w-full max-w-5xl space-y-4">
             <p className="text-sm text-slate-500">
-              Selecciona una sección para abrir su informe. El sistema solo carga datos al entrar
-              en cada módulo.
+              Selecciona una sección para abrir su informe. El sistema solo carga
+              datos al entrar en cada módulo.
             </p>
             {availableSections.length > 0 ? (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -355,14 +449,16 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
         {activeTab === "seating" && enabledSections.has("seating") && (
           <SeatingReports supabase={supabase} />
         )}
-        {activeTab === "instrumentation" && enabledSections.has("instrumentation") && (
-          <InstrumentationAudit supabase={supabase} />
-        )}
-        {activeTab === "convocatorias" && enabledSections.has("convocatorias") && (
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
-            <AsistenciaMatrixReport supabase={supabase} />
-          </div>
-        )}
+        {activeTab === "instrumentation" &&
+          enabledSections.has("instrumentation") && (
+            <InstrumentationAudit supabase={supabase} />
+          )}
+        {activeTab === "convocatorias" &&
+          enabledSections.has("convocatorias") && (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
+              <AsistenciaMatrixReport supabase={supabase} />
+            </div>
+          )}
         {activeTab === "servicios" && enabledSections.has("servicios") && (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
             <ServiciosCantidadReport supabase={supabase} />
@@ -370,7 +466,10 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
         )}
         {activeTab === "ensayos" && enabledSections.has("ensayos") && (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
-            <EnsayosPorProgramaReport supabase={supabase} variant="management" />
+            <EnsayosPorProgramaReport
+              supabase={supabase}
+              variant="management"
+            />
           </div>
         )}
         {activeTab === "asistencia_ensayos" &&
@@ -393,4 +492,3 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
     </div>
   );
 }
-

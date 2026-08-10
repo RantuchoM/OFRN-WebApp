@@ -60,7 +60,7 @@ Visibilidad: `isAdmin` o `isEditor` (misma regla que el ítem **Gestión** del s
 
 ### Checklist para un informe nuevo
 1. **`src/constants/managementPalette.js`** — añadir objeto con `slug`, `id`, `label`, `section`.
-2. **`src/views/Management/ManagementView.jsx`** — registrar en `SECTION_CONFIG`, `SECTION_ORDER` y `DEFAULT_SECTIONS`; renderizar el componente en el `switch` de pestañas.
+2. **`src/views/Management/ManagementView.jsx`** — registrar en `SECTION_CONFIG`, `SECTION_ORDER` y `DEFAULT_SECTIONS`; renderizar el componente en el branch del informe activo. El header usa **Menú de informes** + desplegable `ManagementReportPicker` (no fila de pestañas).
 3. **`src/App.jsx`** — incluir el slug en `managementSections` si aplica filtro por perfil.
 4. **`CommandPaletteContext.jsx`** — si el slug tiene icono propio, mapearlo en `MANAGEMENT_SECTION_ICONS`.
 5. Actualizar esta spec y `docs/management-module-expansion.md`.

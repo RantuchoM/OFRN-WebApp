@@ -2087,14 +2087,14 @@ serve(async (req) => {
         throw new Error("No se pudo obtener información de la gira para nombrar la carpeta.");
       }
 
-      // 2. Construir el nombre: "Viáticos - mes_letra nomenclador | zona | nombre_gira"
-      // Ejemplo: "Viáticos - 03a Sinf 01/24 | Valle Medio | Concierto Apertura"
+      // 2. Construir el nombre: "mes_letra nomenclador | zona | nombre_gira - Viáticos"
+      // Ejemplo: "03a Sinf 01/24 | Valle Medio | Concierto Apertura - Viáticos"
       const parte1 = `${giraData.mes_letra || ''} ${giraData.nomenclador || ''}`.trim();
       const parte2 = giraData.zona || '';
       const parte3 = giraData.nombre_gira || 'Gira sin nombre';
 
       // Usamos filter(Boolean) para que no queden separadores " | " sueltos si falta algún dato (ej: si no hay zona)
-      const folderName = `Viáticos - ${[parte1, parte2, parte3].filter(Boolean).join(" | ")}`;
+      const folderName = `${[parte1, parte2, parte3].filter(Boolean).join(" | ")} - Viáticos`;
 
       // 3. Crear carpeta en Drive en la NUEVA ubicación
       const file = await drive.files.create({
