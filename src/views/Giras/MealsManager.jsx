@@ -23,7 +23,18 @@ import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
 import { ROLES_PRODUCCION, normalize } from "../../utils/giraUtils";
 import { resolveLocalidadResidencia } from "../../utils/integranteDomicilioViaticos";
-import { isPersonEligibleForMealSlot, getMealServiceStyle } from "../../utils/mealLogistics";
+import {
+  isPersonEligibleForMealSlot,
+  getMealServiceStyle,
+  formatMealServiceLabel,
+  rewriteMealDescriptionServiceLabel,
+  mealServicioFromEvent,
+  mealBaseFromTypeName,
+  CANONICAL_MEAL_TYPE_IDS,
+  fetchMealEventTypes,
+  isMealEvent,
+} from "../../utils/mealLogistics";
+import MealTypesEditorModal from "../../components/logistics/MealTypesEditorModal";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import {
@@ -44,16 +55,28 @@ import { es } from "date-fns/locale";
 import { toast } from "sonner"; 
 
 // --- CONSTANTES ---
-const SERVICE_IDS = { Desayuno: 7, Almuerzo: 8, Merienda: 9, Cena: 10 };
-const ID_TO_SERVICE = {
-  7: "Desayuno",
-  8: "Almuerzo",
-  9: "Merienda",
-  10: "Cena",
-};
+const SERVICE_IDS = CANONICAL_MEAL_TYPE_IDS;
 const SERVICIOS = ["Desayuno", "Almuerzo", "Merienda", "Cena"];
 const SERVICE_VALS = { Desayuno: 0, Almuerzo: 1, Merienda: 2, Cena: 3 };
 const DEFAULT_SERVICE_FILTER = new Set(["Almuerzo", "Merienda", "Cena"]);
+
+const typeNombreById = (mealTypes, id) =>
+  mealTypes?.find((t) => Number(t.id) === Number(id))?.nombre || null;
+
+const typeIdForBase = (mealTypes, base) => {
+  const canon = SERVICE_IDS[base];
+  if (canon != null && mealTypes?.some((t) => Number(t.id) === Number(canon))) {
+    return canon;
+  }
+  const byName = mealTypes?.find(
+    (t) =>
+      mealBaseFromTypeName(t.nombre) === base &&
+      String(t.nombre).toLowerCase() === String(base).toLowerCase(),
+  );
+  if (byName) return byName.id;
+  const any = mealTypes?.find((t) => mealBaseFromTypeName(t.nombre) === base);
+  return any?.id ?? canon ?? null;
+};
 const GROUP_DEFS = [
   {
     id: "GRP:TUTTI",
@@ -199,7 +222,7 @@ function ComensalesDetailModal({ row, people, catalogs, onClose }) {
               </span>
             </h3>
             <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-              {[fechaLabel, row?.servicio, row?.hora_inicio]
+              {[fechaLabel, row?.tipo_nombre || row?.servicio, row?.hora_inicio]
                 .filter(Boolean)
                 .join(" · ")}
               {convLabels.length > 0 ? ` · ${convLabels.join(" + ")}` : ""}
@@ -379,15 +402,20 @@ const buildConvocadosLabelsOnly = (convocados, catalogs) => {
   return labels.join(" + ");
 };
 
+/** Etiqueta de servicio con detalle opcional (ej. "Merienda a bordo"). */
+const serviceLabelOf = (servicio, detalle) =>
+  formatMealServiceLabel(servicio, detalle);
+
 /** Bloque vinculado a convocados: "Almuerzo Solo alojados + Prod." (null si no hay grupos). */
-const buildConvocadosAutoPart = (servicio, convocados, catalogs) => {
+const buildConvocadosAutoPart = (serviceLabel, convocados, catalogs) => {
   const labelsOnly = buildConvocadosLabelsOnly(convocados, catalogs);
   if (!labelsOnly) return null;
-  return `${servicio} ${labelsOnly}`;
+  return `${serviceLabel} ${labelsOnly}`;
 };
 
-const buildMealDescription = (servicio, convocados, catalogs) =>
-  buildConvocadosAutoPart(servicio, convocados, catalogs) || `${servicio} Gira`;
+const buildMealDescription = (serviceLabel, convocados, catalogs) =>
+  buildConvocadosAutoPart(serviceLabel, convocados, catalogs) ||
+  `${serviceLabel} Gira`;
 
 const isAllKnownLabelParts = (parts, catalogs) => {
   if (parts.length === 0) return false;
@@ -483,11 +511,14 @@ const findConvocadosLabelsSuffix = (plainText, catalogs, convocados) => {
   };
 };
 
-/** Tramo "Servicio + grupos" o legado "Servicio en …". */
-const findConvocadosAutoSegment = (plainText, servicio, catalogs, convocados) => {
+/** Tramo "Servicio(+detalle) + grupos" o legado "Servicio en …". */
+const findConvocadosAutoSegment = (
+  plainText,
+  serviceLabel,
+  catalogs,
+  convocados,
+) => {
   if (!plainText) return null;
-
-  const withKind = (seg, kind) => (seg ? { ...seg, kind } : null);
 
   const tryExact = (candidate, kind) => {
     if (!candidate) return null;
@@ -502,19 +533,21 @@ const findConvocadosAutoSegment = (plainText, servicio, catalogs, convocados) =>
   };
 
   let found =
-    tryExact(buildConvocadosAutoPart(servicio, convocados, catalogs), "full") ||
-    tryExact(`${servicio} Gira`, "full");
+    tryExact(
+      buildConvocadosAutoPart(serviceLabel, convocados, catalogs),
+      "full",
+    ) || tryExact(`${serviceLabel} Gira`, "full");
 
   if (found) return found;
 
-  const servicioRe = escapeRegex(servicio);
+  const servicioRe = escapeRegex(serviceLabel);
   const re = new RegExp(`\\b${servicioRe}\\s+[^\\n|–—;]+`, "gi");
   let match;
   let best = null;
   while ((match = re.exec(plainText)) !== null) {
     if (!isServiceBlockBoundary(match.index, plainText)) continue;
     const candidate = match[0].trim();
-    const tail = candidate.slice(servicio.length).trim();
+    const tail = candidate.slice(serviceLabel.length).trim();
     if (isAutoConvocadosTail(tail, catalogs)) {
       if (!best || candidate.length > best.text.length) {
         best = {
@@ -544,8 +577,18 @@ const findConvocadosAutoSegment = (plainText, servicio, catalogs, convocados) =>
   return null;
 };
 
-const findConvocadosSegment = (plainText, servicio, catalogs, convocados) => {
-  const full = findConvocadosAutoSegment(plainText, servicio, catalogs, convocados);
+const findConvocadosSegment = (
+  plainText,
+  serviceLabel,
+  catalogs,
+  convocados,
+) => {
+  const full = findConvocadosAutoSegment(
+    plainText,
+    serviceLabel,
+    catalogs,
+    convocados,
+  );
   const suffix = findConvocadosLabelsSuffix(plainText, catalogs, convocados);
   if (full && suffix) {
     // Preferir el tramo más corto (sufijo de grupos) salvo bloque completo al inicio
@@ -580,27 +623,28 @@ const applySegmentReplacement = (
  * Reemplaza o agrega el tramo de convocados; conserva aclaraciones de producción.
  * Ej: "Pausa y merienda" + Tutti → "Pausa y merienda Tutti"
  * Ej: "Merienda a bordo No Locales+Prod." sin Prod. → "Merienda a bordo Solo alojados"
+ * @param {string} serviceLabel etiqueta completa ("Merienda a bordo" o "Almuerzo")
  */
 const mergeMealDescriptionWithConvocados = (
   existingHtml,
-  servicio,
+  serviceLabel,
   convocados,
   catalogs,
   convocadosForLookup = convocados,
 ) => {
   const plain = stripHtmlToPlain(existingHtml);
   const newLabelsOnly = buildConvocadosLabelsOnly(convocados, catalogs);
-  const newAuto = buildConvocadosAutoPart(servicio, convocados, catalogs);
+  const newAuto = buildConvocadosAutoPart(serviceLabel, convocados, catalogs);
   const segment = findConvocadosSegment(
     plain,
-    servicio,
+    serviceLabel,
     catalogs,
     convocadosForLookup,
   );
 
   if (!segment) {
     if (!plain && newAuto) return newAuto;
-    if (!plain) return `${servicio} Gira`;
+    if (!plain) return `${serviceLabel} Gira`;
     if (newLabelsOnly) return `${plain} ${newLabelsOnly}`;
     return existingHtml || plain;
   }
@@ -618,7 +662,7 @@ const mergeMealDescriptionWithConvocados = (
     segment,
     replacement,
   );
-  if (!merged) merged = `${servicio} Gira`;
+  if (!merged) merged = `${serviceLabel} Gira`;
   return merged;
 };
 
@@ -1146,6 +1190,8 @@ export default function MealsManager({
   const [serviceFilter, setServiceFilter] = useState(
     new Set(DEFAULT_SERVICE_FILTER),
   );
+  const [mealTypes, setMealTypes] = useState([]);
+  const [mealTypesEditorOpen, setMealTypesEditorOpen] = useState(false);
   const [resettingNames, setResettingNames] = useState(false);
   const debounceRef = useRef({});
   const [activeSegmentIdx, setActiveSegmentIdx] = useState(0);
@@ -1266,6 +1312,13 @@ export default function MealsManager({
           ),
         ],
       }));
+      try {
+        const types = await fetchMealEventTypes(supabase);
+        setMealTypes(types);
+      } catch (err) {
+        console.error(err);
+        toast.error("No se pudieron cargar los tipos de comida");
+      }
       await refreshGridData();
     } catch (e) {
       console.error(e);
@@ -1277,34 +1330,42 @@ export default function MealsManager({
   const refreshGridData = async () => {
     const { data: meals } = await supabase
       .from("eventos")
-      .select("*, eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )")
+      .select(
+        "*, tipos_evento ( id, nombre, color, id_categoria ), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )",
+      )
       .eq("id_gira", gira.id)
       .eq("is_deleted", false)
-      .in("id_tipo_evento", [7, 8, 9, 10])
       .order("fecha", { ascending: true })
       .order("hora_inicio", { ascending: true });
+    const mealOnly = (meals || []).filter(isMealEvent);
     const { data: rules } = await supabase
       .from("giras_logistica_reglas")
       .select("*")
       .eq("id_gira", gira.id);
-    calculateGrid(meals || [], rules || []);
+    calculateGrid(mealOnly, rules || []);
   };
 
-  const makeTempMealRow = (fecha, servicio) => ({
-    id: `temp-${fecha}-${servicio}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    fecha,
-    servicio,
-    hora_inicio: "",
-    hora_fin: "",
-    descripcion: "",
-    id_locacion: "",
-    convocados: [],
-    selectedGrupos: [],
-    visible_agenda: true,
-    tecnica: false,
-    isTemp: true,
-    dirty: false,
-  });
+  const makeTempMealRow = (fecha, servicio) => {
+    const idTipo = typeIdForBase(mealTypes, servicio);
+    const tipoNombre = typeNombreById(mealTypes, idTipo) || servicio;
+    return {
+      id: `temp-${fecha}-${servicio}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      fecha,
+      servicio,
+      id_tipo_evento: idTipo,
+      tipo_nombre: tipoNombre,
+      hora_inicio: "",
+      hora_fin: "",
+      descripcion: "",
+      id_locacion: "",
+      convocados: [],
+      selectedGrupos: [],
+      visible_agenda: true,
+      tecnica: false,
+      isTemp: true,
+      dirty: false,
+    };
+  };
 
   const toDateKey = (raw) => {
     if (!raw) return null;
@@ -1323,12 +1384,18 @@ export default function MealsManager({
     const normalizedMeals = mealsData
       .map((m) => {
         const fecha = toDateKey(m.fecha);
-        const servicio = ID_TO_SERVICE[m.id_tipo_evento];
+        const servicio = mealServicioFromEvent(m);
         if (!fecha || !servicio) return null;
+        const tipo_nombre =
+          m.tipos_evento?.nombre ||
+          typeNombreById(mealTypes, m.id_tipo_evento) ||
+          servicio;
         return {
           ...m,
           fecha,
           servicio,
+          id_tipo_evento: m.id_tipo_evento,
+          tipo_nombre,
           hora_inicio: m.hora_inicio?.slice(0, 5),
           hora_fin: m.hora_fin?.slice(0, 5),
           selectedGrupos: eventGrupoIdsFromEvent(m),
@@ -1478,18 +1545,58 @@ export default function MealsManager({
       const normalizedVal =
         field === "hora_inicio" || field === "hora_fin"
           ? normalizeTimeHHMM(val)
-          : val;
-      let row = { ...copy[idx], [field]: normalizedVal, dirty: true };
-      if (field === "convocados") {
-        const prevConvocados = copy[idx].convocados;
+          : field === "id_tipo_evento"
+            ? val === "" || val == null
+              ? null
+              : Number(val)
+            : val;
+      const prevRow = copy[idx];
+      let row = { ...prevRow, [field]: normalizedVal, dirty: true };
+
+      if (field === "id_tipo_evento") {
+        const tipoId = normalizedVal;
+        const tipoNombre =
+          typeNombreById(mealTypes, tipoId) || prevRow.tipo_nombre;
+        const base =
+          mealBaseFromTypeName(tipoNombre) ||
+          mealServicioFromEvent({
+            id_tipo_evento: tipoId,
+            tipos_evento: { nombre: tipoNombre },
+          }) ||
+          prevRow.servicio;
+        const oldLabel =
+          prevRow.tipo_nombre ||
+          serviceLabelOf(prevRow.servicio, prevRow.servicio_detalle);
+        row.tipo_nombre = tipoNombre;
+        row.servicio = base;
+        if (!stripHtmlToPlain(prevRow.descripcion)) {
+          row.descripcion = buildMealDescription(
+            tipoNombre || base,
+            row.convocados,
+            catalogs,
+          );
+        } else {
+          row.descripcion = rewriteMealDescriptionServiceLabel(
+            prevRow.descripcion,
+            oldLabel,
+            tipoNombre || base,
+          );
+        }
+      } else if (field === "convocados") {
+        const prevConvocados = prevRow.convocados;
+        const label =
+          row.tipo_nombre ||
+          serviceLabelOf(row.servicio, row.servicio_detalle) ||
+          row.servicio;
         row.descripcion = mergeMealDescriptionWithConvocados(
-          copy[idx].descripcion,
-          row.servicio,
+          prevRow.descripcion,
+          label,
           val,
           catalogs,
           prevConvocados,
         );
       }
+
       copy[idx] = row;
       if (debounceRef.current[row.id]) clearTimeout(debounceRef.current[row.id]);
       if (row.hora_inicio && row.fecha) {
@@ -1519,7 +1626,9 @@ export default function MealsManager({
           newRow.convocados = changes.convocados;
           newRow.descripcion = mergeMealDescriptionWithConvocados(
             r.descripcion,
-            newRow.servicio,
+            newRow.tipo_nombre ||
+              serviceLabelOf(newRow.servicio, newRow.servicio_detalle) ||
+              newRow.servicio,
             changes.convocados,
             catalogs,
             r.convocados,
@@ -1559,7 +1668,9 @@ export default function MealsManager({
         rowsToUpdate.map((row) => {
           const descripcion = mergeMealDescriptionWithConvocados(
             row.descripcion,
-            row.servicio,
+            row.tipo_nombre ||
+              serviceLabelOf(row.servicio, row.servicio_detalle) ||
+              row.servicio,
             row.convocados,
             catalogs,
             row.convocados,
@@ -1584,13 +1695,30 @@ export default function MealsManager({
     if (!row.fecha || !row.hora_inicio) return;
     setSavingRows((prev) => new Set(prev).add(row.id));
     
+    const label =
+      row.tipo_nombre ||
+      serviceLabelOf(row.servicio, row.servicio_detalle) ||
+      row.servicio;
+    const tipoId =
+      row.id_tipo_evento != null
+        ? Number(row.id_tipo_evento)
+        : typeIdForBase(mealTypes, row.servicio);
+    if (!tipoId) {
+      toast.error("Elegí un tipo de comida válido");
+      setSavingRows((prev) => {
+        const n = new Set(prev);
+        n.delete(row.id);
+        return n;
+      });
+      return;
+    }
     const payload = {
       id_gira: gira.id,
       fecha: row.fecha,
-      id_tipo_evento: SERVICE_IDS[row.servicio],
+      id_tipo_evento: tipoId,
       hora_inicio: row.hora_inicio || null,
       hora_fin: row.hora_fin || null,
-      descripcion: row.descripcion || `${row.servicio} Gira`,
+      descripcion: row.descripcion || `${label} Gira`,
       id_locacion: row.id_locacion || null,
       convocados: row.convocados || [],
       visible_agenda: row.visible_agenda,
@@ -1598,9 +1726,20 @@ export default function MealsManager({
     };
 
     try {
+      const selectMeal =
+        "*, tipos_evento ( id, nombre, color, id_categoria )";
       const { data } = row.isTemp
-        ? await supabase.from("eventos").insert([payload]).select().single()
-        : await supabase.from("eventos").update(payload).eq("id", row.id).select().single();
+        ? await supabase
+            .from("eventos")
+            .insert([payload])
+            .select(selectMeal)
+            .single()
+        : await supabase
+            .from("eventos")
+            .update(payload)
+            .eq("id", row.id)
+            .select(selectMeal)
+            .single();
 
       const savedId = data?.id;
       if (savedId != null && hasGiraGrupos) {
@@ -1629,7 +1768,25 @@ export default function MealsManager({
           r.id === row.id
             ? {
                 ...data,
-                servicio: ID_TO_SERVICE[data.id_tipo_evento],
+                tipos_evento: data.tipos_evento || {
+                  id: data.id_tipo_evento,
+                  nombre:
+                    typeNombreById(mealTypes, data.id_tipo_evento) ||
+                    row.tipo_nombre,
+                },
+                servicio: mealServicioFromEvent({
+                  ...data,
+                  tipos_evento: data.tipos_evento || {
+                    nombre:
+                      typeNombreById(mealTypes, data.id_tipo_evento) ||
+                      row.tipo_nombre,
+                  },
+                }),
+                tipo_nombre:
+                  data.tipos_evento?.nombre ||
+                  typeNombreById(mealTypes, data.id_tipo_evento) ||
+                  row.tipo_nombre,
+                id_tipo_evento: data.id_tipo_evento,
                 selectedGrupos: row.selectedGrupos || [],
                 eventos_grupos,
                 isTemp: false,
@@ -1846,6 +2003,14 @@ export default function MealsManager({
           </div>
           <button
             type="button"
+            onClick={() => setMealTypesEditorOpen(true)}
+            className="text-[10px] font-bold px-2.5 py-1 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 flex items-center gap-1 shrink-0"
+            title="Crear o renombrar tipos de comida (Merienda a bordo, Almuerzo (Vianda)…)"
+          >
+            <IconEdit size={12} /> Tipos de comida
+          </button>
+          <button
+            type="button"
             onClick={handleResetAllMealNames}
             disabled={resettingNames || loading}
             className="text-[10px] font-bold px-2.5 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50 flex items-center gap-1 shrink-0"
@@ -1860,6 +2025,13 @@ export default function MealsManager({
           {loading && <IconLoader className="animate-spin text-orange-500" />}
         </div>
         <div className="md:hidden flex items-center gap-2 relative flex-wrap justify-end">
+          <button
+            type="button"
+            onClick={() => setMealTypesEditorOpen(true)}
+            className="text-[10px] font-bold px-2 py-1 rounded border border-slate-300 bg-white text-slate-700"
+          >
+            Tipos
+          </button>
           <button
             type="button"
             onClick={handleResetAllMealNames}
@@ -2044,7 +2216,7 @@ export default function MealsManager({
                   </div>
                 </th>
                 <th className="px-3 py-3 w-28 border-r border-b border-slate-200">Día</th>
-                <th className="px-3 py-3 w-24 border-b border-slate-200">Servicio</th>
+                <th className="px-3 py-3 w-40 border-b border-slate-200">Servicio</th>
                 <th className="px-3 py-3 w-20 border-b border-slate-200">Horario</th>
                 <th className="px-3 py-3 w-44 border-b border-slate-200">Lugar</th>
                 <th className="px-3 py-3 w-64 border-b border-slate-200">Descripción</th>
@@ -2110,19 +2282,58 @@ export default function MealsManager({
                       <input type="checkbox" checked={isSelected} onChange={() => { const n = new Set(selectedRows); n.has(row.id) ? n.delete(row.id) : n.add(row.id); setSelectedRows(n); }} className="rounded text-indigo-600 focus:ring-0" />
                     </td>
                     <td className="px-3 py-3 font-bold border-r border-slate-200 text-slate-700">{format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}</td>
-                    <td className="px-3">
-                      <div className="flex items-center gap-1">
-                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${getMealServiceStyle(row.servicio).tag}`}>{row.servicio}</span>
-                        {!row.isTemp && (
-                          <button
-                            type="button"
-                            onClick={() => addSiblingMeal(row)}
-                            className="p-0.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
-                            title={`Agregar otro ${row.servicio.toLowerCase()} este día`}
+                    <td className="px-2 py-1">
+                      <div className="flex flex-col gap-1 min-w-[10rem]">
+                        <div className="flex items-center gap-1">
+                          <select
+                            value={row.id_tipo_evento ?? ""}
+                            disabled={isSaving}
+                            onChange={(e) =>
+                              handleGridChange(
+                                idx,
+                                "id_tipo_evento",
+                                e.target.value,
+                              )
+                            }
+                            className={`w-full text-[10px] font-bold border rounded px-1 py-1 outline-none ${
+                              getMealServiceStyle(row.servicio).tag
+                            } ${isDirty ? "ring-1 ring-amber-300" : ""}`}
+                            title="Tipo de evento real (agrupa por primera palabra en D/A/M/C)"
                           >
-                            <IconPlus size={14} />
-                          </button>
-                        )}
+                            {(mealTypes.length
+                              ? mealTypes.filter(
+                                  (t) =>
+                                    !t.servicio ||
+                                    t.servicio === row.servicio ||
+                                    Number(t.id) === Number(row.id_tipo_evento),
+                                )
+                              : []
+                            ).map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.nombre}
+                              </option>
+                            ))}
+                            {!mealTypes.some(
+                              (t) =>
+                                Number(t.id) === Number(row.id_tipo_evento),
+                            ) &&
+                              row.id_tipo_evento && (
+                                <option value={row.id_tipo_evento}>
+                                  {row.tipo_nombre || row.servicio}
+                                </option>
+                              )}
+                          </select>
+                          {!row.isTemp && (
+                            <button
+                              type="button"
+                              onClick={() => addSiblingMeal(row)}
+                              className="p-0.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all shrink-0"
+                              title={`Agregar otro ${row.servicio.toLowerCase()} este día`}
+                            >
+                              <IconPlus size={14} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="px-1">
@@ -2242,9 +2453,10 @@ export default function MealsManager({
                     </div>
                     <div className="flex items-center gap-1.5">
                       <span
-                        className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${tone.tag}`}
+                        className={`text-[10px] px-1.5 py-0.5 rounded border font-bold max-w-[9rem] truncate ${tone.tag}`}
+                        title={row.tipo_nombre || row.servicio}
                       >
-                        {row.servicio}
+                        {row.tipo_nombre || row.servicio}
                       </span>
                       <button
                         type="button"
@@ -2320,6 +2532,7 @@ export default function MealsManager({
         <MobileMealEditor
           row={mobileEditingRow}
           catalogs={catalogs}
+          mealTypes={mealTypes}
           onCancel={() => setMobileEditingRow(null)}
           onSave={(draft) => {
             const idx = grid.findIndex((r) => r.id === mobileEditingRow.id);
@@ -2343,30 +2556,47 @@ export default function MealsManager({
           }}
         />
       )}
+      <MealTypesEditorModal
+        supabase={supabase}
+        open={mealTypesEditorOpen}
+        onClose={() => setMealTypesEditorOpen(false)}
+        onChanged={async () => {
+          try {
+            const types = await fetchMealEventTypes(supabase);
+            setMealTypes(types);
+          } catch (e) {
+            console.error(e);
+          }
+          await refreshGridData();
+        }}
+      />
     </div>
   );
 }
 
-function MobileMealEditor({ row, catalogs, onCancel, onSave }) {
+function MobileMealEditor({ row, catalogs, mealTypes = [], onCancel, onSave }) {
   const { confirm, dialog } = useConfirmDialog();
   const descEditorRef = useRef(null);
   const initialRef = useRef({
     hora_inicio: row.hora_inicio || "",
     id_locacion: row.id_locacion || "",
     descripcion: row.descripcion || "",
+    id_tipo_evento: row.id_tipo_evento ?? "",
+    tipo_nombre: row.tipo_nombre || "",
+    servicio: row.servicio,
     convocados: row.convocados || [],
   });
   const [draft, setDraft] = useState({
     hora_inicio: row.hora_inicio || "",
     id_locacion: row.id_locacion || "",
     descripcion: row.descripcion || "",
+    id_tipo_evento: row.id_tipo_evento ?? "",
+    tipo_nombre: row.tipo_nombre || "",
+    servicio: row.servicio,
     convocados: row.convocados || [],
   });
 
-  const execMobileDescCmd = (command) => {
-    document.execCommand(command, false, null);
-    if (descEditorRef.current) descEditorRef.current.focus();
-  };
+  const serviceLabel = draft.tipo_nombre || row.tipo_nombre || row.servicio;
 
   const hasUnsavedChanges = useMemo(() => {
     const initial = initialRef.current;
@@ -2374,6 +2604,8 @@ function MobileMealEditor({ row, catalogs, onCancel, onSave }) {
       String(draft.hora_inicio || "") !== String(initial.hora_inicio || "") ||
       String(draft.id_locacion || "") !== String(initial.id_locacion || "") ||
       String(draft.descripcion || "") !== String(initial.descripcion || "") ||
+      String(draft.id_tipo_evento || "") !==
+        String(initial.id_tipo_evento || "") ||
       JSON.stringify(draft.convocados || []) !==
         JSON.stringify(initial.convocados || [])
     );
@@ -2395,91 +2627,93 @@ function MobileMealEditor({ row, catalogs, onCancel, onSave }) {
     <div className="fixed inset-0 z-[95] bg-black/40 md:hidden flex items-end">
       {dialog}
       <div className="w-full h-[80vh] bg-white rounded-t-2xl border-t border-slate-200 flex flex-col">
-      <div className="shrink-0 p-2 border-b border-slate-200 flex items-center justify-between">
-        <div className="text-sm font-black text-slate-700">Editar Comida</div>
-        <button
-          type="button"
-          onClick={handleRequestClose}
-          className="p-1 text-slate-500"
-        >
-          <IconX size={18} />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
-        <div className="text-[11px] text-slate-500">
-          {format(parseISO(row.fecha), "EEE dd/MM", { locale: es })} -{" "}
-          {row.servicio}
+        <div className="shrink-0 p-2 border-b border-slate-200 flex items-center justify-between">
+          <div className="text-sm font-black text-slate-700">Editar Comida</div>
+          <button
+            type="button"
+            onClick={handleRequestClose}
+            className="p-1 text-slate-500"
+          >
+            <IconX size={18} />
+          </button>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[9px] font-bold text-slate-500 uppercase">
-              Horario
-            </label>
-            <input
-              type="text"
-              inputMode="numeric"
-              placeholder="HHMM / HH:MM"
-              value={draft.hora_inicio}
-              onChange={(e) =>
-                setDraft((p) => ({ ...p, hora_inicio: e.target.value }))
-              }
-              className="w-full mt-1 border border-slate-300 rounded px-2 py-1.5 text-xs"
-            />
+        <div className="flex-1 overflow-y-auto p-2 space-y-2">
+          <div className="text-[11px] text-slate-500">
+            {format(parseISO(row.fecha), "EEE dd/MM", { locale: es })} -{" "}
+            {serviceLabel}
           </div>
           <div>
             <label className="text-[9px] font-bold text-slate-500 uppercase">
-              Lugar
+              Tipo de comida
             </label>
-            <div className="mt-1">
-              <GridLocationSelect
-                value={draft.id_locacion}
-                onChange={(v) => setDraft((p) => ({ ...p, id_locacion: v }))}
-                options={catalogs.locaciones}
+            <select
+              value={draft.id_tipo_evento ?? ""}
+              onChange={(e) => {
+                const nextId = e.target.value ? Number(e.target.value) : null;
+                const tipoNombre =
+                  typeNombreById(mealTypes, nextId) || draft.tipo_nombre;
+                const base = mealBaseFromTypeName(tipoNombre) || row.servicio;
+                setDraft((p) => ({
+                  ...p,
+                  id_tipo_evento: nextId,
+                  tipo_nombre: tipoNombre,
+                  servicio: base,
+                  descripcion: rewriteMealDescriptionServiceLabel(
+                    p.descripcion,
+                    p.tipo_nombre || row.servicio,
+                    tipoNombre || base,
+                  ),
+                }));
+              }}
+              className="w-full mt-1 border border-slate-300 rounded px-2 py-1.5 text-xs bg-white"
+            >
+              {(mealTypes || [])
+                .filter(
+                  (t) =>
+                    !t.servicio ||
+                    t.servicio === row.servicio ||
+                    Number(t.id) === Number(draft.id_tipo_evento),
+                )
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.nombre}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[9px] font-bold text-slate-500 uppercase">
+                Horario
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="HHMM / HH:MM"
+                value={draft.hora_inicio}
+                onChange={(e) =>
+                  setDraft((p) => ({ ...p, hora_inicio: e.target.value }))
+                }
+                className="w-full mt-1 border border-slate-300 rounded px-2 py-1.5 text-xs"
               />
             </div>
-          </div>
-        </div>
-        <div>
-          <label className="text-[9px] font-bold text-slate-500 uppercase">
-            Descripción
-          </label>
-          <div className="mt-1 border border-slate-300 rounded overflow-hidden">
-            <div className="flex items-center gap-1 p-0.5 border-b border-slate-200 bg-slate-50">
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  execMobileDescCmd("bold");
-                }}
-                className="p-1 rounded hover:bg-slate-200 text-slate-700"
-                title="Negrita"
-              >
-                <IconBold size={12} />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  execMobileDescCmd("italic");
-                }}
-                className="p-1 rounded hover:bg-slate-200 text-slate-700"
-                title="Itálica"
-              >
-                <IconItalic size={12} />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  execMobileDescCmd("underline");
-                }}
-                className="p-1 rounded hover:bg-slate-200 text-slate-700"
-                title="Subrayado"
-              >
-                <IconUnderline size={12} />
-              </button>
+            <div>
+              <label className="text-[9px] font-bold text-slate-500 uppercase">
+                Lugar
+              </label>
+              <div className="mt-1">
+                <GridLocationSelect
+                  value={draft.id_locacion}
+                  onChange={(v) => setDraft((p) => ({ ...p, id_locacion: v }))}
+                  options={catalogs.locaciones}
+                />
+              </div>
             </div>
+          </div>
+          <div>
+            <label className="text-[9px] font-bold text-slate-500 uppercase">
+              Descripción
+            </label>
             <div
               ref={descEditorRef}
               contentEditable
@@ -2490,59 +2724,53 @@ function MobileMealEditor({ row, catalogs, onCancel, onSave }) {
                   descripcion: e.currentTarget.innerHTML,
                 }))
               }
-              onPaste={(e) => {
-                e.preventDefault();
-                const text = e.clipboardData.getData("text/plain");
-                document.execCommand("insertText", false, text);
-              }}
               dangerouslySetInnerHTML={{ __html: draft.descripcion || "" }}
-              className="min-h-[72px] max-h-[88px] p-1.5 text-xs outline-none overflow-y-auto"
+              className="mt-1 min-h-[72px] max-h-[88px] p-1.5 text-xs border border-slate-300 rounded outline-none overflow-y-auto"
             />
           </div>
-        </div>
-        <div>
-          <label className="text-[9px] font-bold text-slate-500 uppercase">
-            Convocados
-          </label>
-          <div className="mt-1">
-            <MultiGroupSelect
-              value={draft.convocados}
-              onChange={(v) =>
-                setDraft((p) => ({
-                  ...p,
-                  convocados: v,
-                  descripcion: mergeMealDescriptionWithConvocados(
-                    p.descripcion,
-                    row.servicio,
-                    v,
-                    catalogs,
-                    p.convocados,
-                  ),
-                }))
-              }
-              catalogs={catalogs}
-            />
+          <div>
+            <label className="text-[9px] font-bold text-slate-500 uppercase">
+              Convocados
+            </label>
+            <div className="mt-1">
+              <MultiGroupSelect
+                value={draft.convocados}
+                onChange={(v) =>
+                  setDraft((p) => ({
+                    ...p,
+                    convocados: v,
+                    descripcion: mergeMealDescriptionWithConvocados(
+                      p.descripcion,
+                      p.tipo_nombre || row.servicio,
+                      v,
+                      catalogs,
+                      p.convocados,
+                    ),
+                  }))
+                }
+                catalogs={catalogs}
+              />
+            </div>
           </div>
         </div>
+        <div className="shrink-0 p-2 border-t border-slate-200 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={handleRequestClose}
+            className="px-2.5 py-1.5 text-[11px] font-bold text-slate-600"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => onSave(draft)}
+            className="px-2.5 py-1.5 text-[11px] font-bold rounded bg-indigo-600 text-white"
+          >
+            Guardar
+          </button>
+        </div>
       </div>
-
-      <div className="shrink-0 p-2 border-t border-slate-200 flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={handleRequestClose}
-          className="px-2.5 py-1.5 text-[11px] font-bold text-slate-600"
-        >
-          Cancelar
-        </button>
-        <button
-          type="button"
-          onClick={() => onSave(draft)}
-          className="px-2.5 py-1.5 text-[11px] font-bold rounded bg-indigo-600 text-white"
-        >
-          Guardar
-        </button>
-      </div>
-    </div>
     </div>
   );
 }
+

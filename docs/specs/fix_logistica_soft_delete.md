@@ -25,6 +25,14 @@ Se deben filtrar los eventos de la tabla `eventos` (eventos de gira) para exclui
   - La vista "Mis Comidas" del músico (`MealsAttendancePersonal`).
   - Los listados de eventos de gira usados por logística cuando se trate de eventos de comida.
 
+### Tipos de comida reales (id_tipo_evento + agrupación D/A/M/C)
+- [x] Los subtipos son filas en `tipos_evento` con `id_categoria = 4` (no solo texto en descripción).
+- [x] Agrupación a Desayuno/Almuerzo/Merienda/Cena por la **primera palabra** del `nombre` (`mealBaseFromTypeName`).
+- [x] IDs 7–10 siguen siendo los canónicos; se pueden crear p.ej. `Merienda a bordo`, `Almuerzo (Vianda)`.
+- [x] Matriz: selector de tipo real por fila + modal **Tipos de comida** (crear con base+detalle, renombrar/borrar no canónicos).
+- [x] Asistencia / Mis comidas / Reporte cargan por `isMealEvent` (categoría 4 o base por nombre), no solo `.in(7,8,9,10)`.
+- [x] Badge/colores usan el tipo base; la etiqueta visible es `tipos_evento.nombre`.
+
 ### Estilos de servicio de comida (completado)
 - [x] Fuente única `MEAL_SERVICE_STYLES` / `getMealServiceStyle` / `buildMealServicePrintBadgeCss` en `mealLogistics.js`.
 - [x] Consumidores: `MealsReport` (`reportTag`), `MealsManager` (`tag`/`card`), `LogisticsManager` (`tag`/`rowHover`/`date`/`icon`), `PrintWrapper` (CSS de impresión generado).

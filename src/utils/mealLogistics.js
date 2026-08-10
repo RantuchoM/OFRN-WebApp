@@ -1,5 +1,6 @@
 import { isUserConvoked, personMatchesLocConvocadoTag } from "./giraUtils";
 import { isLocalAtMealSlot } from "./giraTramos";
+import { stripHtml } from "./eventDisplayUtils";
 
 /** Orden del día para comparar inicio/fin de cobertura de comidas. */
 export const MEAL_SERVICE_ORDER = {
@@ -8,6 +9,28 @@ export const MEAL_SERVICE_ORDER = {
   Merienda: 2,
   Cena: 3,
 };
+
+/** Tipos canónicos (agrupan todos los eventos de comida). */
+export const MEAL_SERVICES = ["Desayuno", "Almuerzo", "Merienda", "Cena"];
+
+/**
+ * Sufijos automáticos frecuentes al final de la descripción de una comida
+ * (convocados / placeholders). Usados para extraer el detalle de subcategoría.
+ */
+export const MEAL_AUTO_DESCRIPTION_SUFFIXES = [
+  "Solo alojados",
+  "Producción",
+  "Directores",
+  "Solistas",
+  "Locales",
+  "No Locales",
+  "Tutti",
+  "Prod.",
+  "Sol.",
+  "Dir.",
+  "Staff",
+  "Gira",
+];
 
 /**
  * Bebé / menor en cuna (`ocupa_cama: false` en rooming): no consume, no cuenta en comidas.
@@ -45,6 +68,17 @@ export function collectCunaOccupantIds(rooms = []) {
   });
   return ids;
 }
+
+/** Categoría de tipos de evento de comida en `tipos_evento` / `categorias_tipos_eventos`. */
+export const MEAL_CATEGORY_ID = 4;
+
+/** IDs canónicos fijos (compatibilidad / cobertura de reglas). */
+export const CANONICAL_MEAL_TYPE_IDS = {
+  Desayuno: 7,
+  Almuerzo: 8,
+  Merienda: 9,
+  Cena: 10,
+};
 
 export const MEAL_TYPE_ID_TO_SERVICE = {
   7: "Desayuno",
@@ -134,7 +168,246 @@ export const MEAL_SERVICE_STYLES = {
 };
 
 export function getMealServiceStyle(servicio) {
-  return MEAL_SERVICE_STYLES[servicio] || MEAL_SERVICE_STYLES.default;
+  const base =
+    mealBaseFromTypeName(servicio) ||
+    normalizeMealServiceBase(servicio) ||
+    servicio;
+  return MEAL_SERVICE_STYLES[base] || MEAL_SERVICE_STYLES.default;
+}
+
+/** ¿El id es un tipo canónico puro (sin detalle)? */
+export function isCanonicalMealTypeId(id) {
+  const n = Number(id);
+  return n === 7 || n === 8 || n === 9 || n === 10;
+}
+
+/**
+ * Tipo canónico D/A/M/C a partir del nombre del tipo de evento.
+ * Regla de negocio: la **primera palabra** del nombre determina el grupo.
+ * Ej: "Merienda a bordo" → Merienda; "Almuerzo (Vianda)" → Almuerzo.
+ */
+export function mealBaseFromTypeName(nombre) {
+  if (!nombre) return null;
+  const raw = String(nombre).trim();
+  if (!raw) return null;
+  // Primera palabra (corta en espacio o paréntesis sin espacio)
+  const firstToken = raw.split(/[\s(/]+/)[0] || "";
+  if (MEAL_SERVICE_ORDER[firstToken] != null) return firstToken;
+  const lower = firstToken.toLowerCase();
+  for (const base of MEAL_SERVICES) {
+    if (lower === base.toLowerCase()) return base;
+  }
+  // Fallback legado: el nombre completo comienza con el tipo
+  return normalizeMealServiceBase(raw);
+}
+
+/** Color hex por defecto alineado a los estilos de badge. */
+export function defaultMealTypeColor(servicioBase) {
+  const style = getMealServiceStyle(servicioBase);
+  return style?.print?.border || "#6366f1";
+}
+
+/**
+ * ¿Este evento (o fila con tipos_evento) es de comida?
+ * Prioriza id_categoria = 4; fallback a ids 7–10 o nombre agrupable.
+ */
+export function isMealEvent(evt) {
+  if (!evt) return false;
+  const cat =
+    evt.tipos_evento?.id_categoria ??
+    evt.tipos_evento?.categorias_tipos_eventos?.id ??
+    evt.id_categoria;
+  if (Number(cat) === MEAL_CATEGORY_ID) return true;
+  if (isCanonicalMealTypeId(evt.id_tipo_evento)) return true;
+  if (mealBaseFromTypeName(evt.tipos_evento?.nombre || evt.nombre)) return true;
+  return false;
+}
+
+/**
+ * Normaliza un texto al tipo canónico (Desayuno|Almuerzo|Merienda|Cena) si comienza con él.
+ * "Merienda a bordo" → "Merienda"; "Almuerzo (Vianda)" → "Almuerzo".
+ */
+export function normalizeMealServiceBase(servicioOrLabel) {
+  if (!servicioOrLabel) return null;
+  const raw = String(servicioOrLabel).trim();
+  if (MEAL_SERVICE_ORDER[raw] != null) return raw;
+  const lower = raw.toLowerCase();
+  for (const base of MEAL_SERVICES) {
+    if (lower === base.toLowerCase()) return base;
+    if (
+      lower.startsWith(`${base.toLowerCase()} `) ||
+      lower.startsWith(`${base.toLowerCase()}(`)
+    ) {
+      return base;
+    }
+  }
+  return null;
+}
+
+function escapeRegex(s) {
+  return String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Etiqueta visible: "{tipo}" o "{tipo} {detalle}".
+ * Si el detalle ya incluye el tipo al inicio, se usa tal cual.
+ * Ej: ("Merienda", "a bordo") → "Merienda a bordo"
+ *     ("Almuerzo", "(Vianda)") → "Almuerzo (Vianda)"
+ */
+export function formatMealServiceLabel(servicio, detalle) {
+  const base = normalizeMealServiceBase(servicio) || String(servicio || "").trim();
+  if (!base) return String(detalle || "").trim();
+  const d = String(detalle || "").trim();
+  if (!d) return base;
+  if (normalizeMealServiceBase(d) === base && d.toLowerCase().startsWith(base.toLowerCase())) {
+    return d;
+  }
+  // " (Vianda)" o "(Vianda)" pegado al tipo sin espacio extra raro
+  if (d.startsWith("(")) return `${base} ${d}`;
+  return `${base} ${d}`;
+}
+
+/** Quita del final de un texto los sufijos auto (grupos / Gira) y + intermedios. */
+export function stripMealAutoDescriptionSuffix(plain, extraLabels = []) {
+  let text = String(plain || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+
+  const known = [
+    ...extraLabels,
+    ...MEAL_AUTO_DESCRIPTION_SUFFIXES,
+  ]
+    .map((l) => String(l || "").trim())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+
+  // Quitar una o más etiquetas conocidas al final (con + / espacios).
+  let guard = 0;
+  while (text && guard < 24) {
+    guard += 1;
+    let matched = false;
+    for (const label of known) {
+      if (text === label) {
+        text = "";
+        matched = true;
+        break;
+      }
+      if (text.endsWith(label)) {
+        const start = text.length - label.length;
+        const sep = start > 0 && /[\s+]/.test(text[start - 1]) ? start - 1 : start;
+        // Solo cortar si hay separador o inicio (evita recortar "Locales" de "NoLocales")
+        if (sep === start || /[\s+]/.test(text[sep])) {
+          text = text.slice(0, sep).replace(/[\s+]+$/g, "").trim();
+          matched = true;
+          break;
+        }
+      }
+    }
+    if (!matched) break;
+  }
+  return text;
+}
+
+/**
+ * Extrae el "otros detalles" del servicio a partir de la descripción.
+ * "Merienda a bordo Solo alojados" + base Merienda → "a bordo"
+ * "Almuerzo (Vianda)" → "(Vianda)"
+ */
+export function parseMealServiceDetalle(descripcion, servicio, extraLabels = []) {
+  const base = normalizeMealServiceBase(servicio);
+  if (!base) return "";
+  const plain = stripMealAutoDescriptionSuffix(
+    stripHtml(descripcion).replace(/\s+/g, " ").trim(),
+    extraLabels,
+  );
+  if (!plain) return "";
+
+  const lower = plain.toLowerCase();
+  const baseLower = base.toLowerCase();
+  if (lower === baseLower) return "";
+
+  if (lower.startsWith(baseLower)) {
+    const rest = plain.slice(base.length).trim();
+    // Resto solo grupos ya se limpia; si sobra "a bordo" lo devolvemos.
+    return rest;
+  }
+  return "";
+}
+
+/** Etiqueta completa: nombre real del tipo de evento (o legacy desde descripción). */
+export function mealDisplayLabelFromEvent(evt, extraLabels = []) {
+  const typeName =
+    evt?.tipos_evento?.nombre ||
+    evt?.tipo_nombre ||
+    evt?.tipoNombre ||
+    null;
+  if (typeName) return String(typeName).trim();
+
+  const base = mealServicioFromEvent(evt);
+  if (!base) return null;
+
+  if (evt?.servicio_detalle != null && String(evt.servicio_detalle).trim()) {
+    return formatMealServiceLabel(base, evt.servicio_detalle);
+  }
+  if (evt?.servicioDetalle != null && String(evt.servicioDetalle).trim()) {
+    return formatMealServiceLabel(base, evt.servicioDetalle);
+  }
+
+  const fromDesc = parseMealServiceDetalle(
+    evt?.descripcion,
+    base,
+    extraLabels,
+  );
+  if (fromDesc) return formatMealServiceLabel(base, fromDesc);
+  return base;
+}
+
+/**
+ * Reescribe el prefijo de servicio en la descripción al cambiar el detalle.
+ * Conserva el resto (convocados, notas).
+ */
+export function rewriteMealDescriptionServiceLabel(
+  existingHtml,
+  oldLabel,
+  newLabel,
+) {
+  const plain = stripHtml(existingHtml).replace(/\s+/g, " ").trim();
+  const next = String(newLabel || "").trim();
+  if (!next) return existingHtml || "";
+
+  if (!plain) return `${next} Gira`;
+
+  const prev = String(oldLabel || "").trim();
+  if (prev && plain.toLowerCase().startsWith(prev.toLowerCase())) {
+    const rest = plain.slice(prev.length);
+    const merged = `${next}${rest}`.trim();
+    if (
+      existingHtml &&
+      existingHtml !== plain &&
+      typeof existingHtml.includes === "function" &&
+      existingHtml.includes(prev)
+    ) {
+      return existingHtml.replace(prev, next);
+    }
+    return merged;
+  }
+
+  // Intento con solo el tipo canónico al inicio
+  const base = normalizeMealServiceBase(next) || normalizeMealServiceBase(prev);
+  if (base && plain.toLowerCase().startsWith(base.toLowerCase())) {
+    const rest = plain.slice(base.length);
+    const merged = `${next}${rest}`.trim();
+    if (
+      existingHtml &&
+      existingHtml !== plain &&
+      existingHtml.includes(base)
+    ) {
+      // Reemplazar solo la primera ocurrencia del tipo
+      return existingHtml.replace(new RegExp(escapeRegex(base)), next);
+    }
+    return merged;
+  }
+
+  return existingHtml || plain;
 }
 
 /** CSS de badges de servicio para la ventana de impresión (selector `span.` para ganar a `span.rounded`). */
@@ -165,9 +438,19 @@ export function mealSlotKey(date, servicio) {
 
 function resolveCoverageService(coverage, fallback) {
   if (!coverage) return fallback;
-  if (coverage.svc) return coverage.svc;
+  if (coverage.svc) {
+    return (
+      mealBaseFromTypeName(coverage.svc) ||
+      normalizeMealServiceBase(coverage.svc) ||
+      coverage.svc
+    );
+  }
   if (coverage.id_tipo_evento != null) {
-    return MEAL_TYPE_ID_TO_SERVICE[coverage.id_tipo_evento] || fallback;
+    return (
+      MEAL_TYPE_ID_TO_SERVICE[coverage.id_tipo_evento] ||
+      mealBaseFromTypeName(coverage.nombre || coverage.tipos_evento?.nombre) ||
+      fallback
+    );
   }
   return fallback;
 }
@@ -267,11 +550,53 @@ export function isPersonEligibleForMealSlot(
   return true;
 }
 
-/** Resuelve nombre de servicio desde fila de evento. */
+/**
+ * Resuelve el slot canónico D/A/M/C de un evento de comida.
+ * Prioriza el nombre del tipo (primera palabra), luego ids 7–10, luego `servicio` en fila.
+ */
 export function mealServicioFromEvent(evt) {
-  if (evt?.servicio) return evt.servicio;
-  if (evt?.id_tipo_evento != null) {
-    return MEAL_TYPE_ID_TO_SERVICE[evt.id_tipo_evento] || null;
+  const fromTypeName = mealBaseFromTypeName(evt?.tipos_evento?.nombre);
+  if (fromTypeName) return fromTypeName;
+
+  if (evt?.id_tipo_evento != null && MEAL_TYPE_ID_TO_SERVICE[evt.id_tipo_evento]) {
+    return MEAL_TYPE_ID_TO_SERVICE[evt.id_tipo_evento];
+  }
+
+  if (evt?.servicio) {
+    return (
+      mealBaseFromTypeName(evt.servicio) ||
+      normalizeMealServiceBase(evt.servicio) ||
+      evt.servicio
+    );
   }
   return null;
+}
+
+/**
+ * Detalle libre del nombre de tipo (todo después del tipo base).
+ * "Merienda a bordo" → "a bordo"; "Almuerzo" → "".
+ */
+export function mealDetalleFromTypeName(nombre) {
+  const base = mealBaseFromTypeName(nombre);
+  if (!base || !nombre) return "";
+  const raw = String(nombre).trim();
+  if (raw.toLowerCase() === base.toLowerCase()) return "";
+  if (raw.toLowerCase().startsWith(base.toLowerCase())) {
+    return raw.slice(base.length).trim();
+  }
+  return "";
+}
+
+export async function fetchMealEventTypes(supabase) {
+  const { data, error } = await supabase
+    .from("tipos_evento")
+    .select("id, nombre, color, id_categoria")
+    .eq("id_categoria", MEAL_CATEGORY_ID)
+    .order("nombre", { ascending: true });
+  if (error) throw error;
+  return (data || []).map((t) => ({
+    ...t,
+    servicio: mealBaseFromTypeName(t.nombre) || null,
+    detalle: mealDetalleFromTypeName(t.nombre),
+  }));
 }

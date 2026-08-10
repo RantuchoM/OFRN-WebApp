@@ -178,11 +178,12 @@ export function getGoogleMapsUrl(locacion) {
   return `https://www.google.com/maps/search/?api=1&query=${query}`;
 }
 
-/** Fragmentos de un evento usados por la búsqueda de agenda (detalle + locación). */
+/** Fragmentos de un evento usados por la búsqueda de agenda (tipo + detalle + locación). */
 export function getAgendaEventSearchParts(item) {
   if (!item || item.isProgramMarker) return [];
   const loc = item.locaciones || {};
   return [
+    item.tipos_evento?.nombre,
     stripHtml(item.descripcion),
     item.giras_transportes?.detalle,
     loc.nombre,
@@ -191,7 +192,7 @@ export function getAgendaEventSearchParts(item) {
   ].filter((part) => part != null && String(part).trim() !== "");
 }
 
-/** ¿El evento coincide con el texto de búsqueda (detalle y/o locación)? */
+/** ¿El evento coincide con el texto de búsqueda (tipo, detalle y/o locación)? */
 export function eventMatchesAgendaSearch(item, query) {
   const q = normalizeForSearch(query);
   if (!q) return true;

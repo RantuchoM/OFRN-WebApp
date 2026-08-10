@@ -4,6 +4,7 @@ import React, {
   useRef,
   useMemo,
   useCallback,
+  startTransition,
 } from "react";
 import { format, parseISO, subDays, subMonths } from "date-fns";
 import { toast } from "sonner";
@@ -105,6 +106,92 @@ import { deriveAgendaPermissions } from "../../utils/agendaPermissions";
 const DELETED_FILTERS_STORAGE_KEY_PREFIX = "unified_agenda_deleted_filters_v1_";
 const RECENT_CHANGES_ACK_STORAGE_KEY_PREFIX =
   "unified_agenda_recent_changes_ack_v1_";
+
+const AGENDA_SEARCH_DEBOUNCE_MS = 250;
+
+/**
+ * Input aislado: el texto se pinta al instante (estado local).
+ * El filtro de la agenda solo se re-calcula tras debounce, para no re-renderizar
+ * toda UnifiedAgenda en cada tecla (la lag perceptual del input).
+ */
+function AgendaSearchField({ onQueryChange }) {
+  const [localQuery, setLocalQuery] = useState("");
+  const onQueryChangeRef = useRef(onQueryChange);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    onQueryChangeRef.current = onQueryChange;
+  }, [onQueryChange]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const commitQuery = useCallback((value, { immediate = false } = {}) => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    if (immediate) {
+      onQueryChangeRef.current(value);
+      return;
+    }
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      onQueryChangeRef.current(value);
+    }, AGENDA_SEARCH_DEBOUNCE_MS);
+  }, []);
+
+  const handleChange = (e) => {
+    const next = e.target.value;
+    setLocalQuery(next);
+    commitQuery(next);
+  };
+
+  const handleClear = () => {
+    setLocalQuery("");
+    commitQuery("", { immediate: true });
+  };
+
+  const isActive = Boolean(localQuery.trim());
+
+  return (
+    <div
+      className={`relative flex items-center shrink-0 transition-colors ${
+        isActive
+          ? "border-indigo-500 bg-white ring-1 ring-indigo-500/25"
+          : "border-slate-200 bg-white"
+      } border rounded-full shadow-sm`}
+    >
+      <IconSearch
+        size={14}
+        className="absolute left-2.5 text-slate-400 pointer-events-none"
+      />
+      <input
+        type="search"
+        value={localQuery}
+        onChange={handleChange}
+        placeholder="Buscar..."
+        title="Buscar en tipo, detalle y locaciones"
+        aria-label="Buscar en tipo, detalle y locaciones"
+        className="w-[7.5rem] sm:w-[10.5rem] pl-8 pr-7 py-1.5 text-xs font-medium text-slate-700 bg-transparent rounded-full border-0 outline-none focus:ring-0 placeholder:text-slate-400"
+      />
+      {isActive && (
+        <button
+          type="button"
+          onClick={handleClear}
+          className="absolute right-1.5 p-0.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+          title="Limpiar búsqueda"
+          aria-label="Limpiar búsqueda"
+        >
+          <IconX size={12} />
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** Resalta coincidencias de búsqueda en texto plano (detalle/locación). */
 function AgendaSearchHighlight({ text, query, className = "" }) {
@@ -406,7 +493,13 @@ export default function UnifiedAgenda({
   const [includeGeneralEventsLocal, setIncludeGeneralEventsLocal] =
     useState(true);
   const [gruposAssignTarget, setGruposAssignTarget] = useState(null);
+  // Query usada para filtrar/resaltar (debounced vía AgendaSearchField).
   const [agendaSearchQuery, setAgendaSearchQuery] = useState("");
+  const handleAgendaSearchQueryChange = useCallback((query) => {
+    startTransition(() => {
+      setAgendaSearchQuery(query);
+    });
+  }, []);
 
   const filterControlled =
     filterGrupoIdsProp != null && setFilterGrupoIdsProp != null;
@@ -2133,39 +2226,8 @@ export default function UnifiedAgenda({
               </button>
             )}
 
-            {/* Búsqueda por detalle / locación */}
-            <div
-              className={`relative flex items-center shrink-0 ${
-                agendaSearchQuery.trim()
-                  ? "border-indigo-300 bg-indigo-50/50"
-                  : "border-slate-200 bg-white"
-              } border rounded-full shadow-sm`}
-            >
-              <IconSearch
-                size={14}
-                className="absolute left-2.5 text-slate-400 pointer-events-none"
-              />
-              <input
-                type="search"
-                value={agendaSearchQuery}
-                onChange={(e) => setAgendaSearchQuery(e.target.value)}
-                placeholder="Buscar..."
-                title="Buscar en detalle y locaciones"
-                aria-label="Buscar en detalle y locaciones"
-                className="w-[7.5rem] sm:w-[10.5rem] pl-8 pr-7 py-1.5 text-xs font-medium text-slate-700 bg-transparent rounded-full border-0 outline-none focus:ring-0 placeholder:text-slate-400"
-              />
-              {agendaSearchQuery.trim() && (
-                <button
-                  type="button"
-                  onClick={() => setAgendaSearchQuery("")}
-                  className="absolute right-1.5 p-0.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                  title="Limpiar búsqueda"
-                  aria-label="Limpiar búsqueda"
-                >
-                  <IconX size={12} />
-                </button>
-              )}
-            </div>
+            {/* Búsqueda por detalle / locación (input local + filtro debounced) */}
+            <AgendaSearchField onQueryChange={handleAgendaSearchQueryChange} />
 
             {/* BOTONES DE FILTRO ... (igual que antes) */}
             {availableCategories.length > 0 && (
@@ -2883,14 +2945,17 @@ export default function UnifiedAgenda({
                                   <div className="flex items-start gap-1.5 mb-0.5">
                                     <div className="w-[7rem] shrink-0 flex flex-wrap gap-1 items-center">
                                       <span
-                                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-full"
+                                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-full [&_mark]:bg-yellow-200 [&_mark]:text-yellow-900 [&_mark]:rounded-sm [&_mark]:px-0.5"
                                         style={{
                                           color: eventColor,
                                           borderColor: `${eventColor}40`,
                                           backgroundColor: `${eventColor}10`,
                                         }}
                                       >
-                                        {evt.tipos_evento?.nombre}
+                                        <AgendaSearchHighlight
+                                          text={evt.tipos_evento?.nombre}
+                                          query={agendaSearchQuery}
+                                        />
                                       </span>
                                       {evt.programas?.nomenclador && (
                                         <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">
@@ -2941,7 +3006,10 @@ export default function UnifiedAgenda({
                                             />
                                           ) : (
                                             <span>
-                                              {evt.tipos_evento?.nombre}
+                                              <AgendaSearchHighlight
+                                                text={evt.tipos_evento?.nombre}
+                                                query={agendaSearchQuery}
+                                              />
                                             </span>
                                           )}
                                         </div>
@@ -3025,7 +3093,12 @@ export default function UnifiedAgenda({
                                           }}
                                         />
                                       ) : (
-                                        <span>{evt.tipos_evento?.nombre}</span>
+                                        <span>
+                                          <AgendaSearchHighlight
+                                            text={evt.tipos_evento?.nombre}
+                                            query={agendaSearchQuery}
+                                          />
+                                        </span>
                                       )}
                                     </div>
                                   )}
@@ -3340,14 +3413,17 @@ export default function UnifiedAgenda({
                                 >
                                   <div className="flex flex-wrap gap-1 items-center">
                                     <span
-                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-full"
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-full [&_mark]:bg-yellow-200 [&_mark]:text-yellow-900 [&_mark]:rounded-sm [&_mark]:px-0.5"
                                       style={{
                                         color: eventColor,
                                         borderColor: `${eventColor}40`,
                                         backgroundColor: `${eventColor}10`,
                                       }}
                                     >
-                                      {evt.tipos_evento?.nombre}
+                                      <AgendaSearchHighlight
+                                        text={evt.tipos_evento?.nombre}
+                                        query={agendaSearchQuery}
+                                      />
                                     </span>
                                     {(canEditAgendaTechVisibility ||
                                       isTechnician) && (
@@ -3432,7 +3508,10 @@ export default function UnifiedAgenda({
                                               : "font-bold text-slate-800"
                                           }
                                         >
-                                          {evt.tipos_evento?.nombre}
+                                          <AgendaSearchHighlight
+                                            text={evt.tipos_evento?.nombre}
+                                            query={agendaSearchQuery}
+                                          />
                                         </span>
                                       )}
                                     </div>

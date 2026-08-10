@@ -20,7 +20,13 @@ import { es } from "date-fns/locale";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 import { isUserConvoked, normalize } from "../../utils/giraUtils";
-import { resolveEnCunaFromRooms } from "../../utils/mealLogistics";
+import {
+  resolveEnCunaFromRooms,
+  mealDisplayLabelFromEvent,
+  mealServicioFromEvent,
+  getMealServiceStyle,
+  isMealEvent,
+} from "../../utils/mealLogistics";
 
 export default function MealsAttendancePersonal({ supabase, gira, userId }) {
   // 1. Obtener la verdad única del Roster
@@ -88,16 +94,17 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
         supabase
           .from("eventos")
           .select(
-            "*, locaciones(nombre,localidades(localidad)), tipos_evento(nombre)",
+            "*, locaciones(nombre,localidades(localidad)), tipos_evento(id, nombre, id_categoria)",
           )
           .eq("id_gira", gira.id)
           .eq("is_deleted", false)
-          .in("id_tipo_evento", [7, 8, 9, 10])
           .order("fecha", { ascending: true })
           .order("hora_inicio", { ascending: true }),
       ]);
 
       if (eventError) throw eventError;
+
+      const mealEvents = (events || []).filter(isMealEvent);
 
       const hospIds = (hospRows || []).map((h) => h.id);
       let rooms = [];
@@ -141,8 +148,8 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
       myAnswers?.forEach((a) => (answersMap[a.id_evento] = a.estado));
       setAnswers(answersMap);
 
-      // 5. Filtrar convocatoria usando el helper y los datos del hook
-      const relevantEvents = (events || []).filter((evt) =>
+      // 5. Filtrar comidas convocado usando el helper y los datos del hook
+      const relevantEvents = (mealEvents || []).filter((evt) =>
         isUserConvoked(evt.convocados, myUserEnriched, {
           hospedajeExcluidosIds,
         }),
@@ -306,15 +313,13 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
                   <div className="p-4 flex justify-between items-start gap-4">
                     <div>
                       <span
-                        className={`inline-block px-2 py-0.5 rounded text-[15px] font-bold uppercase tracking-wide mb-1 ${
-                          evt.id_tipo_evento === 8
-                            ? "bg-amber-100 text-amber-700"
-                            : evt.id_tipo_evento === 10
-                              ? "bg-indigo-100 text-indigo-700"
-                              : "bg-slate-100 text-slate-600"
+                        className={`inline-block px-2 py-0.5 rounded text-[15px] font-bold uppercase tracking-wide mb-1 border ${
+                          getMealServiceStyle(mealServicioFromEvent(evt)).tag
                         }`}
                       >
-                        {evt.tipos_evento?.nombre}
+                        {mealDisplayLabelFromEvent(evt) ||
+                          evt.tipos_evento?.nombre ||
+                          "Comida"}
                       </span>
                       <div className="text-xl font-bold text-slate-800 flex items-baseline gap-2">
                         {evt.hora_inicio?.slice(0, 5)}{" "}

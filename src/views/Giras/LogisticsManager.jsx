@@ -44,6 +44,8 @@ import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import {
   MEAL_TYPE_ID_TO_SERVICE,
   getMealServiceStyle,
+  mealDisplayLabelFromEvent,
+  isMealEvent,
 } from "../../utils/mealLogistics";
 import EventForm from "../../components/forms/EventForm";
 import ManualTrigger from "../../components/manual/ManualTrigger";
@@ -651,7 +653,10 @@ const EventCellEditor = ({
                     })
                     .map((ev) => {
                       const theme = getEventTypeTheme(ev.id_tipo_evento);
-                      const eventTypeLabel = getEventTypeLabel(ev.id_tipo_evento);
+                      const isMeal = isMealEvent(ev);
+                      const eventTypeLabel = isMeal
+                        ? mealDisplayLabelFromEvent(ev)
+                        : getEventTypeLabel(ev.id_tipo_evento);
                       const cleanDescription = cleanEventLabel(ev.descripcion);
                       return (
                         <div
@@ -663,6 +668,7 @@ const EventCellEditor = ({
                             <div className="flex items-center gap-2 mb-1">
                               <span
                                 className={`inline-flex items-center px-1.5 py-0.5 rounded-md border text-[9px] font-semibold uppercase tracking-wide ${theme.chip}`}
+                                title={eventTypeLabel}
                               >
                                 {eventTypeLabel}
                               </span>

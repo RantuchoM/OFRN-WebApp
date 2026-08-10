@@ -14,8 +14,10 @@ import { handlePrintExport } from "../../utils/PrintWrapper";
 import {
   isPersonEligibleForMealSlot,
   mealServicioFromEvent,
+  mealDisplayLabelFromEvent,
   MEAL_TYPE_ID_TO_SERVICE,
   getMealServiceStyle,
+  isMealEvent,
 } from "../../utils/mealLogistics";
 import { resolveLocalidadResidencia } from "../../utils/integranteDomicilioViaticos";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
@@ -216,17 +218,18 @@ export default function MealsReport({
         return;
       }
 
-      // 2. Obtener Eventos de Comida
-      const { data: events } = await supabase
+      // 2. Obtener Eventos de Comida (cualquier tipo de categoría Comidas)
+      const { data: eventsRaw } = await supabase
         .from("eventos")
         .select(
-          "*, tipos_evento(nombre), locaciones(id, nombre, id_localidad, localidades(id, localidad)), convocados",
+          "*, tipos_evento(id, nombre, id_categoria), locaciones(id, nombre, id_localidad, localidades(id, localidad)), convocados",
         )
         .eq("id_gira", gira.id)
         .eq("is_deleted", false)
-        .in("id_tipo_evento", [7, 8, 9, 10])
         .order("fecha", { ascending: true })
         .order("hora_inicio", { ascending: true });
+
+      const events = (eventsRaw || []).filter(isMealEvent);
 
       if (!events || events.length === 0) {
         setReportData([]);
@@ -262,6 +265,7 @@ export default function MealsReport({
         const eventDate = evt.fecha; // 'YYYY-MM-DD'
 
         const servicio = mealServicioFromEvent(evt);
+        const servicioLabel = mealDisplayLabelFromEvent(evt);
 
         activeRoster.forEach((person) => {
           // A. ¿Está convocado y con cobertura logística (fecha + servicio del slot)?
@@ -318,7 +322,12 @@ export default function MealsReport({
           fecha: evt.fecha,
           hora: evt.hora_inicio?.slice(0, 5),
           servicio:
+            servicio ||
             MEAL_TYPE_ID_TO_SERVICE[evt.id_tipo_evento] ||
+            evt.tipos_evento?.nombre,
+          servicioLabel:
+            servicioLabel ||
+            servicio ||
             evt.tipos_evento?.nombre,
           lugar: locCity ? `${locName} - ${locCity}` : locName,
           locacionLabel: locName,
@@ -544,14 +553,20 @@ export default function MealsReport({
     const perDate = {};
     filteredReport.forEach((row) => {
       if (!perDate[row.fecha]) perDate[row.fecha] = {};
-      if (!perDate[row.fecha][row.servicio]) {
-        perDate[row.fecha][row.servicio] = { Total: 0 };
+      // Clave por etiqueta completa para no fusionar "Almuerzo" con "Almuerzo (Vianda)"
+      const groupKey = row.servicioLabel || row.servicio;
+      if (!perDate[row.fecha][groupKey]) {
+        perDate[row.fecha][groupKey] = {
+          Total: 0,
+          base: row.servicio,
+          label: groupKey,
+        };
       }
-      perDate[row.fecha][row.servicio].Total += row.counts.Total || 0;
+      perDate[row.fecha][groupKey].Total += row.counts.Total || 0;
       Object.entries(row.counts).forEach(([diet, value]) => {
         if (diet === "Total" || !value) return;
-        perDate[row.fecha][row.servicio][diet] =
-          (perDate[row.fecha][row.servicio][diet] || 0) + value;
+        perDate[row.fecha][groupKey][diet] =
+          (perDate[row.fecha][groupKey][diet] || 0) + value;
       });
     });
 
@@ -561,13 +576,22 @@ export default function MealsReport({
 
     const mealBlocks = orderedDates
       .map((dateKey) => {
-        const dateRows = serviceOrder
-          .map((service) => {
-            const counts = perDate[dateKey][service];
+        const groups = Object.values(perDate[dateKey] || {}).sort((a, b) => {
+          const oa = serviceOrder.indexOf(a.base);
+          const ob = serviceOrder.indexOf(b.base);
+          if (oa !== ob) return (oa < 0 ? 99 : oa) - (ob < 0 ? 99 : ob);
+          return String(a.label).localeCompare(String(b.label), "es");
+        });
+
+        const dateRows = groups
+          .map((counts) => {
             if (!counts || !counts.Total) return null;
 
             const diets = Object.entries(counts)
-              .filter(([k, v]) => k !== "Total" && v > 0)
+              .filter(
+                ([k, v]) =>
+                  k !== "Total" && k !== "base" && k !== "label" && v > 0,
+              )
               .sort(([a], [b]) =>
                 a === "Estándar"
                   ? -1
@@ -578,7 +602,16 @@ export default function MealsReport({
               .map(([diet, value]) => `${value} ${diet.toLowerCase()}`);
 
             const details = diets.length > 0 ? ` (${diets.join(", ")})` : "";
-            return `${counts.Total} ${servicePlural[service]}${details}`;
+            const base = counts.base;
+            const pluralRoot = servicePlural[base] || String(counts.label || "").toLowerCase();
+            // Si la etiqueta difiere del tipo (subcategoría), usarla literal
+            const isSub =
+              counts.label &&
+              String(counts.label).toLowerCase() !== String(base || "").toLowerCase();
+            const name = isSub
+              ? String(counts.label).toLowerCase()
+              : pluralRoot;
+            return `${counts.Total} ${name}${details}`;
           })
           .filter(Boolean);
 
@@ -872,7 +905,7 @@ export default function MealsReport({
             <tr className="border-b-2 border-slate-800">
               <th className="py-2 px-1 w-0 whitespace-nowrap" title="Fecha">Fecha</th>
               <th className="py-2 px-1 w-0 whitespace-nowrap" title="Hora">Hora</th>
-              <th className="py-2 px-1 w-0 whitespace-nowrap" title="Servicio">Serv</th>
+              <th className="py-2 px-1 whitespace-nowrap" title="Servicio">Serv</th>
               <th className="py-2 px-2 min-w-0">Lugar</th>
               <th className="py-2 px-1 w-0 text-right bg-slate-100 whitespace-nowrap" title="Total">Total</th>
               {allDiets.map((d) => (
@@ -893,13 +926,14 @@ export default function MealsReport({
                   {format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}
                 </td>
                 <td className="py-3 px-2 text-slate-800">{row.hora}</td>
-                <td className="py-3 px-2">
+                <td className="py-3 px-2 whitespace-nowrap align-middle">
                   <span
-                    className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
+                    className={`inline-block text-[10px] font-bold uppercase px-2 py-0.5 rounded border whitespace-nowrap ${
                       getMealServiceStyle(row.servicio).reportTag
                     }`}
+                    title={row.servicioLabel || row.servicio}
                   >
-                    {row.servicio}
+                    {row.servicioLabel || row.servicio}
                   </span>
                 </td>
                 <td className="py-3 px-2 text-slate-800">{row.lugar}</td>

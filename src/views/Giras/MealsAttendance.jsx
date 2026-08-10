@@ -19,6 +19,9 @@ import { toast } from "sonner";
 import {
   isPersonEligibleForMealSlot,
   mealServicioFromEvent,
+  mealDisplayLabelFromEvent,
+  getMealServiceStyle,
+  isMealEvent,
 } from "../../utils/mealLogistics";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
@@ -129,11 +132,7 @@ export default function MealsAttendance({
         .order("fecha", { ascending: true })
         .order("hora_inicio", { ascending: true });
 
-      const mealEvents = (evts || []).filter(
-        (e) =>
-          e.tipos_evento?.id_categoria === 4 ||
-          [7, 8, 9, 10].includes(e.id_tipo_evento),
-      );
+      const mealEvents = (evts || []).filter(isMealEvent);
 
       if (mealEvents.length > 0) {
         const { data: att } = await supabase
@@ -571,21 +570,41 @@ export default function MealsAttendance({
                 <th className="sticky left-0 z-50 bg-slate-50 border-r border-b border-slate-300 p-2 text-[9px] font-bold text-slate-400 uppercase shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                   Dieta / Instrumento
                 </th>
-                {events.map((evt) => (
-                  <th
-                    key={evt.id}
-                    className="border-r border-b border-slate-200 p-1 text-center bg-white w-[50px]"
-                  >
-                    <span className="block text-[8px] text-slate-400 font-mono">
-                      {evt.hora_inicio?.slice(0, 5)}
-                    </span>
-                    <span
-                      className={`inline-flex w-5 h-5 items-center justify-center rounded-full text-[9px] font-bold border ${evt.id_tipo_evento === 8 ? "bg-amber-50 text-amber-600 border-amber-200" : "bg-indigo-50 text-indigo-600 border-indigo-200"}`}
+                {events.map((evt) => {
+                  const serviceLabel = mealDisplayLabelFromEvent(evt);
+                  const servicio = mealServicioFromEvent(evt);
+                  const style = getMealServiceStyle(servicio);
+                  return (
+                    <th
+                      key={evt.id}
+                      className="border-r border-b border-slate-200 p-1 text-center bg-white w-[56px]"
+                      title={`${serviceLabel}${
+                        evt.hora_inicio
+                          ? ` · ${String(evt.hora_inicio).slice(0, 5)}`
+                          : ""
+                      }`}
                     >
-                      {evt.tipos_evento?.nombre?.charAt(0)}
-                    </span>
-                  </th>
-                ))}
+                      <span className="block text-[8px] text-slate-400 font-mono">
+                        {evt.hora_inicio?.slice(0, 5)}
+                      </span>
+                      <span
+                        className={`inline-flex min-w-5 h-5 px-0.5 items-center justify-center rounded-full text-[9px] font-bold border ${style.tag}`}
+                      >
+                        {servicio?.charAt(0) || "?"}
+                      </span>
+                      {serviceLabel !== servicio && (
+                        <span
+                          className="block text-[7px] leading-tight text-slate-500 font-semibold truncate max-w-[52px] mx-auto"
+                          title={serviceLabel}
+                        >
+                          {serviceLabel
+                            .replace(new RegExp(`^${servicio}\\s*`, "i"), "")
+                            .trim()}
+                        </span>
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
