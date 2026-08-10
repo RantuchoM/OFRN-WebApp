@@ -60,6 +60,7 @@ const MANAGEMENT_SECTION_LABELS = {
   seating: "Informes Seating",
   instrumentation: "Instrumentación",
   convocatorias: "Convocatorias",
+  servicios: "Servicios",
   ensayos: "Ensayos por programa",
   asistencia_ensayos: "Asistencia a ensayos",
   conciertos: "Conciertos",

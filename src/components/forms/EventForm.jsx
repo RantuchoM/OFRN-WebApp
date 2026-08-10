@@ -507,6 +507,36 @@ export default function EventForm({
           </div>
         )}
 
+        {Number(formData.id_tipo_evento) === 1 && (
+          <label className="flex cursor-pointer select-none items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 group">
+            <div
+              className={`flex h-5 w-5 items-center justify-center rounded border transition-colors ${
+                formData.es_didactico
+                  ? "border-emerald-600 bg-emerald-600"
+                  : "border-slate-300 bg-white group-hover:border-emerald-400"
+              }`}
+            >
+              {formData.es_didactico && (
+                <IconCheck size={14} className="text-white" strokeWidth={3} />
+              )}
+            </div>
+            <input
+              type="checkbox"
+              className="hidden"
+              checked={formData.es_didactico || false}
+              onChange={(e) => handleChange("es_didactico", e.target.checked)}
+            />
+            <div className="flex flex-col">
+              <span className="text-xs font-bold uppercase text-slate-700">
+                Concierto didáctico
+              </span>
+              <span className="text-[10px] font-medium text-slate-400">
+                Cuenta como ½ servicio en el reporte de cantidad de servicios
+              </span>
+            </div>
+          </label>
+        )}
+
         {(isEditor || isManagement) && (
           <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
             <label className="flex items-center gap-3 cursor-pointer select-none group">

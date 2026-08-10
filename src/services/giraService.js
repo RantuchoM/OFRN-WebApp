@@ -291,7 +291,7 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
     const programasRes = await supabase
       .from("programas")
       .select(
-        `id, nomenclador, mes_letra, nombre_gira, subtitulo, tipo, fecha_desde, fecha_hasta, zona,
+        `id, nomenclador, mes_letra, nombre_gira, subtitulo, tipo, fecha_desde, fecha_hasta, zona, estado,
         giras_fuentes ( id, tipo, valor_id, valor_texto ),
         giras_localidades ( localidades ( localidad ) )`,
       )

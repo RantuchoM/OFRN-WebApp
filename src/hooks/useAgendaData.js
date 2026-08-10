@@ -1,7 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { startOfDay, endOfDay, addMonths, parseISO } from "date-fns";
 import { toast } from "sonner";
-import { getTodayDateStringLocal } from "../utils/dates";
+import {
+  getTodayDateStringLocal,
+  getAgendaQueryFromDateLocal,
+} from "../utils/dates";
 import { calculateLogisticsSummary } from "./useLogistics";
 import { membershipActiveOnProgramDate } from "../utils/ensembleMembership";
 import { isIntegranteConvocadoAEnsayo } from "../utils/ensayoCheckinBanner";
@@ -15,7 +18,7 @@ import {
 const ID_TIPO_ENSAYO_ENSAMBLE = 13;
 
 const EVENT_SELECT = `
-    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, visible_agenda, updated_at, is_deleted, deleted_at, id_estado_venue,
+    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, visible_agenda, updated_at, is_deleted, deleted_at, id_estado_venue, es_didactico,
     giras_transportes ( id, detalle, transportes ( nombre, color, icon ) ),
     tipos_evento ( id, nombre, color, categorias_tipos_eventos (id, nombre) ),
     locaciones ( id, nombre, direccion, link_mapa, localidades (localidad) ),
@@ -174,6 +177,8 @@ async function fetchAssociatedEnsembleRehearsals(
 /**
  * Hook de datos de la agenda: fetch, caché, realtime y categorías.
  * Recibe filtros de fecha para armar el rango de la query (agenda general).
+ * Precarga ~1 mes de pasado; el “Desde” visual recorta en cliente hasta que el
+ * usuario pida más atrás que esa ventana (entonces se amplía el gte de la query).
  *
  * @param {object} opts
  * @param {object} opts.supabase
@@ -211,6 +216,16 @@ export function useAgendaData({
   includeDeletedBeyond24h = false,
   includeAssociatedEnsembleRehearsals = false,
 }) {
+  /**
+   * Ventana de query general: ~1 mes atrás precargado; solo se mueve más atrás
+   * cuando filterDateFrom lo pide. Valor estable en string → evita refetch al
+   * retroceder semanas dentro de la ventana.
+   */
+  const queryDateFrom = useMemo(() => {
+    if (giraId) return null;
+    return getAgendaQueryFromDateLocal(filterDateFrom);
+  }, [giraId, filterDateFrom]);
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -302,10 +317,8 @@ export function useAgendaData({
           start = startOfDay(new Date()).toISOString();
           end = addMonths(new Date(), monthsLimit).toISOString();
         } else {
-          const fromPast = filterDateFrom && filterDateFrom < todayStr;
-          start = fromPast
-            ? startOfDay(parseISO(filterDateFrom)).toISOString()
-            : startOfDay(new Date()).toISOString();
+          // Precarga pasado (preload) y más atrás solo si el filtro visual lo pide.
+          start = startOfDay(parseISO(queryDateFrom)).toISOString();
           end = filterDateTo
             ? endOfDay(parseISO(filterDateTo)).toISOString()
             : addMonths(new Date(), monthsLimit).toISOString();
@@ -479,18 +492,31 @@ export function useAgendaData({
             const locId =
               locViaticos.id != null && locViaticos.id !== ""
                 ? String(locViaticos.id)
-                : "";
+                : userProfile.id_localidad != null &&
+                    userProfile.id_localidad !== ""
+                  ? String(userProfile.id_localidad)
+                  : "";
             const locObj =
               allLocalities.find((l) => String(l.id) === locId) ||
               locViaticos.objeto;
+            // Nunca setear id_localidad_residencia en "" (rompe resolvePersonTerritoryIds:
+            // `??` no cae a id_localidad y las reglas por Viedma/etc. dejan de matchear).
+            const profileResidenciaFallback =
+              userProfile.id_localidad != null &&
+              userProfile.id_localidad !== ""
+                ? String(userProfile.id_localidad)
+                : "";
             const residenciaId =
               locResidencia.id != null && locResidencia.id !== ""
                 ? String(locResidencia.id)
-                : "";
+                : profileResidenciaFallback;
             const residenciaObj =
-              allLocalities.find((l) => String(l.id) === residenciaId) ||
+              (residenciaId
+                ? allLocalities.find((l) => String(l.id) === residenciaId)
+                : null) ||
               locResidencia.objeto ||
               userProfile.datos_residencia ||
+              userProfile.residencia ||
               null;
 
             activeTourIds.forEach((gId) => {
@@ -532,17 +558,24 @@ export function useAgendaData({
 
               const mockPerson = {
                 ...profileWithResidencia,
-                id: userProfile.id,
-                id_localidad: locId,
+                id: userProfile.id ?? effectiveUserId,
+                condicion: userProfile.condicion,
+                id_localidad: locId || residenciaId,
                 localidades: locObj || {
-                  id: locId,
+                  id: locId || residenciaId,
                   id_region:
-                    locResidencia.regionId ?? residenciaObj?.id_region ?? null,
+                    locResidencia.regionId ??
+                    residenciaObj?.id_region ??
+                    null,
                 },
-                id_localidad_residencia: residenciaId,
+                ...(residenciaId
+                  ? { id_localidad_residencia: residenciaId }
+                  : {}),
                 localidades_residencia: residenciaObj,
                 id_region_residencia:
-                  locResidencia.regionId ?? residenciaObj?.id_region ?? null,
+                  locResidencia.regionId ??
+                  residenciaObj?.id_region ??
+                  null,
                 instrumentos: userProfile.instrumentos || {},
                 rol_gira: tourRole,
                 estado_gira: estadoGira,
@@ -795,7 +828,7 @@ export function useAgendaData({
       giraId,
       userProfile,
       monthsLimit,
-      filterDateFrom,
+      queryDateFrom,
       filterDateTo,
       checkIsConvoked,
       processCategories,

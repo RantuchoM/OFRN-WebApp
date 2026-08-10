@@ -9,6 +9,7 @@ import {
   IconUsers,
   IconArrowLeft,
   IconMusic,
+  IconClipboard,
 } from "../../components/ui/Icons";
 import { VenuesManager } from "../../components/management/VenuesManager";
 import SeatingReports from "./SeatingReports";
@@ -18,6 +19,7 @@ import EnsayosPorProgramaReport from "../Giras/EnsayosPorProgramaReport";
 import EnsayoCheckinAttendanceReport from "./EnsayoCheckinAttendanceReport";
 import ConciertosView from "../Giras/ConciertosView";
 import AudienceView from "./AudienceView";
+import ServiciosCantidadReport from "./ServiciosCantidadReport";
 import ManagementSectionCard from "./ManagementSectionCard";
 
 const DEFAULT_SECTIONS = [
@@ -25,6 +27,7 @@ const DEFAULT_SECTIONS = [
   "seating",
   "instrumentation",
   "convocatorias",
+  "servicios",
   "ensayos",
   "asistencia_ensayos",
   "conciertos",
@@ -48,6 +51,7 @@ const SECTION_ORDER = [
   "seating",
   "instrumentation",
   "convocatorias",
+  "servicios",
   "ensayos",
   "asistencia_ensayos",
   "conciertos",
@@ -106,6 +110,19 @@ const SECTION_CONFIG = {
     iconClasses:
       "bg-amber-50 text-amber-600 group-hover:bg-amber-600 group-hover:text-white",
     titleClasses: "text-amber-900 group-hover:text-amber-700",
+  },
+  servicios: {
+    title: "Servicios",
+    tabLabel: "Servicios",
+    subtitle: "Cantidad de servicios por integrante",
+    description:
+      "Consolida ensayos de ensamble, ensayos de gira y conciertos (con didácticos) y abona reemplazos/licencias.",
+    icon: IconClipboard,
+    cardClasses:
+      "border-orange-100 hover:border-orange-300 hover:shadow-md focus-visible:ring-orange-300",
+    iconClasses:
+      "bg-orange-50 text-orange-600 group-hover:bg-orange-600 group-hover:text-white",
+    titleClasses: "text-orange-900 group-hover:text-orange-700",
   },
   ensayos: {
     title: "Ensayos por programa",
@@ -195,6 +212,7 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
 
   const isFullscreenSection =
     activeTab === "convocatorias" ||
+    activeTab === "servicios" ||
     activeTab === "ensayos" ||
     activeTab === "asistencia_ensayos" ||
     activeTab === "conciertos" ||
@@ -343,6 +361,11 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
         {activeTab === "convocatorias" && enabledSections.has("convocatorias") && (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
             <AsistenciaMatrixReport supabase={supabase} />
+          </div>
+        )}
+        {activeTab === "servicios" && enabledSections.has("servicios") && (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+            <ServiciosCantidadReport supabase={supabase} />
           </div>
         )}
         {activeTab === "ensayos" && enabledSections.has("ensayos") && (

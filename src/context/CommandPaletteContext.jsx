@@ -15,7 +15,7 @@ import {
     IconTag, IconDatabase, IconInfo, IconCheckSquare, IconMegaphone,
     IconMusicNote, IconList, IconBell, IconBookOpen, IconEdit,
     IconBulb, IconSpiralNotebook, IconManagement, IconSettingsWheel,
-    IconHistory, IconMap,
+    IconHistory, IconMap, IconClipboardCheck,
 } from '../components/ui/Icons';
 
 const MANAGEMENT_SECTION_ICONS = {
@@ -23,6 +23,7 @@ const MANAGEMENT_SECTION_ICONS = {
   seating: IconHistory,
   instrumentation: IconMusicNote,
   convocatorias: IconGrid,
+  servicios: IconClipboardCheck,
   ensayos: IconMusic,
   asistencia_ensayos: IconUsers,
   conciertos: IconCalendar,

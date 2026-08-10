@@ -29,6 +29,7 @@ Migraciones: `20260724120000_giras_grupos.sql`, `20260728200000_giras_transporte
 ## UI
 
 - **Roster** (`GiraRoster`): botón “Grupos de convocatoria” → CRUD de grupos y tabla de miembros (solo confirmados) con columnas Nombre / Instrumento / Localidad (residencia) / Ensamble/s, filtros por columna y ordenación (al cargar o reordenar, los ya seleccionados quedan arriba; tildar no reordena). Tags junto al nombre en `RosterTableRow` (no en ausentes); los editores pueden quitar del grupo con la cruz del chip (confirmación).
+  - **Butacas filtradas**: junto al botón **Grupos**, chip de ocupación del roster visible (misma fórmula que transportes: personas + `plaza_extra` = butacas; si hay instrumentos con plaza extra: `N + M ins = T butacas`). Cuenta solo filas del roster **filtrado** (`localRoster`).
   - **Móvil**: el header duplicado (Volver + título) se oculta; la toolbar queda compacta/scrolleable con el botón **Grupos** siempre con etiqueta visible; modal en sheet inferior (`RosterGroupsModal`) scrolleable.
 - **Filtro global** (`GirasView` header sticky, a la izquierda de los tabs Agenda/Logística/…): `GiraGruposFilterControl` + estado en `useGiraGruposFilter` (sessionStorage por gira). Mismo filtro alimenta Agenda, Comidas y Transportes. Resumen plegado: nombres unidos con ` + ` (`summaryMode="names"`), no `Grupos (N)`; si las opciones traen `color`, el resumen se dibuja como chips con el color del grupo y el listado del desplegable pinta el checkbox/fila con ese color.
 - **Agenda** (`EventForm`, `IndependentRehearsalForm`): multi-select de grupos de la gira; persistencia en create/edit/duplicate. El filtro de toolbar local se oculta cuando el shell ya muestra el filtro global.
@@ -64,3 +65,4 @@ El filtro de header es una vista editorial adicional (no cambia la visibilidad b
 - [x] Color del grupo en chips del trigger y en las filas del desplegable (`MultiSelectDropdown`)
 - [x] Comidas: varios eventos del mismo servicio por día (+ sibling)
 - [x] Transportes: default vehículo, copia al crear, bulk Aplicar, override por parada
+- [x] Roster: chip de butacas (personas + plaza_extra) del listado filtrado al lado del botón Grupos

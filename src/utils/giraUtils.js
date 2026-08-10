@@ -84,7 +84,13 @@ export const resolvePersonTerritoryIds = (person, rule, allLocalities = []) => {
 
   if (isTransportTerritoryRule(rule)) {
     const locRes = resolveLocalidadResidencia(person);
-    const rawLoc = person.id_localidad_residencia ?? locRes.id;
+    // Ignorar "" / null: si el mock puso id_localidad_residencia vacío, cae a
+    // resolveLocalidadResidencia / id_localidad (residencia real del integrante).
+    const rawResidenciaField = person.id_localidad_residencia;
+    const rawLoc =
+      rawResidenciaField != null && String(rawResidenciaField).trim() !== ""
+        ? rawResidenciaField
+        : (locRes.id ?? person.id_localidad);
     const pLoc =
       rawLoc != null && rawLoc !== "" ? String(rawLoc) : "";
     const resObj =

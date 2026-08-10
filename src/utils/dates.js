@@ -63,6 +63,32 @@ export function addMonthsToDateStringLocal(fromDateStr, months) {
 }
 
 /**
+ * Meses de agenda pasada precargados en agenda general.
+ * El filtro visual sigue en “hoy”; “1 semana antes” solo re-filtra hasta agotar esta ventana.
+ */
+export const AGENDA_PRELOAD_PAST_MONTHS = 1;
+
+/**
+ * Primer día de la ventana precargada hacia atrás (hoy − AGENDA_PRELOAD_PAST_MONTHS), yyyy-MM-dd local.
+ */
+export function getAgendaPreloadFromDateLocal() {
+  return format(
+    subMonths(parseISO(getTodayDateStringLocal()), AGENDA_PRELOAD_PAST_MONTHS),
+    "yyyy-MM-dd",
+  );
+}
+
+/**
+ * Fecha “desde” real de la query de agenda general: ventana precargada, o filter más atrás si el usuario la pidió.
+ * @param {string | null | undefined} filterDateFrom
+ */
+export function getAgendaQueryFromDateLocal(filterDateFrom) {
+  const preloadFrom = getAgendaPreloadFromDateLocal();
+  if (filterDateFrom && filterDateFrom < preloadFrom) return filterDateFrom;
+  return preloadFrom;
+}
+
+/**
  * Rango “última semana”: 7 días incluyendo hoy (desde hace 6 días hasta hoy), hora local.
  */
 export function getLastWeekDateRangeLocal() {

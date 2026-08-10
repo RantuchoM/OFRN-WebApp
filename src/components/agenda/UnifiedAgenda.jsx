@@ -5,7 +5,7 @@ import React, {
   useMemo,
   useCallback,
 } from "react";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, subDays, subMonths } from "date-fns";
 import { toast } from "sonner";
 import { es } from "date-fns/locale";
 import {
@@ -40,6 +40,7 @@ import {
   IconRefresh,
   IconTrash,
   IconTag,
+  IconSearch,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -66,6 +67,7 @@ import {
   getTodayDateStringLocal,
   getCurrentTimeLocal,
   timeStringToMinutes,
+  getAgendaPreloadFromDateLocal,
 } from "../../utils/dates";
 import { getTransportEventAffectedSummary } from "../../utils/transportLogisticsWarning";
 import {
@@ -74,11 +76,15 @@ import {
   getGoogleMapsUrl,
   getAgendaTransportFlags,
   buildAgendaPdfExportItems,
+  eventMatchesAgendaSearch,
+  getAccentInsensitiveHighlightRanges,
+  highlightHtmlSearch,
   ID_TIPO_TRASLADO_INTERNO,
 } from "../../utils/agendaHelpers";
 import { getProgramBadgeClasses, isUserConvoked } from "../../utils/giraUtils";
 import VenueStatusPin from "../ui/VenueStatusPin";
 import LocacionNombreSpan, {
+  resolveLocacionNombre,
   shouldShowLocacionEnEvento,
 } from "../locations/LocacionNombreSpan";
 import FeriadoBadge from "./FeriadoBadge";
@@ -99,6 +105,41 @@ import { deriveAgendaPermissions } from "../../utils/agendaPermissions";
 const DELETED_FILTERS_STORAGE_KEY_PREFIX = "unified_agenda_deleted_filters_v1_";
 const RECENT_CHANGES_ACK_STORAGE_KEY_PREFIX =
   "unified_agenda_recent_changes_ack_v1_";
+
+/** Resalta coincidencias de búsqueda en texto plano (detalle/locación). */
+function AgendaSearchHighlight({ text, query, className = "" }) {
+  const rawText = String(text ?? "");
+  const ranges = getAccentInsensitiveHighlightRanges(rawText, query);
+  if (!ranges.length) {
+    return className ? (
+      <span className={className}>{rawText}</span>
+    ) : (
+      <>{rawText}</>
+    );
+  }
+  const parts = [];
+  let cursor = 0;
+  ranges.forEach(([start, end], idx) => {
+    if (cursor < start) {
+      parts.push(
+        <span key={`t-${idx}`}>{rawText.slice(cursor, start)}</span>,
+      );
+    }
+    parts.push(
+      <mark
+        key={`m-${idx}`}
+        className="bg-yellow-200 text-yellow-900 rounded-sm px-0.5"
+      >
+        {rawText.slice(start, end)}
+      </mark>,
+    );
+    cursor = end;
+  });
+  if (cursor < rawText.length) {
+    parts.push(<span key="tail">{rawText.slice(cursor)}</span>);
+  }
+  return <span className={className || undefined}>{parts}</span>;
+}
 
 function getRecentChangesAckAt(storageKey) {
   try {
@@ -169,7 +210,7 @@ function AgendaEventAdminToggle({
         title={
           hidden
             ? "Mostrar en agenda (todos los músicos)"
-            : "Ocultar de agenda (subida/bajada propias siguen visibles)"
+            : "Ocultar de agenda (pasajeros del bus y subida/bajada siguen viendo la parada)"
         }
       >
         {hidden ? (
@@ -365,6 +406,7 @@ export default function UnifiedAgenda({
   const [includeGeneralEventsLocal, setIncludeGeneralEventsLocal] =
     useState(true);
   const [gruposAssignTarget, setGruposAssignTarget] = useState(null);
+  const [agendaSearchQuery, setAgendaSearchQuery] = useState("");
 
   const filterControlled =
     filterGrupoIdsProp != null && setFilterGrupoIdsProp != null;
@@ -1008,19 +1050,31 @@ export default function UnifiedAgenda({
     };
   }, [userProfile, giraId, monthsLimit]);
 
-  // Re-nutrir desde BD cuando el usuario elige una "Desde" anterior a hoy (solo agenda general)
+  // Re-nutrir desde BD solo si "Desde" sale de la ventana precargada (~1 mes atrás).
+  // Dentro de esa ventana, “1 semana antes” solo re-filtra en cliente.
   const prevFilterDateFromRef = useRef(undefined);
   useEffect(() => {
     if (giraId || !userProfile) return;
-    const todayStr = getTodayDateStringLocal();
     const prev = prevFilterDateFromRef.current;
     prevFilterDateFromRef.current = filterDateFrom;
-    if (!filterDateFrom || filterDateFrom >= todayStr) return;
-    // Refetch solo cuando el usuario cambia el filtro (no en carga inicial)
+    // Carga inicial: no refetch por el valor de arranque
     if (prev === undefined) return;
-    const wasPast = prev < todayStr;
-    if (!wasPast || prev !== filterDateFrom) fetchAgenda(true);
+    if (!filterDateFrom || prev === filterDateFrom) return;
+
+    const preloadFrom = getAgendaPreloadFromDateLocal();
+    // Ya teníamos datos más atrás o quedamos dentro del preload: sin fetch
+    if (filterDateFrom >= preloadFrom) return;
+    // Ampliar solo cuando el nuevo “Desde” es más antiguo que lo precargado
+    // y más antiguo que lo que ya pedimos antes
+    const prevQueryFrom =
+      prev < preloadFrom ? prev : preloadFrom;
+    if (filterDateFrom >= prevQueryFrom) return;
+
+    fetchAgenda(true);
   }, [giraId, filterDateFrom, userProfile]);
+
+  /** Ancla de scroll al expandir el pasado (semana/mes antes). */
+  const pastExpandScrollAnchorRef = useRef(null);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -1039,7 +1093,7 @@ export default function UnifiedAgenda({
       } = getAgendaTransportFlags(item, myTransportLogistics);
 
       // Único toggle de visibilidad (GirasTransportesManager → visible_agenda).
-      // Músicos / Consulta General: oculto salvo subida/bajada propia.
+      // Músicos / Consulta General: oculto salvo paradas del vehículo asignado.
       // Staff de gestión (sin consulta_general): siempre ve paradas ocultas.
       if (blockedByVisibility && !filterCanSeeHiddenAgendaEvents) return false;
 
@@ -1056,7 +1110,10 @@ export default function UnifiedAgenda({
         }
       }
 
-      if (item.isProgramMarker) return true;
+      if (item.isProgramMarker) {
+        // Durante búsqueda de texto, ocultar separadores de programa.
+        return !String(agendaSearchQuery || "").trim();
+      }
 
       // Filtro técnico: no ocultar paradas de mi transporte asignado
       // Consulta General no ve eventos `tecnica` (igual que músicos).
@@ -1081,12 +1138,11 @@ export default function UnifiedAgenda({
           return false;
       }
 
-      // Las paradas propias solo pueden saltar el filtro de categoría cuando
-      // el usuario activó explícitamente "Solo mi transporte".
+      // Paradas del vehículo asignado saltan el filtro de categoría (p. ej. Traslado
+      // cat. 6 / Logística cat. 3), aunque "Solo mi transporte" no esté activo.
       if (selectedCategoryIds.length > 0) {
         if (catId && !selectedCategoryIds.includes(catId)) {
-          if (!(showOnlyMyTransport && isMyAssignedTransportParada))
-            return false;
+          if (!isMyAssignedTransportParada) return false;
         }
       }
 
@@ -1113,6 +1169,8 @@ export default function UnifiedAgenda({
         }
       }
 
+      if (!eventMatchesAgendaSearch(item, agendaSearchQuery)) return false;
+
       return true;
     });
   }, [
@@ -1130,7 +1188,62 @@ export default function UnifiedAgenda({
     filterCanSeeHiddenAgendaEvents,
     filterGrupoIds,
     includeGeneralEvents,
+    agendaSearchQuery,
   ]);
+
+  const minFilterDateFrom = giraId && giraFirstDate ? giraFirstDate : null;
+  const currentFilterDateFrom =
+    filterDateFrom || getTodayDateStringLocal();
+  const canExpandPast =
+    !minFilterDateFrom || currentFilterDateFrom > minFilterDateFrom;
+
+  const shiftFilterDateFromBack = useCallback(
+    (computeNext) => {
+      if (!canExpandPast) return;
+      const base = filterDateFrom || getTodayDateStringLocal();
+      let nextFrom = computeNext(base);
+      if (minFilterDateFrom && nextFrom < minFilterDateFrom) {
+        nextFrom = minFilterDateFrom;
+      }
+      if (nextFrom === base) return;
+
+      // Mantener en vista el primer evento actual; el pasado nuevo queda arriba al scrollear.
+      const firstVisible = filteredItems.find(
+        (item) => !item.isProgramMarker && item.id != null,
+      );
+      pastExpandScrollAnchorRef.current = firstVisible?.id ?? null;
+      setFilterDateFrom(nextFrom);
+    },
+    [canExpandPast, filterDateFrom, minFilterDateFrom, filteredItems, setFilterDateFrom],
+  );
+
+  const handleOneWeekBefore = useCallback(() => {
+    shiftFilterDateFromBack((base) =>
+      format(subDays(parseISO(base), 7), "yyyy-MM-dd"),
+    );
+  }, [shiftFilterDateFromBack]);
+
+  const handleOneMonthBefore = useCallback(() => {
+    shiftFilterDateFromBack((base) =>
+      format(subMonths(parseISO(base), 1), "yyyy-MM-dd"),
+    );
+  }, [shiftFilterDateFromBack]);
+
+  // Tras expandir pasado: recolocar el ancla (contenido nuevo queda arriba para scrollear).
+  useEffect(() => {
+    const anchorId = pastExpandScrollAnchorRef.current;
+    if (anchorId == null) return;
+    if (loading || isRefreshing) return;
+    if (!filteredItems.some((item) => item.id === anchorId)) return;
+
+    pastExpandScrollAnchorRef.current = null;
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-event-id="${anchorId}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "auto", block: "start" });
+      }
+    });
+  }, [filteredItems, loading, isRefreshing, filterDateFrom]);
 
   const getRecentChangesThreshold = useCallback(() => {
     if (recentChangesAckAt) return recentChangesAckAt;
@@ -1270,6 +1383,7 @@ export default function UnifiedAgenda({
       id_gira: evt.id_gira || null,
       id_gira_transporte: evt.id_gira_transporte ?? null,
       tecnica: evt.tecnica || false,
+      es_didactico: evt.es_didactico || false,
       id_estado_venue: evt.id_estado_venue || null,
       venue_status_note: lastVenueNote,
       selectedGrupos: eventGrupoIdsFromEvent(evt),
@@ -1405,6 +1519,10 @@ export default function UnifiedAgenda({
         id_locacion: editFormData.id_locacion || null,
         id_gira_transporte: editFormData.id_gira_transporte ?? null,
         tecnica: editFormData.tecnica || false,
+        es_didactico:
+          Number(editFormData.id_tipo_evento) === 1
+            ? Boolean(editFormData.es_didactico)
+            : false,
         id_gira: editFormData.id_gira || null,
       };
 
@@ -1510,6 +1628,9 @@ export default function UnifiedAgenda({
         id_locacion: editFormData.id_locacion || null,
         id_gira_transporte: editFormData.id_gira_transporte ?? null,
         tecnica: editFormData.tecnica || false,
+        es_didactico: isConcierto
+          ? Boolean(editFormData.es_didactico)
+          : false,
         id_estado_venue: isConcierto
           ? editFormData.id_estado_venue || null
           : null,
@@ -1614,6 +1735,7 @@ export default function UnifiedAgenda({
       id_locacion: "",
       id_gira_transporte: null,
       tecnica: false,
+      es_didactico: false,
       id_estado_venue: null,
       venue_status_note: "",
       selectedGrupos:
@@ -1670,6 +1792,7 @@ export default function UnifiedAgenda({
       id_locacion: newFormData.id_locacion || null,
       id_gira_transporte: newFormData.id_gira_transporte ?? null,
       tecnica: newFormData.tecnica,
+      es_didactico: isConcierto ? Boolean(newFormData.es_didactico) : false,
       id_estado_venue: isConcierto
         ? newFormData.id_estado_venue || null
         : null,
@@ -2009,6 +2132,40 @@ export default function UnifiedAgenda({
                 <span>Importar</span>
               </button>
             )}
+
+            {/* Búsqueda por detalle / locación */}
+            <div
+              className={`relative flex items-center shrink-0 ${
+                agendaSearchQuery.trim()
+                  ? "border-indigo-300 bg-indigo-50/50"
+                  : "border-slate-200 bg-white"
+              } border rounded-full shadow-sm`}
+            >
+              <IconSearch
+                size={14}
+                className="absolute left-2.5 text-slate-400 pointer-events-none"
+              />
+              <input
+                type="search"
+                value={agendaSearchQuery}
+                onChange={(e) => setAgendaSearchQuery(e.target.value)}
+                placeholder="Buscar..."
+                title="Buscar en detalle y locaciones"
+                aria-label="Buscar en detalle y locaciones"
+                className="w-[7.5rem] sm:w-[10.5rem] pl-8 pr-7 py-1.5 text-xs font-medium text-slate-700 bg-transparent rounded-full border-0 outline-none focus:ring-0 placeholder:text-slate-400"
+              />
+              {agendaSearchQuery.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setAgendaSearchQuery("")}
+                  className="absolute right-1.5 p-0.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                  title="Limpiar búsqueda"
+                  aria-label="Limpiar búsqueda"
+                >
+                  <IconX size={12} />
+                </button>
+              )}
+            </div>
 
             {/* BOTONES DE FILTRO ... (igual que antes) */}
             {availableCategories.length > 0 && (
@@ -2414,7 +2571,9 @@ export default function UnifiedAgenda({
           filteredItems.length === 0 &&
           items.length > 0 && (
             <div className="text-center text-slate-400 py-10 italic">
-              No hay eventos visibles con los filtros actuales.
+              {agendaSearchQuery.trim()
+                ? `No hay eventos que coincidan con “${agendaSearchQuery.trim()}”.`
+                : "No hay eventos visibles con los filtros actuales."}
             </div>
           )}
 
@@ -2429,16 +2588,42 @@ export default function UnifiedAgenda({
           <div
             className={`transition-opacity duration-500 ${isRefreshing ? "opacity-60 pointer-events-none" : "opacity-100"}`}
           >
-            {Object.entries(groupedByMonth).map(([monthKey, monthEvents]) => {
+            {Object.entries(groupedByMonth).map(
+              ([monthKey, monthEvents], monthIndex) => {
               const monthDate = parseISO(monthEvents[0].fecha);
               let lastDateRendered = null;
+              const isFirstMonth = monthIndex === 0;
 
               return (
                 <div key={monthKey} className="mb-0">
-                  <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 text-center py-2 shadow-sm">
-                    <span className="text-xs font-bold text-indigo-600 uppercase tracking-widest bg-indigo-50 px-3 py-1 rounded-full">
-                      {format(monthDate, "MMMM yyyy", { locale: es })}
-                    </span>
+                  <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 py-2 shadow-sm">
+                    <div className="flex items-center justify-center gap-2 px-3">
+                      <span className="text-xs font-bold text-indigo-600 uppercase tracking-widest bg-indigo-50 px-3 py-1 rounded-full">
+                        {format(monthDate, "MMMM yyyy", { locale: es })}
+                      </span>
+                      {isFirstMonth && isEditor && (
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-center">
+                          <button
+                            type="button"
+                            onClick={handleOneWeekBefore}
+                            disabled={!canExpandPast || isRefreshing}
+                            title="Retroceder el filtro de fechas una semana"
+                            className="shrink-0 px-2.5 py-1 rounded-full text-[10px] font-bold border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white"
+                          >
+                            1 semana antes
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleOneMonthBefore}
+                            disabled={!canExpandPast || isRefreshing}
+                            title="Retroceder el filtro de fechas un mes"
+                            className="shrink-0 px-2.5 py-1 rounded-full text-[10px] font-bold border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white"
+                          >
+                            1 mes antes
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {monthEvents.map((evt) => {
@@ -2516,6 +2701,14 @@ export default function UnifiedAgenda({
 
                     const locName = evt.locaciones?.nombre || "";
                     const locCity = evt.locaciones?.localidades?.localidad;
+                    const locDisplayName = resolveLocacionNombre({
+                      nombre: locName,
+                      idLocacion: evt.id_locacion,
+                      locacion: evt.locaciones,
+                    });
+                    const descHtml = evt.descripcion
+                      ? highlightHtmlSearch(evt.descripcion, agendaSearchQuery)
+                      : "";
                     const isConcertEvent = Number(evt.id_tipo_evento) === 1;
 
                     const cardStyle = { backgroundColor: `${eventColor}10` };
@@ -2741,9 +2934,9 @@ export default function UnifiedAgenda({
                                         >
                                           {evt.descripcion ? (
                                             <div
-                                              className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold"
+                                              className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold [&>mark]:bg-yellow-200 [&>mark]:text-yellow-900"
                                               dangerouslySetInnerHTML={{
-                                                __html: evt.descripcion,
+                                                __html: descHtml,
                                               }}
                                             />
                                           ) : (
@@ -2826,9 +3019,9 @@ export default function UnifiedAgenda({
                                     >
                                       {evt.descripcion ? (
                                         <div
-                                          className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold"
+                                          className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold [&>mark]:bg-yellow-200 [&>mark]:text-yellow-900"
                                           dangerouslySetInnerHTML={{
-                                            __html: evt.descripcion,
+                                            __html: descHtml,
                                           }}
                                         />
                                       ) : (
@@ -2858,7 +3051,12 @@ export default function UnifiedAgenda({
                                         {transportName}{" "}
                                         {transportDetail && (
                                           <span className="font-normal opacity-80">
-                                            ({transportDetail})
+                                            (
+                                            <AgendaSearchHighlight
+                                              text={transportDetail}
+                                              query={agendaSearchQuery}
+                                            />
+                                            )
                                           </span>
                                         )}
                                       </span>
@@ -2891,12 +3089,28 @@ export default function UnifiedAgenda({
                                           <span
                                             className={`font-semibold truncate ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
                                           >
-                                            <LocacionNombreSpan
-                                              nombre={locName}
-                                              idLocacion={evt.id_locacion}
-                                              locacion={evt.locaciones}
-                                            />
-                                            {locCity ? ` (${locCity})` : ""}
+                                            {agendaSearchQuery.trim() ? (
+                                              <AgendaSearchHighlight
+                                                text={locDisplayName}
+                                                query={agendaSearchQuery}
+                                              />
+                                            ) : (
+                                              <LocacionNombreSpan
+                                                nombre={locName}
+                                                idLocacion={evt.id_locacion}
+                                                locacion={evt.locaciones}
+                                              />
+                                            )}
+                                            {locCity ? (
+                                              <>
+                                                {" ("}
+                                                <AgendaSearchHighlight
+                                                  text={locCity}
+                                                  query={agendaSearchQuery}
+                                                />
+                                                )
+                                              </>
+                                            ) : null}
                                           </span>
                                           {evt.locaciones?.direccion && (
                                             <a
@@ -2910,7 +3124,11 @@ export default function UnifiedAgenda({
                                                 e.stopPropagation()
                                               }
                                             >
-                                              {evt.locaciones.direccion} ↗
+                                              <AgendaSearchHighlight
+                                                text={evt.locaciones.direccion}
+                                                query={agendaSearchQuery}
+                                              />{" "}
+                                              ↗
                                             </a>
                                           )}
                                         </div>
@@ -3201,9 +3419,9 @@ export default function UnifiedAgenda({
                                     >
                                       {evt.descripcion ? (
                                         <div
-                                          className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold text-sm"
+                                          className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold [&>mark]:bg-yellow-200 [&>mark]:text-yellow-900 text-sm"
                                           dangerouslySetInnerHTML={{
-                                            __html: evt.descripcion,
+                                            __html: descHtml,
                                           }}
                                         />
                                       ) : (
@@ -3323,12 +3541,28 @@ export default function UnifiedAgenda({
                                         <span
                                           className={`text-xs font-semibold truncate block ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
                                         >
-                                          <LocacionNombreSpan
-                                            nombre={locName}
-                                            idLocacion={evt.id_locacion}
-                                            locacion={evt.locaciones}
-                                          />
-                                          {locCity ? ` (${locCity})` : ""}
+                                          {agendaSearchQuery.trim() ? (
+                                            <AgendaSearchHighlight
+                                              text={locDisplayName}
+                                              query={agendaSearchQuery}
+                                            />
+                                          ) : (
+                                            <LocacionNombreSpan
+                                              nombre={locName}
+                                              idLocacion={evt.id_locacion}
+                                              locacion={evt.locaciones}
+                                            />
+                                          )}
+                                          {locCity ? (
+                                            <>
+                                              {" ("}
+                                              <AgendaSearchHighlight
+                                                text={locCity}
+                                                query={agendaSearchQuery}
+                                              />
+                                              )
+                                            </>
+                                          ) : null}
                                         </span>
                                         {evt.locaciones?.direccion && (
                                           <a
@@ -3340,7 +3574,11 @@ export default function UnifiedAgenda({
                                             className="text-[10px] text-blue-600 hover:underline truncate block w-full mt-0.5"
                                             onClick={(e) => e.stopPropagation()}
                                           >
-                                            {evt.locaciones.direccion} ↗
+                                            <AgendaSearchHighlight
+                                              text={evt.locaciones.direccion}
+                                              query={agendaSearchQuery}
+                                            />{" "}
+                                            ↗
                                           </a>
                                         )}
                                       </div>

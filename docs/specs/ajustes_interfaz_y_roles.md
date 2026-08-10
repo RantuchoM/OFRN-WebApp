@@ -33,7 +33,19 @@
 
 ## 6. Consulta General: sin eventos Téc / ocultos en Agenda
 - **Estado**: Completado.
-- **Comportamiento**: Con rol efectivo `consulta_general`, la Agenda oculta eventos `tecnica: true` y paradas con `visible_agenda === false` (salvo subida/bajada propia). Sin UI de "Filtro Técnica" ni toggle de marca Téc.
+- **Comportamiento**: Con rol efectivo `consulta_general`, la Agenda oculta eventos `tecnica: true` y paradas con `visible_agenda === false` de buses ajenos (las del vehículo asignado sí se ven). Sin UI de "Filtro Técnica" ni toggle de marca Téc.
 - **Permisos**: `canSeeTechEvents` / `canSeeHiddenAgendaEvents` en `deriveAgendaPermissions` (excluyen `consulta_general`; siguen incluyendo admin/editor/curador/coord_general/produccion_general/director y, para Téc, `tecnico`).
 - **Implementación**: `agendaPermissions.js`, `useAgendaFilters.js`, `UnifiedAgenda.jsx`.
 
+## 7. Búsqueda por detalle y locación (Agenda)
+- **Estado**: Completado (2026-08-10).
+- **UI**: Input con ícono de lupa a la izquierda del botón Filtros en `UnifiedAgenda.jsx` (placeholder «Buscar…», botón limpiar con ✕).
+- **Alcance del match**: texto de descripción/detalle del evento (HTML aplanado), detalle de transporte vinculado, y campos de locación (`nombre`, `dirección`, `localidad`). Insensible a tildes/mayúsculas.
+- **Comportamiento**: filtra la lista ya acotada por fecha/categoría/etc.; con búsqueda activa se ocultan separadores de programa. Las coincidencias se resaltan con `<mark>` amarillo en detalle y locación.
+- **Helpers**: `eventMatchesAgendaSearch`, `highlightHtmlSearch`, `getAccentInsensitiveHighlightRanges` en `agendaHelpers.js`.
+
+## 8. Agenda: expandir pasado (editores)
+- **Estado**: Completado (2026-08-10). Actualizado: precarga + “1 mes antes”.
+- **UI**: Fuera del menú Filtros. En el sticky del **primer mes**, solo si `isEditor`: botones **1 semana antes** y **1 mes antes**.
+- **Comportamiento**: Retrocede `filterDateFrom` 7 días o 1 mes (repetible). En agenda general, el fetch inicial ya trae ~1 mes de pasado (`AGENDA_PRELOAD_PAST_MONTHS`); la vista sigue filtrando “desde hoy”. Dentro de esa ventana, expandir **solo re-filtra en cliente**. **Re-fetch** si el rango pide fechas anteriores a `getAgendaPreloadFromDateLocal()` (p. ej. el primer “1 mes antes” desde hoy, o semanas que salgan de la ventana). En gira se acota al primer evento. Ancla de scroll al expandir.
+- **Implementación**: `dates.js` (`getAgendaPreloadFromDateLocal`, `getAgendaQueryFromDateLocal`), `useAgendaData.js`, `UnifiedAgenda.jsx` (`handleOneWeekBefore` / `handleOneMonthBefore` + header primer mes).

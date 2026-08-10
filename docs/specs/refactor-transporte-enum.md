@@ -18,15 +18,17 @@ Cualquier evento en la agenda cuyo `id_tipo_evento` sea **35** debe considerarse
 
 - Constante `CATEGORIAS_TRANSPORTE` en `src/utils/giraTransportUtils.js`: mapea categoría → `id_tipo_evento` (11, 12, 35). Consumida por `GirasTransportesManager.jsx`.
 - `UnifiedAgenda.jsx`: `isMyTransport` incluye `id_tipo_evento === 35`; eventos tipo 35 no se atenúan (shouldDim) y pasan el filtro "Solo mi transporte".
-- `UnifiedAgenda.jsx`: las paradas asignadas respetan el filtro de categoría. Si Transporte/Logística está desmarcado, solo se muestran cuando el usuario activa explícitamente `Solo mi transporte`; con ambas opciones desmarcadas permanecen ocultas.
+- `UnifiedAgenda.jsx` / `agendaHelpers.js`: las paradas del **vehículo asignado** (`isMyTransport`) saltan el filtro de categoría (Transporte id 6 / Logística id 3) aunque “Solo mi transporte” esté apagado. Con el ojo cerrado (`visible_agenda === false`), músicos **sí** ven las paradas de **su** bus; el cierre solo oculta paradas de buses ajenos.
 - `useLogistics.js` (`calculateLogisticsSummary`): transportes con `categoria_logistica === 'INTERNO'` se añaden al resumen de transporte de cada integrante no ausente, para que la agenda pueda resolver `myTransportLogistics` de forma coherente.
 - `giraService.js`: `getTransportesByGira` incluye `categoria_logistica` en el select.
 - `useAgendaData.js`: la query de `giras_transportes` incluye `categoria_logistica` para que el cálculo de logística en agenda tenga el dato.
 - `useAgendaData.js`: el cálculo de `myTransportLogistics` usa el mismo enriquecimiento territorial que `useLogistics` (`resolveLocalidadResidencia`, `resolveLocalidadEfectivaViaticos`, catálogo `localidades` e `id_region_residencia`) para que reglas por Región/Localidad de admisión y rutas coincidan con la gestión logística.
 - `useAgendaData.js`: en agenda de gira específica (`giraId`), siempre se calcula logística del usuario salvo `ausente`/`baja`/`no_convocado` explícitos; los integrantes que entran solo por ensamble (p. ej. ECAS) sin fila en `giras_integrantes` ya no quedan excluidos por un `matchesSource` fallido (p. ej. perfil cacheado sin `integrantes_ensambles`). Se reconsultan ensambles si el perfil no los trae.
-- `UnifiedAgenda.jsx`: la detección de transporte asignado (`isMyTransport`) se evalúa siempre; **todas** las paradas del vehículo asignado se muestran aunque la categoría Logística (id 3) esté desactivada por defecto para músicos (no solo subida/bajada).
-- `UnifiedAgenda.jsx`: clave de caché de perfil `profile_cache_*_v2` para forzar refresco con `integrantes_ensambles`.
-- **Visibilidad unificada:** el IconEye en `GirasTransportesManager` y en paradas de transporte de `UnifiedAgenda` escriben `eventos.visible_agenda`. Staff de gestión con visibilidad técnica (admin, editor, curador, coord_general, produccion_general, director) **sigue viendo** paradas con `visible_agenda === false` en agenda (fondo gris); músicos y **Consulta General** no, salvo su subida/bajada propia. En eventos no logísticos, el ojo de agenda sigue siendo marca **técnica** (`tecnica`).
+- `UnifiedAgenda.jsx`: la detección de transporte asignado (`isMyTransport`) se evalúa siempre; **todas** las paradas del vehículo asignado se muestran (incl. `visible_agenda === false` y sin categoría Transporte/Logística seleccionada).
+- `useAgendaData.js`: al armar `mockPerson` para logística, no se escribe `id_localidad_residencia: ""` (eso impedía matchear reglas Localidad p. ej. Charter Viedma); fallback a `id_localidad` del perfil.
+- `giraUtils.js` (`resolvePersonTerritoryIds`): trata `id_localidad_residencia` vacío como ausente y reintenta residencia / `id_localidad`.
+- `UnifiedAgenda.jsx`: clave de caché de perfil `profile_cache_*_v3` con `integrantes_ensambles` y `datos_residencia`.
+- **Visibilidad unificada:** el IconEye en `GirasTransportesManager` y en paradas de transporte de `UnifiedAgenda` escriben `eventos.visible_agenda`. Staff de gestión con visibilidad técnica **sigue viendo** paradas ocultas de cualquier bus (fondo gris). Músicos / Consulta General: ven paradas ocultas **solo** de su vehículo asignado (o tipo 35 INTERNO). En eventos no logísticos, el ojo de agenda sigue siendo marca **técnica** (`tecnica`).
 
 ## UI móvil de Gestión de Transportes
 

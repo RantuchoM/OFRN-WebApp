@@ -9,6 +9,8 @@ import {
   getCurrentTimeLocal,
   timeStringToMinutes,
 } from "./dates";
+import { stripHtml } from "./eventDisplayUtils";
+import { normalizeForSearch } from "./sanitize";
 
 export const ID_TIPO_TRASLADO_INTERNO = 35;
 const TIPO_TRANSPORTE_SALIDA = 11;
@@ -42,7 +44,7 @@ export function buildAgendaPdfExportItems(
 }
 
 /**
- * Flags de transporte en agenda personal (asignación + subida/bajada obligatorias).
+ * Flags de transporte en agenda personal (asignación + visibilidad del bus).
  * @param {object} item
  * @param {Record<string, { assigned?: boolean, subidaId?: number|string, bajadaId?: number|string }>} myTransportLogistics
  */
@@ -71,7 +73,9 @@ export function getAgendaTransportFlags(item, myTransportLogistics = {}) {
 
   const hiddenFromAgenda =
     isTransportEvent && item.visible_agenda === false;
-  const blockedByVisibility = hiddenFromAgenda && !isMyUpOrDown;
+  // Ojo cerrado: oculta paradas a quienes no van en ese vehículo.
+  // Si el bus es el asignado del músico, ve todas las paradas (no solo subida/bajada).
+  const blockedByVisibility = hiddenFromAgenda && !isMyTransport;
 
   return {
     isTransportEvent,
@@ -172,4 +176,107 @@ export function getGoogleMapsUrl(locacion) {
   partes.push("Rio Negro, Argentina");
   const query = encodeURIComponent(partes.join(", "));
   return `https://www.google.com/maps/search/?api=1&query=${query}`;
+}
+
+/** Fragmentos de un evento usados por la búsqueda de agenda (detalle + locación). */
+export function getAgendaEventSearchParts(item) {
+  if (!item || item.isProgramMarker) return [];
+  const loc = item.locaciones || {};
+  return [
+    stripHtml(item.descripcion),
+    item.giras_transportes?.detalle,
+    loc.nombre,
+    loc.direccion,
+    loc.localidades?.localidad,
+  ].filter((part) => part != null && String(part).trim() !== "");
+}
+
+/** ¿El evento coincide con el texto de búsqueda (detalle y/o locación)? */
+export function eventMatchesAgendaSearch(item, query) {
+  const q = normalizeForSearch(query);
+  if (!q) return true;
+  if (!item || item.isProgramMarker) return false;
+  const haystack = normalizeForSearch(getAgendaEventSearchParts(item).join(" "));
+  return haystack.includes(q);
+}
+
+/**
+ * Rangos [start, end) en el texto original que coinciden con la query
+ * (insensible a tildes/mayúsculas).
+ */
+export function getAccentInsensitiveHighlightRanges(text, query) {
+  const rawText = String(text ?? "");
+  const normalizedQuery = normalizeForSearch(query);
+  if (!normalizedQuery || !rawText) return [];
+
+  const normalizedChars = [];
+  const originalIndexByNormalizedIndex = [];
+  Array.from(rawText).forEach((char, originalIdx) => {
+    const normalizedChar = char
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+    Array.from(normalizedChar).forEach((c) => {
+      normalizedChars.push(c);
+      originalIndexByNormalizedIndex.push(originalIdx);
+    });
+  });
+
+  const normalizedText = normalizedChars.join("");
+  if (!normalizedText) return [];
+
+  const ranges = [];
+  let searchFrom = 0;
+  while (searchFrom < normalizedText.length) {
+    const foundAt = normalizedText.indexOf(normalizedQuery, searchFrom);
+    if (foundAt === -1) break;
+    const startOriginal = originalIndexByNormalizedIndex[foundAt];
+    const endNormIdx = foundAt + normalizedQuery.length - 1;
+    const endOriginal =
+      (originalIndexByNormalizedIndex[endNormIdx] ?? startOriginal) + 1;
+    ranges.push([startOriginal, endOriginal]);
+    searchFrom = foundAt + 1;
+  }
+
+  if (!ranges.length) return [];
+
+  const merged = [];
+  ranges.forEach(([start, end]) => {
+    const last = merged[merged.length - 1];
+    if (!last || start > last[1]) merged.push([start, end]);
+    else last[1] = Math.max(last[1], end);
+  });
+  return merged;
+}
+
+const HTML_SEARCH_MARK_OPEN =
+  '<mark class="bg-yellow-200 text-yellow-900 rounded-sm px-0.5">';
+const HTML_SEARCH_MARK_CLOSE = "</mark>";
+
+function wrapPlainTextSearchMatches(rawText, query) {
+  const ranges = getAccentInsensitiveHighlightRanges(rawText, query);
+  if (!ranges.length) return rawText;
+  let out = "";
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    out += rawText.slice(cursor, start);
+    out += HTML_SEARCH_MARK_OPEN + rawText.slice(start, end) + HTML_SEARCH_MARK_CLOSE;
+    cursor = end;
+  }
+  out += rawText.slice(cursor);
+  return out;
+}
+
+/**
+ * Inserta &lt;mark&gt; en los nodos de texto de un HTML de descripción,
+ * sin tocar etiquetas (para usar con dangerouslySetInnerHTML).
+ */
+export function highlightHtmlSearch(html, query) {
+  if (!html) return "";
+  const q = normalizeForSearch(query);
+  if (!q) return String(html);
+  return String(html).replace(/(<[^>]+>)|([^<]+)/g, (match, tag, text) => {
+    if (tag) return tag;
+    return wrapPlainTextSearchMatches(text, query);
+  });
 }

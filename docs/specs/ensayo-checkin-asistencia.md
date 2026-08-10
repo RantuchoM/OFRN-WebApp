@@ -48,6 +48,7 @@ Migraciones:
 - `supabase/migrations/20260727180000_ensayo_checkin_salida.sql`
 - `supabase/migrations/20260804120000_ensayo_salida_recordatorios.sql` (push/email salida + `web_push_subscriptions`)
 - `supabase/migrations/20260806140000_ensayo_inicio_recordatorios.sql` (`pre_inicio` + cron ingreso)
+- `supabase/migrations/20260806200000_ensayo_diario_reporte_cron.sql` (mail diario asistencia)
 
 ## UI Agenda
 
@@ -122,10 +123,23 @@ Migraciones:
 - [x] Tras **salida**, re-sync para programar el siguiente inicio
 - [x] Gate de prueba admin (`EnsayoLocalRemindersSync` + banner); abrir a todos cuando salga de prueba
 - [x] Cron Web Push + email de **ingreso** en servidor (`ensayo-inicio-recordatorios`, solo admins)
+- [x] Mail diario de asistencia (`ensayo-diario-reporte` → filarmonica.scrn + ofrn.archivo, 22:00 ART)
 
 ## Despliegue
 
 Aplicar las migraciones en Supabase antes de usar check-in o reportes en producción.
+
+## Mail diario de asistencia
+
+- Edge Function: `ensayo-diario-reporte`.
+- Cron: `0 1 * * *` UTC (22:00 ART), migración `20260806200000_ensayo_diario_reporte_cron.sql`.
+- Destinatarios: `filarmonica.scrn@gmail.com`, `ofrn.archivo@gmail.com` (override `ENSAYO_DIARIO_TO`).
+- Contenido HTML en cuerpo + adjunto **PDF** (`YYYY-MM-DD-asistencia-ensayos.pdf`):
+  1. Título con **N ensayos** del día ART.
+  2. **Novedades**: tarde **>+5 min**, ausentes (sin ingreso ni justificado), sin **salida**, GPS **>200 m**.
+  3. **Detalle** por ensayo (tabla convocados · llegada · salida · modo), similar a Gestión → Asistencia.
+- Body opcional: `{"fecha":"YYYY-MM-DD"}` para reenviar un día concreto.
+- Ausencias declaradas (`eventos_asistencia_custom.tipo = ausente`) no entran como “ausentes”; justificados aparecen en detalle como Justificado.
 
 ## Datos de prueba (seed)
 

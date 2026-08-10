@@ -3068,7 +3068,7 @@ export default function GirasTransportesManager({
                                     title={
                                       evt.visible_agenda === false
                                         ? "Mostrar en agenda (todos los músicos)"
-                                        : "Ocultar de agenda (subida/bajada propias siguen visibles para cada músico)"
+                                        : "Ocultar de agenda (pasajeros del bus y subida/bajada siguen viendo la parada)"
                                     }
                                   >
                                     {evt.visible_agenda === false ? (
@@ -3444,7 +3444,7 @@ export default function GirasTransportesManager({
                                 title={
                                   evt.visible_agenda === false
                                     ? "Mostrar en agenda (todos los músicos)"
-                                    : "Ocultar de agenda (subida/bajada propias siguen visibles para cada músico)"
+                                    : "Ocultar de agenda (pasajeros del bus y subida/bajada siguen viendo la parada)"
                                 }
                               >
                                 {evt.visible_agenda === false ? (

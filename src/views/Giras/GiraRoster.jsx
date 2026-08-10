@@ -535,6 +535,9 @@ export default function GiraRoster({
     useState(new Set());
   const [selectedFilterLocalities, setSelectedFilterLocalities] =
     useState(new Set());
+  const [selectedFilterRegions, setSelectedFilterRegions] = useState(
+    new Set(),
+  );
 
   // Selección Múltiple (Filas)
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -644,6 +647,28 @@ export default function GiraRoster({
     () => buildIntegranteGruposMap(giraGrupos, rawRoster),
     [giraGrupos, rawRoster],
   );
+
+  /** Ocupación del roster filtrado (misma lógica que butacas en transportes). */
+  const filteredOccupancy = useMemo(() => {
+    const people = localRoster.length;
+    const instruments = localRoster.filter((m) =>
+      Boolean(m.instrumentos?.plaza_extra),
+    ).length;
+    return {
+      people,
+      instruments,
+      butacas: people + instruments,
+    };
+  }, [localRoster]);
+
+  const occupancyLabelDesktop =
+    filteredOccupancy.instruments > 0
+      ? `${filteredOccupancy.people} + ${filteredOccupancy.instruments} ins = ${filteredOccupancy.butacas} butacas`
+      : `${filteredOccupancy.people} butacas`;
+  const occupancyLabelMobile =
+    filteredOccupancy.instruments > 0
+      ? `${filteredOccupancy.people}+${filteredOccupancy.instruments}=${filteredOccupancy.butacas}`
+      : `${filteredOccupancy.people}`;
 
   const handleRemoveFromGrupo = async (musician, grupo) => {
     if (!musician?.id || !grupo?.id) return;
@@ -836,7 +861,7 @@ export default function GiraRoster({
   const [selectedFamilies, setSelectedFamilies] = useState(new Set());
   const [selectedExclEnsembles, setSelectedExclEnsembles] = useState(new Set());
 
-  // Localidades disponibles para filtro: residencias de músicos confirmados
+  // Localidades / regiones disponibles para filtro: de músicos confirmados (localidad efectiva)
   const confirmedLocalityOptions = useMemo(() => {
     if (!rawRoster) return [];
     const map = new Map();
@@ -857,6 +882,24 @@ export default function GiraRoster({
         value,
         label,
       }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [rawRoster]);
+
+  const confirmedRegionOptions = useMemo(() => {
+    if (!rawRoster) return [];
+    const map = new Map();
+    (rawRoster || []).forEach((m) => {
+      if (m.estado_gira !== "confirmado") return;
+      const regId =
+        m.localidades?.id_region != null
+          ? String(m.localidades.id_region)
+          : null;
+      const regName = m.localidades?.regiones?.region;
+      if (!regId || !regName) return;
+      if (!map.has(regId)) map.set(regId, regName);
+    });
+    return Array.from(map.entries())
+      .map(([value, label]) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [rawRoster]);
 
@@ -912,6 +955,17 @@ export default function GiraRoster({
             matchesEnsemble = false;
         }
 
+        // Filtro Región (localidad efectiva)
+        let matchesRegion = true;
+        if (selectedFilterRegions.size > 0) {
+          const regId =
+            m.localidades?.id_region != null
+              ? String(m.localidades.id_region)
+              : null;
+          matchesRegion =
+            regId != null && selectedFilterRegions.has(regId);
+        }
+
         // Filtro Localidad (residencia)
         let matchesLocality = true;
         if (selectedFilterLocalities.size > 0) {
@@ -930,6 +984,7 @@ export default function GiraRoster({
           matchesRole &&
           matchesCondition &&
           matchesEnsemble &&
+          matchesRegion &&
           matchesLocality
         );
       });
@@ -996,6 +1051,7 @@ export default function GiraRoster({
     selectedFilterRoles,
     selectedFilterConditions,
     selectedFilterEnsemblesList,
+    selectedFilterRegions,
     selectedFilterLocalities,
     rolesList,
     seatingSortCtx,
@@ -3000,6 +3056,44 @@ export default function GiraRoster({
                   </div>
                 )}
                 <div className="font-bold text-slate-500 uppercase text-[10px] mt-2">
+                  Región
+                  {selectedFilterRegions.size > 0 &&
+                    ` (${selectedFilterRegions.size})`}
+                </div>
+                <MultiSelectDropdown
+                  compact
+                  label=""
+                  placeholder="Todas"
+                  options={confirmedRegionOptions}
+                  value={Array.from(selectedFilterRegions)}
+                  onChange={(arr) => setSelectedFilterRegions(new Set(arr))}
+                />
+                {selectedFilterRegions.size > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {confirmedRegionOptions
+                      .filter((r) => selectedFilterRegions.has(r.value))
+                      .map((r) => (
+                        <span
+                          key={r.value}
+                          className="relative pl-2 pr-4 py-0.5 rounded-full bg-violet-50 text-[10px] font-semibold text-violet-700 border border-violet-200"
+                        >
+                          {r.label}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = new Set(selectedFilterRegions);
+                              next.delete(r.value);
+                              setSelectedFilterRegions(next);
+                            }}
+                            className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-violet-600 text-white flex items-center justify-center text-[8px]"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                  </div>
+                )}
+                <div className="font-bold text-slate-500 uppercase text-[10px] mt-2">
                   Localidad (residencia)
                   {selectedFilterLocalities.size > 0 &&
                     ` (${selectedFilterLocalities.size})`}
@@ -3110,24 +3204,35 @@ export default function GiraRoster({
             )}
           </div>
 
-          {isEditor && (
-            <button
-              type="button"
-              onClick={() => setShowGruposModal(true)}
-              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold transition-colors ${
-                giraGrupos.length > 0
-                  ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
-                  : "bg-white text-slate-600 hover:bg-slate-50 border-slate-200"
-              }`}
-              title="Grupos de convocatoria para ensayos/eventos"
+          <div className="shrink-0 flex items-center gap-1.5">
+            {isEditor && (
+              <button
+                type="button"
+                onClick={() => setShowGruposModal(true)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold transition-colors ${
+                  giraGrupos.length > 0
+                    ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+                    : "bg-white text-slate-600 hover:bg-slate-50 border-slate-200"
+                }`}
+                title="Grupos de convocatoria para ensayos/eventos"
+              >
+                <IconTag size={12} />
+                <span>
+                  Grupos
+                  {giraGrupos.length > 0 ? ` (${giraGrupos.length})` : ""}
+                </span>
+              </button>
+            )}
+            <span
+              className="inline-flex items-center min-h-5 px-2 py-0.5 rounded-md border text-[10px] font-bold tabular-nums leading-tight text-indigo-600 bg-indigo-50 border-indigo-100 max-w-full sm:max-w-none"
+              title={`${occupancyLabelDesktop} (personas filtradas del roster)`}
             >
-              <IconTag size={12} />
-              <span>
-                Grupos
-                {giraGrupos.length > 0 ? ` (${giraGrupos.length})` : ""}
+              <span className="sm:hidden truncate">{occupancyLabelMobile}</span>
+              <span className="hidden sm:inline whitespace-nowrap">
+                {occupancyLabelDesktop}
               </span>
-            </button>
-          )}
+            </span>
+          </div>
 
           {/* BOTÓN COPIAR MAILS (sigue disponible cuando hay selección) */}
           {selectedIds.size > 0 && (
