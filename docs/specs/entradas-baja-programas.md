@@ -61,9 +61,15 @@
 - [x] `entrada_crear_reserva` y `entrada_admin_crear_reserva_tercero`: exigen `entrada_programa.activo = true`
 - [x] `getConciertoBySlug`: join `entrada_programa!inner` + filtro `entrada_programa.activo = true`
 
+## Fecha/lugar (fuente OFRN)
+
+- `entrada_concierto` **no** guarda `fecha_hora` ni `lugar_nombre`; se derivan de `eventos` vía `entrada_fecha_hora_desde_evento` / `entrada_lugar_nombre_desde_evento`.
+- [x] Migración `20260810160000_entradas_concierto_drop_fecha_hora_residual.sql`: elimina columnas residuales NOT NULL que rompían `entrada_admin_upsert_concierto` al crear conciertos; alinea payloads de suspensión a los helpers de evento.
+
 ## Archivos
 
 - Migración: `supabase/migrations/20260703120000_entradas_programa_suspender.sql`
+- Migración fix fecha: `supabase/migrations/20260810160000_entradas_concierto_drop_fecha_hora_residual.sql`
 - Servicio: `adminSuspenderPrograma`, `adminSuspenderConcierto`, `adminReactivarPrograma`, `adminReactivarConcierto`, `enviarMailCancelacionPrograma` en `src/services/entradaService.js`
 - UI: `src/components/entradas/EntradasAdminBajaModal.jsx`, `src/views/Public/Entradas/EntradasMain.jsx`
 - Mail: `supabase/functions/entradas-send-cancelacion/`

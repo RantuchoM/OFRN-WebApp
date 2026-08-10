@@ -305,7 +305,7 @@ export async function actualizarReferenciaTercero(reservaId, referencia) {
 
 const RESERVA_TERCEROS_SELECT = `id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token,
   reservada_por, email_beneficiario, beneficiario_referencia, usuario_id,
-  concierto:entrada_concierto(id, nombre, slug_publico, detalle_richtext, fecha_hora, ofrn_evento_id,
+  concierto:entrada_concierto(id, nombre, slug_publico, detalle_richtext, ofrn_evento_id,
     entrada_programa(id, nombre, detalle_richtext), ${ENTRADA_CONCIERTO_EVENTO_EMBED}),
   entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token),
   titular:entrada_usuario!entrada_reserva_usuario_id_fkey(id, nombre, apellido, email)`;
