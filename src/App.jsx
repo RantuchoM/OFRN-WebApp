@@ -119,6 +119,9 @@ const ManagementView = lazy(() => import("./views/Management/ManagementView"));
 const MusicTranslationView = lazy(
   () => import("./views/MusicTranslation/MusicTranslationView"),
 );
+const FimbaStaffApp = lazy(() => import("./views/Fimba/FimbaStaffApp"));
+const FimbaTokenPage = lazy(() => import("./views/Fimba/FimbaTokenPage"));
+const FimbaLoginPage = lazy(() => import("./views/Fimba/FimbaLoginPage"));
 
 const ViewFallback = () => (
   <div className="flex h-full min-h-[200px] items-center justify-center font-bold text-slate-400 animate-pulse">
@@ -1098,6 +1101,30 @@ const ProtectedApp = ({ initialTab }) => {
         </nav>
 
         <div className="p-4 border-t border-slate-100 shrink-0 space-y-1">
+          {isEditor && (
+            <Link
+              to="/fimba"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className={`
+              w-full flex items-center px-3 py-2.5 rounded-xl transition-all
+              text-slate-600 hover:bg-pink-50 hover:text-[#94216D]
+              ${!isDesktopExpanded ? "justify-center" : "gap-3"}
+            `}
+              title="FIMBA"
+            >
+              <span
+                className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-[13px] font-bold leading-none"
+                aria-hidden
+              >
+                F
+              </span>
+              <span
+                className={`text-sm font-medium whitespace-nowrap ${isDesktopExpanded ? "block" : "hidden"}`}
+              >
+                FIMBA
+              </span>
+            </Link>
+          )}
           <Link
             to="/entradas"
             onClick={() => setIsMobileMenuOpen(false)}
@@ -1562,6 +1589,38 @@ export default function App() {
                 element={
                   <LazyRoute>
                     <EntradasPage />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="/fimba/login"
+                element={
+                  <LazyRoute>
+                    <FimbaLoginPage />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="/fimba/a/:token"
+                element={
+                  <LazyRoute>
+                    <FimbaTokenPage kind="consulta" />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="/fimba/e/:token"
+                element={
+                  <LazyRoute>
+                    <FimbaTokenPage kind="edicion" />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="/fimba/*"
+                element={
+                  <LazyRoute>
+                    <FimbaStaffApp />
                   </LazyRoute>
                 }
               />

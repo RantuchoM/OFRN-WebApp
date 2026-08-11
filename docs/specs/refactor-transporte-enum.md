@@ -34,9 +34,16 @@ Cualquier evento en la agenda cuyo `id_tipo_evento` sea **35** debe considerarse
 
 - [x] Los cuatro indicadores superiores usan grilla responsive `2 columnas -> 4 columnas` para evitar compresión en pantallas angostas.
 - [x] La barra de acciones, filtros y formulario de alta de transporte se adaptan a mobile con controles apilados o de ancho completo.
-- [x] Al abrir un transporte en mobile, las paradas se renderizan como cards: fecha, hora, locación y detalle quedan apilados; las reglas de subida/bajada quedan en una columna lateral.
+- [x] Al abrir un transporte en mobile, las paradas se renderizan como cards: fecha, hora desde, hora hasta, locación y detalle quedan apilados; las reglas de subida/bajada quedan en una columna lateral.
 - [x] En desktop se mantiene la tabla original de paradas para preservar densidad de edición.
 - [x] El menú **Acciones** de cada tarjeta se renderiza con React Portal en `document.body` (`z-[100]`, posición `fixed`) para no quedar recortado por el `overflow` de la tarjeta ni tapado por la siguiente.
+
+## Hora hasta en paradas de transporte
+
+- [x] Columna **Hora desde** (`eventos.hora_inicio`) y **Hora hasta** (`eventos.hora_fin`) en tabla desktop y cards mobile de `GirasTransportesManager`.
+- [x] Inline edit vía `TimeInput` + `handleUpdateEvent` (mismo path que fecha/hora inicio).
+- [x] Alta de parada persiste `hora_fin` (opcional; vacío → `null`).
+- [x] Shift de horarios (`handleApplyShiftSchedule`) desplaza también `hora_fin` cuando existe, conservando el desfase relativo.
 
 ## Migración SQL
 

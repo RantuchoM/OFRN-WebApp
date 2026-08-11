@@ -88,12 +88,13 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bclarinete\s+(en\s+)?sib\b|\bclarinete\s+bb\b|\bclarinet\b|\bclarinete\b/i.test(name))
     return "Clarinete Bb";
   if (/\bfagot\s*2\b|\bbassoon\s*2\b/i.test(name)) return "Fagot 2";
-  if (/\bfagot\s*1\b|\bbassoon\s*1\b|\bbassoons?\b|\bfagot\b|\bcontrafagot\b/i.test(name))
-    return "Fagot";
+  if (/\bfagot\s*1\b|\bbassoon\s*1\b/i.test(name)) return "Fagot 1";
+  if (/\bbassoons?\b|\bfagot\b/i.test(name)) return "Fagot";
   if (/\bcorno\s*f\s*4\b|\bhorn\s*4\b|\bcorno\s*4\b/i.test(name)) return "Corno F 4";
   if (/\bcorno\s*f\s*3\b|\bhorn\s*3\b|\bcorno\s*3\b/i.test(name)) return "Corno F 3";
   if (/\bcorno\s*f\s*2\b|\bhorn\s*2\b|\bcorno\s*2\b/i.test(name)) return "Corno F 2";
-  if (/\bcorno\s*f\s*1\b|\bhorn\s*1\b|\bcorno\s*1\b|\bcorno\s+en\s+fa\b|\bhorns?\b|\bcorno\b/i.test(name))
+  if (/\bcorno\s*f\s*1\b|\bhorn\s*1\b|\bcorno\s*1\b/i.test(name)) return "Corno F 1";
+  if (/\bcorno\s+en\s+fa\b|\bhorns?\b|\bcornos?\b|\bcorno\b/i.test(name))
     return "Corno F";
   if (/\btrompeta\s*2\b|\btrumpet\s*2\b/i.test(name)) return "Trompeta 2";
   if (/\btrompeta\s*1\b|\btrumpet\s*1\b|\btrumpets?\b|\btrompeta\b/i.test(name))

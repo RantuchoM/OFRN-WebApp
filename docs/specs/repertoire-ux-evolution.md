@@ -396,3 +396,12 @@ Permitir que el músico descargue de una vez todas sus partes disponibles desde 
 - [x] Descarga autenticada de archivos Drive.
 - [x] ZIP comprimido con todas las partes disponibles.
 - [x] Progreso y aviso de errores parciales.
+
+---
+
+### Completado (2026-08-10) — Para acomodar: Charbonnier *Voces latinoamericanas*
+- [x] Obra **3201** (`Voces latinoamericanas…`, gira 12): carpeta Drive [1O1SbcEF6V0g9F4hxdwC-Lsns9IcFJjL3](https://drive.google.com/open?id=1O1SbcEF6V0g9F4hxdwC-Lsns9IcFJjL3) renombrada a `Charbonnier, M. - Voces latinoamericanas`.
+- [x] Split de PDF de partes (39 p.) + crop de score (18 p. música) → **17** PDFs canónicos.
+- [x] Scripts: `scripts/lib/charbonnierVocesCatalog.mjs`, `process-charbonnier-voces-local.mjs`, `generate-charbonnier-voces-sync.mjs`.
+- [x] Seed `supabase/seed_charbonnier_voces_sync.sql` aplicado en linked: particellas + `instrumentacion = S. - 2.2.2.2 - 2.0.0.0 - Str`, Soprano como solista, SCORE → Director.
+- [x] Fix: `Fagot 1` / `Corno F 1` en `pdfPartsRenaming.mjs`; suffix de índices en `split_and_rename_parts.py` solo al repetir instrumento.

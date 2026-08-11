@@ -105,6 +105,8 @@ export default function StopRulesManager({
   passengers, // summary/logistics completo
   admissionRules = [],
   onRefresh,
+  /** Sin shell modal/overlay: contenido al nivel del padre (ej. pestaña FIMBA Orquesta OFRN). */
+  embedded = false,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const [existingRules, setExistingRules] = useState([]);
@@ -857,39 +859,8 @@ export default function StopRulesManager({
 
   if (!isOpen || !event) return null;
 
-  return (
-    <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 backdrop-blur-sm">
-      {dialog}
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] animate-in zoom-in-95">
-        {/* Header */}
-        <div
-          className={`p-4 border-b rounded-t-xl flex justify-between items-start ${bgClass}`}
-        >
-          <div>
-            <h3
-              className={`text-lg font-bold ${colorClass} flex items-center gap-2`}
-            >
-              <IconMapPin size={20} /> {title}
-            </h3>
-            <div className="mt-1 text-sm font-medium text-slate-600">
-              {event.locaciones?.nombre ||
-                event.descripcion ||
-                "Lugar sin nombre"}
-            </div>
-            <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-              <IconClock size={12} /> {event.hora_inicio?.slice(0, 5)} hs
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-white/50 rounded-full transition-colors"
-          >
-            <IconX size={20} className="text-slate-500" />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+  const rulesBody = (
+          <>
           {/* 1. Lista de Reglas Existentes */}
           <div className="space-y-3">
             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -1273,7 +1244,51 @@ export default function StopRulesManager({
               <IconPlus size={14} /> Asignar Parada
             </button>
           </div>
+          </>
+  );
+
+  if (embedded) {
+    return (
+      <>
+        {dialog}
+        <div className="space-y-6">{rulesBody}</div>
+      </>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+      {dialog}
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] animate-in zoom-in-95">
+        {/* Header */}
+        <div
+          className={`p-4 border-b rounded-t-xl flex justify-between items-start ${bgClass}`}
+        >
+          <div>
+            <h3
+              className={`text-lg font-bold ${colorClass} flex items-center gap-2`}
+            >
+              <IconMapPin size={20} /> {title}
+            </h3>
+            <div className="mt-1 text-sm font-medium text-slate-600">
+              {event.locaciones?.nombre ||
+                event.descripcion ||
+                "Lugar sin nombre"}
+            </div>
+            <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+              <IconClock size={12} /> {event.hora_inicio?.slice(0, 5)} hs
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-white/50 rounded-full transition-colors"
+          >
+            <IconX size={20} className="text-slate-500" />
+          </button>
         </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">{rulesBody}</div>
       </div>
     </div>
   );

@@ -189,13 +189,25 @@ export default function GirasTransportesManager({
         newDate = addHours(newDate, offset.hours);
         newDate = addMinutes(newDate, offset.minutes);
 
-        return supabase
-          .from("eventos")
-          .update({
-            fecha: format(newDate, "yyyy-MM-dd"),
-            hora_inicio: format(newDate, "HH:mm:ss"),
-          })
-          .eq("id", evt.id);
+        const patch = {
+          fecha: format(newDate, "yyyy-MM-dd"),
+          hora_inicio: format(newDate, "HH:mm:ss"),
+        };
+
+        // Mantener el desfase de "hora hasta" respecto de "hora desde"
+        if (evt.hora_fin) {
+          const finFullDate = new Date(
+            `${evt.fecha}T${String(evt.hora_fin).length <= 5 ? `${evt.hora_fin}:00` : evt.hora_fin}`,
+          );
+          if (!Number.isNaN(finFullDate.getTime())) {
+            let newFin = addDays(finFullDate, offset.days);
+            newFin = addHours(newFin, offset.hours);
+            newFin = addMinutes(newFin, offset.minutes);
+            patch.hora_fin = format(newFin, "HH:mm:ss");
+          }
+        }
+
+        return supabase.from("eventos").update(patch).eq("id", evt.id);
       });
 
       await Promise.all(updatePromises);
@@ -500,6 +512,7 @@ export default function GirasTransportesManager({
   const [newEvent, setNewEvent] = useState({
     fecha: "",
     hora: "",
+    hora_fin: "",
     id_locacion: null,
     descripcion: "",
     id_tipo_evento: String(CATEGORIAS_TRANSPORTE.PASAJEROS),
@@ -768,7 +781,7 @@ export default function GirasTransportesManager({
         const { data: evts } = await supabase
           .from("eventos")
           .select(
-            `id, fecha, hora_inicio, descripcion, id_tipo_evento, visible_agenda, id_gira_transporte, id_locacion, is_deleted, locaciones(nombre, direccion, localidades(localidad)), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )`,
+            `id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, visible_agenda, id_gira_transporte, id_locacion, is_deleted, locaciones(nombre, direccion, localidades(localidad)), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )`,
           )
           .in("id_gira_transporte", tIds)
           .eq("is_deleted", false)
@@ -1177,6 +1190,7 @@ export default function GirasTransportesManager({
         id_gira_transporte: transportId,
         fecha: newEvent.fecha,
         hora_inicio: newEvent.hora,
+        hora_fin: newEvent.hora_fin || null,
         id_locacion: newEvent.id_locacion,
         descripcion: newEvent.descripcion || "",
         id_tipo_evento: parseInt(newEvent.id_tipo_evento),
@@ -1202,6 +1216,7 @@ export default function GirasTransportesManager({
       setNewEvent({
         fecha: "",
         hora: "",
+        hora_fin: "",
         id_locacion: null,
         descripcion: "",
         id_tipo_evento: String(CATEGORIAS_TRANSPORTE.PASAJEROS),
@@ -1268,6 +1283,7 @@ export default function GirasTransportesManager({
     setNewEvent({
       fecha: evt.fecha || "",
       hora: evt.hora_inicio || "",
+      hora_fin: evt.hora_fin || "",
       id_locacion: evt.id_locacion || null,
       descripcion: evt.descripcion || "",
       id_tipo_evento: evt.id_tipo_evento
@@ -1281,6 +1297,7 @@ export default function GirasTransportesManager({
     setNewEvent({
       fecha: "",
       hora: "",
+      hora_fin: "",
       id_locacion: null,
       descripcion: "",
       id_tipo_evento: String(CATEGORIAS_TRANSPORTE.PASAJEROS),
@@ -1292,6 +1309,7 @@ export default function GirasTransportesManager({
     setNewEvent({
       fecha: gira.fecha_inicio || format(new Date(), "yyyy-MM-dd"),
       hora: "08:00:00",
+      hora_fin: "",
       id_locacion: null,
       descripcion: "",
       id_tipo_evento: String(eventTypeIdForCategoria(transport.categoria_logistica)),
@@ -2722,31 +2740,34 @@ export default function GirasTransportesManager({
                               }}
                             />
                           </th>
-                          <th className="p-3" style={{ width: "12%" }}>
+                          <th className="p-3" style={{ width: "11%" }}>
                             Fecha
                           </th>
-                          <th className="p-3" style={{ width: "10%" }}>
-                            Hora
+                          <th className="p-3" style={{ width: "8%" }}>
+                            Hora desde
                           </th>
-                          <th className="p-3" style={{ width: "20%" }}>
+                          <th className="p-3" style={{ width: "8%" }}>
+                            Hora hasta
+                          </th>
+                          <th className="p-3" style={{ width: "18%" }}>
                             Locación (Destino)
                           </th>
-                          <th className="p-3" style={{ width: "20%" }}>
+                          <th className="p-3" style={{ width: "18%" }}>
                             Detalle
                           </th>
                           <th
                             className="p-3 text-center bg-emerald-50/50 text-emerald-600 border-l border-emerald-100"
-                            style={{ width: "15%" }}
+                            style={{ width: "14%" }}
                           >
                             Suben
                           </th>
                           <th
                             className="p-3 text-center bg-rose-50/50 text-rose-600 border-l border-rose-100"
-                            style={{ width: "15%" }}
+                            style={{ width: "14%" }}
                           >
                             Bajan
                           </th>
-                          <th className="p-3 text-right" style={{ width: "5%" }}>
+                          <th className="p-3 text-right" style={{ width: "6%" }}>
                             Acciones
                           </th>
                         </tr>
@@ -2823,6 +2844,19 @@ export default function GirasTransportesManager({
                                       )
                                     }
                                     className={`h-7 w-full text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "hora_inicio")}`}
+                                  />
+                              </td>
+                              <td className="p-2 align-middle">
+                                  <TimeInput
+                                    value={evt.hora_fin || ""}
+                                    onChange={(v) =>
+                                      handleUpdateEvent(
+                                        evt.id,
+                                        "hora_fin",
+                                        v || null,
+                                      )
+                                    }
+                                    className={`h-7 w-full text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "hora_fin")}`}
                                   />
                               </td>
                               <td
@@ -3114,6 +3148,15 @@ export default function GirasTransportesManager({
                                 />
                             </td>
                             <td className="p-2 align-middle">
+                                <TimeInput
+                                  value={newEvent.hora_fin || ""}
+                                  onChange={(v) =>
+                                    setNewEvent({ ...newEvent, hora_fin: v })
+                                  }
+                                  className="h-7 w-full text-[11px] font-bold text-center border-indigo-300 rounded"
+                                />
+                            </td>
+                            <td className="p-2 align-middle">
                               <LocationSelectWithCreate
                                 supabase={supabase}
                                 options={locationOptions}
@@ -3159,11 +3202,10 @@ export default function GirasTransportesManager({
                                 </button>
                               </div>
                             </td>
-                            <td></td>
                           </tr>
                         ) : (
                           <tr>
-                            <td colSpan="8" className="p-2 bg-slate-50/50">
+                            <td colSpan="9" className="p-2 bg-slate-50/50">
                               <button
                                 onClick={() => beginNewStopForTransport(t)}
                                 className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-[10px] font-black text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all uppercase tracking-[0.2em] bg-white"
@@ -3215,7 +3257,7 @@ export default function GirasTransportesManager({
                         >
                           <div className="flex gap-2">
                             <div className="min-w-0 flex-1 space-y-2">
-                              <div className="grid grid-cols-2 gap-2">
+                              <div className="grid grid-cols-3 gap-2">
                                 <label className="space-y-1">
                                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
                                     Fecha
@@ -3231,7 +3273,7 @@ export default function GirasTransportesManager({
                                 </label>
                                 <label className="space-y-1">
                                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                                    Hora
+                                    Hora desde
                                   </span>
                                   <TimeInput
                                     value={evt.hora_inicio}
@@ -3243,6 +3285,22 @@ export default function GirasTransportesManager({
                                       )
                                     }
                                     className={`h-9 w-full text-[12px] font-bold text-center border rounded-lg bg-white ${getInputClass(evt.id, "hora_inicio")}`}
+                                  />
+                                </label>
+                                <label className="space-y-1">
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                                    Hora hasta
+                                  </span>
+                                  <TimeInput
+                                    value={evt.hora_fin || ""}
+                                    onChange={(v) =>
+                                      handleUpdateEvent(
+                                        evt.id,
+                                        "hora_fin",
+                                        v || null,
+                                      )
+                                    }
+                                    className={`h-9 w-full text-[12px] font-bold text-center border rounded-lg bg-white ${getInputClass(evt.id, "hora_fin")}`}
                                   />
                                 </label>
                               </div>
@@ -3467,7 +3525,7 @@ export default function GirasTransportesManager({
 
                     {editingEventId === `new-${t.id}` ? (
                       <div className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-2 shadow-sm">
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-3 gap-2">
                           <label className="space-y-1">
                             <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
                               Fecha
@@ -3483,12 +3541,24 @@ export default function GirasTransportesManager({
                           </label>
                           <label className="space-y-1">
                             <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
-                              Hora
+                              Hora desde
                             </span>
                             <TimeInput
                               value={newEvent.hora}
                               onChange={(v) =>
                                 setNewEvent({ ...newEvent, hora: v })
+                              }
+                              className="h-9 w-full rounded-lg border-indigo-300 text-center text-[12px] font-bold"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
+                              Hora hasta
+                            </span>
+                            <TimeInput
+                              value={newEvent.hora_fin || ""}
+                              onChange={(v) =>
+                                setNewEvent({ ...newEvent, hora_fin: v })
                               }
                               className="h-9 w-full rounded-lg border-indigo-300 text-center text-[12px] font-bold"
                             />

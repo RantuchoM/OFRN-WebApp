@@ -74,6 +74,8 @@ const PUBLIC_ROUTE_LABELS = [
   { prefix: "/rendiciones-manual", label: "Manual de rendiciones" },
   { prefix: "/transporte-scrn", label: "Transporte SCRN" },
   { prefix: "/share/", label: "Enlace compartido" },
+  { prefix: "/fimba/", label: "FIMBA" },
+  { prefix: "/fimba", label: "FIMBA" },
 ];
 
 export function buildDocumentTitle(parts) {
