@@ -7,15 +7,22 @@ import {
   IconPlus,
   IconEdit,
   IconUsers,
+  IconCopy,
+  IconRefresh,
+  IconLink,
+  IconEye,
 } from "../../components/ui/Icons";
 import {
   FIMBA_USUARIO_ROLES,
   createFimbaUsuario,
+  fimbaTokenUrl,
   getFimbaEdicionById,
   listFimbaUsuarios,
+  regenerateFimbaEdicionTokenConsulta,
   updateFimbaUsuario,
 } from "../../services/fimbaService";
 import { generateFimbaTempPassword } from "../../utils/fimbaUserSession";
+import { useFimbaAccess } from "../../context/FimbaAccessContext";
 
 const ROLE_LABEL = Object.fromEntries(
   FIMBA_USUARIO_ROLES.map((r) => [r.value, r.label]),
@@ -33,16 +40,19 @@ function emptyForm() {
 
 /**
  * Staff: listado y alta/edición de `fimba_usuarios` de la edición.
- * Solo edición-scoped (no artista).
+ * Solo edición-scoped (no artista). Incluye enlace consulta general.
  */
 export default function FimbaUsuariosPage() {
   const { edicionId } = useParams();
+  const { canManageUsers, canSeeUsuarios } = useFimbaAccess();
   const [edicion, setEdicion] = useState(null);
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [modal, setModal] = useState(null); // { mode: 'create'|'edit', form, id? }
   const [saving, setSaving] = useState(false);
+  const [tokenMsg, setTokenMsg] = useState(null);
+  const [regenBusy, setRegenBusy] = useState(false);
 
   const reload = async () => {
     setLoading(true);
@@ -68,6 +78,41 @@ export default function FimbaUsuariosPage() {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [edicionId]);
+
+  const consultaUrl = fimbaTokenUrl("consulta_edicion", edicion?.token_consulta);
+
+  const copyConsulta = async () => {
+    if (!consultaUrl) return;
+    try {
+      await navigator.clipboard.writeText(consultaUrl);
+      setTokenMsg("Enlace de consulta copiado");
+      setTimeout(() => setTokenMsg(null), 2000);
+    } catch {
+      setTokenMsg("No se pudo copiar");
+    }
+  };
+
+  const regenConsulta = async () => {
+    if (
+      !window.confirm(
+        "¿Regenerar el enlace de consulta general? El enlace anterior dejará de funcionar.",
+      )
+    ) {
+      return;
+    }
+    setRegenBusy(true);
+    setError(null);
+    const { edicion: next, error: err } =
+      await regenerateFimbaEdicionTokenConsulta(edicionId);
+    setRegenBusy(false);
+    if (err || !next) {
+      setError(err?.message || "No se pudo regenerar el enlace");
+      return;
+    }
+    setEdicion(next);
+    setTokenMsg("Enlace regenerado");
+    setTimeout(() => setTokenMsg(null), 2000);
+  };
 
   const openCreate = () => {
     setModal({ mode: "create", form: emptyForm() });
@@ -140,6 +185,23 @@ export default function FimbaUsuariosPage() {
     );
   }
 
+  if (!canSeeUsuarios || !canManageUsers) {
+    return (
+      <div>
+        <div className="fimba-error">
+          No tenés permiso para administrar usuarios de esta edición.
+        </div>
+        <Link
+          to={`/fimba/edicion/${edicionId}`}
+          className="fimba-btn fimba-btn-ghost"
+          style={{ marginTop: 12, textDecoration: "none" }}
+        >
+          <IconArrowLeft size={14} /> Volver
+        </Link>
+      </div>
+    );
+  }
+
   if (!edicion) {
     return (
       <div>
@@ -207,6 +269,70 @@ export default function FimbaUsuariosPage() {
           {error}
         </div>
       )}
+
+      <section className="fimba-card" style={{ marginBottom: "1.25rem" }}>
+        <h2
+          style={{
+            margin: "0 0 0.35rem",
+            fontSize: "1.05rem",
+            color: "var(--fimba-deep)",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <IconLink size={16} /> Enlace consulta general edición
+        </h2>
+        <p className="fimba-muted" style={{ margin: "0 0 0.85rem", fontSize: "0.85rem" }}>
+          Solo lectura: Artistas, Agenda, Transportes y Hotelería. Sin Usuarios
+          ni Contrataciones, sin crear/editar/eliminar. Cualquiera con el
+          enlace (sin login).
+        </p>
+        <div
+          className="fimba-label"
+          style={{ display: "flex", alignItems: "center", gap: 4 }}
+        >
+          <IconEye size={14} /> URL de consulta
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            className="fimba-input"
+            readOnly
+            value={consultaUrl || "(generando…)"}
+            style={{ fontSize: "0.8rem", flex: "1 1 240px" }}
+          />
+          <button
+            type="button"
+            className="fimba-btn fimba-btn-ghost"
+            onClick={copyConsulta}
+            title="Copiar"
+            disabled={!consultaUrl}
+          >
+            <IconCopy size={14} />
+          </button>
+          <button
+            type="button"
+            className="fimba-btn fimba-btn-ghost"
+            onClick={regenConsulta}
+            title="Regenerar"
+            disabled={regenBusy || !edicion?.token_consulta}
+          >
+            {regenBusy ? (
+              <IconLoader size={14} className="animate-spin" />
+            ) : (
+              <IconRefresh size={14} />
+            )}
+          </button>
+        </div>
+        {tokenMsg && (
+          <p
+            className="fimba-muted"
+            style={{ margin: "0.5rem 0 0", fontSize: "0.82rem", fontWeight: 600 }}
+          >
+            {tokenMsg}
+          </p>
+        )}
+      </section>
 
       {usuarios.length === 0 ? (
         <div className="fimba-card fimba-muted">

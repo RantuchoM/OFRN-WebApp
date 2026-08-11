@@ -5,8 +5,11 @@ import { useAuth } from "../../context/AuthContext";
 import { useFimbaUserSession } from "../../hooks/useFimbaUserSession";
 import {
   clearFimbaUserSession,
+  clearFimbaConsultaEdicionSession,
   FIMBA_ROLE_LABELS,
 } from "../../utils/fimbaUserSession";
+import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
+import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import { IconLogOut } from "../../components/ui/Icons";
 import FimbaSectionToggle, { parseFimbaSectionIds } from "./FimbaSectionToggle";
 
@@ -499,6 +502,15 @@ const FIMBA_CSS = `
     min-width: 6.5rem;
     max-width: 10rem;
   }
+  .fimba-col-obs {
+    min-width: 8rem;
+    max-width: 14rem;
+  }
+  .fimba-cell-obs {
+    resize: vertical;
+    min-height: 2.4rem;
+    line-height: 1.25;
+  }
   .fimba-col-actions {
     width: 1%;
     text-align: right;
@@ -685,23 +697,55 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
   const { edicionId: paramEdicionId } = useParams();
   const { user, isManagement } = useAuth();
   const fimbaUser = useFimbaUserSession();
+  const consultaToken = useFimbaConsultaEdicionSession();
+  // Default context when Layout is used outside FimbaAccessProvider (token/login)
+  const access = useFimbaAccess();
+
   const isToken = mode === "token";
   const { edicionId: pathEdicionId } = parseFimbaSectionIds(location.pathname);
   const showSectionToggle = !isToken && Boolean(paramEdicionId || pathEdicionId);
   const isOfrnStaff = Boolean(user && isManagement);
-  const showFimbaSession = !isToken && Boolean(fimbaUser) && !isOfrnStaff;
+  const showFimbaSession =
+    !isToken && Boolean(fimbaUser) && !isOfrnStaff;
+  const showTokenConsultaSession =
+    !isToken &&
+    !isOfrnStaff &&
+    !fimbaUser &&
+    Boolean(consultaToken) &&
+    access.source === "token_consulta";
 
   const handleFimbaLogout = () => {
     clearFimbaUserSession();
+    clearFimbaConsultaEdicionSession();
     navigate("/fimba/login", { replace: true });
   };
 
-  const sessionLabel = fimbaUser ? fimbaUser.nombre || fimbaUser.mail : null;
+  const sessionLabel = fimbaUser
+    ? fimbaUser.nombre || fimbaUser.mail
+    : showTokenConsultaSession
+      ? "Consulta (enlace)"
+      : null;
+
+  const brandEdicionId =
+    fimbaUser?.id_edicion ||
+    consultaToken?.id_edicion ||
+    pathEdicionId ||
+    paramEdicionId;
   const brandHref = isToken
     ? location.pathname
-    : showFimbaSession && fimbaUser?.id_edicion
-      ? `/fimba/edicion/${fimbaUser.id_edicion}`
+    : (showFimbaSession || showTokenConsultaSession) && brandEdicionId
+      ? `/fimba/edicion/${brandEdicionId}`
       : "/fimba";
+
+  const brandSub =
+    subtitle ||
+    (isToken
+      ? "Festival"
+      : access.readOnly && !isOfrnStaff
+        ? "Consulta"
+        : showFimbaSession
+          ? FIMBA_ROLE_LABELS[fimbaUser?.rol_fimba] || "Edición"
+          : "Staff");
 
   return (
     <div className="fimba-root">
@@ -716,18 +760,11 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
             <span className="fimba-logo">
               FI<em>M</em>BA
             </span>
-            <span className="fimba-brand-sub">
-              {subtitle ||
-                (isToken
-                  ? "Festival"
-                  : showFimbaSession
-                    ? FIMBA_ROLE_LABELS[fimbaUser?.rol_fimba] || "Edición"
-                    : "Staff")}
-            </span>
+            <span className="fimba-brand-sub">{brandSub}</span>
           </Link>
           <div className="fimba-header-actions">
             {showSectionToggle && <FimbaSectionToggle />}
-            {showFimbaSession && (
+            {(showFimbaSession || showTokenConsultaSession) && (
               <div
                 style={{
                   display: "inline-flex",
@@ -740,7 +777,7 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
                 <span
                   className="fimba-muted"
                   style={{ fontSize: "0.78rem", fontWeight: 600, maxWidth: 180 }}
-                  title={fimbaUser?.mail || ""}
+                  title={fimbaUser?.mail || "Enlace de consulta"}
                 >
                   {sessionLabel}
                 </span>

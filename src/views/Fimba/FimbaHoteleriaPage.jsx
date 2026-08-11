@@ -16,7 +16,12 @@ import {
   listHotelesCatalog,
   nightsBetween,
   updateFimbaPropuesta,
+  syncFimbaHabitacionesFromCounts,
+  FIMBA_TIPOS_HABITACION,
+  formatFimbaHabitacionesCounts,
+  labelFimbaHabitacionTipo,
 } from "../../services/fimbaService";
+import { useFimbaAccess } from "../../context/FimbaAccessContext";
 
 function formatFecha(f) {
   if (!f) return "—";
@@ -35,6 +40,7 @@ function asBool(v) {
  */
 export default function FimbaHoteleriaPage() {
   const { edicionId, artistaId } = useParams();
+  const { readOnly } = useFimbaAccess();
   const [searchParams] = useSearchParams();
   const filterFromQuery = searchParams.get("artista") || artistaId || null;
 
@@ -108,6 +114,9 @@ export default function FimbaHoteleriaPage() {
       "PAX planif.",
       "Nominados",
       "Sin nombre",
+      "Habitaciones",
+      "Rooming ocupadas",
+      "Observaciones logísticas",
       "Personas",
     ];
     const lines = [header.join("\t")];
@@ -127,6 +136,13 @@ export default function FimbaHoteleriaPage() {
           r.pax_planificada,
           r.nominados,
           r.sin_nombre ?? r.por_confirmar ?? 0,
+          r.rooming_label || "",
+          r.rooming?.slots
+            ? `${r.rooming.ocupadas}/${r.rooming.slots}`
+            : "",
+          String(r.propuesta?.observaciones_logisticas || "")
+            .replace(/\t/g, " ")
+            .replace(/\r?\n/g, " / "),
           personas,
         ].join("\t"),
       );
@@ -188,7 +204,7 @@ export default function FimbaHoteleriaPage() {
             Hotelería
           </h1>
           <p className="fimba-muted" style={{ margin: "0.35rem 0 0" }}>
-            Cupos hotel = cantidad planificada (no incluye extra materiales)
+            Cupos hotel = cantidad planificada (no incluye extra equip.)
           </p>
         </div>
         <button type="button" className="fimba-btn fimba-btn-ghost" onClick={copyTableTsv}>
@@ -295,11 +311,33 @@ export default function FimbaHoteleriaPage() {
                       {" · "}
                       {r.noches != null ? `${r.noches} noche${r.noches === 1 ? "" : "s"}` : "noches —"}
                     </div>
+                    {r.propuesta?.observaciones_logisticas ? (
+                      <div
+                        className="fimba-muted"
+                        style={{
+                          marginTop: 6,
+                          fontSize: "0.82rem",
+                          whiteSpace: "pre-wrap",
+                          maxWidth: 520,
+                        }}
+                      >
+                        <strong style={{ color: "var(--fimba-deep)" }}>Obs. log.:</strong>{" "}
+                        {r.propuesta.observaciones_logisticas}
+                      </div>
+                    ) : null}
                   </div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <span className="fimba-badge">
                       <IconBed size={12} /> PAX {r.pax_planificada}
                     </span>
+                    <span className="fimba-badge" title="Inventario de habitaciones">
+                      <IconBed size={12} /> {r.rooming_label || "Sin habs."}
+                    </span>
+                    {r.rooming?.slots > 0 && (
+                      <span className="fimba-badge">
+                        Rooming {r.rooming.ocupadas}/{r.rooming.slots}
+                      </span>
+                    )}
                     <span className="fimba-badge">
                       <IconUsers size={12} /> {r.nominados} nominados
                     </span>
@@ -311,13 +349,15 @@ export default function FimbaHoteleriaPage() {
                         Sin nombre ({sinNombre})
                       </span>
                     )}
-                    <button
-                      type="button"
-                      className="fimba-btn fimba-btn-ghost"
-                      onClick={() => setModal({ row: r })}
-                    >
-                      <IconEdit size={14} /> Editar
-                    </button>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        className="fimba-btn fimba-btn-ghost"
+                        onClick={() => setModal({ row: r })}
+                      >
+                        <IconEdit size={14} /> Editar
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="fimba-btn fimba-btn-ghost"
@@ -344,6 +384,7 @@ export default function FimbaHoteleriaPage() {
                           <tr>
                             <th style={{ paddingLeft: 0 }}>Participante</th>
                             <th>Documento</th>
+                            <th>Habitación</th>
                             <th>Check-in</th>
                             <th>Check-out</th>
                             <th>Noches</th>
@@ -351,35 +392,39 @@ export default function FimbaHoteleriaPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {(r.personas || []).map((p) => (
-                            <tr key={p.id}>
-                              <td style={{ paddingLeft: 0, fontWeight: 600 }}>
-                                {p.apellido}, {p.nombre}
-                              </td>
-                              <td className="fimba-muted">{p.documento || "—"}</td>
-                              <td>
-                                <span className="fimba-date-flag-read">
-                                  {formatFecha(r.checkin_at)}
-                                  {asBool(r.checkin_early) && (
-                                    <span className="fimba-badge fimba-badge-early">Early</span>
-                                  )}
-                                </span>
-                              </td>
-                              <td>
-                                <span className="fimba-date-flag-read">
-                                  {formatFecha(r.checkout_at)}
-                                  {asBool(r.checkout_late) && (
-                                    <span className="fimba-badge fimba-badge-late">Late</span>
-                                  )}
-                                </span>
-                              </td>
-                              <td>{r.noches || "—"}</td>
-                              <td className="fimba-muted">
-                                {p.tipo_alimentacion || "regular"}
-                                {p.nota_alimentacion ? ` · ${p.nota_alimentacion}` : ""}
-                              </td>
-                            </tr>
-                          ))}
+                          {(r.personas || []).map((p) => {
+                            const roomInfo = roomForParticipante(r.habitaciones, p.id);
+                            return (
+                              <tr key={p.id}>
+                                <td style={{ paddingLeft: 0, fontWeight: 600 }}>
+                                  {p.apellido}, {p.nombre}
+                                </td>
+                                <td className="fimba-muted">{p.documento || "—"}</td>
+                                <td className="fimba-muted">{roomInfo || "—"}</td>
+                                <td>
+                                  <span className="fimba-date-flag-read">
+                                    {formatFecha(r.checkin_at)}
+                                    {asBool(r.checkin_early) && (
+                                      <span className="fimba-badge fimba-badge-early">Early</span>
+                                    )}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span className="fimba-date-flag-read">
+                                    {formatFecha(r.checkout_at)}
+                                    {asBool(r.checkout_late) && (
+                                      <span className="fimba-badge fimba-badge-late">Late</span>
+                                    )}
+                                  </span>
+                                </td>
+                                <td>{r.noches || "—"}</td>
+                                <td className="fimba-muted">
+                                  {p.tipo_alimentacion || "regular"}
+                                  {p.nota_alimentacion ? ` · ${p.nota_alimentacion}` : ""}
+                                </td>
+                              </tr>
+                            );
+                          })}
                           {sinNombre > 0 && (
                             <tr style={{ background: "#f8fafc" }}>
                               <td
@@ -393,6 +438,7 @@ export default function FimbaHoteleriaPage() {
                               >
                                 Sin nombre ({sinNombre})
                               </td>
+                              <td className="fimba-muted">—</td>
                               <td className="fimba-muted">—</td>
                               <td>
                                 <span className="fimba-date-flag-read">
@@ -417,6 +463,37 @@ export default function FimbaHoteleriaPage() {
                         </tbody>
                       </table>
                     )}
+                    {(r.habitaciones || []).length > 0 && (
+                      <div style={{ marginTop: 12 }}>
+                        <div className="fimba-label" style={{ marginBottom: 6 }}>
+                          Rooming
+                        </div>
+                        <ul
+                          style={{
+                            margin: 0,
+                            paddingLeft: "1.1rem",
+                            fontSize: "0.85rem",
+                            color: "var(--fimba-muted)",
+                          }}
+                        >
+                          {(r.habitaciones || []).map((h, i) => (
+                            <li key={h.id}>
+                              Hab. {i + 1} · {labelFimbaHabitacionTipo(h)}:{" "}
+                              {(h.ocupantes || []).length
+                                ? (h.ocupantes || [])
+                                    .map((o) => {
+                                      const p = o.participante;
+                                      return p
+                                        ? `${p.apellido}, ${p.nombre}`
+                                        : `#${o.id_participante}`;
+                                    })
+                                    .join(" · ")
+                                : "vacía"}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 )}
               </section>
@@ -425,7 +502,7 @@ export default function FimbaHoteleriaPage() {
         </div>
       )}
 
-      {modal &&
+      {!readOnly && modal &&
         createPortal(
           <HotelEditModal
             row={modal.row}
@@ -442,6 +519,18 @@ export default function FimbaHoteleriaPage() {
   );
 }
 
+function roomForParticipante(habitaciones, participanteId) {
+  const pid = Number(participanteId);
+  for (let i = 0; i < (habitaciones || []).length; i += 1) {
+    const h = habitaciones[i];
+    const hit = (h.ocupantes || []).some((o) => Number(o.id_participante) === pid);
+    if (hit) {
+      return `Hab. ${i + 1} · ${labelFimbaHabitacionTipo(h)}`;
+    }
+  }
+  return null;
+}
+
 function HotelEditModal({ row, hoteles, onClose, onSaved }) {
   const prop = row.propuesta;
   const [checkin, setCheckin] = useState(
@@ -453,8 +542,18 @@ function HotelEditModal({ row, hoteles, onClose, onSaved }) {
   const [checkinEarly, setCheckinEarly] = useState(asBool(prop.checkin_early));
   const [checkoutLate, setCheckoutLate] = useState(asBool(prop.checkout_late));
   const [idHotel, setIdHotel] = useState(prop.id_hotel != null ? String(prop.id_hotel) : "");
+  const [observacionesLogisticas, setObservacionesLogisticas] = useState(
+    prop.observaciones_logisticas || "",
+  );
+  const [habitCounts, setHabitCounts] = useState(() => {
+    const base = { SGL: 0, DBL: 0, TPL: 0, QAD: 0 };
+    const by = row.rooming?.byTipo || {};
+    for (const k of Object.keys(base)) base[k] = Number(by[k]) || 0;
+    return base;
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [invWarn, setInvWarn] = useState(null);
 
   const noches = nightsBetween(checkin || null, checkout || null);
 
@@ -462,18 +561,30 @@ function HotelEditModal({ row, hoteles, onClose, onSaved }) {
     e.preventDefault();
     setSaving(true);
     setError(null);
+    setInvWarn(null);
     const { error: err } = await updateFimbaPropuesta(prop.id, {
       checkin_at: checkin || null,
       checkout_at: checkout || null,
       checkin_early: checkinEarly,
       checkout_late: checkoutLate,
       id_hotel: idHotel || null,
+      observaciones_logisticas: observacionesLogisticas,
     });
-    setSaving(false);
     if (err) {
+      setSaving(false);
       setError(err.message || "No se pudo guardar");
       return;
     }
+    const { warning, error: eInv } = await syncFimbaHabitacionesFromCounts(
+      prop.id,
+      habitCounts,
+    );
+    setSaving(false);
+    if (eInv) {
+      setError(eInv.message || "Hotel guardado; falló inventario de habitaciones");
+      return;
+    }
+    if (warning) setInvWarn(warning);
     onSaved?.();
   };
 
@@ -484,10 +595,11 @@ function HotelEditModal({ row, hoteles, onClose, onSaved }) {
         role="dialog"
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 520 }}
       >
         <h2>Hotelería · {prop.nombre}</h2>
         <p className="fimba-muted" style={{ margin: "-0.5rem 0 1rem", fontSize: "0.85rem" }}>
-          PAX hotel: {prop.cantidad_planificada} (cantidad planificada)
+          PAX hotel: {prop.cantidad_planificada} (cantidad planificada; no incluye extra equip.)
         </p>
         <form onSubmit={submit}>
           <div className="fimba-grid-2">
@@ -545,7 +657,53 @@ function HotelEditModal({ row, hoteles, onClose, onSaved }) {
               ))}
             </select>
           </div>
+          <div className="fimba-field">
+            <label className="fimba-label">Cupos de habitaciones</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.65rem" }}>
+              {FIMBA_TIPOS_HABITACION.map((t) => (
+                <div key={t.value} style={{ minWidth: 70 }}>
+                  <label className="fimba-label" style={{ fontSize: "0.72rem" }}>
+                    {t.label}
+                  </label>
+                  <input
+                    className="fimba-input"
+                    type="number"
+                    min={0}
+                    max={200}
+                    value={habitCounts[t.value] ?? 0}
+                    onChange={(e) => {
+                      const v = Math.max(
+                        0,
+                        Math.min(200, Math.floor(Number(e.target.value) || 0)),
+                      );
+                      setHabitCounts((prev) => ({ ...prev, [t.value]: v }));
+                    }}
+                    style={{ width: 70 }}
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="fimba-muted" style={{ margin: "0.35rem 0 0", fontSize: "0.75rem" }}>
+              Inventario: {formatFimbaHabitacionesCounts(habitCounts)}. El acomodo de personas
+              se hace abajo al expandir el artista o en ficha / enlace de edición.
+            </p>
+          </div>
+          <div className="fimba-field">
+            <label className="fimba-label">Observaciones logísticas</label>
+            <textarea
+              className="fimba-textarea"
+              rows={3}
+              value={observacionesLogisticas}
+              onChange={(e) => setObservacionesLogisticas(e.target.value)}
+              placeholder="Early/late, transfer, equipaje, notas de hotel…"
+            />
+          </div>
           {error && <div className="fimba-error" style={{ marginBottom: 12 }}>{error}</div>}
+          {invWarn && (
+            <div className="fimba-muted" style={{ marginBottom: 12, fontSize: "0.82rem" }}>
+              {invWarn}
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button type="button" className="fimba-btn fimba-btn-ghost" onClick={onClose}>
               Cancelar

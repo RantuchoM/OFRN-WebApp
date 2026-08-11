@@ -14,6 +14,8 @@ import {
   IconCalendar,
 } from "../../components/ui/Icons";
 import {
+  FIMBA_GENEROS,
+  FIMBA_GENERO_DEFAULT,
   FIMBA_TIPOS_ALIMENTACION,
   computeFimbaCapacity,
   countActiveParticipantes,
@@ -25,14 +27,18 @@ import {
   listFimbaParticipantes,
   regenerateFimbaTokens,
   updateFimbaParticipante,
+  updateFimbaPropuesta,
 } from "../../services/fimbaService";
+import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import FimbaConsultaAgenda from "./FimbaConsultaAgenda";
+import FimbaRoomingPanel from "./FimbaRoomingPanel";
 
 /** Columnas editables en planilla (orden Tab / Enter). */
 const EDITABLE_COLS = [
   "apellido",
   "nombre",
   "documento",
+  "genero",
   "tipo_alimentacion",
   "activo",
 ];
@@ -44,6 +50,7 @@ function draftFromParticipante(p) {
     apellido: p?.apellido || "",
     nombre: p?.nombre || "",
     documento: p?.documento || "",
+    genero: p?.genero || FIMBA_GENERO_DEFAULT,
     tipo_alimentacion: p?.tipo_alimentacion || "regular",
     activo: p?.activo !== false,
   };
@@ -89,6 +96,11 @@ function validateParticipanteDraft(draft, { isCreate = false } = {}) {
   if (!apellido) return { ok: false, error: "El apellido es obligatorio" };
   if (!nombre) return { ok: false, error: "El nombre es obligatorio" };
 
+  const genero = draft.genero || FIMBA_GENERO_DEFAULT;
+  if (!FIMBA_GENEROS.some((g) => g.value === genero)) {
+    return { ok: false, error: "Género inválido" };
+  }
+
   const tipo = draft.tipo_alimentacion || "regular";
   if (!FIMBA_TIPOS_ALIMENTACION.some((t) => t.value === tipo)) {
     return { ok: false, error: "Tipo de alimentación inválido" };
@@ -100,6 +112,7 @@ function validateParticipanteDraft(draft, { isCreate = false } = {}) {
       nombre,
       apellido,
       documento: doc || null,
+      genero,
       tipo_alimentacion: tipo,
       activo: draft.activo !== false,
     },
@@ -110,6 +123,10 @@ function labelAlimentacion(value) {
   return (
     FIMBA_TIPOS_ALIMENTACION.find((t) => t.value === value)?.label || value || "—"
   );
+}
+
+function labelGenero(value) {
+  return FIMBA_GENEROS.find((g) => g.value === value)?.label || value || "—";
 }
 
 function statusMeta(status) {
@@ -129,12 +146,17 @@ function statusMeta(status) {
 
 export default function FimbaArtistaPage({ readOnly = false, propuestaOverride = null, modeLabel }) {
   const { edicionId, artistaId } = useParams();
+  const access = useFimbaAccess();
+  const effectiveReadOnly = Boolean(readOnly || access.readOnly);
   const [edicion, setEdicion] = useState(null);
   const [propuesta, setPropuesta] = useState(propuestaOverride);
   const [participantes, setParticipantes] = useState([]);
   const [loading, setLoading] = useState(!propuestaOverride);
   const [error, setError] = useState(null);
   const [tokenMsg, setTokenMsg] = useState(null);
+  const [obsDraft, setObsDraft] = useState(propuestaOverride?.observaciones_logisticas || "");
+  const [obsStatus, setObsStatus] = useState("idle"); // idle|saving|saved|error
+  const [obsError, setObsError] = useState(null);
 
   const propId = propuestaOverride?.id || artistaId;
 
@@ -153,6 +175,9 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
     const { participantes: parts, error: e2 } = results[1];
     if (e1 || e2) setError((e1 || e2).message || "Error al cargar");
     setPropuesta(prop);
+    setObsDraft(prop?.observaciones_logisticas || "");
+    setObsStatus("idle");
+    setObsError(null);
     setParticipantes(parts || []);
     if (results[2]) setEdicion(results[2].edicion);
     setLoading(false);
@@ -161,6 +186,9 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
   useEffect(() => {
     if (propuestaOverride) {
       setPropuesta(propuestaOverride);
+      setObsDraft(propuestaOverride.observaciones_logisticas || "");
+      setObsStatus("idle");
+      setObsError(null);
       listFimbaParticipantes(propuestaOverride.id).then(({ participantes: parts, error: err }) => {
         if (err) setError(err.message);
         setParticipantes(parts || []);
@@ -204,6 +232,30 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
     setTimeout(() => setTokenMsg(null), 2000);
   };
 
+  const saveObservacionesLogisticas = async () => {
+    if (effectiveReadOnly || !propuesta?.id) return;
+    const next = String(obsDraft || "").trim() || null;
+    const prev = String(propuesta.observaciones_logisticas || "").trim() || null;
+    if (next === prev) {
+      setObsStatus("idle");
+      return;
+    }
+    setObsStatus("saving");
+    setObsError(null);
+    const { propuesta: updated, error: err } = await updateFimbaPropuesta(propuesta.id, {
+      observaciones_logisticas: next,
+    });
+    if (err) {
+      setObsStatus("error");
+      setObsError(err.message || "No se pudo guardar");
+      return;
+    }
+    setPropuesta((p) => ({ ...(p || {}), ...(updated || {}), observaciones_logisticas: next }));
+    setObsDraft(next || "");
+    setObsStatus("saved");
+    setTimeout(() => setObsStatus((s) => (s === "saved" ? "idle" : s)), 2000);
+  };
+
   if (loading) {
     return (
       <div className="fimba-card fimba-muted" style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -226,7 +278,7 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
 
   return (
     <div>
-      {!readOnly && edicionId && (
+      {!effectiveReadOnly && edicionId && (
         <Link
           to={backHref}
           className="fimba-btn fimba-btn-ghost"
@@ -247,13 +299,13 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
           </h1>
           {modeLabel && <span className="fimba-badge">{modeLabel}</span>}
         </div>
-        {edicionNombre && readOnly && (
+        {edicionNombre && effectiveReadOnly && (
           <p className="fimba-muted" style={{ margin: "0.35rem 0 0", fontSize: "0.9rem" }}>
             {edicionNombre}
           </p>
         )}
         <p className="fimba-muted" style={{ margin: "0.4rem 0 0" }}>
-          {readOnly ? (
+          {effectiveReadOnly ? (
             <>
               Planificada: {cap.tope_personas} pax
               {" · "}
@@ -274,7 +326,7 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
 
       {error && <div className="fimba-error" style={{ marginBottom: "1rem" }}>{error}</div>}
 
-      {readOnly && (
+      {effectiveReadOnly && (
         <section className="fimba-card" style={{ marginBottom: "1.25rem" }}>
           <h2
             style={{
@@ -328,16 +380,84 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
               </div>
             )}
           </div>
+          {propuesta.observaciones_logisticas ? (
+            <div style={{ marginTop: "0.85rem" }}>
+              <div className="fimba-label">Observaciones logísticas</div>
+              <div style={{ fontWeight: 500, whiteSpace: "pre-wrap", fontSize: "0.9rem" }}>
+                {propuesta.observaciones_logisticas}
+              </div>
+            </div>
+          ) : null}
         </section>
       )}
 
-      {readOnly && <FimbaConsultaAgenda propuesta={propuesta} />}
+      {!effectiveReadOnly && (
+        <section className="fimba-card" style={{ marginBottom: "1.25rem" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 8,
+            }}
+          >
+            <h2 style={{ margin: 0, fontSize: "1rem", color: "var(--fimba-deep)" }}>
+              Observaciones logísticas
+            </h2>
+            <span className="fimba-muted" style={{ fontSize: "0.78rem" }}>
+              {obsStatus === "saving"
+                ? "Guardando…"
+                : obsStatus === "saved"
+                  ? "Guardado"
+                  : obsStatus === "error"
+                    ? "Error"
+                    : "Se guarda al salir del campo"}
+            </span>
+          </div>
+          <textarea
+            className="fimba-textarea"
+            rows={3}
+            value={obsDraft}
+            onChange={(e) => {
+              setObsDraft(e.target.value);
+              setObsStatus("dirty");
+            }}
+            onBlur={() => {
+              saveObservacionesLogisticas();
+            }}
+            placeholder="Early/late, transfer, equipaje, notas de hotel…"
+            disabled={obsStatus === "saving"}
+          />
+          {obsError && (
+            <div className="fimba-error" style={{ marginTop: 8 }}>
+              {obsError}
+            </div>
+          )}
+        </section>
+      )}
 
-      {!readOnly && (
+      {effectiveReadOnly && <FimbaConsultaAgenda propuesta={propuesta} />}
+
+      {!effectiveReadOnly && (
         <FimbaConsultaAgenda propuesta={propuesta} editable />
       )}
 
-      {!readOnly && (
+      <FimbaRoomingPanel
+        propuestaId={propId}
+        participantes={participantes}
+        readOnly={effectiveReadOnly}
+        mode={
+          effectiveReadOnly
+            ? "readonly"
+            : edicionId
+              ? "admin"
+              : "assign"
+        }
+        onError={(msg) => setError(msg || "Error de rooming")}
+      />
+
+      {!effectiveReadOnly && edicionId && (
         <section className="fimba-card" style={{ marginBottom: "1.25rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <h2 style={{ margin: 0, fontSize: "1rem", color: "var(--fimba-deep)", display: "flex", alignItems: "center", gap: 6 }}>
@@ -384,7 +504,7 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
           <h2 style={{ margin: 0, fontSize: "1.05rem", color: "var(--fimba-deep)" }}>
             Participantes
           </h2>
-          {!readOnly && (
+          {!effectiveReadOnly && (
             <span className="fimba-muted" style={{ fontSize: "0.78rem" }}>
               Semáforo:{" "}
               <span className="fimba-sync-legend">
@@ -403,7 +523,7 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
           )}
         </div>
 
-        {readOnly ? (
+        {effectiveReadOnly ? (
           <ParticipantesReadOnlyTable participantes={participantes} />
         ) : (
           <ParticipantesPlanilla
@@ -449,6 +569,7 @@ function ParticipantesReadOnlyTable({ participantes }) {
             <th style={{ paddingLeft: "1rem" }}>Apellido</th>
             <th>Nombre</th>
             <th>Documento</th>
+            <th>Género</th>
             <th>Alimentación</th>
             <th>Activo</th>
           </tr>
@@ -459,6 +580,7 @@ function ParticipantesReadOnlyTable({ participantes }) {
               <td style={{ paddingLeft: "1rem", fontWeight: 600 }}>{p.apellido}</td>
               <td>{p.nombre}</td>
               <td className="fimba-muted">{p.documento || "—"}</td>
+              <td>{labelGenero(p.genero)}</td>
               <td>{labelAlimentacion(p.tipo_alimentacion)}</td>
               <td>{p.activo === false ? "No" : "Sí"}</td>
             </tr>
@@ -756,7 +878,7 @@ function ParticipantesPlanilla({ propuestaId, participantes, onListChange, onErr
     }
   };
 
-  const colCount = 7; // sync + 5 data + actions
+  const colCount = 8; // sync + 6 data + actions
 
   const renderRow = (rowKey, rowIdx, draft, { isNew = false } = {}) => {
     const status = rowStatus[rowKey] || "idle";
@@ -826,9 +948,25 @@ function ParticipantesPlanilla({ propuestaId, participantes, onListChange, onErr
             <select
               data-fimba-part-cell={`${rowIdx}-3`}
               className="fimba-cell-input"
+              value={draft.genero || FIMBA_GENERO_DEFAULT}
+              onChange={(e) => changeAndCommit(rowKey, "genero", e.target.value)}
+              onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 3, rowKey)}
+              disabled={status === "saving"}
+            >
+              {FIMBA_GENEROS.map((g) => (
+                <option key={g.value} value={g.value}>
+                  {g.label}
+                </option>
+              ))}
+            </select>
+          </td>
+          <td>
+            <select
+              data-fimba-part-cell={`${rowIdx}-4`}
+              className="fimba-cell-input"
               value={draft.tipo_alimentacion || "regular"}
               onChange={(e) => changeAndCommit(rowKey, "tipo_alimentacion", e.target.value)}
-              onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 3, rowKey)}
+              onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 4, rowKey)}
               disabled={status === "saving"}
             >
               {FIMBA_TIPOS_ALIMENTACION.map((t) => (
@@ -840,7 +978,7 @@ function ParticipantesPlanilla({ propuestaId, participantes, onListChange, onErr
           </td>
           <td style={{ textAlign: "center" }}>
             <input
-              data-fimba-part-cell={`${rowIdx}-4`}
+              data-fimba-part-cell={`${rowIdx}-5`}
               type="checkbox"
               checked={asBool(draft.activo)}
               onChange={(e) => changeAndCommit(rowKey, "activo", e.target.checked)}
@@ -888,6 +1026,7 @@ function ParticipantesPlanilla({ propuestaId, participantes, onListChange, onErr
             <th style={{ paddingLeft: "0.5rem" }}>Apellido</th>
             <th>Nombre</th>
             <th>Documento</th>
+            <th>Género</th>
             <th>Alimentación</th>
             <th style={{ textAlign: "center" }}>Activo</th>
             <th className="fimba-col-actions" />

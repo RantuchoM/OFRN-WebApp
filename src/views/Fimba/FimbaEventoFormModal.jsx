@@ -4,14 +4,17 @@ import {
   categoriesFromTiposEvento,
   capacidadGiraTransporte,
   computeFimbaCapacity,
-  computeFimbaVehicleWindowMetrics,
+  defaultArtistaAssignPlazas,
   FIMBA_DEFAULT_TIPO_EVENTO,
   FIMBA_TIPO_EVENTO_TRASLADO,
   labelGiraTransporte,
   detalleGiraTransporte,
   listFimbaGiraGrupos,
   listTiposEventoForFimba,
+  listVehiclesAvailability,
   saveFimbaEvento,
+  validateEventoTransportPlazasVsArtistas,
+  validateEventoTransportPlazasVsLibres,
 } from "../../services/fimbaService";
 import { eventGrupoIdsFromEvent } from "../../services/giraGruposService";
 
@@ -320,21 +323,82 @@ export default function FimbaEventoFormModal({
     }
   }, [selectedProps, propuestas, isEdit, usaTransporte]);
 
+  /** Tope transporte de artistas taggeados (Σ para_transporte). */
+  const artistasCapTope = useMemo(() => {
+    const props = (propuestas || []).filter((p) =>
+      selectedProps.some((id) => String(id) === String(p.id)),
+    );
+    if (props.length === 0) return null;
+    return props.reduce(
+      (s, p) => s + computeFimbaCapacity(p).para_transporte,
+      0,
+    );
+  }, [propuestas, selectedProps]);
+
+  const totalPlazasAsignadas = useMemo(
+    () =>
+      selectedVehIds.reduce(
+        (s, id) => s + Math.max(0, Number(plazasByVeh[id]) || 0),
+        0,
+      ),
+    [selectedVehIds, plazasByVeh],
+  );
+
+  const artistasCapRemaining =
+    artistasCapTope != null
+      ? Math.max(0, artistasCapTope - totalPlazasAsignadas)
+      : null;
+
   useEffect(() => {
     setPlazasByVeh((prev) => {
       const next = { ...prev };
+      let changed = false;
+      // Disponibles del tope artistas, contando solo lo ya defaultado en este pass
+      let poolRemaining =
+        artistasCapTope != null
+          ? Math.max(
+              0,
+              artistasCapTope -
+                selectedVehIds.reduce((s, id) => {
+                  if (prev[id] != null && prev[id] !== "") {
+                    return s + Math.max(0, Number(prev[id]) || 0);
+                  }
+                  return s;
+                }, 0),
+            )
+          : null;
       for (const id of selectedVehIds) {
-        if (next[id] == null || next[id] === "") {
-          next[id] = Number(pax) || 0;
+        if (next[id] != null && next[id] !== "") continue;
+        const m = metrics[id];
+        const vehLibres =
+          m?.libres != null && Number.isFinite(Number(m.libres))
+            ? Number(m.libres)
+            : capacidadGiraTransporte(
+                flota.find((f) => String(f.id) === String(id)),
+              );
+        let remainingForSlot =
+          poolRemaining != null
+            ? poolRemaining
+            : Math.max(0, Number(pax) || 0);
+        const def = defaultArtistaAssignPlazas({
+          remaining: remainingForSlot > 0 ? remainingForSlot : Number(pax) || 0,
+          vehicleLibres: vehLibres,
+        });
+        next[id] = def;
+        changed = true;
+        if (poolRemaining != null) {
+          poolRemaining = Math.max(0, poolRemaining - def);
         }
       }
-      return next;
+      return changed ? next : prev;
     });
-  }, [selectedVehIds, pax]);
+  }, [selectedVehIds, pax, artistasCapTope, metrics, flota]);
 
+  // Libres de toda la flota en la ventana (no solo los ya seleccionados)
   useEffect(() => {
-    if (!usaTransporte || sinServicio || !fecha || selectedVehIds.length === 0) {
+    if (!usaTransporte || sinServicio || !fecha || flota.length === 0) {
       setMetrics({});
+      setMetricsLoading(false);
       return;
     }
     let cancelled = false;
@@ -345,21 +409,14 @@ export default function FimbaEventoFormModal({
         hora_inicio: horaCom || null,
         hora_fin: horaFin || null,
       };
-      const entries = await Promise.all(
-        selectedVehIds.map(async (id) => {
-          const gt = flota.find((f) => String(f.id) === String(id));
-          if (!gt) return [id, null];
-          const m = await computeFimbaVehicleWindowMetrics(
-            edicion.id_gira,
-            gt,
-            window,
-            isEdit ? evento?.id : null,
-          );
-          return [id, m];
-        }),
+      const { byId } = await listVehiclesAvailability(
+        edicion.id_gira,
+        flota,
+        window,
+        isEdit ? evento?.id : null,
       );
       if (cancelled) return;
-      setMetrics(Object.fromEntries(entries));
+      setMetrics(byId || {});
       setMetricsLoading(false);
     })();
     return () => {
@@ -371,7 +428,6 @@ export default function FimbaEventoFormModal({
     fecha,
     horaCom,
     horaFin,
-    selectedVehIds,
     flota,
     edicion.id_gira,
     isEdit,
@@ -436,6 +492,37 @@ export default function FimbaEventoFormModal({
       const lockedNum = Number(lockedPropId);
       if (Number.isFinite(lockedNum) && !propIds.includes(lockedNum)) {
         propIds = [...propIds, lockedNum];
+      }
+    }
+    // Hard-block: Σ plazas vehículos ≤ Σ para_transporte de artistas taggeados
+    if (vehiculos.length > 0 && propIds.length > 0) {
+      const propsTagged = (propuestas || []).filter((p) =>
+        propIds.some((id) => String(id) === String(p.id)),
+      );
+      const totalPl = vehiculos.reduce(
+        (s, v) => s + Math.max(0, Number(v.plazas) || 0),
+        0,
+      );
+      const capCheck = validateEventoTransportPlazasVsArtistas(
+        propsTagged,
+        totalPl,
+      );
+      if (!capCheck.ok) {
+        setError(capCheck.error.message);
+        setSaving(false);
+        return;
+      }
+    }
+    // Hard-block: plazas por unidad ≤ libres de ventana
+    if (vehiculos.length > 0) {
+      const libresCheck = validateEventoTransportPlazasVsLibres(
+        vehiculos,
+        metrics,
+      );
+      if (!libresCheck.ok) {
+        setError(libresCheck.error.message);
+        setSaving(false);
+        return;
       }
     }
     const payload = {
@@ -634,7 +721,7 @@ export default function FimbaEventoFormModal({
               />
               <p className="fimba-muted" style={{ margin: "0.25rem 0 0", fontSize: "0.75rem" }}>
                 {usaTransporte
-                  ? "Default artista = planificada + extra materiales"
+                  ? "Default artista = planificada + extra equip."
                   : "Default artista = cantidad planificada (hotel/comida)"}
               </p>
             </div>
@@ -839,8 +926,13 @@ export default function FimbaEventoFormModal({
               {!sinServicio && (
                 <div className="fimba-field">
                   <label className="fimba-label">
-                    Vehículo(s) — unidades de la gira
+                    Vehículo(s) — multi-unidad con plazas
                   </label>
+                  {!fecha ? (
+                    <p className="fimba-muted" style={{ margin: "0 0 0.5rem", fontSize: "0.8rem" }}>
+                      Indicá la fecha (y preferible hora) para ver plazas libres en la ventana.
+                    </p>
+                  ) : null}
                   {flota.length === 0 ? (
                     <div className="fimba-error">
                       No hay vehículos en la gira. Agregalos en Transportes → Vehículos
@@ -854,14 +946,35 @@ export default function FimbaEventoFormModal({
                         const cap = capacidadGiraTransporte(gt);
                         const m = metrics[sid];
                         const nota = detalleGiraTransporte(gt);
+                        const libres =
+                          m?.libres != null && Number.isFinite(Number(m.libres))
+                            ? Number(m.libres)
+                            : null;
+                        const plazasN = Math.max(0, Number(plazasByVeh[sid]) || 0);
+                        const overLibres =
+                          on && libres != null && plazasN > libres;
+                        const capLabel =
+                          cap != null
+                            ? metricsLoading
+                              ? `· … / ${cap}`
+                              : libres != null
+                                ? `· ${libres} libres / ${cap}`
+                                : `· cap. ${cap}`
+                            : "";
                         return (
                           <div
                             key={gt.id}
                             style={{
-                              border: `1px solid ${on ? "#00b1eb" : "#e2e8f0"}`,
+                              border: `1px solid ${
+                                overLibres ? "#dc2626" : on ? "#00b1eb" : "#e2e8f0"
+                              }`,
                               borderRadius: 10,
                               padding: "0.55rem 0.7rem",
-                              background: on ? "rgba(0,177,235,0.06)" : "#fff",
+                              background: on
+                                ? overLibres
+                                  ? "rgba(220,38,38,0.05)"
+                                  : "rgba(0,177,235,0.06)"
+                                : "#fff",
                             }}
                           >
                             <label
@@ -882,10 +995,19 @@ export default function FimbaEventoFormModal({
                               <div style={{ flex: 1 }}>
                                 <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>
                                   {labelGiraTransporte(gt)}
-                                  {cap != null ? (
-                                    <span className="fimba-muted" style={{ fontWeight: 500 }}>
+                                  {capLabel ? (
+                                    <span
+                                      className="fimba-muted"
+                                      style={{
+                                        fontWeight: 500,
+                                        color:
+                                          libres === 0
+                                            ? "#b45309"
+                                            : undefined,
+                                      }}
+                                    >
                                       {" "}
-                                      · {cap} plazas
+                                      {capLabel}
                                     </span>
                                   ) : null}
                                 </div>
@@ -900,34 +1022,67 @@ export default function FimbaEventoFormModal({
                                 <div className="fimba-muted" style={{ fontSize: "0.75rem" }}>
                                   {m && !metricsLoading ? (
                                     <>
-                                      FIMBA en ventana: {m.asignadas_fimba}
-                                      {m.libres != null ? ` · libres ~${m.libres}` : ""}
+                                      {m.asignadas_fimba > 0
+                                        ? `Ocupadas FIMBA en ventana: ${m.asignadas_fimba}`
+                                        : "Sin plazas FIMBA solapadas"}
                                       {m.ofrn_eventos > 0
                                         ? ` · OFRN usa este vehículo (${m.ofrn_eventos})`
                                         : ""}
                                     </>
+                                  ) : fecha ? (
+                                    metricsLoading
+                                      ? "Calculando libres…"
+                                      : "Libres = capacidad − FIMBA solapada"
                                   ) : (
-                                    "Libres ≈ total − plazas FIMBA solapadas"
+                                    "Fecha requerida para libres"
                                   )}
-                                  {on && metricsLoading && " · calculando…"}
                                 </div>
                               </div>
                             </label>
                             {on && (
-                              <div style={{ marginTop: 8, marginLeft: 24, maxWidth: 140 }}>
-                                <label className="fimba-label">Plazas</label>
-                                <input
-                                  className="fimba-input"
-                                  type="number"
-                                  min={0}
-                                  value={plazasByVeh[sid] ?? 0}
-                                  onChange={(e) =>
-                                    setPlazasByVeh((prev) => ({
-                                      ...prev,
-                                      [sid]: e.target.value,
-                                    }))
-                                  }
-                                />
+                              <div
+                                style={{
+                                  marginTop: 8,
+                                  marginLeft: 24,
+                                  display: "flex",
+                                  flexWrap: "wrap",
+                                  alignItems: "flex-end",
+                                  gap: 10,
+                                }}
+                              >
+                                <div style={{ maxWidth: 140 }}>
+                                  <label className="fimba-label">
+                                    Plazas en este bus
+                                  </label>
+                                  <input
+                                    className="fimba-input"
+                                    type="number"
+                                    min={0}
+                                    max={libres != null ? libres : undefined}
+                                    value={plazasByVeh[sid] ?? 0}
+                                    onChange={(e) =>
+                                      setPlazasByVeh((prev) => ({
+                                        ...prev,
+                                        [sid]: e.target.value,
+                                      }))
+                                    }
+                                  />
+                                </div>
+                                {libres != null && !metricsLoading ? (
+                                  <span
+                                    className="fimba-muted"
+                                    style={{
+                                      fontSize: "0.75rem",
+                                      paddingBottom: 6,
+                                      color: overLibres ? "#dc2626" : undefined,
+                                      fontWeight: overLibres ? 600 : undefined,
+                                    }}
+                                  >
+                                    {overLibres
+                                      ? `Excede ${libres} libres`
+                                      : `máx. ${libres} libres`}
+                                  </span>
+                                ) : null}
                               </div>
                             )}
                           </div>
@@ -935,9 +1090,50 @@ export default function FimbaEventoFormModal({
                       })}
                     </div>
                   )}
+                  {selectedVehIds.length > 0 ? (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        padding: "0.55rem 0.7rem",
+                        borderRadius: 8,
+                        background: "rgba(215,50,137,0.06)",
+                        border: "1px solid rgba(215,50,137,0.2)",
+                        fontSize: "0.82rem",
+                      }}
+                    >
+                      <strong style={{ color: "var(--fimba-deep, #8b1e5b)" }}>
+                        Asignación
+                      </strong>
+                      {": "}
+                      {totalPlazasAsignadas} plazas en {selectedVehIds.length}{" "}
+                      vehículo{selectedVehIds.length === 1 ? "" : "s"}
+                      {artistasCapTope != null ? (
+                        <>
+                          {" · Tope artista"}
+                          {selectedProps.length > 1 ? "s" : ""}: {artistasCapTope}
+                          {artistasCapRemaining != null
+                            ? ` · quedan ${artistasCapRemaining}`
+                            : ""}
+                          {totalPlazasAsignadas > artistasCapTope ? (
+                            <span style={{ color: "#dc2626", fontWeight: 600 }}>
+                              {" "}
+                              (supera tope)
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className="fimba-muted">
+                          {" "}
+                          · sin artistas taggeados (no hay tope de cupo transport)
+                        </span>
+                      )}
+                    </div>
+                  ) : null}
                   <p className="fimba-muted" style={{ margin: "0.5rem 0 0", fontSize: "0.72rem" }}>
-                    Libres ≈ capacidad − plazas FIMBA solapadas. Se anota si la gira OFRN ya usa el
-                    vehículo (FK); cupos de roster aún no se restan.
+                    Libres = capacidad − plazas FIMBA en eventos que solapan fecha/hora.
+                    Se anota si OFRN ya usa el vehículo (FK). El en tránsito de roster se
+                    ve en la planilla Transportes; al guardar se bloquea si superás libres
+                    o el tope del artista.
                   </p>
                 </div>
               )}

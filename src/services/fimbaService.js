@@ -27,6 +27,80 @@ export const FIMBA_TIPOS_ALIMENTACION = [
   { value: "otro", label: "Otro" },
 ];
 
+/** Género/sexo del participante (persona bajo el artista). */
+export const FIMBA_GENEROS = [
+  { value: "femenino", label: "Femenino" },
+  { value: "masculino", label: "Masculino" },
+  { value: "otro", label: "Otro" },
+  { value: "sin_especificar", label: "Sin especificar" },
+];
+
+export const FIMBA_GENERO_DEFAULT = "sin_especificar";
+
+/** Tipos de habitación FIMBA (cupo por habitación). */
+export const FIMBA_TIPOS_HABITACION = [
+  { value: "SGL", label: "Single", short: "SGL", capacidad: 1 },
+  { value: "DBL", label: "Doble", short: "DBL", capacidad: 2 },
+  { value: "TPL", label: "Triple", short: "TPL", capacidad: 3 },
+  { value: "QAD", label: "Cuádruple", short: "QAD", capacidad: 4 },
+];
+
+export const FIMBA_TIPO_HABITACION_CAPACIDAD = Object.fromEntries(
+  FIMBA_TIPOS_HABITACION.map((t) => [t.value, t.capacidad]),
+);
+
+/**
+ * Capacidad de plazas por tipo de habitación (SGL=1 … QAD=4).
+ * @param {string} tipo
+ */
+export function capacityForHabitacionTipo(tipo) {
+  const cap = FIMBA_TIPO_HABITACION_CAPACIDAD[String(tipo || "").toUpperCase()];
+  return cap != null ? cap : 0;
+}
+
+/**
+ * Etiqueta legible del tipo (+ Matrimonial / Twin).
+ * @param {{ tipo?: string, matrimonial?: boolean }} hab
+ */
+export function labelFimbaHabitacionTipo(hab) {
+  const t = FIMBA_TIPOS_HABITACION.find(
+    (x) => x.value === String(hab?.tipo || "").toUpperCase(),
+  );
+  const base = t?.label || hab?.tipo || "—";
+  if (!t || t.capacidad <= 1) return base;
+  return hab?.matrimonial ? `${base} · Matrimonial` : `${base} · Twin`;
+}
+
+/**
+ * Cuenta habitaciones por tipo + plazas inventario / ocupadas.
+ * @param {Array<{ tipo?: string, ocupantes?: unknown[] }>} habitaciones
+ */
+export function summarizeFimbaHabitaciones(habitaciones) {
+  const byTipo = { SGL: 0, DBL: 0, TPL: 0, QAD: 0 };
+  let slots = 0;
+  let ocupadas = 0;
+  for (const h of habitaciones || []) {
+    const tipo = String(h?.tipo || "").toUpperCase();
+    if (byTipo[tipo] != null) byTipo[tipo] += 1;
+    slots += capacityForHabitacionTipo(tipo);
+    ocupadas += Array.isArray(h?.ocupantes) ? h.ocupantes.length : 0;
+  }
+  return { byTipo, slots, ocupadas, libres: Math.max(0, slots - ocupadas) };
+}
+
+/**
+ * Texto corto inventario: «3 DBL, 1 SGL».
+ * @param {{ SGL?: number, DBL?: number, TPL?: number, QAD?: number } | null} byTipo
+ */
+export function formatFimbaHabitacionesCounts(byTipo) {
+  const parts = [];
+  for (const t of FIMBA_TIPOS_HABITACION) {
+    const n = Number(byTipo?.[t.value]) || 0;
+    if (n > 0) parts.push(`${n} ${t.short}`);
+  }
+  return parts.length ? parts.join(", ") : "Sin habitaciones";
+}
+
 export const FIMBA_PROPUESTA_ESTADOS = [
   { value: "borrador", label: "Borrador" },
   { value: "activa", label: "Activa" },
@@ -137,9 +211,134 @@ export function computeFimbaCapacity(propuesta) {
   const extra = Math.max(0, Number(propuesta?.plazas_extra_materiales) || 0);
   return {
     tope_personas: tope,
+    /** = plazas_extra_materiales (asientos de equipaje/materiales). */
+    plazas_extra_materiales: extra,
     para_hotel_comida: tope,
+    /** Tope transporte = personas planificadas + extras materiales. */
     para_transporte: tope + extra,
   };
+}
+
+/**
+ * Mensaje ES hard-block al superar el tope de transporte del artista.
+ * Fórmula: para_transporte = cantidad_planificada + plazas_extra_materiales.
+ *
+ * @param {{ cantidad_planificada?: number, plazas_extra_materiales?: number } | null} propuesta
+ */
+export function formatFimbaTopeTransporteError(propuesta) {
+  const cap = computeFimbaCapacity(propuesta);
+  const plan = cap.tope_personas;
+  const extra = cap.plazas_extra_materiales;
+  return `Supera el tope de transporte del artista (${cap.para_transporte} plazas: ${plan} planificadas + ${extra} equip.).`;
+}
+
+/**
+ * Suma plazas de rides activos (`fimba_propuesta_rutas`) de un artista.
+ * Un ride activo = fila con plazas > 0 (misma propuesta, cualquier vehículo).
+ *
+ * @param {Array<{ id?: unknown, id_propuesta?: unknown, plazas?: number, propuesta?: { id?: unknown }|null }>} rutas
+ * @param {number|string} idPropuesta
+ * @param {{ excludeRutaIds?: Array<number|string> }} [opts]
+ */
+export function sumPropuestaRutasPlazas(rutas, idPropuesta, opts = {}) {
+  if (idPropuesta == null || idPropuesta === "") return 0;
+  const want = String(idPropuesta);
+  const exclude = new Set((opts.excludeRutaIds || []).map(String));
+  let sum = 0;
+  for (const r of rutas || []) {
+    const pid = r?.id_propuesta ?? r?.propuesta?.id;
+    if (pid == null || String(pid) !== want) continue;
+    if (r?.id != null && exclude.has(String(r.id))) continue;
+    sum += Math.max(0, Number(r.plazas) || 0);
+  }
+  return sum;
+}
+
+/**
+ * Uso / restantes del tope transporte por artista respecto a sus rutas.
+ * Σ plazas rutas activas ≤ para_transporte.
+ *
+ * @param {{ id?: unknown, cantidad_planificada?: number, plazas_extra_materiales?: number } | null} propuesta
+ * @param {Array} rutas — `fimba_propuesta_rutas` (pueden ser de varias propuestas)
+ * @param {{ excludeRutaIds?: Array<number|string>, id_propuesta?: unknown }} [opts]
+ */
+export function computeArtistaTransporteUsage(propuesta, rutas, opts = {}) {
+  const idProp = propuesta?.id ?? opts.id_propuesta;
+  const cap = computeFimbaCapacity(propuesta);
+  const used = sumPropuestaRutasPlazas(rutas, idProp, opts);
+  const remaining = Math.max(0, cap.para_transporte - used);
+  return {
+    id_propuesta: idProp ?? null,
+    tope: cap.para_transporte,
+    planificadas: cap.tope_personas,
+    materiales: cap.plazas_extra_materiales,
+    used,
+    remaining,
+  };
+}
+
+/**
+ * Default de plazas al asignar artista: min(restantes del artista, libres del vehículo).
+ * @param {{ remaining?: number, vehicleLibres?: number|null }} opts
+ * @returns {number}
+ */
+export function defaultArtistaAssignPlazas(opts = {}) {
+  let n = Math.max(0, Number(opts.remaining) || 0);
+  if (opts.vehicleLibres != null && opts.vehicleLibres !== "") {
+    const libres = Number(opts.vehicleLibres);
+    if (Number.isFinite(libres)) n = Math.min(n, Math.max(0, libres));
+  }
+  return n;
+}
+
+/**
+ * Hard-block: ¿puedo asignar `plazas` dado `used` (ya contado sin esta fila)?
+ * @returns {{ ok: true } | { ok: false, error: Error }}
+ */
+export function validateArtistaTransporteAssign(propuesta, usedPlazas, plazas) {
+  const cap = computeFimbaCapacity(propuesta);
+  const used = Math.max(0, Number(usedPlazas) || 0);
+  const n = Math.max(0, Number(plazas) || 0);
+  if (used + n > cap.para_transporte) {
+    return { ok: false, error: new Error(formatFimbaTopeTransporteError(propuesta)) };
+  }
+  return { ok: true };
+}
+
+/**
+ * Evento multi-vehículo: Σ plazas asignadas del evento ≤ Σ para_transporte de artistas taggeados.
+ * Un solo campo `plazas` (sin split persona/material) → tope transporte total.
+ * Sin tags: no aplica (orquesta/flota libre de este check).
+ *
+ * @param {Array<{ cantidad_planificada?: number, plazas_extra_materiales?: number }>} propuestas
+ * @param {number} totalPlazas
+ * @returns {{ ok: true, tope: number } | { ok: false, tope: number, error: Error }}
+ */
+export function validateEventoTransportPlazasVsArtistas(propuestas, totalPlazas) {
+  const props = propuestas || [];
+  if (props.length === 0) return { ok: true, tope: null };
+  const tope = props.reduce(
+    (s, p) => s + computeFimbaCapacity(p).para_transporte,
+    0,
+  );
+  const n = Math.max(0, Number(totalPlazas) || 0);
+  if (n > tope) {
+    if (props.length === 1) {
+      return {
+        ok: false,
+        tope,
+        error: new Error(formatFimbaTopeTransporteError(props[0])),
+      };
+    }
+    return {
+      ok: false,
+      tope,
+      error: new Error(
+        `Supera el tope de transporte de los artistas seleccionados (${tope} plazas en total: personas planificadas + equip.).`,
+      ),
+    };
+  }
+  return { ok: true, tope };
 }
 
 export function countActiveParticipantes(participantes) {
@@ -210,9 +409,16 @@ export function fimbaTokenUrl(kind, token, origin = typeof window !== "undefined
   const base = String(origin || "").replace(/\/$/, "");
   const t = String(token || "").trim();
   if (!t) return "";
+  // Consulta general de edición (no confusión con token edición de artista /fimba/e)
+  if (kind === "c" || kind === "consulta_edicion" || kind === "edicion_consulta") {
+    return `${base}/fimba/c/${t}`;
+  }
   if (kind === "edicion") return `${base}/fimba/e/${t}`;
   return `${base}/fimba/a/${t}`;
 }
+
+const EDICION_SELECT =
+  "id, nombre, anio, id_gira, token_consulta, created_at, updated_at, programas:id_gira ( id, nomenclador, nombre_gira, subtitulo )";
 
 // ---------------------------------------------------------------------------
 // Ediciones
@@ -221,9 +427,7 @@ export function fimbaTokenUrl(kind, token, origin = typeof window !== "undefined
 export async function listFimbaEdiciones() {
   const { data, error } = await supabase
     .from("fimba_ediciones")
-    .select(
-      "id, nombre, anio, id_gira, created_at, updated_at, programas:id_gira ( id, nomenclador, nombre_gira, subtitulo )",
-    )
+    .select(EDICION_SELECT)
     .order("anio", { ascending: false })
     .order("id", { ascending: false });
   if (error) return { ediciones: [], error };
@@ -236,9 +440,7 @@ export async function getFimbaEdicionById(edicionId) {
   }
   const { data, error } = await supabase
     .from("fimba_ediciones")
-    .select(
-      "id, nombre, anio, id_gira, created_at, updated_at, programas:id_gira ( id, nomenclador, nombre_gira, subtitulo )",
-    )
+    .select(EDICION_SELECT)
     .eq("id", edicionId)
     .maybeSingle();
   if (error) return { edicion: null, error };
@@ -251,13 +453,47 @@ export async function getFimbaEdicionByGiraId(giraId) {
   }
   const { data, error } = await supabase
     .from("fimba_ediciones")
-    .select(
-      "id, nombre, anio, id_gira, created_at, updated_at, programas:id_gira ( id, nomenclador, nombre_gira, subtitulo )",
-    )
+    .select(EDICION_SELECT)
     .eq("id_gira", giraId)
     .maybeSingle();
   if (error) return { edicion: null, error };
   return { edicion: data, error: null };
+}
+
+/**
+ * Resuelve edición por token de consulta general (/fimba/c/:token).
+ * @param {string} token
+ */
+export async function getFimbaEdicionByTokenConsulta(token) {
+  const t = String(token || "").trim();
+  if (!t) {
+    return { edicion: null, error: new Error("token requerido") };
+  }
+  const { data, error } = await supabase
+    .from("fimba_ediciones")
+    .select(EDICION_SELECT)
+    .eq("token_consulta", t)
+    .maybeSingle();
+  if (error) return { edicion: null, error };
+  return { edicion: data, error: null };
+}
+
+/**
+ * Regenera `token_consulta` de la edición (invalida el enlace anterior).
+ * @param {number|string} edicionId
+ */
+export async function regenerateFimbaEdicionTokenConsulta(edicionId) {
+  if (edicionId == null || edicionId === "") {
+    return { edicion: null, error: new Error("id de edición requerido") };
+  }
+  const token_consulta = crypto.randomUUID();
+  const { data, error } = await supabase
+    .from("fimba_ediciones")
+    .update({ token_consulta, updated_at: new Date().toISOString() })
+    .eq("id", edicionId)
+    .select(EDICION_SELECT)
+    .single();
+  return { edicion: data, error };
 }
 
 /**
@@ -272,9 +508,7 @@ export async function createFimbaEdicion(payload) {
   const { data, error } = await supabase
     .from("fimba_ediciones")
     .insert(row)
-    .select(
-      "id, nombre, anio, id_gira, created_at, updated_at, programas:id_gira ( id, nomenclador, nombre_gira, subtitulo )",
-    )
+    .select(EDICION_SELECT)
     .single();
   return { edicion: data, error };
 }
@@ -284,7 +518,7 @@ export async function createFimbaEdicion(payload) {
 // ---------------------------------------------------------------------------
 
 const PROPUESTA_SELECT =
-  "id, id_edicion, nombre, color, orden, cantidad_planificada, plazas_extra_materiales, checkin_at, checkout_at, checkin_early, checkout_late, id_hotel, token_consulta, token_edicion, estado, created_at, updated_at, hoteles:id_hotel ( id, nombre )";
+  "id, id_edicion, nombre, color, orden, cantidad_planificada, plazas_extra_materiales, checkin_at, checkout_at, checkin_early, checkout_late, id_hotel, observaciones_logisticas, token_consulta, token_edicion, estado, created_at, updated_at, hoteles:id_hotel ( id, nombre )";
 
 export async function listFimbaPropuestas(edicionId) {
   if (edicionId == null || edicionId === "") {
@@ -348,6 +582,9 @@ export async function createFimbaPropuesta(payload) {
       payload.id_hotel != null && payload.id_hotel !== ""
         ? Number(payload.id_hotel)
         : null,
+    observaciones_logisticas: normalizeObservacionesLogisticas(
+      payload.observaciones_logisticas,
+    ),
     estado: payload.estado || "activa",
   };
   const { data, error } = await supabase
@@ -380,6 +617,11 @@ export async function updateFimbaPropuesta(propuestaId, patch) {
       patch.id_hotel != null && patch.id_hotel !== ""
         ? Number(patch.id_hotel)
         : null;
+  }
+  if (patch.observaciones_logisticas !== undefined) {
+    row.observaciones_logisticas = normalizeObservacionesLogisticas(
+      patch.observaciones_logisticas,
+    );
   }
   if (patch.estado != null) row.estado = patch.estado;
 
@@ -431,12 +673,24 @@ function clampPlanificada(n) {
   return Math.min(200, Math.max(1, v));
 }
 
+/** Texto libre; vacío → null en DB. */
+function normalizeObservacionesLogisticas(value) {
+  const t = String(value ?? "").trim();
+  return t || null;
+}
+
 // ---------------------------------------------------------------------------
 // Participantes
 // ---------------------------------------------------------------------------
 
 const PARTICIPANTE_SELECT =
-  "id, id_propuesta, nombre, apellido, documento, tipo_alimentacion, nota_alimentacion, activo, id_integrante, created_at, updated_at";
+  "id, id_propuesta, nombre, apellido, documento, genero, tipo_alimentacion, nota_alimentacion, activo, id_integrante, created_at, updated_at";
+
+function normalizeGenero(value) {
+  const g = String(value || "").trim();
+  if (FIMBA_GENEROS.some((x) => x.value === g)) return g;
+  return FIMBA_GENERO_DEFAULT;
+}
 
 export async function listFimbaParticipantes(propuestaId) {
   if (propuestaId == null || propuestaId === "") {
@@ -461,6 +715,7 @@ export async function createFimbaParticipante(payload) {
     nombre: String(payload.nombre || "").trim(),
     apellido: String(payload.apellido || "").trim(),
     documento: normalizeDoc(payload.documento),
+    genero: normalizeGenero(payload.genero),
     tipo_alimentacion: payload.tipo_alimentacion || "regular",
     nota_alimentacion: payload.nota_alimentacion
       ? String(payload.nota_alimentacion).trim()
@@ -481,6 +736,7 @@ export async function updateFimbaParticipante(participanteId, patch) {
   if (patch.nombre != null) row.nombre = String(patch.nombre).trim();
   if (patch.apellido != null) row.apellido = String(patch.apellido).trim();
   if (patch.documento !== undefined) row.documento = normalizeDoc(patch.documento);
+  if (patch.genero != null) row.genero = normalizeGenero(patch.genero);
   if (patch.tipo_alimentacion != null) row.tipo_alimentacion = patch.tipo_alimentacion;
   if (patch.nota_alimentacion !== undefined) {
     row.nota_alimentacion = patch.nota_alimentacion
@@ -1020,11 +1276,163 @@ export async function countOfrnVehicleUsesInWindow(
 }
 
 /**
- * Métricas de capacidad por vehículo en la ventana.
+ * Nota ES de métricas de ventana (libres por solape FIMBA).
+ * @param {{ ofrn_eventos?: number, error?: Error|null }} m
+ */
+function noteVehicleWindowMetrics(m = {}) {
+  const notes = [];
+  notes.push("Libres = capacidad − plazas FIMBA en eventos que solapan la ventana.");
+  const ofrn = Number(m.ofrn_eventos) || 0;
+  if (ofrn > 0) {
+    notes.push(
+      `OFRN: ${ofrn} evento${ofrn === 1 ? "" : "s"} de la gira ya usa${ofrn === 1 ? "" : "n"} este vehículo (FK) en la misma ventana.`,
+    );
+  }
+  notes.push(
+    "Cupos roster OFRN (en tránsito / plaza_extra) no se restan aquí; ver planilla Transportes.",
+  );
+  if (m.error?.message) notes.push(m.error.message);
+  return notes.join(" ");
+}
+
+/**
+ * Disponibilidad de toda la flota en una ventana (misma fecha + solape horarios).
+ * Libres = max(0, capacidad_maxima − Σ plazas FIMBA en trayectos solapados).
+ * Anota usos OFRN por FK `eventos.id_gira_transporte` (no resta asientos de roster).
+ *
+ * Preferir esto en el modal multi-vehículo (una query de eventos + una de plazas).
+ *
+ * @param {number|string} giraId
+ * @param {Array<object>} flota — filas `giras_transportes`
+ * @param {{ fecha: string, hora_inicio?: string, hora_fin?: string }} window
+ * @param {number|string|null} [excludeEventoId] — al editar, no contar plazas de este evento
+ * @returns {Promise<{ byId: Record<string, {
+ *   capacidad: number|null,
+ *   asignadas_fimba: number,
+ *   libres: number|null,
+ *   ofrn_eventos: number,
+ *   label: string,
+ *   note: string,
+ *   error: null|Error
+ * }>, error: null|Error }>}
+ */
+export async function listVehiclesAvailability(
+  giraId,
+  flota,
+  window,
+  excludeEventoId = null,
+) {
+  const list = flota || [];
+  /** @type {Record<string, any>} */
+  const byId = {};
+  for (const gt of list) {
+    if (gt?.id == null) continue;
+    const capacidad = capacidadGiraTransporte(gt);
+    byId[String(gt.id)] = {
+      capacidad,
+      asignadas_fimba: 0,
+      libres: capacidad,
+      ofrn_eventos: 0,
+      label: labelGiraTransporte(gt),
+      note: noteVehicleWindowMetrics({ ofrn_eventos: 0 }),
+      error: null,
+    };
+  }
+
+  if (giraId == null || !window?.fecha || list.length === 0) {
+    return { byId, error: null };
+  }
+
+  const { data: eventos, error: e1 } = await supabase
+    .from("eventos")
+    .select("id, fecha, hora_inicio, hora_fin, id_gira_transporte")
+    .eq("id_gira", Number(giraId))
+    .eq("fecha", window.fecha)
+    .or("is_deleted.is.null,is_deleted.eq.false");
+  if (e1) {
+    for (const sid of Object.keys(byId)) {
+      byId[sid] = {
+        ...byId[sid],
+        note: e1.message || "Error al calcular disponibilidad",
+        error: e1,
+      };
+    }
+    return { byId, error: e1 };
+  }
+
+  const overlapping = (eventos || []).filter((ev) => {
+    if (excludeEventoId != null && Number(ev.id) === Number(excludeEventoId)) {
+      return false;
+    }
+    return eventWindowsOverlap(ev, window);
+  });
+
+  const candidateIds = overlapping.map((e) => e.id);
+  const flotaIds = list
+    .map((gt) => Number(gt.id))
+    .filter((n) => Number.isFinite(n));
+
+  /** @type {Record<string, number>} */
+  const fimbaByVeh = {};
+  if (candidateIds.length > 0 && flotaIds.length > 0) {
+    const { data: rows, error: e2 } = await supabase
+      .from("fimba_evento_transportes")
+      .select("plazas, id_evento, id_gira_transporte")
+      .in("id_gira_transporte", flotaIds)
+      .in("id_evento", candidateIds);
+    if (e2) {
+      for (const sid of Object.keys(byId)) {
+        byId[sid] = {
+          ...byId[sid],
+          note: e2.message || "Error al calcular plazas FIMBA",
+          error: e2,
+        };
+      }
+      return { byId, error: e2 };
+    }
+    for (const r of rows || []) {
+      const key = String(r.id_gira_transporte);
+      fimbaByVeh[key] =
+        (fimbaByVeh[key] || 0) + (Math.max(0, Number(r.plazas) || 0));
+    }
+  }
+
+  /** @type {Record<string, number>} */
+  const ofrnByVeh = {};
+  for (const ev of overlapping) {
+    if (ev.id_gira_transporte == null || ev.id_gira_transporte === "") continue;
+    const key = String(ev.id_gira_transporte);
+    ofrnByVeh[key] = (ofrnByVeh[key] || 0) + 1;
+  }
+
+  for (const gt of list) {
+    if (gt?.id == null) continue;
+    const sid = String(gt.id);
+    const capacidad = capacidadGiraTransporte(gt);
+    const asignadas_fimba = fimbaByVeh[sid] || 0;
+    const ofrn_eventos = ofrnByVeh[sid] || 0;
+    const libres =
+      capacidad != null ? Math.max(0, capacidad - asignadas_fimba) : null;
+    byId[sid] = {
+      capacidad,
+      asignadas_fimba,
+      libres,
+      ofrn_eventos,
+      label: labelGiraTransporte(gt),
+      note: noteVehicleWindowMetrics({ ofrn_eventos }),
+      error: null,
+    };
+  }
+
+  return { byId, error: null };
+}
+
+/**
+ * Métricas de capacidad por vehículo en la ventana (wrapper 1 unidad).
  * Libres = capacidad OFRN − plazas FIMBA solapadas.
  * También anota si el vehículo ya figura en eventos OFRN (FK legacy) en la ventana.
  *
- * @returns {{ capacidad: number|null, asignadas_fimba: number, libres: number|null, ofrn_eventos: number, note: string, error: null|Error }}
+ * @returns {Promise<{ capacidad: number|null, asignadas_fimba: number, libres: number|null, ofrn_eventos: number, label?: string, note: string, error: null|Error }>}
  */
 export async function computeFimbaVehicleWindowMetrics(
   giraId,
@@ -1033,39 +1441,73 @@ export async function computeFimbaVehicleWindowMetrics(
   excludeEventoId = null,
 ) {
   const capacidad = capacidadGiraTransporte(gt);
-  const [{ plazas: asignadas_fimba, error }, ofrnRes] = await Promise.all([
-    sumFimbaPlazasInWindow(giraId, gt?.id, window, excludeEventoId),
-    countOfrnVehicleUsesInWindow(giraId, gt?.id, window, excludeEventoId),
-  ]);
-  if (error) {
+  if (!gt) {
+    return {
+      capacidad: null,
+      asignadas_fimba: 0,
+      libres: null,
+      ofrn_eventos: 0,
+      note: noteVehicleWindowMetrics(),
+      error: null,
+    };
+  }
+  const { byId, error } = await listVehiclesAvailability(
+    giraId,
+    [gt],
+    window,
+    excludeEventoId,
+  );
+  const m = byId[String(gt.id)];
+  if (!m) {
     return {
       capacidad,
       asignadas_fimba: 0,
       libres: capacidad,
       ofrn_eventos: 0,
-      note: error.message || "Error al calcular plazas FIMBA",
-      error,
+      label: labelGiraTransporte(gt),
+      note: noteVehicleWindowMetrics(),
+      error: error || null,
     };
   }
-  const ofrn_eventos = ofrnRes.count || 0;
-  const libres =
-    capacidad != null ? Math.max(0, capacidad - asignadas_fimba) : null;
-  const notes = [];
-  notes.push("Libres ≈ capacidad − plazas FIMBA en la ventana.");
-  if (ofrn_eventos > 0) {
-    notes.push(
-      `OFRN: ${ofrn_eventos} evento${ofrn_eventos === 1 ? "" : "s"} de la gira ya usa${ofrn_eventos === 1 ? "" : "n"} este vehículo (FK) en la misma ventana.`,
-    );
+  return { ...m, error: error || m.error || null };
+}
+
+/**
+ * Hard-block: plazas pedidas por unidad ≤ libres de ventana (capacidad − FIMBA solapada).
+ * Si no hay métrica de libres para una unidad, no bloquea (capacidad desconocida).
+ *
+ * @param {Array<{ id_gira_transporte: number|string, plazas?: number }>} assignments
+ * @param {Record<string, { libres?: number|null, capacidad?: number|null, label?: string }>} availabilityById
+ * @returns {{ ok: true } | { ok: false, error: Error }}
+ */
+export function validateEventoTransportPlazasVsLibres(
+  assignments,
+  availabilityById = {},
+) {
+  for (const a of assignments || []) {
+    const id = a?.id_gira_transporte;
+    if (id == null || id === "") continue;
+    const plazas = Math.max(0, Number(a.plazas) || 0);
+    const m = availabilityById[String(id)];
+    if (!m || m.libres == null || !Number.isFinite(Number(m.libres))) continue;
+    const libres = Math.max(0, Number(m.libres));
+    if (plazas > libres) {
+      const label = m.label || `Vehículo #${id}`;
+      const cap =
+        m.capacidad != null && Number.isFinite(Number(m.capacidad))
+          ? Number(m.capacidad)
+          : null;
+      return {
+        ok: false,
+        error: new Error(
+          cap != null
+            ? `«${label}» solo tiene ${libres} plazas libres de ${cap}; pedís ${plazas}.`
+            : `«${label}» solo tiene ${libres} plazas libres; pedís ${plazas}.`,
+        ),
+      };
+    }
   }
-  notes.push("Cupos roster OFRN (paradas/frechas) aún no se restan.");
-  return {
-    capacidad,
-    asignadas_fimba,
-    libres,
-    ofrn_eventos,
-    note: notes.join(" "),
-    error: ofrnRes.error || null,
-  };
+  return { ok: true };
 }
 
 /**
@@ -1765,9 +2207,40 @@ export async function listFimbaPropuestaRutas(edicionId, opts = {}) {
 }
 
 /**
+ * Hard-block: Σ plazas de rutas del artista (excl. fila en edición) + nuevas ≤ para_transporte.
+ * @param {number} idPropuesta
+ * @param {number} plazas
+ * @param {number|string|null|undefined} excludeRutaId
+ */
+async function assertPropuestaRutaWithinTransportCap(idPropuesta, plazas, excludeRutaId) {
+  const { data: prop, error: eProp } = await supabase
+    .from("fimba_propuestas")
+    .select("id, nombre, cantidad_planificada, plazas_extra_materiales")
+    .eq("id", idPropuesta)
+    .maybeSingle();
+  if (eProp) return { error: eProp };
+  if (!prop) {
+    return { error: new Error("Artista (propuesta) no encontrado") };
+  }
+  const { data: rutas, error: eR } = await supabase
+    .from("fimba_propuesta_rutas")
+    .select("id, plazas, id_propuesta")
+    .eq("id_propuesta", idPropuesta);
+  if (eR) return { error: eR };
+  const excludeRutaIds =
+    excludeRutaId != null && excludeRutaId !== "" ? [excludeRutaId] : [];
+  const used = sumPropuestaRutasPlazas(rutas || [], idPropuesta, { excludeRutaIds });
+  const check = validateArtistaTransporteAssign(prop, used, plazas);
+  if (!check.ok) return { error: check.error };
+  return { error: null };
+}
+
+/**
  * Alta o actualización de parada subida/bajada con plazas para un artista.
  * Si ya existe una regla de ese tipo (misma propuesta + vehículo + otro extremo
  * incompleto), actualiza; si hay conflicto con otra parada, puede reemplazar.
+ * Hard-block si Σ plazas de rides del artista supera para_transporte
+ * (cantidad_planificada + plazas_extra_materiales).
  *
  * @param {{
  *   id_propuesta: number|string,
@@ -1804,6 +2277,12 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
   if (eSame) return { ruta: null, error: eSame };
 
   if (same) {
+    const capCheck = await assertPropuestaRutaWithinTransportCap(
+      idPropuesta,
+      plazas,
+      same.id,
+    );
+    if (capCheck.error) return { ruta: null, error: capCheck.error };
     const { data, error } = await supabase
       .from("fimba_propuesta_rutas")
       .update({ plazas, updated_at: new Date().toISOString() })
@@ -1838,6 +2317,12 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
         ),
       };
     }
+    const capCheck = await assertPropuestaRutaWithinTransportCap(
+      idPropuesta,
+      plazas,
+      conflict.id,
+    );
+    if (capCheck.error) return { ruta: null, error: capCheck.error };
     const { data, error } = await supabase
       .from("fimba_propuesta_rutas")
       .update({
@@ -1867,6 +2352,12 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
 
   if (openRows && openRows.length > 0) {
     const row = openRows[0];
+    const capCheck = await assertPropuestaRutaWithinTransportCap(
+      idPropuesta,
+      plazas,
+      row.id,
+    );
+    if (capCheck.error) return { ruta: null, error: capCheck.error };
     const { data, error } = await supabase
       .from("fimba_propuesta_rutas")
       .update({
@@ -1880,6 +2371,13 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     if (error) return { ruta: null, error };
     return { ruta: data, error: null, completed: true };
   }
+
+  const capCheck = await assertPropuestaRutaWithinTransportCap(
+    idPropuesta,
+    plazas,
+    null,
+  );
+  if (capCheck.error) return { ruta: null, error: capCheck.error };
 
   const insertRow = {
     id_propuesta: idPropuesta,
@@ -2093,6 +2591,66 @@ export async function saveFimbaEvento(payload) {
     }
   }
 
+  // Hard-block: Σ plazas multi-vehículo del evento ≤ Σ para_transporte de artistas taggeados
+  // (cantidad_planificada + plazas_extra_materiales por artista; un solo campo plazas → tope total)
+  const propIdsForCap = [
+    ...new Set(
+      (payload.id_propuestas || [])
+        .map(Number)
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+  if (vehiculos.length > 0 && propIdsForCap.length > 0) {
+    const totalPlazas = vehiculos.reduce(
+      (s, v) => s + Math.max(0, Number(v.plazas) || 0),
+      0,
+    );
+    const { data: propsCap, error: eCap } = await supabase
+      .from("fimba_propuestas")
+      .select("id, cantidad_planificada, plazas_extra_materiales")
+      .in("id", propIdsForCap);
+    if (eCap) return { evento: null, error: eCap };
+    const checkCap = validateEventoTransportPlazasVsArtistas(
+      propsCap || [],
+      totalPlazas,
+    );
+    if (!checkCap.ok) {
+      return { evento: null, error: checkCap.error };
+    }
+  }
+
+  // Hard-block: plazas por unidad ≤ libres de ventana (capacidad − FIMBA solapada; excl. este evento)
+  if (vehiculos.length > 0 && payload.fecha) {
+    const vehIds = vehiculos
+      .map((v) => Number(v.id_gira_transporte))
+      .filter((n) => Number.isFinite(n));
+    if (vehIds.length > 0) {
+      const { data: flotaRows, error: eFlota } = await supabase
+        .from("giras_transportes")
+        .select(GIRA_TRANSPORTE_SELECT)
+        .eq("id_gira", idGira)
+        .in("id", vehIds);
+      if (eFlota) return { evento: null, error: eFlota };
+      const excludeId =
+        payload.id != null && payload.id !== "" ? Number(payload.id) : null;
+      const { byId, error: eAv } = await listVehiclesAvailability(
+        idGira,
+        flotaRows || [],
+        {
+          fecha: payload.fecha,
+          hora_inicio: payload.hora_inicio || null,
+          hora_fin: payload.hora_fin || null,
+        },
+        Number.isFinite(excludeId) ? excludeId : null,
+      );
+      if (eAv) return { evento: null, error: eAv };
+      const checkLibres = validateEventoTransportPlazasVsLibres(vehiculos, byId);
+      if (!checkLibres.ok) {
+        return { evento: null, error: checkLibres.error };
+      }
+    }
+  }
+
   let audienciaOfrn = ["none", "tutti", "grupos"].includes(payload.audiencia_ofrn)
     ? payload.audiencia_ofrn
     : "none";
@@ -2285,12 +2843,15 @@ export async function listFimbaHoteleria(edicionId, opts = {}) {
   for (const prop of props) {
     const { participantes, error: ePart } = await listFimbaParticipantes(prop.id);
     if (ePart) return { rows: [], blocks: [], totals: null, edicion, error: ePart };
+    const { habitaciones, error: eHab } = await listFimbaHabitaciones(prop.id);
+    if (eHab) return { rows: [], blocks: [], totals: null, edicion, error: eHab };
     const occ = computeHotelOccupancy(prop, participantes);
     const activos = (participantes || []).filter((p) => p.activo !== false);
     const sin_nombre = occ.por_confirmar;
     const camas_noche =
       occ.noches != null ? occ.pax_planificada * occ.noches : 0;
     const alimentacion = summarizeAlimentacion(participantes);
+    const rooming = summarizeFimbaHabitaciones(habitaciones);
     rows.push({
       propuesta: prop,
       hotel: prop.hoteles || null,
@@ -2307,6 +2868,9 @@ export async function listFimbaHoteleria(edicionId, opts = {}) {
       alimentacion,
       personas: activos,
       participantes: activos,
+      habitaciones: habitaciones || [],
+      rooming,
+      rooming_label: formatFimbaHabitacionesCounts(rooming.byTipo),
     });
   }
 
@@ -2327,6 +2891,404 @@ export async function listFimbaHoteleria(edicionId, opts = {}) {
 /** Alias de listFimbaHoteleria (shape con blocks/totals/edicion). */
 export async function loadFimbaHoteleriaReport(edicionId, opts = {}) {
   return listFimbaHoteleria(edicionId, opts);
+}
+
+// ---------------------------------------------------------------------------
+// Rooming / habitaciones por artista (propuesta)
+// ---------------------------------------------------------------------------
+
+const HABITACION_SELECT =
+  "id, id_propuesta, tipo, matrimonial, orden, label, created_at, updated_at";
+
+const OCUPANTE_SELECT =
+  "id, id_habitacion, id_participante, orden, created_at, participante:id_participante ( id, id_propuesta, nombre, apellido, documento, genero, tipo_alimentacion, activo )";
+
+function normalizeHabTipo(tipo) {
+  const t = String(tipo || "").toUpperCase().trim();
+  if (FIMBA_TIPO_HABITACION_CAPACIDAD[t] != null) return t;
+  return null;
+}
+
+/**
+ * Lista habitaciones del artista con ocupantes (ordenados).
+ * @param {number|string} propuestaId
+ */
+export async function listFimbaHabitaciones(propuestaId) {
+  if (propuestaId == null || propuestaId === "") {
+    return { habitaciones: [], error: null };
+  }
+  const { data: habs, error } = await supabase
+    .from("fimba_propuestas_habitaciones")
+    .select(HABITACION_SELECT)
+    .eq("id_propuesta", propuestaId)
+    .order("orden", { ascending: true })
+    .order("id", { ascending: true });
+  if (error) return { habitaciones: [], error };
+  if (!habs?.length) return { habitaciones: [], error: null };
+
+  const ids = habs.map((h) => h.id);
+  const { data: occs, error: eOcc } = await supabase
+    .from("fimba_habitaciones_ocupantes")
+    .select(OCUPANTE_SELECT)
+    .in("id_habitacion", ids)
+    .order("orden", { ascending: true })
+    .order("id", { ascending: true });
+  if (eOcc) return { habitaciones: [], error: eOcc };
+
+  const byHab = new Map();
+  for (const o of occs || []) {
+    const list = byHab.get(o.id_habitacion) || [];
+    list.push(o);
+    byHab.set(o.id_habitacion, list);
+  }
+
+  const habitaciones = habs.map((h) => {
+    const ocupantes = byHab.get(h.id) || [];
+    const capacidad = capacityForHabitacionTipo(h.tipo);
+    return {
+      ...h,
+      matrimonial: h.tipo === "SGL" ? false : h.matrimonial === true,
+      capacidad,
+      ocupantes,
+      plazas_ocupadas: ocupantes.length,
+      plazas_libres: Math.max(0, capacidad - ocupantes.length),
+    };
+  });
+
+  return { habitaciones, error: null };
+}
+
+/**
+ * Cuenta slots por tipo (sin cargar ocupantes).
+ * @param {number|string} propuestaId
+ */
+export async function countFimbaHabitacionesByTipo(propuestaId) {
+  const empty = { SGL: 0, DBL: 0, TPL: 0, QAD: 0 };
+  if (propuestaId == null || propuestaId === "") {
+    return { byTipo: empty, error: null };
+  }
+  const { data, error } = await supabase
+    .from("fimba_propuestas_habitaciones")
+    .select("tipo")
+    .eq("id_propuesta", propuestaId);
+  if (error) return { byTipo: empty, error };
+  const byTipo = { ...empty };
+  for (const row of data || []) {
+    const t = normalizeHabTipo(row.tipo);
+    if (t) byTipo[t] += 1;
+  }
+  return { byTipo, error: null };
+}
+
+/**
+ * Materializa inventario desde cantidades por tipo.
+ * - Añade habitaciones vacías si faltan.
+ * - Quita primero habitaciones vacías (de mayor orden); no borra ocupadas.
+ * - Si quedan más ocupadas que el target, las deja y devuelve `warning`.
+ *
+ * @param {number|string} propuestaId
+ * @param {{ SGL?: number, DBL?: number, TPL?: number, QAD?: number }} counts
+ * @param {{ default_matrimonial?: boolean }} [opts] — default twin (false) en multi
+ */
+export async function syncFimbaHabitacionesFromCounts(propuestaId, counts, opts = {}) {
+  const pid = Number(propuestaId);
+  if (!Number.isFinite(pid)) {
+    return { habitaciones: [], warning: null, error: new Error("Propuesta inválida") };
+  }
+
+  const target = {};
+  for (const t of FIMBA_TIPOS_HABITACION) {
+    const n = Math.max(0, Math.min(200, Math.floor(Number(counts?.[t.value]) || 0)));
+    target[t.value] = n;
+  }
+
+  const { habitaciones: existing, error: eList } = await listFimbaHabitaciones(pid);
+  if (eList) return { habitaciones: [], warning: null, error: eList };
+
+  const byTipo = { SGL: [], DBL: [], TPL: [], QAD: [] };
+  for (const h of existing || []) {
+    const t = normalizeHabTipo(h.tipo);
+    if (t) byTipo[t].push(h);
+  }
+
+  const defaultMatri = opts.default_matrimonial === true;
+  const toInsert = [];
+  const toDelete = [];
+  const warnings = [];
+
+  for (const t of FIMBA_TIPOS_HABITACION) {
+    const list = byTipo[t.value] || [];
+    const want = target[t.value];
+    if (list.length === want) continue;
+
+    if (list.length < want) {
+      const add = want - list.length;
+      const maxOrden = list.reduce((m, h) => Math.max(m, Number(h.orden) || 0), 0);
+      for (let i = 0; i < add; i += 1) {
+        toInsert.push({
+          id_propuesta: pid,
+          tipo: t.value,
+          matrimonial: t.value === "SGL" ? false : defaultMatri,
+          orden: maxOrden + i + 1,
+        });
+      }
+      continue;
+    }
+
+    // too many: prefer deleting empty rooms from the end
+    const surplus = list.length - want;
+    const empties = [...list]
+      .filter((h) => !(h.ocupantes || []).length)
+      .sort((a, b) => (Number(b.orden) || 0) - (Number(a.orden) || 0) || b.id - a.id);
+    const drop = empties.slice(0, surplus);
+    toDelete.push(...drop.map((h) => h.id));
+    const stillOver = surplus - drop.length;
+    if (stillOver > 0) {
+      warnings.push(
+        `${t.label}: quedan ${stillOver} habitación(es) con personas que no se pudieron quitar del inventario.`,
+      );
+    }
+  }
+
+  if (toDelete.length) {
+    const { error: eDel } = await supabase
+      .from("fimba_propuestas_habitaciones")
+      .delete()
+      .in("id", toDelete);
+    if (eDel) return { habitaciones: [], warning: null, error: eDel };
+  }
+
+  if (toInsert.length) {
+    const { error: eIns } = await supabase
+      .from("fimba_propuestas_habitaciones")
+      .insert(toInsert);
+    if (eIns) return { habitaciones: [], warning: null, error: eIns };
+  }
+
+  const { habitaciones, error } = await listFimbaHabitaciones(pid);
+  return {
+    habitaciones,
+    warning: warnings.length ? warnings.join(" ") : null,
+    error,
+  };
+}
+
+/**
+ * Actualiza matrimonial / label / orden de un slot.
+ * @param {number|string} habitacionId
+ * @param {{ matrimonial?: boolean, label?: string|null, orden?: number, tipo?: string }} patch
+ */
+export async function updateFimbaHabitacion(habitacionId, patch) {
+  const row = { updated_at: new Date().toISOString() };
+  if (patch.matrimonial != null) row.matrimonial = Boolean(patch.matrimonial);
+  if (patch.label !== undefined) {
+    const s = patch.label == null ? null : String(patch.label).trim();
+    row.label = s === "" ? null : s;
+  }
+  if (patch.orden != null) row.orden = Math.floor(Number(patch.orden)) || 0;
+  if (patch.tipo != null) {
+    const t = normalizeHabTipo(patch.tipo);
+    if (!t) return { habitacion: null, error: new Error("Tipo de habitación inválido") };
+    row.tipo = t;
+    if (t === "SGL") row.matrimonial = false;
+  }
+
+  // Si bajan capacidad (raro vía tipo), recortar ocupantes excedentes
+  if (row.tipo) {
+    const cap = capacityForHabitacionTipo(row.tipo);
+    const { data: occs } = await supabase
+      .from("fimba_habitaciones_ocupantes")
+      .select("id, orden")
+      .eq("id_habitacion", habitacionId)
+      .order("orden", { ascending: true })
+      .order("id", { ascending: true });
+    if ((occs || []).length > cap) {
+      const dropIds = occs.slice(cap).map((o) => o.id);
+      await supabase.from("fimba_habitaciones_ocupantes").delete().in("id", dropIds);
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("fimba_propuestas_habitaciones")
+    .update(row)
+    .eq("id", habitacionId)
+    .select(HABITACION_SELECT)
+    .single();
+  return { habitacion: data, error };
+}
+
+/**
+ * Sustituye ocupantes de una habitación (ordered list de id_participante).
+ * Valida capacidad, activos y misma propuesta. Quita al participante de otras habitaciones del mismo artista.
+ *
+ * @param {number|string} habitacionId
+ * @param {Array<number|string>} participanteIds
+ */
+export async function setFimbaHabitacionOcupantes(habitacionId, participanteIds) {
+  const hid = Number(habitacionId);
+  if (!Number.isFinite(hid)) {
+    return { habitacion: null, error: new Error("Habitación inválida") };
+  }
+
+  const { data: hab, error: eHab } = await supabase
+    .from("fimba_propuestas_habitaciones")
+    .select(HABITACION_SELECT)
+    .eq("id", hid)
+    .maybeSingle();
+  if (eHab) return { habitacion: null, error: eHab };
+  if (!hab) return { habitacion: null, error: new Error("Habitación no encontrada") };
+
+  const cap = capacityForHabitacionTipo(hab.tipo);
+  const rawIds = (participanteIds || [])
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n));
+  // unique preserve order
+  const seen = new Set();
+  const ids = [];
+  for (const id of rawIds) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  if (ids.length > cap) {
+    return {
+      habitacion: null,
+      error: new Error(`Máximo ${cap} persona(s) en habitación ${hab.tipo}`),
+    };
+  }
+
+  if (ids.length) {
+    const { data: parts, error: eParts } = await supabase
+      .from("fimba_participantes")
+      .select("id, id_propuesta, activo")
+      .in("id", ids);
+    if (eParts) return { habitacion: null, error: eParts };
+    const map = new Map((parts || []).map((p) => [p.id, p]));
+    for (const id of ids) {
+      const p = map.get(id);
+      if (!p) {
+        return { habitacion: null, error: new Error(`Participante ${id} no existe`) };
+      }
+      if (Number(p.id_propuesta) !== Number(hab.id_propuesta)) {
+        return {
+          habitacion: null,
+          error: new Error("Solo participantes del mismo artista"),
+        };
+      }
+      if (p.activo === false) {
+        return {
+          habitacion: null,
+          error: new Error("No se puede asignar un participante inactivo"),
+        };
+      }
+    }
+
+    // Liberar estos participantes de otras habitaciones del artista (unique global)
+    const { data: otherHabs } = await supabase
+      .from("fimba_propuestas_habitaciones")
+      .select("id")
+      .eq("id_propuesta", hab.id_propuesta)
+      .neq("id", hid);
+    const otherIds = (otherHabs || []).map((h) => h.id);
+    if (otherIds.length) {
+      const { error: eClearOther } = await supabase
+        .from("fimba_habitaciones_ocupantes")
+        .delete()
+        .in("id_habitacion", otherIds)
+        .in("id_participante", ids);
+      if (eClearOther) return { habitacion: null, error: eClearOther };
+    }
+  }
+
+  const { error: eClear } = await supabase
+    .from("fimba_habitaciones_ocupantes")
+    .delete()
+    .eq("id_habitacion", hid);
+  if (eClear) return { habitacion: null, error: eClear };
+
+  if (ids.length) {
+    const rows = ids.map((id_participante, i) => ({
+      id_habitacion: hid,
+      id_participante,
+      orden: i + 1,
+    }));
+    const { error: eIns } = await supabase
+      .from("fimba_habitaciones_ocupantes")
+      .insert(rows);
+    if (eIns) return { habitacion: null, error: eIns };
+  }
+
+  const { habitaciones, error } = await listFimbaHabitaciones(hab.id_propuesta);
+  if (error) return { habitacion: null, error };
+  const habitacion = (habitaciones || []).find((h) => Number(h.id) === hid) || null;
+  return { habitacion, habitaciones, error: null };
+}
+
+/**
+ * Asigna/quita un participante en un slot de habitación (orden 1..cap).
+ * Si habitacionId es null, desasigna de cualquier habitación de la propuesta.
+ *
+ * @param {number|string} participanteId
+ * @param {number|string|null} habitacionId
+ * @param {number} [orden]
+ */
+export async function assignFimbaParticipanteHabitacion(
+  participanteId,
+  habitacionId,
+  orden = 1,
+) {
+  const partId = Number(participanteId);
+  if (!Number.isFinite(partId)) {
+    return { error: new Error("Participante inválido") };
+  }
+
+  // Siempre quitar asignación previa (unique)
+  const { error: eDel } = await supabase
+    .from("fimba_habitaciones_ocupantes")
+    .delete()
+    .eq("id_participante", partId);
+  if (eDel) return { error: eDel };
+
+  if (habitacionId == null || habitacionId === "") {
+    return { error: null };
+  }
+
+  const hid = Number(habitacionId);
+  const { data: hab, error: eHab } = await supabase
+    .from("fimba_propuestas_habitaciones")
+    .select(HABITACION_SELECT)
+    .eq("id", hid)
+    .maybeSingle();
+  if (eHab) return { error: eHab };
+  if (!hab) return { error: new Error("Habitación no encontrada") };
+
+  const cap = capacityForHabitacionTipo(hab.tipo);
+  const slot = Math.max(1, Math.min(cap, Math.floor(Number(orden) || 1)));
+
+  const { data: existing } = await supabase
+    .from("fimba_habitaciones_ocupantes")
+    .select("id, id_participante, orden")
+    .eq("id_habitacion", hid)
+    .order("orden", { ascending: true });
+
+  const used = (existing || []).filter((o) => Number(o.id_participante) !== partId);
+  if (used.length >= cap) {
+    return { error: new Error("Habitación llena") };
+  }
+
+  // If slot taken, append at end
+  let finalOrden = slot;
+  if (used.some((o) => Number(o.orden) === slot)) {
+    finalOrden = Math.max(...used.map((o) => Number(o.orden) || 0), 0) + 1;
+    if (finalOrden > cap) finalOrden = used.length + 1;
+  }
+
+  const { error: eIns } = await supabase.from("fimba_habitaciones_ocupantes").insert({
+    id_habitacion: hid,
+    id_participante: partId,
+    orden: finalOrden,
+  });
+  return { error: eIns || null };
 }
 
 /**
@@ -2614,4 +3576,500 @@ export async function regenerateFimbaUsuarioTokenLogin(usuarioId) {
     .single();
   if (error) return { usuario: null, error };
   return { usuario: data, error: null };
+}
+
+// ---------------------------------------------------------------------------
+// Contrataciones (planilla expedientes por edición)
+// ---------------------------------------------------------------------------
+
+export const FIMBA_TIPO_CONTRATACION_DEFAULT = "Expediente";
+
+/**
+ * Presets UI de «Último estado conocido» (colores solo frontend; DB = texto libre).
+ * Match case-insensitive exacto del label para badge de color.
+ */
+export const FIMBA_ESTADO_CONOCIDO_PRESETS = [
+  {
+    value: "Factura presentada",
+    label: "Factura presentada",
+    bg: "#bfdbfe",
+    color: "#1e3a8a",
+  },
+  {
+    value: "Factura emitida",
+    label: "Factura emitida",
+    bg: "#e9d5ff",
+    color: "#6b21a8",
+  },
+  {
+    value: "Factura pedida",
+    label: "Factura pedida",
+    bg: "#fbcfe8",
+    color: "#9d174d",
+  },
+  {
+    value: "Pagado",
+    label: "Pagado",
+    bg: "#bbf7d0",
+    color: "#14532d",
+  },
+];
+
+const ESTADO_PRESET_BY_NORM = new Map(
+  FIMBA_ESTADO_CONOCIDO_PRESETS.map((p) => [
+    String(p.value).trim().toLowerCase(),
+    p,
+  ]),
+);
+
+/**
+ * @param {string|null|undefined} estado
+ * @returns {{ value: string, label: string, bg: string, color: string }|null}
+ */
+export function resolveFimbaEstadoConocidoPreset(estado) {
+  if (estado == null || String(estado).trim() === "") return null;
+  return ESTADO_PRESET_BY_NORM.get(String(estado).trim().toLowerCase()) || null;
+}
+
+/**
+ * Label de actor para el log: OFRN staff (nombre/mail) o fimba_user (nombre/mail).
+ * Prefer management OFRN sobre sesión FIMBA externa.
+ * @param {{ ofrnUser?: object|null, fimbaUser?: object|null, isOfrnStaff?: boolean }} opts
+ * @returns {{ label: string|null, created_by_integrante_id: number|null, created_by_fimba_usuario_id: number|null }}
+ */
+export function resolveFimbaEstadoActor(opts = {}) {
+  const { ofrnUser = null, fimbaUser = null, isOfrnStaff = false } = opts;
+  if (isOfrnStaff && ofrnUser) {
+    const nombre = [ofrnUser.nombre, ofrnUser.apellido]
+      .filter((x) => x != null && String(x).trim() !== "")
+      .map((x) => String(x).trim())
+      .join(" ");
+    const mail = ofrnUser.mail != null ? String(ofrnUser.mail).trim() : "";
+    const label = nombre || mail || `OFRN #${ofrnUser.id}`;
+    const idRaw = Number(ofrnUser.id);
+    return {
+      label: label || null,
+      created_by_integrante_id: Number.isFinite(idRaw) ? idRaw : null,
+      created_by_fimba_usuario_id: null,
+    };
+  }
+  if (fimbaUser) {
+    const nombre =
+      fimbaUser.nombre != null && String(fimbaUser.nombre).trim() !== ""
+        ? String(fimbaUser.nombre).trim()
+        : "";
+    const mail =
+      fimbaUser.mail != null && String(fimbaUser.mail).trim() !== ""
+        ? String(fimbaUser.mail).trim()
+        : "";
+    const label = nombre || mail || `FIMBA #${fimbaUser.id}`;
+    const idRaw = Number(fimbaUser.id);
+    return {
+      label: label || null,
+      created_by_integrante_id: null,
+      created_by_fimba_usuario_id: Number.isFinite(idRaw) ? idRaw : null,
+    };
+  }
+  if (ofrnUser) {
+    const nombre = [ofrnUser.nombre, ofrnUser.apellido]
+      .filter((x) => x != null && String(x).trim() !== "")
+      .map((x) => String(x).trim())
+      .join(" ");
+    const mail = ofrnUser.mail != null ? String(ofrnUser.mail).trim() : "";
+    const label = nombre || mail || null;
+    const idRaw = Number(ofrnUser.id);
+    return {
+      label,
+      created_by_integrante_id: Number.isFinite(idRaw) ? idRaw : null,
+      created_by_fimba_usuario_id: null,
+    };
+  }
+  return {
+    label: null,
+    created_by_integrante_id: null,
+    created_by_fimba_usuario_id: null,
+  };
+}
+
+const CONTRATACION_SELECT =
+  "id, id_edicion, orden, numero_expediente, id_propuesta, nombre, monto, fecha_limite_resol, tipo_contratacion, envio_firma_mfm_nota, nota_firmada, falta_documentacion, enviado_adm, ultimo_estado_conocido, created_at, updated_at, fimba_propuestas:id_propuesta ( id, nombre, color )";
+
+const ESTADO_LOG_SELECT =
+  "id, id_contratacion, estado, created_at, created_by_label, created_by_integrante_id, created_by_fimba_usuario_id";
+
+async function fetchNextContratacionOrden(edicionId) {
+  const { data, error } = await supabase
+    .from("fimba_contrataciones")
+    .select("orden")
+    .eq("id_edicion", edicionId)
+    .order("orden", { ascending: false })
+    .limit(1);
+  if (error || !data?.length) return 1;
+  return (Number(data[0].orden) || 0) + 1;
+}
+
+/**
+ * Normaliza monto opcional: vacío → null; coma decimal OK.
+ * @param {unknown} value
+ * @returns {number|null}
+ */
+export function parseFimbaMonto(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  const s = String(value).trim().replace(/\s/g, "").replace(",", ".");
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * @param {number|string} edicionId
+ */
+export async function listFimbaContrataciones(edicionId) {
+  if (edicionId == null || edicionId === "") {
+    return { contrataciones: [], error: new Error("id de edición requerido") };
+  }
+  const { data, error } = await supabase
+    .from("fimba_contrataciones")
+    .select(CONTRATACION_SELECT)
+    .eq("id_edicion", edicionId)
+    .order("orden", { ascending: true })
+    .order("id", { ascending: true });
+  if (error) return { contrataciones: [], error };
+  return { contrataciones: data || [], error: null };
+}
+
+/**
+ * Historial de estados de una contratación (más reciente primero).
+ * @param {number|string} contratacionId
+ */
+export async function listFimbaContratacionEstadoLog(contratacionId) {
+  if (contratacionId == null || contratacionId === "") {
+    return { entries: [], error: new Error("id de contratación requerido") };
+  }
+  const { data, error } = await supabase
+    .from("fimba_contrataciones_estado_log")
+    .select(ESTADO_LOG_SELECT)
+    .eq("id_contratacion", contratacionId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false });
+  if (error) return { entries: [], error };
+  return { entries: data || [], error: null };
+}
+
+/**
+ * Inserta fila de log y denormaliza `ultimo_estado_conocido` en la contratación.
+ * Si estado vacío → limpia denormalizado sin insertar log.
+ * Si el texto no cambió respecto al actual → no inserta (idempotente).
+ *
+ * @param {number|string} contratacionId
+ * @param {{
+ *   estado: string|null,
+ *   actor?: { label?: string|null, created_by_integrante_id?: number|null, created_by_fimba_usuario_id?: number|null },
+ *   force?: boolean
+ * }} opts
+ */
+export async function appendFimbaContratacionEstado(contratacionId, opts = {}) {
+  if (contratacionId == null || contratacionId === "") {
+    return {
+      contratacion: null,
+      entry: null,
+      error: new Error("id de contratación requerido"),
+    };
+  }
+
+  const estadoRaw = opts.estado;
+  const estado =
+    estadoRaw != null && String(estadoRaw).trim() !== ""
+      ? String(estadoRaw).trim()
+      : null;
+
+  const { data: current, error: curErr } = await supabase
+    .from("fimba_contrataciones")
+    .select(CONTRATACION_SELECT)
+    .eq("id", contratacionId)
+    .maybeSingle();
+  if (curErr) {
+    return { contratacion: null, entry: null, error: curErr };
+  }
+  if (!current) {
+    return {
+      contratacion: null,
+      entry: null,
+      error: new Error("Contratación no encontrada"),
+    };
+  }
+
+  const prev =
+    current.ultimo_estado_conocido != null
+      ? String(current.ultimo_estado_conocido).trim()
+      : "";
+  const next = estado || "";
+  if (!opts.force && prev === next) {
+    return { contratacion: current, entry: null, error: null };
+  }
+
+  let entry = null;
+  if (estado) {
+    const actor = opts.actor || {};
+    const logRow = {
+      id_contratacion: Number(contratacionId),
+      estado,
+      created_by_label:
+        actor.label != null && String(actor.label).trim() !== ""
+          ? String(actor.label).trim()
+          : null,
+      created_by_integrante_id:
+        actor.created_by_integrante_id != null &&
+        Number.isFinite(Number(actor.created_by_integrante_id))
+          ? Number(actor.created_by_integrante_id)
+          : null,
+      created_by_fimba_usuario_id:
+        actor.created_by_fimba_usuario_id != null &&
+        Number.isFinite(Number(actor.created_by_fimba_usuario_id))
+          ? Number(actor.created_by_fimba_usuario_id)
+          : null,
+    };
+    const { data: inserted, error: logErr } = await supabase
+      .from("fimba_contrataciones_estado_log")
+      .insert(logRow)
+      .select(ESTADO_LOG_SELECT)
+      .single();
+    if (logErr) {
+      return { contratacion: null, entry: null, error: logErr };
+    }
+    entry = inserted;
+  }
+
+  const { data: updated, error: updErr } = await supabase
+    .from("fimba_contrataciones")
+    .update({
+      ultimo_estado_conocido: estado,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", contratacionId)
+    .select(CONTRATACION_SELECT)
+    .single();
+  if (updErr) {
+    return { contratacion: null, entry, error: updErr };
+  }
+  return { contratacion: updated, entry, error: null };
+}
+
+/**
+ * @param {object} payload
+ * @param {{ actor?: object }} opts — si hay estado inicial, se loguea con actor
+ */
+export async function createFimbaContratacion(payload, opts = {}) {
+  const id_edicion = Number(payload?.id_edicion);
+  if (!Number.isFinite(id_edicion)) {
+    return { contratacion: null, error: new Error("Edición inválida") };
+  }
+
+  const id_propuesta =
+    payload?.id_propuesta != null && payload.id_propuesta !== ""
+      ? Number(payload.id_propuesta)
+      : null;
+  const nombre =
+    payload?.nombre != null && String(payload.nombre).trim() !== ""
+      ? String(payload.nombre).trim()
+      : null;
+  const numero_expediente =
+    payload?.numero_expediente != null &&
+    String(payload.numero_expediente).trim() !== ""
+      ? String(payload.numero_expediente).trim()
+      : null;
+
+  const orden =
+    payload?.orden != null && Number.isFinite(Number(payload.orden))
+      ? Number(payload.orden)
+      : await fetchNextContratacionOrden(id_edicion);
+
+  const initialEstado =
+    payload?.ultimo_estado_conocido != null &&
+    String(payload.ultimo_estado_conocido).trim() !== ""
+      ? String(payload.ultimo_estado_conocido).trim()
+      : null;
+
+  const row = {
+    id_edicion,
+    orden,
+    numero_expediente,
+    id_propuesta: Number.isFinite(id_propuesta) ? id_propuesta : null,
+    nombre,
+    monto: parseFimbaMonto(payload?.monto),
+    fecha_limite_resol: payload?.fecha_limite_resol || null,
+    tipo_contratacion:
+      payload?.tipo_contratacion != null &&
+      String(payload.tipo_contratacion).trim() !== ""
+        ? String(payload.tipo_contratacion).trim()
+        : FIMBA_TIPO_CONTRATACION_DEFAULT,
+    envio_firma_mfm_nota: payload?.envio_firma_mfm_nota === true,
+    nota_firmada: payload?.nota_firmada === true,
+    falta_documentacion: payload?.falta_documentacion === true,
+    enviado_adm: payload?.enviado_adm === true,
+    // Se setea vía append si hay valor; null al insertar y luego log.
+    ultimo_estado_conocido: null,
+  };
+
+  const { data, error } = await supabase
+    .from("fimba_contrataciones")
+    .insert(row)
+    .select(CONTRATACION_SELECT)
+    .single();
+  if (error) return { contratacion: null, error };
+
+  if (initialEstado) {
+    const { contratacion: withEstado, error: estErr } =
+      await appendFimbaContratacionEstado(data.id, {
+        estado: initialEstado,
+        actor: opts.actor,
+        force: true,
+      });
+    if (estErr) return { contratacion: data, error: estErr };
+    return { contratacion: withEstado || data, error: null };
+  }
+
+  return { contratacion: data, error: null };
+}
+
+/**
+ * Actualiza campos de la contratación.
+ * Si `patch.ultimo_estado_conocido` está presente, usa append-only log
+ * (no basta con overwrite). Pasar `opts.actor` con label/ids de sesión.
+ *
+ * @param {number|string} contratacionId
+ * @param {object} patch
+ * @param {{ actor?: object }} opts
+ */
+export async function updateFimbaContratacion(
+  contratacionId,
+  patch = {},
+  opts = {},
+) {
+  if (contratacionId == null || contratacionId === "") {
+    return { contratacion: null, error: new Error("id de contratación requerido") };
+  }
+
+  const hasEstado = Object.prototype.hasOwnProperty.call(
+    patch,
+    "ultimo_estado_conocido",
+  );
+  const estadoValue = hasEstado ? patch.ultimo_estado_conocido : undefined;
+
+  // Campos no-estado
+  const body = { updated_at: new Date().toISOString() };
+  let hasFieldPatch = false;
+
+  if (patch.orden !== undefined) {
+    body.orden = Number(patch.orden) || 0;
+    hasFieldPatch = true;
+  }
+  if (patch.numero_expediente !== undefined) {
+    body.numero_expediente =
+      patch.numero_expediente != null &&
+      String(patch.numero_expediente).trim() !== ""
+        ? String(patch.numero_expediente).trim()
+        : null;
+    hasFieldPatch = true;
+  }
+  if (patch.id_propuesta !== undefined) {
+    const idp =
+      patch.id_propuesta != null && patch.id_propuesta !== ""
+        ? Number(patch.id_propuesta)
+        : null;
+    body.id_propuesta = Number.isFinite(idp) ? idp : null;
+    hasFieldPatch = true;
+  }
+  if (patch.nombre !== undefined) {
+    body.nombre =
+      patch.nombre != null && String(patch.nombre).trim() !== ""
+        ? String(patch.nombre).trim()
+        : null;
+    hasFieldPatch = true;
+  }
+  if (patch.monto !== undefined) {
+    body.monto = parseFimbaMonto(patch.monto);
+    hasFieldPatch = true;
+  }
+  if (patch.fecha_limite_resol !== undefined) {
+    body.fecha_limite_resol = patch.fecha_limite_resol || null;
+    hasFieldPatch = true;
+  }
+  if (patch.tipo_contratacion !== undefined) {
+    body.tipo_contratacion =
+      patch.tipo_contratacion != null &&
+      String(patch.tipo_contratacion).trim() !== ""
+        ? String(patch.tipo_contratacion).trim()
+        : FIMBA_TIPO_CONTRATACION_DEFAULT;
+    hasFieldPatch = true;
+  }
+  if (patch.envio_firma_mfm_nota !== undefined) {
+    body.envio_firma_mfm_nota = Boolean(patch.envio_firma_mfm_nota);
+    hasFieldPatch = true;
+  }
+  if (patch.nota_firmada !== undefined) {
+    body.nota_firmada = Boolean(patch.nota_firmada);
+    hasFieldPatch = true;
+  }
+  if (patch.falta_documentacion !== undefined) {
+    body.falta_documentacion = Boolean(patch.falta_documentacion);
+    hasFieldPatch = true;
+  }
+  if (patch.enviado_adm !== undefined) {
+    body.enviado_adm = Boolean(patch.enviado_adm);
+    hasFieldPatch = true;
+  }
+
+  let contratacion = null;
+
+  if (hasFieldPatch) {
+    const { data, error } = await supabase
+      .from("fimba_contrataciones")
+      .update(body)
+      .eq("id", contratacionId)
+      .select(CONTRATACION_SELECT)
+      .single();
+    if (error) return { contratacion: null, error };
+    contratacion = data;
+  }
+
+  if (hasEstado) {
+    const { contratacion: withEstado, error: estErr } =
+      await appendFimbaContratacionEstado(contratacionId, {
+        estado: estadoValue,
+        actor: opts.actor,
+      });
+    if (estErr) return { contratacion: contratacion, error: estErr };
+    contratacion = withEstado || contratacion;
+  }
+
+  if (!contratacion) {
+    // Solo pedían estado y era no-op, o vacío: re-fetch
+    const { data, error } = await supabase
+      .from("fimba_contrataciones")
+      .select(CONTRATACION_SELECT)
+      .eq("id", contratacionId)
+      .maybeSingle();
+    if (error) return { contratacion: null, error };
+    contratacion = data;
+  }
+
+  return { contratacion, error: null };
+}
+
+/**
+ * @param {number|string} contratacionId
+ */
+export async function deleteFimbaContratacion(contratacionId) {
+  if (contratacionId == null || contratacionId === "") {
+    return { error: new Error("id de contratación requerido") };
+  }
+  const { error } = await supabase
+    .from("fimba_contrataciones")
+    .delete()
+    .eq("id", contratacionId);
+  return { error: error || null };
 }

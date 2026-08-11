@@ -1,10 +1,14 @@
 /**
  * Sesión aislada FIMBA (mini-app externa, no Supabase Auth OFRN).
- * localStorage key: fimba_user
+ * localStorage keys: fimba_user | fimba_consulta_edicion
  */
 
 export const FIMBA_USER_STORAGE_KEY = "fimba_user";
 export const FIMBA_USER_SESSION_EVENT = "fimba-user-session";
+
+/** Enlace consulta general de edición (/fimba/c/:token). */
+export const FIMBA_CONSULTA_EDICION_KEY = "fimba_consulta_edicion";
+export const FIMBA_CONSULTA_EDICION_EVENT = "fimba-consulta-edicion-session";
 
 export const FIMBA_ROLES = {
   EDITOR_GENERAL: "editor_general",
@@ -26,10 +30,26 @@ export const FIMBA_ROLE_LABELS = {
  * @property {string} [loggedAt]
  */
 
-function notify() {
+/**
+ * @typedef {object} FimbaConsultaEdicionSession
+ * @property {string} token
+ * @property {number} id_edicion
+ * @property {string} [loggedAt]
+ */
+
+function notifyUser() {
   if (typeof window === "undefined") return;
   try {
     window.dispatchEvent(new Event(FIMBA_USER_SESSION_EVENT));
+  } catch {
+    /* ignore */
+  }
+}
+
+function notifyConsultaEdicion() {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new Event(FIMBA_CONSULTA_EDICION_EVENT));
   } catch {
     /* ignore */
   }
@@ -88,18 +108,67 @@ export function writeFimbaUserSession(user) {
     loggedAt: new Date().toISOString(),
   };
   localStorage.setItem(FIMBA_USER_STORAGE_KEY, JSON.stringify(payload));
-  notify();
+  notifyUser();
 }
 
 export function clearFimbaUserSession() {
   if (typeof window === "undefined") return;
   localStorage.removeItem(FIMBA_USER_STORAGE_KEY);
-  notify();
+  notifyUser();
 }
 
 /**
- * Acceso staff de edición para sesión FIMBA externa.
- * v1: solo editor_general; consulta listo en enum pero sin shell de edición.
+ * @returns {FimbaConsultaEdicionSession|null}
+ */
+export function readFimbaConsultaEdicionSession() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(FIMBA_CONSULTA_EDICION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const id_edicion = Number(parsed.id_edicion);
+    const token = String(parsed.token || "").trim();
+    if (!Number.isFinite(id_edicion) || !token) return null;
+    return {
+      token,
+      id_edicion,
+      loggedAt: parsed.loggedAt ? String(parsed.loggedAt) : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {{ token: string, id_edicion: number|string }} payload
+ */
+export function writeFimbaConsultaEdicionSession(payload) {
+  if (typeof window === "undefined") return;
+  const id_edicion = Number(payload?.id_edicion);
+  const token = String(payload?.token || "").trim();
+  if (!Number.isFinite(id_edicion) || !token) {
+    throw new Error("Sesión de consulta de edición inválida");
+  }
+  localStorage.setItem(
+    FIMBA_CONSULTA_EDICION_KEY,
+    JSON.stringify({
+      token,
+      id_edicion,
+      loggedAt: new Date().toISOString(),
+    }),
+  );
+  notifyConsultaEdicion();
+}
+
+export function clearFimbaConsultaEdicionSession() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(FIMBA_CONSULTA_EDICION_KEY);
+  notifyConsultaEdicion();
+}
+
+/**
+ * Acceso staff de edición para sesión FIMBA externa (solo editor).
  * @param {FimbaUserSession|null|undefined} session
  * @param {number|string|null|undefined} edicionIdFromRoute
  */
@@ -111,18 +180,149 @@ export function fimbaSessionCanEditEdicion(session, edicionIdFromRoute) {
 }
 
 /**
- * ¿La ruta staff actual es accesible con esta sesión?
+ * Rutas permitidas en modo consulta de edición (sin Usuarios / Contrataciones).
+ * @param {string} pathname
+ * @param {number|string} edicionId
+ */
+export function fimbaConsultaPathAllowed(pathname, edicionId) {
+  if (edicionId == null || edicionId === "") return false;
+  const path = String(pathname || "");
+  const normalized =
+    path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
+  if (normalized === "/fimba") return true;
+  const m = normalized.match(/^\/fimba\/edicion\/([^/]+)(?:\/(.*))?$/);
+  if (!m) return false;
+  if (String(m[1]) !== String(edicionId)) return false;
+  const rest = m[2] || "";
+  if (!rest) return true;
+  if (
+    rest === "usuarios" ||
+    rest.startsWith("usuarios/") ||
+    rest === "contrataciones" ||
+    rest.startsWith("contrataciones/")
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * ¿La ruta staff actual es accesible con esta sesión de usuario FIMBA?
+ * Editor: full edition. Consulta: same paths except Usuarios/Contrataciones.
  * @param {string} pathname
  * @param {FimbaUserSession|null|undefined} session
  */
 export function fimbaSessionCanAccessPath(pathname, session) {
   if (!session) return false;
-  if (session.rol_fimba !== FIMBA_ROLES.EDITOR_GENERAL) return false;
   const path = String(pathname || "");
-  if (path === "/fimba" || path === "/fimba/") return true;
-  const m = path.match(/^\/fimba\/edicion\/([^/]+)/);
-  if (m) return String(session.id_edicion) === String(m[1]);
+  if (path === "/fimba" || path === "/fimba/") {
+    return (
+      session.rol_fimba === FIMBA_ROLES.EDITOR_GENERAL ||
+      session.rol_fimba === FIMBA_ROLES.CONSULTA
+    );
+  }
+  if (session.rol_fimba === FIMBA_ROLES.EDITOR_GENERAL) {
+    const m = path.match(/^\/fimba\/edicion\/([^/]+)/);
+    if (m) return String(session.id_edicion) === String(m[1]);
+    return false;
+  }
+  if (session.rol_fimba === FIMBA_ROLES.CONSULTA) {
+    return fimbaConsultaPathAllowed(pathname, session.id_edicion);
+  }
   return false;
+}
+
+/**
+ * Token de consulta de edición: solo lecturas permitidas.
+ * @param {string} pathname
+ * @param {FimbaConsultaEdicionSession|null|undefined} session
+ */
+export function fimbaConsultaTokenCanAccessPath(pathname, session) {
+  if (!session?.id_edicion) return false;
+  return fimbaConsultaPathAllowed(pathname, session.id_edicion);
+}
+
+/**
+ * Resuelve permisos efectivos en el shell FIMBA.
+ * Prioridad: OFRN management → editor_general → consulta (user o token).
+ *
+ * @param {{
+ *   ofrnManagement?: boolean,
+ *   fimbaUser?: FimbaUserSession|null,
+ *   consultaTokenSession?: FimbaConsultaEdicionSession|null,
+ *   edicionId?: number|string|null,
+ * }} args
+ */
+export function resolveFimbaAccess({
+  ofrnManagement = false,
+  fimbaUser = null,
+  consultaTokenSession = null,
+  edicionId = null,
+} = {}) {
+  if (ofrnManagement) {
+    return {
+      allowed: true,
+      readOnly: false,
+      canManageUsers: true,
+      canSeeUsuarios: true,
+      canSeeContrataciones: true,
+      source: "ofrn",
+    };
+  }
+
+  const matchUser =
+    fimbaUser &&
+    (edicionId == null ||
+      edicionId === "" ||
+      String(fimbaUser.id_edicion) === String(edicionId));
+
+  if (matchUser && fimbaUser.rol_fimba === FIMBA_ROLES.EDITOR_GENERAL) {
+    return {
+      allowed: true,
+      readOnly: false,
+      canManageUsers: true,
+      canSeeUsuarios: true,
+      canSeeContrataciones: true,
+      source: "fimba_editor",
+    };
+  }
+
+  if (matchUser && fimbaUser.rol_fimba === FIMBA_ROLES.CONSULTA) {
+    return {
+      allowed: true,
+      readOnly: true,
+      canManageUsers: false,
+      canSeeUsuarios: false,
+      canSeeContrataciones: false,
+      source: "fimba_consulta",
+    };
+  }
+
+  const matchToken =
+    consultaTokenSession &&
+    (edicionId == null ||
+      edicionId === "" ||
+      String(consultaTokenSession.id_edicion) === String(edicionId));
+
+  if (matchToken) {
+    return {
+      allowed: true,
+      readOnly: true,
+      canManageUsers: false,
+      canSeeUsuarios: false,
+      canSeeContrataciones: false,
+      source: "token_consulta",
+    };
+  }
+
+  return {
+    allowed: false,
+    readOnly: true,
+    canManageUsers: false,
+    canSeeUsuarios: false,
+    canSeeContrataciones: false,
+    source: "none",
+  };
 }
 
 /** Genera clave temporal legible (8 chars alphanum excluye ambigüos). */

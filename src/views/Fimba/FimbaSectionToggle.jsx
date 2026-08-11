@@ -5,8 +5,10 @@ import {
   IconCalendar,
   IconBus,
   IconBed,
+  IconClipboardCheck,
   IconUsers,
 } from "../../components/ui/Icons";
+import { useFimbaAccess } from "../../context/FimbaAccessContext";
 
 /** Path without trailing slash (except root). */
 function normalizePath(pathname) {
@@ -16,8 +18,9 @@ function normalizePath(pathname) {
 }
 
 /**
- * Segment order: Artistas | Agenda | Transportes | Hotelería | Usuarios.
- * Usuarios is edición-only (hidden when artista-scoped).
+ * Segment order: Artistas | Agenda | Transportes | Hotelería | Contrataciones | Usuarios.
+ * All tabs navigate to edición-level routes (never keep /artista/:id).
+ * Consulta RO: oculta Contrataciones y Usuarios.
  */
 const SECTIONS = [
   { key: "artistas", label: "Artistas", Icon: IconMusic, segment: null },
@@ -35,11 +38,18 @@ const SECTIONS = [
     segment: "hoteleria",
   },
   {
+    key: "contrataciones",
+    label: "Contrataciones",
+    Icon: IconClipboardCheck,
+    segment: "contrataciones",
+    requiresContrataciones: true,
+  },
+  {
     key: "usuarios",
     label: "Usuarios",
     Icon: IconUsers,
     segment: "usuarios",
-    edicionOnly: true,
+    requiresUsuarios: true,
   },
 ];
 
@@ -67,54 +77,46 @@ export function isFimbaArtistasPath(pathname, edicionId) {
 }
 
 /**
+ * Active only on edición-level section paths (top toggle exits artista context).
+ * Artist-scoped logistics URLs do not highlight these tabs.
  * @param {string} pathname
  * @param {string|number} edicionId
- * @param {string|null} artistaId
  * @param {string} segment
  */
-export function isFimbaSectionPath(pathname, edicionId, artistaId, segment) {
+export function isFimbaSectionPath(pathname, edicionId, segment) {
   if (!segment || edicionId == null || edicionId === "") return false;
   const path = normalizePath(pathname);
   const ed = String(edicionId);
-  if (artistaId) {
-    return (
-      path === `/fimba/edicion/${ed}/artista/${artistaId}/${segment}`
-    );
-  }
   return path === `/fimba/edicion/${ed}/${segment}`;
 }
 
 /**
- * Segmented control: Artistas | Agenda | Transportes | Hotelería | Usuarios.
- * Preserves edicionId and artistaId for logistics sections when present.
- * Usuarios always edición-scoped and only shown without artista filter.
+ * Segmented control: Artistas | Agenda | Transportes | Hotelería | Contrataciones | Usuarios.
+ * Always targets `/fimba/edicion/:edicionId/...` — never appends `/artista/:id`.
  */
 export default function FimbaSectionToggle({
   edicionId: edicionIdProp,
-  artistaId: artistaIdProp,
 }) {
   const params = useParams();
   const { pathname } = useLocation();
+  const { canSeeUsuarios, canSeeContrataciones } = useFimbaAccess();
   const fromPath = parseFimbaSectionIds(pathname);
   const edicionId = edicionIdProp ?? params.edicionId ?? fromPath.edicionId;
-  const artistaId = artistaIdProp ?? params.artistaId ?? fromPath.artistaId;
 
   if (!edicionId) return null;
 
-  const edicionBase = `/fimba/edicion/${edicionId}`;
-  const logisticsBase = artistaId
-    ? `${edicionBase}/artista/${artistaId}`
-    : edicionBase;
+  const base = `/fimba/edicion/${edicionId}`;
 
-  const visible = SECTIONS.filter((s) => !(s.edicionOnly && artistaId));
+  const visible = SECTIONS.filter((s) => {
+    if (s.requiresUsuarios && !canSeeUsuarios) return false;
+    if (s.requiresContrataciones && !canSeeContrataciones) return false;
+    return true;
+  });
 
   return (
     <nav className="fimba-section-toggle" aria-label="Secciones de la edición">
-      {visible.map(({ key, label, Icon, segment, edicionOnly }) => {
-        const to =
-          segment == null
-            ? edicionBase
-            : `${edicionOnly ? edicionBase : logisticsBase}/${segment}`;
+      {visible.map(({ key, label, Icon, segment }) => {
+        const to = segment == null ? base : `${base}/${segment}`;
 
         return (
           <NavLink
@@ -125,12 +127,7 @@ export default function FimbaSectionToggle({
               const active =
                 key === "artistas"
                   ? isFimbaArtistasPath(pathname, edicionId)
-                  : isFimbaSectionPath(
-                      pathname,
-                      edicionId,
-                      segment === "usuarios" ? null : artistaId,
-                      segment,
-                    );
+                  : isFimbaSectionPath(pathname, edicionId, segment);
               return `fimba-section-toggle-item${active ? " is-active" : ""}`;
             }}
           >

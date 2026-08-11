@@ -9,10 +9,12 @@ import {
 } from "../../services/fimbaService";
 import { useAuth } from "../../context/AuthContext";
 import { useFimbaUserSession } from "../../hooks/useFimbaUserSession";
+import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
 
 export default function FimbaHome() {
   const { isManagement } = useAuth();
   const fimbaUser = useFimbaUserSession();
+  const consultaToken = useFimbaConsultaEdicionSession();
   const isOfrnStaff = Boolean(isManagement);
   const [ediciones, setEdiciones] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,13 +31,14 @@ export default function FimbaHome() {
   };
 
   useEffect(() => {
-    if (!isOfrnStaff && fimbaUser?.id_edicion) return;
+    if (!isOfrnStaff && (fimbaUser?.id_edicion || consultaToken?.id_edicion)) return;
     reload();
-  }, [isOfrnStaff, fimbaUser?.id_edicion]);
+  }, [isOfrnStaff, fimbaUser?.id_edicion, consultaToken?.id_edicion]);
 
-  // Usuario FIMBA externo: ir directo a su edición (no listado multi-año).
-  if (!isOfrnStaff && fimbaUser?.id_edicion) {
-    return <Navigate to={`/fimba/edicion/${fimbaUser.id_edicion}`} replace />;
+  // Usuario FIMBA externo o enlace consulta: ir directo a su edición.
+  const externalEdicionId = fimbaUser?.id_edicion || consultaToken?.id_edicion;
+  if (!isOfrnStaff && externalEdicionId) {
+    return <Navigate to={`/fimba/edicion/${externalEdicionId}`} replace />;
   }
 
   return (

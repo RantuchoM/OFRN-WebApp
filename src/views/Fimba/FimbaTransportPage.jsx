@@ -40,6 +40,7 @@ import { eventTypeIdForCategoria } from "../../utils/giraTransportUtils";
 import FimbaDestinoStopModal from "./FimbaDestinoStopModal";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import FimbaStopRulesManager from "./FimbaStopRulesManager";
+import { useFimbaAccess } from "../../context/FimbaAccessContext";
 
 function sliceTime(t) {
   if (!t) return "—";
@@ -72,6 +73,7 @@ const ORIGEN_FILTERS = [
  */
 export default function FimbaTransportPage() {
   const { edicionId, artistaId } = useParams();
+  const { readOnly } = useFimbaAccess();
   const [searchParams] = useSearchParams();
   const filterFromQuery = searchParams.get("artista") || artistaId || null;
 
@@ -527,23 +529,25 @@ export default function FimbaTransportPage() {
             </a>
           </p>
         </div>
-        <button
-          type="button"
-          className="fimba-btn fimba-btn-primary"
-          onClick={() =>
-            setModal({
-              mode: "create",
-              preselectPropuesta: filtroArtista || artistaId || null,
-            })
-          }
-          title={
-            vehiculos.length === 0
-              ? "Sin vehículos: solo podés marcar SIN SERVICIO"
-              : "Nuevo trayecto"
-          }
-        >
-          <IconPlus size={16} /> Nuevo trayecto
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            className="fimba-btn fimba-btn-primary"
+            onClick={() =>
+              setModal({
+                mode: "create",
+                preselectPropuesta: filtroArtista || artistaId || null,
+              })
+            }
+            title={
+              vehiculos.length === 0
+                ? "Sin vehículos: solo podés marcar SIN SERVICIO"
+                : "Nuevo trayecto"
+            }
+          >
+            <IconPlus size={16} /> Nuevo trayecto
+          </button>
+        )}
       </div>
 
       {error && (
@@ -580,6 +584,7 @@ export default function FimbaTransportPage() {
             <span className="fimba-badge">
               {vehiculos.length} unidad{vehiculos.length === 1 ? "" : "es"}
             </span>
+            {!readOnly && (
             <button
               type="button"
               className="fimba-btn fimba-btn-primary"
@@ -604,6 +609,7 @@ export default function FimbaTransportPage() {
                 </>
               )}
             </button>
+            )}
           </div>
         </div>
         <p className="fimba-muted" style={{ margin: "0 0 0.75rem", fontSize: "0.82rem" }}>
@@ -616,7 +622,7 @@ export default function FimbaTransportPage() {
           FIMBA) tras cada parada, vs capacidad de la unidad.
         </p>
 
-        {showVehForm && (
+        {showVehForm && !readOnly && (
           <form
             onSubmit={handleSaveVehiculo}
             style={{
@@ -867,25 +873,27 @@ export default function FimbaTransportPage() {
                         {libresPeak != null ? libresPeak : "—"}
                       </td>
                       <td>
-                        <button
-                          type="button"
-                          className="fimba-btn fimba-btn-ghost"
-                          title="Editar vehículo"
-                          aria-label={`Editar ${labelGiraTransporte(gt)}`}
-                          style={{
-                            padding: "0.25rem 0.4rem",
-                            color: rowEditing
-                              ? "var(--fimba-deep)"
-                              : undefined,
-                          }}
-                          onClick={() =>
-                            rowEditing
-                              ? closeVehForm()
-                              : startEditVehiculo(gt)
-                          }
-                        >
-                          <IconEdit size={15} />
-                        </button>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            className="fimba-btn fimba-btn-ghost"
+                            title="Editar vehículo"
+                            aria-label={`Editar ${labelGiraTransporte(gt)}`}
+                            style={{
+                              padding: "0.25rem 0.4rem",
+                              color: rowEditing
+                                ? "var(--fimba-deep)"
+                                : undefined,
+                            }}
+                            onClick={() =>
+                              rowEditing
+                                ? closeVehForm()
+                                : startEditVehiculo(gt)
+                            }
+                          >
+                            <IconEdit size={15} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -1166,15 +1174,18 @@ export default function FimbaTransportPage() {
                           ? "fimba-row-ambos"
                           : "";
                     const canEditStops =
-                      giraTransporteIdsFromEvent(ev).length > 0 ||
-                      vehiculos.length > 0;
+                      !readOnly &&
+                      (giraTransporteIdsFromEvent(ev).length > 0 ||
+                        vehiculos.length > 0);
                     const primaryVehicleId =
                       metrics.primary?.id_gira_transporte ??
                       metrics.perVehicle?.[0]?.id_gira_transporte ??
                       giraTransporteIdsFromEvent(ev)[0] ??
                       null;
                     const canAddIntermediate =
-                      primaryVehicleId != null && primaryVehicleId !== "";
+                      !readOnly &&
+                      primaryVehicleId != null &&
+                      primaryVehicleId !== "";
                     const nextEvForRow = metrics?.next_event || null;
                     const nextEvHasRealStop = Boolean(nextEvForRow);
                     const horaCom = sliceTime(ev.hora_inicio);
@@ -1541,23 +1552,27 @@ export default function FimbaTransportPage() {
                               </button>
                             </>
                           ) : null}
-                          <button
-                            type="button"
-                            className="fimba-btn fimba-btn-ghost"
-                            onClick={() => setModal({ mode: "edit", evento: ev })}
-                            title="Editar"
-                          >
-                            <IconEdit size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className="fimba-btn fimba-btn-danger"
-                            style={{ marginLeft: 4 }}
-                            onClick={() => handleDelete(ev)}
-                            title="Eliminar"
-                          >
-                            <IconTrash size={14} />
-                          </button>
+                          {!readOnly && (
+                            <>
+                              <button
+                                type="button"
+                                className="fimba-btn fimba-btn-ghost"
+                                onClick={() => setModal({ mode: "edit", evento: ev })}
+                                title="Editar"
+                              >
+                                <IconEdit size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                className="fimba-btn fimba-btn-danger"
+                                style={{ marginLeft: 4 }}
+                                onClick={() => handleDelete(ev)}
+                                title="Eliminar"
+                              >
+                                <IconTrash size={14} />
+                              </button>
+                            </>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1569,7 +1584,7 @@ export default function FimbaTransportPage() {
         )}
       </section>
 
-      {modal &&
+      {!readOnly && modal &&
         createPortal(
           <FimbaEventoFormModal
             mode={modal.mode}

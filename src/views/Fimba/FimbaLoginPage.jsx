@@ -47,10 +47,9 @@ export default function FimbaLoginPage() {
           setBoot(false);
           return;
         }
-        if (user.rol_fimba !== FIMBA_ROLES.EDITOR_GENERAL) {
-          setError(
-            "Tu rol es «consulta». Por ahora el acceso de edición requiere editor general.",
-          );
+        if (user.rol_fimba !== FIMBA_ROLES.EDITOR_GENERAL &&
+            user.rol_fimba !== FIMBA_ROLES.CONSULTA) {
+          setError("Rol FIMBA no reconocido.");
           setBoot(false);
           return;
         }
@@ -59,7 +58,11 @@ export default function FimbaLoginPage() {
         return;
       }
 
-      if (existing?.rol_fimba === FIMBA_ROLES.EDITOR_GENERAL && existing.id_edicion) {
+      if (
+        (existing?.rol_fimba === FIMBA_ROLES.EDITOR_GENERAL ||
+          existing?.rol_fimba === FIMBA_ROLES.CONSULTA) &&
+        existing.id_edicion
+      ) {
         navigate(`/fimba/edicion/${existing.id_edicion}`, { replace: true });
         return;
       }
@@ -83,10 +86,11 @@ export default function FimbaLoginPage() {
         setError(err?.message || "No se pudo iniciar sesión");
         return;
       }
-      if (user.rol_fimba !== FIMBA_ROLES.EDITOR_GENERAL) {
-        setError(
-          "Tu rol es «consulta». Por ahora el acceso completo de la edición requiere editor general.",
-        );
+      if (
+        user.rol_fimba !== FIMBA_ROLES.EDITOR_GENERAL &&
+        user.rol_fimba !== FIMBA_ROLES.CONSULTA
+      ) {
+        setError("Rol FIMBA no reconocido.");
         return;
       }
       writeFimbaUserSession(user);

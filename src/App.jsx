@@ -121,6 +121,9 @@ const MusicTranslationView = lazy(
 );
 const FimbaStaffApp = lazy(() => import("./views/Fimba/FimbaStaffApp"));
 const FimbaTokenPage = lazy(() => import("./views/Fimba/FimbaTokenPage"));
+const FimbaEdicionConsultaEntry = lazy(() =>
+  import("./views/Fimba/FimbaEdicionConsultaEntry"),
+);
 const FimbaLoginPage = lazy(() => import("./views/Fimba/FimbaLoginPage"));
 
 const ViewFallback = () => (
@@ -1613,6 +1616,14 @@ export default function App() {
                 element={
                   <LazyRoute>
                     <FimbaTokenPage kind="edicion" />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="/fimba/c/:token"
+                element={
+                  <LazyRoute>
+                    <FimbaEdicionConsultaEntry />
                   </LazyRoute>
                 }
               />

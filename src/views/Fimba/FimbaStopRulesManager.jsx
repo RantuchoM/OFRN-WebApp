@@ -1,6 +1,6 @@
 /**
  * FIMBA — Gestionar subidas / bajadas por parada.
- * - Artistas: plazas (cantidad_planificada + materiales vía input numérico)
+ * - Artistas: plazas (tope = cantidad_planificada + plazas_extra_materiales)
  * - Orquesta OFRN: embebe StopRulesManager (giras_logistica_rutas) en la misma modal
  */
 import React, { useEffect, useMemo, useState } from "react";
@@ -15,11 +15,14 @@ import {
   IconLoader,
 } from "../../components/ui/Icons";
 import {
+  capacidadGiraTransporte,
   clearFimbaPropuestaRutaStop,
-  computeFimbaCapacity,
+  computeArtistaTransporteUsage,
+  defaultArtistaAssignPlazas,
   labelGiraTransporte,
   listFimbaPropuestaRutas,
   upsertFimbaPropuestaRutaStop,
+  validateArtistaTransporteAssign,
 } from "../../services/fimbaService";
 import { formatEventLocation } from "../../utils/fimbaTransportBoarding";
 import StopRulesManager from "../Giras/StopRulesManager";
@@ -43,6 +46,8 @@ export default function FimbaStopRulesManager({
 }) {
   const [tab, setTab] = useState("artistas"); // artistas | orquesta
   const [rutas, setRutas] = useState([]);
+  /** Todas las rutas de la edición (para tope transporte por artista). */
+  const [allRutas, setAllRutas] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [propuestaId, setPropuestaId] = useState("");
@@ -55,8 +60,6 @@ export default function FimbaStopRulesManager({
   const title = type === "up" ? "Gestionar Subidas" : "Gestionar Bajadas";
   const colorClass = type === "up" ? "text-emerald-700" : "text-rose-700";
   const bgClass = type === "up" ? "bg-emerald-50" : "bg-rose-50";
-  const field =
-    type === "up" ? "id_evento_subida" : "id_evento_bajada";
 
   useEffect(() => {
     if (isOpen && transportId != null) {
@@ -72,17 +75,19 @@ export default function FimbaStopRulesManager({
     (async () => {
       setLoading(true);
       setError(null);
-      const { rutas: rows, error: err } = await listFimbaPropuestaRutas(
-        edicionId,
-        {
+      const [stopRes, allRes] = await Promise.all([
+        listFimbaPropuestaRutas(edicionId, {
           id_gira_transporte: vehicleId || null,
           id_evento: event?.id,
           type,
-        },
-      );
+        }),
+        listFimbaPropuestaRutas(edicionId, {}),
+      ]);
       if (cancelled) return;
-      if (err) setError(err.message || "No se pudieron cargar las rutas");
-      setRutas(rows || []);
+      if (stopRes.error)
+        setError(stopRes.error.message || "No se pudieron cargar las rutas");
+      setRutas(stopRes.rutas || []);
+      setAllRutas(allRes.rutas || []);
       setLoading(false);
     })();
     return () => {
@@ -96,28 +101,81 @@ export default function FimbaStopRulesManager({
     [vehiculos, vehicleId],
   );
 
+  const vehicleLibres = useMemo(() => {
+    // Sin secuencia de transit aquí: cap = capacidad_maxima del bus (libres ≤ cap).
+    return capacidadGiraTransporte(activeVehicle);
+  }, [activeVehicle]);
+
+  /** Si ya hay definición en esta parada+vehículo del artista, se edita esa fila. */
+  const existingRutaForSelection = useMemo(() => {
+    if (!propuestaId || !vehicleId) return null;
+    return (
+      (rutas || []).find(
+        (r) =>
+          String(r.id_propuesta) === String(propuestaId) &&
+          String(r.id_gira_transporte) === String(vehicleId),
+      ) || null
+    );
+  }, [rutas, propuestaId, vehicleId]);
+
+  const usageForSelection = useMemo(() => {
+    if (!propuestaId) return null;
+    const p = (propuestas || []).find((x) => String(x.id) === String(propuestaId));
+    if (!p) return null;
+    const excludeRutaIds = existingRutaForSelection?.id
+      ? [existingRutaForSelection.id]
+      : [];
+    return computeArtistaTransporteUsage(p, allRutas, { excludeRutaIds });
+  }, [propuestaId, propuestas, allRutas, existingRutaForSelection]);
+
   const defaultPlazasForPropuesta = (pid) => {
     const p = (propuestas || []).find((x) => String(x.id) === String(pid));
     if (!p) return 1;
-    return Math.max(1, computeFimbaCapacity(p).para_transporte || 1);
+    const existing =
+      (rutas || []).find(
+        (r) =>
+          String(r.id_propuesta) === String(pid) &&
+          String(r.id_gira_transporte) === String(vehicleId),
+      ) || null;
+    const usage = computeArtistaTransporteUsage(p, allRutas, {
+      excludeRutaIds: existing?.id ? [existing.id] : [],
+    });
+    const n = defaultArtistaAssignPlazas({
+      remaining: usage.remaining,
+      vehicleLibres,
+    });
+    // Si re-edita una fila existente y aún no hay restantes “libres”, conservar valor actual
+    if (n <= 0 && existing && Number(existing.plazas) > 0) {
+      return Math.max(0, Number(existing.plazas) || 0);
+    }
+    return n;
   };
 
   const handlePropuestaChange = (id) => {
     setPropuestaId(id);
     if (id) setPlazas(String(defaultPlazasForPropuesta(id)));
+    else setPlazas("");
   };
 
+  // Recalcular default al cambiar vehículo / al refrescar uso global
+  useEffect(() => {
+    if (!propuestaId || !isOpen) return;
+    setPlazas(String(defaultPlazasForPropuesta(propuestaId)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vehicleId, allRutas, vehicleLibres]);
+
   const reloadRutas = async () => {
-    const { rutas: rows, error: err } = await listFimbaPropuestaRutas(
-      edicionId,
-      {
+    const [stopRes, allRes] = await Promise.all([
+      listFimbaPropuestaRutas(edicionId, {
         id_gira_transporte: vehicleId || null,
         id_evento: event?.id,
         type,
-      },
-    );
-    if (err) setError(err.message);
-    setRutas(rows || []);
+      }),
+      listFimbaPropuestaRutas(edicionId, {}),
+    ]);
+    if (stopRes.error) setError(stopRes.error.message);
+    setRutas(stopRes.rutas || []);
+    setAllRutas(allRes.rutas || []);
   };
 
   const handleAdd = async () => {
@@ -133,6 +191,18 @@ export default function FimbaStopRulesManager({
     if (n <= 0) {
       setError("Cantidad de plazas > 0");
       return;
+    }
+    const p = (propuestas || []).find((x) => String(x.id) === String(propuestaId));
+    if (p && usageForSelection) {
+      const check = validateArtistaTransporteAssign(
+        p,
+        usageForSelection.used,
+        n,
+      );
+      if (!check.ok) {
+        setError(check.error.message);
+        return;
+      }
     }
     setSaving(true);
     setError(null);
@@ -298,6 +368,14 @@ export default function FimbaStopRulesManager({
                       {rutas.map((r) => {
                         const p = r.propuesta || {};
                         const name = p.nombre || `Artista #${r.id_propuesta}`;
+                        const full = (propuestas || []).find(
+                          (x) => String(x.id) === String(r.id_propuesta),
+                        ) || p;
+                        const usage = computeArtistaTransporteUsage(
+                          full,
+                          allRutas,
+                          {},
+                        );
                         return (
                           <li
                             key={r.id}
@@ -312,6 +390,13 @@ export default function FimbaStopRulesManager({
                                 {r.id_evento_subida && r.id_evento_bajada
                                   ? " · trayecto completo"
                                   : " · extremo pendiente"}
+                                {usage.tope > 0 ? (
+                                  <span className="ml-1">
+                                    · disponibles:{" "}
+                                    {Math.max(0, usage.tope - usage.used)} de{" "}
+                                    {usage.tope}
+                                  </span>
+                                ) : null}
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
@@ -351,11 +436,17 @@ export default function FimbaStopRulesManager({
                       >
                         <option value="">— Seleccionar —</option>
                         {(propuestas || []).map((p) => {
-                          const cap = computeFimbaCapacity(p).para_transporte;
+                          const usage = computeArtistaTransporteUsage(
+                            p,
+                            allRutas,
+                            {},
+                          );
                           return (
                             <option key={p.id} value={p.id}>
                               {p.nombre}
-                              {cap ? ` (${cap} transp.)` : ""}
+                              {usage.tope
+                                ? ` (disp. ${usage.remaining}/${usage.tope})`
+                                : ""}
                             </option>
                           );
                         })}
@@ -368,7 +459,11 @@ export default function FimbaStopRulesManager({
                       <input
                         type="number"
                         min={1}
-                        max={500}
+                        max={
+                          usageForSelection
+                            ? Math.max(1, usageForSelection.remaining)
+                            : 500
+                        }
                         className="w-full text-xs border rounded p-2 outline-none focus:border-pink-500 bg-white"
                         value={plazas}
                         onChange={(e) => setPlazas(e.target.value)}
@@ -376,16 +471,52 @@ export default function FimbaStopRulesManager({
                       />
                     </div>
                   </div>
-                  <p className="text-[10px] text-slate-500 m-0">
-                    Default plazas = planificada + extras materiales. Cada
-                    definición define {type === "up" ? "dónde sube" : "dónde baja"}{" "}
-                    el bloque de plazas del artista en el vehículo (como
-                    OFRN, pero por cantidad).
-                  </p>
+                  {usageForSelection ? (
+                    <p
+                      className={`text-[10px] m-0 ${
+                        usageForSelection.remaining <= 0
+                          ? "text-rose-600 font-semibold"
+                          : "text-slate-600"
+                      }`}
+                    >
+                      disponibles: {usageForSelection.remaining} de{" "}
+                      {usageForSelection.tope}
+                      {usageForSelection.tope > 0 ? (
+                        <span className="text-slate-400 font-normal">
+                          {" "}
+                          (                          {usageForSelection.planificadas} planificadas +{" "}
+                          {usageForSelection.materiales} equip.
+                          {usageForSelection.used > 0
+                            ? ` · ya asignadas: ${usageForSelection.used}`
+                            : ""}
+                          )
+                        </span>
+                      ) : null}
+                      {vehicleLibres != null ? (
+                        <span className="text-slate-400">
+                          {" "}
+                          · cap. vehículo {vehicleLibres}
+                        </span>
+                      ) : null}
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-slate-500 m-0">
+                      Default plazas = min(restantes del tope transporte, cap.
+                      del vehículo). Tope = planificada + extra equip.
+                      Hard-block si se superan.
+                    </p>
+                  )}
                   <button
                     type="button"
                     onClick={handleAdd}
-                    disabled={saving || loading || !vehicleId}
+                    disabled={
+                      saving ||
+                      loading ||
+                      !vehicleId ||
+                      (usageForSelection != null &&
+                        usageForSelection.remaining <= 0 &&
+                        !existingRutaForSelection)
+                    }
                     className={`w-full py-2 rounded text-xs font-bold text-white shadow-sm flex justify-center items-center gap-2 disabled:opacity-60 ${
                       type === "up"
                         ? "bg-emerald-600 hover:bg-emerald-700"

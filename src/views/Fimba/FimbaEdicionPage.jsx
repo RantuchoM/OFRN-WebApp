@@ -16,10 +16,10 @@ import {
   IconUser,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
-import { useFimbaUserSession } from "../../hooks/useFimbaUserSession";
-import { fimbaSessionCanEditEdicion } from "../../utils/fimbaUserSession";
+import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import {
   FIMBA_ARTISTA_COLORS,
+  FIMBA_GENEROS,
   FIMBA_PROPUESTA_ESTADOS,
   FIMBA_TIPOS_ALIMENTACION,
   computeFimbaCapacity,
@@ -43,6 +43,7 @@ const EDITABLE_COLS = [
   "checkout_at",
   "checkout_late",
   "id_hotel",
+  "observaciones_logisticas",
 ];
 
 function formatFecha(f) {
@@ -69,6 +70,7 @@ function draftFromPropuesta(p) {
     checkout_at: p.checkout_at ? String(p.checkout_at).slice(0, 10) : "",
     checkout_late: asBool(p.checkout_late),
     id_hotel: p.id_hotel != null && p.id_hotel !== "" ? String(p.id_hotel) : "",
+    observaciones_logisticas: p.observaciones_logisticas || "",
   };
 }
 
@@ -91,7 +93,7 @@ function validatePropuestaDraft(draft) {
 
   const extraRaw = Number(draft.plazas_extra_materiales);
   if (!Number.isFinite(extraRaw) || extraRaw < 0) {
-    return { ok: false, error: "Extra materiales debe ser ≥ 0" };
+    return { ok: false, error: "Extra equip. debe ser ≥ 0" };
   }
   const extra = Math.round(extraRaw);
 
@@ -123,6 +125,7 @@ function validatePropuestaDraft(draft) {
       checkin_early: asBool(draft.checkin_early),
       checkout_late: asBool(draft.checkout_late),
       id_hotel: draft.id_hotel !== "" && draft.id_hotel != null ? Number(draft.id_hotel) : null,
+      observaciones_logisticas: String(draft.observaciones_logisticas || "").trim() || null,
     },
   };
 }
@@ -131,6 +134,9 @@ function draftsEqual(a, b) {
   return EDITABLE_COLS.every((k) => {
     if (k === "checkin_early" || k === "checkout_late") {
       return asBool(a?.[k]) === asBool(b?.[k]);
+    }
+    if (k === "observaciones_logisticas") {
+      return String(a?.[k] ?? "").trim() === String(b?.[k] ?? "").trim();
     }
     return String(a?.[k] ?? "") === String(b?.[k] ?? "");
   });
@@ -146,10 +152,8 @@ function propuestaKey(id) {
 export default function FimbaEdicionPage() {
   const { edicionId } = useParams();
   const { isManagement } = useAuth();
-  const fimbaUser = useFimbaUserSession();
+  const { readOnly, canManageUsers, canSeeUsuarios } = useFimbaAccess();
   const isOfrnStaff = Boolean(isManagement);
-  const canManageUsers =
-    isOfrnStaff || fimbaSessionCanEditEdicion(fimbaUser, edicionId);
   const [edicion, setEdicion] = useState(null);
   const [propuestas, setPropuestas] = useState([]);
   const [hoteles, setHoteles] = useState([]);
@@ -254,7 +258,7 @@ export default function FimbaEdicionPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-          {canManageUsers && (
+          {canSeeUsuarios && canManageUsers && (
             <Link
               to={`/fimba/edicion/${edicionId}/usuarios`}
               className="fimba-btn fimba-btn-ghost"
@@ -263,13 +267,15 @@ export default function FimbaEdicionPage() {
               <IconUser size={16} /> Usuarios
             </Link>
           )}
-          <button
-            type="button"
-            className="fimba-btn fimba-btn-primary"
-            onClick={() => setModal({ mode: "create" })}
-          >
-            <IconPlus size={16} /> Nuevo artista
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-primary"
+              onClick={() => setModal({ mode: "create" })}
+            >
+              <IconPlus size={16} /> Nuevo artista
+            </button>
+          )}
         </div>
       </div>
 
@@ -277,60 +283,65 @@ export default function FimbaEdicionPage() {
 
       {propuestas.length === 0 ? (
         <div className="fimba-card fimba-muted">
-          Todavía no hay artistas (propuestas). Creá el primero para planificar plazas y participantes.
+          {readOnly
+            ? "Todavía no hay artistas en esta edición."
+            : "Todavía no hay artistas (propuestas). Creá el primero para planificar plazas y participantes."}
         </div>
       ) : (
         <>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 10,
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 10,
-            }}
-          >
-            <button
-              type="button"
-              className={`fimba-btn ${editMode ? "fimba-btn-primary" : "fimba-btn-ghost"}`}
-              onClick={() => setEditMode((v) => !v)}
-              title={editMode ? "Salir del modo planilla" : "Editar celdas como planilla"}
+          {!readOnly && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 10,
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 10,
+              }}
             >
-              <IconPencil size={14} />
-              {editMode ? "Salir de modo edición" : "Modo edición"}
-            </button>
-            {editMode && (
-              <span className="fimba-muted" style={{ fontSize: "0.78rem" }}>
-                Semáforo:{" "}
-                <span className="fimba-sync-legend">
-                  <i className="fimba-sync-dot fimba-sync-saved" /> guardado
+              <button
+                type="button"
+                className={`fimba-btn ${editMode ? "fimba-btn-primary" : "fimba-btn-ghost"}`}
+                onClick={() => setEditMode((v) => !v)}
+                title={editMode ? "Salir del modo planilla" : "Editar celdas como planilla"}
+              >
+                <IconPencil size={14} />
+                {editMode ? "Salir de modo edición" : "Modo edición"}
+              </button>
+              {editMode && (
+                <span className="fimba-muted" style={{ fontSize: "0.78rem" }}>
+                  Semáforo:{" "}
+                  <span className="fimba-sync-legend">
+                    <i className="fimba-sync-dot fimba-sync-saved" /> guardado
+                  </span>
+                  {" · "}
+                  <span className="fimba-sync-legend">
+                    <i className="fimba-sync-dot fimba-sync-pending" /> pendiente / guardando
+                  </span>
+                  {" · "}
+                  <span className="fimba-sync-legend">
+                    <i className="fimba-sync-dot fimba-sync-error" /> error
+                  </span>
+                  {" — "}Enter o blur guarda · Tab navega
                 </span>
-                {" · "}
-                <span className="fimba-sync-legend">
-                  <i className="fimba-sync-dot fimba-sync-pending" /> pendiente / guardando
-                </span>
-                {" · "}
-                <span className="fimba-sync-legend">
-                  <i className="fimba-sync-dot fimba-sync-error" /> error
-                </span>
-                {" — "}Enter o blur guarda · Tab navega
-              </span>
-            )}
-          </div>
+              )}
+            </div>
+          )}
           <FimbaArtistasTable
             propuestas={propuestas}
             hoteles={hoteles}
             edicionId={edicionId}
-            editMode={editMode}
-            onDelete={handleDelete}
-            onOpenModal={(p) => setModal({ mode: "edit", propuesta: p })}
+            editMode={!readOnly && editMode}
+            onDelete={readOnly ? null : handleDelete}
+            onOpenModal={readOnly ? null : (p) => setModal({ mode: "edit", propuesta: p })}
             onPropuestaPatched={handlePropuestaPatched}
+            readOnly={readOnly}
           />
         </>
       )}
 
-      {modal &&
+      {!readOnly && modal &&
         createPortal(
           <ArtistaFormModal
             mode={modal.mode}
@@ -361,6 +372,7 @@ function FimbaArtistasTable({
   onDelete,
   onOpenModal,
   onPropuestaPatched,
+  readOnly = false,
 }) {
   const [drafts, setDrafts] = useState({});
   const [rowStatus, setRowStatus] = useState({}); // id key -> idle|dirty|saving|saved|error
@@ -418,8 +430,8 @@ function FimbaArtistasTable({
     return map;
   }, [hoteles]);
 
-  /** Column count for nested/error row colspan (sync + expand + 8 data cols). */
-  const colCount = (editMode ? 1 : 0) + 1 + 8;
+  /** Column count for nested/error row colspan (sync + expand + 9 data cols). */
+  const colCount = (editMode ? 1 : 0) + 1 + 9;
 
   const ensureParticipantes = useCallback(async (rawId) => {
     const key = propuestaKey(rawId);
@@ -667,11 +679,12 @@ function FimbaArtistasTable({
             <th className="fimba-expand-col" aria-label="Expandir" />
             <th className="fimba-col-artista">Artista</th>
             <th className="fimba-col-num">Planif.</th>
-            <th className="fimba-col-num">Extra mat.</th>
-            <th className="fimba-col-num" title="Planificada + extra materiales">Transp.</th>
+            <th className="fimba-col-num">Extra Equip.</th>
+            <th className="fimba-col-num" title="Planificada + extra equip.">Transp.</th>
             <th className="fimba-col-date">Check-in</th>
             <th className="fimba-col-date">Check-out</th>
             <th className="fimba-col-hotel">Hotel</th>
+            <th className="fimba-col-obs" title="Observaciones logísticas">Obs. log.</th>
             <th className="fimba-col-actions" />
           </tr>
         </thead>
@@ -690,6 +703,11 @@ function FimbaArtistasTable({
               p.hoteles?.nombre ||
               hotelLabel[hotelId] ||
               (hotelId ? `#${hotelId}` : "—");
+            const obsText = editMode
+              ? draft.observaciones_logisticas || ""
+              : p.observaciones_logisticas || "";
+            const obsPreview =
+              obsText.length > 48 ? `${obsText.slice(0, 48).trim()}…` : obsText;
             const rowCls =
               status === "saving"
                 ? "fimba-row-saving"
@@ -800,7 +818,7 @@ function FimbaArtistasTable({
                       p.plazas_extra_materiales ?? 0
                     )}
                   </td>
-                  <td className="fimba-col-num fimba-muted" title="Planificada + extra materiales (solo lectura)">
+                  <td className="fimba-col-num fimba-muted" title="Planificada + extra equip. (solo lectura)">
                     {cap.para_transporte}
                   </td>
                   <td className="fimba-col-date">
@@ -894,6 +912,43 @@ function FimbaArtistasTable({
                       </span>
                     )}
                   </td>
+                  <td className="fimba-col-obs">
+                    {editMode ? (
+                      <textarea
+                        data-fimba-cell={`${rowIdx}-6`}
+                        className="fimba-cell-input fimba-cell-obs"
+                        rows={2}
+                        value={draft.observaciones_logisticas || ""}
+                        onChange={(e) =>
+                          setField(p.id, "observaciones_logisticas", e.target.value)
+                        }
+                        onBlur={() => commitRow(p.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                            e.preventDefault();
+                            commitRow(p.id);
+                            return;
+                          }
+                          if (e.key === "Tab") {
+                            handleCellKeyDown(e, rowIdx, 6, p.id);
+                          }
+                        }}
+                        disabled={status === "saving"}
+                        placeholder="Obs. hotel / transfer…"
+                        title="Observaciones logísticas (Ctrl+Enter guarda)"
+                      />
+                    ) : obsPreview ? (
+                      <span
+                        className="fimba-muted"
+                        style={{ fontSize: "0.8rem", whiteSpace: "pre-wrap" }}
+                        title={obsText}
+                      >
+                        {obsPreview}
+                      </span>
+                    ) : (
+                      <span className="fimba-muted">—</span>
+                    )}
+                  </td>
                   <td className="fimba-col-actions">
                     <Link
                       to={`/fimba/edicion/${edicionId}/artista/${p.id}`}
@@ -903,7 +958,7 @@ function FimbaArtistasTable({
                     >
                       <IconUsers size={14} />
                     </Link>
-                    {!editMode && (
+                    {!readOnly && !editMode && onOpenModal && (
                       <button
                         type="button"
                         className="fimba-btn fimba-btn-ghost"
@@ -913,16 +968,18 @@ function FimbaArtistasTable({
                         <IconEdit size={14} />
                       </button>
                     )}
-                    <button
-                      type="button"
-                      className="fimba-btn fimba-btn-danger"
-                      style={{ marginLeft: 4 }}
-                      onClick={() => onDelete(p)}
-                      title="Eliminar"
-                      disabled={status === "saving"}
-                    >
-                      <IconTrash size={14} />
-                    </button>
+                    {!readOnly && onDelete && (
+                      <button
+                        type="button"
+                        className="fimba-btn fimba-btn-danger"
+                        style={{ marginLeft: 4 }}
+                        onClick={() => onDelete(p)}
+                        title="Eliminar"
+                        disabled={status === "saving"}
+                      >
+                        <IconTrash size={14} />
+                      </button>
+                    )}
                   </td>
                 </tr>
                 {editMode && rowErrors[p.id] && (
@@ -958,6 +1015,10 @@ function labelAlimentacion(value) {
   return (
     FIMBA_TIPOS_ALIMENTACION.find((t) => t.value === value)?.label || value || "—"
   );
+}
+
+function labelGenero(value) {
+  return FIMBA_GENEROS.find((g) => g.value === value)?.label || value || "—";
 }
 
 /**
@@ -1021,6 +1082,7 @@ function ArtistaNominaPanel({ edicionId, propuesta, cap, cache, onRetry }) {
               <th style={{ paddingLeft: "0.75rem" }}>Apellido</th>
               <th>Nombre</th>
               <th>Documento</th>
+              <th>Género</th>
               <th>Alimentación</th>
               <th>Activo</th>
             </tr>
@@ -1031,6 +1093,7 @@ function ArtistaNominaPanel({ edicionId, propuesta, cap, cache, onRetry }) {
                 <td style={{ paddingLeft: "0.75rem", fontWeight: 600 }}>{part.apellido}</td>
                 <td>{part.nombre}</td>
                 <td className="fimba-muted">{part.documento || "—"}</td>
+                <td>{labelGenero(part.genero)}</td>
                 <td>{labelAlimentacion(part.tipo_alimentacion)}</td>
                 <td>{part.activo === false ? "No" : "Sí"}</td>
               </tr>
@@ -1059,6 +1122,9 @@ function ArtistaFormModal({ mode, propuesta, edicionId, hoteles = [], onClose, o
   const [idHotel, setIdHotel] = useState(
     propuesta?.id_hotel != null ? String(propuesta.id_hotel) : "",
   );
+  const [observacionesLogisticas, setObservacionesLogisticas] = useState(
+    propuesta?.observaciones_logisticas || "",
+  );
   const [estado, setEstado] = useState(propuesta?.estado || "activa");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -1084,6 +1150,7 @@ function ArtistaFormModal({ mode, propuesta, edicionId, hoteles = [], onClose, o
       checkin_early: checkinEarly,
       checkout_late: checkoutLate,
       id_hotel: idHotel,
+      observaciones_logisticas: observacionesLogisticas,
     });
     if (!validated.ok) {
       setSaving(false);
@@ -1152,7 +1219,7 @@ function ArtistaFormModal({ mode, propuesta, edicionId, hoteles = [], onClose, o
               />
             </div>
             <div className="fimba-field">
-              <label className="fimba-label">Plazas extra materiales</label>
+              <label className="fimba-label">Extra Equip.</label>
               <input
                 className="fimba-input"
                 type="number"
@@ -1200,6 +1267,16 @@ function ArtistaFormModal({ mode, propuesta, edicionId, hoteles = [], onClose, o
                 <option key={h.id} value={h.id}>{h.nombre}</option>
               ))}
             </select>
+          </div>
+          <div className="fimba-field">
+            <label className="fimba-label">Observaciones logísticas</label>
+            <textarea
+              className="fimba-textarea"
+              rows={3}
+              value={observacionesLogisticas}
+              onChange={(e) => setObservacionesLogisticas(e.target.value)}
+              placeholder="Early/late, transfer, equipaje, notas de hotel…"
+            />
           </div>
           <div className="fimba-field">
             <label className="fimba-label">Estado</label>

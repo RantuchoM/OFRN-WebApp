@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -8,6 +8,8 @@ import {
   IconTrash,
   IconLoader,
   IconClock,
+  IconSearch,
+  IconX,
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import {
@@ -20,7 +22,130 @@ import {
   listFimbaFlota,
   listFimbaPropuestas,
 } from "../../services/fimbaService";
+import { normalizeForSearch } from "../../utils/sanitize";
+import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
+
+const FIMBA_AGENDA_SEARCH_DEBOUNCE_MS = 250;
+
+/**
+ * Input aislado (mismo patrón que UnifiedAgenda.AgendaSearchField):
+ * texto local inmediato; filtro de planilla con debounce 250ms.
+ */
+function FimbaAgendaSearchField({ onQueryChange }) {
+  const [localQuery, setLocalQuery] = useState("");
+  const onQueryChangeRef = useRef(onQueryChange);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    onQueryChangeRef.current = onQueryChange;
+  }, [onQueryChange]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const commitQuery = useCallback((value, { immediate = false } = {}) => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    if (immediate) {
+      onQueryChangeRef.current(value);
+      return;
+    }
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      onQueryChangeRef.current(value);
+    }, FIMBA_AGENDA_SEARCH_DEBOUNCE_MS);
+  }, []);
+
+  const handleChange = (e) => {
+    const next = e.target.value;
+    setLocalQuery(next);
+    commitQuery(next);
+  };
+
+  const handleClear = () => {
+    setLocalQuery("");
+    commitQuery("", { immediate: true });
+  };
+
+  const isActive = Boolean(localQuery.trim());
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        flexShrink: 0,
+        border: `1px solid ${isActive ? "var(--fimba-accent, #d73289)" : "var(--fimba-border, #e2e8f0)"}`,
+        borderRadius: 999,
+        background: "var(--fimba-surface, #fff)",
+        boxShadow: isActive
+          ? "0 0 0 1px rgba(215, 50, 137, 0.22)"
+          : "0 1px 2px rgba(15, 23, 42, 0.04)",
+      }}
+    >
+      <span
+        className="fimba-muted"
+        style={{
+          position: "absolute",
+          left: 10,
+          pointerEvents: "none",
+          display: "flex",
+          alignItems: "center",
+        }}
+        aria-hidden
+      >
+        <IconSearch size={14} />
+      </span>
+      <input
+        type="search"
+        value={localQuery}
+        onChange={handleChange}
+        placeholder="Buscar..."
+        title="Buscar en tipo, actividad, locación, destino, artistas y vehículos"
+        aria-label="Buscar en tipo, actividad, locación, destino, artistas y vehículos"
+        className="fimba-input"
+        style={{
+          width: "10.5rem",
+          minWidth: "7.5rem",
+          maxWidth: "14rem",
+          border: 0,
+          borderRadius: 999,
+          background: "transparent",
+          padding: "0.4rem 1.75rem 0.4rem 2rem",
+          fontSize: "0.78rem",
+          fontWeight: 500,
+          outline: "none",
+          boxShadow: "none",
+        }}
+      />
+      {isActive && (
+        <button
+          type="button"
+          onClick={handleClear}
+          className="fimba-btn fimba-btn-ghost"
+          title="Limpiar búsqueda"
+          aria-label="Limpiar búsqueda"
+          style={{
+            position: "absolute",
+            right: 4,
+            padding: 4,
+            minWidth: 0,
+            borderRadius: 999,
+          }}
+        >
+          <IconX size={12} />
+        </button>
+      )}
+    </div>
+  );
+}
 
 function sliceTime(t) {
   if (!t) return "—";
@@ -67,12 +192,89 @@ function categoriasFromAgendaRows(eventos) {
   return categoriesFromTiposEvento(pseudoTipos);
 }
 
+/** id_locacion numérico de una fila de agenda unificada FIMBA. */
+function eventLocacionId(ev) {
+  const raw = ev?.id_locacion ?? ev?.locaciones?.id ?? null;
+  const id = raw != null ? Number(raw) : NaN;
+  return Number.isFinite(id) ? id : null;
+}
+
+/**
+ * Locaciones distintas presentes en filas cargadas (id + nombre [· ciudad]).
+ * Solo filas con `id_locacion` (el destino texto libre se cubre por búsqueda).
+ */
+function locacionesFromAgendaRows(eventos) {
+  const map = new Map();
+  for (const ev of eventos || []) {
+    const id = eventLocacionId(ev);
+    if (id == null || map.has(id)) continue;
+    const nombre =
+      ev.locacion_nombre ||
+      ev.locaciones?.nombre ||
+      `Locación #${id}`;
+    const ciudad =
+      ev.locacion_ciudad ||
+      ev.locaciones?.localidades?.localidad ||
+      null;
+    map.set(id, {
+      id,
+      nombre: ciudad ? `${nombre} · ${ciudad}` : nombre,
+    });
+  }
+  return [...map.values()].sort((a, b) =>
+    a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }),
+  );
+}
+
+/** Fragmentos buscables de una fila FIMBA (tipo / actividad / lugar / gente / flota). */
+function getFimbaAgendaSearchParts(ev, flotaById = null) {
+  if (!ev) return [];
+  const vehFromAssign = (ev.vehiculos || []).map((r) =>
+    labelGiraTransporte(r.giras_transportes),
+  );
+  let vehOfrn = null;
+  if (ev.id_gira_transporte != null && flotaById) {
+    const gt = flotaById.get(Number(ev.id_gira_transporte));
+    if (gt) vehOfrn = labelGiraTransporte(gt);
+  }
+  return [
+    ev.actividad,
+    ev.tipo_nombre,
+    ev.tipos_evento?.nombre,
+    ev.categoria_nombre,
+    ev.locacion_nombre,
+    ev.locacion_ciudad,
+    ev.locaciones?.nombre,
+    ev.locaciones?.direccion,
+    ev.locaciones?.localidades?.localidad,
+    ev.destino,
+    ev.vuelo,
+    ev.observaciones,
+    ev.orquesta_label,
+    ...(ev.propuestas || []).map((p) => p.nombre),
+    ...(ev.grupos || []).map((g) => g.nombre),
+    ...vehFromAssign,
+    vehOfrn,
+  ].filter((part) => part != null && String(part).trim() !== "");
+}
+
+function eventMatchesFimbaAgendaSearch(ev, query, flotaById = null) {
+  const q = normalizeForSearch(query);
+  if (!q) return true;
+  if (!ev) return false;
+  const haystack = normalizeForSearch(
+    getFimbaAgendaSearchParts(ev, flotaById).join(" "),
+  );
+  return haystack.includes(q);
+}
+
 /**
  * Agenda unificada FIMBA: planilla de eventos (traslados + actividades)
  * más convocatoria orquesta OFRN de la misma gira.
  */
 export default function FimbaAgendaPage() {
   const { edicionId, artistaId } = useParams();
+  const { readOnly } = useFimbaAccess();
   const [searchParams] = useSearchParams();
   const filterFromQuery = searchParams.get("artista") || artistaId || null;
 
@@ -89,6 +291,16 @@ export default function FimbaAgendaPage() {
    * Sin persistencia de preferencias en agenda FIMBA.
    */
   const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
+  /**
+   * Multi-select de locaciones (`id_locacion`): vacío = todas; con ids = solo esas.
+   * Filas sin locación quedan ocultas si el filtro está activo.
+   */
+  const [selectedLocacionIds, setSelectedLocacionIds] = useState([]);
+  /** Query de búsqueda debounced (vía FimbaAgendaSearchField). */
+  const [agendaSearchQuery, setAgendaSearchQuery] = useState("");
+  const handleAgendaSearchQueryChange = useCallback((query) => {
+    setAgendaSearchQuery(query);
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [modal, setModal] = useState(null);
@@ -139,6 +351,19 @@ export default function FimbaAgendaPage() {
     [eventos],
   );
 
+  const availableLocaciones = useMemo(
+    () => locacionesFromAgendaRows(eventos),
+    [eventos],
+  );
+
+  const flotaById = useMemo(() => {
+    const map = new Map();
+    for (const g of flota || []) {
+      map.set(Number(g.id), g);
+    }
+    return map;
+  }, [flota]);
+
   const categoryOptions = useMemo(
     () =>
       availableCategories.map((c) => ({
@@ -146,6 +371,15 @@ export default function FimbaAgendaPage() {
         label: c.nombre,
       })),
     [availableCategories],
+  );
+
+  const locationOptions = useMemo(
+    () =>
+      availableLocaciones.map((l) => ({
+        value: l.id,
+        label: l.nombre,
+      })),
+    [availableLocaciones],
   );
 
   // Quitar de la selección ids que ya no existen en la agenda cargada
@@ -159,9 +393,25 @@ export default function FimbaAgendaPage() {
     });
   }, [availableCategories]);
 
+  useEffect(() => {
+    setSelectedLocacionIds((prev) => {
+      if (prev.length === 0) return prev;
+      const valid = new Set(availableLocaciones.map((l) => l.id));
+      const next = prev.filter((id) => valid.has(Number(id)));
+      if (next.length === prev.length) return prev;
+      return next;
+    });
+  }, [availableLocaciones]);
+
   const categoryFilterActive =
     selectedCategoryIds.length > 0 &&
     selectedCategoryIds.length < availableCategories.length;
+
+  const locationFilterActive =
+    selectedLocacionIds.length > 0 &&
+    selectedLocacionIds.length < availableLocaciones.length;
+
+  const searchFilterActive = Boolean(normalizeForSearch(agendaSearchQuery));
 
   const eventosFiltrados = useMemo(() => {
     let list = eventos;
@@ -180,8 +430,30 @@ export default function FimbaAgendaPage() {
         return want.has(catId);
       });
     }
+    // Locación: length > 0 acota por id_locacion; vacío = sin filtro
+    if (selectedLocacionIds.length > 0) {
+      const want = new Set(selectedLocacionIds.map(Number));
+      list = list.filter((ev) => {
+        const locId = eventLocacionId(ev);
+        if (locId == null) return false;
+        return want.has(locId);
+      });
+    }
+    if (searchFilterActive) {
+      list = list.filter((ev) =>
+        eventMatchesFimbaAgendaSearch(ev, agendaSearchQuery, flotaById),
+      );
+    }
     return list;
-  }, [eventos, filtroOrigen, selectedCategoryIds]);
+  }, [
+    eventos,
+    filtroOrigen,
+    selectedCategoryIds,
+    selectedLocacionIds,
+    agendaSearchQuery,
+    searchFilterActive,
+    flotaById,
+  ]);
 
   const handleDelete = async (ev) => {
     const label = ev.actividad || ev.tipo_nombre || "evento";
@@ -255,18 +527,20 @@ export default function FimbaAgendaPage() {
             Planilla unificada · FIMBA + orquesta OFRN (misma gira)
           </p>
         </div>
-        <button
-          type="button"
-          className="fimba-btn fimba-btn-primary"
-          onClick={() =>
-            setModal({
-              mode: "create",
-              preselectPropuesta: filtroArtista || artistaId || null,
-            })
-          }
-        >
-          <IconPlus size={16} /> Nuevo evento
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            className="fimba-btn fimba-btn-primary"
+            onClick={() =>
+              setModal({
+                mode: "create",
+                preselectPropuesta: filtroArtista || artistaId || null,
+              })
+            }
+          >
+            <IconPlus size={16} /> Nuevo evento
+          </button>
+        )}
       </div>
 
       {error && (
@@ -289,6 +563,7 @@ export default function FimbaAgendaPage() {
           <IconClock size={16} /> Planilla
         </h2>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <FimbaAgendaSearchField onQueryChange={handleAgendaSearchQueryChange} />
           {!filtroArtista && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
               {ORIGEN_FILTERS.map((f) => {
@@ -329,6 +604,25 @@ export default function FimbaAgendaPage() {
               </div>
             </div>
           )}
+          {availableLocaciones.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 200 }}>
+              <label className="fimba-label" style={{ margin: 0 }}>
+                Locación
+              </label>
+              <div style={{ minWidth: 200, width: 220 }}>
+                <MultiSelectDropdown
+                  label="Locación"
+                  placeholder="Todas las locaciones"
+                  options={locationOptions}
+                  value={selectedLocacionIds}
+                  onChange={setSelectedLocacionIds}
+                  compact
+                  summaryMode="names"
+                  summaryMaxNames={2}
+                />
+              </div>
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <label className="fimba-label" style={{ margin: 0 }}>
               Artista
@@ -356,10 +650,12 @@ export default function FimbaAgendaPage() {
           {filtroArtista ? " para este artista" : " cargados"}
           {filtroOrigen === "fimba" ? " (origen FIMBA)" : ""}
           {filtroOrigen === "ofrn" ? " (origen OFRN)" : ""}
-          {categoryFilterActive ? " con las categorías seleccionadas" : ""}.
+          {categoryFilterActive ? " con las categorías seleccionadas" : ""}
+          {locationFilterActive ? " en las locaciones seleccionadas" : ""}
+          {searchFilterActive ? " que coincidan con la búsqueda" : ""}.
           {eventos.length === 0
             ? " Creá el primero con «Nuevo evento»."
-            : " Probá otro origen o categoría."}
+            : " Probá otro origen, categoría, locación o búsqueda."}
         </div>
       ) : (
         <div className="fimba-card" style={{ padding: 0, overflow: "hidden" }}>
@@ -552,23 +848,27 @@ export default function FimbaAgendaPage() {
                         </div>
                       </td>
                       <td style={{ textAlign: "right", paddingRight: "0.75rem", whiteSpace: "nowrap" }}>
-                        <button
-                          type="button"
-                          className="fimba-btn fimba-btn-ghost"
-                          onClick={() => setModal({ mode: "edit", evento: ev })}
-                          title="Editar"
-                        >
-                          <IconEdit size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          className="fimba-btn fimba-btn-danger"
-                          style={{ marginLeft: 4 }}
-                          onClick={() => handleDelete(ev)}
-                          title="Eliminar"
-                        >
-                          <IconTrash size={14} />
-                        </button>
+                        {!readOnly && (
+                          <>
+                            <button
+                              type="button"
+                              className="fimba-btn fimba-btn-ghost"
+                              onClick={() => setModal({ mode: "edit", evento: ev })}
+                              title="Editar"
+                            >
+                              <IconEdit size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              className="fimba-btn fimba-btn-danger"
+                              style={{ marginLeft: 4 }}
+                              onClick={() => handleDelete(ev)}
+                              title="Eliminar"
+                            >
+                              <IconTrash size={14} />
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   );
@@ -579,7 +879,7 @@ export default function FimbaAgendaPage() {
         </div>
       )}
 
-      {modal &&
+      {!readOnly && modal &&
         createPortal(
           <FimbaEventoFormModal
             mode={modal.mode}
