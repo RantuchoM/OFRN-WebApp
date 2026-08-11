@@ -92,6 +92,16 @@ const admissionCoversRouteRule = (admission, routeRule) => {
   return false;
 };
 
+/** Abreviatura de instrumento con plaza extra (ocupa asiento en bus). */
+const getPlazaExtraAbreviatura = (person) => {
+  if (!person?.instrumentos?.plaza_extra) return null;
+  const abbr = String(person.instrumentos.abreviatura || "").trim();
+  return abbr || null;
+};
+
+const countInstrumentSeats = (people) =>
+  (people || []).filter((p) => Boolean(p?.instrumentos?.plaza_extra)).length;
+
 export default function StopRulesManager({
   isOpen,
   onClose,
@@ -905,12 +915,29 @@ export default function StopRulesManager({
                         const affectedPeople = getAffectedPeople(rule);
                         const isExpanded = expandedRuleId === rule.id;
                         const displayCount = affectedPeople.length;
+                        const instrumentSeats =
+                          countInstrumentSeats(affectedPeople);
+                        const personForRule = isPersonaRule
+                          ? (passengers || []).find(
+                              (m) =>
+                                String(m.id) === String(rule.id_integrante),
+                            )
+                          : null;
+                        const personInstAbrev =
+                          getPlazaExtraAbreviatura(personForRule) ||
+                          (isPersonaRule
+                            ? getPlazaExtraAbreviatura(affectedPeople[0])
+                            : null);
                         const admissionCoverage =
                           getRouteRuleAdmissionCoverage(rule);
                         const admissionReady = admissionCoverage.satisfied;
                         const admissionJustCreated = recentlyCreatedAdmissionKeys.has(
                           routeRuleAdmissionKey(rule),
                         );
+                        const occupancyTitle =
+                          instrumentSeats > 0
+                            ? `${displayCount} personas + ${instrumentSeats} instrumentos (plaza extra) = ${displayCount + instrumentSeats} butacas`
+                            : `${displayCount} personas`;
 
                         return (
                           <div key={rule.id} className="flex flex-col">
@@ -926,6 +953,11 @@ export default function StopRulesManager({
                               <div className="flex flex-col min-w-0">
                                 <span className="text-xs font-semibold text-slate-700 truncate">
                                   {resolveTargetName(rule)}
+                                  {personInstAbrev ? (
+                                    <span className="ml-1 font-bold text-indigo-600">
+                                      +{personInstAbrev}
+                                    </span>
+                                  ) : null}
                                 </span>
                                 {admissionReady &&
                                   admissionCoverage.viaLabel &&
@@ -952,13 +984,17 @@ export default function StopRulesManager({
                                   </span>
                                 )}
                                 <span
+                                  title={occupancyTitle}
                                   className={`text-[10px] font-bold flex items-center gap-1 px-2 py-0.5 rounded-full ${
                                     displayCount === 0 && !admissionReady
                                       ? "text-amber-700 bg-amber-100"
                                       : "text-slate-400 bg-slate-100"
                                   }`}
                                 >
-                                  <IconUsers size={12} /> {displayCount}
+                                  <IconUsers size={12} />{" "}
+                                  {instrumentSeats > 0
+                                    ? `${displayCount} + ${instrumentSeats} ins`
+                                    : displayCount}
                                 </span>
                                 <button
                                   onClick={(e) => {
@@ -988,15 +1024,26 @@ export default function StopRulesManager({
                               <div className="bg-slate-50 border-t border-slate-100 px-3 py-2 animate-in slide-in-from-top-2">
                                 {affectedPeople.length > 0 ? (
                                   <ul className="grid grid-cols-2 gap-2">
-                                    {affectedPeople.map((p) => (
+                                    {affectedPeople.map((p) => {
+                                      const instAbrev =
+                                        getPlazaExtraAbreviatura(p);
+                                      return (
                                       <li
                                         key={p.id}
-                                        className="text-xs text-slate-600 flex items-center gap-2"
+                                        className="text-xs text-slate-600 flex items-center gap-2 min-w-0"
                                       >
-                                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-400"></div>
-                                        {p.apellido}, {p.nombre}
+                                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0"></div>
+                                        <span className="truncate">
+                                          {p.apellido}, {p.nombre}
+                                          {instAbrev ? (
+                                            <span className="ml-1 font-semibold text-indigo-600">
+                                              +{instAbrev}
+                                            </span>
+                                          ) : null}
+                                        </span>
                                       </li>
-                                    ))}
+                                      );
+                                    })}
                                   </ul>
                                 ) : (
                                   <div className="text-xs text-slate-500 text-center py-1.5 space-y-1">

@@ -18,13 +18,13 @@ const INTEGRANTES_SELECT_FULL = `id, nombre, apellido, fecha_alta, fecha_baja, c
            id_localidad, id_loc_viaticos, id_domicilio_laboral, documentacion, docred, firma, nota_interna, cargo, jornada, motivo,
            dni, fecha_nac, genero, cuil,
            link_dni_img, link_cuil, link_cbu_img, link_declaracion, link_carnet,
-           instrumentos(instrumento, familia, plaza_extra, rol_gira_default),
+           instrumentos(instrumento, familia, abreviatura, plaza_extra, rol_gira_default),
            residencia:localidades!id_localidad(id, localidad, id_region, regiones(region)),
            viaticos:localidades!id_loc_viaticos(id, localidad, id_region, regiones(region)),
            integrantes_ensambles(id, id_ensamble, fecha_desde, fecha_hasta, ensambles(id, ensamble))`;
 
 const INTEGRANTES_SELECT_LITE = `id, nombre, apellido, fecha_alta, fecha_baja, es_simulacion, id_instr, mail,
-           instrumentos(instrumento, familia, rol_gira_default),
+           instrumentos(instrumento, familia, abreviatura, rol_gira_default),
            integrantes_ensambles(id, id_ensamble, fecha_desde, fecha_hasta, ensambles(id, ensamble))`;
 
 /**
@@ -94,7 +94,7 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
   if (!instrumentCatalog) {
     const { data, error: errCatalog } = await supabase
       .from("instrumentos")
-      .select("id, instrumento, familia, plaza_extra, rol_gira_default");
+      .select("id, instrumento, familia, abreviatura, plaza_extra, rol_gira_default");
     if (errCatalog) throw errCatalog;
     instrumentCatalog = data;
   }

@@ -17,11 +17,11 @@ Migración: `supabase/migrations/20260618120000_giras_integrantes_id_instr.sql`
 ## Motor de roster (`useGiraRoster`)
 
 - [x] Leer `id_instr` de `giras_integrantes` en el override map.
-- [x] Cargar catálogo `instrumentos` (id, instrumento, familia, plaza_extra, rol_gira_default).
+- [x] Cargar catálogo `instrumentos` (id, instrumento, familia, abreviatura, plaza_extra, rol_gira_default).
 - [x] Normalizar cada fila con `applyEffectiveGiraInstrument()`:
   - `id_instr_perfil` — valor de ficha
   - `id_instr_gira_override` — override explícito o `null`
-  - `id_instr` + `instrumentos` — valores **efectivos** para consumidores downstream
+  - `id_instr` + `instrumentos` — valores **efectivos** para consumidores downstream (incl. `abreviatura` y `plaza_extra`)
 
 **Convocatoria por familia (`giras_fuentes` FAMILIA):** sigue usando `integrantes.id_instr` → `instrumentos.familia`. El override no cambia quién entra al roster.
 

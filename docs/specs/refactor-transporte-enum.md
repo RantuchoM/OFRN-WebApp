@@ -45,6 +45,12 @@ Cualquier evento en la agenda cuyo `id_tipo_evento` sea **35** debe considerarse
 - [x] Alta de parada persiste `hora_fin` (opcional; vacío → `null`).
 - [x] Shift de horarios (`handleApplyShiftSchedule`) desplaza también `hora_fin` cuando existe, conservando el desfase relativo.
 
+## StopRulesManager — ocupación de instrumentos
+
+- [x] Chip de afectados por regla: si hay `plaza_extra`, muestra `N + M ins` (misma semántica que filas de `GirasTransportesManager` / roster).
+- [x] Lista expandida de personas (y reglas Individual): `+{abreviatura}` junto al nombre cuando el instrumento efectivo ocupa plaza.
+- [x] Roster/catálogo propaga `instrumentos.abreviatura` vía `useGiraRoster` + `applyEffectiveGiraInstrument`.
+
 ## Migración SQL
 
 Ver `supabase/migrations/20260329120000_transporte_categoria_logistica.sql`. La columna `es_tipo_alternativo` puede eliminarse después de validar (paso opcional comentado en el archivo).

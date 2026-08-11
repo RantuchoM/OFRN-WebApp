@@ -220,6 +220,8 @@ export const applyEffectiveGiraInstrument = (
     ? {
         instrumento: catalogRow.instrumento,
         familia: catalogRow.familia,
+        abreviatura:
+          catalogRow.abreviatura ?? profileInstrument?.abreviatura ?? null,
         plaza_extra: catalogRow.plaza_extra ?? profileInstrument?.plaza_extra ?? null,
         rol_gira_default:
           catalogRow.rol_gira_default ?? profileInstrument?.rol_gira_default ?? null,
