@@ -18,14 +18,63 @@ import { calculateLogisticsSummary } from "../hooks/useLogistics";
 import { fetchGiraSegmentosBundle } from "./giraSegmentosService";
 import { eventTypeIdForCategoria } from "../utils/giraTransportUtils";
 
+/**
+ * Tipos de alimentación de `fimba_participantes.tipo_alimentacion`
+ * (CHECK en migración base). `otro` → detalle libre en `nota_alimentacion`.
+ */
 export const FIMBA_TIPOS_ALIMENTACION = [
   { value: "regular", label: "Regular" },
   { value: "vegetariano", label: "Vegetariano" },
   { value: "vegano", label: "Vegano" },
   { value: "celiaco", label: "Celíaco" },
   { value: "sin_tacc", label: "Sin TACC" },
-  { value: "otro", label: "Otro" },
+  { value: "otro", label: "Otros..." },
 ];
+
+/** Valor del select / DB para régimen no listado (texto en `nota_alimentacion`). */
+export const FIMBA_ALIMENTACION_OTRO = "otro";
+
+/** Presets del dropdown (sin la fila «Otros…»). */
+export const FIMBA_ALIMENTACION_PRESETS = FIMBA_TIPOS_ALIMENTACION.filter(
+  (t) => t.value !== FIMBA_ALIMENTACION_OTRO,
+);
+
+const ALIMENTACION_BY_VALUE = new Map(
+  FIMBA_TIPOS_ALIMENTACION.map((t) => [t.value, t]),
+);
+
+/**
+ * @param {string|null|undefined} tipo
+ * @returns {{ value: string, label: string }|null}
+ */
+export function resolveFimbaTipoAlimentacion(tipo) {
+  const v = String(tipo ?? "")
+    .trim()
+    .toLowerCase();
+  if (!v) return null;
+  return ALIMENTACION_BY_VALUE.get(v) || null;
+}
+
+/**
+ * Etiqueta legible: preset, o texto libre de «Otros…» (`nota_alimentacion`).
+ * @param {string|null|undefined} tipo
+ * @param {string|null|undefined} nota
+ */
+export function labelFimbaAlimentacion(tipo, nota) {
+  const t = String(tipo ?? "")
+    .trim()
+    .toLowerCase();
+  const n = String(nota ?? "").trim();
+  if (!t && !n) return "—";
+  if (t === FIMBA_ALIMENTACION_OTRO || (!ALIMENTACION_BY_VALUE.has(t) && n)) {
+    return n || "Otros...";
+  }
+  if (!ALIMENTACION_BY_VALUE.has(t) && t) {
+    // Valor no reconocido: mostrar tal cual (modo custom defensivo).
+    return t;
+  }
+  return ALIMENTACION_BY_VALUE.get(t || "regular")?.label || t || "—";
+}
 
 /** Género/sexo del participante (persona bajo el artista). */
 export const FIMBA_GENEROS = [
@@ -56,6 +105,19 @@ export const FIMBA_TIPO_HABITACION_CAPACIDAD = Object.fromEntries(
 export function capacityForHabitacionTipo(tipo) {
   const cap = FIMBA_TIPO_HABITACION_CAPACIDAD[String(tipo || "").toUpperCase()];
   return cap != null ? cap : 0;
+}
+
+/**
+ * Total de plazas de un borrador de cupos (inventario).
+ * Fórmula: Σ count(tipo) × capacidad(tipo)  →  SGL×1 + DBL×2 + TPL×3 + QAD×4.
+ * @param {{ SGL?: number, DBL?: number, TPL?: number, QAD?: number } | null} counts
+ */
+export function totalPlazasFromHabitacionCounts(counts) {
+  let total = 0;
+  for (const t of FIMBA_TIPOS_HABITACION) {
+    total += Math.max(0, Number(counts?.[t.value]) || 0) * t.capacidad;
+  }
+  return total;
 }
 
 /**
@@ -677,6 +739,376 @@ function clampPlanificada(n) {
 function normalizeObservacionesLogisticas(value) {
   const t = String(value ?? "").trim();
   return t || null;
+}
+
+/**
+ * Extrae ID de carpeta/archivo Drive desde URL o devuelve el string si parece un ID.
+ * Mismo patrón que repertoireSelectionDriveService / manage-drive extractFileId.
+ */
+export function extractDriveFolderId(urlOrId) {
+  if (urlOrId == null) return null;
+  const s = String(urlOrId).trim();
+  if (!s) return null;
+  const match = s.match(/[-\w]{25,}/);
+  return match ? match[0] : null;
+}
+
+/**
+ * Normaliza carpeta de documentación: vacío → null; con ID → URL canónica de carpeta Drive.
+ * Si no se puede extraer ID pero hay texto, se guarda el string limpio (enlace “Abrir en Drive” igual).
+ */
+export function normalizeCarpetaDocumentacion(value) {
+  const t = String(value ?? "").trim();
+  if (!t) return null;
+  const id = extractDriveFolderId(t);
+  if (id) return `https://drive.google.com/drive/folders/${id}`;
+  return t;
+}
+
+/** URL lista para abrir la carpeta en el navegador (acepta URL o ID). */
+export function buildDriveFolderOpenUrl(urlOrId) {
+  const normalized = normalizeCarpetaDocumentacion(urlOrId);
+  if (!normalized) return null;
+  if (/^https?:\/\//i.test(normalized)) return normalized;
+  const id = extractDriveFolderId(normalized);
+  return id ? `https://drive.google.com/drive/folders/${id}` : null;
+}
+
+/**
+ * Lista hijos (nivel 1) de una carpeta Drive vía edge function `manage-drive`
+ * (action `list_folder_files`). Requiere secrets G_CLIENT_ID / G_CLIENT_SECRET / G_REFRESH_TOKEN
+ * y que la cuenta del Archivo tenga acceso a la carpeta.
+ *
+ * @param {string} folderUrlOrId
+ * @returns {Promise<{ files: Array<{ id, name, mimeType, webViewLink }>, error: Error|null }>}
+ */
+export async function listFimbaDriveFolderFiles(folderUrlOrId) {
+  const folderUrl =
+    normalizeCarpetaDocumentacion(folderUrlOrId) || String(folderUrlOrId || "").trim();
+  if (!folderUrl) {
+    return { files: [], error: new Error("No hay carpeta de documentación") };
+  }
+  try {
+    const { data, error } = await supabase.functions.invoke("manage-drive", {
+      body: { action: "list_folder_files", folderUrl },
+    });
+    if (error) {
+      return {
+        files: [],
+        error: new Error(error.message || "No se pudo listar la carpeta en Drive"),
+      };
+    }
+    if (data?.error) {
+      return { files: [], error: new Error(String(data.error)) };
+    }
+    if (data?.success === false) {
+      return {
+        files: [],
+        error: new Error(data?.message || data?.error || "Error al listar Drive"),
+      };
+    }
+    const files = Array.isArray(data?.files) ? data.files : [];
+    return { files, error: null };
+  } catch (e) {
+    return {
+      files: [],
+      error: e instanceof Error ? e : new Error(String(e?.message || e)),
+    };
+  }
+}
+
+/** Máx. bytes del archivo en cliente antes de base64 → edge `upload_file` (~límite body EF). */
+export const FIMBA_DRIVE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+
+const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
+
+/** Tipos nativos de Google: no tienen binario `alt=media`; se exportan. */
+const GOOGLE_NATIVE_EXPORT = {
+  "application/vnd.google-apps.document": {
+    exportMime: "application/pdf",
+    ext: ".pdf",
+  },
+  "application/vnd.google-apps.spreadsheet": {
+    exportMime:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ext: ".xlsx",
+  },
+  "application/vnd.google-apps.presentation": {
+    exportMime:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ext: ".pptx",
+  },
+  "application/vnd.google-apps.drawing": {
+    exportMime: "application/pdf",
+    ext: ".pdf",
+  },
+};
+
+function ensureFileNameExtension(name, ext) {
+  const base = String(name || "archivo").trim() || "archivo";
+  if (!ext) return base;
+  const lower = base.toLowerCase();
+  if (lower.endsWith(ext.toLowerCase())) return base;
+  return `${base}${ext}`;
+}
+
+function manageDrivePayload(data) {
+  if (typeof data === "string") {
+    try {
+      return JSON.parse(data);
+    } catch {
+      return {};
+    }
+  }
+  return data && typeof data === "object" ? data : {};
+}
+
+/**
+ * Access token de la cuenta Archivo (edge `get_temp_token`) para fetch client→Drive.
+ * @returns {Promise<{ accessToken: string|null, error: Error|null }>}
+ */
+export async function getFimbaDriveAccessToken() {
+  try {
+    const { data, error } = await supabase.functions.invoke("manage-drive", {
+      body: { action: "get_temp_token" },
+    });
+    if (error) {
+      return {
+        accessToken: null,
+        error: new Error(error.message || "No se pudo obtener token de Drive"),
+      };
+    }
+    const payload = manageDrivePayload(data);
+    if (payload?.error || payload?.success === false) {
+      return {
+        accessToken: null,
+        error: new Error(
+          String(payload.error || payload.message || "Token de Drive no disponible"),
+        ),
+      };
+    }
+    const accessToken = payload?.accessToken || null;
+    if (!accessToken) {
+      return {
+        accessToken: null,
+        error: new Error("Token de Drive vacío"),
+      };
+    }
+    return { accessToken, error: null };
+  } catch (e) {
+    return {
+      accessToken: null,
+      error: e instanceof Error ? e : new Error(String(e?.message || e)),
+    };
+  }
+}
+
+/**
+ * Descarga un archivo de Drive al navegador (blob).
+ * Usa `get_temp_token` + API Drive desde el cliente (mismo patrón particellas / hybrid-drive).
+ * Carpetas: no aplica. Docs/Sheets nativos: export (PDF/xlsx/pptx).
+ *
+ * @param {{ id?: string, name?: string, mimeType?: string, webViewLink?: string }} file
+ * @returns {Promise<{ blob: Blob|null, fileName: string|null, error: Error|null }>}
+ */
+export async function downloadFimbaDriveFile(file) {
+  const mimeType = String(file?.mimeType || "");
+  if (mimeType === DRIVE_FOLDER_MIME) {
+    return {
+      blob: null,
+      fileName: null,
+      error: new Error("Las carpetas no se pueden descargar; abrilas en Drive."),
+    };
+  }
+  if (mimeType === "application/vnd.google-apps.shortcut") {
+    return {
+      blob: null,
+      fileName: null,
+      error: new Error("Los accesos directos no se descargan; abrilos en Drive."),
+    };
+  }
+
+  const fileId = extractDriveFolderId(file?.id || file?.webViewLink);
+  if (!fileId) {
+    return {
+      blob: null,
+      fileName: null,
+      error: new Error("ID de archivo inválido"),
+    };
+  }
+
+  const { accessToken, error: tokenErr } = await getFimbaDriveAccessToken();
+  if (tokenErr || !accessToken) {
+    return { blob: null, fileName: null, error: tokenErr || new Error("Sin token") };
+  }
+
+  const exportSpec = GOOGLE_NATIVE_EXPORT[mimeType] || null;
+  const isGoogleNative =
+    mimeType.startsWith("application/vnd.google-apps.") && !exportSpec;
+
+  if (isGoogleNative) {
+    return {
+      blob: null,
+      fileName: null,
+      error: new Error(
+        "Este tipo de archivo de Google no se puede descargar desde FIMBA; abrilo en Drive.",
+      ),
+    };
+  }
+
+  const url = exportSpec
+    ? `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+        fileId,
+      )}/export?mimeType=${encodeURIComponent(exportSpec.exportMime)}`
+    : `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+        fileId,
+      )}?alt=media&supportsAllDrives=true`;
+
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) {
+      if (res.status === 403 || res.status === 404) {
+        return {
+          blob: null,
+          fileName: null,
+          error: new Error(
+            "Sin permiso para descargar (compartí con la cuenta del Archivo OFRN o abrí en Drive).",
+          ),
+        };
+      }
+      return {
+        blob: null,
+        fileName: null,
+        error: new Error(`Drive respondió ${res.status} al descargar`),
+      };
+    }
+    const blob = await res.blob();
+    const baseName = String(file?.name || "archivo").trim() || "archivo";
+    const fileName = exportSpec
+      ? ensureFileNameExtension(baseName, exportSpec.ext)
+      : baseName;
+    return { blob, fileName, error: null };
+  } catch (e) {
+    return {
+      blob: null,
+      fileName: null,
+      error: e instanceof Error ? e : new Error(String(e?.message || e)),
+    };
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error || new Error("No se pudo leer el archivo"));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Sube un File del navegador a una carpeta Drive (edge `upload_file`).
+ * Destino = carpeta actual del breadcrumb (o raíz de documentación).
+ *
+ * @param {string} folderUrlOrId
+ * @param {File} file
+ * @returns {Promise<{ fileId: string|null, webViewLink: string|null, error: Error|null }>}
+ */
+export async function uploadFimbaDriveFile(folderUrlOrId, file) {
+  if (!file || !(file instanceof Blob)) {
+    return {
+      fileId: null,
+      webViewLink: null,
+      error: new Error("No hay archivo para subir"),
+    };
+  }
+  if (file.size > FIMBA_DRIVE_UPLOAD_MAX_BYTES) {
+    const mb = (FIMBA_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)).toFixed(0);
+    return {
+      fileId: null,
+      webViewLink: null,
+      error: new Error(
+        `El archivo supera el máximo de ${mb} MB para subida desde FIMBA. Subilo desde Drive.`,
+      ),
+    };
+  }
+
+  const folderUrl =
+    normalizeCarpetaDocumentacion(folderUrlOrId) || String(folderUrlOrId || "").trim();
+  const parentId = extractDriveFolderId(folderUrl);
+  if (!parentId) {
+    return {
+      fileId: null,
+      webViewLink: null,
+      error: new Error("Carpeta de destino inválida"),
+    };
+  }
+
+  try {
+    const fileBase64 = await fileToBase64(file);
+    const fileName = String(file.name || "archivo").trim() || "archivo";
+    const mimeType = file.type || "application/octet-stream";
+
+    const { data, error } = await supabase.functions.invoke("manage-drive", {
+      body: {
+        action: "upload_file",
+        folderUrl,
+        parentId,
+        fileName,
+        fileBase64,
+        mimeType,
+      },
+    });
+
+    if (error) {
+      return {
+        fileId: null,
+        webViewLink: null,
+        error: new Error(error.message || "No se pudo subir el archivo"),
+      };
+    }
+    const payload = manageDrivePayload(data);
+    if (payload?.error || payload?.success === false) {
+      return {
+        fileId: null,
+        webViewLink: null,
+        error: new Error(
+          String(
+            payload.error ||
+              payload.message ||
+              "Error al subir a Drive (permiso o tipo no admitido)",
+          ),
+        ),
+      };
+    }
+    // La EF a veces devuelve success sin fileId si Google falló en silencio
+    if (!payload?.fileId && !payload?.webViewLink) {
+      return {
+        fileId: null,
+        webViewLink: null,
+        error: new Error(
+          "Drive no confirmó la subida. Verificá permisos de escritura de la cuenta Archivo.",
+        ),
+      };
+    }
+    return {
+      fileId: payload.fileId || null,
+      webViewLink: payload.webViewLink || null,
+      error: null,
+    };
+  } catch (e) {
+    return {
+      fileId: null,
+      webViewLink: null,
+      error: e instanceof Error ? e : new Error(String(e?.message || e)),
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -3692,7 +4124,7 @@ export function resolveFimbaEstadoActor(opts = {}) {
 }
 
 const CONTRATACION_SELECT =
-  "id, id_edicion, orden, numero_expediente, id_propuesta, nombre, monto, fecha_limite_resol, tipo_contratacion, envio_firma_mfm_nota, nota_firmada, falta_documentacion, enviado_adm, ultimo_estado_conocido, created_at, updated_at, fimba_propuestas:id_propuesta ( id, nombre, color )";
+  "id, id_edicion, orden, numero_expediente, id_propuesta, nombre, monto, fecha_limite_resol, tipo_contratacion, envio_firma_mfm_nota, nota_firmada, falta_documentacion, enviado_adm, ultimo_estado_conocido, carpeta_documentacion, created_at, updated_at, fimba_propuestas:id_propuesta ( id, nombre, color )";
 
 const ESTADO_LOG_SELECT =
   "id, id_contratacion, estado, created_at, created_by_label, created_by_integrante_id, created_by_fimba_usuario_id";
@@ -3709,7 +4141,7 @@ async function fetchNextContratacionOrden(edicionId) {
 }
 
 /**
- * Normaliza monto opcional: vacío → null; coma decimal OK.
+ * Normaliza monto opcional: vacío → null; coma decimal / miles es-AR / símbolo $.
  * @param {unknown} value
  * @returns {number|null}
  */
@@ -3718,10 +4150,35 @@ export function parseFimbaMonto(value) {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
   }
-  const s = String(value).trim().replace(/\s/g, "").replace(",", ".");
+  let s = String(value).trim().replace(/\s/g, "").replace(/\$/g, "");
   if (!s) return null;
+  // es-AR: 1.234,56 → 1234.56; también acepta 1234.56 / 1234,56
+  if (s.includes(",") && s.includes(".")) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else if (s.includes(",")) {
+    s = s.replace(",", ".");
+  }
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Monto en ARS con locale es-AR (p. ej. $ 1.234,56). Vacío → "".
+ * @param {unknown} value
+ */
+export function formatFimbaMonto(value) {
+  const n = parseFimbaMonto(value);
+  if (n == null) return "";
+  try {
+    return new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency: "ARS",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n);
+  } catch {
+    return String(n);
+  }
 }
 
 /**
@@ -3735,6 +4192,24 @@ export async function listFimbaContrataciones(edicionId) {
     .from("fimba_contrataciones")
     .select(CONTRATACION_SELECT)
     .eq("id_edicion", edicionId)
+    .order("orden", { ascending: true })
+    .order("id", { ascending: true });
+  if (error) return { contrataciones: [], error };
+  return { contrataciones: data || [], error: null };
+}
+
+/**
+ * Contrataciones vinculadas a un artista (`id_propuesta`).
+ * @param {number|string} propuestaId
+ */
+export async function listFimbaContratacionesByPropuesta(propuestaId) {
+  if (propuestaId == null || propuestaId === "") {
+    return { contrataciones: [], error: new Error("id de artista requerido") };
+  }
+  const { data, error } = await supabase
+    .from("fimba_contrataciones")
+    .select(CONTRATACION_SELECT)
+    .eq("id_propuesta", propuestaId)
     .order("orden", { ascending: true })
     .order("id", { ascending: true });
   if (error) return { contrataciones: [], error };
@@ -3910,6 +4385,9 @@ export async function createFimbaContratacion(payload, opts = {}) {
     nota_firmada: payload?.nota_firmada === true,
     falta_documentacion: payload?.falta_documentacion === true,
     enviado_adm: payload?.enviado_adm === true,
+    carpeta_documentacion: normalizeCarpetaDocumentacion(
+      payload?.carpeta_documentacion,
+    ),
     // Se setea vía append si hay valor; null al insertar y luego log.
     ultimo_estado_conocido: null,
   };
@@ -4020,6 +4498,12 @@ export async function updateFimbaContratacion(
   }
   if (patch.enviado_adm !== undefined) {
     body.enviado_adm = Boolean(patch.enviado_adm);
+    hasFieldPatch = true;
+  }
+  if (patch.carpeta_documentacion !== undefined) {
+    body.carpeta_documentacion = normalizeCarpetaDocumentacion(
+      patch.carpeta_documentacion,
+    );
     hasFieldPatch = true;
   }
 

@@ -8,6 +8,7 @@ import {
   IconHotel,
   IconBed,
   IconUsers,
+  IconFileExcel,
 } from "../../components/ui/Icons";
 import {
   getFimbaEdicionById,
@@ -20,7 +21,12 @@ import {
   FIMBA_TIPOS_HABITACION,
   formatFimbaHabitacionesCounts,
   labelFimbaHabitacionTipo,
+  labelFimbaAlimentacion,
 } from "../../services/fimbaService";
+import {
+  exportFimbaComidasExcel,
+  exportFimbaHoteleriaExcel,
+} from "../../utils/fimbaExport";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 
 function formatFecha(f) {
@@ -53,6 +59,35 @@ export default function FimbaHoteleriaPage() {
   const [error, setError] = useState(null);
   const [modal, setModal] = useState(null);
   const [expanded, setExpanded] = useState({});
+  const [exporting, setExporting] = useState(null);
+
+  const edicionLabel = edicion?.nombre || `Edicion_${edicionId}`;
+
+  const runExport = async (kind) => {
+    if (!rows.length) {
+      alert("No hay datos para exportar.");
+      return;
+    }
+    setExporting(kind);
+    try {
+      if (kind === "hoteleria") {
+        await exportFimbaHoteleriaExcel({
+          edicionNombre: edicionLabel,
+          rows,
+        });
+      } else if (kind === "comidas") {
+        await exportFimbaComidasExcel({
+          edicionNombre: edicionLabel,
+          rows,
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      setError(err?.message || "Error al exportar");
+    } finally {
+      setExporting(null);
+    }
+  };
 
   const reload = async () => {
     setLoading(true);
@@ -207,9 +242,39 @@ export default function FimbaHoteleriaPage() {
             Cupos hotel = cantidad planificada (no incluye extra equip.)
           </p>
         </div>
-        <button type="button" className="fimba-btn fimba-btn-ghost" onClick={copyTableTsv}>
-          Copiar tabla (Excel)
-        </button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className="fimba-btn fimba-btn-ghost"
+            disabled={!!exporting || rows.length === 0}
+            onClick={() => runExport("hoteleria")}
+            title="Excel: resumen, personas y rooming"
+          >
+            {exporting === "hoteleria" ? (
+              <IconLoader size={14} className="animate-spin" />
+            ) : (
+              <IconFileExcel size={14} />
+            )}{" "}
+            Exportar hotelería
+          </button>
+          <button
+            type="button"
+            className="fimba-btn fimba-btn-ghost"
+            disabled={!!exporting || rows.length === 0}
+            onClick={() => runExport("comidas")}
+            title="Excel: regímenes de alimentación + detalle"
+          >
+            {exporting === "comidas" ? (
+              <IconLoader size={14} className="animate-spin" />
+            ) : (
+              <IconFileExcel size={14} />
+            )}{" "}
+            Exportar comidas
+          </button>
+          <button type="button" className="fimba-btn fimba-btn-ghost" onClick={copyTableTsv}>
+            Copiar tabla (TSV)
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -419,8 +484,10 @@ export default function FimbaHoteleriaPage() {
                                 </td>
                                 <td>{r.noches || "—"}</td>
                                 <td className="fimba-muted">
-                                  {p.tipo_alimentacion || "regular"}
-                                  {p.nota_alimentacion ? ` · ${p.nota_alimentacion}` : ""}
+                                  {labelFimbaAlimentacion(
+                                    p.tipo_alimentacion,
+                                    p.nota_alimentacion,
+                                  )}
                                 </td>
                               </tr>
                             );

@@ -21,19 +21,19 @@ import {
   FIMBA_ARTISTA_COLORS,
   FIMBA_GENEROS,
   FIMBA_PROPUESTA_ESTADOS,
-  FIMBA_TIPOS_ALIMENTACION,
   computeFimbaCapacity,
   countActiveParticipantes,
   createFimbaPropuesta,
   deleteFimbaPropuesta,
   getFimbaEdicionById,
+  labelFimbaAlimentacion,
   listFimbaParticipantes,
   listFimbaPropuestas,
   listHotelesCatalog,
   updateFimbaPropuesta,
 } from "../../services/fimbaService";
 
-/** Columnas editables en modo planilla (orden de Tab / Enter). Color/estado solo vía modal. */
+/** Columnas editables en modo planilla (orden de Tab / Enter). Color/estado en ficha artista. */
 const EDITABLE_COLS = [
   "nombre",
   "cantidad_planificada",
@@ -159,7 +159,7 @@ export default function FimbaEdicionPage() {
   const [hoteles, setHoteles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [modal, setModal] = useState(null); // null | { mode, propuesta? }
+  const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
   /** Soft reload preserves mounted table (expand state). Full reload shows spinner. */
@@ -271,7 +271,7 @@ export default function FimbaEdicionPage() {
             <button
               type="button"
               className="fimba-btn fimba-btn-primary"
-              onClick={() => setModal({ mode: "create" })}
+              onClick={() => setCreateModalOpen(true)}
             >
               <IconPlus size={16} /> Nuevo artista
             </button>
@@ -334,23 +334,20 @@ export default function FimbaEdicionPage() {
             edicionId={edicionId}
             editMode={!readOnly && editMode}
             onDelete={readOnly ? null : handleDelete}
-            onOpenModal={readOnly ? null : (p) => setModal({ mode: "edit", propuesta: p })}
             onPropuestaPatched={handlePropuestaPatched}
             readOnly={readOnly}
           />
         </>
       )}
 
-      {!readOnly && modal &&
+      {!readOnly && createModalOpen &&
         createPortal(
-          <ArtistaFormModal
-            mode={modal.mode}
-            propuesta={modal.propuesta}
+          <ArtistaCreateModal
             edicionId={edicionId}
             hoteles={hoteles}
-            onClose={() => setModal(null)}
+            onClose={() => setCreateModalOpen(false)}
             onSaved={() => {
-              setModal(null);
+              setCreateModalOpen(false);
               reload({ soft: true });
             }}
           />,
@@ -370,7 +367,6 @@ function FimbaArtistasTable({
   edicionId,
   editMode,
   onDelete,
-  onOpenModal,
   onPropuestaPatched,
   readOnly = false,
 }) {
@@ -958,15 +954,15 @@ function FimbaArtistasTable({
                     >
                       <IconUsers size={14} />
                     </Link>
-                    {!readOnly && !editMode && onOpenModal && (
-                      <button
-                        type="button"
+                    {!editMode && (
+                      <Link
+                        to={`/fimba/edicion/${edicionId}/artista/${p.id}`}
                         className="fimba-btn fimba-btn-ghost"
-                        onClick={() => onOpenModal(p)}
-                        title="Editar (formulario)"
+                        style={{ textDecoration: "none" }}
+                        title="Ficha del artista"
                       >
                         <IconEdit size={14} />
-                      </button>
+                      </Link>
                     )}
                     {!readOnly && onDelete && (
                       <button
@@ -1011,10 +1007,8 @@ function FimbaArtistasTable({
   );
 }
 
-function labelAlimentacion(value) {
-  return (
-    FIMBA_TIPOS_ALIMENTACION.find((t) => t.value === value)?.label || value || "—"
-  );
+function labelAlimentacion(tipo, nota) {
+  return labelFimbaAlimentacion(tipo, nota);
 }
 
 function labelGenero(value) {
@@ -1094,7 +1088,7 @@ function ArtistaNominaPanel({ edicionId, propuesta, cap, cache, onRetry }) {
                 <td>{part.nombre}</td>
                 <td className="fimba-muted">{part.documento || "—"}</td>
                 <td>{labelGenero(part.genero)}</td>
-                <td>{labelAlimentacion(part.tipo_alimentacion)}</td>
+                <td>{labelAlimentacion(part.tipo_alimentacion, part.nota_alimentacion)}</td>
                 <td>{part.activo === false ? "No" : "Sí"}</td>
               </tr>
             ))}
@@ -1105,27 +1099,19 @@ function ArtistaNominaPanel({ edicionId, propuesta, cap, cache, onRetry }) {
   );
 }
 
-function ArtistaFormModal({ mode, propuesta, edicionId, hoteles = [], onClose, onSaved }) {
-  const isEdit = mode === "edit";
-  const [nombre, setNombre] = useState(propuesta?.nombre || "");
-  const [color, setColor] = useState(propuesta?.color || FIMBA_ARTISTA_COLORS[0]);
-  const [cantidad, setCantidad] = useState(propuesta?.cantidad_planificada ?? 10);
-  const [extra, setExtra] = useState(propuesta?.plazas_extra_materiales ?? 0);
-  const [checkin, setCheckin] = useState(
-    propuesta?.checkin_at ? String(propuesta.checkin_at).slice(0, 10) : "",
-  );
-  const [checkout, setCheckout] = useState(
-    propuesta?.checkout_at ? String(propuesta.checkout_at).slice(0, 10) : "",
-  );
-  const [checkinEarly, setCheckinEarly] = useState(asBool(propuesta?.checkin_early));
-  const [checkoutLate, setCheckoutLate] = useState(asBool(propuesta?.checkout_late));
-  const [idHotel, setIdHotel] = useState(
-    propuesta?.id_hotel != null ? String(propuesta.id_hotel) : "",
-  );
-  const [observacionesLogisticas, setObservacionesLogisticas] = useState(
-    propuesta?.observaciones_logisticas || "",
-  );
-  const [estado, setEstado] = useState(propuesta?.estado || "activa");
+/** Alta de artista (planilla). La edición de meta va en la ficha `/artista/:id`. */
+function ArtistaCreateModal({ edicionId, hoteles = [], onClose, onSaved }) {
+  const [nombre, setNombre] = useState("");
+  const [color, setColor] = useState(FIMBA_ARTISTA_COLORS[0]);
+  const [cantidad, setCantidad] = useState(10);
+  const [extra, setExtra] = useState(0);
+  const [checkin, setCheckin] = useState("");
+  const [checkout, setCheckout] = useState("");
+  const [checkinEarly, setCheckinEarly] = useState(false);
+  const [checkoutLate, setCheckoutLate] = useState(false);
+  const [idHotel, setIdHotel] = useState("");
+  const [observacionesLogisticas, setObservacionesLogisticas] = useState("");
+  const [estado, setEstado] = useState("activa");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -1158,15 +1144,10 @@ function ArtistaFormModal({ mode, propuesta, edicionId, hoteles = [], onClose, o
       return;
     }
 
-    let err;
-    if (isEdit) {
-      ({ error: err } = await updateFimbaPropuesta(propuesta.id, validated.patch));
-    } else {
-      ({ error: err } = await createFimbaPropuesta({
-        id_edicion: edicionId,
-        ...validated.patch,
-      }));
-    }
+    const { error: err } = await createFimbaPropuesta({
+      id_edicion: edicionId,
+      ...validated.patch,
+    });
     setSaving(false);
     if (err) {
       setError(err.message || "No se pudo guardar");
@@ -1178,7 +1159,7 @@ function ArtistaFormModal({ mode, propuesta, edicionId, hoteles = [], onClose, o
   return (
     <div className="fimba-modal-backdrop" onClick={onClose} role="presentation">
       <div className="fimba-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <h2>{isEdit ? "Editar artista" : "Nuevo artista"}</h2>
+        <h2>Nuevo artista</h2>
         <form onSubmit={submit}>
           <div className="fimba-field">
             <label className="fimba-label">Nombre</label>

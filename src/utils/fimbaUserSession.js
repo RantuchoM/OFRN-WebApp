@@ -266,6 +266,8 @@ export function resolveFimbaAccess({
       canManageUsers: true,
       canSeeUsuarios: true,
       canSeeContrataciones: true,
+      /** Meta/logística de propuesta (color, cupos, hotel, estado…): solo generales/OFRN. */
+      canEditPropuestaMeta: true,
       source: "ofrn",
     };
   }
@@ -283,6 +285,7 @@ export function resolveFimbaAccess({
       canManageUsers: true,
       canSeeUsuarios: true,
       canSeeContrataciones: true,
+      canEditPropuestaMeta: true,
       source: "fimba_editor",
     };
   }
@@ -294,6 +297,7 @@ export function resolveFimbaAccess({
       canManageUsers: false,
       canSeeUsuarios: false,
       canSeeContrataciones: false,
+      canEditPropuestaMeta: false,
       source: "fimba_consulta",
     };
   }
@@ -311,6 +315,7 @@ export function resolveFimbaAccess({
       canManageUsers: false,
       canSeeUsuarios: false,
       canSeeContrataciones: false,
+      canEditPropuestaMeta: false,
       source: "token_consulta",
     };
   }
@@ -321,6 +326,7 @@ export function resolveFimbaAccess({
     canManageUsers: false,
     canSeeUsuarios: false,
     canSeeContrataciones: false,
+    canEditPropuestaMeta: false,
     source: "none",
   };
 }

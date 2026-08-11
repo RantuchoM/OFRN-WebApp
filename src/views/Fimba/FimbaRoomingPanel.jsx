@@ -5,6 +5,7 @@ import {
   IconLoader,
   IconAlertTriangle,
   IconUsers,
+  IconFileExcel,
 } from "../../components/ui/Icons";
 import {
   FIMBA_TIPOS_HABITACION,
@@ -14,8 +15,10 @@ import {
   setFimbaHabitacionOcupantes,
   summarizeFimbaHabitaciones,
   syncFimbaHabitacionesFromCounts,
+  totalPlazasFromHabitacionCounts,
   updateFimbaHabitacion,
 } from "../../services/fimbaService";
+import { exportFimbaRoomingExcel } from "../../utils/fimbaExport";
 
 /**
  * Hotelería / rooming por artista.
@@ -28,6 +31,10 @@ export default function FimbaRoomingPanel({
   readOnly = false,
   mode,
   onError,
+  artistaNombre = "",
+  hotelNombre = "",
+  checkinAt = null,
+  checkoutAt = null,
 }) {
   const resolvedMode = mode || (readOnly ? "readonly" : "admin");
   const canAdmin = resolvedMode === "admin";
@@ -41,6 +48,32 @@ export default function FimbaRoomingPanel({
   const [invStatus, setInvStatus] = useState("idle");
   const [counts, setCounts] = useState({ SGL: 0, DBL: 0, TPL: 0, QAD: 0 });
   const [savingRoom, setSavingRoom] = useState({});
+  const [exporting, setExporting] = useState(false);
+
+  const exportRooming = async () => {
+    setExporting(true);
+    try {
+      await exportFimbaRoomingExcel({
+        edicionNombre: artistaNombre || `Propuesta_${propuestaId}`,
+        artistaNombre: artistaNombre || undefined,
+        rows: [
+          {
+            propuesta: { nombre: artistaNombre || `Artista ${propuestaId}` },
+            hotel: hotelNombre ? { nombre: hotelNombre } : null,
+            checkin_at: checkinAt,
+            checkout_at: checkoutAt,
+            habitaciones,
+          },
+        ],
+      });
+    } catch (err) {
+      console.error(err);
+      setError(err?.message || "No se pudo exportar rooming");
+      onError?.(err?.message);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const reload = async () => {
     setLoading(true);
@@ -87,6 +120,37 @@ export default function FimbaRoomingPanel({
     () => activos.filter((p) => !assignedIds.has(Number(p.id))),
     [activos, assignedIds],
   );
+
+  /** Personas que necesitan plaza hotelera = roster activo (ocupadas + sin habitación). */
+  const neededPlazas = activos.length;
+
+  /** Borrador de inventario: plazas totales = SGL×1 + DBL×2 + TPL×3 + QAD×4. */
+  const draftPlazas = useMemo(() => totalPlazasFromHabitacionCounts(counts), [counts]);
+
+  const draftVsNeeded = useMemo(() => {
+    const delta = draftPlazas - neededPlazas;
+    if (neededPlazas === 0 && draftPlazas === 0) {
+      return { tone: "neutral", label: "Sin personas ni cupos" };
+    }
+    if (delta < 0) {
+      const faltan = -delta;
+      return {
+        tone: "short",
+        label: `Faltan ${faltan} ${faltan === 1 ? "plaza" : "plazas"}`,
+      };
+    }
+    if (delta === 0) {
+      return { tone: "exact", label: "Cubre el total" };
+    }
+    return {
+      tone: "excess",
+      label: `Sobran ${delta} ${delta === 1 ? "plaza" : "plazas"}`,
+    };
+  }, [draftPlazas, neededPlazas]);
+
+  const isDraftDirty = invStatus === "dirty";
+  const headerByTipo = isDraftDirty ? counts : summary.byTipo;
+  const headerSlots = isDraftDirty ? draftPlazas : summary.slots;
 
   const applyInventory = async () => {
     if (!canAdmin) return;
@@ -196,9 +260,12 @@ export default function FimbaRoomingPanel({
             <IconBed size={16} /> Hotelería / rooming
           </h2>
           <p className="fimba-muted" style={{ margin: "0.35rem 0 0", fontSize: "0.82rem" }}>
-            {formatFimbaHabitacionesCounts(summary.byTipo)}
+            {formatFimbaHabitacionesCounts(headerByTipo)}
+            {isDraftDirty && (
+              <span style={{ fontStyle: "italic" }}> (borrador)</span>
+            )}
             {" · "}
-            {summary.ocupadas}/{summary.slots} plazas ocupadas
+            {summary.ocupadas}/{headerSlots} plazas ocupadas
             {sinHabitacion.length > 0 && (
               <>
                 {" · "}
@@ -209,6 +276,20 @@ export default function FimbaRoomingPanel({
             )}
           </p>
         </div>
+        <button
+          type="button"
+          className="fimba-btn fimba-btn-ghost"
+          disabled={exporting || habitaciones.length === 0}
+          onClick={exportRooming}
+          title="Exportar lista de habitaciones (Excel)"
+        >
+          {exporting ? (
+            <IconLoader size={14} className="animate-spin" />
+          ) : (
+            <IconFileExcel size={14} />
+          )}{" "}
+          Exportar rooming
+        </button>
       </div>
 
       {error && (
@@ -297,7 +378,37 @@ export default function FimbaRoomingPanel({
               </span>
             )}
           </div>
-          <p className="fimba-muted" style={{ margin: "0.5rem 0 0", fontSize: "0.75rem" }}>
+          <p
+            style={{
+              margin: "0.55rem 0 0",
+              fontSize: "0.82rem",
+              fontWeight: 600,
+              color:
+                draftVsNeeded.tone === "short"
+                  ? "var(--fimba-accent, #c2410c)"
+                  : draftVsNeeded.tone === "exact"
+                    ? "var(--fimba-deep, #1e293b)"
+                    : draftVsNeeded.tone === "excess"
+                      ? "#0f766e"
+                      : "var(--fimba-muted)",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "0.35rem 0.75rem",
+              alignItems: "baseline",
+            }}
+          >
+            <span>
+              Borrador: {draftPlazas} {draftPlazas === 1 ? "plaza" : "plazas"}
+              {neededPlazas > 0 || draftPlazas > 0
+                ? ` · se necesitan ${neededPlazas}`
+                : ""}
+            </span>
+            <span>
+              · {draftVsNeeded.label}
+              {draftVsNeeded.tone === "exact" && neededPlazas > 0 ? " (exacto)" : ""}
+            </span>
+          </p>
+          <p className="fimba-muted" style={{ margin: "0.35rem 0 0", fontSize: "0.75rem" }}>
             Crea o quita slots vacíos. No borra habitaciones con personas asignadas.
           </p>
         </div>

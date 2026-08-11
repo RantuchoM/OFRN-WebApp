@@ -10,6 +10,7 @@ import {
   IconBus,
   IconClock,
   IconX,
+  IconFileExcel,
 } from "../../components/ui/Icons";
 import {
   addFimbaVehiculo,
@@ -36,6 +37,10 @@ import {
   formatEventLocation,
   resolveStopArtistasLabels,
 } from "../../utils/fimbaTransportBoarding";
+import {
+  exportFimbaTransporteTodosExcel,
+  exportFimbaTransporteVehiculoExcel,
+} from "../../utils/fimbaExport";
 import { eventTypeIdForCategoria } from "../../utils/giraTransportUtils";
 import FimbaDestinoStopModal from "./FimbaDestinoStopModal";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
@@ -120,6 +125,8 @@ export default function FimbaTransportPage() {
     capacidad: "",
     categoria_logistica: "PASAJEROS",
   });
+  const [exportingVehicleId, setExportingVehicleId] = useState(null);
+  const [exportingAll, setExportingAll] = useState(false);
   const showVehForm = showAddVeh || editingVehiculoId != null;
   const isEditingVeh = editingVehiculoId != null;
 
@@ -235,6 +242,55 @@ export default function FimbaTransportPage() {
       }),
     [vehiculos, eventos, logisticsSummary, propuestaRoutes],
   );
+
+  /** Mapa id integrante OFRN → datos para export de abordaje. */
+  const ofrnPassengerById = useMemo(() => {
+    const map = new Map();
+    const src = ofrnPassengers?.length ? ofrnPassengers : logisticsSummary;
+    for (const p of src || []) {
+      if (p?.id == null) continue;
+      if (p.estado_gira === "ausente") continue;
+      map.set(String(p.id), p);
+      map.set(Number(p.id), p);
+    }
+    return map;
+  }, [ofrnPassengers, logisticsSummary]);
+
+  const edicionLabel = edicion?.nombre || `Edicion_${edicionId}`;
+
+  const exportVehiculo = async (gt) => {
+    setExportingVehicleId(gt.id);
+    try {
+      await exportFimbaTransporteVehiculoExcel({
+        edicionNombre: edicionLabel,
+        vehiculo: gt,
+        sequence: sequencesByVehicle.get(Number(gt.id)),
+        passengerById: ofrnPassengerById,
+      });
+    } catch (err) {
+      console.error(err);
+      setError(err?.message || "Error al exportar vehículo");
+    } finally {
+      setExportingVehicleId(null);
+    }
+  };
+
+  const exportTodosTransportes = async () => {
+    setExportingAll(true);
+    try {
+      await exportFimbaTransporteTodosExcel({
+        edicionNombre: edicionLabel,
+        vehiculos,
+        sequencesByVehicle,
+        passengerById: ofrnPassengerById,
+      });
+    } catch (err) {
+      console.error(err);
+      setError(err?.message || "Error al exportar transportes");
+    } finally {
+      setExportingAll(false);
+    }
+  };
 
   const openStopRules = (ev, type) => {
     const ids = giraTransporteIdsFromEvent(ev).map(Number);
@@ -580,10 +636,25 @@ export default function FimbaTransportPage() {
           >
             <IconBus size={16} /> Vehículos
           </h2>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span className="fimba-badge">
               {vehiculos.length} unidad{vehiculos.length === 1 ? "" : "es"}
             </span>
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-ghost"
+              style={{ padding: "0.35rem 0.7rem", fontSize: "0.85rem" }}
+              disabled={exportingAll || vehiculos.length === 0}
+              onClick={exportTodosTransportes}
+              title="Excel: resumen de flota + abordaje por vehículo"
+            >
+              {exportingAll ? (
+                <IconLoader size={14} className="animate-spin" />
+              ) : (
+                <IconFileExcel size={14} />
+              )}{" "}
+              Exportar flota
+            </button>
             {!readOnly && (
             <button
               type="button"
@@ -791,7 +862,7 @@ export default function FimbaTransportPage() {
                   <th>Capacidad</th>
                   <th>Pico en tránsito</th>
                   <th>Libres (pico)</th>
-                  <th style={{ width: 72 }}></th>
+                  <th style={{ width: 100 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -805,6 +876,8 @@ export default function FimbaTransportPage() {
                     cap != null ? Math.max(0, cap - peak) : null;
                   const rowEditing =
                     Number(editingVehiculoId) === Number(gt.id);
+                  const isExporting =
+                    Number(exportingVehicleId) === Number(gt.id);
                   return (
                     <tr
                       key={gt.id}
@@ -873,27 +946,44 @@ export default function FimbaTransportPage() {
                         {libresPeak != null ? libresPeak : "—"}
                       </td>
                       <td>
-                        {!readOnly && (
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                           <button
                             type="button"
                             className="fimba-btn fimba-btn-ghost"
-                            title="Editar vehículo"
-                            aria-label={`Editar ${labelGiraTransporte(gt)}`}
-                            style={{
-                              padding: "0.25rem 0.4rem",
-                              color: rowEditing
-                                ? "var(--fimba-deep)"
-                                : undefined,
-                            }}
-                            onClick={() =>
-                              rowEditing
-                                ? closeVehForm()
-                                : startEditVehiculo(gt)
-                            }
+                            title="Exportar abordaje y secuencia (Excel)"
+                            aria-label={`Exportar ${labelGiraTransporte(gt)}`}
+                            style={{ padding: "0.25rem 0.4rem" }}
+                            disabled={isExporting}
+                            onClick={() => exportVehiculo(gt)}
                           >
-                            <IconEdit size={15} />
+                            {isExporting ? (
+                              <IconLoader size={15} className="animate-spin" />
+                            ) : (
+                              <IconFileExcel size={15} />
+                            )}
                           </button>
-                        )}
+                          {!readOnly && (
+                            <button
+                              type="button"
+                              className="fimba-btn fimba-btn-ghost"
+                              title="Editar vehículo"
+                              aria-label={`Editar ${labelGiraTransporte(gt)}`}
+                              style={{
+                                padding: "0.25rem 0.4rem",
+                                color: rowEditing
+                                  ? "var(--fimba-deep)"
+                                  : undefined,
+                              }}
+                              onClick={() =>
+                                rowEditing
+                                  ? closeVehForm()
+                                  : startEditVehiculo(gt)
+                              }
+                            >
+                              <IconEdit size={15} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

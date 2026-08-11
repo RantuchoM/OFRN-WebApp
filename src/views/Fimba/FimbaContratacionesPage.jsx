@@ -9,11 +9,12 @@ import {
   IconCheck,
   IconAlertTriangle,
   IconHistory,
+  IconDrive,
+  IconFolder,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useFimbaUserSession } from "../../hooks/useFimbaUserSession";
 import {
-  FIMBA_ESTADO_CONOCIDO_PRESETS,
   FIMBA_TIPO_CONTRATACION_DEFAULT,
   createFimbaContratacion,
   deleteFimbaContratacion,
@@ -21,14 +22,20 @@ import {
   listFimbaContratacionEstadoLog,
   listFimbaContrataciones,
   listFimbaPropuestas,
+  normalizeCarpetaDocumentacion,
   parseFimbaMonto,
   resolveFimbaEstadoActor,
-  resolveFimbaEstadoConocidoPreset,
   updateFimbaContratacion,
 } from "../../services/fimbaService";
+import {
+  EstadoConocidoBadge,
+  EstadoConocidoInput,
+  FimbaEstadoConocidoStyles,
+  formatFimbaEstadoTimestamp,
+} from "./FimbaEstadoConocido";
+import { DocumentacionDrivePreview } from "./FimbaDocumentacionDrivePreview";
 
 const NEW_ROW_KEY = "__new__";
-const ESTADO_DATALIST_ID = "fimba-estado-conocido-presets";
 
 const BOOL_FIELDS = [
   "envio_firma_mfm_nota",
@@ -150,12 +157,15 @@ function validateDraft(draft, { isCreate = false } = {}) {
   };
 }
 
-function formatMontoDisplay(value) {
+/** Monto en ARS con locale es-AR (p. ej. $ 1.234,56). */
+function formatMontoCurrency(value) {
   const n = parseFimbaMonto(value);
   if (n == null) return "";
   try {
     return new Intl.NumberFormat("es-AR", {
-      minimumFractionDigits: 0,
+      style: "currency",
+      currency: "ARS",
+      minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(n);
   } catch {
@@ -163,98 +173,134 @@ function formatMontoDisplay(value) {
   }
 }
 
-function formatEstadoTimestamp(iso) {
-  if (!iso) return "—";
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return String(iso);
-    return d.toLocaleString("es-AR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return String(iso);
+const ES_COLLATOR = new Intl.Collator("es", {
+  sensitivity: "base",
+  numeric: true,
+});
+
+/** Tipos de orden para columnas de la planilla. */
+const SORT_TYPES = {
+  orden: "number",
+  numero_expediente: "text",
+  nombre: "text",
+  monto: "number",
+  fecha_limite_resol: "text",
+  tipo_contratacion: "text",
+  envio_firma_mfm_nota: "bool",
+  nota_firmada: "bool",
+  falta_documentacion: "bool",
+  enviado_adm: "bool",
+  ultimo_estado_conocido: "text",
+};
+
+function sortValEmpty(type, v) {
+  if (type === "bool") return false;
+  if (type === "number") return v == null || Number.isNaN(v);
+  return v == null || String(v).trim() === "";
+}
+
+function getRowSortValue(key, draft, row, propuestasById) {
+  switch (key) {
+    case "orden":
+      return Number(row?.orden) || Number(row?.id) || 0;
+    case "numero_expediente":
+      return String(draft?.numero_expediente || "").trim();
+    case "nombre": {
+      const free = String(draft?.nombre || "").trim();
+      let artist = "";
+      if (draft?.id_propuesta != null && String(draft.id_propuesta) !== "") {
+        artist =
+          propuestasById.get(String(draft.id_propuesta))?.nombre ||
+          row?.fimba_propuestas?.nombre ||
+          "";
+      }
+      return [free, artist].filter(Boolean).join(" ").trim();
+    }
+    case "monto":
+      return parseFimbaMonto(draft?.monto);
+    case "fecha_limite_resol":
+      return String(draft?.fecha_limite_resol || "").trim();
+    case "tipo_contratacion":
+      return String(draft?.tipo_contratacion || "").trim();
+    case "envio_firma_mfm_nota":
+    case "nota_firmada":
+    case "falta_documentacion":
+    case "enviado_adm":
+      return asBool(draft?.[key]) ? 1 : 0;
+    case "ultimo_estado_conocido":
+      return String(draft?.ultimo_estado_conocido || "").trim();
+    default:
+      return "";
   }
 }
 
-/** Badge coloreado para presets conocidos; texto plano si es libre. */
-function EstadoConocidoBadge({ estado, style }) {
-  const text = estado != null ? String(estado).trim() : "";
-  if (!text) {
-    return (
-      <span className="fimba-muted" style={{ fontSize: "0.78rem", ...style }}>
-        —
-      </span>
-    );
+function compareSortValues(type, a, b, dir) {
+  const aEmpty = sortValEmpty(type, a);
+  const bEmpty = sortValEmpty(type, b);
+  if (aEmpty && bEmpty) return 0;
+  // Vacíos siempre al final, en asc y desc.
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+
+  let cmp = 0;
+  if (type === "number" || type === "bool") {
+    cmp = Number(a) - Number(b);
+  } else {
+    cmp = ES_COLLATOR.compare(String(a), String(b));
   }
-  const preset = resolveFimbaEstadoConocidoPreset(text);
-  if (preset) {
-    return (
-      <span
-        className="fimba-ctr-estado-badge"
-        style={{
-          background: preset.bg,
-          color: preset.color,
-          ...style,
-        }}
-        title={text}
-      >
-        {text}
-      </span>
-    );
-  }
-  return (
-    <span className="fimba-ctr-estado-badge fimba-ctr-estado-free" title={text} style={style}>
-      {text}
-    </span>
-  );
+  return dir === "desc" ? -cmp : cmp;
 }
 
-/**
- * Input combobox: presets coloreados + texto libre (datalist).
- */
-function EstadoConocidoInput({
-  value,
-  onChange,
-  onCommit,
-  onKeyDown,
-  disabled,
-  placeholder,
-  listId = ESTADO_DATALIST_ID,
+function rowNombreSearchHaystack(draft, row, propuestasById) {
+  const free = String(draft?.nombre || "").trim();
+  let artist = "";
+  if (draft?.id_propuesta != null && String(draft.id_propuesta) !== "") {
+    artist =
+      propuestasById.get(String(draft.id_propuesta))?.nombre ||
+      row?.fimba_propuestas?.nombre ||
+      "";
+  }
+  return `${free} ${artist}`.trim().toLowerCase();
+}
+
+function SortableTh({
+  colKey,
+  sortKey,
+  sortDir,
+  onSort,
+  className = "",
+  title,
+  children,
+  extra = null,
 }) {
-  const preset = resolveFimbaEstadoConocidoPreset(value);
+  const active = sortKey === colKey;
   return (
-    <div className="fimba-ctr-estado-wrap">
-      <input
-        className="fimba-cell-input fimba-ctr-estado-input"
-        list={listId}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={() => onCommit?.()}
-        onKeyDown={onKeyDown}
-        disabled={disabled}
-        placeholder={placeholder || "Estado…"}
-        style={
-          preset
-            ? { background: preset.bg, color: preset.color, fontWeight: 600 }
-            : undefined
-        }
-        title={
-          preset
-            ? `Preset: ${preset.label}`
-            : "Texto libre o elegí un preset de la lista"
-        }
-        aria-label="Último estado conocido"
-      />
-      {value && (
-        <div className="fimba-ctr-estado-preview">
-          <EstadoConocidoBadge estado={value} />
-        </div>
-      )}
-    </div>
+    <th
+      className={`fimba-ctr-th-sort ${className}${active ? " fimba-ctr-th-sort-active" : ""}${
+        extra ? " fimba-ctr-th-has-extra" : ""
+      }`}
+      role="columnheader"
+      aria-sort={
+        active ? (sortDir === "asc" ? "ascending" : "descending") : "none"
+      }
+    >
+      <div className={`fimba-ctr-th-head${extra ? " fimba-ctr-th-head-extra" : ""}`}>
+        <button
+          type="button"
+          className="fimba-ctr-th-sort-btn"
+          title={title || "Clic para ordenar"}
+          onClick={() => onSort(colKey)}
+        >
+          <span className="fimba-ctr-th-sort-inner">
+            {children}
+            <span className="fimba-ctr-sort-ind" aria-hidden>
+              {active ? (sortDir === "asc" ? "▲" : "▼") : ""}
+            </span>
+          </span>
+        </button>
+        {extra}
+      </div>
+    </th>
   );
 }
 
@@ -397,6 +443,11 @@ function ContratacionesPlanilla({
   const [rowStatus, setRowStatus] = useState({});
   const [rowErrors, setRowErrors] = useState({});
   const [historyModal, setHistoryModal] = useState(null);
+  const [driveModal, setDriveModal] = useState(null);
+  const [montoFocusKey, setMontoFocusKey] = useState(null);
+  const [nombreQuery, setNombreQuery] = useState("");
+  const [sortKey, setSortKey] = useState(null);
+  const [sortDir, setSortDir] = useState("asc");
   const savingRef = useRef(new Set());
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
@@ -665,6 +716,18 @@ function ContratacionesPlanilla({
     });
   };
 
+  const openDrive = (r) => {
+    setDriveModal({
+      id: r.id,
+      label:
+        r.nombre ||
+        r.fimba_propuestas?.nombre ||
+        r.numero_expediente ||
+        `Contratación #${r.id}`,
+      carpeta_documentacion: r.carpeta_documentacion || "",
+    });
+  };
+
   const handleCellKeyDown = (e, rowKey) => {
     if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") {
       e.preventDefault();
@@ -704,6 +767,63 @@ function ContratacionesPlanilla({
   const list = rows || [];
   const colCount = 14;
   const newDraft = drafts[NEW_ROW_KEY] || emptyDraft();
+
+  const propuestasById = useMemo(() => {
+    const m = new Map();
+    for (const p of propuestas || []) {
+      m.set(String(p.id), p);
+    }
+    return m;
+  }, [propuestas]);
+
+  const handleSort = (col) => {
+    if (sortKey === col) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(col);
+      setSortDir("asc");
+    }
+  };
+
+  const displayList = useMemo(() => {
+    let items = [...list];
+    const q = String(nombreQuery || "")
+      .trim()
+      .toLowerCase();
+    if (q) {
+      items = items.filter((r) => {
+        const rowKey = String(r.id);
+        const draft = drafts[rowKey] || draftFromRow(r);
+        return rowNombreSearchHaystack(draft, r, propuestasById).includes(q);
+      });
+    }
+    if (sortKey && SORT_TYPES[sortKey]) {
+      const type = SORT_TYPES[sortKey];
+      items.sort((ra, rb) => {
+        const da = drafts[String(ra.id)] || draftFromRow(ra);
+        const db = drafts[String(rb.id)] || draftFromRow(rb);
+        const va = getRowSortValue(sortKey, da, ra, propuestasById);
+        const vb = getRowSortValue(sortKey, db, rb, propuestasById);
+        const c = compareSortValues(type, va, vb, sortDir);
+        if (c !== 0) return c;
+        const o = (Number(ra.orden) || 0) - (Number(rb.orden) || 0);
+        if (o !== 0) return o;
+        return Number(ra.id) - Number(rb.id);
+      });
+    }
+    return items;
+  }, [list, drafts, nombreQuery, sortKey, sortDir, propuestasById]);
+
+  const totalMonto = useMemo(() => {
+    let sum = 0;
+    for (const r of displayList) {
+      const rowKey = String(r.id);
+      const draft = drafts[rowKey] || draftFromRow(r);
+      const n = parseFimbaMonto(draft.monto);
+      if (n != null) sum += n;
+    }
+    return sum;
+  }, [displayList, drafts]);
 
   const renderRow = (rowKey, rowIdx, draft, { isNew = false } = {}) => {
     const status = rowStatus[rowKey] || "idle";
@@ -751,7 +871,9 @@ function ContratacionesPlanilla({
           <td className="fimba-ctr-nombre">
             <div className="fimba-ctr-nombre-stack">
               <select
-                className="fimba-cell-input fimba-ctr-artista-select"
+                className={`fimba-cell-input fimba-ctr-artista-select${
+                  !draft.id_propuesta ? " fimba-ctr-artista-empty" : ""
+                }`}
                 value={draft.id_propuesta || ""}
                 onChange={(e) =>
                   changeAndCommit(rowKey, "id_propuesta", e.target.value)
@@ -760,7 +882,7 @@ function ContratacionesPlanilla({
                 title="Vincular a artista (opcional)"
                 aria-label="Artista"
               >
-                <option value="">— Sin artista —</option>
+                <option value="">Sin artista</option>
                 {(propuestas || []).map((p) => (
                   <option key={p.id} value={String(p.id)}>
                     {p.nombre}
@@ -768,7 +890,7 @@ function ContratacionesPlanilla({
                 ))}
               </select>
               <input
-                className="fimba-cell-input"
+                className="fimba-cell-input fimba-ctr-nombre-input"
                 placeholder={isNew ? "Nombre o proveedor…" : "Nombre…"}
                 value={draft.nombre}
                 onChange={(e) => setField(rowKey, "nombre", e.target.value)}
@@ -783,12 +905,21 @@ function ContratacionesPlanilla({
               className="fimba-cell-input fimba-ctr-monto"
               inputMode="decimal"
               placeholder={isNew ? "Monto" : undefined}
-              value={draft.monto}
+              value={
+                montoFocusKey === rowKey
+                  ? draft.monto
+                  : formatMontoCurrency(draft.monto) || draft.monto || ""
+              }
+              onFocus={() => setMontoFocusKey(rowKey)}
               onChange={(e) => setField(rowKey, "monto", e.target.value)}
-              onBlur={() => commitRow(rowKey)}
+              onBlur={() => {
+                setMontoFocusKey((k) => (k === rowKey ? null : k));
+                commitRow(rowKey);
+              }}
               onKeyDown={(e) => handleCellKeyDown(e, rowKey)}
               disabled={disabled}
-              title={formatMontoDisplay(draft.monto) || "Monto opcional"}
+              title={formatMontoCurrency(draft.monto) || "Monto opcional"}
+              aria-label="Monto"
             />
           </td>
           <td>
@@ -878,14 +1009,40 @@ function ContratacionesPlanilla({
             />
           </td>
           <td style={{ textAlign: "right", paddingRight: "0.5rem", whiteSpace: "nowrap" }}>
-            {!isNew && (
+            {!isNew && (() => {
+              const rowEntity = list.find((x) => String(x.id) === String(rowKey));
+              const hasDrive = Boolean(
+                String(rowEntity?.carpeta_documentacion || "").trim(),
+              );
+              return (
               <>
                 <button
                   type="button"
                   className="fimba-btn fimba-btn-ghost"
                   onClick={() => {
-                    const r = list.find((x) => String(x.id) === String(rowKey));
-                    if (r) openHistory(r);
+                    if (rowEntity) openDrive(rowEntity);
+                  }}
+                  title={
+                    hasDrive
+                      ? "Documentación Drive"
+                      : "Configurar carpeta Drive"
+                  }
+                  disabled={disabled}
+                  style={{
+                    marginRight: 4,
+                    padding: "0.35rem 0.5rem",
+                    color: hasDrive
+                      ? "var(--fimba-cyan, #00b1eb)"
+                      : undefined,
+                  }}
+                >
+                  <IconFolder size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="fimba-btn fimba-btn-ghost"
+                  onClick={() => {
+                    if (rowEntity) openHistory(rowEntity);
                   }}
                   title="Ver historial de estados"
                   disabled={disabled}
@@ -897,8 +1054,7 @@ function ContratacionesPlanilla({
                   type="button"
                   className="fimba-btn fimba-btn-danger"
                   onClick={() => {
-                    const r = list.find((x) => String(x.id) === String(rowKey));
-                    if (r) handleDelete(r);
+                    if (rowEntity) handleDelete(rowEntity);
                   }}
                   title="Eliminar"
                   disabled={disabled}
@@ -906,7 +1062,8 @@ function ContratacionesPlanilla({
                   <IconTrash size={14} />
                 </button>
               </>
-            )}
+              );
+            })()}
           </td>
         </tr>
         {rowErrors[rowKey] && (
@@ -923,48 +1080,158 @@ function ContratacionesPlanilla({
   return (
     <div className="fimba-card fimba-ctr-card" style={{ padding: 0, overflow: "auto" }}>
       <style>{CTR_STYLES}</style>
-      <datalist id={ESTADO_DATALIST_ID}>
-        {FIMBA_ESTADO_CONOCIDO_PRESETS.map((p) => (
-          <option key={p.value} value={p.value} />
-        ))}
-      </datalist>
+      <FimbaEstadoConocidoStyles />
+      <div className="fimba-ctr-total-bar" aria-live="polite">
+        <span className="fimba-ctr-total-label">Total montos</span>
+        <span className="fimba-ctr-total-value">
+          {formatMontoCurrency(totalMonto) || formatMontoCurrency(0)}
+        </span>
+        <span className="fimba-ctr-total-meta">
+          {list.length === 0
+            ? "Sin filas"
+            : (() => {
+                const shown = displayList.length;
+                const total = list.length;
+                const q = String(nombreQuery || "").trim();
+                if (q) {
+                  return shown === 1
+                    ? `1 de ${total}`
+                    : `${shown} de ${total}`;
+                }
+                return total === 1
+                  ? "1 contratación"
+                  : `${total} contrataciones`;
+              })()}
+        </span>
+      </div>
       <table className="fimba-table fimba-table-edit fimba-ctr-table">
         <thead>
           <tr>
             <th className="fimba-sync-col" title="Semáforo" />
-            <th className="fimba-ctr-num" title="Orden de fila">
+            <SortableTh
+              colKey="orden"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+              className="fimba-ctr-num"
+              title="Orden de fila"
+            >
               #
-            </th>
-            <th>Nº expediente</th>
-            <th>Nombre</th>
-            <th>Monto</th>
-            <th title="Fecha límite para la resolución">Fecha límite resol.</th>
-            <th>Tipo contrat.</th>
-            <th className="fimba-ctr-th-check fimba-ctr-th-blue" title="Envío a la firma de MFM nota">
+            </SortableTh>
+            <SortableTh
+              colKey="numero_expediente"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+            >
+              Nº expediente
+            </SortableTh>
+            <SortableTh
+              colKey="nombre"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+              className="fimba-ctr-th-nombre"
+              extra={
+                <input
+                  type="search"
+                  className="fimba-cell-input fimba-ctr-nombre-filter"
+                  value={nombreQuery}
+                  onChange={(e) => setNombreQuery(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  placeholder="Buscar…"
+                  aria-label="Buscar por nombre"
+                  title="Filtrar por nombre (texto libre o artista)"
+                />
+              }
+            >
+              Nombre
+            </SortableTh>
+            <SortableTh
+              colKey="monto"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+            >
+              Monto
+            </SortableTh>
+            <SortableTh
+              colKey="fecha_limite_resol"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+              title="Fecha límite para la resolución"
+            >
+              Fecha límite resol.
+            </SortableTh>
+            <SortableTh
+              colKey="tipo_contratacion"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+            >
+              Tipo contrat.
+            </SortableTh>
+            <SortableTh
+              colKey="envio_firma_mfm_nota"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+              className="fimba-ctr-th-check fimba-ctr-th-blue"
+              title="Envío a la firma de MFM nota"
+            >
               Envío firma MFM
-            </th>
-            <th className="fimba-ctr-th-check fimba-ctr-th-green" title="Nota firmada">
+            </SortableTh>
+            <SortableTh
+              colKey="nota_firmada"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+              className="fimba-ctr-th-check fimba-ctr-th-green"
+              title="Nota firmada"
+            >
               Nota firmada
-            </th>
-            <th className="fimba-ctr-th-check fimba-ctr-th-red" title="Falta recibir documentación">
+            </SortableTh>
+            <SortableTh
+              colKey="falta_documentacion"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+              className="fimba-ctr-th-check fimba-ctr-th-red"
+              title="Falta recibir documentación"
+            >
               Falta doc.
-            </th>
-            <th className="fimba-ctr-th-check fimba-ctr-th-purple" title="Enviado a ADM">
+            </SortableTh>
+            <SortableTh
+              colKey="enviado_adm"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+              className="fimba-ctr-th-check fimba-ctr-th-purple"
+              title="Enviado a ADM"
+            >
               Enviado ADM
-            </th>
-            <th title="Preset coloreado o texto libre; cada cambio se registra en historial">
+            </SortableTh>
+            <SortableTh
+              colKey="ultimo_estado_conocido"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+              title="Preset coloreado o texto libre; cada cambio se registra en historial"
+            >
               Último estado conocido
-            </th>
+            </SortableTh>
             <th className="fimba-col-actions" />
           </tr>
         </thead>
         <tbody>
-          {list.map((r, rowIdx) => {
+          {displayList.map((r, rowIdx) => {
             const rowKey = String(r.id);
             const draft = drafts[rowKey] || draftFromRow(r);
             return renderRow(rowKey, rowIdx, draft);
           })}
-          {renderRow(NEW_ROW_KEY, list.length, newDraft, { isNew: true })}
+          {renderRow(NEW_ROW_KEY, displayList.length, newDraft, { isNew: true })}
         </tbody>
       </table>
       {list.length === 0 && (
@@ -976,6 +1243,14 @@ function ContratacionesPlanilla({
           primera contratación.
         </div>
       )}
+      {list.length > 0 && displayList.length === 0 && (
+        <div
+          className="fimba-muted"
+          style={{ padding: "0.5rem 1rem 0.85rem", fontSize: "0.8rem" }}
+        >
+          Ninguna fila coincide con «{nombreQuery.trim()}».
+        </div>
+      )}
       {historyModal && (
         <EstadoHistorialModal
           contratacionId={historyModal.id}
@@ -983,7 +1258,208 @@ function ContratacionesPlanilla({
           onClose={() => setHistoryModal(null)}
         />
       )}
+      {driveModal && (
+        <ContratacionDriveModal
+          contratacionId={driveModal.id}
+          label={driveModal.label}
+          initialCarpeta={driveModal.carpeta_documentacion}
+          onClose={() => setDriveModal(null)}
+          onSaved={(updated) => {
+            if (!updated) return;
+            onListChange((list) => {
+              const next = (list || []).map((r) =>
+                String(r.id) === String(updated.id) ? updated : r,
+              );
+              listRef.current = next;
+              return next;
+            });
+            setDriveModal((m) =>
+              m
+                ? {
+                    ...m,
+                    carpeta_documentacion: updated.carpeta_documentacion || "",
+                  }
+                : m,
+            );
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+
+function ContratacionDriveModal({
+  contratacionId,
+  label,
+  initialCarpeta = "",
+  onClose,
+  onSaved,
+}) {
+  const [draft, setDraft] = useState(() => initialCarpeta || "");
+  const [status, setStatus] = useState("idle"); // idle|dirty|saving|saved|error
+  const [error, setError] = useState(null);
+  const [savedValue, setSavedValue] = useState(() => initialCarpeta || "");
+  const savingRef = useRef(false);
+
+  useEffect(() => {
+    setDraft(initialCarpeta || "");
+    setSavedValue(initialCarpeta || "");
+    setStatus("idle");
+    setError(null);
+  }, [contratacionId, initialCarpeta]);
+
+  const dirty =
+    (normalizeCarpetaDocumentacion(draft) || "") !==
+    (normalizeCarpetaDocumentacion(savedValue) || "");
+
+  useEffect(() => {
+    if (status === "saving" || status === "error") return;
+    setStatus(dirty ? "dirty" : status === "saved" ? "saved" : "idle");
+  }, [dirty, status]);
+
+  const save = async () => {
+    if (savingRef.current) return;
+    const next = normalizeCarpetaDocumentacion(draft);
+    const prev = normalizeCarpetaDocumentacion(savedValue);
+    if ((next || "") === (prev || "")) {
+      setStatus("idle");
+      return;
+    }
+    savingRef.current = true;
+    setStatus("saving");
+    setError(null);
+    const { contratacion: updated, error: err } = await updateFimbaContratacion(
+      contratacionId,
+      { carpeta_documentacion: next },
+    );
+    savingRef.current = false;
+    if (err) {
+      setStatus("error");
+      setError(err.message || "No se pudo guardar la carpeta");
+      return;
+    }
+    const val = updated?.carpeta_documentacion || "";
+    setSavedValue(val);
+    setDraft(val || "");
+    setStatus("saved");
+    onSaved?.(updated);
+  };
+
+  const meta = statusMeta(status === "dirty" && dirty ? "dirty" : status);
+
+  return createPortal(
+    <div
+      className="fimba-modal-backdrop"
+      onClick={onClose}
+      role="presentation"
+      style={{ zIndex: 100 }}
+    >
+      <div
+        className="fimba-modal"
+        style={{ maxWidth: 560 }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="fimba-ctr-drive-title"
+      >
+        <h2
+          id="fimba-ctr-drive-title"
+          style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 0 }}
+        >
+          <IconDrive size={18} aria-hidden /> Documentación Drive
+        </h2>
+        <p className="fimba-muted" style={{ margin: "0 0 1rem", fontSize: "0.88rem" }}>
+          {label}
+        </p>
+
+        <DocumentacionDrivePreview
+          carpetaDocumentacion={draft}
+          canUpload
+          autoExplore
+        >
+          {({ exploreButton, driveLink }) => (
+            <>
+              <div className="fimba-field" style={{ marginBottom: 10 }}>
+                <label className="fimba-label" htmlFor="fimba-ctr-drive-url">
+                  Carpeta (URL o ID)
+                </label>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                  }}
+                >
+                  <input
+                    id="fimba-ctr-drive-url"
+                    className="fimba-input"
+                    style={{ flex: 1, minWidth: 200 }}
+                    value={draft}
+                    onChange={(e) => {
+                      setDraft(e.target.value);
+                      setStatus("dirty");
+                      setError(null);
+                    }}
+                    onBlur={() => {
+                      if (dirty) save();
+                    }}
+                    placeholder="https://drive.google.com/drive/folders/… o ID"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    className="fimba-btn fimba-btn-primary"
+                    onClick={save}
+                    disabled={status === "saving" || !dirty}
+                  >
+                    {status === "saving" ? "Guardando…" : "Guardar"}
+                  </button>
+                  <span
+                    className={`fimba-sync-legend ${meta.cls}`}
+                    title={error || meta.title}
+                    aria-label={error || meta.title}
+                  >
+                    <i className={`fimba-sync-dot ${meta.cls}`} />
+                  </span>
+                </div>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  marginBottom: 8,
+                }}
+              >
+                {exploreButton}
+                {driveLink}
+              </div>
+              <p className="fimba-muted" style={{ margin: "0 0 0.5rem", fontSize: "0.78rem" }}>
+                Al abrir este modal se lista la carpeta (no al cargar la planilla). Compartí la
+                carpeta con la cuenta del Archivo OFRN (lector; editor para subir con «+»).
+                Límite ~4 MB.
+              </p>
+            </>
+          )}
+        </DocumentacionDrivePreview>
+
+        {error && (
+          <div className="fimba-error" style={{ marginTop: 8 }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+          <button type="button" className="fimba-btn fimba-btn-ghost" onClick={onClose}>
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1055,7 +1531,7 @@ function EstadoHistorialModal({ contratacionId, label, onClose }) {
                 </div>
                 <div className="fimba-ctr-hist-meta">
                   <span className="fimba-ctr-hist-when">
-                    {formatEstadoTimestamp(e.created_at)}
+                    {formatFimbaEstadoTimestamp(e.created_at)}
                   </span>
                   <span className="fimba-ctr-hist-who">
                     {e.created_by_label || "—"}
@@ -1078,7 +1554,7 @@ function EstadoHistorialModal({ contratacionId, label, onClose }) {
 
 const CTR_STYLES = `
   .fimba-ctr-table {
-    min-width: 1180px;
+    min-width: 1320px;
     width: max-content;
   }
   .fimba-ctr-table th {
@@ -1094,22 +1570,123 @@ const CTR_STYLES = `
     font-size: 0.8rem;
   }
   .fimba-ctr-nombre {
-    min-width: 12rem;
+    min-width: 14rem;
   }
   .fimba-ctr-nombre-stack {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 11rem;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    min-width: 13rem;
   }
   .fimba-ctr-artista-select {
+    flex: 0 1 46%;
+    min-width: 5.5rem;
+    max-width: 9.5rem;
     font-size: 0.72rem !important;
-    color: #64748b;
+  }
+  .fimba-ctr-artista-select.fimba-ctr-artista-empty {
+    color: #94a3b8;
+  }
+  .fimba-ctr-artista-select:not(.fimba-ctr-artista-empty) {
+    color: #0f172a;
+  }
+  .fimba-ctr-artista-select option {
+    color: #0f172a;
+  }
+  .fimba-ctr-nombre-input {
+    flex: 1 1 auto;
+    min-width: 5rem;
   }
   .fimba-ctr-monto {
-    width: 5.5rem;
+    width: 7.5rem;
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+  .fimba-ctr-total-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.75rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--fimba-border, #e2e8f0);
+    background: linear-gradient(90deg, #fce7f3 0%, #fff 55%);
+  }
+  .fimba-ctr-total-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--fimba-deep, #94216d);
+  }
+  .fimba-ctr-total-value {
+    font-size: 1.15rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: var(--fimba-deep, #94216d);
+  }
+  .fimba-ctr-total-meta {
+    margin-left: auto;
+    font-size: 0.78rem;
+    color: var(--fimba-muted, #64748b);
+  }
+  .fimba-ctr-th-sort {
+    user-select: none;
+    vertical-align: bottom;
+  }
+  .fimba-ctr-th-head {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    max-width: 100%;
+  }
+  .fimba-ctr-th-head-extra {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .fimba-ctr-th-nombre {
+    min-width: 14rem;
+  }
+  .fimba-ctr-th-sort-btn {
+    appearance: none;
+    background: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+    line-height: 1.2;
+  }
+  .fimba-ctr-th-sort-btn:hover .fimba-ctr-th-sort-inner,
+  .fimba-ctr-th-sort-active .fimba-ctr-th-sort-btn .fimba-ctr-th-sort-inner {
+    color: var(--fimba-deep, #94216d);
+  }
+  .fimba-ctr-th-sort-active .fimba-ctr-th-sort-btn .fimba-ctr-th-sort-inner {
+    font-weight: 700;
+  }
+  .fimba-ctr-th-sort-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    max-width: 100%;
+  }
+  .fimba-ctr-sort-ind {
+    font-size: 0.58rem;
+    line-height: 1;
+    opacity: 0.85;
+    min-width: 0.65rem;
+  }
+  .fimba-ctr-nombre-filter {
+    flex: 1 1 6.5rem;
+    min-width: 5.5rem;
+    max-width: 9.5rem;
+    height: 1.55rem;
+    font-size: 0.7rem !important;
+    font-weight: 500 !important;
+    padding: 0.12rem 0.4rem !important;
+    border-radius: 6px !important;
   }
   .fimba-ctr-fecha-limite {
     color: #dc2626 !important;
@@ -1137,72 +1714,4 @@ const CTR_STYLES = `
   .fimba-ctr-check-green { accent-color: #16a34a; color: #16a34a; }
   .fimba-ctr-check-red { accent-color: #dc2626; color: #dc2626; }
   .fimba-ctr-check-purple { accent-color: #7c3aed; color: #7c3aed; }
-  .fimba-ctr-estado-cell {
-    min-width: 11.5rem;
-    max-width: 14rem;
-  }
-  .fimba-ctr-estado-wrap {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 10.5rem;
-  }
-  .fimba-ctr-estado-input {
-    font-size: 0.8rem !important;
-  }
-  .fimba-ctr-estado-preview {
-    line-height: 1;
-  }
-  .fimba-ctr-estado-badge {
-    display: inline-flex;
-    align-items: center;
-    max-width: 100%;
-    border-radius: 999px;
-    padding: 0.12rem 0.5rem;
-    font-size: 0.68rem;
-    font-weight: 700;
-    line-height: 1.25;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .fimba-ctr-estado-free {
-    background: #f1f5f9;
-    color: #475569;
-    font-weight: 600;
-  }
-  .fimba-ctr-hist-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.65rem;
-    max-height: 55vh;
-    overflow: auto;
-  }
-  .fimba-ctr-hist-item {
-    border: 1px solid var(--fimba-border, #e2e8f0);
-    border-radius: 10px;
-    padding: 0.65rem 0.8rem;
-    background: #fafbfc;
-  }
-  .fimba-ctr-hist-estado {
-    margin-bottom: 0.35rem;
-  }
-  .fimba-ctr-hist-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem 0.85rem;
-    font-size: 0.78rem;
-    color: var(--fimba-muted, #5c5c5c);
-  }
-  .fimba-ctr-hist-when {
-    font-variant-numeric: tabular-nums;
-    font-weight: 600;
-  }
-  .fimba-ctr-hist-who {
-    color: var(--fimba-deep, #94216d);
-    font-weight: 600;
-  }
 `;

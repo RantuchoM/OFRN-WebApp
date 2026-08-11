@@ -11,14 +11,14 @@ FIMBA es una aplicación de festival con skin propia bajo `/fimba/*`, que reutil
 | Tabla | Rol |
 |-------|-----|
 | `fimba_ediciones` | Edición del festival; **1:1** con `programas` vía `id_gira` |
-| `fimba_propuestas` | UI «Artista»: cupos, colores, tokens, fechas checkin/out, flags `checkin_early` / `checkout_late`, `id_hotel` opcional → `hoteles`, `observaciones_logisticas` (texto libre) |
+| `fimba_propuestas` | UI «Artista»: cupos, colores, tokens, fechas checkin/out, flags `checkin_early` / `checkout_late`, `id_hotel` opcional → `hoteles`, `observaciones_logisticas` (texto libre). **Sin** carpeta Drive (vive en contrataciones) |
 | `fimba_participantes` | Personas del artista (entidad propia; `id_integrante` opcional bigint). **`genero`**: `femenino` \| `masculino` \| `otro` \| `sin_especificar` (default). No vive en la propuesta: el artista es el grupo; el sexo/género es de cada persona. |
 | `fimba_usuarios` | Usuarios externos por edición: mail + `rol_fimba` (`editor_general` \| `consulta`) + `clave_acceso` / `token_login`. Staff OFRN (`isManagement`) no se registra aquí. |
 | `eventos.audiencia_ofrn` | `none` \| `tutti` \| `grupos` |
 | `eventos_fimba_propuestas` | Tags artista ↔ evento |
 | `fimba_evento_transportes` | Plazas FIMBA de un **trayecto** sobre una **unidad de flota** (`giras_transportes`) (legacy / asignación modal; residual sintético de boarding) |
 | `fimba_propuesta_rutas` | Subida/bajada FIMBA por **artista + cantidad de plazas** en una unidad (`giras_transportes`); análogo a `giras_logistica_rutas` sin id_integrante |
-| `fimba_contrataciones` | Planilla expedientes/contrataciones por edición: nº expediente, nombre (texto y/o `id_propuesta`), monto, fecha límite resol., tipo, flags firma/doc/ADM, `ultimo_estado_conocido` (denorm.), `orden` |
+| `fimba_contrataciones` | Planilla expedientes/contrataciones por edición: nº expediente, nombre (texto y/o `id_propuesta`), monto, fecha límite resol., tipo, flags firma/doc/ADM, `ultimo_estado_conocido` (denorm.), `orden`, **`carpeta_documentacion`** (URL/ID carpeta Google Drive del expediente) |
 | `fimba_contrataciones_estado_log` | Log append-only de cambios a «Último estado conocido»: `estado` text, `created_at`, `created_by_label`, `created_by_integrante_id` / `created_by_fimba_usuario_id` opcional |
 | `fimba_propuestas_habitaciones` | Slots de habitación por artista: `tipo` SGL/DBL/TPL/QAD, `matrimonial` (false en SGL; default twin), `orden`, `label` opcional |
 | `fimba_habitaciones_ocupantes` | Persona en habitación: `id_habitacion` + `id_participante` **único** + `orden`. Capacidad ≤ tipo; misma propuesta |
@@ -114,9 +114,27 @@ Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participan
 - **No** se confunde con `cantidad_planificada` / PAX hotel: la planificada sigue contando pax para cupos/noches; el rooming es acomodo físico de personas nominadas.
 - Tipos: **SGL=1**, **DBL=2**, **TPL=3**, **QAD=4**. Multi: flag **Matrimonial** (default **Twin** = `matrimonial=false`). SGL fuerza `matrimonial=false`.
 - Admin (staff ficha artista / modal Hotelería): define **cantidad por tipo** → `syncFimbaHabitacionesFromCounts` materializa filas en `fimba_propuestas_habitaciones` (agrega vacías; borra solo vacías al bajar cupo; no borra ocupadas → warning).
+- **Feedback live de cupos (antes de Aplicar):** plazas borrador = `Σ count(tipo)×capacidad` vía `totalPlazasFromHabitacionCounts` (SGL×1+DBL×2+TPL×3+QAD×4). Necesarias = participantes **activos** (= ocupadas + sin habitación). UI: *Faltan X* / *Cubre el total (exacto)* / *Sobran X plazas*; resumen cabecera re-calcula inventorio en borrador.
 - Editor token `/fimba/e/:token` y staff: asigna **participantes activos** a plazas (`fimba_habitaciones_ocupantes`); una persona en una sola habitación; select por plaza.
 - Consulta `/fimba/a/:token`: rooming **solo lectura**.
 - UI: `FimbaRoomingPanel` (admin | assign | readonly).
+- Checklist: rooming live cupos feedback ✓.
+
+### Exportaciones Excel (hotelería · comidas · transporte)
+
+Puerto de flujos OFRN (ExcelJS + file-saver, mismo stack que `universalExportLogic` / `transportExport`) parametrizado a datos FIMBA. Util: `src/utils/fimbaExport.js`.
+
+**Permisos:** quien puede **ver** la sección puede exportar (staff OFRN management, `editor_general`, `consulta` por usuario o token de edición, tokens de artista en su ficha). No se limita al modo edición: lectura + export.
+
+| Export | Hojas | Fuente de datos | UI |
+|--------|-------|-----------------|-----|
+| **Hotelería** | Resumen artistas · Personas · Rooming | `listFimbaHoteleria` (pax planif., early/late, obs., habitaciones/ocupantes) | Hotelería: **Exportar hotelería** (+ **Copiar tabla (TSV)** legado) |
+| **Comidas** | Resumen regímenes · Detalle | participantes activos + `tipo_alimentacion` / `nota_alimentacion` (label «Otro») | Hotelería: **Exportar comidas**; ficha Artista: junto a Participantes |
+| **Rooming (artista)** | Rooming | inventorio `fimba_propuestas_habitaciones` + ocupantes | `FimbaRoomingPanel` → **Exportar rooming** |
+| **Transporte / vehículo** | Abordaje · Secuencia paradas | `buildAllVehicleBoardingSequences` (OFRN named rides + FIMBA headcount por `fimba_propuesta_rutas` / sintético; ausentes OFRN filtrados) | Transportes: Excel por **fila de vehículo** |
+| **Transporte flota** | Flota + 1 hoja abordaje por unidad | same sequences map | Transportes: **Exportar flota** |
+
+**Qué no se portó (deuda consciente):** reportes print-only OFRN (RoomingReport / MealsReport / pedido inicial por sexo·tramos); PDF CNRT DNI-styled full roster; hoja de ruta detallada `roadmapExport`. FIMBA exporta **Excel multi-hoja** con labels en español. Boarding FIMBA es por **plazas de artista** (no nómina de participantes en el bus).
 
 ### Agenda
 
@@ -177,7 +195,9 @@ Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participan
 
 **Guard (`FimbaStaffGuard`):** (1) OFRN `isManagement` → allow; (2) `fimba_user` editor/consulta con match `id_edicion` (consulta bloquea `/usuarios` y `/contrataciones`); (3) sesión token `fimba_consulta_edicion` igual RO; (4) sin sesión → `/fimba/login`; (5) OFRN no-management sin sesión FIMBA → mensaje + link login FIMBA.
 
-**`FimbaAccessContext` / `resolveFimbaAccess`:** prioridad OFRN management → editor_general → consulta user/token. Expone `readOnly`, `canSeeUsuarios`, `canSeeContrataciones`, `canManageUsers`. Section toggle oculta Usuarios + Contrataciones en RO.
+**`FimbaAccessContext` / `resolveFimbaAccess`:** prioridad OFRN management → editor_general → consulta user/token. Expone `readOnly`, `canSeeUsuarios`, `canSeeContrataciones`, **`canEditPropuestaMeta`**, `canManageUsers`. Section toggle oculta Usuarios + Contrataciones en RO.
+
+- **`canEditPropuestaMeta`**: true solo para **OFRN management** y **`editor_general`** (misma base operativa que contrataciones). **false** para `consulta`, token `/fimba/c`, y por default en rutas token (sin provider / source `none`). **No** se infiere de `!readOnly`: los editores de artista `/fimba/e/:token` pueden planilla/agenda/rooming pero **no** meta administrativa de la propuesta.
 
 **UI:** `/fimba/login` (brand FIMBA); `/fimba/edicion/:id/usuarios` (alta / desactivar / regenerar clave + enlace consulta edición); header sesión externa con **Salir** (limpia también token consulta); home redirige externos/token a su edición.
 
@@ -194,9 +214,45 @@ Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participan
 - Primary: `.fimba-btn-primary` con hex explícito `#d73289` + texto blanco; chips segmento: `.fimba-chip` / `.fimba-chip-on` (hex fijo, no herencia).
 - **Nav secciones** (staff): `FimbaSectionToggle` en header sticky (top-right) cuando hay `edicionId` — **Artistas | Agenda | Transportes | Hotelería | Contrataciones | Usuarios** (`IconMusic` / `IconCalendar` / `IconBus` / `IconBed` / `IconClipboardCheck` / `IconUsers`); activo `#d73289`. **Siempre sale del contexto artista**: `base = /fimba/edicion/:id` (nunca concatena `/artista/:n`). Artistas → `/fimba/edicion/:id` (activo también en ficha artista index). Agenda/Transportes/Hotelería/Contrataciones/Usuarios → `/fimba/edicion/:id/{segment}` edición-root. Rutas anidadas `/artista/:id/{agenda|…}` siguen válidas para deep links locales en ficha; el toggle superior no las usa. **Consulta RO** (token `/fimba/c` o `rol_fimba=consulta`): oculta Contrataciones y Usuarios. En home de ediciones (`/fimba`) no se muestra.
 
-- **Contrataciones** (`/fimba/edicion/:id/contrataciones`): planilla Excel de `fimba_contrataciones`. Nombre = select artista opcional (`id_propuesta` nullable) + texto libre (`nombre`). Fecha límite resol. en **negrita roja**. Flags boolean con color: envío firma MFM (azul), nota firmada (verde), falta documentación (rojo), enviado ADM (púrpura). Autosave + semáforo por fila (mismo patrón que participantes).
+- **Contrataciones** (`/fimba/edicion/:id/contrataciones`): planilla Excel de `fimba_contrataciones`. Nombre = select artista opcional (`id_propuesta` nullable; «Sin artista» en gris) + texto libre en la **misma fila**. **Monto** en ARS (es-AR) al blur; **total superior** suma montos de filas **visibles** (filtro activo). Headers **ordenables** (asc/desc; textos es; montos numéricos; vacíos al final). Filtro de nombre en el **header de la columna Nombre** (input compacto junto al título/sort). Fecha límite resol. en **negrita roja**. Flags boolean con color. Acciones por fila: **Drive** (icono carpeta → modal z-100), historial estados, eliminar. «Último estado» = presets coloreados + **Otro…**. Autosave + semáforo por fila (campos de la planilla; carpeta Drive se guarda en el modal).
+- **Finanzas en ficha artista** (`/fimba/edicion/:id/artista/:artistaId`): bloque «Finanzas / contrataciones» con filas de `fimba_contrataciones` donde `id_propuesta` = artista (nombre, monto es-AR RO, **«Último estado» editable** con el mismo `EstadoConocidoInput` de la planilla, nº expediente RO, tipo RO). Por cada contratación: join de **Documentación Drive** (Explorar lazy si hay `carpeta_documentacion`; empty-state + link a planilla si no). Persistencia estado: `updateFimbaContratacion` → `appendFimbaContratacionEstado`. Compartido: `FimbaEstadoConocido.jsx` + `FimbaDocumentacionDrivePreview.jsx`. Vacío → «Sin contrataciones». **Visibilidad estricta:** solo `canSeeContrataciones` (editor_general / OFRN management). **No** consulta / tokens `/c` `/a` `/e`.
 
----
+- **Datos generales / meta del artista** (ex modal «Editar artista»): vive **inline** en la ficha `FimbaArtistaPage` (`ArtistaMetaSection`), no en modal desde la planilla.
+  - Campos: nombre, color (swatches), cantidad planificada, Extra Equip., helper hotel/comida·transporte, check-in/out + Early/Late, hotel opcional, observaciones logísticas, estado.
+  - Persistencia: `updateFimbaPropuesta` (mismo patch que el alta).
+  - **Autosave + semáforo** (solo `canEditPropuestaMeta`): sin botón «Guardar cambios». Debounce ~500 ms en texto/números; ~80 ms en color, fechas, flags, hotel y estado. Blur en campos de texto hace flush. Estado `idle|dirty|saving|saved|error` con dot FIMBA (`fimba-sync-*`: verde guardado/sincronizado, ámbar pendiente/guardando, rojo error). Draft incompleto (nombre vacío, números a medio tipear) se queda en yellow sin thrash de error; validación dura (rango, fechas cruzadas) y fallos de red → rojo y draft conservado.
+  - **Edición:** solo si `canEditPropuestaMeta` (editor_general / OFRN management). **No** editable por consulta, `/fimba/c`, `/fimba/a`, ni **`/fimba/e`** (editores de token siguen con nómina/agenda/rooming acomodo).
+  - Sin permiso: sección «Datos del artista» en solo lectura.
+  - **Documentación Drive** en la ficha: se muestra en Finanzas desde contrataciones vinculadas (no campo de meta).
+  - Planilla edición: lápiz → `navigate`/`Link` a `/fimba/edicion/:id/artista/:artistaId` (ficha). Modal solo **«Nuevo artista»**. «Modo edición» de celdas en planilla se mantiene para generales.
+
+### Documentación Drive por contratación (`fimba_contrataciones.carpeta_documentacion`)
+
+| | |
+|--|--|
+| **Columna** | `fimba_contrataciones.carpeta_documentacion` `text` nullable (source of truth) |
+| **Qué guarda** | URL de carpeta Drive y/o ID; al persistir se normaliza a `https://drive.google.com/drive/folders/{id}` si hay ID extraíble (`[-\w]{25,}`) |
+| **Producto** | Drive vive en el **expediente/contratación**, no en la propuesta/artista. Un artista puede tener 0–N carpetas (join de sus contrataciones). |
+| **UI edit** | Planilla **Contrataciones** → botón **carpeta** por fila → modal portal `document.body` z-100: input URL/ID + Guardar (autosave on blur) + semáforo + **Explorar** / **Abrir en Drive** + preview list (**`autoExplore`**: lista al abrir el modal si hay URL) |
+| **UI artista** | Ficha → **Finanzas / contrataciones** (`canSeeContrataciones`): por cada contrato, preview RO del join o empty-state con link a planilla. **No** editar URL en ficha meta. Explorar **lazy** (sin `autoExplore`) |
+| **Preview** | Compartido `src/views/Fimba/FimbaDocumentacionDrivePreview.jsx`. Prop `autoExplore` (default false): modal Contrataciones lista al montar; ficha Artista lazy hasta Explorar. Prefetch post-list: depth **2**, concurrency **4**, max **40**. Cero API al montar la planilla |
+| **Subida (+)** | En modal Contrataciones: staff planilla (`canSeeContrataciones`). En ficha artista: `canUpload` = `canEditPropuestaMeta`. Sigue requiriendo share **editor** de la cuenta Archivo |
+| **Helpers** | `listFimbaDriveFolderFiles` / `downloadFimbaDriveFile` / `uploadFimbaDriveFile` / `normalizeCarpetaDocumentacion` en `fimbaService.js`; CRUD select/update de `carpeta_documentacion` en contrataciones |
+| **Migración de datos** | `20260811160000`: para cada propuesta con carpeta, se copia a la **primera** contratación del mismo `id_propuesta` (`orden ASC, id ASC`) **solo si** esa fila aún no tiene carpeta. Multi-contrato: **solo la 1.ª** recibe el valor. Luego **DROP** de `fimba_propuestas.carpeta_documentacion` |
+| **Legacy** | Columna en propuestas de `20260811150000` eliminada en `20260811160000` (app ya no la selecciona/escribe) |
+
+**Limitaciones (producto / ops) — sin cambios de stack Drive:**
+
+1. **Compartir:** carpeta accesible por cuenta Archivo (`G_DRIVE_ACCOUNT_EMAIL`); “cualquiera con el enlace” no basta.
+2. **Secrets:** `G_CLIENT_*` / `G_REFRESH_TOKEN`; sin ellos listado/descarga/subida fallan; Abrir en Drive sigue ok en browser.
+3. **Descarga:** token temporal + `alt=media` / export; no carpetas; nativos no exportados → error.
+4. **Subida:** tope cliente ~4 MB; sin delete/rename in-app.
+5. **Profundidad:** ~100 ítems por listado.
+6. **Prefetch:** BFS depth 2 / conc 4 / max 40 solo tras Explorar exitoso.
+7. **Iframe:** no se usa.
+8. **Edge:** reutiliza `list_folder_files`, `get_temp_token`, `upload_file` (sin redeploy manage-drive en este slice).
+
+Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba_contrataciones_carpeta_documentacion` (**Local = Remote**).
 
 ## Decisiones cerradas (este slice)
 
@@ -226,12 +282,17 @@ Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participan
 - [x] Detección transporte alineada a categoría 6 + ids OFRN (11/12/28/31/35)
 - [x] Hotelería: reporte por artista (checkin/out, early/late, noches, nominados, por confirmar) + hotel opcional (`fimba_propuestas.id_hotel`)
 - [x] Rooming por artista: `fimba_propuestas_habitaciones` + `fimba_habitaciones_ocupantes` (SGL/DBL/TPL/QAD + matrimonial); inventario admin + acomodo token
+- [x] Cupos rooming: feedback live de plazas borrador vs roster activo (faltan / exacto / sobran) antes de «Aplicar cupos»
 - [x] Migración `20260811140000_fimba_habitaciones` deploy linked
 - [x] Migración `20260810180000_fimba_propuestas_id_hotel` deploy linked
 - [x] Migración `20260810190000_fimba_propuestas_checkin_early_checkout_late` deploy linked
 - [x] Migración `20260811090000_fimba_propuestas_observaciones_logisticas` deploy linked
 - [x] Lista artistas (`/fimba/edicion/:id`): IN/OUT + Early/Late visibles; modo planilla con autosave + semáforo (patrón MealsManager / GiraForm)
-- [x] `observaciones_logisticas` por artista: planilla + ficha + modal + export TSV hotelería
+- [x] `observaciones_logisticas` por artista: planilla + ficha (sección datos/meta; **no** editable por token `/e`) + export TSV hotelería
+- [x] Meta artista (color, cupos, hotel, fechas, estado, obs.): **inline en ficha** `FimbaArtistaPage` con `canEditPropuestaMeta`; lápiz planilla → ficha; modal solo alta
+- [x] Drive docs en **contrataciones** (`carpeta_documentacion`); ficha artista muestra join multi-contrato; componente `FimbaDocumentacionDrivePreview`
+- [x] Explorar on-demand + prefetch subcarpetas (depth 2 / conc 4 / max 40) + copiar/descargar/upload (+ `canEditPropuestaMeta`)
+- [x] Migración `20260811150000` (propuestas, histórica) + `20260811160000` (contrataciones + copy 1.ª fila + deprecate propuestas col) deploy linked
 - [x] Display vehículo FIMBA = catálogo (`transportes.nombre`) + patente; `detalle` = nota OFRN secundaria; trayecto = cada evento de la planilla
 - [x] En tránsito / boarding: helper `fimbaTransportBoarding.js` + `loadFimbaTransportLogisticsSummary` (equivalencia hoja de ruta OFRN)
 - [x] `fimba_propuesta_rutas` + UI ↑/↓ `FimbaStopRulesManager` (plazas artista + StopRules OFRN)
@@ -250,6 +311,8 @@ Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participan
 - [x] Migración `supabase/migrations/20260810180000_fimba_propuestas_id_hotel.sql`
 - [x] Migración `20260810190000_fimba_propuestas_checkin_early_checkout_late.sql`
 - [x] Migración `20260811090000_fimba_propuestas_observaciones_logisticas.sql` + deploy linked
+- [x] Migración `20260811150000_fimba_propuestas_carpeta_documentacion.sql` + deploy linked
+- [x] Migración `20260811160000_fimba_contrataciones_carpeta_documentacion.sql` + deploy linked
 - [x] Migración `20260810210000_fimba_usuarios.sql` + deploy linked
 - [x] Migración `20260811120000_fimba_ediciones_token_consulta.sql` (`token_consulta` en ediciones) + deploy linked
 - [x] Deploy a proyecto linked + verificación `migration list`
@@ -267,12 +330,17 @@ Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participan
 - [x] Enlace consulta general edición: `fimba_ediciones.token_consulta` + `/fimba/c/:token` + sección en Usuarios (copiar/regenerar); shell RO sin Usuarios/Contrataciones
 - [x] Rol `consulta` (login) entra al shell en read-only (mismo recorte de secciones)
 - [x] Contrataciones staff: planilla `fimba_contrataciones` en `/fimba/edicion/:id/contrataciones` (inline + semáforo; artista opcional + nombre libre; estado presets + historial)
+- [x] Ficha artista: finanzas/contrataciones form (solo `canSeeContrataciones` = editor_general / OFRN; oculto a consulta y tokens); «Último estado» editable con `EstadoConocidoInput` compartido + `updateFimbaContratacion`/estado log
 - [x] Migración `20260811130000_fimba_contrataciones_estado_log` + deploy linked
 - [x] Edición planilla: columnas check-in/out (+ Early/Late) + hotel; **Modo edición** (celdas inline) + **semáforo** por fila (verde guardado / amarillo pendiente·guardando / rojo error)
-- [x] Planilla artistas: sin columnas **Color** / **Estado** (dot de color junto al nombre; color/estado solo en modal editar)
+- [x] Planilla artistas: sin columnas **Color** / **Estado** (dot de color junto al nombre; color/estado en ficha artista con `canEditPropuestaMeta`)
+- [x] Planilla artistas: lápiz → `/fimba/edicion/:id/artista/:artistaId` (ficha general); modal solo **Nuevo artista**
+- [x] Ficha artista: sección **Datos generales** (meta/logística + carpeta documentación Drive con preview) editable solo `canEditPropuestaMeta` con **autosave + semáforo** (sin botón Guardar); RO para consulta y tokens; nómina/agenda/rooming independientes
+- [x] Documentación Drive en contrataciones: modal planilla + preview ficha artista (join multi-contrato) + Explorar lazy + copiar/descargar/subir
 - [x] Edición: filas de artista **expandibles** (chevron); nómina lazy `listFimbaParticipantes`; subheader nominados/planificada; nested table read-only con col **Género** (también en modo planilla). Keys de expand normalizados (`propuestaKey`); estado como object (no `Set`); load fuera del setState; soft-reload no desmonta la planilla; errores de nómina visibles + Reintentar
-- [x] Detalle artista: participantes + `genero` + tipo_alimentacion; deep links opcionales `/artista/:id/{agenda|transportes|hoteleria}` (toggle superior → secciones edición-root sin `/artista`)
-- [x] Detalle artista / token edición: **planilla Excel de participantes** (`FimbaArtistaPage` → `ParticipantesPlanilla`): celdas apellido, nombre, documento, **genero**, tipo_alimentacion, activo; semáforo por fila (MealsManager / planilla artistas); Enter o blur guarda; Tab navega; fila inferior = alta `createFimbaParticipante`; delete por fila; consulta token read-only
+- [x] Detalle artista: participantes + `genero` + tipo_alimentacion (+ nota «Otros…»); deep links opcionales `/artista/:id/{agenda|transportes|hoteleria}` (toggle superior → secciones edición-root sin `/artista`)
+- [x] Detalle artista / token edición: **planilla Excel de participantes** (`FimbaArtistaPage` → `ParticipantesPlanilla`): celdas apellido, nombre, documento, **genero**, alimentación (select presets + **Otros...** → `nota_alimentacion`), activo; semáforo por fila; Enter o blur guarda; Tab navega; fila inferior = alta `createFimbaParticipante`; delete por fila; consulta token read-only
+- [x] Alimentación: CHECK en `fimba_participantes.tipo_alimentacion` (regular/vegetariano/vegano/celiaco/sin_tacc/otro); free text en **`nota_alimentacion`** (sin migración); UI `AlimentacionInput` (select + input **siempre en fila** al elegir Otros…; `flex-wrap: nowrap` + `width:auto !important` / estilos inline p/ vencer `.fimba-cell-input{width:100%}`; `FimbaAlimentacionStyles` montado en `ParticipantesPlanilla`, no solo en finanzas)
 - [x] Regenerar / copiar tokens consulta y edición
 - [x] Editor transportes: panel **Vehículos** (alta + editar lápiz: catálogo, detalle, plazas, categoría; nombre catálogo+patente, detalle OFRN sec.) + planilla **Trayectos** (= eventos FIMBA + paradas OFRN; filtros origen/vehículo)
 - [x] Agenda unificada planilla (fecha, horas, tipo, actividad, destino/vuelo, vehículos, PAX, tags)
@@ -322,12 +390,12 @@ Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participan
 2. Sidebar → **FIMBA** o ir a `/fimba`.
 3. **Nueva edición** → el select debe listar giras recientes sin escribir; la búsqueda por nomenclador/nombre filtra.
 4. Crear artistas con cupos; abrir artista → planilla de participantes (Excel): cargar personas en celdas; fila inferior = alta; Enter/blur guarda; semáforo por fila; delete opcional.
-5. En listado de edición: ver **Check-in / Check-out / Hotel**; badges **Early** / **Late** si aplican; activar **Modo edición** y editar celdas (nombre, planificada, extras, fechas + early/late, color, estado, hotel). Semáforo: amarillo al editar, verde al guardar, rojo si falla Supabase/validación.
+5. En listado de edición: ver **Check-in / Check-out / Hotel**; badges **Early** / **Late** si aplican; activar **Modo edición** y editar celdas (nombre, planificada, extras, fechas + early/late, hotel, obs.). Semáforo: amarillo al editar, verde al guardar, rojo si falla Supabase/validación. **Lápiz** → ficha artista (color/estado/meta completa).
 6. Expandir fila de artista (chevron / nombre): ver nested nómina (nominados/planificada); vacío = «Sin nómina cargada» + link. Multi-expand OK; lazy load por artista.
 7. Copiar enlace consulta y abrir en incógnito (`/fimba/a/...`); verificar solo lectura (participantes tabla RO, sin planilla editable).
 8. En consulta: ver **Datos del artista** (check-in/out, planificada) + **Agenda** filtrada a ese artista (eventos tagged); sin botones de editar/eliminar eventos.
-9. Enlace edición (`/fimba/e/...`): planilla de participantes + **Agenda** + **rooming** (acomodo); sin login OFRN.
-10. Staff ficha artista (`/fimba/edicion/:id/artista/:artistaId`): agenda + rooming (cupos + acomodo) + enlaces tokens + participantes.
+9. Enlace edición (`/fimba/e/...`): planilla de participantes + **Agenda** + **rooming** (acomodo); **sin** editar meta (color, cupos admin, hotel, estado, obs. log.); sin login OFRN.
+10. Staff ficha artista (`/fimba/edicion/:id/artista/:artistaId`): **Datos generales** (meta editable solo editor_general/OFRN) + agenda + rooming (cupos + acomodo) + enlaces tokens + participantes. **Editor_general / OFRN:** bloque finanzas (contrataciones del artista); consulta y tokens no lo ven.
 
 ### Agenda
 
@@ -363,16 +431,17 @@ Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participan
 ### Contrataciones
 
 1. Edición → **Contrataciones** (`/fimba/edicion/:id/contrataciones`).
-2. Planilla: nº expediente, nombre (artista opcional + texto libre), monto, fecha límite (rojo), tipo, 4 flags de estado, último estado.
-3. Fila vacía inferior = alta; blur/Enter/check guarda con semáforo; eliminar por fila.
-4. **Último estado conocido**: combobox con presets coloreados (solo UI; DB = texto libre):
+2. Planilla: nº expediente, nombre (artista opcional en gris vacío + texto libre lado a lado), monto (ARS es-AR), fecha límite (rojo), tipo, 4 flags de estado, último estado.
+3. Barra superior **Total montos** = suma de `monto` de filas visibles (tras filtro de nombre; magenta FIMBA). Cabeceras clickeables para ordenar; filtro nombre en header de columna Nombre.
+4. Fila vacía inferior = alta; blur/Enter/check guarda con semáforo; eliminar por fila.
+5. **Último estado conocido** (planilla y ficha artista): `<select>` nativo con presets coloreados + opción **Otro…** (solo UI; DB = texto libre):
    - Factura presentada (azul claro)
    - Factura emitida (violeta claro)
    - Factura pedida (rosa claro)
    - Pagado (verde claro)
-   Texto libre permitido; badge de color solo si matchea un preset (case-insensitive).
-5. Cada cambio de estado **inserta** en `fimba_contrataciones_estado_log` y actualiza el denormalizado `ultimo_estado_conocido`. Autor = sesión OFRN (nombre/mail integrantes) o `fimba_user` (nombre/mail).
-6. Botón historial (ícono) por fila → modal «Ver historial»: estado + timestamp + quién, cronológico.
+   «Otro…» revela input libre; valor custom existente → select en Otro… + texto editable. Color del select si matchea preset. **No** se duplica badge bajo el control (badge solo en modal historial). Componente: `FimbaEstadoConocido.jsx` (`EstadoConocidoInput` / `EstadoConocidoBadge`).
+6. Cada cambio de estado **inserta** en `fimba_contrataciones_estado_log` y actualiza el denormalizado `ultimo_estado_conocido` vía `updateFimbaContratacion` → `appendFimbaContratacionEstado`. Autor = sesión OFRN (nombre/mail integrantes) o `fimba_user` (nombre/mail). En ficha artista: commit al elegir preset o blur de texto libre; semáforo local en la etiqueta.
+7. Botón historial (ícono) por fila en planilla → modal «Ver historial»: estado + timestamp + quién, cronológico (badge solo en modal).
 
 ---
 
@@ -388,7 +457,7 @@ Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participan
 | `/fimba/edicion/:id/hoteleria` | Hotelería |
 | `/fimba/edicion/:id/contrataciones` | Contrataciones / expedientes (`fimba_contrataciones`) |
 | `/fimba/edicion/:id/usuarios` | Usuarios FIMBA de la edición (`fimba_usuarios`) |
-| `/fimba/edicion/:id/artista/:artistaId` | Detalle artista: agenda + rooming + planilla participantes + tokens |
+| `/fimba/edicion/:id/artista/:artistaId` | Detalle artista: agenda + rooming + planilla participantes + tokens (+ finanzas solo `canSeeContrataciones`) |
 | `/fimba/edicion/:id/artista/:artistaId/agenda` | Agenda filtrada (planilla unificada staff) |
 | `/fimba/edicion/:id/artista/:artistaId/transportes` | Trayectos filtrados |
 | `/fimba/edicion/:id/artista/:artistaId/hoteleria` | Hotelería filtrada |
@@ -406,6 +475,11 @@ Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participan
 | `supabase/migrations/20260810180000_fimba_propuestas_id_hotel.sql` | `id_hotel` opcional |
 | `supabase/migrations/20260810190000_fimba_propuestas_checkin_early_checkout_late.sql` | `checkin_early` / `checkout_late` boolean default false |
 | `supabase/migrations/20260811090000_fimba_propuestas_observaciones_logisticas.sql` | `observaciones_logisticas` text |
+| `supabase/migrations/20260811150000_fimba_propuestas_carpeta_documentacion.sql` | (histórica) add en propuestas; supersedida por 20260811160000 |
+| `supabase/migrations/20260811160000_fimba_contrataciones_carpeta_documentacion.sql` | `fimba_contrataciones.carpeta_documentacion`; copy 1.ª por artista; null propuestas usadas; col propuestas DEPRECATED |
+| `src/views/Fimba/FimbaDocumentacionDrivePreview.jsx` | Preview Drive compartido (Explorar gate, list, copy, download, upload, prefetch) |
+| `src/views/Fimba/FimbaContratacionesPage.jsx` | Planilla + modal Drive por fila |
+| `src/views/Fimba/FimbaArtistaPage.jsx` | Meta sin Drive; Finanzas join docs por contrato |
 | `supabase/migrations/20260810210000_fimba_usuarios.sql` | Tabla `fimba_usuarios` (mail+rol por edición) |
 | `supabase/migrations/20260811110000_fimba_contrataciones.sql` | Tabla `fimba_contrataciones` (planilla expedientes) |
 | `supabase/migrations/20260811120000_fimba_ediciones_token_consulta.sql` | `fimba_ediciones.token_consulta` UUID único (enlace `/fimba/c/:token`) |
@@ -415,18 +489,19 @@ Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participan
 | `src/utils/fimbaUserSession.js` | Sesiones `fimba_user` + `fimba_consulta_edicion` + `resolveFimbaAccess` |
 | `src/hooks/useFimbaUserSession.js` | Hook reactivo de sesión FIMBA usuario |
 | `src/hooks/useFimbaConsultaEdicionSession.js` | Hook sesión enlace consulta edición |
-| `src/context/FimbaAccessContext.jsx` | `readOnly` / flags de secciones en shell staff |
+| `src/context/FimbaAccessContext.jsx` | `readOnly` / `canEditPropuestaMeta` / flags de secciones en shell staff |
 | `src/views/Fimba/FimbaLoginPage.jsx` | Form `/fimba/login` |
 | `src/views/Fimba/FimbaEdicionConsultaEntry.jsx` | Entry `/fimba/c/:token` → session + redirect |
 | `src/utils/fimbaTransportBoarding.js` | Secuencia subida/bajada + en tránsito + headcounts `isPresentAtStop` / labels Artistas |
 | `src/views/Fimba/FimbaStopRulesManager.jsx` | Modal ↑/↓: plazas FIMBA (`fimba_propuesta_rutas`) + StopRules OFRN embutido (`embedded`) |
 | `src/views/Fimba/FimbaLayout.jsx` | Skin + header sticky + toggle + sesión/logout FIMBA |
 | `src/views/Fimba/FimbaSectionToggle.jsx` | Segmented control; oculta Contrataciones/Usuarios en consulta |
-| `src/views/Fimba/FimbaContratacionesPage.jsx` | Planilla expedientes: inline + semáforo; estado presets/colores + modal historial |
+| `src/views/Fimba/FimbaContratacionesPage.jsx` | Planilla expedientes: inline + semáforo; modal Documentación Drive; estado presets + historial |
+| `src/views/Fimba/FimbaEstadoConocido.jsx` | Control compartido «Último estado» (presets + Otro… + badge historial) |
 | `src/views/Fimba/FimbaUsuariosPage.jsx` | Usuarios FIMBA + enlace consulta general edición |
 | `src/views/Fimba/FimbaStaffGuard.jsx` | isManagement **o** fimba_user **o** token consulta edición |
-| `src/views/Fimba/FimbaEdicionPage.jsx` | Artistas + modo planilla + semáforo por fila |
-| `src/views/Fimba/FimbaArtistaPage.jsx` | Detalle: agenda (editable o RO) + planilla participantes + tokens |
+| `src/views/Fimba/FimbaEdicionPage.jsx` | Artistas + modo planilla + semáforo; alta modal; lápiz → ficha |
+| `src/views/Fimba/FimbaArtistaPage.jsx` | Detalle: meta + finanzas (Drive desde contratos) + agenda + rooming + planilla; finanzas si `canSeeContrataciones` |
 | `src/views/Fimba/FimbaConsultaAgenda.jsx` | Agenda por tag artista; RO consulta o `editable` create/edit/delete |
 | `src/views/Fimba/FimbaEventoFormModal.jsx` | Modal agenda + flota; `lockPropuesta` fuerza tag artista |
 | `src/views/Fimba/FimbaAgendaPage.jsx` | Planilla agenda (tipo/color catálogo) |
@@ -445,6 +520,8 @@ Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participan
 | **20260810200000** | `fimba_propuesta_rutas` | Local = Remote |
 | **20260810210000** | `fimba_usuarios` | Local = Remote (`migration list` OK) |
 | **20260811090000** | `fimba_propuestas_observaciones_logisticas` | Local = Remote (`migration list` OK) |
+| **20260811150000** | `fimba_propuestas_carpeta_documentacion` | Local = Remote (histórica) |
+| **20260811160000** | `fimba_contrataciones_carpeta_documentacion` | Local = Remote (deploy linked) |
 | **20260811110000** | `fimba_contrataciones` | Local = Remote (deploy linked) |
 | **20260811140000** | `fimba_habitaciones` | Local = Remote (deploy linked) |
 | **20260811120000** | `fimba_ediciones_token_consulta` | Local = Remote |
