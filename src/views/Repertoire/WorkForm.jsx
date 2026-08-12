@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
   IconMusic,
@@ -42,6 +42,7 @@ import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import ArreglosReferenciasModal from "../../components/arreglos/ArreglosReferenciasModal";
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import { normalizeForSearch } from "../../utils/sanitize";
+import { getFixedMenuPosition } from "../../utils/fixedMenuPosition";
 import {
   getObraEstadoFormHeaderClass,
   getObraEstadoFormShellClass,
@@ -499,6 +500,8 @@ export default function WorkForm({
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [editingLinksId, setEditingLinksId] = useState(null);
   const instrumentInputRef = useRef(null);
+  const instrumentMenuRef = useRef(null);
+  const [instrumentMenuStyle, setInstrumentMenuStyle] = useState(null);
   // Auto-enrichment: YouTube suggestions and year
   const [youtubeSuggestions, setYoutubeSuggestions] = useState([]);
   const [loadingYouTube, setLoadingYouTube] = useState(false);
@@ -526,6 +529,8 @@ export default function WorkForm({
   const [titleFieldFocused, setTitleFieldFocused] = useState(false);
   const [duplicateSuggestionsDismissed, setDuplicateSuggestionsDismissed] = useState(false);
   const titleDropdownRef = useRef(null);
+  const titleMenuRef = useRef(null);
+  const [titleMenuStyle, setTitleMenuStyle] = useState(null);
   const titleBlurTimerRef = useRef(null);
   const [draftExitConfirmOpen, setDraftExitConfirmOpen] = useState(false);
   /** Obra origen al preparar un nuevo arreglo en borrador (referencia al persistir). */
@@ -586,6 +591,48 @@ export default function WorkForm({
       setFormData((prev) => ({ ...prev, ...initialData }));
     }
   }, [initialData?.id]);
+
+  const updateInstrumentMenuPosition = () => {
+    if (!instrumentInputRef.current) return;
+    const rect = instrumentInputRef.current.getBoundingClientRect();
+    setInstrumentMenuStyle(
+      getFixedMenuPosition(rect, {
+        width: Math.max(rect.width, 200),
+        estimatedHeight: 220,
+        measuredHeight: instrumentMenuRef.current?.offsetHeight,
+        minHeight: 100,
+      }),
+    );
+  };
+
+  const showInstrumentMenu = showInstrumentOptions && !!instrumentQuery;
+
+  useLayoutEffect(() => {
+    if (!showInstrumentMenu) {
+      setInstrumentMenuStyle(null);
+      return undefined;
+    }
+    updateInstrumentMenuPosition();
+    const frame = requestAnimationFrame(updateInstrumentMenuPosition);
+    window.addEventListener("resize", updateInstrumentMenuPosition);
+    window.addEventListener("scroll", updateInstrumentMenuPosition, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updateInstrumentMenuPosition);
+      window.removeEventListener("scroll", updateInstrumentMenuPosition, true);
+    };
+  }, [showInstrumentMenu, instrumentQuery]);
+
+  useEffect(() => {
+    if (!showInstrumentMenu) return undefined;
+    const handleClickOutside = (event) => {
+      if (instrumentInputRef.current?.contains(event.target)) return;
+      if (instrumentMenuRef.current?.contains(event.target)) return;
+      setShowInstrumentOptions(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showInstrumentMenu]);
 
   const refreshRefsCount = useCallback(async (obraId = formData.id) => {
     if (!obraId) {
@@ -903,6 +950,35 @@ export default function WorkForm({
     duplicateWorks.length > 0 &&
     titleFieldFocused &&
     !duplicateSuggestionsDismissed;
+
+  const updateTitleMenuPosition = () => {
+    if (!titleDropdownRef.current) return;
+    const rect = titleDropdownRef.current.getBoundingClientRect();
+    setTitleMenuStyle(
+      getFixedMenuPosition(rect, {
+        width: Math.max(rect.width, 280),
+        estimatedHeight: 360,
+        measuredHeight: titleMenuRef.current?.offsetHeight,
+        minHeight: 160,
+      }),
+    );
+  };
+
+  useLayoutEffect(() => {
+    if (!showTitleDuplicateDropdown) {
+      setTitleMenuStyle(null);
+      return undefined;
+    }
+    updateTitleMenuPosition();
+    const frame = requestAnimationFrame(updateTitleMenuPosition);
+    window.addEventListener("resize", updateTitleMenuPosition);
+    window.addEventListener("scroll", updateTitleMenuPosition, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updateTitleMenuPosition);
+      window.removeEventListener("scroll", updateTitleMenuPosition, true);
+    };
+  }, [showTitleDuplicateDropdown, duplicateWorks.length]);
 
   useEffect(() => {
     const titulo = stripHtml(formData.titulo);
@@ -2367,12 +2443,20 @@ export default function WorkForm({
                 }}
               />
 
-              {showTitleDuplicateDropdown && (
+              {showTitleDuplicateDropdown && titleMenuStyle && createPortal(
                 <div
-                  className="absolute left-0 right-0 top-full z-[60] mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl animate-in fade-in zoom-in-95"
+                  ref={titleMenuRef}
+                  data-fixed-menu="true"
+                  style={{
+                    top: titleMenuStyle.top,
+                    left: titleMenuStyle.left,
+                    width: titleMenuStyle.width,
+                    maxHeight: titleMenuStyle.maxHeight,
+                  }}
+                  className="fixed z-[100] overflow-hidden flex flex-col rounded-lg border border-slate-200 bg-white shadow-xl animate-in fade-in zoom-in-95"
                   onMouseDown={(e) => e.preventDefault()}
                 >
-                  <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                  <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
                     <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                       Obras existentes
                     </span>
@@ -2380,7 +2464,7 @@ export default function WorkForm({
                       <IconLoader size={12} className="animate-spin text-indigo-500" />
                     )}
                   </div>
-                  <ul className="max-h-56 overflow-y-auto py-1">
+                  <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
                     {duplicateWorks.map((obra) => {
                       const typedNorm = normalizeForSearch(stripHtml(formData.titulo));
                       const obraNorm = normalizeForSearch(stripHtml(obra.titulo));
@@ -2464,11 +2548,12 @@ export default function WorkForm({
                       setDuplicateSuggestionsDismissed(true);
                       setTitleFieldFocused(true);
                     }}
-                    className="w-full border-t border-slate-100 px-3 py-2 text-left text-[11px] font-medium text-slate-500 hover:bg-slate-50"
+                    className="w-full shrink-0 border-t border-slate-100 px-3 py-2 text-left text-[11px] font-medium text-slate-500 hover:bg-slate-50"
                   >
                     Continuar con obra nueva
                   </button>
-                </div>
+                </div>,
+                document.body,
               )}
             </div>
 
@@ -2847,8 +2932,18 @@ export default function WorkForm({
                 }}
                 onFocus={() => setShowInstrumentOptions(true)}
               />
-              {showInstrumentOptions && instrumentQuery && (
-                <div className="absolute top-full left-0 w-full bg-white border shadow-xl max-h-48 overflow-y-auto z-50 rounded-lg mt-1">
+              {showInstrumentMenu && instrumentMenuStyle && createPortal(
+                <div
+                  ref={instrumentMenuRef}
+                  data-fixed-menu="true"
+                  style={{
+                    top: instrumentMenuStyle.top,
+                    left: instrumentMenuStyle.left,
+                    width: instrumentMenuStyle.width,
+                    maxHeight: instrumentMenuStyle.maxHeight,
+                  }}
+                  className="fixed z-[100] bg-white border shadow-xl overflow-y-auto overscroll-contain rounded-lg"
+                >
                   {filteredInstruments.map((i) => (
                     <div
                       key={i.id}
@@ -2866,7 +2961,8 @@ export default function WorkForm({
                       </span>
                     </div>
                   ))}
-                </div>
+                </div>,
+                document.body,
               )}
             </div>
             <div className="shrink-0">

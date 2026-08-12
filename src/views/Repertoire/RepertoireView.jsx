@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -44,6 +44,7 @@ import InstrumentationFilterModal from "../../components/repertoire/Instrumentat
 import { calculateInstrumentation, workMatchesInstrumentationFilter } from "../../utils/instrumentation";
 import { getInstrumentationFilterLabel } from "../../utils/instrumentationFilterPresets";
 import { matchesMultiTokenSearch, normalizeForSearch } from "../../utils/sanitize";
+import { getFixedMenuPosition } from "../../utils/fixedMenuPosition";
 import {
   loadRepertoireSelection,
   saveRepertoireSelection,
@@ -378,12 +379,51 @@ const HistoryModal = ({ work, onClose, supabase, isEditor }) => {
 
 const ColumnManager = ({ visibleColumns, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState(null);
   const wrapperRef = useRef(null);
+  const menuRef = useRef(null);
+
+  const updateMenuPosition = () => {
+    if (!wrapperRef.current) return;
+    const rect = wrapperRef.current.getBoundingClientRect();
+    setMenuStyle(
+      getFixedMenuPosition(rect, {
+        width: 192,
+        estimatedHeight: 360,
+        measuredHeight: menuRef.current?.offsetHeight,
+        align: "right",
+        gap: 8,
+      }),
+    );
+  };
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setMenuStyle(null);
+      return undefined;
+    }
+    updateMenuPosition();
+    const frame = requestAnimationFrame(updateMenuPosition);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen]);
+
   useEffect(() => {
-    const handleClickOutside = (event) => { if (wrapperRef.current && !wrapperRef.current.contains(event.target)) setIsOpen(false); };
+    if (!isOpen) return undefined;
+    const handleClickOutside = (event) => {
+      if (wrapperRef.current?.contains(event.target)) return;
+      if (menuRef.current?.contains(event.target)) return;
+      setIsOpen(false);
+    };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [isOpen]);
+
   const columns = [
     { key: "compositor", label: "Compositor" },
     { key: "obra", label: "Obra" },
@@ -399,8 +439,18 @@ const ColumnManager = ({ visibleColumns, onChange }) => {
   return (
     <div className="relative" ref={wrapperRef}>
       <button onClick={() => setIsOpen(!isOpen)} className={`p-2 rounded-full transition-colors flex items-center gap-2 text-xs font-bold ${isOpen ? "bg-indigo-100 text-indigo-600" : "text-slate-500 hover:bg-slate-100"}`} title="Mostrar/Ocultar Columnas"><IconColumns size={18} /> <span className="hidden sm:inline">Columnas</span></button>
-      {isOpen && (
-        <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95">
+      {isOpen && menuStyle && createPortal(
+        <div
+          ref={menuRef}
+          data-fixed-menu="true"
+          style={{
+            top: menuStyle.top,
+            left: menuStyle.left,
+            width: menuStyle.width,
+            maxHeight: menuStyle.maxHeight,
+          }}
+          className="fixed z-[100] w-48 bg-white border border-slate-200 rounded-xl shadow-xl overflow-y-auto overscroll-contain animate-in fade-in zoom-in-95"
+        >
           <div className="p-3 bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-500">Columnas Visibles</div>
           <div className="p-2 space-y-1">
             {columns.map((col) => (
@@ -409,7 +459,8 @@ const ColumnManager = ({ visibleColumns, onChange }) => {
               </label>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -438,21 +489,27 @@ function WorkRowActionMenu({
   const updateMenuPosition = () => {
     if (!buttonRef.current) return;
     const rect = buttonRef.current.getBoundingClientRect();
-    setMenuStyle({
-      top: rect.bottom + 4,
-      left: Math.max(8, rect.right - 192),
-    });
+    setMenuStyle(
+      getFixedMenuPosition(rect, {
+        width: 192,
+        estimatedHeight: 360,
+        measuredHeight: menuRef.current?.offsetHeight,
+        align: "right",
+      }),
+    );
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isOpen) {
       setMenuStyle(null);
-      return;
+      return undefined;
     }
     updateMenuPosition();
+    const frame = requestAnimationFrame(updateMenuPosition);
     window.addEventListener("resize", updateMenuPosition);
     window.addEventListener("scroll", updateMenuPosition, true);
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener("resize", updateMenuPosition);
       window.removeEventListener("scroll", updateMenuPosition, true);
     };
@@ -483,8 +540,14 @@ function WorkRowActionMenu({
   const menuPanel = isOpen && menuStyle && (
     <div
       ref={menuRef}
-      style={{ top: menuStyle.top, left: menuStyle.left }}
-      className={`fixed z-[100] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-xs font-bold shadow-xl ${menuClassName}`}
+      data-fixed-menu="true"
+      style={{
+        top: menuStyle.top,
+        left: menuStyle.left,
+        width: menuStyle.width,
+        maxHeight: menuStyle.maxHeight,
+      }}
+      className={`fixed z-[100] overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white py-1 text-xs font-bold shadow-xl ${menuClassName}`}
       onMouseDown={(e) => e.stopPropagation()}
     >
       <button
@@ -605,7 +668,10 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [showSolicitudes, setShowSolicitudes] = useState(false);
   const solicitudesRef = useRef(null);
   const mobileFiltersRef = useRef(null);
+  const mobileFiltersPanelRef = useRef(null);
   const mobileInstrFilterAnchorRef = useRef(null);
+  const desktopInstrFilterAnchorRef = useRef(null);
+  const [mobileFiltersStyle, setMobileFiltersStyle] = useState(null);
   useEffect(() => {
     const handleClickOutside = (e) => { if (solicitudesRef.current && !solicitudesRef.current.contains(e.target)) setShowSolicitudes(false); };
     document.addEventListener("mousedown", handleClickOutside);
@@ -613,13 +679,43 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   }, []);
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (mobileFiltersRef.current && !mobileFiltersRef.current.contains(e.target)) {
-        setShowMobileFilters(false);
-      }
+      if (mobileFiltersRef.current?.contains(e.target)) return;
+      if (mobileFiltersPanelRef.current?.contains(e.target)) return;
+      if (e.target.closest?.("[data-fixed-menu]")) return;
+      setShowMobileFilters(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const updateMobileFiltersPosition = () => {
+    if (!mobileFiltersRef.current) return;
+    const rect = mobileFiltersRef.current.getBoundingClientRect();
+    setMobileFiltersStyle(
+      getFixedMenuPosition(rect, {
+        width: rect.width,
+        estimatedHeight: Math.min(window.innerHeight * 0.68, 640),
+        measuredHeight: mobileFiltersPanelRef.current?.offsetHeight,
+        minHeight: 180,
+      }),
+    );
+  };
+
+  useLayoutEffect(() => {
+    if (!showMobileFilters) {
+      setMobileFiltersStyle(null);
+      return undefined;
+    }
+    updateMobileFiltersPosition();
+    const frame = requestAnimationFrame(updateMobileFiltersPosition);
+    window.addEventListener("resize", updateMobileFiltersPosition);
+    window.addEventListener("scroll", updateMobileFiltersPosition, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updateMobileFiltersPosition);
+      window.removeEventListener("scroll", updateMobileFiltersPosition, true);
+    };
+  }, [showMobileFilters]);
 
   // Visibilidad Columnas
   const [visibleColumns, setVisibleColumns] = useState({
@@ -1558,7 +1654,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                     {visibleColumns.compositor && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("compositor_full")}>Compositor <SortIcon column="compositor_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.compositor} onChange={(e) => setFilters({ ...filters, compositor: e.target.value })} /></div>}
                     {visibleColumns.obra && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("titulo")}>Obra <SortIcon column="titulo" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.titulo} onChange={(e) => setFilters({ ...filters, titulo: e.target.value })} /></div>}
                     {visibleColumns.arreglador && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("arreglador_full")}>Arreglador <SortIcon column="arreglador_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.arreglador} onChange={(e) => setFilters({ ...filters, arreglador: e.target.value })} /></div>}
-                    {visibleColumns.organico && <div className="space-y-2 relative"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase">Orgánico</div><button onClick={() => setShowInstrFilter(!showInstrFilter)} className={`w-full text-xs p-1.5 border rounded flex items-center justify-between ${instrFilters.length > 0 || stringsFilter !== "all" ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-bold" : "bg-white border-slate-300 text-slate-500"}`}><span>{getInstrumentationFilterLabel(instrFilters, stringsFilter, strictMode)}</span><IconFilter size={10} /></button>{showInstrFilter && <InstrumentationFilterModal onClose={() => setShowInstrFilter(false)} currentFilters={instrFilters} stringsFilter={stringsFilter} setStringsFilter={setStringsFilter} strictMode={strictMode} setStrictMode={setStrictMode} onApply={(newRules) => { setInstrFilters(newRules); setShowInstrFilter(false); }} />}</div>}
+                    {visibleColumns.organico && <div className="space-y-2 relative" ref={desktopInstrFilterAnchorRef}><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase">Orgánico</div><button onClick={() => setShowInstrFilter(!showInstrFilter)} className={`w-full text-xs p-1.5 border rounded flex items-center justify-between ${instrFilters.length > 0 || stringsFilter !== "all" ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-bold" : "bg-white border-slate-300 text-slate-500"}`}><span>{getInstrumentationFilterLabel(instrFilters, stringsFilter, strictMode)}</span><IconFilter size={10} /></button>{showInstrFilter && <InstrumentationFilterModal onClose={() => setShowInstrFilter(false)} currentFilters={instrFilters} stringsFilter={stringsFilter} setStringsFilter={setStringsFilter} strictMode={strictMode} setStrictMode={setStrictMode} onApply={(newRules) => { setInstrFilters(newRules); setShowInstrFilter(false); }} anchorRef={desktopInstrFilterAnchorRef} />}</div>}
                     {visibleColumns.duracion && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase">Duración (min)</div><div className="flex gap-1"><input className="w-full text-xs p-1 border border-slate-300 rounded text-center outline-none" placeholder="Min" type="number" value={filters.duracionMin} onChange={(e) => setFilters({ ...filters, duracionMin: e.target.value })} /><input className="w-full text-xs p-1 border border-slate-300 rounded text-center outline-none" placeholder="Max" type="number" value={filters.duracionMax} onChange={(e) => setFilters({ ...filters, duracionMax: e.target.value })} /></div></div>}
                     {visibleColumns.estado && (
                       <div className="space-y-2">
@@ -2010,8 +2106,18 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                 </div>
               )}
 
-              {showMobileFilters && (
-                <div className="absolute left-0 right-0 top-full z-40 mt-1 max-h-[68vh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+              {showMobileFilters && mobileFiltersStyle && createPortal(
+                <div
+                  ref={mobileFiltersPanelRef}
+                  data-fixed-menu="true"
+                  style={{
+                    top: mobileFiltersStyle.top,
+                    left: mobileFiltersStyle.left,
+                    width: mobileFiltersStyle.width,
+                    maxHeight: mobileFiltersStyle.maxHeight,
+                  }}
+                  className="fixed z-[100] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 shadow-xl"
+                >
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="flex items-center gap-1.5 text-xs font-black uppercase text-slate-600">
                       <IconFilter size={13} className="text-indigo-500" />
@@ -2226,7 +2332,8 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                       </button>
                     </div>
                   </div>
-                </div>
+                </div>,
+                document.body,
               )}
 
               {showMobileInstrFilter && (

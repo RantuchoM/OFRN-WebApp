@@ -679,15 +679,26 @@ export default function FimbaAgendaPage() {
               </thead>
               <tbody>
                 {eventosFiltrados.map((ev) => {
+                  const isRide = Boolean(ev.es_ride_segment);
                   const isTx =
                     Boolean(ev.es_traslado) ||
                     (ev.vehiculos || []).length > 0 ||
-                    ev.id_gira_transporte != null;
+                    ev.id_gira_transporte != null ||
+                    isRide;
                   const ofrnVeh =
                     flota.find((g) => Number(g.id) === Number(ev.id_gira_transporte)) ||
                     null;
-                  const vehLabel =
-                    (ev.vehiculos || []).length > 0
+                  const vehLabel = isRide
+                    ? ev.vehicle_label ||
+                      (ev.vehiculos || [])
+                        .map((r) => {
+                          const label = labelGiraTransporte(r.giras_transportes);
+                          const pl = Number(r.plazas) || 0;
+                          return pl ? `${label} (${pl})` : label;
+                        })
+                        .join(", ") ||
+                      "—"
+                    : (ev.vehiculos || []).length > 0
                       ? (ev.vehiculos || [])
                           .map((r) => {
                             const label = labelGiraTransporte(r.giras_transportes);
@@ -702,13 +713,19 @@ export default function FimbaAgendaPage() {
                           : ev.es_ofrn && !ev.es_fimba
                             ? "—"
                             : "SIN SERVICIO";
-                  const destVuelo = [ev.destino, ev.vuelo].filter(Boolean).join(" · ") || "—";
+                  const destVuelo = isRide
+                    ? ev.route_snippet ||
+                      [ev.destino, ev.vuelo].filter(Boolean).join(" · ") ||
+                      "—"
+                    : [ev.destino, ev.vuelo].filter(Boolean).join(" · ") || "—";
                   const rowClass =
-                    ev.origen === "ofrn"
-                      ? "fimba-row-ofrn"
-                      : ev.origen === "ambos"
-                        ? "fimba-row-ambos"
-                        : "";
+                    isRide
+                      ? ""
+                      : ev.origen === "ofrn"
+                        ? "fimba-row-ofrn"
+                        : ev.origen === "ambos"
+                          ? "fimba-row-ambos"
+                          : "";
                   const aoLabel =
                     ev.audiencia_ofrn === "grupos" || (ev.grupos || []).length > 0
                       ? "Grupos"
@@ -718,17 +735,31 @@ export default function FimbaAgendaPage() {
                           ? "OFRN"
                           : "—";
                   return (
-                    <tr key={ev.id} className={rowClass}>
+                    <tr
+                      key={ev.id}
+                      className={rowClass}
+                      style={
+                        isRide
+                          ? { background: "rgba(0, 177, 235, 0.06)" }
+                          : undefined
+                      }
+                    >
                       <td style={{ paddingLeft: "1rem", whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                          {ev.es_fimba && (
-                            <span className="fimba-badge fimba-badge-fimba">FIMBA</span>
-                          )}
-                          {ev.es_ofrn && (
-                            <span className="fimba-badge fimba-badge-ofrn">OFRN</span>
-                          )}
-                          {!ev.es_fimba && !ev.es_ofrn && (
-                            <span className="fimba-muted" style={{ fontSize: "0.75rem" }}>—</span>
+                          {isRide ? (
+                            <span className="fimba-badge fimba-badge-fimba">A bordo</span>
+                          ) : (
+                            <>
+                              {ev.es_fimba && (
+                                <span className="fimba-badge fimba-badge-fimba">FIMBA</span>
+                              )}
+                              {ev.es_ofrn && (
+                                <span className="fimba-badge fimba-badge-ofrn">OFRN</span>
+                              )}
+                              {!ev.es_fimba && !ev.es_ofrn && (
+                                <span className="fimba-muted" style={{ fontSize: "0.75rem" }}>—</span>
+                              )}
+                            </>
                           )}
                         </div>
                       </td>
@@ -786,7 +817,7 @@ export default function FimbaAgendaPage() {
                       </td>
                       <td>{ev.pax || "—"}</td>
                       <td>
-                        {ev.es_ofrn ? (
+                        {ev.es_ofrn && !isRide ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                             <span className="fimba-muted" style={{ fontSize: "0.72rem" }}>
                               {aoLabel}
@@ -817,38 +848,46 @@ export default function FimbaAgendaPage() {
                       </td>
                       <td>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                          {(ev.propuestas || []).map((p) => (
-                            <span
-                              key={p.id}
-                              className="fimba-badge"
-                              style={{
-                                background: p.color ? `${p.color}22` : undefined,
-                                color: p.color || undefined,
-                              }}
-                            >
-                              {p.nombre}
+                          {isRide ? (
+                            <span className="fimba-muted" style={{ fontSize: "0.8rem" }}>
+                              Transportes
                             </span>
-                          ))}
-                          {ev.orquesta_label ? (
-                            <span
-                              className="fimba-muted"
-                              style={{ fontSize: "0.8rem" }}
-                            >
-                              {ev.orquesta_label}
-                            </span>
-                          ) : null}
-                          {(ev.propuestas || []).length === 0 && !ev.orquesta_label ? (
-                            <span
-                              className="fimba-muted"
-                              style={{ fontSize: "0.8rem" }}
-                            >
-                              Edición
-                            </span>
-                          ) : null}
+                          ) : (
+                            <>
+                              {(ev.propuestas || []).map((p) => (
+                                <span
+                                  key={p.id}
+                                  className="fimba-badge"
+                                  style={{
+                                    background: p.color ? `${p.color}22` : undefined,
+                                    color: p.color || undefined,
+                                  }}
+                                >
+                                  {p.nombre}
+                                </span>
+                              ))}
+                              {ev.orquesta_label ? (
+                                <span
+                                  className="fimba-muted"
+                                  style={{ fontSize: "0.8rem" }}
+                                >
+                                  {ev.orquesta_label}
+                                </span>
+                              ) : null}
+                              {(ev.propuestas || []).length === 0 && !ev.orquesta_label ? (
+                                <span
+                                  className="fimba-muted"
+                                  style={{ fontSize: "0.8rem" }}
+                                >
+                                  Edición
+                                </span>
+                              ) : null}
+                            </>
+                          )}
                         </div>
                       </td>
                       <td style={{ textAlign: "right", paddingRight: "0.75rem", whiteSpace: "nowrap" }}>
-                        {!readOnly && (
+                        {!readOnly && !isRide && (
                           <>
                             <button
                               type="button"
@@ -868,6 +907,15 @@ export default function FimbaAgendaPage() {
                               <IconTrash size={14} />
                             </button>
                           </>
+                        )}
+                        {isRide && (
+                          <span
+                            className="fimba-muted"
+                            style={{ fontSize: "0.72rem" }}
+                            title="Definido en Transportes (suben/bajan)"
+                          >
+                            —
+                          </span>
                         )}
                       </td>
                     </tr>

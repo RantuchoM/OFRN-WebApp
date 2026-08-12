@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -11,11 +11,13 @@ import {
   IconClock,
   IconX,
   IconFileExcel,
+  IconPencil,
 } from "../../components/ui/Icons";
 import {
   addFimbaVehiculo,
   capacidadGiraTransporte,
   computeFimbaCapacity,
+  decodeFimbaTrasladoDescripcion,
   deleteFimbaTraslado,
   detalleGiraTransporte,
   getFimbaEdicionById,
@@ -28,6 +30,8 @@ import {
   listOfrnTransportesCatalog,
   loadFimbaTransportLogisticsSummary,
   ofrnGiraTransporteUrl,
+  patchFimbaEventoPlanilla,
+  setFimbaEventoTransportes,
   updateFimbaVehiculo,
 } from "../../services/fimbaService";
 import {
@@ -52,11 +56,112 @@ function sliceTime(t) {
   return String(t).slice(0, 5);
 }
 
+function sliceTimeInput(t) {
+  if (!t) return "";
+  return String(t).slice(0, 5);
+}
+
 function formatFecha(f) {
   if (!f) return "—";
   const [y, m, d] = String(f).split("-");
   if (!d) return f;
   return `${d}/${m}/${y}`;
+}
+
+function statusMeta(status) {
+  switch (status) {
+    case "saving":
+      return { cls: "fimba-sync-saving", title: "Guardando…", label: "Guardando" };
+    case "dirty":
+      return { cls: "fimba-sync-pending", title: "Cambios pendientes", label: "Pendiente" };
+    case "saved":
+      return { cls: "fimba-sync-saved", title: "Guardado", label: "Guardado" };
+    case "error":
+      return { cls: "fimba-sync-error", title: "Error al guardar", label: "Error" };
+    default:
+      return { cls: "fimba-sync-idle", title: "Sincronizado", label: "" };
+  }
+}
+
+function SyncDot({ status, error, sticky = false }) {
+  const meta = statusMeta(status);
+  return (
+    <td
+      className={`fimba-sync-col ${meta.cls}${sticky ? " fimba-sticky-sync" : ""}`}
+      title={error || meta.title}
+    >
+      <span className={`fimba-sync-dot ${meta.cls}`} aria-hidden />
+    </td>
+  );
+}
+
+const EVENT_PLANILLA_FIELDS = [
+  "fecha",
+  "hora_inicio",
+  "hora_fin",
+  "actividad",
+  "destino",
+  "vuelo",
+  "observaciones",
+];
+
+function draftFromEvent(ev) {
+  const decoded = decodeFimbaTrasladoDescripcion(ev?.descripcion);
+  const vehId =
+    (ev?.vehiculos || []).length === 1
+      ? String(ev.vehiculos[0].id_gira_transporte)
+      : "";
+  return {
+    fecha: ev?.fecha || "",
+    hora_inicio: sliceTimeInput(ev?.hora_inicio),
+    hora_fin: sliceTimeInput(ev?.hora_fin),
+    actividad: decoded.actividad || ev?.actividad || "",
+    destino: decoded.destino || "",
+    vuelo: decoded.vuelo || "",
+    observaciones: decoded.observaciones || ev?.observaciones || "",
+    id_gira_transporte: vehId,
+  };
+}
+
+function planillaFieldsEqual(a, b) {
+  return EVENT_PLANILLA_FIELDS.every(
+    (k) => String(a?.[k] ?? "") === String(b?.[k] ?? ""),
+  );
+}
+
+/** Asignación inline segura: solo FIMBA puro con 0–1 unidad (no reescribe paradas OFRN). */
+function canInlineAssignVehicle(ev) {
+  if (!ev?.es_fimba || ev?.es_ofrn) return false;
+  return (ev.vehiculos || []).length <= 1;
+}
+
+function draftFromVehiculo(gt) {
+  const catRaw = String(gt?.categoria_logistica || "PASAJEROS").toUpperCase();
+  return {
+    id_transporte: gt?.id_transporte != null ? String(gt.id_transporte) : "",
+    detalle: gt?.detalle || "",
+    capacidad:
+      gt?.capacidad_maxima != null && gt.capacidad_maxima !== ""
+        ? String(gt.capacidad_maxima)
+        : "",
+    categoria_logistica: ["PASAJEROS", "LOGISTICO", "INTERNO"].includes(catRaw)
+      ? catRaw
+      : "PASAJEROS",
+  };
+}
+
+function vehDraftsEqual(a, b) {
+  return ["id_transporte", "detalle", "capacidad", "categoria_logistica"].every(
+    (k) => String(a?.[k] ?? "") === String(b?.[k] ?? ""),
+  );
+}
+
+function rowStatusClass(status) {
+  if (status === "saving") return "fimba-row-saving";
+  if (status === "saved") return "fimba-row-saved";
+  if (status === "dirty") return "fimba-row-dirty";
+  if (status === "error") return "fimba-row-error";
+  return "";
 }
 
 const CATEGORIA_OPTS = [
@@ -130,6 +235,25 @@ export default function FimbaTransportPage() {
   const showVehForm = showAddVeh || editingVehiculoId != null;
   const isEditingVeh = editingVehiculoId != null;
 
+  /** Modo planilla: celdas inline + semáforo (oculto en consulta / token RO). */
+  const [editMode, setEditMode] = useState(false);
+  const [eventDrafts, setEventDrafts] = useState({});
+  const [eventRowStatus, setEventRowStatus] = useState({});
+  const [eventRowErrors, setEventRowErrors] = useState({});
+  const [vehDrafts, setVehDrafts] = useState({});
+  const [vehRowStatus, setVehRowStatus] = useState({});
+  const [vehRowErrors, setVehRowErrors] = useState({});
+  const savingEventRef = useRef(new Set());
+  const savingVehRowRef = useRef(new Set());
+  const eventDraftsRef = useRef(eventDrafts);
+  eventDraftsRef.current = eventDrafts;
+  const vehDraftsRef = useRef(vehDrafts);
+  vehDraftsRef.current = vehDrafts;
+  const eventosRef = useRef(eventos);
+  eventosRef.current = eventos;
+  const vehiculosRef = useRef(vehiculos);
+  vehiculosRef.current = vehiculos;
+
   const reload = async () => {
     setLoading(true);
     setError(null);
@@ -196,6 +320,80 @@ export default function FimbaTransportPage() {
       return next;
     });
   }, [vehiculos]);
+
+  useEffect(() => {
+    if (readOnly && editMode) setEditMode(false);
+  }, [readOnly, editMode]);
+
+  // Drafts al entrar en modo edición; filas nuevas se hidratan sin pisar dirty.
+  useEffect(() => {
+    if (!editMode) {
+      setEventDrafts({});
+      setEventRowStatus({});
+      setEventRowErrors({});
+      setVehDrafts({});
+      setVehRowStatus({});
+      setVehRowErrors({});
+      eventDraftsRef.current = {};
+      vehDraftsRef.current = {};
+      return;
+    }
+    setEventDrafts((prev) => {
+      const next = {};
+      for (const ev of eventos || []) {
+        const k = String(ev.id);
+        next[k] = prev[k] ?? draftFromEvent(ev);
+      }
+      eventDraftsRef.current = next;
+      return next;
+    });
+    setVehDrafts((prev) => {
+      const next = {};
+      for (const gt of vehiculos || []) {
+        const k = String(gt.id);
+        next[k] = prev[k] ?? draftFromVehiculo(gt);
+      }
+      vehDraftsRef.current = next;
+      return next;
+    });
+  }, [editMode, eventos, vehiculos]);
+
+  useEffect(() => {
+    const ids = [
+      ...Object.entries(eventRowStatus)
+        .filter(([, s]) => s === "saved")
+        .map(([id]) => ({ kind: "event", id })),
+      ...Object.entries(vehRowStatus)
+        .filter(([, s]) => s === "saved")
+        .map(([id]) => ({ kind: "veh", id })),
+    ];
+    if (ids.length === 0) return undefined;
+    const t = setTimeout(() => {
+      setEventRowStatus((prev) => {
+        const n = { ...prev };
+        let changed = false;
+        for (const { kind, id } of ids) {
+          if (kind === "event" && n[id] === "saved") {
+            n[id] = "idle";
+            changed = true;
+          }
+        }
+        return changed ? n : prev;
+      });
+      setVehRowStatus((prev) => {
+        const n = { ...prev };
+        let changed = false;
+        for (const { kind, id } of ids) {
+          if (kind === "veh" && n[id] === "saved") {
+            n[id] = "idle";
+            changed = true;
+          }
+        }
+        return changed ? n : prev;
+      });
+    }, 2200);
+    return () => clearTimeout(t);
+  }, [eventRowStatus, vehRowStatus]);
 
   const allVehiculosSelected =
     vehiculos.length > 0 && selectedVehiculoIds.length === vehiculos.length;
@@ -410,6 +608,297 @@ export default function FimbaTransportPage() {
     });
   };
 
+  const toggleEditMode = () => {
+    setEditMode((v) => {
+      const next = !v;
+      if (next) setEditingVehiculoId(null);
+      return next;
+    });
+  };
+
+  const setEventField = (eventoId, field, value) => {
+    const key = String(eventoId);
+    setEventDrafts((prev) => {
+      const ev = (eventosRef.current || []).find((x) => String(x.id) === key);
+      const nextDraft = {
+        ...(prev[key] || draftFromEvent(ev || {})),
+        [field]: value,
+      };
+      const n = { ...prev, [key]: nextDraft };
+      eventDraftsRef.current = n;
+      return n;
+    });
+    setEventRowStatus((prev) => ({
+      ...prev,
+      [key]: prev[key] === "saving" ? "saving" : "dirty",
+    }));
+    setEventRowErrors((prev) => {
+      if (!prev[key]) return prev;
+      const n = { ...prev };
+      delete n[key];
+      return n;
+    });
+  };
+
+  const commitEvento = async (eventoId, draftOverride = null) => {
+    const key = String(eventoId);
+    if (savingEventRef.current.has(key)) return;
+    const ev = (eventosRef.current || []).find((x) => String(x.id) === key);
+    if (!ev) return;
+
+    const draft = draftOverride || eventDraftsRef.current[key] || draftFromEvent(ev);
+    const baseline = draftFromEvent(ev);
+    const planillaChanged = !planillaFieldsEqual(draft, baseline);
+    const vehChanged =
+      canInlineAssignVehicle(ev) &&
+      String(draft.id_gira_transporte ?? "") !==
+        String(baseline.id_gira_transporte ?? "");
+
+    if (!planillaChanged && !vehChanged) {
+      setEventRowStatus((prev) => ({
+        ...prev,
+        [key]: prev[key] === "error" ? "error" : "idle",
+      }));
+      return;
+    }
+
+    if (!String(draft.fecha || "").trim()) {
+      setEventRowStatus((prev) => ({ ...prev, [key]: "error" }));
+      setEventRowErrors((prev) => ({ ...prev, [key]: "Fecha requerida" }));
+      return;
+    }
+
+    savingEventRef.current.add(key);
+    setEventRowStatus((prev) => ({ ...prev, [key]: "saving" }));
+    setEventRowErrors((prev) => {
+      const n = { ...prev };
+      delete n[key];
+      return n;
+    });
+
+    let merged = { ...ev };
+    if (planillaChanged) {
+      const { evento: patched, error: err } = await patchFimbaEventoPlanilla(
+        ev.id,
+        {
+          fecha: draft.fecha,
+          hora_inicio: draft.hora_inicio,
+          hora_fin: draft.hora_fin,
+          actividad: draft.actividad,
+          destino: draft.destino,
+          vuelo: draft.vuelo,
+          observaciones: draft.observaciones,
+        },
+      );
+      if (err) {
+        savingEventRef.current.delete(key);
+        setEventRowStatus((prev) => ({ ...prev, [key]: "error" }));
+        setEventRowErrors((prev) => ({
+          ...prev,
+          [key]: err.message || "Error al guardar",
+        }));
+        return;
+      }
+      merged = {
+        ...merged,
+        fecha: patched.fecha,
+        hora_inicio: patched.hora_inicio,
+        hora_fin: patched.hora_fin,
+        descripcion: patched.descripcion,
+        actividad: patched.actividad,
+        destino: patched.destino || merged.locacion_nombre || "",
+        vuelo: patched.vuelo,
+        observaciones: patched.observaciones,
+      };
+    }
+
+    if (vehChanged) {
+      const nextId = String(draft.id_gira_transporte || "").trim();
+      const prevPlazas = Number(ev.vehiculos?.[0]?.plazas) || 0;
+      const assignments = nextId
+        ? [{ id_gira_transporte: Number(nextId), plazas: prevPlazas }]
+        : [];
+      const { rows, error: vehErr } = await setFimbaEventoTransportes(
+        ev.id,
+        assignments,
+      );
+      if (vehErr) {
+        savingEventRef.current.delete(key);
+        setEventRowStatus((prev) => ({ ...prev, [key]: "error" }));
+        setEventRowErrors((prev) => ({
+          ...prev,
+          [key]: vehErr.message || "Error al asignar vehículo",
+        }));
+        return;
+      }
+      const nextVeh = rows || [];
+      merged = {
+        ...merged,
+        vehiculos: nextVeh,
+        sin_servicio: nextVeh.length === 0,
+      };
+    }
+
+    savingEventRef.current.delete(key);
+    const nextDraft = draftFromEvent(merged);
+    setEventDrafts((prev) => {
+      const n = { ...prev, [key]: nextDraft };
+      eventDraftsRef.current = n;
+      return n;
+    });
+    setEventRowStatus((prev) => ({ ...prev, [key]: "saved" }));
+    setEventos((prev) => {
+      const next = (prev || []).map((row) =>
+        String(row.id) === key ? merged : row,
+      );
+      eventosRef.current = next;
+      return next;
+    });
+  };
+
+  const changeAndCommitEvento = (eventoId, field, value) => {
+    const key = String(eventoId);
+    const ev = (eventosRef.current || []).find((x) => String(x.id) === key);
+    const nextDraft = {
+      ...(eventDraftsRef.current[key] || draftFromEvent(ev || {})),
+      [field]: value,
+    };
+    setEventDrafts((prev) => {
+      const n = { ...prev, [key]: nextDraft };
+      eventDraftsRef.current = n;
+      return n;
+    });
+    setEventRowStatus((prev) => ({ ...prev, [key]: "dirty" }));
+    setEventRowErrors((prev) => {
+      if (!prev[key]) return prev;
+      const n = { ...prev };
+      delete n[key];
+      return n;
+    });
+    commitEvento(eventoId, nextDraft);
+  };
+
+  const setVehField = (vehiculoId, field, value) => {
+    const key = String(vehiculoId);
+    setVehDrafts((prev) => {
+      const gt = (vehiculosRef.current || []).find((x) => String(x.id) === key);
+      const nextDraft = {
+        ...(prev[key] || draftFromVehiculo(gt || {})),
+        [field]: value,
+      };
+      const n = { ...prev, [key]: nextDraft };
+      vehDraftsRef.current = n;
+      return n;
+    });
+    setVehRowStatus((prev) => ({
+      ...prev,
+      [key]: prev[key] === "saving" ? "saving" : "dirty",
+    }));
+    setVehRowErrors((prev) => {
+      if (!prev[key]) return prev;
+      const n = { ...prev };
+      delete n[key];
+      return n;
+    });
+  };
+
+  const commitVehiculoRow = async (vehiculoId, draftOverride = null) => {
+    const key = String(vehiculoId);
+    if (savingVehRowRef.current.has(key)) return;
+    const gt = (vehiculosRef.current || []).find((x) => String(x.id) === key);
+    if (!gt) return;
+
+    const draft = draftOverride || vehDraftsRef.current[key] || draftFromVehiculo(gt);
+    if (vehDraftsEqual(draft, draftFromVehiculo(gt))) {
+      setVehRowStatus((prev) => ({
+        ...prev,
+        [key]: prev[key] === "error" ? "error" : "idle",
+      }));
+      return;
+    }
+    if (!draft.id_transporte) {
+      setVehRowStatus((prev) => ({ ...prev, [key]: "error" }));
+      setVehRowErrors((prev) => ({
+        ...prev,
+        [key]: "Seleccioná un tipo del catálogo",
+      }));
+      return;
+    }
+
+    savingVehRowRef.current.add(key);
+    setVehRowStatus((prev) => ({ ...prev, [key]: "saving" }));
+    setVehRowErrors((prev) => {
+      const n = { ...prev };
+      delete n[key];
+      return n;
+    });
+
+    const { vehiculo, error: err } = await updateFimbaVehiculo(gt.id, {
+      id_transporte: draft.id_transporte,
+      detalle: draft.detalle,
+      capacidad_maxima: draft.capacidad,
+      categoria_logistica: draft.categoria_logistica,
+    });
+    savingVehRowRef.current.delete(key);
+    if (err) {
+      setVehRowStatus((prev) => ({ ...prev, [key]: "error" }));
+      setVehRowErrors((prev) => ({
+        ...prev,
+        [key]: err.message || "No se pudo actualizar el vehículo",
+      }));
+      return;
+    }
+
+    const nextDraft = draftFromVehiculo(vehiculo);
+    setVehDrafts((prev) => {
+      const n = { ...prev, [key]: nextDraft };
+      vehDraftsRef.current = n;
+      return n;
+    });
+    setVehRowStatus((prev) => ({ ...prev, [key]: "saved" }));
+    setVehiculos((prev) => {
+      const next = (prev || []).map((v) =>
+        Number(v.id) === Number(gt.id) ? vehiculo : v,
+      );
+      vehiculosRef.current = next;
+      return next;
+    });
+    setEventos((prev) => {
+      const next = (prev || []).map((ev) => ({
+        ...ev,
+        vehiculos: (ev.vehiculos || []).map((r) =>
+          Number(r.id_gira_transporte) === Number(gt.id)
+            ? { ...r, giras_transportes: vehiculo }
+            : r,
+        ),
+      }));
+      eventosRef.current = next;
+      return next;
+    });
+  };
+
+  const changeAndCommitVehiculo = (vehiculoId, field, value) => {
+    const key = String(vehiculoId);
+    const gt = (vehiculosRef.current || []).find((x) => String(x.id) === key);
+    const nextDraft = {
+      ...(vehDraftsRef.current[key] || draftFromVehiculo(gt || {})),
+      [field]: value,
+    };
+    setVehDrafts((prev) => {
+      const n = { ...prev, [key]: nextDraft };
+      vehDraftsRef.current = n;
+      return n;
+    });
+    setVehRowStatus((prev) => ({ ...prev, [key]: "dirty" }));
+    setVehRowErrors((prev) => {
+      if (!prev[key]) return prev;
+      const n = { ...prev };
+      delete n[key];
+      return n;
+    });
+    commitVehiculoRow(vehiculoId, nextDraft);
+  };
+
   const resetVehForm = () => {
     setVehForm({
       id_transporte: "",
@@ -586,23 +1075,38 @@ export default function FimbaTransportPage() {
           </p>
         </div>
         {!readOnly && (
-          <button
-            type="button"
-            className="fimba-btn fimba-btn-primary"
-            onClick={() =>
-              setModal({
-                mode: "create",
-                preselectPropuesta: filtroArtista || artistaId || null,
-              })
-            }
-            title={
-              vehiculos.length === 0
-                ? "Sin vehículos: solo podés marcar SIN SERVICIO"
-                : "Nuevo trayecto"
-            }
-          >
-            <IconPlus size={16} /> Nuevo trayecto
-          </button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              className={`fimba-btn ${editMode ? "fimba-btn-primary" : "fimba-btn-ghost"}`}
+              onClick={toggleEditMode}
+              title={
+                editMode
+                  ? "Salir del modo planilla"
+                  : "Editar celdas como planilla"
+              }
+            >
+              <IconPencil size={14} />
+              {editMode ? "Salir de modo edición" : "Modo edición"}
+            </button>
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-primary"
+              onClick={() =>
+                setModal({
+                  mode: "create",
+                  preselectPropuesta: filtroArtista || artistaId || null,
+                })
+              }
+              title={
+                vehiculos.length === 0
+                  ? "Sin vehículos: solo podés marcar SIN SERVICIO"
+                  : "Nuevo trayecto"
+              }
+            >
+              <IconPlus size={16} /> Nuevo trayecto
+            </button>
+          </div>
         )}
       </div>
 
@@ -853,10 +1357,11 @@ export default function FimbaTransportPage() {
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table className="fimba-table">
+            <table className={`fimba-table${editMode ? " fimba-table-edit" : ""}`}>
               <thead>
                 <tr>
-                  <th style={{ paddingLeft: 0 }}>Vehículo</th>
+                  {editMode && <th className="fimba-sync-col" title="Semáforo" />}
+                  <th style={{ paddingLeft: editMode ? undefined : 0 }}>Vehículo</th>
                   <th>Nota / detalle OFRN</th>
                   <th>Categoría</th>
                   <th>Capacidad</th>
@@ -878,31 +1383,143 @@ export default function FimbaTransportPage() {
                     Number(editingVehiculoId) === Number(gt.id);
                   const isExporting =
                     Number(exportingVehicleId) === Number(gt.id);
+                  const vehKey = String(gt.id);
+                  const vehDraft = vehDrafts[vehKey] || draftFromVehiculo(gt);
+                  const vehStatus = vehRowStatus[vehKey] || "idle";
+                  const vehSaving = vehStatus === "saving";
                   return (
                     <tr
                       key={gt.id}
+                      className={editMode ? rowStatusClass(vehStatus) : undefined}
                       style={
-                        rowEditing
+                        !editMode && rowEditing
                           ? { background: "rgba(148,33,109,0.06)" }
                           : undefined
                       }
                     >
-                      <td style={{ paddingLeft: 0, fontWeight: 600 }}>
-                        {labelGiraTransporte(gt)}
+                      {editMode && (
+                        <SyncDot status={vehStatus} error={vehRowErrors[vehKey]} />
+                      )}
+                      <td style={{ paddingLeft: editMode ? undefined : 0, fontWeight: 600 }}>
+                        {editMode ? (
+                          <select
+                            className="fimba-cell-input"
+                            value={vehDraft.id_transporte}
+                            disabled={vehSaving}
+                            onChange={(e) =>
+                              changeAndCommitVehiculo(
+                                gt.id,
+                                "id_transporte",
+                                e.target.value,
+                              )
+                            }
+                            title="Tipo de catálogo (nombre del vehículo)"
+                          >
+                            <option value="">— Elegir —</option>
+                            {catalog.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.nombre}
+                                {c.patente ? ` (${c.patente})` : ""}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          labelGiraTransporte(gt)
+                        )}
                       </td>
                       <td
                         className="fimba-muted"
                         style={{ maxWidth: 280, fontSize: "0.85rem" }}
                         title={nota || undefined}
                       >
-                        {nota || "—"}
+                        {editMode ? (
+                          <input
+                            className="fimba-cell-input"
+                            value={vehDraft.detalle}
+                            disabled={vehSaving}
+                            placeholder="Ruta, tramo…"
+                            onChange={(e) =>
+                              setVehField(gt.id, "detalle", e.target.value)
+                            }
+                            onBlur={() => commitVehiculoRow(gt.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                commitVehiculoRow(gt.id);
+                              }
+                              if (e.key === "Escape") {
+                                e.preventDefault();
+                                setVehDrafts((prev) => {
+                                  const n = {
+                                    ...prev,
+                                    [vehKey]: draftFromVehiculo(gt),
+                                  };
+                                  vehDraftsRef.current = n;
+                                  return n;
+                                });
+                                setVehRowStatus((prev) => ({
+                                  ...prev,
+                                  [vehKey]: "idle",
+                                }));
+                                e.target.blur();
+                              }
+                            }}
+                          />
+                        ) : (
+                          nota || "—"
+                        )}
                       </td>
                       <td>
-                        <span className="fimba-badge">
-                          {gt.categoria_logistica || "PASAJEROS"}
-                        </span>
+                        {editMode ? (
+                          <select
+                            className="fimba-cell-input"
+                            value={vehDraft.categoria_logistica}
+                            disabled={vehSaving}
+                            onChange={(e) =>
+                              changeAndCommitVehiculo(
+                                gt.id,
+                                "categoria_logistica",
+                                e.target.value,
+                              )
+                            }
+                          >
+                            {CATEGORIA_OPTS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="fimba-badge">
+                            {gt.categoria_logistica || "PASAJEROS"}
+                          </span>
+                        )}
                       </td>
-                      <td>{cap != null ? `${cap}` : "—"}</td>
+                      <td>
+                        {editMode ? (
+                          <input
+                            className="fimba-cell-input fimba-cell-num"
+                            type="number"
+                            min={0}
+                            value={vehDraft.capacidad}
+                            disabled={vehSaving}
+                            onChange={(e) =>
+                              setVehField(gt.id, "capacidad", e.target.value)
+                            }
+                            onBlur={() => commitVehiculoRow(gt.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                commitVehiculoRow(gt.id);
+                              }
+                            }}
+                          />
+                        ) : cap != null ? (
+                          `${cap}`
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                       <td>
                         <span
                           style={{
@@ -962,7 +1579,7 @@ export default function FimbaTransportPage() {
                               <IconFileExcel size={15} />
                             )}
                           </button>
-                          {!readOnly && (
+                          {!readOnly && !editMode && (
                             <button
                               type="button"
                               className="fimba-btn fimba-btn-ghost"
@@ -1068,6 +1685,9 @@ export default function FimbaTransportPage() {
           <code style={{ fontSize: "0.75rem" }}>capacidad_maxima</code> (libres al hover).
           Origen, fecha y horario quedan fijos al desplazar horizontalmente el resto de la
           planilla. Filtrá un vehículo para la secuencia de esa unidad. ↑/↓ = quién sube/baja.
+          {editMode
+            ? " Modo edición: fecha, horas, actividad, obs., locación texto y vehículo FIMBA (una unidad) se guardan solos."
+            : ""}
         </p>
 
         {vehiculos.length > 0 && (
@@ -1172,9 +1792,14 @@ export default function FimbaTransportPage() {
         ) : (
           <div className="fimba-card fimba-planilla-card">
             <div className="fimba-planilla-scroll" role="region" aria-label="Planilla de trayectos (desplazá horizontalmente para ver todas las columnas)">
-              <table className="fimba-table fimba-planilla-table">
+              <table
+                className={`fimba-table fimba-planilla-table${editMode ? " fimba-table-edit" : ""}`}
+              >
                 <thead>
                   <tr>
+                    {editMode && (
+                      <th className="fimba-sync-col fimba-sticky-sync" title="Semáforo" />
+                    )}
                     <th className="fimba-sticky-origen">Origen</th>
                     <th className="fimba-sticky-fecha">Fecha</th>
                     <th
@@ -1285,8 +1910,23 @@ export default function FimbaTransportPage() {
                         : cap != null
                           ? `Capacidad: ${cap}`
                           : undefined;
+                    const evKey = String(ev.id);
+                    const evDraft = eventDrafts[evKey] || draftFromEvent(ev);
+                    const evStatus = eventRowStatus[evKey] || "idle";
+                    const evSaving = evStatus === "saving";
+                    const canAssignVeh = editMode && canInlineAssignVehicle(ev);
+                    const evRowClass = [rowClass, editMode ? rowStatusClass(evStatus) : ""]
+                      .filter(Boolean)
+                      .join(" ");
                     return (
-                      <tr key={ev.id} className={rowClass}>
+                      <tr key={ev.id} className={evRowClass}>
+                        {editMode && (
+                          <SyncDot
+                            status={evStatus}
+                            error={eventRowErrors[evKey]}
+                            sticky
+                          />
+                        )}
                         <td className="fimba-sticky-origen">
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                             {ev.es_fimba && (
@@ -1310,78 +1950,208 @@ export default function FimbaTransportPage() {
                           </div>
                         </td>
                         <td className="fimba-sticky-fecha">
-                          {formatFecha(ev.fecha)}
+                          {editMode ? (
+                            <input
+                              className="fimba-cell-input"
+                              type="date"
+                              value={evDraft.fecha || ""}
+                              disabled={evSaving}
+                              onChange={(e) =>
+                                changeAndCommitEvento(ev.id, "fecha", e.target.value)
+                              }
+                            />
+                          ) : (
+                            formatFecha(ev.fecha)
+                          )}
                         </td>
                         <td className="fimba-sticky-hora">
-                          <span title="Hora de comienzo">{horaCom}</span>
-                          <span className="fimba-muted" style={{ margin: "0 0.2rem" }}>
-                            ·
-                          </span>
-                          {horaFinDisp.value ? (
-                            <span
-                              title={
-                                horaFinDisp.isCalculated
-                                  ? "Calculada: hora com de la siguiente parada del mismo vehículo (sin hora fin guardada)"
-                                  : "Hora fin guardada en el evento"
-                              }
-                              style={
-                                horaFinDisp.isCalculated
-                                  ? {
-                                      color: "#0e7490",
-                                      fontStyle: "italic",
-                                    }
-                                  : undefined
-                              }
-                            >
-                              {horaFinDisp.value}
-                            </span>
+                          {editMode ? (
+                            <div className="fimba-hora-edit">
+                              <input
+                                className="fimba-cell-input"
+                                type="time"
+                                value={evDraft.hora_inicio || ""}
+                                disabled={evSaving}
+                                title="Hora de comienzo"
+                                onChange={(e) =>
+                                  setEventField(ev.id, "hora_inicio", e.target.value)
+                                }
+                                onBlur={() => commitEvento(ev.id)}
+                              />
+                              <input
+                                className="fimba-cell-input"
+                                type="time"
+                                value={evDraft.hora_fin || ""}
+                                disabled={evSaving}
+                                title="Hora fin (vacío = calculada desde la siguiente parada)"
+                                onChange={(e) =>
+                                  setEventField(ev.id, "hora_fin", e.target.value)
+                                }
+                                onBlur={() => commitEvento(ev.id)}
+                              />
+                            </div>
                           ) : (
-                            <span className="fimba-muted">—</span>
+                            <>
+                              <span title="Hora de comienzo">{horaCom}</span>
+                              <span className="fimba-muted" style={{ margin: "0 0.2rem" }}>
+                                ·
+                              </span>
+                              {horaFinDisp.value ? (
+                                <span
+                                  title={
+                                    horaFinDisp.isCalculated
+                                      ? "Calculada: hora com de la siguiente parada del mismo vehículo (sin hora fin guardada)"
+                                      : "Hora fin guardada en el evento"
+                                  }
+                                  style={
+                                    horaFinDisp.isCalculated
+                                      ? {
+                                          color: "#0e7490",
+                                          fontStyle: "italic",
+                                        }
+                                      : undefined
+                                  }
+                                >
+                                  {horaFinDisp.value}
+                                </span>
+                              ) : (
+                                <span className="fimba-muted">—</span>
+                              )}
+                            </>
                           )}
                         </td>
                         <td className="fimba-planilla-wrap" style={{ fontWeight: 600 }}>
-                          {ev.actividad || ev.tipo_nombre || "—"}
-                          {ev.observaciones ? (
-                            <span
-                              className="fimba-muted"
-                              style={{
-                                display: "block",
-                                fontSize: "0.75rem",
-                                fontWeight: 400,
-                              }}
-                            >
-                              {ev.observaciones}
-                            </span>
-                          ) : null}
-                          {!ev.actividad && ev.descripcion && !ev.tipo_nombre ? (
-                            <span
-                              className="fimba-muted"
-                              style={{
-                                display: "block",
-                                fontSize: "0.75rem",
-                                fontWeight: 400,
-                              }}
-                            >
-                              {String(ev.descripcion).slice(0, 80)}
-                            </span>
-                          ) : null}
+                          {editMode ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                              <input
+                                className="fimba-cell-input"
+                                value={evDraft.actividad}
+                                disabled={evSaving}
+                                placeholder="Actividad"
+                                onChange={(e) =>
+                                  setEventField(ev.id, "actividad", e.target.value)
+                                }
+                                onBlur={() => commitEvento(ev.id)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    commitEvento(ev.id);
+                                  }
+                                }}
+                              />
+                              <input
+                                className="fimba-cell-input"
+                                value={evDraft.observaciones}
+                                disabled={evSaving}
+                                placeholder="Obs."
+                                title="Observaciones"
+                                onChange={(e) =>
+                                  setEventField(ev.id, "observaciones", e.target.value)
+                                }
+                                onBlur={() => commitEvento(ev.id)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    commitEvento(ev.id);
+                                  }
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <>
+                              {ev.actividad || ev.tipo_nombre || "—"}
+                              {ev.observaciones ? (
+                                <span
+                                  className="fimba-muted"
+                                  style={{
+                                    display: "block",
+                                    fontSize: "0.75rem",
+                                    fontWeight: 400,
+                                  }}
+                                >
+                                  {ev.observaciones}
+                                </span>
+                              ) : null}
+                              {!ev.actividad && ev.descripcion && !ev.tipo_nombre ? (
+                                <span
+                                  className="fimba-muted"
+                                  style={{
+                                    display: "block",
+                                    fontSize: "0.75rem",
+                                    fontWeight: 400,
+                                  }}
+                                >
+                                  {String(ev.descripcion).slice(0, 80)}
+                                </span>
+                              ) : null}
+                            </>
+                          )}
                         </td>
                         <td
                           className="fimba-muted fimba-planilla-wrap"
                           style={{ fontSize: "0.85rem" }}
                           title={locacion}
                         >
-                          {locacion}
-                          {ev.vuelo ? (
-                            <span
-                              style={{
-                                display: "block",
-                                fontSize: "0.72rem",
-                              }}
-                            >
-                              Vuelo {ev.vuelo}
-                            </span>
-                          ) : null}
+                          {editMode ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                              {ev.locacion_nombre ? (
+                                <span
+                                  style={{ fontSize: "0.72rem", fontWeight: 600 }}
+                                  title="Locación de catálogo (se edita en el modal)"
+                                >
+                                  {ev.locacion_nombre}
+                                  {ev.locacion_ciudad ? ` (${ev.locacion_ciudad})` : ""}
+                                </span>
+                              ) : null}
+                              <input
+                                className="fimba-cell-input"
+                                value={evDraft.destino}
+                                disabled={evSaving}
+                                placeholder={
+                                  ev.locacion_nombre
+                                    ? "Texto destino (opcional)"
+                                    : "Locación / destino"
+                                }
+                                onChange={(e) =>
+                                  setEventField(ev.id, "destino", e.target.value)
+                                }
+                                onBlur={() => commitEvento(ev.id)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    commitEvento(ev.id);
+                                  }
+                                }}
+                              />
+                              {ev.vuelo || evDraft.vuelo ? (
+                                <input
+                                  className="fimba-cell-input"
+                                  value={evDraft.vuelo}
+                                  disabled={evSaving}
+                                  placeholder="Vuelo"
+                                  title="Vuelo"
+                                  onChange={(e) =>
+                                    setEventField(ev.id, "vuelo", e.target.value)
+                                  }
+                                  onBlur={() => commitEvento(ev.id)}
+                                />
+                              ) : null}
+                            </div>
+                          ) : (
+                            <>
+                              {locacion}
+                              {ev.vuelo ? (
+                                <span
+                                  style={{
+                                    display: "block",
+                                    fontSize: "0.72rem",
+                                  }}
+                                >
+                                  Vuelo {ev.vuelo}
+                                </span>
+                              ) : null}
+                            </>
+                          )}
                         </td>
                         <td
                           style={{
@@ -1462,7 +2232,28 @@ export default function FimbaTransportPage() {
                           </span>
                         </td>
                         <td className="fimba-planilla-wrap" style={{ maxWidth: "10rem" }}>
-                          {vehLabel === "SIN SERVICIO" ? (
+                          {canAssignVeh ? (
+                            <select
+                              className="fimba-cell-input"
+                              value={evDraft.id_gira_transporte}
+                              disabled={evSaving}
+                              title="Asignar un vehículo de la flota (FIMBA, una unidad)"
+                              onChange={(e) =>
+                                changeAndCommitEvento(
+                                  ev.id,
+                                  "id_gira_transporte",
+                                  e.target.value,
+                                )
+                              }
+                            >
+                              <option value="">SIN SERVICIO</option>
+                              {vehiculos.map((gtOpt) => (
+                                <option key={gtOpt.id} value={String(gtOpt.id)}>
+                                  {labelGiraTransporte(gtOpt)}
+                                </option>
+                              ))}
+                            </select>
+                          ) : vehLabel === "SIN SERVICIO" ? (
                             <span
                               className="fimba-badge"
                               style={{ background: "#fef3c7", color: "#92400e" }}
@@ -1725,6 +2516,7 @@ export default function FimbaTransportPage() {
           admissionRules={ofrnAdmissionRules}
           regions={ofrnRegions}
           localities={ofrnLocalities}
+          sequencesByVehicle={sequencesByVehicle}
           onRefresh={reload}
         />
       )}

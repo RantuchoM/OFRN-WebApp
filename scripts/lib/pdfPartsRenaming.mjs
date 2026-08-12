@@ -97,8 +97,8 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bcorno\s+en\s+fa\b|\bhorns?\b|\bcornos?\b|\bcorno\b/i.test(name))
     return "Corno F";
   if (/\btrompeta\s*2\b|\btrumpet\s*2\b/i.test(name)) return "Trompeta 2";
-  if (/\btrompeta\s*1\b|\btrumpet\s*1\b|\btrumpets?\b|\btrompeta\b/i.test(name))
-    return "Trompeta";
+  if (/\btrompeta\s*1\b|\btrumpet\s*1\b/i.test(name)) return "Trompeta 1";
+  if (/\btrumpets?\b|\btrompeta\b/i.test(name)) return "Trompeta";
   if (/\btrombon\s*bajo\b|\bbass\s+trombone\b/i.test(name)) return "Trombón 3";
   if (/\btambor\s*piccolo\b|\btamburino\b/i.test(name)) return "Perc Tambor";
   if (/\btrombón\s*3\b|\btrombone\s*3\b|\btrombon\s*3\b/i.test(name))
@@ -106,8 +106,9 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\btrombón\s*2\b|\btrombone\s*2\b|\btrombon\s*2\b/i.test(name))
     return "Trombón 2";
   if (/\bbass\s*drums?\b/i.test(name)) return "Perc Bombo";
-  if (/\btrombón\s*1\b|\btrombone\s*1\b|\btrombones?\b|\btrombón\b|\btrombon\b/i.test(name))
-    return "Trombón";
+  if (/\btrombón\s*1\b|\btrombone\s*1\b|\btrombon\s*1\b/i.test(name))
+    return "Trombón 1";
+  if (/\btrombones?\b|\btrombón\b|\btrombon\b/i.test(name)) return "Trombón";
   if (/\btuba\b/i.test(name)) return "Tuba";
   if (/\bglockenspiel\b|\bmetal[oó]fono\b/i.test(name)) return "Perc Glockenspiel";
   if (/\bmarimba\b/i.test(name)) return "Perc Marimba";

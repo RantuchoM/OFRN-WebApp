@@ -1,15 +1,48 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { IconTag, IconChevronDown, IconCheck, IconX, IconPlus } from '../ui/Icons';
+import { getFixedMenuPosition } from '../../utils/fixedMenuPosition';
 
 export default function TagMultiSelect({ tags, selectedIds, onChange, onAddNew }) {
     const [isOpen, setIsOpen] = useState(false);
+    const [menuStyle, setMenuStyle] = useState(null);
     const dropdownRef = useRef(null);
+    const buttonRef = useRef(null);
+    const menuRef = useRef(null);
+
+    const updateMenuPosition = () => {
+        if (!buttonRef.current) return;
+        const rect = buttonRef.current.getBoundingClientRect();
+        setMenuStyle(
+            getFixedMenuPosition(rect, {
+                width: Math.max(rect.width, 200),
+                estimatedHeight: 220,
+                measuredHeight: menuRef.current?.offsetHeight,
+            }),
+        );
+    };
+
+    useLayoutEffect(() => {
+        if (!isOpen) {
+            setMenuStyle(null);
+            return undefined;
+        }
+        updateMenuPosition();
+        const frame = requestAnimationFrame(updateMenuPosition);
+        window.addEventListener("resize", updateMenuPosition);
+        window.addEventListener("scroll", updateMenuPosition, true);
+        return () => {
+            cancelAnimationFrame(frame);
+            window.removeEventListener("resize", updateMenuPosition);
+            window.removeEventListener("scroll", updateMenuPosition, true);
+        };
+    }, [isOpen]);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-                setIsOpen(false);
-            }
+            if (dropdownRef.current?.contains(event.target)) return;
+            if (menuRef.current?.contains(event.target)) return;
+            setIsOpen(false);
         };
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -30,6 +63,7 @@ export default function TagMultiSelect({ tags, selectedIds, onChange, onAddNew }
             <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Palabras Clave</label>
             
             <button 
+                ref={buttonRef}
                 type="button" 
                 onClick={() => setIsOpen(!isOpen)} 
                 className="w-full flex items-center justify-between gap-2 p-2 bg-white border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none transition-colors text-left"
@@ -43,9 +77,19 @@ export default function TagMultiSelect({ tags, selectedIds, onChange, onAddNew }
                 <IconChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}/>
             </button>
             
-            {isOpen && (
-                <div className="absolute top-full left-0 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-xl z-50 overflow-hidden flex flex-col max-h-[200px]">
-                    <div className="overflow-y-auto p-1 space-y-0.5">
+            {isOpen && menuStyle && createPortal(
+                <div
+                    ref={menuRef}
+                    data-fixed-menu="true"
+                    style={{
+                        top: menuStyle.top,
+                        left: menuStyle.left,
+                        width: menuStyle.width,
+                        maxHeight: menuStyle.maxHeight,
+                    }}
+                    className="fixed z-[100] bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95"
+                >
+                    <div className="overflow-y-auto overscroll-contain p-1 space-y-0.5 min-h-0">
                         {tags.map(tag => (
                             <label key={tag.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded cursor-pointer group">
                                 <input 
@@ -61,15 +105,15 @@ export default function TagMultiSelect({ tags, selectedIds, onChange, onAddNew }
                             </label>
                         ))}
                     </div>
-                    {/* BOTÓN AGREGAR NUEVO */}
                     {onAddNew && (
-                        <div className="p-2 border-t border-slate-50 bg-slate-50">
+                        <div className="p-2 border-t border-slate-50 bg-slate-50 shrink-0">
                             <button onClick={onAddNew} className="w-full flex items-center justify-center gap-2 text-xs font-bold text-indigo-600 hover:text-indigo-800 py-1">
                                 <IconPlus size={12}/> Crear Nuevo
                             </button>
                         </div>
                     )}
-                </div>
+                </div>,
+                document.body,
             )}
 
             {selectedTagsDisplay.length > 0 && (

@@ -234,6 +234,64 @@ const FIMBA_CSS = `
   .fimba-planilla-table .fimba-row-ambos .fimba-sticky-hora {
     background: #fdf7fb;
   }
+  /* Modo edición: semáforo sticky + inputs de fecha/hora más anchos */
+  .fimba-planilla-table.fimba-table-edit .fimba-sticky-sync {
+    position: sticky;
+    left: 0;
+    z-index: 4;
+    width: 2rem;
+    min-width: 2rem;
+    padding-left: 0.45rem !important;
+    padding-right: 0.15rem !important;
+    background: #fff;
+  }
+  .fimba-planilla-table.fimba-table-edit .fimba-sticky-origen {
+    left: 2rem;
+  }
+  .fimba-planilla-table.fimba-table-edit .fimba-sticky-fecha {
+    left: 8.75rem;
+    min-width: 8.25rem;
+    width: 8.25rem;
+  }
+  .fimba-planilla-table.fimba-table-edit .fimba-sticky-hora {
+    left: 17rem;
+    min-width: 7.25rem;
+    width: 7.25rem;
+  }
+  .fimba-planilla-table.fimba-table-edit thead .fimba-sticky-sync,
+  .fimba-planilla-table.fimba-table-edit thead .fimba-sticky-origen,
+  .fimba-planilla-table.fimba-table-edit thead .fimba-sticky-fecha,
+  .fimba-planilla-table.fimba-table-edit thead .fimba-sticky-hora {
+    z-index: 6;
+    background: #fff;
+  }
+  .fimba-planilla-table.fimba-table-edit .fimba-row-ofrn .fimba-sticky-sync,
+  .fimba-planilla-table.fimba-table-edit .fimba-row-ofrn .fimba-sticky-origen,
+  .fimba-planilla-table.fimba-table-edit .fimba-row-ofrn .fimba-sticky-fecha,
+  .fimba-planilla-table.fimba-table-edit .fimba-row-ofrn .fimba-sticky-hora {
+    background: #f3fafd;
+  }
+  .fimba-planilla-table.fimba-table-edit .fimba-row-ambos .fimba-sticky-sync,
+  .fimba-planilla-table.fimba-table-edit .fimba-row-ambos .fimba-sticky-origen,
+  .fimba-planilla-table.fimba-table-edit .fimba-row-ambos .fimba-sticky-fecha,
+  .fimba-planilla-table.fimba-table-edit .fimba-row-ambos .fimba-sticky-hora {
+    background: #fdf7fb;
+  }
+  .fimba-hora-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 6.5rem;
+  }
+  .fimba-hora-edit .fimba-cell-input {
+    min-width: 0;
+    width: 100%;
+    padding: 0.15rem 0.25rem;
+    font-size: 0.78rem;
+  }
+  .fimba-planilla-table.fimba-table-edit .fimba-planilla-wrap .fimba-cell-input {
+    min-width: 7.5rem;
+  }
   .fimba-planilla-table .fimba-planilla-actions {
     text-align: right;
     padding-right: 0.75rem !important;

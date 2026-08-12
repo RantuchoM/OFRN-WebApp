@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
   IconList,
@@ -21,6 +22,7 @@ import { getRepertoireSelectionPdfTitle, getRepertoireSelectionPdfFileName } fro
 import { syncArchivoSelectionToDrive } from "../../services/repertoireSelectionDriveService";
 import { sortSelectionIds } from "../../utils/repertoireSelectionSort";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import { getFixedMenuPosition } from "../../utils/fixedMenuPosition";
 
 const stripHtml = (html) =>
   String(html || "")
@@ -57,7 +59,11 @@ export default function RepertoireSelectionBar({
   const [driveLoading, setDriveLoading] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
   const mobileMenuRef = useRef(null);
+  const mobileMenuPanelRef = useRef(null);
   const sortMenuRef = useRef(null);
+  const sortMenuPanelRef = useRef(null);
+  const [mobileMenuStyle, setMobileMenuStyle] = useState(null);
+  const [sortMenuStyle, setSortMenuStyle] = useState(null);
 
   const hasSelection = orderedIds.length > 0;
 
@@ -128,12 +134,72 @@ export default function RepertoireSelectionBar({
     }
   };
 
+  const updateMobileMenuPosition = () => {
+    if (!mobileMenuRef.current) return;
+    const rect = mobileMenuRef.current.getBoundingClientRect();
+    setMobileMenuStyle(
+      getFixedMenuPosition(rect, {
+        width: Math.min(288, window.innerWidth - 16),
+        estimatedHeight: 520,
+        measuredHeight: mobileMenuPanelRef.current?.offsetHeight,
+        align: "right",
+        minHeight: 160,
+      }),
+    );
+  };
+
+  const updateSortMenuPosition = () => {
+    if (!sortMenuRef.current) return;
+    const rect = sortMenuRef.current.getBoundingClientRect();
+    setSortMenuStyle(
+      getFixedMenuPosition(rect, {
+        width: 180,
+        estimatedHeight: 140,
+        measuredHeight: sortMenuPanelRef.current?.offsetHeight,
+        align: "right",
+        minHeight: 80,
+      }),
+    );
+  };
+
+  useLayoutEffect(() => {
+    if (variant !== "mobile-menu" || !showMobileMenu) {
+      setMobileMenuStyle(null);
+      return undefined;
+    }
+    updateMobileMenuPosition();
+    const frame = requestAnimationFrame(updateMobileMenuPosition);
+    window.addEventListener("resize", updateMobileMenuPosition);
+    window.addEventListener("scroll", updateMobileMenuPosition, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updateMobileMenuPosition);
+      window.removeEventListener("scroll", updateMobileMenuPosition, true);
+    };
+  }, [variant, showMobileMenu]);
+
+  useLayoutEffect(() => {
+    if (!showSortMenu) {
+      setSortMenuStyle(null);
+      return undefined;
+    }
+    updateSortMenuPosition();
+    const frame = requestAnimationFrame(updateSortMenuPosition);
+    window.addEventListener("resize", updateSortMenuPosition);
+    window.addEventListener("scroll", updateSortMenuPosition, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updateSortMenuPosition);
+      window.removeEventListener("scroll", updateSortMenuPosition, true);
+    };
+  }, [showSortMenu]);
+
   useEffect(() => {
     if (variant !== "mobile-menu") return undefined;
     const handleClickOutside = (event) => {
-      if (mobileMenuRef.current && !mobileMenuRef.current.contains(event.target)) {
-        setShowMobileMenu(false);
-      }
+      if (mobileMenuRef.current?.contains(event.target)) return;
+      if (mobileMenuPanelRef.current?.contains(event.target)) return;
+      setShowMobileMenu(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -142,9 +208,9 @@ export default function RepertoireSelectionBar({
   useEffect(() => {
     if (!showSortMenu) return undefined;
     const handleClickOutside = (event) => {
-      if (sortMenuRef.current && !sortMenuRef.current.contains(event.target)) {
-        setShowSortMenu(false);
-      }
+      if (sortMenuRef.current?.contains(event.target)) return;
+      if (sortMenuPanelRef.current?.contains(event.target)) return;
+      setShowSortMenu(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -180,8 +246,18 @@ export default function RepertoireSelectionBar({
             <IconChevronDown size={12} className={showMobileMenu ? "rotate-180" : ""} />
           </button>
 
-          {showMobileMenu && (
-            <div className="absolute right-0 top-full z-50 mt-1 w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+          {showMobileMenu && mobileMenuStyle && createPortal(
+            <div
+              ref={mobileMenuPanelRef}
+              data-fixed-menu="true"
+              style={{
+                top: mobileMenuStyle.top,
+                left: mobileMenuStyle.left,
+                width: mobileMenuStyle.width,
+                maxHeight: mobileMenuStyle.maxHeight,
+              }}
+              className="fixed z-[100] overflow-y-auto overscroll-contain w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl"
+            >
               <div className="mb-2 flex items-center justify-between border-b border-slate-100 pb-2">
                 <span className="text-[10px] font-black uppercase text-slate-500">
                   Selección
@@ -297,12 +373,13 @@ export default function RepertoireSelectionBar({
                   </div>
                 )}
               </div>
-            </div>
+            </div>,
+            document.body,
           )}
         </div>
 
         {showOrderModal && (
-          <RepertoireSelectionOrderModal
+          <RepertoireSelectionOrderModal}
             worksById={worksById}
             orderedIds={orderedIds}
             onClose={() => setShowOrderModal(false)}
@@ -399,8 +476,18 @@ export default function RepertoireSelectionBar({
                     Ordenar por
                     <IconChevronDown size={12} className={showSortMenu ? "rotate-180" : ""} />
                   </button>
-                  {showSortMenu && (
-                    <div className="absolute right-0 top-full z-40 mt-1 min-w-[180px] rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                  {showSortMenu && sortMenuStyle && createPortal(
+                    <div
+                      ref={sortMenuPanelRef}
+                      data-fixed-menu="true"
+                      style={{
+                        top: sortMenuStyle.top,
+                        left: sortMenuStyle.left,
+                        width: sortMenuStyle.width,
+                        maxHeight: sortMenuStyle.maxHeight,
+                      }}
+                      className="fixed z-[100] overflow-y-auto overscroll-contain min-w-[180px] rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                    >
                       <button
                         type="button"
                         onClick={() => applySortCriterion("compositor")}
@@ -422,7 +509,8 @@ export default function RepertoireSelectionBar({
                       >
                         Giras programadas
                       </button>
-                    </div>
+                    </div>,
+                    document.body,
                   )}
                 </div>
                 <button

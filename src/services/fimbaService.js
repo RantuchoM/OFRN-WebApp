@@ -17,6 +17,11 @@ import { fetchRosterForGira } from "../hooks/useGiraRoster";
 import { calculateLogisticsSummary } from "../hooks/useLogistics";
 import { fetchGiraSegmentosBundle } from "./giraSegmentosService";
 import { eventTypeIdForCategoria } from "../utils/giraTransportUtils";
+import {
+  buildArtistaTrasladoAgendaBlocks,
+  isOpenFimbaRide,
+  mergeAgendaWithTrasladoBlocks,
+} from "../utils/fimbaTransportBoarding";
 
 /**
  * Tipos de alimentación de `fimba_participantes.tipo_alimentacion`
@@ -295,22 +300,25 @@ export function formatFimbaTopeTransporteError(propuesta) {
 }
 
 /**
- * Suma plazas de rides activos (`fimba_propuesta_rutas`) de un artista.
- * Un ride activo = fila con plazas > 0 (misma propuesta, cualquier vehículo).
+ * Suma plazas de rides de un artista.
+ * Por defecto solo rides **abiertos** (subida sin bajada): ocupan el tope hasta
+ * que una bajada libera esas plazas. Rides cerrados (ya bajaron) no cuentan.
  *
- * @param {Array<{ id?: unknown, id_propuesta?: unknown, plazas?: number, propuesta?: { id?: unknown }|null }>} rutas
+ * @param {Array<{ id?: unknown, id_propuesta?: unknown, plazas?: number, id_evento_subida?: unknown, id_evento_bajada?: unknown, propuesta?: { id?: unknown }|null }>} rutas
  * @param {number|string} idPropuesta
- * @param {{ excludeRutaIds?: Array<number|string> }} [opts]
+ * @param {{ excludeRutaIds?: Array<number|string>, onlyOpen?: boolean }} [opts]
  */
 export function sumPropuestaRutasPlazas(rutas, idPropuesta, opts = {}) {
   if (idPropuesta == null || idPropuesta === "") return 0;
   const want = String(idPropuesta);
   const exclude = new Set((opts.excludeRutaIds || []).map(String));
+  const onlyOpen = opts.onlyOpen !== false;
   let sum = 0;
   for (const r of rutas || []) {
     const pid = r?.id_propuesta ?? r?.propuesta?.id;
     if (pid == null || String(pid) !== want) continue;
     if (r?.id != null && exclude.has(String(r.id))) continue;
+    if (onlyOpen && !isOpenFimbaRide(r)) continue;
     sum += Math.max(0, Number(r.plazas) || 0);
   }
   return sum;
@@ -318,16 +326,20 @@ export function sumPropuestaRutasPlazas(rutas, idPropuesta, opts = {}) {
 
 /**
  * Uso / restantes del tope transporte por artista respecto a sus rutas.
- * Σ plazas rutas activas ≤ para_transporte.
+ * Σ plazas de rides **abiertos** (a bordo) ≤ para_transporte.
+ * Una bajada cierra el ride y **libera** esas plazas (no consume tope).
  *
  * @param {{ id?: unknown, cantidad_planificada?: number, plazas_extra_materiales?: number } | null} propuesta
  * @param {Array} rutas — `fimba_propuesta_rutas` (pueden ser de varias propuestas)
- * @param {{ excludeRutaIds?: Array<number|string>, id_propuesta?: unknown }} [opts]
+ * @param {{ excludeRutaIds?: Array<number|string>, id_propuesta?: unknown, onlyOpen?: boolean }} [opts]
  */
 export function computeArtistaTransporteUsage(propuesta, rutas, opts = {}) {
   const idProp = propuesta?.id ?? opts.id_propuesta;
   const cap = computeFimbaCapacity(propuesta);
-  const used = sumPropuestaRutasPlazas(rutas, idProp, opts);
+  const used = sumPropuestaRutasPlazas(rutas, idProp, {
+    excludeRutaIds: opts.excludeRutaIds,
+    onlyOpen: opts.onlyOpen,
+  });
   const remaining = Math.max(0, cap.para_transporte - used);
   return {
     id_propuesta: idProp ?? null,
@@ -351,6 +363,50 @@ export function defaultArtistaAssignPlazas(opts = {}) {
     if (Number.isFinite(libres)) n = Math.min(n, Math.max(0, libres));
   }
   return n;
+}
+
+/**
+ * Cupo usable de una unidad al asignar plazas: libres de ventana si hay,
+ * si no capacidad física (`capacidad_maxima`).
+ * @param {{ libres?: number|null, capacidad?: number|null }|null} metrics
+ * @param {{ capacidad_maxima?: number|null }|null} [gt]
+ * @returns {number|null}
+ */
+export function cupoPlazasVehiculo(metrics, gt = null) {
+  if (metrics?.libres != null && Number.isFinite(Number(metrics.libres))) {
+    return Math.max(0, Number(metrics.libres));
+  }
+  if (metrics?.capacidad != null && Number.isFinite(Number(metrics.capacidad))) {
+    return Math.max(0, Number(metrics.capacidad));
+  }
+  return capacidadGiraTransporte(gt);
+}
+
+/**
+ * Reparte `remaining` plazas en orden (greedy) entre unidades.
+ * Cada slot recibe min(resto, cupo) con cupo = libres ?? capacidad.
+ * Caso típico: organismo 120 → 44 + 44 + 32 en tres buses.
+ *
+ * @param {number} remaining
+ * @param {Array<{ id: string|number, libres?: number|null, capacidad?: number|null }>} slots
+ * @returns {Record<string, number>}
+ */
+export function repartirPlazasEntreVehiculos(remaining, slots) {
+  /** @type {Record<string, number>} */
+  const out = {};
+  let pool = Math.max(0, Number(remaining) || 0);
+  for (const s of slots || []) {
+    if (s?.id == null || s.id === "") continue;
+    const sid = String(s.id);
+    const cupo = cupoPlazasVehiculo(s);
+    const n =
+      cupo != null && Number.isFinite(cupo)
+        ? Math.min(pool, Math.max(0, cupo))
+        : pool;
+    out[sid] = n;
+    pool = Math.max(0, pool - n);
+  }
+  return out;
 }
 
 /**
@@ -1106,6 +1162,78 @@ export async function uploadFimbaDriveFile(folderUrlOrId, file) {
     return {
       fileId: null,
       webViewLink: null,
+      error: e instanceof Error ? e : new Error(String(e?.message || e)),
+    };
+  }
+}
+
+/**
+ * Renombra un archivo o carpeta en Drive (metadata `name`).
+ * Usa `get_temp_token` + PATCH files (misma cuenta Archivo / OAuth que list/upload).
+ * Requiere rol de escritor de esa cuenta sobre el ítem o la carpeta compartida.
+ * Docs/Sheets nativos: solo cambia el título en Drive (no el binario).
+ *
+ * @param {string} fileIdOrUrl - ID o URL del archivo/carpeta
+ * @param {string} newName
+ * @returns {Promise<{ name: string|null, error: Error|null }>}
+ */
+export async function renameFimbaDriveFile(fileIdOrUrl, newName) {
+  const fileId = extractDriveFolderId(fileIdOrUrl);
+  if (!fileId) {
+    return { name: null, error: new Error("ID de archivo inválido") };
+  }
+  // Drive no admite `/` en el nombre; el resto se deja (título de Docs nativos incluido).
+  const name = String(newName ?? "")
+    .trim()
+    .replace(/\//g, "_")
+    .replace(/[\u0000-\u001f]/g, "")
+    .slice(0, 255);
+  if (!name) {
+    return { name: null, error: new Error("El nombre no puede estar vacío") };
+  }
+
+  const { accessToken, error: tokenErr } = await getFimbaDriveAccessToken();
+  if (tokenErr || !accessToken) {
+    return { name: null, error: tokenErr || new Error("Sin token") };
+  }
+
+  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+    fileId,
+  )}?supportsAllDrives=true&fields=id,name`;
+
+  try {
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) {
+      if (res.status === 403 || res.status === 404) {
+        return {
+          name: null,
+          error: new Error(
+            "Sin permiso para renombrar (la cuenta Archivo OFRN necesita acceso de editor en la carpeta compartida).",
+          ),
+        };
+      }
+      let detail = `Drive respondió ${res.status} al renombrar`;
+      try {
+        const errBody = await res.json();
+        const msg = errBody?.error?.message;
+        if (msg) detail = String(msg);
+      } catch {
+        /* ignore body parse */
+      }
+      return { name: null, error: new Error(detail) };
+    }
+    const data = await res.json().catch(() => ({}));
+    return { name: data?.name || name, error: null };
+  } catch (e) {
+    return {
+      name: null,
       error: e instanceof Error ? e : new Error(String(e?.message || e)),
     };
   }
@@ -1905,6 +2033,60 @@ export async function computeFimbaVehicleWindowMetrics(
 }
 
 /**
+ * Hard-block: plazas pedidas por unidad ≤ asientos físicos (`capacidad_maxima`).
+ * Independiente de solapes: no se puede pedir más plazas que la capacidad del bus.
+ *
+ * @param {Array<{ id_gira_transporte: number|string, plazas?: number }>} assignments
+ * @param {Array<object>|Record<string, { capacidad?: number|null, label?: string, capacidad_maxima?: number|null }>} flotaOrById
+ * @returns {{ ok: true } | { ok: false, error: Error }}
+ */
+export function validateEventoTransportPlazasVsCapacidad(
+  assignments,
+  flotaOrById = [],
+) {
+  /** @type {Record<string, { capacidad: number|null, label: string }>} */
+  const byId = {};
+  if (Array.isArray(flotaOrById)) {
+    for (const gt of flotaOrById) {
+      if (gt?.id == null) continue;
+      byId[String(gt.id)] = {
+        capacidad: capacidadGiraTransporte(gt),
+        label: labelGiraTransporte(gt),
+      };
+    }
+  } else {
+    for (const [id, m] of Object.entries(flotaOrById || {})) {
+      byId[String(id)] = {
+        capacidad:
+          m?.capacidad != null && Number.isFinite(Number(m.capacidad))
+            ? Number(m.capacidad)
+            : capacidadGiraTransporte(m),
+        label: m?.label || labelGiraTransporte(m) || `Vehículo #${id}`,
+      };
+    }
+  }
+
+  for (const a of assignments || []) {
+    const id = a?.id_gira_transporte;
+    if (id == null || id === "") continue;
+    const plazas = Math.max(0, Number(a.plazas) || 0);
+    const m = byId[String(id)];
+    const cap = m?.capacidad;
+    if (cap == null || !Number.isFinite(Number(cap))) continue;
+    if (plazas > Number(cap)) {
+      const label = m.label || `Vehículo #${id}`;
+      return {
+        ok: false,
+        error: new Error(
+          `«${label}» admite ${cap} plazas; pedís ${plazas}.`,
+        ),
+      };
+    }
+  }
+  return { ok: true };
+}
+
+/**
  * Hard-block: plazas pedidas por unidad ≤ libres de ventana (capacidad − FIMBA solapada).
  * Si no hay métrica de libres para una unidad, no bloquea (capacidad desconocida).
  *
@@ -2187,6 +2369,7 @@ export function giraTransporteIdsFromEvent(ev) {
  *   id_tipo_evento?: number|string|null,
  *   solo_traslados?: boolean,
  *   include_ofrn?: boolean,
+ *   include_ride_segments?: boolean,
  * }} [opts]
  */
 export async function listFimbaAgenda(edicionId, opts = {}) {
@@ -2411,6 +2594,26 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
     eventos = eventos.filter((ev) => Number(ev.id_tipo_evento) === want);
   }
 
+  // Agenda de artista: bloques de traslado suben→bajan (fimba_propuesta_rutas).
+  // No aplica a planilla de trayectos (solo_traslados) ni sin filtro de propuesta.
+  if (
+    opts.id_propuesta != null &&
+    opts.id_propuesta !== "" &&
+    !opts.solo_traslados &&
+    opts.include_ride_segments !== false
+  ) {
+    const { blocks, error: eRide } = await listFimbaArtistaTrasladoBlocks(
+      edicionId,
+      opts.id_propuesta,
+    );
+    if (eRide) {
+      // No abortar agenda tagged si fallan rides; log y seguir.
+      console.warn("[FIMBA] Traslados artista no cargados:", eRide);
+    } else if (blocks?.length) {
+      eventos = mergeAgendaWithTrasladoBlocks(eventos, blocks);
+    }
+  }
+
   return { eventos, error: null };
 }
 
@@ -2584,7 +2787,12 @@ const FIMBA_PROPUESTA_RUTA_SELECT =
 /**
  * Lista rutas de artista (cantidad) de la edición: las que tocan flota de la gira.
  * @param {number|string} edicionId
- * @param {{ id_gira_transporte?: number|string|null, id_evento?: number|string|null, type?: 'up'|'down'|null }} [opts]
+ * @param {{
+ *   id_propuesta?: number|string|null,
+ *   id_gira_transporte?: number|string|null,
+ *   id_evento?: number|string|null,
+ *   type?: 'up'|'down'|null,
+ * }} [opts]
  */
 export async function listFimbaPropuestaRutas(edicionId, opts = {}) {
   const edId = Number(edicionId);
@@ -2603,7 +2811,11 @@ export async function listFimbaPropuestaRutas(edicionId, opts = {}) {
     .select("id")
     .eq("id_edicion", edId);
   if (eProp) return { rutas: [], error: eProp };
-  const propIds = (props || []).map((p) => p.id);
+  let propIds = (props || []).map((p) => p.id);
+  if (opts.id_propuesta != null && opts.id_propuesta !== "") {
+    const want = Number(opts.id_propuesta);
+    propIds = propIds.filter((id) => Number(id) === want);
+  }
   if (propIds.length === 0) return { rutas: [], error: null };
 
   let q = supabase
@@ -2639,6 +2851,88 @@ export async function listFimbaPropuestaRutas(edicionId, opts = {}) {
 }
 
 /**
+ * Bloques de traslado (suben → bajan) para la agenda de un artista.
+ * Usa `fimba_propuesta_rutas` + paradas de flota; no escribe en DB.
+ *
+ * @param {number|string} edicionId
+ * @param {number|string} idPropuesta
+ * @returns {Promise<{ blocks: object[], error: Error|null }>}
+ */
+export async function listFimbaArtistaTrasladoBlocks(edicionId, idPropuesta) {
+  if (edicionId == null || edicionId === "") {
+    return { blocks: [], error: null };
+  }
+  if (idPropuesta == null || idPropuesta === "") {
+    return { blocks: [], error: null };
+  }
+
+  const { edicion, error: eEd } = await getFimbaEdicionById(edicionId);
+  if (eEd) return { blocks: [], error: eEd };
+  if (!edicion?.id_gira) return { blocks: [], error: null };
+
+  const { rutas, error: eRutas } = await listFimbaPropuestaRutas(edicionId, {
+    id_propuesta: idPropuesta,
+  });
+  if (eRutas) return { blocks: [], error: eRutas };
+
+  const artistRoutes = (rutas || []).filter(
+    (r) => Math.max(0, Number(r.plazas) || 0) > 0,
+  );
+  if (artistRoutes.length === 0) return { blocks: [], error: null };
+
+  const eventIds = [
+    ...new Set(
+      artistRoutes.flatMap((r) =>
+        [r.id_evento_subida, r.id_evento_bajada].filter(
+          (id) => id != null && id !== "",
+        ),
+      ),
+    ),
+  ];
+  if (eventIds.length === 0) return { blocks: [], error: null };
+
+  const { data: stopEvents, error: eEv } = await supabase
+    .from("eventos")
+    .select(
+      "id, id_gira, id_tipo_evento, id_locacion, fecha, hora_inicio, hora_fin, descripcion, audiencia, audiencia_ofrn, id_gira_transporte, is_deleted, tipos_evento ( id, nombre, color, id_categoria, categorias_tipos_eventos ( id, nombre ) ), locaciones ( id, nombre, direccion, localidades ( id, localidad ) )",
+    )
+    .in("id", eventIds)
+    .or("is_deleted.is.null,is_deleted.eq.false");
+  if (eEv) return { blocks: [], error: eEv };
+
+  const { flota, error: eFlota } = await listFimbaFlota(edicion.id_gira);
+  if (eFlota) return { blocks: [], error: eFlota };
+
+  const eventsById = new Map(
+    (stopEvents || []).map((ev) => {
+      const decoded = decodeFimbaTrasladoDescripcion(ev.descripcion);
+      return [
+        String(ev.id),
+        {
+          ...ev,
+          ...decoded,
+          actividad: decoded.actividad || ev.descripcion || null,
+          tipo_nombre: ev.tipos_evento?.nombre || null,
+        },
+      ];
+    }),
+  );
+  const vehiculosById = new Map(
+    (flota || []).map((gt) => [String(gt.id), gt]),
+  );
+
+  const blocks = buildArtistaTrasladoAgendaBlocks({
+    idPropuesta,
+    propuestaRoutes: artistRoutes,
+    eventsById,
+    vehiculosById,
+    labelVehicle: labelGiraTransporte,
+  });
+
+  return { blocks, error: null };
+}
+
+/**
  * Hard-block: Σ plazas de rutas del artista (excl. fila en edición) + nuevas ≤ para_transporte.
  * @param {number} idPropuesta
  * @param {number} plazas
@@ -2656,7 +2950,7 @@ async function assertPropuestaRutaWithinTransportCap(idPropuesta, plazas, exclud
   }
   const { data: rutas, error: eR } = await supabase
     .from("fimba_propuesta_rutas")
-    .select("id, plazas, id_propuesta")
+    .select("id, plazas, id_propuesta, id_evento_subida, id_evento_bajada")
     .eq("id_propuesta", idPropuesta);
   if (eR) return { error: eR };
   const excludeRutaIds =
@@ -2669,10 +2963,14 @@ async function assertPropuestaRutaWithinTransportCap(idPropuesta, plazas, exclud
 
 /**
  * Alta o actualización de parada subida/bajada con plazas para un artista.
- * Si ya existe una regla de ese tipo (misma propuesta + vehículo + otro extremo
- * incompleto), actualiza; si hay conflicto con otra parada, puede reemplazar.
- * Hard-block si Σ plazas de rides del artista supera para_transporte
- * (cantidad_planificada + plazas_extra_materiales).
+ *
+ * Subida: nuevo ride (consume tope = plazas a bordo). Tras una bajada las
+ * plazas se liberan y se puede volver a subir (otro ride) en la misma unidad.
+ * Conflicto solo si ya hay un ride **abierto** en este vehículo.
+ *
+ * Bajada: cierra el ride abierto (set `id_evento_bajada`). No crea un ride
+ * nuevo ni consume tope: libera ocupación del bus y del artista. Sin subida
+ * abierta → error (no está a bordo).
  *
  * @param {{
  *   id_propuesta: number|string,
@@ -2698,16 +2996,18 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     return { ruta: null, error: new Error("Indicá una cantidad de plazas > 0") };
   }
 
-  // ¿Ya apunta a este mismo evento?
-  const { data: same, error: eSame } = await supabase
+  const { data: existingRows, error: eList } = await supabase
     .from("fimba_propuesta_rutas")
     .select(FIMBA_PROPUESTA_RUTA_SELECT)
     .eq("id_propuesta", idPropuesta)
     .eq("id_gira_transporte", idGt)
-    .eq(field, idEvento)
-    .maybeSingle();
-  if (eSame) return { ruta: null, error: eSame };
+    .order("id", { ascending: true });
+  if (eList) return { ruta: null, error: eList };
+  const list = existingRows || [];
 
+  const same = list.find(
+    (r) => r[field] != null && String(r[field]) === String(idEvento),
+  );
   if (same) {
     const capCheck = await assertPropuestaRutaWithinTransportCap(
       idPropuesta,
@@ -2725,79 +3025,88 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     return { ruta: data, error: null };
   }
 
-  // ¿Conflicto: misma propuesta+vehículo con otra subida/bajada en otro evento?
-  const { data: others, error: eO } = await supabase
-    .from("fimba_propuesta_rutas")
-    .select("*")
-    .eq("id_propuesta", idPropuesta)
-    .eq("id_gira_transporte", idGt)
-    .not(field, "is", null);
-  if (eO) return { ruta: null, error: eO };
+  const openRides = list.filter((r) => isOpenFimbaRide(r));
 
-  const conflict = (others || []).find(
-    (r) => r[field] != null && String(r[field]) !== String(idEvento),
-  );
-  if (conflict) {
+  if (type === "down") {
+    const openRide = openRides.length ? openRides[openRides.length - 1] : null;
+    if (openRide) {
+      // Cerrar el ride: misma plazas de la subida (liberar ocupación, no tope).
+      const { data, error } = await supabase
+        .from("fimba_propuesta_rutas")
+        .update({
+          id_evento_bajada: idEvento,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", openRide.id)
+        .select(FIMBA_PROPUESTA_RUTA_SELECT)
+        .single();
+      if (error) return { ruta: null, error };
+      return { ruta: data, error: null, completed: true };
+    }
+    return {
+      ruta: null,
+      error: new Error(
+        "Este artista no está a bordo de este vehículo. Asigná primero una subida.",
+      ),
+    };
+  }
+
+  // type === up
+  if (openRides.length) {
+    const openRide = openRides[openRides.length - 1];
     if (!payload.replaceConflict) {
       return {
         ruta: null,
-        conflict: conflict,
+        conflict: openRide,
         error: new Error(
-          type === "up"
-            ? "Este artista ya tiene subida en otra parada de este vehículo"
-            : "Este artista ya tiene bajada en otra parada de este vehículo",
+          "Este artista ya está a bordo de este vehículo (falta la bajada)",
         ),
       };
     }
     const capCheck = await assertPropuestaRutaWithinTransportCap(
       idPropuesta,
       plazas,
-      conflict.id,
+      openRide.id,
     );
     if (capCheck.error) return { ruta: null, error: capCheck.error };
     const { data, error } = await supabase
       .from("fimba_propuesta_rutas")
       .update({
-        [field]: idEvento,
+        id_evento_subida: idEvento,
         plazas,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", conflict.id)
+      .eq("id", openRide.id)
       .select(FIMBA_PROPUESTA_RUTA_SELECT)
       .single();
     if (error) return { ruta: null, error };
     return { ruta: data, error: null, replaced: true };
   }
 
-  // Completar una ruta incompleta (solo el otro extremo cargado)
-  const otherField = type === "up" ? "id_evento_bajada" : "id_evento_subida";
-  const { data: openRows, error: eOpen } = await supabase
-    .from("fimba_propuesta_rutas")
-    .select("*")
-    .eq("id_propuesta", idPropuesta)
-    .eq("id_gira_transporte", idGt)
-    .is(field, null)
-    .not(otherField, "is", null)
-    .order("id", { ascending: false })
-    .limit(1);
-  if (eOpen) return { ruta: null, error: eOpen };
-
-  if (openRows && openRows.length > 0) {
-    const row = openRows[0];
+  // Completar fila huérfana (solo bajada, sin subida)
+  const bajadaOnly = [...list]
+    .reverse()
+    .find(
+      (r) =>
+        (r.id_evento_subida == null || r.id_evento_subida === "") &&
+        r.id_evento_bajada != null &&
+        r.id_evento_bajada !== "",
+    );
+  if (bajadaOnly) {
     const capCheck = await assertPropuestaRutaWithinTransportCap(
       idPropuesta,
       plazas,
-      row.id,
+      bajadaOnly.id,
     );
     if (capCheck.error) return { ruta: null, error: capCheck.error };
     const { data, error } = await supabase
       .from("fimba_propuesta_rutas")
       .update({
-        [field]: idEvento,
+        id_evento_subida: idEvento,
         plazas,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", row.id)
+      .eq("id", bajadaOnly.id)
       .select(FIMBA_PROPUESTA_RUTA_SELECT)
       .single();
     if (error) return { ruta: null, error };
@@ -2815,8 +3124,8 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     id_propuesta: idPropuesta,
     id_gira_transporte: idGt,
     plazas,
-    id_evento_subida: type === "up" ? idEvento : null,
-    id_evento_bajada: type === "down" ? idEvento : null,
+    id_evento_subida: idEvento,
+    id_evento_bajada: null,
     updated_at: new Date().toISOString(),
   };
 
@@ -3003,15 +3312,18 @@ export async function saveFimbaEvento(payload) {
   }
 
   // Validar que los vehículos pertenecen a la gira (nunca inventar flota FIMBA)
+  /** @type {Array<object>} */
+  let flotaOwned = [];
   if (vehiculos.length > 0) {
     const ids = vehiculos.map((v) => Number(v.id_gira_transporte));
     const { data: owned, error: eOwn } = await supabase
       .from("giras_transportes")
-      .select("id")
+      .select(GIRA_TRANSPORTE_SELECT)
       .eq("id_gira", idGira)
       .in("id", ids);
     if (eOwn) return { evento: null, error: eOwn };
-    const ownedSet = new Set((owned || []).map((r) => Number(r.id)));
+    flotaOwned = owned || [];
+    const ownedSet = new Set(flotaOwned.map((r) => Number(r.id)));
     const invalid = ids.filter((id) => !ownedSet.has(id));
     if (invalid.length) {
       return {
@@ -3020,6 +3332,13 @@ export async function saveFimbaEvento(payload) {
           "Uno o más vehículos no pertenecen a la flota de la gira OFRN. Configurá la flota en Logística → Transporte.",
         ),
       };
+    }
+    const checkCapAsientos = validateEventoTransportPlazasVsCapacidad(
+      vehiculos,
+      flotaOwned,
+    );
+    if (!checkCapAsientos.ok) {
+      return { evento: null, error: checkCapAsientos.error };
     }
   }
 
@@ -3052,34 +3371,23 @@ export async function saveFimbaEvento(payload) {
   }
 
   // Hard-block: plazas por unidad ≤ libres de ventana (capacidad − FIMBA solapada; excl. este evento)
-  if (vehiculos.length > 0 && payload.fecha) {
-    const vehIds = vehiculos
-      .map((v) => Number(v.id_gira_transporte))
-      .filter((n) => Number.isFinite(n));
-    if (vehIds.length > 0) {
-      const { data: flotaRows, error: eFlota } = await supabase
-        .from("giras_transportes")
-        .select(GIRA_TRANSPORTE_SELECT)
-        .eq("id_gira", idGira)
-        .in("id", vehIds);
-      if (eFlota) return { evento: null, error: eFlota };
-      const excludeId =
-        payload.id != null && payload.id !== "" ? Number(payload.id) : null;
-      const { byId, error: eAv } = await listVehiclesAvailability(
-        idGira,
-        flotaRows || [],
-        {
-          fecha: payload.fecha,
-          hora_inicio: payload.hora_inicio || null,
-          hora_fin: payload.hora_fin || null,
-        },
-        Number.isFinite(excludeId) ? excludeId : null,
-      );
-      if (eAv) return { evento: null, error: eAv };
-      const checkLibres = validateEventoTransportPlazasVsLibres(vehiculos, byId);
-      if (!checkLibres.ok) {
-        return { evento: null, error: checkLibres.error };
-      }
+  if (vehiculos.length > 0 && payload.fecha && flotaOwned.length > 0) {
+    const excludeId =
+      payload.id != null && payload.id !== "" ? Number(payload.id) : null;
+    const { byId, error: eAv } = await listVehiclesAvailability(
+      idGira,
+      flotaOwned,
+      {
+        fecha: payload.fecha,
+        hora_inicio: payload.hora_inicio || null,
+        hora_fin: payload.hora_fin || null,
+      },
+      Number.isFinite(excludeId) ? excludeId : null,
+    );
+    if (eAv) return { evento: null, error: eAv };
+    const checkLibres = validateEventoTransportPlazasVsLibres(vehiculos, byId);
+    if (!checkLibres.ok) {
+      return { evento: null, error: checkLibres.error };
     }
   }
 
@@ -3210,6 +3518,48 @@ export async function saveFimbaTraslado(payload) {
     id_tipo_evento: payload.id_tipo_evento ?? FIMBA_TIPO_EVENTO_TRASLADO,
     usa_transporte: true,
   });
+}
+
+/**
+ * Patch liviano de planilla Transportes (modo edición).
+ * Solo fecha / horas / descripcion (actividad, destino texto, vuelo, obs).
+ * No toca flota, tags, grupos, `id_gira_transporte` ni rutas de boarding.
+ */
+export async function patchFimbaEventoPlanilla(eventoId, patch = {}) {
+  const id = Number(eventoId);
+  if (!Number.isFinite(id)) {
+    return { evento: null, error: new Error("Evento inválido") };
+  }
+  const fecha = String(patch.fecha || "").trim();
+  if (!fecha) {
+    return { evento: null, error: new Error("Fecha requerida") };
+  }
+
+  const descripcion = encodeFimbaTrasladoDescripcion({
+    actividad: patch.actividad,
+    destino: patch.destino,
+    vuelo: patch.vuelo,
+    observaciones: patch.observaciones,
+  });
+
+  const row = {
+    fecha,
+    hora_inicio: normalizeTime(patch.hora_inicio),
+    hora_fin: normalizeTime(patch.hora_fin),
+    descripcion: descripcion || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from("eventos")
+    .update(row)
+    .eq("id", id)
+    .select("id, fecha, hora_inicio, hora_fin, descripcion")
+    .single();
+  if (error) return { evento: null, error };
+
+  const decoded = decodeFimbaTrasladoDescripcion(data.descripcion);
+  return { evento: { ...data, ...decoded }, error: null };
 }
 
 export async function deleteFimbaEvento(eventoId) {

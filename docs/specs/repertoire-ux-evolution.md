@@ -343,6 +343,11 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 
 ---
 
+### Completado (2026-08-11) — Menús desplegables visibles al fondo del viewport
+- [x] **Problema:** en Archivo (`RepertoireView`) los menús custom (`absolute top-full`) se recortaban por `overflow-hidden`/`overflow-auto` de la página, o se abrían siempre hacia abajo y las últimas opciones quedaban fuera del viewport (⋮ de fila, filtros móviles, tags, Columnas, selección móvil).
+- [x] **Patrón:** helper `src/utils/fixedMenuPosition.js` — si no hay espacio abajo, el menú abre hacia arriba; `maxHeight` + `overflow-y:auto`; portal a `document.body` con `z-[100]` y `data-fixed-menu`.
+- [x] **Aplicado en:** `WorkRowActionMenu`, `ColumnManager`, panel de filtros móviles, `TagMultiSelect`, menús de `RepertoireSelectionBar` (selección móvil + «Ordenar por»), filtro Orgánico desktop (`anchorRef` → portal/flip ya existente en `InstrumentationFilterModal`), autocompletado de instrumento y sugerencias de título en `WorkForm`.
+
 ### Completado (2026-07-03)
 - [x] **Menú de acciones (⋮) en RepertoireView:** botones de fila (desktop y móvil) unificados en `WorkRowActionMenu` con Asignar, Historial, Abrir Drive / Copiar link Drive (si aplica), Copiar enlace al archivo, Nuevo arreglo, Editar y Eliminar.
 - [x] **WorkForm — Nuevo arreglo en borrador:** `loadArrangementDraftFromSource` precarga datos de la obra origen sin persistir; la referencia en `arreglos_referencias` se crea al guardar (`Crear solicitud` / `Guardar y Cerrar`). Aplica desde el menú del archivo, el botón «Nuevo Arreglo» del formulario y las sugerencias de duplicados.

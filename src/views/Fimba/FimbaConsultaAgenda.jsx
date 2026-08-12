@@ -56,9 +56,10 @@ function vehicleLabel(ev, flota) {
 
 /**
  * Agenda del artista filtrada por tags `eventos_fimba_propuestas`.
+ * Incluye bloques calculados de traslado (suben→bajan vía `fimba_propuesta_rutas`).
  * - Consulta token / readOnly: solo lectura.
  * - Superficies editables (`editable`): alta/edición/baja con FimbaEventoFormModal
- *   y propuesta fija (lockPropuesta).
+ *   y propuesta fija (lockPropuesta). Los segmentos de bus son siempre RO.
  */
 export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
   const [eventos, setEventos] = useState([]);
@@ -205,7 +206,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
           </button>
         ) : (
           <span className="fimba-muted" style={{ fontSize: "0.8rem" }}>
-            Solo lectura · eventos de este artista
+            Solo lectura · eventos y traslados de este artista
           </span>
         )}
       </div>
@@ -227,7 +228,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
         <div className="fimba-card fimba-muted">
           {editable
             ? "No hay eventos de este artista. Usá «Nuevo evento» para crear uno."
-            : "No hay eventos asignados a este artista."}
+            : "No hay eventos ni traslados asignados a este artista."}
         </div>
       ) : eventos.length > 0 ? (
         <div className="fimba-card" style={{ padding: 0, overflow: "hidden" }}>
@@ -250,11 +251,24 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
               </thead>
               <tbody>
                 {eventos.map((ev) => {
-                  const veh = vehicleLabel(ev, flota);
-                  const dest =
-                    [ev.destino, ev.vuelo].filter(Boolean).join(" · ") || "—";
+                  const isRide = Boolean(ev.es_ride_segment);
+                  const veh = isRide
+                    ? ev.vehicle_label || vehicleLabel(ev, flota)
+                    : vehicleLabel(ev, flota);
+                  const dest = isRide
+                    ? ev.route_snippet ||
+                      [ev.destino, ev.vuelo].filter(Boolean).join(" · ") ||
+                      "—"
+                    : [ev.destino, ev.vuelo].filter(Boolean).join(" · ") || "—";
                   return (
-                    <tr key={ev.id}>
+                    <tr
+                      key={ev.id}
+                      style={
+                        isRide
+                          ? { background: "rgba(0, 177, 235, 0.06)" }
+                          : undefined
+                      }
+                    >
                       <td style={{ paddingLeft: "1rem", whiteSpace: "nowrap" }}>
                         {formatFecha(ev.fecha)}
                       </td>
@@ -276,7 +290,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                           {ev.tipo_nombre || "—"}
                         </span>
                       </td>
-                      <td style={{ fontWeight: 600, maxWidth: 200 }}>
+                      <td style={{ fontWeight: 600, maxWidth: 220 }}>
                         {ev.actividad || "—"}
                         {ev.observaciones ? (
                           <span
@@ -290,8 +304,21 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                             {ev.observaciones}
                           </span>
                         ) : null}
+                        {isRide ? (
+                          <span
+                            className="fimba-muted"
+                            style={{
+                              display: "block",
+                              fontSize: "0.72rem",
+                              fontWeight: 500,
+                              marginTop: 2,
+                            }}
+                          >
+                            A bordo (planilla transportes)
+                          </span>
+                        ) : null}
                       </td>
-                      <td className="fimba-muted" style={{ maxWidth: 160 }}>
+                      <td className="fimba-muted" style={{ maxWidth: 180 }}>
                         {dest}
                       </td>
                       <td style={{ maxWidth: 200 }}>
@@ -321,25 +348,37 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          <button
-                            type="button"
-                            className="fimba-btn fimba-btn-ghost"
-                            onClick={() =>
-                              setModal({ mode: "edit", evento: ev })
-                            }
-                            title="Editar"
-                          >
-                            <IconEdit size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className="fimba-btn fimba-btn-danger"
-                            style={{ marginLeft: 4 }}
-                            onClick={() => handleDelete(ev)}
-                            title="Eliminar"
-                          >
-                            <IconTrash size={14} />
-                          </button>
+                          {isRide ? (
+                            <span
+                              className="fimba-muted"
+                              style={{ fontSize: "0.72rem", paddingRight: 4 }}
+                              title="Definido en Transportes (suben/bajan)"
+                            >
+                              —
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className="fimba-btn fimba-btn-ghost"
+                                onClick={() =>
+                                  setModal({ mode: "edit", evento: ev })
+                                }
+                                title="Editar"
+                              >
+                                <IconEdit size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                className="fimba-btn fimba-btn-danger"
+                                style={{ marginLeft: 4 }}
+                                onClick={() => handleDelete(ev)}
+                                title="Eliminar"
+                              >
+                                <IconTrash size={14} />
+                              </button>
+                            </>
+                          )}
                         </td>
                       )}
                     </tr>

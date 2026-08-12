@@ -4,6 +4,7 @@ import {
   categoriesFromTiposEvento,
   capacidadGiraTransporte,
   computeFimbaCapacity,
+  cupoPlazasVehiculo,
   defaultArtistaAssignPlazas,
   FIMBA_DEFAULT_TIPO_EVENTO,
   FIMBA_TIPO_EVENTO_TRASLADO,
@@ -12,8 +13,10 @@ import {
   listFimbaGiraGrupos,
   listTiposEventoForFimba,
   listVehiclesAvailability,
+  repartirPlazasEntreVehiculos,
   saveFimbaEvento,
   validateEventoTransportPlazasVsArtistas,
+  validateEventoTransportPlazasVsCapacidad,
   validateEventoTransportPlazasVsLibres,
 } from "../../services/fimbaService";
 import { eventGrupoIdsFromEvent } from "../../services/giraGruposService";
@@ -369,13 +372,8 @@ export default function FimbaEventoFormModal({
           : null;
       for (const id of selectedVehIds) {
         if (next[id] != null && next[id] !== "") continue;
-        const m = metrics[id];
-        const vehLibres =
-          m?.libres != null && Number.isFinite(Number(m.libres))
-            ? Number(m.libres)
-            : capacidadGiraTransporte(
-                flota.find((f) => String(f.id) === String(id)),
-              );
+        const gt = flota.find((f) => String(f.id) === String(id));
+        const vehLibres = cupoPlazasVehiculo(metrics[id], gt);
         let remainingForSlot =
           poolRemaining != null
             ? poolRemaining
@@ -434,11 +432,61 @@ export default function FimbaEventoFormModal({
     evento?.id,
   ]);
 
+  const flotaCapTotal = useMemo(
+    () =>
+      (flota || []).reduce(
+        (s, gt) => s + (capacidadGiraTransporte(gt) || 0),
+        0,
+      ),
+    [flota],
+  );
+
+  const plazasSplitParts = useMemo(
+    () =>
+      selectedVehIds.map((id) => Math.max(0, Number(plazasByVeh[id]) || 0)),
+    [selectedVehIds, plazasByVeh],
+  );
+
+  const plazasACubrir =
+    artistasCapTope != null
+      ? artistasCapTope
+      : Math.max(0, Number(pax) || 0);
+
   const toggleVeh = (id) => {
     const sid = String(id);
     setSelectedVehIds((prev) =>
       prev.includes(sid) ? prev.filter((x) => x !== sid) : [...prev, sid],
     );
+  };
+
+  const setPlazasVehiculo = (id, raw) => {
+    const sid = String(id);
+    setPlazasByVeh((prev) => ({ ...prev, [sid]: raw }));
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) {
+      setSelectedVehIds((prev) => (prev.includes(sid) ? prev : [...prev, sid]));
+    }
+  };
+
+  /** Reparte tope artista (o # PAX) entre los buses marcados; si no hay ninguno, toda la flota. */
+  const repartirPlazas = () => {
+    const ids =
+      selectedVehIds.length > 0
+        ? selectedVehIds
+        : (flota || []).map((gt) => String(gt.id));
+    if (ids.length === 0) return;
+    if (selectedVehIds.length === 0) setSelectedVehIds(ids);
+    const slots = ids.map((id) => {
+      const gt = flota.find((f) => String(f.id) === String(id));
+      const m = metrics[id] || {};
+      return {
+        id,
+        libres: m.libres,
+        capacidad: m.capacidad ?? capacidadGiraTransporte(gt),
+      };
+    });
+    const split = repartirPlazasEntreVehiculos(plazasACubrir, slots);
+    setPlazasByVeh((prev) => ({ ...prev, ...split }));
   };
 
   const toggleProp = (id) => {
@@ -513,6 +561,18 @@ export default function FimbaEventoFormModal({
         return;
       }
     }
+    // Hard-block: plazas por unidad ≤ asientos del vehículo
+    if (vehiculos.length > 0) {
+      const capCheckSeats = validateEventoTransportPlazasVsCapacidad(
+        vehiculos,
+        flota,
+      );
+      if (!capCheckSeats.ok) {
+        setError(capCheckSeats.error.message);
+        setSaving(false);
+        return;
+      }
+    }
     // Hard-block: plazas por unidad ≤ libres de ventana
     if (vehiculos.length > 0) {
       const libresCheck = validateEventoTransportPlazasVsLibres(
@@ -568,7 +628,7 @@ export default function FimbaEventoFormModal({
         role="dialog"
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 560 }}
+        style={{ maxWidth: usaTransporte ? 680 : 560 }}
       >
         <h2>{title}</h2>
         <form onSubmit={submit}>
@@ -926,11 +986,48 @@ export default function FimbaEventoFormModal({
               {!sinServicio && (
                 <div className="fimba-field">
                   <label className="fimba-label">
-                    Vehículo(s) — multi-unidad con plazas
+                    Flota — plazas por vehículo
                   </label>
+                  <p
+                    className="fimba-muted"
+                    style={{ margin: "0 0 0.5rem", fontSize: "0.78rem" }}
+                  >
+                    Marcá uno o más buses y asigná <strong>n / m / p</strong> plazas
+                    en cada uno (ej. organismo de 120 → 44 + 44 + 32). No hace falta
+                    un solo vehículo.
+                  </p>
+                  {flota.length > 0 ? (
+                    <div
+                      style={{
+                        marginBottom: 8,
+                        padding: "0.45rem 0.65rem",
+                        borderRadius: 8,
+                        background: "rgba(0,177,235,0.07)",
+                        border: "1px solid rgba(0,177,235,0.22)",
+                        fontSize: "0.8rem",
+                      }}
+                    >
+                      <strong style={{ color: "var(--fimba-cyan, #00b1eb)" }}>
+                        Disponibles
+                      </strong>
+                      {": "}
+                      {flota.length} vehículo{flota.length === 1 ? "" : "s"}
+                      {flotaCapTotal > 0 ? ` · ${flotaCapTotal} plazas de flota` : ""}
+                      {" · "}
+                      {(flota || [])
+                        .map((gt) => {
+                          const cap = capacidadGiraTransporte(gt);
+                          return `${labelGiraTransporte(gt)}${
+                            cap != null ? ` (${cap})` : ""
+                          }`;
+                        })
+                        .join(" · ")}
+                    </div>
+                  ) : null}
                   {!fecha ? (
                     <p className="fimba-muted" style={{ margin: "0 0 0.5rem", fontSize: "0.8rem" }}>
                       Indicá la fecha (y preferible hora) para ver plazas libres en la ventana.
+                      La capacidad de cada unidad se muestra igual.
                     </p>
                   ) : null}
                   {flota.length === 0 ? (
@@ -939,157 +1036,193 @@ export default function FimbaEventoFormModal({
                       (o en OFRN Logística).
                     </div>
                   ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {flota.map((gt) => {
-                        const sid = String(gt.id);
-                        const on = selectedVehIds.includes(sid);
-                        const cap = capacidadGiraTransporte(gt);
-                        const m = metrics[sid];
-                        const nota = detalleGiraTransporte(gt);
-                        const libres =
-                          m?.libres != null && Number.isFinite(Number(m.libres))
-                            ? Number(m.libres)
-                            : null;
-                        const plazasN = Math.max(0, Number(plazasByVeh[sid]) || 0);
-                        const overLibres =
-                          on && libres != null && plazasN > libres;
-                        const capLabel =
-                          cap != null
-                            ? metricsLoading
-                              ? `· … / ${cap}`
-                              : libres != null
-                                ? `· ${libres} libres / ${cap}`
-                                : `· cap. ${cap}`
-                            : "";
-                        return (
-                          <div
-                            key={gt.id}
-                            style={{
-                              border: `1px solid ${
-                                overLibres ? "#dc2626" : on ? "#00b1eb" : "#e2e8f0"
-                              }`,
-                              borderRadius: 10,
-                              padding: "0.55rem 0.7rem",
-                              background: on
-                                ? overLibres
-                                  ? "rgba(220,38,38,0.05)"
-                                  : "rgba(0,177,235,0.06)"
-                                : "#fff",
-                            }}
-                          >
-                            <label
-                              style={{
-                                display: "flex",
-                                alignItems: "flex-start",
-                                gap: 8,
-                                cursor: "pointer",
-                                margin: 0,
-                              }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={on}
-                                onChange={() => toggleVeh(gt.id)}
-                                style={{ marginTop: 3 }}
-                              />
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>
-                                  {labelGiraTransporte(gt)}
-                                  {capLabel ? (
-                                    <span
-                                      className="fimba-muted"
-                                      style={{
-                                        fontWeight: 500,
-                                        color:
-                                          libres === 0
-                                            ? "#b45309"
-                                            : undefined,
-                                      }}
-                                    >
-                                      {" "}
-                                      {capLabel}
-                                    </span>
-                                  ) : null}
-                                </div>
-                                {nota ? (
-                                  <div
-                                    className="fimba-muted"
-                                    style={{ fontSize: "0.72rem", lineHeight: 1.3 }}
-                                  >
-                                    {nota}
-                                  </div>
-                                ) : null}
-                                <div className="fimba-muted" style={{ fontSize: "0.75rem" }}>
-                                  {m && !metricsLoading ? (
-                                    <>
-                                      {m.asignadas_fimba > 0
-                                        ? `Ocupadas FIMBA en ventana: ${m.asignadas_fimba}`
-                                        : "Sin plazas FIMBA solapadas"}
-                                      {m.ofrn_eventos > 0
-                                        ? ` · OFRN usa este vehículo (${m.ofrn_eventos})`
-                                        : ""}
-                                    </>
-                                  ) : fecha ? (
-                                    metricsLoading
-                                      ? "Calculando libres…"
-                                      : "Libres = capacidad − FIMBA solapada"
-                                  ) : (
-                                    "Fecha requerida para libres"
-                                  )}
-                                </div>
-                              </div>
-                            </label>
-                            {on && (
-                              <div
+                    <div style={{ overflowX: "auto" }}>
+                      <table className="fimba-table" style={{ fontSize: "0.82rem" }}>
+                        <thead>
+                          <tr>
+                            <th style={{ width: 36 }} />
+                            <th>Vehículo</th>
+                            <th style={{ width: 72, textAlign: "right" }}>Cap.</th>
+                            <th style={{ width: 80, textAlign: "right" }}>Libres</th>
+                            <th style={{ width: 96, textAlign: "right" }}>Plazas</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {flota.map((gt) => {
+                            const sid = String(gt.id);
+                            const on = selectedVehIds.includes(sid);
+                            const cap = capacidadGiraTransporte(gt);
+                            const m = metrics[sid];
+                            const nota = detalleGiraTransporte(gt);
+                            const libres =
+                              m?.libres != null && Number.isFinite(Number(m.libres))
+                                ? Number(m.libres)
+                                : null;
+                            const plazasN = Math.max(
+                              0,
+                              Number(plazasByVeh[sid]) || 0,
+                            );
+                            const overCap =
+                              on && cap != null && plazasN > cap;
+                            const overLibres =
+                              on && libres != null && plazasN > libres;
+                            const rowBad = overCap || overLibres;
+                            return (
+                              <tr
+                                key={gt.id}
                                 style={{
-                                  marginTop: 8,
-                                  marginLeft: 24,
-                                  display: "flex",
-                                  flexWrap: "wrap",
-                                  alignItems: "flex-end",
-                                  gap: 10,
+                                  background: on
+                                    ? rowBad
+                                      ? "rgba(220,38,38,0.05)"
+                                      : "rgba(0,177,235,0.06)"
+                                    : undefined,
                                 }}
                               >
-                                <div style={{ maxWidth: 140 }}>
-                                  <label className="fimba-label">
-                                    Plazas en este bus
-                                  </label>
+                                <td>
+                                  <input
+                                    type="checkbox"
+                                    checked={on}
+                                    onChange={() => toggleVeh(gt.id)}
+                                    aria-label={`Usar ${labelGiraTransporte(gt)}`}
+                                  />
+                                </td>
+                                <td>
+                                  <div style={{ fontWeight: 600 }}>
+                                    {labelGiraTransporte(gt)}
+                                  </div>
+                                  {nota ? (
+                                    <div
+                                      className="fimba-muted"
+                                      style={{ fontSize: "0.7rem", lineHeight: 1.3 }}
+                                    >
+                                      {nota}
+                                    </div>
+                                  ) : null}
+                                  {m && !metricsLoading && fecha ? (
+                                    <div
+                                      className="fimba-muted"
+                                      style={{ fontSize: "0.68rem" }}
+                                    >
+                                      {m.asignadas_fimba > 0
+                                        ? `Ocupadas FIMBA: ${m.asignadas_fimba}`
+                                        : "Sin FIMBA solapada"}
+                                      {m.ofrn_eventos > 0
+                                        ? ` · OFRN (${m.ofrn_eventos})`
+                                        : ""}
+                                    </div>
+                                  ) : null}
+                                </td>
+                                <td
+                                  style={{
+                                    textAlign: "right",
+                                    fontVariantNumeric: "tabular-nums",
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  {cap != null ? cap : "—"}
+                                </td>
+                                <td
+                                  style={{
+                                    textAlign: "right",
+                                    fontVariantNumeric: "tabular-nums",
+                                    color:
+                                      libres === 0
+                                        ? "#b45309"
+                                        : overLibres
+                                          ? "#dc2626"
+                                          : undefined,
+                                    fontWeight: overLibres ? 700 : undefined,
+                                  }}
+                                >
+                                  {!fecha
+                                    ? "—"
+                                    : metricsLoading
+                                      ? "…"
+                                      : libres != null
+                                        ? libres
+                                        : cap != null
+                                          ? cap
+                                          : "—"}
+                                </td>
+                                <td style={{ textAlign: "right" }}>
                                   <input
                                     className="fimba-input"
                                     type="number"
                                     min={0}
-                                    max={libres != null ? libres : undefined}
-                                    value={plazasByVeh[sid] ?? 0}
-                                    onChange={(e) =>
-                                      setPlazasByVeh((prev) => ({
-                                        ...prev,
-                                        [sid]: e.target.value,
-                                      }))
+                                    max={
+                                      libres != null
+                                        ? libres
+                                        : cap != null
+                                          ? cap
+                                          : undefined
                                     }
-                                  />
-                                </div>
-                                {libres != null && !metricsLoading ? (
-                                  <span
-                                    className="fimba-muted"
+                                    value={
+                                      on || plazasByVeh[sid] != null
+                                        ? (plazasByVeh[sid] ?? 0)
+                                        : ""
+                                    }
+                                    placeholder="0"
+                                    onChange={(e) =>
+                                      setPlazasVehiculo(sid, e.target.value)
+                                    }
                                     style={{
-                                      fontSize: "0.75rem",
-                                      paddingBottom: 6,
-                                      color: overLibres ? "#dc2626" : undefined,
-                                      fontWeight: overLibres ? 600 : undefined,
+                                      width: 72,
+                                      textAlign: "right",
+                                      marginLeft: "auto",
+                                      borderColor: rowBad
+                                        ? "#dc2626"
+                                        : undefined,
                                     }}
-                                  >
-                                    {overLibres
-                                      ? `Excede ${libres} libres`
-                                      : `máx. ${libres} libres`}
-                                  </span>
-                                ) : null}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                                    aria-label={`Plazas en ${labelGiraTransporte(gt)}`}
+                                  />
+                                  {rowBad ? (
+                                    <div
+                                      style={{
+                                        fontSize: "0.68rem",
+                                        color: "#dc2626",
+                                        fontWeight: 600,
+                                        marginTop: 2,
+                                      }}
+                                    >
+                                      {overCap
+                                        ? `Máx. ${cap} asientos`
+                                        : `Máx. ${libres} libres`}
+                                    </div>
+                                  ) : null}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   )}
+                  {flota.length > 0 ? (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        display: "flex",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="fimba-btn fimba-btn-ghost"
+                        onClick={repartirPlazas}
+                        disabled={plazasACubrir <= 0}
+                        title="Reparte el tope del artista (o # PAX) entre los vehículos marcados, sin superar capacidad/libres"
+                      >
+                        Repartir {plazasACubrir > 0 ? plazasACubrir : ""} plazas
+                      </button>
+                      <span className="fimba-muted" style={{ fontSize: "0.72rem" }}>
+                        {artistasCapTope != null
+                          ? "Usa el tope de transporte de los artistas taggeados."
+                          : "# PAX como cantidad a cubrir (sin artista no hay tope duro)."}
+                      </span>
+                    </div>
+                  ) : null}
                   {selectedVehIds.length > 0 ? (
                     <div
                       style={{
@@ -1105,8 +1238,10 @@ export default function FimbaEventoFormModal({
                         Asignación
                       </strong>
                       {": "}
-                      {totalPlazasAsignadas} plazas en {selectedVehIds.length}{" "}
-                      vehículo{selectedVehIds.length === 1 ? "" : "s"}
+                      {plazasSplitParts.join(" + ")} = {totalPlazasAsignadas}
+                      {" · "}
+                      {selectedVehIds.length} vehículo
+                      {selectedVehIds.length === 1 ? "" : "s"}
                       {artistasCapTope != null ? (
                         <>
                           {" · Tope artista"}
@@ -1121,6 +1256,17 @@ export default function FimbaEventoFormModal({
                             </span>
                           ) : null}
                         </>
+                      ) : Number(pax) > 0 ? (
+                        <>
+                          {" · # PAX "}
+                          {Number(pax) || 0}
+                          {totalPlazasAsignadas !== Number(pax) ? (
+                            <span className="fimba-muted">
+                              {" "}
+                              (distinto de # PAX; no bloquea)
+                            </span>
+                          ) : null}
+                        </>
                       ) : (
                         <span className="fimba-muted">
                           {" "}
@@ -1130,10 +1276,10 @@ export default function FimbaEventoFormModal({
                     </div>
                   ) : null}
                   <p className="fimba-muted" style={{ margin: "0.5rem 0 0", fontSize: "0.72rem" }}>
-                    Libres = capacidad − plazas FIMBA en eventos que solapan fecha/hora.
-                    Se anota si OFRN ya usa el vehículo (FK). El en tránsito de roster se
-                    ve en la planilla Transportes; al guardar se bloquea si superás libres
-                    o el tope del artista.
+                    Capacidad = asientos de la unidad. Libres = capacidad − plazas FIMBA
+                    en eventos que solapan fecha/hora (no resta el en tránsito OFRN;
+                    eso se ve en la planilla Transportes). Al guardar se bloquea si
+                    superás asientos, libres o el tope del artista.
                   </p>
                 </div>
               )}

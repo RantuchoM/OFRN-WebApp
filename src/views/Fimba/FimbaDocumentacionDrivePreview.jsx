@@ -11,6 +11,8 @@ import {
   IconChevronRight,
   IconDownload,
   IconPlus,
+  IconEdit,
+  IconCloudUpload,
 } from "../../components/ui/Icons";
 import {
   FIMBA_DRIVE_UPLOAD_MAX_BYTES,
@@ -19,10 +21,65 @@ import {
   extractDriveFolderId,
   listFimbaDriveFolderFiles,
   normalizeCarpetaDocumentacion,
+  renameFimbaDriveFile,
   uploadFimbaDriveFile,
 } from "../../services/fimbaService";
 
 const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
+/** Subidas en paralelo acotadas (edge manage-drive + tope ~4 MB). */
+const DRIVE_UPLOAD_CONCURRENCY = 2;
+
+function dataTransferHasFiles(dt) {
+  if (!dt) return false;
+  return Array.from(dt.types || []).includes("Files");
+}
+
+/**
+ * Archivos del Explorador. Carpetas: el navegador suele entregar un
+ * DirectoryEntry (webkitGetAsEntry) o un File vacío; no se recorre el árbol.
+ */
+function filesFromDataTransfer(dt) {
+  const files = [];
+  const skippedFolders = [];
+  const items = dt?.items;
+  if (items && items.length > 0) {
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      if (item.kind !== "file") continue;
+      const entry =
+        typeof item.webkitGetAsEntry === "function"
+          ? item.webkitGetAsEntry()
+          : null;
+      if (entry?.isDirectory) {
+        skippedFolders.push(entry.name || "carpeta");
+        continue;
+      }
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+  } else {
+    for (const file of Array.from(dt?.files || [])) {
+      files.push(file);
+    }
+  }
+  return { files, skippedFolders };
+}
+
+async function mapPool(items, limit, worker) {
+  if (!items.length) return [];
+  const results = new Array(items.length);
+  let next = 0;
+  const run = async () => {
+    while (next < items.length) {
+      const idx = next;
+      next += 1;
+      results[idx] = await worker(items[idx], idx);
+    }
+  };
+  const n = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: n }, () => run()));
+  return results;
+}
 
 /** Prefetch de subcarpetas tras listar el nivel actual (no bloquea first paint). */
 export const FIMBA_DRIVE_PREFETCH = {
@@ -154,7 +211,9 @@ const DOCS_ACTION_BTN_STYLE = {
  * Con `autoExplore`: panel abierto al montar / al tener URL válida (modal Contrataciones).
  * Cache in-memory + prefetch anidado (depth ≤ 2) mientras el panel está/estuvo abierto en sesión.
  * `children` opcional: render prop `({ exploreButton, driveLink, panelOpen, rootUrl }) => node`.
- * Copy/descarga: quien ve el preview. Subida (+): solo canUpload (= canEditPropuestaMeta), y solo con panel abierto.
+ * Copy/descarga: quien ve el preview. Subida (+ / drag&drop del Explorador) y
+ * renombrar: solo canUpload (canEditPropuestaMeta / editor contrataciones), y
+ * solo con panel abierto (carpeta del breadcrumb). Viewers: sin zona de drop.
  */
 export function DocumentacionDrivePreview({
   carpetaDocumentacion,
@@ -179,10 +238,25 @@ export function DocumentacionDrivePreview({
   const [copiedId, setCopiedId] = useState(null);
   const [busyId, setBusyId] = useState(null); // download file id
   const [uploading, setUploading] = useState(false);
+  /** Overlay de drop desde el Explorador (solo canUpload + archivos OS). */
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   /** Prefetch de subcarpetas en background (no bloquea listado actual). */
   const [prefetching, setPrefetching] = useState(false);
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
   const fileInputRef = useRef(null);
+  const renameInputRef = useRef(null);
   const actionMsgTimer = useRef(null);
+  /** Profundidad dragenter/leave para no parpadear al cruzar hijos. */
+  const dragDepthRef = useRef(0);
+  const folderUrlRef = useRef(null);
+  /** Evita commit por blur tras Escape. */
+  const renameCancelRef = useRef(false);
+  /** Evita doble commit (Enter + blur). */
+  const renameCommittingRef = useRef(false);
+  /** Distingue click (entrar carpeta / abrir archivo) vs doble-click (renombrar). */
+  const nameClickTimerRef = useRef(null);
   /** @type {React.MutableRefObject<Map<string, Array>>} folderKey → files[] */
   const folderCacheRef = useRef(new Map());
   /** Token de warm: cancelar al cambiar raíz o desmontar. */
@@ -195,12 +269,18 @@ export function DocumentacionDrivePreview({
 
   const current = stack[stack.length - 1] || null;
   const folderUrl = current?.folderUrl || null;
+  folderUrlRef.current = folderUrl;
   const stackDepth = Math.max(0, stack.length - 1);
 
-  const flashMsg = (type, text) => {
+  const flashMsg = (type, text, ms = 3200) => {
     if (actionMsgTimer.current) clearTimeout(actionMsgTimer.current);
     setActionMsg({ type, text });
-    actionMsgTimer.current = setTimeout(() => setActionMsg(null), 3200);
+    actionMsgTimer.current = setTimeout(() => setActionMsg(null), ms);
+  };
+
+  const clearDragState = () => {
+    dragDepthRef.current = 0;
+    setIsDraggingFiles(false);
   };
 
   const invalidateFolderCache = (url) => {
@@ -237,9 +317,24 @@ export function DocumentacionDrivePreview({
   useEffect(() => {
     return () => {
       if (actionMsgTimer.current) clearTimeout(actionMsgTimer.current);
+      if (nameClickTimerRef.current) clearTimeout(nameClickTimerRef.current);
       warmTokenRef.current.cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!renamingId || !renameInputRef.current) return;
+    renameInputRef.current.focus();
+    renameInputRef.current.select();
+  }, [renamingId]);
+
+  useEffect(() => {
+    // Al cambiar de carpeta o cerrar panel, abortar edición inline y drop.
+    setRenamingId(null);
+    setRenameDraft("");
+    renameCancelRef.current = true;
+    clearDragState();
+  }, [folderUrl, panelOpen]);
 
   useEffect(() => {
     const nextRoot = buildDriveFolderOpenUrl(carpetaDocumentacion);
@@ -364,26 +459,266 @@ export function DocumentacionDrivePreview({
     fileInputRef.current?.click();
   };
 
-  const onUploadChange = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !folderUrl) return;
-    if (file.size > FIMBA_DRIVE_UPLOAD_MAX_BYTES) {
-      const mb = (FIMBA_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)).toFixed(0);
-      flashMsg("err", `Máximo ${mb} MB por archivo desde FIMBA`);
+  /**
+   * Sube archivos a la carpeta del breadcrumb (mismo path que +).
+   * `skippedFolders`: carpetas OS detectadas (no se recorre el árbol).
+   */
+  const uploadFilesToCurrentFolder = async (
+    incoming,
+    { skippedFolders = [] } = {},
+  ) => {
+    const destUrl = folderUrl;
+    if (!canUpload || uploading || !destUrl || !panelOpen) return;
+
+    const files = Array.from(incoming || []).filter(Boolean);
+    const maxMb = (FIMBA_DRIVE_UPLOAD_MAX_BYTES / (1024 * 1024)).toFixed(0);
+    const oversized = [];
+    const eligible = [];
+    for (const file of files) {
+      if (file.size > FIMBA_DRIVE_UPLOAD_MAX_BYTES) oversized.push(file.name);
+      else eligible.push(file);
+    }
+
+    if (!eligible.length) {
+      if (skippedFolders.length && !files.length) {
+        flashMsg(
+          "err",
+          "No se pueden subir carpetas desde el Explorador. Abrí la carpeta y arrastrá los archivos.",
+          5000,
+        );
+        return;
+      }
+      if (oversized.length) {
+        flashMsg(
+          "err",
+          oversized.length === 1
+            ? `Máximo ${maxMb} MB por archivo desde FIMBA`
+            : `${oversized.length} archivos superan ${maxMb} MB`,
+          5000,
+        );
+        return;
+      }
+      if (skippedFolders.length) {
+        flashMsg(
+          "err",
+          "No se pueden subir carpetas desde el Explorador. Arrastrá archivos sueltos.",
+          5000,
+        );
+        return;
+      }
+      flashMsg("err", "No hay archivos para subir");
       return;
     }
+
     setUploading(true);
-    const { error: err } = await uploadFimbaDriveFile(folderUrl, file);
-    setUploading(false);
-    if (err) {
-      flashMsg("err", err.message || "Error al subir");
+    let results = [];
+    try {
+      results = await mapPool(
+        eligible,
+        DRIVE_UPLOAD_CONCURRENCY,
+        async (file) => {
+          const { error: err } = await uploadFimbaDriveFile(destUrl, file);
+          return { name: file.name, error: err };
+        },
+      );
+    } catch (e) {
+      setUploading(false);
+      flashMsg(
+        "err",
+        e instanceof Error ? e.message : "Error al subir archivos",
+      );
       return;
     }
-    flashMsg("ok", "Archivo subido");
-    // Invalidar carpeta actual (+ re-list live); subcarpetas intactas en cache.
-    invalidateFolderCache(folderUrl);
-    setRefreshKey((k) => k + 1);
+    setUploading(false);
+
+    const failed = results.filter((r) => r.error);
+    const ok = results.length - failed.length;
+
+    if (ok > 0) {
+      invalidateFolderCache(destUrl);
+      if (folderUrlRef.current === destUrl) {
+        setRefreshKey((k) => k + 1);
+      }
+    }
+
+    const parts = [];
+    if (ok) {
+      parts.push(ok === 1 ? "Archivo subido" : `${ok} archivos subidos`);
+    }
+    if (oversized.length) {
+      const names = oversized.slice(0, 3).join(", ");
+      parts.push(
+        oversized.length === 1
+          ? `${oversized[0]} supera ${maxMb} MB`
+          : `${oversized.length} superan ${maxMb} MB (${names}${
+              oversized.length > 3 ? "…" : ""
+            })`,
+      );
+    }
+    if (skippedFolders.length) {
+      parts.push(
+        skippedFolders.length === 1
+          ? `Carpeta «${skippedFolders[0]}» omitida (arrastrá archivos, no carpetas)`
+          : `${skippedFolders.length} carpetas omitidas (no se suben árboles del Explorador)`,
+      );
+    }
+    if (failed.length) {
+      parts.push(
+        failed
+          .slice(0, 3)
+          .map((r) => `${r.name}: ${r.error?.message || "Error al subir"}`)
+          .join(" · ") + (failed.length > 3 ? "…" : ""),
+      );
+    }
+
+    const hasWarn = failed.length > 0 || oversized.length > 0 || skippedFolders.length > 0;
+    flashMsg(hasWarn ? "err" : "ok", parts.join(" · "), hasWarn ? 6000 : 3200);
+  };
+
+  const onUploadChange = async (e) => {
+    const picked = e.target.files;
+    e.target.value = "";
+    if (!picked?.length) return;
+    await uploadFilesToCurrentFolder(picked);
+  };
+
+  const onPanelDragEnter = (e) => {
+    if (!dataTransferHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!canUpload || !panelOpen || !folderUrl) return;
+    dragDepthRef.current += 1;
+    if (!renamingId) setIsDraggingFiles(true);
+  };
+
+  const onPanelDragOver = (e) => {
+    if (!dataTransferHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!canUpload || renamingId || uploading || !folderUrl) {
+      e.dataTransfer.dropEffect = "none";
+      return;
+    }
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const onPanelDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dragDepthRef.current === 0) return;
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDraggingFiles(false);
+  };
+
+  const onPanelDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    clearDragState();
+    if (!canUpload || renamingId || uploading || !folderUrl || !panelOpen) {
+      return;
+    }
+    if (!dataTransferHasFiles(e.dataTransfer)) return;
+    const { files, skippedFolders } = filesFromDataTransfer(e.dataTransfer);
+    void uploadFilesToCurrentFolder(files, { skippedFolders });
+  };
+
+  const startRename = (file) => {
+    if (!canUpload || !file?.id || renameBusy || uploading) return;
+    if (nameClickTimerRef.current) {
+      clearTimeout(nameClickTimerRef.current);
+      nameClickTimerRef.current = null;
+    }
+    renameCancelRef.current = false;
+    setRenamingId(file.id);
+    setRenameDraft(file.name || "");
+  };
+
+  const cancelRename = () => {
+    renameCancelRef.current = true;
+    setRenamingId(null);
+    setRenameDraft("");
+  };
+
+  const applyRenameLocal = (fileId, nextName) => {
+    const patch = (list) =>
+      (list || []).map((f) =>
+        f.id === fileId ? { ...f, name: nextName } : f,
+      );
+    setFiles((prev) => patch(prev));
+    const key = driveFolderCacheKey(folderUrl);
+    if (key && folderCacheRef.current.has(key)) {
+      folderCacheRef.current.set(key, patch(folderCacheRef.current.get(key)));
+    }
+  };
+
+  const commitRename = async (file) => {
+    if (renameCancelRef.current) return;
+    if (renameBusy || renameCommittingRef.current) return;
+    const next = String(renameDraft || "").trim();
+    if (!next) {
+      flashMsg("err", "El nombre no puede estar vacío");
+      requestAnimationFrame(() => renameInputRef.current?.focus());
+      return;
+    }
+    if (next === String(file.name || "").trim()) {
+      renameCancelRef.current = true;
+      setRenamingId(null);
+      setRenameDraft("");
+      return;
+    }
+    renameCommittingRef.current = true;
+    setRenameBusy(true);
+    const { name: savedName, error: err } = await renameFimbaDriveFile(
+      file.id,
+      next,
+    );
+    if (err) {
+      setRenameBusy(false);
+      renameCommittingRef.current = false;
+      flashMsg("err", err.message || "No se pudo renombrar");
+      requestAnimationFrame(() => renameInputRef.current?.focus());
+      return;
+    }
+    applyRenameLocal(file.id, savedName || next);
+    // Evitar re-commit por blur al desmontar el input.
+    renameCancelRef.current = true;
+    setRenamingId(null);
+    setRenameDraft("");
+    setRenameBusy(false);
+    renameCommittingRef.current = false;
+    flashMsg("ok", "Nombre actualizado");
+  };
+
+  const onFolderNameClick = (file) => {
+    if (renamingId === file.id) return;
+    if (nameClickTimerRef.current) {
+      clearTimeout(nameClickTimerRef.current);
+      nameClickTimerRef.current = null;
+    }
+    // Esperar por posible doble-click (renombrar) antes de navegar.
+    nameClickTimerRef.current = setTimeout(() => {
+      nameClickTimerRef.current = null;
+      enterFolder(file);
+    }, 280);
+  };
+
+  /** Archivos: con canUpload el click simple abre; doble clic renombra (sin <a> inmediato). */
+  const onFileNameClick = (file) => {
+    if (renamingId === file.id) return;
+    const href = fileOpenHref(file);
+    if (!href) return;
+    if (!canUpload) {
+      window.open(href, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (nameClickTimerRef.current) {
+      clearTimeout(nameClickTimerRef.current);
+      nameClickTimerRef.current = null;
+    }
+    nameClickTimerRef.current = setTimeout(() => {
+      nameClickTimerRef.current = null;
+      window.open(href, "_blank", "noopener,noreferrer");
+    }, 280);
   };
 
   const iconBtnStyle = {
@@ -434,6 +769,10 @@ export function DocumentacionDrivePreview({
     panelOpen && rootUrl ? (
       <div
         className="fimba-drive-docs"
+        onDragEnter={canUpload ? onPanelDragEnter : undefined}
+        onDragOver={canUpload ? onPanelDragOver : undefined}
+        onDragLeave={canUpload ? onPanelDragLeave : undefined}
+        onDrop={canUpload ? onPanelDrop : undefined}
         style={{
           marginTop: typeof children === "function" ? "0.65rem" : "0.5rem",
           border:
@@ -470,7 +809,7 @@ export function DocumentacionDrivePreview({
                 className="fimba-btn fimba-btn-ghost"
                 onClick={onPickUpload}
                 disabled={uploading || loading || !folderUrl}
-                title="Subir archivo a esta carpeta"
+                title="Subir archivo a esta carpeta (o arrastrá desde el explorador)"
                 aria-label="Subir archivo"
                 style={{
                   padding: "2px 6px",
@@ -490,6 +829,7 @@ export function DocumentacionDrivePreview({
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               style={{ display: "none" }}
               onChange={onUploadChange}
               disabled={!canUpload || uploading}
@@ -556,20 +896,6 @@ export function DocumentacionDrivePreview({
           </div>
         )}
 
-        {loading && (
-          <div
-            className="fimba-muted"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              fontSize: "0.85rem",
-            }}
-          >
-            <IconLoader size={14} className="animate-spin" /> Cargando contenido…
-          </div>
-        )}
-
         {!loading && prefetching && (
           <div
             className="fimba-muted"
@@ -587,13 +913,33 @@ export function DocumentacionDrivePreview({
           </div>
         )}
 
+        <div
+          style={{
+            position: "relative",
+            minHeight: canUpload ? 96 : undefined,
+          }}
+        >
+        {loading && (
+          <div
+            className="fimba-muted"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: "0.85rem",
+            }}
+          >
+            <IconLoader size={14} className="animate-spin" /> Cargando contenido…
+          </div>
+        )}
+
         {!loading && listError && (
           <div className="fimba-error" style={{ fontSize: "0.85rem", marginBottom: 0 }}>
             {listError}
             <div className="fimba-muted" style={{ marginTop: 6, fontSize: "0.78rem" }}>
               La previsualización usa la cuenta de Google del Archivo (OAuth en{" "}
               <code>manage-drive</code>). Compartí la carpeta con esa cuenta (lector; editor para
-              subir) o abrila en Drive.
+              subir o renombrar) o abrila en Drive.
             </div>
           </div>
         )}
@@ -601,7 +947,9 @@ export function DocumentacionDrivePreview({
         {!loading && !listError && files.length === 0 && (
           <div className="fimba-muted" style={{ fontSize: "0.85rem" }}>
             Carpeta vacía o sin elementos visibles.
-            {canUpload ? " Usá + para subir un archivo aquí." : null}
+            {canUpload
+              ? " Usá + o arrastrá archivos del explorador para subirlos aquí. El lápiz o doble clic renombra."
+              : null}
           </div>
         )}
 
@@ -633,6 +981,8 @@ export function DocumentacionDrivePreview({
                 const rowKey = file.id || file.name;
                 const isBusy = busyId === rowKey;
                 const isCopied = copiedId === (file.id || href);
+                const isRenaming = canUpload && renamingId === file.id;
+                const nameLabel = file.name || (isFolder ? "Carpeta" : "Archivo");
                 return (
                   <li
                     key={rowKey}
@@ -661,10 +1011,54 @@ export function DocumentacionDrivePreview({
                         }}
                       />
                     )}
-                    {isFolder ? (
+                    {isRenaming ? (
+                      <input
+                        ref={renameInputRef}
+                        type="text"
+                        value={renameDraft}
+                        disabled={renameBusy}
+                        aria-label={`Renombrar ${nameLabel}`}
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitRename(file);
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            cancelRename();
+                          }
+                        }}
+                        onBlur={() => {
+                          if (renameCancelRef.current) return;
+                          commitRename(file);
+                        }}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          font: "inherit",
+                          fontSize: "0.86rem",
+                          fontWeight: isFolder ? 600 : 500,
+                          color: "var(--fimba-deep)",
+                          padding: "2px 6px",
+                          borderRadius: 6,
+                          border: "1px solid color-mix(in srgb, var(--fimba-cyan, #00b1eb) 55%, #999)",
+                          outline: "none",
+                          background: "#fff",
+                        }}
+                      />
+                    ) : isFolder ? (
                       <button
                         type="button"
-                        onClick={() => enterFolder(file)}
+                        onClick={() => onFolderNameClick(file)}
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          if (canUpload) startRename(file);
+                        }}
+                        title={
+                          canUpload
+                            ? "Clic para abrir · Doble clic para renombrar"
+                            : "Abrir carpeta"
+                        }
                         style={{
                           flex: 1,
                           textAlign: "left",
@@ -677,9 +1071,40 @@ export function DocumentacionDrivePreview({
                           color: "var(--fimba-deep)",
                           padding: 0,
                           minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
                         }}
                       >
-                        {file.name || "Carpeta"}
+                        {nameLabel}
+                      </button>
+                    ) : href && canUpload ? (
+                      <button
+                        type="button"
+                        onClick={() => onFileNameClick(file)}
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          startRename(file);
+                        }}
+                        title="Clic para abrir · Doble clic para renombrar"
+                        style={{
+                          flex: 1,
+                          textAlign: "left",
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          font: "inherit",
+                          fontSize: "0.86rem",
+                          fontWeight: 500,
+                          color: "#222",
+                          padding: 0,
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {nameLabel}
                       </button>
                     ) : href ? (
                       <a
@@ -698,11 +1123,23 @@ export function DocumentacionDrivePreview({
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {file.name || "Archivo"}
+                        {nameLabel}
                       </a>
                     ) : (
-                      <span style={{ flex: 1, fontSize: "0.86rem", minWidth: 0 }}>
-                        {file.name || "Archivo"}
+                      <span
+                        onDoubleClick={() => {
+                          if (canUpload) startRename(file);
+                        }}
+                        style={{
+                          flex: 1,
+                          fontSize: "0.86rem",
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {nameLabel}
                       </span>
                     )}
                     <div
@@ -713,11 +1150,38 @@ export function DocumentacionDrivePreview({
                         flexShrink: 0,
                       }}
                     >
+                      {canUpload && !isRenaming && (
+                        <button
+                          type="button"
+                          onClick={() => startRename(file)}
+                          disabled={renameBusy || uploading || !file.id}
+                          title="Renombrar"
+                          aria-label={`Renombrar ${nameLabel}`}
+                          style={{
+                            ...iconBtnStyle,
+                            opacity: renameBusy || uploading || !file.id ? 0.4 : 0.7,
+                            cursor:
+                              renameBusy || uploading || !file.id
+                                ? "not-allowed"
+                                : "pointer",
+                          }}
+                        >
+                          <IconEdit size={14} />
+                        </button>
+                      )}
+                      {isRenaming && renameBusy && (
+                        <span
+                          style={{ ...iconBtnStyle, cursor: "wait", opacity: 0.7 }}
+                          aria-hidden
+                        >
+                          <IconLoader size={14} className="animate-spin" />
+                        </span>
+                      )}
                       <button
                         type="button"
                         onClick={() => copyLink(file)}
                         title="Copiar enlace"
-                        aria-label={`Copiar enlace de ${file.name || "ítem"}`}
+                        aria-label={`Copiar enlace de ${nameLabel}`}
                         style={iconBtnStyle}
                       >
                         {isCopied ? <IconCheck size={14} /> : <IconCopy size={14} />}
@@ -728,7 +1192,7 @@ export function DocumentacionDrivePreview({
                           onClick={() => downloadFile(file)}
                           disabled={isBusy}
                           title="Descargar"
-                          aria-label={`Descargar ${file.name || "archivo"}`}
+                          aria-label={`Descargar ${nameLabel}`}
                           style={{
                             ...iconBtnStyle,
                             opacity: isBusy ? 0.45 : 0.7,
@@ -748,7 +1212,7 @@ export function DocumentacionDrivePreview({
                           target="_blank"
                           rel="noopener noreferrer"
                           title="Abrir en Drive"
-                          aria-label={`Abrir ${file.name || "ítem"} en Drive`}
+                          aria-label={`Abrir ${nameLabel} en Drive`}
                           style={{ ...iconBtnStyle, textDecoration: "none" }}
                         >
                           <IconExternalLink size={14} />
@@ -760,6 +1224,35 @@ export function DocumentacionDrivePreview({
               })}
           </ul>
         )}
+
+        {canUpload && isDraggingFiles && !renamingId && !uploading && (
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 2,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              pointerEvents: "none",
+              borderRadius: 8,
+              border: "2px dashed #d73289",
+              background: "color-mix(in srgb, #d73289 14%, #fff)",
+              color: "#94216D",
+              fontWeight: 700,
+              fontSize: "0.9rem",
+              textAlign: "center",
+              padding: 12,
+            }}
+          >
+            <IconCloudUpload size={28} />
+            Soltá para subir a esta carpeta
+          </div>
+        )}
+        </div>
       </div>
     ) : null;
 

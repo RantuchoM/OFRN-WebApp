@@ -24,7 +24,10 @@ import {
   upsertFimbaPropuestaRutaStop,
   validateArtistaTransporteAssign,
 } from "../../services/fimbaService";
-import { formatEventLocation } from "../../utils/fimbaTransportBoarding";
+import {
+  buildFimbaBajadaArtistOptions,
+  formatEventLocation,
+} from "../../utils/fimbaTransportBoarding";
 import StopRulesManager from "../Giras/StopRulesManager";
 import { supabase } from "../../services/supabase";
 
@@ -42,6 +45,7 @@ export default function FimbaStopRulesManager({
   admissionRules = [],
   regions = [],
   localities = [],
+  sequencesByVehicle = null,
   onRefresh,
 }) {
   const [tab, setTab] = useState("artistas"); // artistas | orquesta
@@ -106,6 +110,36 @@ export default function FimbaStopRulesManager({
     return capacidadGiraTransporte(activeVehicle);
   }, [activeVehicle]);
 
+  const isBajada = type === "down";
+  const sortedEvents = useMemo(() => {
+    if (!vehicleId || !sequencesByVehicle) return [];
+    const seq =
+      sequencesByVehicle.get?.(Number(vehicleId)) ||
+      sequencesByVehicle.get?.(String(vehicleId)) ||
+      null;
+    return seq?.sortedEvents || [];
+  }, [sequencesByVehicle, vehicleId]);
+
+  const bajadaOptions = useMemo(
+    () =>
+      buildFimbaBajadaArtistOptions({
+        propuestas,
+        rutas: allRutas,
+        idGiraTransporte: vehicleId || null,
+        eventId: event?.id,
+        sortedEvents,
+      }),
+    [propuestas, allRutas, vehicleId, event?.id, sortedEvents],
+  );
+
+  const bajadaByPropuesta = useMemo(() => {
+    const map = new Map();
+    for (const opt of bajadaOptions) {
+      map.set(String(opt.id_propuesta), opt);
+    }
+    return map;
+  }, [bajadaOptions]);
+
   /** Si ya hay definición en esta parada+vehículo del artista, se edita esa fila. */
   const existingRutaForSelection = useMemo(() => {
     if (!propuestaId || !vehicleId) return null;
@@ -129,6 +163,18 @@ export default function FimbaStopRulesManager({
   }, [propuestaId, propuestas, allRutas, existingRutaForSelection]);
 
   const defaultPlazasForPropuesta = (pid) => {
+    if (isBajada) {
+      const opt = bajadaByPropuesta.get(String(pid));
+      const aboard = Math.max(0, Number(opt?.plazasAboard) || 0);
+      if (aboard > 0) return aboard;
+      const existing =
+        (rutas || []).find(
+          (r) =>
+            String(r.id_propuesta) === String(pid) &&
+            String(r.id_gira_transporte) === String(vehicleId),
+        ) || null;
+      return Math.max(1, Number(existing?.plazas) || 1);
+    }
     const p = (propuestas || []).find((x) => String(x.id) === String(pid));
     if (!p) return 1;
     const existing =
@@ -192,16 +238,28 @@ export default function FimbaStopRulesManager({
       setError("Cantidad de plazas > 0");
       return;
     }
-    const p = (propuestas || []).find((x) => String(x.id) === String(propuestaId));
-    if (p && usageForSelection) {
-      const check = validateArtistaTransporteAssign(
-        p,
-        usageForSelection.used,
-        n,
-      );
-      if (!check.ok) {
-        setError(check.error.message);
+    if (isBajada) {
+      const opt = bajadaByPropuesta.get(String(propuestaId));
+      if (!opt?.aboard && !existingRutaForSelection) {
+        setError(
+          opt?.reason
+            ? `No se puede bajar: ${opt.reason}.`
+            : "Este artista no está a bordo de este vehículo.",
+        );
         return;
+      }
+    } else {
+      const p = (propuestas || []).find((x) => String(x.id) === String(propuestaId));
+      if (p && usageForSelection) {
+        const check = validateArtistaTransporteAssign(
+          p,
+          usageForSelection.used,
+          n,
+        );
+        if (!check.ok) {
+          setError(check.error.message);
+          return;
+        }
       }
     }
     setSaving(true);
@@ -360,7 +418,9 @@ export default function FimbaStopRulesManager({
                   ) : rutas.length === 0 ? (
                     <div className="text-center p-6 border-2 border-dashed border-slate-200 rounded-lg">
                       <span className="text-sm text-slate-400">
-                        Nadie tiene cantidad asignada en esta parada aún.
+                        {isBajada
+                          ? "Nadie baja en esta parada aún."
+                          : "Nadie tiene cantidad asignada en esta parada aún."}
                       </span>
                     </div>
                   ) : (
@@ -390,7 +450,12 @@ export default function FimbaStopRulesManager({
                                 {r.id_evento_subida && r.id_evento_bajada
                                   ? " · trayecto completo"
                                   : " · extremo pendiente"}
-                                {usage.tope > 0 ? (
+                                {isBajada ? (
+                                  <span className="ml-1">
+                                    · libera {r.plazas} plaza
+                                    {Number(r.plazas) === 1 ? "" : "s"}
+                                  </span>
+                                ) : usage.tope > 0 ? (
                                   <span className="ml-1">
                                     · disponibles:{" "}
                                     {Math.max(0, usage.tope - usage.used)} de{" "}
@@ -422,7 +487,9 @@ export default function FimbaStopRulesManager({
 
                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
                   <h4 className="text-xs font-bold text-pink-900 uppercase tracking-wider">
-                    Asignar artista + cantidad
+                    {isBajada
+                      ? "Bajar artista (liberar plazas)"
+                      : "Asignar artista + cantidad"}
                   </h4>
                   <div className="flex gap-2">
                     <div className="flex-1">
@@ -435,35 +502,58 @@ export default function FimbaStopRulesManager({
                         onChange={(e) => handlePropuestaChange(e.target.value)}
                       >
                         <option value="">— Seleccionar —</option>
-                        {(propuestas || []).map((p) => {
-                          const usage = computeArtistaTransporteUsage(
-                            p,
-                            allRutas,
-                            {},
-                          );
-                          return (
-                            <option key={p.id} value={p.id}>
-                              {p.nombre}
-                              {usage.tope
-                                ? ` (disp. ${usage.remaining}/${usage.tope})`
-                                : ""}
-                            </option>
-                          );
-                        })}
+                        {isBajada
+                          ? [...bajadaOptions]
+                              .sort((a, b) => Number(b.aboard) - Number(a.aboard))
+                              .map((opt) => (
+                                <option
+                                  key={opt.id_propuesta}
+                                  value={opt.id_propuesta}
+                                  disabled={!opt.aboard}
+                                >
+                                  {opt.propuesta?.nombre ||
+                                    `Artista #${opt.id_propuesta}`}
+                                  {opt.aboard
+                                    ? ` (a bordo ${opt.plazasAboard})`
+                                    : ` (${opt.reason})`}
+                                </option>
+                              ))
+                          : (propuestas || []).map((p) => {
+                              const usage = computeArtistaTransporteUsage(
+                                p,
+                                allRutas,
+                                {},
+                              );
+                              return (
+                                <option key={p.id} value={p.id}>
+                                  {p.nombre}
+                                  {usage.tope
+                                    ? ` (disp. ${usage.remaining}/${usage.tope})`
+                                    : ""}
+                                </option>
+                              );
+                            })}
                       </select>
                     </div>
                     <div style={{ width: 88 }}>
                       <label className="text-[10px] font-bold text-slate-400 block mb-1">
-                        PLAZAS
+                        {isBajada ? "A BORDO" : "PLAZAS"}
                       </label>
                       <input
                         type="number"
                         min={1}
                         max={
-                          usageForSelection
-                            ? Math.max(1, usageForSelection.remaining)
-                            : 500
+                          isBajada
+                            ? Math.max(
+                                1,
+                                bajadaByPropuesta.get(String(propuestaId))
+                                  ?.plazasAboard || 500,
+                              )
+                            : usageForSelection
+                              ? Math.max(1, usageForSelection.remaining)
+                              : 500
                         }
+                        readOnly={isBajada && !existingRutaForSelection}
                         className="w-full text-xs border rounded p-2 outline-none focus:border-pink-500 bg-white"
                         value={plazas}
                         onChange={(e) => setPlazas(e.target.value)}
@@ -471,7 +561,44 @@ export default function FimbaStopRulesManager({
                       />
                     </div>
                   </div>
-                  {usageForSelection ? (
+                  {isBajada ? (
+                    propuestaId && bajadaByPropuesta.get(String(propuestaId)) ? (
+                      <p
+                        className={`text-[10px] m-0 ${
+                          bajadaByPropuesta.get(String(propuestaId))?.aboard
+                            ? "text-slate-600"
+                            : "text-rose-600 font-semibold"
+                        }`}
+                      >
+                        {bajadaByPropuesta.get(String(propuestaId))?.aboard ? (
+                          <>
+                            A bordo:{" "}
+                            {
+                              bajadaByPropuesta.get(String(propuestaId))
+                                .plazasAboard
+                            }{" "}
+                            plaza
+                            {bajadaByPropuesta.get(String(propuestaId))
+                              .plazasAboard === 1
+                              ? ""
+                              : "s"}
+                            . La bajada las libera en este vehículo (no consume
+                            el tope del artista).
+                          </>
+                        ) : (
+                          <>
+                            No está a bordo:{" "}
+                            {bajadaByPropuesta.get(String(propuestaId))?.reason}.
+                          </>
+                        )}
+                      </p>
+                    ) : (
+                      <p className="text-[10px] text-slate-500 m-0">
+                        Elegí un artista que ya haya subido a este vehículo
+                        para bajarlo y liberar sus plazas.
+                      </p>
+                    )
+                  ) : usageForSelection ? (
                     <p
                       className={`text-[10px] m-0 ${
                         usageForSelection.remaining <= 0
@@ -484,10 +611,10 @@ export default function FimbaStopRulesManager({
                       {usageForSelection.tope > 0 ? (
                         <span className="text-slate-400 font-normal">
                           {" "}
-                          (                          {usageForSelection.planificadas} planificadas +{" "}
+                          ({usageForSelection.planificadas} planificadas +{" "}
                           {usageForSelection.materiales} equip.
                           {usageForSelection.used > 0
-                            ? ` · ya asignadas: ${usageForSelection.used}`
+                            ? ` · a bordo: ${usageForSelection.used}`
                             : ""}
                           )
                         </span>
@@ -513,9 +640,13 @@ export default function FimbaStopRulesManager({
                       saving ||
                       loading ||
                       !vehicleId ||
-                      (usageForSelection != null &&
-                        usageForSelection.remaining <= 0 &&
-                        !existingRutaForSelection)
+                      (isBajada
+                        ? Boolean(propuestaId) &&
+                          !bajadaByPropuesta.get(String(propuestaId))?.aboard &&
+                          !existingRutaForSelection
+                        : usageForSelection != null &&
+                          usageForSelection.remaining <= 0 &&
+                          !existingRutaForSelection)
                     }
                     className={`w-full py-2 rounded text-xs font-bold text-white shadow-sm flex justify-center items-center gap-2 disabled:opacity-60 ${
                       type === "up"

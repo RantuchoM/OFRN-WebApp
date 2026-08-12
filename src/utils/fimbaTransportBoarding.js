@@ -330,6 +330,158 @@ export function buildFimbaExplicitRides(routes, idGiraTransporte) {
 }
 
 /**
+ * Ride abierto: subió en esta unidad y todavía no bajó.
+ * Esas plazas ocupan el bus y el tope del artista hasta la bajada.
+ *
+ * @param {{ plazas?: number, id_evento_subida?: unknown, id_evento_bajada?: unknown }|null} ruta
+ */
+export function isOpenFimbaRide(ruta) {
+  if (!ruta) return false;
+  if (Math.max(0, Number(ruta.plazas) || 0) <= 0) return false;
+  if (ruta.id_evento_subida == null || ruta.id_evento_subida === "") return false;
+  if (ruta.id_evento_bajada != null && ruta.id_evento_bajada !== "") return false;
+  return true;
+}
+
+/**
+ * ¿El ride está presente en esta parada (subió antes/aquí y no bajó antes)?
+ * Sin secuencia: ride abierto, o bajada ya apuntando a este evento.
+ *
+ * @param {object|null} ruta
+ * @param {unknown} currentEventId
+ * @param {Array<{ id?: unknown }>|null|undefined} sortedEvents
+ */
+export function isFimbaRideAboardAtStop(ruta, currentEventId, sortedEvents) {
+  if (!ruta || Math.max(0, Number(ruta.plazas) || 0) <= 0) return false;
+  if (ruta.id_evento_subida == null || ruta.id_evento_subida === "") return false;
+
+  const sorted = sortedEvents || [];
+  if (sorted.length && currentEventId != null && currentEventId !== "") {
+    const currentIdx = indexOfEvent(sorted, currentEventId);
+    if (currentIdx < 0) return isOpenFimbaRide(ruta);
+    const upIdx = indexOfEvent(sorted, ruta.id_evento_subida);
+    const downIdx =
+      ruta.id_evento_bajada != null && ruta.id_evento_bajada !== ""
+        ? indexOfEvent(sorted, ruta.id_evento_bajada)
+        : null;
+    return isPresentAtStop(upIdx, downIdx, currentIdx);
+  }
+
+  if (
+    currentEventId != null &&
+    currentEventId !== "" &&
+    ruta.id_evento_bajada != null &&
+    String(ruta.id_evento_bajada) === String(currentEventId)
+  ) {
+    return true;
+  }
+  return isOpenFimbaRide(ruta);
+}
+
+/**
+ * Opciones de artista para «Gestionar Bajadas»: a bordo (se pueden bajar)
+ * vs el resto (deshabilitados, con motivo).
+ *
+ * @param {{
+ *   propuestas?: Array<{ id?: unknown, nombre?: string }>,
+ *   rutas?: Array<object>,
+ *   idGiraTransporte?: number|string|null,
+ *   eventId?: unknown,
+ *   sortedEvents?: Array<object>|null,
+ * }} opts
+ * @returns {Array<{
+ *   propuesta: object,
+ *   id_propuesta: unknown,
+ *   aboard: boolean,
+ *   plazasAboard: number,
+ *   ruta: object|null,
+ *   reason: string|null,
+ * }>}
+ */
+export function buildFimbaBajadaArtistOptions(opts = {}) {
+  const propuestas = opts.propuestas || [];
+  const rutas = opts.rutas || [];
+  const wantGt =
+    opts.idGiraTransporte != null && opts.idGiraTransporte !== ""
+      ? Number(opts.idGiraTransporte)
+      : null;
+  const eventId = opts.eventId;
+  const sorted = opts.sortedEvents || [];
+  const currentIdx =
+    sorted.length && eventId != null && eventId !== ""
+      ? indexOfEvent(sorted, eventId)
+      : -1;
+
+  return propuestas.map((p) => {
+    const vehicleRutas = rutas.filter((r) => {
+      const pid = r?.id_propuesta ?? r?.propuesta?.id;
+      if (pid == null || String(pid) !== String(p.id)) return false;
+      if (wantGt != null && Number.isFinite(wantGt)) {
+        if (Number(r.id_gira_transporte) !== wantGt) return false;
+      }
+      return Math.max(0, Number(r.plazas) || 0) > 0;
+    });
+
+    let plazasAboard = 0;
+    let ruta = null;
+    for (const r of vehicleRutas) {
+      if (!isFimbaRideAboardAtStop(r, eventId, sorted)) continue;
+      plazasAboard += Math.max(0, Number(r.plazas) || 0);
+      if (
+        isOpenFimbaRide(r) ||
+        (eventId != null &&
+          r.id_evento_bajada != null &&
+          String(r.id_evento_bajada) === String(eventId))
+      ) {
+        ruta = r;
+      } else if (!ruta) {
+        ruta = r;
+      }
+    }
+
+    if (plazasAboard > 0) {
+      return {
+        propuesta: p,
+        id_propuesta: p.id,
+        aboard: true,
+        plazasAboard,
+        ruta,
+        reason: null,
+      };
+    }
+
+    let reason = "sin subida en este vehículo";
+    if (vehicleRutas.length && currentIdx >= 0) {
+      let boardsLater = false;
+      let alreadyOff = false;
+      for (const r of vehicleRutas) {
+        if (r.id_evento_subida == null || r.id_evento_subida === "") continue;
+        const upIdx = indexOfEvent(sorted, r.id_evento_subida);
+        const downIdx =
+          r.id_evento_bajada != null && r.id_evento_bajada !== ""
+            ? indexOfEvent(sorted, r.id_evento_bajada)
+            : null;
+        if (upIdx > currentIdx) boardsLater = true;
+        if (downIdx != null && downIdx >= 0 && downIdx < currentIdx) {
+          alreadyOff = true;
+        }
+      }
+      if (boardsLater) reason = "sube más adelante";
+      else if (alreadyOff) reason = "ya bajó en este vehículo";
+    }
+
+    return {
+      propuesta: p,
+      id_propuesta: p.id,
+      aboard: false,
+      plazasAboard: 0,
+      ruta: null,
+      reason,
+    };
+  });
+}
+
+/**
  * Construye pasajeros-ride sintéticos FIMBA por secuencia de unidad (legacy).
  *
  * @param {Array<object>} sortedEvents
@@ -908,5 +1060,252 @@ function eventHasOfrnHint(ev) {
   if (ao === "tutti" || ao === "grupos") return true;
   if (ao == null || ao === "") return false;
   return false;
+}
+
+/** Color badge «Traslado» en agenda de artista (cian FIMBA). */
+export const FIMBA_TRASLADO_AGENDA_TIPO_COLOR = "#00b1eb";
+
+/**
+ * Snippet de ruta: locación (o actividad) de parada A → B.
+ * @param {object|null|undefined} fromEv
+ * @param {object|null|undefined} toEv
+ */
+export function formatRideRouteSnippet(fromEv, toEv) {
+  const from =
+    formatEventLocation(fromEv) !== "—"
+      ? formatEventLocation(fromEv)
+      : String(fromEv?.actividad || fromEv?.tipo_nombre || "").trim() || "Origen";
+  if (!toEv) return `${from} → (sin bajada)`;
+  const to =
+    formatEventLocation(toEv) !== "—"
+      ? formatEventLocation(toEv)
+      : String(toEv?.actividad || toEv?.tipo_nombre || "").trim() || "Destino";
+  return `${from} → ${to}`;
+}
+
+/**
+ * Bloques de agenda «a bordo» para un artista a partir de `fimba_propuesta_rutas`
+ * (y residual sintético vía `buildFimbaRidesForVehicle` si se pasan rides ya filtrados).
+ *
+ * Un ride = un tramo continuo (sube en A → baja en B). Hop off + on = varios bloques.
+ * Solo plazas > 0 con `id_propuesta` del artista y `id_evento_subida` resuelto.
+ *
+ * @param {{
+ *   idPropuesta: number|string,
+ *   rides?: Array<{
+ *     key?: string,
+ *     subidaId?: unknown,
+ *     bajadaId?: unknown|null,
+ *     seats?: number,
+ *     id_propuesta?: unknown,
+ *     source?: string,
+ *     id_gira_transporte?: unknown,
+ *     nombre?: string|null,
+ *     color?: string|null,
+ *   }>,
+ *   propuestaRoutes?: Array,
+ *   eventsById?: Map<string, object>|Record<string, object>,
+ *   vehiculosById?: Map<string|number, object>|Record<string|number, object>,
+ *   labelVehicle?: (gt: object|null) => string,
+ * }} opts
+ * @returns {Array<object>} filas compatibles con agenda FIMBA (`es_ride_segment: true`)
+ */
+export function buildArtistaTrasladoAgendaBlocks(opts = {}) {
+  const idPropuesta = opts.idPropuesta;
+  if (idPropuesta == null || idPropuesta === "") return [];
+
+  const want = String(idPropuesta);
+  const eventsById = mapishToGet(opts.eventsById);
+  const vehiculosById = mapishToGet(opts.vehiculosById);
+  const labelFn =
+    typeof opts.labelVehicle === "function"
+      ? opts.labelVehicle
+      : (gt) => {
+          const nombre = String(gt?.transportes?.nombre || gt?.detalle || "").trim();
+          const patente = String(gt?.patente || gt?.transportes?.patente || "").trim();
+          if (nombre && patente && !nombre.toLowerCase().includes(patente.toLowerCase())) {
+            return `${nombre} · ${patente}`;
+          }
+          return nombre || patente || "Vehículo";
+        };
+
+  /** @type {Array<{ ride: object, idGt: number|null }>} */
+  const rideRows = [];
+
+  if (Array.isArray(opts.rides) && opts.rides.length) {
+    for (const r of opts.rides) {
+      if (r?.id_propuesta == null || String(r.id_propuesta) !== want) continue;
+      const seats = Math.max(0, Number(r.seats) || 0);
+      if (seats <= 0) continue;
+      if (r.subidaId == null || r.subidaId === "") continue;
+      const idGt =
+        r.id_gira_transporte != null && Number.isFinite(Number(r.id_gira_transporte))
+          ? Number(r.id_gira_transporte)
+          : null;
+      rideRows.push({ ride: r, idGt });
+    }
+  } else {
+    // Construye rides explícitos por unidad a partir de rutas del artista.
+    const routes = (opts.propuestaRoutes || []).filter(
+      (r) =>
+        r &&
+        String(r.id_propuesta ?? r.propuesta?.id) === want &&
+        Math.max(0, Number(r.plazas) || 0) > 0,
+    );
+    const byVehicle = new Map();
+    for (const r of routes) {
+      const tid = Number(r.id_gira_transporte);
+      if (!Number.isFinite(tid)) continue;
+      if (!byVehicle.has(tid)) byVehicle.set(tid, []);
+      byVehicle.get(tid).push(r);
+    }
+    for (const [tid, vehicleRoutes] of byVehicle) {
+      const rides = buildFimbaExplicitRides(vehicleRoutes, tid);
+      for (const r of rides) {
+        if (r.id_propuesta != null && String(r.id_propuesta) !== want) continue;
+        if (r.subidaId == null || r.subidaId === "") continue;
+        rideRows.push({
+          ride: { ...r, id_gira_transporte: tid },
+          idGt: tid,
+        });
+      }
+    }
+  }
+
+  const blocks = [];
+  for (const { ride, idGt } of rideRows) {
+    const board = eventsById(String(ride.subidaId));
+    if (!board) continue;
+    const alight =
+      ride.bajadaId != null && ride.bajadaId !== ""
+        ? eventsById(String(ride.bajadaId))
+        : null;
+
+    const gt =
+      idGt != null
+        ? vehiculosById(String(idGt)) || vehiculosById(idGt) || null
+        : null;
+    const vehicleLabel = labelFn(gt);
+    const routeSnippet = formatRideRouteSnippet(board, alight);
+    const seats = Math.max(0, Number(ride.seats) || 0);
+    const rideKey =
+      ride.key ||
+      `fimba-ruta-${ride.id ?? `${want}-${ride.subidaId}-${ride.bajadaId ?? "open"}`}`;
+
+    const horaFin = alight?.hora_inicio
+      ? String(alight.hora_inicio).slice(0, 5)
+      : alight?.hora_fin
+        ? String(alight.hora_fin).slice(0, 5)
+        : null;
+
+    // Si baja otro día, anexar fecha en observaciones
+    let obsExtra = null;
+    if (
+      alight?.fecha &&
+      board.fecha &&
+      String(alight.fecha) !== String(board.fecha)
+    ) {
+      const [y, m, d] = String(alight.fecha).split("-");
+      const bajaLabel = d && m ? `${d}/${m}${y ? `/${y}` : ""}` : String(alight.fecha);
+      obsExtra = `Baja: ${bajaLabel}${horaFin ? ` ${horaFin}` : ""}`;
+    }
+
+    blocks.push({
+      id: `ride-${rideKey}`,
+      id_gira: board.id_gira ?? null,
+      id_tipo_evento: board.id_tipo_evento ?? 11,
+      id_locacion: board.id_locacion ?? null,
+      fecha: board.fecha,
+      hora_inicio: board.hora_inicio,
+      hora_fin: horaFin,
+      descripcion: null,
+      actividad: `Traslado · ${routeSnippet}`,
+      destino:
+        alight != null
+          ? formatEventLocation(alight) !== "—"
+            ? formatEventLocation(alight)
+            : routeSnippet
+          : formatEventLocation(board) !== "—"
+            ? formatEventLocation(board)
+            : "",
+      vuelo: null,
+      observaciones: obsExtra,
+      audiencia: seats || null,
+      audiencia_ofrn: "none",
+      id_gira_transporte: idGt,
+      visible_agenda: true,
+      is_deleted: false,
+      tipos_evento: {
+        id: 11,
+        nombre: "Traslado",
+        color: FIMBA_TRASLADO_AGENDA_TIPO_COLOR,
+        id_categoria: 6,
+        categorias_tipos_eventos: { id: 6, nombre: "Transporte" },
+      },
+      tipo_nombre: "Traslado",
+      tipo_color: FIMBA_TRASLADO_AGENDA_TIPO_COLOR,
+      tipo_id_categoria: 6,
+      categoria_nombre: "Transporte",
+      locaciones: board.locaciones || null,
+      locacion_nombre: board.locaciones?.nombre || board.locacion_nombre || null,
+      locacion_ciudad:
+        board.locaciones?.localidades?.localidad || board.locacion_ciudad || null,
+      vehiculos: idGt != null
+        ? [
+            {
+              id_evento: board.id,
+              id_gira_transporte: idGt,
+              plazas: seats,
+              giras_transportes: gt,
+            },
+          ]
+        : [],
+      propuestas: [],
+      grupos: [],
+      pax: seats || null,
+      sin_servicio: false,
+      es_traslado: true,
+      es_fimba: true,
+      es_ofrn: false,
+      /** Marcador: bloque calculado suben→bajan (no editable). */
+      es_ride_segment: true,
+      id_propuesta: idPropuesta,
+      id_ruta: ride.id ?? null,
+      ride_key: rideKey,
+      ride_subida_id: ride.subidaId,
+      ride_bajada_id: ride.bajadaId ?? null,
+      vehicle_label: vehicleLabel,
+      route_snippet: routeSnippet,
+    });
+  }
+
+  return sortEventsBySchedule(blocks);
+}
+
+/**
+ * Fusiona eventos tagged + bloques de traslado y ordena por fecha/hora.
+ * @param {Array<object>} eventos
+ * @param {Array<object>} rideBlocks
+ */
+export function mergeAgendaWithTrasladoBlocks(eventos, rideBlocks) {
+  return sortEventsBySchedule([...(eventos || []), ...(rideBlocks || [])]);
+}
+
+/**
+ * @param {Map|Record|null|undefined} source
+ * @returns {(key: string|number) => object|null}
+ */
+function mapishToGet(source) {
+  if (!source) return () => null;
+  if (typeof source.get === "function") {
+    return (k) => source.get(k) ?? source.get(String(k)) ?? source.get(Number(k)) ?? null;
+  }
+  return (k) => {
+    if (source[k] != null) return source[k];
+    if (source[String(k)] != null) return source[String(k)];
+    const n = Number(k);
+    if (Number.isFinite(n) && source[n] != null) return source[n];
+    return null;
+  };
 }
 

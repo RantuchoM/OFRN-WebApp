@@ -292,7 +292,7 @@ function SortableTh({
           onClick={() => onSort(colKey)}
         >
           <span className="fimba-ctr-th-sort-inner">
-            {children}
+            <span className="fimba-ctr-th-label">{children}</span>
             <span className="fimba-ctr-sort-ind" aria-hidden>
               {active ? (sortDir === "asc" ? "▲" : "▼") : ""}
             </span>
@@ -857,7 +857,7 @@ function ContratacionesPlanilla({
           <td className="fimba-ctr-num" title={isNew ? "Nueva fila" : `#${rowIdx + 1}`}>
             {displayNum}
           </td>
-          <td>
+          <td className="fimba-ctr-exp">
             <input
               className="fimba-cell-input"
               placeholder={isNew ? "Nº exp…" : undefined}
@@ -935,7 +935,7 @@ function ContratacionesPlanilla({
               aria-label="Fecha límite para la resolución"
             />
           </td>
-          <td>
+          <td className="fimba-ctr-tipo">
             <input
               className="fimba-cell-input"
               value={draft.tipo_contratacion}
@@ -946,7 +946,7 @@ function ContratacionesPlanilla({
               placeholder={FIMBA_TIPO_CONTRATACION_DEFAULT}
             />
           </td>
-          <td style={{ textAlign: "center" }}>
+          <td className="fimba-ctr-td-check">
             <input
               type="checkbox"
               className="fimba-ctr-check fimba-ctr-check-blue"
@@ -959,7 +959,7 @@ function ContratacionesPlanilla({
               aria-label="Envío a la firma de MFM nota"
             />
           </td>
-          <td style={{ textAlign: "center" }}>
+          <td className="fimba-ctr-td-check">
             <input
               type="checkbox"
               className="fimba-ctr-check fimba-ctr-check-green"
@@ -972,7 +972,7 @@ function ContratacionesPlanilla({
               aria-label="Nota firmada"
             />
           </td>
-          <td style={{ textAlign: "center" }}>
+          <td className="fimba-ctr-td-check">
             <input
               type="checkbox"
               className="fimba-ctr-check fimba-ctr-check-red"
@@ -985,7 +985,7 @@ function ContratacionesPlanilla({
               aria-label="Falta recibir documentación"
             />
           </td>
-          <td style={{ textAlign: "center" }}>
+          <td className="fimba-ctr-td-check">
             <input
               type="checkbox"
               className="fimba-ctr-check fimba-ctr-check-purple"
@@ -1123,6 +1123,8 @@ function ContratacionesPlanilla({
               sortKey={sortKey}
               sortDir={sortDir}
               onSort={handleSort}
+              className="fimba-ctr-exp fimba-ctr-th-compact"
+              title="Nº de expediente"
             >
               Nº expediente
             </SortableTh>
@@ -1170,6 +1172,8 @@ function ContratacionesPlanilla({
               sortKey={sortKey}
               sortDir={sortDir}
               onSort={handleSort}
+              className="fimba-ctr-tipo fimba-ctr-th-compact"
+              title="Tipo de contratación"
             >
               Tipo contrat.
             </SortableTh>
@@ -1554,7 +1558,7 @@ function EstadoHistorialModal({ contratacionId, label, onClose }) {
 
 const CTR_STYLES = `
   .fimba-ctr-table {
-    min-width: 1320px;
+    min-width: 1080px;
     width: max-content;
   }
   .fimba-ctr-table th {
@@ -1568,6 +1572,56 @@ const CTR_STYLES = `
     color: #64748b;
     font-variant-numeric: tabular-nums;
     font-size: 0.8rem;
+  }
+  .fimba-ctr-exp {
+    width: 6.5rem;
+    min-width: 6.5rem;
+    max-width: 7.25rem;
+    padding-left: 0.2rem !important;
+    padding-right: 0.2rem !important;
+  }
+  .fimba-ctr-tipo {
+    width: 5.75rem;
+    min-width: 5.75rem;
+    max-width: 6.5rem;
+    padding-left: 0.2rem !important;
+    padding-right: 0.2rem !important;
+  }
+  .fimba-ctr-th-compact,
+  .fimba-ctr-th-check {
+    white-space: normal !important;
+    line-height: 1.15;
+  }
+  .fimba-ctr-th-compact .fimba-ctr-th-head,
+  .fimba-ctr-th-check .fimba-ctr-th-head {
+    display: flex;
+    width: 100%;
+  }
+  .fimba-ctr-th-compact .fimba-ctr-th-sort-btn,
+  .fimba-ctr-th-check .fimba-ctr-th-sort-btn {
+    width: 100%;
+    min-width: 0;
+  }
+  .fimba-ctr-th-compact .fimba-ctr-th-sort-inner,
+  .fimba-ctr-th-check .fimba-ctr-th-sort-inner {
+    min-width: 0;
+    width: 100%;
+    align-items: flex-start;
+  }
+  .fimba-ctr-th-check .fimba-ctr-th-sort-inner {
+    justify-content: center;
+  }
+  .fimba-ctr-th-label {
+    min-width: 0;
+  }
+  .fimba-ctr-th-compact .fimba-ctr-th-label,
+  .fimba-ctr-th-check .fimba-ctr-th-label {
+    flex: 1 1 auto;
+    white-space: normal;
+    line-height: 1.15;
+  }
+  .fimba-ctr-th-check .fimba-ctr-th-label {
+    text-align: center;
   }
   .fimba-ctr-nombre {
     min-width: 14rem;
@@ -1677,6 +1731,7 @@ const CTR_STYLES = `
     line-height: 1;
     opacity: 0.85;
     min-width: 0.65rem;
+    flex-shrink: 0;
   }
   .fimba-ctr-nombre-filter {
     flex: 1 1 6.5rem;
@@ -1693,12 +1748,18 @@ const CTR_STYLES = `
     font-weight: 700 !important;
     min-width: 8.5rem;
   }
-  .fimba-ctr-th-check {
-    max-width: 5.5rem;
+  .fimba-ctr-th-check,
+  .fimba-ctr-td-check {
+    width: 3.6rem;
+    min-width: 3.6rem;
+    max-width: 3.6rem;
+    padding-left: 0.12rem !important;
+    padding-right: 0.12rem !important;
     text-align: center;
-    white-space: normal !important;
-    line-height: 1.15;
-    font-size: 0.68rem !important;
+  }
+  .fimba-ctr-th-check {
+    font-size: 0.64rem !important;
+    letter-spacing: 0.02em;
   }
   .fimba-ctr-th-blue { color: #2563eb; }
   .fimba-ctr-th-green { color: #16a34a; }

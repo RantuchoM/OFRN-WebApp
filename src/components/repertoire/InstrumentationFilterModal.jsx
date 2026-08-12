@@ -164,6 +164,7 @@ export default function InstrumentationFilterModal({
   const content = (
     <div
       ref={panelRef}
+      data-fixed-menu="true"
       className={`w-80 bg-white rounded-xl shadow-xl border border-slate-200 z-[10000] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 ${!anchorRef ? "absolute top-full left-0 mt-2" : ""}`}
       style={panelStyle}
     >
