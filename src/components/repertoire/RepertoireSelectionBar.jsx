@@ -222,6 +222,138 @@ export default function RepertoireSelectionBar({
   };
 
   if (variant === "mobile-menu") {
+    const mobileMenuPanel = showMobileMenu && mobileMenuStyle ? (
+<div
+                  ref={mobileMenuPanelRef}
+                  data-fixed-menu="true"
+                  style={{
+                    top: mobileMenuStyle.top,
+                    left: mobileMenuStyle.left,
+                    width: mobileMenuStyle.width,
+                    maxHeight: mobileMenuStyle.maxHeight,
+                  }}
+                  className="fixed z-[100] overflow-y-auto overscroll-contain w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl"
+                >
+                  <div className="mb-2 flex items-center justify-between border-b border-slate-100 pb-2">
+                    <span className="text-[10px] font-black uppercase text-slate-500">
+                      Selección
+                    </span>
+                    <span className="text-[10px] font-bold text-indigo-700">
+                      {orderedIds.length} obra{orderedIds.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    {mobileExtraActions}
+
+                    <button
+                      type="button"
+                      onClick={() => openAndCloseMenu(() => setShowDriveLoadModal(true))}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-emerald-800 hover:bg-emerald-50"
+                    >
+                      <IconDrive size={14} /> Preselección desde Drive
+                    </button>
+
+                    {hasSelection ? (
+                      <>
+                        <input
+                          type="text"
+                          value={selectionName}
+                          onChange={(e) => onSelectionNameChange(e.target.value)}
+                          placeholder="Nombre de la selección"
+                          className="mb-1 w-full rounded-lg border border-indigo-100 bg-indigo-50/40 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-200"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => openAndCloseMenu(() => setShowOrderModal(true))}
+                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50"
+                        >
+                          <IconList size={14} /> Editar orden
+                        </button>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50/80 px-2 py-1.5">
+                          <div className="mb-1 text-[10px] font-black uppercase text-slate-400">
+                            Ordenar por
+                          </div>
+                          <div className="flex flex-col gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => openAndCloseMenu(() => applySortCriterion("compositor"))}
+                              className="rounded px-1.5 py-1 text-left text-[11px] font-bold text-slate-700 hover:bg-white"
+                            >
+                              Compositor
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openAndCloseMenu(() => applySortCriterion("obra"))}
+                              className="rounded px-1.5 py-1 text-left text-[11px] font-bold text-slate-700 hover:bg-white"
+                            >
+                              Obra
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openAndCloseMenu(() => applySortCriterion("giras"))}
+                              className="rounded px-1.5 py-1 text-left text-[11px] font-bold text-slate-700 hover:bg-white"
+                            >
+                              Giras programadas
+                            </button>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openAndCloseMenu(() => setShowTagsModal(true))}
+                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-violet-800 hover:bg-violet-50"
+                        >
+                          <IconTag size={14} /> Tags
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openAndCloseMenu(() => setShowProgramModal(true))}
+                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-sky-800 hover:bg-sky-50"
+                        >
+                          <IconCalendarPlus size={14} /> Programa
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openAndCloseMenu(handleExportPdf)}
+                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50"
+                        >
+                          <IconFileText size={14} /> PDF
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openAndCloseMenu(handleSyncDrive)}
+                          disabled={driveLoading}
+                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
+                        >
+                          {driveLoading ? (
+                            <IconLoader size={14} className="animate-spin" />
+                          ) : (
+                            <IconDrive size={14} />
+                          )}
+                          Sincronizar Drive
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openAndCloseMenu(handleClearSelection)
+                          }
+                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-rose-700 hover:bg-rose-50"
+                        >
+                          <IconTrash size={14} /> Vaciar selección
+                        </button>
+                      </>
+                    ) : (
+                      <div className="flex items-start gap-2 rounded-lg bg-slate-50 px-2 py-2 text-[11px] leading-snug text-slate-500">
+                        <IconHelpCircle size={14} className="mt-0.5 shrink-0 text-indigo-500" />
+                        <span>{EMPTY_SELECTION_HELP}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+    ) : null;
+    const mobileMenuPortal = mobileMenuPanel
+      ? createPortal(mobileMenuPanel, document.body)
+      : null;
     return (
       <>
         {dialog}
@@ -245,141 +377,11 @@ export default function RepertoireSelectionBar({
             )}
             <IconChevronDown size={12} className={showMobileMenu ? "rotate-180" : ""} />
           </button>
-
-          {showMobileMenu && mobileMenuStyle && createPortal(
-            <div
-              ref={mobileMenuPanelRef}
-              data-fixed-menu="true"
-              style={{
-                top: mobileMenuStyle.top,
-                left: mobileMenuStyle.left,
-                width: mobileMenuStyle.width,
-                maxHeight: mobileMenuStyle.maxHeight,
-              }}
-              className="fixed z-[100] overflow-y-auto overscroll-contain w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl"
-            >
-              <div className="mb-2 flex items-center justify-between border-b border-slate-100 pb-2">
-                <span className="text-[10px] font-black uppercase text-slate-500">
-                  Selección
-                </span>
-                <span className="text-[10px] font-bold text-indigo-700">
-                  {orderedIds.length} obra{orderedIds.length === 1 ? "" : "s"}
-                </span>
-              </div>
-
-              <div className="space-y-1">
-                {mobileExtraActions}
-
-                <button
-                  type="button"
-                  onClick={() => openAndCloseMenu(() => setShowDriveLoadModal(true))}
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-emerald-800 hover:bg-emerald-50"
-                >
-                  <IconDrive size={14} /> Preselección desde Drive
-                </button>
-
-                {hasSelection ? (
-                  <>
-                    <input
-                      type="text"
-                      value={selectionName}
-                      onChange={(e) => onSelectionNameChange(e.target.value)}
-                      placeholder="Nombre de la selección"
-                      className="mb-1 w-full rounded-lg border border-indigo-100 bg-indigo-50/40 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-200"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => openAndCloseMenu(() => setShowOrderModal(true))}
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50"
-                    >
-                      <IconList size={14} /> Editar orden
-                    </button>
-                    <div className="rounded-lg border border-slate-100 bg-slate-50/80 px-2 py-1.5">
-                      <div className="mb-1 text-[10px] font-black uppercase text-slate-400">
-                        Ordenar por
-                      </div>
-                      <div className="flex flex-col gap-0.5">
-                        <button
-                          type="button"
-                          onClick={() => openAndCloseMenu(() => applySortCriterion("compositor"))}
-                          className="rounded px-1.5 py-1 text-left text-[11px] font-bold text-slate-700 hover:bg-white"
-                        >
-                          Compositor
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openAndCloseMenu(() => applySortCriterion("obra"))}
-                          className="rounded px-1.5 py-1 text-left text-[11px] font-bold text-slate-700 hover:bg-white"
-                        >
-                          Obra
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openAndCloseMenu(() => applySortCriterion("giras"))}
-                          className="rounded px-1.5 py-1 text-left text-[11px] font-bold text-slate-700 hover:bg-white"
-                        >
-                          Giras programadas
-                        </button>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => openAndCloseMenu(() => setShowTagsModal(true))}
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-violet-800 hover:bg-violet-50"
-                    >
-                      <IconTag size={14} /> Tags
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openAndCloseMenu(() => setShowProgramModal(true))}
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-sky-800 hover:bg-sky-50"
-                    >
-                      <IconCalendarPlus size={14} /> Programa
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openAndCloseMenu(handleExportPdf)}
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50"
-                    >
-                      <IconFileText size={14} /> PDF
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openAndCloseMenu(handleSyncDrive)}
-                      disabled={driveLoading}
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
-                    >
-                      {driveLoading ? (
-                        <IconLoader size={14} className="animate-spin" />
-                      ) : (
-                        <IconDrive size={14} />
-                      )}
-                      Sincronizar Drive
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openAndCloseMenu(handleClearSelection)
-                      }
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-rose-700 hover:bg-rose-50"
-                    >
-                      <IconTrash size={14} /> Vaciar selección
-                    </button>
-                  </>
-                ) : (
-                  <div className="flex items-start gap-2 rounded-lg bg-slate-50 px-2 py-2 text-[11px] leading-snug text-slate-500">
-                    <IconHelpCircle size={14} className="mt-0.5 shrink-0 text-indigo-500" />
-                    <span>{EMPTY_SELECTION_HELP}</span>
-                  </div>
-                )}
-              </div>
-            </div>,
-            document.body,
-          )}
+          {mobileMenuPortal}
         </div>
 
         {showOrderModal && (
-          <RepertoireSelectionOrderModal}
+          <RepertoireSelectionOrderModal
             worksById={worksById}
             orderedIds={orderedIds}
             onClose={() => setShowOrderModal(false)}
@@ -476,42 +478,44 @@ export default function RepertoireSelectionBar({
                     Ordenar por
                     <IconChevronDown size={12} className={showSortMenu ? "rotate-180" : ""} />
                   </button>
-                  {showSortMenu && sortMenuStyle && createPortal(
-                    <div
-                      ref={sortMenuPanelRef}
-                      data-fixed-menu="true"
-                      style={{
-                        top: sortMenuStyle.top,
-                        left: sortMenuStyle.left,
-                        width: sortMenuStyle.width,
-                        maxHeight: sortMenuStyle.maxHeight,
-                      }}
-                      className="fixed z-[100] overflow-y-auto overscroll-contain min-w-[180px] rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => applySortCriterion("compositor")}
-                        className="block w-full px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50"
-                      >
-                        Compositor
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => applySortCriterion("obra")}
-                        className="block w-full px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50"
-                      >
-                        Obra
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => applySortCriterion("giras")}
-                        className="block w-full px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50"
-                      >
-                        Giras programadas
-                      </button>
-                    </div>,
-                    document.body,
-                  )}
+                  {showSortMenu && sortMenuStyle
+                    ? createPortal(
+                        <div
+                          ref={sortMenuPanelRef}
+                          data-fixed-menu="true"
+                          style={{
+                            top: sortMenuStyle.top,
+                            left: sortMenuStyle.left,
+                            width: sortMenuStyle.width,
+                            maxHeight: sortMenuStyle.maxHeight,
+                          }}
+                          className="fixed z-[100] overflow-y-auto overscroll-contain min-w-[180px] rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => applySortCriterion("compositor")}
+                            className="block w-full px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50"
+                          >
+                            Compositor
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => applySortCriterion("obra")}
+                            className="block w-full px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50"
+                          >
+                            Obra
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => applySortCriterion("giras")}
+                            className="block w-full px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50"
+                          >
+                            Giras programadas
+                          </button>
+                        </div>,
+                        document.body,
+                      )
+                    : null}
                 </div>
                 <button
                   type="button"
