@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from "react";
+import React, { useState, useRef, useMemo, useLayoutEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, parseISO, isToday, isTomorrow, isPast } from "date-fns";
 import { es } from "date-fns/locale";
@@ -116,11 +116,16 @@ export default function GiraCard({
   onDelete,
   isHighlighted,
   defaultOpenSection,
+  dateAccessory = null,
 }) {
   const { user, isDifusion } = useAuth();
   const isMenuOpen = activeMenuId === gira.id;
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [concertsSlideHeight, setConcertsSlideHeight] = useState(160);
+  const [showPastConcerts, setShowPastConcerts] = useState(false);
   const scrollRef = useRef(null);
+  const concertsSlideRef = useRef(null);
+  const MOBILE_SLIDE_HEIGHT = 160;
 
   // --- ESTADOS PARA MI ROOMING ---
   const [myRooming, setMyRooming] = useState(null);
@@ -405,46 +410,78 @@ export default function GiraCard({
       return <div className="mt-2 flex justify-start px-1">{renderSinConciertosAlert()}</div>;
     }
 
+    const pastConcerts = concerts.filter((c) =>
+      isConcertPast(c.fecha, c.hora_inicio),
+    );
+    const upcomingConcerts = concerts.filter(
+      (c) => !isConcertPast(c.fecha, c.hora_inicio),
+    );
+    const visibleConcerts = showPastConcerts
+      ? concerts
+      : upcomingConcerts;
+
+    const renderConcertRow = (c, idx) => (
+      <div
+        key={c.id || idx}
+        className={`flex gap-3 items-center p-1.5 bg-white/60 rounded border border-black/5 ${isConcertPast(c.fecha, c.hora_inicio) ? "opacity-45" : ""}`}
+      >
+        <div className="bg-white/80 px-1.5 py-0.5 rounded border border-black/10 text-center min-w-[36px]">
+          <span className="block text-[11px] font-black opacity-50 uppercase">
+            {format(parseISO(c.fecha), "MMM", { locale: es })}
+          </span>
+          <span className="block text-s font-bold">
+            {format(parseISO(c.fecha), "dd")}
+          </span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-s font-bold truncate">
+            <LocacionNombreSpan
+              nombre={c.locaciones?.nombre}
+              idLocacion={c.id_locacion}
+              locacion={c.locaciones}
+              className="font-bold"
+            />
+          </div>
+          <div className="text-[10px] opacity-70 truncate">
+            {c.locaciones?.localidades?.localidad} •{" "}
+            {c.hora_inicio.slice(0, 5)}
+          </div>
+        </div>
+        <VenueStatusPin
+          eventId={c.id}
+          idEstadoVenue={c.id_estado_venue}
+          label={`${resolveLocacionNombre({ nombre: c.locaciones?.nombre, idLocacion: c.id_locacion, locacion: c.locaciones })} ${c.fecha || ""} ${c.hora_inicio?.slice(0, 5) || ""}`}
+          supabase={supabase}
+          size={12}
+          className="shrink-0"
+        />
+      </div>
+    );
+
     return (
-      <div className="flex flex-col h-full">
-        <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-          {concerts.map((c, idx) => (
-            <div
-              key={idx}
-              className={`flex gap-3 items-center p-1.5 bg-white/60 rounded border border-black/5 ${isConcertPast(c.fecha, c.hora_inicio) ? "opacity-45" : ""}`}
-            >
-              <div className="bg-white/80 px-1.5 py-0.5 rounded border border-black/10 text-center min-w-[36px]">
-                <span className="block text-[11px] font-black opacity-50 uppercase">
-                  {format(parseISO(c.fecha), "MMM", { locale: es })}
-                </span>
-                <span className="block text-s font-bold">
-                  {format(parseISO(c.fecha), "dd")}
-                </span>
+      <div className="flex flex-col">
+        {pastConcerts.length > 0 && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowPastConcerts((current) => !current);
+            }}
+            className="w-full py-0.5 mb-1 text-[9px] leading-none font-medium tracking-wide text-slate-400/80 hover:text-slate-600 border-t border-black/10"
+          >
+            {showPastConcerts
+              ? "Ocultar conciertos anteriores"
+              : "Mostrar conciertos anteriores"}
+          </button>
+        )}
+        <div className="space-y-2 pr-1 pb-1">
+          {visibleConcerts.length > 0
+            ? visibleConcerts.map(renderConcertRow)
+            : (
+              <div className="text-center text-[10px] text-slate-400 italic py-2">
+                Sin próximos conciertos
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-s font-bold truncate">
-                  <LocacionNombreSpan
-                    nombre={c.locaciones?.nombre}
-                    idLocacion={c.id_locacion}
-                    locacion={c.locaciones}
-                    className="font-bold"
-                  />
-                </div>
-                <div className="text-[10px] opacity-70 truncate">
-                  {c.locaciones?.localidades?.localidad} •{" "}
-                  {c.hora_inicio.slice(0, 5)}
-                </div>
-              </div>
-              <VenueStatusPin
-                eventId={c.id}
-                idEstadoVenue={c.id_estado_venue}
-                label={`${resolveLocacionNombre({ nombre: c.locaciones?.nombre, idLocacion: c.id_locacion, locacion: c.locaciones })} ${c.fecha || ""} ${c.hora_inicio?.slice(0, 5) || ""}`}
-                supabase={supabase}
-                size={12}
-                className="shrink-0"
-              />
-            </div>
-          ))}
+            )}
         </div>
         <div
           className="text-[10px] text-center opacity-60 mt-1 pt-1 border-t border-black/5 cursor-pointer"
@@ -623,6 +660,23 @@ export default function GiraCard({
     [gira.eventos],
   );
 
+  useLayoutEffect(() => {
+    const el = concertsSlideRef.current;
+    if (!el) return undefined;
+    const updateHeight = () => {
+      setConcertsSlideHeight(el.scrollHeight);
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [concerts.length, showPastConcerts]);
+
+  const mobileCarouselHeight =
+    currentSlide === 2
+      ? Math.max(MOBILE_SLIDE_HEIGHT, concertsSlideHeight)
+      : MOBILE_SLIDE_HEIGHT;
+
   const showSinConciertosAlert =
     concerts.length === 0 && gira.tipo !== "Comisión";
 
@@ -775,7 +829,10 @@ export default function GiraCard({
             </div>
           </div>
         )}
-        <div className="h-40 w-full overflow-hidden relative group">
+        <div
+          className="w-full overflow-hidden relative group transition-[height] duration-1000 ease-in-out"
+          style={{ height: mobileCarouselHeight }}
+        >
           {currentSlide > 0 && (
             <button
               onClick={(e) => {
@@ -801,9 +858,9 @@ export default function GiraCard({
           <div
             ref={scrollRef}
             onScroll={handleScroll}
-            className={`flex w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar scroll-smooth ${showQuickAccessSidebar ? "pr-[5.25rem]" : ""}`}
+            className={`flex w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar scroll-smooth items-start ${showQuickAccessSidebar ? "pr-[5.25rem]" : ""}`}
           >
-            <div className="min-w-full w-full h-full snap-center p-3 flex flex-col justify-between relative">
+            <div className="min-w-full w-full h-40 snap-center p-3 flex flex-col justify-between relative">
               <div className="flex items-center gap-2 text-[14px] font-bold uppercase tracking-wide truncate pr-4">
                 <span className={typeColorClass}>{gira.tipo}</span>
                 {gira.zona && (
@@ -820,6 +877,9 @@ export default function GiraCard({
                 <span className={typeColorClass}>{gira.mes_letra}</span>
               </div>
               <div className="flex flex-col items-center justify-center flex-1">
+                {dateAccessory ? (
+                  <div className="mb-1.5 flex justify-center">{dateAccessory}</div>
+                ) : null}
                 {dateInfo ? (
                   dateInfo.d1 === dateInfo.d2 && dateInfo.m1 === dateInfo.m2 ? (
                     <div className="text-center">
@@ -883,13 +943,16 @@ export default function GiraCard({
                 )}
               </div>
             </div>
-            <div className="min-w-full w-full h-full snap-center p-3 flex flex-col relative px-8">
+            <div className="min-w-full w-full h-40 snap-center p-3 flex flex-col relative px-8">
               <div className="flex-1 overflow-hidden pt-2">
                 {renderPersonnelCompact()}
               </div>
             </div>
-            <div className="min-w-full w-full h-full snap-center p-3 flex flex-col relative px-8">
-              <div className="flex-1 overflow-hidden pt-1">
+            <div
+              ref={concertsSlideRef}
+              className="min-w-full w-full snap-center p-3 pb-5 flex flex-col relative px-8"
+            >
+              <div className="pt-1">
                 {renderConcertsCompact()}
               </div>
             </div>
@@ -910,24 +973,29 @@ export default function GiraCard({
       {/* VISTA ESCRITORIO */}
       <div className="hidden md:block p-3 pl-4 relative">
         <div className="flex gap-4 items-start pr-10">
-          <div className="flex flex-col items-center justify-center p-2 bg-white/60 rounded-lg border border-black/5 shrink-0 min-w-[60px] self-start">
-            {dateInfo ? (
-              <>
-                <span
-                  className={`text-2xl font-black leading-none ${titleColorClass}`}
-                >
-                  {dateInfo.d1 === dateInfo.d2
-                    ? dateInfo.d1
-                    : `${dateInfo.d1}-${dateInfo.d2}`}
-                </span>
-                <span className="text-[12px] font-bold uppercase opacity-60 leading-tight">
-                  {dateInfo.m1}
-                  {dateInfo.m2 !== dateInfo.m1 ? ` - ${dateInfo.m2}` : ""}
-                </span>
-              </>
-            ) : (
-              <IconCalendar size={20} className="opacity-20" />
-            )}
+          <div className="flex flex-col items-center gap-1.5 shrink-0 self-start">
+            {dateAccessory ? (
+              <div className="flex justify-center w-full">{dateAccessory}</div>
+            ) : null}
+            <div className="flex flex-col items-center justify-center p-2 bg-white/60 rounded-lg border border-black/5 min-w-[60px]">
+              {dateInfo ? (
+                <>
+                  <span
+                    className={`text-2xl font-black leading-none ${titleColorClass}`}
+                  >
+                    {dateInfo.d1 === dateInfo.d2
+                      ? dateInfo.d1
+                      : `${dateInfo.d1}-${dateInfo.d2}`}
+                  </span>
+                  <span className="text-[12px] font-bold uppercase opacity-60 leading-tight">
+                    {dateInfo.m1}
+                    {dateInfo.m2 !== dateInfo.m1 ? ` - ${dateInfo.m2}` : ""}
+                  </span>
+                </>
+              ) : (
+                <IconCalendar size={20} className="opacity-20" />
+              )}
+            </div>
           </div>
           <div
             className="cursor-pointer flex-1 min-w-0 pt-0.5"

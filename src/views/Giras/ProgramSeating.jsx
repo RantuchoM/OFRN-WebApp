@@ -933,6 +933,7 @@ export default function ProgramSeating({
   const [instrumentList, setInstrumentList] = useState([]);
   const [createModalInfo, setCreateModalInfo] = useState(null);
   const [fetchedBlocks, setFetchedBlocks] = useState([]);
+  const [activeBlockId, setActiveBlockId] = useState(null);
   const [showMobileActionsMenu, setShowMobileActionsMenu] = useState(false);
   const mobileActionsMenuRef = useRef(null);
   const musicianTooltipById = useMemo(() => {
@@ -1017,7 +1018,7 @@ export default function ProgramSeating({
         const { data } = await supabase
           .from("programas_repertorios")
           .select(
-            `id, orden, nombre, repertorio_obras (id, orden, obras (id, titulo, link_drive, instrumentacion, obras_compositores (rol, compositores (apellido))))`,
+            `id, orden, nombre, google_drive_folder_id, repertorio_obras (id, orden, obras (id, titulo, link_drive, instrumentacion, obras_compositores (rol, compositores (apellido))))`,
           )
           .eq("id_programa", program.id)
           .order("orden");
@@ -1084,6 +1085,8 @@ export default function ProgramSeating({
           return {
             id: ro.id,
             obra_id: ro.obras.id,
+            blockId: block.id,
+            blockNombre: block.nombre,
             link: ro.obras.link_drive,
             title: cleanTitle,
             composer: compName,
@@ -1095,6 +1098,22 @@ export default function ProgramSeating({
       )
       .filter(Boolean);
   }, [effectiveBlocks]);
+
+  const resolvedBlockId = useMemo(() => {
+    if (!effectiveBlocks.length) return null;
+    if (
+      activeBlockId &&
+      effectiveBlocks.some((block) => block.id === activeBlockId)
+    ) {
+      return activeBlockId;
+    }
+    return effectiveBlocks[0].id;
+  }, [effectiveBlocks, activeBlockId]);
+
+  const displayObras = useMemo(() => {
+    if (!resolvedBlockId) return obras;
+    return obras.filter((obra) => obra.blockId === resolvedBlockId);
+  }, [obras, resolvedBlockId]);
 
   // Fetch Particellas (Triggered when works change)
   useEffect(() => {
@@ -1237,7 +1256,7 @@ export default function ProgramSeating({
       const forMusician = {};
       const musicianId = m.id;
 
-      obras.forEach((targetObra, tIdx) => {
+      displayObras.forEach((targetObra, tIdx) => {
         const targetObraId = targetObra.obra_id;
         const targetKey = `M-${musicianId}-${targetObraId}`;
         if (getMusicianPartIds(musicianAssignments, targetKey).length > 0) return;
@@ -1251,8 +1270,8 @@ export default function ProgramSeating({
         );
         if (!hasUnassigned) return;
 
-        const beforeReversed = obras.slice(0, tIdx).reverse();
-        const after = obras.slice(tIdx + 1);
+        const beforeReversed = displayObras.slice(0, tIdx).reverse();
+        const after = displayObras.slice(tIdx + 1);
         const candidateObras = [...beforeReversed, ...after];
 
         for (const cand of candidateObras) {
@@ -1282,7 +1301,7 @@ export default function ProgramSeating({
     return result;
   }, [
     otherMusicians,
-    obras,
+    displayObras,
     assignments,
     musicianAssignments,
     particellas,
@@ -1407,7 +1426,7 @@ export default function ProgramSeating({
     let count = 0;
     containers.forEach((c) => {
       if (!c.items?.length) return;
-      obras.forEach((obra) => {
+      displayObras.forEach((obra) => {
         const obraId = obra.obra_id;
         if (assignments[`C-${c.id}-${obraId}`]) return;
         if (getContainerSuggestedPart(c, obraId)) count += 1;
@@ -1415,7 +1434,7 @@ export default function ProgramSeating({
     });
     otherMusicians.forEach((m) => {
       const suggestions = derivedMusicianSuggestions[m.id] || {};
-      obras.forEach((obra) => {
+      displayObras.forEach((obra) => {
         const obraId = obra.obra_id;
         if (getMusicianPartIds(musicianAssignments, `M-${m.id}-${obraId}`).length > 0)
           return;
@@ -1426,7 +1445,7 @@ export default function ProgramSeating({
   }, [
     isEditor,
     containers,
-    obras,
+    displayObras,
     assignments,
     musicianAssignments,
     getContainerSuggestedPart,
@@ -2304,7 +2323,7 @@ export default function ProgramSeating({
       const isSolista = role.includes("solista");
       let hasAnyPart = false;
 
-      for (const obra of obras) {
+      for (const obra of displayObras) {
         const individualKey = `M-${id}-${obra.obra_id}`;
         if (getMusicianPartIds(musicianAssignments, individualKey).length > 0) {
           hasAnyPart = true;
@@ -2325,7 +2344,7 @@ export default function ProgramSeating({
       if (!hasAnyPart) without.add(sid);
     });
     return without;
-  }, [containers, otherMusicians, obras, assignments, musicianAssignments]);
+  }, [containers, otherMusicians, displayObras, assignments, musicianAssignments]);
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
@@ -2718,6 +2737,40 @@ export default function ProgramSeating({
         </div>
       </div>
 
+      {effectiveBlocks.length > 0 && (
+        <div className="shrink-0 px-2 sm:px-4 py-2 border-b border-slate-200 bg-slate-50 overflow-x-auto">
+          <div className="flex gap-1 min-w-max">
+            {effectiveBlocks.map((block) => {
+              const isActive = resolvedBlockId === block.id;
+              const workCount = (block.repertorio_obras || []).length;
+              return (
+                <button
+                  key={block.id}
+                  type="button"
+                  onClick={() => setActiveBlockId(block.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap ${
+                    isActive
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "bg-white text-slate-600 border border-slate-200 hover:border-indigo-300 hover:text-indigo-700"
+                  }`}
+                >
+                  {block.nombre}
+                  {workCount > 0 && (
+                    <span
+                      className={`ml-1.5 text-[10px] font-normal ${
+                        isActive ? "text-indigo-200" : "text-slate-400"
+                      }`}
+                    >
+                      ({workCount})
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div
         ref={splitAreaRef}
         className="flex-1 overflow-hidden p-1 md:p-4 flex flex-col min-h-0"
@@ -2764,7 +2817,7 @@ export default function ProgramSeating({
         <div className="md:hidden flex-1 min-h-0 overflow-hidden">
           <MobileSeatingTable
             user={user}
-            obras={obras}
+            obras={displayObras}
             assignments={assignments}
             musicianAssignments={musicianAssignments}
             filteredRoster={filteredRoster}
@@ -2790,7 +2843,7 @@ export default function ProgramSeating({
                 <th className="p-2 w-48 sticky left-0 bg-slate-800 z-40 border-r border-slate-600 pl-4">
                   Contenedor / Músico
                 </th>
-                {obras.map((obra) => {
+                {displayObras.map((obra) => {
                   // Pre-cálculo para el header (Unassigned Warning / Complete)
                   const obraParts = availablePartsByWork[obra.obra_id] || [];
                   const unassignedParts = obraParts.filter(
@@ -2876,7 +2929,7 @@ export default function ProgramSeating({
                 <>
                   <tr className="bg-indigo-50/50">
                     <td
-                      colSpan={obras.length + 1}
+                      colSpan={displayObras.length + 1}
                       className="p-1 px-4 text-[10px] font-bold text-indigo-800 uppercase"
                     >
                       Sección de Cuerdas
@@ -2897,7 +2950,7 @@ export default function ProgramSeating({
                     });
                     const hasContainerSuggestions =
                       isEditor &&
-                      obras.some((obra) => {
+                      displayObras.some((obra) => {
                         const currentVal =
                           assignments[`C-${c.id}-${obra.obra_id}`];
                         if (currentVal) return false;
@@ -2943,7 +2996,7 @@ export default function ProgramSeating({
                                 <button
                                   type="button"
                                   onClick={async () => {
-                                    for (const obra of obras) {
+                                    for (const obra of displayObras) {
                                       const obraId = obra.obra_id;
                                       const key = `C-${c.id}-${obraId}`;
                                       if (assignments[key]) continue;
@@ -2975,7 +3028,7 @@ export default function ProgramSeating({
                             </div>
                           </div>
                         </td>
-                        {obras.map((obra) => {
+                        {displayObras.map((obra) => {
                           const currentVal =
                             assignments[`C-${c.id}-${obra.obra_id}`];
                           // Usamos la lista memoizada
@@ -3069,7 +3122,7 @@ export default function ProgramSeating({
                 <>
                   <tr className="bg-slate-100/50">
                     <td
-                      colSpan={obras.length + 1}
+                      colSpan={displayObras.length + 1}
                       className="p-1 px-4 text-[10px] font-bold text-slate-600 uppercase"
                     >
                       Vientos, Percusión y Solistas
@@ -3149,7 +3202,7 @@ export default function ProgramSeating({
                             </div>
                           </div>
                         </td>
-                        {obras.map((obra) => {
+                        {displayObras.map((obra) => {
                           const key = `M-${m.id}-${obra.obra_id}`;
                           const partIds = getMusicianPartIds(musicianAssignments, key);
                           const availableParts =

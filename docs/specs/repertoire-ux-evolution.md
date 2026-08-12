@@ -35,18 +35,26 @@ Permitir mover obras dentro del mismo bloque y entre bloques con feedback visual
 - **Destino visual:** Si `dragOverId === item.id`, la fila recibe `ring-2 ring-inset ring-indigo-400 bg-indigo-50/80` para marcar el destino.
 
 ### Lógica al soltar (`handleDragEnd`)
-1. Obtener `active.id` (id de `repertorio_obras`) y `over.id` (id de la fila sobre la que se suelta).
-2. Resolver bloque e índice origen y destino recorriendo `repertorios`.
-3. Llamar a `updateWorkPosition(supabase, id_repertorio_obra, nuevo_id_bloque, nuevo_orden)` con `nuevo_orden = targetIdx + 1`.
-4. Llamar a `normalizeRepertorioBlockOrden(supabase, id_repertorio_origen)` y, si el bloque destino es distinto, `normalizeRepertorioBlockOrden(supabase, id_repertorio_destino)`.
-5. `fetchFullRepertoire()` para refrescar la UI.
+1. Resolver bloque e índice origen/destino (fila o zona `block-*-start|end`).
+2. **Preview optimista:** `computeReorderedRepertorios` + `setRepertorios` (orden final inmediato).
+3. Marcar `pendingDriveSyncIds` (filas que cambiaron de posición).
+4. Persistir `orden` 1..n de cada bloque afectado (`persistBlockOrden`).
+5. `await autoSyncDrive()` (`sync_repertoire_shortcuts`); al terminar, limpiar highlight.
 
 ### Servicio (giraService.js)
-- **updateWorkPosition(supabase, id_repertorio_obra, nuevo_id_bloque, nuevo_orden):** Hace `update` en `repertorio_obras` con `id_repertorio` y `orden`.
-- **normalizeRepertorioBlockOrden(supabase, id_repertorio):** Lee todas las filas del bloque ordenadas por `orden` e `id`, y actualiza cada una con `orden = 1, 2, 3, ...` para evitar huecos o duplicados.
+- **normalizeRepertorioBlockOrden:** sigue usándose en otros flujos (p. ej. insertar obra).
+- El drag & drop ya no depende de `updateWorkPosition` + normalize para el caso principal: escribe el orden final del preview.
 
 ### Estado de carga
-- **savingPosition:** `true` mientras se ejecutan `updateWorkPosition`, normalización y `fetchFullRepertoire`. Se muestra una barra fija superior: "Guardando orden..." con `IconLoader` y fondo ámbar (`bg-amber-100`), para evitar colisiones y doble clic.
+- **savingPosition:** `true` mientras se persiste el orden en BD.
+- **pendingDriveSyncIds:** ids de `repertorio_obras` que titilan (`animate-pulse` + anillo ámbar) en su lugar final hasta que `sync_repertoire_shortcuts` confirme.
+- Banner sticky: «Guardando orden…» → «Orden aplicado — sincronizando carpetas en Drive…».
+
+### Completado (2026-08-12) — Feedback visual de reorder + Drive
+- [x] Reorder **optimista** al soltar (o con flechas): la lista queda en el orden final de inmediato (`arrayMove` / zonas inicio-fin).
+- [x] Persistencia del bloque completo (`orden` 1..n) alineada con el preview (evita desfase por empates en normalize).
+- [x] Filas afectadas titilan hasta que la Edge Function `manage-drive` (`sync_repertoire_shortcuts`) responde; luego se apaga el highlight.
+- [x] Si falla DB/Drive, se hace `fetchFullRepertoire()` para revertir a la verdad remota.
 
 ---
 
@@ -402,6 +410,11 @@ Permitir que el músico descargue de una vez todas sus partes disponibles desde 
 - [x] ZIP comprimido con todas las partes disponibles.
 - [x] Progreso y aviso de errores parciales.
 
+### Completado (2026-08-12) — Agrupación por bloque de repertorio
+- [x] **MyPartsViewer:** divisor por bloque (`programas_repertorios`) con nombre y enlace **Carpeta Gral.** del bloque (`google_drive_folder_id`).
+- [x] Obras sin parte asignada (`NO_ASSIGNED`) se muestran atenuadas (móvil y escritorio).
+- [x] **ProgramSeating:** pestañas por bloque de repertorio; la grilla (móvil y escritorio) filtra columnas al bloque activo. Exportaciones PDF/Excel siguen usando el programa completo.
+
 ---
 
 ### Completado (2026-08-10) — Para acomodar: Charbonnier *Voces latinoamericanas*
@@ -410,3 +423,20 @@ Permitir que el músico descargue de una vez todas sus partes disponibles desde 
 - [x] Scripts: `scripts/lib/charbonnierVocesCatalog.mjs`, `process-charbonnier-voces-local.mjs`, `generate-charbonnier-voces-sync.mjs`.
 - [x] Seed `supabase/seed_charbonnier_voces_sync.sql` aplicado en linked: particellas + `instrumentacion = S. - 2.2.2.2 - 2.0.0.0 - Str`, Soprano como solista, SCORE → Director.
 - [x] Fix: `Fagot 1` / `Corno F 1` en `pdfPartsRenaming.mjs`; suffix de índices en `split_and_rename_parts.py` solo al repetir instrumento.
+
+### Completado (2026-08-11) — Para acomodar: Mozart *Dies Irae. Requiem, K. 626*
+- Carpeta [Para acomodar](https://drive.google.com/drive/folders/1tRERQ7Sb-QFYGmBcmu51T04ZSBOkpJLG): 17 PDFs del Réquiem completo (Robbins Landon / Breitkopf) → recorte **III. Sequenz / 1. Dies irae** (hasta Tuba mirum) + rename `Instrumento - Dies Irae. Requiem, K. 626 - Mozart, W.A.pdf` (**Requiem** sin tilde). `PORTADA.png` sin tocar.
+- Obra BD **id 3563** (ya existía; compositor Mozart 235): se actualiza título (sin tilde), `link_drive` original, instrumentación y particellas. **No** `copiar_carpeta_a_archivo`.
+- Instrumentación esperada: `0.0.2.2 - 0.2.3.0 - Timp - Key - Str + Coro` (Órgano no existe en `instrumentos`; el seed lo mapea a Piano/Key).
+- Crops OCR (páginas originales → quedan): Clarinete 1y2 5–6 (2); Contrabajo 4–5 (2); Coro 15–21 (7, Klavier-Auszug Brissler); Fagot 1 3 (1); Fagot 2 3–4 (2); Perc Timbal 1 (1, compacto con Introitus/Kyrie); SCORE 27–41 (15); Trombón 1 3 (1); Trombón 2 2 (1); Trombón 3 2 (1); Trompeta 1/2 1 (1, compactos); Viola 3 (1); Vc 4–5 (2); Vn1 4–5 (2); Vn2 6–7 (2); Órgano 10–12 (3, Tuba a mitad de p.12).
+- Matcher: `Clarinete 1y2` se conserva (no colapsar a `Clarinete Bb`); `Trompeta 1` / `Trombón 1` no colapsan al genérico.
+
+| Script | Rol |
+|--------|-----|
+| `scripts/lib/mozartDiesIraeCatalog.mjs` | Metadata obra 3563 + manifiesto de crops |
+| `scripts/process-mozart-dies-irae-local.mjs` | Crop + rename carpeta/PDFs en sync local |
+| `scripts/generate-mozart-dies-irae-sync.mjs` | Genera `supabase/seed_mozart_dies_irae_sync.sql` |
+
+- [x] PDFs recortados y renombrados en sync local (17 + PORTADA.png); Drive File Stream ya lista los nombres nuevos
+- [x] Seed SQL generado (`supabase/seed_mozart_dies_irae_sync.sql`, 18 particellas, `0.0.2.2 - 0.2.3.0 - Timp - Key - Str + Coro`)
+- [ ] Seed **pendiente ejecutar en Supabase** (no corrido en esta sesión)

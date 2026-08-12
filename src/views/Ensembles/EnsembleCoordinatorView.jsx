@@ -480,16 +480,24 @@ const ConvokedMembersBadge = ({
     });
   };
 
+  const label = loading
+    ? "…"
+    : isFull
+      ? "Participan todos"
+      : count === 1
+        ? "Participa 1 persona"
+        : `Participan ${count} personas`;
+
   return (
     <button
       type="button"
       onClick={showMembersList}
       disabled={loading || count === 0}
-      className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold shadow-md border bg-white/95 backdrop-blur-sm disabled:opacity-50 pointer-events-auto ${isFull ? "text-green-700 border-green-200" : "text-amber-700 border-amber-200"} ${className}`}
+      className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold shadow-md border bg-white/95 backdrop-blur-sm whitespace-nowrap disabled:opacity-50 pointer-events-auto ${isFull ? "text-green-700 border-green-200" : "text-amber-700 border-amber-200"} ${className}`}
       title="Integrantes del ensamble convocados en esta gira"
     >
       <IconUsers size={12} />
-      {loading ? "…" : isFull ? "Todos" : count}
+      {label}
     </button>
   );
 };
@@ -502,43 +510,47 @@ const CoordinatorProgramGiraCard = ({
   ensemblesList,
   updateView,
   showRepertoireInCards,
+  showConvokedBadge = false,
 }) => {
   const [activeMenuId, setActiveMenuId] = useState(null);
-  const { roster, loading } = useGiraRosterQuery(supabase, gira);
+  const { roster, loading } = useGiraRosterQuery(supabase, gira, {
+    enabled: showConvokedBadge,
+  });
   const canEdit = gira.tipo === "Ensamble" && Boolean(onEdit);
 
   return (
-    <div className="relative">
-      <ConvokedMembersBadge
-        roster={roster}
-        loading={loading}
-        activeMembersSet={activeMembersSet}
-        className="absolute top-3 right-14 z-[55]"
-      />
-      <GiraCard
-        gira={gira}
-        updateView={updateView}
-        isEditor={canEdit}
-        isPersonal={false}
-        userRole={null}
-        startEdit={
-          canEdit
-            ? (g, options) => onEdit(g || gira, options)
-            : () => {}
-        }
-        setGlobalCommentsGiraId={() => {}}
-        setCommentsState={() => {}}
-        activeMenuId={activeMenuId}
-        setActiveMenuId={setActiveMenuId}
-        showRepertoireInCards={showRepertoireInCards}
-        ensemblesList={ensemblesList}
-        supabase={supabase}
-        onMove={() => {}}
-        onDuplicate={() => {}}
-        onDelete={() => {}}
-        isHighlighted={false}
-      />
-    </div>
+    <GiraCard
+      gira={gira}
+      updateView={updateView}
+      isEditor={canEdit}
+      isPersonal={false}
+      userRole={null}
+      startEdit={
+        canEdit
+          ? (g, options) => onEdit(g || gira, options)
+          : () => {}
+      }
+      setGlobalCommentsGiraId={() => {}}
+      setCommentsState={() => {}}
+      activeMenuId={activeMenuId}
+      setActiveMenuId={setActiveMenuId}
+      showRepertoireInCards={showRepertoireInCards}
+      ensemblesList={ensemblesList}
+      supabase={supabase}
+      onMove={() => {}}
+      onDuplicate={() => {}}
+      onDelete={() => {}}
+      isHighlighted={false}
+      dateAccessory={
+        showConvokedBadge ? (
+          <ConvokedMembersBadge
+            roster={roster}
+            loading={loading}
+            activeMembersSet={activeMembersSet}
+          />
+        ) : null
+      }
+    />
   );
 };
 // --- COMPONENTE: TAB DE PROGRAMACIÓN DE REPERTORIO ---
@@ -4156,6 +4168,10 @@ export default function EnsembleCoordinatorView({ supabase }) {
                         ensemblesList={ensemblesListForCards}
                         updateView={updateGiraView}
                         showRepertoireInCards={showRepertoireInCards}
+                        showConvokedBadge={
+                          activeEnsembles.length >= 1 &&
+                          activeEnsembles.length <= 3
+                        }
                       />
                     ))}
                   </div>

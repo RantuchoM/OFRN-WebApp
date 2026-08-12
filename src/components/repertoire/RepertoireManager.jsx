@@ -9,7 +9,12 @@ import {
   DragOverlay,
   useDroppable,
 } from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
   IconMusic,
@@ -36,7 +41,6 @@ import {
   IconViolin,
 } from "../ui/Icons";
 import {
-  updateWorkPosition,
   normalizeRepertorioBlockOrden,
   seatingItemMatrixPosition,
   deleteRepertoireBlockWithDrive,
@@ -1621,6 +1625,7 @@ export default function RepertoireManager({
   const [commentsState, setCommentsState] = useState(null);
   const [workFormData, setWorkFormData] = useState({});
   const [savingPosition, setSavingPosition] = useState(false);
+  const [pendingDriveSyncIds, setPendingDriveSyncIds] = useState(() => new Set());
   const [dragOverId, setDragOverId] = useState(null);
   const [activeDragId, setActiveDragId] = useState(null);
   const [quickEntryFollowup, setQuickEntryFollowup] = useState(null);
@@ -1897,16 +1902,107 @@ export default function RepertoireManager({
   const autoSyncDrive = async () => {
     setSyncingDrive(true);
     try {
-      await supabase.functions.invoke("manage-drive", {
+      const { data, error } = await supabase.functions.invoke("manage-drive", {
         body: {
           action: "sync_repertoire_shortcuts",
           programId: programId || giraId,
         },
       });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return true;
     } catch (err) {
       console.error(err);
+      return false;
     } finally {
       setSyncingDrive(false);
+    }
+  };
+
+  /** Marca filas que titilan hasta que Drive confirme el orden de shortcuts. */
+  const beginPendingDriveSync = (ids = []) => {
+    const next = new Set(
+      (Array.isArray(ids) ? ids : [ids]).filter((id) => id != null),
+    );
+    if (next.size === 0) return;
+    setPendingDriveSyncIds(next);
+  };
+
+  const clearPendingDriveSync = () => {
+    setPendingDriveSyncIds(new Set());
+  };
+
+  const renumberObrasOrden = (obras) =>
+    (obras || []).map((obra, index) => ({
+      ...obra,
+      orden: index + 1,
+    }));
+
+  /**
+   * Calcula el orden final sin tocar estado (misma regla que arrayMove / zonas de bloque).
+   */
+  const computeReorderedRepertorios = (
+    prev,
+    itemId,
+    sourceRepId,
+    sourceIdx,
+    targetRepId,
+    targetIdx,
+  ) => {
+    const next = prev.map((rep) => ({
+      ...rep,
+      repertorio_obras: [...(rep.repertorio_obras || [])],
+    }));
+    const sourceRep = next.find((rep) => rep.id === sourceRepId);
+    const targetRep = next.find((rep) => rep.id === targetRepId);
+    if (!sourceRep || !targetRep) {
+      return { next: prev, affectedIds: [itemId] };
+    }
+
+    if (sourceRepId === targetRepId) {
+      const before = sourceRep.repertorio_obras.map((o) => o.id);
+      sourceRep.repertorio_obras = renumberObrasOrden(
+        arrayMove(sourceRep.repertorio_obras, sourceIdx, targetIdx),
+      );
+      const affectedIds = sourceRep.repertorio_obras
+        .filter((obra, index) => before[index] !== obra.id)
+        .map((obra) => obra.id);
+      if (!affectedIds.includes(itemId)) affectedIds.push(itemId);
+      return { next, affectedIds };
+    }
+
+    const [moved] = sourceRep.repertorio_obras.splice(sourceIdx, 1);
+    if (!moved) return { next: prev, affectedIds: [itemId] };
+    const insertAt = Math.max(
+      0,
+      Math.min(targetIdx, targetRep.repertorio_obras.length),
+    );
+    targetRep.repertorio_obras.splice(insertAt, 0, {
+      ...moved,
+      id_repertorio: targetRepId,
+    });
+    sourceRep.repertorio_obras = renumberObrasOrden(sourceRep.repertorio_obras);
+    targetRep.repertorio_obras = renumberObrasOrden(targetRep.repertorio_obras);
+    return {
+      next,
+      affectedIds: [
+        itemId,
+        ...sourceRep.repertorio_obras.map((o) => o.id),
+        ...targetRep.repertorio_obras.map((o) => o.id),
+      ],
+    };
+  };
+
+  const persistBlockOrden = async (repId, obras) => {
+    for (let i = 0; i < (obras || []).length; i += 1) {
+      const { error } = await supabase
+        .from("repertorio_obras")
+        .update({
+          id_repertorio: repId,
+          orden: i + 1,
+        })
+        .eq("id", obras[i].id);
+      if (error) throw error;
     }
   };
 
@@ -2030,28 +2126,35 @@ export default function RepertoireManager({
     const repIndex = repertorios.findIndex((r) => r.id === repertorioId);
     if (repIndex === -1) return;
     const currentRep = repertorios[repIndex];
-    const obras = [...(currentRep.repertorio_obras || [])];
+    const obras = currentRep.repertorio_obras || [];
     if (obras.length === 0) return;
     const workIndex = obras.findIndex((o) => o.id === workId);
     if (workIndex === -1) return;
     const targetIndex = workIndex + direction;
     if (targetIndex < 0 || targetIndex >= obras.length) return;
-    const itemA = obras[workIndex];
-    const itemB = obras[targetIndex];
-    [itemA.orden, itemB.orden] = [itemB.orden, itemA.orden];
-    [obras[workIndex], obras[targetIndex]] = [itemB, itemA];
-    const newRepertorios = [...repertorios];
-    newRepertorios[repIndex].repertorio_obras = obras;
-    setRepertorios(newRepertorios);
-    await supabase
-      .from("repertorio_obras")
-      .update({ orden: itemA.orden })
-      .eq("id", itemA.id);
-    await supabase
-      .from("repertorio_obras")
-      .update({ orden: itemB.orden })
-      .eq("id", itemB.id);
-    autoSyncDrive();
+
+    const { next, affectedIds } = computeReorderedRepertorios(
+      repertorios,
+      workId,
+      repertorioId,
+      workIndex,
+      repertorioId,
+      targetIndex,
+    );
+    setRepertorios(next);
+    beginPendingDriveSync(affectedIds);
+    setSavingPosition(true);
+    try {
+      const nextRep = next.find((r) => r.id === repertorioId);
+      await persistBlockOrden(repertorioId, nextRep?.repertorio_obras || []);
+      await autoSyncDrive();
+    } catch (err) {
+      console.error("Error reordenando obra:", err);
+      await fetchFullRepertoire();
+    } finally {
+      setSavingPosition(false);
+      clearPendingDriveSync();
+    }
   };
 
   const addWorkToBlock = async (workId, targetRepertorioId = null) => {
@@ -2607,6 +2710,7 @@ export default function RepertoireManager({
     isCompact,
     moveWork,
     dragOverId,
+    isPendingDriveSync = false,
     children,
   }) => {
     const {
@@ -2630,8 +2734,18 @@ export default function RepertoireManager({
       <tr
         ref={setNodeRef}
         style={style}
-        title={rowTitle}
-        className={`${rowClassName} ${isOver ? "ring-2 ring-inset ring-indigo-400 bg-indigo-50/80" : ""}`}
+        title={
+          isPendingDriveSync
+            ? "Orden aplicado — sincronizando carpetas en Drive…"
+            : rowTitle
+        }
+        className={`${rowClassName} ${
+          isOver ? "ring-2 ring-inset ring-indigo-400 bg-indigo-50/80" : ""
+        } ${
+          isPendingDriveSync
+            ? "animate-pulse bg-amber-50 ring-2 ring-inset ring-amber-400"
+            : ""
+        }`}
       >
         <td className="px-0 py-1 text-center align-middle">
           {isEditor && !isCompact && (
@@ -2713,24 +2827,44 @@ export default function RepertoireManager({
     }
     if (!targetRep) return;
 
-    const movedToOtherBlock = sourceRep.id !== targetRep.id;
-    const nuevoIdBloque = targetRep.id;
-    // Si soltamos en "inicio", usar orden 0 para que tras normalizar quede primero (evita empate con el actual orden 1).
-    const nuevoOrden = targetIdx === 0 ? 0 : targetIdx + 1;
+    // Ajuste mismo bloque: al sacar el ítem, el índice destino de arrayMove
+    // es el índice del "over" en la lista original (dnd-kit / arrayMove).
+    let optimisticTargetIdx = targetIdx;
+    if (
+      sourceRep.id === targetRep.id &&
+      typeof overId === "string" &&
+      overId.startsWith("block-") &&
+      overId.endsWith("-end")
+    ) {
+      optimisticTargetIdx = Math.max(0, obras(sourceRep).length - 1);
+    }
 
+    const movedToOtherBlock = sourceRep.id !== targetRep.id;
+    const { next, affectedIds } = computeReorderedRepertorios(
+      repertorios,
+      itemId,
+      sourceRep.id,
+      sourceIdx,
+      targetRep.id,
+      optimisticTargetIdx,
+    );
+    setRepertorios(next);
+    beginPendingDriveSync(affectedIds);
     setSavingPosition(true);
     try {
-      await updateWorkPosition(supabase, itemId, nuevoIdBloque, nuevoOrden);
-      await normalizeRepertorioBlockOrden(supabase, sourceRep.id);
+      const nextSource = next.find((r) => r.id === sourceRep.id);
+      const nextTarget = next.find((r) => r.id === targetRep.id);
       if (movedToOtherBlock) {
-        await normalizeRepertorioBlockOrden(supabase, targetRep.id);
+        await persistBlockOrden(sourceRep.id, nextSource?.repertorio_obras || []);
       }
-      await fetchFullRepertoire();
-      autoSyncDrive();
+      await persistBlockOrden(targetRep.id, nextTarget?.repertorio_obras || []);
+      await autoSyncDrive();
     } catch (err) {
       console.error("Error reordenando obra:", err);
+      await fetchFullRepertoire();
     } finally {
       setSavingPosition(false);
+      clearPendingDriveSync();
     }
   };
 
@@ -2762,10 +2896,12 @@ export default function RepertoireManager({
   return (
     <div className={containerClasses(isCompact)}>
       {dialog}
-      {savingPosition && (
+      {(savingPosition || pendingDriveSyncIds.size > 0) && (
         <div className="sticky top-0 z-20 flex items-center justify-center py-2 bg-amber-100 border-b border-amber-200 text-amber-800 text-sm font-bold shadow-sm">
           <IconLoader size={16} className="animate-spin mr-2" />
-          Guardando orden...
+          {savingPosition && !syncingDrive
+            ? "Guardando orden…"
+            : "Orden aplicado — sincronizando carpetas en Drive…"}
         </div>
       )}
       {loading && repertorios.length === 0 ? (
@@ -3007,8 +3143,18 @@ export default function RepertoireManager({
                       item.excluir
                         ? "opacity-[0.8] saturate-[0.68] grayscale-[0.18] ring-1 ring-inset ring-slate-400/60 bg-slate-100/50"
                         : ""
+                    } ${
+                      pendingDriveSyncIds.has(item.id)
+                        ? "animate-pulse ring-2 ring-amber-400 bg-amber-50"
+                        : ""
                     }`}
-                    title={item.excluir ? "Excluida de la programación" : undefined}
+                    title={
+                      pendingDriveSyncIds.has(item.id)
+                        ? "Orden aplicado — sincronizando carpetas en Drive…"
+                        : item.excluir
+                          ? "Excluida de la programación"
+                          : undefined
+                    }
                   >
                     {/* Barra lateral de estado */}
                     <div
@@ -3451,6 +3597,7 @@ export default function RepertoireManager({
                         isCompact={isCompact}
                         moveWork={moveWork}
                         dragOverId={dragOverId}
+                        isPendingDriveSync={pendingDriveSyncIds.has(item.id)}
                       >
                         <RepertorioPlaceholderDesktopCells
                           item={item}
@@ -3479,6 +3626,7 @@ export default function RepertoireManager({
                       isCompact={isCompact}
                       moveWork={moveWork}
                       dragOverId={dragOverId}
+                      isPendingDriveSync={pendingDriveSyncIds.has(item.id)}
                     >
                       <td className="px-0 py-1 text-center">
                         {item.obras.estado === "Informativo" ? (

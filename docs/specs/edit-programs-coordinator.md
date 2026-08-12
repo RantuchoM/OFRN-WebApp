@@ -36,6 +36,12 @@ Permitir que los coordinadores de ensamble editen la configuración de sus progr
 ### 7. Menú de acciones (GiraCard)
 - `CoordinatorProgramGiraCard` mantiene estado local `activeMenuId` / `setActiveMenuId` para que el menú de tres puntos de `GiraActionMenu` abra y cierre correctamente (antes eran no-ops y el menú no respondía).
 
+### 8. Badge de convocados del ensamble
+- `ConvokedMembersBadge` se renderiza vía `dateAccessory` de `GiraCard`, **arriba de las fechas** (columna izquierda en desktop; sobre el bloque de fecha en móvil).
+- Textos: **Participan todos** si casi todos los miembros activos están convocados; **Participa 1 persona** / **Participan n personas** en caso contrario.
+- Al hacer clic (si hay convocados) muestra toast con la lista de nombres.
+- **Alcance:** solo se muestra y se calcula el roster (`useGiraRosterQuery`) cuando hay **1 a 3 ensambles activos**. En Coordinación general / admin con todos los ensambles (o más de 3) el badge se oculta y no se dispara el fetch.
+
 ## Flujo de Datos
 - `ProgramCardItem` recibe la función `onEdit`.
 - Al hacer clic en editar se ejecuta `handleEditProgram(program)`:

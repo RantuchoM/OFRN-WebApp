@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import PizZip from "pizzip";
 import {
   IconLoader,
@@ -120,8 +120,29 @@ const downloadBlob = (blob, fileName) => {
   URL.revokeObjectURL(url);
 };
 
+const buildBlockDriveUrl = (folderId) =>
+  folderId ? `https://drive.google.com/drive/folders/${folderId}` : null;
+
+const RepertoireBlockDivider = ({ block }) => (
+  <div className="flex items-center justify-between gap-2 px-2 py-2 md:px-3 md:py-2.5 bg-slate-100/90 border-y border-slate-200">
+    <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600 truncate">
+      {block.nombre}
+    </span>
+    {block.linkDrive ? (
+      <a
+        href={block.linkDrive}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-1 shrink-0 text-[10px] font-medium text-slate-500 hover:text-green-600 transition-colors"
+      >
+        <IconDrive size={14} /> Carpeta Gral.
+      </a>
+    ) : null}
+  </div>
+);
+
 // --- SUB-COMPONENTE: TARJETA MÓVIL COMPACTA ---
-const MobilePartCard = ({ item }) => {
+const MobilePartCard = ({ item, dimmed = false }) => {
   const [showVersions, setShowVersions] = useState(false);
   const menuRef = useRef(null);
 
@@ -156,17 +177,29 @@ const MobilePartCard = ({ item }) => {
   if (item.particella_status === "AVAILABLE") borderClass = "bg-emerald-500";
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-2.5 relative overflow-visible flex flex-col gap-1.5">
+    <div
+      className={`bg-white rounded-lg border shadow-sm p-2.5 relative overflow-visible flex flex-col gap-1.5 ${
+        dimmed
+          ? "border-slate-100 opacity-50"
+          : "border-slate-200"
+      }`}
+    >
       {/* Borde lateral de estado */}
       <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-lg ${borderClass}`}></div>
 
       <div className="pl-2 flex justify-between items-start gap-2">
         <div className="min-w-0">
           <h3
-            className="font-bold text-slate-900 text-sm leading-tight line-clamp-2"
+            className={`font-bold text-sm leading-tight line-clamp-2 ${
+              dimmed ? "text-slate-400" : "text-slate-900"
+            }`}
             dangerouslySetInnerHTML={{ __html: item.titulo }}
           />
-          <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5">
+          <p
+            className={`text-[10px] font-medium truncate mt-0.5 ${
+              dimmed ? "text-slate-300" : "text-slate-500"
+            }`}
+          >
             {item.compositor}
           </p>
         </div>
@@ -615,7 +648,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
         .from("programas_repertorios")
         .select(
           `
-            id, orden,
+            id, orden, nombre, google_drive_folder_id,
             repertorio_obras (
                 id, orden, excluir,
                 obras (
@@ -717,6 +750,9 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
 
           processed.push({
             id: obra.id,
+            blockId: cat.id,
+            blockNombre: cat.nombre,
+            blockLinkDrive: buildBlockDriveUrl(cat.google_drive_folder_id),
             blockOrden: cat.orden ?? 0,
             uniqueId: item.id,
             orden: item.orden,
@@ -754,6 +790,28 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
       setLoading(false);
     }
   };
+
+  const repertoireByBlock = useMemo(() => {
+    const blocks = [];
+    const blockMap = new Map();
+
+    repertoire.forEach((row) => {
+      const key = row.blockId ?? row.blockOrden;
+      if (!blockMap.has(key)) {
+        blockMap.set(key, {
+          id: row.blockId ?? key,
+          nombre: row.blockNombre || "Repertorio",
+          orden: row.blockOrden ?? 0,
+          linkDrive: row.blockLinkDrive,
+          works: [],
+        });
+      }
+      blockMap.get(key).works.push(row);
+    });
+
+    blockMap.forEach((block) => blocks.push(block));
+    return blocks.sort((a, b) => (a.orden || 0) - (b.orden || 0));
+  }, [repertoire]);
 
   if (loading)
     return (
@@ -863,9 +921,18 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
         ) : (
           <>
             {/* === VISTA MÓVIL (COMPACTA) === */}
-            <div className="md:hidden space-y-2">
-              {repertoire.map((row) => (
-                <MobilePartCard key={row.uniqueId} item={row} />
+            <div className="md:hidden space-y-3">
+              {repertoireByBlock.map((block) => (
+                <div key={block.id} className="space-y-2">
+                  <RepertoireBlockDivider block={block} />
+                  {block.works.map((row) => (
+                    <MobilePartCard
+                      key={row.uniqueId}
+                      item={row}
+                      dimmed={row.particella_status === "NO_ASSIGNED"}
+                    />
+                  ))}
+                </div>
               ))}
             </div>
 
@@ -882,17 +949,36 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {repertoire.map((row) => (
+                    {repertoireByBlock.map((block) => (
+                      <React.Fragment key={block.id}>
+                        <tr className="bg-slate-100/90">
+                          <td colSpan={4} className="p-0">
+                            <RepertoireBlockDivider block={block} />
+                          </td>
+                        </tr>
+                        {block.works.map((row) => {
+                          const dimmed = row.particella_status === "NO_ASSIGNED";
+                          return (
                       <tr
                         key={row.uniqueId}
-                        className="hover:bg-slate-50 transition-colors"
+                        className={`transition-colors ${
+                          dimmed
+                            ? "bg-slate-50/80 opacity-45"
+                            : "hover:bg-slate-50"
+                        }`}
                       >
                         <td className="px-4 py-3">
                           <div
-                            className="font-bold text-slate-900 whitespace-pre-wrap leading-tight"
+                            className={`font-bold whitespace-pre-wrap leading-tight ${
+                              dimmed ? "text-slate-400" : "text-slate-900"
+                            }`}
                             dangerouslySetInnerHTML={{ __html: row.titulo }}
                           />
-                          <div className="text-[11px] text-slate-500 mt-1">
+                          <div
+                            className={`text-[11px] mt-1 ${
+                              dimmed ? "text-slate-300" : "text-slate-500"
+                            }`}
+                          >
                             {row.compositor}
                           </div>
                         </td>
@@ -903,7 +989,11 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                               href={row.link_drive_obra}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
+                              className={`inline-flex p-1.5 rounded transition-colors ${
+                                dimmed
+                                  ? "text-slate-300 hover:text-slate-400"
+                                  : "text-slate-400 hover:text-green-600 hover:bg-green-50"
+                              }`}
                               title="Carpeta General de la Obra"
                             >
                               <IconDrive size={18} />
@@ -913,7 +1003,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                           )}
                         </td>
 
-                        <td className="px-4 py-3 text-slate-600">
+                        <td className={`px-4 py-3 ${dimmed ? "text-slate-400" : "text-slate-600"}`}>
                           {row.particella_status !== "NO_ASSIGNED" ? (
                             <div className="flex flex-col">
                               {(row.partes_asignadas?.length
@@ -996,6 +1086,9 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                           )}
                         </td>
                       </tr>
+                          );
+                        })}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>

@@ -44,6 +44,10 @@ export function normalizeInstrumentLabel(rawName) {
   }
 
   if (/\bscore\b|partitura|full score/i.test(name)) return "SCORE";
+  if (/\b[oó]rgano\b|\borgan\b/i.test(name) && !/orchestra/i.test(name))
+    return "Órgano";
+  if (/\bcoro\b|\bchoir\b|\bsatb\b/i.test(name) && !/gitanos/i.test(name))
+    return "Coro";
 
   const n = name.toLowerCase();
 
@@ -53,6 +57,12 @@ export function normalizeInstrumentLabel(rawName) {
     return "Oboe 1y2";
   if (/\bclarinete\s+a\s*1[\s-]?y?\s*2\b|\bclarinete\s+a\s*1-2\b|\bcl\s+a\s*1-2\b/i.test(name))
     return "Clarinete A 1y2";
+  if (
+    /\bclarinete\s*1y2\b|\bclarinete\s*1[\s-]?y?\s*2\b|\bclarinet(?:e|s)?\s*1-2\b|\bcl\s*1y2\b/i.test(
+      name,
+    )
+  )
+    return "Clarinete 1y2";
   if (/\bfagot\s*1[\s-]?y?\s*2\b|\bfagot\s*1-2\b|\bbassoon\s*1-2\b/i.test(name))
     return "Fagot 1y2";
   if (/\bcorno\s+f\s*1[\s-]?y?\s*2\b|\bcorno\s+f\s*1-2\b|\bhorn\s*1-2\b/i.test(name))
