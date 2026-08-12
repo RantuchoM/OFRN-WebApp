@@ -6,6 +6,7 @@ import {
   IconAlertTriangle,
   IconUsers,
   IconFileExcel,
+  IconPrinter,
 } from "../../components/ui/Icons";
 import {
   FIMBA_TIPOS_HABITACION,
@@ -19,6 +20,7 @@ import {
   updateFimbaHabitacion,
 } from "../../services/fimbaService";
 import { exportFimbaRoomingExcel } from "../../utils/fimbaExport";
+import { printFimbaRooming } from "../../utils/fimbaReports";
 
 /**
  * Hotelería / rooming por artista.
@@ -73,6 +75,23 @@ export default function FimbaRoomingPanel({
     } finally {
       setExporting(false);
     }
+  };
+
+  const printRoomingPdf = () => {
+    printFimbaRooming(
+      [
+        {
+          propuesta: { nombre: artistaNombre || `Artista ${propuestaId}` },
+          hotel: hotelNombre ? { nombre: hotelNombre } : { nombre: "(sin hotel)" },
+          checkin_at: checkinAt,
+          checkout_at: checkoutAt,
+          personas: participantes,
+          participantes,
+          habitaciones,
+        },
+      ],
+      { edicionNombre: artistaNombre || `Propuesta ${propuestaId}` },
+    );
   };
 
   const reload = async () => {
@@ -276,20 +295,31 @@ export default function FimbaRoomingPanel({
             )}
           </p>
         </div>
-        <button
-          type="button"
-          className="fimba-btn fimba-btn-ghost"
-          disabled={exporting || habitaciones.length === 0}
-          onClick={exportRooming}
-          title="Exportar lista de habitaciones (Excel)"
-        >
-          {exporting ? (
-            <IconLoader size={14} className="animate-spin" />
-          ) : (
-            <IconFileExcel size={14} />
-          )}{" "}
-          Exportar rooming
-        </button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className="fimba-btn fimba-btn-ghost"
+            disabled={habitaciones.length === 0}
+            onClick={printRoomingPdf}
+            title="Imprimir / PDF habitaciones"
+          >
+            <IconPrinter size={14} /> Rooming PDF
+          </button>
+          <button
+            type="button"
+            className="fimba-btn fimba-btn-ghost"
+            disabled={exporting || habitaciones.length === 0}
+            onClick={exportRooming}
+            title="Exportar lista de habitaciones (Excel)"
+          >
+            {exporting ? (
+              <IconLoader size={14} className="animate-spin" />
+            ) : (
+              <IconFileExcel size={14} />
+            )}{" "}
+            Exportar rooming
+          </button>
+        </div>
       </div>
 
       {error && (

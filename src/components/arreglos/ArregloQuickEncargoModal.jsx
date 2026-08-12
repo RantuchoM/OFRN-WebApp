@@ -24,8 +24,12 @@ export default function ArregloQuickEncargoModal({
   onSave,
   onOpenNewComposer,
   saving,
+  mode = "encargo",
+  arregladorFixedLabel = null,
 }) {
   if (!isOpen) return null;
+
+  const isSelfMode = mode === "self";
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-3">
@@ -37,7 +41,7 @@ export default function ArregloQuickEncargoModal({
       >
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-200 shrink-0">
           <h3 id="arreglo-quick-title" className="text-sm font-bold text-slate-800">
-            Encargar arreglo
+            {isSelfMode ? "Arreglo nuevo" : "Encargar arreglo"}
           </h3>
           <button
             type="button"
@@ -109,15 +113,21 @@ export default function ArregloQuickEncargoModal({
             <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 block">
               Arreglador
             </label>
-            <SearchableSelect
-              options={integrantesArregladorOptions}
-              value={quickDraft.id_integrante_arreglador}
-              onChange={(id) => onFieldChange("id_integrante_arreglador", id)}
-              placeholder="Seleccionar arreglador..."
-              isMulti={false}
-              className="text-sm"
-              dropdownMinWidth={260}
-            />
+            {isSelfMode ? (
+              <div className="w-full text-sm font-semibold text-slate-800 border border-slate-200 bg-slate-50 rounded-lg px-3 py-2">
+                {arregladorFixedLabel || "Vos"}
+              </div>
+            ) : (
+              <SearchableSelect
+                options={integrantesArregladorOptions}
+                value={quickDraft.id_integrante_arreglador}
+                onChange={(id) => onFieldChange("id_integrante_arreglador", id)}
+                placeholder="Seleccionar arreglador..."
+                isMulti={false}
+                className="text-sm"
+                dropdownMinWidth={260}
+              />
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -177,7 +187,7 @@ export default function ArregloQuickEncargoModal({
             className="flex-1 text-sm font-bold px-3 py-2.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-1"
           >
             {saving ? <IconLoader size={14} className="animate-spin" /> : <IconCheck size={14} />}
-            Asignar
+            {isSelfMode ? "Guardar" : "Asignar"}
           </button>
         </div>
       </div>

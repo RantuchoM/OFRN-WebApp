@@ -5,7 +5,8 @@ Implementar una fila de entrada rápida al final de la tabla de encargos de arre
 
 ## Requerimientos Funcionales
 1. **Fila de Carga Rápida (Draft Row):**
-   - Se abre desde el botón **«Encargar arreglo»** en la cabecera del dashboard (solo admin/editor). La fila aparece al inicio del `<tbody>`, con pulso/ring indigo ~3,5 s para indicar dónde cargar el encargo.
+   - Se abre desde el botón **«Encargar arreglo»** en la cabecera del dashboard (admin/editor). La fila aparece al inicio del `<tbody>`, con pulso/ring indigo ~3,5 s para indicar dónde cargar el encargo.
+   - **Arreglador (self-service):** Si el usuario tiene rol `arreglador` y no es admin/editor, el botón se llama **«Arreglo nuevo»**. Misma fila/modal, pero la columna de arreglador muestra su nombre fijo (sin desplegable), se asigna automáticamente `id_integrante_arreglador = user.id`, y **no** se envía mail de encargo. Tras guardar puede cargar el link de entrega como en cualquier encargo propio.
    - **Cancelar:** cierra la fila y limpia el borrador. Tras guardar con éxito también se cierra.
    - **Columna 1 (Compositor):** Debe usar `SearchableSelect` cargando datos de la tabla `compositores`. ✅ Carga opciones desde `public.compositores (id, apellido, nombre)` con label `apellido, nombre`.
    - **Resto de Columnas:** Inputs de texto estándar para los detalles del pedido (título, fecha estimada, orgánico, dificultad, observación). ✅ Implementado con `<input>`/`<textarea>`.
@@ -21,18 +22,19 @@ Implementar una fila de entrada rápida al final de la tabla de encargos de arre
 
 ## Reglas de Negocio
 - Los IDs de compositores son numéricos (`integer`). ✅ El `SearchableSelect` guarda el `id` como valor y se inserta en `obras_compositores.id_compositor`.
-- La persistencia se realiza mediante un botón de 'Guardar' en la misma fila de draft, similar a la lógica de `RepertoireManager`. ✅ Botón **"Guardar encargo"** inserta en `public.obras` (estado `"Para arreglar"`) y en `public.obras_compositores`.
+- La persistencia se realiza mediante un botón de 'Guardar' en la misma fila de draft, similar a la lógica de `RepertoireManager`. ✅ Botón **"Guardar encargo"** / **"Asignar a..."** (admin) o **"Guardar"** (arreglador self) inserta en `public.obras` (estado `"Para arreglar"`) y en `public.obras_compositores`.
+- **Ownership del arreglador:** `myCompositorId` = `user.id` (integrante logueado). Comparar con `obras.id_integrante_arreglador` para edición de entrega / marcar Entregado.
 - **Eliminación de encargo (admin/editor):** En filas con estado `Para arreglar`, botón **Eliminar** abre `ConfirmModal` (portal, `z-[100]`) advirtiendo que se borrarán todos los registros del arreglo. Al confirmar, se eliminan en cascada manual las tablas hijas (`seating_asignaciones`, `repertorio_obras`, `obras_produccion_log`, `obras_palabras_clave`, `obras_particellas`, `obras_arcos`, `obras_compositores`) y luego la fila en `obras`. Solo disponible para `isAdmin` o `isEditor`.
 - **Orden de la tabla:** Pendientes (`Para arreglar`) arriba por `fecha_esperada` ascendente (más urgente primero; sin fecha al final del bloque pendiente). `Entregado` y `Oficial` siempre al final, ordenados por `fecha_entrega` descendente (más reciente primero); sin fecha de entrega al final de ese bloque, alfabético por título.
 - **Paginación:** 25 arreglos por página (client-side sobre la lista filtrada/ordenada); controles al pie de la tabla.
-- **Vista móvil (`md:hidden`):** lista de tarjetas con estado, fechas, título, compositor y arreglador; tap abre `ArregloMobileDetailModal` (portal `z-[100]`) con edición inline de campos del encargo y acciones (referencias, entregar, editar obra, eliminar / nueva versión). **Encargar arreglo** en móvil abre `ArregloQuickEncargoModal` en lugar de la fila rápida de escritorio.
+- **Vista móvil (`md:hidden`):** lista de tarjetas con estado, fechas, título, compositor y arreglador; tap abre `ArregloMobileDetailModal` (portal `z-[100]`) con edición inline de campos del encargo y acciones (referencias, entregar, editar obra, eliminar / nueva versión). **Encargar arreglo** / **Arreglo nuevo** en móvil abre `ArregloQuickEncargoModal` (modo `encargo` o `self`) en lugar de la fila rápida de escritorio.
 - **Búsqueda en columna Obra:** Input con lupa en el encabezado «Obra / Compositor · Arreglador»; filtra por substring en título, compositor o arreglador.
 - **Filtro por arreglador:** Botón con icono de embudo en la cabecera; al pulsarlo se despliega el listado de arregladores (sin `<select>` visible). Resalta en indigo si hay filtro activo.
 - **Legacy Germán Lema:** Migración `20260628120000_arreglos_legacy_lema_backfill.sql` — backfill `id_integrante_arreglador = 4340365` e inserta `obras_produccion_log` para obras arregladas por Lema (vía `id_arreglador`, `obras_compositores` o integrante) que aún no estén en el flujo de arreglos. Log de entrega con `fecha = 2025-12-31` (Entregado/Oficial) o `NULL` (otros estados); nunca `now()` para no tapar entregas reales de 2026.
 - **Solicitado por:** Tag violeta debajo de la fecha estimada (`integrantes!id_usuario_carga`). El mail `encargo_arreglo` incluye fila **Solicitado por** con ese nombre (`detalle.solicitado_por`). **Asignado por** (cabecera del mail) = usuario de la sesión que envía.
 - **Referencias de material:** Tabla `public.arreglos_referencias`. Tipos en toggle segmentado: obra (`IconMusic`), YouTube (`IconYoutube`), Drive/enlace (`IconDrive`). Obras del archivo muestran orgánico (`instrumentacion`) bajo el título.
 - **Dificultad en WorkForm:** Campo editable en el bloque «Para arreglar» (junto a fecha estimada); se persiste en `obras.dificultad` y viaja en el mail de encargo.
-- **Mail de asignación:** Columna `obras.encargo_arreglo_mail_enviado_at` (timestamptz). Tras envío exitoso en `WorkForm` o fila rápida del dashboard se persiste la marca; reenvío exige confirmación en WorkForm.
+- **Mail de asignación:** Columna `obras.encargo_arreglo_mail_enviado_at` (timestamptz). Tras envío exitoso en `WorkForm` o fila rápida del dashboard (solo modo encargo admin/editor) se persiste la marca; reenvío exige confirmación en WorkForm. El self-service del arreglador no envía mail.
 
 ## Columnas de la tabla (refactor UX entrega)
 - **F. est.:** Primera columna (izquierda). Fecha estimada editable inline si admin/editor; días restantes y tag solicitante debajo.

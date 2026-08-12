@@ -125,21 +125,36 @@ Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participan
 - UI: `FimbaRoomingPanel` (admin | assign | readonly).
 - Checklist: rooming live cupos feedback ✓.
 
-### Exportaciones Excel (hotelería · comidas · transporte)
+### Exportaciones y reportes (hotelería · comidas · transporte)
 
-Puerto de flujos OFRN (ExcelJS + file-saver, mismo stack que `universalExportLogic` / `transportExport`) parametrizado a datos FIMBA. Util: `src/utils/fimbaExport.js`.
+Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) parametrizado a datos FIMBA.
+
+**Utils:** `src/utils/fimbaExport.js` (Excel multi-hoja) · `src/utils/fimbaReports.js` (pedido texto/PDF, rooming print, comidas print, CNRT/paradas/hoja de ruta reusando `transportExport` / `roadmapExport`).
+
+**UI:** `FimbaHoteleriaReports` (hub = `RoomingReportsHubModal` OFRN) · `FimbaComidasReportModal` · `FimbaTransportReportsMenu` (por vehículo; modal rango = `CnrtExportModal`).
 
 **Permisos:** quien puede **ver** la sección puede exportar (staff OFRN management, `editor_general`, `consulta` por usuario o token de edición, tokens de artista en su ficha). No se limita al modo edición: lectura + export.
 
-| Export | Hojas | Fuente de datos | UI |
-|--------|-------|-----------------|-----|
-| **Hotelería** | Resumen artistas · Personas · Rooming | `listFimbaHoteleria` (pax planif., early/late, obs., habitaciones/ocupantes) | Hotelería: **Exportar hotelería** (+ **Copiar tabla (TSV)** legado) |
-| **Comidas** | Resumen regímenes · Detalle | participantes activos + `tipo_alimentacion` / `nota_alimentacion` (label «Otro») | Hotelería: **Exportar comidas**; ficha Artista: junto a Participantes |
-| **Rooming (artista)** | Rooming | inventorio `fimba_propuestas_habitaciones` + ocupantes | `FimbaRoomingPanel` → **Exportar rooming** |
-| **Transporte / vehículo** | Abordaje · Secuencia paradas | `buildAllVehicleBoardingSequences` (OFRN named rides + FIMBA headcount por `fimba_propuesta_rutas` / sintético; ausentes OFRN filtrados) | Transportes: Excel por **fila de vehículo** |
-| **Transporte flota** | Flota + 1 hoja abordaje por unidad | same sequences map | Transportes: **Exportar flota** |
+#### Matriz OFRN → FIMBA
 
-**Qué no se portó (deuda consciente):** reportes print-only OFRN (RoomingReport / MealsReport / pedido inicial por sexo·tramos); PDF CNRT DNI-styled full roster; hoja de ruta detallada `roadmapExport`. FIMBA exporta **Excel multi-hoja** con labels en español. Boarding FIMBA es por **plazas de artista** (no nómina de participantes en el bus).
+| OFRN (nombre UI) | Formato OFRN | FIMBA ubicación | Formato FIMBA | Notas / gaps |
+|------------------|--------------|-----------------|--------------|--------------|
+| **Pedido Inicial** (Rooming hub) | Print + vista | Hotelería → **Reportes hotelería** → Pedido Inicial; ficha Artista → Pedido hotel | Print/PDF + Excel plazas | Por hotel + check-in/out artista (no tramos de gira). Sexo = `fimba_participantes.genero`; sin nombre = sin sexo |
+| **Texto pedido** (hotel) | Clipboard | Mismo hub → Texto pedido | Clipboard + print | Mismo texto estilo «N hombres, M mujeres. Check-in…» |
+| **Detalle de pasajeros** | Print | Hub → Detalle | Print/PDF | Orden por ingreso; sin habitaciones |
+| **Reporte de habitaciones** (RoomingReport) | Print/PDF | Hub → Reporte habitaciones; `FimbaRoomingPanel` / Artista → Rooming PDF | Print/PDF + Excel rooming | Inventario `fimba_propuestas_habitaciones` + ocupantes |
+| **Excel hotelería** (resumen/personas) | — (FIMBA) | Hotelería → Exportar hotelería | Excel 3 hojas | Ya existía; se mantiene |
+| **MealsReport** por evento | Print/PDF + texto | Hotelería / Artista → **Reportes comidas** | Print/PDF + texto + Excel | **Parcial:** sin eventos de comida ni asistencia; resume regímenes de nominados |
+| **Texto pedido** (comidas) | Clipboard | Reportes comidas | Clipboard | Resumen regímenes + detalle |
+| **Excel comidas** | — | Hotelería / Artista / modal comidas | Excel 2 hojas | Ya existía |
+| **Exportar CNRT** | PDF/Excel | Transportes → menú ⬇ por vehículo → Exportar CNRT | PDF/Excel (`downloadStyledPassengers`) | OFRN = DNI personal; FIMBA = nominados del artista hasta plazas, resto sintético «Plaza N». Aviso post-export |
+| **Cronograma de paradas** | PDF (/Excel vía handler) | Menú vehículo → Cronograma de paradas | PDF/Excel (`generateStopsOnly*`) | Secuencia `buildVehicleBoardingSequence.sortedEvents` |
+| **Hoja de ruta** | PDF/Excel | Menú vehículo → Hoja de ruta | PDF/Excel (`buildRoadmapExportData` + generate*) | Sin alinear viáticos OFRN; ups/downs desde rides |
+| **Abordaje + secuencia** | Excel FIMBA | Menú / Exportar flota | Excel | Ya existía (`fimbaExport`) |
+| **Cuadro de firmas** / itinerario plantilla / admisión | OFRN only | — | — | No aplica a flota festival (destaques orquesta) |
+| **Combined stops** multi-bus | OFRN | — | — | No portado; flota Excel cubre multi-hoja abordaje |
+
+**Gaps honestos (UI tooltip / modal):** boarding FIMBA es por **plazas de artista** (`fimba_propuesta_rutas`), no nómina de participantes en el bus. CNRT/hoja de ruta rellenan con participantes de la propuesta (heurística por orden) y documentan plazas sin nominar. MealsReport por servicio/evento no existe en el modelo FIMBA.
 
 ### Agenda
 
@@ -390,6 +405,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] UI de asignación multi-vehículo por evento (trayectos): tabla flota (cap + libres + plazas n/m/p) + banner de unidades disponibles + **Repartir** greedy + resumen `n + m + p` vs tope artista/# PAX + hard-block asientos/libres/tope en modal y `saveFimbaEvento`
 - [x] Agenda grilla FIMBA (planilla multi-tipo)
 - [x] Reportes hotel (lista + cupos; sin rooming graph)
+- [x] Paridad reportes OFRN→FIMBA: pedido/texto/detalle/rooming (print+Excel); comidas (texto/PDF/Excel, sin por-evento); CNRT + paradas + hoja de ruta (PDF/Excel) por vehículo
 - [x] Alta/edición de vehículo embebida en FIMBA (`giras_transportes` / catálogo `transportes` en alta; update alineado a OFRN)
 - [x] Helper real de disponibilidad vs cupos OFRN (en tránsito rolling en planilla Transportes; roster + plaza_extra; FIMBA plazas)
 - [x] UI `audiencia_ofrn` multi-grupos en modal FIMBA (+ planilla orquesta); EventForm OFRN / tags artistas en eventos OFRN genéricos aún parcial
@@ -529,8 +545,13 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/views/Fimba/FimbaAgendaPage.jsx` | Planilla agenda (tipo/color catálogo); ride segments al filtrar artista |
 | `src/utils/fimbaTransportBoarding.js` | Boarding + `buildArtistaTrasladoAgendaBlocks` / merge |
 | `src/views/Fimba/FimbaTransportPage.jsx` | Vehículos + trayectos + columnas boarding / locación |
-| `src/views/Fimba/FimbaHoteleriaPage.jsx` | Reporte hotel + cupos inventario + resumen rooming |
-| `src/views/Fimba/FimbaRoomingPanel.jsx` | Panel hotelería/rooming (admin cupos + acomodo / RO) |
+| `src/views/Fimba/FimbaHoteleriaPage.jsx` | Hotelería + hub reportes (pedido/texto/detalle/rooming) + comidas |
+| `src/views/Fimba/FimbaHoteleriaReports.jsx` | Hub OFRN + vistas print/Excel pedido hotel |
+| `src/views/Fimba/FimbaComidasReportModal.jsx` | Comidas: texto / PDF / Excel |
+| `src/views/Fimba/FimbaTransportReportsMenu.jsx` | CNRT · paradas · hoja de ruta · Excel por vehículo |
+| `src/utils/fimbaExport.js` | Excel hotelería / comidas / abordaje flota |
+| `src/utils/fimbaReports.js` | Pedido/rooming/comidas print + adapters CNRT/paradas/roadmap |
+| `src/views/Fimba/FimbaRoomingPanel.jsx` | Panel hotelería/rooming (admin cupos + acomodo / RO) + PDF |
 | `src/views/Fimba/*` | Shell, staff, tokens |
 
 ## Migraciones

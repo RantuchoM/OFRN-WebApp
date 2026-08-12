@@ -130,7 +130,7 @@ export default function ArregloMobileDetailModal({
             {work.arreglador_label ? (
               <p className="text-xs text-slate-600 mt-0.5">
                 {work.arreglador_label}
-                {myCompositorId === work.id_integrante_arreglador ? (
+                {Number(myCompositorId) === Number(work.id_integrante_arreglador) ? (
                   <span className="text-indigo-500 ml-1">(vos)</span>
                 ) : null}
               </p>

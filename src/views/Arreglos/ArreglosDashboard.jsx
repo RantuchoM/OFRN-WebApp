@@ -469,10 +469,13 @@ function ArregloEntregaAcciones({
 }
 
 export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRepertoire, catalogoInstrumentos }) {
-  const { user, isEditor, isAdmin } = useAuth();
+  const { user, isEditor, isAdmin, isArreglador } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const sb = supabaseClient || supabase;
   const canEditFields = isEditor || isAdmin;
+  /** Arreglador sin permisos de edición: puede cargar un arreglo propio (sin encargo/mail). */
+  const isSelfArregloMode = Boolean(isArreglador && !canEditFields);
+  const canQuickAdd = canEditFields || isArreglador;
 
   const [loading, setLoading] = useState(true);
   const [works, setWorks] = useState([]);
@@ -684,9 +687,9 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     fetchWorks();
   }, [sb]);
 
-  // Cargar lista de compositores para SearchableSelect
+  // Cargar lista de compositores para SearchableSelect (encargo o arreglo propio)
   useEffect(() => {
-    if (!canEditFields) return;
+    if (!canQuickAdd) return;
     const fetchComposers = async () => {
       try {
         const { data, error } = await sb
@@ -706,20 +709,12 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
       }
     };
     fetchComposers();
-  }, [sb, canEditFields]);
+  }, [sb, canQuickAdd]);
 
+  // id_integrante_arreglador = integrantes.id del usuario logueado
   useEffect(() => {
-    if (!user || arregladoresOptions.length === 0) return;
-    const apellido = (user.apellido || "").trim().toLowerCase();
-    const nombre = (user.nombre || "").trim().toLowerCase();
-    const myId = arregladoresOptions.find((opt) => {
-      const parts = (opt.label || "").split(",").map((s) => s.trim().toLowerCase());
-      const ap = parts[0] || "";
-      const nom = parts[1] || "";
-      return ap === apellido && nom === nombre;
-    })?.id;
-    setMyCompositorId(myId ?? null);
-  }, [user, arregladoresOptions]);
+    setMyCompositorId(user?.id != null ? user.id : null);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!showArregladorFilter) return;
@@ -801,12 +796,21 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
       instrumentacion: "",
       dificultad: "",
       observaciones: "",
-      id_integrante_arreglador: DEFAULT_ARREGLADOR_INTEGRANTE_ID,
+      id_integrante_arreglador:
+        isSelfArregloMode && user?.id != null
+          ? user.id
+          : DEFAULT_ARREGLADOR_INTEGRANTE_ID,
     });
   };
 
   const openEncargarArreglo = () => {
-    if (!canEditFields) return;
+    if (!canQuickAdd) return;
+    if (isSelfArregloMode && user?.id != null) {
+      setQuickDraft((prev) => ({
+        ...prev,
+        id_integrante_arreglador: user.id,
+      }));
+    }
     const isMobile =
       typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
     if (isMobile) {
@@ -918,11 +922,13 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   };
 
   const handleQuickSave = async () => {
-    if (!canEditFields) return;
+    if (!canQuickAdd) return;
     const compositorId = quickDraft.compositorId;
     const titulo = (quickDraft.titulo || "").trim();
-    const arregladorId =
-      quickDraft.id_integrante_arreglador || DEFAULT_ARREGLADOR_INTEGRANTE_ID;
+    const selfMode = isSelfArregloMode;
+    const arregladorId = selfMode
+      ? user?.id
+      : quickDraft.id_integrante_arreglador || DEFAULT_ARREGLADOR_INTEGRANTE_ID;
 
     if (!compositorId) {
       toast.error("Seleccioná un compositor para el encargo.");
@@ -930,6 +936,14 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     }
     if (!titulo) {
       toast.error("Ingresá el título de la obra para el encargo.");
+      return;
+    }
+    if (!arregladorId) {
+      toast.error(
+        selfMode
+          ? "No se pudo identificar tu usuario como arreglador."
+          : "Seleccioná un arreglador para el encargo."
+      );
       return;
     }
 
@@ -964,24 +978,30 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         ]);
         if (relError) throw relError;
 
-        // Enviar mail de encargo igual que en WorkForm
-        const mailSent = await enviarEncargoArreglo(
-          data.id,
-          titulo,
-          arregladorId,
-          null,
-          quickDraft.observaciones || "",
-          quickDraft.fecha_esperada || null,
-          quickDraft.dificultad || null,
-          quickDraft.instrumentacion || null,
-          getSolicitanteLabelForUser()
-        );
-        if (mailSent) {
-          await markEncargoArregloMailSent(sb, data.id);
+        // Solo enviar mail cuando es un encargo (admin/editor), no cuando el arreglador se carga a sí mismo
+        if (!selfMode) {
+          const mailSent = await enviarEncargoArreglo(
+            data.id,
+            titulo,
+            arregladorId,
+            null,
+            quickDraft.observaciones || "",
+            quickDraft.fecha_esperada || null,
+            quickDraft.dificultad || null,
+            quickDraft.instrumentacion || null,
+            getSolicitanteLabelForUser()
+          );
+          if (mailSent) {
+            await markEncargoArregloMailSent(sb, data.id);
+          }
         }
       }
 
-      toast.success("Nuevo encargo de arreglo creado y asignado.");
+      toast.success(
+        selfMode
+          ? "Arreglo nuevo creado. Ya podés cargar el link de entrega."
+          : "Nuevo encargo de arreglo creado y asignado."
+      );
       handleQuickCancel();
       await fetchWorks();
     } catch (err) {
@@ -1248,14 +1268,14 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
             </p>
           </div>
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            {canEditFields && (
+            {canQuickAdd && (
               <button
                 type="button"
                 onClick={openEncargarArreglo}
                 className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm shrink-0"
               >
                 <IconPlus size={16} />
-                Encargar arreglo
+                {isSelfArregloMode ? "Arreglo nuevo" : "Encargar arreglo"}
               </button>
             )}
             <div className="relative shrink-0" ref={arregladorFilterRef}>
@@ -1310,7 +1330,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                           }`}
                         >
                           {opt.label}
-                          {myCompositorId === opt.id ? " (vos)" : ""}
+                          {Number(myCompositorId) === Number(opt.id) ? " (vos)" : ""}
                         </button>
                       </li>
                     ))}
@@ -1328,11 +1348,11 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
             <IconLoader className="animate-spin" size={28} />
             <span>Cargando...</span>
           </div>
-        ) : works.length === 0 && !(canEditFields && showQuickRow) ? (
+        ) : works.length === 0 && !(canQuickAdd && showQuickRow) ? (
           <div className="p-12 text-center text-slate-500 italic">
             No hay obras con encargos de arreglo para mostrar.
           </div>
-        ) : filteredWorks.length === 0 && !(canEditFields && showQuickRow) ? (
+        ) : filteredWorks.length === 0 && !(canQuickAdd && showQuickRow) ? (
           <div className="p-12 text-center text-slate-500 italic">
             {searchObraText.trim()
               ? "Ninguna obra coincide con la búsqueda."
@@ -1384,7 +1404,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {canEditFields && showQuickRow && (
+                {canQuickAdd && showQuickRow && (
                   <tr
                     ref={quickRowRef}
                     className={`border-b border-slate-100 bg-yellow-50/30 hover:bg-yellow-50/50 transition-shadow ${
@@ -1462,17 +1482,23 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                         </td>
                         <td className="py-2 px-3 align-top">
                           <div className="flex flex-col gap-2">
-                            <SearchableSelect
-                              options={integrantesArregladorOptions}
-                              value={quickDraft.id_integrante_arreglador}
-                              onChange={(id) =>
-                                setQuickDraftField("id_integrante_arreglador", id)
-                              }
-                              placeholder="Seleccionar arreglador..."
-                              isMulti={false}
-                              className="text-xs"
-                              dropdownMinWidth={260}
-                            />
+                            {isSelfArregloMode ? (
+                              <div className="text-xs font-semibold text-slate-800 border border-slate-200 bg-slate-50 rounded px-2 py-1.5">
+                                {getSolicitanteLabelForUser() || "Vos"}
+                              </div>
+                            ) : (
+                              <SearchableSelect
+                                options={integrantesArregladorOptions}
+                                value={quickDraft.id_integrante_arreglador}
+                                onChange={(id) =>
+                                  setQuickDraftField("id_integrante_arreglador", id)
+                                }
+                                placeholder="Seleccionar arreglador..."
+                                isMulti={false}
+                                className="text-xs"
+                                dropdownMinWidth={260}
+                              />
+                            )}
                             <div className="flex flex-wrap gap-1">
                               <button
                                 type="button"
@@ -1489,7 +1515,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                                 ) : (
                                   <IconCheck size={12} />
                                 )}
-                                Asignar a...
+                                {isSelfArregloMode ? "Guardar" : "Asignar a..."}
                               </button>
                               <button
                                 type="button"
@@ -1576,7 +1602,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                         {work.arreglador_label && (
                           <div className="text-xs text-slate-600 mt-0.5 truncate max-w-[22rem]">
                             {work.arreglador_label}
-                            {myCompositorId === work.id_integrante_arreglador && (
+                            {Number(myCompositorId) === Number(work.id_integrante_arreglador) && (
                               <span className="text-indigo-500 ml-1">(vos)</span>
                             )}
                           </div>
@@ -1791,7 +1817,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                     {work.arreglador_label ? (
                       <p className="text-xs text-slate-600 mt-0.5 truncate">
                         {work.arreglador_label}
-                        {myCompositorId === work.id_integrante_arreglador ? (
+                        {Number(myCompositorId) === Number(work.id_integrante_arreglador) ? (
                           <span className="text-indigo-500 ml-1">(vos)</span>
                         ) : null}
                       </p>
@@ -1965,6 +1991,8 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         onSave={handleQuickSave}
         onOpenNewComposer={() => setIsQuickCompOpen(true)}
         saving={quickSaving}
+        mode={isSelfArregloMode ? "self" : "encargo"}
+        arregladorFixedLabel={getSolicitanteLabelForUser()}
       />
 
       {mobileDetailWorkLive && (

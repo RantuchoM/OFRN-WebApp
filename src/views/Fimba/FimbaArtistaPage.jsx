@@ -14,6 +14,9 @@ import {
   IconCalendar,
   IconClipboardCheck,
   IconFileExcel,
+  IconFileText,
+  IconPrinter,
+  IconUtensils,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
@@ -35,6 +38,7 @@ import {
   getFimbaPropuestaById,
   labelFimbaAlimentacion,
   listFimbaContratacionesByPropuesta,
+  listFimbaHabitaciones,
   listFimbaParticipantes,
   listHotelesCatalog,
   regenerateFimbaTokens,
@@ -46,6 +50,9 @@ import {
 } from "../../services/fimbaService";
 import { DocumentacionDrivePreview } from "./FimbaDocumentacionDrivePreview";
 import { exportFimbaComidasExcel } from "../../utils/fimbaExport";
+import FimbaComidasReportModal from "./FimbaComidasReportModal";
+import FimbaHoteleriaReports from "./FimbaHoteleriaReports";
+import { printFimbaRooming } from "../../utils/fimbaReports";
 import FimbaConsultaAgenda from "./FimbaConsultaAgenda";
 import {
   AlimentacionInput,
@@ -354,8 +361,55 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
   const [loading, setLoading] = useState(!propuestaOverride);
   const [error, setError] = useState(null);
   const [tokenMsg, setTokenMsg] = useState(null);
+  const [comidasReportOpen, setComidasReportOpen] = useState(false);
+  const [hotelReportsOpen, setHotelReportsOpen] = useState(false);
 
   const propId = propuestaOverride?.id || artistaId;
+
+  const artistaHoteleriaRows = useMemo(() => {
+    if (!propuesta) return [];
+    return [
+      {
+        propuesta,
+        id_propuesta: propuesta.id,
+        hotel: propuesta.hoteles || null,
+        checkin_at: propuesta.checkin_at,
+        checkout_at: propuesta.checkout_at,
+        checkin_early: propuesta.checkin_early,
+        checkout_late: propuesta.checkout_late,
+        personas: participantes,
+        participantes,
+        sin_nombre: Math.max(
+          0,
+          (propuesta.cantidad_planificada || 0) -
+            countActiveParticipantes(participantes),
+        ),
+        habitaciones: [],
+      },
+    ];
+  }, [propuesta, participantes]);
+
+  const edicionLabel =
+    edicion?.nombre || propuesta?.nombre || "FIMBA";
+
+  const printArtistaRooming = async () => {
+    try {
+      const { habitaciones, error: err } = await listFimbaHabitaciones(propId);
+      if (err) throw err;
+      printFimbaRooming(
+        [
+          {
+            ...artistaHoteleriaRows[0],
+            hotel: propuesta?.hoteles || { nombre: "Hotel" },
+            habitaciones: habitaciones || [],
+          },
+        ],
+        { edicionNombre: `${edicionLabel} · ${propuesta?.nombre || ""}` },
+      );
+    } catch (err) {
+      setError(err?.message || "No se pudo imprimir rooming");
+    }
+  };
 
   const reload = async () => {
     setLoading(true);
@@ -591,6 +645,32 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
               type="button"
               className="fimba-btn fimba-btn-ghost"
               disabled={!participantes.filter((p) => p.activo !== false).length}
+              onClick={() => setComidasReportOpen(true)}
+              title="Texto pedido, PDF e Excel de regímenes"
+            >
+              <IconUtensils size={14} /> Reportes comidas
+            </button>
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-ghost"
+              disabled={!participantes.filter((p) => p.activo !== false).length}
+              onClick={() => setHotelReportsOpen(true)}
+              title="Pedido hotel / texto / detalle (este artista)"
+            >
+              <IconFileText size={14} /> Pedido hotel
+            </button>
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-ghost"
+              onClick={printArtistaRooming}
+              title="Imprimir / PDF habitaciones"
+            >
+              <IconPrinter size={14} /> Rooming PDF
+            </button>
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-ghost"
+              disabled={!participantes.filter((p) => p.activo !== false).length}
               onClick={async () => {
                 try {
                   await exportFimbaComidasExcel({
@@ -643,6 +723,19 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
           />
         )}
       </section>
+
+      <FimbaComidasReportModal
+        open={comidasReportOpen}
+        onClose={() => setComidasReportOpen(false)}
+        hoteleriaRows={artistaHoteleriaRows}
+        edicionNombre={`${edicionLabel} · ${propuesta?.nombre || ""}`}
+      />
+      <FimbaHoteleriaReports
+        open={hotelReportsOpen}
+        onClose={() => setHotelReportsOpen(false)}
+        hoteleriaRows={artistaHoteleriaRows}
+        edicionNombre={`${edicionLabel} · ${propuesta?.nombre || ""}`}
+      />
     </div>
   );
 }

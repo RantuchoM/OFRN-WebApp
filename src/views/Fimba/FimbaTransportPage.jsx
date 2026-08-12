@@ -24,6 +24,7 @@ import {
   giraTransporteIdsFromEvent,
   labelGiraTransporte,
   listFimbaFlota,
+  listFimbaHoteleria,
   listFimbaPropuestas,
   listFimbaPropuestaRutas,
   listFimbaTraslados,
@@ -45,6 +46,8 @@ import {
   exportFimbaTransporteTodosExcel,
   exportFimbaTransporteVehiculoExcel,
 } from "../../utils/fimbaExport";
+import FimbaTransportReportsMenu from "./FimbaTransportReportsMenu";
+import { indexParticipantesByPropuesta } from "../../utils/fimbaReports";
 import { eventTypeIdForCategoria } from "../../utils/giraTransportUtils";
 import FimbaDestinoStopModal from "./FimbaDestinoStopModal";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
@@ -232,6 +235,10 @@ export default function FimbaTransportPage() {
   });
   const [exportingVehicleId, setExportingVehicleId] = useState(null);
   const [exportingAll, setExportingAll] = useState(false);
+  /** Participantes por propuesta (CNRT / hoja de ruta FIMBA). */
+  const [participantesByPropuesta, setParticipantesByPropuesta] = useState(
+    () => new Map(),
+  );
   const showVehForm = showAddVeh || editingVehiculoId != null;
   const isEditingVeh = editingVehiculoId != null;
 
@@ -265,7 +272,7 @@ export default function FimbaTransportPage() {
       return;
     }
     const ed = edRes.edicion;
-    const [propsRes, flotaRes, trasRes, catRes, logRes, rutasRes] =
+    const [propsRes, flotaRes, trasRes, catRes, logRes, rutasRes, hotRes] =
       await Promise.all([
         listFimbaPropuestas(edicionId),
         listFimbaFlota(ed.id_gira),
@@ -275,6 +282,7 @@ export default function FimbaTransportPage() {
         listOfrnTransportesCatalog(),
         loadFimbaTransportLogisticsSummary(ed.id_gira),
         listFimbaPropuestaRutas(edicionId),
+        listFimbaHoteleria(edicionId),
       ]);
     const firstErr =
       propsRes.error ||
@@ -282,7 +290,8 @@ export default function FimbaTransportPage() {
       trasRes.error ||
       catRes.error ||
       logRes.error ||
-      rutasRes.error;
+      rutasRes.error ||
+      hotRes.error;
     if (firstErr) {
       setError(firstErr.message || "Error al cargar");
     }
@@ -297,6 +306,9 @@ export default function FimbaTransportPage() {
     setOfrnRegions(logRes.regions || []);
     setOfrnLocalities(logRes.localities || []);
     setPropuestaRoutes(rutasRes.rutas || []);
+    setParticipantesByPropuesta(
+      indexParticipantesByPropuesta(hotRes.rows || []),
+    );
     setLoading(false);
   };
 
@@ -1564,21 +1576,14 @@ export default function FimbaTransportPage() {
                       </td>
                       <td>
                         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                          <button
-                            type="button"
-                            className="fimba-btn fimba-btn-ghost"
-                            title="Exportar abordaje y secuencia (Excel)"
-                            aria-label={`Exportar ${labelGiraTransporte(gt)}`}
-                            style={{ padding: "0.25rem 0.4rem" }}
+                          <FimbaTransportReportsMenu
+                            vehiculo={gt}
+                            sequence={sequencesByVehicle.get(Number(gt.id))}
+                            edicionNombre={edicionLabel}
+                            ofrnPassengerById={ofrnPassengerById}
+                            participantesByPropuesta={participantesByPropuesta}
                             disabled={isExporting}
-                            onClick={() => exportVehiculo(gt)}
-                          >
-                            {isExporting ? (
-                              <IconLoader size={15} className="animate-spin" />
-                            ) : (
-                              <IconFileExcel size={15} />
-                            )}
-                          </button>
+                          />
                           {!readOnly && !editMode && (
                             <button
                               type="button"

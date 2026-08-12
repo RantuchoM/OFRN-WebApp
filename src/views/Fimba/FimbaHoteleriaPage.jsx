@@ -9,6 +9,7 @@ import {
   IconBed,
   IconUsers,
   IconFileExcel,
+  IconUtensils,
 } from "../../components/ui/Icons";
 import {
   getFimbaEdicionById,
@@ -28,6 +29,10 @@ import {
   exportFimbaHoteleriaExcel,
 } from "../../utils/fimbaExport";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import FimbaHoteleriaReports, {
+  FimbaHoteleriaReportsButton,
+} from "./FimbaHoteleriaReports";
+import FimbaComidasReportModal from "./FimbaComidasReportModal";
 
 function formatFecha(f) {
   if (!f) return "—";
@@ -60,6 +65,8 @@ export default function FimbaHoteleriaPage() {
   const [modal, setModal] = useState(null);
   const [expanded, setExpanded] = useState({});
   const [exporting, setExporting] = useState(null);
+  const [hotelReportsOpen, setHotelReportsOpen] = useState(false);
+  const [comidasReportOpen, setComidasReportOpen] = useState(false);
 
   const edicionLabel = edicion?.nombre || `Edicion_${edicionId}`;
 
@@ -243,6 +250,20 @@ export default function FimbaHoteleriaPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <FimbaHoteleriaReportsButton
+            disabled={rows.length === 0}
+            onClick={() => setHotelReportsOpen(true)}
+            label="Reportes hotelería"
+          />
+          <button
+            type="button"
+            className="fimba-btn fimba-btn-ghost"
+            disabled={rows.length === 0}
+            onClick={() => setComidasReportOpen(true)}
+            title="Regímenes: texto pedido, PDF e Excel"
+          >
+            <IconUtensils size={14} /> Reportes comidas
+          </button>
           <button
             type="button"
             className="fimba-btn fimba-btn-ghost"
@@ -582,6 +603,19 @@ export default function FimbaHoteleriaPage() {
           />,
           document.body,
         )}
+
+      <FimbaHoteleriaReports
+        open={hotelReportsOpen}
+        onClose={() => setHotelReportsOpen(false)}
+        hoteleriaRows={rows}
+        edicionNombre={edicionLabel}
+      />
+      <FimbaComidasReportModal
+        open={comidasReportOpen}
+        onClose={() => setComidasReportOpen(false)}
+        hoteleriaRows={rows}
+        edicionNombre={edicionLabel}
+      />
     </div>
   );
 }
