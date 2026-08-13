@@ -73,6 +73,13 @@ import {
   sortWindMusiciansForSeating,
 } from "../../utils/seatingWindOrder";
 import { createPortal } from "react-dom";
+import GiraGrupoChips from "../../components/giras/GiraGrupoChips";
+import {
+  fetchGiraGrupos,
+  integranteIdsForRepertorioGrupos,
+  repertorioGrupoIdsFromBlock,
+  repertorioGruposMetaFromBlock,
+} from "../../services/giraGruposService";
 
 // Librerías para reporte PDF
 import { jsPDF } from "jspdf";
@@ -901,7 +908,9 @@ export default function ProgramSeating({
   const canViewStringsConfig = canManageSeating || canAccessStringsConfig;
   const canEditStringsConfig = isEditor || canAccessStringsConfig;
 
-  const [filteredRoster, setFilteredRoster] = useState([]);
+  const [confirmedRoster, setConfirmedRoster] = useState([]);
+  const [giraGrupos, setGiraGrupos] = useState([]);
+  const [blockGruposById, setBlockGruposById] = useState(() => new Map());
   const [particellas, setParticellas] = useState([]);
   const [assignments, setAssignments] = useState({});
   const [musicianAssignments, setMusicianAssignments] = useState({});
@@ -938,11 +947,11 @@ export default function ProgramSeating({
   const mobileActionsMenuRef = useRef(null);
   const musicianTooltipById = useMemo(() => {
     const map = {};
-    (filteredRoster || []).forEach((m) => {
+    (confirmedRoster || []).forEach((m) => {
       map[m.id] = getMusicianSeatingTooltip(m);
     });
     return map;
-  }, [filteredRoster]);
+  }, [confirmedRoster]);
 
   useEffect(() => {
     stringsPanelHeightLatestRef.current = stringsPanelHeight;
@@ -1018,7 +1027,7 @@ export default function ProgramSeating({
         const { data } = await supabase
           .from("programas_repertorios")
           .select(
-            `id, orden, nombre, google_drive_folder_id, repertorio_obras (id, orden, obras (id, titulo, link_drive, instrumentacion, obras_compositores (rol, compositores (apellido))))`,
+            `id, orden, nombre, google_drive_folder_id, programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), repertorio_obras (id, orden, obras (id, titulo, link_drive, instrumentacion, obras_compositores (rol, compositores (apellido))))`,
           )
           .eq("id_programa", program.id)
           .order("orden");
@@ -1110,6 +1119,73 @@ export default function ProgramSeating({
     return effectiveBlocks[0].id;
   }, [effectiveBlocks, activeBlockId]);
 
+  useEffect(() => {
+    if (!program?.id || !supabase) {
+      setGiraGrupos([]);
+      setBlockGruposById(new Map());
+      return undefined;
+    }
+    let cancelled = false;
+    Promise.all([
+      fetchGiraGrupos(supabase, program.id),
+      supabase
+        .from("programas_repertorios")
+        .select(
+          "id, programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )",
+        )
+        .eq("id_programa", program.id),
+    ]).then(([{ grupos }, { data: blocks }]) => {
+      if (cancelled) return;
+      setGiraGrupos(grupos || []);
+      const map = new Map();
+      (blocks || []).forEach((b) => {
+        map.set(Number(b.id), b.programas_repertorios_grupos || []);
+      });
+      setBlockGruposById(map);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [program?.id, supabase, repertoireBlocks]);
+
+  const gruposEmbedForBlock = (block) => {
+    if (!block) return [];
+    const fromMap = blockGruposById.get(Number(block.id));
+    return fromMap ?? block.programas_repertorios_grupos ?? [];
+  };
+
+  const activeBlockGrupoIds = useMemo(() => {
+    if (!resolvedBlockId) return [];
+    const block =
+      effectiveBlocks.find((b) => Number(b.id) === Number(resolvedBlockId)) ||
+      null;
+    return repertorioGrupoIdsFromBlock({
+      programas_repertorios_grupos: gruposEmbedForBlock(block),
+    });
+  }, [resolvedBlockId, effectiveBlocks, blockGruposById]);
+
+  const activeBlockGrupoMemberIds = useMemo(
+    () => integranteIdsForRepertorioGrupos(giraGrupos, activeBlockGrupoIds),
+    [giraGrupos, activeBlockGrupoIds],
+  );
+
+  const filteredRoster = useMemo(() => {
+    if (!activeBlockGrupoMemberIds) return confirmedRoster;
+    return (confirmedRoster || []).filter((m) =>
+      activeBlockGrupoMemberIds.has(String(m.id)),
+    );
+  }, [confirmedRoster, activeBlockGrupoMemberIds]);
+
+  const seatingContainers = useMemo(() => {
+    if (!activeBlockGrupoMemberIds) return containers;
+    return (containers || []).map((c) => ({
+      ...c,
+      items: (c.items || []).filter((item) =>
+        activeBlockGrupoMemberIds.has(String(item.id_musico)),
+      ),
+    }));
+  }, [containers, activeBlockGrupoMemberIds]);
+
   const displayObras = useMemo(() => {
     if (!resolvedBlockId) return obras;
     return obras.filter((obra) => obra.blockId === resolvedBlockId);
@@ -1190,7 +1266,7 @@ export default function ProgramSeating({
     // inflados por músicos desvinculados o ausentes.
     const visibleKeys = new Set();
 
-    containers.forEach((c) => {
+    seatingContainers.forEach((c) => {
       obras.forEach((obra) => {
         visibleKeys.add(`C-${c.id}-${obra.obra_id}`);
       });
@@ -1219,7 +1295,7 @@ export default function ProgramSeating({
     });
 
     return counts;
-  }, [assignments, musicianAssignments, containers, obras, otherMusicians]);
+  }, [assignments, musicianAssignments, seatingContainers, obras, otherMusicians]);
 
   const assignedPartIdsByObra = useMemo(() => {
     const byObra = {};
@@ -1236,7 +1312,7 @@ export default function ProgramSeating({
       });
     });
 
-    containers.forEach((c) => {
+    seatingContainers.forEach((c) => {
       obras.forEach((obra) => {
         const partId = assignments[`C-${c.id}-${obra.obra_id}`];
         if (partId) byObra[obra.obra_id].add(String(partId));
@@ -1244,7 +1320,7 @@ export default function ProgramSeating({
     });
 
     return byObra;
-  }, [assignments, musicianAssignments, containers, obras, otherMusicians]);
+  }, [assignments, musicianAssignments, seatingContainers, obras, otherMusicians]);
 
   function createEmptyInstrumentationMap() {
     return {
@@ -1450,7 +1526,7 @@ export default function ProgramSeating({
   const pendingParticellaSuggestionsCount = useMemo(() => {
     if (!isEditor) return 0;
     let count = 0;
-    containers.forEach((c) => {
+    seatingContainers.forEach((c) => {
       if (!c.items?.length) return;
       displayObras.forEach((obra) => {
         const obraId = obra.obra_id;
@@ -1470,7 +1546,7 @@ export default function ProgramSeating({
     return count;
   }, [
     isEditor,
-    containers,
+    seatingContainers,
     displayObras,
     assignments,
     musicianAssignments,
@@ -1865,7 +1941,7 @@ export default function ProgramSeating({
         if (instrIdA !== instrIdB) return instrIdA.localeCompare(instrIdB);
         return (a.apellido || "").localeCompare(b.apellido || "");
       });
-      setFilteredRoster(musicians);
+      setConfirmedRoster(musicians);
       await fetchContainers();
 
       const { data: assigns } = await supabase
@@ -1997,7 +2073,7 @@ export default function ProgramSeating({
       doc.text("Asignación de Particellas", 14, finalY + 8);
 
       const otherMusicians = sortWindMusiciansForSeating(
-        filteredRoster.filter((m) => !isString(m.id_instr)),
+        confirmedRoster.filter((m) => !isString(m.id_instr)),
         buildSeatingPartSortOptions({
           obras,
           musicianAssignments,
@@ -2068,7 +2144,7 @@ export default function ProgramSeating({
         supabase,
         program,
         effectiveBlocks,
-        filteredRoster,
+        confirmedRoster,
         assignments,
         containers,
         particellas,
@@ -2150,7 +2226,7 @@ export default function ProgramSeating({
     if (!isEditor || pendingParticellaSuggestionsCount === 0) return;
     setIsAcceptingAllSuggestions(true);
     try {
-      for (const c of containers) {
+      for (const c of seatingContainers) {
         if (!c.items?.length) continue;
         for (const obra of obras) {
           const obraId = obra.obra_id;
@@ -2324,7 +2400,7 @@ export default function ProgramSeating({
     const seen = new Set();
 
     // Primero, todos los músicos que están en contenedores (cuerdas)
-    containers.forEach((c) =>
+    seatingContainers.forEach((c) =>
       c.items.forEach((item) => {
         const sid = String(item.id_musico);
         if (!seen.has(sid)) {
@@ -2370,7 +2446,7 @@ export default function ProgramSeating({
       if (!hasAnyPart) without.add(sid);
     });
     return without;
-  }, [containers, otherMusicians, displayObras, assignments, musicianAssignments]);
+  }, [seatingContainers, otherMusicians, displayObras, assignments, musicianAssignments]);
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
@@ -2403,7 +2479,7 @@ export default function ProgramSeating({
           <SeatingHistoryModal
             isOpen={showHistory}
             onClose={() => setShowHistory(false)}
-            roster={filteredRoster}
+            roster={confirmedRoster}
             supabase={supabase}
           />
         )}
@@ -2423,7 +2499,7 @@ export default function ProgramSeating({
             works={obrasWithInstrumentation}
             required={instrumentationRequired}
             convoked={instrumentationConvoked}
-            roster={filteredRoster}
+            roster={confirmedRoster}
             programId={program?.id}
             supabase={supabase}
             organicoRevisado={!!program?.organico_revisado}
@@ -2442,7 +2518,7 @@ export default function ProgramSeating({
             musicianAssignments={musicianAssignments}
             containers={containers}
             particellas={particellas}
-            filteredRoster={filteredRoster}
+            filteredRoster={confirmedRoster}
           />
         )}
       </Suspense>
@@ -2764,20 +2840,22 @@ export default function ProgramSeating({
       </div>
 
       {effectiveBlocks.length > 0 && (
-        <div className="shrink-0 bg-white border-b border-slate-200">
-          <div className="flex items-stretch gap-1 px-2 sm:px-4 overflow-x-auto">
-            <span className="shrink-0 self-center inline-flex items-center gap-1 pr-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              <IconLayers size={12} aria-hidden />
+        <div className="shrink-0 bg-slate-100 border-b border-slate-300">
+          <div className="flex items-end gap-1.5 px-2 sm:px-4 pt-1.5 overflow-x-auto">
+            <span className="shrink-0 self-center pb-2 pr-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
               Bloques
             </span>
             <div
               role="tablist"
               aria-label="Bloques de repertorio"
-              className="flex min-w-0 flex-1 items-stretch"
+              className="flex min-w-0 flex-1 items-end gap-1"
             >
               {effectiveBlocks.map((block, index) => {
                 const isActive = resolvedBlockId === block.id;
                 const workCount = (block.repertorio_obras || []).length;
+                const blockGrupos = repertorioGruposMetaFromBlock({
+                  programas_repertorios_grupos: gruposEmbedForBlock(block),
+                });
                 return (
                   <button
                     key={block.id}
@@ -2789,22 +2867,30 @@ export default function ProgramSeating({
                     tabIndex={isActive ? 0 : -1}
                     onClick={() => setActiveBlockId(block.id)}
                     onKeyDown={(event) => handleBlockTabKeyDown(event, index)}
-                    className={`shrink-0 px-3 sm:px-4 py-2 text-[11px] sm:text-xs font-bold whitespace-nowrap border-b-2 -mb-px transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset ${
+                    className={`shrink-0 inline-flex items-center cursor-pointer rounded-t-lg px-3 sm:px-4 py-2 min-h-[2.25rem] text-xs sm:text-sm whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 ${
                       isActive
-                        ? "border-indigo-600 text-indigo-700 bg-indigo-50/60"
-                        : "border-transparent text-slate-500 hover:text-indigo-600 hover:border-indigo-200 hover:bg-slate-50"
+                        ? "border border-slate-300 border-b-white bg-white font-bold text-indigo-800 -mb-px"
+                        : "border border-transparent bg-white/60 font-semibold text-slate-600 hover:bg-white hover:text-slate-800 hover:border-slate-200"
                     }`}
                   >
                     {block.nombre}
                     {workCount > 0 && (
                       <span
-                        className={`ml-1.5 inline-flex min-w-[1.15rem] justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                        className={`ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${
                           isActive
-                            ? "bg-indigo-100 text-indigo-700"
-                            : "bg-slate-100 text-slate-500"
+                            ? "bg-indigo-600 text-white"
+                            : "bg-slate-200 text-slate-600"
                         }`}
                       >
                         {workCount}
+                      </span>
+                    )}
+                    {blockGrupos.length > 0 && (
+                      <span className="ml-1.5 inline-flex items-center gap-1">
+                        <GiraGrupoChips
+                          grupos={blockGrupos}
+                          compact={!isActive}
+                        />
                       </span>
                     )}
                   </button>
@@ -2824,7 +2910,7 @@ export default function ProgramSeating({
             : undefined
         }
         ref={splitAreaRef}
-        className="flex-1 overflow-hidden p-1 md:p-4 flex flex-col min-h-0"
+        className="flex-1 overflow-hidden px-1 pt-2 pb-1 md:px-4 md:pt-3 md:pb-4 flex flex-col min-h-0"
       >
         {showConfig && canViewStringsConfig && (
           <>
@@ -2841,7 +2927,7 @@ export default function ProgramSeating({
               >
                 <GlobalStringsManager
                   programId={program.id}
-                  roster={filteredRoster}
+                  roster={confirmedRoster}
                   containers={containers}
                   onUpdate={fetchContainers}
                   supabase={supabase}
@@ -2873,7 +2959,7 @@ export default function ProgramSeating({
             musicianAssignments={musicianAssignments}
             filteredRoster={filteredRoster}
             windMusicians={otherMusicians}
-            containers={containers}
+            containers={seatingContainers}
             particellas={particellas}
             isEditor={isEditor}
             availablePartsByWork={availablePartsByWork}
@@ -2976,7 +3062,7 @@ export default function ProgramSeating({
             </thead>
             <tbody className="divide-y divide-slate-100">
               {/* CUERDAS */}
-              {containers.length > 0 && (
+              {seatingContainers.length > 0 && (
                 <>
                   <tr className="bg-indigo-50/50">
                     <td
@@ -2986,7 +3072,7 @@ export default function ProgramSeating({
                       Sección de Cuerdas
                     </td>
                   </tr>
-                  {containers.map((c) => {
+                  {seatingContainers.map((c) => {
                     const isMyContainer = c.items.some(
                       (i) => i.id_musico === user.id,
                     );

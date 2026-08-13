@@ -602,6 +602,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
         .select(
           `
           *,
+          programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ),
           repertorio_obras (
             id, id_obra, orden, notas_especificas, seating_provisorio, usar_seating_provisorio, id_arco_seleccionado,
             en_definicion, estado_curaduria, observacion_curaduria,
@@ -637,7 +638,9 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
           .insert([
             { id_programa: program.id, nombre: "Repertorio", orden: 0 },
           ])
-          .select(`*, repertorio_obras(*)`)
+          .select(
+            `*, programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), repertorio_obras(*)`,
+          )
           .single();
         if (!createError) {
           setRepertorios([newBlock]);

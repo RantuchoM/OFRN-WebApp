@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
@@ -88,6 +88,10 @@ export default function RosterGroupsModal({
   });
   const [sortBy, setSortBy] = useState("nombre");
   const [sortDir, setSortDir] = useState("asc");
+  /** Índice en el listado visible; ancla para Shift+click. */
+  const lastClickedVisibleIndexRef = useRef(null);
+  /** Evita checkbox+fila disparando el mismo click dos veces (desmarca el extremo). */
+  const memberClickLockRef = useRef(false);
   /** null | { loading, eventos, error } — panel de confirmación al eliminar grupo */
   const [deletePanel, setDeletePanel] = useState(null);
 
@@ -138,6 +142,15 @@ export default function RosterGroupsModal({
     });
     return rows;
   }, [confirmados, columnFilters, sortBy, sortDir, pinnedSelectedIds]);
+
+  const visibleRowIdsKey = useMemo(
+    () => filteredSortedConfirmados.map((m) => String(m.id)).join(","),
+    [filteredSortedConfirmados],
+  );
+
+  useEffect(() => {
+    lastClickedVisibleIndexRef.current = null;
+  }, [isOpen, selectedGrupoId, visibleRowIdsKey]);
 
   const selectedGrupo = useMemo(
     () => grupos.find((g) => Number(g.id) === Number(selectedGrupoId)) || null,
@@ -317,7 +330,61 @@ export default function RosterGroupsModal({
     });
   };
 
+  const isShiftClick = (event) => {
+    if (!event) return false;
+    if (event.shiftKey) return true;
+    if (
+      typeof event.getModifierState === "function" &&
+      event.getModifierState("Shift")
+    ) {
+      return true;
+    }
+    const ne = event.nativeEvent;
+    if (!ne) return false;
+    if (ne.shiftKey) return true;
+    return (
+      typeof ne.getModifierState === "function" && ne.getModifierState("Shift")
+    );
+  };
+
+  const handleVisibleMemberClick = (event, visibleIndex, id) => {
+    // Checkbox click + row click (o click retargeteado tras preventDefault en mousedown)
+    // corren en el mismo tick: el 2º suele venir sin shiftKey y desmarca el extremo.
+    if (memberClickLockRef.current) return;
+    memberClickLockRef.current = true;
+    queueMicrotask(() => {
+      memberClickLockRef.current = false;
+    });
+
+    const shiftKey = isShiftClick(event);
+    if (shiftKey) event.preventDefault?.();
+
+    const rows = filteredSortedConfirmados;
+    if (
+      shiftKey &&
+      lastClickedVisibleIndexRef.current != null &&
+      rows.length > 0
+    ) {
+      const from = Math.min(lastClickedVisibleIndexRef.current, visibleIndex);
+      const to = Math.max(lastClickedVisibleIndexRef.current, visibleIndex);
+      setMemberIds((prev) => {
+        const next = new Set(prev);
+        for (let i = from; i <= to; i++) {
+          const row = rows[i];
+          if (row?.id != null) next.add(String(row.id));
+        }
+        if (id != null) next.add(String(id));
+        return next;
+      });
+      return;
+    }
+
+    toggleMember(id);
+    lastClickedVisibleIndexRef.current = visibleIndex;
+  };
+
   const selectAllFiltered = () => {
+    lastClickedVisibleIndexRef.current = null;
     setMemberIds((prev) => {
       const next = new Set(prev);
       filteredSortedConfirmados.forEach((m) => next.add(String(m.id)));
@@ -325,7 +392,10 @@ export default function RosterGroupsModal({
     });
   };
 
-  const clearAll = () => setMemberIds(new Set());
+  const clearAll = () => {
+    lastClickedVisibleIndexRef.current = null;
+    setMemberIds(new Set());
+  };
 
   const toggleSort = (key) => {
     setPinnedSelectedIds(new Set(memberIds));
@@ -691,7 +761,7 @@ export default function RosterGroupsModal({
                           })}
                         </tr>
                       </thead>
-                      <tbody>
+                      <tbody className="select-none">
                         {filteredSortedConfirmados.length === 0 ? (
                           <tr>
                             <td
@@ -702,13 +772,17 @@ export default function RosterGroupsModal({
                             </td>
                           </tr>
                         ) : (
-                          filteredSortedConfirmados.map((m) => {
-                            const key = String(m.id);
+                          filteredSortedConfirmados.map((m, visibleIndex) => {
+                            const key = integranteKey(m.id);
                             const checked = memberIds.has(key);
                             return (
                               <tr
-                                key={integranteKey(m)}
-                                className={`border-b border-slate-50 hover:bg-slate-50/80 text-xs ${
+                                key={key}
+                                onClick={(e) => {
+                                  if (e.target.closest("input, button, a")) return;
+                                  handleVisibleMemberClick(e, visibleIndex, m.id);
+                                }}
+                                className={`border-b border-slate-50 hover:bg-slate-50/80 text-xs cursor-pointer ${
                                   checked ? "bg-indigo-50/40" : ""
                                 }`}
                               >
@@ -716,8 +790,17 @@ export default function RosterGroupsModal({
                                   <input
                                     type="checkbox"
                                     checked={checked}
-                                    onChange={() => toggleMember(m.id)}
-                                    className="rounded text-indigo-600"
+                                    onChange={() => {}}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleVisibleMemberClick(
+                                        e,
+                                        visibleIndex,
+                                        m.id,
+                                      );
+                                    }}
+                                    className="rounded text-indigo-600 cursor-pointer"
                                   />
                                 </td>
                                 <td className="px-1.5 py-1.5 font-medium text-slate-700 max-w-[12rem] truncate">

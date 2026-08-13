@@ -40,6 +40,15 @@ import {
   IconRefresh,
   IconViolin,
 } from "../ui/Icons";
+import MultiSelectDropdown from "../ui/MultiSelectDropdown";
+import GiraGrupoChips from "../giras/GiraGrupoChips";
+import {
+  GIRA_GRUPO_DEFAULT_COLORS,
+  fetchGiraGrupos,
+  repertorioGrupoIdsFromBlock,
+  repertorioGruposMetaFromBlock,
+  setRepertorioGrupos,
+} from "../../services/giraGruposService";
 import {
   normalizeRepertorioBlockOrden,
   seatingItemMatrixPosition,
@@ -1593,6 +1602,9 @@ function QuickWorkRow({
   );
 }
 
+const REPERTORIO_GRUPOS_EMBED =
+  "programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )";
+
 export default function RepertoireManager({
   supabase,
   programId,
@@ -1601,6 +1613,7 @@ export default function RepertoireManager({
   isCompact = false,
   readOnly = undefined,
   onSyncArco,
+  onUpdate,
 }) {
   const { user, isEditor: isGlobalEditor, isAdmin } = useAuth();
   const { confirm, dialog } = useConfirmDialog();
@@ -1643,6 +1656,7 @@ export default function RepertoireManager({
     isDefinitionMode: false,
     initialTab: "datos",
   });
+  const [giraGrupos, setGiraGrupos] = useState([]);
   // --- CALCULAR MAPA DE ARCOS DISPONIBLES ---
   const arcosByWork = useMemo(() => {
     const map = {};
@@ -1680,6 +1694,20 @@ export default function RepertoireManager({
     // CALL THE NEW FETCH
     fetchSeating();
   }, [programId, user?.id]);
+
+  useEffect(() => {
+    if (!supabase || programId == null || programId === "") {
+      setGiraGrupos([]);
+      return;
+    }
+    let cancelled = false;
+    fetchGiraGrupos(supabase, programId).then(({ grupos }) => {
+      if (!cancelled) setGiraGrupos(grupos || []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, programId]);
 
   useEffect(() => {
     if (programId) fetchFullRepertoire();
@@ -1854,7 +1882,7 @@ export default function RepertoireManager({
     const { data: reps, error } = await supabase
       .from("programas_repertorios")
       .select(
-        `*, repertorio_obras (
+        `*, ${REPERTORIO_GRUPOS_EMBED}, repertorio_obras (
           id,
           id_obra,
           id_repertorio,
@@ -1889,13 +1917,13 @@ export default function RepertoireManager({
       return;
     }
 
-    setRepertorios(
-      reps.map((r) => ({
-        ...r,
-        repertorio_obras:
-          r.repertorio_obras?.sort((a, b) => a.orden - b.orden) || [],
-      })),
-    );
+    const next = reps.map((r) => ({
+      ...r,
+      repertorio_obras:
+        r.repertorio_obras?.sort((a, b) => a.orden - b.orden) || [],
+    }));
+    setRepertorios(next);
+    onUpdate?.(next);
     setLoading(false);
   };
 
@@ -2119,6 +2147,36 @@ export default function RepertoireManager({
       .update({ nombre: editingBlock.nombre })
       .eq("id", editingBlock.id);
     setEditingBlock({ id: null, nombre: "" });
+  };
+
+  const handleBlockGruposChange = async (rep, grupoIds) => {
+    const ids = [
+      ...new Set((grupoIds || []).map(Number).filter(Number.isFinite)),
+    ];
+    const nextEmbed = ids.map((gid) => {
+      const g = giraGrupos.find((x) => Number(x.id) === gid);
+      return {
+        id_grupo: gid,
+        giras_grupos: g
+          ? {
+              id: g.id,
+              nombre: g.nombre,
+              color: g.color || GIRA_GRUPO_DEFAULT_COLORS[0],
+            }
+          : { id: gid, nombre: "", color: GIRA_GRUPO_DEFAULT_COLORS[0] },
+      };
+    });
+    const next = repertorios.map((r) =>
+      r.id === rep.id ? { ...r, programas_repertorios_grupos: nextEmbed } : r,
+    );
+    setRepertorios(next);
+    onUpdate?.(next);
+    const { error } = await setRepertorioGrupos(supabase, rep.id, ids);
+    if (error) {
+      console.error("Error al guardar grupos del bloque:", error);
+      alert("Error al guardar los grupos del bloque.");
+      fetchFullRepertoire();
+    }
   };
 
   const moveWork = async (repertorioId, workId, direction) => {
@@ -2874,6 +2932,17 @@ export default function RepertoireManager({
     }),
   );
 
+  const hasGiraGrupos = giraGrupos.length > 0;
+  const giraGrupoOptions = useMemo(
+    () =>
+      (giraGrupos || []).map((g) => ({
+        value: Number(g.id),
+        label: g.nombre,
+        color: g.color || GIRA_GRUPO_DEFAULT_COLORS[0],
+      })),
+    [giraGrupos],
+  );
+
   const allRepertorioObraIds = useMemo(
     () =>
       repertorios.flatMap((r) =>
@@ -2943,8 +3012,8 @@ export default function RepertoireManager({
             } overflow-visible ${activeDragId ? "z-10" : ""}`}
           >
             {/* --- HEADER DEL BLOQUE (TÍTULO Y DURACIÓN) --- */}
-            <div className="bg-fixed-indigo-50/50 p-2 border-b border-slate-200 flex justify-between items-center h-10 sticky top-0 z-10 backdrop-blur-sm">
-              <div className="flex items-center gap-3">
+            <div className="bg-fixed-indigo-50/50 p-2 border-b border-slate-200 flex justify-between items-center min-h-10 sticky top-0 z-10 backdrop-blur-sm gap-2">
+              <div className="flex items-center gap-3 min-w-0 flex-wrap">
                 <IconMusic size={14} className="text-fixed-indigo-600" />
                 {editingBlock.id === rep.id ? (
                   <input
@@ -3056,6 +3125,31 @@ export default function RepertoireManager({
                         <span>En definición</span>
                       </span>
                     )}
+
+                    {hasGiraGrupos &&
+                      (isEditor ? (
+                        <div
+                          className="w-40 max-w-[11rem] shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MultiSelectDropdown
+                            compact
+                            summaryMode="names"
+                            summaryMaxNames={2}
+                            label="Grupos"
+                            placeholder="Todos…"
+                            options={giraGrupoOptions}
+                            value={repertorioGrupoIdsFromBlock(rep)}
+                            onChange={(arr) =>
+                              handleBlockGruposChange(rep, arr)
+                            }
+                          />
+                        </div>
+                      ) : (
+                        <GiraGrupoChips
+                          grupos={repertorioGruposMetaFromBlock(rep)}
+                        />
+                      ))}
 
                     {/* Badge de Atril (si el usuario tiene asignación) */}
                     {userSeating && (

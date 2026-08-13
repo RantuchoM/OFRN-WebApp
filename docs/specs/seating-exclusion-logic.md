@@ -13,6 +13,12 @@ Garantizar que los miembros de ensambles excluidos no aparezcan en ninguna insta
 ## Acción Correctiva
 Refactorizar el selector de músicos en la vista de Seating para validar contra el estado de resolución de `giraService`.
 
+## Grupos de convocatoria por bloque
+- El seating consume `useGiraRoster` (ausentes / no confirmados fuera) y, si el **bloque activo** tiene filas en `programas_repertorios_grupos`, recorta el roster visible a la unión de miembros de esos grupos.
+- Bloque sin grupos = roster confirmado completo (comportamiento histórico).
+- La config de cuerdas y los exports PDF/Excel no usan este recorte por bloque.
+- **UI pestañas:** chip de grupo en pestaña inactiva = iniciales (`compact`); pestaña activa = nombre completo. No cambia el filtro.
+
 ## Deduplicación de Cuerdas en Contenedores
 - **Regla:** dentro de la configuración de cuerdas de una gira, cada `id_musico` debe aparecer como máximo una vez en `seating_contenedores_items` para los contenedores del programa.
 - **Lectura:** si existen filas duplicadas persistidas, las vistas de Seating, reportes, listados y composición `Str` deben mostrar solo la posición visual más alta. La prioridad visual se resuelve por `seating_contenedores.orden`, luego `atril_num`, `lado`, `orden` e `id` de la fila.

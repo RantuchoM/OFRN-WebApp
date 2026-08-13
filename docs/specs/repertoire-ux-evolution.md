@@ -62,6 +62,7 @@ Permitir mover obras dentro del mismo bloque y entre bloques con feedback visual
 
 - **repertorio_obras:** `id`, `id_repertorio` (FK a `programas_repertorios`), `id_obra`, `orden`, `id_arco_seleccionado`, ...
 - **programas_repertorios:** Bloques de repertorio por gira (id, nombre, orden, id_programa).
+- **programas_repertorios_grupos:** Grupos de convocatoria del bloque `(id_repertorio, id_grupo)` → `giras_grupos`. Vacío / sin filas = el bloque aplica a todo el roster. Misma semántica que `eventos_grupos`.
 - **obras_arcos:** Sets de arcos por obra (id, id_obra, nombre, link, descripcion, id_drive_folder).
 
 ---
@@ -416,10 +417,23 @@ Permitir que el músico descargue de una vez todas sus partes disponibles desde 
 - [x] **ProgramSeating:** pestañas por bloque de repertorio; la grilla (móvil y escritorio) filtra columnas al bloque activo. Exportaciones PDF/Excel siguen usando el programa completo.
 
 ### Completado (2026-08-13) — Chrome de pestañas en ProgramSeating
-- [x] Las pestañas de bloque dejan de verse como chips indigo sueltos: barra blanca con etiqueta **Bloques**, indicador `border-b-2` en la activa (mismo lenguaje que EnsembleCoordinator / DriveMatcher) e inactivas muted.
+- [x] Pestañas tipo carpeta (mismo truco que `ParticellaDownloadModal`): barra `bg-slate-100` con `border-b border-slate-300` a ancho completo; activa blanca con `border-x/t`, `border-b-white` y `-mb-px` (queda unida a la línea); inactivas con fondo semitransparente, padding y hover (no texto suelto).
+- [x] Etiqueta **Bloques** compacta; badges de cantidad con más contraste (activa indigo relleno, inactiva slate).
 - [x] a11y: `role="tablist"` / `role="tab"` / `aria-selected` / `tabIndex` roving; flechas ←/→, Home y End; panel `role="tabpanel"` ligado al tab activo.
-- [x] Hover, focus-visible y scroll horizontal si hay muchos bloques (p. ej. gira 12 con King Crimson).
+- [x] Scroll horizontal si hay muchos bloques (p. ej. gira 12 con King Crimson).
 - [x] Sin cambios de lógica de seating (`activeBlockId`, filtro de columnas, roster / ausencia / exportaciones).
+
+### Completado (2026-08-13) — Grupos de convocatoria en bloques de repertorio
+- [x] Tabla `programas_repertorios_grupos` (migración `20260813140000_programas_repertorios_grupos.sql`, applied linked). Vacío = todos; ≥1 grupo = solo esos miembros.
+- [x] **Staff** (`RepertoireManager`): multi-select de grupos en el header del bloque, **oculto** si la gira no tiene grupos. Placeholder “Todos…”.
+- [x] **Músicos**: chips de grupo en el bloque (repertorio + Mis Partes). Mis Partes omite bloques de grupos a los que no pertenece.
+- [x] **Seating**: con grupo en el bloque activo, el roster visible (vientos + atriles) se recorta a miembros del grupo, encima de `useGiraRoster` / ausencia / confirmado. Sin grupo = todos. PDF/Excel, config de cuerdas y descarga de particellas siguen el programa completo. Chips en las pestañas de bloque (chrome tipo carpeta intacto).
+- [x] No se inventa otro sistema de grupos: reutiliza `giras_grupos` / `giraGruposService` / chips de agenda.
+
+### Completado (2026-08-13) — Chip de grupo compacto en pestañas inactivas de Seating
+- [x] Pestaña **activa**: chip con nombre completo (mismo `GiraGrupoChips` que repertorio / Mis Partes / agenda).
+- [x] Pestaña **inactiva**: `compact` → iniciales de palabras significativas (`King Crimson (OFRN)` → **KCO**, `Gala Lírica` → **GL**, `Bahiano` → **B**); color del grupo intacto; `title` / tooltip con el nombre completo.
+- [x] Helper `grupoNombreInitials` en `GiraGrupoChips.jsx`. Sin cambio de filtro de seating ni de asignación de grupos.
 
 ---
 

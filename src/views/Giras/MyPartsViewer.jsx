@@ -12,6 +12,14 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { seatingItemMatrixPosition } from "../../services/giraService";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
+import GiraGrupoChips from "../../components/giras/GiraGrupoChips";
+import {
+  fetchGiraGrupos,
+  getEffectiveGrupoIdsForIntegrante,
+  personPassesEventoGrupos,
+  repertorioGrupoIdsFromBlock,
+  repertorioGruposMetaFromBlock,
+} from "../../services/giraGruposService";
 
 const initialDownloadAllState = {
   isRunning: false,
@@ -125,9 +133,12 @@ const buildBlockDriveUrl = (folderId) =>
 
 const RepertoireBlockDivider = ({ block }) => (
   <div className="flex items-center justify-between gap-2 px-2 py-2 md:px-3 md:py-2.5 bg-slate-100/90 border-y border-slate-200">
-    <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600 truncate">
-      {block.nombre}
-    </span>
+    <div className="flex items-center gap-2 min-w-0">
+      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600 truncate">
+        {block.nombre}
+      </span>
+      <GiraGrupoChips grupos={block.grupos || []} />
+    </div>
     {block.linkDrive ? (
       <a
         href={block.linkDrive}
@@ -644,11 +655,14 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
       const assignments = asignsData || [];
 
       // 4. Obtener Repertorio
-      const { data: progRepData, error } = await supabase
-        .from("programas_repertorios")
-        .select(
-          `
+      const [{ data: progRepData, error }, { grupos: giraGrupos }] =
+        await Promise.all([
+          supabase
+            .from("programas_repertorios")
+            .select(
+              `
             id, orden, nombre, google_drive_folder_id,
+            programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ),
             repertorio_obras (
                 id, orden, excluir,
                 obras (
@@ -661,17 +675,35 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                 )
             )
         `,
-        )
-        .eq("id_programa", gira.id)
-        .order("orden", { ascending: true });
+            )
+            .eq("id_programa", gira.id)
+            .order("orden", { ascending: true }),
+          fetchGiraGrupos(supabase, gira.id),
+        ]);
 
       if (error) throw error;
+
+      const myGrupoIds = getEffectiveGrupoIdsForIntegrante(
+        giraGrupos || [],
+        user.id,
+        false,
+      );
 
       // 5. Procesamiento
       let processed = [];
 
       (progRepData || []).forEach((cat) => {
         if (!cat.repertorio_obras) return;
+        if (
+          !personPassesEventoGrupos(
+            user.id,
+            repertorioGrupoIdsFromBlock(cat),
+            myGrupoIds,
+          )
+        ) {
+          return;
+        }
+        const blockGrupos = repertorioGruposMetaFromBlock(cat);
         const sortedWorks = cat.repertorio_obras.sort(
           (a, b) => a.orden - b.orden,
         );
@@ -752,6 +784,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
             id: obra.id,
             blockId: cat.id,
             blockNombre: cat.nombre,
+            blockGrupos,
             blockLinkDrive: buildBlockDriveUrl(cat.google_drive_folder_id),
             blockOrden: cat.orden ?? 0,
             uniqueId: item.id,
@@ -803,6 +836,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
           nombre: row.blockNombre || "Repertorio",
           orden: row.blockOrden ?? 0,
           linkDrive: row.blockLinkDrive,
+          grupos: row.blockGrupos || [],
           works: [],
         });
       }

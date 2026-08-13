@@ -299,6 +299,60 @@ export async function setGiraTransporteGrupos(supabase, idGiraTransporte, grupoI
 }
 
 /**
+ * Reemplaza grupos asignados a un bloque de repertorio (`programas_repertorios`).
+ * Vacío = el bloque aplica a todo el roster.
+ * @param {number[]} grupoIds
+ */
+export async function setRepertorioGrupos(supabase, idRepertorio, grupoIds) {
+  const { error: delError } = await supabase
+    .from("programas_repertorios_grupos")
+    .delete()
+    .eq("id_repertorio", idRepertorio);
+  if (delError) return { error: delError };
+
+  const ids = [...new Set((grupoIds || []).map(Number).filter(Boolean))];
+  if (ids.length === 0) return { error: null };
+
+  const { error } = await supabase.from("programas_repertorios_grupos").insert(
+    ids.map((id_grupo) => ({ id_repertorio: idRepertorio, id_grupo })),
+  );
+  return { error };
+}
+
+export function repertorioGrupoIdsFromBlock(block) {
+  return (block?.programas_repertorios_grupos || [])
+    .map((rg) => rg.id_grupo ?? rg.giras_grupos?.id)
+    .filter((id) => id != null)
+    .map(Number);
+}
+
+export function repertorioGruposMetaFromBlock(block) {
+  return (block?.programas_repertorios_grupos || [])
+    .map((rg) => rg.giras_grupos)
+    .filter(Boolean);
+}
+
+/**
+ * IDs de integrantes (string) que pertenecen a alguno de los grupos del bloque.
+ * Sin grupos en el bloque → null (no filtra; todo el roster).
+ */
+export function integranteIdsForRepertorioGrupos(grupos, blockGrupoIds) {
+  const required = [
+    ...new Set((blockGrupoIds || []).map(Number).filter(Number.isFinite)),
+  ];
+  if (required.length === 0) return null;
+  const requiredSet = new Set(required);
+  const ids = new Set();
+  (grupos || []).forEach((g) => {
+    if (!requiredSet.has(Number(g.id))) return;
+    (g.giras_grupos_integrantes || []).forEach((row) => {
+      if (row?.id_integrante != null) ids.add(String(row.id_integrante));
+    });
+  });
+  return ids;
+}
+
+/**
  * Copia los grupos default del vehículo a N eventos (reemplaza eventos_grupos).
  */
 export async function applyTransporteGruposToEventos(
