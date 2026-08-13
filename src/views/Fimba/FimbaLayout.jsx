@@ -380,6 +380,82 @@ const FIMBA_CSS = `
     outline: 2px solid rgba(0, 177, 235, 0.35);
     border-color: var(--fimba-cyan);
   }
+  .fimba-richtext {
+    background: #fff;
+    border: 1px solid var(--fimba-border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .fimba-richtext .ql-toolbar.ql-snow {
+    border: 0;
+    border-bottom: 1px solid var(--fimba-border);
+    background: #fdf2f8;
+    font-family: inherit;
+  }
+  .fimba-richtext .ql-container.ql-snow {
+    border: 0;
+    font-family: inherit;
+    font-size: 0.9rem;
+    min-height: 140px;
+  }
+  .fimba-richtext .ql-editor {
+    min-height: 140px;
+    color: var(--fimba-text);
+  }
+  .fimba-richtext .ql-editor img,
+  .fimba-rider-html img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 0.55em 0;
+    border-radius: 6px;
+  }
+  .fimba-richtext .ql-editor.ql-blank::before {
+    color: #94a3b8;
+    font-style: normal;
+  }
+  .fimba-richtext .ql-snow .ql-stroke {
+    stroke: #94216d;
+  }
+  .fimba-richtext .ql-snow .ql-fill {
+    fill: #94216d;
+  }
+  .fimba-richtext .ql-snow .ql-picker {
+    color: #94216d;
+  }
+  .fimba-richtext .ql-toolbar.ql-snow .ql-picker-label:hover,
+  .fimba-richtext .ql-toolbar.ql-snow button:hover,
+  .fimba-richtext .ql-toolbar.ql-snow button.ql-active {
+    color: #d73289;
+  }
+  .fimba-richtext .ql-toolbar.ql-snow button:hover .ql-stroke,
+  .fimba-richtext .ql-toolbar.ql-snow button.ql-active .ql-stroke {
+    stroke: #d73289;
+  }
+  .fimba-rider-html {
+    font-size: 0.9rem;
+    line-height: 1.45;
+    color: var(--fimba-text);
+  }
+  .fimba-rider-html p { margin: 0.4em 0; }
+  .fimba-rider-html ul, .fimba-rider-html ol { margin: 0.4em 0 0.6em 1.25em; padding: 0; }
+  .fimba-rider-html li { margin-bottom: 0.15em; }
+  .fimba-rider-html h1, .fimba-rider-html h2, .fimba-rider-html h3 {
+    margin: 0.55em 0 0.25em;
+    color: var(--fimba-deep);
+    font-weight: 700;
+  }
+  .fimba-rider-html h1 { font-size: 1.15rem; }
+  .fimba-rider-html h2 { font-size: 1.05rem; }
+  .fimba-rider-html h3 { font-size: 0.95rem; }
+  .fimba-rider-html a { color: var(--fimba-cyan); }
+  .fimba-rider-html blockquote {
+    margin: 0.5em 0;
+    padding: 0.35em 0.75em;
+    border-left: 3px solid var(--fimba-accent);
+    color: var(--fimba-muted);
+    background: #f8fafc;
+  }
   .fimba-label {
     display: block;
     font-size: 0.75rem;

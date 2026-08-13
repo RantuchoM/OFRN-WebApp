@@ -239,7 +239,13 @@ export function fimbaSessionCanAccessPath(pathname, session) {
  */
 export function fimbaConsultaTokenCanAccessPath(pathname, session) {
   if (!session?.id_edicion) return false;
-  return fimbaConsultaPathAllowed(pathname, session.id_edicion);
+  if (!fimbaConsultaPathAllowed(pathname, session.id_edicion)) return false;
+  const path = String(pathname || "");
+  const normalized =
+    path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
+  const m = normalized.match(/^\/fimba\/edicion\/([^/]+)\/(.*)$/);
+  if (m && (m[2] === "rider" || m[2].startsWith("rider/"))) return false;
+  return true;
 }
 
 /**
@@ -268,6 +274,8 @@ export function resolveFimbaAccess({
       canSeeContrataciones: true,
       /** Meta/logística de propuesta (color, cupos, hotel, estado…): solo generales/OFRN. */
       canEditPropuestaMeta: true,
+      /** Pestaña + ficha Rider (logística interna). No tokens `/c` `/a` `/e`. */
+      canSeeRider: true,
       source: "ofrn",
     };
   }
@@ -286,6 +294,7 @@ export function resolveFimbaAccess({
       canSeeUsuarios: true,
       canSeeContrataciones: true,
       canEditPropuestaMeta: true,
+      canSeeRider: true,
       source: "fimba_editor",
     };
   }
@@ -298,6 +307,7 @@ export function resolveFimbaAccess({
       canSeeUsuarios: false,
       canSeeContrataciones: false,
       canEditPropuestaMeta: false,
+      canSeeRider: true,
       source: "fimba_consulta",
     };
   }
@@ -316,6 +326,7 @@ export function resolveFimbaAccess({
       canSeeUsuarios: false,
       canSeeContrataciones: false,
       canEditPropuestaMeta: false,
+      canSeeRider: false,
       source: "token_consulta",
     };
   }
@@ -327,6 +338,7 @@ export function resolveFimbaAccess({
     canSeeUsuarios: false,
     canSeeContrataciones: false,
     canEditPropuestaMeta: false,
+    canSeeRider: false,
     source: "none",
   };
 }

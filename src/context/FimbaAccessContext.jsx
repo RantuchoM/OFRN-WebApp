@@ -16,6 +16,7 @@ const FimbaAccessContext = createContext({
   canSeeUsuarios: false,
   canSeeContrataciones: false,
   canEditPropuestaMeta: false,
+  canSeeRider: false,
   allowed: true,
   source: "none",
   edicionId: null,

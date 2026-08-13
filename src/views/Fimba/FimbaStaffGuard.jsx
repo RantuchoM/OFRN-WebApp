@@ -13,7 +13,7 @@ import {
  * Acceso shell FIMBA:
  * 1) OFRN isManagement → full /fimba
  * 2) Sesión localStorage.fimba_user (editor_general o consulta) + match edición
- * 3) Sesión localStorage.fimba_consulta_edicion (enlace /fimba/c/:token) → RO sin Usuarios/Contrataciones
+ * 3) Sesión localStorage.fimba_consulta_edicion (enlace /fimba/c/:token) → RO sin Usuarios/Contrataciones/Rider
  *
  * Documentado en docs/specs/fimba-plataforma.md
  */

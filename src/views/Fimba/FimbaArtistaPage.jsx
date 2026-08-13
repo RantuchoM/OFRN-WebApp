@@ -63,6 +63,12 @@ import {
   FimbaEstadoConocidoStyles,
 } from "./FimbaEstadoConocido";
 import FimbaRoomingPanel from "./FimbaRoomingPanel";
+import FimbaRichTextEditor from "./FimbaRichTextEditor";
+import {
+  isFimbaRiderEmpty,
+  normalizeFimbaRiderHtml,
+  sanitizeFimbaRiderHtml,
+} from "../../utils/fimbaRider";
 
 /** Columnas editables en planilla (orden Tab / Enter). */
 const EDITABLE_COLS = [
@@ -142,6 +148,7 @@ function draftFromPropuestaMeta(p) {
     checkout_late: asBool(p?.checkout_late),
     id_hotel: p?.id_hotel != null && p?.id_hotel !== "" ? String(p.id_hotel) : "",
     observaciones_logisticas: p?.observaciones_logisticas || "",
+    rider: p?.rider || "",
   };
 }
 
@@ -197,6 +204,7 @@ function validatePropuestaMetaDraft(draft) {
       checkout_late: asBool(draft.checkout_late),
       id_hotel: draft.id_hotel !== "" && draft.id_hotel != null ? Number(draft.id_hotel) : null,
       observaciones_logisticas: String(draft.observaciones_logisticas || "").trim() || null,
+      rider: normalizeFimbaRiderHtml(draft.rider),
     },
   };
 }
@@ -250,10 +258,14 @@ function metaPatchesEqual(a, b) {
     "checkout_late",
     "id_hotel",
     "observaciones_logisticas",
+    "rider",
   ];
   return keys.every((k) => {
     const av = a[k];
     const bv = b[k];
+    if (k === "rider") {
+      return normalizeFimbaRiderHtml(av) === normalizeFimbaRiderHtml(bv);
+    }
     if (av == null && bv == null) return true;
     if (typeof av === "boolean" || typeof bv === "boolean") {
       return asBool(av) === asBool(bv);
@@ -355,6 +367,8 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
    * Solo OFRN management / editor_general — NO usa !readOnly (tokens /e pueden editar nómina).
    */
   const canEditPropuestaMeta = Boolean(access.canEditPropuestaMeta);
+  /** Rider = logística interna: staff ficha (RO consulta); no tokens `/a` `/e` ni `/c`. */
+  const showRider = Boolean(access.canSeeRider) && !propuestaOverride;
   const [edicion, setEdicion] = useState(null);
   const [propuesta, setPropuesta] = useState(propuestaOverride);
   const [participantes, setParticipantes] = useState([]);
@@ -556,6 +570,7 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
         propuesta={propuesta}
         hotelNombre={hotelNombre}
         canEdit={canEditPropuestaMeta}
+        showRider={showRider}
         onSaved={(next) => setPropuesta((p) => ({ ...(p || {}), ...(next || {}) }))}
         onError={setError}
       />
@@ -746,7 +761,7 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
  * No confundir con `!readOnly` (editores de token /e pueden nómina pero no meta).
  * En edición: autosave debounced + semáforo (idle/dirty/saving/saved/error).
  */
-function ArtistaMetaSection({ propuesta, hotelNombre, canEdit, onSaved, onError }) {
+function ArtistaMetaSection({ propuesta, hotelNombre, canEdit, showRider = false, onSaved, onError }) {
   const [draft, setDraft] = useState(() => draftFromPropuestaMeta(propuesta));
   const [hoteles, setHoteles] = useState([]);
   /** idle | dirty | saving | saved | error — mismo semáforo FIMBA que planillas. */
@@ -1023,6 +1038,21 @@ function ArtistaMetaSection({ propuesta, hotelNombre, canEdit, onSaved, onError 
             </div>
           </div>
         ) : null}
+        {showRider ? (
+          <div style={{ marginTop: "0.85rem" }}>
+            <div className="fimba-label">Rider</div>
+            {isFimbaRiderEmpty(propuesta.rider) ? (
+              <div className="fimba-muted">Sin rider</div>
+            ) : (
+              <div
+                className="fimba-rider-html"
+                dangerouslySetInnerHTML={{
+                  __html: sanitizeFimbaRiderHtml(propuesta.rider),
+                }}
+              />
+            )}
+          </div>
+        ) : null}
       </section>
     );
   }
@@ -1218,6 +1248,20 @@ function ArtistaMetaSection({ propuesta, hotelNombre, canEdit, onSaved, onError 
             placeholder="Early/late, transfer, equipaje, notas de hotel…"
           />
         </div>
+
+        {showRider ? (
+          <div className="fimba-field">
+            <span className="fimba-label">Rider</span>
+            <FimbaRichTextEditor
+              value={draft.rider}
+              onChange={(html) => setField("rider", html)}
+              onBlur={flushSave}
+              placeholder="Escenario, backline, catering, accesos, horarios…"
+              edicionId={propuesta?.id_edicion}
+              propuestaId={propuesta?.id}
+            />
+          </div>
+        ) : null}
 
         <div className="fimba-field">
           <label className="fimba-label" htmlFor="fimba-artista-estado">

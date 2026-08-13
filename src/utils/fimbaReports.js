@@ -31,6 +31,11 @@ import {
   writeFimbaWorkbook,
 } from "./fimbaExport";
 import { formatEventLocation } from "./fimbaTransportBoarding";
+import {
+  escapeFimbaHtmlText,
+  isFimbaRiderEmpty,
+  sanitizeFimbaRiderHtml,
+} from "./fimbaRider";
 
 function formatFechaCorta(f) {
   if (!f) return "";
@@ -461,7 +466,7 @@ export async function exportFimbaPedidoExcel(opts = {}) {
 }
 
 /** Abre ventana de impresión con HTML + CSS (mismo patrón RoomingReport). */
-export function openPrintWindow(title, bodyHtml, extraCss = "") {
+export function openPrintWindow(title, bodyHtml, extraCss = "", { waitForImages = false } = {}) {
   const printWindow = window.open(
     "about:blank",
     `Print${Date.now()}`,
@@ -495,10 +500,52 @@ ${extraCss}
 </style></head><body>${bodyHtml}</body></html>`);
   printWindow.document.close();
   printWindow.focus();
-  setTimeout(() => {
-    printWindow.print();
-    printWindow.close();
-  }, 400);
+
+  const triggerPrint = () => {
+    try {
+      printWindow.print();
+    } finally {
+      printWindow.close();
+    }
+  };
+
+  if (!waitForImages) {
+    setTimeout(triggerPrint, 400);
+    return;
+  }
+
+  const waitThenPrint = () => {
+    const imgs = Array.from(printWindow.document.images || []);
+    if (!imgs.length) {
+      setTimeout(triggerPrint, 200);
+      return;
+    }
+    let left = imgs.length;
+    let printed = false;
+    const finish = () => {
+      if (printed) return;
+      printed = true;
+      setTimeout(triggerPrint, 150);
+    };
+    const timer = printWindow.setTimeout(finish, 10000);
+    const one = () => {
+      left -= 1;
+      if (left <= 0) {
+        printWindow.clearTimeout(timer);
+        finish();
+      }
+    };
+    imgs.forEach((img) => {
+      if (img.complete) one();
+      else {
+        img.addEventListener("load", one, { once: true });
+        img.addEventListener("error", one, { once: true });
+      }
+    });
+  };
+
+  if (printWindow.document.readyState === "complete") waitThenPrint();
+  else printWindow.addEventListener("load", waitThenPrint);
 }
 
 export function printFimbaPedido(hoteleriaRows, { edicionNombre = "", bedsPerRoom = DEFAULT_BEDS_PER_ROOM } = {}) {
@@ -592,6 +639,51 @@ export function printFimbaComidas(hoteleriaRows, { edicionNombre = "" } = {}) {
     </tbody></table>`,
   ];
   openPrintWindow(`Comidas — ${edicionNombre}`, parts.join(""));
+}
+
+const RIDER_PRINT_CSS = `
+h2 { border-left: 5px solid #d73289 !important; background: #fdf2f8 !important; }
+.rider-html { font-size: 12px; line-height: 1.45; color: #1e293b; }
+.rider-html p { margin: 0.4em 0; }
+.rider-html ul, .rider-html ol { margin: 0.4em 0 0.7em 1.35em; padding: 0; }
+.rider-html li { margin-bottom: 0.2em; }
+.rider-html h1 { font-size: 16px; border: 0; margin: 0.6em 0 0.3em; padding: 0; color: #94216d; }
+.rider-html h2 { font-size: 14px; background: none !important; border: 0 !important; padding: 0; margin: 0.55em 0 0.25em; color: #94216d; }
+.rider-html h3 { font-size: 13px; text-transform: none; letter-spacing: 0; color: #334155; margin: 0.45em 0 0.2em; }
+.rider-html a { color: #00b1eb; }
+.rider-html blockquote { margin: 0.5em 0; padding: 0.35em 0.75em; border-left: 3px solid #d73289; color: #475569; background: #f8fafc; }
+.rider-html img { max-width: 100%; height: auto; display: block; margin: 0.55em 0; page-break-inside: avoid; }
+.rider-block { margin-bottom: 18px; page-break-inside: avoid; }
+`;
+
+/**
+ * PDF/print de riders: solo artistas con texto visible o imágenes (ignora null / HTML vacío).
+ * @param {Array<{ nombre?: string, rider?: string|null }>} propuestas
+ * @param {{ edicionNombre?: string }} [opts]
+ */
+export function printFimbaRiders(propuestas = [], { edicionNombre = "" } = {}) {
+  const withRider = (propuestas || []).filter((p) => !isFimbaRiderEmpty(p?.rider));
+  const label = edicionNombre || "FIMBA";
+  const title = `Riders — FIMBA ${label}`.trim();
+  if (!withRider.length) {
+    openPrintWindow(
+      title,
+      `<h1>Riders</h1><p class="muted">${escapeFimbaHtmlText(label)}</p>
+       <p class="muted">Ningún artista tiene rider cargado.</p>`,
+      RIDER_PRINT_CSS,
+    );
+    return;
+  }
+  const parts = [
+    `<h1>Riders</h1><p class="muted">${escapeFimbaHtmlText(label)}</p>`,
+  ];
+  for (const p of withRider) {
+    parts.push(
+      `<div class="no-break rider-block"><h2>${escapeFimbaHtmlText(p.nombre || "Artista")}</h2>
+       <div class="rider-html">${sanitizeFimbaRiderHtml(p.rider)}</div></div>`,
+    );
+  }
+  openPrintWindow(title, parts.join(""), RIDER_PRINT_CSS, { waitForImages: true });
 }
 
 /**

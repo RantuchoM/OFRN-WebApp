@@ -5,6 +5,7 @@ import {
   IconCalendar,
   IconBus,
   IconBed,
+  IconFileText,
   IconClipboardCheck,
   IconUsers,
 } from "../../components/ui/Icons";
@@ -18,9 +19,9 @@ function normalizePath(pathname) {
 }
 
 /**
- * Segment order: Artistas | Agenda | Transportes | Hotelería | Contrataciones | Usuarios.
+ * Segment order: Artistas | Agenda | Transportes | Hotelería | Rider | Contrataciones | Usuarios.
  * All tabs navigate to edición-level routes (never keep /artista/:id).
- * Consulta RO: oculta Contrataciones y Usuarios.
+ * Consulta RO: oculta Contrataciones y Usuarios. Token `/c`: también oculta Rider.
  */
 const SECTIONS = [
   { key: "artistas", label: "Artistas", Icon: IconMusic, segment: null },
@@ -36,6 +37,13 @@ const SECTIONS = [
     label: "Hotelería",
     Icon: IconBed,
     segment: "hoteleria",
+  },
+  {
+    key: "rider",
+    label: "Rider",
+    Icon: IconFileText,
+    segment: "rider",
+    requiresRider: true,
   },
   {
     key: "contrataciones",
@@ -91,7 +99,7 @@ export function isFimbaSectionPath(pathname, edicionId, segment) {
 }
 
 /**
- * Segmented control: Artistas | Agenda | Transportes | Hotelería | Contrataciones | Usuarios.
+ * Segmented control: Artistas | Agenda | Transportes | Hotelería | Rider | Contrataciones | Usuarios.
  * Always targets `/fimba/edicion/:edicionId/...` — never appends `/artista/:id`.
  */
 export default function FimbaSectionToggle({
@@ -99,7 +107,7 @@ export default function FimbaSectionToggle({
 }) {
   const params = useParams();
   const { pathname } = useLocation();
-  const { canSeeUsuarios, canSeeContrataciones } = useFimbaAccess();
+  const { canSeeUsuarios, canSeeContrataciones, canSeeRider } = useFimbaAccess();
   const fromPath = parseFimbaSectionIds(pathname);
   const edicionId = edicionIdProp ?? params.edicionId ?? fromPath.edicionId;
 
@@ -110,6 +118,7 @@ export default function FimbaSectionToggle({
   const visible = SECTIONS.filter((s) => {
     if (s.requiresUsuarios && !canSeeUsuarios) return false;
     if (s.requiresContrataciones && !canSeeContrataciones) return false;
+    if (s.requiresRider && !canSeeRider) return false;
     return true;
   });
 
