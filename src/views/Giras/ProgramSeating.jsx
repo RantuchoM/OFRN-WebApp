@@ -1115,6 +1115,32 @@ export default function ProgramSeating({
     return obras.filter((obra) => obra.blockId === resolvedBlockId);
   }, [obras, resolvedBlockId]);
 
+  const handleBlockTabKeyDown = (event, index) => {
+    if (
+      event.key !== "ArrowRight" &&
+      event.key !== "ArrowLeft" &&
+      event.key !== "Home" &&
+      event.key !== "End"
+    ) {
+      return;
+    }
+    const count = effectiveBlocks.length;
+    if (count === 0) return;
+    event.preventDefault();
+    let nextIndex = index;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % count;
+    else if (event.key === "ArrowLeft")
+      nextIndex = (index - 1 + count) % count;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = count - 1;
+    const nextBlock = effectiveBlocks[nextIndex];
+    if (!nextBlock) return;
+    setActiveBlockId(nextBlock.id);
+    requestAnimationFrame(() => {
+      document.getElementById(`seating-block-tab-${nextBlock.id}`)?.focus();
+    });
+  };
+
   // Fetch Particellas (Triggered when works change)
   useEffect(() => {
     const fetchParts = async () => {
@@ -2738,40 +2764,65 @@ export default function ProgramSeating({
       </div>
 
       {effectiveBlocks.length > 0 && (
-        <div className="shrink-0 px-2 sm:px-4 py-2 border-b border-slate-200 bg-slate-50 overflow-x-auto">
-          <div className="flex gap-1 min-w-max">
-            {effectiveBlocks.map((block) => {
-              const isActive = resolvedBlockId === block.id;
-              const workCount = (block.repertorio_obras || []).length;
-              return (
-                <button
-                  key={block.id}
-                  type="button"
-                  onClick={() => setActiveBlockId(block.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap ${
-                    isActive
-                      ? "bg-indigo-600 text-white shadow-sm"
-                      : "bg-white text-slate-600 border border-slate-200 hover:border-indigo-300 hover:text-indigo-700"
-                  }`}
-                >
-                  {block.nombre}
-                  {workCount > 0 && (
-                    <span
-                      className={`ml-1.5 text-[10px] font-normal ${
-                        isActive ? "text-indigo-200" : "text-slate-400"
-                      }`}
-                    >
-                      ({workCount})
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+        <div className="shrink-0 bg-white border-b border-slate-200">
+          <div className="flex items-stretch gap-1 px-2 sm:px-4 overflow-x-auto">
+            <span className="shrink-0 self-center inline-flex items-center gap-1 pr-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              <IconLayers size={12} aria-hidden />
+              Bloques
+            </span>
+            <div
+              role="tablist"
+              aria-label="Bloques de repertorio"
+              className="flex min-w-0 flex-1 items-stretch"
+            >
+              {effectiveBlocks.map((block, index) => {
+                const isActive = resolvedBlockId === block.id;
+                const workCount = (block.repertorio_obras || []).length;
+                return (
+                  <button
+                    key={block.id}
+                    id={`seating-block-tab-${block.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    aria-controls="seating-block-panel"
+                    tabIndex={isActive ? 0 : -1}
+                    onClick={() => setActiveBlockId(block.id)}
+                    onKeyDown={(event) => handleBlockTabKeyDown(event, index)}
+                    className={`shrink-0 px-3 sm:px-4 py-2 text-[11px] sm:text-xs font-bold whitespace-nowrap border-b-2 -mb-px transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset ${
+                      isActive
+                        ? "border-indigo-600 text-indigo-700 bg-indigo-50/60"
+                        : "border-transparent text-slate-500 hover:text-indigo-600 hover:border-indigo-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    {block.nombre}
+                    {workCount > 0 && (
+                      <span
+                        className={`ml-1.5 inline-flex min-w-[1.15rem] justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                          isActive
+                            ? "bg-indigo-100 text-indigo-700"
+                            : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        {workCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
 
       <div
+        id={effectiveBlocks.length > 0 ? "seating-block-panel" : undefined}
+        role={effectiveBlocks.length > 0 ? "tabpanel" : undefined}
+        aria-labelledby={
+          effectiveBlocks.length > 0 && resolvedBlockId
+            ? `seating-block-tab-${resolvedBlockId}`
+            : undefined
+        }
         ref={splitAreaRef}
         className="flex-1 overflow-hidden p-1 md:p-4 flex flex-col min-h-0"
       >

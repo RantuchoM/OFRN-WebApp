@@ -415,6 +415,12 @@ Permitir que el músico descargue de una vez todas sus partes disponibles desde 
 - [x] Obras sin parte asignada (`NO_ASSIGNED`) se muestran atenuadas (móvil y escritorio).
 - [x] **ProgramSeating:** pestañas por bloque de repertorio; la grilla (móvil y escritorio) filtra columnas al bloque activo. Exportaciones PDF/Excel siguen usando el programa completo.
 
+### Completado (2026-08-13) — Chrome de pestañas en ProgramSeating
+- [x] Las pestañas de bloque dejan de verse como chips indigo sueltos: barra blanca con etiqueta **Bloques**, indicador `border-b-2` en la activa (mismo lenguaje que EnsembleCoordinator / DriveMatcher) e inactivas muted.
+- [x] a11y: `role="tablist"` / `role="tab"` / `aria-selected` / `tabIndex` roving; flechas ←/→, Home y End; panel `role="tabpanel"` ligado al tab activo.
+- [x] Hover, focus-visible y scroll horizontal si hay muchos bloques (p. ej. gira 12 con King Crimson).
+- [x] Sin cambios de lógica de seating (`activeBlockId`, filtro de columnas, roster / ausencia / exportaciones).
+
 ---
 
 ### Completado (2026-08-10) — Para acomodar: Charbonnier *Voces latinoamericanas*
@@ -460,3 +466,59 @@ Fuente Drive: [Show Invap](https://drive.google.com/drive/folders/1JmXOBx9D9K0NN
 - Script: `scripts/process-invap-show.mjs` (+ seeds `supabase/seed_invap_show_new.sql`, `seed_invap_gira157.sql`).
 - Matcher: Órgano→Piano (id 15); tipografía `Tombón`→Trombón; strip `Copia de`; batería→Percusión.
 - [x] 10 obras en `repertorio_obras` id_repertorio=132.
+
+### Completado (2026-08-13) — LCG Dropbox vs BD + Fripp *Larks' Tongues in Aspic*
+
+Dropbox compartido [ARREGLOS ORQUESTALES OK](https://www.dropbox.com/scl/fo/lw38wzzcpdtb2vn6g9zwr/AFwwL6pW2Y7IIfbQ1SPgvxI?rlkey=g38vwzfcpvhh0yb1besvnkfxg): 12 carpetas. Las 11 obras BD con `[The LCG]` coinciden; **Larks** estaba solo en Dropbox.
+
+| id | Título BD | Compositor | Arr. | Dropbox |
+|----|-----------|------------|------|---------|
+| 1109 | 21st Century Schizoid Man [The LCG] | Fripp | Cucchiarelli&Guevara | 21st Century Schizoid Man |
+| 1110 | Red [The LCG] | Fripp | Cucchiarelli&Guevara | Red |
+| 1111 | Asturias [The LCG] | Lams | Cucchiarelli&Guevara | Asturias |
+| 1112 | Dangerous curves [The LCG] | Fripp | Cucchiarelli&Guevara | Dangerous curves |
+| 1114 | All or nothing, Part II [The LCG] | Fripp | Cucchiarelli&Guevara | All or Nothing |
+| 1115 | Vroom [The LCG] | Fripp | Cucchiarelli&Guevara | VROOOM |
+| 1120 | Eye of the Needle [The LCG] | Fripp | Cucchiarelli&Guevara | Eye of the needle |
+| 1298 | Black Light [The LCG] | Fripp | Keeling | Black Light |
+| 1300 | Pie Jesu [The LCG] | Fripp | Keeling | Pie Jesu |
+| 2856 | Driving Force [The LCG] | Fripp | — | Driving Force |
+| 2857 | Midnight Blue [The LCG] | Fripp | — | Midnight Blue |
+| **3571** | Larks' Tongues in Aspic [The LCG] | Fripp | Cucchiarelli&Guevara | **Larks** |
+
+- Fuente local: `c:\Users\marti\Downloads\LARKS scores` (31 PDFs, arr. CC = Cucchiarelli-Guevara, encabezado «Larks / Robert Fripp»).
+- Carpeta [Para acomodar](https://drive.google.com/open?id=1DKNjjnw51jgx9TcWWskunnBlucqwqQqP): `Fripp, R. - Larks' Tongues in Aspic [The LCG]`. PDFs canónicos `Instrumento - Título - Fripp, R.pdf` (cornos `1y2` / `3y4`; sin `S/N`).
+- `link_drive` apunta a esa carpeta (no copia al Archivo). Instrumentación seed: `2.2.3.2 - 4.2.3.1 - Timp.+2 - Str + Guitarra x5` (**33** particellas; SCORE → Director).
+
+| Script | Rol |
+|--------|-----|
+| `scripts/lib/larksCatalog.mjs` | Metadata + mapa de renombrado (obra nueva) |
+| `scripts/process-larks-local.mjs` | Copia Downloads → Para acomodar + rename |
+| `scripts/generate-larks-sync.mjs` | Genera `supabase/seed_larks_sync.sql` |
+
+- [x] PDFs copiados/renombrados en Para acomodar (31/31)
+- [x] Seed SQL generado (`supabase/seed_larks_sync.sql`, 33 particellas + Drive URLs)
+- [x] Seed **aplicado en linked** (2026-08-13): obra **3571**, `link_drive` [1DKNjjnw51jgx9TcWWskunnBlucqwqQqP](https://drive.google.com/open?id=1DKNjjnw51jgx9TcWWskunnBlucqwqQqP)
+- Matcher: Guitarra 1–5; Trompa en Fa `1&2`/`3&4` → `Corno F 1y2`/`3y4`; tam-tam/cymbals → Perc Percusión.
+
+### Completado (2026-08-13) — Bloque **King Crimson** en gira 12 (FIMBA)
+
+Seed `supabase/seed_gira_12_king_crimson.sql` aplicado en linked. **No** inserta obras: solo crea/reutiliza el bloque y vincula ids existentes con `[The LCG]`.
+
+- Programa **12** / bloque **137** `King Crimson` / `orden = 2` (al final: Gala Lírica 0 → Repertorio 1 → King Crimson 2).
+- 12 obras en `repertorio_obras` (Larks **3571** última). Idempotente: reutiliza el bloque por nombre; no duplica `(id_repertorio, id_obra)`.
+
+| orden | id | Título |
+|------:|---:|--------|
+| 1 | 1109 | 21st Century Schizoid Man [The LCG] |
+| 2 | 1110 | Red [The LCG] |
+| 3 | 1111 | Asturias [The LCG] |
+| 4 | 1112 | Dangerous curves [The LCG] |
+| 5 | 1114 | All or nothing, Part II [The LCG] |
+| 6 | 1115 | Vroom [The LCG] |
+| 7 | 1120 | Eye of the Needle [The LCG] |
+| 8 | 1298 | Black Light [The LCG] |
+| 9 | 1300 | Pie Jesu [The LCG] |
+| 10 | 2856 | Driving Force [The LCG] |
+| 11 | 2857 | Midnight Blue [The LCG] |
+| 12 | 3571 | Larks' Tongues in Aspic [The LCG] |

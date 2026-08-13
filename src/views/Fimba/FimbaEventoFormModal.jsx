@@ -27,6 +27,18 @@ function sliceTime(t) {
   return s === "—" ? "" : s;
 }
 
+/** Default # PAX = Σ capacidad de artistas taggeados (transporte o hotel/comida). */
+function paxDefaultFromArtistas(propuestas, selectedIds, usaTransporte) {
+  const props = (propuestas || []).filter((p) =>
+    (selectedIds || []).some((id) => String(id) === String(p.id)),
+  );
+  if (props.length === 0) return 0;
+  return props.reduce((s, p) => {
+    const cap = computeFimbaCapacity(p);
+    return s + (usaTransporte ? cap.para_transporte : cap.para_hotel_comida);
+  }, 0);
+}
+
 function initialAudienciaOfrn(evento) {
   const ao = evento?.audiencia_ofrn;
   const grupoIds = eventGrupoIdsFromEvent(evento);
@@ -123,7 +135,11 @@ export default function FimbaEventoFormModal({
   const [destino, setDestino] = useState(evento?.destino || "");
   const [vuelo, setVuelo] = useState(evento?.vuelo || "");
   const [observaciones, setObservaciones] = useState(evento?.observaciones || "");
-  const [pax, setPax] = useState(0);
+  const [pax, setPax] = useState(() => (isEdit ? Number(evento?.pax) || 0 : 0));
+  /** Valor guardado > 0 o edición manual: no pisar con el default de artistas. */
+  const [paxTouched, setPaxTouched] = useState(
+    () => isEdit && Number(evento?.pax) > 0,
+  );
   const [sinServicio, setSinServicio] = useState(() => {
     if (isEdit) {
       return (
@@ -162,7 +178,6 @@ export default function FimbaEventoFormModal({
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  const [paxInited, setPaxInited] = useState(isEdit);
 
   useEffect(() => {
     let cancelled = false;
@@ -205,33 +220,11 @@ export default function FimbaEventoFormModal({
     };
   }, [edicion?.id_gira]);
 
-  // Inicializar pax tras resolver si el tipo usa transporte
+  // Default # PAX = Σ artistas taggeados. En edit, solo si audiencia guardada es 0.
   useEffect(() => {
-    if (paxInited) return;
-    if (isEdit) {
-      setPax(evento?.pax ?? 0);
-      setPaxInited(true);
-      return;
-    }
-    const firstId = defaultProps[0];
-    if (!firstId) {
-      setPax(0);
-      setPaxInited(true);
-      return;
-    }
-    const prop = propuestas.find((p) => String(p.id) === String(firstId));
-    if (!prop) {
-      setPax(0);
-      setPaxInited(true);
-      return;
-    }
-    setPax(
-      usaTransporte
-        ? computeFimbaCapacity(prop).para_transporte
-        : computeFimbaCapacity(prop).para_hotel_comida,
-    );
-    setPaxInited(true);
-  }, [paxInited, isEdit, evento, defaultProps, propuestas, usaTransporte]);
+    if (paxTouched) return;
+    setPax(paxDefaultFromArtistas(propuestas, selectedProps, usaTransporte));
+  }, [selectedProps, propuestas, usaTransporte, paxTouched]);
 
   // Al cargar catálogo: sync flota + defaults de transporte
   useEffect(() => {
@@ -312,19 +305,6 @@ export default function FimbaEventoFormModal({
     }
   };
 
-  useEffect(() => {
-    if (isEdit) return;
-    if (selectedProps.length === 1) {
-      const prop = propuestas.find((p) => String(p.id) === String(selectedProps[0]));
-      if (prop) {
-        setPax(
-          usaTransporte
-            ? computeFimbaCapacity(prop).para_transporte
-            : computeFimbaCapacity(prop).para_hotel_comida,
-        );
-      }
-    }
-  }, [selectedProps, propuestas, isEdit, usaTransporte]);
 
   /** Tope transporte de artistas taggeados (Σ para_transporte). */
   const artistasCapTope = useMemo(() => {
@@ -777,12 +757,15 @@ export default function FimbaEventoFormModal({
                 type="number"
                 min={0}
                 value={pax}
-                onChange={(e) => setPax(e.target.value)}
+                onChange={(e) => {
+                  setPaxTouched(true);
+                  setPax(e.target.value);
+                }}
               />
               <p className="fimba-muted" style={{ margin: "0.25rem 0 0", fontSize: "0.75rem" }}>
                 {usaTransporte
-                  ? "Default artista = planificada + extra equip."
-                  : "Default artista = cantidad planificada (hotel/comida)"}
+                  ? "Default = Σ artistas taggeados (planificada + extra equip.)"
+                  : "Default = Σ artistas taggeados (cantidad planificada, hotel/comida)"}
               </p>
             </div>
             <div className="fimba-field">

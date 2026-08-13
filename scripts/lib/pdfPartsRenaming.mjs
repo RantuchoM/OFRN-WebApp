@@ -55,6 +55,38 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bpiano\b/i.test(name)) return "Piano";
   if (/\bcoro\b|\bchoir\b|\bsatb\b/i.test(name) && !/gitanos/i.test(name))
     return "Coro";
+  if (
+    /\bacoustic\s+guitar\s*(?:v|5)\b|\bguitarra\s*5\b|\bguitar\s*(?:v|5)\b/i.test(
+      name,
+    )
+  )
+    return "Guitarra 5";
+  if (
+    /\bacoustic\s+guitar\s*(?:iv|4)\b|\bguitarra\s*4\b|\bguitar\s*(?:iv|4)\b/i.test(
+      name,
+    )
+  )
+    return "Guitarra 4";
+  if (
+    /\bacoustic\s+guitar\s*(?:iii|3)\b|\bguitarra\s*3\b|\bguitar\s*(?:iii|3)\b/i.test(
+      name,
+    )
+  )
+    return "Guitarra 3";
+  if (
+    /\bacoustic\s+guitar\s*(?:ii|2)\b|\bguitarra\s*2\b|\bguitar\s*(?:ii|2)\b/i.test(
+      name,
+    )
+  )
+    return "Guitarra 2";
+  if (
+    /\bacoustic\s+guitar\s*(?:i|1)\b|\bguitarra\s*1\b|\bguitar\s*(?:i|1)\b/i.test(
+      name,
+    )
+  )
+    return "Guitarra 1";
+  if (/\bacoustic\s+guitar\b|\bguitarra\b|\bguitars?\b/i.test(name))
+    return "Guitarra";
 
   const n = name.toLowerCase();
 
@@ -72,9 +104,17 @@ export function normalizeInstrumentLabel(rawName) {
     return "Clarinete 1y2";
   if (/\bfagot\s*1[\s-]?y?\s*2\b|\bfagot\s*1-2\b|\bbassoon\s*1-2\b/i.test(name))
     return "Fagot 1y2";
-  if (/\bcorno\s+f\s*1[\s-]?y?\s*2\b|\bcorno\s+f\s*1-2\b|\bhorn\s*1-2\b/i.test(name))
+  if (
+    /\btrompa\s+(en\s+)?fa\s*1\s*[&y]\s*2\b|\btrompa\s*1\s*[&y]\s*2\b|\bcorno\s+f\s*1[\s-]?y?\s*2\b|\bcorno\s+f\s*1-2\b|\bhorn\s*1-2\b/i.test(
+      name,
+    )
+  )
     return "Corno F 1y2";
-  if (/\bcorno\s+f\s*3[\s-]?y?\s*4\b|\bcorno\s+f\s*3-4\b|\bhorn\s*3-4\b/i.test(name))
+  if (
+    /\btrompa\s+(en\s+)?fa\s*3\s*[&y]\s*4\b|\btrompa\s*3\s*[&y]\s*4\b|\bcorno\s+f\s*3[\s-]?y?\s*4\b|\bcorno\s+f\s*3-4\b|\bhorn\s*3-4\b/i.test(
+      name,
+    )
+  )
     return "Corno F 3y4";
   if (/\btrompeta\s*1[\s-]?y?\s*2\b|\btrompeta\s*1-2\b|\btrumpet\s*1-2\b/i.test(name))
     return "Trompeta 1y2";
@@ -136,6 +176,8 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bbass\s*drum\b|\bbombo\b|\bgran\s+cassa\b/i.test(name)) return "Perc Bombo";
   if (/\bsnare\b|\btambor\b/i.test(name)) return "Perc Tambor";
   if (/\btriangulo\b|\btriángulo\b|\btriangle\b/i.test(name)) return "Perc Triángulo";
+  if (/\btam[- ]?tam\b|\bcymbals?\b|\bplatillos?\b/i.test(name))
+    return "Perc Percusión";
   if (/\bgong\b/i.test(name)) return "Perc Gong";
   if (/\btubular\s+bells\b|\bcampanas\b/i.test(name)) return "Perc Campanas";
   if (/\bpercussion\b|\bpercusión\b|\bperc\s*\d\b|\bperc\b/i.test(name))
