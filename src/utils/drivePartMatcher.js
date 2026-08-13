@@ -203,6 +203,16 @@ const resolveExplicitInstrument = (prefix, normalizedCatalog, fullCatalog) => {
       /celesta|teclado|key/i.test(i.instrumento || ""),
     );
   }
+  // Órgano/Hammond → Piano (no hay instrumento Órgano en catálogo OFRN)
+  if (/[oó]rgano|\borgan\b|hammond/i.test(rawL)) {
+    return pickCatalog(normalizedCatalog, (i) => /piano/i.test(i.instrumento || ""));
+  }
+  if (/saxo|saxof/i.test(rawL)) {
+    return pickCatalog(normalizedCatalog, (i) => /saxof/i.test(i.instrumento || ""));
+  }
+  if (/bater[ií]a|drum\s*set|drums\b/i.test(rawL)) {
+    return pickCatalog(normalizedCatalog, (i) => /perc/i.test(i.norm));
+  }
   return null;
 };
 
@@ -218,7 +228,9 @@ const resolveInstrumentFromPrefix = (prefix, catalogoInstrumentos, rawFileName =
   const directorId = getDirectorInstrumentId(catalogoInstrumentos);
   const fullCatalog = catalogoInstrumentos || [];
   const normalizedCatalog = buildNormalizedCatalog(catalogoInstrumentos);
-  const lowerPrefix = String(prefix || "").toLowerCase();
+  // Typo frecuente en PDFs Lema
+  const fixedPrefix = String(prefix || "").replace(/\btomb[oó]n\b/gi, "Trombón");
+  const lowerPrefix = fixedPrefix.toLowerCase();
   const lowerRaw = String(rawFileName || "").toLowerCase();
 
   if (isScoreLike(lowerPrefix) && directorId) {
@@ -248,7 +260,7 @@ const resolveInstrumentFromPrefix = (prefix, catalogoInstrumentos, rawFileName =
       pickCatalog(normalizedCatalog, (i) => /perc/i.test(i.norm));
     if (timpCand) return timpCand;
   }
-  if (/perc|mallet|marimba|bombo|platillo/i.test(lowerPrefix)) {
+  if (/perc|mallet|marimba|bombo|platillo|bater/i.test(lowerPrefix)) {
     const percCand = pickCatalog(
       normalizedCatalog,
       (i) =>
@@ -259,12 +271,12 @@ const resolveInstrumentFromPrefix = (prefix, catalogoInstrumentos, rawFileName =
     if (percCand) return percCand;
   }
 
-  const explicit = resolveExplicitInstrument(prefix, normalizedCatalog, fullCatalog);
+  const explicit = resolveExplicitInstrument(fixedPrefix, normalizedCatalog, fullCatalog);
   if (explicit) return explicit;
 
   let normPrefix = applyPiccoloFlautaNorm(
-    normalizeInstrumentString(prefix),
-    prefix,
+    normalizeInstrumentString(fixedPrefix),
+    fixedPrefix,
   );
   if (!normPrefix) return null;
 

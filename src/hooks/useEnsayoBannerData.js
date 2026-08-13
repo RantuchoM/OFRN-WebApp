@@ -128,7 +128,7 @@ export function useEnsayoBannerData(integranteId) {
 
       if (!list.length) {
         setEstadoMap({});
-        return;
+        return {};
       }
 
       const estado = await ensayoCheckinEstado(
@@ -136,10 +136,11 @@ export function useEnsayoBannerData(integranteId) {
         id,
       );
       setEstadoMap(estado || {});
+      return estado || {};
     } catch (e) {
       console.error("useEnsayoBannerData", e);
-      setEvents([]);
-      setEstadoMap({});
+      // No vaciar: un fallo de red no debe ocultar el banner (falso "ya registrado").
+      return null;
     } finally {
       setLoading(false);
     }
@@ -161,5 +162,14 @@ export function useEnsayoBannerData(integranteId) {
     [estadoMap],
   );
 
-  return { events, getEstado, loading, refresh };
+  const patchEstado = useCallback((eventoId, partial) => {
+    if (eventoId == null || !partial) return;
+    const key = String(eventoId);
+    setEstadoMap((prev) => ({
+      ...prev,
+      [key]: { ...(prev[key] || {}), ...partial },
+    }));
+  }, []);
+
+  return { events, getEstado, patchEstado, loading, refresh };
 }

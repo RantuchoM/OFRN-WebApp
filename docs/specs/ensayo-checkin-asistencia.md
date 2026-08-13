@@ -70,6 +70,11 @@ Migraciones:
   - Al entrar en fase `activo`: reintento de **suscripción Web Push** (`web_push_subscribe`) si hay permisos (también se pide en el sync de admin al abrir la app).
   - Íconos: GPS, escanear QR, ofrecer QR (si `modo=gps`), con confirmación.
 - Componente `RehearsalCheckInBlock`: en columna de hora, **emparejado** con el horario del ensayo (`09:00` + llegada · `12:00` + salida); acciones GPS/QR debajo.
+- **Confirmación de persistencia (anti falso positivo):**
+  - Mientras corre GPS + RPC, UI de espera: «Registrando entrada/salida... esperá unos instantes» (`EnsayoCheckinRegistrandoOverlay` / `ConfirmModal.loadingText`).
+  - Éxito (toast + badges + cierre de banner) **solo** si el RPC de escritura (`RETURNING` post-commit) trae `ok` + timestamp (`registrado_at` / `salida_at`). Sin segunda lectura.
+  - Si el RPC falla o no trae timestamp: «no quedó registrada. Intentá de nuevo», la pantalla **no** cambia (modal de confirmación queda abierto).
+  - Refresh de estado en background; un fallo de red **no** vacía `estadoMap`.
 - Visibilidad (tarjeta y banner): usuario **real** admin (`isActuallyAdmin`) **y** convocado al ensayo (`isIntegranteConvocadoAEnsayo`, calculado en vivo desde el perfil; no solo flag de cache).
 - Ofrecer QR de ubicación (`modo=gps`): solo mientras no haya salida, o hasta **10 min** después de `salida_at` (`puedeOfrecerPaseGps`).
 - Botones del bloque en tarjeta: solo si `fecha === hoy` (local), permiso de check-in y convocatoria.

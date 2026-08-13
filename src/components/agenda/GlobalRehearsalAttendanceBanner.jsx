@@ -17,7 +17,7 @@ export default function GlobalRehearsalAttendanceBanner() {
     integranteId !== "guest-general" &&
     !Number.isNaN(Number(integranteId));
 
-  const { events, getEstado, refresh } = useEnsayoBannerData(
+  const { events, getEstado, patchEstado, refresh } = useEnsayoBannerData(
     canShow ? integranteId : null,
   );
 
@@ -29,6 +29,7 @@ export default function GlobalRehearsalAttendanceBanner() {
       integranteId={integranteId}
       getEstado={getEstado}
       onSuccess={refresh}
+      onEstadoPatch={patchEstado}
     />
   );
 }

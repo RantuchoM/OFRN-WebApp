@@ -6,7 +6,7 @@ Implementar una fila de entrada rápida al final de la tabla de encargos de arre
 ## Requerimientos Funcionales
 1. **Fila de Carga Rápida (Draft Row):**
    - Se abre desde el botón **«Encargar arreglo»** en la cabecera del dashboard (admin/editor). La fila aparece al inicio del `<tbody>`, con pulso/ring indigo ~3,5 s para indicar dónde cargar el encargo.
-   - **Arreglador (self-service):** Si el usuario tiene rol `arreglador` y no es admin/editor, el botón se llama **«Arreglo nuevo»**. Misma fila/modal, pero la columna de arreglador muestra su nombre fijo (sin desplegable), se asigna automáticamente `id_integrante_arreglador = user.id`, y **no** se envía mail de encargo. Tras guardar puede cargar el link de entrega como en cualquier encargo propio.
+   - **Arreglador (self-service):** Si el usuario tiene rol `arreglador` y no es admin/editor, el botón se llama **«Arreglo nuevo»**. Misma fila/modal, pero la columna de arreglador muestra su nombre fijo (sin desplegable), se asigna automáticamente `id_integrante_arreglador = user.id`. Al guardar se envía el mail `encargo_arreglo` al arreglador con BCC a `ofrn.archivo@gmail.com` (igual que un encargo). Tras guardar puede cargar el link de entrega como en cualquier encargo propio.
    - **Cancelar:** cierra la fila y limpia el borrador. Tras guardar con éxito también se cierra.
    - **Columna 1 (Compositor):** Debe usar `SearchableSelect` cargando datos de la tabla `compositores`. ✅ Carga opciones desde `public.compositores (id, apellido, nombre)` con label `apellido, nombre`.
    - **Resto de Columnas:** Inputs de texto estándar para los detalles del pedido (título, fecha estimada, orgánico, dificultad, observación). ✅ Implementado con `<input>`/`<textarea>`.
@@ -34,7 +34,7 @@ Implementar una fila de entrada rápida al final de la tabla de encargos de arre
 - **Solicitado por:** Tag violeta debajo de la fecha estimada (`integrantes!id_usuario_carga`). El mail `encargo_arreglo` incluye fila **Solicitado por** con ese nombre (`detalle.solicitado_por`). **Asignado por** (cabecera del mail) = usuario de la sesión que envía.
 - **Referencias de material:** Tabla `public.arreglos_referencias`. Tipos en toggle segmentado: obra (`IconMusic`), YouTube (`IconYoutube`), Drive/enlace (`IconDrive`). Obras del archivo muestran orgánico (`instrumentacion`) bajo el título.
 - **Dificultad en WorkForm:** Campo editable en el bloque «Para arreglar» (junto a fecha estimada); se persiste en `obras.dificultad` y viaja en el mail de encargo.
-- **Mail de asignación:** Columna `obras.encargo_arreglo_mail_enviado_at` (timestamptz). Tras envío exitoso en `WorkForm` o fila rápida del dashboard (solo modo encargo admin/editor) se persiste la marca; reenvío exige confirmación en WorkForm. El self-service del arreglador no envía mail.
+- **Mail de asignación:** Columna `obras.encargo_arreglo_mail_enviado_at` (timestamptz). Tras envío exitoso en `WorkForm` o fila rápida del dashboard (encargo admin/editor **y** autogestión del arreglador) se persiste la marca; reenvío exige confirmación en WorkForm. Destinatario = mail del arreglador; BCC = `ofrn.archivo@gmail.com`.
 
 ## Columnas de la tabla (refactor UX entrega)
 - **F. est.:** Primera columna (izquierda). Fecha estimada editable inline si admin/editor; días restantes y tag solicitante debajo.

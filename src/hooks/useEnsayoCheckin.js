@@ -36,9 +36,11 @@ export function useEnsayoCheckin({ integranteId, events, todayStr }) {
     try {
       const data = await ensayoCheckinEstado(eventoIdsHoy, integranteId);
       setEstadoMap(data || {});
+      return data || {};
     } catch (e) {
       console.error("useEnsayoCheckin", e);
-      setEstadoMap({});
+      // No vaciar: un fallo de red no debe borrar badges (falso positivo de egreso).
+      return null;
     } finally {
       setLoading(false);
     }
@@ -53,5 +55,14 @@ export function useEnsayoCheckin({ integranteId, events, todayStr }) {
     [estadoMap],
   );
 
-  return { estadoMap, getEstado, loading, refresh };
+  const patchEstado = useCallback((eventoId, partial) => {
+    if (eventoId == null || !partial) return;
+    const key = String(eventoId);
+    setEstadoMap((prev) => ({
+      ...prev,
+      [key]: { ...(prev[key] || {}), ...partial },
+    }));
+  }, []);
+
+  return { estadoMap, getEstado, patchEstado, loading, refresh };
 }

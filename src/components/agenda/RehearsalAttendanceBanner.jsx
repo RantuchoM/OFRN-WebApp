@@ -14,7 +14,13 @@ import {
   ensayoCheckoutGps,
   ensayoGenerarPaseUbicacion,
   ensayoCheckinPase,
+  ensayoCheckinPersistAndVerify,
+  ensayoCheckinPaseErrorMessage,
+  ensayoCheckinPersistError,
+  ensayoCheckinRequirePersisted,
+  ENSAYO_CHECKIN_REGISTRANDO_MSG,
 } from "../../services/ensayoCheckinService";
+import EnsayoCheckinRegistrandoOverlay from "./EnsayoCheckinRegistrandoOverlay";
 import { formatRegistradoHora } from "../../services/ensayoCheckinReportService";
 import {
   requestPosition,
@@ -55,11 +61,14 @@ export default function RehearsalAttendanceBanner({
   integranteId,
   getEstado,
   onSuccess,
+  onEstadoPatch,
 }) {
   const [now, setNow] = useState(() => new Date());
   /** 'ingreso_gps' | 'salida_gps' | 'ingreso_scan' | 'salida_scan' */
   const [confirmKind, setConfirmKind] = useState(null);
+  const [confirmError, setConfirmError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [registering, setRegistering] = useState(false);
   const [geoAssist, setGeoAssist] = useState(null);
   const [showPeer, setShowPeer] = useState(false);
   const [paseQrUrl, setPaseQrUrl] = useState(null);
@@ -70,6 +79,7 @@ export default function RehearsalAttendanceBanner({
   const qrPhotoRef = useRef(null);
   const pushSubscribedRef = useRef(false);
   const localScheduledKeyRef = useRef(null);
+  const frozenTargetRef = useRef(null);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -109,12 +119,27 @@ export default function RehearsalAttendanceBanner({
     return () => clearInterval(id);
   }, [paseExpiresAt]);
 
-  const target = useMemo(
+  const holdUi =
+    !!confirmKind ||
+    !!geoAssist ||
+    showPeer ||
+    busy ||
+    registering ||
+    decodingQr;
+
+  const liveTarget = useMemo(
     () =>
       integranteId ? pickEnsayoBannerTarget(events, getEstado, now) : null,
     [events, getEstado, now, integranteId],
   );
 
+  if (!holdUi) {
+    frozenTargetRef.current = liveTarget;
+  } else if (!frozenTargetRef.current && liveTarget?.evt) {
+    frozenTargetRef.current = liveTarget;
+  }
+
+  const target = holdUi ? frozenTargetRef.current || liveTarget : liveTarget;
   const evt = target?.evt || null;
   const estado = target?.estado || null;
   const phase = target?.phase || "idle";
@@ -222,62 +247,76 @@ export default function RehearsalAttendanceBanner({
           btnBorder: "text-amber-800 border-amber-200",
         };
 
+  const applyPersisted = async (phase, res, estado) => {
+    const hora =
+      phase === "salida"
+        ? formatRegistradoHora(estado.salida_at || res.salida_at)
+        : formatRegistradoHora(estado.registrado_at || res.registrado_at);
+    toast.success(
+      phase === "salida"
+        ? res.ya_registrado
+          ? `Ya tenías salida (${hora})`
+          : `Salida registrada (${hora})`
+        : res.ya_registrado
+          ? `Ya tenías ingreso (${hora})`
+          : `Ingreso registrado (${hora})`,
+    );
+    setGeoAssist(null);
+    setConfirmError(null);
+    onEstadoPatch?.(evt.id, estado);
+    if (phase === "salida") {
+      cancelLocalSalidaReminders(evt.id);
+      if (integranteId) {
+        syncEnsayoLocalReminders(integranteId).catch(() => {});
+      }
+    } else {
+      onEnsayoAltaLocalReminders(evt, {
+        registrado_at: estado.registrado_at || res.registrado_at,
+        salida_at: estado.salida_at || null,
+      });
+    }
+    Promise.resolve(onSuccess?.()).catch(() => {});
+  };
+
   const submitGps = async (kind, { lat, lng, precisionM }) => {
     if (!evt?.id) return null;
     const userAgent =
       typeof navigator !== "undefined" ? navigator.userAgent : null;
-    if (kind === "salida") {
-      const res = await ensayoCheckoutGps({
-        eventoId: evt.id,
-        integranteId,
-        lat,
-        lng,
-        precisionM,
-        userAgent,
+    const phase = kind === "salida" ? "salida" : "entrada";
+    setRegistering(true);
+    try {
+      const { res, estado } = await ensayoCheckinPersistAndVerify({
+        phase,
+        rpcFn: () =>
+          phase === "salida"
+            ? ensayoCheckoutGps({
+                eventoId: evt.id,
+                integranteId,
+                lat,
+                lng,
+                precisionM,
+                userAgent,
+              })
+            : ensayoCheckinGps({
+                eventoId: evt.id,
+                integranteId,
+                lat,
+                lng,
+                precisionM,
+                userAgent,
+              }),
       });
-      if (res?.ok) {
-        toast.success(
-          res.ya_registrado
-            ? `Ya tenías salida (${formatRegistradoHora(res.salida_at)})`
-            : `Salida registrada (${formatRegistradoHora(res.salida_at)})`,
-        );
-        setGeoAssist(null);
-        cancelLocalSalidaReminders(evt.id);
-        if (integranteId) {
-          syncEnsayoLocalReminders(integranteId).catch(() => {});
-        }
-        onSuccess?.();
-      }
+      await applyPersisted(phase, res, estado);
       return res;
+    } finally {
+      setRegistering(false);
     }
-    const res = await ensayoCheckinGps({
-      eventoId: evt.id,
-      integranteId,
-      lat,
-      lng,
-      precisionM,
-      userAgent,
-    });
-    if (res?.ok) {
-      toast.success(
-        res.ya_registrado
-          ? `Ya tenías ingreso (${formatRegistradoHora(res.registrado_at)})`
-          : `Ingreso registrado (${formatRegistradoHora(res.registrado_at)})`,
-      );
-      setGeoAssist(null);
-      // Programar offline: el estado puede no estar refrescado aún
-      onEnsayoAltaLocalReminders(evt, {
-        registrado_at: res.registrado_at || new Date().toISOString(),
-        salida_at: null,
-      });
-      onSuccess?.();
-    }
-    return res;
   };
 
   const runGps = async (kind) => {
     setBusy(true);
     setGeoAssist(null);
+    setConfirmError(null);
     try {
       const pos = await requestPosition();
       await submitGps(kind, {
@@ -297,14 +336,15 @@ export default function RehearsalAttendanceBanner({
           code: err.code,
           message: geolocationErrorMessage(err),
         });
-      } else {
-        toast.error(
-          err?.message ||
-            (kind === "salida"
-              ? "No se pudo registrar la salida"
-              : "No se pudo registrar el ingreso"),
-        );
+        return;
       }
+      const msg =
+        err?.message ||
+        ensayoCheckinPersistError(kind === "salida" ? "salida" : "entrada")
+          .message;
+      setConfirmError(msg);
+      toast.error(msg);
+      throw err;
     } finally {
       setBusy(false);
     }
@@ -320,6 +360,7 @@ export default function RehearsalAttendanceBanner({
   const handleConfirm = async () => {
     const kind = confirmKind;
     if (!kind) return;
+    setConfirmError(null);
     if (kind === "ingreso_gps") await runGps("ingreso");
     else if (kind === "salida_gps") await runGps("salida");
     else if (kind === "ingreso_scan") openScanUi("entrada");
@@ -336,7 +377,12 @@ export default function RehearsalAttendanceBanner({
         precisionM: null,
       });
     } catch (e) {
-      toast.error(e.message || "No se pudo registrar");
+      toast.error(
+        e.message ||
+          ensayoCheckinPersistError(
+            geoAssist.kind === "salida" ? "salida" : "entrada",
+          ).message,
+      );
     } finally {
       setBusy(false);
     }
@@ -365,7 +411,12 @@ export default function RehearsalAttendanceBanner({
           message: geolocationErrorMessage(err),
         });
       } else {
-        toast.error(err?.message || "No se pudo registrar");
+        toast.error(
+          err?.message ||
+            ensayoCheckinPersistError(
+              geoAssist.kind === "salida" ? "salida" : "entrada",
+            ).message,
+        );
       }
     } finally {
       setBusy(false);
@@ -397,7 +448,7 @@ export default function RehearsalAttendanceBanner({
 
   const handleScanPase = async (e) => {
     const file = e.target.files?.[0];
-    if (!file || !integranteId) return;
+    if (!file || !integranteId || !evt?.id) return;
     setDecodingQr(true);
     try {
       const text = await decodeQrFromImageFile(file);
@@ -405,54 +456,40 @@ export default function RehearsalAttendanceBanner({
         toast.error("No se leyó el QR");
         return;
       }
+      setRegistering(true);
       const res = await ensayoCheckinPase(
         text.trim(),
         integranteId,
         typeof navigator !== "undefined" ? navigator.userAgent : null,
       );
-      if (!res?.ok) {
-        const msg =
-          res?.reason === "pase_expirado"
-            ? "El QR expiró. Pedí uno nuevo."
-            : res?.reason === "pase_usado"
-              ? "Este QR ya fue usado."
-              : "QR no válido";
-        toast.error(msg);
+      const paseMsg = ensayoCheckinPaseErrorMessage(res);
+      if (paseMsg) {
+        toast.error(paseMsg);
         return;
       }
-      const isSalida = res.proposito === "salida" || !!res.salida_at;
-      toast.success(
-        isSalida
-          ? res.ya_registrado
-            ? `Ya tenías salida (${formatRegistradoHora(res.salida_at)})`
-            : `Salida registrada (${formatRegistradoHora(res.salida_at)})`
-          : res.ya_registrado
-            ? `Ya tenías ingreso (${formatRegistradoHora(res.registrado_at)})`
-            : `Ingreso registrado (${formatRegistradoHora(res.registrado_at)})`,
+      const phase =
+        res?.proposito === "salida" || !!res?.salida_at ? "salida" : "entrada";
+      const { res: persisted, estado } = ensayoCheckinRequirePersisted(
+        res,
+        phase,
       );
-      if (isSalida) {
-        cancelLocalSalidaReminders(evt.id);
-        if (integranteId) {
-          syncEnsayoLocalReminders(integranteId).catch(() => {});
-        }
-      } else {
-        onEnsayoAltaLocalReminders(evt, {
-          registrado_at: res.registrado_at || new Date().toISOString(),
-          salida_at: null,
-        });
-      }
+      await applyPersisted(phase, persisted, estado);
       setShowPeer(false);
-      onSuccess?.();
     } catch (err) {
       toast.error(err.message || "Error al escanear");
     } finally {
+      setRegistering(false);
       setDecodingQr(false);
       e.target.value = "";
     }
   };
 
-  if (!integranteId || !target || phase === "idle" || phase === "done") {
+  if (!integranteId) return null;
+  if (!holdUi && (!liveTarget || liveTarget.phase === "idle" || liveTarget.phase === "done")) {
     return null;
+  }
+  if (!evt) {
+    return <EnsayoCheckinRegistrandoOverlay open={registering || busy} />;
   }
 
   const iconBtnClass =
@@ -497,11 +534,12 @@ export default function RehearsalAttendanceBanner({
             <button
               type="button"
               disabled={busy}
-              onClick={() =>
+              onClick={() => {
+                setConfirmError(null);
                 setConfirmKind(
                   actionPhase === "salida" ? "salida_gps" : "ingreso_gps",
-                )
-              }
+                );
+              }}
               className={`${iconBtnClass} ${
                 actionPhase === "salida"
                   ? bannerChrome.btnBorder
@@ -527,11 +565,12 @@ export default function RehearsalAttendanceBanner({
             <button
               type="button"
               disabled={busy || decodingQr}
-              onClick={() =>
+              onClick={() => {
+                setConfirmError(null);
                 setConfirmKind(
                   actionPhase === "salida" ? "salida_scan" : "ingreso_scan",
-                )
-              }
+                );
+              }}
               className={`${iconBtnClass} text-slate-700 border-slate-200`}
               title="Escanear QR de compañero"
               aria-label="Escanear QR de compañero"
@@ -564,7 +603,11 @@ export default function RehearsalAttendanceBanner({
 
       <ConfirmModal
         isOpen={!!confirmKind}
-        onClose={() => setConfirmKind(null)}
+        onClose={() => {
+          if (busy || registering) return;
+          setConfirmKind(null);
+          setConfirmError(null);
+        }}
         onConfirm={handleConfirm}
         title={
           confirmIsScan
@@ -590,13 +633,17 @@ export default function RehearsalAttendanceBanner({
               : "Sí, ingresar"
         }
         cancelText="Cancelar"
-        confirmLoading={busy}
+        confirmLoading={busy || registering}
+        loadingText={ENSAYO_CHECKIN_REGISTRANDO_MSG}
+        errorMessage={confirmError}
         confirmClassName={
           confirmIsSalida
             ? "px-4 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg"
             : "px-4 py-2.5 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg"
         }
       />
+
+      <EnsayoCheckinRegistrandoOverlay open={registering && !confirmKind} />
 
       {geoAssist &&
         createPortal(

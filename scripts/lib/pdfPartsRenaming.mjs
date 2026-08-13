@@ -35,7 +35,9 @@ export function canonicalCombinedSuffix(raw) {
 
 export function normalizeInstrumentLabel(rawName) {
   const base = String(rawName || "").replace(/\.pdf$/i, "");
-  let name = base.replace(/_/g, " ");
+  let name = base.replace(/_/g, " ").replace(/^\s*copia\s+de\s+/i, "");
+  // Typo frecuente en PDFs Lema
+  name = name.replace(/\btomb[oó]n\b/gi, "Trombón");
 
   const canonicalPrefix =
     /^\s*(.+?)\s*-\s*[^.]+\.\s*.+\s*-\s*.+\s*$/i;
@@ -46,6 +48,11 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bscore\b|partitura|full score/i.test(name)) return "SCORE";
   if (/\b[oó]rgano\b|\borgan\b/i.test(name) && !/orchestra/i.test(name))
     return "Órgano";
+  if (/\bsaxo\s*tenor\b|\btenor\s*sax/i.test(name)) return "Saxo Tenor";
+  if (/\bsaxo\s*alto\b|\balto\s*sax/i.test(name)) return "Saxo Alto";
+  if (/\bsaxo|\bsaxof/i.test(name)) return "Saxofón";
+  if (/\bbater[ií]a\b|\bdrum\s*set\b/i.test(name)) return "Perc Batería";
+  if (/\bpiano\b/i.test(name)) return "Piano";
   if (/\bcoro\b|\bchoir\b|\bsatb\b/i.test(name) && !/gitanos/i.test(name))
     return "Coro";
 
@@ -102,14 +109,16 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bbassoons?\b|\bfagot\b/i.test(name)) return "Fagot";
   if (/\bcorno\s*f\s*4\b|\bhorn\s*4\b|\bcorno\s*4\b/i.test(name)) return "Corno F 4";
   if (/\bcorno\s*f\s*3\b|\bhorn\s*3\b|\bcorno\s*3\b/i.test(name)) return "Corno F 3";
-  if (/\bcorno\s*f\s*2\b|\bhorn\s*2\b|\bcorno\s*2\b/i.test(name)) return "Corno F 2";
-  if (/\bcorno\s*f\s*1\b|\bhorn\s*1\b|\bcorno\s*1\b/i.test(name)) return "Corno F 1";
+  if (/\bcorno\s*f\s*2\b|\bhorn\s*2\b|\bcorno\s*2\b|\bcorno\s+en\s+f(?:a)?\s*2\b/i.test(name))
+    return "Corno F 2";
+  if (/\bcorno\s*f\s*1\b|\bhorn\s*1\b|\bcorno\s*1\b|\bcorno\s+en\s+f(?:a)?\s*1\b/i.test(name))
+    return "Corno F 1";
   if (/\bcorno\s+en\s+fa\b|\bhorns?\b|\bcornos?\b|\bcorno\b/i.test(name))
     return "Corno F";
   if (/\btrompeta\s*2\b|\btrumpet\s*2\b/i.test(name)) return "Trompeta 2";
   if (/\btrompeta\s*1\b|\btrumpet\s*1\b/i.test(name)) return "Trompeta 1";
   if (/\btrumpets?\b|\btrompeta\b/i.test(name)) return "Trompeta";
-  if (/\btrombon\s*bajo\b|\bbass\s+trombone\b/i.test(name)) return "Trombón 3";
+  if (/\btromb[oó]n\s*bajo\b|\bbass\s+trombone\b/i.test(name)) return "Trombón Bajo";
   if (/\btambor\s*piccolo\b|\btamburino\b/i.test(name)) return "Perc Tambor";
   if (/\btrombón\s*3\b|\btrombone\s*3\b|\btrombon\s*3\b/i.test(name))
     return "Trombón 3";
@@ -193,7 +202,8 @@ export function canonicalPartFilename(instrument, workNo, workTitle, composerTag
 }
 
 export function extractInstrumentFromExistingName(fileName) {
-  const base = fileName.replace(/\.pdf$/i, "").replace(/\s*-\s*raw split$/i, "");
+  let base = fileName.replace(/\.pdf$/i, "").replace(/\s*-\s*raw split$/i, "");
+  base = base.replace(/^\s*copia\s+de\s+/i, "").trim();
   if (/^\s*SCORE\b/i.test(base)) return "SCORE";
 
   const mWorkNum = base.match(

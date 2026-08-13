@@ -440,3 +440,23 @@ Permitir que el músico descargue de una vez todas sus partes disponibles desde 
 - [x] PDFs recortados y renombrados en sync local (17 + PORTADA.png); Drive File Stream ya lista los nombres nuevos
 - [x] Seed SQL generado (`supabase/seed_mozart_dies_irae_sync.sql`, 18 particellas, `0.0.2.2 - 0.2.3.0 - Timp - Key - Str + Coro`)
 - [ ] Seed **pendiente ejecutar en Supabase** (no corrido en esta sesión)
+
+---
+
+### Completado (2026-08-12) — Show Invap → gira 157 (Jazz Band)
+Fuente Drive: [Show Invap](https://drive.google.com/drive/folders/1JmXOBx9D9K0NNRiwdCIy4Jdk2SD5ZX45). Programa **157** / bloque repertorio **132**.
+
+**Reutilizadas (solo a repertorio):** 3303 Almost Like…, 3317 Bernie's Tune, 3305 I Can't Get Started, 3308 If I Should Lose You, 3304 Summertime, 3306 Time After Time (todas Lema arreglador / `[bronces 2120 perc key]` salvo Bernie's).
+
+**Altas nuevas (copia a Para acomodar + particellas + duración MP3):**
+
+| id | Título | Rol Lema | Carpeta Para acomodar | Dur. |
+|----|--------|----------|----------------------|------|
+| 3566 | Cantaloupe Island | arreglador | `Hancock-Lema - Cantaloupe Island` | 73s |
+| 3567 | Lester Leaps In | arreglador | `Young-Lema - Lester Leaps In` | 71s |
+| 3568 | The Mexican Connection | arreglador | `Joel-Lema - The Mexican Connection` | 220s |
+| 3569 | El Vuelo del Wachinango | **compositor** (sin arreglador) | `Lema, G. - El Vuelo del Wachinango` | — (sin MP3) |
+
+- Script: `scripts/process-invap-show.mjs` (+ seeds `supabase/seed_invap_show_new.sql`, `seed_invap_gira157.sql`).
+- Matcher: Órgano→Piano (id 15); tipografía `Tombón`→Trombón; strip `Copia de`; batería→Percusión.
+- [x] 10 obras en `repertorio_obras` id_repertorio=132.

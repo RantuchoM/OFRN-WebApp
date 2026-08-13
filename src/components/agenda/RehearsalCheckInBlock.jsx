@@ -13,7 +13,12 @@ import {
   ensayoCheckoutGps,
   ensayoGenerarPaseUbicacion,
   ensayoCheckinPase,
+  ensayoCheckinPersistAndVerify,
+  ensayoCheckinPaseErrorMessage,
+  ensayoCheckinPersistError,
+  ensayoCheckinRequirePersisted,
 } from "../../services/ensayoCheckinService";
+import EnsayoCheckinRegistrandoOverlay from "./EnsayoCheckinRegistrandoOverlay";
 import { formatRegistradoHora } from "../../services/ensayoCheckinReportService";
 import { requestPosition, geolocationErrorMessage, geolocationAndroidOverlayHint, isAndroidDevice } from "../../utils/geolocation";
 import { decodeQrFromImageFile } from "../../utils/qrDecodeFromImage";
@@ -32,6 +37,7 @@ export default function RehearsalCheckInBlock({
   isToday,
   estado,
   onSuccess,
+  onEstadoPatch,
   /** Si true, renderiza hora_inicio/fin del evento emparejadas con llegada/salida. */
   pairWithSchedule = false,
   /** Clases para las horas de agenda (solo con pairWithSchedule). */
@@ -39,6 +45,7 @@ export default function RehearsalCheckInBlock({
   scheduleEndClassName = "text-sm font-normal text-slate-600",
 }) {
   const [busy, setBusy] = useState(false);
+  const [registering, setRegistering] = useState(false);
   const [showPeer, setShowPeer] = useState(false);
   const [paseToken, setPaseToken] = useState(null);
   const [paseQrUrl, setPaseQrUrl] = useState(null);
@@ -98,54 +105,67 @@ export default function RehearsalCheckInBlock({
     return () => clearInterval(id);
   }, [paseExpiresAt]);
 
-  const submitCheckInGps = async ({ lat, lng, precisionM }) => {
-    const res = await ensayoCheckinGps({
-      eventoId: evt.id,
-      integranteId,
-      lat,
-      lng,
-      precisionM,
-      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
-    });
-    if (res?.ok) {
-      toast.success(
-        res.ya_registrado
-          ? `Ya registraste ingreso a las ${formatHora(res.registrado_at)}`
-          : `Ingreso registrado (${formatHora(res.registrado_at)})`,
-      );
-      setGeoAssist(null);
-      onEnsayoAltaLocalReminders(evt, {
-        registrado_at: res.registrado_at || new Date().toISOString(),
-        salida_at: null,
-      });
-      onSuccess?.();
-    }
-    return res;
-  };
-
-  const submitCheckOutGps = async ({ lat, lng, precisionM }) => {
-    const res = await ensayoCheckoutGps({
-      eventoId: evt.id,
-      integranteId,
-      lat,
-      lng,
-      precisionM,
-      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
-    });
-    if (res?.ok) {
-      toast.success(
-        res.ya_registrado
-          ? `Ya registraste salida a las ${formatHora(res.salida_at)}`
-          : `Salida registrada (${formatHora(res.salida_at)})`,
-      );
-      setGeoAssist(null);
+  const applyPersisted = async (phase, res, estadoDb) => {
+    const hora =
+      phase === "salida"
+        ? formatHora(estadoDb.salida_at || res.salida_at)
+        : formatHora(estadoDb.registrado_at || res.registrado_at);
+    toast.success(
+      phase === "salida"
+        ? res.ya_registrado
+          ? `Ya registraste salida a las ${hora}`
+          : `Salida registrada (${hora})`
+        : res.ya_registrado
+          ? `Ya registraste ingreso a las ${hora}`
+          : `Ingreso registrado (${hora})`,
+    );
+    setGeoAssist(null);
+    onEstadoPatch?.(evt.id, estadoDb);
+    if (phase === "salida") {
       cancelLocalSalidaReminders(evt.id);
       if (integranteId) {
         syncEnsayoLocalReminders(integranteId).catch(() => {});
       }
-      onSuccess?.();
+    } else {
+      onEnsayoAltaLocalReminders(evt, {
+        registrado_at: estadoDb.registrado_at || res.registrado_at,
+        salida_at: estadoDb.salida_at || null,
+      });
     }
-    return res;
+    Promise.resolve(onSuccess?.()).catch(() => {});
+  };
+
+  const persistGps = async (phase, { lat, lng, precisionM }) => {
+    setRegistering(true);
+    try {
+      const { res, estado: estadoDb } = await ensayoCheckinPersistAndVerify({
+        phase,
+        rpcFn: () =>
+          phase === "salida"
+            ? ensayoCheckoutGps({
+                eventoId: evt.id,
+                integranteId,
+                lat,
+                lng,
+                precisionM,
+                userAgent:
+                  typeof navigator !== "undefined" ? navigator.userAgent : null,
+              })
+            : ensayoCheckinGps({
+                eventoId: evt.id,
+                integranteId,
+                lat,
+                lng,
+                precisionM,
+                userAgent:
+                  typeof navigator !== "undefined" ? navigator.userAgent : null,
+              }),
+      });
+      await applyPersisted(phase, res, estadoDb);
+      return res;
+    } finally {
+      setRegistering(false);
+    }
   };
 
   const handleGpsAction = async (forPhase) => {
@@ -154,19 +174,11 @@ export default function RehearsalCheckInBlock({
     setBusy(true);
     try {
       const pos = await requestPosition();
-      if (forPhase === "salida") {
-        await submitCheckOutGps({
-          lat: pos.lat,
-          lng: pos.lng,
-          precisionM: pos.accuracy,
-        });
-      } else {
-        await submitCheckInGps({
-          lat: pos.lat,
-          lng: pos.lng,
-          precisionM: pos.accuracy,
-        });
-      }
+      await persistGps(forPhase === "salida" ? "salida" : "entrada", {
+        lat: pos.lat,
+        lng: pos.lng,
+        precisionM: pos.accuracy,
+      });
     } catch (err) {
       if (
         err?.code === "denied" ||
@@ -182,9 +194,9 @@ export default function RehearsalCheckInBlock({
       } else {
         toast.error(
           err?.message ||
-            (forPhase === "salida"
-              ? "No se pudo registrar la salida"
-              : "No se pudo registrar el ingreso"),
+            ensayoCheckinPersistError(
+              forPhase === "salida" ? "salida" : "entrada",
+            ).message,
         );
       }
     } finally {
@@ -198,19 +210,11 @@ export default function RehearsalCheckInBlock({
     setBusy(true);
     try {
       const pos = await requestPosition({ maximumAge: 0 });
-      if (forPhase === "salida") {
-        await submitCheckOutGps({
-          lat: pos.lat,
-          lng: pos.lng,
-          precisionM: pos.accuracy,
-        });
-      } else {
-        await submitCheckInGps({
-          lat: pos.lat,
-          lng: pos.lng,
-          precisionM: pos.accuracy,
-        });
-      }
+      await persistGps(forPhase === "salida" ? "salida" : "entrada", {
+        lat: pos.lat,
+        lng: pos.lng,
+        precisionM: pos.accuracy,
+      });
     } catch (err) {
       if (
         err?.code === "denied" ||
@@ -233,9 +237,9 @@ export default function RehearsalCheckInBlock({
       } else {
         toast.error(
           err?.message ||
-            (forPhase === "salida"
-              ? "No se pudo registrar la salida"
-              : "No se pudo registrar el ingreso"),
+            ensayoCheckinPersistError(
+              forPhase === "salida" ? "salida" : "entrada",
+            ).message,
         );
       }
     } finally {
@@ -248,17 +252,17 @@ export default function RehearsalCheckInBlock({
     const forPhase = geoAssist?.phase || phase;
     setBusy(true);
     try {
-      if (forPhase === "salida") {
-        await submitCheckOutGps({ lat: null, lng: null, precisionM: null });
-      } else {
-        await submitCheckInGps({ lat: null, lng: null, precisionM: null });
-      }
+      await persistGps(forPhase === "salida" ? "salida" : "entrada", {
+        lat: null,
+        lng: null,
+        precisionM: null,
+      });
     } catch (e) {
       toast.error(
         e.message ||
-          (forPhase === "salida"
-            ? "No se pudo registrar la salida"
-            : "No se pudo registrar el ingreso"),
+          ensayoCheckinPersistError(
+            forPhase === "salida" ? "salida" : "entrada",
+          ).message,
       );
     } finally {
       setBusy(false);
@@ -318,48 +322,29 @@ export default function RehearsalCheckInBlock({
         toast.error("No se leyó el QR");
         return;
       }
+      setRegistering(true);
       const res = await ensayoCheckinPase(
         text.trim(),
         integranteId,
         typeof navigator !== "undefined" ? navigator.userAgent : null,
       );
-      if (!res?.ok) {
-        const msg =
-          res?.reason === "pase_expirado"
-            ? "El QR expiró. Pedí uno nuevo."
-            : res?.reason === "pase_usado"
-              ? "Este QR ya fue usado."
-              : "QR no válido";
-        toast.error(msg);
+      const paseMsg = ensayoCheckinPaseErrorMessage(res);
+      if (paseMsg) {
+        toast.error(paseMsg);
         return;
       }
-      const isSalida = res.proposito === "salida" || !!res.salida_at;
-      if (isSalida) {
-        toast.success(
-          res.ya_registrado
-            ? `Ya tenías salida (${formatHora(res.salida_at)})`
-            : `Salida registrada (${formatHora(res.salida_at)})`,
-        );
-        cancelLocalSalidaReminders(evt.id);
-        if (integranteId) {
-          syncEnsayoLocalReminders(integranteId).catch(() => {});
-        }
-      } else {
-        toast.success(
-          res.ya_registrado
-            ? `Ya tenías ingreso (${formatHora(res.registrado_at)})`
-            : `Ingreso registrado (${formatHora(res.registrado_at)})`,
-        );
-        onEnsayoAltaLocalReminders(evt, {
-          registrado_at: res.registrado_at || new Date().toISOString(),
-          salida_at: null,
-        });
-      }
+      const persistPhase =
+        res?.proposito === "salida" || !!res?.salida_at ? "salida" : "entrada";
+      const { res: persisted, estado: estadoDb } = ensayoCheckinRequirePersisted(
+        res,
+        persistPhase,
+      );
+      await applyPersisted(persistPhase, persisted, estadoDb);
       setShowPeer(false);
-      onSuccess?.();
     } catch (err) {
       toast.error(err.message || "Error al escanear");
     } finally {
+      setRegistering(false);
       setDecodingQr(false);
       e.target.value = "";
     }
@@ -495,6 +480,7 @@ export default function RehearsalCheckInBlock({
 
   const modals = (
     <>
+      <EnsayoCheckinRegistrandoOverlay open={registering} />
       {showGeoModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
           <div

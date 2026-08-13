@@ -978,22 +978,20 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         ]);
         if (relError) throw relError;
 
-        // Solo enviar mail cuando es un encargo (admin/editor), no cuando el arreglador se carga a sí mismo
-        if (!selfMode) {
-          const mailSent = await enviarEncargoArreglo(
-            data.id,
-            titulo,
-            arregladorId,
-            null,
-            quickDraft.observaciones || "",
-            quickDraft.fecha_esperada || null,
-            quickDraft.dificultad || null,
-            quickDraft.instrumentacion || null,
-            getSolicitanteLabelForUser()
-          );
-          if (mailSent) {
-            await markEncargoArregloMailSent(sb, data.id);
-          }
+        // Mail al arreglador + BCC a ofrn.archivo@gmail.com (también en autogestión)
+        const mailSent = await enviarEncargoArreglo(
+          data.id,
+          titulo,
+          arregladorId,
+          null,
+          quickDraft.observaciones || "",
+          quickDraft.fecha_esperada || null,
+          quickDraft.dificultad || null,
+          quickDraft.instrumentacion || null,
+          getSolicitanteLabelForUser()
+        );
+        if (mailSent) {
+          await markEncargoArregloMailSent(sb, data.id);
         }
       }
 

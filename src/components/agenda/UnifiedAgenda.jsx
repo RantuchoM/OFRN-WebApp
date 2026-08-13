@@ -891,8 +891,11 @@ export default function UnifiedAgenda({
         : [],
     [canEnsayoCheckIn, items, showEnsayoCheckInBlock],
   );
-  const { getEstado: getEnsayoCheckinEstado, refresh: refreshEnsayoCheckin } =
-    useEnsayoCheckin({
+  const {
+    getEstado: getEnsayoCheckinEstado,
+    patchEstado: patchEnsayoCheckinEstado,
+    refresh: refreshEnsayoCheckin,
+  } = useEnsayoCheckin({
       integranteId: canEnsayoCheckIn ? effectiveUserId : null,
       events: ensayoCheckInEvents,
       todayStr,
@@ -2920,6 +2923,7 @@ export default function UnifiedAgenda({
                                       isToday={evt.fecha === todayStr}
                                       estado={getEnsayoCheckinEstado(evt.id)}
                                       onSuccess={refreshEnsayoCheckin}
+                                      onEstadoPatch={patchEnsayoCheckinEstado}
                                       pairWithSchedule
                                       scheduleTimeClassName={`text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-600"}`}
                                       scheduleEndClassName={`text-sm font-normal ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
@@ -3384,6 +3388,7 @@ export default function UnifiedAgenda({
                                       isToday={evt.fecha === todayStr}
                                       estado={getEnsayoCheckinEstado(evt.id)}
                                       onSuccess={refreshEnsayoCheckin}
+                                      onEstadoPatch={patchEnsayoCheckinEstado}
                                       pairWithSchedule
                                       scheduleTimeClassName={`text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
                                       scheduleEndClassName={`text-sm font-normal ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
