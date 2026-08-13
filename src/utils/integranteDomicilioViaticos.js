@@ -53,6 +53,31 @@ export function hasLocalidadViaticosAsignada(person) {
   return id != null && id !== "";
 }
 
+/** Localidad de viáticos explícita y distinta de residencia. */
+export function viaticosDiffersFromResidencia(person) {
+  if (!hasLocalidadViaticosAsignada(person)) return false;
+  const locV = resolveLocalidadEfectivaViaticos(person);
+  const locR = resolveLocalidadResidencia(person);
+  return (
+    locV.id != null &&
+    locR.id != null &&
+    String(locV.id) !== String(locR.id)
+  );
+}
+
+/** Overlay para matchear reglas de transporte contra loc. de viáticos. */
+export function personWithViaticosAsResidence(person) {
+  const locV = resolveLocalidadEfectivaViaticos(person);
+  if (!person || locV.id == null) return person;
+  return {
+    ...person,
+    id_localidad_residencia: String(locV.id),
+    localidades_residencia: locV.objeto || person.localidades || null,
+    _loc_residencia: locV.objeto || person._loc_residencia,
+    id_region_residencia: locV.regionId ?? person.id_region_residencia,
+  };
+}
+
 function getViaticosNombre(person) {
   return getViaticosObjeto(person)?.localidad || "";
 }

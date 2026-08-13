@@ -50,6 +50,7 @@ Cualquier evento en la agenda cuyo `id_tipo_evento` sea **35** debe considerarse
 - [x] Chip de afectados por regla: si hay `plaza_extra`, muestra `N + M ins` (misma semántica que filas de `GirasTransportesManager` / roster).
 - [x] Lista expandida de personas (y reglas Individual): `+{abreviatura}` junto al nombre cuando el instrumento efectivo ocupa plaza.
 - [x] Roster/catálogo propaga `instrumentos.abreviatura` vía `useGiraRoster` + `applyEffectiveGiraInstrument`.
+- [x] Localidad inferida (viáticos ≠ residencia): chip celeste `n inf.` / `m y n inf.` (plaza extra solo sobre pax reales); lista expandida con marca **inf.**.
 
 ## Migración SQL
 

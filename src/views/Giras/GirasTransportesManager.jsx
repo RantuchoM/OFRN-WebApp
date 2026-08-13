@@ -85,6 +85,10 @@ import {
   extractStoragePathFromUrl,
 } from "../../utils/giraTransportUtils";
 import {
+  personWithViaticosAsResidence,
+  viaticosDiffersFromResidencia,
+} from "../../utils/integranteDomicilioViaticos";
+import {
   countEventosByGiraTransporte,
   deleteGiraTransporteCascade,
 } from "../../services/giraService";
@@ -101,6 +105,65 @@ import EventGruposAssignModal from "../../components/agenda/EventGruposAssignMod
 
 import { toast } from "sonner";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+
+function formatStopRuleCount(count, inferredCount = 0) {
+  if (inferredCount > 0 && count > 0) return `${count} y ${inferredCount} inf.`;
+  if (inferredCount > 0) return `${inferredCount} inf.`;
+  return String(count);
+}
+
+function stopRuleLineClass(count, inferredCount = 0, { mobile = false } = {}) {
+  if (count === 0 && inferredCount > 0) {
+    return mobile
+      ? "bg-sky-100 text-sky-800"
+      : "text-sky-800 opacity-100 font-bold bg-sky-100 rounded-sm py-[1px]";
+  }
+  if (count === 0) {
+    return mobile
+      ? "bg-amber-100 text-amber-800"
+      : "text-amber-800 opacity-100 font-bold bg-amber-100 rounded-sm py-[1px]";
+  }
+  if (inferredCount > 0) {
+    return mobile ? "bg-sky-50 text-sky-800" : "text-sky-800 opacity-90 font-bold";
+  }
+  return mobile ? "opacity-70" : "opacity-60";
+}
+
+function stopBoardChipClass({ total, inferred, alert, direction }) {
+  if (total > 0) {
+    return direction === "up"
+      ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+      : "bg-rose-100 text-rose-700 border-rose-200";
+  }
+  if (inferred > 0) {
+    return "bg-sky-100 text-sky-700 border-sky-200";
+  }
+  if (alert) {
+    return "bg-orange-100 text-orange-700 border-orange-300 animate-pulse";
+  }
+  return "bg-white text-slate-300 border-slate-100 hover:border-slate-300";
+}
+
+function summarizeBoardTotals(summary, isMediosPropios) {
+  const total = (summary || []).reduce((acc, curr) => acc + (curr.count || 0), 0);
+  const inferred = (summary || []).reduce(
+    (acc, curr) => acc + (curr.inferredCount || 0),
+    0,
+  );
+  const alert =
+    (summary || []).some((s) => s.count === 0 && !(s.inferredCount > 0)) &&
+    !isMediosPropios;
+  return { total, inferred, alert };
+}
+
+function stopBoardHeadcount(total, inferred, alert) {
+  if (total > 0 && inferred > 0) return `${total} y ${inferred} inf.`;
+  if (total > 0) return total;
+  if (inferred > 0) return `${inferred} inf.`;
+  if (alert) return null;
+  return "+";
+}
+
 export default function GirasTransportesManager({
   supabase,
   gira,
@@ -907,7 +970,7 @@ export default function GirasTransportesManager({
     return relevantRules.map((r) => {
       const scopeNorm = normalize(r.alcance);
 
-      const count = passengerList.filter((p) => {
+      const actualPassengers = passengerList.filter((p) => {
         const matchesStop = matchesRule(r, p, localitiesList);
         if (!matchesStop) return false;
 
@@ -928,7 +991,26 @@ export default function GirasTransportesManager({
           type === "up" ? tr.subidaScope || "" : tr.bajadaScope || "";
 
         return scopeNorm === winningScope;
-      }).length;
+      });
+      const actualIds = new Set(actualPassengers.map((p) => String(p.id)));
+      const count = actualPassengers.length;
+
+      const inferredCount =
+        scopeNorm === "localidad"
+          ? passengerList.filter((p) => {
+              if (actualIds.has(String(p.id))) return false;
+              if (!viaticosDiffersFromResidencia(p)) return false;
+              const tr = p.logistics?.transports?.find(
+                (t) => String(t.id) === String(transportId),
+              );
+              if (!tr) return false;
+              return matchesRule(
+                r,
+                personWithViaticosAsResidence(p),
+                localitiesList,
+              );
+            }).length
+          : 0;
 
       let label = "";
       const scope = r.alcance;
@@ -952,7 +1034,7 @@ export default function GirasTransportesManager({
         label = scope;
       }
 
-      return { label, count };
+      return { label, count, inferredCount };
     });
   };
 
@@ -1702,18 +1784,17 @@ export default function GirasTransportesManager({
       events.forEach((evt) => {
         const upsSummary = getEventRulesSummary(evt.id, "up", tId);
         const downsSummary = getEventRulesSummary(evt.id, "down", tId);
-        const totalUps = upsSummary.reduce((acc, curr) => acc + curr.count, 0);
-        const totalDowns = downsSummary.reduce(
-          (acc, curr) => acc + curr.count,
-          0,
-        );
+        const ups = summarizeBoardTotals(upsSummary, false);
+        const downs = summarizeBoardTotals(downsSummary, false);
 
         // Por defecto: si solo hay bajadas y ninguna subida, y el evento aún no
         // tiene visible_agenda definido (null/undefined), lo marcamos como oculto.
         // Esto respeta cualquier cambio manual posterior (true/false explícito).
+        // Las subidas inferidas (loc. viáticos ≠ residencia) también cuentan.
         if (
-          totalUps === 0 &&
-          totalDowns > 0 &&
+          ups.total === 0 &&
+          ups.inferred === 0 &&
+          downs.total > 0 &&
           (evt.visible_agenda === null || typeof evt.visible_agenda === "undefined")
         ) {
           handleUpdateEvent(evt.id, "visible_agenda", false);
@@ -2784,20 +2865,28 @@ export default function GirasTransportesManager({
                             "down",
                             t.id,
                           );
-                          const totalUps = upsSummary.reduce(
-                            (acc, curr) => acc + curr.count,
-                            0,
+                          const ups = summarizeBoardTotals(
+                            upsSummary,
+                            isMediosPropios,
                           );
-                          const totalDowns = downsSummary.reduce(
-                            (acc, curr) => acc + curr.count,
-                            0,
+                          const downs = summarizeBoardTotals(
+                            downsSummary,
+                            isMediosPropios,
                           );
-                          const upAlert =
-                            upsSummary.some((s) => s.count === 0) &&
-                            !isMediosPropios;
-                          const downAlert =
-                            downsSummary.some((s) => s.count === 0) &&
-                            !isMediosPropios;
+                          const totalUps = ups.total;
+                          const totalDowns = downs.total;
+                          const upAlert = ups.alert;
+                          const downAlert = downs.alert;
+                          const upHeadcount = stopBoardHeadcount(
+                            ups.total,
+                            ups.inferred,
+                            ups.alert,
+                          );
+                          const downHeadcount = stopBoardHeadcount(
+                            downs.total,
+                            downs.inferred,
+                            downs.alert,
+                          );
 
                           return (
                             <tr
@@ -2999,7 +3088,7 @@ export default function GirasTransportesManager({
                                 </div>
                               </td>
                               <td
-                                className={`p-2 border-l border-emerald-50/50 align-middle ${totalUps > 0 ? "bg-emerald-50/20" : ""}`}
+                                className={`p-2 border-l border-emerald-50/50 align-middle ${totalUps > 0 ? "bg-emerald-50/20" : ups.inferred > 0 ? "bg-sky-50/20" : ""}`}
                               >
                                 <button
                                   onClick={() =>
@@ -3010,32 +3099,29 @@ export default function GirasTransportesManager({
                                       transportId: t.id,
                                     })
                                   }
-                                  className={`w-full py-1 rounded-xl border text-[10px] font-black flex flex-col items-center gap-0.5 ${totalUps > 0 ? "bg-emerald-100 text-emerald-700 border-emerald-200" : upAlert ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse" : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"}`}
+                                  className={`w-full py-1 rounded-xl border text-[10px] font-black flex flex-col items-center gap-0.5 ${stopBoardChipClass({ total: ups.total, inferred: ups.inferred, alert: upAlert, direction: "up" })}`}
                                 >
                                   <div className="flex items-center gap-1 w-full justify-center">
                                     <IconUpload size={10} />{" "}
-                                    {totalUps > 0
-                                      ? totalUps
-                                      : upAlert
-                                        ? "0 ⚠️"  
-                                        : "+"}
+                                    {upHeadcount == null ? "0 ⚠️" : upHeadcount}
                                   </div>
                                   {upsSummary.map((s, i) => (
                                     <span
                                       key={i}
-                                      className={`px-1 truncate w-full text-[9px] ${
-                                        s.count === 0
-                                          ? "text-amber-800 opacity-100 font-bold bg-amber-100 rounded-sm py-[1px]"
-                                          : "opacity-60"
-                                      }`}
+                                      title={
+                                        s.inferredCount > 0
+                                          ? "Pasajeros con loc. de viáticos en esta localidad (distinta de residencia)"
+                                          : undefined
+                                      }
+                                      className={`px-1 truncate w-full text-[9px] ${stopRuleLineClass(s.count, s.inferredCount)}`}
                                     >
-                                      {s.label} ({s.count})
+                                      {s.label} ({formatStopRuleCount(s.count, s.inferredCount)})
                                     </span>
                                   ))}
                                 </button>
                               </td>
                               <td
-                                className={`p-2 border-l border-rose-50/50 align-middle ${totalDowns > 0 ? "bg-rose-50/30" : ""}`}
+                                className={`p-2 border-l border-rose-50/50 align-middle ${totalDowns > 0 ? "bg-rose-50/30" : downs.inferred > 0 ? "bg-sky-50/20" : ""}`}
                               >
                                 <button
                                   onClick={() =>
@@ -3046,26 +3132,23 @@ export default function GirasTransportesManager({
                                       transportId: t.id,
                                     })
                                   }
-                                  className={`w-full py-1 rounded-xl border text-[10px] font-black flex flex-col items-center gap-0.5 ${totalDowns > 0 ? "bg-rose-100 text-rose-700 border-rose-200" : downAlert ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse" : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"}`}
+                                  className={`w-full py-1 rounded-xl border text-[10px] font-black flex flex-col items-center gap-0.5 ${stopBoardChipClass({ total: downs.total, inferred: downs.inferred, alert: downAlert, direction: "down" })}`}
                                 >
                                   <div className="flex items-center gap-1 w-full justify-center">
                                     <IconDownload size={10} />{" "}
-                                    {totalDowns > 0
-                                      ? totalDowns
-                                      : downAlert
-                                        ? "0 ⚠️"
-                                        : "+"}
+                                    {downHeadcount == null ? "0 ⚠️" : downHeadcount}
                                   </div>
                                   {downsSummary.map((s, i) => (
                                     <span
                                       key={i}
-                                      className={`px-1 truncate w-full text-[9px] ${
-                                        s.count === 0
-                                          ? "text-amber-800 opacity-100 font-bold bg-amber-100 rounded-sm py-[1px]"
-                                          : "opacity-60"
-                                      }`}
+                                      title={
+                                        s.inferredCount > 0
+                                          ? "Pasajeros con loc. de viáticos en esta localidad (distinta de residencia)"
+                                          : undefined
+                                      }
+                                      className={`px-1 truncate w-full text-[9px] ${stopRuleLineClass(s.count, s.inferredCount)}`}
                                     >
-                                      {s.label} ({s.count})
+                                      {s.label} ({formatStopRuleCount(s.count, s.inferredCount)})
                                     </span>
                                   ))}
                                 </button>
@@ -3230,20 +3313,26 @@ export default function GirasTransportesManager({
                         "down",
                         t.id,
                       );
-                      const totalUps = upsSummary.reduce(
-                        (acc, curr) => acc + curr.count,
-                        0,
+                      const ups = summarizeBoardTotals(
+                        upsSummary,
+                        isMediosPropios,
                       );
-                      const totalDowns = downsSummary.reduce(
-                        (acc, curr) => acc + curr.count,
-                        0,
+                      const downs = summarizeBoardTotals(
+                        downsSummary,
+                        isMediosPropios,
                       );
-                      const upAlert =
-                        upsSummary.some((s) => s.count === 0) &&
-                        !isMediosPropios;
-                      const downAlert =
-                        downsSummary.some((s) => s.count === 0) &&
-                        !isMediosPropios;
+                      const upAlert = ups.alert;
+                      const downAlert = downs.alert;
+                      const upHeadcount = stopBoardHeadcount(
+                        ups.total,
+                        ups.inferred,
+                        ups.alert,
+                      );
+                      const downHeadcount = stopBoardHeadcount(
+                        downs.total,
+                        downs.inferred,
+                        downs.alert,
+                      );
                       const mobileDetailEditorId = `transport-detail-mobile-${evt.id}`;
 
                       return (
@@ -3420,24 +3509,25 @@ export default function GirasTransportesManager({
                                     transportId: t.id,
                                   })
                                 }
-                                className={`min-h-[82px] w-full rounded-xl border px-1.5 py-2 text-[10px] font-black flex flex-col items-center justify-center gap-1 ${totalUps > 0 ? "bg-emerald-100 text-emerald-700 border-emerald-200" : upAlert ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse" : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"}`}
+                                className={`min-h-[82px] w-full rounded-xl border px-1.5 py-2 text-[10px] font-black flex flex-col items-center justify-center gap-1 ${stopBoardChipClass({ total: ups.total, inferred: ups.inferred, alert: upAlert, direction: "up" })}`}
                               >
                                 <span className="flex items-center gap-1">
                                   <IconUpload size={10} /> Suben
                                 </span>
                                 <span className="text-base leading-none">
-                                  {totalUps > 0 ? totalUps : upAlert ? "0" : "+"}
+                                  {upHeadcount == null ? "0" : upHeadcount}
                                 </span>
                                 {upsSummary.slice(0, 2).map((s, i) => (
                                   <span
                                     key={i}
-                                    className={`w-full truncate rounded-sm px-1 text-[8px] ${
-                                      s.count === 0
-                                        ? "bg-amber-100 text-amber-800"
-                                        : "opacity-70"
-                                    }`}
+                                    title={
+                                      s.inferredCount > 0
+                                        ? "Pasajeros con loc. de viáticos en esta localidad (distinta de residencia)"
+                                        : undefined
+                                    }
+                                    className={`w-full truncate rounded-sm px-1 text-[8px] ${stopRuleLineClass(s.count, s.inferredCount, { mobile: true })}`}
                                   >
-                                    {s.label} ({s.count})
+                                    {s.label} ({formatStopRuleCount(s.count, s.inferredCount)})
                                   </span>
                                 ))}
                               </button>
@@ -3451,28 +3541,25 @@ export default function GirasTransportesManager({
                                     transportId: t.id,
                                   })
                                 }
-                                className={`min-h-[82px] w-full rounded-xl border px-1.5 py-2 text-[10px] font-black flex flex-col items-center justify-center gap-1 ${totalDowns > 0 ? "bg-rose-100 text-rose-700 border-rose-200" : downAlert ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse" : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"}`}
+                                className={`min-h-[82px] w-full rounded-xl border px-1.5 py-2 text-[10px] font-black flex flex-col items-center justify-center gap-1 ${stopBoardChipClass({ total: downs.total, inferred: downs.inferred, alert: downAlert, direction: "down" })}`}
                               >
                                 <span className="flex items-center gap-1">
                                   <IconDownload size={10} /> Bajan
                                 </span>
                                 <span className="text-base leading-none">
-                                  {totalDowns > 0
-                                    ? totalDowns
-                                    : downAlert
-                                      ? "0"
-                                      : "+"}
+                                  {downHeadcount == null ? "0" : downHeadcount}
                                 </span>
                                 {downsSummary.slice(0, 2).map((s, i) => (
                                   <span
                                     key={i}
-                                    className={`w-full truncate rounded-sm px-1 text-[8px] ${
-                                      s.count === 0
-                                        ? "bg-amber-100 text-amber-800"
-                                        : "opacity-70"
-                                    }`}
+                                    title={
+                                      s.inferredCount > 0
+                                        ? "Pasajeros con loc. de viáticos en esta localidad (distinta de residencia)"
+                                        : undefined
+                                    }
+                                    className={`w-full truncate rounded-sm px-1 text-[8px] ${stopRuleLineClass(s.count, s.inferredCount, { mobile: true })}`}
                                   >
-                                    {s.label} ({s.count})
+                                    {s.label} ({formatStopRuleCount(s.count, s.inferredCount)})
                                   </span>
                                 ))}
                               </button>

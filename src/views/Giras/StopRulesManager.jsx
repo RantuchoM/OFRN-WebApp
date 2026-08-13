@@ -21,6 +21,10 @@ import {
 import { toast } from "sonner";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import {
+  personWithViaticosAsResidence,
+  viaticosDiffersFromResidencia,
+} from "../../utils/integranteDomicilioViaticos";
 
 /** Opciones de categoría logística (valor guardado en reglas = `id`). */
 const CATEGORIA_LOGISTICA_OPTIONS = [
@@ -101,6 +105,18 @@ const getPlazaExtraAbreviatura = (person) => {
 
 const countInstrumentSeats = (people) =>
   (people || []).filter((p) => Boolean(p?.instrumentos?.plaza_extra)).length;
+
+function formatStopRuleOccupancy(count, inferredCount = 0, instrumentSeats = 0) {
+  const actualLabel =
+    instrumentSeats > 0 && count > 0
+      ? `${count} + ${instrumentSeats} ins`
+      : count > 0
+        ? String(count)
+        : "";
+  if (inferredCount > 0 && actualLabel) return `${actualLabel} y ${inferredCount} inf.`;
+  if (inferredCount > 0) return `${inferredCount} inf.`;
+  return actualLabel || "0";
+}
 
 export default function StopRulesManager({
   isOpen,
@@ -688,6 +704,39 @@ export default function StopRulesManager({
     });
   };
 
+  /** Pasajeros del bus cuya loc. de viáticos coincide con la regla (≠ residencia). */
+  const getInferredPeople = (rule) => {
+    if (!passengers || rule.alcance !== "Localidad") return [];
+
+    const actualIds = new Set(
+      getAffectedPeople(rule).map((p) => String(p.id)),
+    );
+
+    return passengers.filter((p) => {
+      if (actualIds.has(String(p.id))) return false;
+      if (!viaticosDiffersFromResidencia(p)) return false;
+      if (
+        isPersonVetoedFromTransport(
+          p,
+          transportId,
+          admissionRules,
+          localities,
+        )
+      ) {
+        return false;
+      }
+      const tr = p.logistics?.transports?.find(
+        (t) => String(t.id) === String(transportId),
+      );
+      if (!tr) return false;
+      return matchesRule(
+        rule,
+        personWithViaticosAsResidence(p),
+        localities,
+      );
+    });
+  };
+
   const missingAdmissionRules = useMemo(() => {
     if (!existingRules || existingRules.length === 0) return [];
 
@@ -913,8 +962,10 @@ export default function StopRulesManager({
                       {group.rules.map((rule) => {
                         const isPersonaRule = rule.alcance === "Persona";
                         const affectedPeople = getAffectedPeople(rule);
+                        const inferredPeople = getInferredPeople(rule);
                         const isExpanded = expandedRuleId === rule.id;
                         const displayCount = affectedPeople.length;
+                        const inferredCount = inferredPeople.length;
                         const instrumentSeats =
                           countInstrumentSeats(affectedPeople);
                         const personForRule = isPersonaRule
@@ -934,10 +985,21 @@ export default function StopRulesManager({
                         const admissionJustCreated = recentlyCreatedAdmissionKeys.has(
                           routeRuleAdmissionKey(rule),
                         );
+                        const occupancyLabel = formatStopRuleOccupancy(
+                          displayCount,
+                          inferredCount,
+                          instrumentSeats,
+                        );
                         const occupancyTitle =
-                          instrumentSeats > 0
-                            ? `${displayCount} personas + ${instrumentSeats} instrumentos (plaza extra) = ${displayCount + instrumentSeats} butacas`
-                            : `${displayCount} personas`;
+                          inferredCount > 0 && displayCount > 0
+                            ? instrumentSeats > 0
+                              ? `${displayCount} personas + ${instrumentSeats} ins y ${inferredCount} inf. (loc. viáticos ≠ residencia)`
+                              : `${displayCount} personas y ${inferredCount} inf. (loc. viáticos ≠ residencia)`
+                            : inferredCount > 0
+                              ? `${inferredCount} inf. (loc. viáticos ≠ residencia)`
+                              : instrumentSeats > 0
+                                ? `${displayCount} personas + ${instrumentSeats} instrumentos (plaza extra) = ${displayCount + instrumentSeats} butacas`
+                                : `${displayCount} personas`;
 
                         return (
                           <div key={rule.id} className="flex flex-col">
@@ -968,7 +1030,9 @@ export default function StopRulesManager({
                                   )}
                               </div>
                               <div className="flex items-center gap-2">
-                                {admissionReady && displayCount === 0 && (
+                                {admissionReady &&
+                                  displayCount === 0 &&
+                                  inferredCount === 0 && (
                                   <span
                                     className="text-[10px] font-bold flex items-center gap-1 px-2 py-0.5 rounded-full text-emerald-700 bg-emerald-100"
                                     title={
@@ -986,15 +1050,18 @@ export default function StopRulesManager({
                                 <span
                                   title={occupancyTitle}
                                   className={`text-[10px] font-bold flex items-center gap-1 px-2 py-0.5 rounded-full ${
-                                    displayCount === 0 && !admissionReady
+                                    displayCount === 0 &&
+                                    inferredCount === 0 &&
+                                    !admissionReady
                                       ? "text-amber-700 bg-amber-100"
-                                      : "text-slate-400 bg-slate-100"
+                                      : inferredCount > 0 && displayCount === 0
+                                        ? "text-sky-800 bg-sky-100"
+                                        : inferredCount > 0
+                                          ? "text-sky-800 bg-sky-50"
+                                          : "text-slate-400 bg-slate-100"
                                   }`}
                                 >
-                                  <IconUsers size={12} />{" "}
-                                  {instrumentSeats > 0
-                                    ? `${displayCount} + ${instrumentSeats} ins`
-                                    : displayCount}
+                                  <IconUsers size={12} /> {occupancyLabel}
                                 </span>
                                 <button
                                   onClick={(e) => {
@@ -1022,7 +1089,8 @@ export default function StopRulesManager({
 
                             {!isPersonaRule && isExpanded && (
                               <div className="bg-slate-50 border-t border-slate-100 px-3 py-2 animate-in slide-in-from-top-2">
-                                {affectedPeople.length > 0 ? (
+                                {affectedPeople.length > 0 ||
+                                inferredPeople.length > 0 ? (
                                   <ul className="grid grid-cols-2 gap-2">
                                     {affectedPeople.map((p) => {
                                       const instAbrev =
@@ -1044,6 +1112,21 @@ export default function StopRulesManager({
                                       </li>
                                       );
                                     })}
+                                    {inferredPeople.map((p) => (
+                                      <li
+                                        key={`inf-${p.id}`}
+                                        title="Loc. de viáticos distinta de residencia"
+                                        className="text-xs text-sky-800 flex items-center gap-2 min-w-0"
+                                      >
+                                        <div className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0"></div>
+                                        <span className="truncate">
+                                          {p.apellido}, {p.nombre}
+                                          <span className="ml-1 font-semibold text-sky-700">
+                                            inf.
+                                          </span>
+                                        </span>
+                                      </li>
+                                    ))}
                                   </ul>
                                 ) : (
                                   <div className="text-xs text-slate-500 text-center py-1.5 space-y-1">

@@ -47,8 +47,21 @@ La alineación usa reglas Localidad → Región → General; el **aviso previo**
 
 Antes de exportar, con alineación activa el modal muestra en línea si falta regla Localidad para alguna ciudad de viáticos en el tramo (recorrido completo o parcial). Por defecto se exporta el **recorrido completo**; la opción **Recorrido parcial** despliega los selectores Desde/Hasta. En export alineado: cabecera sin nota de evento; columna **NOMBRE** sin localidad entre paréntesis.
 
+### Chips Suben/Bajan — localidades inferidas (viáticos ≠ residencia)
+
+A veces se carga una regla de **Localidad** solo para que «Alinear con viáticos» tome la logística de esa ciudad (pasajeros cuya loc. de viáticos ≠ residencia). Esa regla no suma pax reales en el chip (la logística de transporte sigue usando residencia).
+
+- **Solo inferidos**: chip **celeste** (`sky`), sin alerta naranja. Número superior y etiqueta: `{n} inf.` / `Localidad ({n} inf.)`.
+- **Mixto** (algunos suben/bajan por residencia y otros solo por viáticos): chip verde/rojo habitual. Número superior y etiqueta: `{m} y {n} inf.` / `Localidad ({m} y {n} inf.)`.
+- **Cero reales y cero inferidos**: sigue el warning naranja `0`.
+- Una localidad con inferidos **no** dispara el auto-ocultar de paradas «solo bajada».
+
+Mismo criterio en **`StopRulesManager`**: chip de afectados `{n} inf.` / `{m} y {n} inf.` en celeste; lista expandida marca inferidos; no muestra warning ámbar ni el estado vacío «ninguna persona coincide» si hay inferidos. Helpers: `viaticosDiffersFromResidencia` / `personWithViaticosAsResidence` en `integranteDomicilioViaticos.js`.
+
 ### Estado Hoja de Ruta
 - [x] PDF funcional.
 - [x] Excel sin cambio de comportamiento (checkbox desmarcado).
 - [x] Alinear con viáticos (subida y bajada).
+- [x] Chips Suben/Bajan: localidades solo-viáticos en celeste con `{n} inf.` / `{m} y {n} inf.` (número superior y etiqueta).
+- [x] `StopRulesManager`: mismo criterio de inferidos en chip y lista expandida.
 - [ ] `DataIntegrityIndicator.jsx` aún usa solo Excel (pendiente reutilizar util).
