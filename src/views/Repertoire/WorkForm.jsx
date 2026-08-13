@@ -48,6 +48,7 @@ import {
   getObraEstadoFormShellClass,
 } from "../../utils/obraEstadoStyles";
 import { seedArregloReferenciaObraOrigen } from "../../utils/arreglosReferencias";
+import { syncObraArregladorFromIntegrante } from "../../utils/syncObraArreglador";
 import {
   formatEncargoMailSentAt,
   markEncargoArregloMailSent,
@@ -1337,6 +1338,25 @@ export default function WorkForm({
       } else payload[field] = value === "" ? null : value;
 
       await supabase.from("obras").update(payload).eq("id", formData.id);
+
+      const assignedIntegrante =
+        field === "id_integrante_arreglador"
+          ? value
+          : field === "estado" && value === "Para arreglar"
+            ? data.id_integrante_arreglador || DEFAULT_ARREGLADOR_INTEGRANTE_ID
+            : null;
+      if (assignedIntegrante) {
+        const compositorId = await syncObraArregladorFromIntegrante(
+          supabase,
+          formData.id,
+          assignedIntegrante,
+        );
+        if (compositorId) {
+          setSelectedArrangers([compositorId]);
+          setFormData((prev) => ({ ...prev, id_arreglador: compositorId }));
+        }
+      }
+
       setSaveStatus("saved");
       setFieldStatusWithReset(field, "success");
       setTimeout(() => setSaveStatus("idle"), 2000);
@@ -1702,21 +1722,39 @@ export default function WorkForm({
       if (data) {
         const newId = data.id;
 
+        const assignIntegrante =
+          payload.estado === "Para arreglar" && payload.id_integrante_arreglador
+            ? payload.id_integrante_arreglador
+            : null;
         const relations = [
           ...selectedComposers.map((id) => ({
             id_obra: newId,
             id_compositor: id,
             rol: "compositor",
           })),
-          ...selectedArrangers.map((id) => ({
-            id_obra: newId,
-            id_compositor: id,
-            rol: "arreglador",
-          })),
+          ...(assignIntegrante
+            ? []
+            : selectedArrangers.map((id) => ({
+                id_obra: newId,
+                id_compositor: id,
+                rol: "arreglador",
+              }))),
         ];
 
         if (relations.length > 0) {
           await supabase.from("obras_compositores").insert(relations);
+        }
+
+        if (assignIntegrante) {
+          const compositorId = await syncObraArregladorFromIntegrante(
+            supabase,
+            newId,
+            assignIntegrante,
+          );
+          if (compositorId) {
+            setSelectedArrangers([compositorId]);
+            setFormData((prev) => ({ ...prev, id_arreglador: compositorId }));
+          }
         }
 
         if (selectedTags.length > 0) {
@@ -1832,11 +1870,7 @@ export default function WorkForm({
           .filter((oc) => oc.rol === "compositor" || !oc.rol)
           .map((oc) => oc.id_compositor),
       );
-      setSelectedArrangers(
-        (source.obras_compositores || [])
-          .filter((oc) => oc.rol === "arreglador")
-          .map((oc) => oc.id_compositor),
-      );
+      setSelectedArrangers([]);
       setSelectedTags(
         (source.obras_palabras_clave || [])
           .map((opc) => opc.palabras_clave?.id)
@@ -2205,7 +2239,7 @@ export default function WorkForm({
         <div className="px-3 sm:px-4 py-2.5 space-y-2 bg-amber-50/90 border-b border-amber-200/80 text-slate-800">
           <div>
             <label className="text-[10px] font-bold uppercase text-amber-700 mb-1 block">
-              Arreglador a notificar (integrante, para envío de mail)
+              Arreglador asignado (figura en la obra y recibe el mail)
             </label>
             <SearchableSelect
               options={

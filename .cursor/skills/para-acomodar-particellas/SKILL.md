@@ -2,10 +2,10 @@
 name: para-acomodar-particellas
 description: >-
   Procesa PDFs de particellas en «Para acomodar» (Google Drive local): divide
-  combinados IMSLP, recorta portadas, renombra canónicamente, genera seed SQL y
-  sincroniza obras en Supabase. Usar cuando el usuario pida acomodar, recortar,
-  dividir o renombrar particellas, carpetas en Para acomodar, o procesar PDFs
-  IMSLP para una obra del repertorio.
+  combinados IMSLP, recorta portadas, renombra canónicamente (PDF + AUDIO mp3/wav),
+  genera seed SQL y sincroniza obras en Supabase. Usar cuando el usuario pida
+  acomodar, recortar, dividir o renombrar particellas/audio, carpetas en Para
+  acomodar, o procesar PDFs IMSLP para una obra del repertorio.
 ---
 
 # Para acomodar — Particellas PDF
@@ -23,6 +23,7 @@ description: >-
 | Carpeta | `Apellido, I. - Título` (ej. `Falla, M. - Danza Española Nro 1 ('La Vida Breve')`) |
 | PDF (con nº catálogo) | `Instrumento - op.11. Título - Compositor, I.pdf` (solo si hay op./MWV/BIS real) |
 | PDF (sin nº catálogo) | `Instrumento - Título - Compositor, I.pdf` — **no** incluir `S/N`, `S-N` ni placeholder |
+| Audio (mp3/wav) | `AUDIO - {resto del nombre}.mp3` / `.wav` — prefijo obligatorio. El matcher ignora archivos que empiezan con `AUDIO` (y `PORTADA`). No asociar audio a instrumentos. |
 | `workNumber` en catálogo | `null` u omitir cuando no hay op./catálogo; nunca `"S/N"` |
 | Combinados | **Un PDF, varias partes en la misma hoja** → sufijo `1y2`, `3y4`, `1y2y3` (nunca `1-2`) |
 | Portadas | Página 1 IMSLP (título del grupo) se **excluye** al extraer |
@@ -33,7 +34,7 @@ description: >-
 
 ```
 - [ ] 1. Identificar obra (id, título, compositor) en Supabase
-- [ ] 2. Listar PDFs locales o en Drive
+- [ ] 2. Listar PDFs y audio (mp3/wav) locales o en Drive; audio → `AUDIO - …`
 - [ ] 3. OCR / inspección de páginas → manifiesto split/crop
 - [ ] 4. Añadir entrada en scripts/lib/<obra>Catalog.mjs
 - [ ] 5. Ejecutar process script local
@@ -46,7 +47,7 @@ description: >-
 
 | Script | Rol |
 |--------|-----|
-| `scripts/lib/pdfPartsRenaming.mjs` | Renombrado canónico; `normalizeWorkNumberForFilename`, `formatCombinedSlot`, `canonicalCombinedSuffix` |
+| `scripts/lib/pdfPartsRenaming.mjs` | Renombrado canónico PDF + audio; `canonicalAudioFilename`, `renameAudioFilesInFolder`, `normalizeWorkNumberForFilename`, `formatCombinedSlot`, `canonicalCombinedSuffix` |
 | `scripts/lib/<obra>Catalog.mjs` | Manifiestos `splits` + `crops` por obra |
 | `scripts/process-<obra>-local.mjs` | Split/crop/rename en sync local |
 | `scripts/rename-combined-slots-local.mjs` | Corrige `1-2` → `1y2` en PDFs ya renombrados |

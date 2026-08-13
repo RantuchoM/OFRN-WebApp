@@ -10,6 +10,56 @@ export function safeFileName(name) {
     .replace(/\.$/, "");
 }
 
+const AUDIO_EXT_RE = /\.(mp3|wav|m4a|flac)$/i;
+
+/**
+ * Audio en Para acomodar: `AUDIO - {resto del nombre}.mp3|wav`.
+ * Idempotente si ya tiene prefijo AUDIO; quita un "Audio" suelto al final.
+ */
+export function canonicalAudioFilename(existingName) {
+  const m = String(existingName || "").match(/^(.*?)(\.(mp3|wav|m4a|flac))$/i);
+  if (!m) return null;
+  let base = m[1].trim();
+  const ext = m[2];
+  base = base.replace(/^AUDIO\s*[-–—:]?\s*/i, "").trim();
+  base = base.replace(/\s+Audio$/i, "").trim();
+  if (!base) return null;
+  return `${safeFileName(`AUDIO - ${base}`)}${ext}`;
+}
+
+export function renameAudioFilesInFolder(folderPath, { dryRun = false } = {}) {
+  if (!folderPath || !existsSync(folderPath)) return [];
+  const files = readdirSync(folderPath).filter((f) => AUDIO_EXT_RE.test(f));
+  const results = [];
+  const used = new Set();
+
+  for (const file of files.sort((a, b) => a.localeCompare(b, "es"))) {
+    const target = canonicalAudioFilename(file);
+    if (!target) {
+      results.push({ action: "skip-unknown", file });
+      continue;
+    }
+    const key = target.toLowerCase();
+    if (used.has(key)) {
+      results.push({ action: "skip-dup", file, target });
+      continue;
+    }
+    used.add(key);
+    if (file === target || file.toLowerCase() === key) {
+      results.push({ action: "ok", file: target });
+      continue;
+    }
+    const dst = join(folderPath, target);
+    if (existsSync(dst) && file.toLowerCase() !== key) {
+      results.push({ action: "skip-collision", file, target });
+      continue;
+    }
+    if (!dryRun) renameSync(join(folderPath, file), dst);
+    results.push({ action: "rename", from: file, to: target });
+  }
+  return results;
+}
+
 /** Sufijo canónico para varias partes en un PDF: [1,2] → "1y2", [1,2,3] → "1y2y3". */
 export function formatCombinedSlot(numbers) {
   return numbers.map(String).join("y");
@@ -195,7 +245,8 @@ export function normalizeInstrumentLabel(rawName) {
     return "Contrabajo";
   if (/\bvioloncello\s+y\s+cb\b/i.test(name)) return "Violoncello";
   if (/\bviolas?\b/i.test(name)) return "Viola";
-  if (/\bcelli\b|\bcello\b|\bvioloncello\b|\bvc\b/i.test(name)) return "Violoncello";
+  if (/\bcelli\b|\bcello\b|\bvioloncello\b|\bviolonchelo\b|\bvc\b/i.test(name))
+    return "Violoncello";
   if (/\bdouble\s+bass\b|\bcontrabajo\b|\bbasses\b/i.test(name)) return "Contrabajo";
 
   if (/\bflutes?\b/i.test(name) && !/piccolo/i.test(name)) return "Flauta";

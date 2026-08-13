@@ -141,7 +141,8 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 - [x] UI de estado no editable cuando `estado === "Oficial"`
 
 ### Encargo «Para arreglar» (`WorkForm`)
-- Al pasar a `Para arreglar`, se asigna `id_integrante_arreglador` (default integrante `4340365` si vacío) en un único guardado con el estado — evita error de validación por estado React desactualizado tras crear un arreglo nuevo.
+- Al pasar a `Para arreglar` o cambiar el integrante asignado, se asigna `id_integrante_arreglador` (default `4340365` si vacío) **y** ese integrante queda como arreglador visible de la obra (`id_arreglador` + `obras_compositores.rol = 'arreglador'`). Helper: `src/utils/syncObraArreglador.js`. Mismo sync en fila rápida del dashboard de arreglos.
+- Al pasar a `Para arreglar`, el guardado de estado + integrante es único — evita error de validación por estado React desactualizado tras crear un arreglo nuevo.
 - El mail `encargo_arreglo` **no** se dispara automáticamente al cambiar estado ni al crear la obra.
 - UI: fecha estimada + botón **«Enviar mail de asignación»** (habilitado solo con fecha y obra persistida). Tras envío exitoso: `obras.encargo_arreglo_mail_enviado_at`; reenvío con `ConfirmDialog`.
 - [x] Fix validación post-creación de arreglo
@@ -536,3 +537,60 @@ Seed `supabase/seed_gira_12_king_crimson.sql` aplicado en linked. **No** inserta
 | 10 | 2856 | Driving Force [The LCG] |
 | 11 | 2857 | Midnight Blue [The LCG] |
 | 12 | 3571 | Larks' Tongues in Aspic [The LCG] |
+
+---
+
+### Completado (2026-08-13) — Ramírez / Zigarán *Suite Mujeres Argentinas*
+
+Procesamiento en [Para acomodar](https://drive.google.com/drive/folders/12GOBbDTk0ScrqVy_0VT72a0e7x242GOO) (sin split/crop IMSLP; **no** `copiar_carpeta_a_archivo`). PDFs Sibelius 2022–2023: **Ariel Ramírez** compositor (+ Félix Luna, letra); **Duerme Negrito** = canción tradicional de cuna; arreglo de cuerdas **Juan Cruz Zigarán** (compositor id **756**, ya existía).
+
+- Carpetas canónicas `Ramírez-Zigarán - Título. Suite Mujeres Argentinas` (las 9, incluido Duerme Negrito: arreglo Zigarán).
+- PDFs `Instrumento - Título. Suite Mujeres Argentinas - Ramírez-Zigarán.pdf` (Violín 1/2, Viola, Violoncello, SCORE).
+- Audio: `AUDIO - {título}.mp3` (prefijo obligatorio; matcher excluye `AUDIO`/`PORTADA`).
+- `link_drive` = carpeta de **cada canción** (IDs Drive estables).
+- Año **1969** (LP *Mujeres Argentinas*, fuente conocida) en las 8 de Ramírez; Duerme **sin año** (tradicional). Duraciones desde MP3 local (ffprobe).
+- Seed **aplicado en linked** (2026-08-13). No se envió mail `encargo_arreglo`.
+- Encargos: estado **`Para arreglar`**, `id_integrante_arreglador = 4340365` (Lema), `id_arreglador` + `obras_compositores` **Lema, Germán** (198), `fecha_esperada = 2026-09-16`. Referencias: obra origen + Drive de la canción. Brief de #3570 replicado (contrabajo; Alfonsina soprano→flauta en Sol). Patch `supabase/patch_mujeres_argentinas_lema_arreglador.sql`.
+- Placeholders previos **no tocados**: #3570 (encargo suite) y #3572 (solicitud suite).
+
+| Script | Rol |
+|--------|-----|
+| `scripts/lib/ramirezZigaranCatalog.mjs` | 9 canciones + Drive IDs + metadatos |
+| `scripts/process-ramirez-zigaran-local.mjs` | Rename carpetas + PDFs in place |
+| `scripts/generate-ramirez-zigaran-sync.mjs` | `supabase/seed_ramirez_zigaran_sync.sql` |
+
+### Obras archivo (Oficial, 5 particellas c/u, orgánico `Str`)
+
+| id | Título BD | Comp. | Arr. | Año | Dur. | Drive |
+|---:|-----------|-------|------|----:|-----:|-------|
+| **3573** | Alfonsina y el Mar. *Suite Mujeres Argentinas* | Ramírez 277 | Zigaran 756 | 1969 | 211s | [1e0Zrqwh…](https://drive.google.com/drive/folders/1e0ZrqwhwT2qlwkMlEcdQzvAOn_yBshDz) |
+| **3575** | Dorotea, La Cautiva. *Suite…* | Ramírez | Zigaran | 1969 | 168s | [12lhZCnp…](https://drive.google.com/drive/folders/12lhZCnpICbqOqVv5kuGo5CJXNM_JDCR6) |
+| **3577** | Duerme Negrito. *Suite…* | Tradicional 338 | Zigaran | — | 131s | [1qImL_dI…](https://drive.google.com/drive/folders/1qImL_dIXmbThziw-QWw8bJHSfVxz-atB) |
+| **3579** | En Casa de Mariquita. *Suite…* | Ramírez | Zigaran | 1969 | 153s | [1XM6yuBO…](https://drive.google.com/drive/folders/1XM6yuBOXwIU_0eLIzKeGfBoekU2Lp8DF) |
+| **3581** | Gringa Chaqueña. *Suite…* | Ramírez | Zigaran | 1969 | 231s | [1hnZY9gm…](https://drive.google.com/drive/folders/1hnZY9gmJw8Ri_63ibU3ItDbujpMzuDvh) |
+| **3583** | Juana Azurduy. *Suite…* | Ramírez | Zigaran | 1969 | 164s | [1qvJzlTR…](https://drive.google.com/drive/folders/1qvJzlTRqTcHQmFZ_7CdLBqwG9epCIqHR) |
+| **3585** | Las Cartas de Guadalupe. *Suite…* | Ramírez | Zigaran | 1969 | 164s | [1myGKg4M…](https://drive.google.com/drive/folders/1myGKg4Mj608LiDOxD5bHzO3OfeEZYc3c) |
+| **3587** | Manuela, La Tucumana. *Suite…* | Ramírez | Zigaran | 1969 | 159s | [1Yap07db…](https://drive.google.com/drive/folders/1Yap07db3fPuFW32G_Kk439jRLJduHWep) |
+| **3589** | Rosarito Vera, Maestra. *Suite…* | Ramírez | Zigaran | 1969 | 220s | [1WE4K1nJ…](https://drive.google.com/drive/folders/1WE4K1nJJzGKaTrfyEiMX_9zvkNNkKhre) |
+
+### Encargos de arreglo (Para arreglar → Lema 4340365, 16/09/2026)
+
+| id | Origen archivo | Refs |
+|---:|----------------|------|
+| **3574** | 3573 Alfonsina | obra origen + Drive canción |
+| **3576** | 3575 Dorotea | idem |
+| **3578** | 3577 Duerme Negrito | idem |
+| **3580** | 3579 Mariquita | idem |
+| **3582** | 3581 Gringa | idem |
+| **3584** | 3583 Juana Azurduy | idem |
+| **3586** | 3585 Cartas de Guadalupe | idem |
+| **3588** | 3587 Manuela | idem |
+| **3590** | 3589 Rosarito Vera | idem |
+
+- [x] 9 carpetas + 45 PDFs renombrados en Para acomodar (`Ramírez-Zigarán`, 2026-08-13)
+- [x] 9 obras archivo + particellas (SCORE→Director id 50) en linked
+- [x] 9 encargos sin Drive/particellas, sin mail automático
+- [x] Spec viva actualizada
+- [x] Audio `AUDIO - {título}.mp3` (9/9)
+- [x] Gira **147** *Nuestras raices* — 9 encargos **Para arreglar** (Lema integrante 4340365 + compositor 198, ids pares 3574–3590) al bloque Repertorio (**122**), tras La Arenosa 3307. Oficiales Zigarán **no** van al programa. Seed `supabase/seed_gira_147_mujeres_argentinas.sql` (quita Oficiales si estaban; no duplica).
+

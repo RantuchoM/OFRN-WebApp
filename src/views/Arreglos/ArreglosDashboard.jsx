@@ -32,6 +32,7 @@ import ArregloEntregaModal from "../../components/arreglos/ArregloEntregaModal";
 import ArregloQuickEncargoModal from "../../components/arreglos/ArregloQuickEncargoModal";
 import ArregloMobileDetailModal from "../../components/arreglos/ArregloMobileDetailModal";
 import { markEncargoArregloMailSent } from "../../utils/encargoArregloMail";
+import { syncObraArregladorFromIntegrante } from "../../utils/syncObraArreglador";
 import { readManageDriveResponseBody } from "../../utils/paraAcomodarDrive";
 
 const RichTextPreview = ({ content, className = "" }) => {
@@ -977,6 +978,8 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           },
         ]);
         if (relError) throw relError;
+
+        await syncObraArregladorFromIntegrante(sb, data.id, arregladorId);
 
         // Mail al arreglador + BCC a ofrn.archivo@gmail.com (también en autogestión)
         const mailSent = await enviarEncargoArreglo(
