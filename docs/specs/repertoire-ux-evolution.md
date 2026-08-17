@@ -437,6 +437,12 @@ Permitir que el músico descargue de una vez todas sus partes disponibles desde 
 - [x] Pestaña **inactiva**: `compact` → iniciales de palabras significativas (`King Crimson (OFRN)` → **KCO**, `Gala Lírica` → **GL**, `Bahiano` → **B**); color del grupo intacto; `title` / tooltip con el nombre completo.
 - [x] Helper `grupoNombreInitials` en `GiraGrupoChips.jsx`. Sin cambio de filtro de seating ni de asignación de grupos.
 
+### Completado (2026-08-15) — Stick-it de observaciones en Mis Partes
+- [x] `MyPartsViewer` lee `repertorio_obras.notas_especificas` (las mismas observaciones tipo post-it de `ProgramRepertoire` / `NotasProgramaStickyCell`).
+- [x] Escritorio: columna **Observaciones** con el mismo panel amarillo (sombra, rotación leve, ícono alerta).
+- [x] Móvil: el stick-it aparece bajo compositor en la tarjeta compacta.
+- [x] Solo lectura; vacío se muestra como raya en escritorio y se omite en móvil. No cambia asignación, ZIP ni filtros de grupo.
+
 ---
 
 ### Completado (2026-08-10) — Para acomodar: Charbonnier *Voces latinoamericanas*

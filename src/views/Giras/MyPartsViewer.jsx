@@ -131,6 +131,44 @@ const downloadBlob = (blob, fileName) => {
 const buildBlockDriveUrl = (folderId) =>
   folderId ? `https://drive.google.com/drive/folders/${folderId}` : null;
 
+const sanitizePreviewHtml = (content) => {
+  let html = String(content || "");
+  if (!html) return "";
+  const EMPTY_INLINE_TAG_RE =
+    /<(?:span|i|em|strong|b|u|small|font)[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/(?:span|i|em|strong|b|u|small|font)>/gi;
+  let prev = "";
+  while (prev !== html) {
+    prev = html;
+    html = html.replace(EMPTY_INLINE_TAG_RE, "");
+  }
+  html = html.replace(
+    /(?:\s*<(?:div|p)[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/(?:div|p)>)+\s*$/gi,
+    "",
+  );
+  html = html.replace(/(?:\s|&nbsp;|<br\s*\/?>)+$/gi, "");
+  return html.trim();
+};
+
+/** Stick-it de observaciones de programa (`repertorio_obras.notas_especificas`), mismo look que RepertoireManager. */
+const NotasProgramaStickyNote = ({ notas, className = "" }) => {
+  const sanitized = sanitizePreviewHtml(notas);
+  if (!sanitized) return null;
+  return (
+    <div
+      className={`bg-yellow-50 border border-yellow-100 text-yellow-900 rounded-lg shadow-[2px_3px_10px_rgba(234,179,8,0.22)] relative leading-tight rotate-[0.15deg] px-2 py-1 ${className}`}
+    >
+      <IconAlertCircle
+        size={10}
+        className="absolute left-1.5 top-1.5 text-amber-500/75 pointer-events-none"
+      />
+      <div
+        className="min-w-0 pl-3 text-[10px] text-yellow-950 whitespace-pre-wrap [&_*]:text-inherit [&_a]:underline max-h-[6.5rem] overflow-y-auto"
+        dangerouslySetInnerHTML={{ __html: sanitized }}
+      />
+    </div>
+  );
+};
+
 const RepertoireBlockDivider = ({ block }) => (
   <div className="flex items-center justify-between gap-2 px-2 py-2 md:px-3 md:py-2.5 bg-slate-100/90 border-y border-slate-200">
     <div className="flex items-center gap-2 min-w-0">
@@ -222,6 +260,11 @@ const MobilePartCard = ({ item, dimmed = false }) => {
            </span>
         )}
       </div>
+      {item.notas_especificas?.trim() ? (
+        <div className="pl-2">
+          <NotasProgramaStickyNote notas={item.notas_especificas} />
+        </div>
+      ) : null}
 
       {/* Info de la Parte */}
       <div className="pl-2">
@@ -664,7 +707,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
             id, orden, nombre, google_drive_folder_id,
             programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ),
             repertorio_obras (
-                id, orden, excluir,
+                id, orden, excluir, notas_especificas,
                 obras (
                     id, titulo, link_drive,
                     obras_compositores (rol, compositores (nombre, apellido)),
@@ -791,6 +834,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
             orden: item.orden,
             compositor: composerName,
             titulo: obra.titulo,
+            notas_especificas: item.notas_especificas || null,
             link_drive_obra: obra.link_drive,
             
             particella_status: status,
@@ -977,6 +1021,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                   <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs border-b border-slate-200">
                     <tr>
                       <th className="px-4 py-3">Obra</th>
+                      <th className="px-4 py-3">Observaciones</th>
                       <th className="px-4 py-3 text-center">Carpeta</th>
                       <th className="px-4 py-3">Parte Asignada</th>
                       <th className="px-4 py-3 text-center">Descarga</th>
@@ -986,7 +1031,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                     {repertoireByBlock.map((block) => (
                       <React.Fragment key={block.id}>
                         <tr className="bg-slate-100/90">
-                          <td colSpan={4} className="p-0">
+                          <td colSpan={5} className="p-0">
                             <RepertoireBlockDivider block={block} />
                           </td>
                         </tr>
@@ -1015,6 +1060,16 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                           >
                             {row.compositor}
                           </div>
+                        </td>
+
+                        <td className="px-3 py-3 align-middle min-w-[10rem] max-w-[18rem]">
+                          {row.notas_especificas?.trim() ? (
+                            <NotasProgramaStickyNote notas={row.notas_especificas} />
+                          ) : (
+                            <span className="block text-[10px] text-slate-300 italic text-center">
+                              —
+                            </span>
+                          )}
                         </td>
 
                         <td className="px-4 py-3 text-center">

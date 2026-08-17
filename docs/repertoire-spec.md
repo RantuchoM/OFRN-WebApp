@@ -16,7 +16,7 @@ Gestionar la lista de obras (repertorio) de una gira, permitiendo añadir, quita
 
 - **Programa / difusión**: las obras con `excluir = true` no aparecen en el listado de Difusión ni en la duración neta del bloque.
 - **Drive de la gira**: `sync_repertoire_shortcuts` **sí** crea y mantiene el acceso directo numerado aunque la obra esté excluida del programa, para que los músicos puedan estudiarla desde la carpeta de la gira.
-- **Mis Partes**: las obras excluidas siguen visibles para el músico.
+- **Mis Partes**: las obras excluidas siguen visibles para el músico. Las observaciones de programa (`repertorio_obras.notas_especificas`, stick-it de `ProgramRepertoire`) se muestran en lectura.
 
 ## 5. Soporte Multi-Bloque en Consumo de Repertorio
 
