@@ -480,6 +480,7 @@ function WorkRowActionMenu({
   onCopyArchiveLink,
   onCopyDriveLink,
   onNewArrangement,
+  canEdit = true,
 }) {
   const rootRef = useRef(null);
   const buttonRef = useRef(null);
@@ -550,13 +551,15 @@ function WorkRowActionMenu({
       className={`fixed z-[100] overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white py-1 text-xs font-bold shadow-xl ${menuClassName}`}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <button
-        type="button"
-        onClick={() => runAction(onAssign)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-blue-700 hover:bg-blue-50"
-      >
-        <IconCalendarPlus size={13} /> Asignar a programa
-      </button>
+      {canEdit && (
+        <button
+          type="button"
+          onClick={() => runAction(onAssign)}
+          className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-blue-700 hover:bg-blue-50"
+        >
+          <IconCalendarPlus size={13} /> Asignar a programa
+        </button>
+      )}
       <button
         type="button"
         onClick={() => runAction(onHistory)}
@@ -591,31 +594,35 @@ function WorkRowActionMenu({
       >
         <IconCopy size={13} /> Copiar enlace al archivo
       </button>
-      <button
-        type="button"
-        onClick={() => runAction(onNewArrangement)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-indigo-700 hover:bg-indigo-50"
-      >
-        <IconCopy size={13} /> Nuevo arreglo
-      </button>
-      <div className="my-0.5 border-t border-slate-100" />
-      <button
-        type="button"
-        onClick={() => runAction(onEdit)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-      >
-        <IconEdit size={13} /> Editar
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          onClose();
-          onDelete(work);
-        }}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-red-600 hover:bg-red-50"
-      >
-        <IconTrash size={13} /> Eliminar
-      </button>
+      {canEdit && (
+        <>
+          <button
+            type="button"
+            onClick={() => runAction(onNewArrangement)}
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-indigo-700 hover:bg-indigo-50"
+          >
+            <IconCopy size={13} /> Nuevo arreglo
+          </button>
+          <div className="my-0.5 border-t border-slate-100" />
+          <button
+            type="button"
+            onClick={() => runAction(onEdit)}
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+          >
+            <IconEdit size={13} /> Editar
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onDelete(work);
+            }}
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-red-600 hover:bg-red-50"
+          >
+            <IconTrash size={13} /> Eliminar
+          </button>
+        </>
+      )}
     </div>
   );
 
@@ -642,7 +649,8 @@ function WorkRowActionMenu({
 // --- COMPONENTE PRINCIPAL ---
 
 export default function RepertoireView({ supabase, catalogoInstrumentos }) {
-  const { isEditor } = useAuth();
+  const { isEditor, isArchivista, isManagement } = useAuth();
+  const canEdit = isEditor || isArchivista || isManagement;
   const [searchParams, setSearchParams] = useSearchParams();
   const [works, setWorks] = useState([]);
   const [availableTags, setAvailableTags] = useState([]);
@@ -871,7 +879,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   // Abrir obra por editId (ej. desde ArreglosDashboard)
   const editIdParam = searchParams.get("editId");
   useEffect(() => {
-    if (!editIdParam || works.length === 0) return;
+    if (!canEdit || !editIdParam || works.length === 0) return;
     const work = works.find((w) => String(w.id) === String(editIdParam));
     if (work) {
       startEdit(work);
@@ -881,12 +889,12 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
         return p;
       });
     }
-  }, [works, editIdParam]);
+  }, [works, editIdParam, canEdit]);
 
   // Abrir formulario de nueva obra (ej. desde ArreglosDashboard "Nueva Obra")
   const newObraParam = searchParams.get("newObra");
   useEffect(() => {
-    if (newObraParam !== "1") return;
+    if (!canEdit || newObraParam !== "1") return;
     setIsAdding(true);
     setFormData({});
     setSearchParams((prev) => {
@@ -894,7 +902,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       p.delete("newObra");
       return p;
     });
-  }, [newObraParam]);
+  }, [newObraParam, canEdit]);
 
   // Resetear página al filtrar
   useEffect(() => { setCurrentPage(1); }, [filters, selectedTags, instrFilters, stringsFilter, strictMode, sortConfig, pageSize, mobileQuickSearch, showYaProgramado]);
@@ -1251,7 +1259,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   }, [allFilteredWorks, currentPage, pageSize]);
 
   const getGridTemplate = () => {
-    let cols = "36px ";
+    let cols = canEdit ? "36px " : "";
     if (visibleColumns.compositor) cols += "minmax(150px, 1.2fr) ";
     if (visibleColumns.obra) cols += "minmax(200px, 2fr) ";
     if (visibleColumns.arreglador) cols += "minmax(120px, 0.8fr) ";
@@ -1297,6 +1305,18 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     setDeletingWork(true);
     setLoading(true);
     try {
+      const { error: refAsTargetErr } = await supabase
+        .from("arreglos_referencias")
+        .delete()
+        .eq("id_obra_referencia", id);
+      if (refAsTargetErr) throw refAsTargetErr;
+
+      const { error: refOwnErr } = await supabase
+        .from("arreglos_referencias")
+        .delete()
+        .eq("id_obra", id);
+      if (refOwnErr) throw refOwnErr;
+
       const { error: deleteError } = await supabase.from("obras").delete().eq("id", id);
       if (deleteError) {
         alert("Error: " + deleteError.message);
@@ -1506,6 +1526,11 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       <div className="bg-white p-2.5 md:p-4 rounded-xl shadow-sm border border-slate-200 shrink-0 flex flex-row justify-between items-center gap-2 md:gap-4">
         <div className="flex items-center gap-2 md:gap-4 min-w-0">
           <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2"><IconFolderMusic className="text-indigo-600" /> Archivo</h2>
+          {!canEdit && (
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full shrink-0">
+              Solo lectura
+            </span>
+          )}
           <div className="text-xs text-slate-500 bg-slate-100 px-2 md:px-3 py-1 rounded-full shrink-0">{allFilteredWorks.length} resultados</div>
         </div>
         <div className="flex shrink-0 flex-nowrap md:flex-wrap gap-1.5 md:gap-3 items-center overflow-x-auto no-scrollbar md:overflow-visible">
@@ -1576,17 +1601,22 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
               Legacy: Oficial sin Drive ({legacyOficialSinDriveCount})
             </button>
           )}
-          <div className="flex gap-0.5 md:gap-1 border-r border-slate-200 pr-1.5 md:pr-3">
-            <button onClick={() => setShowComposersManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full" title="Compositores"><IconUsers size={20} /></button>
-            <button onClick={() => setShowTagsManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full" title="Tags"><IconTag size={20} /></button>
-          </div>
+          {canEdit && (
+            <div className="flex gap-0.5 md:gap-1 border-r border-slate-200 pr-1.5 md:pr-3">
+              <button onClick={() => setShowComposersManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full" title="Compositores"><IconUsers size={20} /></button>
+              <button onClick={() => setShowTagsManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full" title="Tags"><IconTag size={20} /></button>
+            </div>
+          )}
           <div className="hidden md:block">
             <ColumnManager visibleColumns={visibleColumns} onChange={(key, val) => setVisibleColumns((prev) => ({ ...prev, [key]: val }))} />
           </div>
-          <button onClick={() => { setIsAdding(true); setFormData({}); }} className="md:ml-2 bg-indigo-600 text-white p-2 md:px-4 md:py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm" title="Nueva obra" aria-label="Nueva obra"><IconPlus size={16} /> <span className="hidden md:inline">Nuevo</span></button>
+          {canEdit && (
+            <button onClick={() => { setIsAdding(true); setFormData({}); }} className="md:ml-2 bg-indigo-600 text-white p-2 md:px-4 md:py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm" title="Nueva obra" aria-label="Nueva obra"><IconPlus size={16} /> <span className="hidden md:inline">Nuevo</span></button>
+          )}
         </div>
       </div>
 
+      {canEdit && (
       <div className="hidden md:block">
         <RepertoireSelectionBar
           supabase={supabase}
@@ -1608,9 +1638,10 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
           onRemove={removeFromSelection}
         />
       </div>
+      )}
 
       <div className="flex-1 overflow-hidden flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm relative">
-        {isAdding || editingId ? (
+        {canEdit && (isAdding || editingId) ? (
           <div className="absolute inset-0 z-20 w-full bg-white p-2 sm:p-3 overflow-y-auto overflow-x-hidden">
             <WorkForm
               key={`workform-${editingId ?? (formData.arrangementFromWorkId ? `arr-${formData.arrangementFromWorkId}` : "new")}`}
@@ -1634,6 +1665,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                     className="grid gap-0 px-0 py-3 items-end text-center [&>*]:border-r [&>*]:border-slate-300/80 [&>*]:px-3 [&>*:last-child]:border-r-0"
                     style={{ gridTemplateColumns: getGridTemplate() }}
                   >
+                    {canEdit && (
                     <div
                       className="flex flex-col items-center justify-end pb-2 gap-0.5"
                       title="Tildar/destildar todo lo filtrado (no afecta obras fuera del filtro actual)"
@@ -1651,6 +1683,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                         Filtro
                       </span>
                     </div>
+                    )}
                     {visibleColumns.compositor && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("compositor_full")}>Compositor <SortIcon column="compositor_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.compositor} onChange={(e) => setFilters({ ...filters, compositor: e.target.value })} /></div>}
                     {visibleColumns.obra && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("titulo")}>Obra <SortIcon column="titulo" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.titulo} onChange={(e) => setFilters({ ...filters, titulo: e.target.value })} /></div>}
                     {visibleColumns.arreglador && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("arreglador_full")}>Arreglador <SortIcon column="arreglador_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.arreglador} onChange={(e) => setFilters({ ...filters, arreglador: e.target.value })} /></div>}
@@ -1755,6 +1788,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                       style={{ gridTemplateColumns: getGridTemplate() }}
                       title={work.estado === "Entregado" ? "Pendiente de validación por Archivista" : undefined}
                     >
+                      {canEdit && (
                       <div className="flex items-center justify-center">
                         <input
                           type="checkbox"
@@ -1773,6 +1807,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                           }
                         />
                       </div>
+                      )}
                       {visibleColumns.compositor && <div className="truncate font-medium text-slate-700">{work.compositor_full || <span className="text-slate-300 italic">-</span>}</div>}
                       {visibleColumns.obra && (
                         <div className="min-w-0 flex flex-col justify-center gap-1 w-full">
@@ -1919,6 +1954,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                       <div className="flex justify-end opacity-60 group-hover:opacity-100 transition-opacity">
                         <WorkRowActionMenu
                           work={work}
+                          canEdit={canEdit}
                           isOpen={workActionMenuId === work.id}
                           onToggle={() =>
                             setWorkActionMenuId((prev) =>
@@ -2021,6 +2057,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                     </button>
                   )}
                 </div>
+                {canEdit && (
                 <RepertoireSelectionBar
                   variant="mobile-menu"
                   supabase={supabase}
@@ -2058,6 +2095,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                     </button>
                   }
                 />
+                )}
                 <div className="hidden min-w-0 shrink sm:block">
                   <p className="truncate text-xs font-bold text-slate-700">
                     {allFilteredWorks.length} obra{allFilteredWorks.length === 1 ? "" : "s"}
@@ -2081,8 +2119,13 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
 
               <p className="mt-1 truncate text-[10px] text-slate-400 sm:hidden">
                 {allFilteredWorks.length} obra{allFilteredWorks.length === 1 ? "" : "s"} · Pág.{" "}
-                {currentPage}/{totalPages || 1} · {selectionOrderedIds.length} seleccionada
-                {selectionOrderedIds.length === 1 ? "" : "s"}
+                {currentPage}/{totalPages || 1}
+                {canEdit && (
+                  <>
+                    {" "}· {selectionOrderedIds.length} seleccionada
+                    {selectionOrderedIds.length === 1 ? "" : "s"}
+                  </>
+                )}
               </p>
 
               {mobileActiveFilterChips.length > 0 && (
@@ -2371,6 +2414,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                     >
                       <div className="flex items-stretch gap-1.5">
                         <div className="flex w-5 shrink-0 flex-col items-center gap-1 pt-0.5">
+                          {canEdit ? (
                           <input
                             type="checkbox"
                             className="h-4 w-4 accent-indigo-600"
@@ -2378,6 +2422,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                             onChange={() => toggleWorkSelection(work.id)}
                             aria-label={selectionIdSet.has(work.id) ? "Quitar de la selección" : "Agregar a la selección"}
                           />
+                          ) : null}
                           {work.link_drive && (
                             <a href={work.link_drive} target="_blank" className="mt-1.5 rounded bg-white/70 p-0.5 text-green-600" aria-label="Abrir Drive">
                               <IconDrive size={14} />
@@ -2469,6 +2514,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                         <div className="relative flex w-6 shrink-0 justify-center pt-0.5">
                           <WorkRowActionMenu
                             work={work}
+                            canEdit={canEdit}
                             isOpen={workActionMenuId === work.id}
                             onToggle={() =>
                               setWorkActionMenuId((prev) =>
@@ -2534,8 +2580,8 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
         )}
       </div>
 
-      {showComposersManager && <ComposersManager supabase={supabase} onClose={() => { setShowComposersManager(false); fetchWorks(); }} />}
-      {showTagsManager && <TagsManager supabase={supabase} onClose={() => { setShowTagsManager(false); fetchWorks(); fetchTags(); }} />}
+      {canEdit && showComposersManager && <ComposersManager supabase={supabase} onClose={() => { setShowComposersManager(false); fetchWorks(); }} />}
+      {canEdit && showTagsManager && <TagsManager supabase={supabase} onClose={() => { setShowTagsManager(false); fetchWorks(); fetchTags(); }} />}
       {historyWork && (
         <HistoryModal
           work={historyWork}

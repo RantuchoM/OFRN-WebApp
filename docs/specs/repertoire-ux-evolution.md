@@ -125,6 +125,7 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 
 ### Implementación
 - `createArrangementFromExistingWork(sourceWorkId)`: clona metadatos y relaciones de compositores/arregladores; sin Drive; estado Solicitud; dispara mail `nueva_obra` al archivista (igual que crear solicitud normal). Inserta en `arreglos_referencias` la obra origen como referencia (`seedArregloReferenciaObraOrigen`).
+- **Eliminar solicitud / obra:** antes de borrar `obras`, eliminar filas en `arreglos_referencias` con `id_obra_referencia = obra.id` (FK era `ON DELETE SET NULL` y rompía `arreglos_referencias_has_target` si `link` era NULL). Migración `20260817193000` → `ON DELETE CASCADE` en `id_obra_referencia`. Fix UI: `ArreglosDashboard.deleteArregloCompleto`, `RepertoireView.confirmDeleteWork`.
 - En `RepertoireManager` (`context="program"`): al crear nuevo arreglo desde `WorkForm` (botón «Nuevo Arreglo»), `handleWorkSaved` inserta la obra clonada en el mismo bloque **debajo de la fila original** (`addWorkToBlockAfter` + `normalizeRepertorioBlockOrden`).
 - `RepertoireManager` ya pasa `context="program"` y `onInsertExistingWork` al modal de WorkForm.
 
@@ -593,4 +594,38 @@ Procesamiento en [Para acomodar](https://drive.google.com/drive/folders/12GOBbDT
 - [x] Spec viva actualizada
 - [x] Audio `AUDIO - {título}.mp3` (9/9)
 - [x] Gira **147** *Nuestras raices* — 9 encargos **Para arreglar** (Lema integrante 4340365 + compositor 198, ids pares 3574–3590) al bloque Repertorio (**122**), tras La Arenosa 3307. Oficiales Zigarán **no** van al programa. Seed `supabase/seed_gira_147_mujeres_argentinas.sql` (quita Oficiales si estaban; no duplica).
+
+### Completado (2026-08-17) — Haydn Hob.VIIe1 + Bach BWV 1067 (Para acomodar)
+
+Carpetas ya canónicas. `link_drive` = carpeta original (**no** `copiar_carpeta_a_archivo`). Seed `supabase/seed_haydn_bach_sync.sql` aplicado en linked.
+
+| Obra | id | Drive | PDFs | Año | Dur. | Notas |
+|------|---:|-------|-----:|----:|-----:|-------|
+| Concierto para Trompeta en Mib M (Haydn; arr. Rondeau 485) | **3592** | [1MDj3YEC…](https://drive.google.com/open?id=1MDj3YECQ8VAMOW0b-IUw-oJIBnxQp4r3) | 17 | 1796 | 864s | Orgánico `2.2.0.2 - 2.2.0.0 - Perc - Str`. Falta trompeta **solo** (solo en score y `.MUS` del zip). |
+| Suite Orquestal no. 2 en Si menor (Bach) | **3593** | [1Zikakmr…](https://drive.google.com/open?id=1Zikakmr-j9RzTHWsp9nDP8-7szJrf5NG) | 7 | 1738 | 1202s | Recorte portada Kalmus del SCORE (p.2–26). Keyboard/Cembalo → Piano. Flauta `es_solista`. Orgánico `Fl - Key - Str`. |
+
+- PDFs: `Instrumento - Hob.VIIe1. Concierto… - Haydn, J.pdf` / `Instrumento - BWV 1067. Suite… - Bach, J.S.pdf`.
+- Matcher: `keyboard`/`cembalo`/`clave` → Piano (`pdfPartsRenaming` + `drivePartMatcher`).
+- Scripts: `scripts/lib/haydnBachCatalog.mjs`, `process-haydn-bach-local.mjs`, `generate-haydn-bach-sync.mjs`.
+
+### Completado (2026-08-17) — Cielito Lindo ('Orquesta y Voz') — Mendoza y Cortés-Payán (Para acomodar)
+
+Obra **nueva** (#**3595**), distinta de #3491 (ARIAS solo orquesta, tag `Medoza y Cortés, Q`). Carpeta [Para acomodar](https://drive.google.com/open?id=1a0uX_4JhNVCMUkwCE8W7ypgMtogHmY1f): 2 PDFs fuente → **18 particellas** canónicas (`Instrumento - Cielito Lindo ('Orquesta y Voz') - Mendoza y Cortés-Payán.pdf`).
+
+| Obra | id | PDFs | Año | Dur. | Notas |
+|------|---:|-----:|----:|-----:|-------|
+| Cielito Lindo ('Orquesta y Voz') (arr. Payán) | **3595** | 18 | 1882 | 280s | Split `Set of Parts` (37 p.) + SCORE sin portada (p.2–27). Voz tenor `es_solista`. Orgánico `voz - 1.1.1.1 - 1.1.0.0 - Timp.+3 - Hp - Str`. |
+
+- Compositor **Quirino Mendoza y Cortés**; arreglador **Oliverio Payán** (`id_arreglador`).
+- Matcher: `tenor` (voz) → `Voz` en `pdfPartsRenaming.mjs`.
+- Scripts: `scripts/lib/cielitoLindoCatalog.mjs`, `process-cielito-lindo-local.mjs`, `generate-cielito-lindo-sync.mjs`.
+- Seed `supabase/seed_cielito_lindo_sync.sql` aplicado en linked.
+
+---
+
+## Permisos — Archivo (`RepertoireView`) y rol arreglador (2026-08-17)
+
+- [x] El rol **`arreglador`** puede abrir **Repertorio / Archivo** en **solo lectura** (menú, command palette y `?tab=repertorio`).
+- [x] `canEdit` en `RepertoireView`: `isEditor || isArchivista || isManagement`. Arreglador sin esos roles ve listado, filtros, export «Ya programado», historial, links Drive y copiar enlaces; **no** puede crear/editar/eliminar obras, gestionar compositores/tags, selección masiva ni asignar a programa.
+- [x] Badge **«Solo lectura»** en el encabezado cuando `!canEdit`.
 

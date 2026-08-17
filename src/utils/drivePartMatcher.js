@@ -203,8 +203,12 @@ const resolveExplicitInstrument = (prefix, normalizedCatalog, fullCatalog) => {
       /celesta|teclado|key/i.test(i.instrumento || ""),
     );
   }
-  // Órgano/Hammond → Piano (no hay instrumento Órgano en catálogo OFRN)
-  if (/[oó]rgano|\borgan\b|hammond/i.test(rawL)) {
+  // Órgano/Hammond/cémbalo/keyboard → Piano (no hay instrumento Órgano/Clave en catálogo OFRN)
+  if (
+    /[oó]rgano|\borgan\b|hammond|keyboard|cembalo|clave|harpsichord|klavier/i.test(
+      rawL,
+    )
+  ) {
     return pickCatalog(normalizedCatalog, (i) => /piano/i.test(i.instrumento || ""));
   }
   if (/saxo|saxof/i.test(rawL)) {

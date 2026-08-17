@@ -381,7 +381,7 @@ export const CommandPaletteProvider = ({ children }) => {
       isAdmin || (Array.isArray(roles) && roles.includes('editor')) || isDifusion;
     const canAccessAgenda = !isGuest && (isPersonal || isEditor || isManagement);
     const canAccessRepertorio =
-      !isGuest && (isArchivista || isEditor || isManagement);
+      !isGuest && (isArchivista || isEditor || isManagement || isArreglador);
     const canAccessManual = !isGuest && (isPersonal || isEditor || isManagement);
 
     const cmds = [

@@ -528,8 +528,8 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   const [refsModalWork, setRefsModalWork] = useState(null);
   const [entregaModalWork, setEntregaModalWork] = useState(null);
 
-  const fetchWorks = async () => {
-    setLoading(true);
+  const fetchWorks = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       // 1) Obtener todas las obras que tengan al menos un log de producción (arreglos)
       //    Solo consideramos transiciones entre estados propios del flujo de arreglos:
@@ -680,7 +680,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
       setWorks([]);
       toast.error(msg);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -1175,14 +1175,19 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     setWorkFormModalOpen(true);
   };
 
-  const closeWorkFormModal = () => {
+  const closeWorkFormModal = ({ refresh = true } = {}) => {
     setWorkFormModalOpen(false);
     setWorkFormInitialData({});
+    if (refresh) {
+      void fetchWorks({ silent: true });
+    }
   };
 
   const handleSaveWorkForm = async (savedId = null, shouldClose = true) => {
-    if (shouldClose) closeWorkFormModal();
-    await fetchWorks();
+    if (shouldClose) {
+      closeWorkFormModal({ refresh: false });
+      await fetchWorks({ silent: true });
+    }
     return savedId;
   };
 
@@ -1221,7 +1226,16 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     setDeletingArreglo(true);
     try {
       const obraId = work.id;
+
+      // SET NULL en id_obra_referencia rompe arreglos_referencias_has_target si link es NULL
+      const { error: refAsTargetErr } = await sb
+        .from("arreglos_referencias")
+        .delete()
+        .eq("id_obra_referencia", obraId);
+      if (refAsTargetErr) throw refAsTargetErr;
+
       const childDeletes = [
+        { table: "arreglos_referencias", column: "id_obra" },
         { table: "seating_asignaciones", column: "id_obra" },
         { table: "repertorio_obras", column: "id_obra" },
         { table: "obras_produccion_log", column: "id_obra" },

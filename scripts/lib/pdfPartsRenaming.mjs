@@ -98,10 +98,13 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bscore\b|partitura|full score/i.test(name)) return "SCORE";
   if (/\b[oó]rgano\b|\borgan\b/i.test(name) && !/orchestra/i.test(name))
     return "Órgano";
+  if (/\btenor\b/i.test(name) && !/\bsax/i.test(name)) return "Voz";
   if (/\bsaxo\s*tenor\b|\btenor\s*sax/i.test(name)) return "Saxo Tenor";
   if (/\bsaxo\s*alto\b|\balto\s*sax/i.test(name)) return "Saxo Alto";
   if (/\bsaxo|\bsaxof/i.test(name)) return "Saxofón";
   if (/\bbater[ií]a\b|\bdrum\s*set\b/i.test(name)) return "Perc Batería";
+  if (/\bkeyboard\b|\bcembalo\b|\bclave\b|\bharpsichord\b|\bklavier\b/i.test(name))
+    return "Piano";
   if (/\bpiano\b/i.test(name)) return "Piano";
   if (/\bcoro\b|\bchoir\b|\bsatb\b/i.test(name) && !/gitanos/i.test(name))
     return "Coro";

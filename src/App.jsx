@@ -788,7 +788,7 @@ const ProtectedApp = ({ initialTab }) => {
       id: "REPERTOIRE",
       label: "Repertorio",
       icon: <IconFileText size={20} />,
-      show: !isGuest && (isArchivista || isEditor || isManagement),
+      show: !isGuest && (isArchivista || isEditor || isManagement || isArreglador),
     },
     {
       id: "ARREGLOS",
@@ -892,6 +892,16 @@ const ProtectedApp = ({ initialTab }) => {
       case "LOCATIONS":
         return <LocationsView {...commonProps} />;
       case "REPERTOIRE":
+        if (
+          isGuest ||
+          !(isArchivista || isEditor || isManagement || isArreglador)
+        ) {
+          return (
+            <div className="flex h-full items-center justify-center p-10 text-center text-slate-500">
+              No tenés permiso para acceder al archivo de repertorio.
+            </div>
+          );
+        }
         return (
           <RepertoireView
             {...commonProps}
