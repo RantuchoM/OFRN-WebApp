@@ -16,6 +16,7 @@ import {
 } from "../utils/entradasConciertoEvento";
 import { conciertoAdminSoloRecordatoriosProgramados } from "../utils/entradasReservasApertura";
 import { formatEntradasAuthError } from "../utils/entradasAuthMessages";
+import { pickEntradasAuthSessionFields } from "../utils/entradasAuthSession";
 
 async function assertEntradasAuthInvokeResult({ data, error }, action = "request") {
   if (data?.error) {
@@ -139,9 +140,23 @@ export async function setEntradasPassword(password) {
   if (invalid) throw new Error(invalid);
   const { error } = await supabaseEntradasPublic.auth.updateUser({ password: String(password) });
   if (error) throw new Error(formatEntradasAuthError(error, { action: "password" }));
+
   const { data, error: markErr } = await supabaseEntradasPublic.rpc("entrada_mark_password_set");
-  if (markErr) throw markErr;
-  return data;
+  if (!markErr && data) return data;
+
+  const {
+    data: { user },
+  } = await supabaseEntradasPublic.auth.getUser();
+  if (user?.id) {
+    const { data: row } = await supabaseEntradasPublic
+      .from("entrada_usuario")
+      .update({ password_set_at: new Date().toISOString() })
+      .eq("id", user.id)
+      .select("*")
+      .maybeSingle();
+    if (row) return row;
+  }
+  return null;
 }
 
 function entradasAuthClient(app = "entradas") {
@@ -152,32 +167,32 @@ function entradasAuthClient(app = "entradas") {
 
 async function signInAfterEntradasAuthPayload(data, app = "entradas") {
   if (data?.error) throw new Error(data.error);
+  const fields = pickEntradasAuthSessionFields(data);
   const authClient = entradasAuthClient(app);
-  const tokenHash = String(data?.token_hash || "").trim();
-  if (tokenHash) {
-    let { error: otpError } = await authClient.auth.verifyOtp({
-      token_hash: tokenHash,
-      type: "magiclink",
-    });
-    if (otpError) {
-      const retry = await authClient.auth.verifyOtp({
-        token_hash: tokenHash,
-        type: "email",
+
+  if (fields.token_hash) {
+    const types = ["email", "magiclink", "recovery"];
+    for (const type of types) {
+      const { error: otpError } = await authClient.auth.verifyOtp({
+        token_hash: fields.token_hash,
+        type,
       });
-      otpError = retry.error;
+      if (!otpError) return data;
     }
-    if (otpError) throw otpError;
-    return data;
   }
-  if (!data?.email || !data?.password) {
-    throw new Error("No se pudo completar el acceso.");
+
+  if (fields.email && fields.password) {
+    const { error: signInError } = await authClient.auth.signInWithPassword({
+      email: fields.email,
+      password: fields.password,
+    });
+    if (!signInError) return data;
+    if (!fields.token_hash) {
+      throw new Error(formatEntradasAuthError(signInError, { action: "password" }));
+    }
   }
-  const { error: signInError } = await authClient.auth.signInWithPassword({
-    email: data.email,
-    password: data.password,
-  });
-  if (signInError) throw signInError;
-  return data;
+
+  throw new Error("No se pudo completar el acceso. Pedí un enlace nuevo e intentá de nuevo.");
 }
 
 export async function verifyEntradasEmailCode({ email, code, app = "entradas" }) {
@@ -204,7 +219,7 @@ export async function verifyEntradasMagicLink({ token, app = "entradas" }) {
   });
   const payload = await assertEntradasAuthInvokeResult({ data, error }, "verify");
   await signInAfterEntradasAuthPayload(payload, app);
-  return { purpose: String(payload?.purpose || "access") === "reset" ? "reset" : "access" };
+  return { purpose: pickEntradasAuthSessionFields(payload).purpose };
 }
 
 export async function listProgramasConConciertos() {

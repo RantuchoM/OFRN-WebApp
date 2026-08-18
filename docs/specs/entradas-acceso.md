@@ -12,10 +12,14 @@ SCRN y Viáticos Manual siguen con código de 8 dígitos + enlace (misma edge fu
 
 ## Flujo público
 
-1. Mail + contraseña → `signInWithPassword` (si nunca definió clave, el mensaje indica pedir el enlace).
-2. **Enviame un enlace de acceso** → mail con botón (TTL 10 min, un solo uso).
-3. **Restaurar contraseña** → mail con enlace `?magic=…&reset=1`; al entrar, formulario de nueva clave.
+1. **Entrar con contraseña** (mail + clave, si ya la creó).
+2. **Enviame un enlace para entrar** → mail con botón (TTL 10 min). Al abrir, si no tiene clave, se ofrece **crear una contraseña** (se puede saltear).
+3. **Crear o restaurar contraseña** → mail de reset; al abrir, pide la nueva clave (obligatorio).
 4. Con sesión: candado en el header para definir o cambiar contraseña (mín. 8 caracteres).
+
+## Sesión del enlace
+
+`verify_magic_link` devuelve `token_hash` **y** `password` broker (si existe), para que el cliente nuevo use `verifyOtp` y el frontend viejo no se quede en «No se pudo completar el acceso».
 
 ## Backend
 
