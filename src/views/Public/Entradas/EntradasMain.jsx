@@ -23,6 +23,7 @@ import {
   IconList,
   IconMail,
   IconMoon,
+  IconQr,
   IconSun,
   IconTrash,
   IconX,
@@ -93,6 +94,7 @@ import {
   formatEntradasRecepcionIngresoSuccess,
 } from "../../../utils/entradasQrMessages";
 import { formatEntradasIngresoConRecepcionista } from "../../../utils/entradasIngresoDisplay";
+import { isReservaHistorica } from "../../../utils/entradasMisReservas";
 import { decodeQrFromImageFile } from "../../../utils/qrDecodeFromImage";
 import {
   ADMIN_CONCIERTO_VISTAS,
@@ -1750,26 +1752,51 @@ export default function EntradasMain({ user, profile, onLogout }) {
     return map;
   }, [misReservas]);
 
-  const abrirCatalogQrModal = async (conciertoId) => {
+  const resolverReservaActivaCatalogo = async (conciertoId) => {
     const cid = Number(conciertoId);
     let reserva = reservaActivaPorConciertoId.get(cid);
     if (!reserva) {
-      try {
-        const reservas = await listarMisReservas();
-        setMisReservas(reservas);
-        reserva = reservas.find(
-          (r) => r?.estado === "activa" && Number(r?.concierto?.id) === cid,
-        );
-      } catch (error) {
-        toast.error(error?.message || "No se pudieron cargar tus reservas.");
-        return;
-      }
+      const reservas = await listarMisReservas();
+      setMisReservas(reservas);
+      reserva = reservas.find(
+        (r) => r?.estado === "activa" && Number(r?.concierto?.id) === cid,
+      );
+    }
+    return reserva || null;
+  };
+
+  const abrirCatalogQrModal = async (conciertoId) => {
+    let reserva;
+    try {
+      reserva = await resolverReservaActivaCatalogo(conciertoId);
+    } catch (error) {
+      toast.error(error?.message || "No se pudieron cargar tus reservas.");
+      return;
     }
     if (!reserva) {
       toast.error("No se encontró la reserva activa para este concierto.");
       return;
     }
     setCatalogQrModalReserva(reserva);
+  };
+
+  const abrirCancelarReservaCatalogo = async (conciertoId) => {
+    let reserva;
+    try {
+      reserva = await resolverReservaActivaCatalogo(conciertoId);
+    } catch (error) {
+      toast.error(error?.message || "No se pudieron cargar tus reservas.");
+      return;
+    }
+    if (!reserva) {
+      toast.error("No se encontró la reserva activa para este concierto.");
+      return;
+    }
+    if (isReservaHistorica(reserva)) {
+      toast.error("Este concierto ya ocurrió; no se puede cancelar la reserva.");
+      return;
+    }
+    setCancelReservaTarget(reserva);
   };
 
   const renderCatalogReservaEnRecuadro = (
@@ -1787,10 +1814,11 @@ export default function EntradasMain({ user, profile, onLogout }) {
       >
         <span className={ui.badgeReserva}>Ya tenés entrada/s</span>
         <span
-          className={`text-xs font-bold underline-offset-2 ${
-            isDark ? "text-emerald-300" : "text-emerald-800"
+          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-bold ${
+            isDark ? "bg-emerald-900/80 text-emerald-200" : "bg-emerald-700 text-white"
           }`}
         >
+          <IconQr size={16} />
           Ver QR
         </span>
       </button>
@@ -2541,6 +2569,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
         toast.message("Reserva cancelada. No pudimos enviar el mail de confirmación.");
       }
       setCancelReservaTarget(null);
+      setCatalogQrModalReserva(null);
+      setReservaResult(null);
       await loadBase({ quiet: true });
     } catch (err) {
       toast.error(err?.message || "No se pudo cancelar la reserva.");
@@ -3870,10 +3900,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 const renderLocalidadSel = localidadSel ? (
                   <p className={ui.programaLocalidad}>{localidadSel}</p>
                 ) : null;
+                const tieneReservaSel = tieneReservaEnConcierto(selectedConcierto.id);
+                const reservaSel = reservaActivaPorConciertoId.get(Number(selectedConcierto.id));
+                const puedeCancelarSel = tieneReservaSel && !(reservaSel && isReservaHistorica(reservaSel));
                 return (
                 <>
                   <p className={ui.accentEyebrow}>Concierto seleccionado</p>
-                  {entradasAgotadasSel && !tieneReservaEnConcierto(selectedConcierto.id) ? (
+                  {entradasAgotadasSel && !tieneReservaSel ? (
                     <div
                       className={`entradas-catalog-control overflow-hidden border-2 ${
                         isDark ? "border-slate-600 bg-slate-800/70" : "border-slate-300 bg-slate-100"
@@ -3895,24 +3928,52 @@ export default function EntradasMain({ user, profile, onLogout }) {
                         {renderLocalidadSel}
                       </div>
                     </div>
-                  ) : tieneReservaEnConcierto(selectedConcierto.id) ? (
-                    <div
-                      className={`entradas-catalog-control overflow-hidden border-2 ${
-                        isDark ? "border-slate-600 bg-slate-800" : "border-[#e8eaed] bg-white"
-                      }`}
-                    >
-                      {renderCatalogReservaEnRecuadro(selectedConcierto.id, { embedded: true })}
-                      <div className="px-3 py-3 space-y-1">
-                        <h3 className={`text-lg font-bold ${ui.textStrong}`}>{selectedConcierto.nombre}</h3>
-                        <p className={`text-xs ${ui.textSoft}`}>
-                          {formatConciertoFechaHoraEs(selectedConcierto.fecha_hora)}
-                        </p>
-                        {selectedConcierto.lugar_nombre && (
-                          <p className={`text-xs ${ui.textMuted}`}>{selectedConcierto.lugar_nombre}</p>
-                        )}
-                        {renderLocalidadSel}
+                  ) : tieneReservaSel ? (
+                    <>
+                      <div
+                        className={`entradas-catalog-control overflow-hidden border-2 ${
+                          isDark ? "border-slate-600 bg-slate-800" : "border-[#e8eaed] bg-white"
+                        }`}
+                      >
+                        <div
+                          className={`flex flex-wrap items-center px-3 py-2 ${
+                            isDark
+                              ? "border-b border-emerald-800/50 bg-emerald-950/35"
+                              : "border-b border-emerald-200/90 bg-emerald-50/80"
+                          }`}
+                        >
+                          <span className={ui.badgeReserva}>Ya tenés entrada/s</span>
+                        </div>
+                        <div className="px-3 py-3 space-y-1">
+                          <h3 className={`text-lg font-bold ${ui.textStrong}`}>{selectedConcierto.nombre}</h3>
+                          <p className={`text-xs ${ui.textSoft}`}>
+                            {formatConciertoFechaHoraEs(selectedConcierto.fecha_hora)}
+                          </p>
+                          {selectedConcierto.lugar_nombre && (
+                            <p className={`text-xs ${ui.textMuted}`}>{selectedConcierto.lugar_nombre}</p>
+                          )}
+                          {renderLocalidadSel}
+                        </div>
                       </div>
-                    </div>
+                      <button
+                        type="button"
+                        onClick={() => void abrirCatalogQrModal(selectedConcierto.id)}
+                        className={`${ui.btnPrimary} flex items-center justify-center gap-2 py-3.5 text-base`}
+                        aria-label="Ver QR de tu reserva para este concierto"
+                      >
+                        <IconQr size={22} />
+                        Ver QR
+                      </button>
+                      {puedeCancelarSel && (
+                        <button
+                          type="button"
+                          onClick={() => void abrirCancelarReservaCatalogo(selectedConcierto.id)}
+                          className={`w-full rounded-md px-3 py-2.5 text-sm font-bold ${ui.btnDanger}`}
+                        >
+                          Cancelar entradas
+                        </button>
+                      )}
+                    </>
                   ) : (
                     <>
                       <h3 className={`text-lg font-bold ${ui.textStrong}`}>{selectedConcierto.nombre}</h3>
@@ -3925,14 +3986,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
                       {renderLocalidadSel}
                     </>
                   )}
-                  {reservasAbiertasSel && !entradasAgotadasSel && (
+                  {reservasAbiertasSel && !entradasAgotadasSel && !tieneReservaSel && (
                     <>
                       <label className={ui.label}>Cantidad</label>
                       <select
-                        className={`entradas-catalog-control ${ui.select} w-full disabled:opacity-60`}
+                        className={`entradas-catalog-control ${ui.select} w-full`}
                         value={cantidad}
                         onChange={(event) => setCantidad(Number(event.target.value))}
-                        disabled={tieneReservaEnConcierto(selectedConcierto.id)}
                       >
                         {[1, 2, 3, 4].map((n) => (
                           <option key={n} value={n}>
@@ -3947,7 +4007,6 @@ export default function EntradasMain({ user, profile, onLogout }) {
                           creatingReserva
                           || !entradaConciertoReservasAbiertas(selectedConcierto)
                           || computeDisponibles(selectedConcierto) < cantidad
-                          || tieneReservaEnConcierto(selectedConcierto.id)
                         }
                         className={ui.btnPrimary}
                       >
@@ -3995,7 +4054,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                       </div>
                     </div>
                   )}
-                  {!reservasAbiertasSel && (
+                  {!reservasAbiertasSel && !tieneReservaSel && (
                     <div className={`entradas-catalog-control ${ui.warningBox}`}>
                       <p className="text-sm font-semibold">Reservas aún no abiertas</p>
                       {textoAperturaReservas(selectedConcierto) && (

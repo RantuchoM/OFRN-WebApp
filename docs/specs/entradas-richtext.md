@@ -35,12 +35,14 @@
 Al abrir un concierto, el bloque de reserva queda **arriba**, justo debajo de horario y locación:
 
 1. Nombre, fecha/hora, lugar y localidad
-2. **Cantidad** (1–4) y botón **Obtener** (si las reservas están abiertas y hay cupo)
-3. Resultado de la reserva (código, PDF, QRs) cuando acaba de obtenerse
-4. Aviso si las reservas aún no abrieron / recordatorio
-5. Portada, detalle enriquecido, barra de disponibilidad y compartir
+2. Si **no hay reserva**: **Cantidad** (1–4) y **Obtener** (si las reservas están abiertas y hay cupo)
+3. Si **ya hay reserva**: no se muestra el desplegable de cantidad (ni bloqueado). En su lugar, **Ver QR** destacado (botón grande) y **Cancelar entradas** con `ConfirmModal` (mismos textos y reglas que en Mis entradas; no se ofrece cancelar si el concierto ya ocurrió)
+4. Resultado de la reserva (código, PDF, QRs) cuando acaba de obtenerse
+5. Aviso si las reservas aún no abrieron / recordatorio (oculto si ya hay reserva activa)
+6. Portada, detalle enriquecido, barra de disponibilidad y compartir
 
 - [x] CTA de reserva visible sin scrollear el detalle largo.
+- [x] Con reserva activa: Ver QR grande + cancelar (sin desplegable bloqueado).
 
 ## Notas
 
