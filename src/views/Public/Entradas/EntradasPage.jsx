@@ -3,7 +3,11 @@ import "../../../styles/entradas-filarmonica.css";
 import { entradasUi, useEntradasDarkMode } from "../../../hooks/useEntradasDarkMode";
 import { supabaseEntradasPublic } from "../../../services/supabase";
 import { getEntradasSessionProfile, verifyEntradasMagicLink } from "../../../services/entradaService";
-import { clearMagicTokenFromUrl, readMagicTokenFromSearch } from "../../../utils/entradasMagicLink";
+import {
+  clearMagicTokenFromUrl,
+  readMagicTokenFromSearch,
+  readPasswordResetFlagFromSearch,
+} from "../../../utils/entradasMagicLink";
 import LoginEntradas from "./LoginEntradas";
 import EntradasMain from "./EntradasMain";
 
@@ -16,6 +20,7 @@ export default function EntradasPage() {
   const [bootError, setBootError] = useState("");
   const [profileChecked, setProfileChecked] = useState(false);
   const [magicLinkPending, setMagicLinkPending] = useState(false);
+  const [pendingPasswordReset, setPendingPasswordReset] = useState(false);
   const activeUserIdRef = useRef(null);
 
   const loadProfile = useCallback(async () => {
@@ -37,14 +42,18 @@ export default function EntradasPage() {
 
     (async () => {
       const magicToken = readMagicTokenFromSearch();
+      const resetFromUrl = readPasswordResetFlagFromSearch();
       setLoading(true);
       setBootError("");
 
       if (magicToken) {
         setMagicLinkPending(true);
         try {
-          await verifyEntradasMagicLink({ token: magicToken, app: "entradas" });
+          const result = await verifyEntradasMagicLink({ token: magicToken, app: "entradas" });
           clearMagicTokenFromUrl();
+          if (!cancelled && (result?.purpose === "reset" || resetFromUrl)) {
+            setPendingPasswordReset(true);
+          }
         } catch (error) {
           if (!cancelled) {
             clearMagicTokenFromUrl();
@@ -100,6 +109,13 @@ export default function EntradasPage() {
     await supabaseEntradasPublic.auth.signOut();
     setSession(null);
     setProfile(null);
+    setPendingPasswordReset(false);
+  };
+
+  const onPasswordSaved = async (nextProfile) => {
+    if (nextProfile) setProfile(nextProfile);
+    setPendingPasswordReset(false);
+    await loadProfile();
   };
 
   if (loading || magicLinkPending || (session?.user && !profileChecked)) {
@@ -112,16 +128,26 @@ export default function EntradasPage() {
     );
   }
 
-  if (!session?.user || !profile) {
+  if (!session?.user || !profile || pendingPasswordReset) {
     return (
       <LoginEntradas
         user={session?.user || null}
         profile={profile}
         onProfileSaved={loadProfile}
+        onPasswordSaved={onPasswordSaved}
+        pendingPasswordReset={pendingPasswordReset}
         bootError={bootError}
       />
     );
   }
 
-  return <EntradasMain user={session.user} profile={profile} onLogout={onLogout} onProfileRefresh={loadProfile} />;
-};
+  return (
+    <EntradasMain
+      user={session.user}
+      profile={profile}
+      onLogout={onLogout}
+      onProfileRefresh={loadProfile}
+      onProfileUpdated={setProfile}
+    />
+  );
+}

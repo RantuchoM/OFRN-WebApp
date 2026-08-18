@@ -52,6 +52,11 @@ function throwDbError(
       `${context}: falta la columna magic_token_hash. Aplicá la migración 20260516170000_entradas_auth_magic_link.sql en Supabase.`,
     );
   }
+  if (/\bpurpose\b/i.test(msg) || /code_hash/i.test(msg)) {
+    throw new Error(
+      `${context}: aplicá la migración 20260818180000_entradas_auth_password_magic_link.sql en Supabase.`,
+    );
+  }
   throw new Error(`${context}: ${msg}`);
 }
 
@@ -87,20 +92,24 @@ function escHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function buildMagicLinkUrl(token: string, app: string): string {
+function buildMagicLinkUrl(token: string, app: string, purpose = "access"): string {
   const baseEntradas = (Deno.env.get("ENTRADAS_PUBLIC_URL") ?? "https://ofrn-web-app.vercel.app").replace(/\/$/, "");
   const baseScrn = (Deno.env.get("SCRN_PUBLIC_URL") ?? baseEntradas).replace(/\/$/, "");
   const baseViaticosManual = (Deno.env.get("VIATICOS_MANUAL_PUBLIC_URL") ?? baseEntradas).replace(/\/$/, "");
+  const resetQs = purpose === "reset" ? "&reset=1" : "";
   if (app === "scrn") {
-    return `${baseScrn}/transporte-scrn?magic=${encodeURIComponent(token)}`;
+    return `${baseScrn}/transporte-scrn?magic=${encodeURIComponent(token)}${resetQs}`;
   }
   if (app === "viaticos_manual") {
-    return `${baseViaticosManual}/viaticos-manual?magic=${encodeURIComponent(token)}`;
+    return `${baseViaticosManual}/viaticos-manual?magic=${encodeURIComponent(token)}${resetQs}`;
   }
-  return `${baseEntradas}/entradas?magic=${encodeURIComponent(token)}`;
+  return `${baseEntradas}/entradas?magic=${encodeURIComponent(token)}${resetQs}`;
 }
 
-function getAppEmailMeta(app: string): { fromLabel: string; appLabel: string; subject: string } {
+function getAppEmailMeta(
+  app: string,
+  purpose = "access",
+): { fromLabel: string; appLabel: string; subject: string } {
   if (app === "scrn") {
     return {
       fromLabel: "Transporte SCRN",
@@ -115,10 +124,17 @@ function getAppEmailMeta(app: string): { fromLabel: string; appLabel: string; su
       subject: "Tu código de acceso - Viáticos Manual OFRN",
     };
   }
+  if (purpose === "reset") {
+    return {
+      fromLabel: "Entradas OFRN",
+      appLabel: "Entradas OFRN",
+      subject: "Restaurá tu contraseña - Entradas OFRN",
+    };
+  }
   return {
     fromLabel: "Entradas OFRN",
     appLabel: "Entradas OFRN",
-    subject: "Tu código de acceso - Entradas OFRN",
+    subject: "Tu enlace de acceso - Entradas OFRN",
   };
 }
 
@@ -158,6 +174,45 @@ function buildOtpHtml({
       <a href="${safeMagicUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px;">Accedé sin contraseña</a>
     </p>
     <p style="margin: 10px 0 0 0; font-size: 12px; color: #475569;">O ingresá el código de 8 dígitos en el sitio.</p>
+  </div>
+  <p style="font-size: 12px; color: #64748b;">Si no solicitaste este acceso, podés ignorar este mensaje.</p>
+</body>
+</html>`;
+}
+
+function buildMagicOnlyHtml({
+  appLabel,
+  magicLinkUrl,
+  purpose,
+}: {
+  appLabel: string;
+  magicLinkUrl: string;
+  purpose: string;
+}) {
+  const safeLabel = escHtml(appLabel);
+  const safeMagicUrl = escHtml(magicLinkUrl);
+  const isReset = purpose === "reset";
+  const intro = isReset
+    ? `Pediste restaurar tu contraseña de <strong>${safeLabel}</strong>. Hacé clic en el botón para entrar y elegir una nueva.`
+    : `Hacé clic para entrar a <strong>${safeLabel}</strong>. No hace falta código ni contraseña.`;
+  const cta = isReset ? "Elegir nueva contraseña" : "Entrar a Entradas";
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: Helvetica, Arial, sans-serif; color: #334155; line-height: 1.5; }
+    .box { border-left: 4px solid #2563eb; background: #eff6ff; padding: 16px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <p>Hola,</p>
+  <p>${intro}</p>
+  <div class="box">
+    <p style="margin: 0 0 14px 0;">
+      <a href="${safeMagicUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px;">${escHtml(cta)}</a>
+    </p>
+    <p style="margin: 0; font-size: 12px; color: #64748b;">El enlace vence en ${OTP_TTL_MINUTES} minutos.</p>
   </div>
   <p style="font-size: 12px; color: #64748b;">Si no solicitaste este acceso, podés ignorar este mensaje.</p>
 </body>
@@ -223,6 +278,139 @@ async function completeEmailAuth(
   return { email, password: signInPassword };
 }
 
+/** Crea el usuario Auth si no existe, sin rotar una contraseña que el usuario ya definió. */
+async function ensureAuthUserExists(admin: AdminClient, email: string): Promise<void> {
+  const { data: mappedUser, error: mappedErr } = await admin
+    .from("entrada_auth_email_user")
+    .select("user_id")
+    .eq("email", email)
+    .maybeSingle();
+  throwDbError(mappedErr, "entrada_auth_email_user");
+  if (mappedUser?.user_id) return;
+
+  const tempPassword = crypto.randomUUID().replace(/-/g, "");
+  const { data: created, error: createErr } = await admin.auth.admin.createUser({
+    email,
+    password: tempPassword,
+    email_confirm: true,
+  });
+
+  let userId = created?.user?.id || null;
+  const createdOk = !createErr && Boolean(userId);
+  if (createErr) {
+    const alreadyExists = /already been registered|already exists|duplicate/i.test(createErr.message || "");
+    if (!alreadyExists) {
+      throw new Error(`No se pudo crear usuario auth para ${email}: ${createErr.message}`);
+    }
+    const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
+      type: "magiclink",
+      email,
+    });
+    if (linkErr) throwDbError(linkErr, "buscar usuario auth existente");
+    userId = linkData?.user?.id || null;
+  }
+  if (!userId) throw new Error("No se pudo obtener ID de usuario auth.");
+
+  const mapRow: { email: string; user_id: string; auth_password_plain?: string } = {
+    email,
+    user_id: userId,
+  };
+  if (createdOk) mapRow.auth_password_plain = tempPassword;
+  const { error: mapInsertErr } = await admin.from("entrada_auth_email_user").upsert(mapRow, { onConflict: "email" });
+  throwDbError(mapInsertErr, "mapear usuario");
+}
+
+/**
+ * Sesión sin devolver ni rotar la contraseña de GoTrue.
+ * El cliente completa con verifyOtp({ token_hash, type: "magiclink" }).
+ */
+async function issueSessionPayload(
+  admin: AdminClient,
+  email: string,
+): Promise<{ email: string; token_hash?: string; password?: string }> {
+  await ensureAuthUserExists(admin, email);
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: "magiclink",
+    email,
+  });
+  const tokenHash = data?.properties?.hashed_token;
+  if (!error && tokenHash) {
+    return { email, token_hash: String(tokenHash) };
+  }
+  const fallback = await completeEmailAuth(admin, email);
+  return fallback;
+}
+
+async function assertLinkRateLimit(
+  admin: AdminClient,
+  email: string,
+  ip: string,
+): Promise<Response | null> {
+  const oneMinuteAgo = new Date(Date.now() - OTP_COOLDOWN_SECONDS * 1000).toISOString();
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+  const { data: cooldownRows, error: cooldownErr } = await admin
+    .from("entrada_auth_email_otp")
+    .select("id")
+    .eq("email", email)
+    .gte("created_at", oneMinuteAgo)
+    .limit(1);
+  throwDbError(cooldownErr, "cooldown otp");
+  if ((cooldownRows || []).length > 0) {
+    return new Response(
+      JSON.stringify({ error: `Esperá ${OTP_COOLDOWN_SECONDS}s antes de pedir otro enlace.` }),
+      { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  const [{ count: emailHourCount, error: emailHourErr }, { count: ipHourCount, error: ipHourErr }] = await Promise.all([
+    admin
+      .from("entrada_auth_email_otp")
+      .select("id", { count: "exact", head: true })
+      .eq("email", email)
+      .gte("created_at", oneHourAgo),
+    admin
+      .from("entrada_auth_email_otp")
+      .select("id", { count: "exact", head: true })
+      .eq("requested_ip", ip)
+      .gte("created_at", oneHourAgo),
+  ]);
+  throwDbError(emailHourErr, "límite por email");
+  throwDbError(ipHourErr, "límite por ip");
+
+  if ((emailHourCount || 0) >= OTP_MAX_PER_HOUR_PER_EMAIL || (ipHourCount || 0) >= OTP_MAX_PER_HOUR_PER_IP) {
+    return new Response(
+      JSON.stringify({ error: "Se alcanzó el límite de envíos por hora. Intentá más tarde." }),
+      { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+  return null;
+}
+
+async function sendAuthMail({
+  fromLabel,
+  subject,
+  email,
+  html,
+}: {
+  fromLabel: string;
+  subject: string;
+  email: string;
+  html: string;
+}) {
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: GMAIL_USER, pass: GMAIL_PASS },
+  });
+  await transporter.sendMail({
+    from: `"${fromLabel}" <${GMAIL_USER}>`,
+    replyTo: GMAIL_USER,
+    to: email,
+    subject,
+    html,
+  });
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -247,7 +435,6 @@ serve(async (req) => {
     const email = normalizeEmail(body?.email);
     const code = String(body?.code || "").trim();
     const app = String(body?.app || "entradas").trim().toLowerCase();
-    const { fromLabel, appLabel, subject } = getAppEmailMeta(app);
     const ip =
       req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
       || req.headers.get("x-real-ip")
@@ -268,7 +455,7 @@ serve(async (req) => {
       const tokenHash = await sha256Hex(`${token}:${OTP_PEPPER}`);
       const { data: linkRow, error: linkErr } = await admin
         .from("entrada_auth_email_otp")
-        .select("id, email, expires_at")
+        .select("id, email, expires_at, purpose")
         .eq("magic_token_hash", tokenHash)
         .is("consumed_at", null)
         .order("created_at", { ascending: false })
@@ -283,7 +470,7 @@ serve(async (req) => {
       }
       if (new Date(linkRow.expires_at).getTime() < Date.now()) {
         await admin.from("entrada_auth_email_otp").update({ consumed_at: new Date().toISOString() }).eq("id", linkRow.id);
-        return new Response(JSON.stringify({ error: "El enlace venció. Pedí un código nuevo." }), {
+        return new Response(JSON.stringify({ error: "El enlace venció. Pedí uno nuevo." }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -292,8 +479,9 @@ serve(async (req) => {
       await admin.from("entrada_auth_email_otp").update({ consumed_at: new Date().toISOString() }).eq("id", linkRow.id);
 
       const linkEmail = normalizeEmail(linkRow.email);
-      const authPayload = await completeEmailAuth(admin, linkEmail);
-      return new Response(JSON.stringify({ success: true, ...authPayload }), {
+      const authPayload = await issueSessionPayload(admin, linkEmail);
+      const purpose = String(linkRow.purpose || "access") === "reset" ? "reset" : "access";
+      return new Response(JSON.stringify({ success: true, purpose, ...authPayload }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -306,45 +494,52 @@ serve(async (req) => {
       });
     }
 
+    const requestMagicLink = action === "request_magic_link"
+      || action === "request_password_reset"
+      || (action === "request_code" && app === "entradas");
+
+    if (requestMagicLink) {
+      const purpose = action === "request_password_reset" ? "reset" : "access";
+      const { fromLabel, appLabel, subject } = getAppEmailMeta(app, purpose);
+      const limited = await assertLinkRateLimit(admin, email, ip);
+      if (limited) return limited;
+
+      const magicToken = randomMagicToken();
+      const magicHash = await sha256Hex(`${magicToken}:${OTP_PEPPER}`);
+      const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
+
+      const { error: insertErr } = await admin.from("entrada_auth_email_otp").insert({
+        email,
+        code_hash: null,
+        magic_token_hash: magicHash,
+        purpose,
+        expires_at: expiresAt,
+        requested_ip: ip,
+        user_agent: userAgent,
+      });
+      throwDbError(insertErr, "guardar enlace");
+
+      await sendAuthMail({
+        fromLabel,
+        subject,
+        email,
+        html: buildMagicOnlyHtml({
+          appLabel,
+          magicLinkUrl: buildMagicLinkUrl(magicToken, app, purpose),
+          purpose,
+        }),
+      });
+
+      return new Response(JSON.stringify({ success: true, cooldownSeconds: OTP_COOLDOWN_SECONDS, purpose }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "request_code") {
-      const oneMinuteAgo = new Date(Date.now() - OTP_COOLDOWN_SECONDS * 1000).toISOString();
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-
-      const { data: cooldownRows, error: cooldownErr } = await admin
-        .from("entrada_auth_email_otp")
-        .select("id")
-        .eq("email", email)
-        .gte("created_at", oneMinuteAgo)
-        .limit(1);
-      throwDbError(cooldownErr, "cooldown otp");
-      if ((cooldownRows || []).length > 0) {
-        return new Response(
-          JSON.stringify({ error: `Esperá ${OTP_COOLDOWN_SECONDS}s antes de pedir otro código.` }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-
-      const [{ count: emailHourCount, error: emailHourErr }, { count: ipHourCount, error: ipHourErr }] = await Promise.all([
-        admin
-          .from("entrada_auth_email_otp")
-          .select("id", { count: "exact", head: true })
-          .eq("email", email)
-          .gte("created_at", oneHourAgo),
-        admin
-          .from("entrada_auth_email_otp")
-          .select("id", { count: "exact", head: true })
-          .eq("requested_ip", ip)
-          .gte("created_at", oneHourAgo),
-      ]);
-      throwDbError(emailHourErr, "límite por email");
-      throwDbError(ipHourErr, "límite por ip");
-
-      if ((emailHourCount || 0) >= OTP_MAX_PER_HOUR_PER_EMAIL || (ipHourCount || 0) >= OTP_MAX_PER_HOUR_PER_IP) {
-        return new Response(
-          JSON.stringify({ error: "Se alcanzó el límite de códigos por hora. Intentá más tarde." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
+      const { fromLabel, appLabel, subject } = getAppEmailMeta(app);
+      const limited = await assertLinkRateLimit(admin, email, ip);
+      if (limited) return limited;
 
       const otp = randomCode8Digits();
       const otpHash = await sha256Hex(`${otp}:${OTP_PEPPER}`);
@@ -356,21 +551,17 @@ serve(async (req) => {
         email,
         code_hash: otpHash,
         magic_token_hash: magicHash,
+        purpose: "access",
         expires_at: expiresAt,
         requested_ip: ip,
         user_agent: userAgent,
       });
       throwDbError(insertErr, "guardar otp");
 
-      const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: { user: GMAIL_USER, pass: GMAIL_PASS },
-      });
-      await transporter.sendMail({
-        from: `"${fromLabel}" <${GMAIL_USER}>`,
-        replyTo: GMAIL_USER,
-        to: email,
+      await sendAuthMail({
+        fromLabel,
         subject,
+        email,
         html: buildOtpHtml({
           code: otp,
           appLabel,
@@ -396,6 +587,7 @@ serve(async (req) => {
         .from("entrada_auth_email_otp")
         .select("id, code_hash, expires_at, attempts")
         .eq("email", email)
+        .not("code_hash", "is", null)
         .is("consumed_at", null)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -433,7 +625,7 @@ serve(async (req) => {
 
       await admin.from("entrada_auth_email_otp").update({ consumed_at: new Date().toISOString() }).eq("id", otpRow.id);
 
-      const authPayload = await completeEmailAuth(admin, email);
+      const authPayload = await issueSessionPayload(admin, email);
       return new Response(JSON.stringify({ success: true, ...authPayload }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
