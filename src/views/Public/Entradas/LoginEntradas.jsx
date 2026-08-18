@@ -17,7 +17,8 @@ export default function LoginEntradas({
   profile,
   onProfileSaved,
   onPasswordSaved,
-  pendingPasswordReset = false,
+  onSkipPassword,
+  passwordPrompt = null,
   bootError = "",
 }) {
   const { isDark } = useEntradasDarkMode();
@@ -35,7 +36,12 @@ export default function LoginEntradas({
   const [nextLinkAllowedAt, setNextLinkAllowedAt] = useState(0);
 
   const needsProfile = useMemo(() => Boolean(user) && !profile, [user, profile]);
-  const needsPasswordReset = Boolean(user) && pendingPasswordReset && Boolean(profile);
+  const showPasswordForm = Boolean(user)
+    && Boolean(profile)
+    && (
+      passwordPrompt === "required"
+      || (passwordPrompt === "optional" && !profile?.password_set_at)
+    );
 
   const cooldownLeft = Math.max(0, Math.ceil((nextLinkAllowedAt - Date.now()) / 1000));
 
@@ -82,7 +88,7 @@ export default function LoginEntradas({
     }
     setEmail(normalizedEmail);
     setNextLinkAllowedAt(Date.now() + LINK_RESEND_COOLDOWN_SECONDS * 1000);
-    setMessage("Te enviamos un enlace para restaurar tu contraseña. Abrilo y elegí una nueva.");
+    setMessage("Te enviamos un enlace para crear o restaurar tu contraseña. Abrilo y elegí una clave.");
   };
 
   const handlePasswordLogin = async (event) => {
@@ -132,7 +138,7 @@ export default function LoginEntradas({
             />
           </div>
           <p className={`text-sm ${ui.subtitle}`}>
-            Entrá con contraseña o con un enlace que te mandamos al mail.
+            Entrá con contraseña o con un enlace al mail. Si todavía no tenés clave, creala desde acá.
           </p>
         </div>
 
@@ -149,7 +155,7 @@ export default function LoginEntradas({
                 className={ui.input}
                 placeholder="tu.mail@dominio.com"
               />
-              <label className={ui.label}>Contraseña</label>
+              <label className={ui.label}>Contraseña (si ya creaste una)</label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
@@ -173,13 +179,16 @@ export default function LoginEntradas({
                 disabled={signingIn || !email.trim()}
                 className={ui.btnPrimary}
               >
-                {signingIn ? "Entrando..." : "Entrar"}
+                {signingIn ? "Entrando..." : "Entrar con contraseña"}
               </button>
             </form>
 
             <div className={`space-y-2 border-t pt-3 ${ui.divider}`}>
+              <p className={`text-xs font-semibold ${ui.textSoft}`}>
+                ¿No tenés contraseña todavía?
+              </p>
               <p className={`text-xs ${ui.textMuted}`}>
-                ¿No usás contraseña? Te mandamos un enlace directo a este mail.
+                Te mandamos un enlace a este mail para entrar. Después podés crear una clave si querés.
               </p>
               <button
                 type="button"
@@ -191,7 +200,7 @@ export default function LoginEntradas({
                   ? "Enviando..."
                   : cooldownLeft > 0
                     ? `Esperá ${cooldownLeft}s`
-                    : "Enviame un enlace de acceso"}
+                    : "Enviame un enlace para entrar"}
               </button>
               <button
                 type="button"
@@ -199,7 +208,7 @@ export default function LoginEntradas({
                 onClick={() => void sendResetLink()}
                 className={ui.btnGhost}
               >
-                {sendingReset ? "Enviando..." : "Restaurar contraseña"}
+                {sendingReset ? "Enviando..." : "Crear o restaurar contraseña"}
               </button>
             </div>
           </>
@@ -228,14 +237,20 @@ export default function LoginEntradas({
           </form>
         )}
 
-        {needsPasswordReset && (
+        {showPasswordForm && (
           <EntradasSetPasswordForm
             ui={ui}
             isDark={isDark}
-            title="Elegí tu nueva contraseña"
-            hint="Mínimo 8 caracteres. Después también podés seguir entrando con el enlace del mail."
+            title={passwordPrompt === "required" ? "Elegí tu nueva contraseña" : "Creá una contraseña (opcional)"}
+            hint={
+              passwordPrompt === "required"
+                ? "Mínimo 8 caracteres. Después también podés seguir entrando con el enlace del mail."
+                : "Mínimo 8 caracteres. Si preferís, podés seguir entrando solo con el enlace del mail."
+            }
             submitLabel="Guardar contraseña"
             onSaved={onPasswordSaved}
+            onSkip={passwordPrompt === "required" ? null : () => onSkipPassword?.()}
+            skipLabel="Ahora no, seguir sin contraseña"
           />
         )}
 

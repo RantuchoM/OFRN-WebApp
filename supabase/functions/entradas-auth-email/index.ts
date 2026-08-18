@@ -321,24 +321,51 @@ async function ensureAuthUserExists(admin: AdminClient, email: string): Promise<
 }
 
 /**
- * Sesión sin devolver ni rotar la contraseña de GoTrue.
- * El cliente completa con verifyOtp({ token_hash, type: "magiclink" }).
+ * Sesión para el cliente: token_hash (frontend nuevo) + password broker (frontend actual en producción).
+ * No rota la clave si ya hay auth_password_plain.
  */
+function extractHashedToken(linkData: unknown): string {
+  if (!linkData || typeof linkData !== "object") return "";
+  const d = linkData as Record<string, unknown>;
+  const props = (d.properties && typeof d.properties === "object")
+    ? d.properties as Record<string, unknown>
+    : d;
+  const raw = props.hashed_token || props.hashedToken || d.hashed_token;
+  return String(raw || "").trim();
+}
+
 async function issueSessionPayload(
   admin: AdminClient,
   email: string,
 ): Promise<{ email: string; token_hash?: string; password?: string }> {
   await ensureAuthUserExists(admin, email);
-  const { data, error } = await admin.auth.admin.generateLink({
+
+  const { data: mapped, error: mappedErr } = await admin
+    .from("entrada_auth_email_user")
+    .select("user_id, auth_password_plain")
+    .eq("email", email)
+    .maybeSingle();
+  throwDbError(mappedErr, "entrada_auth_email_user");
+
+  const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
     type: "magiclink",
     email,
   });
-  const tokenHash = data?.properties?.hashed_token;
-  if (!error && tokenHash) {
-    return { email, token_hash: String(tokenHash) };
+  if (linkErr) {
+    console.error("[entradas-auth-email] generateLink:", formatError(linkErr));
   }
-  const fallback = await completeEmailAuth(admin, email);
-  return fallback;
+  const tokenHash = extractHashedToken(linkData);
+  const broker = String(mapped?.auth_password_plain || "").trim();
+
+  if (tokenHash || broker) {
+    return {
+      email,
+      ...(tokenHash ? { token_hash: tokenHash } : {}),
+      ...(broker ? { password: broker } : {}),
+    };
+  }
+
+  return completeEmailAuth(admin, email);
 }
 
 async function assertLinkRateLimit(
@@ -453,7 +480,7 @@ serve(async (req) => {
       }
 
       const tokenHash = await sha256Hex(`${token}:${OTP_PEPPER}`);
-      const { data: linkRow, error: linkErr } = await admin
+      let { data: linkRow, error: linkErr } = await admin
         .from("entrada_auth_email_otp")
         .select("id, email, expires_at, purpose")
         .eq("magic_token_hash", tokenHash)
@@ -461,6 +488,18 @@ serve(async (req) => {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+      if (linkErr && /purpose/i.test(formatError(linkErr))) {
+        const retry = await admin
+          .from("entrada_auth_email_otp")
+          .select("id, email, expires_at")
+          .eq("magic_token_hash", tokenHash)
+          .is("consumed_at", null)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        linkRow = retry.data;
+        linkErr = retry.error;
+      }
       throwDbError(linkErr, "buscar enlace mágico");
       if (!linkRow) {
         return new Response(JSON.stringify({ error: "El enlace no es válido o ya fue usado." }), {
@@ -517,7 +556,18 @@ serve(async (req) => {
         requested_ip: ip,
         user_agent: userAgent,
       });
-      throwDbError(insertErr, "guardar enlace");
+      if (insertErr) {
+        const dummyHash = await sha256Hex(`link-only:${magicHash}:${OTP_PEPPER}`);
+        const { error: retryErr } = await admin.from("entrada_auth_email_otp").insert({
+          email,
+          code_hash: dummyHash,
+          magic_token_hash: magicHash,
+          expires_at: expiresAt,
+          requested_ip: ip,
+          user_agent: userAgent,
+        });
+        throwDbError(retryErr || insertErr, "guardar enlace");
+      }
 
       await sendAuthMail({
         fromLabel,

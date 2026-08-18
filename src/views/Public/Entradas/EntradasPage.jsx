@@ -20,7 +20,7 @@ export default function EntradasPage() {
   const [bootError, setBootError] = useState("");
   const [profileChecked, setProfileChecked] = useState(false);
   const [magicLinkPending, setMagicLinkPending] = useState(false);
-  const [pendingPasswordReset, setPendingPasswordReset] = useState(false);
+  const [passwordPrompt, setPasswordPrompt] = useState(null);
   const activeUserIdRef = useRef(null);
 
   const loadProfile = useCallback(async () => {
@@ -51,8 +51,12 @@ export default function EntradasPage() {
         try {
           const result = await verifyEntradasMagicLink({ token: magicToken, app: "entradas" });
           clearMagicTokenFromUrl();
-          if (!cancelled && (result?.purpose === "reset" || resetFromUrl)) {
-            setPendingPasswordReset(true);
+          if (!cancelled) {
+            if (result?.purpose === "reset" || resetFromUrl) {
+              setPasswordPrompt("required");
+            } else {
+              setPasswordPrompt("optional");
+            }
           }
         } catch (error) {
           if (!cancelled) {
@@ -109,14 +113,19 @@ export default function EntradasPage() {
     await supabaseEntradasPublic.auth.signOut();
     setSession(null);
     setProfile(null);
-    setPendingPasswordReset(false);
+    setPasswordPrompt(null);
   };
 
   const onPasswordSaved = async (nextProfile) => {
     if (nextProfile) setProfile(nextProfile);
-    setPendingPasswordReset(false);
+    setPasswordPrompt(null);
     await loadProfile();
   };
+
+  const showLoginGate = !session?.user
+    || !profile
+    || passwordPrompt === "required"
+    || (passwordPrompt === "optional" && !profile?.password_set_at);
 
   if (loading || magicLinkPending || (session?.user && !profileChecked)) {
     return (
@@ -128,14 +137,15 @@ export default function EntradasPage() {
     );
   }
 
-  if (!session?.user || !profile || pendingPasswordReset) {
+  if (showLoginGate) {
     return (
       <LoginEntradas
         user={session?.user || null}
         profile={profile}
         onProfileSaved={loadProfile}
         onPasswordSaved={onPasswordSaved}
-        pendingPasswordReset={pendingPasswordReset}
+        onSkipPassword={() => setPasswordPrompt(null)}
+        passwordPrompt={passwordPrompt}
         bootError={bootError}
       />
     );
