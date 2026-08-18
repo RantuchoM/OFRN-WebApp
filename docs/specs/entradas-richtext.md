@@ -30,6 +30,18 @@
 | `src/utils/entradasDriveImage.js` | URLs Drive en `<img src>` |
 | `src/components/ui/quillFontNormalize.js` | `prepareEntradasQuillHtmlForDisplay` / `ForStorage` |
 
+## Vista pública del concierto (catálogo)
+
+Al abrir un concierto, el bloque de reserva queda **arriba**, justo debajo de horario y locación:
+
+1. Nombre, fecha/hora, lugar y localidad
+2. **Cantidad** (1–4) y botón **Obtener** (si las reservas están abiertas y hay cupo)
+3. Resultado de la reserva (código, PDF, QRs) cuando acaba de obtenerse
+4. Aviso si las reservas aún no abrieron / recordatorio
+5. Portada, detalle enriquecido, barra de disponibilidad y compartir
+
+- [x] CTA de reserva visible sin scrollear el detalle largo.
+
 ## Notas
 
 - Contenido antiguo con imágenes en base64 (`data:`) sigue mostrándose; no se reescribe al guardar.
