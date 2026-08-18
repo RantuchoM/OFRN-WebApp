@@ -3925,6 +3925,76 @@ export default function EntradasMain({ user, profile, onLogout }) {
                       {renderLocalidadSel}
                     </>
                   )}
+                  {reservasAbiertasSel && !entradasAgotadasSel && (
+                    <>
+                      <label className={ui.label}>Cantidad</label>
+                      <select
+                        className={`entradas-catalog-control ${ui.select} w-full disabled:opacity-60`}
+                        value={cantidad}
+                        onChange={(event) => setCantidad(Number(event.target.value))}
+                        disabled={tieneReservaEnConcierto(selectedConcierto.id)}
+                      >
+                        {[1, 2, 3, 4].map((n) => (
+                          <option key={n} value={n}>
+                            {n} entrada{n > 1 ? "s" : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleCreateReserva}
+                        disabled={
+                          creatingReserva
+                          || !entradaConciertoReservasAbiertas(selectedConcierto)
+                          || computeDisponibles(selectedConcierto) < cantidad
+                          || tieneReservaEnConcierto(selectedConcierto.id)
+                        }
+                        className={ui.btnPrimary}
+                      >
+                        {creatingReserva ? "Obteniendo..." : "Obtener"}
+                      </button>
+                    </>
+                  )}
+                  {reservaResult && (
+                    <div className={`space-y-2 border-t pt-3 ${ui.divider}`}>
+                      <p className={`text-sm font-bold ${isDark ? "text-emerald-300" : "text-emerald-700"}`}>
+                        Reserva #{reservaResult.codigo_reserva}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!selectedConcierto) return;
+                          try {
+                            const { blob, filename } = await buildEntradasReservaPdfConDataUrls({
+                              concierto: selectedConcierto,
+                              reserva: {
+                                codigo_reserva: reservaResult.codigo_reserva,
+                                cantidad_solicitada: reservaResult.cantidad_solicitada ?? cantidad,
+                              },
+                              reservaQrDataUrl: reservaResult.reservaQr,
+                              entriesQrDataUrls: reservaResult.entriesQr,
+                            });
+                            downloadEntradasReservaPdfBlob(blob, filename);
+                          } catch (e) {
+                            toast.error(e?.message || "No se pudo generar el PDF.");
+                          }
+                        }}
+                        className={ui.btnGhost}
+                      >
+                        Descargar PDF (detalle y QRs)
+                      </button>
+                      <img
+                        src={reservaResult.reservaQr}
+                        alt="QR reserva general"
+                        className={`w-40 h-40 rounded-lg ${ui.imgBorder}`}
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        {reservaResult.entriesQr.map((qr, idx) => (
+                          <img key={idx} src={qr} alt={`QR entrada ${idx + 1}`} className={`w-full rounded-lg ${ui.imgBorder}`} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {!reservasAbiertasSel && (
                     <div className={`entradas-catalog-control ${ui.warningBox}`}>
                       <p className="text-sm font-semibold">Reservas aún no abiertas</p>
@@ -3970,80 +4040,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     </div>
                   )}
                   <EntradasCompartirConciertoBtn concierto={selectedConcierto} />
-                  {reservasAbiertasSel && !entradasAgotadasSel && (
-                    <>
-                  <label className={ui.label}>Cantidad</label>
-                  <select
-                    className={`entradas-catalog-control ${ui.select} w-full disabled:opacity-60`}
-                    value={cantidad}
-                    onChange={(event) => setCantidad(Number(event.target.value))}
-                    disabled={tieneReservaEnConcierto(selectedConcierto.id)}
-                  >
-                    {[1, 2, 3, 4].map((n) => (
-                      <option key={n} value={n}>
-                        {n} entrada{n > 1 ? "s" : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={handleCreateReserva}
-                    disabled={
-                      creatingReserva
-                      || !entradaConciertoReservasAbiertas(selectedConcierto)
-                      || computeDisponibles(selectedConcierto) < cantidad
-                      || tieneReservaEnConcierto(selectedConcierto.id)
-                    }
-                    className={ui.btnPrimary}
-                  >
-                    {creatingReserva ? "Obteniendo..." : "Obtener"}
-                  </button>
-                    </>
-                  )}
                   {entradasAgotadasSel && reservasAbiertasSel && (
                     <p className={`text-sm font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>
                       No quedan entradas disponibles para este concierto.
                     </p>
-                  )}
-                  {reservaResult && (
-                    <div className={`space-y-2 border-t pt-3 ${ui.divider}`}>
-                      <p className={`text-sm font-bold ${isDark ? "text-emerald-300" : "text-emerald-700"}`}>
-                        Reserva #{reservaResult.codigo_reserva}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!selectedConcierto) return;
-                          try {
-                            const { blob, filename } = await buildEntradasReservaPdfConDataUrls({
-                              concierto: selectedConcierto,
-                              reserva: {
-                                codigo_reserva: reservaResult.codigo_reserva,
-                                cantidad_solicitada: reservaResult.cantidad_solicitada ?? cantidad,
-                              },
-                              reservaQrDataUrl: reservaResult.reservaQr,
-                              entriesQrDataUrls: reservaResult.entriesQr,
-                            });
-                            downloadEntradasReservaPdfBlob(blob, filename);
-                          } catch (e) {
-                            toast.error(e?.message || "No se pudo generar el PDF.");
-                          }
-                        }}
-                        className={ui.btnGhost}
-                      >
-                        Descargar PDF (detalle y QRs)
-                      </button>
-                      <img
-                        src={reservaResult.reservaQr}
-                        alt="QR reserva general"
-                        className={`w-40 h-40 rounded-lg ${ui.imgBorder}`}
-                      />
-                      <div className="grid grid-cols-2 gap-2">
-                        {reservaResult.entriesQr.map((qr, idx) => (
-                          <img key={idx} src={qr} alt={`QR entrada ${idx + 1}`} className={`w-full rounded-lg ${ui.imgBorder}`} />
-                        ))}
-                      </div>
-                    </div>
                   )}
                 </>
                 );
