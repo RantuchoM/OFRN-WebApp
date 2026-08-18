@@ -13,6 +13,7 @@ import EntradasDriveCoverImage from "../../../components/entradas/EntradasDriveC
 import EntradasLiveQrScanner from "../../../components/entradas/EntradasLiveQrScanner";
 import EntradasMisReservasSection from "../../../components/entradas/EntradasMisReservasSection";
 import EntradasTercerosSection from "../../../components/entradas/EntradasTercerosSection";
+import EntradasPasswordModal from "../../../components/entradas/EntradasPasswordModal";
 import MisReservasQrPanel from "../../../components/entradas/MisReservasQrPanel";
 import {
   IconCamera,
@@ -21,6 +22,7 @@ import {
   IconEdit,
   IconHelpCircle,
   IconList,
+  IconLock,
   IconMail,
   IconMoon,
   IconSun,
@@ -557,7 +559,7 @@ function adminBajaTargetPrograma(programa, bloqueoEliminar) {
   };
 }
 
-export default function EntradasMain({ user, profile, onLogout }) {
+export default function EntradasMain({ user, profile, onLogout, onProfileUpdated }) {
   const { isDark, toggle } = useEntradasDarkMode();
   const ui = entradasUi(isDark);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -566,6 +568,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [selectedConcierto, setSelectedConcierto] = useState(null);
   /** Detalle del concierto por URL; no debe ocultar el catálogo. */
   const [selectedConciertoLoading, setSelectedConciertoLoading] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [cantidad, setCantidad] = useState(1);
   const [creatingReserva, setCreatingReserva] = useState(false);
   const [reservaResult, setReservaResult] = useState(null);
@@ -3539,6 +3542,15 @@ export default function EntradasMain({ user, profile, onLogout }) {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => setPasswordModalOpen(true)}
+                className={`${ui.headerAction} ${ui.themeToggle}`}
+                aria-label={profile?.password_set_at ? "Cambiar contraseña" : "Definir contraseña"}
+                title={profile?.password_set_at ? "Cambiar contraseña" : "Definir contraseña"}
+              >
+                <IconLock size={18} />
+              </button>
+              <button
+                type="button"
                 onClick={toggle}
                 className={`${ui.headerAction} ${ui.themeToggle}`}
                 aria-label={isDark ? "Modo claro" : "Modo oscuro"}
@@ -5593,6 +5605,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
           </div>
         </div>
       )}
+
+      <EntradasPasswordModal
+        isOpen={passwordModalOpen}
+        onClose={() => setPasswordModalOpen(false)}
+        ui={ui}
+        isDark={isDark}
+        hasPassword={Boolean(profile?.password_set_at)}
+        onSaved={(nextProfile) => {
+          if (nextProfile) onProfileUpdated?.(nextProfile);
+        }}
+      />
 
       <ConfirmModal
         isOpen={Boolean(recepcionRevertirTarget)}

@@ -1,73 +1,106 @@
 import React, { useMemo, useState } from "react";
 import { ENTRADAS_LOGO_URL, entradasUi, useEntradasDarkMode } from "../../../hooks/useEntradasDarkMode";
+import { IconEye, IconEyeOff } from "../../../components/ui/Icons";
+import EntradasSetPasswordForm from "../../../components/entradas/EntradasSetPasswordForm";
 import {
   ensureEntradaProfile,
-  requestEntradasEmailCode,
-  verifyEntradasEmailCode,
+  requestEntradasMagicLink,
+  requestEntradasPasswordReset,
+  signInEntradasWithPassword,
 } from "../../../services/entradaService";
 
 const initialProfile = { nombre: "", apellido: "" };
-const OTP_RESEND_COOLDOWN_SECONDS = 60;
+const LINK_RESEND_COOLDOWN_SECONDS = 60;
 
-export default function LoginEntradas({ user, profile, onProfileSaved, bootError = "" }) {
+export default function LoginEntradas({
+  user,
+  profile,
+  onProfileSaved,
+  onPasswordSaved,
+  pendingPasswordReset = false,
+  bootError = "",
+}) {
   const { isDark } = useEntradasDarkMode();
   const ui = entradasUi(isDark);
   const [email, setEmail] = useState("");
-  const [otpCode, setOtpCode] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState(initialProfile);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [sending, setSending] = useState(false);
-  const [verifying, setVerifying] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+  const [sendingLink, setSendingLink] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
-  const [nextOtpAllowedAt, setNextOtpAllowedAt] = useState(0);
+  const [nextLinkAllowedAt, setNextLinkAllowedAt] = useState(0);
 
   const needsProfile = useMemo(() => Boolean(user) && !profile, [user, profile]);
+  const needsPasswordReset = Boolean(user) && pendingPasswordReset && Boolean(profile);
 
-  const sendOtp = async (event) => {
-    event.preventDefault();
-    const now = Date.now();
-    const secondsRemaining = Math.ceil((nextOtpAllowedAt - now) / 1000);
+  const cooldownLeft = Math.max(0, Math.ceil((nextLinkAllowedAt - Date.now()) / 1000));
+
+  const sendAccessLink = async () => {
+    const secondsRemaining = Math.ceil((nextLinkAllowedAt - Date.now()) / 1000);
     if (secondsRemaining > 0) {
-      setError(`Esperá ${secondsRemaining}s antes de pedir otro código.`);
+      setError(`Esperá ${secondsRemaining}s antes de pedir otro enlace.`);
       return;
     }
     setError("");
     setMessage("");
-    setSending(true);
+    setSendingLink(true);
     const normalizedEmail = email.trim().toLowerCase();
     try {
-      await requestEntradasEmailCode(normalizedEmail, "entradas");
-    } catch (otpError) {
-      setError(otpError?.message || "No se pudo enviar el código.");
+      await requestEntradasMagicLink(normalizedEmail, "entradas");
+    } catch (linkError) {
+      setError(linkError?.message || "No se pudo enviar el enlace.");
       return;
     } finally {
-      setSending(false);
+      setSendingLink(false);
     }
-    setOtpSent(true);
     setEmail(normalizedEmail);
-    setNextOtpAllowedAt(Date.now() + OTP_RESEND_COOLDOWN_SECONDS * 1000);
-    setMessage("Te enviamos un código de acceso por email.");
+    setNextLinkAllowedAt(Date.now() + LINK_RESEND_COOLDOWN_SECONDS * 1000);
+    setMessage("Te enviamos un enlace de acceso a tu mail. Abrilo para entrar. Vence en 10 minutos.");
   };
 
-  const verifyOtp = async (event) => {
+  const sendResetLink = async () => {
+    const secondsRemaining = Math.ceil((nextLinkAllowedAt - Date.now()) / 1000);
+    if (secondsRemaining > 0) {
+      setError(`Esperá ${secondsRemaining}s antes de pedir otro enlace.`);
+      return;
+    }
+    setError("");
+    setMessage("");
+    setSendingReset(true);
+    const normalizedEmail = email.trim().toLowerCase();
+    try {
+      await requestEntradasPasswordReset(normalizedEmail, "entradas");
+    } catch (resetError) {
+      setError(resetError?.message || "No se pudo enviar el enlace de restauración.");
+      return;
+    } finally {
+      setSendingReset(false);
+    }
+    setEmail(normalizedEmail);
+    setNextLinkAllowedAt(Date.now() + LINK_RESEND_COOLDOWN_SECONDS * 1000);
+    setMessage("Te enviamos un enlace para restaurar tu contraseña. Abrilo y elegí una nueva.");
+  };
+
+  const handlePasswordLogin = async (event) => {
     event.preventDefault();
     setError("");
     setMessage("");
-    setVerifying(true);
-    try {
-      await verifyEntradasEmailCode({
-        email: email.trim().toLowerCase(),
-        code: otpCode.trim(),
-      });
-    } catch (verifyError) {
-      setError(verifyError?.message || "No se pudo validar el código.");
+    if (!password.trim()) {
+      setError("Ingresá tu contraseña, o pedí un enlace de acceso.");
       return;
-    } finally {
-      setVerifying(false);
     }
-    setMessage("Código validado correctamente.");
+    setSigningIn(true);
+    try {
+      await signInEntradasWithPassword(email.trim().toLowerCase(), password);
+    } catch (loginError) {
+      setError(loginError?.message || "No se pudo entrar con esa contraseña.");
+    } finally {
+      setSigningIn(false);
+    }
   };
 
   const saveProfile = async (event) => {
@@ -84,6 +117,8 @@ export default function LoginEntradas({ user, profile, onProfileSaved, bootError
     }
   };
 
+  const linkBusy = sendingLink || sendingReset || cooldownLeft > 0;
+
   return (
     <div className={`${ui.page} flex items-center justify-center px-4 py-8`}>
       <div className={`w-full max-w-md ${ui.section} p-6 space-y-4 entradas-card-lift`}>
@@ -96,66 +131,77 @@ export default function LoginEntradas({ user, profile, onProfileSaved, bootError
               className="h-16 w-auto max-w-[240px] object-contain"
             />
           </div>
-          <p className={`text-sm ${ui.subtitle}`}>Obtené tus entradas gratuitas con código por email.</p>
+          <p className={`text-sm ${ui.subtitle}`}>
+            Entrá con contraseña o con un enlace que te mandamos al mail.
+          </p>
         </div>
 
         {!user && (
           <>
-            <form className="space-y-2" onSubmit={sendOtp}>
+            <form className="space-y-2" onSubmit={handlePasswordLogin}>
               <label className={ui.label}>Email</label>
               <input
                 type="email"
                 required
+                autoComplete="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 className={ui.input}
                 placeholder="tu.mail@dominio.com"
               />
+              <label className={ui.label}>Contraseña</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className={`${ui.input} pr-10`}
+                  placeholder="Si definiste una"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400"
+                  aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                >
+                  {showPassword ? <IconEyeOff size={18} /> : <IconEye size={18} />}
+                </button>
+              </div>
               <button
                 type="submit"
-                disabled={sending || !email.trim() || Date.now() < nextOtpAllowedAt}
+                disabled={signingIn || !email.trim()}
                 className={ui.btnPrimary}
               >
-                {sending
-                  ? "Enviando..."
-                  : Date.now() < nextOtpAllowedAt
-                  ? "Esperá para reenviar"
-                  : "Enviar código"}
+                {signingIn ? "Entrando..." : "Entrar"}
               </button>
             </form>
 
-            {otpSent && (
-              <form className="space-y-2" onSubmit={verifyOtp}>
-                <label className={ui.label}>Código (8 dígitos)</label>
-                <input
-                  type="text"
-                  required
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  value={otpCode}
-                  onChange={(event) =>
-                    setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 8))
-                  }
-                  maxLength={8}
-                  className={`${ui.input} tracking-[0.3em] text-center`}
-                  placeholder="12345678"
-                />
-                <button
-                  type="submit"
-                  disabled={
-                    verifying ||
-                    otpCode.trim().length < 8 ||
-                    otpCode.trim().length > 8
-                  }
-                  className={ui.btnSolid}
-                >
-                  {verifying ? "Validando..." : "Validar"}
-                </button>
-                <p className={`text-[11px] ${ui.textMuted}`}>
-                  Ingresá los 8 dígitos del email, o usá el enlace «Accedé sin contraseña».
-                </p>
-              </form>
-            )}
+            <div className={`space-y-2 border-t pt-3 ${ui.divider}`}>
+              <p className={`text-xs ${ui.textMuted}`}>
+                ¿No usás contraseña? Te mandamos un enlace directo a este mail.
+              </p>
+              <button
+                type="button"
+                disabled={linkBusy || !email.trim()}
+                onClick={() => void sendAccessLink()}
+                className={ui.btnSolid}
+              >
+                {sendingLink
+                  ? "Enviando..."
+                  : cooldownLeft > 0
+                    ? `Esperá ${cooldownLeft}s`
+                    : "Enviame un enlace de acceso"}
+              </button>
+              <button
+                type="button"
+                disabled={linkBusy || !email.trim()}
+                onClick={() => void sendResetLink()}
+                className={ui.btnGhost}
+              >
+                {sendingReset ? "Enviando..." : "Restaurar contraseña"}
+              </button>
+            </div>
           </>
         )}
 
@@ -180,6 +226,17 @@ export default function LoginEntradas({ user, profile, onProfileSaved, bootError
               {savingProfile ? "Guardando..." : "Guardar perfil"}
             </button>
           </form>
+        )}
+
+        {needsPasswordReset && (
+          <EntradasSetPasswordForm
+            ui={ui}
+            isDark={isDark}
+            title="Elegí tu nueva contraseña"
+            hint="Mínimo 8 caracteres. Después también podés seguir entrando con el enlace del mail."
+            submitLabel="Guardar contraseña"
+            onSaved={onPasswordSaved}
+          />
         )}
 
         {bootError && <div className={ui.warningBox}>{bootError}</div>}

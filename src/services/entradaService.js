@@ -89,20 +89,95 @@ export async function requestEntradasEmailCode(email, app = "entradas") {
   return assertEntradasAuthInvokeResult({ data, error }, "request");
 }
 
+export async function requestEntradasMagicLink(email, app = "entradas") {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
+    body: {
+      action: "request_magic_link",
+      email: normalizedEmail,
+      app,
+    },
+  });
+  return assertEntradasAuthInvokeResult({ data, error }, "request");
+}
+
+export async function requestEntradasPasswordReset(email, app = "entradas") {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
+    body: {
+      action: "request_password_reset",
+      email: normalizedEmail,
+      app,
+    },
+  });
+  return assertEntradasAuthInvokeResult({ data, error }, "request");
+}
+
+export async function signInEntradasWithPassword(email, password) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const { error } = await supabaseEntradasPublic.auth.signInWithPassword({
+    email: normalizedEmail,
+    password: String(password || ""),
+  });
+  if (error) {
+    throw new Error(formatEntradasAuthError(error, { action: "password" }));
+  }
+}
+
+const MIN_ENTRADAS_PASSWORD_LENGTH = 8;
+
+export function validateEntradasPassword(password) {
+  const value = String(password || "");
+  if (value.length < MIN_ENTRADAS_PASSWORD_LENGTH) {
+    return `La contraseña debe tener al menos ${MIN_ENTRADAS_PASSWORD_LENGTH} caracteres.`;
+  }
+  return null;
+}
+
+export async function setEntradasPassword(password) {
+  const invalid = validateEntradasPassword(password);
+  if (invalid) throw new Error(invalid);
+  const { error } = await supabaseEntradasPublic.auth.updateUser({ password: String(password) });
+  if (error) throw new Error(formatEntradasAuthError(error, { action: "password" }));
+  const { data, error: markErr } = await supabaseEntradasPublic.rpc("entrada_mark_password_set");
+  if (markErr) throw markErr;
+  return data;
+}
+
+function entradasAuthClient(app = "entradas") {
+  return app === "scrn" || app === "viaticos_manual"
+    ? supabaseOficinaExterna
+    : supabaseEntradasPublic;
+}
+
 async function signInAfterEntradasAuthPayload(data, app = "entradas") {
   if (data?.error) throw new Error(data.error);
+  const authClient = entradasAuthClient(app);
+  const tokenHash = String(data?.token_hash || "").trim();
+  if (tokenHash) {
+    let { error: otpError } = await authClient.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: "magiclink",
+    });
+    if (otpError) {
+      const retry = await authClient.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: "email",
+      });
+      otpError = retry.error;
+    }
+    if (otpError) throw otpError;
+    return data;
+  }
   if (!data?.email || !data?.password) {
     throw new Error("No se pudo completar el acceso.");
   }
-  const authClient =
-    app === "scrn" || app === "viaticos_manual"
-      ? supabaseOficinaExterna
-      : supabaseEntradasPublic;
   const { error: signInError } = await authClient.auth.signInWithPassword({
     email: data.email,
     password: data.password,
   });
   if (signInError) throw signInError;
+  return data;
 }
 
 export async function verifyEntradasEmailCode({ email, code, app = "entradas" }) {
@@ -129,6 +204,7 @@ export async function verifyEntradasMagicLink({ token, app = "entradas" }) {
   });
   const payload = await assertEntradasAuthInvokeResult({ data, error }, "verify");
   await signInAfterEntradasAuthPayload(payload, app);
+  return { purpose: String(payload?.purpose || "access") === "reset" ? "reset" : "access" };
 }
 
 export async function listProgramasConConciertos() {
