@@ -904,6 +904,7 @@ CREATE TABLE public.obras (
   duracion_segundos integer,
   link_drive text,
   link_youtube text,
+  audios jsonb NOT NULL DEFAULT '[]'::jsonb,
   observaciones text,
   dificultad text,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),

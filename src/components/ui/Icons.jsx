@@ -1609,6 +1609,81 @@ export const IconYoutube = ({ size = 24, className = "" }) => (
     <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" />
   </svg>
 );
+export const IconPlay = ({ size = 24, className = "" }) => (
+  <svg
+    className={className}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    stroke="none"
+  >
+    <polygon points="6 4 20 12 6 20 6 4" />
+  </svg>
+);
+export const IconPause = ({ size = 24, className = "" }) => (
+  <svg
+    className={className}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    stroke="none"
+  >
+    <rect x="6" y="4" width="4" height="16" rx="1" />
+    <rect x="14" y="4" width="4" height="16" rx="1" />
+  </svg>
+);
+export const IconSkipBack = ({ size = 24, className = "" }) => (
+  <svg
+    className={className}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <polygon points="11 19 2 12 11 5 11 19" />
+    <line x1="22" y1="19" x2="22" y2="5" />
+  </svg>
+);
+export const IconSkipForward = ({ size = 24, className = "" }) => (
+  <svg
+    className={className}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <polygon points="13 19 22 12 13 5 13 19" />
+    <line x1="2" y1="19" x2="2" y2="5" />
+  </svg>
+);
+export const IconRepeat = ({ size = 24, className = "" }) => (
+  <svg
+    className={className}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <polyline points="17 1 21 5 17 9" />
+    <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+    <polyline points="7 23 3 19 7 15" />
+    <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+  </svg>
+);
 export const Calendar = ({ size = 24, className = "", ...props }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"

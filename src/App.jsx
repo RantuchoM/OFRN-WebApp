@@ -1,4 +1,12 @@
-import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
+import React, {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  lazy,
+  Suspense,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   Routes,
@@ -477,6 +485,12 @@ const ProtectedApp = ({ initialTab }) => {
 
   // Expandido si no está colapsado o si el ratón está sobre la franja de iconos
   const isDesktopExpanded = !isSidebarCollapsed || isSidebarHovered;
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.appSidebar = isDesktopExpanded
+      ? "expanded"
+      : "collapsed";
+  }, [isDesktopExpanded]);
 
   const toggleSidebarCollapse = () => {
     const newState = !isSidebarCollapsed;

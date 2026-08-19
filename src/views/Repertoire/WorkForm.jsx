@@ -24,6 +24,8 @@ import {
   IconFolder,
   IconDrive,
   IconMail,
+  IconChevronUp,
+  IconChevronDown,
 } from "../../components/ui/Icons";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import { useAuth } from "../../context/AuthContext";
@@ -59,6 +61,7 @@ import {
   getTituloPrimeraLinea,
   readManageDriveResponseBody,
 } from "../../utils/paraAcomodarDrive";
+import { normalizeObraAudios } from "../../utils/repertoireAudioTracks";
 
 /**
  * `unique_part_per_work`: (id_obra, id_instrumento, nombre_archivo) debe ser único.
@@ -459,6 +462,7 @@ export default function WorkForm({
     duracion: "",
     link_drive: "",
     link_youtube: "",
+    audios: [],
     instrumentacion: "",
     anio: "",
     estado: "Solicitud",
@@ -522,6 +526,7 @@ export default function WorkForm({
     duracion: "idle",
     link_youtube: "idle",
     link_drive: "idle",
+    audios: "idle",
     instrumentacion: "idle",
     observaciones: "idle",
   });
@@ -678,6 +683,7 @@ export default function WorkForm({
         anio: data.anio_composicion || "",
         fecha_esperada: data.fecha_esperada || "",
         id_integrante_arreglador: idIntArreglador,
+        audios: normalizeObraAudios(data.audios),
       });
       setSelectedComposers(
         data.obras_compositores
@@ -1440,6 +1446,28 @@ export default function WorkForm({
     if (formData.id) debouncedSave(field, val);
   };
 
+  const persistAudios = (next) => {
+    const normalized = normalizeObraAudios(next);
+    setFormData((prev) => ({ ...prev, audios: normalized }));
+    if (formData.id) saveFieldToDb("audios", normalized);
+  };
+
+  const moveAudio = (from, to) => {
+    const list = [...normalizeObraAudios(formData.audios)];
+    if (to < 0 || to >= list.length) return;
+    const [item] = list.splice(from, 1);
+    list.splice(to, 0, item);
+    persistAudios(list);
+  };
+
+  const updateAudioLabel = (fileId, label) => {
+    persistAudios(
+      normalizeObraAudios(formData.audios).map((a) =>
+        a.drive_file_id === fileId ? { ...a, label } : a,
+      ),
+    );
+  };
+
   const updateComposerRelations = async (type, ids) => {
     if (!formData.id) return;
     setSaveStatus("saving");
@@ -1708,6 +1736,7 @@ export default function WorkForm({
         dificultad: (formData.dificultad || "").trim() || null,
         link_drive: formData.link_drive,
         link_youtube: formData.link_youtube,
+        audios: normalizeObraAudios(formData.audios),
         id_usuario_carga: user.id,
       };
 
@@ -1862,6 +1891,7 @@ export default function WorkForm({
         comentarios: source.comentarios || null,
         link_youtube: source.link_youtube || "",
         link_drive: "",
+        audios: [],
         instrumentacion: source.instrumentacion || "",
         dificultad: source.dificultad || "",
       });
@@ -2882,6 +2912,87 @@ export default function WorkForm({
                 autoFocus
               />
             )}
+            <div className="mt-2 min-h-0 flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold uppercase text-emerald-700">
+                  Audios Drive
+                </span>
+                <button
+                  type="button"
+                  disabled={!formData.id || !((formData.link_drive || "").trim())}
+                  onClick={() => setShowDriveMatcher(true)}
+                  className="text-[10px] font-bold uppercase text-emerald-700 hover:text-emerald-900 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Elegir
+                </button>
+              </div>
+              {normalizeObraAudios(formData.audios).length === 0 ? (
+                <p className="text-[10px] text-slate-400 leading-snug">
+                  Marcá mp3/wav en el asistente de Drive (movimientos en orden).
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {normalizeObraAudios(formData.audios).map((audio, i, list) => (
+                    <li
+                      key={audio.drive_file_id}
+                      className="flex items-center gap-1 rounded border border-emerald-100 bg-emerald-50/70 px-1.5 py-1"
+                    >
+                      <div className="flex flex-col shrink-0">
+                        <button
+                          type="button"
+                          disabled={i === 0}
+                          onClick={() => moveAudio(i, i - 1)}
+                          className="text-slate-400 hover:text-slate-700 disabled:opacity-20"
+                          title="Subir"
+                        >
+                          <IconChevronUp size={10} />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={i === list.length - 1}
+                          onClick={() => moveAudio(i, i + 1)}
+                          className="text-slate-400 hover:text-slate-700 disabled:opacity-20"
+                          title="Bajar"
+                        >
+                          <IconChevronDown size={10} />
+                        </button>
+                      </div>
+                      <input
+                        type="text"
+                        value={audio.label}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            audios: normalizeObraAudios(prev.audios).map((a) =>
+                              a.drive_file_id === audio.drive_file_id
+                                ? { ...a, label: e.target.value }
+                                : a,
+                            ),
+                          }))
+                        }
+                        onBlur={(e) => updateAudioLabel(audio.drive_file_id, e.target.value)}
+                        className="min-w-0 flex-1 bg-transparent text-[11px] text-slate-800 outline-none"
+                        title={audio.name}
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          persistAudios(
+                            normalizeObraAudios(formData.audios).filter(
+                              (a) => a.drive_file_id !== audio.drive_file_id,
+                            ),
+                          )
+                        }
+                        className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        title="Quitar"
+                      >
+                        <IconTrash size={12} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
           <div className="min-w-0 flex h-full min-h-0 flex-col">
             <div className="mb-1 flex shrink-0 items-center justify-between gap-2 flex-wrap">
@@ -3371,6 +3482,8 @@ export default function WorkForm({
         folderUrl={formData.link_drive}
         parts={particellas}
         onPartsChange={handlePartsChange}
+        audios={normalizeObraAudios(formData.audios)}
+        onAudiosChange={persistAudios}
         supabase={supabase}
         catalogoInstrumentos={instrumentList}
       />

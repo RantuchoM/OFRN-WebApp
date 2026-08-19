@@ -8,6 +8,7 @@ import {
   IconAlertCircle,
   IconFileText,
   IconChevronDown,
+  IconPlay,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { seatingItemMatrixPosition } from "../../services/giraService";
@@ -169,29 +170,46 @@ const NotasProgramaStickyNote = ({ notas, className = "" }) => {
   );
 };
 
-const RepertoireBlockDivider = ({ block }) => (
+const RepertoireBlockDivider = ({
+  block,
+  onPlayBlock,
+  canPlay = false,
+}) => (
   <div className="flex items-center justify-between gap-2 px-2 py-2 md:px-3 md:py-2.5 bg-slate-100/90 border-y border-slate-200">
     <div className="flex items-center gap-2 min-w-0">
       <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600 truncate">
         {block.nombre}
       </span>
+      {canPlay && onPlayBlock ? (
+        <button
+          type="button"
+          onClick={() => onPlayBlock(block.id)}
+          className="flex shrink-0 items-center gap-1 rounded border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-indigo-700 hover:bg-indigo-50"
+          title="Abrir playlist de este bloque"
+        >
+          <IconPlay size={11} />
+          Abrir Playlist
+        </button>
+      ) : null}
       <GiraGrupoChips grupos={block.grupos || []} />
     </div>
-    {block.linkDrive ? (
-      <a
-        href={block.linkDrive}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center gap-1 shrink-0 text-[10px] font-medium text-slate-500 hover:text-green-600 transition-colors"
-      >
-        <IconDrive size={14} /> Carpeta Gral.
-      </a>
-    ) : null}
+    <div className="flex items-center gap-2 shrink-0">
+      {block.linkDrive ? (
+        <a
+          href={block.linkDrive}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-green-600 transition-colors"
+        >
+          <IconDrive size={14} /> Carpeta Gral.
+        </a>
+      ) : null}
+    </div>
   </div>
 );
 
 // --- SUB-COMPONENTE: TARJETA MÓVIL COMPACTA ---
-const MobilePartCard = ({ item, dimmed = false }) => {
+const MobilePartCard = ({ item, dimmed = false, onPlayWork, canPlay = false }) => {
   const [showVersions, setShowVersions] = useState(false);
   const menuRef = useRef(null);
 
@@ -314,6 +332,18 @@ const MobilePartCard = ({ item, dimmed = false }) => {
           <span />
         )}
 
+        <div className="flex items-center gap-1.5">
+        {canPlay && onPlayWork ? (
+          <button
+            type="button"
+            onClick={() => onPlayWork(item.id)}
+            className="flex items-center gap-1 text-[10px] font-medium text-indigo-600 hover:text-indigo-800"
+            title="Reproducir"
+          >
+            <IconPlay size={14} />
+          </button>
+        ) : null}
+
         {/* Botón Principal (PDF) */}
         {item.particella_status === "AVAILABLE" && (
           <div className="relative" ref={menuRef}>
@@ -361,13 +391,21 @@ const MobilePartCard = ({ item, dimmed = false }) => {
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   );
 };
 
 // --- COMPONENTE PRINCIPAL ---
-export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
+export default function MyPartsViewer({
+  supabase,
+  gira,
+  onOpenSeating,
+  onPlayWork,
+  onPlayBlock,
+  playableObraIds,
+}) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [repertoire, setRepertoire] = useState([]);
@@ -1002,12 +1040,20 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
             <div className="md:hidden space-y-3">
               {repertoireByBlock.map((block) => (
                 <div key={block.id} className="space-y-2">
-                  <RepertoireBlockDivider block={block} />
+                  <RepertoireBlockDivider
+                    block={block}
+                    onPlayBlock={onPlayBlock}
+                    canPlay={block.works.some((row) =>
+                      playableObraIds?.has(String(row.id)),
+                    )}
+                  />
                   {block.works.map((row) => (
                     <MobilePartCard
                       key={row.uniqueId}
                       item={row}
                       dimmed={row.particella_status === "NO_ASSIGNED"}
+                      onPlayWork={onPlayWork}
+                      canPlay={playableObraIds?.has(String(row.id))}
                     />
                   ))}
                 </div>
@@ -1032,7 +1078,13 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                       <React.Fragment key={block.id}>
                         <tr className="bg-slate-100/90">
                           <td colSpan={5} className="p-0">
-                            <RepertoireBlockDivider block={block} />
+                            <RepertoireBlockDivider
+                              block={block}
+                              onPlayBlock={onPlayBlock}
+                              canPlay={block.works.some((row) =>
+                                playableObraIds?.has(String(row.id)),
+                              )}
+                            />
                           </td>
                         </tr>
                         {block.works.map((row) => {
@@ -1073,6 +1125,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                         </td>
 
                         <td className="px-4 py-3 text-center">
+                          <div className="inline-flex items-center justify-center gap-0.5">
                           {row.link_drive_obra ? (
                             <a
                               href={row.link_drive_obra}
@@ -1090,6 +1143,21 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                           ) : (
                             <span className="text-slate-300">-</span>
                           )}
+                          {onPlayWork && playableObraIds?.has(String(row.id)) ? (
+                            <button
+                              type="button"
+                              onClick={() => onPlayWork(row.id)}
+                              className={`inline-flex p-1.5 rounded transition-colors ${
+                                dimmed
+                                  ? "text-slate-300"
+                                  : "text-indigo-600 hover:bg-indigo-50"
+                              }`}
+                              title="Reproducir"
+                            >
+                              <IconPlay size={16} />
+                            </button>
+                          ) : null}
+                          </div>
                         </td>
 
                         <td className={`px-4 py-3 ${dimmed ? "text-slate-400" : "text-slate-600"}`}>

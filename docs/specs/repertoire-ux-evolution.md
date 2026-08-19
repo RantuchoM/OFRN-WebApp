@@ -627,6 +627,23 @@ Obra **nueva** (#**3595**), distinta de #3491 (ARIAS solo orquesta, tag `Medoza 
 - Scripts: `scripts/lib/cielitoLindoCatalog.mjs`, `process-cielito-lindo-local.mjs`, `generate-cielito-lindo-sync.mjs`.
 - Seed `supabase/seed_cielito_lindo_sync.sql` aplicado en linked.
 
+### Completado (2026-08-18) — Gira 165 Feria del Libro Cipolletti (encargos cine)
+
+10 obras **nuevas** en estado **`Para arreglar`**, arreglador predeterminado **Lema** (integrante **4340365**, compositor **198**), `fecha_esperada = 2026-09-10`, tag **Película**. Vinculadas al bloque **Repertorio** (id **142**) de la gira **165**, a continuación de Superman 3591 e Indiana Jones 3594 (ya estaban). Sin mail `encargo_arreglo`. Seed `supabase/seed_gira_165_cine_feria_libro.sql` aplicado en linked.
+
+| id | Título | Compositor(es) | Ref. archivo |
+|---:|--------|----------------|--------------|
+| **3596** | Star Wars | Williams, John | 3489 Main Theme |
+| **3597** | Harry Potter | Williams, John | 2349 Suite Piedra Filosofal |
+| **3598** | El Señor de los Anillos | Shore, Howard | — |
+| **3599** | Piratas del Caribe | Badelt + Zimmer | 3483 |
+| **3600** | La misión – El oboe de Gabriel | Morricone, Ennio | 1488 |
+| **3601** | Cinema Paradiso | Morricone, Ennio | 1295 Suite |
+| **3602** | Shrek | Gregson-Williams + Powell | — |
+| **3603** | Misión Imposible | Schifrin, Lalo | — |
+| **3604** | Jurassic Park | Williams, John | 2344 |
+| **3605** | El viaje de Chihiro | Hisaishi, Joe | — |
+
 ---
 
 ## Permisos — Archivo (`RepertoireView`) y rol arreglador (2026-08-17)
@@ -634,4 +651,44 @@ Obra **nueva** (#**3595**), distinta de #3491 (ARIAS solo orquesta, tag `Medoza 
 - [x] El rol **`arreglador`** puede abrir **Repertorio / Archivo** en **solo lectura** (menú, command palette y `?tab=repertorio`).
 - [x] `canEdit` en `RepertoireView`: `isEditor || isArchivista || isManagement`. Arreglador sin esos roles ve listado, filtros, export «Ya programado», historial, links Drive y copiar enlaces; **no** puede crear/editar/eliminar obras, gestionar compositores/tags, selección masiva ni asignar a programa.
 - [x] Badge **«Solo lectura»** en el encabezado cuando `!canEdit`.
+
+---
+
+## 11. Playlist de audio en programa (Drive + YouTube)
+
+### Objetivo
+Reproducir el programa como playlist en **Repertorio** y **Mis Partes**, con velocidad (0.5×–2×). El audio de Drive se identifica **a mano** al cargar la obra; el player no lista carpetas.
+
+### Datos
+- Columna `obras.audios` (`jsonb`, default `[]`): array ordenado `{ drive_file_id, name, url, label }` (un ítem por movimiento).
+- Migración `20260819000000_obras_audios.sql`.
+- Nuevo arreglo: no copia `audios` (igual que `link_drive`).
+
+### Identificación
+- **WorkForm:** lista Audios Drive (reordenar, label, quitar) + «Elegir» abre el matcher.
+- **DriveMatcherModal:** archivos mp3/wav/m4a destacados; «Asignar como audio» (merge por `drive_file_id`). `list_folder_files` solo al abrir el matcher.
+
+### Player
+- `RepertoirePlaylistPlayer` al pie de `ProgramRepertoire` (oculto en Seating).
+- Prioridad: `audios` (una pista por movimiento) → si vacío, YouTube (`link_youtube`).
+- Drive: `get_temp_token` + `files/{id}?alt=media` → blob → `<audio>`.
+- YouTube: IFrame API. Si el dueño deshabilitó embed (códigos 101/150) **no se puede reproducir en la app**; overlay + enlace «Abrir en YouTube».
+- Play por fila y **Abrir Playlist** por bloque (cabecera, a la izquierda junto al estado; empieza en la primera pista de ese bloque y abre la lista).
+- Modal **pantalla completa** (portal a `document.body`, `z-[100]`): botón «Pantalla completa» abajo de la barra; Escape o «Cerrar pantalla completa» para volver.
+- Velocidad libre (0.25×–4×; presets + input, p. ej. `0.78` / `1.8`). HTML5 usa el valor exacto; YouTube solo tasas discretas del iframe.
+- `localStorage`:
+  - `ofrn.repertoirePlaybackRate`: última velocidad global (fallback).
+  - `ofrn.repertoireTrackState`: `{ [trackId]: { position, rate } }` por pista.
+
+### Completado
+- [x] Campo `obras.audios` + UI de identificación
+- [x] Playlist sticky Drive/YouTube con velocidades
+- [x] Sin fetch de carpeta al reproducir
+- [x] Abrir Playlist por bloque (cabecera, a la izquierda)
+- [x] Posición y velocidad por pista en localStorage
+- [x] Velocidad personalizable (además de presets)
+- [x] Modal de reproductor a pantalla completa
+- [x] Feedback FAB compacto en landscape y elevado (`data-repertoire-player`) para no tapar velocidad / barra; oculto en pantalla completa
+- [x] Lista del player contenida (`flex-col`, `overflow-x-hidden`); título = primera línea plana (sin `&nbsp;` ni movimientos concatenados)
+- [x] Mini player respeta el sidebar (`left: 5rem` / `16rem` en `lg+` vía `data-app-sidebar`)
 

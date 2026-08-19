@@ -27,6 +27,10 @@ import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import ProgramSeating from "../Giras/ProgramSeating";
 import InstrumentationBadges from "../../components/instrumentation/InstrumentationBadges";
 import MyPartsViewer from "./MyPartsViewer";
+import RepertoirePlaylistPlayer from "../../components/repertoire/RepertoirePlaylistPlayer";
+import {
+  buildRepertoireAudioTracks,
+} from "../../utils/repertoireAudioTracks";
 import {
   syncBowingToProgram,
   syncProgramRepertoire,
@@ -537,6 +541,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
   const [showScoresConfirmModal, setShowScoresConfirmModal] = useState(false);
   const [defaultArcoName, setDefaultArcoName] = useState("");
   const [pendingArcosAnalysis, setPendingArcosAnalysis] = useState(null);
+  const [playRequest, setPlayRequest] = useState(null);
   const arcosMenuRef = useRef(null);
 
   const arcosBusy =
@@ -608,7 +613,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
             en_definicion, estado_curaduria, observacion_curaduria,
             duracion_segundos_concierto, titulo_placeholder, instrumentacion_placeholder,
             obras (
-              id, titulo, duracion_segundos, instrumentacion, link_drive,
+              id, titulo, duracion_segundos, instrumentacion, link_drive, link_youtube, audios,
               obras_arcos (id, nombre, link, descripcion, id_drive_folder),
               compositores ( id, nombre, apellido ),
               obras_compositores (
@@ -672,6 +677,23 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
   const handleRepertoireUpdate = (newBlocks) => {
     setRepertorios(newBlocks);
     setRepertoireKey((prev) => prev + 1);
+  };
+
+  const audioTracks = useMemo(
+    () => buildRepertoireAudioTracks(repertorios),
+    [repertorios],
+  );
+  const playableObraIds = useMemo(
+    () => new Set(audioTracks.map((t) => String(t.obraId))),
+    [audioTracks],
+  );
+  const handlePlayWork = (obraId) => {
+    if (obraId == null) return;
+    setPlayRequest({ obraId, nonce: Date.now() });
+  };
+  const handlePlayBlock = (blockId) => {
+    if (blockId == null) return;
+    setPlayRequest({ blockId, nonce: Date.now() });
   };
 
   const handleTabChange = (newTab) => {
@@ -1356,6 +1378,8 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
                   onUpdate={handleRepertoireUpdate}
                   readOnly={!canEdit}
                   onSyncArco={handleSyncArco}
+                  onPlayWork={handlePlayWork}
+                  onPlayBlock={handlePlayBlock}
                 />
               </div>
             )}
@@ -1381,10 +1405,21 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
               supabase={supabase}
               gira={program}
               onOpenSeating={() => handleTabChange("seating")}
+              onPlayWork={handlePlayWork}
+              onPlayBlock={handlePlayBlock}
+              playableObraIds={playableObraIds}
             />
           </div>
         )}
       </div>
+
+      {activeTab !== "seating" && (
+        <RepertoirePlaylistPlayer
+          supabase={supabase}
+          tracks={audioTracks}
+          playRequest={playRequest}
+        />
+      )}
 
       {showImport && (
         <AdvancedImportModal

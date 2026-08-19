@@ -200,3 +200,26 @@ export function resolveCiudadDj(m) {
   if (usesViaticosLaboralBase(m) && loc.nombre) return loc.nombre;
   return loc.nombre || getResidenciaNombre(m);
 }
+
+const SUFIJO_PROVINCIA_DJ = "de la Provincia de Río Negro";
+
+/**
+ * Texto del campo PDF `domicilio_laboral`:
+ * "{domicilio de viáticos}, de la localidad de {localidad de viáticos}, de la Provincia de Río Negro"
+ * Domicilio de viáticos = dirección de la sede (`laboral.direccion`).
+ * Localidad = `id_loc_viaticos`, con fallback a la localidad de la locación.
+ */
+export function formatDomicilioLaboralDj(m) {
+  const direccion = (m?.laboral?.direccion || "").trim();
+  const locViaticos = getViaticosNombre(m).trim();
+  const locacionLoc = Array.isArray(m?.laboral?.localidades)
+    ? m.laboral.localidades[0]?.localidad
+    : m?.laboral?.localidades?.localidad;
+  const localidad = locViaticos || (locacionLoc || "").trim();
+  if (direccion && localidad) {
+    return `${direccion}, de la localidad de ${localidad}, ${SUFIJO_PROVINCIA_DJ}`;
+  }
+  if (direccion) return `${direccion}, ${SUFIJO_PROVINCIA_DJ}`;
+  if (localidad) return `de la localidad de ${localidad}, ${SUFIJO_PROVINCIA_DJ}`;
+  return `Zatti 287, de la localidad de Viedma, ${SUFIJO_PROVINCIA_DJ}`;
+}

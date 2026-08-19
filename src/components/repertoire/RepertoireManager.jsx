@@ -39,6 +39,7 @@ import {
   IconCopy,
   IconRefresh,
   IconViolin,
+  IconPlay,
 } from "../ui/Icons";
 import MultiSelectDropdown from "../ui/MultiSelectDropdown";
 import GiraGrupoChips from "../giras/GiraGrupoChips";
@@ -75,6 +76,7 @@ import WorkForm from "../../views/Repertoire/WorkForm";
 import RepertoireWorkPickerModal from "./RepertoireWorkPickerModal";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
 import { isRepertorioPlaceholder, filterRepertorioObraRowsForDisplay } from "../../utils/repertorioRowDisplay";
+import { workHasPlayableAudio } from "../../utils/repertoireAudioTracks";
 import OrganicoVientosAddField from "./OrganicoVientosAddField";
 import {
   RepertorioPlaceholderMobileCard,
@@ -1614,6 +1616,8 @@ export default function RepertoireManager({
   readOnly = undefined,
   onSyncArco,
   onUpdate,
+  onPlayWork,
+  onPlayBlock,
 }) {
   const { user, isEditor: isGlobalEditor, isAdmin } = useAuth();
   const { confirm, dialog } = useConfirmDialog();
@@ -1900,7 +1904,7 @@ export default function RepertoireManager({
           instrumentacion_placeholder
           ${opcionesEmbed},
           obras (
-              id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, observaciones, comentarios,
+              id, titulo, duracion_segundos, estado, link_drive, link_youtube, audios, anio_composicion, instrumentacion, observaciones, comentarios,
               obras_arcos (id, nombre, link, descripcion, id_drive_folder),
               compositores (id, apellido, nombre), 
               obras_compositores (rol, compositores(id, apellido, nombre)),
@@ -3126,6 +3130,23 @@ export default function RepertoireManager({
                       </span>
                     )}
 
+                    {onPlayBlock &&
+                    visibleObras.some(
+                      (item) =>
+                        !isRepertorioPlaceholder(item) &&
+                        workHasPlayableAudio(item.obras),
+                    ) ? (
+                      <button
+                        type="button"
+                        onClick={() => onPlayBlock(rep.id)}
+                        className="flex items-center gap-1 rounded border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-indigo-700 hover:bg-indigo-50"
+                        title="Abrir playlist de este bloque"
+                      >
+                        <IconPlay size={11} />
+                        Abrir Playlist
+                      </button>
+                    ) : null}
+
                     {hasGiraGrupos &&
                       (isEditor ? (
                         <div
@@ -3539,6 +3560,15 @@ export default function RepertoireManager({
                               >
                                 <IconYoutube size={12} /> Video
                               </a>
+                            )}
+                            {onPlayWork && workHasPlayableAudio(item.obras) && (
+                              <button
+                                type="button"
+                                onClick={() => onPlayWork(item.obras.id)}
+                                className="text-indigo-600 flex items-center gap-1 text-[10px] font-medium"
+                              >
+                                <IconPlay size={12} /> Play
+                              </button>
                             )}
                           </div>
 
@@ -4096,6 +4126,19 @@ export default function RepertoireManager({
                                 >
                                   <IconYoutube size={13} />
                                 </a>
+                              ) : null}
+                              {onPlayWork && workHasPlayableAudio(item.obras) ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onPlayWork(item.obras.id);
+                                  }}
+                                  className="flex shrink-0 items-center justify-center rounded p-0.5 text-indigo-600 hover:bg-indigo-50"
+                                  title="Reproducir"
+                                >
+                                  <IconPlay size={13} />
+                                </button>
                               ) : null}
                               <CommentButton
                                 supabase={supabase}

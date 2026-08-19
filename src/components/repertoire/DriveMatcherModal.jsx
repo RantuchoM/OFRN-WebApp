@@ -13,6 +13,7 @@ import {
   IconEdit,
   IconSearch,
   IconBulb,
+  IconMusic,
 } from "../ui/Icons";
 import SearchableSelect from "../ui/SearchableSelect";
 import { calculateInstrumentation } from "../../utils/instrumentation";
@@ -30,6 +31,12 @@ import {
   suggestDriveLinksForParts,
 } from "../../utils/drivePartMatcher";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import {
+  driveFileToAudioEntry,
+  isDriveAudioFile,
+  mergeObraAudios,
+  normalizeObraAudios,
+} from "../../utils/repertoireAudioTracks";
 
 const capitalize = (s) => s && s[0].toUpperCase() + s.slice(1);
 
@@ -67,6 +74,8 @@ export default function DriveMatcherModal({
   onPartsChange,
   supabase,
   catalogoInstrumentos,
+  audios = [],
+  onAudiosChange,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const [closing, setClosing] = useState(false);
@@ -129,6 +138,21 @@ export default function DriveMatcherModal({
         sortByNameEs({ name: a.name }, { name: b.name }),
       ),
     [driveFiles],
+  );
+
+  const assignedAudioIds = useMemo(
+    () => new Set(normalizeObraAudios(audios).map((a) => a.drive_file_id)),
+    [audios],
+  );
+
+  const audioFilesInFolder = useMemo(
+    () => sortedDriveFiles.filter(isDriveAudioFile),
+    [sortedDriveFiles],
+  );
+
+  const selectedAudioFiles = useMemo(
+    () => selectedFiles.filter(isDriveAudioFile),
+    [selectedFiles],
   );
 
   const uncoveredDrivePartSuggestions = useMemo(
@@ -267,6 +291,39 @@ export default function DriveMatcherModal({
       setLastFileIndex(index);
     }
     setSelectedFiles(newSelection);
+  };
+
+  const handleAssignSelectedAsAudio = () => {
+    if (!onAudiosChange) return;
+    const files = selectedAudioFiles.length
+      ? selectedAudioFiles
+      : audioFilesInFolder.filter((f) => !assignedAudioIds.has(f.id));
+    const incoming = files.map(driveFileToAudioEntry).filter(Boolean);
+    if (!incoming.length) {
+      toast.error("Seleccioná uno o más archivos mp3/wav.");
+      return;
+    }
+    const current = normalizeObraAudios(audios);
+    const next = mergeObraAudios(current, incoming);
+    const added = next.length - current.length;
+    onAudiosChange(next);
+    setSelectedFiles((prev) => prev.filter((f) => !isDriveAudioFile(f)));
+    toast.success(
+      added
+        ? `${added} audio${added === 1 ? "" : "s"} asignado${added === 1 ? "" : "s"} a la obra`
+        : "Esos archivos ya estaban asignados",
+    );
+  };
+
+  const handleSelectUnassignedAudios = () => {
+    const next = audioFilesInFolder.filter((f) => !assignedAudioIds.has(f.id));
+    if (!next.length) {
+      toast.message("No hay archivos de audio sin asignar.");
+      return;
+    }
+    setSelectedFiles(next);
+    const firstIdx = sortedDriveFiles.findIndex((f) => f.id === next[0].id);
+    setLastFileIndex(firstIdx);
   };
 
   // --- ASIGNACIÓN (INDIVIDUAL O CASCADA) ---
@@ -1256,6 +1313,32 @@ export default function DriveMatcherModal({
               <span>Archivos Drive ({driveFiles.length})</span>
               {loading && <IconLoader className="animate-spin" size={12} />}
             </div>
+            {onAudiosChange && audioFilesInFolder.length > 0 && (
+              <div className="px-2 py-1.5 bg-emerald-50 border-b border-emerald-100 flex flex-wrap items-center gap-1.5">
+                <IconMusic size={12} className="text-emerald-700 shrink-0" />
+                <span className="text-[10px] font-medium text-emerald-900">
+                  {audioFilesInFolder.length} audio
+                  {audioFilesInFolder.length === 1 ? "" : "s"}
+                  {assignedAudioIds.size > 0
+                    ? ` · ${assignedAudioIds.size} asignado${assignedAudioIds.size === 1 ? "" : "s"}`
+                    : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSelectUnassignedAudios}
+                  className="ml-auto text-[10px] font-bold uppercase text-emerald-800 hover:text-emerald-950"
+                >
+                  Seleccionar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAssignSelectedAsAudio}
+                  className="rounded bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white hover:bg-emerald-700"
+                >
+                  Asignar como audio
+                </button>
+              </div>
+            )}
             {driveFiles.length === 0 && !loading && (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 text-center">
                 <IconDrive size={48} className="mb-2 opacity-20" />
@@ -1274,6 +1357,9 @@ export default function DriveMatcherModal({
                 const canAutoCreatePart =
                   !isUsed && autoCreateEligibleFileIds.has(file.id);
 
+                const isAudio = isDriveAudioFile(file);
+                const isAssignedAudio = assignedAudioIds.has(file.id);
+
                 return (
                   <div
                     key={file.id}
@@ -1281,12 +1367,24 @@ export default function DriveMatcherModal({
                     className={`p-2.5 rounded text-sm cursor-pointer border flex justify-between items-center transition-all duration-150 ${
                       isSelected
                         ? "bg-blue-600 text-white border-blue-600 shadow-md"
-                        : isUsed
+                        : isAssignedAudio
+                          ? "bg-emerald-50 text-slate-600 border-emerald-300"
+                          : isUsed
                           ? "bg-emerald-50 text-slate-600 border-emerald-200"
-                          : "bg-white hover:bg-white text-slate-700 border-slate-200 hover:border-blue-300"
+                          : isAudio
+                            ? "bg-emerald-50/60 text-slate-700 border-emerald-100 hover:border-emerald-300"
+                            : "bg-white hover:bg-white text-slate-700 border-slate-200 hover:border-blue-300"
                     }`}
                   >
                     <div className="flex items-center gap-2 overflow-hidden w-full">
+                      {isAudio ? (
+                        <IconMusic
+                          size={16}
+                          className={`shrink-0 ${
+                            isSelected ? "text-white" : "text-emerald-600"
+                          }`}
+                        />
+                      ) : (
                       <IconDrive
                         size={16}
                         className={`shrink-0 ${
@@ -1297,6 +1395,7 @@ export default function DriveMatcherModal({
                               : "text-slate-400"
                         }`}
                       />
+                      )}
                       <span className="truncate font-medium">{file.name}</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0 ml-2">
@@ -1313,6 +1412,11 @@ export default function DriveMatcherModal({
                         >
                           <IconPlus size={14} />
                         </button>
+                      )}
+                      {isAssignedAudio && !isSelected && (
+                        <span className="text-[9px] bg-emerald-600 text-white px-1.5 rounded-full font-bold">
+                          AUDIO
+                        </span>
                       )}
                       {isUsed && !isSelected && (
                         <span className="text-[9px] bg-emerald-200 text-emerald-800 px-1.5 rounded-full font-bold ml-2">

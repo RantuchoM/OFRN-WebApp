@@ -708,21 +708,19 @@ export default function FeedbackWidget({ supabase }) {
             // CAMBIOS:
             // 1. p-2 en móvil (antes p-3) -> p-3 solo en md (desktop)
             // 2. gap-0 en móvil -> gap-2 solo en md
-            className="bg-indigo-600 hover:bg-indigo-700 text-white p-2 md:p-3 rounded-full shadow-lg transition-all transform hover:scale-110 flex items-center justify-center md:gap-2 group"
+            className="feedback-fab bg-indigo-600 hover:bg-indigo-700 text-white p-2 md:portrait:p-3 rounded-full shadow-lg transition-all transform hover:scale-110 flex items-center justify-center md:portrait:gap-2 group"
             title="Enviar sugerencia o reporte"
           >
-            {/* VISTA MÓVIL: Icono muy pequeño (16px) */}
-            <div className="md:hidden">
+            {/* Compacto en móvil y landscape; grande solo en desktop portrait */}
+            <div className="feedback-icon-sm md:portrait:hidden">
               <IconBulb size={16} />
             </div>
 
-            {/* VISTA DESKTOP: Icono normal (24px) */}
-            <div className="hidden md:block">
+            <div className="feedback-icon-lg hidden md:portrait:block">
               <IconBulb size={24} />
             </div>
 
-            {/* TEXTO: Oculto totalmente en móvil (hidden) para que sea solo un punto */}
-            <span className="hidden md:block max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-500 ease-in-out whitespace-nowrap text-sm font-bold">
+            <span className="feedback-fab-label hidden md:portrait:block max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-500 ease-in-out whitespace-nowrap text-sm font-bold">
               Feedback
             </span>
           </button>

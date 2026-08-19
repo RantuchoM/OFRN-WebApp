@@ -1469,24 +1469,20 @@ async function generateDJInternal(m: any, templateRes: ArrayBuffer, firmaRes: Ar
   safeSet("provincia", "Río Negro");
   safeSet("email", m.mail || "");
   safeSet("telefono", m.telefono || "");
-  let domicilioLaboralTexto = "Zatti 287, de la localidad de Viedma"; // Valor por defecto
-  if (m.laboral) {
-    const direccionSede = m.laboral.direccion || "";
-    // La relación localidades puede venir como objeto o array, manejamos ambos casos
-    const localidadObj = Array.isArray(m.laboral.localidades) 
-      ? m.laboral.localidades[0] 
-      : m.laboral.localidades;
-    const nombreCiudad = localidadObj?.localidad || "";
-    
-    console.log("[generateDJInternal] laboral:", JSON.stringify(m.laboral));
-    console.log("[generateDJInternal] localidadObj:", JSON.stringify(localidadObj));
-    console.log("[generateDJInternal] nombreCiudad:", nombreCiudad);
-
-    if (direccionSede && nombreCiudad) {
-      domicilioLaboralTexto = `${direccionSede}, de la localidad de ${nombreCiudad}`;
-    } else if (nombreCiudad) {
-      domicilioLaboralTexto = `de la localidad de ${nombreCiudad}`;
-    }
+  // domicilio_laboral del PDF: sede (domicilio de viáticos) + localidad de viáticos + provincia
+  const direccionViaticos = domicilioLaboralDireccion;
+  const localidadObjLaboral = Array.isArray(m.laboral?.localidades)
+    ? m.laboral.localidades[0]
+    : m.laboral?.localidades;
+  const localidadParaLaboral = localidadViaticos || localidadObjLaboral?.localidad || "";
+  const sufijoProvinciaRn = "de la Provincia de Río Negro";
+  let domicilioLaboralTexto = `Zatti 287, de la localidad de Viedma, ${sufijoProvinciaRn}`;
+  if (direccionViaticos && localidadParaLaboral) {
+    domicilioLaboralTexto = `${direccionViaticos}, de la localidad de ${localidadParaLaboral}, ${sufijoProvinciaRn}`;
+  } else if (direccionViaticos) {
+    domicilioLaboralTexto = `${direccionViaticos}, ${sufijoProvinciaRn}`;
+  } else if (localidadParaLaboral) {
+    domicilioLaboralTexto = `de la localidad de ${localidadParaLaboral}, ${sufijoProvinciaRn}`;
   }
   safeSet("domicilio_laboral", domicilioLaboralTexto);
 

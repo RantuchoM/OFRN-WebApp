@@ -456,3 +456,42 @@ html.dark .shadow-xl {
     box-shadow: none !important;
   }
 }
+
+/* Feedback: compacto en landscape; no tapa el reproductor de repertorio */
+@media (orientation: landscape) {
+  #feedback-widget-container .feedback-fab {
+    padding: 0.4rem;
+  }
+  #feedback-widget-container .feedback-fab-label,
+  #feedback-widget-container .feedback-icon-lg {
+    display: none !important;
+  }
+  #feedback-widget-container .feedback-icon-sm {
+    display: block !important;
+  }
+}
+
+html[data-repertoire-player] #feedback-widget-container {
+  bottom: 6.75rem;
+  right: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  html[data-repertoire-player] #feedback-widget-container {
+    bottom: 5.75rem;
+  }
+}
+
+html[data-repertoire-player="full"] #feedback-widget-container {
+  display: none;
+}
+
+/* Mini player: no pasar por debajo del sidebar (lg: w-20 / w-64) */
+@media (min-width: 1024px) {
+  html[data-app-sidebar="collapsed"] .repertoire-player-dock {
+    left: 5rem;
+  }
+  html[data-app-sidebar="expanded"] .repertoire-player-dock {
+    left: 16rem;
+  }
+}
