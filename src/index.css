@@ -4,7 +4,8 @@
 
 :root {
   /* Color Indigo por defecto en formato R G B */
-  --theme-primary: 79, 70, 229; 
+  --theme-primary: 79, 70, 229;
+  --app-sidebar-width: 0px;
 }
 
 /* Estilos base */
@@ -486,12 +487,9 @@ html[data-repertoire-player="full"] #feedback-widget-container {
   display: none;
 }
 
-/* Mini player: no pasar por debajo del sidebar (lg: w-20 / w-64) */
-@media (min-width: 1024px) {
-  html[data-app-sidebar="collapsed"] .repertoire-player-dock {
-    left: 5rem;
-  }
-  html[data-app-sidebar="expanded"] .repertoire-player-dock {
-    left: 16rem;
-  }
+/* Mini player: offset = ancho real del sidebar (ResizeObserver en App) */
+.repertoire-player-dock {
+  left: var(--app-sidebar-width, 0px);
+  right: 0;
+  transition: left 300ms ease-in-out;
 }

@@ -669,7 +669,7 @@ Reproducir el programa como playlist en **Repertorio** y **Mis Partes**, con vel
 - **DriveMatcherModal:** archivos mp3/wav/m4a destacados; «Asignar como audio» (merge por `drive_file_id`). `list_folder_files` solo al abrir el matcher.
 
 ### Player
-- `RepertoirePlaylistPlayer` al pie de `ProgramRepertoire` (oculto en Seating).
+- `RepertoirePlaylistPlayer` al pie de `ProgramRepertoire` (oculto en Seating). **No se monta** hasta el primer Play de una fila o **Abrir Playlist** del bloque.
 - Prioridad: `audios` (una pista por movimiento) → si vacío, YouTube (`link_youtube`).
 - Drive: `get_temp_token` + `files/{id}?alt=media` → blob → `<audio>`.
 - YouTube: IFrame API. Si el dueño deshabilitó embed (códigos 101/150) **no se puede reproducir en la app**; overlay + enlace «Abrir en YouTube».
@@ -679,6 +679,7 @@ Reproducir el programa como playlist en **Repertorio** y **Mis Partes**, con vel
 - `localStorage`:
   - `ofrn.repertoirePlaybackRate`: última velocidad global (fallback).
   - `ofrn.repertoireTrackState`: `{ [trackId]: { position, rate } }` por pista.
+- **Media Session** (Android / lock screen): play/pause, anterior/siguiente, seek. El tap en la tarjeta lo enfoca el SO en la **ventana que está sonando** (PWA instalada o pestaña Chrome); no hay API para abrir el icono OFRN si el audio salió de Chrome.
 
 ### Completado
 - [x] Campo `obras.audios` + UI de identificación
@@ -690,5 +691,7 @@ Reproducir el programa como playlist en **Repertorio** y **Mis Partes**, con vel
 - [x] Modal de reproductor a pantalla completa
 - [x] Feedback FAB compacto en landscape y elevado (`data-repertoire-player`) para no tapar velocidad / barra; oculto en pantalla completa
 - [x] Lista del player contenida (`flex-col`, `overflow-x-hidden`); título = primera línea plana (sin `&nbsp;` ni movimientos concatenados)
-- [x] Mini player respeta el sidebar (`left: 5rem` / `16rem` en `lg+` vía `data-app-sidebar`)
+- [x] Mini player respeta el sidebar (`--app-sidebar-width` medido con ResizeObserver; 0px bajo el breakpoint `lg`)
+- [x] El reproductor no aparece hasta el primer Play de fila o Abrir Playlist
+- [x] Media Session: anterior/siguiente + metadata OFRN (el tap de la tarjeta lo resuelve Chrome/Android)
 

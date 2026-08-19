@@ -485,11 +485,26 @@ const ProtectedApp = ({ initialTab }) => {
 
   // Expandido si no está colapsado o si el ratón está sobre la franja de iconos
   const isDesktopExpanded = !isSidebarCollapsed || isSidebarHovered;
+  const sidebarRef = useRef(null);
 
   useLayoutEffect(() => {
-    document.documentElement.dataset.appSidebar = isDesktopExpanded
-      ? "expanded"
-      : "collapsed";
+    const el = sidebarRef.current;
+    const root = document.documentElement;
+    const mq = window.matchMedia("(min-width: 1024px)");
+
+    const sync = () => {
+      const width = mq.matches && el ? el.getBoundingClientRect().width : 0;
+      root.style.setProperty("--app-sidebar-width", `${Math.round(width)}px`);
+    };
+
+    sync();
+    const ro = el ? new ResizeObserver(sync) : null;
+    if (el) ro.observe(el);
+    mq.addEventListener("change", sync);
+    return () => {
+      ro?.disconnect();
+      mq.removeEventListener("change", sync);
+    };
   }, [isDesktopExpanded]);
 
   const toggleSidebarCollapse = () => {
@@ -1019,6 +1034,8 @@ const ProtectedApp = ({ initialTab }) => {
 
       {/* SIDEBAR */}
       <aside
+        ref={sidebarRef}
+        id="app-sidebar"
         onMouseEnter={() => setIsSidebarHovered(true)}
         onMouseLeave={() => setIsSidebarHovered(false)}
         className={`

@@ -542,6 +542,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
   const [defaultArcoName, setDefaultArcoName] = useState("");
   const [pendingArcosAnalysis, setPendingArcosAnalysis] = useState(null);
   const [playRequest, setPlayRequest] = useState(null);
+  const [playerOpen, setPlayerOpen] = useState(false);
   const arcosMenuRef = useRef(null);
 
   const arcosBusy =
@@ -689,10 +690,12 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
   );
   const handlePlayWork = (obraId) => {
     if (obraId == null) return;
+    setPlayerOpen(true);
     setPlayRequest({ obraId, nonce: Date.now() });
   };
   const handlePlayBlock = (blockId) => {
     if (blockId == null) return;
+    setPlayerOpen(true);
     setPlayRequest({ blockId, nonce: Date.now() });
   };
 
@@ -1413,7 +1416,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
         )}
       </div>
 
-      {activeTab !== "seating" && (
+      {activeTab !== "seating" && playerOpen && (
         <RepertoirePlaylistPlayer
           supabase={supabase}
           tracks={audioTracks}
