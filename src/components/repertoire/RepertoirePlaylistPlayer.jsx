@@ -23,10 +23,6 @@ import {
   readTrackPlaybackState,
   writeTrackPlaybackState,
 } from "../../utils/repertoireAudioTracks";
-import {
-  bindRepertoireMediaSession,
-  updateRepertoireMediaSession,
-} from "../../utils/repertoireMediaSession";
 
 function readStoredRate() {
   try {
@@ -169,10 +165,6 @@ export default function RepertoirePlaylistPlayer({
   const playNextRef = useRef(() => {});
   const persistCurrentRef = useRef(() => {});
   const pendingSeekRef = useRef(0);
-  const playPrevRef = useRef(() => {});
-  const mediaHandlersRef = useRef({});
-  const progressRef = useRef(0);
-  const durationRef = useRef(0);
 
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -192,8 +184,6 @@ export default function RepertoirePlaylistPlayer({
   loopRef.current = loop;
   rateRef.current = rate;
   playingRef.current = playing;
-  progressRef.current = progress;
-  durationRef.current = duration;
 
   const ensureToken = useCallback(
     async (forceRefresh = false) => {
@@ -333,8 +323,6 @@ export default function RepertoirePlaylistPlayer({
     }
     goTo(indexRef.current - 1, { autoplay: true });
   }, [current, goTo]);
-
-  playPrevRef.current = playPrev;
 
   useEffect(() => {
     const el = document.createElement("audio");
@@ -526,15 +514,6 @@ export default function RepertoirePlaylistPlayer({
                   setDuration(event.target.getDuration?.() || 0);
                   setYtEmbedBlocked(false);
                   setError(null);
-                  const t = tracksRef.current[indexRef.current];
-                  updateRepertoireMediaSession({
-                    title: [t?.title, t?.subtitle].filter(Boolean).join(" · "),
-                    artist: t?.compositor || "OFRN",
-                    playing: true,
-                    duration: event.target.getDuration?.() || 0,
-                    position: event.target.getCurrentTime?.() || 0,
-                    playbackRate: rateRef.current,
-                  });
                 }
                 if (event.data === window.YT?.PlayerState?.PAUSED) {
                   setPlaying(false);
@@ -688,51 +667,6 @@ export default function RepertoirePlaylistPlayer({
     persistCurrentRef.current();
   };
 
-  mediaHandlersRef.current = {
-    play: () => setPlaying(true),
-    pause: () => setPlaying(false),
-    stop: () => setPlaying(false),
-    previoustrack: () => playPrevRef.current(),
-    nexttrack: () => playNextRef.current(),
-    seekto: (details) => {
-      if (details?.seekTime == null) return;
-      onSeek(details.seekTime);
-    },
-    seekbackward: (details) => {
-      const offset = Number(details?.seekOffset) || 10;
-      onSeek(Math.max(0, (progressRef.current || 0) - offset));
-    },
-    seekforward: (details) => {
-      const offset = Number(details?.seekOffset) || 10;
-      const max = durationRef.current || 0;
-      onSeek(Math.min(max, (progressRef.current || 0) + offset));
-    },
-  };
-
-  useEffect(() => bindRepertoireMediaSession(mediaHandlersRef), []);
-
-  useEffect(() => {
-    if (!tracks.length) return;
-    updateRepertoireMediaSession({
-      title: [current?.title, current?.subtitle].filter(Boolean).join(" · "),
-      artist: current?.compositor || "OFRN",
-      playing,
-      duration,
-      position: progress,
-      playbackRate: rate,
-    });
-  }, [
-    tracks.length,
-    current?.id,
-    current?.title,
-    current?.subtitle,
-    current?.compositor,
-    playing,
-    duration,
-    rate,
-    Math.floor(progress),
-  ]);
-
   if (!tracks.length) return null;
 
   const renderTrackList = (dense = true) =>
@@ -837,7 +771,7 @@ export default function RepertoirePlaylistPlayer({
       className={
         fullscreen
           ? "fixed inset-0 z-[100] flex flex-col bg-slate-100"
-          : "repertoire-player-dock fixed bottom-0 z-40 flex max-w-none flex-col overflow-hidden border-t border-slate-200 bg-white shadow-[0_-6px_20px_rgba(15,23,42,0.08)]"
+          : "repertoire-player-dock fixed bottom-0 left-0 right-0 z-40 flex max-w-none flex-col overflow-hidden border-t border-slate-200 bg-white shadow-[0_-6px_20px_rgba(15,23,42,0.08)]"
       }
       role={fullscreen ? "dialog" : undefined}
       aria-modal={fullscreen ? true : undefined}
