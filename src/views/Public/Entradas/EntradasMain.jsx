@@ -118,6 +118,13 @@ import {
   recepcionPanelClass,
   useEntradasDarkMode,
 } from "../../../hooks/useEntradasDarkMode";
+import {
+  ENTRADA_USUARIO_ROLES,
+  entradaRolCanAdmin,
+  entradaRolCanRecepcion,
+  entradaRolCanTerceros,
+  entradaRolLabel,
+} from "../../../utils/entradaRoles";
 import "../../../styles/entradas-filarmonica.css";
 
 const ADMIN_TABS = ["programas", "usuarios", "terceros"];
@@ -146,6 +153,24 @@ const ADMIN_USUARIO_ROLES_FILTRO = [
         ? "border-emerald-800 bg-emerald-950 text-emerald-200"
         : "border-emerald-200 bg-emerald-50 text-emerald-800",
     dot: () => "bg-emerald-500",
+  },
+  {
+    id: "boletos",
+    label: "Boletos",
+    chip: (isDark) =>
+      isDark
+        ? "border-sky-800 bg-sky-950 text-sky-200"
+        : "border-sky-200 bg-sky-50 text-sky-800",
+    dot: () => "bg-sky-500",
+  },
+  {
+    id: "boletos_recep",
+    label: "Boletos+Recepc",
+    chip: (isDark) =>
+      isDark
+        ? "border-teal-800 bg-teal-950 text-teal-200"
+        : "border-teal-200 bg-teal-50 text-teal-800",
+    dot: () => "bg-teal-500",
   },
   {
     id: "admin",
@@ -677,17 +702,34 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   /** 'recordatorio' | 'encuesta' mientras se envía mail de prueba desde config de concierto */
   const [testMailBusyTipo, setTestMailBusyTipo] = useState(null);
 
-  const canAdmin = profile?.rol === "admin";
-  const canRecepcion = profile?.rol === "recepcionista" || profile?.rol === "admin";
+  const canAdmin = entradaRolCanAdmin(profile?.rol);
+  const canRecepcion = entradaRolCanRecepcion(profile?.rol);
+  const canTerceros = entradaRolCanTerceros(profile?.rol);
   const section = searchParams.get("view") || "catalogo";
   const conciertoSlug = searchParams.get("concierto") || "";
+  const tercerosViewActive =
+    (canAdmin && section === "admin" && adminTab === "terceros")
+    || (canTerceros && !canAdmin && section === "entradas-terceros");
 
   useEffect(() => {
-    if (searchParams.get("view") === "entradas-terceros" && canAdmin) {
+    const view = searchParams.get("view");
+    if (view === "entradas-terceros" && canAdmin) {
       setAdminTab("terceros");
       setSearchParams({ view: "admin" }, { replace: true });
+      return;
     }
-  }, [searchParams, canAdmin, setSearchParams]);
+    if (view === "admin" && !canAdmin) {
+      setSearchParams({ view: canTerceros ? "entradas-terceros" : "catalogo" }, { replace: true });
+      return;
+    }
+    if (view === "recepcion" && !canRecepcion) {
+      setSearchParams({ view: canTerceros && !canAdmin ? "entradas-terceros" : "catalogo" }, { replace: true });
+      return;
+    }
+    if (view === "entradas-terceros" && !canTerceros) {
+      setSearchParams({ view: "catalogo" }, { replace: true });
+    }
+  }, [searchParams, canAdmin, canRecepcion, canTerceros, setSearchParams]);
 
   const loadAdminOfrnEventos = async () => {
     const hoyYmd = entradasHoyYmd();
@@ -721,7 +763,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         listProgramasConConciertos(),
         listConciertoIdsConReservaActiva(),
         listarMisReservas(),
-        canAdmin ? listarEntradasTercerosAdmin() : Promise.resolve([]),
+        canTerceros ? listarEntradasTercerosAdmin() : Promise.resolve([]),
       ]);
       setConciertosConReservaActiva(idsReservados);
       setMisReservas(reservas);
@@ -756,10 +798,10 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   useEffect(() => {
     loadBase();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section, canAdmin]);
+  }, [section, canAdmin, canTerceros]);
 
   useEffect(() => {
-    if (section !== "admin" || adminTab !== "terceros" || !canAdmin) {
+    if (!tercerosViewActive) {
       setTerceroBeneficiarioLookup(null);
       setTerceroBeneficiarioConfirmado(false);
       return undefined;
@@ -783,7 +825,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       }
     }, 400);
     return () => window.clearTimeout(t);
-  }, [section, adminTab, canAdmin, terceroEmail]);
+  }, [tercerosViewActive, terceroEmail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -930,17 +972,19 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   );
 
   const conciertosReservaTercerosAdmin = useMemo(
-    () =>
-      (adminData.conciertos || [])
-        .map((c) => aplicarDatosEventoAConciertoEntrada(c))
+    () => {
+      const fromAdmin = (adminData.conciertos || []).map((c) => aplicarDatosEventoAConciertoEntrada(c));
+      const source = fromAdmin.length ? fromAdmin : concertosFlat;
+      return source
         .filter(
           (c) =>
             c.activo !== false
             && conciertoCumpleFiltroAdminVista(c, "actuales")
             && entradaConciertoReservasAbiertas(c),
         )
-        .sort(compareConciertosPorFechaHora),
-    [adminData.conciertos],
+        .sort(compareConciertosPorFechaHora);
+    },
+    [adminData.conciertos, concertosFlat],
   );
 
   const adminTerceroConciertoSelected = useMemo(() => {
@@ -953,7 +997,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   }, [adminTerceroConciertoId, conciertosReservaTercerosAdmin, concertosFlat]);
 
   useEffect(() => {
-    if (section !== "admin" || adminTab !== "terceros") return;
+    if (!tercerosViewActive) return;
     if (!conciertosReservaTercerosAdmin.length) {
       setAdminTerceroConciertoId("");
       return;
@@ -964,7 +1008,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     if (!stillValid) {
       setAdminTerceroConciertoId(String(conciertosReservaTercerosAdmin[0].id));
     }
-  }, [section, adminTab, conciertosReservaTercerosAdmin, adminTerceroConciertoId]);
+  }, [tercerosViewActive, conciertosReservaTercerosAdmin, adminTerceroConciertoId]);
 
   const adminConciertoVistaBtn = (active) => (active ? ui.adminTabActive : ui.adminTabIdle);
 
@@ -1968,8 +2012,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           result.vinculado_inmediato && result.beneficiario_apellido
             ? ` Vinculada a ${result.beneficiario_apellido}, ${result.beneficiario_nombre}.`
             : terceroEmail
-              ? " Mail enviado al admin y al beneficiario."
-              : " Mail de confirmación enviado al admin.";
+              ? " Mail enviado al emisor y al beneficiario."
+              : " Mail de confirmación enviado.";
         toast.success(`Entrada de tercero confirmada.${extra}`);
       } catch {
         toast.message("Reserva creada. El mail no pudo enviarse automáticamente.");
@@ -3543,6 +3587,140 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     );
   };
 
+  const renderEntradasTercerosPanel = () => (
+    <div className="space-y-6">
+      <div className={`${ui.inset} p-4 space-y-4`}>
+        <h3 className={ui.sectionTitle}>Nueva reserva para otra persona</h3>
+        {conciertosReservaTercerosAdmin.length === 0 ? (
+          <p className={`text-sm ${ui.textMuted}`}>
+            No hay conciertos actuales con reservas abiertas. Cuando haya uno disponible, podrás reservar desde acá.
+          </p>
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              <label htmlFor="admin-tercero-concierto" className={ui.label}>
+                Concierto
+              </label>
+              <select
+                id="admin-tercero-concierto"
+                className={`w-full max-w-xl ${ui.select}`}
+                value={adminTerceroConciertoId}
+                onChange={(e) => setAdminTerceroConciertoId(e.target.value)}
+              >
+                {conciertosReservaTercerosAdmin.map((c) => (
+                  <option key={c.id} value={String(c.id)}>
+                    {formatConciertoFechaHoraEs(c.fecha_hora)} — {c.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {adminTerceroConciertoSelected && (
+              <>
+                <EntradasDisponibilidadBar concierto={adminTerceroConciertoSelected} isDark={isDark} />
+                <div className="space-y-1.5">
+                  <label className={ui.label}>Mail del beneficiario (opcional)</label>
+                  <input
+                    type="email"
+                    className={`w-full max-w-md ${ui.input}`}
+                    value={terceroEmail}
+                    onChange={(e) => setTerceroEmail(e.target.value)}
+                    placeholder="correo@ejemplo.com"
+                  />
+                  {terceroEmailLookupBusy && (
+                    <p className={`text-xs ${ui.textMuted}`}>Buscando usuario…</p>
+                  )}
+                  {terceroBeneficiarioLookup?.encontrado && (
+                    <div
+                      className={`max-w-md rounded-lg p-3 text-sm ${
+                        isDark
+                          ? "bg-emerald-950/40 border border-emerald-800"
+                          : "bg-emerald-50 border border-emerald-200"
+                      }`}
+                    >
+                      <p className="font-bold">
+                        {terceroBeneficiarioLookup.apellido}, {terceroBeneficiarioLookup.nombre}
+                      </p>
+                      <p className={`text-xs ${ui.textMuted}`}>{terceroBeneficiarioLookup.email}</p>
+                      <label className="mt-2 flex items-start gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={terceroBeneficiarioConfirmado}
+                          onChange={(e) => setTerceroBeneficiarioConfirmado(e.target.checked)}
+                          className="mt-0.5"
+                        />
+                        <span>Sí, es esa persona</span>
+                      </label>
+                    </div>
+                  )}
+                  {terceroBeneficiarioLookup
+                    && !terceroBeneficiarioLookup.encontrado
+                    && terceroEmail.includes("@")
+                    && !terceroEmailLookupBusy && (
+                    <p className={`text-xs ${ui.textMuted}`}>
+                      No hay cuenta con ese mail; la reserva quedará pendiente hasta que se registre.
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <label className={ui.label}>Referencia / nota (opcional)</label>
+                  <input
+                    type="text"
+                    className={`w-full max-w-md ${ui.input}`}
+                    value={terceroReferencia}
+                    onChange={(e) => setTerceroReferencia(e.target.value)}
+                    placeholder="Ej. María García — vecina"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className={ui.label}>Cantidad</label>
+                  <select
+                    className={`w-full max-w-xs ${ui.select}`}
+                    value={adminTerceroCantidad}
+                    onChange={(e) => setAdminTerceroCantidad(Number(e.target.value))}
+                  >
+                    {[1, 2, 3, 4].map((n) => (
+                      <option key={n} value={n}>
+                        {n} entrada{n > 1 ? "s" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCreateReservaTercero}
+                  disabled={
+                    creatingTerceroReserva
+                    || computeDisponibles(adminTerceroConciertoSelected) < adminTerceroCantidad
+                    || (terceroBeneficiarioLookup?.encontrado && !terceroBeneficiarioConfirmado)
+                  }
+                  className={`${ui.btnPrimary} w-full sm:w-auto`}
+                >
+                  {creatingTerceroReserva ? "Reservando…" : "Reservar entradas de tercero"}
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <h3 className={ui.sectionTitle}>Entradas de terceros activas</h3>
+        <p className={`text-sm ${ui.textMuted}`}>
+          Próximos conciertos. Podés descargar el PDF, asociar un mail o cancelar.
+        </p>
+        <EntradasTercerosSection
+          entradasTerceros={entradasTerceros}
+          ui={ui}
+          isDark={isDark}
+          downloadingPdfReservaId={downloadingPdfReservaId}
+          setDownloadingPdfReservaId={setDownloadingPdfReservaId}
+          onCancelReserva={(reserva) => setCancelReservaTarget(reserva)}
+          onRefresh={() => loadBase({ quiet: true })}
+        />
+      </div>
+    </div>
+  );
+
   if (loading) {
     return (
       <div className={`${ui.page} flex items-center justify-center px-4`}>
@@ -3616,6 +3794,15 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           >
             Mis entradas
           </button>
+          {canTerceros && !canAdmin && (
+            <button
+              type="button"
+              className={section === "entradas-terceros" ? ui.navActive : ui.navIdle}
+              onClick={() => navigateEntradasView({ view: "entradas-terceros" })}
+            >
+              Entradas para terceros
+            </button>
+          )}
           {canRecepcion && (
             <button
               type="button"
@@ -4422,6 +4609,12 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           </section>
         )}
 
+        {section === "entradas-terceros" && canTerceros && !canAdmin && (
+          <section className={`${ui.section} p-4 space-y-4`}>
+            {renderEntradasTercerosPanel()}
+          </section>
+        )}
+
         {section === "admin" && canAdmin && (
           <section className={`${ui.section} p-4 space-y-4`}>
             <div className="flex flex-wrap gap-2">
@@ -4442,139 +4635,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
               ))}
             </div>
 
-            {adminTab === "terceros" && (
-              <div className="space-y-6">
-                <div className={`${ui.inset} p-4 space-y-4`}>
-                  <h3 className={ui.sectionTitle}>Nueva reserva para otra persona</h3>
-                  {conciertosReservaTercerosAdmin.length === 0 ? (
-                    <p className={`text-sm ${ui.textMuted}`}>
-                      No hay conciertos actuales con reservas abiertas. Cuando haya uno disponible, podrás reservar desde acá.
-                    </p>
-                  ) : (
-                    <>
-                      <div className="space-y-1.5">
-                        <label htmlFor="admin-tercero-concierto" className={ui.label}>
-                          Concierto
-                        </label>
-                        <select
-                          id="admin-tercero-concierto"
-                          className={`w-full max-w-xl ${ui.select}`}
-                          value={adminTerceroConciertoId}
-                          onChange={(e) => setAdminTerceroConciertoId(e.target.value)}
-                        >
-                          {conciertosReservaTercerosAdmin.map((c) => (
-                            <option key={c.id} value={String(c.id)}>
-                              {formatConciertoFechaHoraEs(c.fecha_hora)} — {c.nombre}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      {adminTerceroConciertoSelected && (
-                        <>
-                          <EntradasDisponibilidadBar concierto={adminTerceroConciertoSelected} isDark={isDark} />
-                          <div className="space-y-1.5">
-                            <label className={ui.label}>Mail del beneficiario (opcional)</label>
-                            <input
-                              type="email"
-                              className={`w-full max-w-md ${ui.input}`}
-                              value={terceroEmail}
-                              onChange={(e) => setTerceroEmail(e.target.value)}
-                              placeholder="correo@ejemplo.com"
-                            />
-                            {terceroEmailLookupBusy && (
-                              <p className={`text-xs ${ui.textMuted}`}>Buscando usuario…</p>
-                            )}
-                            {terceroBeneficiarioLookup?.encontrado && (
-                              <div
-                                className={`max-w-md rounded-lg p-3 text-sm ${
-                                  isDark
-                                    ? "bg-emerald-950/40 border border-emerald-800"
-                                    : "bg-emerald-50 border border-emerald-200"
-                                }`}
-                              >
-                                <p className="font-bold">
-                                  {terceroBeneficiarioLookup.apellido}, {terceroBeneficiarioLookup.nombre}
-                                </p>
-                                <p className={`text-xs ${ui.textMuted}`}>{terceroBeneficiarioLookup.email}</p>
-                                <label className="mt-2 flex items-start gap-2 text-xs cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={terceroBeneficiarioConfirmado}
-                                    onChange={(e) => setTerceroBeneficiarioConfirmado(e.target.checked)}
-                                    className="mt-0.5"
-                                  />
-                                  <span>Sí, es esa persona</span>
-                                </label>
-                              </div>
-                            )}
-                            {terceroBeneficiarioLookup
-                              && !terceroBeneficiarioLookup.encontrado
-                              && terceroEmail.includes("@")
-                              && !terceroEmailLookupBusy && (
-                              <p className={`text-xs ${ui.textMuted}`}>
-                                No hay cuenta con ese mail; la reserva quedará pendiente hasta que se registre.
-                              </p>
-                            )}
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className={ui.label}>Referencia / nota (opcional)</label>
-                            <input
-                              type="text"
-                              className={`w-full max-w-md ${ui.input}`}
-                              value={terceroReferencia}
-                              onChange={(e) => setTerceroReferencia(e.target.value)}
-                              placeholder="Ej. María García — vecina"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className={ui.label}>Cantidad</label>
-                            <select
-                              className={`w-full max-w-xs ${ui.select}`}
-                              value={adminTerceroCantidad}
-                              onChange={(e) => setAdminTerceroCantidad(Number(e.target.value))}
-                            >
-                              {[1, 2, 3, 4].map((n) => (
-                                <option key={n} value={n}>
-                                  {n} entrada{n > 1 ? "s" : ""}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={handleCreateReservaTercero}
-                            disabled={
-                              creatingTerceroReserva
-                              || computeDisponibles(adminTerceroConciertoSelected) < adminTerceroCantidad
-                              || (terceroBeneficiarioLookup?.encontrado && !terceroBeneficiarioConfirmado)
-                            }
-                            className={`${ui.btnPrimary} w-full sm:w-auto`}
-                          >
-                            {creatingTerceroReserva ? "Reservando…" : "Reservar entradas de tercero"}
-                          </button>
-                        </>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                <div className="space-y-3">
-                  <h3 className={ui.sectionTitle}>Entradas de terceros activas</h3>
-                  <p className={`text-sm ${ui.textMuted}`}>
-                    Próximos conciertos. Podés descargar el PDF, asociar un mail o cancelar.
-                  </p>
-                  <EntradasTercerosSection
-                    entradasTerceros={entradasTerceros}
-                    ui={ui}
-                    isDark={isDark}
-                    downloadingPdfReservaId={downloadingPdfReservaId}
-                    setDownloadingPdfReservaId={setDownloadingPdfReservaId}
-                    onCancelReserva={(reserva) => setCancelReservaTarget(reserva)}
-                    onRefresh={() => loadBase({ quiet: true })}
-                  />
-                </div>
-              </div>
-            )}
+            {adminTab === "terceros" && renderEntradasTercerosPanel()}
 
             {adminTab === "programas" && (
               <div className="space-y-6">
@@ -5048,11 +5109,11 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                                 await adminUpdateUsuarioRol({ id: usr.id, rol: event.target.value });
                                 setAdminData(await listAdminData());
                               }}
-                              className={`w-full max-w-[8.5rem] rounded-lg border px-2 py-1.5 text-xs font-semibold ${entradaUsuarioRolLabelClass(usr.rol, isDark)}`}
+                              className={`w-full max-w-[11.5rem] rounded-lg border px-2 py-1.5 text-xs font-semibold ${entradaUsuarioRolLabelClass(usr.rol, isDark)}`}
                             >
-                              <option value="personal">personal</option>
-                              <option value="recepcionista">recepcionista</option>
-                              <option value="admin">admin</option>
+                              {ENTRADA_USUARIO_ROLES.map((r) => (
+                                <option key={r.id} value={r.id}>{r.label}</option>
+                              ))}
                             </select>
                           </td>
                         </tr>
@@ -5077,7 +5138,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                         <span
                           className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${entradaUsuarioRolLabelClass(usr.rol, isDark)}`}
                         >
-                          {usr.rol || "personal"}
+                          {entradaRolLabel(usr.rol)}
                         </span>
                       </div>
                       <div>
@@ -5096,9 +5157,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                           }}
                           className={`w-full rounded-lg border px-3 py-2 text-sm font-semibold ${entradaUsuarioRolLabelClass(usr.rol, isDark)}`}
                         >
-                          <option value="personal">personal</option>
-                          <option value="recepcionista">recepcionista</option>
-                          <option value="admin">admin</option>
+                          {ENTRADA_USUARIO_ROLES.map((r) => (
+                            <option key={r.id} value={r.id}>{r.label}</option>
+                          ))}
                         </select>
                       </div>
                     </article>
@@ -5337,7 +5398,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                   setAdminInviteFormOpen(false);
                   toast.success(
                     result?.created
-                      ? `${nombre} ${apellido} quedó pre-registrado como ${rolInvitado}.`
+                      ? `${nombre} ${apellido} quedó pre-registrado como ${entradaRolLabel(rolInvitado)}.`
                       : `Se actualizó el perfil de ${email}.`,
                   );
                 } catch (inviteError) {
@@ -5386,9 +5447,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                   onChange={(e) => setAdminInviteForm((f) => ({ ...f, rol: e.target.value }))}
                   className={ui.select}
                 >
-                  <option value="recepcionista">recepcionista</option>
-                  <option value="personal">personal</option>
-                  <option value="admin">admin</option>
+                  {ENTRADA_USUARIO_ROLES.map((r) => (
+                    <option key={r.id} value={r.id}>{r.label}</option>
+                  ))}
                 </select>
               </label>
               <div className="mt-1 flex flex-col-reverse sm:flex-row sm:justify-end gap-2 sm:col-span-2">

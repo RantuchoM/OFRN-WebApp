@@ -10,7 +10,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
-const VALID_ROLES = new Set(["personal", "recepcionista", "admin"]);
+const VALID_ROLES = new Set(["personal", "recepcionista", "boletos", "boletos_recep", "admin"]);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
