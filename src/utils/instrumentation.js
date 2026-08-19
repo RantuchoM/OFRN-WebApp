@@ -645,6 +645,88 @@ const FAMILY_TO_COLUMN = {
   str: "Str",
 };
 
+/**
+ * Obras (y reservas) de un bloque para chips/modal de orgánico.
+ * Omite filas `excluir`. Las reservas usan `instrumentacion_placeholder`.
+ */
+export function mapRepertorioObrasToInstrumentationWorks(repertorioObras) {
+  const works = [];
+  (repertorioObras || []).forEach((ro) => {
+    if (!ro || ro.excluir) return;
+
+    if (isRepertorioPlaceholder(ro)) {
+      const title = (ro.titulo_placeholder || "Reserva").trim() || "Reserva";
+      const cleanTitle =
+        typeof title === "string" ? title.replace(/<[^>]*>?/gm, "") : "Reserva";
+      works.push({
+        id: ro.id,
+        obra_id: `placeholder-${ro.id}`,
+        title: cleanTitle,
+        composer: "Reserva",
+        shortTitle: cleanTitle.split(/\s+/).slice(0, 3).join(" "),
+        obras_particellas: [],
+        instrumentacion_effective: ro.instrumentacion_placeholder || "",
+      });
+      return;
+    }
+
+    const obra = ro.obras;
+    if (!obra) return;
+    const ocList = Array.isArray(obra.obras_compositores)
+      ? obra.obras_compositores
+      : obra.obras_compositores
+        ? [obra.obras_compositores]
+        : [];
+    const firstComposerEntry =
+      ocList.find(
+        (oc) => String(oc?.rol || "").toLowerCase().trim() === "compositor",
+      ) || null;
+    const composerLastName =
+      firstComposerEntry?.compositores?.apellido ||
+      obra.compositores?.apellido ||
+      "";
+    const title = obra.titulo || "Obra";
+    const cleanTitle =
+      typeof title === "string" ? title.replace(/<[^>]*>?/gm, "") : "Obra";
+    works.push({
+      id: ro.id,
+      obra_id: obra.id,
+      title: cleanTitle,
+      composer: composerLastName || "S/D",
+      shortTitle: cleanTitle.split(/\s+/).slice(0, 3).join(" "),
+      obras_particellas: obra.obras_particellas || [],
+      instrumentacion_effective:
+        obra.instrumentacion ||
+        calculateInstrumentation(obra.obras_particellas || []) ||
+        "",
+    });
+  });
+  return works;
+}
+
+/**
+ * Agrega validación de orgánico de varios bloques.
+ * Revisado = todos los bloques están tildados. Comentario: une los no vacíos.
+ */
+export function aggregateOrganicoFromBlocks(blocks) {
+  const list = Array.isArray(blocks) ? blocks : [];
+  if (list.length === 0) {
+    return { organico_revisado: false, organico_comentario: null };
+  }
+  const organico_revisado = list.every((b) => !!b.organico_revisado);
+  const parts = list
+    .map((b) => {
+      const c = String(b.organico_comentario || "").trim();
+      if (!c) return null;
+      return list.length > 1 ? `${b.nombre || "Bloque"}: ${c}` : c;
+    })
+    .filter(Boolean);
+  return {
+    organico_revisado,
+    organico_comentario: parts.length ? parts.join(" · ") : null,
+  };
+}
+
 export { getPercComparableTotal };
 
 function internalAssignmentCountsToColumnMap(counts) {

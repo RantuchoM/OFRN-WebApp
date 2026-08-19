@@ -1,6 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { getProgramStyle } from "../../utils/giraUtils";
-import { getPercComparableTotal } from "../../utils/instrumentation";
+import {
+  getPercComparableTotal,
+  aggregateOrganicoFromBlocks,
+} from "../../utils/instrumentation";
 import {
   AUDIT_GRID_COLUMNS,
   buildGiraAppDeepLink,
@@ -286,7 +289,35 @@ export default function SandboxProgramCard({
   onOrganicoSave,
 }) {
   const [showOrganicoModal, setShowOrganicoModal] = useState(false);
+  const [repertorioBlocks, setRepertorioBlocks] = useState([]);
   const style = getProgramStyle(program.tipo);
+
+  useEffect(() => {
+    if (!supabase || !program?.id) {
+      setRepertorioBlocks([]);
+      return;
+    }
+    let cancelled = false;
+    supabase
+      .from("programas_repertorios")
+      .select("id, nombre, orden, organico_revisado, organico_comentario")
+      .eq("id_programa", program.id)
+      .order("orden")
+      .then(({ data, error }) => {
+        if (cancelled || error) return;
+        setRepertorioBlocks(data || []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, program?.id]);
+
+  const organicoAgg = useMemo(
+    () => aggregateOrganicoFromBlocks(repertorioBlocks),
+    [repertorioBlocks],
+  );
+  const singleRepertorioBlock =
+    repertorioBlocks.length === 1 ? repertorioBlocks[0] : null;
   const cardClasses = style?.color
     ? style.color
     : "bg-white text-slate-800 border border-slate-200";
@@ -358,7 +389,7 @@ export default function SandboxProgramCard({
               required={metrics?.required}
               convokedAll={metrics?.draftConvoked}
               convDiffCols={metrics?.convDiffCols}
-              organicoRevisado={!!program.organico_revisado}
+              organicoRevisado={!!organicoAgg.organico_revisado}
               onOpenWorks={() => setShowOrganicoModal(true)}
             />
           </div>
@@ -378,11 +409,34 @@ export default function SandboxProgramCard({
           required={metrics?.required || {}}
           convoked={metrics?.draftConvoked || {}}
           roster={effectiveRoster}
-          programId={program.id}
+          repertorioId={singleRepertorioBlock?.id ?? null}
           supabase={supabase}
-          organicoRevisado={!!program.organico_revisado}
-          organicoComentario={program.organico_comentario ?? null}
-          onOrganicoSave={(payload) => onOrganicoSave?.(program.id, payload)}
+          organicoRevisado={
+            singleRepertorioBlock
+              ? !!singleRepertorioBlock.organico_revisado
+              : !!organicoAgg.organico_revisado
+          }
+          organicoComentario={
+            singleRepertorioBlock
+              ? singleRepertorioBlock.organico_comentario ?? null
+              : organicoAgg.organico_comentario
+          }
+          onOrganicoSave={(payload) => {
+            const blockId = payload?.id_repertorio;
+            if (blockId == null) return;
+            setRepertorioBlocks((prev) =>
+              prev.map((b) =>
+                Number(b.id) === Number(blockId)
+                  ? {
+                      ...b,
+                      organico_revisado: !!payload.organico_revisado,
+                      organico_comentario: payload.organico_comentario ?? null,
+                    }
+                  : b,
+              ),
+            );
+            onOrganicoSave?.(program.id, payload);
+          }}
         />
       )}
 

@@ -25,7 +25,6 @@ import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import ProgramSeating from "../Giras/ProgramSeating";
-import InstrumentationBadges from "../../components/instrumentation/InstrumentationBadges";
 import MyPartsViewer from "./MyPartsViewer";
 import RepertoirePlaylistPlayer from "../../components/repertoire/RepertoirePlaylistPlayer";
 import {
@@ -37,7 +36,6 @@ import {
   syncBowingToProgram,
   syncProgramRepertoire,
 } from "../../services/giraService";
-import { calculateInstrumentation } from "../../utils/instrumentation";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { toast } from "sonner";
 
@@ -521,7 +519,7 @@ const AdvancedImportModal = ({
 
 // --- COMPONENTE PRINCIPAL ---
 export default function ProgramRepertoire({ supabase, program, onBack, onRefreshGira = null }) {
-  const { user, isAdmin, isEditor, isManagement, isCoordGeneral } = useAuth();
+  const { user, isEditor, isManagement, isCoordGeneral } = useAuth();
   const { roster, loading: rosterLoading } = useGiraRoster(supabase, program);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("subTab") || "repertoire";
@@ -683,6 +681,22 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
     setRepertoireKey((prev) => prev + 1);
   };
 
+  const handleBlockOrganicoSave = (payload) => {
+    const blockId = payload?.id_repertorio;
+    if (blockId == null) return;
+    setRepertorios((current) =>
+      current.map((b) =>
+        Number(b.id) === Number(blockId)
+          ? {
+              ...b,
+              organico_revisado: !!payload.organico_revisado,
+              organico_comentario: payload.organico_comentario ?? null,
+            }
+          : b,
+      ),
+    );
+  };
+
   const audioTracks = useMemo(
     () => buildRepertoireAudioTracks(repertorios),
     [repertorios],
@@ -717,48 +731,6 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
       return newParams;
     });
   };
-
-  const obrasWithInstrumentation = useMemo(() => {
-    if (!repertorios || repertorios.length === 0) return [];
-    const works = [];
-    repertorios.forEach((block) => {
-      (block.repertorio_obras || []).forEach((ro) => {
-        const obra = ro.obras;
-        if (!obra) return;
-        const ocList = Array.isArray(obra.obras_compositores)
-          ? obra.obras_compositores
-          : obra.obras_compositores
-            ? [obra.obras_compositores]
-            : [];
-        const firstComposerEntry =
-          ocList.find(
-            (oc) => String(oc?.rol || "").toLowerCase().trim() === "compositor",
-          ) || null;
-        const composerLastName =
-          firstComposerEntry?.compositores?.apellido || "";
-        const title = obra.titulo || "Obra";
-        const cleanTitle =
-          typeof title === "string"
-            ? title.replace(/<[^>]*>?/gm, "")
-            : "Obra";
-        works.push({
-          id: ro.id,
-          obra_id: obra.id,
-          title: cleanTitle,
-          composer: composerLastName || "S/D",
-          shortTitle: cleanTitle.split(/\s+/).slice(0, 3).join(" "),
-          obras_particellas: obra.obras_particellas || [],
-          instrumentacion_effective:
-            obra.instrumentacion ||
-            calculateInstrumentation(obra.obras_particellas || []) ||
-            "",
-        });
-      });
-    });
-    return works;
-  }, [repertorios]);
-
-  const canSeeInstrumentationBadges = isAdmin || isEditor;
 
   const handleBack = () => {
     if (activeTab !== "repertoire") {
@@ -1210,18 +1182,6 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
           <div className="flex flex-col">
             <h2 className="text-sm md:text-m font-bold text-slate-800 flex items-center gap-2">
               <span>Repertorio</span>
-              {canSeeInstrumentationBadges && activeTab === "repertoire" && (
-                  <InstrumentationBadges
-                    works={obrasWithInstrumentation}
-                    roster={roster}
-                    organicoRevisado={!!program?.organico_revisado}
-                    organicoComentario={program?.organico_comentario ?? null}
-                    programId={program?.id}
-                    supabase={supabase}
-                    onOrganicoSave={onRefreshGira}
-                    className="hidden md:flex flex-wrap items-center gap-1 ml-2"
-                  />
-                )}
             </h2>
           </div>
         </div>
@@ -1394,6 +1354,8 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
                   onSyncArco={handleSyncArco}
                   onPlayWork={handlePlayWork}
                   onPlayBlock={handlePlayBlock}
+                  roster={roster}
+                  onOrganicoSave={handleBlockOrganicoSave}
                 />
               </div>
             )}
@@ -1409,6 +1371,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
               repertoireBlocks={repertorios}
               canAccessStringsConfig={canEdit}
               onBack={() => handleTabChange("repertoire")}
+              onOrganicoSave={handleBlockOrganicoSave}
             />
           </div>
         )}

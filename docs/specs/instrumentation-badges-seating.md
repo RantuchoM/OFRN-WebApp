@@ -19,7 +19,7 @@ Visualizar en tiempo real la diferencia entre la instrumentación técnica reque
 - **Verde** (`emerald`): `requerido == convocado` en todas las familias comparables (incl. total Tim+Perc).
 - **Naranja**: alguna familia con `requerido ≠ convocado`.
 - **Ámbar**: sin desajuste de instrumentación pero hay vacantes simuladas en roster.
-- **Celeste**: orgánico marcado como revisado (`organico_revisado`).
+- **Celeste**: orgánico marcado como revisado en el bloque (`programas_repertorios.organico_revisado`).
 
 #### Tokens dentro del badge
 - **Naranja** (token): `requerido ≠ convocado` en esa familia.
@@ -71,7 +71,7 @@ Visualizar en tiempo real la diferencia entre la instrumentación técnica reque
 - **Fila Convocado:** totales convocados por familia (tooltip con nombres de músicos).
 - **Fila Requerido:** máximo de programa por familia (mismo mapa `required` que los badges).
 - Ambas filas van **debajo de las obras** (`tfoot`). Si hay diferencia, se resalta en naranja el número mayor; si coinciden con consolidación por asignación múltiple, violeta (misma regla que badges).
-- **Resumen bajo la tabla:**
+- **Resumen fijo bajo el título** (fuera del scroll de la tabla, visible al abrir):
   - *Hace falta convocar o reacomodar:* familias con `requerido > convocado` (ej. `2 flautas`).
   - *Se puede prescindir de:* familias con `convocado > requerido` (ej. `1 percusión, 2 trombones`).
 

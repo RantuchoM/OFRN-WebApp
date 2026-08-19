@@ -1082,6 +1082,8 @@ CREATE TABLE public.programas_repertorios (
   created_at timestamp with time zone DEFAULT now(),
   google_drive_folder_id text,
   en_definicion boolean NOT NULL DEFAULT false,
+  organico_revisado boolean NOT NULL DEFAULT false,
+  organico_comentario text,
   CONSTRAINT programas_repertorios_pkey PRIMARY KEY (id),
   CONSTRAINT programas_repertorios_id_programa_fkey FOREIGN KEY (id_programa) REFERENCES public.programas(id)
 );

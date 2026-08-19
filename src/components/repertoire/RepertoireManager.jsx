@@ -49,6 +49,7 @@ import {
   repertorioGrupoIdsFromBlock,
   repertorioGruposMetaFromBlock,
   setRepertorioGrupos,
+  filterRosterForRepertorioBlock,
 } from "../../services/giraGruposService";
 import {
   normalizeRepertorioBlockOrden,
@@ -62,6 +63,7 @@ import {
   calculateNetDuration,
   effectiveRepertorioObraDurationSeconds,
   hasRepertorioObraDurationOverride,
+  mapRepertorioObrasToInstrumentationWorks,
 } from "../../utils/instrumentation";
 import {
   getObraEstadoMobileCardStyles,
@@ -78,6 +80,7 @@ import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
 import { isRepertorioPlaceholder, filterRepertorioObraRowsForDisplay } from "../../utils/repertorioRowDisplay";
 import { workHasPlayableAudio } from "../../utils/repertoireAudioTracks";
 import OrganicoVientosAddField from "./OrganicoVientosAddField";
+import InstrumentationBadges from "../instrumentation/InstrumentationBadges";
 import {
   RepertorioPlaceholderMobileCard,
   RepertorioPlaceholderDesktopCells,
@@ -1618,6 +1621,8 @@ export default function RepertoireManager({
   onUpdate,
   onPlayWork,
   onPlayBlock,
+  roster = null,
+  onOrganicoSave = null,
 }) {
   const { user, isEditor: isGlobalEditor, isAdmin } = useAuth();
   const { confirm, dialog } = useConfirmDialog();
@@ -1625,6 +1630,8 @@ export default function RepertoireManager({
   const isEditor = readOnly !== undefined ? !readOnly : isGlobalEditor;
   // Notas internas (post-it) visibles para quien puede editar en general, aunque la vista esté en readOnly
   const canSeeInternalNotes = isGlobalEditor || isAdmin;
+  const canSeeInstrumentationBadges =
+    (isAdmin || isGlobalEditor) && Array.isArray(roster);
 
   const [repertorios, setRepertorios] = useState(initialData);
   const [musicians, setMusicians] = useState([]);
@@ -2181,6 +2188,23 @@ export default function RepertoireManager({
       alert("Error al guardar los grupos del bloque.");
       fetchFullRepertoire();
     }
+  };
+
+  const handleBlockOrganicoSave = (payload) => {
+    const blockId = payload?.id_repertorio;
+    if (blockId == null) return;
+    setRepertorios((current) =>
+      current.map((r) =>
+        Number(r.id) === Number(blockId)
+          ? {
+              ...r,
+              organico_revisado: !!payload.organico_revisado,
+              organico_comentario: payload.organico_comentario ?? null,
+            }
+          : r,
+      ),
+    );
+    onOrganicoSave?.(payload);
   };
 
   const moveWork = async (repertorioId, workId, direction) => {
@@ -3171,6 +3195,31 @@ export default function RepertoireManager({
                           grupos={repertorioGruposMetaFromBlock(rep)}
                         />
                       ))}
+
+                    {canSeeInstrumentationBadges && (
+                      <div
+                        className="min-w-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <InstrumentationBadges
+                          works={mapRepertorioObrasToInstrumentationWorks(
+                            rep.repertorio_obras,
+                          )}
+                          roster={filterRosterForRepertorioBlock(
+                            roster,
+                            giraGrupos,
+                            rep,
+                          )}
+                          organicoRevisado={!!rep.organico_revisado}
+                          organicoComentario={rep.organico_comentario ?? null}
+                          repertorioId={rep.id}
+                          supabase={supabase}
+                          onOrganicoSave={handleBlockOrganicoSave}
+                          scopeLabel={rep.nombre || "Bloque"}
+                          className="flex-wrap"
+                        />
+                      </div>
+                    )}
 
                     {/* Badge de Atril (si el usuario tiene asignación) */}
                     {userSeating && (

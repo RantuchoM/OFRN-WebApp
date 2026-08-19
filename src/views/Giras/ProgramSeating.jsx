@@ -884,6 +884,7 @@ export default function ProgramSeating({
   repertoireBlocks = [],
   canAccessStringsConfig = false,
   onRefreshGira = null,
+  onOrganicoSave = null,
 }) {
   const { isAdmin, isEditor, user } = useAuth();
   const { roster: rawRoster, loading: rosterLoading } = useGiraRoster(
@@ -942,6 +943,7 @@ export default function ProgramSeating({
   const [instrumentList, setInstrumentList] = useState([]);
   const [createModalInfo, setCreateModalInfo] = useState(null);
   const [fetchedBlocks, setFetchedBlocks] = useState([]);
+  const [blockOrganicoOverrides, setBlockOrganicoOverrides] = useState({});
   const [activeBlockId, setActiveBlockId] = useState(null);
   const [showMobileActionsMenu, setShowMobileActionsMenu] = useState(false);
   const mobileActionsMenuRef = useRef(null);
@@ -1027,7 +1029,7 @@ export default function ProgramSeating({
         const { data } = await supabase
           .from("programas_repertorios")
           .select(
-            `id, orden, nombre, google_drive_folder_id, programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), repertorio_obras (id, orden, obras (id, titulo, link_drive, instrumentacion, obras_compositores (rol, compositores (apellido))))`,
+            `id, orden, nombre, google_drive_folder_id, organico_revisado, organico_comentario, programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), repertorio_obras (id, orden, obras (id, titulo, link_drive, instrumentacion, obras_compositores (rol, compositores (apellido))))`,
           )
           .eq("id_programa", program.id)
           .order("orden");
@@ -1472,22 +1474,69 @@ export default function ProgramSeating({
     particellaCounts,
   ]);
 
+  const obrasWithInstrumentationForActiveBlock = useMemo(() => {
+    if (!resolvedBlockId) return obrasWithInstrumentation;
+    return obrasWithInstrumentation.filter(
+      (obra) => Number(obra.blockId) === Number(resolvedBlockId),
+    );
+  }, [obrasWithInstrumentation, resolvedBlockId]);
+
+  const activeBlockScopeLabel = useMemo(() => {
+    const block =
+      effectiveBlocks.find((b) => Number(b.id) === Number(resolvedBlockId)) ||
+      null;
+    return block?.nombre || null;
+  }, [effectiveBlocks, resolvedBlockId]);
+
+  const activeBlockOrganico = useMemo(() => {
+    const block =
+      effectiveBlocks.find((b) => Number(b.id) === Number(resolvedBlockId)) ||
+      null;
+    if (!block) {
+      return { organico_revisado: false, organico_comentario: null };
+    }
+    const override = blockOrganicoOverrides[block.id];
+    if (override) return override;
+    return {
+      organico_revisado: !!block.organico_revisado,
+      organico_comentario: block.organico_comentario ?? null,
+    };
+  }, [effectiveBlocks, resolvedBlockId, blockOrganicoOverrides]);
+
+  const handleActiveBlockOrganicoSave = useCallback(
+    (payload) => {
+      const blockId = payload?.id_repertorio;
+      if (blockId == null) return;
+      setBlockOrganicoOverrides((prev) => ({
+        ...prev,
+        [blockId]: {
+          organico_revisado: !!payload.organico_revisado,
+          organico_comentario: payload.organico_comentario ?? null,
+        },
+      }));
+      onOrganicoSave?.(payload);
+    },
+    [onOrganicoSave],
+  );
+
   const instrumentationRequired = useMemo(
     () =>
       maxInstrumentationColumnMap(
-        obrasWithInstrumentation.map(
+        obrasWithInstrumentationForActiveBlock.map(
           (obra) => obra.instrumentation_effective_column_map,
         ),
       ),
-    [obrasWithInstrumentation],
+    [obrasWithInstrumentationForActiveBlock],
   );
 
   const instrumentationPartsMax = useMemo(
     () =>
       maxInstrumentationColumnMap(
-        obrasWithInstrumentation.map((obra) => obra.instrumentation_parts_column_map),
+        obrasWithInstrumentationForActiveBlock.map(
+          (obra) => obra.instrumentation_parts_column_map,
+        ),
       ),
-    [obrasWithInstrumentation],
+    [obrasWithInstrumentationForActiveBlock],
   );
 
   // Sugerencia basada en nombre de contenedor (cuerdas)
@@ -1698,7 +1747,8 @@ export default function ProgramSeating({
 
   const showInstrumentationBadges =
     canSeeInstrumentationBadges &&
-    (obras.length > 0 || rosterHasInstrumentationMembers(filteredRoster));
+    (obrasWithInstrumentationForActiveBlock.length > 0 ||
+      rosterHasInstrumentationMembers(filteredRoster));
 
   const instrumentationRequiredConsolidated = useMemo(
     () =>
@@ -1715,8 +1765,8 @@ export default function ProgramSeating({
   );
 
   const hasVacancies = useMemo(
-    () => (rawRoster || []).some((r) => !!r.es_simulacion),
-    [rawRoster],
+    () => (filteredRoster || []).some((r) => !!r.es_simulacion),
+    [filteredRoster],
   );
 
   const formatInstrumentationStandard = (map) => {
@@ -2496,15 +2546,16 @@ export default function ProgramSeating({
           <InstrumentationSummaryModal
             isOpen={showInstrumentationModal}
             onClose={() => setShowInstrumentationModal(false)}
-            works={obrasWithInstrumentation}
+            works={obrasWithInstrumentationForActiveBlock}
             required={instrumentationRequired}
             convoked={instrumentationConvoked}
-            roster={confirmedRoster}
-            programId={program?.id}
+            roster={filteredRoster}
+            repertorioId={resolvedBlockId}
             supabase={supabase}
-            organicoRevisado={!!program?.organico_revisado}
-            organicoComentario={program?.organico_comentario ?? null}
-            onOrganicoSave={onRefreshGira}
+            organicoRevisado={!!activeBlockOrganico.organico_revisado}
+            organicoComentario={activeBlockOrganico.organico_comentario}
+            onOrganicoSave={handleActiveBlockOrganicoSave}
+            scopeLabel={activeBlockScopeLabel}
           />
         )}
         {showParticellaModal && (
@@ -2528,9 +2579,10 @@ export default function ProgramSeating({
           <IconUsers size={18} className="text-indigo-600 shrink-0" />
           <span className="truncate">Seating & Particellas</span>
           {showInstrumentationBadges && (() => {
-            const organicoRevisado = !!program?.organico_revisado;
-            const organicoComentario = program?.organico_comentario ?? null;
-            const hasWorks = obras.length > 0;
+            const organicoRevisado = !!activeBlockOrganico.organico_revisado;
+            const organicoComentario =
+              activeBlockOrganico.organico_comentario ?? null;
+            const hasWorks = obrasWithInstrumentationForActiveBlock.length > 0;
             const badgeBaseClass = getInstrumentationBadgeBaseClass({
               hasWorks,
               organicoRevisado,
@@ -2547,7 +2599,7 @@ export default function ProgramSeating({
                     <IconInfo size={14} />
                   </span>
                 )}
-                {obras.length > 0 && (
+                {obrasWithInstrumentationForActiveBlock.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setShowInstrumentationModal(true)}
@@ -2616,7 +2668,8 @@ export default function ProgramSeating({
                     setShowInstrumentationModal(true);
                   }}
                   className={`w-full px-3 py-2.5 text-left text-xs font-bold hover:bg-slate-50 flex items-center gap-2 border-b border-slate-100 ${
-                    hasInstrumentationMismatch && obras.length > 0
+                    hasInstrumentationMismatch &&
+                    obrasWithInstrumentationForActiveBlock.length > 0
                       ? "text-orange-700"
                       : "text-slate-700"
                   }`}
@@ -2625,7 +2678,8 @@ export default function ProgramSeating({
                   <IconAlertTriangle
                     size={16}
                     className={
-                      hasInstrumentationMismatch && obras.length > 0
+                      hasInstrumentationMismatch &&
+                      obrasWithInstrumentationForActiveBlock.length > 0
                         ? "text-orange-500"
                         : "text-slate-500"
                     }

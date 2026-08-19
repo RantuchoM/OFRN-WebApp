@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { IconX } from "../ui/Icons";
+import GiraGrupoChips from "../giras/GiraGrupoChips";
 import {
   getInstrumentValue,
   countsTowardInstrumentationConvoked,
@@ -47,7 +48,7 @@ function formatInstrumentCount(colId, count) {
 
 const SAVE_DEBOUNCE_MS = 500;
 
-export default function InstrumentationSummaryModal({
+function InstrumentationSummaryModalInner({
   isOpen,
   onClose,
   works = [],
@@ -55,10 +56,15 @@ export default function InstrumentationSummaryModal({
   convoked = {},
   roster = [],
   programId = null,
+  repertorioId = null,
   supabase = null,
   organicoRevisado: initialOrganicoRevisado = false,
   organicoComentario: initialOrganicoComentario = null,
   onOrganicoSave = null,
+  scopeLabel = null,
+  repertoireBlocks = [],
+  activeBlockId = null,
+  onSelectBlock = null,
 }) {
   const [organicoRevisado, setOrganicoRevisado] = useState(initialOrganicoRevisado);
   const [organicoComentario, setOrganicoComentario] = useState(initialOrganicoComentario ?? "");
@@ -72,17 +78,17 @@ export default function InstrumentationSummaryModal({
 
   const persistOrganico = useCallback(
     (payload) => {
-      if (!programId || !supabase) return;
+      if (!repertorioId || !supabase) return;
       supabase
-        .from("programas")
+        .from("programas_repertorios")
         .update(payload)
-        .eq("id", programId)
+        .eq("id", repertorioId)
         .then(() => {
-          onOrganicoSave?.(payload);
+          onOrganicoSave?.({ ...payload, id_repertorio: repertorioId });
         })
         .catch((e) => console.error("Error guardando validación de orgánico:", e));
     },
-    [programId, supabase, onOrganicoSave],
+    [repertorioId, supabase, onOrganicoSave],
   );
 
   const scheduleSave = useCallback(
@@ -122,7 +128,7 @@ export default function InstrumentationSummaryModal({
 
   if (typeof document === "undefined") return null;
 
-  const showValidationSection = programId && supabase;
+  const showValidationSection = repertorioId && supabase;
 
   const observationsByWorkId = useMemo(() => {
     const map = {};
@@ -498,7 +504,9 @@ export default function InstrumentationSummaryModal({
         <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-4">
           <div className="flex flex-col gap-1 min-w-0">
             <h3 className="text-sm font-bold text-slate-800">
-              Control de Instrumentación del Programa
+              {scopeLabel
+                ? `Control de Orgánico · ${scopeLabel}`
+                : "Control de Instrumentación del Programa"}
             </h3>
             {hasMismatch && (
               <span className="text-[10px] text-orange-600 font-medium">
@@ -515,6 +523,77 @@ export default function InstrumentationSummaryModal({
           </button>
         </div>
 
+        {repertoireBlocks.length > 1 && (
+          <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-3 pt-1.5">
+            <div
+              role="tablist"
+              aria-label="Bloques de repertorio"
+              className="flex items-end gap-1 overflow-x-auto"
+            >
+              {repertoireBlocks.map((block) => {
+                const isActive = Number(block.id) === Number(activeBlockId);
+                return (
+                  <button
+                    key={block.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => onSelectBlock?.(block.id)}
+                    className={`shrink-0 inline-flex items-center gap-1.5 rounded-t-lg px-3 py-2 text-xs font-semibold whitespace-nowrap transition-colors ${
+                      isActive
+                        ? "bg-white text-indigo-800 border border-b-white border-slate-200 -mb-px"
+                        : "text-slate-500 hover:text-slate-800 hover:bg-white/70"
+                    }`}
+                  >
+                    <span>{block.nombre || "Bloque"}</span>
+                    {block.grupos?.length > 0 ? (
+                      <GiraGrupoChips
+                        grupos={block.grupos}
+                        compact={!isActive}
+                      />
+                    ) : (
+                      <span className="text-[9px] font-medium text-slate-400 normal-case">
+                        Todos
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="px-4 py-3 border-b border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0">
+          <div className="rounded-lg border border-orange-200 bg-orange-50/60 px-3 py-2">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-orange-800 mb-1">
+              Hace falta convocar o reacomodar
+            </div>
+            {instrumentationGaps.needMore.length > 0 ? (
+              <p className="text-xs text-orange-900">
+                {instrumentationGaps.needMore.join(", ")}
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500">
+                No hay faltantes respecto al orgánico convocado.
+              </p>
+            )}
+          </div>
+          <div className="rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-sky-800 mb-1">
+              Se puede prescindir de
+            </div>
+            {instrumentationGaps.canSpare.length > 0 ? (
+              <p className="text-xs text-sky-900">
+                {instrumentationGaps.canSpare.join(", ")}
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500">
+                No hay músicos de más respecto al requerido.
+              </p>
+            )}
+          </div>
+        </div>
+
         {showValidationSection && (
           <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/70">
             <div className="text-[10px] font-bold uppercase text-slate-500 mb-2">
@@ -529,7 +608,7 @@ export default function InstrumentationSummaryModal({
                   className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
                 />
                 <span className="text-xs font-medium text-slate-700">
-                  Orgánico revisado (adaptación validada)
+                  Orgánico revisado (adaptación validada de este bloque)
                 </span>
               </label>
               <div className="flex-1 min-w-0">
@@ -600,7 +679,8 @@ export default function InstrumentationSummaryModal({
                       colSpan={1 + INSTRUMENT_COLUMNS.length}
                       className="px-3 py-6 text-center text-xs text-slate-400"
                     >
-                      No hay obras cargadas en este programa.
+                      No hay obras cargadas en{" "}
+                      {repertoireBlocks.length ? "este bloque" : "este programa"}.
                     </td>
                   </tr>
                 )}
@@ -637,41 +717,95 @@ export default function InstrumentationSummaryModal({
               )}
             </table>
           </div>
-
-          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="rounded-lg border border-orange-200 bg-orange-50/60 px-3 py-2">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-orange-800 mb-1">
-                Hace falta convocar o reacomodar
-              </div>
-              {instrumentationGaps.needMore.length > 0 ? (
-                <p className="text-xs text-orange-900">
-                  {instrumentationGaps.needMore.join(", ")}
-                </p>
-              ) : (
-                <p className="text-xs text-slate-500">
-                  No hay faltantes respecto al orgánico convocado.
-                </p>
-              )}
-            </div>
-            <div className="rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-sky-800 mb-1">
-                Se puede prescindir de
-              </div>
-              {instrumentationGaps.canSpare.length > 0 ? (
-                <p className="text-xs text-sky-900">
-                  {instrumentationGaps.canSpare.join(", ")}
-                </p>
-              ) : (
-                <p className="text-xs text-slate-500">
-                  No hay músicos de más respecto al requerido.
-                </p>
-              )}
-            </div>
-          </div>
         </div>
       </div>
     </div>,
     document.body,
+  );
+}
+
+export default function InstrumentationSummaryModal({
+  isOpen,
+  onClose,
+  works = [],
+  required = {},
+  convoked = {},
+  roster = [],
+  programId = null,
+  repertorioId = null,
+  supabase = null,
+  organicoRevisado = false,
+  organicoComentario = null,
+  onOrganicoSave = null,
+  scopeLabel = null,
+  repertoireBlocks = [],
+}) {
+  const [activeBlockId, setActiveBlockId] = useState(null);
+
+  const resolvedBlock = useMemo(() => {
+    if (!repertoireBlocks?.length) return null;
+    return (
+      repertoireBlocks.find((b) => Number(b.id) === Number(activeBlockId)) ||
+      repertoireBlocks[0]
+    );
+  }, [repertoireBlocks, activeBlockId]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setActiveBlockId(null);
+      return;
+    }
+    if (!repertoireBlocks?.length) return;
+    const stillValid = repertoireBlocks.some(
+      (b) => Number(b.id) === Number(activeBlockId),
+    );
+    if (!stillValid) setActiveBlockId(repertoireBlocks[0].id);
+  }, [isOpen, repertoireBlocks, activeBlockId]);
+
+  if (!isOpen) return null;
+
+  const fromBlock = !!resolvedBlock;
+  const blockWorks = fromBlock ? resolvedBlock.works || [] : works;
+  const blockRoster = fromBlock ? resolvedBlock.roster || [] : roster;
+  const blockRequired = fromBlock
+    ? resolvedBlock.required || required
+    : required;
+  const blockConvoked = fromBlock
+    ? resolvedBlock.convoked || convoked
+    : convoked;
+
+  return (
+    <InstrumentationSummaryModalInner
+      key={fromBlock ? resolvedBlock.id : repertorioId || "program"}
+      isOpen={isOpen}
+      onClose={onClose}
+      works={blockWorks}
+      required={blockRequired}
+      convoked={blockConvoked}
+      roster={blockRoster}
+      programId={programId}
+      repertorioId={fromBlock ? resolvedBlock.id : repertorioId}
+      supabase={supabase}
+      organicoRevisado={
+        fromBlock ? !!resolvedBlock.organico_revisado : organicoRevisado
+      }
+      organicoComentario={
+        fromBlock
+          ? resolvedBlock.organico_comentario ?? null
+          : organicoComentario
+      }
+      onOrganicoSave={onOrganicoSave}
+      scopeLabel={
+        fromBlock
+          ? repertoireBlocks.length > 1
+            ? null
+            : resolvedBlock.nombre || "Bloque"
+          : scopeLabel
+      }
+      repertoireBlocks={repertoireBlocks}
+      activeBlockId={resolvedBlock?.id ?? activeBlockId}
+      onSelectBlock={setActiveBlockId}
+    />
   );
 }
 

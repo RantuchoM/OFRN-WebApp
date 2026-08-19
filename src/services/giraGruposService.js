@@ -353,6 +353,18 @@ export function integranteIdsForRepertorioGrupos(grupos, blockGrupoIds) {
 }
 
 /**
+ * Roster que toca un bloque: unión de grupos asignados, o roster completo si el bloque no tiene grupos.
+ */
+export function filterRosterForRepertorioBlock(roster, grupos, block) {
+  const memberIds = integranteIdsForRepertorioGrupos(
+    grupos,
+    repertorioGrupoIdsFromBlock(block),
+  );
+  if (!memberIds) return roster || [];
+  return (roster || []).filter((m) => memberIds.has(String(m.id)));
+}
+
+/**
  * Copia los grupos default del vehículo a N eventos (reemplaza eventos_grupos).
  */
 export async function applyTransporteGruposToEventos(

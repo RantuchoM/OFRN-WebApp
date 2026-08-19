@@ -51,11 +51,20 @@ import {
   buildIntegranteGruposMap,
   fetchGiraGrupos,
   removeIntegranteFromGiraGrupo,
+  filterRosterForRepertorioBlock,
+  repertorioGruposMetaFromBlock,
 } from "../../services/giraGruposService";
 import { toast } from "sonner";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
 import UniversalExporter from "../../components/ui/UniversalExporter";
-import InstrumentationBadges from "../../components/instrumentation/InstrumentationBadges";
+import InstrumentationBadges, {
+  computeRequired,
+  computeConvoked,
+} from "../../components/instrumentation/InstrumentationBadges";
+import {
+  aggregateOrganicoFromBlocks,
+  mapRepertorioObrasToInstrumentationWorks,
+} from "../../utils/instrumentation";
 import { useAuth } from "../../context/AuthContext";
 import {
   integranteKey,
@@ -620,6 +629,7 @@ export default function GiraRoster({
   const [showInstrumentationModal, setShowInstrumentationModal] =
     useState(false);
   const [instrumentationWorks, setInstrumentationWorks] = useState([]);
+  const [instrumentationBlocks, setInstrumentationBlocks] = useState([]);
 
   const [motivoModalMusician, setMotivoModalMusician] = useState(null);
   const [showGruposModal, setShowGruposModal] = useState(false);
@@ -738,7 +748,8 @@ export default function GiraRoster({
           .from("programas_repertorios")
           .select(
             `
-            id, orden,
+            id, orden, nombre, organico_revisado, organico_comentario,
+            programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ),
             repertorio_obras (
               id, orden, excluir,
               obras (
@@ -761,47 +772,12 @@ export default function GiraRoster({
           .eq("id_programa", gira.id)
           .order("orden");
         if (error) throw error;
+        setInstrumentationBlocks(data || []);
         const works = [];
         (data || []).forEach((block) => {
-          (block.repertorio_obras || [])
-            .slice()
-            .sort((a, b) => (a.orden || 0) - (b.orden || 0))
-            .forEach((ro) => {
-              if (ro.excluir) return;
-              const obra = ro.obras;
-              if (!obra) return;
-              const ocList = Array.isArray(obra.obras_compositores)
-                ? obra.obras_compositores
-                : obra.obras_compositores
-                  ? [obra.obras_compositores]
-                  : [];
-              const firstEntry =
-                ocList.find(
-                  (oc) =>
-                    String(oc?.rol || "").toLowerCase().trim() === "compositor",
-                ) || null;
-              const lastName =
-                firstEntry && firstEntry.compositores
-                  ? firstEntry.compositores.apellido || ""
-                  : "";
-              const title = obra.titulo || "Obra";
-              const cleanTitle =
-                typeof title === "string"
-                  ? title.replace(/<[^>]*>?/gm, "")
-                  : "Obra";
-              works.push({
-                id: ro.id,
-                obra_id: obra.id,
-                composer: lastName || "S/D",
-                title: cleanTitle,
-                shortTitle: cleanTitle.split(/\s+/).slice(0, 3).join(" "),
-                obras_particellas: obra.obras_particellas || [],
-                instrumentacion_effective:
-                  obra.instrumentacion ||
-                  calculateInstrumentation(obra.obras_particellas || []) ||
-                  "",
-              });
-            });
+          mapRepertorioObrasToInstrumentationWorks(block.repertorio_obras).forEach(
+            (work) => works.push(work),
+          );
         });
         setInstrumentationWorks(works);
       } catch (err) {
@@ -810,6 +786,37 @@ export default function GiraRoster({
     };
     fetchWorks();
   }, [supabase, gira?.id]);
+
+  const organicoAgg = useMemo(
+    () => aggregateOrganicoFromBlocks(instrumentationBlocks),
+    [instrumentationBlocks],
+  );
+
+  const instrumentationBlockScopes = useMemo(
+    () =>
+      (instrumentationBlocks || []).map((block) => {
+        const works = mapRepertorioObrasToInstrumentationWorks(
+          block.repertorio_obras,
+        );
+        const roster = filterRosterForRepertorioBlock(
+          rawRoster,
+          giraGrupos,
+          block,
+        );
+        return {
+          id: block.id,
+          nombre: block.nombre || "Bloque",
+          works,
+          roster,
+          required: computeRequired(works),
+          convoked: computeConvoked(roster),
+          organico_revisado: !!block.organico_revisado,
+          organico_comentario: block.organico_comentario ?? null,
+          grupos: repertorioGruposMetaFromBlock(block),
+        };
+      }),
+    [instrumentationBlocks, rawRoster, giraGrupos],
+  );
 
   const renderInstrumentationStandardDiff = (map, otherMap) => {
     const keysOrder = [
@@ -2677,11 +2684,26 @@ export default function GiraRoster({
               <InstrumentationBadges
                   works={instrumentationWorks}
                   roster={rawRoster}
-                  organicoRevisado={!!gira?.organico_revisado}
-                  organicoComentario={gira?.organico_comentario ?? null}
-                  programId={gira?.id}
+                  organicoRevisado={!!organicoAgg.organico_revisado}
+                  organicoComentario={organicoAgg.organico_comentario}
+                  repertoireBlocks={instrumentationBlockScopes}
                   supabase={supabase}
-                  onOrganicoSave={onRefreshGira}
+                  onOrganicoSave={(payload) => {
+                    const blockId = payload?.id_repertorio;
+                    if (blockId == null) return;
+                    setInstrumentationBlocks((prev) =>
+                      prev.map((b) =>
+                        Number(b.id) === Number(blockId)
+                          ? {
+                              ...b,
+                              organico_revisado: !!payload.organico_revisado,
+                              organico_comentario:
+                                payload.organico_comentario ?? null,
+                            }
+                          : b,
+                      ),
+                    );
+                  }}
                   className="hidden md:flex flex-wrap items-center gap-1 ml-2"
                 />
             </h2>

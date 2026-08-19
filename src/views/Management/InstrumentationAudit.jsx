@@ -21,6 +21,7 @@ import {
   buildProgramInstrumentationAudit,
   computeInstrumentationRequiredConsolidated,
   hasInstrumentationDeficit,
+  aggregateOrganicoFromBlocks,
 } from "../../utils/instrumentation";
 import { fetchRosterForGira } from "../../hooks/useGiraRoster";
 import { getProgramStyle } from "../../utils/giraUtils";
@@ -718,23 +719,33 @@ export default function InstrumentationAudit({ supabase }) {
     setWorkFormInitialData({});
   };
 
-  const organicoSaveTimeoutRef = useRef(null);
+  const organicoSaveTimeoutsRef = useRef({});
   const saveOrganicoValidation = useCallback(
-    (programId, payload) => {
+    (blockId, programId, payload) => {
       setPrograms((prev) =>
-        prev.map((q) =>
-          q.id === programId ? { ...q, ...payload } : q,
-        ),
+        prev.map((q) => {
+          if (q.id !== programId) return q;
+          const blocks = (q._blocks || []).map((b) =>
+            Number(b.id) === Number(blockId) ? { ...b, ...payload } : b,
+          );
+          const agg = aggregateOrganicoFromBlocks(blocks);
+          return {
+            ...q,
+            _blocks: blocks,
+            organico_revisado: agg.organico_revisado,
+            organico_comentario: agg.organico_comentario,
+          };
+        }),
       );
-      if (organicoSaveTimeoutRef.current)
-        clearTimeout(organicoSaveTimeoutRef.current);
-      organicoSaveTimeoutRef.current = setTimeout(async () => {
-        organicoSaveTimeoutRef.current = null;
+      const timeouts = organicoSaveTimeoutsRef.current;
+      if (timeouts[blockId]) clearTimeout(timeouts[blockId]);
+      timeouts[blockId] = setTimeout(async () => {
+        delete timeouts[blockId];
         try {
           await supabase
-            .from("programas")
+            .from("programas_repertorios")
             .update(payload)
-            .eq("id", programId);
+            .eq("id", blockId);
         } catch (e) {
           console.error("Error guardando validación de orgánico:", e);
         }
@@ -744,8 +755,9 @@ export default function InstrumentationAudit({ supabase }) {
   );
   useEffect(
     () => () => {
-      if (organicoSaveTimeoutRef.current)
-        clearTimeout(organicoSaveTimeoutRef.current);
+      Object.values(organicoSaveTimeoutsRef.current).forEach((t) =>
+        clearTimeout(t),
+      );
     },
     [],
   );
@@ -827,7 +839,7 @@ export default function InstrumentationAudit({ supabase }) {
           const { data: blocks, error: blocksError } = await supabase
             .from("programas_repertorios")
             .select(
-              `id, id_programa, orden, nombre,
+              `id, id_programa, orden, nombre, organico_revisado, organico_comentario,
                repertorio_obras (
                  id, id_obra, orden, excluir, titulo_placeholder, instrumentacion_placeholder,
                  tiene_asignaciones_multiples,
@@ -997,8 +1009,11 @@ export default function InstrumentationAudit({ supabase }) {
             all,
             partsMax,
           );
+          const organicoAgg = aggregateOrganicoFromBlocks(blocks);
           return {
             ...p,
+            organico_revisado: organicoAgg.organico_revisado,
+            organico_comentario: organicoAgg.organico_comentario,
             _blocks: blocks,
             _worksAudit: workRows,
             _roster: rosterByProgram[p.id] || [],
@@ -1658,7 +1673,7 @@ export default function InstrumentationAudit({ supabase }) {
                         <IconCheckCircle
                           size={14}
                           className="text-blue-600 shrink-0"
-                          title="Adaptación validada"
+                          title="Todos los bloques validados"
                         />
                       )}
                       {p.organico_comentario && (
@@ -1670,37 +1685,54 @@ export default function InstrumentationAudit({ supabase }) {
                         </span>
                       )}
                     </div>
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={!!p.organico_revisado}
-                          onChange={(e) =>
-                            saveOrganicoValidation(p.id, {
-                              organico_revisado: e.target.checked,
-                              organico_comentario: p.organico_comentario ?? null,
-                            })
-                          }
-                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="text-xs font-medium text-slate-700">
-                          Orgánico revisado (adaptación validada)
-                        </span>
-                      </label>
-                      <div className="flex-1 min-w-0">
-                        <textarea
-                          placeholder="Comentario sobre adaptaciones artísticas (opcional)"
-                          value={p.organico_comentario ?? ""}
-                          onChange={(e) =>
-                            saveOrganicoValidation(p.id, {
-                              organico_revisado: p.organico_revisado ?? false,
-                              organico_comentario: e.target.value.trim() || null,
-                            })
-                          }
-                          className="w-full text-xs border border-slate-300 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-                          rows={2}
-                        />
-                      </div>
+                    <div className="flex flex-col gap-3">
+                      {(p._blocks || []).map((block) => (
+                        <div
+                          key={block.id}
+                          className="flex flex-col sm:flex-row gap-3"
+                        >
+                          <label className="flex items-center gap-2 cursor-pointer sm:min-w-[16rem]">
+                            <input
+                              type="checkbox"
+                              checked={!!block.organico_revisado}
+                              onChange={(e) =>
+                                saveOrganicoValidation(block.id, p.id, {
+                                  organico_revisado: e.target.checked,
+                                  organico_comentario:
+                                    block.organico_comentario ?? null,
+                                })
+                              }
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span className="text-xs font-medium text-slate-700">
+                              {(p._blocks || []).length > 1
+                                ? `${block.nombre || "Bloque"}: revisado`
+                                : "Orgánico revisado (adaptación validada)"}
+                            </span>
+                          </label>
+                          <div className="flex-1 min-w-0">
+                            <textarea
+                              placeholder="Comentario sobre adaptaciones artísticas (opcional)"
+                              value={block.organico_comentario ?? ""}
+                              onChange={(e) =>
+                                saveOrganicoValidation(block.id, p.id, {
+                                  organico_revisado:
+                                    block.organico_revisado ?? false,
+                                  organico_comentario:
+                                    e.target.value.trim() || null,
+                                })
+                              }
+                              className="w-full text-xs border border-slate-300 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                              rows={2}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      {(p._blocks || []).length === 0 && (
+                        <p className="text-xs text-slate-500">
+                          No hay bloques de repertorio para validar.
+                        </p>
+                      )}
                     </div>
                   </div>
                   <ProgramWorksTable

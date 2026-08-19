@@ -26,7 +26,7 @@ function createEmptyInstrumentationMap() {
   };
 }
 
-function computeRequired(works) {
+export function computeRequired(works) {
   if (!works || works.length === 0) return createEmptyInstrumentationMap();
   const acc = createEmptyInstrumentationMap();
 
@@ -101,7 +101,7 @@ function computeRequired(works) {
   return acc;
 }
 
-function computeConvoked(roster) {
+export function computeConvoked(roster) {
   const acc = createEmptyInstrumentationMap();
   if (!roster || roster.length === 0) return acc;
 
@@ -418,8 +418,11 @@ export default function InstrumentationBadges({
   organicoRevisado = false,
   organicoComentario = null,
   programId = null,
+  repertorioId = null,
   supabase = null,
   onOrganicoSave = null,
+  scopeLabel = null,
+  repertoireBlocks = [],
 }) {
   const [showModal, setShowModal] = useState(false);
 
@@ -522,10 +525,13 @@ export default function InstrumentationBadges({
           convoked={convoked}
           roster={roster}
           programId={programId}
+          repertorioId={repertorioId}
           supabase={supabase}
           organicoRevisado={organicoRevisado}
           organicoComentario={organicoComentario}
           onOrganicoSave={onOrganicoSave}
+          scopeLabel={scopeLabel}
+          repertoireBlocks={repertoireBlocks}
         />
       )}
     </>
