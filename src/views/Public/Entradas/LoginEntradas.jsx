@@ -138,7 +138,7 @@ export default function LoginEntradas({
             />
           </div>
           <p className={`text-sm ${ui.subtitle}`}>
-            Entrá con contraseña o con un enlace al mail. Si todavía no tenés clave, creala desde acá.
+            Entrá con contraseña o con un enlace al mail. Si tenés usuario de OFRN, usá la misma clave.
           </p>
         </div>
 
@@ -155,7 +155,7 @@ export default function LoginEntradas({
                 className={ui.input}
                 placeholder="tu.mail@dominio.com"
               />
-              <label className={ui.label}>Contraseña (si ya creaste una)</label>
+              <label className={ui.label}>Contraseña</label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
@@ -163,7 +163,7 @@ export default function LoginEntradas({
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   className={`${ui.input} pr-10`}
-                  placeholder="Si definiste una"
+                  placeholder="La de OFRN, o la que creaste acá"
                 />
                 <button
                   type="button"

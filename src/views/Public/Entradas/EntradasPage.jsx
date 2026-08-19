@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import "../../../styles/entradas-filarmonica.css";
 import { entradasUi, useEntradasDarkMode } from "../../../hooks/useEntradasDarkMode";
 import { supabaseEntradasPublic } from "../../../services/supabase";
-import { getEntradasSessionProfile, verifyEntradasMagicLink } from "../../../services/entradaService";
+import { getEntradasSessionProfile, signInEntradasFromOfrnApp, verifyEntradasMagicLink } from "../../../services/entradaService";
+import { useAuth } from "../../../context/AuthContext";
 import {
   clearMagicTokenFromUrl,
   readMagicTokenFromSearch,
@@ -13,6 +14,7 @@ import EntradasMain from "./EntradasMain";
 
 export default function EntradasPage() {
   const { isDark } = useEntradasDarkMode();
+  const { realUser, isGuest } = useAuth();
   const ui = entradasUi(isDark);
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -21,6 +23,7 @@ export default function EntradasPage() {
   const [profileChecked, setProfileChecked] = useState(false);
   const [magicLinkPending, setMagicLinkPending] = useState(false);
   const [passwordPrompt, setPasswordPrompt] = useState(null);
+  const [ofrnSsoPending, setOfrnSsoPending] = useState(false);
   const activeUserIdRef = useRef(null);
 
   const loadProfile = useCallback(async () => {
@@ -69,6 +72,22 @@ export default function EntradasPage() {
         } finally {
           if (!cancelled) setMagicLinkPending(false);
         }
+      } else if (!cancelled && realUser && !isGuest) {
+        const ofrnEmail = String(realUser.mail || realUser.email_acceso || "").trim().toLowerCase();
+        const payload = await getEntradasSessionProfile();
+        const sessionEmail = String(payload.session?.user?.email || "").trim().toLowerCase();
+        const alreadySameUser = Boolean(sessionEmail && ofrnEmail && sessionEmail === ofrnEmail);
+        if (!alreadySameUser) {
+          setOfrnSsoPending(true);
+          try {
+            const signedIn = await signInEntradasFromOfrnApp(realUser);
+            if (signedIn && !cancelled) setPasswordPrompt(null);
+          } catch {
+            /* público o clave OFRN no usable: sigue el login de Entradas */
+          } finally {
+            if (!cancelled) setOfrnSsoPending(false);
+          }
+        }
       }
 
       if (!cancelled) await loadProfile();
@@ -77,7 +96,7 @@ export default function EntradasPage() {
     return () => {
       cancelled = true;
     };
-  }, [loadProfile]);
+  }, [loadProfile, isGuest, realUser?.id, realUser?.mail, realUser?.email_acceso, realUser?.clave_acceso]);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,11 +146,15 @@ export default function EntradasPage() {
     || passwordPrompt === "required"
     || (passwordPrompt === "optional" && !profile?.password_set_at);
 
-  if (loading || magicLinkPending || (session?.user && !profileChecked)) {
+  if (loading || magicLinkPending || ofrnSsoPending || (session?.user && !profileChecked)) {
     return (
       <div className={`${ui.page} flex items-center justify-center`}>
         <span className={`text-sm font-semibold uppercase tracking-wide ${ui.textMuted}`}>
-          {magicLinkPending ? "Accediendo con enlace seguro…" : "Cargando entradas…"}
+          {magicLinkPending
+            ? "Accediendo con enlace seguro…"
+            : ofrnSsoPending
+              ? "Entrando con tu usuario OFRN…"
+              : "Cargando entradas…"}
         </span>
       </div>
     );

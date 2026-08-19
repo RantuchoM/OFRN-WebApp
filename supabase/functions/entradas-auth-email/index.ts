@@ -1,6 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import nodemailer from "npm:nodemailer@6.9.7";
+import {
+  applyOfrnDefaultPassword,
+  lookupOfrnIntegranteForEntradas,
+  MIN_GOTRUE_PASSWORD_LENGTH,
+  verifyOfrnIntegranteCredentials,
+} from "../_shared/ofrnEntradasPassword.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -279,14 +285,18 @@ async function completeEmailAuth(
 }
 
 /** Crea el usuario Auth si no existe, sin rotar una contraseña que el usuario ya definió. */
-async function ensureAuthUserExists(admin: AdminClient, email: string): Promise<void> {
+async function ensureAuthUserExists(admin: AdminClient, email: string): Promise<string | null> {
   const { data: mappedUser, error: mappedErr } = await admin
     .from("entrada_auth_email_user")
     .select("user_id")
     .eq("email", email)
     .maybeSingle();
   throwDbError(mappedErr, "entrada_auth_email_user");
-  if (mappedUser?.user_id) return;
+  if (mappedUser?.user_id) {
+    const existingId = String(mappedUser.user_id);
+    await applyOfrnDefaultPassword(admin, email, existingId);
+    return existingId;
+  }
 
   const tempPassword = crypto.randomUUID().replace(/-/g, "");
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
@@ -318,6 +328,8 @@ async function ensureAuthUserExists(admin: AdminClient, email: string): Promise<
   if (createdOk) mapRow.auth_password_plain = tempPassword;
   const { error: mapInsertErr } = await admin.from("entrada_auth_email_user").upsert(mapRow, { onConflict: "email" });
   throwDbError(mapInsertErr, "mapear usuario");
+  await applyOfrnDefaultPassword(admin, email, userId);
+  return userId;
 }
 
 /**
@@ -453,9 +465,6 @@ serve(async (req) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       throw new Error("Falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY.");
     }
-    if (!GMAIL_USER || !GMAIL_PASS) {
-      throw new Error("Falta ENTRADAS_GMAIL_USER/ENTRADAS_GMAIL_PASS o GMAIL_USER/GMAIL_PASS.");
-    }
 
     const body = await req.json();
     const action = String(body?.action || "");
@@ -469,6 +478,47 @@ serve(async (req) => {
     const userAgent = req.headers.get("user-agent") || "unknown";
 
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    if (action === "bootstrap_ofrn_password") {
+      if (!isValidEmail(email)) {
+        return new Response(JSON.stringify({ error: "Email inválido." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const integrante = await lookupOfrnIntegranteForEntradas(admin, email);
+      const clave = String(integrante?.clave_acceso || "").trim();
+      if (clave.length >= MIN_GOTRUE_PASSWORD_LENGTH) {
+        await ensureAuthUserExists(admin, email);
+      }
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "sso_ofrn") {
+      const ofrnPassword = String(body?.password || "");
+      if (!isValidEmail(email) || !ofrnPassword) {
+        return new Response(JSON.stringify({ error: "Credenciales OFRN incompletas." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const integrante = await verifyOfrnIntegranteCredentials(admin, email, ofrnPassword);
+      if (!integrante) {
+        return new Response(JSON.stringify({ error: "Credenciales OFRN inválidas." }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      await ensureAuthUserExists(admin, email);
+      const authPayload = await issueSessionPayload(admin, email);
+      return new Response(JSON.stringify({ success: true, purpose: "access", ...authPayload }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (action === "verify_magic_link") {
       const token = String(body?.token || "").trim().toLowerCase();
@@ -536,6 +586,12 @@ serve(async (req) => {
     const requestMagicLink = action === "request_magic_link"
       || action === "request_password_reset"
       || (action === "request_code" && app === "entradas");
+
+    if (requestMagicLink || action === "request_code") {
+      if (!GMAIL_USER || !GMAIL_PASS) {
+        throw new Error("Falta ENTRADAS_GMAIL_USER/ENTRADAS_GMAIL_PASS o GMAIL_USER/GMAIL_PASS.");
+      }
+    }
 
     if (requestMagicLink) {
       const purpose = action === "request_password_reset" ? "reset" : "access";

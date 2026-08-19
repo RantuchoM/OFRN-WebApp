@@ -23,7 +23,7 @@ export function formatEntradasAuthError(errorOrMessage, { action = "request" } =
   const raw = rawAuthErrorMessage(errorOrMessage);
   if (action === "password") {
     if (/invalid login credentials|invalid_credentials|email not confirmed/i.test(raw)) {
-      return "Mail o contraseña incorrectos. Si no definiste una contraseña, pedí un enlace de acceso.";
+      return "Mail o contraseña incorrectos. Si tenés usuario OFRN, usá esa misma clave. Si no, pedí un enlace de acceso.";
     }
     if (!raw) return "No se pudo entrar con esa contraseña. Intentá de nuevo.";
   }

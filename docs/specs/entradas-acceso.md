@@ -31,6 +31,8 @@ Edge Function `entradas-auth-email`:
 | `request_password_reset` | Enlace de restauración (`purpose=reset`). |
 | `verify_magic_link` | Consume el token; sesión vía `generateLink` + `token_hash` (no rota la clave del usuario). |
 | `request_code` / `verify_code` | Solo SCRN / viáticos (OTP 8 dígitos). |
+| `bootstrap_ofrn_password` | Siembra `clave_acceso` de OFRN en GoTrue si aún no hay clave propia en Entradas. |
+| `sso_ofrn` | Login desde la app OFRN: verifica `integrantes` y emite sesión. |
 
 RPC `entrada_mark_password_set()` marca `entrada_usuario.password_set_at`.
 
@@ -50,9 +52,25 @@ RPC `entrada_mark_password_set()` marca `entrada_usuario.password_set_at`.
 - `EntradasSetPasswordForm.jsx` / `EntradasPasswordModal.jsx` (portal `z-[100]`).
 - Header de `EntradasMain.jsx` — ícono de candado.
 
+## Usuarios OFRN (`integrantes`)
+
+Quienes ya tienen mail + `clave_acceso` en `integrantes` entran a `/entradas` con **la misma clave**, sin tener que crear otra.
+
+- Se aplica como **primera contraseña** si todavía no hay `entrada_usuario.password_set_at` (cuentas nuevas y las que solo usaron el enlace).
+- Si ya definieron una contraseña propia en Entradas, no se pisa.
+- GoTrue pide al menos 6 caracteres: si `clave_acceso` es más corta, siguen entrando con el enlace al mail o por SSO desde la app.
+- El perfil (nombre/apellido) se completa desde el integrante cuando coincide el mail (`mail` o `email_acceso`).
+- Acción `bootstrap_ofrn_password`: si el login con clave falla, el cliente la dispara y reintenta.
+- Acción `sso_ofrn`: verifica mail + `clave_acceso` contra `integrantes` y emite sesión GoTrue. El botón **Entradas** del sidebar abre `/entradas` ya logueado.
+- Pre-registro admin (`entradas-admin-invite-user`) también siembra la clave OFRN.
+
+**Importante:** no se escribe `clave_acceso` en `auth_password_plain` (el broker del enlace mágico sigue siendo interno).
+
 ## Completado
 
 - [x] Quitar código numérico en Entradas.
 - [x] Enlace de acceso por mail.
 - [x] Contraseña opcional + restaurar.
 - [x] Migración en el repo (sin aplicar a BD en este cambio).
+- [x] Contraseña por defecto = `integrantes.clave_acceso` para UX OFRN (también cuentas ya existentes sin clave propia).
+- [x] SSO: desde el sidebar de la app OFRN, Entradas abre con sesión.

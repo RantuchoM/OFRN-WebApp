@@ -4,6 +4,7 @@
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { applyOfrnDefaultPassword } from "../_shared/ofrnEntradasPassword.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -218,6 +219,8 @@ serve(async (req) => {
       .select("id, email, nombre, apellido, rol, activo")
       .single();
     if (upsertErr) throw new Error(upsertErr.message);
+
+    await applyOfrnDefaultPassword(admin, email, userId);
 
     return new Response(
       JSON.stringify({

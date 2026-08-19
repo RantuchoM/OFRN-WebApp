@@ -116,13 +116,56 @@ export async function requestEntradasPasswordReset(email, app = "entradas") {
 
 export async function signInEntradasWithPassword(email, password) {
   const normalizedEmail = String(email || "").trim().toLowerCase();
-  const { error } = await supabaseEntradasPublic.auth.signInWithPassword({
-    email: normalizedEmail,
-    password: String(password || ""),
-  });
+  const plain = String(password || "");
+  const trySignIn = () =>
+    supabaseEntradasPublic.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: plain,
+    });
+
+  let { error } = await trySignIn();
+  if (error) {
+    try {
+      await supabase.functions.invoke("entradas-auth-email", {
+        body: { action: "bootstrap_ofrn_password", email: normalizedEmail },
+      });
+      ({ error } = await trySignIn());
+    } catch {
+      /* el mensaje que importa es el del login */
+    }
+  }
   if (error) {
     throw new Error(formatEntradasAuthError(error, { action: "password" }));
   }
+}
+
+function ofrnIntegranteLoginEmail(integrante) {
+  const mail = String(integrante?.mail || "").trim().toLowerCase();
+  if (mail.includes("@")) return mail;
+  const acceso = String(integrante?.email_acceso || "").trim().toLowerCase();
+  return acceso.includes("@") ? acceso : "";
+}
+
+export async function signInEntradasFromOfrnApp(integrante) {
+  const email = ofrnIntegranteLoginEmail(integrante);
+  const password = String(integrante?.clave_acceso || "");
+  if (!email || !password) return false;
+  if (integrante?.id === "guest-general") return false;
+
+  const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
+    body: { action: "sso_ofrn", email, password },
+  });
+  const payload = await assertEntradasAuthInvokeResult({ data, error }, "verify");
+  await signInAfterEntradasAuthPayload(payload, "entradas");
+
+  const sessionProfile = await getEntradasSessionProfile();
+  if (!sessionProfile.profile) {
+    await ensureEntradaProfile({
+      nombre: String(integrante?.nombre || "").trim() || "—",
+      apellido: String(integrante?.apellido || "").trim() || "—",
+    });
+  }
+  return true;
 }
 
 const MIN_ENTRADAS_PASSWORD_LENGTH = 8;

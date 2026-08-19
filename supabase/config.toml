@@ -55,6 +55,13 @@ verify_jwt = true
 import_map = "./functions/entradas-admin-invite-user/deno.json"
 entrypoint = "./functions/entradas-admin-invite-user/index.ts"
 
+[functions.entradas-auth-email]
+enabled = true
+verify_jwt = false
+import_map = "./functions/entradas-auth-email/deno.json"
+entrypoint = "./functions/entradas-auth-email/index.ts"
+# Login público (enlace, SSO OFRN, bootstrap de clave). No exigir JWT de GoTrue.
+
 [functions.db-backup-cron]
 enabled = true
 verify_jwt = false
