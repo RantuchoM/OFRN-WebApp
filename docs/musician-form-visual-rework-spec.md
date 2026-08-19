@@ -131,4 +131,5 @@
   - Falta aplicar `condicionColors` y el encabezado dinámico en `MusicianForm.jsx`.
   - Falta reorganizar `domicilio`, `domicilio_laboral`, `genero`, `alimentacion` y `nota_interna` en la estructura de grid 2x2 + columna de notas dentro de la sección personal.
   - **DJ (`domicilio_laboral` del PDF)**: `{dirección de sede / domicilio de viáticos}, de la localidad de {localidad de viáticos}, de la Provincia de Río Negro`. Fallback de localidad: localidad de la locación; si no hay sede, `Zatti 287, de la localidad de Viedma, de la Provincia de Río Negro`. Generación en `generateDJInternal` (`manage-drive`) y `formatDomicilioLaboralDj`.
+  - **Reexport masivo** (`reexport_docs_packs`): regenera DJ + documentación + documentación reducida para integrantes con **firma**, **domicilio** (texto o sede laboral) y al menos un PDF de expediente ya existente. Lotes de 1 por timeout/memoria de Edge Function. `dryRun: true` lista elegibles. `skipIfModifiedAfter` evita reprocesar.
 

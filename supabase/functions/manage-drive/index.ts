@@ -1622,6 +1622,134 @@ async function assemblePDFInternal(sources: string[], layout: "full" | "mosaic")
   return await pdfDoc.save();
 }
 
+const DJ_TEMPLATE_URL =
+  "https://raw.githubusercontent.com/rantuchom/OFRN-webapp/main/public/plantillas/plantilla_dj.pdf";
+
+const MUSICIAN_DJ_SELECT =
+  `*, residencia:localidades!id_localidad(localidad), viaticos:localidades!id_loc_viaticos(localidad), laboral:locaciones!id_domicilio_laboral(nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad))`;
+
+function hasFirmaAdjunto(m: any) {
+  return Boolean((m?.firma || "").toString().trim());
+}
+
+function hasDomicilioParaDj(m: any) {
+  const personal = (m?.domicilio || "").toString().trim();
+  const laboralDir = (m?.laboral?.direccion || "").toString().trim();
+  return Boolean(personal || laboralDir || m?.id_domicilio_laboral);
+}
+
+function hasExpedienteExistente(m: any) {
+  return Boolean(
+    (m?.link_declaracion || "").toString().trim() ||
+      (m?.documentacion || "").toString().trim() ||
+      (m?.docred || "").toString().trim(),
+  );
+}
+
+async function fetchMusicianForDj(supabase: any, musicianId: number) {
+  let { data: m, error: mError } = await supabase
+    .from("integrantes")
+    .select(MUSICIAN_DJ_SELECT)
+    .eq("id", musicianId)
+    .single();
+  if (mError) {
+    console.error("[fetchMusicianForDj] Error consultando integrante:", mError);
+    const { data: mBasic, error: basicError } = await supabase
+      .from("integrantes")
+      .select(`*, residencia:localidades!id_localidad(localidad)`)
+      .eq("id", musicianId)
+      .single();
+    if (basicError || !mBasic) {
+      throw new Error(`Error al obtener datos del músico: ${mError.message}`);
+    }
+    m = mBasic;
+  }
+  if (!m) throw new Error("Músico no encontrado");
+  if (m.id_domicilio_laboral && !m.laboral) {
+    const { data: locacion } = await supabase
+      .from("locaciones")
+      .select(
+        "nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad)",
+      )
+      .eq("id", m.id_domicilio_laboral)
+      .single();
+    if (locacion) m.laboral = locacion;
+  }
+  return m;
+}
+
+async function assembleFullPackForMusician(
+  supabase: any,
+  m: any,
+  templateRes: ArrayBuffer,
+) {
+  const oldFiles = [
+    extractStoragePath(m.link_declaracion, "musician-docs"),
+    extractStoragePath(m.documentacion, "musician-docs"),
+    extractStoragePath(m.docred, "musician-docs"),
+  ].filter(Boolean) as string[];
+
+  if (oldFiles.length > 0) {
+    await supabase.storage.from("musician-docs").remove(oldFiles);
+  }
+
+  const firmaRes = m.firma ? await fetch(m.firma).then((r) => r.arrayBuffer()) : null;
+  const djBytes = await generateDJInternal(m, templateRes, firmaRes);
+  const cleanSurname = sanitizePath(m.apellido);
+  const djPath = `docs/dj_${cleanSurname}_${Date.now()}.pdf`;
+
+  throwIfStorageUploadError(
+    await supabase.storage
+      .from("musician-docs")
+      .upload(djPath, djBytes, { contentType: "application/pdf", upsert: true }),
+    `upload DJ (${djPath})`,
+  );
+  const {
+    data: { publicUrl: djUrl },
+  } = supabase.storage.from("musician-docs").getPublicUrl(djPath);
+
+  const packSources = [m.link_dni_img, m.link_cuil, m.link_cbu_img, djUrl].filter(
+    (u) => !!u,
+  );
+  const [fullBytes, mosaicBytes] = await Promise.all([
+    assemblePDFInternal(packSources, "full"),
+    assemblePDFInternal(packSources, "mosaic"),
+  ]);
+
+  const fullPath = `docs/full_${cleanSurname}_${Date.now()}.pdf`;
+  const mosPath = `docs/mos_${cleanSurname}_${Date.now()}.pdf`;
+
+  const [upFull, upMos] = await Promise.all([
+    supabase.storage
+      .from("musician-docs")
+      .upload(fullPath, fullBytes, { contentType: "application/pdf", upsert: true }),
+    supabase.storage
+      .from("musician-docs")
+      .upload(mosPath, mosaicBytes, { contentType: "application/pdf", upsert: true }),
+  ]);
+  throwIfStorageUploadError(upFull, `upload expediente full (${fullPath})`);
+  throwIfStorageUploadError(upMos, `upload expediente mosaic (${mosPath})`);
+
+  const {
+    data: { publicUrl: fullUrl },
+  } = supabase.storage.from("musician-docs").getPublicUrl(fullPath);
+  const {
+    data: { publicUrl: mosUrl },
+  } = supabase.storage.from("musician-docs").getPublicUrl(mosPath);
+
+  await supabase
+    .from("integrantes")
+    .update({
+      link_declaracion: djUrl,
+      documentacion: fullUrl,
+      docred: mosUrl,
+      last_modified_at: new Date().toISOString(),
+    })
+    .eq("id", m.id);
+
+  return { dj: djUrl, full: fullUrl, mosaic: mosUrl };
+}
+
 // =================================================================================
 // SERVER PRINCIPAL
 // =================================================================================
@@ -2133,71 +2261,98 @@ serve(async (req) => {
 
     // --- ACCIÓN: COMBO EXPEDIENTE COMPLETO ---
     if (action === "assemble_full_pack") {
-      let { data: m, error: mError } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad), viaticos:localidades!id_loc_viaticos(localidad), laboral:locaciones!id_domicilio_laboral(nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad))`).eq("id", musicianId).single();
-      if (mError) {
-        console.error("[assemble_full_pack] Error consultando integrante:", mError);
-        // Intentar sin la relación laboral si falla
-        const { data: mBasic, error: basicError } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad)`).eq("id", musicianId).single();
-        if (basicError || !mBasic) throw new Error(`Error al obtener datos del músico: ${mError.message}`);
-        m = mBasic;
+      const m = await fetchMusicianForDj(supabase, musicianId);
+      const pdfRes = await fetch(DJ_TEMPLATE_URL).then((r) => r.arrayBuffer());
+      const urls = await assembleFullPackForMusician(supabase, m, pdfRes);
+      return new Response(JSON.stringify({ success: true, urls }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // --- ACCIÓN: REEXPORTAR DJ + EXPEDIENTE + MOSAICO (lote) ---
+    // Elegibles: firma + domicilio (personal o sede) + ya tienen DJ/documentacion/docred.
+    if (action === "reexport_docs_packs") {
+      const dryRun = Boolean(body.dryRun);
+      const batchLimit = Math.min(Math.max(Number(body.limit) || 1, 1), 8);
+      const requestedIds = Array.isArray(body.musicianIds)
+        ? body.musicianIds.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id))
+        : null;
+      const skipIfModifiedAfter = body.skipIfModifiedAfter
+        ? Date.parse(String(body.skipIfModifiedAfter))
+        : NaN;
+
+      const { data: rows, error: listError } = await supabase
+        .from("integrantes")
+        .select(
+          "id, apellido, nombre, firma, domicilio, id_domicilio_laboral, link_declaracion, documentacion, docred, last_modified_at",
+        )
+        .order("id");
+      if (listError) throw new Error(`Error listando integrantes: ${listError.message}`);
+
+      const eligible = (rows || []).filter((row: any) => {
+        if (!hasFirmaAdjunto(row) || !hasDomicilioParaDj(row) || !hasExpedienteExistente(row)) {
+          return false;
+        }
+        if (Number.isFinite(skipIfModifiedAfter) && row.last_modified_at) {
+          const modified = Date.parse(row.last_modified_at);
+          if (Number.isFinite(modified) && modified >= skipIfModifiedAfter) return false;
+        }
+        return true;
+      });
+      const eligibleIdSet = new Set(eligible.map((row: any) => Number(row.id)));
+      const eligibleIds = eligible.map((row: any) => Number(row.id));
+      const targetIds = requestedIds?.length
+        ? requestedIds.filter((id: number) => eligibleIdSet.has(id))
+        : eligibleIds;
+
+      if (dryRun) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            dryRun: true,
+            totalEligible: eligibleIds.length,
+            ids: eligibleIds,
+            people: eligible.map((row: any) => ({
+              id: row.id,
+              nombre: `${row.apellido}, ${row.nombre}`,
+            })),
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
-      if (!m) throw new Error("Músico no encontrado");
 
-      // Si hay id_domicilio_laboral, obtener la locación y su localidad por separado
-      if (m.id_domicilio_laboral && !m.laboral) {
-        const { data: locacion } = await supabase.from("locaciones").select("nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad)").eq("id", m.id_domicilio_laboral).single();
-        if (locacion) m.laboral = locacion;
+      const batchIds = targetIds.slice(0, batchLimit);
+      const pdfRes = await fetch(DJ_TEMPLATE_URL).then((r) => r.arrayBuffer());
+      const processed: any[] = [];
+      const errors: any[] = [];
+
+      for (const id of batchIds) {
+        try {
+          const m = await fetchMusicianForDj(supabase, id);
+          if (!hasFirmaAdjunto(m) || !hasDomicilioParaDj(m)) {
+            errors.push({ id, error: "Falta firma o domicilio al reexportar" });
+            continue;
+          }
+          await assembleFullPackForMusician(supabase, m, pdfRes);
+          processed.push({
+            id,
+            nombre: `${m.apellido}, ${m.nombre}`,
+          });
+        } catch (e) {
+          errors.push({ id, error: (e as Error).message });
+        }
       }
 
-      // LIMPIEZA PREVIA DEL BUCKET
-      const oldFiles = [
-        extractStoragePath(m.link_declaracion, "musician-docs"),
-        extractStoragePath(m.documentacion, "musician-docs"),
-        extractStoragePath(m.docred, "musician-docs")
-      ].filter(Boolean) as string[];
-
-      if (oldFiles.length > 0) {
-        await supabase.storage.from("musician-docs").remove(oldFiles);
-      }
-
-      const TEMPLATE_URL = "https://raw.githubusercontent.com/rantuchom/OFRN-webapp/main/public/plantillas/plantilla_dj.pdf";
-      const [pdfRes, firmaRes] = await Promise.all([
-        fetch(TEMPLATE_URL).then(r => r.arrayBuffer()),
-        m.firma ? fetch(m.firma).then(r => r.arrayBuffer()) : null
-      ]);
-
-      const djBytes = await generateDJInternal(m, pdfRes, firmaRes);
-      const cleanSurname = sanitizePath(m.apellido);
-      const djPath = `docs/dj_${cleanSurname}_${Date.now()}.pdf`;
-
-      throwIfStorageUploadError(
-        await supabase.storage.from("musician-docs").upload(djPath, djBytes, { contentType: 'application/pdf', upsert: true }),
-        `upload DJ (${djPath})`,
+      return new Response(
+        JSON.stringify({
+          success: true,
+          processed: processed.length,
+          failed: errors.length,
+          remaining: Math.max(targetIds.length - batchIds.length, 0),
+          nextIds: targetIds.slice(batchIds.length),
+          processedPeople: processed,
+          errors,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
-      const { data: { publicUrl: djUrl } } = supabase.storage.from("musician-docs").getPublicUrl(djPath);
-
-      const packSources = [m.link_dni_img, m.link_cuil, m.link_cbu_img, djUrl].filter(u => !!u);
-      const [fullBytes, mosaicBytes] = await Promise.all([
-        assemblePDFInternal(packSources, "full"),
-        assemblePDFInternal(packSources, "mosaic")
-      ]);
-
-      const fullPath = `docs/full_${cleanSurname}_${Date.now()}.pdf`;
-      const mosPath = `docs/mos_${cleanSurname}_${Date.now()}.pdf`;
-
-      const [upFull, upMos] = await Promise.all([
-        supabase.storage.from("musician-docs").upload(fullPath, fullBytes, { contentType: 'application/pdf', upsert: true }),
-        supabase.storage.from("musician-docs").upload(mosPath, mosaicBytes, { contentType: 'application/pdf', upsert: true })
-      ]);
-      throwIfStorageUploadError(upFull, `upload expediente full (${fullPath})`);
-      throwIfStorageUploadError(upMos, `upload expediente mosaic (${mosPath})`);
-
-      const { data: { publicUrl: fullUrl } } = supabase.storage.from("musician-docs").getPublicUrl(fullPath);
-      const { data: { publicUrl: mosUrl } } = supabase.storage.from("musician-docs").getPublicUrl(mosPath);
-
-      await supabase.from("integrantes").update({ link_declaracion: djUrl, documentacion: fullUrl, docred: mosUrl, last_modified_at: new Date().toISOString() }).eq("id", m.id);
-
-      return new Response(JSON.stringify({ success: true, urls: { dj: djUrl, full: fullUrl, mosaic: mosUrl } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     // --- ACCIÓN: OBTENER TOKEN TEMPORAL DE GOOGLE (para descarga directa desde el cliente) ---
     if (action === "get_temp_token") {
@@ -2406,28 +2561,12 @@ serve(async (req) => {
     }
     // --- ACCIÓN: GENERAR DJ INDIVIDUAL ---
     if (action === "generate_dj_bucket") {
-      let { data: m, error: mError } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad), viaticos:localidades!id_loc_viaticos(localidad), laboral:locaciones!id_domicilio_laboral(nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad))`).eq("id", musicianId).single();
-      if (mError) {
-        console.error("[generate_dj_bucket] Error consultando integrante:", mError);
-        // Intentar sin la relación laboral si falla
-        const { data: mBasic, error: basicError } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad)`).eq("id", musicianId).single();
-        if (basicError || !mBasic) throw new Error(`Error al obtener datos del músico: ${mError.message}`);
-        m = mBasic;
-      }
-      if (!m) throw new Error("Músico no encontrado");
-
-      // Si hay id_domicilio_laboral, obtener la locación y su localidad por separado
-      if (m.id_domicilio_laboral && !m.laboral) {
-        const { data: locacion } = await supabase.from("locaciones").select("nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad)").eq("id", m.id_domicilio_laboral).single();
-        if (locacion) m.laboral = locacion;
-      }
-
+      const m = await fetchMusicianForDj(supabase, musicianId);
       const oldDj = extractStoragePath(m.link_declaracion, "musician-docs");
       if (oldDj) await supabase.storage.from("musician-docs").remove([oldDj]);
 
-      const TEMPLATE_URL = "https://raw.githubusercontent.com/rantuchom/OFRN-webapp/main/public/plantillas/plantilla_dj.pdf";
       const [pdfRes, firmaRes] = await Promise.all([
-        fetch(TEMPLATE_URL).then(r => r.arrayBuffer()),
+        fetch(DJ_TEMPLATE_URL).then(r => r.arrayBuffer()),
         m.firma ? fetch(m.firma).then(r => r.arrayBuffer()) : null
       ]);
       const djBytes = await generateDJInternal(m, pdfRes, firmaRes);
