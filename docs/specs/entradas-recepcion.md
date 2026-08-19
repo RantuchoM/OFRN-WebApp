@@ -10,7 +10,8 @@
 
 ## Alcance
 
-- Rol **recepcionista** o **admin** en `/entradas?view=recepcion`.
+- Roles **recepcionista**, **boletos_recep** (Boletos+Recepc) o **admin** en `/entradas?view=recepcion`.
+- El rol **boletos** no accede a recepción (solo reservas a terceros).
 - Escaneo de QR (cámara, foto o código manual de 10 dígitos) contra el concierto elegido.
 
 ## Flujo de ingreso

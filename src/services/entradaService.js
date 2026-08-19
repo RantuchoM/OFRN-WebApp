@@ -430,10 +430,10 @@ export async function cancelarReservaTercero(reservaId) {
 }
 
 export async function actualizarReferenciaTercero(reservaId, referencia) {
-  const { error } = await supabaseEntradasPublic
-    .from("entrada_reserva")
-    .update({ beneficiario_referencia: referencia ? String(referencia).trim() : null })
-    .eq("id", reservaId);
+  const { error } = await supabaseEntradasPublic.rpc("entrada_actualizar_referencia_tercero", {
+    p_reserva_id: reservaId,
+    p_referencia: referencia ? String(referencia).trim() : null,
+  });
   if (error) throw error;
 }
 

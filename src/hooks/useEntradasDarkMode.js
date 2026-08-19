@@ -326,6 +326,12 @@ export function entradaUsuarioRolRowClass(rol, isDark = false) {
   if (r === "recepcionista") {
     return isDark ? "bg-emerald-950/40 border-l-4 border-l-emerald-600" : "bg-emerald-50/90 border-l-4 border-l-emerald-500";
   }
+  if (r === "boletos") {
+    return isDark ? "bg-sky-950/40 border-l-4 border-l-sky-600" : "bg-sky-50/90 border-l-4 border-l-sky-500";
+  }
+  if (r === "boletos_recep") {
+    return isDark ? "bg-teal-950/40 border-l-4 border-l-teal-600" : "bg-teal-50/90 border-l-4 border-l-teal-500";
+  }
   return isDark ? "bg-slate-800 border-l-4 border-l-slate-600" : "bg-white border-l-4 border-l-slate-200";
 }
 
@@ -336,6 +342,12 @@ export function entradaUsuarioRolLabelClass(rol, isDark = false) {
   }
   if (r === "recepcionista") {
     return isDark ? "bg-emerald-950 text-emerald-200 border-emerald-800" : "bg-emerald-100 text-emerald-900 border-emerald-200";
+  }
+  if (r === "boletos") {
+    return isDark ? "bg-sky-950 text-sky-200 border-sky-800" : "bg-sky-100 text-sky-900 border-sky-200";
+  }
+  if (r === "boletos_recep") {
+    return isDark ? "bg-teal-950 text-teal-200 border-teal-800" : "bg-teal-100 text-teal-900 border-teal-200";
   }
   return isDark ? "bg-slate-700 text-slate-200 border-slate-600" : "bg-slate-100 text-slate-700 border-slate-200";
 }
