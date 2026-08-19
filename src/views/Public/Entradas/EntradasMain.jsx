@@ -4026,6 +4026,17 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                       </button>
                     </>
                   )}
+                  {reservasAbiertasSel && (
+                    <div className={`entradas-catalog-control ${ui.inset}`}>
+                      <EntradasDisponibilidadBar concierto={selectedConcierto} isDark={isDark} square />
+                    </div>
+                  )}
+                  <EntradasCompartirConciertoBtn concierto={selectedConcierto} />
+                  {entradasAgotadasSel && reservasAbiertasSel && (
+                    <p className={`text-sm font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                      No quedan entradas disponibles para este concierto.
+                    </p>
+                  )}
                   {reservaResult && (
                     <div className={`space-y-2 border-t pt-3 ${ui.divider}`}>
                       <p className={`text-sm font-bold ${isDark ? "text-emerald-300" : "text-emerald-700"}`}>
@@ -4105,17 +4116,6 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                     />
                   )}
                   <EntradasRichTextHtml html={selectedConcierto.detalle_richtext} isDark={isDark} />
-                  {reservasAbiertasSel && (
-                    <div className={`entradas-catalog-control ${ui.inset}`}>
-                      <EntradasDisponibilidadBar concierto={selectedConcierto} isDark={isDark} square />
-                    </div>
-                  )}
-                  <EntradasCompartirConciertoBtn concierto={selectedConcierto} />
-                  {entradasAgotadasSel && reservasAbiertasSel && (
-                    <p className={`text-sm font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                      No quedan entradas disponibles para este concierto.
-                    </p>
-                  )}
                 </>
                 );
               })()}
