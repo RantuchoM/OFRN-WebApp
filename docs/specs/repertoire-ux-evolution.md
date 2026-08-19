@@ -671,13 +671,13 @@ Reproducir el programa como playlist en **Repertorio** y **Mis Partes**, con vel
 ### Player
 - `RepertoirePlaylistPlayer` al pie de `ProgramRepertoire` (oculto en Seating). **No se monta** hasta el primer Play de una fila o **Abrir Playlist** del bloque.
 - Prioridad: `audios` (una pista por movimiento) → si vacío, YouTube (`link_youtube`).
-- Drive: `get_temp_token` + `files/{id}?alt=media` → blob → `<audio>`.
+- Drive: `get_temp_token` + `files/{id}?alt=media` → blob → `<audio>`. Caché IndexedDB **24 h** por `drive_file_id` (más object URL en memoria mientras el player está montado). YouTube no se cachea.
 - YouTube: IFrame API. Si el dueño deshabilitó embed (códigos 101/150) **no se puede reproducir en la app**; overlay + enlace «Abrir en YouTube».
-- Play por fila y **Abrir Playlist** por bloque (cabecera, a la izquierda junto al estado; empieza en la primera pista de ese bloque y abre la lista).
+- Play por fila y **Abrir Playlist** por bloque (cabecera, a la izquierda junto al estado). La playlist del player es **solo ese bloque**; Play en otra obra cambia la lista al bloque de esa obra.
 - Modal **pantalla completa** (portal a `document.body`, `z-[100]`): botón «Pantalla completa» abajo de la barra; Escape o «Cerrar pantalla completa» para volver.
-- Velocidad libre (0.25×–4×; presets + input, p. ej. `0.78` / `1.8`). HTML5 usa el valor exacto; YouTube solo tasas discretas del iframe.
+- Velocidad libre (0.25×–4×; presets + input, p. ej. `0.78` / `1.8`). HTML5 usa el valor exacto; YouTube solo tasas discretas del iframe. **Pistas nunca reproducidas arrancan en 1×**; si ya se escuchó esa pista, se restaura su velocidad.
 - `localStorage`:
-  - `ofrn.repertoirePlaybackRate`: última velocidad global (fallback).
+  - `ofrn.repertoirePlaybackRate`: última velocidad global (solo historial; las pistas nuevas usan 1×).
   - `ofrn.repertoireTrackState`: `{ [trackId]: { position, rate } }` por pista.
 - **Media Session** (Android / lock screen): play/pause, anterior/siguiente, seek. El tap en la tarjeta lo enfoca el SO en la **ventana que está sonando** (PWA instalada o pestaña Chrome); no hay API para abrir el icono OFRN si el audio salió de Chrome.
 
@@ -692,6 +692,27 @@ Reproducir el programa como playlist en **Repertorio** y **Mis Partes**, con vel
 - [x] Feedback FAB compacto en landscape y elevado (`data-repertoire-player`) para no tapar velocidad / barra; oculto en pantalla completa
 - [x] Lista del player contenida (`flex-col`, `overflow-x-hidden`); título = primera línea plana (sin `&nbsp;` ni movimientos concatenados)
 - [x] Mini player respeta el sidebar (`--app-sidebar-width` medido con ResizeObserver; 0px bajo el breakpoint `lg`)
-- [x] El reproductor no aparece hasta el primer Play de fila o Abrir Playlist
+- [x] Playlist limitada al bloque activo; Play en otra obra cambia de bloque
 - [x] Media Session: anterior/siguiente + metadata OFRN (el tap de la tarjeta lo resuelve Chrome/Android)
+- [x] Audios Drive en IndexedDB 24 h (escritura en segundo plano; lectura con timeout para no bloquear el play)
+- [x] El player arranca en `playing` si viene `playRequest` (no esperar un segundo render; eso dejaba el loader colgado)
+
+---
+
+## 12. Bahiano — Marley sinfónico (Para acomodar, gira 12)
+
+Set de **16** arreglos sinfónicos de **Bob Marley** en [Para acomodar / Bahiano](https://drive.google.com/open?id=16qBZqcQVQ9IF09xmB1AG_skRBpk5UfYE) (origen: carpetas `Partes` / `Scores` / `Audios Refe`).
+
+### Local
+- Unificar por obra: `scripts/process-bahiano-local.mjs` + catálogo `scripts/lib/bahianoCatalog.mjs`.
+- Carpeta canónica: `Marley, B. - {Título}`.
+- PDFs: `Instrumento - Título - Marley, B.pdf` (SCORE + 12–13 partes). **Is This Love** sin particella de Voz.
+- Audio: `AUDIO - {Título} (Orq REFE).mp3`.
+- Orgánico típico: `1.1.1.0 - 1.1.1.0 - Perc - Str + Saxofón, Voz` (sin fagot/tuba/contrabajo).
+
+### Archivo + BD
+- Copia al Archivo OFRN (`copiar_carpeta_a_archivo`); `link_drive` = carpeta copiada.
+- Seed `supabase/seed_bahiano_sync.sql` (generado por `scripts/generate-bahiano-sync.mjs`): compositor Marley, tag `Bahiano`, estado **Oficial**, particellas + `obras.audios`.
+- Bloque **Bahiano** al final de gira `id_programa = 12` (`programas_repertorios.orden = MAX+1`), 16 obras en el orden del set (One Drop … Jamming).
+- [x] Seed **aplicado en linked** (2026-08-19).
 

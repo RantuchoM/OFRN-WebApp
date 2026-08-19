@@ -3564,7 +3564,7 @@ export default function RepertoireManager({
                             {onPlayWork && workHasPlayableAudio(item.obras) && (
                               <button
                                 type="button"
-                                onClick={() => onPlayWork(item.obras.id)}
+                                onClick={() => onPlayWork(item.obras.id, rep.id)}
                                 className="text-indigo-600 flex items-center gap-1 text-[10px] font-medium"
                               >
                                 <IconPlay size={12} /> Play
@@ -4132,7 +4132,7 @@ export default function RepertoireManager({
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    onPlayWork(item.obras.id);
+                                    onPlayWork(item.obras.id, rep.id);
                                   }}
                                   className="flex shrink-0 items-center justify-center rounded p-0.5 text-indigo-600 hover:bg-indigo-50"
                                   title="Reproducir"

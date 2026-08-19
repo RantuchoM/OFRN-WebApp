@@ -30,6 +30,8 @@ import MyPartsViewer from "./MyPartsViewer";
 import RepertoirePlaylistPlayer from "../../components/repertoire/RepertoirePlaylistPlayer";
 import {
   buildRepertoireAudioTracks,
+  filterRepertoireAudioTracksByBlock,
+  findBlockIdForObra,
 } from "../../utils/repertoireAudioTracks";
 import {
   syncBowingToProgram,
@@ -543,6 +545,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
   const [pendingArcosAnalysis, setPendingArcosAnalysis] = useState(null);
   const [playRequest, setPlayRequest] = useState(null);
   const [playerOpen, setPlayerOpen] = useState(false);
+  const [playlistBlockId, setPlaylistBlockId] = useState(null);
   const arcosMenuRef = useRef(null);
 
   const arcosBusy =
@@ -688,14 +691,22 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
     () => new Set(audioTracks.map((t) => String(t.obraId))),
     [audioTracks],
   );
-  const handlePlayWork = (obraId) => {
+  const playlistTracks = useMemo(
+    () => filterRepertoireAudioTracksByBlock(audioTracks, playlistBlockId),
+    [audioTracks, playlistBlockId],
+  );
+  const handlePlayWork = (obraId, blockId) => {
     if (obraId == null) return;
+    const resolvedBlock =
+      blockId ?? findBlockIdForObra(audioTracks, obraId);
     setPlayerOpen(true);
-    setPlayRequest({ obraId, nonce: Date.now() });
+    setPlaylistBlockId(resolvedBlock);
+    setPlayRequest({ obraId, blockId: resolvedBlock, nonce: Date.now() });
   };
   const handlePlayBlock = (blockId) => {
     if (blockId == null) return;
     setPlayerOpen(true);
+    setPlaylistBlockId(blockId);
     setPlayRequest({ blockId, nonce: Date.now() });
   };
 
@@ -1419,7 +1430,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
       {activeTab !== "seating" && playerOpen && (
         <RepertoirePlaylistPlayer
           supabase={supabase}
-          tracks={audioTracks}
+          tracks={playlistTracks}
           playRequest={playRequest}
         />
       )}

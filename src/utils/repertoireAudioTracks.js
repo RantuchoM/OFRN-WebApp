@@ -183,6 +183,21 @@ export function buildRepertoireAudioTracks(repertorios) {
   return tracks;
 }
 
+export function filterRepertoireAudioTracksByBlock(tracks, blockId) {
+  if (blockId == null || blockId === "") return tracks || [];
+  return (tracks || []).filter(
+    (t) => String(t.blockId) === String(blockId),
+  );
+}
+
+export function findBlockIdForObra(tracks, obraId) {
+  if (obraId == null) return null;
+  const hit = (tracks || []).find(
+    (t) => String(t.obraId) === String(obraId),
+  );
+  return hit?.blockId ?? null;
+}
+
 export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 export const PLAYBACK_RATE_STORAGE_KEY = "ofrn.repertoirePlaybackRate";
 export const TRACK_PLAYBACK_STATE_KEY = "ofrn.repertoireTrackState";

@@ -336,7 +336,7 @@ const MobilePartCard = ({ item, dimmed = false, onPlayWork, canPlay = false }) =
         {canPlay && onPlayWork ? (
           <button
             type="button"
-            onClick={() => onPlayWork(item.id)}
+            onClick={() => onPlayWork(item.id, item.blockId)}
             className="flex items-center gap-1 text-[10px] font-medium text-indigo-600 hover:text-indigo-800"
             title="Reproducir"
           >
@@ -1146,7 +1146,7 @@ export default function MyPartsViewer({
                           {onPlayWork && playableObraIds?.has(String(row.id)) ? (
                             <button
                               type="button"
-                              onClick={() => onPlayWork(row.id)}
+                              onClick={() => onPlayWork(row.id, block.id)}
                               className={`inline-flex p-1.5 rounded transition-colors ${
                                 dimmed
                                   ? "text-slate-300"

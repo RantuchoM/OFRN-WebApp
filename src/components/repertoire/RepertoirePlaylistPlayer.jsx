@@ -23,16 +23,69 @@ import {
   readTrackPlaybackState,
   writeTrackPlaybackState,
 } from "../../utils/repertoireAudioTracks";
+import {
+  ensureDriveAudioCachePruned,
+  readCachedDriveAudioBlob,
+  writeCachedDriveAudioBlob,
+} from "../../utils/repertoireDriveAudioCache";
 
-function readStoredRate() {
-  try {
-    const raw = localStorage.getItem(PLAYBACK_RATE_STORAGE_KEY);
-    if (raw == null || raw === "") return 1;
-    return clampPlaybackRate(raw);
-  } catch {
-    /* ignore */
+function findPlayRequestIndex(tracks, playRequest) {
+  if (!playRequest || !tracks?.length) return 0;
+  if (playRequest.obraId != null) {
+    const idx = tracks.findIndex(
+      (t) => String(t.obraId) === String(playRequest.obraId),
+    );
+    if (idx >= 0) return idx;
   }
-  return 1;
+  if (playRequest.blockId != null) {
+    const idx = tracks.findIndex(
+      (t) => String(t.blockId) === String(playRequest.blockId),
+    );
+    return idx < 0 ? 0 : idx;
+  }
+  return 0;
+}
+
+function playAudioElement(el, playPromiseRef) {
+  if (!el?.src) return;
+  const next = el.play();
+  playPromiseRef.current = next;
+  if (next?.catch) {
+    next.catch((err) => {
+      if (err?.name === "AbortError") return;
+    });
+  }
+}
+
+function pauseAudioElement(el, playPromiseRef) {
+  if (!el) return;
+  const pending = playPromiseRef.current;
+  if (pending?.then) {
+    pending
+      .then(() => {
+        el.pause();
+      })
+      .catch(() => {});
+    playPromiseRef.current = null;
+    return;
+  }
+  el.pause();
+}
+
+function waitForAudioCanPlay(el, timeoutMs = 8000) {
+  if (!el) return Promise.resolve();
+  if (el.readyState >= 3) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      el.removeEventListener("canplay", done);
+      el.removeEventListener("error", done);
+      window.clearTimeout(timer);
+      resolve();
+    };
+    const timer = window.setTimeout(done, timeoutMs);
+    el.addEventListener("canplay", done);
+    el.addEventListener("error", done);
+  });
 }
 
 function RateControl({ rate, onChange, id, className = "" }) {
@@ -165,12 +218,20 @@ export default function RepertoirePlaylistPlayer({
   const playNextRef = useRef(() => {});
   const persistCurrentRef = useRef(() => {});
   const pendingSeekRef = useRef(0);
+  const playPromiseRef = useRef(null);
+  const getDriveBlobUrlRef = useRef(null);
 
-  const [index, setIndex] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [rate, setRate] = useState(readStoredRate);
+  const [index, setIndex] = useState(() =>
+    findPlayRequestIndex(tracks, playRequest),
+  );
+  const [playing, setPlaying] = useState(() => Boolean(playRequest));
+  const [rate, setRate] = useState(() => {
+    const idx = findPlayRequestIndex(tracks, playRequest);
+    const saved = readTrackPlaybackState(tracks[idx]?.id);
+    return saved.rate != null ? saved.rate : 1;
+  });
   const [loop, setLoop] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(() => Boolean(playRequest));
   const [fullscreen, setFullscreen] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -205,8 +266,23 @@ export default function RepertoirePlaylistPlayer({
 
   const getDriveBlobUrl = useCallback(
     async (fileId) => {
-      const cached = blobUrlsRef.current.get(fileId);
-      if (cached) return cached;
+      const mem = blobUrlsRef.current.get(fileId);
+      if (mem) return mem;
+      ensureDriveAudioCachePruned();
+
+      try {
+        const cached = await Promise.race([
+          readCachedDriveAudioBlob(fileId),
+          new Promise((resolve) => setTimeout(() => resolve(null), 400)),
+        ]);
+        if (cached) {
+          const url = URL.createObjectURL(cached);
+          blobUrlsRef.current.set(fileId, url);
+          return url;
+        }
+      } catch {
+        /* seguir a Drive */
+      }
 
       const fetchMedia = async (token) =>
         fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
@@ -223,12 +299,14 @@ export default function RepertoirePlaylistPlayer({
         throw new Error("No se pudo descargar el audio de Drive.");
       }
       const blob = await response.blob();
+      void writeCachedDriveAudioBlob(fileId, blob);
       const url = URL.createObjectURL(blob);
       blobUrlsRef.current.set(fileId, url);
       return url;
     },
     [ensureToken],
   );
+  getDriveBlobUrlRef.current = getDriveBlobUrl;
 
   const goTo = useCallback((nextIndex, { autoplay = true } = {}) => {
     persistCurrentRef.current();
@@ -237,7 +315,7 @@ export default function RepertoirePlaylistPlayer({
     const wrapped = ((nextIndex % len) + len) % len;
     const track = tracksRef.current[wrapped];
     const saved = readTrackPlaybackState(track?.id);
-    const nextRate = saved.rate ?? rateRef.current ?? 1;
+    const nextRate = saved.rate != null ? saved.rate : 1;
     pendingSeekRef.current = saved.position || 0;
     setIndex(wrapped);
     setProgress(saved.position || 0);
@@ -368,30 +446,18 @@ export default function RepertoirePlaylistPlayer({
 
   useEffect(() => {
     if (!playRequest) return;
-    if (playRequest.blockId != null) {
-      const idx = tracks.findIndex(
-        (t) => String(t.blockId) === String(playRequest.blockId),
-      );
-      if (idx < 0) return;
-      setExpanded(true);
-      goTo(idx, { autoplay: true });
-      return;
-    }
-    if (playRequest.obraId == null) return;
-    const idx = tracks.findIndex(
-      (t) => String(t.obraId) === String(playRequest.obraId),
-    );
-    if (idx < 0) return;
+    const idx = findPlayRequestIndex(tracks, playRequest);
+    if (tracks.length === 0) return;
     setExpanded(true);
+    if (idx === indexRef.current && playingRef.current) return;
     goTo(idx, { autoplay: true });
   }, [playRequest, tracks, goTo]);
 
   useEffect(() => {
     if (index >= tracks.length && tracks.length > 0) {
-      setIndex(0);
-      setPlaying(false);
+      goTo(0, { autoplay: playingRef.current });
     }
-  }, [tracks, index]);
+  }, [tracks, index, goTo]);
 
   useEffect(() => {
     const el = audioRef.current;
@@ -438,16 +504,28 @@ export default function RepertoirePlaylistPlayer({
         setLoadingAudio(true);
         setError(null);
         try {
-          const url = await getDriveBlobUrl(track.driveFileId);
+          const url = await getDriveBlobUrlRef.current(track.driveFileId);
           if (cancelled) return;
+          const pending = playPromiseRef.current;
+          if (pending?.then) {
+            try {
+              await Promise.race([
+                pending,
+                new Promise((resolve) => setTimeout(resolve, 250)),
+              ]);
+            } catch {
+              /* AbortError / autoplay */
+            }
+            playPromiseRef.current = null;
+          }
           if (el.src !== url) {
             el.src = url;
-            el.load();
           }
           el.playbackRate = rateRef.current;
           const seek = pendingSeekRef.current;
+          await waitForAudioCanPlay(el);
+          if (cancelled) return;
           if (
-            el.readyState >= 1 &&
             seek > 0 &&
             Number.isFinite(el.duration) &&
             seek < el.duration - 0.5
@@ -455,8 +533,9 @@ export default function RepertoirePlaylistPlayer({
             el.currentTime = seek;
             setProgress(seek);
           }
-          if (playingRef.current) await el.play();
-          else el.pause();
+          setPlaying(true);
+          playingRef.current = true;
+          playAudioElement(el, playPromiseRef);
         } catch (e) {
           if (!cancelled) {
             setError(e.message || "Error al reproducir el audio.");
@@ -567,20 +646,16 @@ export default function RepertoirePlaylistPlayer({
     return () => {
       cancelled = true;
     };
-  }, [index, current?.id, getDriveBlobUrl, tracks]);
+  }, [index, current?.id, current?.source, current?.driveFileId, current?.youtubeId]);
 
   useEffect(() => {
     const track = tracks[index];
     if (!track) return;
     if (track.source === "drive") {
       const el = audioRef.current;
-      if (!el) return;
-      if (playing) {
-        el.playbackRate = rateRef.current;
-        el.play().catch(() => {});
-      } else {
-        el.pause();
-      }
+      if (!el?.src) return;
+      if (playing) playAudioElement(el, playPromiseRef);
+      else pauseAudioElement(el, playPromiseRef);
       return;
     }
     try {
@@ -589,7 +664,7 @@ export default function RepertoirePlaylistPlayer({
     } catch {
       /* ignore */
     }
-  }, [playing, index, tracks]);
+  }, [playing]);
 
   useEffect(() => {
     if (!playing) return undefined;
@@ -771,7 +846,7 @@ export default function RepertoirePlaylistPlayer({
       className={
         fullscreen
           ? "fixed inset-0 z-[100] flex flex-col bg-slate-100"
-          : "repertoire-player-dock fixed bottom-0 left-0 right-0 z-40 flex max-w-none flex-col overflow-hidden border-t border-slate-200 bg-white shadow-[0_-6px_20px_rgba(15,23,42,0.08)]"
+          : "repertoire-player-dock fixed bottom-0 z-40 flex max-w-none flex-col overflow-hidden border-t border-slate-200 bg-white shadow-[0_-6px_20px_rgba(15,23,42,0.08)]"
       }
       role={fullscreen ? "dialog" : undefined}
       aria-modal={fullscreen ? true : undefined}
