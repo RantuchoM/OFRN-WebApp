@@ -4,9 +4,8 @@
 
 - Roles **admin**, **boletos** y **boletos_recep** en `/entradas`.
 - Reservar entradas para otra persona.
-- Admin: pestaña **«Entradas de terceros»** dentro de Admin.
-- Boletos / Boletos+Recepc: ítem de menú **«Entradas para terceros»** (`?view=entradas-terceros`), fuera de Admin (no ven Programas ni Usuarios).
-- Admins pueden todo (programas, usuarios, recepción y terceros).
+- Todos los que pueden terceros (admin incluido) usan el menú **«🎫 Terceros»** (`?view=entradas-terceros`), fuera de Admin.
+- Admin: Programas y Usuarios en Admin; recepción y terceros en menús propios.
 
 ## Modelo (`entrada_reserva`)
 
@@ -18,13 +17,13 @@
 
 ## Roles (`entrada_rol`)
 
-| Rol | Catálogo / mis entradas | Recepción | Entradas para terceros | Admin (programas/usuarios) |
-|-----|-------------------------|-----------|------------------------|----------------------------|
+| Rol | Catálogo / mis entradas | Recepción | 🎫 Terceros | Admin (programas/usuarios) |
+|-----|-------------------------|-----------|-------------|------------|
 | `personal` | sí | no | no | no |
 | `recepcionista` | sí | sí | no | no |
-| `boletos` | sí | no | sí (menú propio) | no |
-| `boletos_recep` | sí | sí | sí (menú propio) | no |
-| `admin` | sí | sí | sí (pestaña Admin) | sí |
+| `boletos` | sí | no | sí | no |
+| `boletos_recep` | sí | sí | sí | no |
+| `admin` | sí | sí | sí | sí |
 
 - [x] Enum `boletos` y `boletos_recep`.
 - [x] Helper `entrada_can_terceros` (admin, boletos, boletos_recep).
@@ -57,8 +56,8 @@ Migraciones:
 
 ## UI
 
-- **Admin** → pestaña **«Entradas de terceros»** (junto a Programas y Usuarios).
-- **Boletos / Boletos+Recepc** → menú superior **«Entradas para terceros»** (sin menú Admin).
+- Menú superior **«🎫 Terceros»** (`?view=entradas-terceros`) para admin, boletos y boletos_recep.
+- Admin ya no tiene pestaña de terceros dentro de Admin (solo Programas y Usuarios).
 - Selector de concierto actual con reservas abiertas + formulario de reserva + listado activo.
 - Componente: `src/components/entradas/EntradasTercerosSection.jsx`.
 - Helpers de rol: `src/utils/entradaRoles.js`.

@@ -127,11 +127,10 @@ import {
 } from "../../../utils/entradaRoles";
 import "../../../styles/entradas-filarmonica.css";
 
-const ADMIN_TABS = ["programas", "usuarios", "terceros"];
+const ADMIN_TABS = ["programas", "usuarios"];
 const ADMIN_TAB_LABELS = {
   programas: "Programas y conciertos",
   usuarios: "Usuarios",
-  terceros: "Entradas de terceros",
 };
 
 const ADMIN_USUARIO_ROLES_FILTRO = [
@@ -707,23 +706,16 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const canTerceros = entradaRolCanTerceros(profile?.rol);
   const section = searchParams.get("view") || "catalogo";
   const conciertoSlug = searchParams.get("concierto") || "";
-  const tercerosViewActive =
-    (canAdmin && section === "admin" && adminTab === "terceros")
-    || (canTerceros && !canAdmin && section === "entradas-terceros");
+  const tercerosViewActive = canTerceros && section === "entradas-terceros";
 
   useEffect(() => {
     const view = searchParams.get("view");
-    if (view === "entradas-terceros" && canAdmin) {
-      setAdminTab("terceros");
-      setSearchParams({ view: "admin" }, { replace: true });
-      return;
-    }
     if (view === "admin" && !canAdmin) {
       setSearchParams({ view: canTerceros ? "entradas-terceros" : "catalogo" }, { replace: true });
       return;
     }
     if (view === "recepcion" && !canRecepcion) {
-      setSearchParams({ view: canTerceros && !canAdmin ? "entradas-terceros" : "catalogo" }, { replace: true });
+      setSearchParams({ view: canTerceros ? "entradas-terceros" : "catalogo" }, { replace: true });
       return;
     }
     if (view === "entradas-terceros" && !canTerceros) {
@@ -3794,13 +3786,13 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           >
             Mis entradas
           </button>
-          {canTerceros && !canAdmin && (
+          {canTerceros && (
             <button
               type="button"
               className={section === "entradas-terceros" ? ui.navActive : ui.navIdle}
               onClick={() => navigateEntradasView({ view: "entradas-terceros" })}
             >
-              Entradas para terceros
+              🎫 Terceros
             </button>
           )}
           {canRecepcion && (
@@ -4609,7 +4601,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           </section>
         )}
 
-        {section === "entradas-terceros" && canTerceros && !canAdmin && (
+        {section === "entradas-terceros" && canTerceros && (
           <section className={`${ui.section} p-4 space-y-4`}>
             {renderEntradasTercerosPanel()}
           </section>
@@ -4634,8 +4626,6 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                 </button>
               ))}
             </div>
-
-            {adminTab === "terceros" && renderEntradasTercerosPanel()}
 
             {adminTab === "programas" && (
               <div className="space-y-6">

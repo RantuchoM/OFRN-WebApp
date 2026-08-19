@@ -23,7 +23,7 @@ export function entradaRolLabel(rol) {
   return ENTRADA_USUARIO_ROLES.find((item) => item.id === r)?.label || r;
 }
 
-/** Admin de Entradas: programas, usuarios, recepción y terceros. */
+/** Admin de Entradas: programas y usuarios (terceros y recepción van en menús propios). */
 export function entradaRolCanAdmin(rol) {
   return normalizeEntradaRol(rol) === ENTRADA_ROL_ADMIN;
 }
