@@ -52,7 +52,8 @@
 
 Migraciones:
 - `supabase/migrations/20260619120000_entradas_reservas_terceros.sql`
-- `supabase/migrations/20260819150000_entradas_roles_boletos.sql`
+- `supabase/migrations/20260819150000_entradas_roles_boletos.sql` (enum `boletos` / `boletos_recep`)
+- `supabase/migrations/20260819150100_entradas_roles_boletos_rpcs.sql` (RPCs, RLS; transacción aparte por SQLSTATE 55P04)
 
 ## UI
 
