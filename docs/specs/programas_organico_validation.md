@@ -32,7 +32,7 @@ Prioridad del fondo Req/Conv:
 ## Impacto en archivos
 
 ### RepertoireManager
-- Chips Req/Conv **por bloque** (admin/editor) con tilde y comentario de ese bloque.
+- Chips Req/Conv **por bloque** (admin/editor) con tilde y comentario de ese bloque. Un recuadro apilado (Conv arriba, Req abajo).
 
 ### ProgramSeating
 - Req/Conv y modal del **bloque activo** (pestaña); persistencia en ese `programas_repertorios`.

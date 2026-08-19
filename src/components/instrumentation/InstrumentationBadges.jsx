@@ -233,6 +233,115 @@ function hasInstrumentationMismatch(required, convoked) {
   });
 }
 
+function percTotalOf(map) {
+  return (map?.Tim || 0) + (map?.Perc || 0);
+}
+
+function percLabelOf(total) {
+  if (total <= 0) return "";
+  return total === 1 ? "Perc" : `Perc.x${total}`;
+}
+
+function harpLabelOf(count) {
+  if (count <= 0) return "";
+  return count > 1 ? `${count} Hp` : "Hp";
+}
+
+function extraColumnKeys(convoked, required, includeRequired) {
+  const maps = includeRequired ? [convoked, required] : [convoked];
+  const extras = [];
+  if (maps.some((m) => percTotalOf(m) > 0)) extras.push("Perc");
+  if (maps.some((m) => (m.Har || 0) > 0)) extras.push("Har");
+  if (maps.some((m) => (m.Pno || 0) > 0)) extras.push("Pno");
+  if (maps.some((m) => (m.Str || 0) > 0)) extras.push("Str");
+  return extras;
+}
+
+function shouldHighlightKey(key, map, otherMap, skipDiffHighlight) {
+  if (skipDiffHighlight) return false;
+  if (key === "Perc") {
+    const thisNorm = normalizeForCompare("Perc", percTotalOf(map));
+    const otherNorm = normalizeForCompare("Perc", percTotalOf(otherMap));
+    return thisNorm > otherNorm;
+  }
+  const thisNorm = normalizeForCompare(key, map[key] || 0);
+  const otherNorm = normalizeForCompare(key, otherMap[key] || 0);
+  return thisNorm > otherNorm;
+}
+
+function AlignmentToken({ children, highlight, highlightClass, wide = false }) {
+  const empty = children == null || children === "";
+  return (
+    <span
+      className={`inline-flex items-center w-full rounded-sm px-0.5 py-0 text-[9px] leading-none tabular-nums ${
+        wide ? "justify-start min-w-[2.6em]" : "justify-center min-w-[1.15em]"
+      } ${
+        empty
+          ? "invisible"
+          : highlight
+            ? highlightClass
+            : "text-slate-700"
+      }`}
+    >
+      {empty ? "\u00a0" : children}
+    </span>
+  );
+}
+
+function renderAlignedRowTokens(
+  map,
+  otherMap,
+  extraKeys,
+  highlightClass,
+  skipDiffHighlight,
+  rowKey,
+) {
+  const cells = [];
+  const pushNum = (key) => {
+    cells.push(
+      <AlignmentToken
+        key={`${rowKey}-${key}`}
+        highlight={shouldHighlightKey(key, map, otherMap, skipDiffHighlight)}
+        highlightClass={highlightClass}
+      >
+        {`${map[key] || 0}.`}
+      </AlignmentToken>,
+    );
+  };
+
+  ["Fl", "Ob", "Cl", "Fg"].forEach(pushNum);
+  cells.push(
+    <span
+      key={`${rowKey}-dash`}
+      className="px-0.5 text-[9px] leading-none text-slate-500"
+    >
+      -
+    </span>,
+  );
+  ["Cr", "Tp", "Tb", "Tba"].forEach(pushNum);
+
+  extraKeys.forEach((key) => {
+    let label = "";
+    if (key === "Perc") label = percLabelOf(percTotalOf(map));
+    else if (key === "Har") label = harpLabelOf(map.Har || 0);
+    else if (key === "Pno") label = (map.Pno || 0) > 0 ? "Key" : "";
+    else if (key === "Str") label = (map.Str || 0) > 0 ? "Str" : "";
+
+    cells.push(
+      <AlignmentToken
+        key={`${rowKey}-${key}`}
+        wide={key === "Perc"}
+        highlight={shouldHighlightKey(key, map, otherMap, skipDiffHighlight)}
+        highlightClass={highlightClass}
+      >
+        {label}
+      </AlignmentToken>,
+    );
+  });
+
+  return cells;
+}
+
 function formatInstrumentationStandard(map) {
   const fl = map.Fl || 0;
   const ob = map.Ob || 0;
@@ -272,143 +381,6 @@ function formatInstrumentationStandard(map) {
   return standardStr
     .replace("0.0.0.0 - 0.0.0.0 - ", "")
     .replace("0.0.0.0 - 0.0.0.0", "");
-}
-
-function renderInstrumentationStandardDiff(
-  map,
-  otherMap,
-  validatedAdaptation = false,
-  skipDiffHighlight = false,
-) {
-  const fl = map.Fl || 0;
-  const ob = map.Ob || 0;
-  const cl = map.Cl || 0;
-  const bn = map.Fg || 0;
-  const hn = map.Cr || 0;
-  const tpt = map.Tp || 0;
-  const tbn = map.Tb || 0;
-  const tba = map.Tba || 0;
-
-  const hasTimp = (map.Tim || 0) > 0;
-  const percCount = map.Perc || 0;
-  const harpCount = map.Har || 0;
-  const keyCount = map.Pno || 0;
-  const hasStr = (map.Str || 0) > 0;
-
-  const percTotalThis = (map.Tim || 0) + (map.Perc || 0);
-  const percTotalOther = (otherMap.Tim || 0) + (otherMap.Perc || 0);
-
-  const shouldHighlight = (key) => {
-    if (skipDiffHighlight) return false;
-    if (key === "Tim" || key === "Perc") {
-      const thisNorm = normalizeForCompare("Perc", percTotalThis);
-      const otherNorm = normalizeForCompare("Perc", percTotalOther);
-      return thisNorm > otherNorm;
-    }
-    const thisNorm = normalizeForCompare(key, map[key] || 0);
-    const otherNorm = normalizeForCompare(key, otherMap[key] || 0);
-    return thisNorm > otherNorm;
-  };
-
-  const highlightClass = validatedAdaptation
-    ? "bg-sky-200 text-sky-800 font-extrabold"
-    : "bg-orange-200 text-black font-extrabold";
-
-  const tokenNumber = (value, key) => {
-    const highlight = shouldHighlight(key);
-    const base =
-      "inline-flex items-center justify-center rounded-sm px-0.5 py-0 text-[9px] leading-none";
-    const diffClass = highlight ? highlightClass : "text-slate-700";
-    return (
-      <span key={key} className={`${base} ${diffClass}`}>
-        {value}.
-      </span>
-    );
-  };
-
-  const parts = [];
-
-  // Maderas
-  parts.push(tokenNumber(fl, "Fl"));
-  parts.push(" ");
-  parts.push(tokenNumber(ob, "Ob"));
-  parts.push(" ");
-  parts.push(tokenNumber(cl, "Cl"));
-  parts.push(" ");
-  parts.push(tokenNumber(bn, "Fg"));
-
-  // Separador
-  parts.push(" - ");
-
-  // Metales
-  parts.push(tokenNumber(hn, "Cr"));
-  parts.push(" ");
-  parts.push(tokenNumber(tpt, "Tp"));
-  parts.push(" ");
-  parts.push(tokenNumber(tbn, "Tb"));
-  parts.push(" ");
-  parts.push(tokenNumber(tba, "Tba"));
-
-  // Percusión: mostrar siempre como Perc / Perc.xN usando total de instrumentistas
-  if (percTotalThis > 0) {
-    parts.push(" ");
-    const percLabel =
-      percTotalThis === 1 ? "Perc" : `Perc.x${percTotalThis}`;
-    const percKey = "Perc";
-    const highlight = shouldHighlight(percKey);
-    const base =
-      "inline-flex items-center justify-center rounded-sm px-0.5 py-0 text-[9px] leading-none";
-    const diffClass = highlight ? highlightClass : "text-slate-700";
-    parts.push(
-      <span key="PercTotal" className={`${base} ${diffClass}`}>
-        {percLabel}
-      </span>,
-    );
-  }
-
-  // Arpa / Key / Str
-  if (harpCount > 0) {
-    parts.push(" ");
-    const n = harpCount;
-    const label = n > 1 ? `${n} Hp` : "Hp";
-    const highlight = shouldHighlight("Har");
-    const base =
-      "inline-flex items-center justify-center rounded-sm px-0.5 py-0 text-[9px] leading-none";
-    const diffClass = highlight ? highlightClass : "text-slate-700";
-    parts.push(
-      <span key="Har" className={`${base} ${diffClass}`}>
-        {label}
-      </span>,
-    );
-  }
-
-  if (keyCount > 0) {
-    parts.push(" ");
-    const highlight = shouldHighlight("Pno");
-    const base =
-      "inline-flex items-center justify-center rounded-sm px-0.5 py-0 text-[9px] leading-none";
-    const diffClass = highlight ? highlightClass : "text-slate-700";
-    parts.push(
-      <span key="Key" className={`${base} ${diffClass}`}>
-        Key
-      </span>,
-    );
-  }
-
-  if (hasStr) {
-    parts.push(" ");
-    const highlight = shouldHighlight("Str");
-    const base =
-      "inline-flex items-center justify-center rounded-sm px-0.5 py-0 text-[9px] leading-none";
-    const diffClass = highlight ? highlightClass : "text-slate-700";
-    parts.push(
-      <span key="Str" className={`${base} ${diffClass}`}>
-        Str
-      </span>,
-    );
-  }
-
-  return parts;
 }
 
 export default function InstrumentationBadges({
@@ -467,10 +439,30 @@ export default function InstrumentationBadges({
 
   if (!hasWorks && !hasConvocableMembers) return null;
 
+  const convTitle = formatInstrumentationStandard(convoked);
+  const reqTitle = hasWorks ? formatInstrumentationStandard(required) : "";
+  const extraKeys = extraColumnKeys(convoked, required, hasWorks);
+  const highlightClass = organicoRevisado
+    ? "bg-sky-200 text-sky-800 font-extrabold"
+    : "bg-orange-200 text-black font-extrabold";
+  const extraColCss = extraKeys
+    .map((k) => (k === "Perc" ? "minmax(2.6em,auto)" : "minmax(1.5em,auto)"))
+    .join(" ");
+  const gridTemplateColumns = [
+    "auto",
+    "auto",
+    "repeat(4, minmax(1.15em, auto))",
+    "auto",
+    "repeat(4, minmax(1.15em, auto))",
+    extraColCss,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <>
       <div
-        className={`flex flex-wrap items-center gap-1 ${className}`.trim()}
+        className={`flex items-center gap-1 min-w-0 ${className}`.trim()}
       >
         {organicoRevisado && (
           <IconCheckCircle
@@ -490,30 +482,37 @@ export default function InstrumentationBadges({
         <button
           type="button"
           onClick={() => setShowModal(true)}
-          className={`px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate flex items-center gap-1 ${badgeBaseClass}`}
-          title={formatInstrumentationStandard(convoked)}
+          className={`inline-grid gap-x-0.5 gap-y-px items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border text-left transition-colors min-w-0 max-w-full overflow-x-auto ${badgeBaseClass}`}
+          style={{ gridTemplateColumns }}
+          title={reqTitle ? `${convTitle}\n${reqTitle}` : convTitle}
         >
-          <IconUsers size={12} className="opacity-70" />
-          <span className="mr-1">Conv:</span>
-          {renderInstrumentationStandardDiff(
+          <IconUsers
+            size={12}
+            className={`opacity-70 shrink-0 self-center ${hasWorks ? "row-span-2" : ""}`}
+          />
+          <span className="leading-tight shrink-0">Conv:</span>
+          {renderAlignedRowTokens(
             convoked,
             required,
-            organicoRevisado,
+            extraKeys,
+            highlightClass,
             !hasWorks,
+            "conv",
+          )}
+          {hasWorks && (
+            <>
+              <span className="leading-tight shrink-0">Req:</span>
+              {renderAlignedRowTokens(
+                required,
+                convoked,
+                extraKeys,
+                highlightClass,
+                false,
+                "req",
+              )}
+            </>
           )}
         </button>
-        {hasWorks && (
-          <button
-            type="button"
-            onClick={() => setShowModal(true)}
-            className={`px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate flex items-center gap-1 ${badgeBaseClass}`}
-            title={formatInstrumentationStandard(required)}
-          >
-            <IconUsers size={12} className="opacity-70" />
-            <span className="mr-1">Req:</span>
-            {renderInstrumentationStandardDiff(required, convoked, organicoRevisado)}
-          </button>
-        )}
       </div>
 
       {showModal && (

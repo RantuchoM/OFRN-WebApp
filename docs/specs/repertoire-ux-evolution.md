@@ -699,6 +699,26 @@ Reproducir el programa como playlist en **Repertorio** y **Mis Partes**, con vel
 
 ---
 
+## Encabezado de bloque en móvil (2026-08-19)
+
+### Problema
+En viewport estrecho, título, estado, **Abrir Playlist**, **Grupos** y el recuadro de duración competían en una sola fila (`justify-between`). El total se comprimía en una columna alta e ilegible y solapaba el dropdown de grupos.
+
+### Solución (`RepertoireManager` cabecera de `programas_repertorios`)
+- En pantallas menores a `md`: columna — (1) título + badge Definido/En definición; (2) acciones (playlist, grupos, orgánico, atril) con wrap; (3) fila propia para Total/Neto + eliminar.
+- Desde `md` hacia arriba: fila única como antes (acciones a la izquierda, duración y papelera a la derecha).
+- Título con `truncate`; duración en chips `whitespace-nowrap` (Total y Neto no se parten por carácter).
+- **Sticky:** solo la fila del título (nombre + Definido) queda fija al scrollear las obras. Playlist, grupos, orgánico y totales se van con el scroll. El título es hijo directo del bloque para que el sticky cubra toda la lista.
+- Dropdown Grupos: `flex-1` en móvil, ancho fijo `w-40` en desktop.
+- **Conv/Req** en un solo recuadro apilado (`InstrumentationBadges`): dos líneas, columnas compartidas por familia (Key vacío en Conv si solo está en Req), un clic al modal.
+
+- [x] Encabezado de bloque apilado en móvil sin solape
+- [x] Badges Conv/Req unidos en un recuadro apilado
+- [x] Conv/Req alineados verticalmente por instrumento
+- [x] Sticky solo del título del bloque (el resto del header scrollea)
+
+---
+
 ## 12. Bahiano — Marley sinfónico (Para acomodar, gira 12)
 
 Set de **16** arreglos sinfónicos de **Bob Marley** en [Para acomodar / Bahiano](https://drive.google.com/open?id=16qBZqcQVQ9IF09xmB1AG_skRBpk5UfYE) (origen: carpetas `Partes` / `Scores` / `Audios Refe`).

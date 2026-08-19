@@ -2704,7 +2704,7 @@ export default function GiraRoster({
                       ),
                     );
                   }}
-                  className="hidden md:flex flex-wrap items-center gap-1 ml-2"
+                  className="hidden md:flex items-center gap-1 ml-2"
                 />
             </h2>
             <div className="flex gap-2 mt-1 flex-wrap">

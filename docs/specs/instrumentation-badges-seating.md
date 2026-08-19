@@ -55,13 +55,13 @@ Visualizar en tiempo real la diferencia entre la instrumentación técnica reque
   - **Badges**: alineados a la derecha del título en vista desktop y mobile.
 
 ### Contenido
-- **Badge 1 (Requerido)**: texto `Req: [Formato Orquestal]`. Solo visible si el programa tiene al menos una obra.
-- **Badge 2 (Convocado)**: texto `Conv: [Formato Orquestal]`. Visible también **sin obras** cuando hay músicos convocables en el roster (para planificar instrumentación en borrador).
+- **Un solo recuadro apilado**: fila `Conv:` (orgánico convocado) y, si hay obras, fila `Req:` debajo. Las mismas familias se alinean en columnas (maderas, metales, Perc, Hp, Key, Str); si una fila no tiene el instrumento, la celda queda vacía. Un clic abre el modal.
+- Sin obras, solo la fila **Conv** (estilo neutro: no hay requerido con qué comparar).
 
 ### Visibilidad sin obras
 - El estado borrador de la gira **no** oculta los badges.
-- Sin obras, se muestra únicamente el badge **Conv** (el requerido no aplica hasta cargar repertorio).
-- Sin obras, el badge **Conv** usa estilo **neutro** (blanco/gris): no naranja ni tokens resaltados, porque no hay requerido con qué comparar.
+- Sin obras, se muestra únicamente la fila **Conv**.
+- Sin obras, **Conv** usa estilo **neutro** (blanco/gris): no naranja ni tokens resaltados, porque no hay requerido con qué comparar.
 
 ## Modal de Detalle: InstrumentationSummaryModal
 

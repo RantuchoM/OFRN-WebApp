@@ -3039,15 +3039,14 @@ export default function RepertoireManager({
               isCompact ? "mb-4 rounded shadow-sm" : "bg-white shadow-sm"
             } overflow-visible ${activeDragId ? "z-10" : ""}`}
           >
-            {/* --- HEADER DEL BLOQUE (TÍTULO Y DURACIÓN) --- */}
-            <div className="bg-fixed-indigo-50/50 p-2 border-b border-slate-200 flex justify-between items-center min-h-10 sticky top-0 z-10 backdrop-blur-sm gap-2">
-              <div className="flex items-center gap-3 min-w-0 flex-wrap">
-                <IconMusic size={14} className="text-fixed-indigo-600" />
+            {/* --- TÍTULO STICKY (solo esta fila; el resto del header scrollea) --- */}
+            <div className="sticky top-0 z-10 flex items-center gap-2 min-w-0 px-2 py-1.5 bg-fixed-indigo-50/95 backdrop-blur-sm border-b border-slate-200">
+                <IconMusic size={14} className="text-fixed-indigo-600 shrink-0" />
                 {editingBlock.id === rep.id ? (
                   <input
                     autoFocus
                     type="text"
-                    className="w-full text-xs p-1 border border-fixed-indigo-300 rounded outline-none"
+                    className="w-full min-w-0 text-xs p-1 border border-fixed-indigo-300 rounded outline-none"
                     value={editingBlock.nombre}
                     onChange={(e) =>
                       setEditingBlock({
@@ -3061,16 +3060,16 @@ export default function RepertoireManager({
                     onBlur={saveBlockName}
                   />
                 ) : (
-                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                     <span
-                      className="font-bold text-slate-800 text-xs uppercase flex items-center gap-2 group cursor-pointer"
+                      className="font-bold text-slate-800 text-xs uppercase flex items-center gap-2 group cursor-pointer min-w-0 flex-1 overflow-hidden md:flex-initial"
                       onClick={() => isEditor && startEditBlock(rep)}
                     >
-                      {rep.nombre}{" "}
+                      <span className="truncate">{rep.nombre}</span>
                       {isEditor && (
                         <IconEdit
                           size={12}
-                          className="opacity-0 group-hover:opacity-100 text-slate-400"
+                          className="opacity-0 group-hover:opacity-100 text-slate-400 shrink-0"
                         />
                       )}
                     </span>
@@ -3123,7 +3122,7 @@ export default function RepertoireManager({
                             fetchFullRepertoire();
                           }
                         }}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold transition-colors ${
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold transition-colors shrink-0 ${
                           isDefinitionMode
                             ? "bg-amber-50 border-amber-300 text-amber-800"
                             : "bg-white border-slate-200 text-slate-500"
@@ -3146,14 +3145,20 @@ export default function RepertoireManager({
 
                     {!isEditor && isDefinitionMode && (
                       <span
-                        className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold bg-amber-50 border-amber-300 text-amber-800"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold bg-amber-50 border-amber-300 text-amber-800 shrink-0"
                         title="Este bloque de repertorio aún está en definición"
                       >
                         <IconAlertCircle size={12} className="text-amber-500" />
                         <span>En definición</span>
                       </span>
                     )}
+                    </div>
+                )}
+              </div>
 
+              <div className="bg-fixed-indigo-50/50 px-2 pb-2 pt-1 md:px-2 md:pb-2 flex flex-col gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between border-b border-slate-200">
+              {editingBlock.id !== rep.id && (
+                    <div className="flex flex-wrap items-center gap-1.5 min-w-0 md:flex-1">
                     {onPlayBlock &&
                     visibleObras.some(
                       (item) =>
@@ -3163,7 +3168,7 @@ export default function RepertoireManager({
                       <button
                         type="button"
                         onClick={() => onPlayBlock(rep.id)}
-                        className="flex items-center gap-1 rounded border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-indigo-700 hover:bg-indigo-50"
+                        className="flex items-center gap-1 rounded border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-indigo-700 hover:bg-indigo-50 shrink-0"
                         title="Abrir playlist de este bloque"
                       >
                         <IconPlay size={11} />
@@ -3174,7 +3179,7 @@ export default function RepertoireManager({
                     {hasGiraGrupos &&
                       (isEditor ? (
                         <div
-                          className="w-40 max-w-[11rem] shrink-0"
+                          className="min-w-[8.5rem] flex-1 max-w-full md:flex-none md:w-40 md:max-w-[11rem]"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <MultiSelectDropdown
@@ -3198,7 +3203,7 @@ export default function RepertoireManager({
 
                     {canSeeInstrumentationBadges && (
                       <div
-                        className="min-w-0"
+                        className="min-w-0 md:shrink-0"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <InstrumentationBadges
@@ -3216,14 +3221,13 @@ export default function RepertoireManager({
                           supabase={supabase}
                           onOrganicoSave={handleBlockOrganicoSave}
                           scopeLabel={rep.nombre || "Bloque"}
-                          className="flex-wrap"
                         />
                       </div>
                     )}
 
                     {/* Badge de Atril (si el usuario tiene asignación) */}
                     {userSeating && (
-                      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-white border border-fixed-indigo-200 rounded text-[10px] text-fixed-indigo-700 shadow-sm animate-in fade-in">
+                      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-white border border-fixed-indigo-200 rounded text-[10px] text-fixed-indigo-700 shadow-sm animate-in fade-in shrink-0">
                         <span className="font-bold">
                           {userSeating.containerName}
                         </span>
@@ -3233,28 +3237,26 @@ export default function RepertoireManager({
                         </span>
                       </div>
                     )}
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-mono font-bold text-slate-600 bg-white px-1.5 rounded border">
-                  Total: {calculateTotalDuration(obrasParaTotales)}
+                    </div>
+              )}
+              <div className="flex items-center justify-between gap-2 md:justify-end md:shrink-0">
+                <span className="inline-flex flex-wrap items-center gap-x-1.5 text-[10px] font-mono font-bold text-slate-600 bg-white px-1.5 py-0.5 rounded border">
+                  <span className="whitespace-nowrap">
+                    Total: {calculateTotalDuration(obrasParaTotales)}
+                  </span>
                   {obrasParaTotales.some((o) => o.excluir) ? (
-                    <span className="text-slate-500 font-normal">
-                      {" "}
+                    <span className="text-slate-500 font-normal whitespace-nowrap">
                       (Neto {calculateNetDuration(obrasParaTotales)})
                     </span>
                   ) : null}
                 </span>
                 {isEditor && (
-                  <>
-                    <button
-                      onClick={() => deleteRepertoireBlock(rep.id)}
-                      className="text-slate-400 hover:text-red-600 p-1"
-                    >
-                      <IconTrash size={12} />
-                    </button>
-                  </>
+                  <button
+                    onClick={() => deleteRepertoireBlock(rep.id)}
+                    className="text-slate-400 hover:text-red-600 p-1 shrink-0"
+                  >
+                    <IconTrash size={12} />
+                  </button>
                 )}
               </div>
             </div>

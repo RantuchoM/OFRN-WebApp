@@ -2590,7 +2590,7 @@ export default function ProgramSeating({
               hasVacancies,
             });
             return (
-              <div className="hidden md:flex flex-wrap items-center gap-1 ml-3">
+              <div className="hidden md:flex items-center gap-1 ml-3 min-w-0">
                 {organicoRevisado && (
                   <IconCheckCircle size={14} className="text-sky-600 shrink-0" title="Adaptación validada" />
                 )}
@@ -2599,39 +2599,42 @@ export default function ProgramSeating({
                     <IconInfo size={14} />
                   </span>
                 )}
-                {obrasWithInstrumentationForActiveBlock.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowInstrumentationModal(true)}
-                    className={`px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate ${badgeBaseClass}`}
-                    title={formatInstrumentationStandard(instrumentationRequired)}
-                  >
-                    <span className="mr-1">Req:</span>
-                    {renderInstrumentationStandardDiff(
-                      instrumentationRequired,
-                      instrumentationRequired,
-                      instrumentationConvoked,
-                      organicoRevisado,
-                      instrumentationRequiredConsolidated,
-                      true,
-                    )}
-                  </button>
-                )}
                 <button
                   type="button"
                   onClick={() => setShowInstrumentationModal(true)}
-                  className={`px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate ${badgeBaseClass}`}
-                  title={formatInstrumentationStandard(instrumentationConvoked)}
+                  className={`inline-grid grid-cols-[auto_minmax(0,1fr)] gap-x-1 gap-y-px items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border text-left transition-colors min-w-0 max-w-[22rem] ${badgeBaseClass}`}
+                  title={
+                    hasWorks
+                      ? `${formatInstrumentationStandard(instrumentationConvoked)}\n${formatInstrumentationStandard(instrumentationRequired)}`
+                      : formatInstrumentationStandard(instrumentationConvoked)
+                  }
                 >
-                  <span className="mr-1">Conv:</span>
-                  {renderInstrumentationStandardDiff(
-                    instrumentationConvoked,
-                    instrumentationRequired,
-                    instrumentationConvoked,
-                    organicoRevisado,
-                    undefined,
-                    false,
-                    !hasWorks,
+                  <span className="leading-tight shrink-0">Conv:</span>
+                  <span className="leading-tight min-w-0 overflow-hidden whitespace-nowrap">
+                    {renderInstrumentationStandardDiff(
+                      instrumentationConvoked,
+                      instrumentationRequired,
+                      instrumentationConvoked,
+                      organicoRevisado,
+                      undefined,
+                      false,
+                      !hasWorks,
+                    )}
+                  </span>
+                  {obrasWithInstrumentationForActiveBlock.length > 0 && (
+                    <>
+                      <span className="leading-tight shrink-0">Req:</span>
+                      <span className="leading-tight min-w-0 overflow-hidden whitespace-nowrap">
+                        {renderInstrumentationStandardDiff(
+                          instrumentationRequired,
+                          instrumentationRequired,
+                          instrumentationConvoked,
+                          organicoRevisado,
+                          instrumentationRequiredConsolidated,
+                          true,
+                        )}
+                      </span>
+                    </>
                   )}
                 </button>
               </div>
