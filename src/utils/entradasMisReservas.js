@@ -1,4 +1,7 @@
 import { fechaHoraDesdeConciertoEntrada } from "./entradasConciertoEvento";
+import { entradaConciertoReservasAbiertas } from "./entradasReservasApertura";
+
+export const ENTRADAS_MAX_POR_RESERVA = 4;
 
 /** Fecha/hora del concierto como Date o null (desde evento OFRN si está disponible). */
 export function conciertoDateFromReserva(reserva) {
@@ -71,4 +74,43 @@ export function entradasTodasIngresadas(reserva) {
   const total = Number(reserva?.cantidad_solicitada) || 0;
   if (!total) return false;
   return entradasIngresadasCount(reserva) >= total;
+}
+
+export function entradasTodasPendientes(reserva) {
+  const entradas = reserva?.entradas || [];
+  if (!entradas.length) return true;
+  return entradas.every((e) => String(e.estado_ingreso || "pendiente") === "pendiente");
+}
+
+/** Máximo al que se puede subir: tope 4 y plazas que quedan en el concierto. */
+export function maxCantidadEditable(reserva, plazasLibres) {
+  const actual = Math.max(1, Number(reserva?.cantidad_solicitada) || 1);
+  if (plazasLibres == null || Number.isNaN(Number(plazasLibres))) {
+    return ENTRADAS_MAX_POR_RESERVA;
+  }
+  const libres = Math.max(0, Number(plazasLibres));
+  return Math.min(ENTRADAS_MAX_POR_RESERVA, actual + libres);
+}
+
+export function puedeCambiarCantidadReserva(reserva, { nowMs = Date.now(), concierto } = {}) {
+  if (!reserva || isReservaCancelada(reserva) || isReservaHistorica(reserva, nowMs)) return false;
+  if (!entradasTodasPendientes(reserva)) return false;
+  const c = concierto || reserva.concierto;
+  if (c && !entradaConciertoReservasAbiertas(c)) return false;
+  return true;
+}
+
+export function mensajeAvisoCambioCantidadQr({ cantidadActual, cantidadNueva } = {}) {
+  const de = Number(cantidadActual);
+  const a = Number(cantidadNueva);
+  const rango =
+    Number.isFinite(de) && Number.isFinite(a) && de !== a
+      ? `Vas a pasar de ${de} ${de === 1 ? "entrada" : "entradas"} a ${a} ${a === 1 ? "entrada" : "entradas"}.\n\n`
+      : "";
+  return (
+    `${rango}` +
+    "Un aviso con cariño: al confirmar se van a generar códigos QR nuevos, el de la reserva y el de cada entrada.\n\n" +
+    "Si ya imprimiste o guardaste el PDF, ese archivo queda desactualizado y no va a servir para ingresar. No hay drama: solo tenés que volver a descargar el PDF con los códigos nuevos.\n\n" +
+    "¿Seguimos con el cambio?"
+  );
 }

@@ -13,6 +13,7 @@ import {
   isReservaActivaFutura,
   splitMisReservas,
 } from "../../utils/entradasMisReservas";
+import EntradasCambiarCantidadControls from "./EntradasCambiarCantidadControls";
 import MisReservasQrPanel from "./MisReservasQrPanel";
 
 function estadoBeneficiario(reserva) {
@@ -37,7 +38,9 @@ function TerceroReservaCard({
   downloadingPdfReservaId,
   onDownloadPdf,
   onCancel,
+  onChangeCantidad,
   onUpdated,
+  plazasLibres,
   qrExpandedId,
   onToggleQr,
 }) {
@@ -150,6 +153,15 @@ function TerceroReservaCard({
       <p className={`text-xs ${ui.textSoft}`}>
         Entradas: {reserva.cantidad_solicitada} · Ingresadas: {ingresadas}
       </p>
+      {onChangeCantidad && (
+        <EntradasCambiarCantidadControls
+          reserva={reserva}
+          ui={ui}
+          plazasLibres={plazasLibres}
+          compact
+          onRequestChange={(nuevaCantidad) => onChangeCantidad(reserva, nuevaCantidad)}
+        />
+      )}
 
       {editReferencia ? (
         <div className="space-y-2">
@@ -259,6 +271,8 @@ export default function EntradasTercerosSection({
   downloadingPdfReservaId,
   setDownloadingPdfReservaId,
   onCancelReserva,
+  onChangeCantidad,
+  plazasLibresPorConciertoId,
   onRefresh,
 }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -305,7 +319,9 @@ export default function EntradasTercerosSection({
           downloadingPdfReservaId={downloadingPdfReservaId}
           onDownloadPdf={handleDownloadPdf}
           onCancel={onCancelReserva}
+          onChangeCantidad={onChangeCantidad}
           onUpdated={onRefresh}
+          plazasLibres={plazasLibresPorConciertoId?.get?.(Number(reserva.concierto?.id))}
           qrExpandedId={qrExpandedId}
           onToggleQr={(id) => setQrExpandedId((prev) => (prev === id ? null : id))}
         />

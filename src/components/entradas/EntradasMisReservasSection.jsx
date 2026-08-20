@@ -9,6 +9,7 @@ import {
   isReservaCancelada,
   splitMisReservas,
 } from "../../utils/entradasMisReservas";
+import EntradasCambiarCantidadControls from "./EntradasCambiarCantidadControls";
 import MisReservasQrPanel from "./MisReservasQrPanel";
 
 function ReservaCard({
@@ -20,6 +21,8 @@ function ReservaCard({
   downloadingPdfReservaId,
   onDownloadPdf,
   onCancel,
+  onChangeCantidad,
+  plazasLibres,
   qrExpandedId,
   onToggleQr,
 }) {
@@ -63,6 +66,15 @@ function ReservaCard({
       <p className={`text-xs ${ui.textSoft}`}>
         Entradas: {reserva.cantidad_solicitada} · Ingresadas: {ingresadas}
       </p>
+      {puedeGestionar && onChangeCantidad && (
+        <EntradasCambiarCantidadControls
+          reserva={reserva}
+          ui={ui}
+          plazasLibres={plazasLibres}
+          compact
+          onRequestChange={(nuevaCantidad) => onChangeCantidad(reserva, nuevaCantidad)}
+        />
+      )}
       {puedeVerQr && (
         <>
           <div className="flex flex-col sm:flex-row flex-wrap gap-2">
@@ -107,6 +119,8 @@ export default function EntradasMisReservasSection({
   downloadingPdfReservaId,
   setDownloadingPdfReservaId,
   onCancelReserva,
+  onChangeCantidad,
+  plazasLibresPorConciertoId,
 }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [qrExpandedId, setQrExpandedId] = useState(null);
@@ -157,6 +171,8 @@ export default function EntradasMisReservasSection({
               downloadingPdfReservaId={downloadingPdfReservaId}
               onDownloadPdf={handleDownloadPdf}
               onCancel={onCancelReserva}
+              onChangeCantidad={onChangeCantidad}
+              plazasLibres={plazasLibresPorConciertoId?.get?.(Number(reserva.concierto?.id))}
               qrExpandedId={qrExpandedId}
               onToggleQr={toggleQr}
             />

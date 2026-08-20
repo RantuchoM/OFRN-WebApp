@@ -379,6 +379,16 @@ export async function crearReserva({ conciertoId, cantidad }) {
   return payload;
 }
 
+export async function cambiarCantidadReserva({ reservaId, cantidad }) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_cambiar_cantidad_reserva", {
+    p_reserva_id: reservaId,
+    p_cantidad: cantidad,
+  });
+  if (error) throw error;
+  const payload = Array.isArray(data) ? data[0] : data;
+  return payload;
+}
+
 export async function enviarMailReserva({ reservaId, qrReservaToken, qrEntradaTokens, pdfBase64 }) {
   const { error } = await supabaseEntradasPublic.functions.invoke("entradas-send-reserva-email", {
     body: {
@@ -437,10 +447,12 @@ export async function actualizarReferenciaTercero(reservaId, referencia) {
   if (error) throw error;
 }
 
+const RESERVA_CONCIERTO_EMBED = `id, nombre, slug_publico, detalle_richtext, activo, reservas_habilitadas, apertura_reservas_at, ofrn_evento_id,
+    entrada_programa(id, nombre, detalle_richtext), ${ENTRADA_CONCIERTO_EVENTO_EMBED}`;
+
 const RESERVA_TERCEROS_SELECT = `id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token,
   reservada_por, email_beneficiario, beneficiario_referencia, usuario_id,
-  concierto:entrada_concierto(id, nombre, slug_publico, detalle_richtext, ofrn_evento_id,
-    entrada_programa(id, nombre, detalle_richtext), ${ENTRADA_CONCIERTO_EVENTO_EMBED}),
+  concierto:entrada_concierto(${RESERVA_CONCIERTO_EMBED}),
   entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token),
   titular:entrada_usuario!entrada_reserva_usuario_id_fkey(id, nombre, apellido, email)`;
 
@@ -657,7 +669,7 @@ export async function listarMisReservas() {
   const { data, error } = await supabaseEntradasPublic
     .from("entrada_reserva")
     .select(
-      `id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token, concierto:entrada_concierto(id, nombre, slug_publico, detalle_richtext, ofrn_evento_id, entrada_programa(id, nombre, detalle_richtext), ${ENTRADA_CONCIERTO_EVENTO_EMBED}), entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token)`,
+      `id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token, concierto:entrada_concierto(${RESERVA_CONCIERTO_EMBED}), entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token)`,
     )
     .eq("usuario_id", session.user.id)
     .is("reservada_por", null)

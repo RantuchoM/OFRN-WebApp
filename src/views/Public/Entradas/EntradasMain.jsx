@@ -13,6 +13,7 @@ import EntradasDriveCoverImage from "../../../components/entradas/EntradasDriveC
 import EntradasLiveQrScanner from "../../../components/entradas/EntradasLiveQrScanner";
 import EntradasMisReservasSection from "../../../components/entradas/EntradasMisReservasSection";
 import EntradasTercerosSection from "../../../components/entradas/EntradasTercerosSection";
+import EntradasCambiarCantidadControls from "../../../components/entradas/EntradasCambiarCantidadControls";
 import EntradasPasswordModal from "../../../components/entradas/EntradasPasswordModal";
 import MisReservasQrPanel from "../../../components/entradas/MisReservasQrPanel";
 import {
@@ -55,6 +56,7 @@ import {
   conciertoSinPlazasDisponibles,
   crearReserva,
   crearReservaTercero,
+  cambiarCantidadReserva,
   buscarBeneficiarioPorEmail,
   cancelarReservaTercero,
   fetchConciertosDisponibilidad,
@@ -96,7 +98,7 @@ import {
   formatEntradasRecepcionIngresoSuccess,
 } from "../../../utils/entradasQrMessages";
 import { formatEntradasIngresoConRecepcionista } from "../../../utils/entradasIngresoDisplay";
-import { isReservaHistorica } from "../../../utils/entradasMisReservas";
+import { isReservaHistorica, mensajeAvisoCambioCantidadQr } from "../../../utils/entradasMisReservas";
 import { decodeQrFromImageFile } from "../../../utils/qrDecodeFromImage";
 import {
   ADMIN_CONCIERTO_VISTAS,
@@ -635,6 +637,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [catalogQrModalReserva, setCatalogQrModalReserva] = useState(null);
   const [cancelReservaTarget, setCancelReservaTarget] = useState(null);
   const [cancelingReserva, setCancelingReserva] = useState(false);
+  const [changeCantidadTarget, setChangeCantidadTarget] = useState(null);
+  const [changingCantidad, setChangingCantidad] = useState(false);
   const [conciertosConReservaActiva, setConciertosConReservaActiva] = useState([]);
   const [downloadingPdfReservaId, setDownloadingPdfReservaId] = useState(null);
   const [decodingQrPhoto, setDecodingQrPhoto] = useState(false);
@@ -1791,6 +1795,20 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     return map;
   }, [misReservas]);
 
+  const plazasLibresPorConciertoId = useMemo(() => {
+    const map = new Map();
+    for (const programa of programas || []) {
+      for (const concierto of programa.entrada_concierto || []) {
+        if (!concierto?.id) continue;
+        map.set(Number(concierto.id), computeDisponibles(concierto));
+      }
+    }
+    if (selectedConcierto?.id) {
+      map.set(Number(selectedConcierto.id), computeDisponibles(selectedConcierto));
+    }
+    return map;
+  }, [programas, selectedConcierto]);
+
   const resolverReservaActivaCatalogo = async (conciertoId) => {
     const cid = Number(conciertoId);
     let reserva = reservaActivaPorConciertoId.get(cid);
@@ -2615,6 +2633,79 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       toast.error(err?.message || "No se pudo cancelar la reserva.");
     } finally {
       setCancelingReserva(false);
+    }
+  };
+
+  const pedirCambioCantidad = (reserva, nuevaCantidad, concierto) => {
+    if (!reserva?.id) return;
+    const actual = Number(reserva.cantidad_solicitada) || 0;
+    const next = Number(nuevaCantidad);
+    if (!Number.isFinite(next) || next === actual) return;
+    setChangeCantidadTarget({
+      reserva,
+      nuevaCantidad: next,
+      concierto: concierto || reserva.concierto,
+    });
+  };
+
+  const handleConfirmCambiarCantidad = async () => {
+    const target = changeCantidadTarget;
+    if (!target?.reserva?.id || !target.nuevaCantidad) return;
+    setChangingCantidad(true);
+    try {
+      const result = await cambiarCantidadReserva({
+        reservaId: target.reserva.id,
+        cantidad: target.nuevaCantidad,
+      });
+      const concierto = target.concierto || target.reserva.concierto;
+      let pdfBase64;
+      try {
+        const reservaQr = await tokenToQrDataUrl(result.qr_reserva_token);
+        const entriesQr = await Promise.all(
+          (result.qr_entrada_tokens || []).map((token) => tokenToQrDataUrl(token)),
+        );
+        const { blob, filename } = await buildEntradasReservaPdfConDataUrls({
+          concierto,
+          reserva: {
+            codigo_reserva: result.codigo_reserva,
+            cantidad_solicitada: target.nuevaCantidad,
+          },
+          reservaQrDataUrl: reservaQr,
+          entriesQrDataUrls: entriesQr,
+        });
+        downloadEntradasReservaPdfBlob(blob, filename);
+        pdfBase64 = await blobToPdfBase64ForMail(blob);
+      } catch (pdfErr) {
+        console.error(pdfErr);
+      }
+      try {
+        await enviarMailReserva({
+          reservaId: result.reserva_id,
+          qrReservaToken: result.qr_reserva_token,
+          qrEntradaTokens: result.qr_entrada_tokens || [],
+          pdfBase64,
+        });
+        toast.success(
+          pdfBase64
+            ? "Listo, cantidad actualizada. Te descargamos el PDF nuevo y te lo mandamos por mail. Los QR anteriores ya no sirven."
+            : "Listo, cantidad actualizada y mail enviado. El PDF no se pudo generar; descargalo desde «Mis entradas».",
+        );
+      } catch {
+        toast.message(
+          pdfBase64
+            ? "Cantidad actualizada y PDF nuevo descargado, pero el mail no pudo enviarse."
+            : "Cantidad actualizada. El mail no pudo enviarse; descargá el PDF nuevo desde «Mis entradas».",
+        );
+      }
+      setChangeCantidadTarget(null);
+      setCatalogQrModalReserva(null);
+      setReservaResult(null);
+      await loadBase({ quiet: true });
+    } catch (err) {
+      toast.error(err?.message || "No se pudo cambiar la cantidad.");
+      throw err;
+    } finally {
+      setChangingCantidad(false);
     }
   };
 
@@ -3698,7 +3789,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       <div className="space-y-3">
         <h3 className={ui.sectionTitle}>Entradas de terceros activas</h3>
         <p className={`text-sm ${ui.textMuted}`}>
-          Próximos conciertos. Podés descargar el PDF, asociar un mail o cancelar.
+          Próximos conciertos. Podés cambiar la cantidad, descargar el PDF, asociar un mail o cancelar.
         </p>
         <EntradasTercerosSection
           entradasTerceros={entradasTerceros}
@@ -3707,6 +3798,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           downloadingPdfReservaId={downloadingPdfReservaId}
           setDownloadingPdfReservaId={setDownloadingPdfReservaId}
           onCancelReserva={(reserva) => setCancelReservaTarget(reserva)}
+          onChangeCantidad={(reserva, nuevaCantidad) => pedirCambioCantidad(reserva, nuevaCantidad)}
+          plazasLibresPorConciertoId={plazasLibresPorConciertoId}
           onRefresh={() => loadBase({ quiet: true })}
         />
       </div>
@@ -4133,7 +4226,11 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                               : "border-b border-emerald-200/90 bg-emerald-50/80"
                           }`}
                         >
-                          <span className={ui.badgeReserva}>Ya tenés entrada/s</span>
+                          <span className={ui.badgeReserva}>
+                            {reservaSel?.cantidad_solicitada
+                              ? `Ya tenés ${reservaSel.cantidad_solicitada} entrada${Number(reservaSel.cantidad_solicitada) === 1 ? "" : "s"}`
+                              : "Ya tenés entrada/s"}
+                          </span>
                         </div>
                         <div className="px-3 py-3 space-y-1">
                           <h3 className={`text-lg font-bold ${ui.textStrong}`}>{selectedConcierto.nombre}</h3>
@@ -4155,6 +4252,18 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                         <IconQr size={22} />
                         Ver QR
                       </button>
+                      {reservaSel && (
+                        <EntradasCambiarCantidadControls
+                          reserva={reservaSel}
+                          ui={ui}
+                          concierto={selectedConcierto}
+                          plazasLibres={computeDisponibles(selectedConcierto)}
+                          disabled={changingCantidad}
+                          onRequestChange={(nuevaCantidad) =>
+                            pedirCambioCantidad(reservaSel, nuevaCantidad, selectedConcierto)
+                          }
+                        />
+                      )}
                       {puedeCancelarSel && (
                         <button
                           type="button"
@@ -4312,6 +4421,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
               downloadingPdfReservaId={downloadingPdfReservaId}
               setDownloadingPdfReservaId={setDownloadingPdfReservaId}
               onCancelReserva={(reserva) => setCancelReservaTarget(reserva)}
+              onChangeCantidad={(reserva, nuevaCantidad) => pedirCambioCantidad(reserva, nuevaCantidad)}
+              plazasLibresPorConciertoId={plazasLibresPorConciertoId}
             />
           </section>
         )}
@@ -5773,6 +5884,25 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         confirmText={cancelingReserva ? "Cancelando…" : "Sí, cancelar reserva"}
         confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-md"
         onConfirm={handleConfirmCancelReserva}
+      />
+
+      <ConfirmModal
+        isOpen={Boolean(changeCantidadTarget)}
+        onClose={() => !changingCantidad && setChangeCantidadTarget(null)}
+        title="Cambiar cantidad de entradas"
+        message={
+          changeCantidadTarget
+            ? mensajeAvisoCambioCantidadQr({
+                cantidadActual: changeCantidadTarget.reserva?.cantidad_solicitada,
+                cantidadNueva: changeCantidadTarget.nuevaCantidad,
+              })
+            : ""
+        }
+        confirmText={changingCantidad ? "Actualizando…" : "Sí, cambiar cantidad"}
+        confirmLoading={changingCantidad}
+        loadingText="Actualizando…"
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md"
+        onConfirm={handleConfirmCambiarCantidad}
       />
 
       <EntradasAdminBajaModal
