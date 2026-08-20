@@ -355,7 +355,7 @@ export function entradaUsuarioRolLabelClass(rol, isDark = false) {
 export function recepcionPanelClass(p, isDark = false) {
   if (!p) return isDark ? "bg-slate-800 border-slate-600" : "bg-slate-50 border-slate-200";
   if (!p.ok) {
-    if (p.reason === "concierto_distinto") {
+    if (p.reason === "concierto_distinto" || p.reason === "qr_obsoleto_cambio_cantidad") {
       return isDark ? "bg-orange-950/80 border-orange-700" : "bg-orange-50/95 border-orange-300";
     }
     return isDark ? "bg-rose-950/80 border-rose-800" : "bg-rose-50/95 border-rose-200";

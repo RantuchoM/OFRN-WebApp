@@ -389,15 +389,25 @@ export async function cambiarCantidadReserva({ reservaId, cantidad }) {
   return payload;
 }
 
-export async function enviarMailReserva({ reservaId, qrReservaToken, qrEntradaTokens, pdfBase64 }) {
+export async function enviarMailReserva({
+  reservaId,
+  qrReservaToken,
+  qrEntradaTokens,
+  pdfBase64,
+  action = "confirmacion",
+  cantidadAnterior,
+}) {
   const { error } = await supabaseEntradasPublic.functions.invoke("entradas-send-reserva-email", {
     body: {
-      action: "confirmacion",
+      action,
       reservaId,
       qrReservaToken,
       qrEntradaTokens,
       pdfBase64: pdfBase64 || undefined,
       appUrl: window.location.origin,
+      ...(action === "cambio_cantidad" && cantidadAnterior != null
+        ? { cantidadAnterior }
+        : {}),
     },
   });
   if (error) throw error;

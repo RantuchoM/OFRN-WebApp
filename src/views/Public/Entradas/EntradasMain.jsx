@@ -2686,6 +2686,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           qrReservaToken: result.qr_reserva_token,
           qrEntradaTokens: result.qr_entrada_tokens || [],
           pdfBase64,
+          action: "cambio_cantidad",
+          cantidadAnterior: actual,
         });
         toast.success(
           pdfBase64

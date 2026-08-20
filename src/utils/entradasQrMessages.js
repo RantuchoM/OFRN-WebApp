@@ -5,8 +5,32 @@ const fmtIngreso = (at, porNombre) => {
   return t ? ` ${t}.` : "";
 };
 
+function formatQrObsoletoCambioCantidad(r) {
+  const codigo = r?.codigo_reserva || "—";
+  const de = Number(r?.cantidad_anterior);
+  const a = Number(r?.cantidad_nueva);
+  const vigente = Number(r?.cantidad_vigente ?? r?.cantidad_nueva);
+  const deTxt = Number.isFinite(de) ? String(de) : "—";
+  const aTxt = Number.isFinite(a) ? String(a) : "—";
+  const vigenteTxt = Number.isFinite(vigente)
+    ? `${vigente} entrada${vigente === 1 ? "" : "s"}`
+    : "entradas nuevas";
+  let msg =
+    `Este QR es obsoleto: la reserva ${codigo} cambió de ${deTxt} a ${aTxt} entradas y se emitieron códigos nuevos. ` +
+    `Los QR y el PDF anteriores de esa reserva ya no están en vigencia.`;
+  if (r?.reserva_estado && r.reserva_estado !== "activa") {
+    msg += " Además, esa reserva ya no está activa.";
+  } else {
+    msg += ` Pedí el PDF o el mail actualizado (${vigenteTxt} vigentes).`;
+  }
+  return msg;
+}
+
 export function formatEntradasPreviewError(preview) {
   if (!preview || preview.ok) return "";
+  if (preview.reason === "qr_obsoleto_cambio_cantidad") {
+    return formatQrObsoletoCambioCantidad(preview);
+  }
   if (preview.reason === "token_no_encontrado") {
     return "Ese código no corresponde a entradas OFRN o está incompleto.";
   }
@@ -29,6 +53,8 @@ export function formatEntradasValidacionError(result) {
   if (!result) return "Error desconocido";
   const r = result;
   switch (r.reason) {
+    case "qr_obsoleto_cambio_cantidad":
+      return formatQrObsoletoCambioCantidad(r);
     case "token_no_encontrado":
       return "No reconocemos este código. Escaneá un QR OFRN o ingresá los 10 dígitos de una reserva válida.";
     case "codigo_ambiguo":
