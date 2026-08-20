@@ -9,12 +9,14 @@ export default function ConfirmModal({
   title,
   message,
   messageIsHtml = false,
+  children = null,
   errorMessage = null,
   confirmText = "Confirmar",
   cancelText = "Cancelar",
   confirmClassName = "px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98]",
   overlayClassName = "z-[100]",
   confirmLoading = false,
+  confirmDisabled = false,
   loadingText = "Procesando…",
   secondaryAction = null,
 }) {
@@ -23,7 +25,7 @@ export default function ConfirmModal({
   const busy = !!confirmLoading;
 
   const handleConfirm = async () => {
-    if (busy) return;
+    if (busy || confirmDisabled) return;
     try {
       await Promise.resolve(onConfirm?.());
       onClose();
@@ -56,6 +58,7 @@ export default function ConfirmModal({
             ) : (
               <p className="text-sm text-slate-500 mt-2 leading-relaxed whitespace-pre-line">{message}</p>
             )}
+            {children}
             {errorMessage ? (
               <p className="text-sm text-red-700 mt-3 leading-relaxed whitespace-pre-line rounded-lg border border-red-200 bg-red-50 px-3 py-2">
                 {errorMessage}
@@ -104,7 +107,7 @@ export default function ConfirmModal({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             className={`w-full sm:w-auto flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed ${confirmClassName}`}
           >
             {busy ? <IconLoader size={16} className="animate-spin shrink-0" /> : null}

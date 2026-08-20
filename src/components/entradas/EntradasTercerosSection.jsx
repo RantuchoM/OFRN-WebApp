@@ -159,7 +159,7 @@ function TerceroReservaCard({
           ui={ui}
           plazasLibres={plazasLibres}
           compact
-          onRequestChange={(nuevaCantidad) => onChangeCantidad(reserva, nuevaCantidad)}
+          onRequestChange={() => onChangeCantidad(reserva, plazasLibres)}
         />
       )}
 

@@ -98,7 +98,7 @@ import {
   formatEntradasRecepcionIngresoSuccess,
 } from "../../../utils/entradasQrMessages";
 import { formatEntradasIngresoConRecepcionista } from "../../../utils/entradasIngresoDisplay";
-import { isReservaHistorica, mensajeAvisoCambioCantidadQr } from "../../../utils/entradasMisReservas";
+import { isReservaHistorica, labelCantidadEntradas, maxCantidadEditable, mensajeAvisoCambioCantidadQr } from "../../../utils/entradasMisReservas";
 import { decodeQrFromImageFile } from "../../../utils/qrDecodeFromImage";
 import {
   ADMIN_CONCIERTO_VISTAS,
@@ -638,6 +638,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [cancelReservaTarget, setCancelReservaTarget] = useState(null);
   const [cancelingReserva, setCancelingReserva] = useState(false);
   const [changeCantidadTarget, setChangeCantidadTarget] = useState(null);
+  const [changeCantidadDraft, setChangeCantidadDraft] = useState(1);
   const [changingCantidad, setChangingCantidad] = useState(false);
   const [conciertosConReservaActiva, setConciertosConReservaActiva] = useState([]);
   const [downloadingPdfReservaId, setDownloadingPdfReservaId] = useState(null);
@@ -2636,26 +2637,27 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     }
   };
 
-  const pedirCambioCantidad = (reserva, nuevaCantidad, concierto) => {
+  const pedirCambioCantidad = (reserva, concierto, plazasLibres) => {
     if (!reserva?.id) return;
-    const actual = Number(reserva.cantidad_solicitada) || 0;
-    const next = Number(nuevaCantidad);
-    if (!Number.isFinite(next) || next === actual) return;
+    const actual = Math.max(1, Number(reserva.cantidad_solicitada) || 1);
+    setChangeCantidadDraft(actual);
     setChangeCantidadTarget({
       reserva,
-      nuevaCantidad: next,
       concierto: concierto || reserva.concierto,
+      plazasLibres,
     });
   };
 
   const handleConfirmCambiarCantidad = async () => {
     const target = changeCantidadTarget;
-    if (!target?.reserva?.id || !target.nuevaCantidad) return;
+    const next = Number(changeCantidadDraft);
+    const actual = Number(target?.reserva?.cantidad_solicitada) || 0;
+    if (!target?.reserva?.id || !Number.isFinite(next) || next === actual) return;
     setChangingCantidad(true);
     try {
       const result = await cambiarCantidadReserva({
         reservaId: target.reserva.id,
-        cantidad: target.nuevaCantidad,
+        cantidad: next,
       });
       const concierto = target.concierto || target.reserva.concierto;
       let pdfBase64;
@@ -2668,7 +2670,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           concierto,
           reserva: {
             codigo_reserva: result.codigo_reserva,
-            cantidad_solicitada: target.nuevaCantidad,
+            cantidad_solicitada: next,
           },
           reservaQrDataUrl: reservaQr,
           entriesQrDataUrls: entriesQr,
@@ -3798,7 +3800,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           downloadingPdfReservaId={downloadingPdfReservaId}
           setDownloadingPdfReservaId={setDownloadingPdfReservaId}
           onCancelReserva={(reserva) => setCancelReservaTarget(reserva)}
-          onChangeCantidad={(reserva, nuevaCantidad) => pedirCambioCantidad(reserva, nuevaCantidad)}
+          onChangeCantidad={(reserva, plazasLibres) => pedirCambioCantidad(reserva, reserva?.concierto, plazasLibres)}
           plazasLibresPorConciertoId={plazasLibresPorConciertoId}
           onRefresh={() => loadBase({ quiet: true })}
         />
@@ -4259,8 +4261,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                           concierto={selectedConcierto}
                           plazasLibres={computeDisponibles(selectedConcierto)}
                           disabled={changingCantidad}
-                          onRequestChange={(nuevaCantidad) =>
-                            pedirCambioCantidad(reservaSel, nuevaCantidad, selectedConcierto)
+                          showCount={false}
+                          onRequestChange={() =>
+                            pedirCambioCantidad(reservaSel, selectedConcierto, computeDisponibles(selectedConcierto))
                           }
                         />
                       )}
@@ -4421,7 +4424,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
               downloadingPdfReservaId={downloadingPdfReservaId}
               setDownloadingPdfReservaId={setDownloadingPdfReservaId}
               onCancelReserva={(reserva) => setCancelReservaTarget(reserva)}
-              onChangeCantidad={(reserva, nuevaCantidad) => pedirCambioCantidad(reserva, nuevaCantidad)}
+              onChangeCantidad={(reserva, plazasLibres) => pedirCambioCantidad(reserva, reserva?.concierto, plazasLibres)}
               plazasLibresPorConciertoId={plazasLibresPorConciertoId}
             />
           </section>
@@ -5890,20 +5893,45 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         isOpen={Boolean(changeCantidadTarget)}
         onClose={() => !changingCantidad && setChangeCantidadTarget(null)}
         title="Cambiar cantidad de entradas"
-        message={
-          changeCantidadTarget
-            ? mensajeAvisoCambioCantidadQr({
-                cantidadActual: changeCantidadTarget.reserva?.cantidad_solicitada,
-                cantidadNueva: changeCantidadTarget.nuevaCantidad,
-              })
-            : ""
-        }
+        message={changeCantidadTarget ? mensajeAvisoCambioCantidadQr() : ""}
         confirmText={changingCantidad ? "Actualizando…" : "Sí, cambiar cantidad"}
         confirmLoading={changingCantidad}
+        confirmDisabled={
+          !changeCantidadTarget
+          || Number(changeCantidadDraft) === Number(changeCantidadTarget.reserva?.cantidad_solicitada)
+        }
         loadingText="Actualizando…"
         confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md"
         onConfirm={handleConfirmCambiarCantidad}
-      />
+      >
+        {changeCantidadTarget && (
+          <div className="mt-4 space-y-1.5">
+            <label htmlFor="entradas-cambiar-cantidad" className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              Nueva cantidad
+            </label>
+            <select
+              id="entradas-cambiar-cantidad"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-800"
+              value={changeCantidadDraft}
+              disabled={changingCantidad}
+              onChange={(event) => setChangeCantidadDraft(Number(event.target.value))}
+            >
+              {Array.from(
+                { length: maxCantidadEditable(changeCantidadTarget.reserva, changeCantidadTarget.plazasLibres) },
+                (_, i) => i + 1,
+              ).map((n) => {
+                const actual = Number(changeCantidadTarget.reserva?.cantidad_solicitada) || 0;
+                return (
+                  <option key={n} value={n}>
+                    {labelCantidadEntradas(n)}
+                    {n === actual ? " (actual)" : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
+      </ConfirmModal>
 
       <EntradasAdminBajaModal
         target={bajaTarget}
