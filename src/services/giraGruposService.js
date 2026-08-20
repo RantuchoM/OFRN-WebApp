@@ -1,6 +1,7 @@
 /**
  * Grupos de convocatoria por gira (CRUD + helpers de membresía efectiva).
  */
+import { notifyEnsayoEventoSoftDeleted } from "../utils/ensayoCheckinLifecycle";
 
 export const GIRA_GRUPO_DEFAULT_COLORS = [
   "#6366f1",
@@ -144,6 +145,7 @@ export async function softDeleteEventos(supabase, eventIds) {
       deleted_at: new Date().toISOString(),
     })
     .in("id", ids);
+  if (!error) notifyEnsayoEventoSoftDeleted(ids);
   return { error };
 }
 

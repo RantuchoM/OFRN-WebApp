@@ -21,7 +21,7 @@ export function isEnsambleSelectableForCheckinReport(ensambleName) {
 }
 
 const EVENT_SELECT = `
-  id, fecha, hora_inicio, hora_fin, descripcion, id_locacion,
+  id, fecha, hora_inicio, hora_fin, descripcion, id_locacion, is_deleted,
   eventos_ensambles ( id_ensamble, ensambles ( id, ensamble ) ),
   locaciones ( id, nombre, latitud, longitud, link_mapa, localidades ( localidad ) )
 `;
@@ -69,14 +69,14 @@ export async function fetchEnsayoCheckinReportData(supabase, {
     .select(EVENT_SELECT)
     .in("id", eventIdsFromEns)
     .eq("id_tipo_evento", ID_TIPO_ENSAYO)
-    .eq("is_deleted", false)
+    .or("is_deleted.is.null,is_deleted.eq.false")
     .gte("fecha", desde)
     .lte("fecha", hasta)
     .order("fecha", { ascending: true })
     .order("hora_inicio", { ascending: true });
   if (evErr) throw evErr;
 
-  const eventList = events || [];
+  const eventList = (events || []).filter((e) => e.is_deleted !== true);
   const eventIds = eventList.map((e) => e.id);
 
   let checkins = [];

@@ -101,6 +101,7 @@ import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import RehearsalCheckInBlock from "./RehearsalCheckInBlock";
 import { useEnsayoCheckin } from "../../hooks/useEnsayoCheckin";
 import { isIntegranteConvocadoAEnsayo } from "../../utils/ensayoCheckinBanner";
+import { notifyEnsayoEventoSoftDeleted } from "../../utils/ensayoCheckinLifecycle";
 import { deriveAgendaPermissions } from "../../utils/agendaPermissions";
 
 const DELETED_FILTERS_STORAGE_KEY_PREFIX = "unified_agenda_deleted_filters_v1_";
@@ -870,7 +871,7 @@ export default function UnifiedAgenda({
     (evt) => {
       if (Number(evt?.id_tipo_evento) !== 13 || !canEnsayoCheckIn) return false;
       if (!userProfile || userProfile.id === "guest-general") return false;
-      if (evt.is_deleted) return false;
+      if (evt.is_deleted === true) return false;
       const custom = evt.is_absent
         ? { tipo: "ausente" }
         : evt.is_guest
@@ -1540,6 +1541,7 @@ export default function UnifiedAgenda({
         })
         .eq("id", id);
       if (error) throw error;
+      notifyEnsayoEventoSoftDeleted(id);
       setIsEditOpen(false);
       markLocalEventMutation(id);
       await refreshEventById(id);

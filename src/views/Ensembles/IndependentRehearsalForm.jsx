@@ -20,6 +20,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext";
 import { integranteKey } from "../../utils/integranteIds";
+import { notifyEnsayoEventoSoftDeleted } from "../../utils/ensayoCheckinLifecycle";
 import {
   buildRehearsalFormFromEvent,
   eventHasEmbeddedRelations,
@@ -487,6 +488,7 @@ export default function IndependentRehearsalForm({
           })
           .eq("id", initialData.id);
         if (error) throw error;
+        notifyEnsayoEventoSoftDeleted(initialData.id);
         if (onSuccess) onSuccess();
       },
       {

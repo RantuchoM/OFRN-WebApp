@@ -350,6 +350,7 @@ export default function RehearsalCheckInBlock({
     }
   };
 
+  if (evt?.is_deleted === true) return null;
   if (!isToday && !pairWithSchedule) return null;
 
   const iconBtnClass =

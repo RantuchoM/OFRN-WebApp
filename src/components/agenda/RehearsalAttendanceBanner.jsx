@@ -51,6 +51,7 @@ import {
   onEnsayoAltaLocalReminders,
   syncEnsayoLocalReminders,
 } from "../../utils/ensayoLocalRemindersSync";
+import { ENSAYO_EVENTO_SOFT_DELETED } from "../../utils/ensayoCheckinLifecycle";
 
 /**
  * Banner sticky: mismo set de íconos que RehearsalCheckInBlock (GPS / escanear / ofrecer QR),
@@ -84,6 +85,24 @@ export default function RehearsalAttendanceBanner({
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const onSoftDeleted = (ev) => {
+      const ids = new Set(
+        (ev?.detail?.eventoIds || []).map((x) => Number(x)),
+      );
+      const frozenId = frozenTargetRef.current?.evt?.id;
+      if (
+        ev?.detail?.refreshAll ||
+        (frozenId != null && ids.has(Number(frozenId)))
+      ) {
+        frozenTargetRef.current = null;
+      }
+    };
+    window.addEventListener(ENSAYO_EVENTO_SOFT_DELETED, onSoftDeleted);
+    return () =>
+      window.removeEventListener(ENSAYO_EVENTO_SOFT_DELETED, onSoftDeleted);
   }, []);
 
   // Rehidratar alarms locales del SW al volver a la app
@@ -133,6 +152,13 @@ export default function RehearsalAttendanceBanner({
     [events, getEstado, now, integranteId],
   );
 
+  if (
+    liveTarget?.evt?.is_deleted === true ||
+    (holdUi && frozenTargetRef.current?.evt?.is_deleted === true)
+  ) {
+    frozenTargetRef.current = null;
+  }
+
   if (!holdUi) {
     frozenTargetRef.current = liveTarget;
   } else if (!frozenTargetRef.current && liveTarget?.evt) {
@@ -140,9 +166,10 @@ export default function RehearsalAttendanceBanner({
   }
 
   const target = holdUi ? frozenTargetRef.current || liveTarget : liveTarget;
-  const evt = target?.evt || null;
-  const estado = target?.estado || null;
-  const phase = target?.phase || "idle";
+  const evt =
+    target?.evt?.is_deleted === true ? null : target?.evt || null;
+  const estado = evt ? target?.estado || null : null;
+  const phase = evt ? target?.phase || "idle" : "idle";
   const salidaUrgency =
     phase === "activo" ? resolveSalidaUrgency(evt, estado, now) : "none";
   const title = evt ? ensayoBannerTitle(evt) : "";

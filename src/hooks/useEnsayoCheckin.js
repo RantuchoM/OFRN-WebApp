@@ -22,7 +22,8 @@ export function useEnsayoCheckin({ integranteId, events, todayStr }) {
         (e) =>
           Number(e.id_tipo_evento) === ID_TIPO_ENSAYO_ENSAMBLE &&
           e.fecha === todayStr &&
-          e.id,
+          e.id &&
+          !e.is_deleted,
       )
       .map((e) => Number(e.id));
   }, [events, todayStr]);

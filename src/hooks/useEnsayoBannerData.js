@@ -3,6 +3,7 @@ import { supabase } from "../services/supabase";
 import { getTodayDateStringLocal } from "../utils/dates";
 import { membershipActiveOnProgramDate } from "../utils/ensembleMembership";
 import { ensayoCheckinEstado } from "../services/ensayoCheckinService";
+import { ENSAYO_EVENTO_SOFT_DELETED } from "../utils/ensayoCheckinLifecycle";
 
 const ID_TIPO_ENSAYO_ENSAMBLE = 13;
 
@@ -149,10 +150,28 @@ export function useEnsayoBannerData(integranteId) {
   useEffect(() => {
     refresh();
     const onFocus = () => refresh();
+    const onSoftDeleted = (ev) => {
+      const ids = new Set(
+        (ev?.detail?.eventoIds || []).map((x) => String(x)),
+      );
+      if (ids.size) {
+        setEvents((prev) => prev.filter((e) => !ids.has(String(e.id))));
+        setEstadoMap((prev) => {
+          const next = { ...prev };
+          ids.forEach((id) => {
+            delete next[id];
+          });
+          return next;
+        });
+      }
+      refresh();
+    };
     window.addEventListener("focus", onFocus);
+    window.addEventListener(ENSAYO_EVENTO_SOFT_DELETED, onSoftDeleted);
     const interval = setInterval(refresh, 60_000);
     return () => {
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener(ENSAYO_EVENTO_SOFT_DELETED, onSoftDeleted);
       clearInterval(interval);
     };
   }, [refresh]);

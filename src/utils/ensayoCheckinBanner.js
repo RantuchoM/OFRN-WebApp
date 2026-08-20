@@ -155,7 +155,7 @@ export function pickEnsayoBannerTarget(events, getEstado, now = new Date()) {
       Number(e.id_tipo_evento) === ID_TIPO_ENSAYO_ENSAMBLE &&
       e.fecha === today &&
       e.id &&
-      !e.is_deleted,
+      e.is_deleted !== true,
   );
   if (!ensayos.length) return null;
 

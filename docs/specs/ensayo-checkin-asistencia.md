@@ -49,6 +49,7 @@ Migraciones:
 - `supabase/migrations/20260804120000_ensayo_salida_recordatorios.sql` (push/email salida + `web_push_subscriptions`)
 - `supabase/migrations/20260806140000_ensayo_inicio_recordatorios.sql` (`pre_inicio` + cron ingreso)
 - `supabase/migrations/20260806200000_ensayo_diario_reporte_cron.sql` (mail diario asistencia)
+- `supabase/migrations/20260820120000_ensayo_checkin_block_deleted.sql` (mensaje claro + trigger anti-escritura si `is_deleted`)
 
 ## UI Agenda
 
@@ -76,6 +77,7 @@ Migraciones:
   - Si el RPC falla o no trae timestamp: «no quedó registrada. Intentá de nuevo», la pantalla **no** cambia (modal de confirmación queda abierto).
   - Refresh de estado en background; un fallo de red **no** vacía `estadoMap`.
 - Visibilidad (tarjeta y banner): usuario **real** admin (`isActuallyAdmin`) **y** convocado al ensayo (`isIntegranteConvocadoAEnsayo`, calculado en vivo desde el perfil; no solo flag de cache).
+- **Soft-delete (`is_deleted`)**: no banner, no botones de entrada/salida, no carga admin. RPCs (`ensayo_validar_evento_ensamble`) y trigger en `eventos_checkin_ensayo` / `eventos_checkin_pase` rechazan escritura. Al soft-delete, `notifyEnsayoEventoSoftDeleted` invalida banner y cancela alarmas locales de inmediato.
 - Ofrecer QR de ubicación (`modo=gps`): solo mientras no haya salida, o hasta **10 min** después de `salida_at` (`puedeOfrecerPaseGps`).
 - Botones del bloque en tarjeta: solo si `fecha === hoy` (local), permiso de check-in y convocatoria.
 - Flujo tarjeta: sin llegada → ingreso; con llegada sin salida → botones de salida al lado de hora_fin; ambas → badges junto a inicio/fin.

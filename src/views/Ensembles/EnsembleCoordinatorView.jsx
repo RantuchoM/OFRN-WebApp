@@ -48,6 +48,7 @@ import GiraForm from "../Giras/GiraForm";
 import IndependentRehearsalForm from "./IndependentRehearsalForm";
 import MassiveRehearsalGenerator from "./MassiveRehearsalGenerator";
 import EnsembleCalendar from "./EnsembleCalendar";
+import { notifyEnsayoEventoSoftDeleted } from "../../utils/ensayoCheckinLifecycle";
 import EventQuickView from "./EventQuickView";
 import FilterDropdown from "../../components/ui/FilterDropdown";
 import DateInput from "../../components/ui/DateInput";
@@ -3274,6 +3275,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
             .update(softDeletePayload)
             .in("id", ids);
           if (error) throw error;
+          notifyEnsayoEventoSoftDeleted(ids);
         },
         {
           loading: "Marcando eventos como eliminados...",
@@ -3295,6 +3297,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
             .update(softDeletePayload)
             .eq("id", id);
           if (error) throw error;
+          notifyEnsayoEventoSoftDeleted(id);
         },
         {
           loading: "Marcando como eliminado...",

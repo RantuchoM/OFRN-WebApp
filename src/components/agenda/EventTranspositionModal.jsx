@@ -17,6 +17,7 @@ import {
 } from "../ui/Icons";
 import SearchableSelect from "../ui/SearchableSelect";
 import { getEventsByGira } from "../../services/giraService";
+import { notifyEnsayoEventoSoftDeleted } from "../../utils/ensayoCheckinLifecycle";
 
 function computeSafeDate(iso) {
   try {
@@ -647,6 +648,7 @@ export default function EventTranspositionModal({
             .in("id", chunk);
           if (deleteError) throw deleteError;
           replacedIds.push(...chunk);
+          notifyEnsayoEventoSoftDeleted(chunk);
         }
       }
 
