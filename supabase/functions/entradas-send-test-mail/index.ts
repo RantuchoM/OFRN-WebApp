@@ -139,7 +139,7 @@ serve(async (req) => {
       if (!lugar) lugar = lugarNombreDesdeEventoOfrn(concierto.evento);
     }
 
-    const appUrl = String(body?.appUrl || Deno.env.get("ENTRADAS_PUBLIC_URL") || "https://entradas.ofrn.gob.ar")
+    const appUrl = String(body?.appUrl || Deno.env.get("ENTRADAS_PUBLIC_URL") || "https://ofrn-web-app.vercel.app")
       .replace(/\/$/, "");
     const linkConcierto = linkEntradasCatalogoConcierto(appUrl, slugPublico);
     const linkMisEntradas = linkEntradasMisReservas(appUrl);

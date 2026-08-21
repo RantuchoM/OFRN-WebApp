@@ -89,7 +89,7 @@ Migraciones:
 | T−10 de `hora_fin` | Web Push + soft (app abierta) + **alarma local** | `registrado_at` sí, `salida_at` no, no justificado |
 | Justo a `hora_fin` (POST=0) | Web Push + soft + **email** + **alarma local** | igual |
 
-- Edge Function: `ensayo-salida-recordatorios` (pg_cron **cada 1 min**, migraciones `20260804120000` + `20260805000000_ensayo_salida_cron_1min.sql`).
+- Edge Function: `ensayo-salida-recordatorios` (pg_cron **cada 5 min**, franja **08:00–22:59 ART** / `*/5 11-23,0-1 * * *` UTC; migraciones `20260804120000` + `20260805000000` + `20260820180000` + `20260820190000`).
 - Idempotencia: tabla `eventos_checkin_recordatorios` (`tipo` pre_cierre|post_cierre|**pre_inicio**, `canal` push|email).
 
 ## Recordatorios de ingreso / inicio (cron)
@@ -98,7 +98,7 @@ Migraciones:
 |---------|--------|-----------|
 | T−15 de `hora_inicio` (ventana hasta T+3 h) | Web Push + **email** + alarma local | convocado, sin `registrado_at`, no justificado |
 
-- Edge Function: `ensayo-inicio-recordatorios` (pg_cron **cada 1 min**, migración `20260806140000_ensayo_inicio_recordatorios.sql`).
+- Edge Function: `ensayo-inicio-recordatorios` (pg_cron **cada 5 min**, franja **08:00–22:59 ART** / `*/5 11-23,0-1 * * *` UTC; migración `20260806140000` + `20260820180000` + `20260820190000`).
 - **Gate de prueba:** solo integrantes con `admin` en `rol_sistema` (`ONLY_ADMINS = true` en la función). Al abrir check-in a músicos: poner `ONLY_ADMINS = false` y quitar el gate de `EnsayoLocalRemindersSync` / banner.
 - Tags push alineados a local: `ensayo-inicio-pre-{eventoId}`.
 - Suscripciones: `web_push_subscriptions` + RPC `web_push_subscribe` (se renueva al montar sync de admin).

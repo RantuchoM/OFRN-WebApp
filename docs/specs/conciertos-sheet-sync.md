@@ -11,7 +11,7 @@ Mantener un Google Sheet actualizado con los conciertos del año calendario, en 
 ## Disparo
 - Trigger `trg_conciertos_sheet_sync` en `eventos` si NEW/OLD es tipo 1 (incluye soft-delete).
 - Cron diario 10:00 UTC (cubre cambios de repertorio/ensambles/locaciones).
-- Cron cada 1 min si `pending = true` (solo si un sync coincidió con otro en curso).
+- Cron cada **5 min** en franja **08:00–22:59 ART** (`*/5 11-23,0-1 * * *` UTC; `20260820190000`) si `pending = true` (solo si un sync coincidió con otro en curso).
 - Botón «Sincronizar Sheet» en Gestión → Conciertos (`force: true`).
 
 ## Rate limit

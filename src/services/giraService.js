@@ -490,7 +490,7 @@ export const getEnrichedRosterOnDemand = async (supabase, giraId) => {
 };
 export const syncBowingToProgram = async (
   supabase,
-  { programId, obraId, nombreSet, targetDriveId },
+  { programId, obraId, nombreSet, targetDriveId, repertoireBlockId },
 ) => {
   const { data, error } = await supabase.functions.invoke("manage-drive", {
     body: {
@@ -499,6 +499,7 @@ export const syncBowingToProgram = async (
       obraId,
       nombreSet,
       targetDriveId,
+      repertoireBlockId: repertoireBlockId ?? null,
     },
   });
 

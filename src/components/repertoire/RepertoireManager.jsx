@@ -2742,7 +2742,7 @@ export default function RepertoireManager({
       .filter((p) => p.apellido || p.nombre);
 
   // --- MANEJADOR CAMBIO DE ARCO (BD + DRIVE VIA PADRE) ---
-  const handleArcoSelectionChange = async (item, newArcoId) => {
+  const handleArcoSelectionChange = async (item, newArcoId, repertoireBlockId = null) => {
     // 1. Actualización optimista en BD (Repertorio)
     updateWorkDetail(item.id, "id_arco_seleccionado", newArcoId);
 
@@ -2769,18 +2769,29 @@ export default function RepertoireManager({
 
     // 4. Delegar al padre la sincronización con Drive
     if (onSyncArco) {
-      onSyncArco(item.obras, selectedArco.nombre, targetId)
+      onSyncArco(
+        item.obras,
+        selectedArco.nombre,
+        targetId,
+        repertoireBlockId ?? item.id_repertorio ?? null,
+      )
         .then(() => console.log("Arcos vinculados correctamente."))
         .catch((err) => console.error("Error vinculando arcos:", err));
     }
   };
   // --- Crear Set de Arcos (columna Arcos en tabla) ---
-  const handleCreateBowingSetForManager = async (workId, workTitle, nombre) => {
+  const handleCreateBowingSetForManager = async (
+    workId,
+    workTitle,
+    nombre,
+    repertoireBlockId = null,
+  ) => {
     if (!onSyncArco) throw new Error("Función de sincronización no disponible.");
     const result = await onSyncArco(
       { id: workId, titulo: workTitle },
       nombre,
       null,
+      repertoireBlockId,
     );
     return result;
   };
@@ -4112,12 +4123,14 @@ export default function RepertoireManager({
                                           item.obras?.id ?? item.id_obra,
                                           item.obras?.titulo ?? "",
                                           nombreSet.trim(),
+                                          rep.id,
                                         )
                                           .then((result) => {
                                             if (result?.newArcoId) {
                                               handleArcoSelectionChange(
                                                 item,
                                                 result.newArcoId,
+                                                rep.id,
                                               );
                                               fetchFullRepertoire();
                                             }
@@ -4136,6 +4149,7 @@ export default function RepertoireManager({
                                         handleArcoSelectionChange(
                                           item,
                                           val === "" ? null : val,
+                                          rep.id,
                                         );
                                       }
                                     }}

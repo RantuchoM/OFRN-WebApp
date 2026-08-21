@@ -99,6 +99,99 @@ const DRIVE_SHARED_OPTS_ARCOS = {
   includeItemsFromAllDrives: true,
 };
 
+/** Busca o crea una subcarpeta por nombre exacto bajo `parentId`. */
+async function findOrCreateChildFolder(
+  drive: any,
+  parentId: string,
+  folderName: string,
+): Promise<string> {
+  const safeName = escapeDriveQueryLiteral(folderName);
+  const q =
+    `name = '${safeName}' and '${parentId}' in parents and mimeType = '${FOLDER_MIME}' and trashed = false`;
+  try {
+    const search = await drive.files.list({
+      q,
+      fields: "files(id)",
+      pageSize: 1,
+      ...DRIVE_SHARED_OPTS_ARCOS,
+    });
+    if (search.data.files?.length) {
+      return search.data.files[0].id as string;
+    }
+  } catch (searchErr) {
+    console.warn(
+      "[findOrCreateChildFolder] Búsqueda falló, se creará:",
+      (searchErr as Error)?.message || searchErr,
+    );
+  }
+  const created = await drive.files.create({
+    requestBody: {
+      name: folderName,
+      mimeType: FOLDER_MIME,
+      parents: [parentId],
+    },
+    fields: "id",
+    ...DRIVE_SHARED_OPTS_ARCOS,
+  });
+  return created.data.id as string;
+}
+
+/**
+ * Resuelve la carpeta destino de shortcuts de arcos en la gira.
+ * Con varios bloques: `Arcos {nomenclador}/{orden}. {nombreBloque}/`.
+ * Con un solo bloque (o sin blockId): queda en la raíz de arcos de la gira.
+ */
+async function resolveTourArcosShortcutsParent(
+  supabase: any,
+  drive: any,
+  tourArcosId: string,
+  programId: number | string,
+  repertoireBlockId: number | string | null | undefined,
+): Promise<string> {
+  if (repertoireBlockId == null || repertoireBlockId === "") {
+    return tourArcosId;
+  }
+
+  const { data: blocks, error } = await supabase
+    .from("programas_repertorios")
+    .select("id, nombre, orden")
+    .eq("id_programa", programId)
+    .order("orden", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (error || !blocks?.length) {
+    console.warn(
+      "[resolveTourArcosShortcutsParent] No se pudieron cargar bloques:",
+      error?.message || "sin datos",
+    );
+    return tourArcosId;
+  }
+
+  // Un solo repertorio: no anidar (misma UX que antes).
+  if (blocks.length <= 1) {
+    return tourArcosId;
+  }
+
+  const block = blocks.find(
+    (b: { id: number | string }) => String(b.id) === String(repertoireBlockId),
+  );
+  if (!block) {
+    console.warn(
+      `[resolveTourArcosShortcutsParent] Bloque ${repertoireBlockId} no pertenece al programa ${programId}`,
+    );
+    return tourArcosId;
+  }
+
+  const orderNum = Number(block.orden);
+  const prefix = String(
+    Number.isFinite(orderNum) && orderNum > 0 ? orderNum : blocks.indexOf(block) + 1,
+  ).padStart(2, "0");
+  const blockName = String(block.nombre || "Repertorio").trim() || "Repertorio";
+  const folderName = `${prefix}. ${blockName}`;
+
+  return findOrCreateChildFolder(drive, tourArcosId, folderName);
+}
+
 async function getDriveItemName(
   drive: ReturnType<typeof google.drive>,
   fileId: string | null | undefined,
@@ -2914,7 +3007,7 @@ serve(async (req) => {
     // ACCIÓN: SINCRONIZAR ARCOS (V4 - DRIVE AS SOURCE OF TRUTH)
     // =================================================================================
     if (action === "sync_bowing_to_program") {
-      const { programId, nombreSet, targetDriveId, obraId } = body;
+      const { programId, nombreSet, targetDriveId, obraId, repertoireBlockId } = body;
 
       if (!programId || !obraId) throw new Error("Faltan parámetros (programId, obraId)");
 
@@ -3043,6 +3136,15 @@ serve(async (req) => {
         await supabase.from("programas").update({ id_folder_arcos: tourArcosId }).eq("id", programId);
       }
 
+      // --- 3b. SUBCARPETA POR BLOQUE DE REPERTORIO (si hay >1 bloque) ---
+      const shortcutsParentId = await resolveTourArcosShortcutsParent(
+        supabase,
+        drive,
+        tourArcosId,
+        programId,
+        repertoireBlockId,
+      );
+
       // --- 4. GESTIONAR ACCESO DIRECTO A G1 (S1) ---
       let shortcutG1Id = prog.id_shortcut_arcos_drive;
       let shortcutG1Exists = false;
@@ -3087,28 +3189,32 @@ serve(async (req) => {
       // --- 5. GESTIONAR SHORTCUT DEL SET (S2) ---
       const standardizedName = buildArcoDriveLabel(setDriveName, workMasterLabel);
 
-      // LIMPIEZA: borrar shortcuts previos de esta obra (por nombre de carpeta Drive, no título BD)
+      // LIMPIEZA: borrar shortcuts previos de esta obra en la carpeta destino
+      // y en la raíz de arcos de la gira (migración desde layout plano).
       const safeFolderLabel = escapeDriveQueryLiteral(workMasterLabel);
-      const qCleanup = `'${tourArcosId}' in parents and mimeType = 'application/vnd.google-apps.shortcut' and name contains '${safeFolderLabel}' and trashed = false`;
+      const cleanupParents = new Set<string>([shortcutsParentId, tourArcosId]);
 
-      try {
-        const candidates = await drive.files.list({ q: qCleanup, fields: "files(id, name)" });
-        if (candidates.data.files && candidates.data.files.length > 0) {
-          for (const file of candidates.data.files) {
-            if (file.name?.toLowerCase().includes(workMasterLabel.toLowerCase())) {
-              console.log(`[Clean] Reemplazando: ${file.name}`);
-              await drive.files.delete({ fileId: file.id });
+      for (const parentId of cleanupParents) {
+        const qCleanup = `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.shortcut' and name contains '${safeFolderLabel}' and trashed = false`;
+        try {
+          const candidates = await drive.files.list({ q: qCleanup, fields: "files(id, name)" });
+          if (candidates.data.files && candidates.data.files.length > 0) {
+            for (const file of candidates.data.files) {
+              if (file.name?.toLowerCase().includes(workMasterLabel.toLowerCase())) {
+                console.log(`[Clean] Reemplazando: ${file.name}`);
+                await drive.files.delete({ fileId: file.id });
+              }
             }
           }
-        }
-      } catch (e) { console.error("Error limpieza S2:", e); }
+        } catch (e) { console.error("Error limpieza S2:", e); }
+      }
 
       // CREAR NUEVO
       const s2 = await drive.files.create({
         requestBody: {
           name: standardizedName,
           mimeType: "application/vnd.google-apps.shortcut",
-          parents: [tourArcosId],
+          parents: [shortcutsParentId],
           shortcutDetails: { targetId: finalSetId }
         },
         fields: "id"
@@ -3118,7 +3224,8 @@ serve(async (req) => {
       return new Response(JSON.stringify({
         success: true,
         realFolderId: finalSetId,
-        shortcutId: shortcutS2Id
+        shortcutId: shortcutS2Id,
+        shortcutsParentId,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });

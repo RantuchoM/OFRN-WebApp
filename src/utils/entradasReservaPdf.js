@@ -122,7 +122,7 @@ async function loadMembreteFilarmonicaDataUrl() {
 }
 
 /**
- * PDF simplificado: membrete RN, caja de datos (estilo mail), nota en texto, QR grupo grande y fila de individuales.
+ * PDF: membrete, fila detalle + QR general a la derecha, aviso de asistencia, individuales al pie.
  * @param {Object} p
  * @param {string} p.conciertoNombre
  * @param {string} [p.fechaHora]
@@ -142,8 +142,13 @@ export async function buildEntradasReservaPdfBlob(p) {
   const M = 12;
   const maxW = pageW - 2 * M;
   const stripeW = 2.8;
-  const innerX = M + stripeW + CARD_PAD_X + 1.5;
-  const innerW = maxW - stripeW - CARD_PAD_X * 2 - 2;
+  const colGap = 6;
+  const qrLabelH = 5;
+  const qrPad = 3;
+  /** QR general: ~45% del ancho útil, tope 78 mm. */
+  const qrGroupMm = Math.min(78, maxW * 0.42);
+  const qrColW = qrGroupMm + qrPad * 2;
+  const detailColW = maxW - qrColW - colGap;
 
   let yTop = M;
   if (membreteDataUrl) {
@@ -160,81 +165,86 @@ export async function buildEntradasReservaPdfBlob(p) {
   }
 
   const cardTop = yTop;
-  const innerTop = cardTop + 8;
-  const bodyH = headerBodyHeightMm(doc, innerW, p);
-  const cardH = bodyH + 16;
+  const detailInnerX = M + stripeW + CARD_PAD_X + 1.5;
+  const detailInnerW = detailColW - stripeW - CARD_PAD_X * 2 - 2;
+  const bodyH = headerBodyHeightMm(doc, detailInnerW, p);
+  const cardContentH = bodyH + 16;
+  const qrBlockH = qrLabelH + 2 + qrGroupMm + 2;
+  const rowH = Math.max(cardContentH, qrBlockH);
+  const cardH = rowH;
+
   doc.setFillColor(249, 250, 251);
   doc.setDrawColor(226, 232, 240);
   doc.setLineWidth(0.2);
-  doc.rect(M, cardTop, maxW, cardH, "FD");
+  doc.rect(M, cardTop, detailColW, cardH, "FD");
   doc.setFillColor(79, 70, 229);
   doc.rect(M, cardTop, stripeW, cardH, "F");
 
-  let yc = innerTop;
+  let yc = cardTop + 8;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(FONT_TITLE);
   doc.setTextColor(15, 23, 42);
-  doc.text("Reserva de entradas", innerX, yc);
+  doc.text("Reserva de entradas", detailInnerX, yc);
   yc += TITLE_LINE_GAP;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(FONT_ORCH);
   doc.setTextColor(71, 85, 105);
-  doc.text("Orquesta Filarmónica de Río Negro", innerX, yc);
+  doc.text("Orquesta Filarmónica de Río Negro", detailInnerX, yc);
   yc += SUB_LINE_GAP;
   doc.setTextColor(17, 24, 39);
-  yc = drawFieldRow(doc, innerX, yc, innerW, "Concierto", p.conciertoNombre);
-  yc = drawFieldRow(doc, innerX, yc, innerW, "Fecha y hora", formatEntradasConciertoFechaHora(p.fechaHora));
+  yc = drawFieldRow(doc, detailInnerX, yc, detailInnerW, "Concierto", p.conciertoNombre);
+  yc = drawFieldRow(doc, detailInnerX, yc, detailInnerW, "Fecha y hora", formatEntradasConciertoFechaHora(p.fechaHora));
   if (p.lugarNombre) {
-    yc = drawFieldRow(doc, innerX, yc, innerW, "Lugar", p.lugarNombre);
+    yc = drawFieldRow(doc, detailInnerX, yc, detailInnerW, "Lugar", p.lugarNombre);
   }
-  yc = drawFieldRow(doc, innerX, yc, innerW, "Código de reserva", p.codigoReserva);
-  yc = drawFieldRow(doc, innerX, yc, innerW, "Cantidad de entradas", String(p.cantidad ?? "—"));
+  yc = drawFieldRow(doc, detailInnerX, yc, detailInnerW, "Código de reserva", p.codigoReserva);
+  yc = drawFieldRow(doc, detailInnerX, yc, detailInnerW, "Cantidad de entradas", String(p.cantidad ?? "—"));
 
-  let yAfterCard = cardTop + cardH + 6;
-  yAfterCard = drawNotaAsistenciaPdf(doc, M, yAfterCard, maxW, ENTRADAS_NOTA_ASISTENCIA_PDF);
+  const qrColX = M + detailColW + colGap;
+  const qrImgX = qrColX + (qrColW - qrGroupMm) / 2;
+  const qrImgY = cardTop + (cardH - qrBlockH) / 2 + qrLabelH + 2;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(30, 27, 75);
+  doc.text("QR general", qrColX + qrColW / 2, cardTop + (cardH - qrBlockH) / 2 + 3.5, { align: "center" });
+  doc.addImage(p.qrReservaDataUrl, "PNG", qrImgX, qrImgY, qrGroupMm, qrGroupMm);
+
+  let yAfterRow = cardTop + cardH + 6;
+  yAfterRow = drawNotaAsistenciaPdf(doc, M, yAfterRow, maxW, ENTRADAS_NOTA_ASISTENCIA_PDF);
 
   const entries = p.entriesQrDataUrls || [];
   const nInd = entries.length;
-  const bottomFootMm = 7;
-  const gapQr = 4;
-  const labelH = 4;
-  const gapSection = 7;
-
-  const availQr = pageH - M - bottomFootMm - yAfterCard - gapSection - labelH * 2 - 6;
-
-  let qrGroupMm = Math.min(58, maxW * 0.42, Math.max(36, availQr * 0.5));
-  const rowIndMm = availQr - qrGroupMm - gapSection - labelH * 2;
-  const gapInd = 3;
-  let qrIndMm =
-    nInd > 0 ? Math.min(46, (maxW - (nInd - 1) * gapInd) / nInd, Math.max(24, rowIndMm - 2)) : 0;
-
-  if (nInd > 0 && qrGroupMm + qrIndMm + gapSection + labelH * 2 > availQr + 2) {
-    qrGroupMm = Math.max(34, availQr - (qrIndMm + gapSection + labelH * 2 + 6));
-  }
-
-  let yQr = yAfterCard + gapSection;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.setTextColor(30, 27, 75);
-  doc.text("QR de reserva (toda la fila / grupo)", pageW / 2, yQr, { align: "center" });
-  yQr += labelH + 1;
-  const xGroup = (pageW - qrGroupMm) / 2;
-  doc.addImage(p.qrReservaDataUrl, "PNG", xGroup, yQr, qrGroupMm, qrGroupMm);
-  yQr += qrGroupMm + gapQr + 4;
+  const footReserveMm = 8;
+  const gapInd = 10;
+  const qrIndCapMm = 28;
+  const qrIndFloorMm = 20;
+  const indLabelH = 4;
 
   if (nInd > 0) {
+    const qrIndMm = Math.min(qrIndCapMm, (maxW - (nInd - 1) * gapInd) / nInd, qrIndCapMm);
+    const indBlockH = indLabelH + 2 + qrIndMm + 2;
+    /** Pegados al pie: justo arriba del footer. */
+    let yInd = pageH - M - footReserveMm - indBlockH;
+    if (yInd < yAfterRow + 4) {
+      yInd = yAfterRow + 4;
+    }
+
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.5);
-    doc.text("Entradas individuales (una por persona)", pageW / 2, yQr, { align: "center" });
-    yQr += labelH + 1.5;
-    const rowW = nInd * qrIndMm + (nInd - 1) * gapInd;
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    doc.text("QRs individuales (solo si llegan por separado)", pageW / 2, yInd, { align: "center" });
+    yInd += indLabelH + 1.5;
+
+    const sizedInd = Math.max(qrIndFloorMm, Math.min(qrIndMm, (maxW - (nInd - 1) * gapInd) / nInd));
+    const rowW = nInd * sizedInd + (nInd - 1) * gapInd;
     let xInd = (pageW - rowW) / 2;
-    doc.setFontSize(6.8);
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
     entries.forEach((dataUrl, i) => {
       doc.setFont("helvetica", "bold");
-      doc.text(`Entrada ${i + 1}`, xInd + qrIndMm / 2, yQr - 0.6, { align: "center" });
-      doc.addImage(dataUrl, "PNG", xInd, yQr, qrIndMm, qrIndMm);
-      xInd += qrIndMm + gapInd;
+      doc.text(`Entrada ${i + 1}`, xInd + sizedInd / 2, yInd - 0.8, { align: "center" });
+      doc.addImage(dataUrl, "PNG", xInd, yInd, sizedInd, sizedInd);
+      xInd += sizedInd + gapInd;
     });
   }
 

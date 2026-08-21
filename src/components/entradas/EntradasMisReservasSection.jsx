@@ -10,7 +10,7 @@ import {
   splitMisReservas,
 } from "../../utils/entradasMisReservas";
 import EntradasCambiarCantidadControls from "./EntradasCambiarCantidadControls";
-import MisReservasQrPanel from "./MisReservasQrPanel";
+import MisReservasQrModal from "./MisReservasQrModal";
 
 function ReservaCard({
   reserva,
@@ -23,8 +23,7 @@ function ReservaCard({
   onCancel,
   onChangeCantidad,
   plazasLibres,
-  qrExpandedId,
-  onToggleQr,
+  onOpenQr,
 }) {
   const cancelada = isReservaCancelada(reserva);
   const ingresadas = entradasIngresadasCount(reserva);
@@ -35,7 +34,6 @@ function ReservaCard({
     ? formatEntradasCountdown(reserva.concierto?.fecha_hora, nowMs)
     : null;
   const cardClass = cancelada ? ui.cardCancelada : ui.card;
-  const qrOpen = qrExpandedId === reserva.id;
 
   return (
     <article className={`${cardClass} p-3 space-y-2`}>
@@ -76,37 +74,34 @@ function ReservaCard({
         />
       )}
       {puedeVerQr && (
-        <>
-          <div className="flex flex-col sm:flex-row flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => onToggleQr(reserva.id)}
-              className={`w-full sm:w-auto rounded-lg px-3 py-2 text-xs font-bold ${ui.btnSecondary}`}
-            >
-              {qrOpen ? "Ocultar QRs" : "Ver QRs"}
-            </button>
-            {puedeGestionar && (
-              <>
-                <button
-                  type="button"
-                  disabled={downloadingPdfReservaId === reserva.id}
-                  onClick={() => onDownloadPdf(reserva)}
-                  className={`w-full sm:w-auto rounded-lg px-3 py-2 text-xs font-bold disabled:opacity-60 ${ui.btnSecondary}`}
-                >
-                  {downloadingPdfReservaId === reserva.id ? "Generando PDF…" : "Descargar PDF"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onCancel(reserva)}
-                  className={`w-full sm:w-auto rounded-lg px-3 py-2 text-xs font-bold ${ui.btnDanger}`}
-                >
-                  Cancelar reserva
-                </button>
-              </>
-            )}
-          </div>
-          {qrOpen && <MisReservasQrPanel reserva={reserva} isDark={isDark} />}
-        </>
+        <div className="flex flex-col sm:flex-row flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => onOpenQr(reserva)}
+            className={`w-full sm:w-auto rounded-lg px-3 py-2 text-xs font-bold ${ui.btnSecondary}`}
+          >
+            Ver QR
+          </button>
+          {puedeGestionar && (
+            <>
+              <button
+                type="button"
+                disabled={downloadingPdfReservaId === reserva.id}
+                onClick={() => onDownloadPdf(reserva)}
+                className={`w-full sm:w-auto rounded-lg px-3 py-2 text-xs font-bold disabled:opacity-60 ${ui.btnSecondary}`}
+              >
+                {downloadingPdfReservaId === reserva.id ? "Generando PDF…" : "Descargar PDF"}
+              </button>
+              <button
+                type="button"
+                onClick={() => onCancel(reserva)}
+                className={`w-full sm:w-auto rounded-lg px-3 py-2 text-xs font-bold ${ui.btnDanger}`}
+              >
+                Cancelar reserva
+              </button>
+            </>
+          )}
+        </div>
       )}
     </article>
   );
@@ -123,7 +118,7 @@ export default function EntradasMisReservasSection({
   plazasLibresPorConciertoId,
 }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [qrExpandedId, setQrExpandedId] = useState(null);
+  const [qrModalReserva, setQrModalReserva] = useState(null);
   const [historicasAbiertas, setHistoricasAbiertas] = useState(true);
 
   useEffect(() => {
@@ -145,10 +140,6 @@ export default function EntradasMisReservasSection({
     } finally {
       setDownloadingPdfReservaId(null);
     }
-  };
-
-  const toggleQr = (id) => {
-    setQrExpandedId((prev) => (prev === id ? null : id));
   };
 
   if (!misReservas.length) {
@@ -173,8 +164,7 @@ export default function EntradasMisReservasSection({
               onCancel={onCancelReserva}
               onChangeCantidad={onChangeCantidad}
               plazasLibres={plazasLibresPorConciertoId?.get?.(Number(reserva.concierto?.id))}
-              qrExpandedId={qrExpandedId}
-              onToggleQr={toggleQr}
+              onOpenQr={setQrModalReserva}
             />
           ))}
         </div>
@@ -202,8 +192,7 @@ export default function EntradasMisReservasSection({
                 downloadingPdfReservaId={downloadingPdfReservaId}
                 onDownloadPdf={handleDownloadPdf}
                 onCancel={onCancelReserva}
-                qrExpandedId={qrExpandedId}
-                onToggleQr={toggleQr}
+                onOpenQr={setQrModalReserva}
               />
             ))}
         </div>
@@ -212,6 +201,13 @@ export default function EntradasMisReservasSection({
       {proximas.length === 0 && historicas.length === 0 && (
         <p className={`text-sm ${ui.textMuted}`}>Aún no tenés reservas.</p>
       )}
+
+      <MisReservasQrModal
+        reserva={qrModalReserva}
+        onClose={() => setQrModalReserva(null)}
+        isDark={isDark}
+        ui={ui}
+      />
     </div>
   );
 }

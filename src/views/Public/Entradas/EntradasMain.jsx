@@ -15,7 +15,7 @@ import EntradasMisReservasSection from "../../../components/entradas/EntradasMis
 import EntradasTercerosSection from "../../../components/entradas/EntradasTercerosSection";
 import EntradasCambiarCantidadControls from "../../../components/entradas/EntradasCambiarCantidadControls";
 import EntradasPasswordModal from "../../../components/entradas/EntradasPasswordModal";
-import MisReservasQrPanel from "../../../components/entradas/MisReservasQrPanel";
+import MisReservasQrModal from "../../../components/entradas/MisReservasQrModal";
 import {
   IconCamera,
   IconChevronLeft,
@@ -4353,16 +4353,27 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                       >
                         Descargar PDF (detalle y QRs)
                       </button>
-                      <img
-                        src={reservaResult.reservaQr}
-                        alt="QR reserva general"
-                        className={`w-40 h-40 rounded-lg ${ui.imgBorder}`}
-                      />
-                      <div className="grid grid-cols-2 gap-2">
-                        {reservaResult.entriesQr.map((qr, idx) => (
-                          <img key={idx} src={qr} alt={`QR entrada ${idx + 1}`} className={`w-full rounded-lg ${ui.imgBorder}`} />
-                        ))}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCatalogQrModalReserva({
+                            id: reservaResult.reserva_id,
+                            codigo_reserva: reservaResult.codigo_reserva,
+                            cantidad_solicitada: reservaResult.cantidad_solicitada ?? cantidad,
+                            qr_reserva_token: reservaResult.qr_reserva_token,
+                            concierto: selectedConcierto,
+                            entradas: (reservaResult.qr_entrada_tokens || []).map((token, idx) => ({
+                              id: `tmp-${idx}`,
+                              orden: idx + 1,
+                              qr_entrada_token: token,
+                              estado_ingreso: "pendiente",
+                            })),
+                          })
+                        }
+                        className={ui.btnSecondary}
+                      >
+                        Ver QR
+                      </button>
                     </div>
                   )}
                   {!reservasAbiertasSel && !tieneReservaSel && (
@@ -5395,46 +5406,12 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         ui={ui}
       />
 
-      {catalogQrModalReserva && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 backdrop-blur-sm p-3 sm:p-4"
-          role="presentation"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setCatalogQrModalReserva(null);
-          }}
-        >
-          <div
-            className={`w-full max-w-md max-h-[min(90vh,42rem)] overflow-y-auto p-5 shadow-2xl ${ui.cardInner}`}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="entradas-catalog-qr-titulo"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-2 mb-3">
-              <div className="min-w-0 pr-2">
-                <h3 id="entradas-catalog-qr-titulo" className={`text-sm font-bold ${ui.textStrong}`}>
-                  {catalogQrModalReserva.concierto?.nombre || "Concierto"}
-                </h3>
-                <p className={`text-xs mt-0.5 ${ui.textMuted}`}>
-                  Reserva {catalogQrModalReserva.codigo_reserva}
-                  {catalogQrModalReserva.concierto?.fecha_hora
-                    ? ` · ${formatConciertoFechaHoraEs(catalogQrModalReserva.concierto.fecha_hora)}`
-                    : ""}
-                </p>
-              </div>
-              <button
-                type="button"
-                className={`shrink-0 rounded p-1 ${ui.btnIcon}`}
-                aria-label="Cerrar"
-                onClick={() => setCatalogQrModalReserva(null)}
-              >
-                <IconX size={20} />
-              </button>
-            </div>
-            <MisReservasQrPanel reserva={catalogQrModalReserva} isDark={isDark} />
-          </div>
-        </div>
-      )}
+      <MisReservasQrModal
+        reserva={catalogQrModalReserva}
+        onClose={() => setCatalogQrModalReserva(null)}
+        isDark={isDark}
+        ui={ui}
+      />
 
       {adminInviteFormOpen && (
         <div

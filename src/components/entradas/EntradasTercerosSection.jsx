@@ -14,7 +14,7 @@ import {
   splitMisReservas,
 } from "../../utils/entradasMisReservas";
 import EntradasCambiarCantidadControls from "./EntradasCambiarCantidadControls";
-import MisReservasQrPanel from "./MisReservasQrPanel";
+import MisReservasQrModal from "./MisReservasQrModal";
 
 function estadoBeneficiario(reserva) {
   if (reserva.email_beneficiario) {
@@ -41,8 +41,7 @@ function TerceroReservaCard({
   onChangeCantidad,
   onUpdated,
   plazasLibres,
-  qrExpandedId,
-  onToggleQr,
+  onOpenQr,
 }) {
   const ingresadas = entradasIngresadasCount(reserva);
   const muestraCountdown = isReservaActivaFutura(reserva, nowMs);
@@ -50,7 +49,6 @@ function TerceroReservaCard({
     ? formatEntradasCountdown(reserva.concierto?.fecha_hora, nowMs)
     : null;
   const estado = estadoBeneficiario(reserva);
-  const qrOpen = qrExpandedId === reserva.id;
   const [editReferencia, setEditReferencia] = useState(false);
   const [referenciaDraft, setReferenciaDraft] = useState(reserva.beneficiario_referencia || "");
   const [editEmail, setEditEmail] = useState(false);
@@ -244,8 +242,8 @@ function TerceroReservaCard({
       )}
 
       <div className="flex flex-col sm:flex-row flex-wrap gap-2">
-        <button type="button" onClick={() => onToggleQr(reserva.id)} className={`w-full sm:w-auto rounded-lg px-3 py-2 text-xs font-bold ${ui.btnSecondary}`}>
-          {qrOpen ? "Ocultar QRs" : "Ver QRs"}
+        <button type="button" onClick={() => onOpenQr(reserva)} className={`w-full sm:w-auto rounded-lg px-3 py-2 text-xs font-bold ${ui.btnSecondary}`}>
+          Ver QR
         </button>
         <button
           type="button"
@@ -259,7 +257,6 @@ function TerceroReservaCard({
           Cancelar
         </button>
       </div>
-      {qrOpen && <MisReservasQrPanel reserva={reserva} isDark={isDark} />}
     </article>
   );
 }
@@ -276,7 +273,7 @@ export default function EntradasTercerosSection({
   onRefresh,
 }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [qrExpandedId, setQrExpandedId] = useState(null);
+  const [qrModalReserva, setQrModalReserva] = useState(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
@@ -322,10 +319,15 @@ export default function EntradasTercerosSection({
           onChangeCantidad={onChangeCantidad}
           onUpdated={onRefresh}
           plazasLibres={plazasLibresPorConciertoId?.get?.(Number(reserva.concierto?.id))}
-          qrExpandedId={qrExpandedId}
-          onToggleQr={(id) => setQrExpandedId((prev) => (prev === id ? null : id))}
+          onOpenQr={setQrModalReserva}
         />
       ))}
+      <MisReservasQrModal
+        reserva={qrModalReserva}
+        onClose={() => setQrModalReserva(null)}
+        isDark={isDark}
+        ui={ui}
+      />
     </div>
   );
 }

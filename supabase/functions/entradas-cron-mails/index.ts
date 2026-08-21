@@ -97,7 +97,7 @@ serve(async (req) => {
         continue;
       }
 
-      const baseUrl = (Deno.env.get("ENTRADAS_PUBLIC_URL") ?? "https://entradas.ofrn.gob.ar").replace(
+      const baseUrl = (Deno.env.get("ENTRADAS_PUBLIC_URL") ?? "https://ofrn-web-app.vercel.app").replace(
         /\/$/,
         "",
       );

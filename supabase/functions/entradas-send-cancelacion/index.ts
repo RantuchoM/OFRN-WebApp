@@ -91,7 +91,9 @@ serve(async (req) => {
     };
 
     const programaNombre = String(body?.programaNombre || "").trim();
-    const baseUrl = String(body?.appUrl || "https://entradas.ofrn.gob.ar").replace(/\/$/, "");
+    const baseUrl = String(
+      body?.appUrl || Deno.env.get("ENTRADAS_PUBLIC_URL") || "https://ofrn-web-app.vercel.app",
+    ).replace(/\/$/, "");
     const linkMisEntradas = linkEntradasMisReservas(baseUrl);
     const conciertos = Array.isArray(body?.notificar) ? body.notificar : [];
 

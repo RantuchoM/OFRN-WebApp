@@ -406,7 +406,9 @@ serve(async (req) => {
     const qrReservaToken = String(body?.qrReservaToken || "").trim();
     const qrEntradaTokens = Array.isArray(body?.qrEntradaTokens) ? body.qrEntradaTokens : [];
     const pdfBase64 = String(body?.pdfBase64 || "").replace(/\s/g, "");
-    const appUrl = String(body?.appUrl || "").replace(/\/$/, "");
+    const appUrl = String(
+      body?.appUrl || Deno.env.get("ENTRADAS_PUBLIC_URL") || "https://ofrn-web-app.vercel.app",
+    ).replace(/\/$/, "");
 
     if (!reservaId) {
       throw new Error("Payload inválido: falta reservaId.");

@@ -8,9 +8,9 @@
 
 name: Supabase daily backup
 
+# schedule deshabilitado: faltaba SUPABASE_DB_PASSWORD y generaba failure mails diarios.
+# El backup operativo es Edge Function db-backup-cron → Storage (ver docs/specs/supabase-daily-backup.md).
 on:
-  schedule:
-    - cron: "15 8 * * *"
   workflow_dispatch:
 
 jobs:

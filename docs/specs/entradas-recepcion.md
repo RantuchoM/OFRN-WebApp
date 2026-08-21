@@ -54,3 +54,10 @@ Migraciones:
 
 - Llegada parcial al grupo: escanear QR individuales, o escanear el grupal y **cancelar ingreso / bajar plazas** desde el banner.
 - Contador «Sin entrada / sin QR» sin cambios.
+
+## Vista pública de QRs (evitar escaneo accidental)
+
+- [x] Al abrir «Ver QR» (Mis entradas, Terceros, catálogo post-reserva y modal), se abre un **modal overlay** (`MisReservasQrModal`, portal a `document.body`, `z-[100]`) con el **QR general** y la **cantidad de entradas**.
+- [x] Debajo, recuadro gris: «Solo si entran por separado -->» + «Ver QRs individuales» a la derecha (colapsados por defecto; se generan al expandir).
+- [x] Panel: `MisReservasQrPanel.jsx`.
+- [x] PDF (`entradasReservaPdf.js`): fila superior = detalle (izq.) + **QR general a la derecha**; debajo el aviso de asistencia; **QRs individuales al pie** de la hoja (chicos y separados).

@@ -81,3 +81,8 @@ psql "$DATABASE_URL" -f ofrn-db-YYYY-MM-DD.sql
 ## Deuda
 - Modo `critical` (más tablas) puede acercarse al timeout de Edge Functions; usar pg_dump o GitHub Action para dump completo.
 - Copia a Google Drive descartada por timeouts en payloads grandes.
+- GitHub Action `supabase-daily-backup.yml` falla a diario sin `SUPABASE_DB_PASSWORD` (mails de failure). El backup útil es el Edge → Storage; el Action queda opcional hasta cargar el secret o deshabilitar el `schedule`.
+
+## Higiene de crons (2026-08-20)
+- Migración `20260820180000_cron_throttle_and_log_purge.sql` (+ `20260820180100`): apaga `sincronizar-nomencladores-diario` (URL placeholder); ensayo inicio/salida y sheet pending a **5 min**; entradas-mails a **30 min**; retención diaria de `cron.job_run_details` (**7 d**) y `net._http_response` (**1 d**). Workflow GitHub de pg_dump: solo `workflow_dispatch` (sin schedule).
+- Migración `20260820190000_cron_daytime_window_art.sql`: ensayo inicio/salida + sheet pending solo en **08:00–22:59 ART** (`*/5 11-23,0-1 * * *` UTC).

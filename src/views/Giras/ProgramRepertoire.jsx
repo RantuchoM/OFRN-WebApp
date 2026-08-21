@@ -63,6 +63,7 @@ function analyzeArcosNeeds(repertorios) {
           obrasNeedingCreation.set(obraId, {
             obra: item.obras,
             rowIds: [],
+            firstBlockId: bloque.id,
           });
         }
         obrasNeedingCreation.get(obraId).rowIds.push(item.id);
@@ -84,7 +85,7 @@ function collectRepairTasks(repertorios) {
         (a) => String(a.id) === String(arcoId),
       );
       if (!arco?.id_drive_folder) continue;
-      tasks.push({ obra, arco });
+      tasks.push({ obra, arco, repertoireBlockId: bloque.id });
     }
   }
   return tasks;
@@ -537,6 +538,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
   const [repairingArcos, setRepairingArcos] = useState(false);
   const [generatingFullTour, setGeneratingFullTour] = useState(false);
   const [arcosMenuOpen, setArcosMenuOpen] = useState(false);
+  const [arcosMenuPos, setArcosMenuPos] = useState(null);
   const [showArcoNameModal, setShowArcoNameModal] = useState(false);
   const [showScoresConfirmModal, setShowScoresConfirmModal] = useState(false);
   const [defaultArcoName, setDefaultArcoName] = useState("");
@@ -545,6 +547,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
   const [playerOpen, setPlayerOpen] = useState(false);
   const [playlistBlockId, setPlaylistBlockId] = useState(null);
   const arcosMenuRef = useRef(null);
+  const arcosButtonRef = useRef(null);
 
   const arcosBusy =
     generatingBowScores || repairingArcos || generatingFullTour;
@@ -552,18 +555,46 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
   useEffect(() => {
     if (!arcosMenuOpen) return;
     const handleClickOutside = (event) => {
-      if (arcosMenuRef.current && !arcosMenuRef.current.contains(event.target)) {
-        setArcosMenuOpen(false);
-      }
+      const inMenu = arcosMenuRef.current?.contains(event.target);
+      const inButton = arcosButtonRef.current?.contains(event.target);
+      if (!inMenu && !inButton) setArcosMenuOpen(false);
     };
+    const closeOnScrollOrResize = () => setArcosMenuOpen(false);
     const timer = setTimeout(() => {
       document.addEventListener("click", handleClickOutside);
+      window.addEventListener("scroll", closeOnScrollOrResize, true);
+      window.addEventListener("resize", closeOnScrollOrResize);
     }, 10);
     return () => {
       clearTimeout(timer);
       document.removeEventListener("click", handleClickOutside);
+      window.removeEventListener("scroll", closeOnScrollOrResize, true);
+      window.removeEventListener("resize", closeOnScrollOrResize);
     };
   }, [arcosMenuOpen]);
+
+  const toggleArcosMenu = (e) => {
+    e.stopPropagation();
+    if (arcosMenuOpen) {
+      setArcosMenuOpen(false);
+      return;
+    }
+    const rect = arcosButtonRef.current?.getBoundingClientRect();
+    if (rect) {
+      const menuWidth = 208;
+      const gap = 4;
+      const margin = 8;
+      let right = Math.max(margin, window.innerWidth - rect.right);
+      const leftEdge = window.innerWidth - right - menuWidth;
+      if (leftEdge < margin) {
+        right = Math.max(margin, window.innerWidth - menuWidth - margin);
+      }
+      setArcosMenuPos({ top: rect.bottom + gap, right });
+    } else {
+      setArcosMenuPos({ top: 80, right: 16 });
+    }
+    setArcosMenuOpen(true);
+  };
 
   // 1. Efecto de Permisos
   useEffect(() => {
@@ -760,13 +791,19 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
     }
   };
 
-  const handleSyncArco = async (obra, nombreSet, targetDriveId = null) => {
+  const handleSyncArco = async (
+    obra,
+    nombreSet,
+    targetDriveId = null,
+    repertoireBlockId = null,
+  ) => {
     try {
       const result = await syncBowingToProgram(supabase, {
         programId: program.id,
         obraId: obra.id,
         nombreSet,
         targetDriveId,
+        repertoireBlockId,
       });
 
       let arcoId = null;
@@ -948,9 +985,14 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
 
     let repaired = 0;
     for (const task of tasks) {
-      const { obra, arco } = task;
+      const { obra, arco, repertoireBlockId } = task;
       try {
-        await handleSyncArco(obra, arco.nombre, arco.id_drive_folder);
+        await handleSyncArco(
+          obra,
+          arco.nombre,
+          arco.id_drive_folder,
+          repertoireBlockId,
+        );
         repaired += 1;
       } catch (e) {
         console.error("[AcomodarArcos] Error en obra", obra.id, e);
@@ -1045,8 +1087,13 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
       const toastId = toast.loading("Generando arcos para toda la gira...");
 
       try {
-        for (const { obra, rowIds } of analysis.obrasNeedingCreation.values()) {
-          const result = await handleSyncArco(obra, newArcoName, null);
+        for (const { obra, rowIds, firstBlockId } of analysis.obrasNeedingCreation.values()) {
+          const result = await handleSyncArco(
+            obra,
+            newArcoName,
+            null,
+            firstBlockId,
+          );
           if (!result?.newArcoId) {
             throw new Error(
               `No se pudo crear el set de arcos para "${obra.titulo?.replace(/<[^>]*>?/gm, "") || "obra"}".`,
@@ -1242,16 +1289,14 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
               </div>
             ) : (
               <div className="w-full min-w-0 max-w-none space-y-2">
-                <div className="flex w-full min-w-0 justify-end">
+                <div className="flex w-full min-w-0 flex-wrap justify-end gap-2">
                   {(isEditor || isManagement) && (
-                    <div className="flex gap-2">
-                      <div className="relative" ref={arcosMenuRef}>
+                    <>
+                      <div className="relative shrink-0">
                         <button
+                          ref={arcosButtonRef}
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setArcosMenuOpen((open) => !open);
-                          }}
+                          onClick={toggleArcosMenu}
                           disabled={arcosBusy}
                           className="text-xs font-bold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded border border-slate-200 flex items-center gap-1.5 bg-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         >
@@ -1270,57 +1315,81 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
                           />
                         </button>
 
-                        {arcosMenuOpen && (
-                          <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1 animate-in fade-in zoom-in-95 duration-150">
-                            <button
-                              type="button"
-                              onClick={handleOpenArcosFolder}
-                              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                        {arcosMenuOpen &&
+                          arcosMenuPos &&
+                          createPortal(
+                            <div
+                              ref={arcosMenuRef}
+                              style={{
+                                position: "fixed",
+                                top: arcosMenuPos.top,
+                                right: arcosMenuPos.right,
+                                zIndex: 110,
+                              }}
+                              className="w-52 bg-white border border-slate-200 rounded-lg shadow-lg py-1 animate-in fade-in zoom-in-95 duration-150"
                             >
-                              <IconFolder size={14} className="text-slate-400 shrink-0" />
-                              Carpeta de arcos
-                              <IconExternalLink
-                                size={12}
-                                className="text-slate-300 ml-auto shrink-0"
-                              />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleStartGenerateFullTour}
-                              disabled={arcosBusy}
-                              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50"
-                            >
-                              <IconViolin size={14} className="text-indigo-500 shrink-0" />
-                              Generar toda la gira
-                            </button>
-                            <div className="my-1 border-t border-slate-100" />
-                            <button
-                              type="button"
-                              onClick={handleRepairArcos}
-                              disabled={arcosBusy}
-                              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50"
-                            >
-                              <IconViolin size={14} className="text-slate-400 shrink-0" />
-                              Acomodar Arcos
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleGenerateBowScores}
-                              disabled={arcosBusy}
-                              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50"
-                            >
-                              <IconViolin size={14} className="text-slate-400 shrink-0" />
-                              Scores para Arcos
-                            </button>
-                          </div>
-                        )}
+                              <button
+                                type="button"
+                                onClick={handleOpenArcosFolder}
+                                className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                              >
+                                <IconFolder
+                                  size={14}
+                                  className="text-slate-400 shrink-0"
+                                />
+                                Carpeta de arcos
+                                <IconExternalLink
+                                  size={12}
+                                  className="text-slate-300 ml-auto shrink-0"
+                                />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleStartGenerateFullTour}
+                                disabled={arcosBusy}
+                                className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50"
+                              >
+                                <IconViolin
+                                  size={14}
+                                  className="text-indigo-500 shrink-0"
+                                />
+                                Generar toda la gira
+                              </button>
+                              <div className="my-1 border-t border-slate-100" />
+                              <button
+                                type="button"
+                                onClick={handleRepairArcos}
+                                disabled={arcosBusy}
+                                className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50"
+                              >
+                                <IconViolin
+                                  size={14}
+                                  className="text-slate-400 shrink-0"
+                                />
+                                Acomodar Arcos
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleGenerateBowScores}
+                                disabled={arcosBusy}
+                                className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50"
+                              >
+                                <IconViolin
+                                  size={14}
+                                  className="text-slate-400 shrink-0"
+                                />
+                                Scores para Arcos
+                              </button>
+                            </div>,
+                            document.body,
+                          )}
                       </div>
 
                       {isEditor && (
                         <>
                           <button
                             onClick={() => setShowImport(true)}
-                            className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded border border-indigo-200 flex items-center gap-1 bg-white shadow-sm transition-all"
+                            className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded border border-indigo-200 flex items-center gap-1 bg-white shadow-sm transition-all shrink-0"
                           >
                             <IconCopy size={14} /> Importar Repertorio
                           </button>
@@ -1328,7 +1397,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
                             type="button"
                             onClick={handleSyncRepertoireDrive}
                             disabled={syncingRepertoire}
-                            className="text-xs font-bold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded border border-slate-200 flex items-center gap-1 bg-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="text-xs font-bold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded border border-slate-200 flex items-center gap-1 bg-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                           >
                             {syncingRepertoire ? (
                               <IconLoader
@@ -1342,7 +1411,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
                           </button>
                         </>
                       )}
-                    </div>
+                    </>
                   )}
                 </div>
                 <RepertoireManager
