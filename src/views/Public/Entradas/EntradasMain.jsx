@@ -15,6 +15,7 @@ import EntradasMisReservasSection from "../../../components/entradas/EntradasMis
 import EntradasTercerosSection from "../../../components/entradas/EntradasTercerosSection";
 import EntradasCambiarCantidadControls from "../../../components/entradas/EntradasCambiarCantidadControls";
 import EntradasPerfilModal from "../../../components/entradas/EntradasPerfilModal";
+import EntradasVerQrButton from "../../../components/entradas/EntradasVerQrButton";
 import MisReservasQrModal from "../../../components/entradas/MisReservasQrModal";
 import {
   IconCamera,
@@ -98,7 +99,15 @@ import {
   formatEntradasRecepcionIngresoSuccess,
 } from "../../../utils/entradasQrMessages";
 import { formatEntradasIngresoConRecepcionista } from "../../../utils/entradasIngresoDisplay";
-import { isReservaHistorica, labelCantidadEntradas, maxCantidadEditable, mensajeAvisoCambioCantidadQr } from "../../../utils/entradasMisReservas";
+import {
+  entradasTodasIngresadas,
+  isReservaHistorica,
+  labelCantidadEntradas,
+  labelVerQrReserva,
+  maxCantidadEditable,
+  mensajeAvisoCambioCantidadQr,
+  verQrReservaToneClass,
+} from "../../../utils/entradasMisReservas";
 import { decodeQrFromImageFile } from "../../../utils/qrDecodeFromImage";
 import {
   ADMIN_CONCIERTO_VISTAS,
@@ -1883,22 +1892,23 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     { embedded = false, className = embedded ? "" : "mb-2" } = {},
   ) => {
     if (!tieneReservaEnConcierto(conciertoId)) return null;
+    const reserva = reservaActivaPorConciertoId.get(Number(conciertoId));
+    const yaIngresadas = entradasTodasIngresadas(reserva);
     const boxClass = embedded ? ui.reservaActivaBoxEnTarjeta : ui.reservaActivaBox;
+    const qrChipCls =
+      verQrReservaToneClass(isDark, reserva)
+      || (isDark ? "bg-emerald-900/80 text-emerald-200" : "bg-emerald-700 text-white");
     return (
       <button
         type="button"
         className={`entradas-interactive flex flex-wrap items-center justify-between gap-2 ${boxClass} ${className}`}
         onClick={() => void abrirCatalogQrModal(conciertoId)}
-        aria-label="Ver QR de tu reserva para este concierto"
+        aria-label={yaIngresadas ? "Ver QR (ya ingresadas)" : "Ver QR de tu reserva para este concierto"}
       >
         <span className={ui.badgeReserva}>Ya tenés entrada/s</span>
-        <span
-          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-bold ${
-            isDark ? "bg-emerald-900/80 text-emerald-200" : "bg-emerald-700 text-white"
-          }`}
-        >
+        <span className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-bold ${qrChipCls}`}>
           <IconQr size={16} />
-          Ver QR
+          {labelVerQrReserva(reserva)}
         </span>
       </button>
     );
@@ -4299,15 +4309,13 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                           {renderLocalidadSel}
                         </div>
                       </div>
-                      <button
-                        type="button"
+                      <EntradasVerQrButton
+                        reserva={reservaSel}
+                        isDark={isDark}
                         onClick={() => void abrirCatalogQrModal(selectedConcierto.id)}
-                        className={`${ui.btnPrimary} flex items-center justify-center gap-2 py-3.5 text-base`}
-                        aria-label="Ver QR de tu reserva para este concierto"
-                      >
-                        <IconQr size={22} />
-                        Ver QR
-                      </button>
+                        size="lg"
+                        variant="primary"
+                      />
                       {puedeCancelarSel && (
                         <button
                           type="button"

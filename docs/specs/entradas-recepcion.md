@@ -61,3 +61,5 @@ Migraciones:
 - [x] Debajo, recuadro gris: «Solo si entran por separado -->» + «Ver QRs individuales» a la derecha (colapsados por defecto; se generan al expandir).
 - [x] Panel: `MisReservasQrPanel.jsx`.
 - [x] PDF (`entradasReservaPdf.js`): fila superior = detalle (izq.) + **QR general a la derecha**; debajo el aviso de asistencia; **QRs individuales al pie** de la hoja (chicos y separados).
+- [x] Si **todas** las plazas de la reserva ya ingresaron: el botón **Ver QR** (Mis entradas, catálogo y Terceros) se muestra **gris** con el texto **«Ver QR (ya ingresadas)»**. Sigue abriendo el modal (QR en rojo / «usada»).
+- [x] **Descargar PDF** de Mis entradas usa el mismo generador que el mail (`buildEntradasReservaPdfBlob`). Si las plazas ya ingresaron, el PDF marca el QR general y los individuales usados (mismo criterio que el modal). Un PDF viejo adjunto a un mail anterior no se reescribe: hay que volver a descargarlo.

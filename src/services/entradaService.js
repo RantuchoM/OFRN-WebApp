@@ -17,6 +17,7 @@ import {
 import { conciertoAdminSoloRecordatoriosProgramados } from "../utils/entradasReservasApertura";
 import { formatEntradasAuthError } from "../utils/entradasAuthMessages";
 import { pickEntradasAuthSessionFields } from "../utils/entradasAuthSession";
+import { entradasTodasIngresadas } from "../utils/entradasMisReservas";
 
 async function assertEntradasAuthInvokeResult({ data, error }, action = "request") {
   if (data?.error) {
@@ -501,11 +502,19 @@ export async function buildEntradasReservaPdfConQr({
   reserva,
   qrReservaToken,
   qrEntradaTokens = [],
+  entradasRows = [],
 }) {
   const linkConcierto = linkCatalogoConcierto(concierto);
+  const rows = Array.isArray(entradasRows) && entradasRows.length
+    ? entradasRows
+    : [...(reserva?.entradas || [])].sort((a, b) => (a.orden || 0) - (b.orden || 0));
+  const qrReservaUsado = entradasTodasIngresadas(reserva);
+  const entriesUsadas = (qrEntradaTokens || []).map((_, i) => rows[i]?.estado_ingreso === "ingresada");
 
-  const qrReservaDataUrl = await tokenToQrDataUrl(qrReservaToken);
-  const entriesQrDataUrls = await Promise.all((qrEntradaTokens || []).map((t) => tokenToQrDataUrl(t)));
+  const qrReservaDataUrl = await tokenToQrDataUrl(qrReservaToken, { used: qrReservaUsado });
+  const entriesQrDataUrls = await Promise.all(
+    (qrEntradaTokens || []).map((t, i) => tokenToQrDataUrl(t, { used: entriesUsadas[i] })),
+  );
   const blob = await buildEntradasReservaPdfBlob({
     conciertoNombre: concierto?.nombre,
     fechaHora: fechaHoraDesdeConciertoEntrada(concierto),
@@ -517,6 +526,8 @@ export async function buildEntradasReservaPdfConQr({
     linkConcierto,
     qrReservaDataUrl,
     entriesQrDataUrls,
+    qrReservaUsado,
+    entriesUsadas,
   });
   const filename = makeEntradasReservaFilename(reserva?.codigo_reserva);
   return { blob, filename };
@@ -524,6 +535,9 @@ export async function buildEntradasReservaPdfConQr({
 
 /** Evita doble generación de toDataURL cuando ya se obtuvieron QRs en pantalla. */
 export async function buildEntradasReservaPdfConDataUrls({ concierto, reserva, reservaQrDataUrl, entriesQrDataUrls }) {
+  const rows = [...(reserva?.entradas || [])].sort((a, b) => (a.orden || 0) - (b.orden || 0));
+  const qrReservaUsado = entradasTodasIngresadas(reserva);
+  const entriesUsadas = (entriesQrDataUrls || []).map((_, i) => rows[i]?.estado_ingreso === "ingresada");
   const blob = await buildEntradasReservaPdfBlob({
     conciertoNombre: concierto?.nombre,
     fechaHora: fechaHoraDesdeConciertoEntrada(concierto),
@@ -535,6 +549,8 @@ export async function buildEntradasReservaPdfConDataUrls({ concierto, reserva, r
     linkConcierto: linkCatalogoConcierto(concierto),
     qrReservaDataUrl: reservaQrDataUrl,
     entriesQrDataUrls: entriesQrDataUrls || [],
+    qrReservaUsado,
+    entriesUsadas,
   });
   return { blob, filename: makeEntradasReservaFilename(reserva?.codigo_reserva) };
 }
@@ -600,6 +616,7 @@ export async function descargarPdfDesdeReservaRow(reserva) {
     reserva: row,
     qrReservaToken: grupoToken,
     qrEntradaTokens: tokens,
+    entradasRows: sorted,
   });
   downloadEntradasReservaPdfBlob(blob, filename);
 }

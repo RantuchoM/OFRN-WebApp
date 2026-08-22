@@ -10,8 +10,8 @@ import {
   splitMisReservas,
 } from "../../utils/entradasMisReservas";
 import EntradasCambiarCantidadControls from "./EntradasCambiarCantidadControls";
+import EntradasVerQrButton from "./EntradasVerQrButton";
 import MisReservasQrModal from "./MisReservasQrModal";
-import { IconQr } from "../ui/Icons";
 
 function ReservaCard({
   reserva,
@@ -67,17 +67,12 @@ function ReservaCard({
       </p>
       {puedeVerQr && (
         <div className="flex flex-col sm:flex-row flex-wrap gap-2">
-          <button
-            type="button"
+          <EntradasVerQrButton
+            reserva={reserva}
+            isDark={isDark}
             onClick={() => onOpenQr(reserva)}
-            className={`entradas-interactive inline-flex w-full sm:w-auto items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-bold ${
-              isDark ? "bg-emerald-900/80 text-emerald-200 hover:bg-emerald-900" : "bg-emerald-700 text-white hover:bg-emerald-800"
-            }`}
-            aria-label="Ver QR de tu reserva"
-          >
-            <IconQr size={16} />
-            Ver QR
-          </button>
+            className="w-full sm:w-auto"
+          />
           {puedeGestionar && (
             <>
               <button

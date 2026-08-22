@@ -76,6 +76,18 @@ export function entradasTodasIngresadas(reserva) {
   return entradasIngresadasCount(reserva) >= total;
 }
 
+export function labelVerQrReserva(reserva) {
+  return entradasTodasIngresadas(reserva) ? "Ver QR (ya ingresadas)" : "Ver QR";
+}
+
+/** Estilo gris (sigue clickeable) cuando todas las plazas ya ingresaron. */
+export function verQrReservaToneClass(isDark, reserva) {
+  if (!entradasTodasIngresadas(reserva)) return null;
+  return isDark
+    ? "bg-slate-700 text-slate-400 hover:bg-slate-700 border border-slate-600 shadow-none"
+    : "bg-slate-300 text-slate-600 hover:bg-slate-300 border border-slate-300 shadow-none";
+}
+
 export function entradasTodasPendientes(reserva) {
   const entradas = reserva?.entradas || [];
   if (!entradas.length) return true;

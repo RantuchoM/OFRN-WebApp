@@ -131,6 +131,8 @@ async function loadMembreteFilarmonicaDataUrl() {
  * @param {number} p.cantidad
  * @param {string} p.qrReservaDataUrl
  * @param {string[]} p.entriesQrDataUrls
+ * @param {boolean} [p.qrReservaUsado]
+ * @param {boolean[]} [p.entriesUsadas]
  * @returns {Promise<Blob>}
  */
 export async function buildEntradasReservaPdfBlob(p) {
@@ -205,8 +207,13 @@ export async function buildEntradasReservaPdfBlob(p) {
   const qrImgY = cardTop + (cardH - qrBlockH) / 2 + qrLabelH + 2;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
-  doc.setTextColor(30, 27, 75);
-  doc.text("QR general", qrColX + qrColW / 2, cardTop + (cardH - qrBlockH) / 2 + 3.5, { align: "center" });
+  doc.setTextColor(p.qrReservaUsado ? 185 : 30, p.qrReservaUsado ? 28 : 27, p.qrReservaUsado ? 28 : 75);
+  doc.text(
+    p.qrReservaUsado ? "QR general (ya ingresadas)" : "QR general",
+    qrColX + qrColW / 2,
+    cardTop + (cardH - qrBlockH) / 2 + 3.5,
+    { align: "center" },
+  );
   doc.addImage(p.qrReservaDataUrl, "PNG", qrImgX, qrImgY, qrGroupMm, qrGroupMm);
 
   let yAfterRow = cardTop + cardH + 6;
@@ -240,9 +247,12 @@ export async function buildEntradasReservaPdfBlob(p) {
     let xInd = (pageW - rowW) / 2;
     doc.setFontSize(6.5);
     doc.setTextColor(100, 116, 139);
+    const usadas = p.entriesUsadas || [];
     entries.forEach((dataUrl, i) => {
+      const usada = Boolean(usadas[i]);
       doc.setFont("helvetica", "bold");
-      doc.text(`Entrada ${i + 1}`, xInd + sizedInd / 2, yInd - 0.8, { align: "center" });
+      doc.setTextColor(usada ? 185 : 100, usada ? 28 : 116, usada ? 28 : 139);
+      doc.text(usada ? `Entrada ${i + 1} · usada` : `Entrada ${i + 1}`, xInd + sizedInd / 2, yInd - 0.8, { align: "center" });
       doc.addImage(dataUrl, "PNG", xInd, yInd, sizedInd, sizedInd);
       xInd += sizedInd + gapInd;
     });

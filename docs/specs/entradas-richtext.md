@@ -44,6 +44,7 @@ Al abrir un concierto, el bloque de reserva queda **arriba**, justo debajo de ho
 
 - [x] CTA de reserva visible sin scrollear el detalle largo.
 - [x] Con reserva activa: Ver QR grande + cancelar (sin desplegable bloqueado).
+- [x] Si todas las plazas ya ingresaron: Ver QR gris + «Ver QR (ya ingresadas)» (mismo criterio que Mis entradas).
 - [x] Disponibilidad y compartir/copiar justo debajo de Obtener.
 
 ## Notas

@@ -14,6 +14,7 @@ import {
   splitMisReservas,
 } from "../../utils/entradasMisReservas";
 import EntradasCambiarCantidadControls from "./EntradasCambiarCantidadControls";
+import EntradasVerQrButton from "./EntradasVerQrButton";
 import MisReservasQrModal from "./MisReservasQrModal";
 
 function estadoBeneficiario(reserva) {
@@ -233,9 +234,14 @@ function TerceroReservaCard({
       )}
 
       <div className="flex flex-col sm:flex-row flex-wrap gap-2">
-        <button type="button" onClick={() => onOpenQr(reserva)} className={`w-full sm:w-auto rounded-lg px-3 py-2 text-xs font-bold ${ui.btnSecondary}`}>
-          Ver QR
-        </button>
+        <EntradasVerQrButton
+          reserva={reserva}
+          isDark={isDark}
+          onClick={() => onOpenQr(reserva)}
+          size="xs"
+          idleClassName={ui.btnSecondary}
+          className="w-full sm:w-auto rounded-lg"
+        />
         <button
           type="button"
           disabled={downloadingPdfReservaId === reserva.id}
