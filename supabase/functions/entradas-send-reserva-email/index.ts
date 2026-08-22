@@ -69,6 +69,25 @@ function qrImageUrl(data: string, size = 180) {
  * - Helvetica, caja con borde #4f46e5
  * - firma administración
  */
+function introCambioCantidadHtml(d: {
+  codigo: string;
+  cantidadAnterior: number;
+  cantidadNueva: number;
+  esTercero?: boolean;
+  beneficiarioLabel?: string;
+}): string {
+  const n = d.cantidadAnterior;
+  const m = d.cantidadNueva;
+  const lead = d.esTercero
+    ? `Se actualizó la reserva <strong>${esc(d.codigo)}</strong> de <strong>${esc(d.beneficiarioLabel || "beneficiario/a")}</strong>: pasó de <strong>${n}</strong> a <strong>${m}</strong> entradas.`
+    : `Actualizaste tu reserva <strong>${esc(d.codigo)}</strong>: pasaste de <strong>${n}</strong> a <strong>${m}</strong> entradas.`;
+  return `<p>${lead}</p>
+  <div style="margin:16px 0;padding:14px 16px;background:#fff7ed;border-left:4px solid #ea580c;border-radius:8px;font-size:14px;line-height:1.55;color:#7c2d12;">
+    <p style="margin:0 0 8px 0;"><strong>Los QR y el PDF anteriores de la reserva ${esc(d.codigo)} ya no están en vigencia.</strong></p>
+    <p style="margin:0;">La reserva sigue activa con ${m} entrada${m === 1 ? "" : "s"}, pero en puerta solo se aceptan los códigos de este mail (o del PDF adjunto). Si imprimiste el PDF viejo, volvé a descargarlo o imprimí este.</p>
+  </div>`;
+}
+
 function templateEntradasReservaConfirmada(d: {
   nombre: string;
   codigo: string;
@@ -81,6 +100,8 @@ function templateEntradasReservaConfirmada(d: {
   programaNombre?: string;
   /** HTML de confianza (contenido Quill desde BD). */
   programaDetalleHtml?: string;
+  /** Reemplaza el párrafo de “reserva confirmada” (p. ej. cambio de cantidad). */
+  leadHtml?: string;
 }): string {
   const programaDetalle = String(d.programaDetalleHtml || "").trim();
   const programaNombre = String(d.programaNombre || "").trim();
@@ -128,7 +149,7 @@ function templateEntradasReservaConfirmada(d: {
 </head>
 <body>
   <p>Hola <strong>${esc(d.nombre)}</strong>,</p>
-  <p>Tu reserva de entradas gratuitas quedó <strong>confirmada</strong>.</p>
+  ${d.leadHtml || "<p>Tu reserva de entradas gratuitas quedó <strong>confirmada</strong>.</p>"}
 
   <div class="box">
     <h2 style="margin:0 0 12px 0;color:#111;font-size:18px;">${esc(d.conciertoNombre)}</h2>
@@ -219,8 +240,9 @@ function templateEntradasReservaConfirmadaAdminTercero(d: {
   qrEntradaTokens: string[];
   programaNombre?: string;
   programaDetalleHtml?: string;
+  leadHtml?: string;
 }): string {
-  const inner = templateEntradasReservaConfirmada({
+  return templateEntradasReservaConfirmada({
     nombre: d.nombreAdmin,
     codigo: d.codigo,
     conciertoNombre: d.conciertoNombre,
@@ -231,11 +253,10 @@ function templateEntradasReservaConfirmadaAdminTercero(d: {
     qrEntradaTokens: d.qrEntradaTokens,
     programaNombre: d.programaNombre,
     programaDetalleHtml: d.programaDetalleHtml,
+    leadHtml:
+      d.leadHtml ||
+      `<p>Registraste una reserva de entradas para <strong>${esc(d.beneficiarioLabel)}</strong>. Quedó <strong>confirmada</strong>.</p>`,
   });
-  return inner.replace(
-    "<p>Tu reserva de entradas gratuitas quedó <strong>confirmada</strong>.</p>",
-    `<p>Registraste una reserva de entradas para <strong>${esc(d.beneficiarioLabel)}</strong>. Quedó <strong>confirmada</strong>.</p>`,
-  );
 }
 
 async function loadReservaForAuthorizedUser(
@@ -393,12 +414,13 @@ serve(async (req) => {
     }
 
     const body = (await req.json()) as {
-      action?: "confirmacion" | "cancelacion";
+      action?: "confirmacion" | "cancelacion" | "cambio_cantidad";
       reservaId?: number;
       qrReservaToken?: string;
       qrEntradaTokens?: string[];
       pdfBase64?: string;
       appUrl?: string;
+      cantidadAnterior?: number;
     };
 
     const action = body?.action ?? "confirmacion";
@@ -409,12 +431,16 @@ serve(async (req) => {
     const appUrl = String(
       body?.appUrl || Deno.env.get("ENTRADAS_PUBLIC_URL") || "https://ofrn-web-app.vercel.app",
     ).replace(/\/$/, "");
+    const cantidadAnterior = Number(body?.cantidadAnterior);
 
     if (!reservaId) {
       throw new Error("Payload inválido: falta reservaId.");
     }
-    if (action === "confirmacion" && !qrReservaToken) {
+    if ((action === "confirmacion" || action === "cambio_cantidad") && !qrReservaToken) {
       throw new Error("Payload inválido: para confirmación se requiere qrReservaToken.");
+    }
+    if (action === "cambio_cantidad" && (!Number.isFinite(cantidadAnterior) || cantidadAnterior < 1)) {
+      throw new Error("Payload inválido: para cambio de cantidad se requiere cantidadAnterior.");
     }
 
     const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -444,7 +470,7 @@ serve(async (req) => {
     if (action === "cancelacion" && reserva.estado !== "cancelada") {
       throw new Error("La reserva no está cancelada; cancelá primero en la app para recibir el mail de confirmación.");
     }
-    if (action === "confirmacion" && reserva.estado !== "activa") {
+    if ((action === "confirmacion" || action === "cambio_cantidad") && reserva.estado !== "activa") {
       throw new Error("Solo se puede reenviar confirmación de reservas activas.");
     }
 
@@ -470,9 +496,12 @@ serve(async (req) => {
       throw new Error("No hay email de destino para enviar.");
     }
 
+    const cantidadNueva = Number(reserva.cantidad_solicitada) || 0;
     const subject = action === "cancelacion"
       ? `Entradas OFRN | Reserva cancelada ${reserva.codigo_reserva}`
-      : `Entradas OFRN | Reserva ${reserva.codigo_reserva}`;
+      : action === "cambio_cantidad"
+        ? `Entradas OFRN | Reserva ${reserva.codigo_reserva} actualizada (${cantidadAnterior} → ${cantidadNueva} entradas)`
+        : `Entradas OFRN | Reserva ${reserva.codigo_reserva}`;
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
@@ -480,7 +509,7 @@ serve(async (req) => {
     });
 
     const pdfAttachment =
-      action === "confirmacion" && pdfBase64.length > 0
+      (action === "confirmacion" || action === "cambio_cantidad") && pdfBase64.length > 0
         ? (() => {
             try {
               const raw = atob(pdfBase64);
@@ -541,12 +570,21 @@ serve(async (req) => {
           codigo: reserva.codigo_reserva,
           conciertoNombre,
           fechaTexto,
-          cantidad: Number(reserva.cantidad_solicitada) || 0,
+          cantidad: cantidadNueva,
           linkConcierto,
           qrReservaToken,
           qrEntradaTokens,
           programaNombre,
           programaDetalleHtml,
+          leadHtml: action === "cambio_cantidad"
+            ? introCambioCantidadHtml({
+              codigo: reserva.codigo_reserva,
+              cantidadAnterior,
+              cantidadNueva,
+              esTercero: true,
+              beneficiarioLabel,
+            })
+            : undefined,
         });
       } else {
         nombreSaludo = recipient.rol === "beneficiario_pendiente"
@@ -557,12 +595,19 @@ serve(async (req) => {
           codigo: reserva.codigo_reserva,
           conciertoNombre,
           fechaTexto,
-          cantidad: Number(reserva.cantidad_solicitada) || 0,
+          cantidad: cantidadNueva,
           linkConcierto,
           qrReservaToken,
           qrEntradaTokens,
           programaNombre,
           programaDetalleHtml,
+          leadHtml: action === "cambio_cantidad"
+            ? introCambioCantidadHtml({
+              codigo: reserva.codigo_reserva,
+              cantidadAnterior,
+              cantidadNueva,
+            })
+            : undefined,
         });
       }
 

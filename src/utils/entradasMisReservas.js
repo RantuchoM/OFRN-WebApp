@@ -100,17 +100,14 @@ export function puedeCambiarCantidadReserva(reserva, { nowMs = Date.now(), conci
   return true;
 }
 
-export function mensajeAvisoCambioCantidadQr({ cantidadActual, cantidadNueva } = {}) {
-  const de = Number(cantidadActual);
-  const a = Number(cantidadNueva);
-  const rango =
-    Number.isFinite(de) && Number.isFinite(a) && de !== a
-      ? `Vas a pasar de ${de} ${de === 1 ? "entrada" : "entradas"} a ${a} ${a === 1 ? "entrada" : "entradas"}.\n\n`
-      : "";
+export function labelCantidadEntradas(n) {
+  const qty = Number(n) || 0;
+  return `${qty} entrada${qty === 1 ? "" : "s"}`;
+}
+
+export function mensajeAvisoCambioCantidadQr() {
   return (
-    `${rango}` +
-    "Un aviso con cariño: al confirmar se van a generar códigos QR nuevos, el de la reserva y el de cada entrada.\n\n" +
-    "Si ya imprimiste o guardaste el PDF, ese archivo queda desactualizado y no va a servir para ingresar. No hay drama: solo tenés que volver a descargar el PDF con los códigos nuevos.\n\n" +
-    "¿Seguimos con el cambio?"
+    "Al confirmar se van a generar códigos QR nuevos: el de la reserva y el de cada entrada.\n\n" +
+    "Si ya imprimiste o guardaste el PDF, ese archivo queda desactualizado y no va a servir para ingresar. Solo tenés que volver a descargar el PDF con los códigos nuevos."
   );
 }

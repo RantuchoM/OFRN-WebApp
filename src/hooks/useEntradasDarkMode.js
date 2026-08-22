@@ -127,6 +127,10 @@ export function entradasUi(isDark) {
     btnDanger: d
       ? "border border-rose-800 bg-rose-950 text-rose-200 hover:bg-rose-900"
       : "border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100",
+    /** Acción secundaria suave (ej. cambiar cantidad), distinta de Ver QR / Cancelar. */
+    btnMuted: d
+      ? "border border-amber-700/70 bg-amber-950/45 text-amber-100 hover:bg-amber-900/50"
+      : "border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100",
     btnSuccess: `entradas-btn-primary entradas-interactive w-full rounded-md py-3 text-sm font-bold`,
     btnIndigoSmall: d
       ? "rounded-md border border-fixed-indigo-500 bg-fixed-indigo-950 px-2.5 py-1.5 text-xs font-bold text-fixed-indigo-50 hover:bg-fixed-indigo-900"
@@ -355,7 +359,7 @@ export function entradaUsuarioRolLabelClass(rol, isDark = false) {
 export function recepcionPanelClass(p, isDark = false) {
   if (!p) return isDark ? "bg-slate-800 border-slate-600" : "bg-slate-50 border-slate-200";
   if (!p.ok) {
-    if (p.reason === "concierto_distinto") {
+    if (p.reason === "concierto_distinto" || p.reason === "qr_obsoleto_cambio_cantidad") {
       return isDark ? "bg-orange-950/80 border-orange-700" : "bg-orange-50/95 border-orange-300";
     }
     return isDark ? "bg-rose-950/80 border-rose-800" : "bg-rose-50/95 border-rose-200";

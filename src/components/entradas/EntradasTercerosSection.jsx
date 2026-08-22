@@ -151,15 +151,6 @@ function TerceroReservaCard({
       <p className={`text-xs ${ui.textSoft}`}>
         Entradas: {reserva.cantidad_solicitada} · Ingresadas: {ingresadas}
       </p>
-      {onChangeCantidad && (
-        <EntradasCambiarCantidadControls
-          reserva={reserva}
-          ui={ui}
-          plazasLibres={plazasLibres}
-          compact
-          onRequestChange={(nuevaCantidad) => onChangeCantidad(reserva, nuevaCantidad)}
-        />
-      )}
 
       {editReferencia ? (
         <div className="space-y-2">
@@ -257,6 +248,16 @@ function TerceroReservaCard({
           Cancelar
         </button>
       </div>
+      {onChangeCantidad && (
+        <EntradasCambiarCantidadControls
+          reserva={reserva}
+          ui={ui}
+          plazasLibres={plazasLibres}
+          compact
+          showCount={false}
+          onRequestChange={() => onChangeCantidad(reserva, plazasLibres)}
+        />
+      )}
     </article>
   );
 }

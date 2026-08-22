@@ -14,16 +14,16 @@ import EntradasLiveQrScanner from "../../../components/entradas/EntradasLiveQrSc
 import EntradasMisReservasSection from "../../../components/entradas/EntradasMisReservasSection";
 import EntradasTercerosSection from "../../../components/entradas/EntradasTercerosSection";
 import EntradasCambiarCantidadControls from "../../../components/entradas/EntradasCambiarCantidadControls";
-import EntradasPasswordModal from "../../../components/entradas/EntradasPasswordModal";
+import EntradasPerfilModal from "../../../components/entradas/EntradasPerfilModal";
 import MisReservasQrModal from "../../../components/entradas/MisReservasQrModal";
 import {
   IconCamera,
+  IconChevronDown,
   IconChevronLeft,
   IconCopy,
   IconEdit,
   IconHelpCircle,
   IconList,
-  IconLock,
   IconMail,
   IconMoon,
   IconQr,
@@ -98,7 +98,7 @@ import {
   formatEntradasRecepcionIngresoSuccess,
 } from "../../../utils/entradasQrMessages";
 import { formatEntradasIngresoConRecepcionista } from "../../../utils/entradasIngresoDisplay";
-import { isReservaHistorica, mensajeAvisoCambioCantidadQr } from "../../../utils/entradasMisReservas";
+import { isReservaHistorica, labelCantidadEntradas, maxCantidadEditable, mensajeAvisoCambioCantidadQr } from "../../../utils/entradasMisReservas";
 import { decodeQrFromImageFile } from "../../../utils/qrDecodeFromImage";
 import {
   ADMIN_CONCIERTO_VISTAS,
@@ -596,7 +596,10 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [selectedConcierto, setSelectedConcierto] = useState(null);
   /** Detalle del concierto por URL; no debe ocultar el catálogo. */
   const [selectedConciertoLoading, setSelectedConciertoLoading] = useState(false);
-  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [perfilModalOpen, setPerfilModalOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const userMenuRef = useRef(null);
   const [cantidad, setCantidad] = useState(1);
   const [creatingReserva, setCreatingReserva] = useState(false);
   const [reservaResult, setReservaResult] = useState(null);
@@ -638,6 +641,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [cancelReservaTarget, setCancelReservaTarget] = useState(null);
   const [cancelingReserva, setCancelingReserva] = useState(false);
   const [changeCantidadTarget, setChangeCantidadTarget] = useState(null);
+  const [changeCantidadDraft, setChangeCantidadDraft] = useState(1);
   const [changingCantidad, setChangingCantidad] = useState(false);
   const [conciertosConReservaActiva, setConciertosConReservaActiva] = useState([]);
   const [downloadingPdfReservaId, setDownloadingPdfReservaId] = useState(null);
@@ -711,6 +715,24 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const section = searchParams.get("view") || "catalogo";
   const conciertoSlug = searchParams.get("concierto") || "";
   const tercerosViewActive = canTerceros && section === "entradas-terceros";
+
+  useEffect(() => {
+    if (!userMenuOpen) return undefined;
+    const onPointer = (e) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+        setUserMenuOpen(false);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setUserMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [userMenuOpen]);
 
   useEffect(() => {
     const view = searchParams.get("view");
@@ -2636,26 +2658,27 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     }
   };
 
-  const pedirCambioCantidad = (reserva, nuevaCantidad, concierto) => {
+  const pedirCambioCantidad = (reserva, concierto, plazasLibres) => {
     if (!reserva?.id) return;
-    const actual = Number(reserva.cantidad_solicitada) || 0;
-    const next = Number(nuevaCantidad);
-    if (!Number.isFinite(next) || next === actual) return;
+    const actual = Math.max(1, Number(reserva.cantidad_solicitada) || 1);
+    setChangeCantidadDraft(actual);
     setChangeCantidadTarget({
       reserva,
-      nuevaCantidad: next,
       concierto: concierto || reserva.concierto,
+      plazasLibres,
     });
   };
 
   const handleConfirmCambiarCantidad = async () => {
     const target = changeCantidadTarget;
-    if (!target?.reserva?.id || !target.nuevaCantidad) return;
+    const next = Number(changeCantidadDraft);
+    const actual = Number(target?.reserva?.cantidad_solicitada) || 0;
+    if (!target?.reserva?.id || !Number.isFinite(next) || next === actual) return;
     setChangingCantidad(true);
     try {
       const result = await cambiarCantidadReserva({
         reservaId: target.reserva.id,
-        cantidad: target.nuevaCantidad,
+        cantidad: next,
       });
       const concierto = target.concierto || target.reserva.concierto;
       let pdfBase64;
@@ -2668,7 +2691,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           concierto,
           reserva: {
             codigo_reserva: result.codigo_reserva,
-            cantidad_solicitada: target.nuevaCantidad,
+            cantidad_solicitada: next,
           },
           reservaQrDataUrl: reservaQr,
           entriesQrDataUrls: entriesQr,
@@ -2684,6 +2707,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           qrReservaToken: result.qr_reserva_token,
           qrEntradaTokens: result.qr_entrada_tokens || [],
           pdfBase64,
+          action: "cambio_cantidad",
+          cantidadAnterior: actual,
         });
         toast.success(
           pdfBase64
@@ -3798,7 +3823,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           downloadingPdfReservaId={downloadingPdfReservaId}
           setDownloadingPdfReservaId={setDownloadingPdfReservaId}
           onCancelReserva={(reserva) => setCancelReservaTarget(reserva)}
-          onChangeCantidad={(reserva, nuevaCantidad) => pedirCambioCantidad(reserva, nuevaCantidad)}
+          onChangeCantidad={(reserva, plazasLibres) => pedirCambioCantidad(reserva, reserva?.concierto, plazasLibres)}
           plazasLibresPorConciertoId={plazasLibresPorConciertoId}
           onRefresh={() => loadBase({ quiet: true })}
         />
@@ -3829,36 +3854,67 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
             </div>
           </div>
           <div className="flex flex-col items-end gap-2 shrink-0 sm:flex-row sm:items-center sm:gap-3">
-            <p className={`${ui.subtitle} text-right max-w-[10rem] sm:max-w-none truncate sm:whitespace-nowrap`}>
-              {profile.apellido}, {profile.nombre}
-            </p>
-            <div className="flex items-center gap-2">
+            <div className="relative" ref={userMenuRef}>
               <button
                 type="button"
-                onClick={() => setPasswordModalOpen(true)}
-                className={`${ui.headerAction} ${ui.themeToggle}`}
-                aria-label={profile?.password_set_at ? "Cambiar contraseña" : "Definir contraseña"}
-                title={profile?.password_set_at ? "Cambiar contraseña" : "Definir contraseña"}
+                onClick={() => setUserMenuOpen((v) => !v)}
+                className={`entradas-interactive inline-flex max-w-[12rem] sm:max-w-xs items-center gap-1 rounded-sm px-1.5 py-1 text-right ${ui.subtitle}`}
+                aria-expanded={userMenuOpen}
+                aria-haspopup="menu"
+                aria-label="Menú de cuenta"
               >
-                <IconLock size={18} />
+                <span className="truncate">
+                  {profile.apellido}, {profile.nombre}
+                </span>
+                <IconChevronDown size={14} className="shrink-0 opacity-70" />
               </button>
-              <button
-                type="button"
-                onClick={toggle}
-                className={`${ui.headerAction} ${ui.themeToggle}`}
-                aria-label={isDark ? "Modo claro" : "Modo oscuro"}
-                title={isDark ? "Modo claro" : "Modo oscuro"}
-              >
-                {isDark ? <IconSun size={18} /> : <IconMoon size={18} />}
-              </button>
-              <button
-                type="button"
-                onClick={() => runWithUnsavedGuard(() => onLogout?.())}
-                className={`${ui.headerAction} ${ui.logout} text-xs font-bold`}
-              >
-                Cerrar sesión
-              </button>
+              {userMenuOpen && (
+                <div
+                  role="menu"
+                  className={`absolute right-0 top-full z-[110] mt-1 min-w-[11.5rem] overflow-hidden rounded-md border shadow-lg ${
+                    isDark ? "border-slate-600 bg-slate-800" : "border-slate-200 bg-white"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={`entradas-interactive block w-full px-3 py-2.5 text-left text-xs font-semibold ${
+                      isDark ? "text-slate-100 hover:bg-slate-700" : "text-slate-800 hover:bg-slate-50"
+                    }`}
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      setPerfilModalOpen(true);
+                    }}
+                  >
+                    Ver mi perfil
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={`entradas-interactive block w-full border-t px-3 py-2.5 text-left text-xs font-semibold ${
+                      isDark
+                        ? "border-slate-600 text-rose-300 hover:bg-slate-700"
+                        : "border-slate-100 text-rose-700 hover:bg-rose-50"
+                    }`}
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      setLogoutConfirmOpen(true);
+                    }}
+                  >
+                    Cerrar sesión
+                  </button>
+                </div>
+              )}
             </div>
+            <button
+              type="button"
+              onClick={toggle}
+              className={`${ui.headerAction} ${ui.themeToggle}`}
+              aria-label={isDark ? "Modo claro" : "Modo oscuro"}
+              title={isDark ? "Modo claro" : "Modo oscuro"}
+            >
+              {isDark ? <IconSun size={18} /> : <IconMoon size={18} />}
+            </button>
           </div>
         </div>
       </header>
@@ -4252,18 +4308,6 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                         <IconQr size={22} />
                         Ver QR
                       </button>
-                      {reservaSel && (
-                        <EntradasCambiarCantidadControls
-                          reserva={reservaSel}
-                          ui={ui}
-                          concierto={selectedConcierto}
-                          plazasLibres={computeDisponibles(selectedConcierto)}
-                          disabled={changingCantidad}
-                          onRequestChange={(nuevaCantidad) =>
-                            pedirCambioCantidad(reservaSel, nuevaCantidad, selectedConcierto)
-                          }
-                        />
-                      )}
                       {puedeCancelarSel && (
                         <button
                           type="button"
@@ -4272,6 +4316,19 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                         >
                           Cancelar entradas
                         </button>
+                      )}
+                      {reservaSel && (
+                        <EntradasCambiarCantidadControls
+                          reserva={reservaSel}
+                          ui={ui}
+                          concierto={selectedConcierto}
+                          plazasLibres={computeDisponibles(selectedConcierto)}
+                          disabled={changingCantidad}
+                          showCount={false}
+                          onRequestChange={() =>
+                            pedirCambioCantidad(reservaSel, selectedConcierto, computeDisponibles(selectedConcierto))
+                          }
+                        />
                       )}
                     </>
                   ) : (
@@ -4432,7 +4489,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
               downloadingPdfReservaId={downloadingPdfReservaId}
               setDownloadingPdfReservaId={setDownloadingPdfReservaId}
               onCancelReserva={(reserva) => setCancelReservaTarget(reserva)}
-              onChangeCantidad={(reserva, nuevaCantidad) => pedirCambioCantidad(reserva, nuevaCantidad)}
+              onChangeCantidad={(reserva, plazasLibres) => pedirCambioCantidad(reserva, reserva?.concierto, plazasLibres)}
               plazasLibresPorConciertoId={plazasLibresPorConciertoId}
             />
           </section>
@@ -5804,14 +5861,28 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         </div>
       )}
 
-      <EntradasPasswordModal
-        isOpen={passwordModalOpen}
-        onClose={() => setPasswordModalOpen(false)}
+      <EntradasPerfilModal
+        isOpen={perfilModalOpen}
+        onClose={() => setPerfilModalOpen(false)}
         ui={ui}
         isDark={isDark}
+        profile={profile}
         hasPassword={Boolean(profile?.password_set_at)}
         onSaved={(nextProfile) => {
           if (nextProfile) onProfileUpdated?.(nextProfile);
+        }}
+      />
+
+      <ConfirmModal
+        isOpen={logoutConfirmOpen}
+        onClose={() => setLogoutConfirmOpen(false)}
+        title="Cerrar sesión"
+        message="¿Seguro que querés cerrar sesión?"
+        confirmText="Sí, cerrar sesión"
+        cancelText="Cancelar"
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-md"
+        onConfirm={() => {
+          runWithUnsavedGuard(() => onLogout?.());
         }}
       />
 
@@ -5867,20 +5938,45 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         isOpen={Boolean(changeCantidadTarget)}
         onClose={() => !changingCantidad && setChangeCantidadTarget(null)}
         title="Cambiar cantidad de entradas"
-        message={
-          changeCantidadTarget
-            ? mensajeAvisoCambioCantidadQr({
-                cantidadActual: changeCantidadTarget.reserva?.cantidad_solicitada,
-                cantidadNueva: changeCantidadTarget.nuevaCantidad,
-              })
-            : ""
-        }
+        message={changeCantidadTarget ? mensajeAvisoCambioCantidadQr() : ""}
         confirmText={changingCantidad ? "Actualizando…" : "Sí, cambiar cantidad"}
         confirmLoading={changingCantidad}
+        confirmDisabled={
+          !changeCantidadTarget
+          || Number(changeCantidadDraft) === Number(changeCantidadTarget.reserva?.cantidad_solicitada)
+        }
         loadingText="Actualizando…"
         confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md"
         onConfirm={handleConfirmCambiarCantidad}
-      />
+      >
+        {changeCantidadTarget && (
+          <div className="mt-4 space-y-1.5">
+            <label htmlFor="entradas-cambiar-cantidad" className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              Nueva cantidad
+            </label>
+            <select
+              id="entradas-cambiar-cantidad"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-800"
+              value={changeCantidadDraft}
+              disabled={changingCantidad}
+              onChange={(event) => setChangeCantidadDraft(Number(event.target.value))}
+            >
+              {Array.from(
+                { length: maxCantidadEditable(changeCantidadTarget.reserva, changeCantidadTarget.plazasLibres) },
+                (_, i) => i + 1,
+              ).map((n) => {
+                const actual = Number(changeCantidadTarget.reserva?.cantidad_solicitada) || 0;
+                return (
+                  <option key={n} value={n}>
+                    {labelCantidadEntradas(n)}
+                    {n === actual ? " (actual)" : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
+      </ConfirmModal>
 
       <EntradasAdminBajaModal
         target={bajaTarget}

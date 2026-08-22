@@ -202,6 +202,26 @@ export async function setEntradasPassword(password) {
   return null;
 }
 
+/** Actualiza nombre/apellido del perfil propio en `entrada_usuario`. */
+export async function updateEntradaProfile({ nombre, apellido }) {
+  const n = String(nombre || "").trim();
+  const a = String(apellido || "").trim();
+  if (!n || !a) throw new Error("Completá nombre y apellido.");
+  const {
+    data: { user },
+  } = await supabaseEntradasPublic.auth.getUser();
+  if (!user?.id) throw new Error("Sesión no válida. Volvé a entrar.");
+  const { data, error } = await supabaseEntradasPublic
+    .from("entrada_usuario")
+    .update({ nombre: n, apellido: a })
+    .eq("id", user.id)
+    .select("*")
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("No se pudo actualizar el perfil.");
+  return data;
+}
+
 function entradasAuthClient(app = "entradas") {
   return app === "scrn" || app === "viaticos_manual"
     ? supabaseOficinaExterna
@@ -389,15 +409,25 @@ export async function cambiarCantidadReserva({ reservaId, cantidad }) {
   return payload;
 }
 
-export async function enviarMailReserva({ reservaId, qrReservaToken, qrEntradaTokens, pdfBase64 }) {
+export async function enviarMailReserva({
+  reservaId,
+  qrReservaToken,
+  qrEntradaTokens,
+  pdfBase64,
+  action = "confirmacion",
+  cantidadAnterior,
+}) {
   const { error } = await supabaseEntradasPublic.functions.invoke("entradas-send-reserva-email", {
     body: {
-      action: "confirmacion",
+      action,
       reservaId,
       qrReservaToken,
       qrEntradaTokens,
       pdfBase64: pdfBase64 || undefined,
       appUrl: window.location.origin,
+      ...(action === "cambio_cantidad" && cantidadAnterior != null
+        ? { cantidadAnterior }
+        : {}),
     },
   });
   if (error) throw error;

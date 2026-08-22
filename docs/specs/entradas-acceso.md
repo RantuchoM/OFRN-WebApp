@@ -49,8 +49,9 @@ RPC `entrada_mark_password_set()` marca `entrada_usuario.password_set_at`.
 ## UI
 
 - `LoginEntradas.jsx` — login sin campo de código.
-- `EntradasSetPasswordForm.jsx` / `EntradasPasswordModal.jsx` (portal `z-[100]`).
-- Header de `EntradasMain.jsx` — ícono de candado.
+- `EntradasSetPasswordForm.jsx` / `EntradasPasswordModal.jsx` (portal `z-[100]`; flujo post-login opcional).
+- `EntradasPerfilModal.jsx` — cambiar nombre/apellido y contraseña.
+- Header de `EntradasMain.jsx`: el **nombre** abre menú con **Ver mi perfil** y **Cerrar sesión**; el ícono de tema queda aparte.
 
 ## Usuarios OFRN (`integrantes`)
 
@@ -74,3 +75,4 @@ Quienes ya tienen mail + `clave_acceso` en `integrantes` entran a `/entradas` co
 - [x] Migración en el repo (sin aplicar a BD en este cambio).
 - [x] Contraseña por defecto = `integrantes.clave_acceso` para UX OFRN (también cuentas ya existentes sin clave propia).
 - [x] SSO: desde el sidebar de la app OFRN, Entradas abre con sesión.
+- [x] Header: menú en el nombre → Ver mi perfil (nombre + contraseña) / Cerrar sesión (con confirmación).

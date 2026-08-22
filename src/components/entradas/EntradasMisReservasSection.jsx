@@ -11,6 +11,7 @@ import {
 } from "../../utils/entradasMisReservas";
 import EntradasCambiarCantidadControls from "./EntradasCambiarCantidadControls";
 import MisReservasQrModal from "./MisReservasQrModal";
+import { IconQr } from "../ui/Icons";
 
 function ReservaCard({
   reserva,
@@ -64,22 +65,17 @@ function ReservaCard({
       <p className={`text-xs ${ui.textSoft}`}>
         Entradas: {reserva.cantidad_solicitada} · Ingresadas: {ingresadas}
       </p>
-      {puedeGestionar && onChangeCantidad && (
-        <EntradasCambiarCantidadControls
-          reserva={reserva}
-          ui={ui}
-          plazasLibres={plazasLibres}
-          compact
-          onRequestChange={(nuevaCantidad) => onChangeCantidad(reserva, nuevaCantidad)}
-        />
-      )}
       {puedeVerQr && (
         <div className="flex flex-col sm:flex-row flex-wrap gap-2">
           <button
             type="button"
             onClick={() => onOpenQr(reserva)}
-            className={`w-full sm:w-auto rounded-lg px-3 py-2 text-xs font-bold ${ui.btnSecondary}`}
+            className={`entradas-interactive inline-flex w-full sm:w-auto items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-bold ${
+              isDark ? "bg-emerald-900/80 text-emerald-200 hover:bg-emerald-900" : "bg-emerald-700 text-white hover:bg-emerald-800"
+            }`}
+            aria-label="Ver QR de tu reserva"
           >
+            <IconQr size={16} />
             Ver QR
           </button>
           {puedeGestionar && (
@@ -102,6 +98,16 @@ function ReservaCard({
             </>
           )}
         </div>
+      )}
+      {puedeGestionar && onChangeCantidad && (
+        <EntradasCambiarCantidadControls
+          reserva={reserva}
+          ui={ui}
+          plazasLibres={plazasLibres}
+          compact
+          showCount={false}
+          onRequestChange={() => onChangeCantidad(reserva, plazasLibres)}
+        />
       )}
     </article>
   );
