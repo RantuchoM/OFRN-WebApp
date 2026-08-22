@@ -562,6 +562,7 @@ function motivoBloqueoEliminarConcierto(stats) {
   if (!stats) return null;
   if (Number(stats.reservadas || 0) > 0) return "Hay reservas activas en este concierto.";
   if (Number(stats.ingresadas || 0) > 0) return "Hay entradas ya ingresadas en este concierto.";
+  if (Number(stats.sinEntrada || 0) > 0) return "Hay ingresos manuales registrados en este concierto.";
   return null;
 }
 
@@ -572,6 +573,7 @@ function motivoBloqueoEliminarPrograma(conciertos, statsById) {
     if (!st) continue;
     if (Number(st.reservadas || 0) > 0) return "Hay reservas activas en algún concierto del programa.";
     if (Number(st.ingresadas || 0) > 0) return "Hay ingresos registrados en algún concierto del programa.";
+    if (Number(st.sinEntrada || 0) > 0) return "Hay ingresos manuales en algún concierto del programa.";
   }
   return null;
 }
@@ -3602,7 +3604,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           </div>
           <div className={`rounded-md border px-2 py-1.5 flex items-start justify-between gap-1 ${ui.adminStatCard("ingresadas")}`}>
             <div className="min-w-0">
-              <span className={ui.adminStatLabel("ingresadas")}>Ingresadas:</span>{" "}
+              <span className={ui.adminStatLabel("ingresadas")}>Ingresos por QR:</span>{" "}
               <span>{stats.ingresadas}</span>
             </div>
             {statCardActions("ingresaron", {
@@ -3619,6 +3621,26 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
               mailTitle:
                 "Copiar mails con entrada activa sin ningún ingreso registrado en este concierto (no asistieron)",
             })}
+          </div>
+        </div>
+        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div className={`rounded-md border px-2 py-1.5 ${ui.adminStatCard("manuales")}`}>
+            <span className={ui.adminStatLabel("manuales")}>Ingresos manuales:</span>{" "}
+            <span>{stats.sinEntrada ?? 0}</span>
+            <p className={`mt-0.5 text-[10px] font-normal ${isDark ? "text-orange-200/80" : "text-orange-800/80"}`}>
+              Sin entrada / sin QR (recepción)
+            </p>
+          </div>
+          <div className={`rounded-md border px-2 py-1.5 ${ui.adminStatCard("totalPersonas")}`}>
+            <span className={ui.adminStatLabel("totalPersonas")}>Total general:</span>{" "}
+            <span>{stats.totalPersonas ?? (Number(stats.ingresadas || 0) + Number(stats.sinEntrada || 0))}</span>
+            <span className={`font-normal ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+              {" "}
+              / {stats.capacidad}
+            </span>
+            <p className={`mt-0.5 text-[10px] font-normal ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+              Personas (QR + manuales) / capacidad
+            </p>
           </div>
         </div>
         <p className={`mt-1 text-[11px] ${ui.textMuted}`}>Capacidad máxima: {stats.capacidad}</p>

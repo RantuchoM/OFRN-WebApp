@@ -219,6 +219,12 @@ export function entradasUi(isDark) {
         ingresadas: d
           ? "border-amber-800 bg-amber-950/80 text-amber-100"
           : "border-amber-200 bg-amber-50 text-amber-900",
+        manuales: d
+          ? "border-orange-800 bg-orange-950/80 text-orange-100"
+          : "border-orange-200 bg-orange-50 text-orange-900",
+        totalPersonas: d
+          ? "border-slate-500 bg-slate-800/90 text-slate-100"
+          : "border-slate-400 bg-slate-200/80 text-slate-900",
         noUtilizadas: d
           ? "border-slate-600 bg-slate-800/90 text-slate-200"
           : "border-slate-300 bg-slate-100 text-slate-700",
@@ -233,6 +239,8 @@ export function entradasUi(isDark) {
         reservadas: d ? "font-bold text-sky-200" : "font-bold text-indigo-800",
         disponibles: d ? "font-bold text-emerald-200" : "font-bold text-emerald-800",
         ingresadas: d ? "font-bold text-amber-200" : "font-bold text-amber-800",
+        manuales: d ? "font-bold text-orange-200" : "font-bold text-orange-800",
+        totalPersonas: d ? "font-bold text-slate-100" : "font-bold text-slate-800",
         noUtilizadas: "font-bold",
         recordatorio: d ? "font-bold text-violet-200" : "font-bold text-violet-800",
       };

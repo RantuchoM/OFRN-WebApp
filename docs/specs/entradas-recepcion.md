@@ -53,7 +53,8 @@ Migraciones:
 ## Notas
 
 - Llegada parcial al grupo: escanear QR individuales, o escanear el grupal y **cancelar ingreso / bajar plazas** desde el banner.
-- Contador «Sin entrada / sin QR» sin cambios.
+- Contador «Sin entrada / sin QR» sin cambios en recepción.
+- [x] Admin **Históricos** (y el resto de vistas con estadísticas): además de ingresos por QR, se muestran **ingresos manuales** (`entrada_concierto_sin_entrada`) y **total general de personas** (QR + manuales / capacidad).
 
 ## Vista pública de QRs (evitar escaneo accidental)
 

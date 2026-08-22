@@ -17,6 +17,7 @@ import {
 import { conciertoAdminSoloRecordatoriosProgramados } from "../utils/entradasReservasApertura";
 import { formatEntradasAuthError } from "../utils/entradasAuthMessages";
 import { pickEntradasAuthSessionFields } from "../utils/entradasAuthSession";
+import { adminConciertoAttendanceTotals } from "../utils/entradasIngresoDisplay";
 import { entradasTodasIngresadas } from "../utils/entradasMisReservas";
 
 async function assertEntradasAuthInvokeResult({ data, error }, action = "request") {
@@ -848,11 +849,12 @@ export async function getAdminConciertoStats(conciertoId) {
   const recordatoriosAperturaPendientes = recordatoriosPendRes.count ?? 0;
 
   if (aperturaPendiente) {
+    const attendance = adminConciertoAttendanceTotals({ ingresadas: 0, sinEntrada: 0 });
     return {
       aperturaPendiente: true,
       reservadas: 0,
       disponibles: capacidad,
-      ingresadas: 0,
+      ...attendance,
       noUtilizadas: 0,
       capacidad,
       recordatoriosApertura: recordatoriosAperturaPendientes,
@@ -860,7 +862,7 @@ export async function getAdminConciertoStats(conciertoId) {
     };
   }
 
-  const [recordatoriosRes, recordatoriosPendAbiertasRes, reservasRes] = await Promise.all([
+  const [recordatoriosRes, recordatoriosPendAbiertasRes, reservasRes, sinEntradaRes] = await Promise.all([
     supabaseEntradasPublic
       .from("entrada_recordatorio_apertura")
       .select("id", { count: "exact", head: true })
@@ -874,11 +876,17 @@ export async function getAdminConciertoStats(conciertoId) {
       .from("entrada_reserva")
       .select("id, estado, cantidad_solicitada, entrada_reserva_entrada(id, estado_ingreso)")
       .eq("concierto_id", conciertoIdNum),
+    supabaseEntradasPublic
+      .from("entrada_concierto_sin_entrada")
+      .select("cantidad")
+      .eq("entrada_concierto_id", conciertoIdNum)
+      .maybeSingle(),
   ]);
 
   if (recordatoriosRes.error) throw recordatoriosRes.error;
   if (recordatoriosPendAbiertasRes.error) throw recordatoriosPendAbiertasRes.error;
   if (reservasRes.error) throw reservasRes.error;
+  if (sinEntradaRes.error) throw sinEntradaRes.error;
 
   const recordatoriosApertura = recordatoriosRes.count ?? 0;
   const recordatoriosAperturaPendientesAbiertas = recordatoriosPendAbiertasRes.count ?? 0;
@@ -887,18 +895,22 @@ export async function getAdminConciertoStats(conciertoId) {
   const reservadas = reservas
     .filter((r) => r?.estado === "activa")
     .reduce((acc, r) => acc + Number(r?.cantidad_solicitada || 0), 0);
-  const ingresadas = reservas.reduce((acc, r) => {
+  const ingresadasQr = reservas.reduce((acc, r) => {
     const entradas = Array.isArray(r?.entrada_reserva_entrada) ? r.entrada_reserva_entrada : [];
     return acc + entradas.filter((e) => e?.estado_ingreso === "ingresada").length;
   }, 0);
+  const attendance = adminConciertoAttendanceTotals({
+    ingresadas: ingresadasQr,
+    sinEntrada: Number(sinEntradaRes.data?.cantidad ?? 0),
+  });
   const disponibles = Math.max(0, capacidad - reservadas);
-  const noUtilizadas = Math.max(0, reservadas - ingresadas);
+  const noUtilizadas = Math.max(0, reservadas - attendance.ingresadas);
 
   return {
     aperturaPendiente: false,
     reservadas,
     disponibles,
-    ingresadas,
+    ...attendance,
     noUtilizadas,
     capacidad,
     recordatoriosApertura,

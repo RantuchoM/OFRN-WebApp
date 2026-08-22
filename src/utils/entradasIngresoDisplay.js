@@ -1,3 +1,10 @@
+/** QR + ingresos manuales (sin entrada / sin QR) para admin y recepción. */
+export function adminConciertoAttendanceTotals({ ingresadas = 0, sinEntrada = 0 } = {}) {
+  const qr = Math.max(0, Number(ingresadas) || 0);
+  const manual = Math.max(0, Number(sinEntrada) || 0);
+  return { ingresadas: qr, sinEntrada: manual, totalPersonas: qr + manual };
+}
+
 /** Texto corto de recepcionista: "Marko S." */
 export function formatEntradasRecepcionistaCorto(nombre) {
   const t = String(nombre || "").trim();

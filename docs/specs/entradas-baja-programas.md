@@ -3,6 +3,7 @@
 ## Principio
 
 - **No eliminar** un programa con reservas activas o ingresos registrados (RPC `entrada_admin_delete_programa`).
+- [x] La UI de baja también bloquea si hay **ingresos manuales** (sin QR) en el concierto/programa.
 - **Suspender** es la acción habitual cuando ya hay entradas emitidas.
 - **Eliminar definitivamente** solo cuando el programa está “vacío” (sin reservas activas ni ingresos).
 
