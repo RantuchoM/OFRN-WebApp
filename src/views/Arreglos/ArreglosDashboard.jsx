@@ -115,6 +115,12 @@ function formatFechaCorta(fechaStr) {
   });
 }
 
+function ajusteTipoLabel(tipo) {
+  if (tipo === "correccion") return "Corrección";
+  if (tipo === "parte_alternativa") return "Parte alternativa";
+  return "Cambio menor";
+}
+
 function extractNotaEntrega(comentarios) {
   const plain = (comentarios || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
   const idx = plain.lastIndexOf("[Entrega]");
@@ -1786,108 +1792,270 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
               <span>Cargando...</span>
             </div>
           ) : (
-            <div className="flex flex-col min-h-0 h-full">
-              <div className="shrink-0 p-2 border-b border-slate-200 bg-slate-50">
-                <div className="relative max-w-md">
-                  <IconSearch
-                    size={14}
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                  />
-                  <input
-                    type="search"
-                    value={searchObraText}
-                    onChange={(e) => setSearchObraText(e.target.value)}
-                    placeholder="Buscar obra, brief o partes…"
-                    className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-lg bg-white outline-none focus:ring-2 focus:ring-amber-400"
-                    aria-label="Buscar ajustes"
-                  />
-                </div>
-              </div>
-              {filteredAjustes.length === 0 ? (
-                <div className="p-12 text-center text-slate-500 italic">
-                  {searchObraText.trim() || filterArregladorId
-                    ? "Ningún ajuste coincide con el filtro."
-                    : "No hay ajustes pendientes."}
-                </div>
-              ) : (
-                <ul className="divide-y divide-slate-100">
-                  {filteredAjustes.map((aj) => {
-                    const titulo = stripHtmlForSort(aj.obra_titulo) || `Obra #${aj.id_obra}`;
-                    const tipoLabel =
-                      aj.tipo === "correccion"
-                        ? "Corrección"
-                        : aj.tipo === "parte_alternativa"
-                          ? "Parte alternativa"
-                          : "Cambio menor";
-                    const canDeliver = canActOnAjuste(aj);
-                    const arregladorNom =
-                      arregladorLabelById.get(Number(aj.id_integrante_arreglador)) || null;
-                    return (
-                      <li
-                        key={aj.id}
-                        className="px-3 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 hover:bg-amber-50/40"
-                      >
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
-                              {tipoLabel}
-                            </span>
-                            {aj.fecha_esperada ? (
-                              <span className="text-[11px] font-mono text-slate-500">
-                                Est. {formatFechaCorta(aj.fecha_esperada)}
+            <>
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full min-w-[900px] border-collapse text-sm table-fixed">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="text-center py-3 px-2 font-bold text-slate-600 uppercase text-xs w-[8%] min-w-[6.5rem]">
+                        F. est.
+                      </th>
+                      <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs w-[26%] min-w-[12rem]">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="shrink-0">Obra · Arreglador</span>
+                          <div className="relative font-normal normal-case shrink-0">
+                            <IconSearch
+                              size={11}
+                              className="absolute left-1 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                            />
+                            <input
+                              type="search"
+                              value={searchObraText}
+                              onChange={(e) => setSearchObraText(e.target.value)}
+                              placeholder="Buscar…"
+                              className="w-[5.5rem] pl-5 pr-1 py-0.5 text-[10px] border border-slate-200 rounded bg-white text-slate-700 outline-none focus:ring-1 focus:ring-amber-400 focus:border-amber-400"
+                              aria-label="Buscar ajustes"
+                            />
+                          </div>
+                        </div>
+                      </th>
+                      <th className="text-left py-3 px-2 font-bold text-slate-600 uppercase text-xs w-[12%] min-w-[6rem]">
+                        Tipo
+                      </th>
+                      <th className="text-left py-3 px-2 font-bold text-slate-600 uppercase text-xs w-[10%] min-w-[5rem]">
+                        Estado obra
+                      </th>
+                      <th className="text-left py-3 px-3 font-bold text-slate-600 uppercase text-xs w-[28%] min-w-[10rem]">
+                        Brief / Partes
+                      </th>
+                      <th className="text-left py-3 px-2 font-bold text-slate-600 uppercase text-xs w-[12%] min-w-[5.5rem]">
+                        Acciones
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredAjustes.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-12 text-center text-slate-500 italic text-sm">
+                          {searchObraText.trim() || filterArregladorId
+                            ? "Ningún ajuste coincide con el filtro."
+                            : "No hay ajustes pendientes."}
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredAjustes.map((aj) => {
+                        const titulo = stripHtmlForSort(aj.obra_titulo) || `Obra #${aj.id_obra}`;
+                        const tipoLabel = ajusteTipoLabel(aj.tipo);
+                        const canDeliver = canActOnAjuste(aj);
+                        const arregladorNom =
+                          arregladorLabelById.get(Number(aj.id_integrante_arreglador)) || null;
+                        const fechaFmt = formatFechaCorta(aj.fecha_esperada);
+                        return (
+                          <tr key={aj.id} className="hover:bg-amber-50/40">
+                            <td className="py-2 px-3 align-top text-center min-w-[6.5rem]">
+                              {fechaFmt ? (
+                                <span className="text-[11px] font-mono font-semibold text-slate-700 block">
+                                  {fechaFmt}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-300 italic block">Sin fecha</span>
+                              )}
+                              {aj.origen === "carga_propia" ? (
+                                <span className="inline-flex mt-1 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">
+                                  Carga propia
+                                </span>
+                              ) : (
+                                <span className="inline-flex mt-1 text-[9px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-1.5 py-0.5">
+                                  Solicitud
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 align-top min-w-[12rem]">
+                              <p className="text-sm font-bold text-slate-800 leading-snug" title={titulo}>
+                                {titulo}
+                              </p>
+                              <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                {arregladorNom ? `Arreglador: ${arregladorNom}` : "Sin arreglador"}
+                              </p>
+                            </td>
+                            <td className="py-2 px-2 align-top">
+                              <span className="inline-flex text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                {tipoLabel}
                               </span>
-                            ) : null}
-                            {aj.obra_estado ? (
-                              <span className="text-[10px] text-slate-500">{aj.obra_estado}</span>
-                            ) : null}
-                          </div>
-                          <p className="text-sm font-bold text-slate-800 truncate" title={titulo}>
-                            {titulo}
-                          </p>
-                          {aj.brief ? (
-                            <p className="text-xs text-slate-600 line-clamp-2">{aj.brief}</p>
-                          ) : null}
-                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
-                            {aj.partes_afectadas ? (
-                              <span>Partes: {aj.partes_afectadas}</span>
-                            ) : null}
-                            {arregladorNom ? <span>Arreglador: {arregladorNom}</span> : null}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {aj.link_drive ? (
-                            <a
-                              href={aj.link_drive}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="p-2 rounded-lg text-amber-700 hover:bg-amber-50 border border-amber-200/60"
-                              title="Abrir carpeta de la obra"
-                            >
-                              <IconFolder size={16} />
-                            </a>
-                          ) : null}
-                          {canDeliver && (
-                            <button
-                              type="button"
-                              onClick={() => openEntregarAjusteTicket(aj)}
-                              className="text-xs font-bold px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
-                            >
-                              Entregar
-                            </button>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-              {filteredAjustes.length > 0 && (
-                <div className="shrink-0 px-3 py-2 border-t border-slate-200 bg-slate-50/80 text-[10px] font-medium text-slate-500">
-                  {filteredAjustes.length} ajuste{filteredAjustes.length === 1 ? "" : "s"} pendiente
-                  {filteredAjustes.length === 1 ? "" : "s"}
+                            </td>
+                            <td className="py-2 px-2 align-top">
+                              {aj.obra_estado ? (
+                                <span
+                                  className={`inline-flex text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                                    aj.obra_estado === "Oficial"
+                                      ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                                      : "bg-sky-50 text-sky-800 border-sky-300"
+                                  }`}
+                                >
+                                  {aj.obra_estado}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-300 italic">—</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 align-top">
+                              {aj.brief ? (
+                                <div className={`${NOTAS_STICKY_PANEL_CLASS} px-1.5 py-1 mb-1`}>
+                                  <p className="text-[11px] text-yellow-950 line-clamp-3 leading-snug pl-2">
+                                    {aj.brief}
+                                  </p>
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-slate-300 italic">Sin brief</span>
+                              )}
+                              {aj.partes_afectadas ? (
+                                <p className="text-[10px] text-slate-500 mt-1 line-clamp-2">
+                                  Partes: {aj.partes_afectadas}
+                                </p>
+                              ) : null}
+                            </td>
+                            <td className="py-2 px-2 align-top">
+                              <div className="flex flex-col gap-1 min-w-[5.5rem] max-w-[8rem]">
+                                <div className="flex items-center gap-1">
+                                  {aj.link_drive ? (
+                                    <a
+                                      href={aj.link_drive}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="p-1.5 rounded-lg text-amber-700 hover:bg-amber-50 border border-amber-200/60"
+                                      title="Abrir carpeta de la obra"
+                                    >
+                                      <IconFolder size={15} />
+                                    </a>
+                                  ) : (
+                                    <span className="p-1.5 text-slate-300" title="Sin carpeta">
+                                      <IconFolder size={15} />
+                                    </span>
+                                  )}
+                                </div>
+                                {canDeliver && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openEntregarAjusteTicket(aj)}
+                                    className="w-full text-[10px] font-bold px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-1"
+                                  >
+                                    Entregar
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+                {filteredAjustes.length > 0 && (
+                  <div className="px-3 py-2 border-t border-slate-200 bg-slate-50/80 text-[10px] font-medium text-slate-500 flex justify-end">
+                    {filteredAjustes.length} ajuste{filteredAjustes.length === 1 ? "" : "s"} pendiente
+                    {filteredAjustes.length === 1 ? "" : "s"}
+                  </div>
+                )}
+              </div>
+
+              <div className="md:hidden flex flex-col min-h-0">
+                <div className="shrink-0 p-2 border-b border-slate-200 bg-slate-50">
+                  <div className="relative">
+                    <IconSearch
+                      size={14}
+                      className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                    />
+                    <input
+                      type="search"
+                      value={searchObraText}
+                      onChange={(e) => setSearchObraText(e.target.value)}
+                      placeholder="Buscar obra, brief o partes…"
+                      className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-lg bg-white outline-none focus:ring-2 focus:ring-amber-400"
+                      aria-label="Buscar ajustes"
+                    />
+                  </div>
                 </div>
-              )}
-            </div>
+                {filteredAjustes.length === 0 ? (
+                  <div className="p-12 text-center text-slate-500 italic">
+                    {searchObraText.trim() || filterArregladorId
+                      ? "Ningún ajuste coincide con el filtro."
+                      : "No hay ajustes pendientes."}
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {filteredAjustes.map((aj) => {
+                      const titulo = stripHtmlForSort(aj.obra_titulo) || `Obra #${aj.id_obra}`;
+                      const tipoLabel = ajusteTipoLabel(aj.tipo);
+                      const canDeliver = canActOnAjuste(aj);
+                      const arregladorNom =
+                        arregladorLabelById.get(Number(aj.id_integrante_arreglador)) || null;
+                      return (
+                        <li
+                          key={aj.id}
+                          className="px-3 py-3 flex flex-col gap-2 hover:bg-amber-50/40"
+                        >
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                {tipoLabel}
+                              </span>
+                              {aj.fecha_esperada ? (
+                                <span className="text-[11px] font-mono text-slate-500">
+                                  Est. {formatFechaCorta(aj.fecha_esperada)}
+                                </span>
+                              ) : null}
+                              {aj.obra_estado ? (
+                                <span className="text-[10px] text-slate-500">{aj.obra_estado}</span>
+                              ) : null}
+                            </div>
+                            <p className="text-sm font-bold text-slate-800 truncate" title={titulo}>
+                              {titulo}
+                            </p>
+                            {aj.brief ? (
+                              <p className="text-xs text-slate-600 line-clamp-2">{aj.brief}</p>
+                            ) : null}
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
+                              {aj.partes_afectadas ? (
+                                <span>Partes: {aj.partes_afectadas}</span>
+                              ) : null}
+                              {arregladorNom ? <span>Arreglador: {arregladorNom}</span> : null}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {aj.link_drive ? (
+                              <a
+                                href={aj.link_drive}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-2 rounded-lg text-amber-700 hover:bg-amber-50 border border-amber-200/60"
+                                title="Abrir carpeta de la obra"
+                              >
+                                <IconFolder size={16} />
+                              </a>
+                            ) : null}
+                            {canDeliver && (
+                              <button
+                                type="button"
+                                onClick={() => openEntregarAjusteTicket(aj)}
+                                className="text-xs font-bold px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+                              >
+                                Entregar
+                              </button>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                {filteredAjustes.length > 0 && (
+                  <div className="shrink-0 px-3 py-2 border-t border-slate-200 bg-slate-50/80 text-[10px] font-medium text-slate-500">
+                    {filteredAjustes.length} ajuste{filteredAjustes.length === 1 ? "" : "s"} pendiente
+                    {filteredAjustes.length === 1 ? "" : "s"}
+                  </div>
+                )}
+              </div>
+            </>
           )
         ) : loading ? (
           <div className="p-20 text-center text-indigo-500 flex flex-col items-center gap-2">

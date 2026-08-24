@@ -17,6 +17,8 @@ Toggle **Arreglos | Ajustes** (`?tab=arreglos` / `?tab=arreglos&vista=ajustes`):
 - Badge **Arreglos**: cantidad en estado `Para arreglar` (respeta filtro de arreglador).
 - Badge **Ajustes**: cantidad de tickets `obras_ajustes` en `pendiente` (respeta filtro).
 - Acciones de encabezado según pestaña (Encargar arreglo vs Solicitar / + Ajuste).
+- **Escritorio (md+):** tabla de Ajustes alineada a Arreglos (F. est., Obra·Arreglador, Tipo, Estado obra, Brief/Partes, Acciones).
+- **Móvil:** lista/cards (mismo criterio que antes).
 
 ## Encargar
 1. **Editor/Archivo** — «Solicitar ajuste» desde la pestaña Ajustes (obra madre + brief + arreglador + fecha). Crea ticket `pendiente`, mail `encargo_ajuste` al arreglador (BCC Archivo).
