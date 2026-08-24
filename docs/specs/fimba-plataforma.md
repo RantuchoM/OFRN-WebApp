@@ -135,15 +135,17 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
 
 **Permisos:** quien puede **ver** la sección puede exportar (staff OFRN management, `editor_general`, `consulta` por usuario o token de edición, tokens de artista en su ficha). No se limita al modo edición: lectura + export.
 
+**Por artista (Hotelería):** cada tarjeta de artista en `/fimba/edicion/:id/hoteleria` tiene fila **Reportes de este artista**: Pedido hotel (hub pedido/texto/detalle/rooming acotado a esa `id_propuesta`), Rooming PDF, Excel rooming, Excel hotelería. Reusa `fimbaReports` / `fimbaExport` con `hoteleriaRows = [row]`. Los botones de cabecera (**Reportes hotelería**, Exportar hotelería/comidas) siguen siendo de toda la edición (o del filtro Artista del select). Misma disponibilidad en `readOnly` (consulta / token RO): export OK, sin Editar.
+
 #### Matriz OFRN → FIMBA
 
 | OFRN (nombre UI) | Formato OFRN | FIMBA ubicación | Formato FIMBA | Notas / gaps |
 |------------------|--------------|-----------------|--------------|--------------|
-| **Pedido Inicial** (Rooming hub) | Print + vista | Hotelería → **Reportes hotelería** → Pedido Inicial; ficha Artista → Pedido hotel | Print/PDF + Excel plazas | Por hotel + check-in/out artista (no tramos de gira). Sexo = `fimba_participantes.genero`; sin nombre = sin sexo |
+| **Pedido Inicial** (Rooming hub) | Print + vista | Hotelería → **Reportes hotelería** (edición) o tarjeta artista → **Pedido hotel**; ficha Artista → Pedido hotel | Print/PDF + Excel plazas | Por hotel + check-in/out artista (no tramos de gira). Sexo = `fimba_participantes.genero`; sin nombre = sin sexo |
 | **Texto pedido** (hotel) | Clipboard | Mismo hub → Texto pedido | Clipboard + print | Mismo texto estilo «N hombres, M mujeres. Check-in…» |
 | **Detalle de pasajeros** | Print | Hub → Detalle | Print/PDF | Orden por ingreso; sin habitaciones |
-| **Reporte de habitaciones** (RoomingReport) | Print/PDF | Hub → Reporte habitaciones; `FimbaRoomingPanel` / Artista → Rooming PDF | Print/PDF + Excel rooming | Inventario `fimba_propuestas_habitaciones` + ocupantes |
-| **Excel hotelería** (resumen/personas) | — (FIMBA) | Hotelería → Exportar hotelería | Excel 3 hojas | Ya existía; se mantiene |
+| **Reporte de habitaciones** (RoomingReport) | Print/PDF | Hub → Reporte habitaciones; tarjeta Hotelería / `FimbaRoomingPanel` / Artista → Rooming PDF | Print/PDF + Excel rooming | Inventario `fimba_propuestas_habitaciones` + ocupantes |
+| **Excel hotelería** (resumen/personas) | — (FIMBA) | Hotelería cabecera (edición) o tarjeta artista → Excel hotelería | Excel 3 hojas | Scope = filas pasadas al builder |
 | **MealsReport** por evento | Print/PDF + texto | Hotelería / Artista → **Reportes comidas** | Print/PDF + texto + Excel | **Parcial:** sin eventos de comida ni asistencia; resume regímenes de nominados |
 | **Texto pedido** (comidas) | Clipboard | Reportes comidas | Clipboard | Resumen regímenes + detalle |
 | **Excel comidas** | — | Hotelería / Artista / modal comidas | Excel 2 hojas | Ya existía |
@@ -407,6 +409,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Agenda unificada planilla (fecha, horas, tipo, actividad, destino/vuelo, vehículos, PAX, tags)
 - [x] Planilla agenda: badges FIMBA/OFRN + convocatoria + filtro origen (default Solo FIMBA) + multi-select **categoría** y **locación** + búsqueda debounced (tipo/actividad/lugar/personas/vehículos)
 - [x] Hotelería reporte + edición checkin/out/early/late/hotel + export TSV (cols Early/Late) + cupos habitaciones + rooming resumen
+- [x] Hotelería: exports por artista en cada tarjeta (Pedido hotel hub + Rooming PDF + Excel rooming/hotelería; cabecera edición intacta)
 - [x] Ficha artista + token edición: panel **Hotelería / rooming** (`FimbaRoomingPanel`); consulta token RO
 
 ### UI tokens
@@ -435,7 +438,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Alta/edición de vehículo embebida en FIMBA (`giras_transportes` / catálogo `transportes` en alta; update alineado a OFRN)
 - [x] Helper real de disponibilidad vs cupos OFRN (en tránsito rolling en planilla Transportes; roster + plaza_extra; FIMBA plazas)
 - [x] UI `audiencia_ofrn` multi-grupos en modal FIMBA (+ planilla orquesta); EventForm OFRN / tags artistas en eventos OFRN genéricos aún parcial
-- [ ] Import CSV participantes
+- [ ] Import CSV participantes (UI). **Datos 1ª ed. (2026-08-24):** CPN 104 pax + rooming; PDF aéreos (Cecilia, Ruggiero, Atlas, Guillo + altas Chango/Hamilton/Marley); PDF dietas CPN (12 regímenes); pendientes en `docs/fimba-pendientes-carga-2026-08-24.md`
 - [x] Token consulta: vista rooming (RO con `FimbaRoomingPanel`)
 - [x] Token edición: agenda editable del artista (create/edit/delete + tag fijo; no planilla unificada staff)
 - [x] Rooming FIMBA (inventario por tipo + ocupantes; **no** graph estilo Giras completo)
@@ -489,8 +492,9 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 1. Edición → **Hotelería** (`/fimba/edicion/:id/hoteleria`).
 2. Ver PAX planificados, nominados, por confirmar; expandir personas; badges Early/Late junto a fechas; badges de **inventario** (ej. «3 DBL, 1 SGL») y ocupadas/plazas rooming.
 3. **Editar**: check-in/out, toggles Early/Late, hotel del catálogo `hoteles`, **cupos por tipo** (Single/Doble/Triple/Cuádruple).
-4. Expandir artista: columna Habitación + lista rooming; **Copiar tabla (Excel)** (TSV + cols habitaciones).
-5. Ficha artista o `/fimba/e/:token`: panel **Hotelería / rooming** — staff aplica cupos; editor asigna personas a plazas; matrimonial en multi; consulta `/fimba/a` RO.
+4. Cabecera: **Reportes hotelería** / comidas / Excel (toda la edición o filtro Artista). Por tarjeta: **Pedido hotel**, Rooming PDF, Excel rooming, Excel hotelería (scope = esa propuesta; OK en readOnly).
+5. Expandir artista: columna Habitación + lista rooming; **Copiar tabla (Excel)** (TSV + cols habitaciones).
+6. Ficha artista o `/fimba/e/:token`: panel **Hotelería / rooming** — staff aplica cupos; editor asigna personas a plazas; matrimonial en multi; consulta `/fimba/a` RO.
 
 ### Contrataciones
 
@@ -576,7 +580,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/views/Fimba/FimbaAgendaPage.jsx` | Planilla agenda (tipo/color catálogo); ride segments al filtrar artista |
 | `src/utils/fimbaTransportBoarding.js` | Boarding + `buildArtistaTrasladoAgendaBlocks` / merge |
 | `src/views/Fimba/FimbaTransportPage.jsx` | Vehículos + trayectos + columnas boarding / locación |
-| `src/views/Fimba/FimbaHoteleriaPage.jsx` | Hotelería + hub reportes (pedido/texto/detalle/rooming) + comidas |
+| `src/views/Fimba/FimbaHoteleriaPage.jsx` | Hotelería + hub reportes edición + **exports por tarjeta artista** (pedido/rooming/Excel) + comidas |
 | `src/views/Fimba/FimbaHoteleriaReports.jsx` | Hub OFRN + vistas print/Excel pedido hotel |
 | `src/views/Fimba/FimbaComidasReportModal.jsx` | Comidas: texto / PDF / Excel |
 | `src/views/Fimba/FimbaTransportReportsMenu.jsx` | CNRT · paradas · hoja de ruta · Excel por vehículo |

@@ -10,6 +10,8 @@ import {
   IconUsers,
   IconFileExcel,
   IconUtensils,
+  IconFileText,
+  IconPrinter,
 } from "../../components/ui/Icons";
 import {
   getFimbaEdicionById,
@@ -27,7 +29,9 @@ import {
 import {
   exportFimbaComidasExcel,
   exportFimbaHoteleriaExcel,
+  exportFimbaRoomingExcel,
 } from "../../utils/fimbaExport";
+import { printFimbaRooming } from "../../utils/fimbaReports";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import FimbaHoteleriaReports, {
   FimbaHoteleriaReportsButton,
@@ -65,27 +69,52 @@ export default function FimbaHoteleriaPage() {
   const [modal, setModal] = useState(null);
   const [expanded, setExpanded] = useState({});
   const [exporting, setExporting] = useState(null);
-  const [hotelReportsOpen, setHotelReportsOpen] = useState(false);
+  /** null = cerrado; { rows, label } = hub pedido/texto/detalle/rooming (edición o 1 artista). */
+  const [hotelReportsCtx, setHotelReportsCtx] = useState(null);
   const [comidasReportOpen, setComidasReportOpen] = useState(false);
 
   const edicionLabel = edicion?.nombre || `Edicion_${edicionId}`;
 
-  const runExport = async (kind) => {
-    if (!rows.length) {
+  const openEditionHotelReports = () => {
+    setHotelReportsCtx({ rows, label: edicionLabel });
+  };
+
+  const openArtistaHotelReports = (row) => {
+    const nombre = row?.propuesta?.nombre || "Artista";
+    setHotelReportsCtx({
+      rows: [row],
+      label: `${edicionLabel} · ${nombre}`,
+    });
+  };
+
+  const runExport = async (kind, scopedRows = rows, label = edicionLabel) => {
+    const data = scopedRows || [];
+    if (!data.length) {
       alert("No hay datos para exportar.");
       return;
     }
     setExporting(kind);
     try {
-      if (kind === "hoteleria") {
+      if (kind === "hoteleria" || String(kind).startsWith("hoteleria:")) {
         await exportFimbaHoteleriaExcel({
-          edicionNombre: edicionLabel,
-          rows,
+          edicionNombre: label,
+          rows: data,
+          fileName:
+            data.length === 1
+              ? `FIMBA_Hoteleria_${data[0]?.propuesta?.nombre || "Artista"}`
+              : undefined,
         });
       } else if (kind === "comidas") {
         await exportFimbaComidasExcel({
-          edicionNombre: edicionLabel,
-          rows,
+          edicionNombre: label,
+          rows: data,
+        });
+      } else if (String(kind).startsWith("rooming:")) {
+        const row = data[0];
+        await exportFimbaRoomingExcel({
+          edicionNombre: label,
+          artistaNombre: row?.propuesta?.nombre,
+          rows: data,
         });
       }
     } catch (err) {
@@ -94,6 +123,13 @@ export default function FimbaHoteleriaPage() {
     } finally {
       setExporting(null);
     }
+  };
+
+  const printArtistaRooming = (row) => {
+    const nombre = row?.propuesta?.nombre || "Artista";
+    printFimbaRooming([row], {
+      edicionNombre: `${edicionLabel} · ${nombre}`,
+    });
   };
 
   const reload = async () => {
@@ -252,7 +288,7 @@ export default function FimbaHoteleriaPage() {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <FimbaHoteleriaReportsButton
             disabled={rows.length === 0}
-            onClick={() => setHotelReportsOpen(true)}
+            onClick={openEditionHotelReports}
             label="Reportes hotelería"
           />
           <button
@@ -362,13 +398,20 @@ export default function FimbaHoteleriaPage() {
                   style={{
                     padding: "0.85rem 1rem",
                     display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    flexWrap: "wrap",
-                    alignItems: "flex-start",
+                    flexDirection: "column",
+                    gap: 10,
                     borderBottom: "1px solid var(--fimba-border)",
                   }}
                 >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      flexWrap: "wrap",
+                      alignItems: "flex-start",
+                    }}
+                  >
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>
                       <span
@@ -455,6 +498,78 @@ export default function FimbaHoteleriaPage() {
                       }
                     >
                       {open ? "Ocultar personas" : "Ver personas"}
+                    </button>
+                  </div>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 6,
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                    }}
+                  >
+                    <span
+                      className="fimba-muted"
+                      style={{ fontSize: "0.72rem", fontWeight: 700, marginRight: 2 }}
+                    >
+                      Reportes de este artista
+                    </span>
+                    <button
+                      type="button"
+                      className="fimba-btn fimba-btn-ghost"
+                      onClick={() => openArtistaHotelReports(r)}
+                      title="Pedido inicial, texto, detalle y habitaciones (solo este artista)"
+                    >
+                      <IconFileText size={14} /> Pedido hotel
+                    </button>
+                    <button
+                      type="button"
+                      className="fimba-btn fimba-btn-ghost"
+                      onClick={() => printArtistaRooming(r)}
+                      title="Imprimir / PDF habitaciones de este artista"
+                    >
+                      <IconPrinter size={14} /> Rooming PDF
+                    </button>
+                    <button
+                      type="button"
+                      className="fimba-btn fimba-btn-ghost"
+                      disabled={!!exporting}
+                      onClick={() =>
+                        runExport(
+                          `rooming:${pid}`,
+                          [r],
+                          `${edicionLabel} · ${r.propuesta?.nombre || "Artista"}`,
+                        )
+                      }
+                      title="Excel rooming (solo este artista)"
+                    >
+                      {exporting === `rooming:${pid}` ? (
+                        <IconLoader size={14} className="animate-spin" />
+                      ) : (
+                        <IconFileExcel size={14} />
+                      )}{" "}
+                      Excel rooming
+                    </button>
+                    <button
+                      type="button"
+                      className="fimba-btn fimba-btn-ghost"
+                      disabled={!!exporting}
+                      onClick={() =>
+                        runExport(
+                          `hoteleria:${pid}`,
+                          [r],
+                          `${edicionLabel} · ${r.propuesta?.nombre || "Artista"}`,
+                        )
+                      }
+                      title="Excel hotelería: resumen, personas y rooming (solo este artista)"
+                    >
+                      {exporting === `hoteleria:${pid}` ? (
+                        <IconLoader size={14} className="animate-spin" />
+                      ) : (
+                        <IconFileExcel size={14} />
+                      )}{" "}
+                      Excel hotelería
                     </button>
                   </div>
                 </div>
@@ -605,10 +720,10 @@ export default function FimbaHoteleriaPage() {
         )}
 
       <FimbaHoteleriaReports
-        open={hotelReportsOpen}
-        onClose={() => setHotelReportsOpen(false)}
-        hoteleriaRows={rows}
-        edicionNombre={edicionLabel}
+        open={!!hotelReportsCtx}
+        onClose={() => setHotelReportsCtx(null)}
+        hoteleriaRows={hotelReportsCtx?.rows || []}
+        edicionNombre={hotelReportsCtx?.label || edicionLabel}
       />
       <FimbaComidasReportModal
         open={comidasReportOpen}
