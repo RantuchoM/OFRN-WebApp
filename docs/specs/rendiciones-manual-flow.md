@@ -33,3 +33,4 @@
 - `firma` siempre se envía como `null`.
 - [x] En rendición, el anticipo de viáticos en **$0** se exporta como monto **$0,00** (no «RENUNCIA A VIÁTICOS»; esa leyenda solo aplica al PDF de **viático** al 0% si está marcada la opción).
 - [x] Columnas devolución/reintegro del PDF: placeholder **$0,00** en el lado sin saldo.
+- [x] Imagen de firma en `plantilla_rendicion.pdf` (`firma_imagen`): recuadro 150×46 pt (antes 150×30), sin tapar TOTAL ni la leyenda «Firma del agente». Preview HTML en `RendicionForm.jsx` alineado (`maxHeight` 96px).
