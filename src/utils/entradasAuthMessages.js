@@ -8,11 +8,20 @@ const NETWORK_EDGE_PATTERNS = [
   /network request failed/i,
   /\btimeout\b/i,
   /\baborted\b/i,
+  /fetch failed/i,
+  /network error/i,
 ];
 
 function rawAuthErrorMessage(errorOrMessage) {
   if (typeof errorOrMessage === "string") return errorOrMessage.trim();
   return String(errorOrMessage?.message || errorOrMessage || "").trim();
+}
+
+/** Errores de red / timeout (RPC, REST o edge). */
+export function isEntradasNetworkError(errorOrMessage) {
+  const raw = rawAuthErrorMessage(errorOrMessage);
+  if (!raw) return false;
+  return NETWORK_EDGE_PATTERNS.some((re) => re.test(raw));
 }
 
 /**

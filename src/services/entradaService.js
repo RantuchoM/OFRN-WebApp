@@ -15,7 +15,7 @@ import {
   lugarNombreDesdeConciertoEntrada,
 } from "../utils/entradasConciertoEvento";
 import { conciertoAdminSoloRecordatoriosProgramados } from "../utils/entradasReservasApertura";
-import { formatEntradasAuthError } from "../utils/entradasAuthMessages";
+import { formatEntradasAuthError, isEntradasNetworkError } from "../utils/entradasAuthMessages";
 import { pickEntradasAuthSessionFields } from "../utils/entradasAuthSession";
 import { adminConciertoAttendanceTotals } from "../utils/entradasIngresoDisplay";
 import { entradasTodasIngresadas } from "../utils/entradasMisReservas";
@@ -751,25 +751,75 @@ export async function previewEntradaQr(token, conciertoId = null) {
   return data;
 }
 
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Consume QR con 1–2 reintentos ante error de red/timeout.
+ * Con clientOpId usa RPC idempotente (cola offline).
+ */
 export async function validarYConsumirQr({
   token,
   modo = "auto",
   confirmarParcial,
   conciertoId = null,
   ordenesIngresar = null,
+  clientOpId = null,
+  retries = 2,
 }) {
   const ordenes =
     Array.isArray(ordenesIngresar) && ordenesIngresar.length > 0
       ? ordenesIngresar.map(Number).filter((n) => Number.isFinite(n) && n > 0)
       : null;
-  const { data, error } = await supabaseEntradasPublic.rpc("entrada_validar_y_consumir_qr", {
-    p_token: token,
-    p_modo: modo,
-    p_confirmar_parcial: Boolean(confirmarParcial),
-    p_concierto_id: conciertoId == null || conciertoId === "" ? null : Number(conciertoId),
-    p_ordenes_ingresar: ordenes,
+  const useIdem = Boolean(clientOpId);
+  const payload = useIdem
+    ? {
+        p_token: token,
+        p_modo: modo,
+        p_confirmar_parcial: Boolean(confirmarParcial),
+        p_concierto_id: conciertoId == null || conciertoId === "" ? null : Number(conciertoId),
+        p_ordenes_ingresar: ordenes,
+        p_client_op_id: clientOpId,
+      }
+    : {
+        p_token: token,
+        p_modo: modo,
+        p_confirmar_parcial: Boolean(confirmarParcial),
+        p_concierto_id: conciertoId == null || conciertoId === "" ? null : Number(conciertoId),
+        p_ordenes_ingresar: ordenes,
+      };
+  const rpcName = useIdem ? "entrada_validar_y_consumir_qr_idem" : "entrada_validar_y_consumir_qr";
+
+  let lastError;
+  const maxAttempts = Math.max(1, Number(retries) + 1);
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const { data, error } = await supabaseEntradasPublic.rpc(rpcName, payload);
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      lastError = err;
+      const canRetry = attempt < maxAttempts - 1 && isEntradasNetworkError(err);
+      if (!canRetry) break;
+      await sleepMs(400 * (attempt + 1));
+    }
+  }
+  if (isEntradasNetworkError(lastError)) {
+    throw new Error("No se pudo conectar para registrar el ingreso. Revisá la señal e intentá de nuevo.");
+  }
+  throw lastError;
+}
+
+/** Roster de recepción (hashes + estados) para caché local del dispositivo. */
+export async function fetchRecepcionSnapshot(conciertoId) {
+  const cid = Number(conciertoId);
+  if (!Number.isFinite(cid) || cid <= 0) throw new Error("Concierto inválido.");
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_recepcion_snapshot", {
+    p_concierto_id: cid,
   });
   if (error) throw error;
+  if (!data?.ok) throw new Error(data?.detalle || data?.reason || "No se pudo descargar el roster.");
   return data;
 }
 

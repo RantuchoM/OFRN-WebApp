@@ -17,10 +17,32 @@
 ## Flujo de ingreso
 
 - [x] Tras leer un código válido con plazas pendientes, el **ingreso se registra automáticamente** (sin botón «Ingresar a sala»).
+- [x] **Local-first** cuando hay roster en IndexedDB: match por hash MD5 (`entrada-qr`||token) o código manual → feedback inmediato; el RPC al servidor corre en segundo plano (o en cola si no hay red).
+- [x] Fallback online sin match local: `entrada_validar_y_consumir_qr_idem` (snapshot desfasado).
+- [x] Reintento de red (1–2) en el RPC de consume; botón **Reintentar ingreso** si falla la señal sin match local.
 - [x] QR de **entrada individual** → ingresa esa plaza.
 - [x] QR de **reserva grupal** o código manual → ingresa **todas** las plazas pendientes.
 - [x] Si la reserva ya tuvo ingresos parciales, un nuevo escaneo del QR grupal ingresa el resto sin confirmación extra.
 - [x] Toast de éxito; el campo de escaneo queda libre para el siguiente QR.
+
+## Snapshot local (mala señal)
+
+- [x] Al elegir concierto en Recepción: descarga roster (`entrada_recepcion_snapshot`) → IndexedDB en el dispositivo.
+- [x] Primera carga sin caché: cartel **«Descargando entradas…»**; cámara/código bloqueados hasta `ready` (o error con reintento).
+- [x] Encabezado: **«Actualizado a las hh:mm:ss»** (+ plazas), **Sin conexión**, y conteo de ingresos pendientes de sincronizar.
+- [x] Pull cada **~10 s** (y al volver online / tras flush de cola).
+- [x] Stats: last-known-good (no se ponen en 0/0 si falla el fetch).
+- [x] Fase 2: match offline del QR contra el snapshot (`matchTokenEnSnapshot` + `entradaQrHash.js`) antes del RPC; marca optimista en IndexedDB.
+- [x] Fase 3: cola IndexedDB (`ingestQueue`) + flush online/intervalo + `clientOpId` idempotente en servidor.
+
+Migraciones:
+- `supabase/migrations/20260824123107_entradas_recepcion_snapshot.sql`
+- `supabase/migrations/20260824123845_entradas_recepcion_client_op_idempotente.sql`
+
+Store: `src/utils/recepcionSnapshotStore.js` (snapshots + cola).
+Hash client: `src/utils/entradaQrHash.js` (= `public.entrada_qr_token_hash`).
+RPC: `entrada_validar_y_consumir_qr_idem(..., p_client_op_id)` + tabla `entrada_recepcion_client_op` (cachea solo `ok` / ya usada; no cachea `reserva_uso_parcial`).
+Migración de ajuste: `20260824125215_entradas_recepcion_client_op_cache_terminal.sql`.
 
 ## Banner «Último ingreso»
 
@@ -35,8 +57,15 @@
 
 - `entrada_recepcion_anular_entradas(p_reserva_id, p_ordenes)` — pendiente → anulada (baja sin ingresar)
 - `entrada_recepcion_revertir_ingresos(p_reserva_id, p_ordenes)` — ingresada → pendiente (cancelar ingreso)
-- `entrada_validar_y_consumir_qr` devuelve `ordenes_ingresadas[]`
+- `entrada_validar_y_consumir_qr` / `entrada_validar_y_consumir_qr_idem` — consume; el idempotente cachea por `client_op_id`
+- `entrada_recepcion_snapshot(p_concierto_id)` — roster con hashes para match local
 - `entrada_preview_qr` devuelve `reserva_id`, `entrada_id` e `id` por fila en `entradas[]`.
+
+## Fuera de alcance (aún)
+
+- Revertir / bajar plazas sin red.
+- Cambiar el formato opaco del QR.
+- Sync perfecta entre 2–3 dispositivos (margen ~10 s aceptado).
 
 Migraciones:
 - `supabase/migrations/20260620120000_entradas_recepcion_auto_cancel.sql`

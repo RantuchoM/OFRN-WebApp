@@ -83,12 +83,27 @@ import {
   lugarNombreDesdeConciertoEntrada,
   listarRecordatoriosAperturaConciertoIds,
   previewEntradaQr,
+  fetchRecepcionSnapshot,
   recepcionAnularEntradas,
   recepcionRevertirIngresos,
   suscribirRecordatorioApertura,
   tokenToQrDataUrl,
   validarYConsumirQr,
 } from "../../../services/entradaService";
+import { isEntradasNetworkError } from "../../../utils/entradasAuthMessages";
+import {
+  countRecepcionIngresosPendientes,
+  enqueueRecepcionIngreso,
+  formatRecepcionActualizadoAt,
+  getRecepcionSnapshotLocal,
+  listRecepcionIngresosPendientes,
+  markSnapshotOrdenesIngresadas,
+  newRecepcionClientOpId,
+  removeRecepcionIngresoQueueItem,
+  saveRecepcionSnapshotLocal,
+  matchTokenEnSnapshot,
+  updateRecepcionIngresoQueueItem,
+} from "../../../utils/recepcionSnapshotStore";
 import { normalizeDriveImageUrlForStorage } from "../../../utils/entradasDriveImage";
 import { aplicarDatosEventoAConciertoEntrada } from "../../../utils/entradasConciertoEvento";
 import { downloadEntradasReservaPdfBlob } from "../../../utils/entradasReservaPdf";
@@ -647,6 +662,18 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [recepcionQrStats, setRecepcionQrStats] = useState({ ingresadas: 0, reservadas: 0, capacidad: 0 });
   /** Móvil recepción: qué tarjeta de stats muestra la explicación (null = ninguna). */
   const [recepcionStatHelp, setRecepcionStatHelp] = useState(null);
+  const [recepcionOnline, setRecepcionOnline] = useState(
+    () => typeof navigator === "undefined" || navigator.onLine !== false,
+  );
+  /** idle | loading | ready | error — snapshot local del concierto */
+  const [recepcionSnapshotStatus, setRecepcionSnapshotStatus] = useState("idle");
+  const [recepcionSnapshotAt, setRecepcionSnapshotAt] = useState(null);
+  const [recepcionSnapshotError, setRecepcionSnapshotError] = useState("");
+  const [recepcionSnapshotPlazaCount, setRecepcionSnapshotPlazaCount] = useState(0);
+  const [recepcionIngresoNetworkError, setRecepcionIngresoNetworkError] = useState(false);
+  const [recepcionQueuePending, setRecepcionQueuePending] = useState(0);
+  const recepcionSnapshotBusyRef = useRef(false);
+  const recepcionFlushBusyRef = useRef(false);
   /** Reserva activa cuyos QRs se muestran en modal desde el catálogo. */
   const [catalogQrModalReserva, setCatalogQrModalReserva] = useState(null);
   const [cancelReservaTarget, setCancelReservaTarget] = useState(null);
@@ -1502,12 +1529,206 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   }, [section]);
 
   useEffect(() => {
+    const onOnline = () => setRecepcionOnline(true);
+    const onOffline = () => setRecepcionOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
+  const refreshRecepcionQueueCount = useCallback(async (cid = recepcionConciertoId) => {
+    try {
+      const n = await countRecepcionIngresosPendientes(cid || null);
+      setRecepcionQueuePending(n);
+    } catch {
+      /* ignore */
+    }
+  }, [recepcionConciertoId]);
+
+  const syncRecepcionSnapshot = useCallback(
+    async (cid, { forceLoading = false } = {}) => {
+      const id = Number(cid);
+      if (!Number.isFinite(id) || id <= 0) return null;
+      if (recepcionSnapshotBusyRef.current) return null;
+      recepcionSnapshotBusyRef.current = true;
+      if (forceLoading) {
+        setRecepcionSnapshotStatus("loading");
+        setRecepcionSnapshotError("");
+      }
+      try {
+        const payload = await fetchRecepcionSnapshot(id);
+        const row = await saveRecepcionSnapshotLocal(payload);
+        setRecepcionSnapshotStatus("ready");
+        setRecepcionSnapshotAt(row.savedAt || row.generatedAt || new Date().toISOString());
+        setRecepcionSnapshotPlazaCount(row.plazaCount || 0);
+        setRecepcionSnapshotError("");
+        return row;
+      } catch (err) {
+        const local = await getRecepcionSnapshotLocal(id);
+        if (local?.reservas?.length) {
+          setRecepcionSnapshotStatus("ready");
+          setRecepcionSnapshotAt(local.savedAt || local.generatedAt);
+          setRecepcionSnapshotPlazaCount(local.plazaCount || 0);
+          setRecepcionSnapshotError(
+            err?.message || "Sin conexión: se usa el roster guardado en este dispositivo.",
+          );
+          return local;
+        }
+        setRecepcionSnapshotStatus("error");
+        setRecepcionSnapshotError(
+          err?.message || "No se pudieron descargar las entradas. Revisá la señal e intentá de nuevo.",
+        );
+        return null;
+      } finally {
+        recepcionSnapshotBusyRef.current = false;
+      }
+    },
+    [],
+  );
+
+  const flushRecepcionIngresoQueue = useCallback(
+    async (cid) => {
+      const conciertoId = cid ?? recepcionConciertoId;
+      if (!conciertoId || recepcionFlushBusyRef.current) return;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        await refreshRecepcionQueueCount(conciertoId);
+        return;
+      }
+      recepcionFlushBusyRef.current = true;
+      try {
+        const pending = await listRecepcionIngresosPendientes(conciertoId);
+        for (const item of pending) {
+          await updateRecepcionIngresoQueueItem(item.clientOpId, {
+            status: "syncing",
+            attempts: (item.attempts || 0) + 1,
+          });
+          try {
+            const result = await validarYConsumirQr({
+              token: item.token,
+              modo: "auto",
+              confirmarParcial: true,
+              conciertoId: item.conciertoId,
+              ordenesIngresar: item.ordenes?.length ? item.ordenes : null,
+              clientOpId: item.clientOpId,
+              retries: 1,
+            });
+            if (
+              result?.ok
+              || result?.reason === "entrada_ya_usada"
+              || result?.reason === "reserva_totalmente_usada"
+            ) {
+              await removeRecepcionIngresoQueueItem(item.clientOpId);
+            } else if (result?.reason === "reserva_uso_parcial") {
+              const retry = await validarYConsumirQr({
+                token: item.token,
+                modo: "auto",
+                confirmarParcial: true,
+                conciertoId: item.conciertoId,
+                ordenesIngresar: item.ordenes?.length ? item.ordenes : null,
+                clientOpId: item.clientOpId,
+                retries: 1,
+              });
+              if (retry?.ok || retry?.reason === "reserva_totalmente_usada") {
+                await removeRecepcionIngresoQueueItem(item.clientOpId);
+              } else {
+                await updateRecepcionIngresoQueueItem(item.clientOpId, {
+                  status: "pending",
+                  lastError: formatEntradasValidacionError(retry),
+                });
+              }
+            } else {
+              await updateRecepcionIngresoQueueItem(item.clientOpId, {
+                status: "failed",
+                lastError: formatEntradasValidacionError(result),
+              });
+            }
+          } catch (err) {
+            if (isEntradasNetworkError(err) || /señal|conectar|conexión/i.test(String(err?.message || ""))) {
+              await updateRecepcionIngresoQueueItem(item.clientOpId, {
+                status: "pending",
+                lastError: err?.message || "Sin red",
+              });
+              break;
+            }
+            await updateRecepcionIngresoQueueItem(item.clientOpId, {
+              status: "failed",
+              lastError: err?.message || "Error al sincronizar",
+            });
+          }
+        }
+        await refreshRecepcionQueueCount(conciertoId);
+        void syncRecepcionSnapshot(conciertoId, { forceLoading: false });
+      } finally {
+        recepcionFlushBusyRef.current = false;
+      }
+    },
+    [recepcionConciertoId, refreshRecepcionQueueCount, syncRecepcionSnapshot],
+  );
+
+  useEffect(() => {
+    if (section !== "recepcion" || !canRecepcion || !recepcionConciertoId) {
+      setRecepcionSnapshotStatus("idle");
+      setRecepcionSnapshotAt(null);
+      setRecepcionSnapshotError("");
+      setRecepcionSnapshotPlazaCount(0);
+      return undefined;
+    }
+    const cid = recepcionConciertoId;
+    let cancelled = false;
+    let intervalId;
+
+    (async () => {
+      const cached = await getRecepcionSnapshotLocal(cid);
+      if (cancelled) return;
+      if (cached?.reservas?.length) {
+        setRecepcionSnapshotStatus("ready");
+        setRecepcionSnapshotAt(cached.savedAt || cached.generatedAt);
+        setRecepcionSnapshotPlazaCount(cached.plazaCount || 0);
+        await syncRecepcionSnapshot(cid, { forceLoading: false });
+      } else {
+        await syncRecepcionSnapshot(cid, { forceLoading: true });
+      }
+      if (cancelled) return;
+      void refreshRecepcionQueueCount(cid);
+      void flushRecepcionIngresoQueue(cid);
+      intervalId = window.setInterval(() => {
+        void syncRecepcionSnapshot(cid, { forceLoading: false });
+        void flushRecepcionIngresoQueue(cid);
+      }, 10_000);
+    })();
+
+    return () => {
+      cancelled = true;
+      if (intervalId) window.clearInterval(intervalId);
+    };
+  }, [
+    section,
+    canRecepcion,
+    recepcionConciertoId,
+    syncRecepcionSnapshot,
+    flushRecepcionIngresoQueue,
+    refreshRecepcionQueueCount,
+  ]);
+
+  useEffect(() => {
+    if (!recepcionOnline || section !== "recepcion" || !recepcionConciertoId) return;
+    void flushRecepcionIngresoQueue(recepcionConciertoId);
+  }, [recepcionOnline, section, recepcionConciertoId, flushRecepcionIngresoQueue]);
+
+  useEffect(() => {
     if (section !== "recepcion" || !canRecepcion) {
       return;
     }
     if (!recepcionConciertoId) {
       setQrPreview(null);
       setQrPreviewLoading(false);
+      setRecepcionIngresoNetworkError(false);
+      return;
+    }
+    if (recepcionSnapshotStatus === "loading") {
       return;
     }
     const t = scannerToken.trim();
@@ -1515,51 +1736,38 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     if (!esCodigoManual && t.length < 18) {
       setQrPreview(null);
       setQrPreviewLoading(false);
+      setRecepcionIngresoNetworkError(false);
       return;
     }
     let active = true;
     setQrPreview(null);
     setQrPreviewLoading(true);
-    autoIngresoAttemptRef.current = "";
+    setRecepcionIngresoNetworkError(false);
     const timer = setTimeout(() => {
-      previewEntradaQr(t, recepcionConciertoId)
-        .then(async (p) => {
-          if (!active) return;
-          setQrPreview(p);
-          if (p?.ok && p.puede_ingresar) {
-            const attemptKey = `${recepcionConciertoId}:${t}`;
-            if (autoIngresoAttemptRef.current === attemptKey) return;
-            autoIngresoAttemptRef.current = attemptKey;
-            await ejecutarIngresoRecepcion({
-              token: t,
-              conciertoId: recepcionConciertoId,
-              forceParcial: Boolean(p.necesita_confirmar_parcial),
-            });
-          } else if (p?.ok && !p.puede_ingresar) {
-            const msg = entradasBloqueoIngreso(p);
-            if (msg) toast.message(msg);
-          }
-        })
-        .catch((err) => {
-          if (active) {
-            autoIngresoAttemptRef.current = "";
-            setQrPreview({
-              ok: false,
-              reason: "error",
-              detalle: err?.message || String(err),
-            });
-          }
-        })
-        .finally(() => {
+      const attemptKey = `${recepcionConciertoId}:${t}`;
+      if (autoIngresoAttemptRef.current === attemptKey) {
+        if (active) setQrPreviewLoading(false);
+        return;
+      }
+      autoIngresoAttemptRef.current = attemptKey;
+      void (async () => {
+        try {
+          await ejecutarIngresoRecepcion({
+            token: t,
+            conciertoId: recepcionConciertoId,
+            forceParcial: false,
+          });
+        } finally {
           if (active) setQrPreviewLoading(false);
-        });
+        }
+      })();
     }, 400);
     return () => {
       active = false;
       clearTimeout(timer);
       setQrPreviewLoading(false);
     };
-  }, [scannerToken, section, canRecepcion, recepcionConciertoId]);
+  }, [scannerToken, section, canRecepcion, recepcionConciertoId, recepcionSnapshotStatus]);
 
   const refreshRecepcionPreview = async () => {
     const t = scannerToken.trim();
@@ -1607,28 +1815,26 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const registrarUltimoIngresoBanner = async (result, token) => {
     const ordenesEstaOperacion = ordenesIngresadasDesdeResultado(result);
     const tokenTrim = String(token || "").trim();
-    let preview = null;
-    if (tokenTrim && recepcionConciertoId) {
-      try {
-        preview = await previewEntradaQr(tokenTrim, recepcionConciertoId);
-      } catch {
-        preview = null;
-      }
-    }
-    setRecepcionUltimoIngreso({
-      reserva_id: result.reserva_id ?? preview?.reserva_id,
-      codigo_reserva: result.codigo_reserva ?? preview?.codigo_reserva ?? "—",
+    const banner = {
+      reserva_id: result.reserva_id,
+      codigo_reserva: result.codigo_reserva ?? "—",
       token: tokenTrim,
       ordenesEstaOperacion,
       personasIngresadas: ordenesEstaOperacion.length || Number(result.pendientes_consumidas) || 1,
-      preview,
-    });
+      preview: null,
+    };
+    setRecepcionUltimoIngreso(banner);
+    if (tokenTrim && recepcionConciertoId) {
+      void refreshRecepcionUltimoIngreso(banner).then((next) => {
+        if (next) setRecepcionUltimoIngreso(next);
+      });
+    }
   };
 
   const ejecutarIngresoRecepcion = async ({
     token,
     conciertoId,
-    forceParcial = false,
+    forceParcial: _forceParcial = false,
   } = {}) => {
     const t = String(token ?? scannerToken).trim();
     const cid = conciertoId ?? recepcionConciertoId;
@@ -1638,37 +1844,100 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       return;
     }
     setIngresando(true);
+    setRecepcionIngresoNetworkError(false);
+
+    const applyLocalSuccess = async (match, clientOpId) => {
+      const ordenes = match.ordenes || [];
+      await markSnapshotOrdenesIngresadas(cid, match.reservaId, ordenes);
+      const fakeResult = {
+        ok: true,
+        tipo: match.tipo,
+        reserva_id: match.reservaId,
+        codigo_reserva: match.codigoReserva,
+        ordenes_ingresadas: ordenes,
+        pendientes_consumidas: ordenes.length,
+        entrada_orden: match.entradaOrden,
+      };
+      toast.success(formatEntradasRecepcionIngresoSuccess(fakeResult), { duration: 3500 });
+      await registrarUltimoIngresoBanner(fakeResult, t);
+      clearRecepcionParaNuevoIngreso();
+      setRecepcionQrStats((prev) => ({
+        ...prev,
+        ingresadas: (Number(prev.ingresadas) || 0) + ordenes.length,
+      }));
+      await enqueueRecepcionIngreso({
+        clientOpId,
+        conciertoId: cid,
+        token: t,
+        ordenes,
+        match,
+      });
+      await refreshRecepcionQueueCount(cid);
+      void flushRecepcionIngresoQueue(cid);
+    };
+
     try {
+      const snap = await getRecepcionSnapshotLocal(cid);
+      const match = snap ? matchTokenEnSnapshot(snap, t) : { ok: false, reason: "sin_snapshot" };
+
+      if (match.ok && match.yaUsada) {
+        autoIngresoAttemptRef.current = "";
+        toast.message(
+          match.tipo === "entrada"
+            ? `Entrada ya ingresada (${match.codigoReserva || "—"}${match.entradaOrden != null ? ` · nº ${match.entradaOrden}` : ""}).`
+            : `Reserva ${match.codigoReserva || "—"}: todas las plazas ya ingresaron.`,
+        );
+        setQrPreview({
+          ok: true,
+          puede_ingresar: false,
+          tipo: match.tipo,
+          codigo_reserva: match.codigoReserva,
+          estado_ingreso: match.tipo === "entrada" ? "ingresada" : undefined,
+          entrada_orden: match.entradaOrden,
+          pendientes: 0,
+        });
+        return;
+      }
+
+      if (match.ok && !match.yaUsada) {
+        const clientOpId = newRecepcionClientOpId();
+        await applyLocalSuccess(match, clientOpId);
+        return;
+      }
+
+      if (match.reason === "reserva_no_activa") {
+        autoIngresoAttemptRef.current = "";
+        toast.error(`La reserva ${match.codigoReserva || ""} no está activa.`);
+        return;
+      }
+      if (match.reason === "codigo_ambiguo") {
+        autoIngresoAttemptRef.current = "";
+        toast.error("Código ambiguo: hay más de una reserva con esos dígitos.");
+        return;
+      }
+
+      // Sin match local: solo intentar servidor si hay red (snapshot desfasado).
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      if (offline || match.reason === "sin_snapshot") {
+        autoIngresoAttemptRef.current = "";
+        toast.error(
+          offline
+            ? "No está en el roster de este concierto (o el dispositivo no tiene datos). Con señal se reintenta contra el servidor."
+            : "Todavía no hay roster local. Esperá la descarga o reintentá.",
+        );
+        if (!offline) setRecepcionIngresoNetworkError(true);
+        return;
+      }
+
+      const clientOpId = newRecepcionClientOpId();
       const result = await validarYConsumirQr({
         token: t,
         modo: "auto",
-        confirmarParcial: forceParcial,
+        confirmarParcial: true,
         conciertoId: cid,
         ordenesIngresar: null,
+        clientOpId,
       });
-      if (result?.warning || result?.reason === "reserva_uso_parcial") {
-        const retry = await validarYConsumirQr({
-          token: t,
-          modo: "auto",
-          confirmarParcial: true,
-          conciertoId: cid,
-          ordenesIngresar: null,
-        });
-        if (!retry?.ok) {
-          autoIngresoAttemptRef.current = "";
-          toast.error(formatEntradasValidacionError(retry));
-          return;
-        }
-        toast.success(formatEntradasRecepcionIngresoSuccess(retry), { duration: 3500 });
-        await registrarUltimoIngresoBanner(retry, t);
-        clearRecepcionParaNuevoIngreso();
-        getAdminConciertoStats(cid)
-          .then((s) =>
-            setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
-          )
-          .catch(() => {});
-        return;
-      }
       if (!result?.ok) {
         autoIngresoAttemptRef.current = "";
         toast.error(formatEntradasValidacionError(result));
@@ -1713,9 +1982,16 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
         )
         .catch(() => {});
+      void syncRecepcionSnapshot(cid, { forceLoading: false });
     } catch (err) {
       autoIngresoAttemptRef.current = "";
-      toast.error(err?.message || "No se pudo registrar el ingreso.");
+      if (isEntradasNetworkError(err) || /señal|conectar|conexión/i.test(String(err?.message || ""))) {
+        // Último recurso: si había match no debería llegar acá; encolar genérico no es seguro sin match.
+        setRecepcionIngresoNetworkError(true);
+        toast.error(err?.message || "Sin conexión. Podés reintentar el ingreso.");
+      } else {
+        toast.error(err?.message || "No se pudo registrar el ingreso.");
+      }
     } finally {
       setIngresando(false);
     }
@@ -1742,7 +2018,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
             setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad });
           }
         } catch {
-          if (!cancelled) setRecepcionQrStats({ ingresadas: 0, reservadas: 0, capacidad: 0 });
+          /* last-known-good: no poner 0/0 */
         }
       }, 120);
     };
@@ -1755,10 +2031,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad });
         }
       } catch {
-        if (!cancelled) {
-          setSinEntradaCount(0);
-          setRecepcionQrStats({ ingresadas: 0, reservadas: 0, capacidad: 0 });
-        }
+        /* last-known-good */
       }
     })();
 
@@ -2075,6 +2348,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     setScannerToken("");
     setManualReservaCode("");
     setQrPreview(null);
+    setRecepcionIngresoNetworkError(false);
     autoIngresoAttemptRef.current = "";
   };
 
@@ -4535,6 +4809,30 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
               className="hidden"
               onChange={handleNativeQrPhoto}
             />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className={ui.sectionTitle}>Recepción</h2>
+              <div className={`text-right text-[11px] ${ui.textMuted}`}>
+                {!recepcionOnline && (
+                  <p className={isDark ? "text-amber-300 font-semibold" : "text-amber-700 font-semibold"}>
+                    Sin conexión
+                  </p>
+                )}
+                {recepcionConciertoId && recepcionSnapshotAt && (
+                  <p>
+                    Actualizado a las {formatRecepcionActualizadoAt(recepcionSnapshotAt) || "—"}
+                    {recepcionSnapshotPlazaCount > 0
+                      ? ` · ${recepcionSnapshotPlazaCount} plaza${recepcionSnapshotPlazaCount === 1 ? "" : "s"}`
+                      : ""}
+                  </p>
+                )}
+                {recepcionQueuePending > 0 && (
+                  <p className={isDark ? "text-sky-300" : "text-sky-700"}>
+                    {recepcionQueuePending} ingreso{recepcionQueuePending === 1 ? "" : "s"} pendiente
+                    {recepcionQueuePending === 1 ? "" : "s"} de sincronizar
+                  </p>
+                )}
+              </div>
+            </div>
             <div className="flex w-full items-stretch gap-2 min-w-0">
               <select
                 className={`min-w-0 w-[80%] max-w-[80%] shrink-0 ${ui.select}`}
@@ -4546,6 +4844,11 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                   setQrPreview(null);
                   setRecepcionStatHelp(null);
                   setRecepcionUltimoIngreso(null);
+                  setRecepcionIngresoNetworkError(false);
+                  setRecepcionSnapshotStatus(e.target.value ? "loading" : "idle");
+                  setRecepcionSnapshotAt(null);
+                  setRecepcionSnapshotError("");
+                  setRecepcionSnapshotPlazaCount(0);
                 }}
               >
                 <option value="">Concierto (desde hoy)…</option>
@@ -4559,12 +4862,59 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                 type="button"
                 title="Escanear QR (cámara en vivo)"
                 onClick={handleOpenQrScanner}
-                disabled={decodingQrPhoto || liveQrScannerOpen || !recepcionConciertoId}
+                disabled={
+                  decodingQrPhoto
+                  || liveQrScannerOpen
+                  || !recepcionConciertoId
+                  || recepcionSnapshotStatus === "loading"
+                  || recepcionSnapshotStatus === "error"
+                }
                 className={ui.recepcionCamera}
               >
                 {decodingQrPhoto ? <span className="text-[10px] font-bold">…</span> : <IconCamera size={26} className="shrink-0" />}
               </button>
             </div>
+
+            {recepcionConciertoId && recepcionSnapshotStatus === "loading" && (
+              <div
+                className={
+                  isDark
+                    ? "rounded-lg border border-sky-800 bg-sky-950/50 px-3 py-3 text-sm text-sky-100"
+                    : "rounded-lg border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-900"
+                }
+                role="status"
+              >
+                <p className="font-bold">Descargando entradas…</p>
+                <p className={`mt-1 text-xs ${ui.textMuted}`}>
+                  Esperá unos segundos mientras se guarda el roster de este concierto en el dispositivo.
+                </p>
+              </div>
+            )}
+
+            {recepcionConciertoId && recepcionSnapshotStatus === "error" && (
+              <div
+                className={
+                  isDark
+                    ? "rounded-lg border border-rose-800 bg-rose-950/40 px-3 py-3 text-sm text-rose-100 space-y-2"
+                    : "rounded-lg border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-900 space-y-2"
+                }
+              >
+                <p className="font-bold">No se pudieron descargar las entradas</p>
+                <p className="text-xs opacity-90">{recepcionSnapshotError}</p>
+                <button
+                  type="button"
+                  className={ui.btnSecondary}
+                  onClick={() => void syncRecepcionSnapshot(recepcionConciertoId, { forceLoading: true })}
+                >
+                  Reintentar descarga
+                </button>
+              </div>
+            )}
+
+            {recepcionConciertoId && recepcionSnapshotStatus === "ready" && recepcionSnapshotError && (
+              <p className={`text-xs ${isDark ? "text-amber-300" : "text-amber-800"}`}>{recepcionSnapshotError}</p>
+            )}
+
             <input
               type="text"
               inputMode="numeric"
@@ -4572,6 +4922,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
               pattern="[0-9]*"
               maxLength={10}
               value={manualReservaCode}
+              disabled={!recepcionConciertoId || recepcionSnapshotStatus === "loading" || recepcionSnapshotStatus === "error"}
               onChange={(event) => {
                 const onlyDigits = event.target.value.replace(/\D/g, "").slice(0, 10);
                 setManualReservaCode(onlyDigits);
@@ -4580,6 +4931,36 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
               className={`${ui.input} tracking-[0.18em]`}
               placeholder="Código manual (10 dígitos)"
             />
+
+            {recepcionIngresoNetworkError && scannerToken.trim() && (
+              <div
+                className={
+                  isDark
+                    ? "rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-2 space-y-2"
+                    : "rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 space-y-2"
+                }
+              >
+                <p className={`text-xs font-semibold ${isDark ? "text-amber-200" : "text-amber-900"}`}>
+                  El ingreso no se pudo confirmar por la señal.
+                </p>
+                <button
+                  type="button"
+                  disabled={ingresando}
+                  className={ui.btnSecondary}
+                  onClick={() => {
+                    autoIngresoAttemptRef.current = "";
+                    setRecepcionIngresoNetworkError(false);
+                    void ejecutarIngresoRecepcion({
+                      token: scannerToken.trim(),
+                      conciertoId: recepcionConciertoId,
+                      forceParcial: false,
+                    });
+                  }}
+                >
+                  {ingresando ? "Reintentando…" : "Reintentar ingreso"}
+                </button>
+              </div>
+            )}
             {recepcionUltimoIngreso && (
               <div
                 className={`rounded-xl border-2 p-4 space-y-3 text-sm shadow-md ${
