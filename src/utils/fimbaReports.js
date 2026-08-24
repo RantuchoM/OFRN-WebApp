@@ -380,20 +380,27 @@ export function buildFimbaComidasPedidoText(
     lines.push(`· ${row.regimen}: ${row.cantidad}`);
   }
   lines.push("");
-  lines.push("Detalle:");
-  const byArtista = new Map();
-  for (const d of detalle) {
-    const k = d.artista || "(sin artista)";
-    if (!byArtista.has(k)) byArtista.set(k, []);
-    byArtista.get(k).push(d);
-  }
-  for (const [artista, rows] of byArtista) {
-    lines.push("");
-    lines.push(artista);
-    for (const d of rows) {
-      const name = `${d.apellido || ""}, ${d.nombre || ""}`.replace(/^,\s*/, "");
-      const nota = d.nota ? ` (${d.nota})` : "";
-      lines.push(`  - ${name}: ${d.regimen}${nota}`);
+  lines.push("Excepciones (no regular):");
+  if (!detalle.length) {
+    lines.push("  (ninguna)");
+  } else {
+    const byArtista = new Map();
+    for (const d of detalle) {
+      const k = d.artista || "(sin artista)";
+      if (!byArtista.has(k)) byArtista.set(k, []);
+      byArtista.get(k).push(d);
+    }
+    for (const [artista, rows] of byArtista) {
+      lines.push("");
+      const sample = rows[0];
+      const rango = sample?.desde_hasta || "—";
+      lines.push(`${artista} · estadía ${rango}`);
+      for (const d of rows) {
+        const name = `${d.apellido || ""}, ${d.nombre || ""}`.replace(/^,\s*/, "");
+        const nota = d.nota ? ` (${d.nota})` : "";
+        const fechas = d.desde_hasta ? ` [${d.desde_hasta}]` : "";
+        lines.push(`  - ${name}: ${d.regimen}${nota}${fechas}`);
+      }
     }
   }
   return lines.join("\n").trim();
@@ -646,19 +653,23 @@ export function printFimbaComidas(hoteleriaRows, { edicionNombre = "" } = {}) {
   const { resumen, detalle } = buildFimbaComidasPrintModel(hoteleriaRows);
   const parts = [
     `<h1>Reporte de alimentación</h1><p class="muted">${edicionNombre}</p>
-    <p class="gap-note">FIMBA no tiene comidas por evento/asistencia como OFRN (MealsReport). Este reporte resume regímenes de participantes nominados.</p>
+    <p class="gap-note">Cubiertos por estadía (check-in/out). El detalle lista solo excepciones (no regular) con fechas de estadía.</p>
     <h2>Resumen por régimen</h2>
     <table><thead><tr><th>Régimen</th><th>Cantidad</th></tr></thead><tbody>
     ${resumen.map((r) => `<tr><td>${r.regimen}</td><td>${r.cantidad}</td></tr>`).join("")}
     </tbody></table>
-    <h2>Detalle</h2>
-    <table><thead><tr><th>Artista</th><th>Apellido</th><th>Nombre</th><th>Documento</th><th>Alimentación</th><th>Nota</th></tr></thead><tbody>
-    ${detalle
-      .map(
-        (d) =>
-          `<tr><td>${d.artista}</td><td>${d.apellido}</td><td>${d.nombre}</td><td>${d.documento}</td><td>${d.regimen}</td><td>${d.nota || ""}</td></tr>`,
-      )
-      .join("")}
+    <h2>Excepciones (no regular)</h2>
+    <table><thead><tr><th>Artista</th><th>Apellido</th><th>Nombre</th><th>Documento</th><th>Desde</th><th>Hasta</th><th>Alimentación</th><th>Nota</th></tr></thead><tbody>
+    ${
+      detalle.length
+        ? detalle
+            .map(
+              (d) =>
+                `<tr><td>${d.artista}</td><td>${d.apellido}</td><td>${d.nombre}</td><td>${d.documento}</td><td>${d.checkin_label || ""}</td><td>${d.checkout_label || ""}</td><td>${d.regimen}</td><td>${d.nota || ""}</td></tr>`,
+            )
+            .join("")
+        : `<tr><td colspan="8">(ninguna excepción)</td></tr>`
+    }
     </tbody></table>`,
   ];
   openPrintWindow(`Comidas — ${edicionNombre}`, parts.join(""));

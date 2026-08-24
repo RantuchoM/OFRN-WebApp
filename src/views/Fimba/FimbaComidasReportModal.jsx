@@ -77,7 +77,7 @@ export default function FimbaComidasReportModal({
             </button>
             <button
               type="button"
-              disabled={busy || !(model.detalle || []).length}
+              disabled={busy || (!(model.detalle || []).length && !(model.resumen || []).length)}
               onClick={async () => {
                 setBusy(true);
                 try {
@@ -120,8 +120,8 @@ export default function FimbaComidasReportModal({
         <div className="flex-1 overflow-auto p-5">
           <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-4">
             Cubiertos por día = PAX planificada × servicios según check-in/out
-            (Early = almuerzo llegada; Late = almuerzo salida). Abajo: inventario
-            de regímenes de nominados (sin asistencia por evento).
+            (Early = almuerzo llegada; Late = almuerzo salida). El detalle lista
+            solo excepciones (no regular), con fechas de estadía del artista.
           </p>
 
           <div className="mb-6">
@@ -148,29 +148,45 @@ export default function FimbaComidasReportModal({
             </tbody>
           </table>
 
-          <h4 className="text-sm font-bold text-slate-800 mb-2">Detalle</h4>
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-100 text-left">
-                <th className="p-2 border border-slate-200">Artista</th>
-                <th className="p-2 border border-slate-200">Apellido</th>
-                <th className="p-2 border border-slate-200">Nombre</th>
-                <th className="p-2 border border-slate-200">Alimentación</th>
-                <th className="p-2 border border-slate-200">Nota</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(model.detalle || []).map((d, i) => (
-                <tr key={i}>
-                  <td className="p-2 border border-slate-200">{d.artista}</td>
-                  <td className="p-2 border border-slate-200">{d.apellido}</td>
-                  <td className="p-2 border border-slate-200">{d.nombre}</td>
-                  <td className="p-2 border border-slate-200">{d.regimen}</td>
-                  <td className="p-2 border border-slate-200">{d.nota}</td>
+          <h4 className="text-sm font-bold text-slate-800 mb-2">
+            Excepciones (no regular)
+          </h4>
+          {(model.detalle || []).length === 0 ? (
+            <p className="text-xs text-slate-500 mb-2">
+              No hay nominados con régimen distinto de regular.
+            </p>
+          ) : (
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-100 text-left">
+                  <th className="p-2 border border-slate-200">Artista</th>
+                  <th className="p-2 border border-slate-200">Apellido</th>
+                  <th className="p-2 border border-slate-200">Nombre</th>
+                  <th className="p-2 border border-slate-200">Desde</th>
+                  <th className="p-2 border border-slate-200">Hasta</th>
+                  <th className="p-2 border border-slate-200">Alimentación</th>
+                  <th className="p-2 border border-slate-200">Nota</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(model.detalle || []).map((d, i) => (
+                  <tr key={i}>
+                    <td className="p-2 border border-slate-200">{d.artista}</td>
+                    <td className="p-2 border border-slate-200">{d.apellido}</td>
+                    <td className="p-2 border border-slate-200">{d.nombre}</td>
+                    <td className="p-2 border border-slate-200">
+                      {d.checkin_label || "—"}
+                    </td>
+                    <td className="p-2 border border-slate-200">
+                      {d.checkout_label || "—"}
+                    </td>
+                    <td className="p-2 border border-slate-200">{d.regimen}</td>
+                    <td className="p-2 border border-slate-200">{d.nota}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>,

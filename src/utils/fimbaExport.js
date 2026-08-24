@@ -323,20 +323,27 @@ export function buildFimbaRoomingRows(hoteleriaRows) {
 }
 
 /**
- * Resumen de regímenes + detalle de personas.
+ * Resumen de regímenes + detalle solo de excepciones (≠ regular) con fechas de estadía.
  * @param {Array} hoteleriaRows
- * @returns {{ resumen: Array, detalle: Array }}
+ * @returns {{ resumen: Array, detalle: Array, totalNominados: number, totalExcepciones: number }}
  */
 export function buildFimbaComidasExportData(hoteleriaRows) {
   const counts = {};
   const detalle = [];
+  let totalNominados = 0;
 
   for (const r of hoteleriaRows || []) {
     const artista = r.propuesta?.nombre || "";
+    const checkin = r.checkin_at ? String(r.checkin_at).slice(0, 10) : null;
+    const checkout = r.checkout_at ? String(r.checkout_at).slice(0, 10) : null;
+    const early = r.checkin_early === true || r.checkin_early === "true";
+    const late = r.checkout_late === true || r.checkout_late === "true";
     for (const p of r.personas || r.participantes || []) {
       if (p.activo === false) continue;
+      totalNominados += 1;
       const tipo = String(p.tipo_alimentacion || "regular").toLowerCase();
       counts[tipo] = (counts[tipo] || 0) + 1;
+      if (tipo === "regular") continue;
       detalle.push({
         artista,
         apellido: p.apellido || "",
@@ -352,6 +359,16 @@ export function buildFimbaComidasExportData(hoteleriaRows) {
           tipo === "otro" || p.nota_alimentacion
             ? String(p.nota_alimentacion || "").trim()
             : "",
+        checkin,
+        checkout,
+        checkin_label: formatFecha(checkin),
+        checkout_label: formatFecha(checkout),
+        early: early ? "Sí" : "",
+        late: late ? "Sí" : "",
+        desde_hasta:
+          checkin || checkout
+            ? `${formatFecha(checkin) || "—"} → ${formatFecha(checkout) || "—"}`
+            : "—",
       });
     }
   }
@@ -376,10 +393,20 @@ export function buildFimbaComidasExportData(hoteleriaRows) {
   resumen.push({
     regimen: "TOTAL nominados",
     tipo_codigo: "",
+    cantidad: totalNominados,
+  });
+  resumen.push({
+    regimen: "Excepciones (no regular)",
+    tipo_codigo: "",
     cantidad: detalle.length,
   });
 
-  return { resumen, detalle };
+  return {
+    resumen,
+    detalle,
+    totalNominados,
+    totalExcepciones: detalle.length,
+  };
 }
 
 const HOT_RESUMEN_COLS = [
@@ -440,6 +467,10 @@ const COMIDAS_DETALLE_COLS = [
   { header: "Nombre", key: "nombre", width: 18 },
   { header: "Documento", key: "documento", width: 14 },
   { header: "Género", key: "genero", width: 14 },
+  { header: "Desde", key: "checkin_label", width: 12 },
+  { header: "Hasta", key: "checkout_label", width: 12 },
+  { header: "Early", key: "early", width: 8 },
+  { header: "Late", key: "late", width: 8 },
   { header: "Alimentación", key: "regimen", width: 28 },
   { header: "Nota (Otro)", key: "nota", width: 32 },
 ];
@@ -555,7 +586,7 @@ export async function exportFimbaComidasExcel(opts = {}) {
   const { edicionNombre = "Edicion", rows = [], fileName } = opts;
   const { resumen, detalle } = buildFimbaComidasExportData(rows);
   const { diaRows, artistaDia } = buildFimbaComidasPorDiaRows(rows);
-  if (!detalle.length && !diaRows.length) {
+  if (!detalle.length && !diaRows.length && !(resumen || []).length) {
     alert("No hay datos de comidas para exportar.");
     return false;
   }
@@ -584,9 +615,15 @@ export async function exportFimbaComidasExcel(opts = {}) {
       rows: resumen,
     });
     sheets.push({
-      name: "Detalle personas",
+      name: "Excepciones",
       columns: COMIDAS_DETALLE_COLS,
       rows: detalle,
+    });
+  } else if (resumen.length) {
+    sheets.push({
+      name: "Resumen regímenes",
+      columns: COMIDAS_RESUMEN_COLS,
+      rows: resumen,
     });
   }
   await writeFimbaWorkbook(name, sheets);
