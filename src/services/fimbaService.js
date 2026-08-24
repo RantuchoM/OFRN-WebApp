@@ -501,6 +501,25 @@ export function nightsBetween(checkin, checkout) {
   return Math.max(0, diff);
 }
 
+/** Default true (histórico): solo false excluye. */
+export function propuestaRequiereHotel(propuestaOrRow) {
+  const p = propuestaOrRow?.propuesta || propuestaOrRow;
+  return p?.requiere_hotel !== false;
+}
+
+export function propuestaRequiereComidas(propuestaOrRow) {
+  const p = propuestaOrRow?.propuesta || propuestaOrRow;
+  return p?.requiere_comidas !== false;
+}
+
+export function filterHoteleriaRowsForHotel(rows) {
+  return (rows || []).filter((r) => propuestaRequiereHotel(r));
+}
+
+export function filterHoteleriaRowsForComidas(rows) {
+  return (rows || []).filter((r) => propuestaRequiereComidas(r));
+}
+
 /**
  * @param {{ cantidad_planificada?: number } | null} propuesta
  * @param {Array<{ activo?: boolean }> | null} participantes
@@ -644,7 +663,7 @@ export async function createFimbaEdicion(payload) {
 // ---------------------------------------------------------------------------
 
 const PROPUESTA_SELECT =
-  "id, id_edicion, nombre, color, orden, cantidad_planificada, plazas_extra_materiales, checkin_at, checkout_at, checkin_early, checkout_late, id_hotel, observaciones_logisticas, rider, token_consulta, token_edicion, estado, created_at, updated_at, hoteles:id_hotel ( id, nombre )";
+  "id, id_edicion, nombre, color, orden, cantidad_planificada, plazas_extra_materiales, checkin_at, checkout_at, checkin_early, checkout_late, requiere_hotel, requiere_comidas, id_hotel, observaciones_logisticas, rider, token_consulta, token_edicion, estado, created_at, updated_at, hoteles:id_hotel ( id, nombre )";
 
 export async function listFimbaPropuestas(edicionId) {
   if (edicionId == null || edicionId === "") {
@@ -704,6 +723,8 @@ export async function createFimbaPropuesta(payload) {
     checkout_at: payload.checkout_at || null,
     checkin_early: payload.checkin_early === true,
     checkout_late: payload.checkout_late === true,
+    requiere_hotel: payload.requiere_hotel !== false,
+    requiere_comidas: payload.requiere_comidas !== false,
     id_hotel:
       payload.id_hotel != null && payload.id_hotel !== ""
         ? Number(payload.id_hotel)
@@ -741,6 +762,10 @@ export async function updateFimbaPropuesta(propuestaId, patch) {
   if (patch.checkout_at !== undefined) row.checkout_at = patch.checkout_at || null;
   if (patch.checkin_early !== undefined) row.checkin_early = patch.checkin_early === true;
   if (patch.checkout_late !== undefined) row.checkout_late = patch.checkout_late === true;
+  if (patch.requiere_hotel !== undefined) row.requiere_hotel = patch.requiere_hotel !== false;
+  if (patch.requiere_comidas !== undefined) {
+    row.requiere_comidas = patch.requiere_comidas !== false;
+  }
   if (patch.id_hotel !== undefined) {
     row.id_hotel =
       patch.id_hotel != null && patch.id_hotel !== ""
@@ -3824,20 +3849,33 @@ export async function listFimbaHoteleria(edicionId, opts = {}) {
     const occ = computeHotelOccupancy(prop, participantes);
     const activos = (participantes || []).filter((p) => p.activo !== false);
     const sin_nombre = occ.por_confirmar;
+    const requiereHotel = prop.requiere_hotel !== false;
+    const requiereComidas = prop.requiere_comidas !== false;
     const camas_noche =
-      occ.noches != null ? occ.pax_planificada * occ.noches : 0;
+      requiereHotel && occ.noches != null
+        ? occ.pax_planificada * occ.noches
+        : 0;
     const alimentacion = summarizeAlimentacion(participantes);
     const rooming = summarizeFimbaHabitaciones(habitaciones);
-    const mealsStay = computeArtistaMealsPlan({
-      id_propuesta: prop.id,
-      artistaNombre: prop.nombre || "",
-      checkin_at: prop.checkin_at,
-      checkout_at: prop.checkout_at,
-      checkin_early: prop.checkin_early === true,
-      checkout_late: prop.checkout_late === true,
-      pax: occ.pax_planificada,
-      participantes: activos,
-    });
+    const mealsStay = requiereComidas
+      ? computeArtistaMealsPlan({
+          id_propuesta: prop.id,
+          artistaNombre: prop.nombre || "",
+          checkin_at: prop.checkin_at,
+          checkout_at: prop.checkout_at,
+          checkin_early: prop.checkin_early === true,
+          checkout_late: prop.checkout_late === true,
+          pax: occ.pax_planificada,
+          participantes: activos,
+        })
+      : computeArtistaMealsPlan({
+          id_propuesta: prop.id,
+          artistaNombre: prop.nombre || "",
+          checkin_at: null,
+          checkout_at: null,
+          pax: 0,
+          participantes: [],
+        });
     rows.push({
       propuesta: prop,
       hotel: prop.hoteles || null,
@@ -3845,11 +3883,13 @@ export async function listFimbaHoteleria(edicionId, opts = {}) {
       checkout_at: prop.checkout_at,
       checkin_early: prop.checkin_early === true,
       checkout_late: prop.checkout_late === true,
+      requiere_hotel: requiereHotel,
+      requiere_comidas: requiereComidas,
       ...occ,
       sin_nombre,
       tope_personas: occ.pax_planificada,
       para_hotel_comida: occ.pax_planificada,
-      total_pax_hotel: occ.pax_planificada,
+      total_pax_hotel: requiereHotel ? occ.pax_planificada : 0,
       camas_noche,
       alimentacion,
       meals_stay: mealsStay,
@@ -3862,14 +3902,18 @@ export async function listFimbaHoteleria(edicionId, opts = {}) {
     });
   }
 
-  const mealsGeneral = aggregateMealsPlans(rows.map((r) => r.meals_stay));
+  const mealsGeneral = aggregateMealsPlans(
+    rows.filter((r) => r.requiere_comidas).map((r) => r.meals_stay),
+  );
 
   const totals = rows.reduce(
     (acc, b) => {
-      acc.pax += b.total_pax_hotel;
-      acc.nominados += b.nominados;
-      acc.sin_nombre += b.sin_nombre;
-      acc.camas_noche += b.camas_noche;
+      if (b.requiere_hotel) {
+        acc.pax += b.pax_planificada || 0;
+        acc.nominados += b.nominados;
+        acc.sin_nombre += b.sin_nombre;
+        acc.camas_noche += b.camas_noche;
+      }
       return acc;
     },
     { pax: 0, nominados: 0, sin_nombre: 0, camas_noche: 0 },

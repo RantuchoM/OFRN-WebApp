@@ -42,6 +42,8 @@ const EDITABLE_COLS = [
   "checkin_early",
   "checkout_at",
   "checkout_late",
+  "requiere_hotel",
+  "requiere_comidas",
   "id_hotel",
   "observaciones_logisticas",
 ];
@@ -69,6 +71,8 @@ function draftFromPropuesta(p) {
     checkin_early: asBool(p.checkin_early),
     checkout_at: p.checkout_at ? String(p.checkout_at).slice(0, 10) : "",
     checkout_late: asBool(p.checkout_late),
+    requiere_hotel: p.requiere_hotel !== false,
+    requiere_comidas: p.requiere_comidas !== false,
     id_hotel: p.id_hotel != null && p.id_hotel !== "" ? String(p.id_hotel) : "",
     observaciones_logisticas: p.observaciones_logisticas || "",
   };
@@ -124,6 +128,8 @@ function validatePropuestaDraft(draft) {
       checkout_at: checkout || null,
       checkin_early: asBool(draft.checkin_early),
       checkout_late: asBool(draft.checkout_late),
+      requiere_hotel: draft.requiere_hotel !== false,
+      requiere_comidas: draft.requiere_comidas !== false,
       id_hotel: draft.id_hotel !== "" && draft.id_hotel != null ? Number(draft.id_hotel) : null,
       observaciones_logisticas: String(draft.observaciones_logisticas || "").trim() || null,
     },
@@ -132,7 +138,7 @@ function validatePropuestaDraft(draft) {
 
 function draftsEqual(a, b) {
   return EDITABLE_COLS.every((k) => {
-    if (k === "checkin_early" || k === "checkout_late") {
+    if (k === "checkin_early" || k === "checkout_late" || k === "requiere_hotel" || k === "requiere_comidas") {
       return asBool(a?.[k]) === asBool(b?.[k]);
     }
     if (k === "observaciones_logisticas") {
@@ -680,6 +686,8 @@ function FimbaArtistasTable({
             <th className="fimba-col-date">Check-in</th>
             <th className="fimba-col-date">Check-out</th>
             <th className="fimba-col-hotel">Hotel</th>
+            <th title="Incluir en hotelería / exportaciones">Hot.</th>
+            <th title="Incluir en comidas / exportaciones">Com.</th>
             <th className="fimba-col-obs" title="Observaciones logísticas">Obs. log.</th>
             <th className="fimba-col-actions" />
           </tr>
@@ -908,10 +916,52 @@ function FimbaArtistasTable({
                       </span>
                     )}
                   </td>
+                  <td style={{ textAlign: "center" }}>
+                    {editMode ? (
+                      <input
+                        data-fimba-cell={`${rowIdx}-6`}
+                        type="checkbox"
+                        title="Requiere hotelería"
+                        checked={draft.requiere_hotel !== false}
+                        onChange={(e) =>
+                          changeAndCommit(p.id, "requiere_hotel", e.target.checked)
+                        }
+                        onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 6, p.id)}
+                        disabled={status === "saving"}
+                      />
+                    ) : p.requiere_hotel === false ? (
+                      <span className="fimba-badge" title="Sin hotelería">
+                        No
+                      </span>
+                    ) : (
+                      <span className="fimba-muted">Sí</span>
+                    )}
+                  </td>
+                  <td style={{ textAlign: "center" }}>
+                    {editMode ? (
+                      <input
+                        data-fimba-cell={`${rowIdx}-7`}
+                        type="checkbox"
+                        title="Requiere comidas"
+                        checked={draft.requiere_comidas !== false}
+                        onChange={(e) =>
+                          changeAndCommit(p.id, "requiere_comidas", e.target.checked)
+                        }
+                        onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 7, p.id)}
+                        disabled={status === "saving"}
+                      />
+                    ) : p.requiere_comidas === false ? (
+                      <span className="fimba-badge" title="Sin comidas">
+                        No
+                      </span>
+                    ) : (
+                      <span className="fimba-muted">Sí</span>
+                    )}
+                  </td>
                   <td className="fimba-col-obs">
                     {editMode ? (
                       <textarea
-                        data-fimba-cell={`${rowIdx}-6`}
+                        data-fimba-cell={`${rowIdx}-8`}
                         className="fimba-cell-input fimba-cell-obs"
                         rows={2}
                         value={draft.observaciones_logisticas || ""}
@@ -926,7 +976,7 @@ function FimbaArtistasTable({
                             return;
                           }
                           if (e.key === "Tab") {
-                            handleCellKeyDown(e, rowIdx, 6, p.id);
+                            handleCellKeyDown(e, rowIdx, 8, p.id);
                           }
                         }}
                         disabled={status === "saving"}
@@ -1109,6 +1159,8 @@ function ArtistaCreateModal({ edicionId, hoteles = [], onClose, onSaved }) {
   const [checkout, setCheckout] = useState("");
   const [checkinEarly, setCheckinEarly] = useState(false);
   const [checkoutLate, setCheckoutLate] = useState(false);
+  const [requiereHotel, setRequiereHotel] = useState(true);
+  const [requiereComidas, setRequiereComidas] = useState(true);
   const [idHotel, setIdHotel] = useState("");
   const [observacionesLogisticas, setObservacionesLogisticas] = useState("");
   const [estado, setEstado] = useState("activa");
@@ -1135,6 +1187,8 @@ function ArtistaCreateModal({ edicionId, hoteles = [], onClose, onSaved }) {
       checkout_at: checkout,
       checkin_early: checkinEarly,
       checkout_late: checkoutLate,
+      requiere_hotel: requiereHotel,
+      requiere_comidas: requiereComidas,
       id_hotel: idHotel,
       observaciones_logisticas: observacionesLogisticas,
     });
@@ -1241,6 +1295,24 @@ function ArtistaCreateModal({ edicionId, hoteles = [], onClose, onSaved }) {
             </div>
           </div>
           <div className="fimba-field">
+            <div className="fimba-grid-2" style={{ marginBottom: "0.75rem" }}>
+              <label className="fimba-flag-check">
+                <input
+                  type="checkbox"
+                  checked={requiereHotel}
+                  onChange={(e) => setRequiereHotel(e.target.checked)}
+                />
+                Requiere hotelería
+              </label>
+              <label className="fimba-flag-check">
+                <input
+                  type="checkbox"
+                  checked={requiereComidas}
+                  onChange={(e) => setRequiereComidas(e.target.checked)}
+                />
+                Requiere comidas
+              </label>
+            </div>
             <label className="fimba-label">Hotel (opc.)</label>
             <select className="fimba-select" value={idHotel} onChange={(e) => setIdHotel(e.target.value)}>
               <option value="">— Sin hotel —</option>

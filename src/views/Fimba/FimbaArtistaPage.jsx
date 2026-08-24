@@ -146,6 +146,8 @@ function draftFromPropuestaMeta(p) {
     checkin_early: asBool(p?.checkin_early),
     checkout_at: p?.checkout_at ? String(p.checkout_at).slice(0, 10) : "",
     checkout_late: asBool(p?.checkout_late),
+    requiere_hotel: p?.requiere_hotel !== false,
+    requiere_comidas: p?.requiere_comidas !== false,
     id_hotel: p?.id_hotel != null && p?.id_hotel !== "" ? String(p.id_hotel) : "",
     observaciones_logisticas: p?.observaciones_logisticas || "",
     rider: p?.rider || "",
@@ -202,6 +204,8 @@ function validatePropuestaMetaDraft(draft) {
       checkout_at: checkout || null,
       checkin_early: asBool(draft.checkin_early),
       checkout_late: asBool(draft.checkout_late),
+      requiere_hotel: draft.requiere_hotel !== false,
+      requiere_comidas: draft.requiere_comidas !== false,
       id_hotel: draft.id_hotel !== "" && draft.id_hotel != null ? Number(draft.id_hotel) : null,
       observaciones_logisticas: String(draft.observaciones_logisticas || "").trim() || null,
       rider: normalizeFimbaRiderHtml(draft.rider),
@@ -219,6 +223,8 @@ const META_IMMEDIATE_FIELDS = new Set([
   "checkout_at",
   "checkin_early",
   "checkout_late",
+  "requiere_hotel",
+  "requiere_comidas",
 ]);
 
 /**
@@ -256,6 +262,8 @@ function metaPatchesEqual(a, b) {
     "checkout_at",
     "checkin_early",
     "checkout_late",
+    "requiere_hotel",
+    "requiere_comidas",
     "id_hotel",
     "observaciones_logisticas",
     "rider",
@@ -391,6 +399,8 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
         checkout_at: propuesta.checkout_at,
         checkin_early: propuesta.checkin_early,
         checkout_late: propuesta.checkout_late,
+        requiere_hotel: propuesta.requiere_hotel !== false,
+        requiere_comidas: propuesta.requiere_comidas !== false,
         personas: participantes,
         participantes,
         sin_nombre: Math.max(
@@ -407,6 +417,10 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
     edicion?.nombre || propuesta?.nombre || "FIMBA";
 
   const printArtistaRooming = async () => {
+    if (propuesta?.requiere_hotel === false) {
+      setError("Este artista no requiere hotelería (excluido de rooming).");
+      return;
+    }
     try {
       const { habitaciones, error: err } = await listFimbaHabitaciones(propId);
       if (err) throw err;
@@ -659,33 +673,55 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
             <button
               type="button"
               className="fimba-btn fimba-btn-ghost"
-              disabled={!participantes.filter((p) => p.activo !== false).length}
+              disabled={
+                !participantes.filter((p) => p.activo !== false).length ||
+                propuesta?.requiere_comidas === false
+              }
               onClick={() => setComidasReportOpen(true)}
-              title="Texto pedido, PDF e Excel de regímenes"
+              title={
+                propuesta?.requiere_comidas === false
+                  ? "Artista sin comidas"
+                  : "Texto pedido, PDF e Excel de regímenes"
+              }
             >
               <IconUtensils size={14} /> Reportes comidas
             </button>
             <button
               type="button"
               className="fimba-btn fimba-btn-ghost"
-              disabled={!participantes.filter((p) => p.activo !== false).length}
+              disabled={
+                !participantes.filter((p) => p.activo !== false).length ||
+                propuesta?.requiere_hotel === false
+              }
               onClick={() => setHotelReportsOpen(true)}
-              title="Pedido hotel / texto / detalle (este artista)"
+              title={
+                propuesta?.requiere_hotel === false
+                  ? "Artista sin hotelería"
+                  : "Pedido hotel / texto / detalle (este artista)"
+              }
             >
               <IconFileText size={14} /> Pedido hotel
             </button>
             <button
               type="button"
               className="fimba-btn fimba-btn-ghost"
+              disabled={propuesta?.requiere_hotel === false}
               onClick={printArtistaRooming}
-              title="Imprimir / PDF habitaciones"
+              title={
+                propuesta?.requiere_hotel === false
+                  ? "Artista sin hotelería"
+                  : "Imprimir / PDF habitaciones"
+              }
             >
               <IconPrinter size={14} /> Rooming PDF
             </button>
             <button
               type="button"
               className="fimba-btn fimba-btn-ghost"
-              disabled={!participantes.filter((p) => p.activo !== false).length}
+              disabled={
+                !participantes.filter((p) => p.activo !== false).length ||
+                propuesta?.requiere_comidas === false
+              }
               onClick={async () => {
                 try {
                   await exportFimbaComidasExcel({
@@ -695,6 +731,11 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
                         propuesta,
                         personas: participantes,
                         participantes,
+                        requiere_comidas: propuesta?.requiere_comidas !== false,
+                        checkin_at: propuesta?.checkin_at,
+                        checkout_at: propuesta?.checkout_at,
+                        checkin_early: propuesta?.checkin_early,
+                        checkout_late: propuesta?.checkout_late,
                       },
                     ],
                     fileName: `FIMBA_Comidas_${propuesta?.nombre || propId}`,
@@ -1212,6 +1253,35 @@ function ArtistaMetaSection({ propuesta, hotelNombre, canEdit, showRider = false
               />
               Late check-out
             </label>
+          </div>
+        </div>
+
+        <div className="fimba-grid-2">
+          <div className="fimba-field">
+            <label className="fimba-flag-check">
+              <input
+                type="checkbox"
+                checked={draft.requiere_hotel !== false}
+                onChange={(e) => setField("requiere_hotel", e.target.checked)}
+              />
+              Requiere hotelería
+            </label>
+            <p className="fimba-muted" style={{ fontSize: "0.72rem", margin: "4px 0 0" }}>
+              Si está apagado, se excluye de pedidos/rooming/Excel hotelería.
+            </p>
+          </div>
+          <div className="fimba-field">
+            <label className="fimba-flag-check">
+              <input
+                type="checkbox"
+                checked={draft.requiere_comidas !== false}
+                onChange={(e) => setField("requiere_comidas", e.target.checked)}
+              />
+              Requiere comidas
+            </label>
+            <p className="fimba-muted" style={{ fontSize: "0.72rem", margin: "4px 0 0" }}>
+              Si está apagado, se excluye de cubiertos y reportes de comidas.
+            </p>
           </div>
         </div>
 

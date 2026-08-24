@@ -279,18 +279,21 @@ export function aggregateMealsPlans(artistPlans = []) {
  * @param {Array} hoteleriaRows
  */
 export function buildFimbaMealsStayFromHoteleria(hoteleriaRows = []) {
-  const artists = (hoteleriaRows || []).map((r) =>
-    computeArtistaMealsPlan({
-      id_propuesta: r.propuesta?.id,
-      artistaNombre: r.propuesta?.nombre || "",
-      checkin_at: r.checkin_at,
-      checkout_at: r.checkout_at,
-      checkin_early: r.checkin_early === true,
-      checkout_late: r.checkout_late === true,
-      pax: r.pax_planificada ?? r.para_hotel_comida ?? 0,
-      participantes: r.personas || r.participantes || [],
-    }),
-  );
+  const artists = (hoteleriaRows || [])
+    .filter((r) => r?.requiere_comidas !== false && r?.propuesta?.requiere_comidas !== false)
+    .map((r) =>
+      r.meals_stay ||
+      computeArtistaMealsPlan({
+        id_propuesta: r.propuesta?.id,
+        artistaNombre: r.propuesta?.nombre || "",
+        checkin_at: r.checkin_at,
+        checkout_at: r.checkout_at,
+        checkin_early: r.checkin_early === true,
+        checkout_late: r.checkout_late === true,
+        pax: r.pax_planificada ?? r.para_hotel_comida ?? 0,
+        participantes: r.personas || r.participantes || [],
+      }),
+    );
   return aggregateMealsPlans(artists);
 }
 

@@ -11,7 +11,7 @@ FIMBA es una aplicación de festival con skin propia bajo `/fimba/*`, que reutil
 | Tabla | Rol |
 |-------|-----|
 | `fimba_ediciones` | Edición del festival; **1:1** con `programas` vía `id_gira` |
-| `fimba_propuestas` | UI «Artista»: cupos, colores, tokens, fechas checkin/out, flags `checkin_early` / `checkout_late`, `id_hotel` opcional → `hoteles`, `observaciones_logisticas` (texto libre), **`rider`** (HTML rich-text logístico). **Sin** carpeta Drive (vive en contrataciones) |
+| `fimba_propuestas` | UI «Artista»: cupos, colores, tokens, fechas checkin/out, flags `checkin_early` / `checkout_late`, **`requiere_hotel`** / **`requiere_comidas`** (default true; false excluye de reportes/exportaciones), `id_hotel` opcional → `hoteles`, `observaciones_logisticas` (texto libre), **`rider`** (HTML rich-text logístico). **Sin** carpeta Drive (vive en contrataciones) |
 | `fimba_participantes` | Personas del artista (entidad propia; `id_integrante` opcional bigint). **`genero`**: `femenino` \| `masculino` \| `otro` \| `sin_especificar` (default). No vive en la propuesta: el artista es el grupo; el sexo/género es de cada persona. |
 | `fimba_usuarios` | Usuarios externos por edición: mail + `rol_fimba` (`editor_general` \| `consulta`) + `clave_acceso` / `token_login`. Staff OFRN (`isManagement`) no se registra aquí. |
 | `eventos.audiencia_ofrn` | `none` \| `tutti` \| `grupos` |
@@ -441,6 +441,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Reportes hotel (lista + cupos; sin rooming graph)
 - [x] Paridad reportes OFRN→FIMBA: pedido/texto/detalle/rooming (print+Excel); comidas (texto/PDF/Excel + **cubiertos por día** check-in/out general/artista; sin asistencia por-evento); CNRT + paradas + hoja de ruta (PDF/Excel) por vehículo
 - [x] Hotelería: matriz noches/comidas (`fimbaMealsStay`) — desayuno/almuerzo/cena por día; Early/Late; PAX planificada; desglose régimen opcional
+- [x] Toggles por artista `requiere_hotel` / `requiere_comidas` (default true): planilla Artistas, ficha, modal Hotelería; exclusiones en totales/exportaciones hotel y comidas
 - [x] Alta/edición de vehículo embebida en FIMBA (`giras_transportes` / catálogo `transportes` en alta; update alineado a OFRN)
 - [x] Helper real de disponibilidad vs cupos OFRN (en tránsito rolling en planilla Transportes; roster + plaza_extra; FIMBA plazas)
 - [x] UI `audiencia_ofrn` multi-grupos en modal FIMBA (+ planilla orquesta); EventForm OFRN / tags artistas en eventos OFRN genéricos aún parcial
@@ -612,7 +613,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | **20260811120000** | `fimba_ediciones_token_consulta` | Local = Remote |
 | **20260811130000** | `fimba_contrataciones_estado_log` | Local = Remote (SQL linked + repair applied) |
 | **20260813120000** | `fimba_propuestas_rider` | Local = Remote (deploy linked) |
-| **20260813130000** | `fimba_riders_storage` | Local = Remote (deploy linked) |
+| **20260824152341** | `fimba_propuestas_requiere_hotel_comidas` | Local = Remote (deploy linked) |
 
 ### Auth usuarios FIMBA — cómo usar
 

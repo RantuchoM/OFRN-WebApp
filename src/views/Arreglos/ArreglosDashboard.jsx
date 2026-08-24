@@ -33,8 +33,11 @@ import ArregloQuickEncargoModal from "../../components/arreglos/ArregloQuickEnca
 import ArregloMobileDetailModal from "../../components/arreglos/ArregloMobileDetailModal";
 import ArregloAjusteSolicitarModal from "../../components/arreglos/ArregloAjusteSolicitarModal";
 import ArregloAjusteEntregarModal from "../../components/arreglos/ArregloAjusteEntregarModal";
-import { markEncargoArregloMailSent } from "../../utils/encargoArregloMail";
-import { syncObraArregladorFromIntegrante } from "../../utils/syncObraArreglador";
+import {
+  createEncargoArregloObra,
+  createObraAjusteSolicitud,
+  formatSolicitanteNombre,
+} from "../../utils/encargoArregloService";
 import { readManageDriveResponseBody } from "../../utils/paraAcomodarDrive";
 
 const RichTextPreview = ({ content, className = "" }) => {
@@ -1028,115 +1031,8 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     return isAdmin || isOwnerArreglador;
   };
 
-  const getSolicitanteLabelForUser = () => formatIntegranteLabel(user);
-
-  const enviarEncargoArreglo = async (
-    obraId,
-    tituloStr,
-    idIntegranteArregladorVal,
-    linkDrive,
-    observacionesStr,
-    fechaEsperada,
-    dificultad,
-    instrumentacion,
-    solicitadoPor
-  ) => {
-    const integranteOpt = integrantesArregladorOptions.find(
-      (i) => Number(i.id) === Number(idIntegranteArregladorVal)
-    );
-    const arregladorLabel = integranteOpt ? integranteOpt.label : "";
-    const emailTo = integranteOpt?.mail || null;
-    if (!emailTo) {
-      console.warn(
-        "encargo_arreglo (ArreglosDashboard): sin email para integrante",
-        idIntegranteArregladorVal
-      );
-      toast.error(
-        "No se encontró email del arreglador para enviar el encargo."
-      );
-      return false;
-    }
-    const detalle = {
-      titulo: tituloStr,
-      arreglador: arregladorLabel,
-      id_obra: obraId,
-      link_drive: linkDrive || null,
-      observaciones: observacionesStr || null,
-      fecha_esperada: fechaEsperada || null,
-      dificultad: dificultad || null,
-      instrumentacion: instrumentacion || null,
-      solicitado_por: solicitadoPor || null,
-    };
-    const { error } = await sb.functions.invoke("mails_produccion", {
-      body: {
-        action: "enviar_mail",
-        templateId: "encargo_arreglo",
-        email: emailTo,
-        bcc: ["ofrn.archivo@gmail.com"],
-        nombre: user ? `${user.apellido || ""}, ${user.nombre || ""}`.trim() : "Sistema",
-        gira: null,
-        detalle,
-      },
-    });
-    if (error) {
-      console.error("mails_produccion (encargo_arreglo):", error);
-      toast.error("No se pudo enviar el mail de encargo.");
-      return false;
-    }
-    toast.success("Mail de encargo enviado al Arreglador y al Archivista.");
-    return true;
-  };
-
-  const enviarEncargoAjuste = async ({
-    idAjuste,
-    idObra,
-    tituloStr,
-    idIntegranteArregladorVal,
-    linkDrive,
-    brief,
-    tipo,
-    partesAfectadas,
-    fechaEsperada,
-    solicitadoPor,
-  }) => {
-    const integranteOpt = integrantesArregladorOptions.find(
-      (i) => Number(i.id) === Number(idIntegranteArregladorVal),
-    );
-    const emailTo = integranteOpt?.mail || null;
-    if (!emailTo) {
-      toast.error("No se encontró email del arreglador para el ajuste.");
-      return false;
-    }
-    const { error } = await sb.functions.invoke("mails_produccion", {
-      body: {
-        action: "enviar_mail",
-        templateId: "encargo_ajuste",
-        email: emailTo,
-        bcc: ["ofrn.archivo@gmail.com"],
-        nombre: user ? `${user.apellido || ""}, ${user.nombre || ""}`.trim() : "Sistema",
-        gira: null,
-        detalle: {
-          titulo: tituloStr,
-          arreglador: integranteOpt?.label || "",
-          id_obra: idObra,
-          id_ajuste: idAjuste,
-          link_drive: linkDrive || null,
-          brief: brief || null,
-          tipo: tipo || "cambio_menor",
-          partes_afectadas: partesAfectadas || null,
-          fecha_esperada: fechaEsperada || null,
-          solicitado_por: solicitadoPor || null,
-        },
-      },
-    });
-    if (error) {
-      console.error("mails_produccion (encargo_ajuste):", error);
-      toast.error("Ajuste creado, pero no se pudo enviar el mail.");
-      return false;
-    }
-    toast.success("Mail de ajuste enviado al arreglador (BCC Archivo).");
-    return true;
-  };
+  const getSolicitanteLabelForUser = () =>
+    formatIntegranteLabel(user) || formatSolicitanteNombre(user);
 
   const handleSolicitarAjuste = async (payload) => {
     if (!canEditFields) return;
@@ -1149,35 +1045,18 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     setSolicitarAjusteSaving(true);
     try {
       const obraOpt = obrasAjusteOptions.find((o) => Number(o.id) === Number(idObra));
-      const { data, error } = await sb
-        .from("obras_ajustes")
-        .insert([
-          {
-            id_obra: Number(idObra),
-            tipo: payload.tipo || "cambio_menor",
-            estado: "pendiente",
-            origen: "solicitud_interna",
-            id_integrante_arreglador: Number(arregladorId),
-            id_usuario_solicita: user?.id || null,
-            fecha_esperada: payload.fecha_esperada || null,
-            brief: payload.brief || null,
-            partes_afectadas: payload.partes_afectadas || null,
-          },
-        ])
-        .select("id")
-        .single();
-      if (error) throw error;
-
-      await enviarEncargoAjuste({
-        idAjuste: data.id,
-        idObra: Number(idObra),
-        tituloStr: stripHtmlForSort(obraOpt?.titulo) || `Obra #${idObra}`,
-        idIntegranteArregladorVal: arregladorId,
-        linkDrive: obraOpt?.link_drive || null,
-        brief: payload.brief,
+      await createObraAjusteSolicitud({
+        supabase: sb,
+        user,
+        integrantesArregladorOptions,
+        idObra,
+        idIntegranteArreglador: arregladorId,
         tipo: payload.tipo,
+        brief: payload.brief,
         partesAfectadas: payload.partes_afectadas,
         fechaEsperada: payload.fecha_esperada,
+        obraTitulo: stripHtmlForSort(obraOpt?.titulo) || `Obra #${idObra}`,
+        linkDrive: obraOpt?.link_drive || null,
         solicitadoPor: getSolicitanteLabelForUser(),
       });
 
@@ -1293,53 +1172,19 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
 
     setQuickSaving(true);
     try {
-      const payload = {
+      await createEncargoArregloObra({
+        supabase: sb,
+        user,
+        integrantesArregladorOptions,
+        compositorId,
+        arregladorId,
         titulo,
-        instrumentacion: (quickDraft.instrumentacion || "").trim() || null,
-        dificultad: (quickDraft.dificultad || "").trim() || null,
-        observaciones: (quickDraft.observaciones || "").trim() || null,
-        estado: "Para arreglar",
-        fecha_esperada: quickDraft.fecha_esperada || null,
-        id_integrante_arreglador: arregladorId,
-        id_usuario_carga: user?.id || null,
-      };
-
-      const { data, error } = await sb
-        .from("obras")
-        .insert([payload])
-        .select("id")
-        .single();
-
-      if (error) throw error;
-
-      if (data?.id) {
-        const { error: relError } = await sb.from("obras_compositores").insert([
-          {
-            id_obra: data.id,
-            id_compositor: Number(compositorId),
-            rol: "compositor",
-          },
-        ]);
-        if (relError) throw relError;
-
-        await syncObraArregladorFromIntegrante(sb, data.id, arregladorId);
-
-        // Mail al arreglador + BCC a ofrn.archivo@gmail.com (también en autogestión)
-        const mailSent = await enviarEncargoArreglo(
-          data.id,
-          titulo,
-          arregladorId,
-          null,
-          quickDraft.observaciones || "",
-          quickDraft.fecha_esperada || null,
-          quickDraft.dificultad || null,
-          quickDraft.instrumentacion || null,
-          getSolicitanteLabelForUser()
-        );
-        if (mailSent) {
-          await markEncargoArregloMailSent(sb, data.id);
-        }
-      }
+        instrumentacion: quickDraft.instrumentacion,
+        dificultad: quickDraft.dificultad,
+        observaciones: quickDraft.observaciones,
+        fechaEsperada: quickDraft.fecha_esperada,
+        solicitadoPor: getSolicitanteLabelForUser(),
+      });
 
       toast.success(
         selfMode

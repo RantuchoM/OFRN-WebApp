@@ -149,6 +149,8 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 - [x] Fix validación post-creación de arreglo
 - [x] Envío manual de mail con confirmación explícita
 - [x] Nuevo arreglo desde programa: inserción en bloque debajo del original
+- [x] **Botón «+ Encargo»** en cabecera del formulario (solo editor/admin, obra persistida): menú con **Encargar arreglo** (nueva obra `Para arreglar` + referencia a la origen + mail) y **Solicitar ajuste** (solo si la obra está `Entregado`/`Oficial`; inserta en `obras_ajustes` + mail `encargo_ajuste`). Impacta en el módulo Arreglos.
+- Lógica compartida en `src/utils/encargoArregloService.js` (`createEncargoArregloObra`, `createObraAjusteSolicitud`, `sendEncargoArregloMail`, `sendEncargoAjusteMail`) — usada por `WorkForm` y `ArreglosDashboard`.
 | `src/services/giraService.js` | `updateWorkPosition`, `normalizeRepertorioBlockOrden`. |
 
 ---

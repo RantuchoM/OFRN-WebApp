@@ -107,6 +107,7 @@ export function buildFimbaPedidoGroups(hoteleriaRows = []) {
   const map = new Map();
 
   for (const r of hoteleriaRows || []) {
+    if (r.requiere_hotel === false || r.propuesta?.requiere_hotel === false) continue;
     const hotel = r.hotel?.nombre || "(sin hotel)";
     const checkin = r.checkin_at ? String(r.checkin_at).slice(0, 10) : null;
     const checkout = r.checkout_at ? String(r.checkout_at).slice(0, 10) : null;
@@ -288,7 +289,9 @@ export function buildFimbaDetallePasajeros(hoteleriaRows = []) {
 
 /** Modelo para imprimir rooming por hotel/artista. */
 export function buildFimbaRoomingPrintModel(hoteleriaRows = []) {
-  return (hoteleriaRows || []).map((r) => {
+  return (hoteleriaRows || [])
+    .filter((r) => r.requiere_hotel !== false && r.propuesta?.requiere_hotel !== false)
+    .map((r) => {
     const habitaciones = (r.habitaciones || []).map((h) => {
       const tipo = labelFimbaHabitacionTipo(h);
       const occs = (h.ocupantes || [])

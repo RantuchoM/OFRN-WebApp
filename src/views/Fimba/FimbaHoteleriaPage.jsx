@@ -25,6 +25,8 @@ import {
   formatFimbaHabitacionesCounts,
   labelFimbaHabitacionTipo,
   labelFimbaAlimentacion,
+  filterHoteleriaRowsForHotel,
+  filterHoteleriaRowsForComidas,
 } from "../../services/fimbaService";
 import {
   exportFimbaComidasExcel,
@@ -77,10 +79,17 @@ export default function FimbaHoteleriaPage() {
   const edicionLabel = edicion?.nombre || `Edicion_${edicionId}`;
 
   const openEditionHotelReports = () => {
-    setHotelReportsCtx({ rows, label: edicionLabel });
+    setHotelReportsCtx({
+      rows: filterHoteleriaRowsForHotel(rows),
+      label: edicionLabel,
+    });
   };
 
   const openArtistaHotelReports = (row) => {
+    if (row?.requiere_hotel === false) {
+      alert("Este artista no requiere hotelería (excluido de reportes).");
+      return;
+    }
     const nombre = row?.propuesta?.nombre || "Artista";
     setHotelReportsCtx({
       rows: [row],
@@ -89,9 +98,18 @@ export default function FimbaHoteleriaPage() {
   };
 
   const runExport = async (kind, scopedRows = rows, label = edicionLabel) => {
-    const data = scopedRows || [];
+    let data = scopedRows || [];
+    if (kind === "comidas") {
+      data = filterHoteleriaRowsForComidas(data);
+    } else if (
+      kind === "hoteleria" ||
+      String(kind).startsWith("hoteleria:") ||
+      String(kind).startsWith("rooming:")
+    ) {
+      data = filterHoteleriaRowsForHotel(data);
+    }
     if (!data.length) {
-      alert("No hay datos para exportar.");
+      alert("No hay datos para exportar (revisá toggles de hotelería/comidas).");
       return;
     }
     setExporting(kind);
@@ -127,11 +145,18 @@ export default function FimbaHoteleriaPage() {
   };
 
   const printArtistaRooming = (row) => {
+    if (row?.requiere_hotel === false) {
+      alert("Este artista no requiere hotelería (excluido de rooming).");
+      return;
+    }
     const nombre = row?.propuesta?.nombre || "Artista";
     printFimbaRooming([row], {
       edicionNombre: `${edicionLabel} · ${nombre}`,
     });
   };
+
+  const rowsHotel = useMemo(() => filterHoteleriaRowsForHotel(rows), [rows]);
+  const rowsComidas = useMemo(() => filterHoteleriaRowsForComidas(rows), [rows]);
 
   const reload = async () => {
     setLoading(true);
@@ -169,7 +194,7 @@ export default function FimbaHoteleriaPage() {
   }, [edicionId, filtroArtista]);
 
   const totals = useMemo(() => {
-    return (rows || []).reduce(
+    return (rowsHotel || []).reduce(
       (acc, r) => {
         acc.pax += r.pax_planificada || 0;
         acc.nominados += r.nominados || 0;
@@ -179,7 +204,7 @@ export default function FimbaHoteleriaPage() {
       },
       { pax: 0, nominados: 0, sin_nombre: 0, camas_noche: 0 },
     );
-  }, [rows]);
+  }, [rowsHotel]);
 
   const copyTableTsv = async () => {
     const header = [
@@ -382,9 +407,13 @@ export default function FimbaHoteleriaPage() {
         </div>
       </section>
 
-      {rows.length > 0 && (
+      {rowsComidas.length > 0 && (
         <FimbaMealsStayPanel
-          hoteleriaRows={rows}
+          hoteleriaRows={
+            filtroArtista
+              ? rowsComidas
+              : rowsComidas
+          }
           mode={filtroArtista ? "artista" : "general"}
         />
       )}
@@ -486,6 +515,24 @@ export default function FimbaHoteleriaPage() {
                     <span className="fimba-badge">
                       <IconUsers size={12} /> {r.nominados} nominados
                     </span>
+                    {r.requiere_hotel === false && (
+                      <span
+                        className="fimba-badge"
+                        style={{ background: "#f1f5f9", color: "#64748b" }}
+                        title="Excluido de hotelería / exportaciones hotel"
+                      >
+                        Sin hotelería
+                      </span>
+                    )}
+                    {r.requiere_comidas === false && (
+                      <span
+                        className="fimba-badge"
+                        style={{ background: "#f1f5f9", color: "#64748b" }}
+                        title="Excluido de comidas / exportaciones comida"
+                      >
+                        Sin comidas
+                      </span>
+                    )}
                     {sinNombre > 0 && (
                       <span
                         className="fimba-badge"
@@ -591,7 +638,7 @@ export default function FimbaHoteleriaPage() {
                 </div>
                 {open && (
                   <div style={{ padding: "0.75rem 1rem 1rem" }}>
-                    {!filtroArtista && (
+                    {!filtroArtista && r.requiere_comidas !== false && (
                       <div style={{ marginBottom: "0.85rem" }}>
                         <FimbaMealsStayPanel
                           hoteleriaRows={[r]}
@@ -753,7 +800,7 @@ export default function FimbaHoteleriaPage() {
       <FimbaComidasReportModal
         open={comidasReportOpen}
         onClose={() => setComidasReportOpen(false)}
-        hoteleriaRows={rows}
+        hoteleriaRows={rowsComidas}
         edicionNombre={edicionLabel}
       />
     </div>
@@ -782,6 +829,10 @@ function HotelEditModal({ row, hoteles, onClose, onSaved }) {
   );
   const [checkinEarly, setCheckinEarly] = useState(asBool(prop.checkin_early));
   const [checkoutLate, setCheckoutLate] = useState(asBool(prop.checkout_late));
+  const [requiereHotel, setRequiereHotel] = useState(prop.requiere_hotel !== false);
+  const [requiereComidas, setRequiereComidas] = useState(
+    prop.requiere_comidas !== false,
+  );
   const [idHotel, setIdHotel] = useState(prop.id_hotel != null ? String(prop.id_hotel) : "");
   const [observacionesLogisticas, setObservacionesLogisticas] = useState(
     prop.observaciones_logisticas || "",
@@ -808,6 +859,8 @@ function HotelEditModal({ row, hoteles, onClose, onSaved }) {
       checkout_at: checkout || null,
       checkin_early: checkinEarly,
       checkout_late: checkoutLate,
+      requiere_hotel: requiereHotel,
+      requiere_comidas: requiereComidas,
       id_hotel: idHotel || null,
       observaciones_logisticas: observacionesLogisticas,
     });
@@ -843,6 +896,24 @@ function HotelEditModal({ row, hoteles, onClose, onSaved }) {
           PAX hotel: {prop.cantidad_planificada} (cantidad planificada; no incluye extra equip.)
         </p>
         <form onSubmit={submit}>
+          <div className="fimba-grid-2" style={{ marginBottom: "0.75rem" }}>
+            <label className="fimba-flag-check">
+              <input
+                type="checkbox"
+                checked={requiereHotel}
+                onChange={(e) => setRequiereHotel(e.target.checked)}
+              />
+              Requiere hotelería
+            </label>
+            <label className="fimba-flag-check">
+              <input
+                type="checkbox"
+                checked={requiereComidas}
+                onChange={(e) => setRequiereComidas(e.target.checked)}
+              />
+              Requiere comidas
+            </label>
+          </div>
           <div className="fimba-grid-2">
             <div className="fimba-field">
               <label className="fimba-label">Check-in</label>

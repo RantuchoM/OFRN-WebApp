@@ -185,6 +185,7 @@ function roomLabelForParticipante(habitaciones, participanteId) {
 export function buildFimbaHoteleriaPersonasRows(hoteleriaRows) {
   const out = [];
   for (const r of hoteleriaRows || []) {
+    if (r.requiere_hotel === false || r.propuesta?.requiere_hotel === false) continue;
     const artista = r.propuesta?.nombre || "";
     const hotel = r.hotel?.nombre || "";
     const checkin = formatFecha(r.checkin_at);
@@ -244,7 +245,9 @@ export function buildFimbaHoteleriaPersonasRows(hoteleriaRows) {
  * Resumen por artista (cupos hotel / rooming).
  */
 export function buildFimbaHoteleriaResumenRows(hoteleriaRows) {
-  return (hoteleriaRows || []).map((r) => ({
+  return (hoteleriaRows || [])
+    .filter((r) => r.requiere_hotel !== false && r.propuesta?.requiere_hotel !== false)
+    .map((r) => ({
     artista: r.propuesta?.nombre || "",
     hotel: r.hotel?.nombre || "",
     checkin: formatFecha(r.checkin_at),
@@ -271,6 +274,7 @@ export function buildFimbaHoteleriaResumenRows(hoteleriaRows) {
 export function buildFimbaRoomingRows(hoteleriaRows) {
   const out = [];
   for (const r of hoteleriaRows || []) {
+    if (r.requiere_hotel === false || r.propuesta?.requiere_hotel === false) continue;
     const artista = r.propuesta?.nombre || "";
     const hotel = r.hotel?.nombre || "";
     const checkin = formatFecha(r.checkin_at);
@@ -333,6 +337,9 @@ export function buildFimbaComidasExportData(hoteleriaRows) {
   let totalNominados = 0;
 
   for (const r of hoteleriaRows || []) {
+    if (r.requiere_comidas === false || r.propuesta?.requiere_comidas === false) {
+      continue;
+    }
     const artista = r.propuesta?.nombre || "";
     const checkin = r.checkin_at ? String(r.checkin_at).slice(0, 10) : null;
     const checkout = r.checkout_at ? String(r.checkout_at).slice(0, 10) : null;

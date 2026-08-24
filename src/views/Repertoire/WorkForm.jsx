@@ -42,6 +42,8 @@ import { toast } from "sonner";
 import DateInput from "../../components/ui/DateInput";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import ArreglosReferenciasModal from "../../components/arreglos/ArreglosReferenciasModal";
+import ArregloQuickEncargoModal from "../../components/arreglos/ArregloQuickEncargoModal";
+import ArregloAjusteSolicitarModal from "../../components/arreglos/ArregloAjusteSolicitarModal";
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import { normalizeForSearch } from "../../utils/sanitize";
 import { getFixedMenuPosition } from "../../utils/fixedMenuPosition";
@@ -51,6 +53,12 @@ import {
 } from "../../utils/obraEstadoStyles";
 import { seedArregloReferenciaObraOrigen } from "../../utils/arreglosReferencias";
 import { syncObraArregladorFromIntegrante } from "../../utils/syncObraArreglador";
+import {
+  createEncargoArregloObra,
+  createObraAjusteSolicitud,
+  formatSolicitanteNombre,
+  sendEncargoArregloMail,
+} from "../../utils/encargoArregloService";
 import {
   formatEncargoMailSentAt,
   markEncargoArregloMailSent,
@@ -545,6 +553,21 @@ export default function WorkForm({
   const [refsModalOpen, setRefsModalOpen] = useState(false);
   const [refsCount, setRefsCount] = useState(0);
   const [encargoMailResendOpen, setEncargoMailResendOpen] = useState(false);
+  const [encargoMenuOpen, setEncargoMenuOpen] = useState(false);
+  const encargoMenuRef = useRef(null);
+  const [encargoQuickModalOpen, setEncargoQuickModalOpen] = useState(false);
+  const [encargoQuickSaving, setEncargoQuickSaving] = useState(false);
+  const [encargoQuickDraft, setEncargoQuickDraft] = useState({
+    compositorId: null,
+    titulo: "",
+    fecha_esperada: "",
+    instrumentacion: "",
+    dificultad: "",
+    observaciones: "",
+    id_integrante_arreglador: DEFAULT_ARREGLADOR_INTEGRANTE_ID,
+  });
+  const [solicitarAjusteOpen, setSolicitarAjusteOpen] = useState(false);
+  const [solicitarAjusteSaving, setSolicitarAjusteSaving] = useState(false);
   /** null | { mode: 'single', tempId } | { mode: 'bulk' } */
   const [particellaDeleteConfirm, setParticellaDeleteConfirm] = useState(null);
   const handleQuickCompCreated = (newComp) => {
@@ -563,6 +586,9 @@ export default function WorkForm({
       const next = [...selectedComposers, newComp.id];
       setSelectedComposers(next);
       if (formData.id) updateComposerRelations("compositor", next);
+      if (encargoQuickModalOpen) {
+        setEncargoQuickDraft((prev) => ({ ...prev, compositorId: newComp.id }));
+      }
     } else {
       const next = [...selectedArrangers, newComp.id];
       setSelectedArrangers(next);
@@ -597,6 +623,16 @@ export default function WorkForm({
       setFormData((prev) => ({ ...prev, ...initialData }));
     }
   }, [initialData?.id]);
+
+  useEffect(() => {
+    if (!encargoMenuOpen) return undefined;
+    const handleClickOutside = (event) => {
+      if (encargoMenuRef.current?.contains(event.target)) return;
+      setEncargoMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [encargoMenuOpen]);
 
   const updateInstrumentMenuPosition = () => {
     if (!instrumentInputRef.current) return;
@@ -1188,56 +1224,6 @@ export default function WorkForm({
     return formatIntegranteLabel(data);
   };
 
-  const enviarEncargoArreglo = async (
-    obraId,
-    tituloStr,
-    idIntegranteArregladorVal,
-    linkDrive,
-    observacionesStr,
-    fechaEsperada,
-    dificultad,
-    instrumentacion,
-    solicitadoPor,
-  ) => {
-    const integranteOpt = integrantesArregladorOptions.find((i) => Number(i.id) === Number(idIntegranteArregladorVal));
-    const arregladorLabel = integranteOpt ? integranteOpt.label : "";
-    const emailTo = integranteOpt?.mail || null;
-    if (!emailTo) {
-      console.warn("encargo_arreglo: sin email para integrante", idIntegranteArregladorVal);
-      toast.error("No se encontró email del arreglador para enviar el encargo.");
-      return false;
-    }
-    const detalle = {
-      titulo: tituloStr,
-      arreglador: arregladorLabel,
-      id_obra: obraId,
-      link_drive: linkDrive || null,
-      observaciones: observacionesStr || null,
-      fecha_esperada: fechaEsperada || null,
-      dificultad: dificultad || null,
-      instrumentacion: instrumentacion || null,
-      solicitado_por: solicitadoPor || null,
-    };
-    const { error } = await supabase.functions.invoke("mails_produccion", {
-      body: {
-        action: "enviar_mail",
-        templateId: "encargo_arreglo",
-        email: emailTo,
-        bcc: ["ofrn.archivo@gmail.com"],
-        nombre: user ? `${user.apellido || ""}, ${user.nombre || ""}`.trim() : "Sistema",
-        gira: null,
-        detalle,
-      },
-    });
-    if (error) {
-      console.error("mails_produccion (encargo_arreglo):", error);
-      toast.error("No se pudo enviar el mail de encargo.");
-      return false;
-    }
-    toast.success("Mail de encargo enviado al Arreglador y al Archivista.");
-    return true;
-  };
-
   const handleEnviarMailEncargo = async (forceResend = false) => {
     if (!formData.id) {
       toast.error("Guardá la obra antes de enviar el mail de asignación.");
@@ -1266,17 +1252,20 @@ export default function WorkForm({
         .from("obras")
         .update({ fecha_esperada: formData.fecha_esperada })
         .eq("id", formData.id);
-      const sent = await enviarEncargoArreglo(
-        formData.id,
-        stripHtml(formData.titulo),
-        idIntegrante,
-        formData.link_drive,
-        (formData.observaciones || "").trim(),
-        formData.fecha_esperada,
-        formData.dificultad || null,
-        formData.instrumentacion || null,
-        solicitanteLabel,
-      );
+      const sent = await sendEncargoArregloMail({
+        supabase,
+        user,
+        integrantesArregladorOptions,
+        obraId: formData.id,
+        titulo: stripHtml(formData.titulo),
+        idIntegranteArreglador: idIntegrante,
+        linkDrive: formData.link_drive,
+        observaciones: (formData.observaciones || "").trim(),
+        fechaEsperada: formData.fecha_esperada,
+        dificultad: formData.dificultad || null,
+        instrumentacion: formData.instrumentacion || null,
+        solicitadoPor: solicitanteLabel,
+      });
       if (!sent) return;
       const sentAt = await markEncargoArregloMailSent(supabase, formData.id);
       setFormData((prev) => ({ ...prev, encargo_arreglo_mail_enviado_at: sentAt }));
@@ -1286,6 +1275,118 @@ export default function WorkForm({
       toast.error(e?.message || "No se pudo registrar el envío del mail.");
     } finally {
       setSendingEncargoMail(false);
+    }
+  };
+
+  const canManageEncargo = (isEditor || isAdmin) && !!formData.id;
+  const canSolicitarAjusteDesdeObra =
+    canManageEncargo &&
+    (formData.estado === "Entregado" || formData.estado === "Oficial");
+
+  const buildEncargoQuickDraftFromForm = () => ({
+    compositorId: selectedComposers[0] ?? null,
+    titulo: stripHtml(formData.titulo),
+    fecha_esperada: formData.fecha_esperada || "",
+    instrumentacion: formData.instrumentacion || "",
+    dificultad: formData.dificultad || "",
+    observaciones: stripHtml(formData.observaciones || "") || "",
+    id_integrante_arreglador:
+      formData.id_integrante_arreglador ?? DEFAULT_ARREGLADOR_INTEGRANTE_ID,
+  });
+
+  const setEncargoQuickDraftField = (field, value) => {
+    setEncargoQuickDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const openEncargoArregloModal = () => {
+    setEncargoMenuOpen(false);
+    setEncargoQuickDraft(buildEncargoQuickDraftFromForm());
+    setEncargoQuickModalOpen(true);
+  };
+
+  const openSolicitarAjusteModal = () => {
+    setEncargoMenuOpen(false);
+    setSolicitarAjusteOpen(true);
+  };
+
+  const handleEncargoQuickSave = async () => {
+    const compositorId = encargoQuickDraft.compositorId;
+    const titulo = (encargoQuickDraft.titulo || "").trim();
+    const arregladorId =
+      encargoQuickDraft.id_integrante_arreglador || DEFAULT_ARREGLADOR_INTEGRANTE_ID;
+
+    if (!compositorId) {
+      toast.error("Seleccioná un compositor para el encargo.");
+      return;
+    }
+    if (!titulo) {
+      toast.error("Ingresá el título de la obra para el encargo.");
+      return;
+    }
+    if (!arregladorId) {
+      toast.error("Seleccioná un arreglador para el encargo.");
+      return;
+    }
+
+    setEncargoQuickSaving(true);
+    try {
+      await createEncargoArregloObra({
+        supabase,
+        user,
+        integrantesArregladorOptions,
+        compositorId,
+        arregladorId,
+        titulo,
+        instrumentacion: encargoQuickDraft.instrumentacion,
+        dificultad: encargoQuickDraft.dificultad,
+        observaciones: encargoQuickDraft.observaciones,
+        fechaEsperada: encargoQuickDraft.fecha_esperada,
+        sourceObraId: formData.id,
+        sourceObraTitulo: formData.titulo,
+        solicitadoPor: formatIntegranteLabel(user) || formatSolicitanteNombre(user),
+      });
+
+      toast.success("Encargo creado. Aparecerá en Arreglos.");
+      setEncargoQuickModalOpen(false);
+    } catch (err) {
+      console.error("handleEncargoQuickSave:", err);
+      toast.error(err?.message || "Error al crear el encargo.");
+    } finally {
+      setEncargoQuickSaving(false);
+    }
+  };
+
+  const handleSolicitarAjuste = async (payload) => {
+    const idObra = payload?.id_obra;
+    const arregladorId = payload?.id_integrante_arreglador;
+    if (!idObra || !arregladorId) {
+      toast.error("Elegí obra y arreglador.");
+      return;
+    }
+    setSolicitarAjusteSaving(true);
+    try {
+      await createObraAjusteSolicitud({
+        supabase,
+        user,
+        integrantesArregladorOptions,
+        idObra,
+        idIntegranteArreglador: arregladorId,
+        tipo: payload.tipo,
+        brief: payload.brief,
+        partesAfectadas: payload.partes_afectadas,
+        fechaEsperada: payload.fecha_esperada,
+        obraTitulo: stripHtml(formData.titulo) || `Obra #${idObra}`,
+        linkDrive: formData.link_drive || null,
+        solicitadoPor: formatIntegranteLabel(user),
+      });
+
+      setSolicitarAjusteOpen(false);
+      toast.success("Ajuste pendiente creado. Aparecerá en Arreglos.");
+    } catch (e) {
+      console.error("handleSolicitarAjuste:", e);
+      toast.error(e?.message || "No se pudo crear el ajuste.");
+    } finally {
+      setSolicitarAjusteSaving(false);
     }
   };
 
@@ -2229,6 +2330,48 @@ export default function WorkForm({
                 <option value="Solicitud">Solicitud</option>
                 <option value="Informativo">Informativo</option>
               </select>
+            )}
+            {canManageEncargo && (
+              <div className="relative" ref={encargoMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setEncargoMenuOpen((v) => !v)}
+                  className="inline-flex items-center gap-1 bg-white/90 text-indigo-800 border border-white/50 rounded-lg px-2.5 py-1.5 text-[11px] sm:text-xs font-bold hover:bg-white shadow-sm transition-colors"
+                  aria-expanded={encargoMenuOpen}
+                  aria-haspopup="menu"
+                  title="Pedir arreglo o ajuste (impacta en Arreglos)"
+                >
+                  <IconPlus size={14} className="shrink-0" />
+                  Encargo
+                </button>
+                {encargoMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute left-0 top-full z-[110] mt-1 min-w-[11rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-xs font-bold text-slate-700 shadow-xl"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={openEncargoArregloModal}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-indigo-700 hover:bg-indigo-50"
+                    >
+                      <IconPlus size={13} />
+                      Encargar arreglo
+                    </button>
+                    {canSolicitarAjusteDesdeObra && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={openSolicitarAjusteModal}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-amber-800 hover:bg-amber-50"
+                      >
+                        <IconEdit size={13} />
+                        Solicitar ajuste
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -3385,6 +3528,50 @@ export default function WorkForm({
         onChanged={refreshRefsCount}
         overlayClassName="z-[10050]"
         pickerOverlayClassName="z-[10100]"
+      />
+
+      <ArregloQuickEncargoModal
+        isOpen={encargoQuickModalOpen}
+        onClose={() => {
+          if (encargoQuickSaving) return;
+          setEncargoQuickModalOpen(false);
+        }}
+        quickDraft={encargoQuickDraft}
+        onFieldChange={setEncargoQuickDraftField}
+        compositoresOptions={composersOptions}
+        integrantesArregladorOptions={integrantesArregladorOptions}
+        solicitanteLabel={formatIntegranteLabel(user)}
+        onSave={handleEncargoQuickSave}
+        onOpenNewComposer={() => {
+          setQuickCompType("compositor");
+          setIsQuickCompOpen(true);
+        }}
+        saving={encargoQuickSaving}
+        mode="encargo"
+      />
+
+      <ArregloAjusteSolicitarModal
+        isOpen={solicitarAjusteOpen}
+        onClose={() => {
+          if (solicitarAjusteSaving) return;
+          setSolicitarAjusteOpen(false);
+        }}
+        obrasOptions={[
+          {
+            id: formData.id,
+            label: stripHtml(formData.titulo) || `Obra #${formData.id}`,
+            titulo: formData.titulo,
+            link_drive: formData.link_drive,
+          },
+        ]}
+        integrantesArregladorOptions={integrantesArregladorOptions}
+        defaultArregladorId={
+          formData.id_integrante_arreglador ?? DEFAULT_ARREGLADOR_INTEGRANTE_ID
+        }
+        defaultObraId={formData.id}
+        solicitanteLabel={formatIntegranteLabel(user)}
+        saving={solicitarAjusteSaving}
+        onSubmit={handleSolicitarAjuste}
       />
 
       <ConfirmDialog

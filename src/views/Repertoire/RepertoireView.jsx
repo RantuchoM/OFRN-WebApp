@@ -671,6 +671,11 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [mobileQuickSearch, setMobileQuickSearch] = useState("");
   const [workActionMenuId, setWorkActionMenuId] = useState(null);
+  const [isMdUp, setIsMdUp] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(min-width: 768px)").matches,
+  );
   const [deleteWorkConfirm, setDeleteWorkConfirm] = useState(null);
   const [deletingWork, setDeletingWork] = useState(false);
   const [showSolicitudes, setShowSolicitudes] = useState(false);
@@ -680,6 +685,14 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const mobileInstrFilterAnchorRef = useRef(null);
   const desktopInstrFilterAnchorRef = useRef(null);
   const [mobileFiltersStyle, setMobileFiltersStyle] = useState(null);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const sync = () => setIsMdUp(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
   useEffect(() => {
     const handleClickOutside = (e) => { if (solicitudesRef.current && !solicitudesRef.current.contains(e.target)) setShowSolicitudes(false); };
     document.addEventListener("mousedown", handleClickOutside);
@@ -1955,7 +1968,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                         <WorkRowActionMenu
                           work={work}
                           canEdit={canEdit}
-                          isOpen={workActionMenuId === work.id}
+                          isOpen={isMdUp && workActionMenuId === work.id}
                           onToggle={() =>
                             setWorkActionMenuId((prev) =>
                               prev === work.id ? null : work.id,
@@ -2515,7 +2528,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                           <WorkRowActionMenu
                             work={work}
                             canEdit={canEdit}
-                            isOpen={workActionMenuId === work.id}
+                            isOpen={!isMdUp && workActionMenuId === work.id}
                             onToggle={() =>
                               setWorkActionMenuId((prev) =>
                                 prev === work.id ? null : work.id,
