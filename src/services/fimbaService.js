@@ -26,6 +26,10 @@ import {
   FIMBA_RIDER_BUCKET,
   normalizeFimbaRiderHtml,
 } from "../utils/fimbaRider";
+import {
+  aggregateMealsPlans,
+  computeArtistaMealsPlan,
+} from "../utils/fimbaMealsStay";
 
 /**
  * Tipos de alimentación de `fimba_participantes.tipo_alimentacion`
@@ -3788,22 +3792,23 @@ export async function listHotelesCatalog(limit = 400) {
  */
 export async function listFimbaHoteleria(edicionId, opts = {}) {
   if (edicionId == null || edicionId === "") {
-    return { rows: [], blocks: [], totals: null, edicion: null, error: null };
+    return { rows: [], blocks: [], totals: null, meals: null, edicion: null, error: null };
   }
   const { edicion, error: eEd } = await getFimbaEdicionById(edicionId);
-  if (eEd) return { rows: [], blocks: [], totals: null, edicion: null, error: eEd };
+  if (eEd) return { rows: [], blocks: [], totals: null, meals: null, edicion: null, error: eEd };
   if (!edicion) {
     return {
       rows: [],
       blocks: [],
       totals: null,
+      meals: null,
       edicion: null,
       error: new Error("Edición no encontrada"),
     };
   }
 
   const { propuestas, error: eProp } = await listFimbaPropuestas(edicionId);
-  if (eProp) return { rows: [], blocks: [], totals: null, edicion, error: eProp };
+  if (eProp) return { rows: [], blocks: [], totals: null, meals: null, edicion, error: eProp };
 
   let props = propuestas || [];
   if (opts.id_propuesta != null && opts.id_propuesta !== "") {
@@ -3813,9 +3818,9 @@ export async function listFimbaHoteleria(edicionId, opts = {}) {
   const rows = [];
   for (const prop of props) {
     const { participantes, error: ePart } = await listFimbaParticipantes(prop.id);
-    if (ePart) return { rows: [], blocks: [], totals: null, edicion, error: ePart };
+    if (ePart) return { rows: [], blocks: [], totals: null, meals: null, edicion, error: ePart };
     const { habitaciones, error: eHab } = await listFimbaHabitaciones(prop.id);
-    if (eHab) return { rows: [], blocks: [], totals: null, edicion, error: eHab };
+    if (eHab) return { rows: [], blocks: [], totals: null, meals: null, edicion, error: eHab };
     const occ = computeHotelOccupancy(prop, participantes);
     const activos = (participantes || []).filter((p) => p.activo !== false);
     const sin_nombre = occ.por_confirmar;
@@ -3823,6 +3828,16 @@ export async function listFimbaHoteleria(edicionId, opts = {}) {
       occ.noches != null ? occ.pax_planificada * occ.noches : 0;
     const alimentacion = summarizeAlimentacion(participantes);
     const rooming = summarizeFimbaHabitaciones(habitaciones);
+    const mealsStay = computeArtistaMealsPlan({
+      id_propuesta: prop.id,
+      artistaNombre: prop.nombre || "",
+      checkin_at: prop.checkin_at,
+      checkout_at: prop.checkout_at,
+      checkin_early: prop.checkin_early === true,
+      checkout_late: prop.checkout_late === true,
+      pax: occ.pax_planificada,
+      participantes: activos,
+    });
     rows.push({
       propuesta: prop,
       hotel: prop.hoteles || null,
@@ -3837,6 +3852,8 @@ export async function listFimbaHoteleria(edicionId, opts = {}) {
       total_pax_hotel: occ.pax_planificada,
       camas_noche,
       alimentacion,
+      meals_stay: mealsStay,
+      comidas_totales: mealsStay.totals,
       personas: activos,
       participantes: activos,
       habitaciones: habitaciones || [],
@@ -3844,6 +3861,8 @@ export async function listFimbaHoteleria(edicionId, opts = {}) {
       rooming_label: formatFimbaHabitacionesCounts(rooming.byTipo),
     });
   }
+
+  const mealsGeneral = aggregateMealsPlans(rows.map((r) => r.meals_stay));
 
   const totals = rows.reduce(
     (acc, b) => {
@@ -3856,7 +3875,14 @@ export async function listFimbaHoteleria(edicionId, opts = {}) {
     { pax: 0, nominados: 0, sin_nombre: 0, camas_noche: 0 },
   );
 
-  return { rows, blocks: rows, totals, edicion, error: null };
+  return {
+    rows,
+    blocks: rows,
+    totals,
+    meals: mealsGeneral,
+    edicion,
+    error: null,
+  };
 }
 
 /** Alias de listFimbaHoteleria (shape con blocks/totals/edicion). */

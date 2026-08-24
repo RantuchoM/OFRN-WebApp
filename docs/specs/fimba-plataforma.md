@@ -115,6 +115,11 @@ para_transporte = tope_personas + plazas_extra_materiales
 
 Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participantes activos; **por confirmar** = max(0, PAX − nominados). Noches = check-out − check-in. Flags **Early** (`checkin_early`) y **Late** (`checkout_late`) por artista: booleanes `default false` junto a las fechas (OFRN hospedaje usa fecha+hora en `programas_hospedajes`; FIMBA prioriza flags operativos sin horas).
 
+**Cubiertos / comidas por estadía** (`src/utils/fimbaMealsStay.js`): a partir de check-in/out + Early/Late + PAX planificada.
+- Llegada: cena; almuerzo solo si Early.
+- Días intermedios: desayuno + almuerzo + cena.
+- Salida: desayuno; almuerzo solo si Late.
+- UI: Hotelería (matriz general + por artista) y modal Reportes comidas; Excel comidas con hojas «Por día» / «Por artista y día»; desglose opcional por régimen (nominados + por confirmar). Sin merienda.
 **Rooming (habitaciones por artista)** — inventario de slots ≠ headcount hotel:
 - **No** se confunde con `cantidad_planificada` / PAX hotel: la planificada sigue contando pax para cupos/noches; el rooming es acomodo físico de personas nominadas.
 - Tipos: **SGL=1**, **DBL=2**, **TPL=3**, **QAD=4**. Multi: flag **Matrimonial** (default **Twin** = `matrimonial=false`). SGL fuerza `matrimonial=false`.
@@ -146,7 +151,7 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
 | **Detalle de pasajeros** | Print | Hub → Detalle | Print/PDF | Orden por ingreso; sin habitaciones |
 | **Reporte de habitaciones** (RoomingReport) | Print/PDF | Hub → Reporte habitaciones; tarjeta Hotelería / `FimbaRoomingPanel` / Artista → Rooming PDF | Print/PDF + Excel rooming | Inventario `fimba_propuestas_habitaciones` + ocupantes |
 | **Excel hotelería** (resumen/personas) | — (FIMBA) | Hotelería cabecera (edición) o tarjeta artista → Excel hotelería | Excel 3 hojas | Scope = filas pasadas al builder |
-| **MealsReport** por evento | Print/PDF + texto | Hotelería / Artista → **Reportes comidas** | Print/PDF + texto + Excel | **Parcial:** sin eventos de comida ni asistencia; resume regímenes de nominados |
+| **MealsReport** por evento | Print/PDF + texto | Hotelería / Artista → **Reportes comidas** | Print/PDF + texto + Excel | Cubiertos por día (check-in/out) + regímenes nominados; **sin** asistencia por evento OFRN |
 | **Texto pedido** (comidas) | Clipboard | Reportes comidas | Clipboard | Resumen regímenes + detalle |
 | **Excel comidas** | — | Hotelería / Artista / modal comidas | Excel 2 hojas | Ya existía |
 | **Exportar CNRT** | PDF/Excel | Transportes → menú ⬇ por vehículo → Exportar CNRT | PDF/Excel (`downloadStyledPassengers`) | OFRN = DNI personal; FIMBA = nominados del artista hasta plazas, resto sintético «Plaza N». Aviso post-export |
@@ -434,7 +439,8 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] UI de asignación multi-vehículo por evento (trayectos): tabla flota (cap + libres + plazas n/m/p) + banner de unidades disponibles + **Repartir** greedy + resumen `n + m + p` vs tope artista/# PAX + hard-block asientos/libres/tope en modal y `saveFimbaEvento`
 - [x] Agenda grilla FIMBA (planilla multi-tipo)
 - [x] Reportes hotel (lista + cupos; sin rooming graph)
-- [x] Paridad reportes OFRN→FIMBA: pedido/texto/detalle/rooming (print+Excel); comidas (texto/PDF/Excel, sin por-evento); CNRT + paradas + hoja de ruta (PDF/Excel) por vehículo
+- [x] Paridad reportes OFRN→FIMBA: pedido/texto/detalle/rooming (print+Excel); comidas (texto/PDF/Excel + **cubiertos por día** check-in/out general/artista; sin asistencia por-evento); CNRT + paradas + hoja de ruta (PDF/Excel) por vehículo
+- [x] Hotelería: matriz noches/comidas (`fimbaMealsStay`) — desayuno/almuerzo/cena por día; Early/Late; PAX planificada; desglose régimen opcional
 - [x] Alta/edición de vehículo embebida en FIMBA (`giras_transportes` / catálogo `transportes` en alta; update alineado a OFRN)
 - [x] Helper real de disponibilidad vs cupos OFRN (en tránsito rolling en planilla Transportes; roster + plaza_extra; FIMBA plazas)
 - [x] UI `audiencia_ofrn` multi-grupos en modal FIMBA (+ planilla orquesta); EventForm OFRN / tags artistas en eventos OFRN genéricos aún parcial

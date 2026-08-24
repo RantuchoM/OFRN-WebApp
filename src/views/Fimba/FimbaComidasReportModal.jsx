@@ -14,6 +14,7 @@ import {
   printFimbaComidas,
 } from "../../utils/fimbaReports";
 import { exportFimbaComidasExcel } from "../../utils/fimbaExport";
+import FimbaMealsStayPanel from "./FimbaMealsStayPanel";
 
 /**
  * Reporte de comidas FIMBA: resumen regímenes + detalle.
@@ -118,10 +119,14 @@ export default function FimbaComidasReportModal({
 
         <div className="flex-1 overflow-auto p-5">
           <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-4">
-            Paridad parcial con MealsReport OFRN: FIMBA no agenda comidas por
-            evento ni asistencia; el pedido es el inventario de regímenes de
-            participantes nominados.
+            Cubiertos por día = PAX planificada × servicios según check-in/out
+            (Early = almuerzo llegada; Late = almuerzo salida). Abajo: inventario
+            de regímenes de nominados (sin asistencia por evento).
           </p>
+
+          <div className="mb-6">
+            <FimbaMealsStayPanel hoteleriaRows={hoteleriaRows} mode="general" />
+          </div>
 
           <h4 className="text-sm font-bold text-slate-800 mb-2">
             Resumen por régimen

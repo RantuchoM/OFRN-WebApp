@@ -36,6 +36,10 @@ import {
   isFimbaRiderEmpty,
   sanitizeFimbaRiderHtml,
 } from "./fimbaRider";
+import {
+  buildFimbaMealsStayFromHoteleria,
+  formatFechaMealDdMm,
+} from "./fimbaMealsStay";
 
 function formatFechaCorta(f) {
   if (!f) return "";
@@ -340,18 +344,37 @@ export function buildFimbaRoomingPrintModel(hoteleriaRows = []) {
   });
 }
 
-/** Texto pedido comidas (regímenes + detalle). */
+/** Texto pedido comidas (regímenes + detalle + cubiertos por día). */
 export function buildFimbaComidasPedidoText(
   hoteleriaRows = [],
   { edicionNombre = "" } = {},
 ) {
   const { resumen, detalle } = buildFimbaComidasExportData(hoteleriaRows);
+  const stay = buildFimbaMealsStayFromHoteleria(hoteleriaRows);
   const lines = [];
   if (edicionNombre) {
     lines.push(`Pedido de alimentación — ${edicionNombre}`);
     lines.push("");
   }
-  lines.push("Resumen por régimen:");
+  lines.push("Cubiertos por día (PAX planificada × check-in/out):");
+  lines.push(
+    `Pax-noche: ${stay.totals?.pax_noches || 0} · Desayunos: ${stay.totals?.desayuno || 0} · Almuerzos: ${stay.totals?.almuerzo || 0} · Cenas: ${stay.totals?.cena || 0}`,
+  );
+  for (const d of stay.days || []) {
+    lines.push(
+      `· ${formatFechaMealDdMm(d.fecha)}: ${d.desayuno || 0} des / ${d.almuerzo || 0} alm / ${d.cena || 0} cen`,
+    );
+  }
+  lines.push("");
+  lines.push("Por artista (totales):");
+  for (const a of stay.artists || []) {
+    if (!a.pax) continue;
+    lines.push(
+      `· ${a.artista}: ${a.noches ?? "—"} noches · ${a.totals?.desayuno || 0} des / ${a.totals?.almuerzo || 0} alm / ${a.totals?.cena || 0} cen (PAX ${a.pax})`,
+    );
+  }
+  lines.push("");
+  lines.push("Resumen por régimen (nominados):");
   for (const row of resumen) {
     if (!row.regimen) continue;
     lines.push(`· ${row.regimen}: ${row.cantidad}`);

@@ -16,6 +16,9 @@ import {
   formatNextStopDestino,
   nextEventInVehicleSequence,
 } from "./fimbaTransportBoarding";
+import {
+  buildFimbaMealsStayFromHoteleria,
+} from "./fimbaMealsStay";
 
 async function loadExcelJS() {
   const { default: ExcelJS } = await import("exceljs");
@@ -441,6 +444,67 @@ const COMIDAS_DETALLE_COLS = [
   { header: "Nota (Otro)", key: "nota", width: 32 },
 ];
 
+const COMIDAS_DIA_COLS = [
+  { header: "Fecha", key: "fecha", width: 12 },
+  { header: "Desayunos", key: "desayuno", width: 12 },
+  { header: "Almuerzos", key: "almuerzo", width: 12 },
+  { header: "Cenas", key: "cena", width: 12 },
+  { header: "Total día", key: "total", width: 12 },
+];
+
+const COMIDAS_ARTISTA_DIA_COLS = [
+  { header: "Artista", key: "artista", width: 28 },
+  { header: "Check-in", key: "checkin", width: 12 },
+  { header: "Check-out", key: "checkout", width: 12 },
+  { header: "Early", key: "early", width: 8 },
+  { header: "Late", key: "late", width: 8 },
+  { header: "Noches", key: "noches", width: 10 },
+  { header: "PAX", key: "pax", width: 8 },
+  { header: "Fecha", key: "fecha", width: 12 },
+  { header: "Desayunos", key: "desayuno", width: 12 },
+  { header: "Almuerzos", key: "almuerzo", width: 12 },
+  { header: "Cenas", key: "cena", width: 12 },
+];
+
+function buildFimbaComidasPorDiaRows(hoteleriaRows) {
+  const plan = buildFimbaMealsStayFromHoteleria(hoteleriaRows);
+  const diaRows = (plan.days || []).map((d) => ({
+    fecha: formatFecha(d.fecha),
+    desayuno: d.desayuno || 0,
+    almuerzo: d.almuerzo || 0,
+    cena: d.cena || 0,
+    total: (d.desayuno || 0) + (d.almuerzo || 0) + (d.cena || 0),
+  }));
+  if (plan.totals) {
+    diaRows.push({
+      fecha: "TOTAL",
+      desayuno: plan.totals.desayuno || 0,
+      almuerzo: plan.totals.almuerzo || 0,
+      cena: plan.totals.cena || 0,
+      total: plan.totals.comidas || 0,
+    });
+  }
+  const artistaDia = [];
+  for (const a of plan.artists || []) {
+    for (const d of a.days || []) {
+      artistaDia.push({
+        artista: a.artista,
+        checkin: formatFecha(a.checkin_at),
+        checkout: formatFecha(a.checkout_at),
+        early: a.checkin_early ? "Sí" : "",
+        late: a.checkout_late ? "Sí" : "",
+        noches: a.noches ?? "",
+        pax: a.pax || 0,
+        fecha: formatFecha(d.fecha),
+        desayuno: d.desayuno || 0,
+        almuerzo: d.almuerzo || 0,
+        cena: d.cena || 0,
+      });
+    }
+  }
+  return { diaRows, artistaDia, plan };
+}
+
 /**
  * Excel hotelería: resumen + personas + rooming (multi-hoja).
  * @param {{ edicionNombre?: string, rows: Array, fileName?: string }} opts
@@ -485,22 +549,47 @@ export async function exportFimbaRoomingExcel(opts = {}) {
 }
 
 /**
- * Excel comidas / alimentación (resumen por régimen + detalle).
+ * Excel comidas / alimentación (regímenes + cubiertos por día + por artista/día).
  */
 export async function exportFimbaComidasExcel(opts = {}) {
   const { edicionNombre = "Edicion", rows = [], fileName } = opts;
   const { resumen, detalle } = buildFimbaComidasExportData(rows);
-  if (!detalle.length) {
-    alert("No hay participantes nominados con alimentación para exportar.");
+  const { diaRows, artistaDia } = buildFimbaComidasPorDiaRows(rows);
+  if (!detalle.length && !diaRows.length) {
+    alert("No hay datos de comidas para exportar.");
     return false;
   }
   const name =
     fileName ||
     `FIMBA_Comidas_${safeFilePart(edicionNombre)}_${stamp()}`;
-  await writeFimbaWorkbook(name, [
-    { name: "Resumen regímenes", columns: COMIDAS_RESUMEN_COLS, rows: resumen },
-    { name: "Detalle", columns: COMIDAS_DETALLE_COLS, rows: detalle },
-  ]);
+  const sheets = [];
+  if (diaRows.length) {
+    sheets.push({
+      name: "Por día (general)",
+      columns: COMIDAS_DIA_COLS,
+      rows: diaRows,
+    });
+  }
+  if (artistaDia.length) {
+    sheets.push({
+      name: "Por artista y día",
+      columns: COMIDAS_ARTISTA_DIA_COLS,
+      rows: artistaDia,
+    });
+  }
+  if (detalle.length) {
+    sheets.push({
+      name: "Resumen regímenes",
+      columns: COMIDAS_RESUMEN_COLS,
+      rows: resumen,
+    });
+    sheets.push({
+      name: "Detalle personas",
+      columns: COMIDAS_DETALLE_COLS,
+      rows: detalle,
+    });
+  }
+  await writeFimbaWorkbook(name, sheets);
   return true;
 }
 

@@ -37,6 +37,7 @@ import FimbaHoteleriaReports, {
   FimbaHoteleriaReportsButton,
 } from "./FimbaHoteleriaReports";
 import FimbaComidasReportModal from "./FimbaComidasReportModal";
+import FimbaMealsStayPanel from "./FimbaMealsStayPanel";
 
 function formatFecha(f) {
   if (!f) return "—";
@@ -381,6 +382,13 @@ export default function FimbaHoteleriaPage() {
         </div>
       </section>
 
+      {rows.length > 0 && (
+        <FimbaMealsStayPanel
+          hoteleriaRows={rows}
+          mode={filtroArtista ? "artista" : "general"}
+        />
+      )}
+
       {rows.length === 0 ? (
         <div className="fimba-card fimba-muted">
           No hay artistas para reportar hotelería
@@ -439,6 +447,14 @@ export default function FimbaHoteleriaPage() {
                       </span>
                       {" · "}
                       {r.noches != null ? `${r.noches} noche${r.noches === 1 ? "" : "s"}` : "noches —"}
+                      {r.comidas_totales && (
+                        <>
+                          {" · "}
+                          {r.comidas_totales.desayuno || 0} des /{" "}
+                          {r.comidas_totales.almuerzo || 0} alm /{" "}
+                          {r.comidas_totales.cena || 0} cen
+                        </>
+                      )}
                     </div>
                     {r.propuesta?.observaciones_logisticas ? (
                       <div
@@ -575,6 +591,15 @@ export default function FimbaHoteleriaPage() {
                 </div>
                 {open && (
                   <div style={{ padding: "0.75rem 1rem 1rem" }}>
+                    {!filtroArtista && (
+                      <div style={{ marginBottom: "0.85rem" }}>
+                        <FimbaMealsStayPanel
+                          hoteleriaRows={[r]}
+                          mode="artista"
+                          compact
+                        />
+                      </div>
+                    )}
                     {(r.personas || []).length === 0 && sinNombre === 0 ? (
                       <p className="fimba-muted" style={{ margin: 0 }}>
                         Sin plazas planificadas.

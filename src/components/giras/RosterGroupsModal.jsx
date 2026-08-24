@@ -90,8 +90,10 @@ export default function RosterGroupsModal({
   const [sortDir, setSortDir] = useState("asc");
   /** Índice en el listado visible; ancla para Shift+click. */
   const lastClickedVisibleIndexRef = useRef(null);
-  /** Evita checkbox+fila disparando el mismo click dos veces (desmarca el extremo). */
-  const memberClickLockRef = useRef(false);
+  /** Shift sostenido (keydown/keyup): más fiable que event.shiftKey en el 2º handler. */
+  const shiftKeyHeldRef = useRef(false);
+  /** IDs del listado visible en orden de pantalla (evita closure stale en el rango). */
+  const visibleMemberIdsRef = useRef([]);
   /** null | { loading, eventos, error } — panel de confirmación al eliminar grupo */
   const [deletePanel, setDeletePanel] = useState(null);
 
@@ -148,9 +150,42 @@ export default function RosterGroupsModal({
     [filteredSortedConfirmados],
   );
 
+  visibleMemberIdsRef.current = filteredSortedConfirmados.map((m) =>
+    String(m.id),
+  );
+
   useEffect(() => {
     lastClickedVisibleIndexRef.current = null;
   }, [isOpen, selectedGrupoId, visibleRowIdsKey]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      shiftKeyHeldRef.current = false;
+      return;
+    }
+    const onKeyDown = (e) => {
+      if (e.key === "Shift") shiftKeyHeldRef.current = true;
+    };
+    const onKeyUp = (e) => {
+      if (e.key === "Shift") shiftKeyHeldRef.current = false;
+    };
+    const clearShift = () => {
+      shiftKeyHeldRef.current = false;
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") shiftKeyHeldRef.current = false;
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", clearShift);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", clearShift);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [isOpen]);
 
   const selectedGrupo = useMemo(
     () => grupos.find((g) => Number(g.id) === Number(selectedGrupoId)) || null,
@@ -330,7 +365,8 @@ export default function RosterGroupsModal({
     });
   };
 
-  const isShiftClick = (event) => {
+  const isShiftHeld = (event) => {
+    if (shiftKeyHeldRef.current) return true;
     if (!event) return false;
     if (event.shiftKey) return true;
     if (
@@ -347,33 +383,31 @@ export default function RosterGroupsModal({
     );
   };
 
+  /**
+   * Un solo camino por interacción: checkbox → onChange; fila → onClick.
+   * Shift+click marca el rango inclusivo (ancla + destino + intermedios).
+   */
   const handleVisibleMemberClick = (event, visibleIndex, id) => {
-    // Checkbox click + row click (o click retargeteado tras preventDefault en mousedown)
-    // corren en el mismo tick: el 2º suele venir sin shiftKey y desmarca el extremo.
-    if (memberClickLockRef.current) return;
-    memberClickLockRef.current = true;
-    queueMicrotask(() => {
-      memberClickLockRef.current = false;
-    });
+    const ids = visibleMemberIdsRef.current;
+    const shiftHeld = isShiftHeld(event);
 
-    const shiftKey = isShiftClick(event);
-    if (shiftKey) event.preventDefault?.();
-
-    const rows = filteredSortedConfirmados;
     if (
-      shiftKey &&
+      shiftHeld &&
       lastClickedVisibleIndexRef.current != null &&
-      rows.length > 0
+      ids.length > 0
     ) {
       const from = Math.min(lastClickedVisibleIndexRef.current, visibleIndex);
       const to = Math.max(lastClickedVisibleIndexRef.current, visibleIndex);
       setMemberIds((prev) => {
         const next = new Set(prev);
         for (let i = from; i <= to; i++) {
-          const row = rows[i];
-          if (row?.id != null) next.add(String(row.id));
+          const rowId = ids[i];
+          if (rowId) next.add(rowId);
         }
+        // Refuerzo de extremos por id (por si el índice y el id divergen).
         if (id != null) next.add(String(id));
+        const anchorId = ids[lastClickedVisibleIndexRef.current];
+        if (anchorId) next.add(anchorId);
         return next;
       });
       return;
@@ -790,10 +824,8 @@ export default function RosterGroupsModal({
                                   <input
                                     type="checkbox"
                                     checked={checked}
-                                    onChange={() => {}}
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => {
                                       handleVisibleMemberClick(
                                         e,
                                         visibleIndex,
