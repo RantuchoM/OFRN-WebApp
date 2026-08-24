@@ -30,7 +30,7 @@ Edge `manage-drive` acción `entregar_ajuste`. Destino: carpeta `obras.link_driv
 Modos (multi-archivo en una entrega):
 1. Link(s) de carpeta Drive — copia cada archivo hijo.
 2. Link(s) de archivo PDF Drive — copia cada file.
-3. PDF(s) subidos (base64) — `files.create` en la carpeta de la obra.
+3. PDF(s) subidos (base64) — `files.create` en la carpeta de la obra. **UI:** zona drag & drop + elegir archivos (`ArregloAjusteEntregarModal`).
 
 **Regla de nombre (siempre parte nueva, nunca replace):**
 - `Nombre.pdf` → `Nombre [versión mm-yyyy].pdf` (fecha América/Argentina).
@@ -39,6 +39,9 @@ Modos (multi-archivo en una entrega):
 - La particella anterior **no** se borra.
 
 Al terminar: ticket `cerrado`, append `[Ajuste]` en `obras.comentarios`, mails `ajuste_entregado` a `ofrn.archivo@gmail.com` y al arreglador.
+
+## Acceso UI
+- Pestaña **Arreglos** visible para **admin**, **editor** y **arreglador** (`App.jsx` + command palette).
 
 ## Fuera de alcance
 - Borrado automático de la parte vieja.

@@ -376,7 +376,7 @@ export const CommandPaletteProvider = ({ children }) => {
   const globalCommands = useMemo(() => {
     const isDirector = roles?.includes('director');
     const canAccessArreglos =
-      isAdmin || isArreglador || user?.mail === 'martin.rantucho@gmail.com';
+      isAdmin || isEditor || isArreglador || user?.mail === 'martin.rantucho@gmail.com';
     const canAccessDifusion =
       isAdmin || (Array.isArray(roles) && roles.includes('editor')) || isDifusion;
     const canAccessAgenda = !isGuest && (isPersonal || isEditor || isManagement);

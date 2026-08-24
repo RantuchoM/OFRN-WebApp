@@ -6,7 +6,7 @@
 | **Para arreglar** | Editor | Se asigna `id_integrante_arreglador` (integrante a notificar; default `4340365` si no hay otro). Al asignar, ese integrante queda como arreglador de la obra (`obras.id_arreglador` + `obras_compositores.rol = 'arreglador'`, compositor resuelto por apellido/nombre). El mail de encargo **no** se envía al cambiar estado: el editor indica `fecha_esperada` y pulsa **«Enviar mail de asignación»** en `WorkForm`. En el mail: **Asignado por** = sesión que envía; **Solicitado por** = `id_usuario_carga` (sin fallback al remitente). |
 | **Entregado** | Arreglador | Sube `link_drive`. Dispara `manage-drive` (clonación) y mail al Archivista. |
 | **Oficial** | Archivista | Valida material en la carpeta destino. La obra entra al catálogo vivo. |
-| **Ajuste (ticket)** | Editor / Arreglador | Pedido menor sobre obra Entregado/Oficial (`obras_ajustes`). No crea obra nueva. Entrega = partes nuevas ` [versión mm-yyyy]` vía `entregar_ajuste`. Detalle: `docs/spec-arreglos-ajustes.md`. |
+| **Ajuste (ticket)** | Editor / Arreglador | Pedido menor sobre obra Entregado/Oficial (`obras_ajustes`). No crea obra nueva. Entrega = partes nuevas ` [versión mm-yyyy]` vía `entregar_ajuste` (PDFs por drag & drop o links). Pestaña Arreglos visible también a **editores**. Detalle: `docs/spec-arreglos-ajustes.md`. |
 
 ## Integración con Edge Functions
 1. **Notificación de Encargo:** En `WorkForm`, botón **«Enviar mail de asignación»** invoca `mails_produccion` (`encargo_arreglo`). **Asignado por** = integrante de la sesión (`nombre` en el payload). **Solicitado por** = `detalle.solicitado_por` resuelto desde `obras.id_usuario_carga` (nunca el remitente por defecto).

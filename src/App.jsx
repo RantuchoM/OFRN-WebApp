@@ -823,7 +823,7 @@ const ProtectedApp = ({ initialTab }) => {
       id: "ARREGLOS",
       label: "Arreglos",
       icon: <IconMusicNote size={20} />,
-      show: isAdmin || isArreglador || user?.mail === "martin.rantucho@gmail.com",
+      show: isAdmin || isEditor || isArreglador || user?.mail === "martin.rantucho@gmail.com",
     },
     {
       id: "MUSICIANS",

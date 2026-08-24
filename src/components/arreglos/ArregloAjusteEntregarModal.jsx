@@ -20,6 +20,13 @@ function fileToBase64(file) {
   });
 }
 
+function isPdfFile(file) {
+  if (!file) return false;
+  const mime = String(file.type || "").toLowerCase();
+  if (mime === "application/pdf") return true;
+  return /\.pdf$/i.test(String(file.name || ""));
+}
+
 /**
  * mode: "entregar" (ticket pendiente) | "carga_propia" (elige obra + entrega)
  */
@@ -39,6 +46,7 @@ export default function ArregloAjusteEntregarModal({
   const [files, setFiles] = useState([]);
   const [observacion, setObservacion] = useState("");
   const [localError, setLocalError] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -48,6 +56,7 @@ export default function ArregloAjusteEntregarModal({
     setFiles([]);
     setObservacion(ajuste?.brief || "");
     setLocalError("");
+    setIsDragging(false);
   }, [isOpen, obra?.id, ajuste?.id, ajuste?.id_obra, ajuste?.brief]);
 
   if (!isOpen) return null;
@@ -62,10 +71,35 @@ export default function ArregloAjusteEntregarModal({
       .map((s) => s.trim())
       .filter(Boolean);
 
+  const appendPdfFiles = (fileList) => {
+    const incoming = Array.from(fileList || []).filter(isPdfFile);
+    if (!incoming.length) {
+      setLocalError("Solo se aceptan archivos PDF.");
+      return;
+    }
+    setLocalError("");
+    setFiles((prev) => [...prev, ...incoming]);
+  };
+
   const handleFilesChange = (e) => {
-    const list = Array.from(e.target.files || []);
-    setFiles((prev) => [...prev, ...list]);
+    appendPdfFiles(e.target.files);
     e.target.value = "";
+  };
+
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (saving) return;
+    if (e.type === "dragenter" || e.type === "dragover") setIsDragging(true);
+    else if (e.type === "dragleave") setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (saving) return;
+    appendPdfFiles(e.dataTransfer?.files);
   };
 
   const removeFile = (idx) => {
@@ -201,18 +235,35 @@ export default function ArregloAjusteEntregarModal({
             <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 block">
               Subir PDFs
             </label>
-            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-slate-300 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer">
-              <IconPlus size={14} />
-              Elegir archivos
-              <input
-                type="file"
-                accept="application/pdf,.pdf"
-                multiple
-                className="hidden"
-                disabled={saving}
-                onChange={handleFilesChange}
-              />
-            </label>
+            <div
+              onDragEnter={handleDrag}
+              onDragOver={handleDrag}
+              onDragLeave={handleDrag}
+              onDrop={handleDrop}
+              className={`rounded-lg border-2 border-dashed px-3 py-4 transition-colors ${
+                isDragging
+                  ? "border-emerald-500 bg-emerald-50"
+                  : "border-slate-300 bg-slate-50/80 hover:border-slate-400"
+              } ${saving ? "opacity-50 pointer-events-none" : ""}`}
+            >
+              <p className="text-center text-[11px] text-slate-600 mb-2">
+                Arrastrá PDFs acá o elegí archivos
+              </p>
+              <div className="flex justify-center">
+                <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm text-slate-600 hover:bg-slate-50 cursor-pointer">
+                  <IconPlus size={14} />
+                  Elegir archivos
+                  <input
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    multiple
+                    className="hidden"
+                    disabled={saving}
+                    onChange={handleFilesChange}
+                  />
+                </label>
+              </div>
+            </div>
             {files.length > 0 && (
               <ul className="mt-2 space-y-1">
                 {files.map((f, idx) => (
