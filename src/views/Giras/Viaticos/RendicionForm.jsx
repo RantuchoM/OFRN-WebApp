@@ -402,7 +402,7 @@ export default function RendicionForm({ data, configData }) {
             </tr>
 
             {/* FILAS 32-35: FIRMA DEL AGENTE (CORREGIDO) */}
-            <tr style={{ height: "100px" }} rowSpan="4">
+            <tr style={{ height: "120px" }} rowSpan="4">
               <td
                 className="s34"
                 rowSpan="4"
@@ -413,7 +413,7 @@ export default function RendicionForm({ data, configData }) {
                   flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "flex-end",
-                  height: "80px",
+                  height: "100px",
                 }}
               >
                 {data.firma === "NULL" ? (
@@ -425,7 +425,7 @@ export default function RendicionForm({ data, configData }) {
                         src={data.firma}
                         alt="Firma Agente"
                         style={{
-                          maxHeight: "72px",
+                          maxHeight: "96px",
                           objectFit: "contain",
                         }}
                       />
