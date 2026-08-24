@@ -35,7 +35,8 @@
 - [x] Stats: last-known-good (no se ponen en 0/0 si falla el fetch).
 - [x] Fase 2: match offline del QR contra el snapshot (`matchTokenEnSnapshot` + `entradaQrHash.js`) **antes** del RPC (local-first siempre que haya roster; la red inestable no bloquea el happy path).
 - [x] Pull de roster: merge que no pisa ingresos optimistas locales (`pendiente` remoto + `ingresada` local → se mantiene ingresada).
-- [x] QR ya usada: toast de error y se limpia el campo (sin panel colgado debajo de las cantidades).
+- [x] QR ya usada: cartel entre el input y «Último ingreso»: «QR ya utilizado a las hh:mm. Recepcionado por Nombre Apellido» (meta en snapshot + preview de respaldo).
+
 - [x] Fase 3: cola IndexedDB (`ingestQueue`) + flush online/intervalo + `clientOpId` idempotente en servidor.
 
 Migraciones:

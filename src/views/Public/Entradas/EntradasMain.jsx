@@ -113,7 +113,7 @@ import {
   formatEntradasValidacionError,
   formatEntradasRecepcionIngresoSuccess,
 } from "../../../utils/entradasQrMessages";
-import { formatEntradasIngresoConRecepcionista } from "../../../utils/entradasIngresoDisplay";
+import { formatEntradasIngresoConRecepcionista, formatRecepcionQrYaUtilizadoBanner } from "../../../utils/entradasIngresoDisplay";
 import {
   entradasTodasIngresadas,
   isReservaHistorica,
@@ -655,6 +655,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [recepcionCancelBusy, setRecepcionCancelBusy] = useState(false);
   /** Banner del último ingreso exitoso (persiste hasta el próximo escaneo). */
   const [recepcionUltimoIngreso, setRecepcionUltimoIngreso] = useState(null);
+  /** Cartel entre input y Último ingreso cuando el QR ya estaba usado. */
+  const [recepcionQrYaUsado, setRecepcionQrYaUsado] = useState(null);
   /** Recepción: personas que ingresan sin reserva/QR (cuenta compartida en tiempo real). */
   const [sinEntradaCount, setSinEntradaCount] = useState(0);
   const [sinEntradaBusy, setSinEntradaBusy] = useState(false);
@@ -1852,7 +1854,12 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
 
     const applyLocalSuccess = async (match, clientOpId) => {
       const ordenes = match.ordenes || [];
-      await markSnapshotOrdenesIngresadas(cid, match.reservaId, ordenes);
+      const ingresadaAt = new Date().toISOString();
+      const ingresadaPorNombre = `${profile?.nombre || ""} ${profile?.apellido || ""}`.trim() || null;
+      await markSnapshotOrdenesIngresadas(cid, match.reservaId, ordenes, {
+        ingresadaAt,
+        ingresadaPorNombre,
+      });
       const fakeResult = {
         ok: true,
         tipo: match.tipo,
@@ -1862,6 +1869,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         pendientes_consumidas: ordenes.length,
         entrada_orden: match.entradaOrden,
       };
+      setRecepcionQrYaUsado(null);
       toast.success(formatEntradasRecepcionIngresoSuccess(fakeResult), { duration: 3500 });
       await registrarUltimoIngresoBanner(fakeResult, t);
       clearRecepcionParaNuevoIngreso();
@@ -1880,18 +1888,46 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       void flushRecepcionIngresoQueue(cid);
     };
 
+    const mostrarQrYaUsado = async ({
+      at = null,
+      porNombre = null,
+      tokenForPreview = null,
+    } = {}) => {
+      let ingresadaAt = at;
+      let ingresadaPorNombre = porNombre;
+      if ((!ingresadaAt || !ingresadaPorNombre) && tokenForPreview && typeof navigator !== "undefined" && navigator.onLine !== false) {
+        try {
+          const preview = await previewEntradaQr(tokenForPreview, cid);
+          if (preview?.ok) {
+            ingresadaAt = ingresadaAt || preview.ingresada_at || preview.ultima_ingresada_at || null;
+            ingresadaPorNombre =
+              ingresadaPorNombre
+              || preview.ingresada_por_nombre
+              || preview.ultima_ingresada_por_nombre
+              || null;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      setRecepcionQrYaUsado({
+        at: ingresadaAt,
+        porNombre: ingresadaPorNombre,
+        text: formatRecepcionQrYaUtilizadoBanner({ at: ingresadaAt, porNombre: ingresadaPorNombre }),
+      });
+      clearRecepcionParaNuevoIngreso();
+    };
+
     try {
       const snap = await getRecepcionSnapshotLocal(cid);
       const match = snap ? matchTokenEnSnapshot(snap, t) : { ok: false, reason: "sin_snapshot" };
 
       if (match.ok && match.yaUsada) {
-        toast.error(
-          match.tipo === "entrada"
-            ? `Entrada ya ingresada (${match.codigoReserva || "—"}${match.entradaOrden != null ? ` · nº ${match.entradaOrden}` : ""}).`
-            : `Reserva ${match.codigoReserva || "—"}: todas las plazas ya ingresaron.`,
-          { duration: 3500 },
-        );
-        clearRecepcionParaNuevoIngreso();
+        await mostrarQrYaUsado({
+          at: match.ingresadaAt,
+          porNombre: match.ingresadaPorNombre,
+          tokenForPreview: t,
+        });
         return;
       }
 
@@ -1935,33 +1971,41 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         clientOpId,
       });
       if (!result?.ok) {
-        toast.error(formatEntradasValidacionError(result), { duration: 4000 });
-        // Ya usada / sin plazas: limpiar como un ingreso OK para no dejar panel debajo de las cantidades.
         if (
           result?.reason === "entrada_ya_usada"
           || result?.reason === "reserva_totalmente_usada"
         ) {
-          clearRecepcionParaNuevoIngreso();
-          // Marcar en roster local para no reintentar el mismo QR si el pull remoto aún no llegó.
+          const metaAt =
+            result.ingresada_at || result.ultima_ingresada_at || null;
+          const metaNombre =
+            result.ingresada_por_nombre || result.ultima_ingresada_por_nombre || null;
+          const markMeta = {
+            ingresadaAt: metaAt || new Date().toISOString(),
+            ingresadaPorNombre: metaNombre,
+          };
           if (result.reserva_id != null) {
             const ordenes =
               result.reason === "entrada_ya_usada" && result.entrada_orden != null
                 ? [Number(result.entrada_orden)]
                 : [];
             if (ordenes.length) {
-              void markSnapshotOrdenesIngresadas(cid, result.reserva_id, ordenes);
+              void markSnapshotOrdenesIngresadas(cid, result.reserva_id, ordenes, markMeta);
             } else if (result.reason === "reserva_totalmente_usada") {
               const snapNow = await getRecepcionSnapshotLocal(cid);
               const r = (snapNow?.reservas || []).find((x) => Number(x.id) === Number(result.reserva_id));
               const allOrdenes = (r?.entradas || []).map((e) => Number(e.orden)).filter((n) => Number.isFinite(n));
               if (allOrdenes.length) {
-                void markSnapshotOrdenesIngresadas(cid, result.reserva_id, allOrdenes);
+                void markSnapshotOrdenesIngresadas(cid, result.reserva_id, allOrdenes, markMeta);
               }
             }
           }
+          await mostrarQrYaUsado({ at: metaAt, porNombre: metaNombre });
+          return;
         }
+        toast.error(formatEntradasValidacionError(result), { duration: 4000 });
         return;
       }
+      setRecepcionQrYaUsado(null);
       toast.success(formatEntradasRecepcionIngresoSuccess(result), { duration: 3500 });
       await registrarUltimoIngresoBanner(result, t);
       clearRecepcionParaNuevoIngreso();
@@ -4837,6 +4881,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                   setQrPreview(null);
                   setRecepcionStatHelp(null);
                   setRecepcionUltimoIngreso(null);
+                  setRecepcionQrYaUsado(null);
                   setRecepcionIngresoNetworkError(false);
                   setRecepcionSnapshotStatus(e.target.value ? "loading" : "idle");
                   setRecepcionSnapshotAt(null);
@@ -4952,6 +4997,19 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                 >
                   {ingresando ? "Reintentando…" : "Reintentar ingreso"}
                 </button>
+              </div>
+            )}
+            {recepcionQrYaUsado && (
+              <div
+                className={`rounded-xl border-2 p-3 text-sm shadow-sm ${
+                  isDark
+                    ? "border-rose-700/70 bg-rose-950/40 text-rose-100"
+                    : "border-rose-400 bg-rose-50 text-rose-950"
+                }`}
+                role="status"
+                aria-live="polite"
+              >
+                <p className="font-bold">{recepcionQrYaUsado.text}</p>
               </div>
             )}
             {recepcionUltimoIngreso && (

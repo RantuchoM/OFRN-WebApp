@@ -135,7 +135,12 @@ export function mergeReservasPreserveLocalIngresos(prevReservas, remoteReservas)
           && local.estado_ingreso === "ingresada"
           && e.estado_ingreso === "pendiente"
         ) {
-          return { ...e, estado_ingreso: "ingresada" };
+          return {
+            ...e,
+            estado_ingreso: "ingresada",
+            ingresada_at: local.ingresada_at || e.ingresada_at || null,
+            ingresada_por_nombre: local.ingresada_por_nombre || e.ingresada_por_nombre || null,
+          };
         }
         return e;
       }),
@@ -202,6 +207,8 @@ export function matchTokenEnSnapshot(snapshot, token) {
             codigoReserva: r.codigo_reserva,
             ordenes: [Number(e.orden)],
             entradaOrden: Number(e.orden),
+            ingresadaAt: e.ingresada_at || null,
+            ingresadaPorNombre: e.ingresada_por_nombre || null,
           };
         }
         return {
@@ -224,6 +231,21 @@ export function matchTokenEnSnapshot(snapshot, token) {
   return { ok: false, reason: "token_no_encontrado" };
 }
 
+function latestIngresoMetaFromReserva(r) {
+  let bestAt = null;
+  let bestNombre = null;
+  for (const e of r?.entradas || []) {
+    if (e.estado_ingreso !== "ingresada" || !e.ingresada_at) continue;
+    const t = new Date(e.ingresada_at).getTime();
+    if (!Number.isFinite(t)) continue;
+    if (bestAt == null || t > new Date(bestAt).getTime()) {
+      bestAt = e.ingresada_at;
+      bestNombre = e.ingresada_por_nombre || null;
+    }
+  }
+  return { ingresadaAt: bestAt, ingresadaPorNombre: bestNombre };
+}
+
 function matchReservaLocal(r) {
   if (String(r.estado) !== "activa") {
     return { ok: false, reason: "reserva_no_activa", codigoReserva: r.codigo_reserva };
@@ -233,6 +255,7 @@ function matchReservaLocal(r) {
     .map((e) => Number(e.orden))
     .filter((n) => Number.isFinite(n));
   if (!pendientes.length) {
+    const meta = latestIngresoMetaFromReserva(r);
     return {
       ok: true,
       yaUsada: true,
@@ -240,6 +263,8 @@ function matchReservaLocal(r) {
       reservaId: r.id,
       codigoReserva: r.codigo_reserva,
       ordenes: [],
+      ingresadaAt: meta.ingresadaAt,
+      ingresadaPorNombre: meta.ingresadaPorNombre,
     };
   }
   return {
@@ -253,16 +278,29 @@ function matchReservaLocal(r) {
 }
 
 /** Marca plazas como ingresadas en el snapshot local (optimista). */
-export async function markSnapshotOrdenesIngresadas(conciertoId, reservaId, ordenes) {
+export async function markSnapshotOrdenesIngresadas(
+  conciertoId,
+  reservaId,
+  ordenes,
+  { ingresadaAt = null, ingresadaPorNombre = null } = {},
+) {
   const snap = await getRecepcionSnapshotLocal(conciertoId);
   if (!snap) return null;
   const ordSet = new Set((ordenes || []).map(Number));
+  const at = ingresadaAt || new Date().toISOString();
   const reservas = (snap.reservas || []).map((r) => {
     if (Number(r.id) !== Number(reservaId)) return r;
     return {
       ...r,
       entradas: (r.entradas || []).map((e) =>
-        ordSet.has(Number(e.orden)) ? { ...e, estado_ingreso: "ingresada" } : e,
+        ordSet.has(Number(e.orden))
+          ? {
+              ...e,
+              estado_ingreso: "ingresada",
+              ingresada_at: at,
+              ingresada_por_nombre: ingresadaPorNombre || e.ingresada_por_nombre || null,
+            }
+          : e,
       ),
     };
   });
