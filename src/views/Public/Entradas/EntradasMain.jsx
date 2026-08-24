@@ -1885,21 +1885,13 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       const match = snap ? matchTokenEnSnapshot(snap, t) : { ok: false, reason: "sin_snapshot" };
 
       if (match.ok && match.yaUsada) {
-        autoIngresoAttemptRef.current = "";
-        toast.message(
+        toast.error(
           match.tipo === "entrada"
             ? `Entrada ya ingresada (${match.codigoReserva || "—"}${match.entradaOrden != null ? ` · nº ${match.entradaOrden}` : ""}).`
             : `Reserva ${match.codigoReserva || "—"}: todas las plazas ya ingresaron.`,
+          { duration: 3500 },
         );
-        setQrPreview({
-          ok: true,
-          puede_ingresar: false,
-          tipo: match.tipo,
-          codigo_reserva: match.codigoReserva,
-          estado_ingreso: match.tipo === "entrada" ? "ingresada" : undefined,
-          entrada_orden: match.entradaOrden,
-          pendientes: 0,
-        });
+        clearRecepcionParaNuevoIngreso();
         return;
       }
 
@@ -1910,20 +1902,20 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       }
 
       if (match.reason === "reserva_no_activa") {
-        autoIngresoAttemptRef.current = "";
         toast.error(`La reserva ${match.codigoReserva || ""} no está activa.`);
+        clearRecepcionParaNuevoIngreso();
         return;
       }
       if (match.reason === "codigo_ambiguo") {
-        autoIngresoAttemptRef.current = "";
         toast.error("Código ambiguo: hay más de una reserva con esos dígitos.");
+        clearRecepcionParaNuevoIngreso();
         return;
       }
 
       // Sin match local: solo intentar servidor si hay red (snapshot desfasado).
+      // Con roster listo, el happy path NUNCA espera al servidor: match local primero.
       const offline = typeof navigator !== "undefined" && navigator.onLine === false;
       if (offline || match.reason === "sin_snapshot") {
-        autoIngresoAttemptRef.current = "";
         toast.error(
           offline
             ? "No está en el roster de este concierto (o el dispositivo no tiene datos). Con señal se reintenta contra el servidor."
@@ -1943,38 +1935,30 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         clientOpId,
       });
       if (!result?.ok) {
-        autoIngresoAttemptRef.current = "";
-        toast.error(formatEntradasValidacionError(result));
+        toast.error(formatEntradasValidacionError(result), { duration: 4000 });
+        // Ya usada / sin plazas: limpiar como un ingreso OK para no dejar panel debajo de las cantidades.
         if (
           result?.reason === "entrada_ya_usada"
           || result?.reason === "reserva_totalmente_usada"
         ) {
-          setQrPreview((prev) => {
-            const base = prev && typeof prev === "object" ? prev : { ok: true };
-            if (result.reason === "entrada_ya_usada") {
-              return {
-                ...base,
-                ok: true,
-                tipo: "entrada",
-                puede_ingresar: false,
-                estado_ingreso: "ingresada",
-                codigo_reserva: result.codigo_reserva ?? base.codigo_reserva,
-                entrada_orden: result.entrada_orden ?? base.entrada_orden,
-                ingresada_at: result.ingresada_at ?? base.ingresada_at,
-                ingresada_por_nombre: result.ingresada_por_nombre ?? base.ingresada_por_nombre,
-              };
+          clearRecepcionParaNuevoIngreso();
+          // Marcar en roster local para no reintentar el mismo QR si el pull remoto aún no llegó.
+          if (result.reserva_id != null) {
+            const ordenes =
+              result.reason === "entrada_ya_usada" && result.entrada_orden != null
+                ? [Number(result.entrada_orden)]
+                : [];
+            if (ordenes.length) {
+              void markSnapshotOrdenesIngresadas(cid, result.reserva_id, ordenes);
+            } else if (result.reason === "reserva_totalmente_usada") {
+              const snapNow = await getRecepcionSnapshotLocal(cid);
+              const r = (snapNow?.reservas || []).find((x) => Number(x.id) === Number(result.reserva_id));
+              const allOrdenes = (r?.entradas || []).map((e) => Number(e.orden)).filter((n) => Number.isFinite(n));
+              if (allOrdenes.length) {
+                void markSnapshotOrdenesIngresadas(cid, result.reserva_id, allOrdenes);
+              }
             }
-            return {
-              ...base,
-              ok: true,
-              tipo: "reserva",
-              puede_ingresar: false,
-              pendientes: 0,
-              codigo_reserva: result.codigo_reserva ?? base.codigo_reserva,
-              ingresada_at: result.ultima_ingresada_at,
-              ingresada_por_nombre: result.ultima_ingresada_por_nombre,
-            };
-          });
+          }
         }
         return;
       }

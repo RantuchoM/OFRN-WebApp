@@ -84,7 +84,9 @@ export async function saveRecepcionSnapshotLocal(payload) {
   if (!Number.isFinite(cid) || cid <= 0) {
     throw new Error("Snapshot sin concierto_id.");
   }
-  const reservas = Array.isArray(payload.reservas) ? payload.reservas : [];
+  const reservasRemote = Array.isArray(payload.reservas) ? payload.reservas : [];
+  const prev = await getRecepcionSnapshotLocal(cid);
+  const reservas = mergeReservasPreserveLocalIngresos(prev?.reservas, reservasRemote);
   let plazaCount = 0;
   for (const r of reservas) {
     plazaCount += Array.isArray(r?.entradas) ? r.entradas.length : 0;
@@ -105,6 +107,40 @@ export async function saveRecepcionSnapshotLocal(payload) {
     db.close();
   }
   return row;
+}
+
+/**
+ * Al bajar roster del servidor, no pisar ingresos optimistas locales
+ * (pendiente remoto + ingresada local → se mantiene ingresada).
+ * Si el remoto ya figura ingresada/anulada, gana el remoto.
+ */
+export function mergeReservasPreserveLocalIngresos(prevReservas, remoteReservas) {
+  const prevByReserva = new Map();
+  for (const r of prevReservas || []) {
+    prevByReserva.set(Number(r.id), r);
+  }
+  return (remoteReservas || []).map((remote) => {
+    const prev = prevByReserva.get(Number(remote.id));
+    if (!prev?.entradas?.length) return remote;
+    const prevByOrden = new Map();
+    for (const e of prev.entradas) {
+      prevByOrden.set(Number(e.orden), e);
+    }
+    return {
+      ...remote,
+      entradas: (remote.entradas || []).map((e) => {
+        const local = prevByOrden.get(Number(e.orden));
+        if (
+          local
+          && local.estado_ingreso === "ingresada"
+          && e.estado_ingreso === "pendiente"
+        ) {
+          return { ...e, estado_ingreso: "ingresada" };
+        }
+        return e;
+      }),
+    };
+  });
 }
 
 export async function clearRecepcionSnapshotLocal(conciertoId) {
