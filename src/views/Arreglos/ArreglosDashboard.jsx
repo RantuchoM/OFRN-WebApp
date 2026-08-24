@@ -31,6 +31,8 @@ import ArreglosReferenciasModal from "../../components/arreglos/ArreglosReferenc
 import ArregloEntregaModal from "../../components/arreglos/ArregloEntregaModal";
 import ArregloQuickEncargoModal from "../../components/arreglos/ArregloQuickEncargoModal";
 import ArregloMobileDetailModal from "../../components/arreglos/ArregloMobileDetailModal";
+import ArregloAjusteSolicitarModal from "../../components/arreglos/ArregloAjusteSolicitarModal";
+import ArregloAjusteEntregarModal from "../../components/arreglos/ArregloAjusteEntregarModal";
 import { markEncargoArregloMailSent } from "../../utils/encargoArregloMail";
 import { syncObraArregladorFromIntegrante } from "../../utils/syncObraArreglador";
 import { readManageDriveResponseBody } from "../../utils/paraAcomodarDrive";
@@ -356,6 +358,8 @@ function ArregloEntregaAcciones({
   onDelete,
   onEdit,
   onNewVersion,
+  onSolicitarAjuste,
+  onEntregarAjusteRapido,
 }) {
   const link = (linkValue || work.link_drive || "").trim();
   const isParaArreglar = work.estado === "Para arreglar";
@@ -455,15 +459,37 @@ function ArregloEntregaAcciones({
         )}
       </div>
       {(work.estado === "Entregado" || work.estado === "Oficial") && (
-        <button
-          type="button"
-          onClick={onNewVersion}
-          className={`${btnBase} bg-slate-100 text-slate-700 hover:bg-slate-200`}
-          title="Nueva versión (reemplazar o clonar)"
-        >
-          <IconCopy size={11} />
-          Nueva versión
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={onNewVersion}
+            className={`${btnBase} bg-slate-100 text-slate-700 hover:bg-slate-200`}
+            title="Nueva versión (reemplazar o clonar)"
+          >
+            <IconCopy size={11} />
+            Nueva versión
+          </button>
+          {canEditFields && onSolicitarAjuste && (
+            <button
+              type="button"
+              onClick={onSolicitarAjuste}
+              className={`${btnBase} bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200/80`}
+              title="Solicitar ajuste menor"
+            >
+              Solicitar ajuste
+            </button>
+          )}
+          {canEditDelivery && onEntregarAjusteRapido && work.link_drive && (
+            <button
+              type="button"
+              onClick={onEntregarAjusteRapido}
+              className={`${btnBase} bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200/80`}
+              title="Entregar ajuste (partes nuevas versionadas)"
+            >
+              Entregar ajuste
+            </button>
+          )}
+        </>
       )}
     </div>
   );
@@ -527,6 +553,92 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   const [refsByObra, setRefsByObra] = useState({});
   const [refsModalWork, setRefsModalWork] = useState(null);
   const [entregaModalWork, setEntregaModalWork] = useState(null);
+
+  const [ajustesPendientes, setAjustesPendientes] = useState([]);
+  const [obrasAjusteOptions, setObrasAjusteOptions] = useState([]);
+  const [solicitarAjusteOpen, setSolicitarAjusteOpen] = useState(false);
+  const [solicitarAjusteObraId, setSolicitarAjusteObraId] = useState(null);
+  const [solicitarAjusteSaving, setSolicitarAjusteSaving] = useState(false);
+  const [entregarAjusteOpen, setEntregarAjusteOpen] = useState(false);
+  const [entregarAjusteMode, setEntregarAjusteMode] = useState("entregar");
+  const [entregarAjusteTicket, setEntregarAjusteTicket] = useState(null);
+  const [entregarAjusteObra, setEntregarAjusteObra] = useState(null);
+  const [entregarAjusteSaving, setEntregarAjusteSaving] = useState(false);
+
+  const vistaActiva = searchParams.get("vista") === "ajustes" ? "ajustes" : "arreglos";
+  const setVistaActiva = (vista) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", "arreglos");
+    if (vista === "ajustes") next.set("vista", "ajustes");
+    else next.delete("vista");
+    setSearchParams(next, { replace: true });
+  };
+
+  const fetchAjustesPendientes = async () => {
+    try {
+      const { data, error } = await sb
+        .from("obras_ajustes")
+        .select(
+          "id, id_obra, tipo, estado, origen, brief, partes_afectadas, fecha_esperada, id_integrante_arreglador, created_at",
+        )
+        .eq("estado", "pendiente")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+
+      const rows = data || [];
+      const obraIds = [...new Set(rows.map((r) => r.id_obra).filter(Boolean))];
+      let obraMap = new Map();
+      if (obraIds.length > 0) {
+        const { data: obrasData, error: obrasErr } = await sb
+          .from("obras")
+          .select("id, titulo, link_drive, estado")
+          .in("id", obraIds);
+        if (obrasErr) throw obrasErr;
+        obraMap = new Map((obrasData || []).map((o) => [o.id, o]));
+      }
+
+      setAjustesPendientes(
+        rows.map((a) => {
+          const obra = obraMap.get(a.id_obra);
+          return {
+            ...a,
+            obra_titulo: obra?.titulo || "",
+            link_drive: obra?.link_drive || null,
+            obra_estado: obra?.estado || null,
+          };
+        }),
+      );
+    } catch (err) {
+      console.error("ArreglosDashboard ajustes:", err?.message || err);
+      toast.error(err?.message || "No se pudieron cargar los ajustes pendientes.");
+      setAjustesPendientes([]);
+    }
+  };
+
+  const fetchObrasAjusteOptions = async () => {
+    try {
+      const { data, error } = await sb
+        .from("obras")
+        .select("id, titulo, link_drive, estado")
+        .in("estado", ["Entregado", "Oficial"])
+        .not("link_drive", "is", null)
+        .order("titulo")
+        .limit(800);
+      if (error) throw error;
+      setObrasAjusteOptions(
+        (data || []).map((o) => ({
+          id: o.id,
+          label: `${stripHtmlForSort(o.titulo) || `Obra #${o.id}`} · ${o.estado}`,
+          link_drive: o.link_drive,
+          titulo: o.titulo,
+          estado: o.estado,
+        })),
+      );
+    } catch (err) {
+      console.warn("ArreglosDashboard obras ajuste:", err?.message || err);
+      setObrasAjusteOptions([]);
+    }
+  };
 
   const fetchWorks = async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -674,6 +786,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
       setWorks(list);
       setRowDraft({});
       setFieldStatus({});
+      await Promise.all([fetchAjustesPendientes(), fetchObrasAjusteOptions()]);
     } catch (err) {
       const msg = err?.message ?? (typeof err === "string" ? err : "Error al cargar encargos.");
       console.error("ArreglosDashboard:", msg);
@@ -686,6 +799,12 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
 
   useEffect(() => {
     fetchWorks();
+  }, [sb]);
+
+  // Ajustes: carga independiente (no depende de que el listado de obras termine OK)
+  useEffect(() => {
+    fetchAjustesPendientes();
+    fetchObrasAjusteOptions();
   }, [sb]);
 
   // Cargar lista de compositores para SearchableSelect (encargo o arreglo propio)
@@ -749,6 +868,46 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     }
     return [...list].sort(compareArreglosPorUrgencia);
   }, [works, filterArregladorId, searchObraText]);
+
+  const pendientesArreglosCount = useMemo(() => {
+    let list = works.filter((w) => (w.estado || "") === "Para arreglar");
+    if (filterArregladorId) {
+      list = list.filter((w) => String(w.id_integrante_arreglador) === String(filterArregladorId));
+    }
+    return list.length;
+  }, [works, filterArregladorId]);
+
+  const filteredAjustes = useMemo(() => {
+    let list = ajustesPendientes;
+    if (filterArregladorId) {
+      list = list.filter(
+        (a) => String(a.id_integrante_arreglador) === String(filterArregladorId),
+      );
+    }
+    const q = searchObraText.trim().toLowerCase();
+    if (q) {
+      list = list.filter((a) => {
+        const titulo = stripHtmlForSort(a.obra_titulo).toLowerCase();
+        const brief = (a.brief || "").toLowerCase();
+        const partes = (a.partes_afectadas || "").toLowerCase();
+        return titulo.includes(q) || brief.includes(q) || partes.includes(q);
+      });
+    }
+    return list;
+  }, [ajustesPendientes, filterArregladorId, searchObraText]);
+
+  const pendientesAjustesCount = useMemo(() => {
+    if (!filterArregladorId) return ajustesPendientes.length;
+    return ajustesPendientes.filter(
+      (a) => String(a.id_integrante_arreglador) === String(filterArregladorId),
+    ).length;
+  }, [ajustesPendientes, filterArregladorId]);
+
+  const arregladorLabelById = useMemo(() => {
+    const map = new Map();
+    integrantesArregladorOptions.forEach((o) => map.set(Number(o.id), o.label));
+    return map;
+  }, [integrantesArregladorOptions]);
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(filteredWorks.length / ARREGLOS_PAGE_SIZE)),
@@ -920,6 +1079,184 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     }
     toast.success("Mail de encargo enviado al Arreglador y al Archivista.");
     return true;
+  };
+
+  const enviarEncargoAjuste = async ({
+    idAjuste,
+    idObra,
+    tituloStr,
+    idIntegranteArregladorVal,
+    linkDrive,
+    brief,
+    tipo,
+    partesAfectadas,
+    fechaEsperada,
+    solicitadoPor,
+  }) => {
+    const integranteOpt = integrantesArregladorOptions.find(
+      (i) => Number(i.id) === Number(idIntegranteArregladorVal),
+    );
+    const emailTo = integranteOpt?.mail || null;
+    if (!emailTo) {
+      toast.error("No se encontró email del arreglador para el ajuste.");
+      return false;
+    }
+    const { error } = await sb.functions.invoke("mails_produccion", {
+      body: {
+        action: "enviar_mail",
+        templateId: "encargo_ajuste",
+        email: emailTo,
+        bcc: ["ofrn.archivo@gmail.com"],
+        nombre: user ? `${user.apellido || ""}, ${user.nombre || ""}`.trim() : "Sistema",
+        gira: null,
+        detalle: {
+          titulo: tituloStr,
+          arreglador: integranteOpt?.label || "",
+          id_obra: idObra,
+          id_ajuste: idAjuste,
+          link_drive: linkDrive || null,
+          brief: brief || null,
+          tipo: tipo || "cambio_menor",
+          partes_afectadas: partesAfectadas || null,
+          fecha_esperada: fechaEsperada || null,
+          solicitado_por: solicitadoPor || null,
+        },
+      },
+    });
+    if (error) {
+      console.error("mails_produccion (encargo_ajuste):", error);
+      toast.error("Ajuste creado, pero no se pudo enviar el mail.");
+      return false;
+    }
+    toast.success("Mail de ajuste enviado al arreglador (BCC Archivo).");
+    return true;
+  };
+
+  const handleSolicitarAjuste = async (payload) => {
+    if (!canEditFields) return;
+    const idObra = payload?.id_obra;
+    const arregladorId = payload?.id_integrante_arreglador;
+    if (!idObra || !arregladorId) {
+      toast.error("Elegí obra y arreglador.");
+      return;
+    }
+    setSolicitarAjusteSaving(true);
+    try {
+      const obraOpt = obrasAjusteOptions.find((o) => Number(o.id) === Number(idObra));
+      const { data, error } = await sb
+        .from("obras_ajustes")
+        .insert([
+          {
+            id_obra: Number(idObra),
+            tipo: payload.tipo || "cambio_menor",
+            estado: "pendiente",
+            origen: "solicitud_interna",
+            id_integrante_arreglador: Number(arregladorId),
+            id_usuario_solicita: user?.id || null,
+            fecha_esperada: payload.fecha_esperada || null,
+            brief: payload.brief || null,
+            partes_afectadas: payload.partes_afectadas || null,
+          },
+        ])
+        .select("id")
+        .single();
+      if (error) throw error;
+
+      await enviarEncargoAjuste({
+        idAjuste: data.id,
+        idObra: Number(idObra),
+        tituloStr: stripHtmlForSort(obraOpt?.titulo) || `Obra #${idObra}`,
+        idIntegranteArregladorVal: arregladorId,
+        linkDrive: obraOpt?.link_drive || null,
+        brief: payload.brief,
+        tipo: payload.tipo,
+        partesAfectadas: payload.partes_afectadas,
+        fechaEsperada: payload.fecha_esperada,
+        solicitadoPor: getSolicitanteLabelForUser(),
+      });
+
+      setSolicitarAjusteOpen(false);
+      setSolicitarAjusteObraId(null);
+      await fetchAjustesPendientes();
+      toast.success("Ajuste pendiente creado.");
+    } catch (e) {
+      console.error("solicitar ajuste:", e);
+      toast.error(e?.message || "No se pudo crear el ajuste.");
+    } finally {
+      setSolicitarAjusteSaving(false);
+    }
+  };
+
+  const openEntregarAjusteTicket = (ajuste) => {
+    setEntregarAjusteMode("entregar");
+    setEntregarAjusteTicket(ajuste);
+    setEntregarAjusteObra(
+      ajuste
+        ? {
+            id: ajuste.id_obra,
+            titulo: ajuste.obra_titulo,
+            link_drive: ajuste.link_drive,
+          }
+        : null,
+    );
+    setEntregarAjusteOpen(true);
+  };
+
+  const openCargaPropiaAjuste = (obra = null) => {
+    setEntregarAjusteMode("carga_propia");
+    setEntregarAjusteTicket(null);
+    setEntregarAjusteObra(obra);
+    setEntregarAjusteOpen(true);
+  };
+
+  const handleEntregarAjuste = async (payload) => {
+    setEntregarAjusteSaving(true);
+    try {
+      const body = {
+        action: "entregar_ajuste",
+        id_ajuste: payload.id_ajuste || null,
+        id_obra: payload.id_obra,
+        link_carpetas: payload.link_carpetas || [],
+        link_archivos: payload.link_archivos || [],
+        archivos: payload.archivos || [],
+        observacion: payload.observacion || "",
+        origen: payload.origen || (payload.id_ajuste ? "solicitud_interna" : "carga_propia"),
+        id_integrante_arreglador: user?.id || null,
+        id_usuario_solicita: user?.id || null,
+        tipo: "cambio_menor",
+      };
+      const { data, error } = await sb.functions.invoke("manage-drive", { body });
+      const parsed = await readManageDriveResponseBody(error, data);
+      if (error && !parsed?.success) {
+        throw new Error(
+          parsed?.error || parsed?.message || error?.message || "Error al entregar ajuste",
+        );
+      }
+      if (!parsed?.success) {
+        throw new Error(parsed?.error || parsed?.message || "Error al entregar ajuste");
+      }
+      toast.success(
+        `Ajuste entregado: ${(parsed.archivos || []).length || 0} archivo(s) como partes nuevas.`,
+      );
+      setEntregarAjusteOpen(false);
+      setEntregarAjusteTicket(null);
+      setEntregarAjusteObra(null);
+      await fetchWorks({ silent: true });
+    } catch (e) {
+      console.error("entregar ajuste:", e);
+      toast.error(e?.message || "No se pudo entregar el ajuste.");
+    } finally {
+      setEntregarAjusteSaving(false);
+    }
+  };
+
+  const canActOnAjuste = (ajuste) => {
+    if (isAdmin) return true;
+    return (
+      ajuste?.id_integrante_arreglador != null &&
+      myCompositorId != null &&
+      Number(ajuste.id_integrante_arreglador) === Number(myCompositorId)
+    );
   };
 
   const handleQuickSave = async () => {
@@ -1274,16 +1611,71 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     <div className="space-y-6 h-full flex flex-col animate-in fade-in">
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 shrink-0">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
-              <IconMusicNote className="text-indigo-600" />Obras para arreglar
+              <IconMusicNote className="text-indigo-600" />
+              {vistaActiva === "ajustes" ? "Ajustes menores" : "Obras para arreglar"}
             </h2>
             <p className="text-xs text-slate-500 mt-1 hidden sm:block">
-              Tabla de obras con encargos de arreglo: incluye las que están en &quot;Para arreglar&quot;, &quot;Entregado&quot; o tienen un arreglador asignado. Cargá el link de Drive, una observación opcional y pasá a Entregado.
+              {vistaActiva === "ajustes"
+                ? "Pedidos menores sobre obras ya entregadas/oficiales: partes nuevas versionadas, sin clonar el catálogo."
+                : "Encargos de arreglo: «Para arreglar», «Entregado» o con arreglador asignado. Cargá el link de Drive y pasá a Entregado."}
             </p>
+            <div
+              className="mt-3 inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5"
+              role="tablist"
+              aria-label="Arreglos o ajustes"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={vistaActiva === "arreglos"}
+                onClick={() => setVistaActiva("arreglos")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-colors ${
+                  vistaActiva === "arreglos"
+                    ? "bg-white text-indigo-700 shadow-sm"
+                    : "text-slate-600 hover:text-slate-800"
+                }`}
+              >
+                Arreglos
+                <span
+                  className={`min-w-[1.25rem] px-1.5 py-0.5 rounded-full text-[10px] font-bold tabular-nums ${
+                    vistaActiva === "arreglos"
+                      ? "bg-indigo-100 text-indigo-800"
+                      : "bg-slate-200 text-slate-700"
+                  }`}
+                >
+                  {pendientesArreglosCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={vistaActiva === "ajustes"}
+                onClick={() => setVistaActiva("ajustes")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-colors ${
+                  vistaActiva === "ajustes"
+                    ? "bg-white text-amber-800 shadow-sm"
+                    : "text-slate-600 hover:text-slate-800"
+                }`}
+              >
+                Ajustes
+                <span
+                  className={`min-w-[1.25rem] px-1.5 py-0.5 rounded-full text-[10px] font-bold tabular-nums ${
+                    vistaActiva === "ajustes"
+                      ? "bg-amber-100 text-amber-900"
+                      : pendientesAjustesCount > 0
+                        ? "bg-amber-200 text-amber-900"
+                        : "bg-slate-200 text-slate-700"
+                  }`}
+                >
+                  {pendientesAjustesCount}
+                </span>
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            {canQuickAdd && (
+          <div className="flex items-center gap-2 shrink-0 flex-nowrap">
+            {vistaActiva === "arreglos" && canQuickAdd && (
               <button
                 type="button"
                 onClick={openEncargarArreglo}
@@ -1292,6 +1684,35 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                 <IconPlus size={16} />
                 {isSelfArregloMode ? "Arreglo nuevo" : "Encargar arreglo"}
               </button>
+            )}
+            {vistaActiva === "ajustes" && (canEditFields || isArreglador) && (
+              <>
+                {canEditFields && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSolicitarAjusteObraId(null);
+                      setSolicitarAjusteOpen(true);
+                    }}
+                    className="bg-amber-600 text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-amber-700 flex items-center gap-2 shadow-sm shrink-0"
+                    title="Solicitar ajuste menor sobre una obra"
+                  >
+                    <IconPlus size={16} />
+                    Solicitar ajuste
+                  </button>
+                )}
+                {isArreglador && (
+                  <button
+                    type="button"
+                    onClick={() => openCargaPropiaAjuste(null)}
+                    className="bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-emerald-800 flex items-center gap-2 shadow-sm shrink-0"
+                    title="Cargar ajuste encargado por otra vía"
+                  >
+                    <IconPlus size={16} />
+                    + Ajuste
+                  </button>
+                )}
+              </>
             )}
             <div className="relative shrink-0" ref={arregladorFilterRef}>
               <button
@@ -1358,7 +1779,117 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
       </div>
 
       <div className="flex-1 overflow-auto bg-white rounded-xl border border-slate-200 shadow-sm min-h-0">
-        {loading ? (
+        {vistaActiva === "ajustes" ? (
+          loading ? (
+            <div className="p-20 text-center text-indigo-500 flex flex-col items-center gap-2">
+              <IconLoader className="animate-spin" size={28} />
+              <span>Cargando...</span>
+            </div>
+          ) : (
+            <div className="flex flex-col min-h-0 h-full">
+              <div className="shrink-0 p-2 border-b border-slate-200 bg-slate-50">
+                <div className="relative max-w-md">
+                  <IconSearch
+                    size={14}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  />
+                  <input
+                    type="search"
+                    value={searchObraText}
+                    onChange={(e) => setSearchObraText(e.target.value)}
+                    placeholder="Buscar obra, brief o partes…"
+                    className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-lg bg-white outline-none focus:ring-2 focus:ring-amber-400"
+                    aria-label="Buscar ajustes"
+                  />
+                </div>
+              </div>
+              {filteredAjustes.length === 0 ? (
+                <div className="p-12 text-center text-slate-500 italic">
+                  {searchObraText.trim() || filterArregladorId
+                    ? "Ningún ajuste coincide con el filtro."
+                    : "No hay ajustes pendientes."}
+                </div>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {filteredAjustes.map((aj) => {
+                    const titulo = stripHtmlForSort(aj.obra_titulo) || `Obra #${aj.id_obra}`;
+                    const tipoLabel =
+                      aj.tipo === "correccion"
+                        ? "Corrección"
+                        : aj.tipo === "parte_alternativa"
+                          ? "Parte alternativa"
+                          : "Cambio menor";
+                    const canDeliver = canActOnAjuste(aj);
+                    const arregladorNom =
+                      arregladorLabelById.get(Number(aj.id_integrante_arreglador)) || null;
+                    return (
+                      <li
+                        key={aj.id}
+                        className="px-3 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 hover:bg-amber-50/40"
+                      >
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                              {tipoLabel}
+                            </span>
+                            {aj.fecha_esperada ? (
+                              <span className="text-[11px] font-mono text-slate-500">
+                                Est. {formatFechaCorta(aj.fecha_esperada)}
+                              </span>
+                            ) : null}
+                            {aj.obra_estado ? (
+                              <span className="text-[10px] text-slate-500">{aj.obra_estado}</span>
+                            ) : null}
+                          </div>
+                          <p className="text-sm font-bold text-slate-800 truncate" title={titulo}>
+                            {titulo}
+                          </p>
+                          {aj.brief ? (
+                            <p className="text-xs text-slate-600 line-clamp-2">{aj.brief}</p>
+                          ) : null}
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
+                            {aj.partes_afectadas ? (
+                              <span>Partes: {aj.partes_afectadas}</span>
+                            ) : null}
+                            {arregladorNom ? <span>Arreglador: {arregladorNom}</span> : null}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {aj.link_drive ? (
+                            <a
+                              href={aj.link_drive}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-2 rounded-lg text-amber-700 hover:bg-amber-50 border border-amber-200/60"
+                              title="Abrir carpeta de la obra"
+                            >
+                              <IconFolder size={16} />
+                            </a>
+                          ) : null}
+                          {canDeliver && (
+                            <button
+                              type="button"
+                              onClick={() => openEntregarAjusteTicket(aj)}
+                              className="text-xs font-bold px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+                            >
+                              Entregar
+                            </button>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {filteredAjustes.length > 0 && (
+                <div className="shrink-0 px-3 py-2 border-t border-slate-200 bg-slate-50/80 text-[10px] font-medium text-slate-500">
+                  {filteredAjustes.length} ajuste{filteredAjustes.length === 1 ? "" : "s"} pendiente
+                  {filteredAjustes.length === 1 ? "" : "s"}
+                </div>
+              )}
+            </div>
+          )
+        ) : loading ? (
           <div className="p-20 text-center text-indigo-500 flex flex-col items-center gap-2">
             <IconLoader className="animate-spin" size={28} />
             <span>Cargando...</span>
@@ -1366,12 +1897,6 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         ) : works.length === 0 && !(canQuickAdd && showQuickRow) ? (
           <div className="p-12 text-center text-slate-500 italic">
             No hay obras con encargos de arreglo para mostrar.
-          </div>
-        ) : filteredWorks.length === 0 && !(canQuickAdd && showQuickRow) ? (
-          <div className="p-12 text-center text-slate-500 italic">
-            {searchObraText.trim()
-              ? "Ninguna obra coincide con la búsqueda."
-              : "Ninguna obra para el arreglador seleccionado."}
           </div>
         ) : (
           <>
@@ -1546,6 +2071,16 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                         </td>
                       </tr>
                 )}
+
+                {filteredWorks.length === 0 && !showQuickRow ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-500 italic text-sm">
+                      {searchObraText.trim()
+                        ? "Ninguna obra coincide con la búsqueda."
+                        : "Ninguna obra para el arreglador seleccionado."}
+                    </td>
+                  </tr>
+                ) : null}
 
                 {paginatedWorks.map((work) => {
                   const draft = getDraft(work.id);
@@ -1725,6 +2260,11 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                             setNewVersionWork(work);
                             setNewVersionModalOpen(true);
                           }}
+                          onSolicitarAjuste={() => {
+                            setSolicitarAjusteObraId(work.id);
+                            setSolicitarAjusteOpen(true);
+                          }}
+                          onEntregarAjusteRapido={() => openCargaPropiaAjuste(work)}
                         />
                         </div>
                       </td>
@@ -1787,6 +2327,13 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
             </div>
 
             <div className="flex-1 overflow-y-auto p-2 space-y-2">
+              {filteredWorks.length === 0 ? (
+                <div className="p-8 text-center text-slate-500 italic text-sm">
+                  {searchObraText.trim()
+                    ? "Ninguna obra coincide con la búsqueda."
+                    : "Ninguna obra para el arreglador seleccionado."}
+                </div>
+              ) : null}
               {paginatedWorks.map((work) => {
                 const fechaFmt = formatFechaCorta(
                   isArregloEntregado(work) ? work.fecha_entrega : work.fecha_esperada,
@@ -2008,6 +2555,36 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         saving={quickSaving}
         mode={isSelfArregloMode ? "self" : "encargo"}
         arregladorFixedLabel={getSolicitanteLabelForUser()}
+      />
+
+      <ArregloAjusteSolicitarModal
+        isOpen={solicitarAjusteOpen}
+        onClose={() => {
+          setSolicitarAjusteOpen(false);
+          setSolicitarAjusteObraId(null);
+        }}
+        obrasOptions={obrasAjusteOptions}
+        integrantesArregladorOptions={integrantesArregladorOptions}
+        defaultArregladorId={DEFAULT_ARREGLADOR_INTEGRANTE_ID}
+        defaultObraId={solicitarAjusteObraId}
+        solicitanteLabel={getSolicitanteLabelForUser()}
+        saving={solicitarAjusteSaving}
+        onSubmit={handleSolicitarAjuste}
+      />
+
+      <ArregloAjusteEntregarModal
+        isOpen={entregarAjusteOpen}
+        onClose={() => {
+          setEntregarAjusteOpen(false);
+          setEntregarAjusteTicket(null);
+          setEntregarAjusteObra(null);
+        }}
+        mode={entregarAjusteMode}
+        ajuste={entregarAjusteTicket}
+        obra={entregarAjusteObra}
+        obrasOptions={obrasAjusteOptions}
+        saving={entregarAjusteSaving}
+        onSubmit={handleEntregarAjuste}
       />
 
       {mobileDetailWorkLive && (

@@ -365,6 +365,129 @@
         `;
       },
 
+      // 5c. Encargo de ajuste menor (ticket obras_ajustes pendiente)
+      encargo_ajuste: (nombreUser: string, _gira: string, d: any) => {
+        const titulo = d.titulo || "-";
+        const arreglador = d.arreglador || "-";
+        const tipo = d.tipo || "cambio_menor";
+        const brief = d.brief || d.observaciones || null;
+        const partes = d.partes_afectadas || null;
+        const idObra = d.id_obra || null;
+        const idAjuste = d.id_ajuste || null;
+        const fechaEstimada = d.fecha_esperada || null;
+        const solicitadoPor = d.solicitado_por || null;
+        const linkDrive = d.link_drive || null;
+        const fechaEstimadaLabel = fechaEstimada
+          ? new Date(fechaEstimada + "T12:00:00").toLocaleDateString("es-AR", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+            })
+          : null;
+        const tipoLabel =
+          tipo === "correccion"
+            ? "Corrección"
+            : tipo === "parte_alternativa"
+              ? "Parte alternativa"
+              : "Cambio menor";
+
+        return `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; font-size: 14px; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background-color: #fef3c7; padding: 15px; border-radius: 6px; margin-bottom: 20px; border-left: 5px solid #f59e0b; }
+              .data-table { width: 100%; border-collapse: collapse; }
+              .data-table td { padding: 8px 0; border-bottom: 1px solid #eee; vertical-align: top; }
+              .label { font-weight: bold; color: #555; width: 140px; }
+              .value { color: #000; font-weight: 500; }
+              .block { margin-top: 12px; padding: 10px; background: #f9fafb; border-radius: 4px; border-left: 3px solid #f59e0b; }
+              .block-title { font-weight: bold; color: #555; margin-bottom: 6px; font-size: 12px; text-transform: uppercase; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h2 style="color: #111; margin-top:0;">Encargo de ajuste</h2>
+              <div class="header">
+                <div><strong>Asignado por:</strong> ${nombreUser || "Sistema"}</div>
+              </div>
+              <p>Se solicitó un <strong>ajuste menor</strong> sobre una obra ya entregada/oficial (no es un arreglo nuevo).</p>
+              <table class="data-table">
+                <tr><td class="label">Título:</td><td class="value">${titulo}</td></tr>
+                <tr><td class="label">Tipo:</td><td class="value">${tipoLabel}</td></tr>
+                <tr><td class="label">Solicitado por:</td><td class="value">${solicitadoPor || "—"}</td></tr>
+                <tr><td class="label">Arreglador:</td><td class="value">${arreglador}</td></tr>
+                ${idObra ? `<tr><td class="label">ID obra:</td><td class="value">${idObra}</td></tr>` : ""}
+                ${idAjuste ? `<tr><td class="label">ID ajuste:</td><td class="value">${idAjuste}</td></tr>` : ""}
+                <tr><td class="label">Fecha estimada:</td><td class="value">${fechaEstimadaLabel || "—"}</td></tr>
+                <tr>
+                  <td class="label">Carpeta obra:</td>
+                  <td class="value">
+                    ${linkDrive ? `<a href="${linkDrive}" style="color:#4f46e5; font-weight:bold;">Abrir Drive</a>` : "Sin carpeta"}
+                  </td>
+                </tr>
+              </table>
+              ${brief ? `<div class="block"><div class="block-title">Brief</div><div>${brief}</div></div>` : ""}
+              ${partes ? `<div class="block"><div class="block-title">Partes afectadas</div><div>${partes}</div></div>` : ""}
+              <p style="font-size: 12px; color: #888; margin-top: 30px; text-align: center;">
+                Notificación automática – Sistema de Gestión OFRN
+              </p>
+            </div>
+          </body>
+          </html>
+        `;
+      },
+
+      // 5d. Ajuste entregado (Archivo + arreglador)
+      ajuste_entregado: (_nombreUser: string, _gira: string, d: any) => {
+        const titulo = d.titulo || "-";
+        const linkDrive = d.link_drive || null;
+        const observacion = d.observacion || "";
+        const idObra = d.id_obra || null;
+        const idAjuste = d.id_ajuste || null;
+        const archivos = Array.isArray(d.archivos) ? d.archivos : [];
+        const lista = archivos
+          .map((a: any) => {
+            const nombre = a?.nombre || a?.name || "archivo";
+            const url = a?.url || "";
+            return url
+              ? `<li><a href="${url}" style="color:#4f46e5;">${nombre}</a></li>`
+              : `<li>${nombre}</li>`;
+          })
+          .join("");
+
+        return `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; font-size: 14px; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background-color: #dcfce7; padding: 15px; border-radius: 6px; margin-bottom: 20px; border-left: 5px solid #16a34a; }
+              .block { margin-top: 12px; padding: 10px; background: #f9fafb; border-radius: 4px; border-left: 3px solid #94a3b8; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h2 style="color: #111; margin-top:0;">Ajuste entregado</h2>
+              <div class="header">
+                <p style="margin: 0;">Se agregaron <strong>partes nuevas versionadas</strong> a la carpeta de la obra (sin reemplazar las anteriores).</p>
+              </div>
+              <p><strong>Título:</strong> ${titulo}</p>
+              ${idObra ? `<p><strong>ID obra:</strong> ${idObra}</p>` : ""}
+              ${idAjuste ? `<p><strong>ID ajuste:</strong> ${idAjuste}</p>` : ""}
+              ${linkDrive ? `<p><a href="${linkDrive}" style="color:#16a34a; font-weight:bold;">Ver carpeta de la obra</a></p>` : ""}
+              ${lista ? `<div class="block"><strong>Archivos creados:</strong><ul>${lista}</ul></div>` : ""}
+              ${observacion ? `<div class="block"><strong>Nota:</strong><br/>${observacion}</div>` : ""}
+              <p style="font-size: 12px; color: #888; margin-top: 30px; text-align: center;">Notificación automática – Sistema de Gestión OFRN</p>
+            </div>
+          </body>
+          </html>
+        `;
+      },
+
       // 6. Obra entregada (notificación al Archivista)
       obra_entregada: (nombreUser: string, _gira: string, d: any) => {
         const titulo = d.titulo || '-';
@@ -594,6 +717,10 @@
           } else if (tid === 'versionado_arreglo') {
             const tipoLabel = detalle?.tipo === 'NUEVO_ARREGLO' ? 'Nuevo arreglo' : 'Reemplazo';
             subject = `[Repertorio] ${tipoLabel}: ${detalle?.titulo || 'Obra'}`;
+          } else if (tid === 'encargo_ajuste') {
+            subject = `[Repertorio] Ajuste: ${detalle?.titulo || 'Obra'}`;
+          } else if (tid === 'ajuste_entregado') {
+            subject = `[Repertorio] Ajuste entregado: ${detalle?.titulo || 'Obra'}`;
           } else if (tid === 'convocatoria_gira') {
             const v = (detalle?.variant || 'INITIAL_BROADCAST').toUpperCase();
             if (v === 'INITIAL_BROADCAST') subject = `Convocatoria a gira | ${nombreGira}`;

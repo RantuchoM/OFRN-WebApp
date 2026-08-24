@@ -2289,6 +2289,350 @@ serve(async (req) => {
       );
     }
 
+    // --- ACCIÓN: ENTREGAR AJUSTE MENOR (siempre partes nuevas versionadas) ---
+    if (action === "entregar_ajuste") {
+      const idAjuste = body.id_ajuste != null ? Number(body.id_ajuste) : null;
+      const idObraAjuste = id_obra != null ? Number(id_obra) : null;
+      const linkCarpetas: string[] = Array.isArray(body.link_carpetas)
+        ? body.link_carpetas.filter((u: unknown) => typeof u === "string" && u.trim())
+        : [];
+      const linkArchivos: string[] = Array.isArray(body.link_archivos)
+        ? body.link_archivos.filter((u: unknown) => typeof u === "string" && u.trim())
+        : [];
+      const archivosUpload: { name?: string; mimeType?: string; base64?: string }[] =
+        Array.isArray(body.archivos) ? body.archivos : [];
+      const observacionAjuste =
+        typeof body.observacion === "string" ? body.observacion.trim() : "";
+
+      if (!idObraAjuste && !idAjuste) {
+        throw new Error("Faltan id_obra o id_ajuste");
+      }
+      if (
+        linkCarpetas.length === 0 &&
+        linkArchivos.length === 0 &&
+        archivosUpload.length === 0
+      ) {
+        throw new Error("Indicá al menos una carpeta, link de archivo o PDF subido");
+      }
+
+      const driveOpts = { supportsAllDrives: true, includeItemsFromAllDrives: true };
+
+      let ajusteRow: any = null;
+      if (idAjuste) {
+        const { data, error } = await supabase
+          .from("obras_ajustes")
+          .select(
+            "id, id_obra, estado, brief, tipo, id_integrante_arreglador, origen",
+          )
+          .eq("id", idAjuste)
+          .single();
+        if (error || !data) throw new Error("Ajuste no encontrado");
+        if (data.estado === "cerrado") throw new Error("El ajuste ya está cerrado");
+        ajusteRow = data;
+      }
+
+      const obraIdFinal = Number(ajusteRow?.id_obra || idObraAjuste);
+      const { data: obra, error: obraError } = await supabase
+        .from("obras")
+        .select("id, titulo, link_drive, comentarios, id_integrante_arreglador")
+        .eq("id", obraIdFinal)
+        .single();
+      if (obraError || !obra) throw new Error("Obra no encontrada");
+      if (!obra.link_drive) {
+        throw new Error("La obra no tiene carpeta Drive (link_drive)");
+      }
+
+      const destFolderId = extractFileId(obra.link_drive);
+      if (!destFolderId) throw new Error("link_drive de la obra inválido");
+
+      const versionStamp = (() => {
+        const parts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "America/Argentina/Buenos_Aires",
+          month: "2-digit",
+          year: "numeric",
+        }).formatToParts(new Date());
+        const mm = parts.find((p) => p.type === "month")?.value || "01";
+        const yyyy = parts.find((p) => p.type === "year")?.value || "2026";
+        return `${mm}-${yyyy}`;
+      })();
+
+      const destList = await drive.files.list({
+        q: `'${destFolderId}' in parents and trashed = false`,
+        fields: "files(id, name, mimeType)",
+        pageSize: 500,
+        ...driveOpts,
+      });
+      const existingNames = new Set(
+        ((destList.data?.files || []) as { name?: string }[])
+          .map((f) => (f.name || "").toLowerCase().trim())
+          .filter(Boolean),
+      );
+
+      const versionedName = (rawName: string): string => {
+        const safe = (rawName || "archivo.pdf").slice(0, 200);
+        const dot = safe.lastIndexOf(".");
+        const base = dot > 0 ? safe.slice(0, dot) : safe;
+        const ext = dot > 0 ? safe.slice(dot) : "";
+        let candidate = `${base} [versión ${versionStamp}]${ext}`;
+        let n = 2;
+        while (existingNames.has(candidate.toLowerCase().trim())) {
+          candidate = `${base} [versión ${versionStamp}] (${n})${ext}`;
+          n += 1;
+        }
+        existingNames.add(candidate.toLowerCase().trim());
+        return candidate;
+      };
+
+      const uploadBytesToDrive = async (
+        name: string,
+        bytes: Uint8Array,
+        mime: string,
+      ): Promise<{ id: string; webViewLink: string; name: string }> => {
+        const form = new FormData();
+        form.append(
+          "metadata",
+          new Blob(
+            [JSON.stringify({ name, parents: [destFolderId], mimeType: mime })],
+            { type: "application/json" },
+          ),
+        );
+        form.append("file", new Blob([bytes], { type: mime }));
+        const upRes = await fetch(
+          "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,webViewLink,name",
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+            body: form,
+          },
+        );
+        const upData = await upRes.json();
+        if (!upRes.ok || upData.error) {
+          throw new Error(upData?.error?.message || `Error subiendo ${name}`);
+        }
+        return {
+          id: upData.id,
+          webViewLink:
+            upData.webViewLink ||
+            `https://drive.google.com/file/d/${upData.id}/view`,
+          name: upData.name || name,
+        };
+      };
+
+      const copyDriveFileAsNew = async (
+        sourceFileId: string,
+        destName: string,
+      ): Promise<{ id: string; webViewLink: string; name: string }> => {
+        const copied = await drive.files.copy({
+          fileId: sourceFileId,
+          requestBody: { name: destName, parents: [destFolderId] },
+          fields: "id, webViewLink, name",
+          ...driveOpts,
+        });
+        return {
+          id: copied.data.id!,
+          webViewLink:
+            copied.data.webViewLink ||
+            `https://drive.google.com/file/d/${copied.data.id}/view`,
+          name: copied.data.name || destName,
+        };
+      };
+
+      type DeliveredFile = { nombre: string; url: string };
+      const delivered: DeliveredFile[] = [];
+
+      for (const folderUrl of linkCarpetas) {
+        const folderId = extractFileId(folderUrl);
+        if (!folderId) throw new Error(`Link de carpeta inválido: ${folderUrl}`);
+        const meta = await drive.files.get({
+          fileId: folderId,
+          fields: "id, mimeType, name",
+          ...driveOpts,
+        });
+        if (meta.data.mimeType !== FOLDER_MIME) {
+          throw new Error(`El link no es una carpeta: ${meta.data.name || folderUrl}`);
+        }
+        const children = await drive.files.list({
+          q: `'${folderId}' in parents and trashed = false`,
+          fields: "files(id, name, mimeType)",
+          pageSize: 500,
+          ...driveOpts,
+        });
+        const files = ((children.data?.files || []) as any[]).filter(
+          (f) => f.mimeType !== FOLDER_MIME,
+        );
+        for (const src of files) {
+          const destName = versionedName(src.name || "archivo.pdf");
+          const copied = await copyDriveFileAsNew(src.id, destName);
+          delivered.push({ nombre: copied.name, url: copied.webViewLink });
+        }
+      }
+
+      for (const fileUrl of linkArchivos) {
+        const fileId = extractFileId(fileUrl);
+        if (!fileId) throw new Error(`Link de archivo inválido: ${fileUrl}`);
+        const meta = await drive.files.get({
+          fileId,
+          fields: "id, mimeType, name",
+          ...driveOpts,
+        });
+        if (meta.data.mimeType === FOLDER_MIME) {
+          throw new Error(
+            `Se esperaba un archivo PDF, no una carpeta: ${meta.data.name || fileUrl}`,
+          );
+        }
+        const destName = versionedName(meta.data.name || "archivo.pdf");
+        const copied = await copyDriveFileAsNew(fileId, destName);
+        delivered.push({ nombre: copied.name, url: copied.webViewLink });
+      }
+
+      for (const up of archivosUpload) {
+        if (!up?.base64 || !up?.name) continue;
+        const destName = versionedName(up.name);
+        const binaryString = atob(String(up.base64).replace(/\s/g, ""));
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const mime = up.mimeType || "application/pdf";
+        const created = await uploadBytesToDrive(destName, bytes, mime);
+        delivered.push({ nombre: created.name, url: created.webViewLink });
+      }
+
+      if (delivered.length === 0) {
+        throw new Error("No se pudo entregar ningún archivo");
+      }
+
+      const particellaRows = delivered.map((f) => ({
+        id_obra: obraIdFinal,
+        id_instrumento: null,
+        nombre_archivo: f.nombre,
+        url_archivo: JSON.stringify([{ url: f.url, description: "" }]),
+        es_solista: false,
+        nota_organico: "Ajuste",
+      }));
+      const { error: partErr } = await supabase
+        .from("obras_particellas")
+        .insert(particellaRows);
+      if (partErr) {
+        console.error("[entregar_ajuste] obras_particellas:", partErr);
+        throw new Error(`Archivos en Drive OK, pero falló particellas: ${partErr.message}`);
+      }
+
+      const listaNombres = delivered.map((f) => f.nombre).join(", ");
+      const comentarioBlock = `[Ajuste] ${new Date().toISOString().slice(0, 10)} — ${listaNombres}${
+        observacionAjuste ? `\n${observacionAjuste}` : ""
+      }`;
+      const prevComentarios = (obra.comentarios || "").trim();
+      const nuevosComentarios = prevComentarios
+        ? `${prevComentarios}\n\n${comentarioBlock}`
+        : comentarioBlock;
+      await supabase
+        .from("obras")
+        .update({ comentarios: nuevosComentarios })
+        .eq("id", obraIdFinal);
+
+      const arregladorId =
+        ajusteRow?.id_integrante_arreglador ||
+        body.id_integrante_arreglador ||
+        obra.id_integrante_arreglador ||
+        null;
+
+      let ajusteIdFinal = idAjuste;
+      if (ajusteRow) {
+        const { error: updAj } = await supabase
+          .from("obras_ajustes")
+          .update({
+            estado: "cerrado",
+            cerrado_at: new Date().toISOString(),
+            archivos_entregados: delivered,
+            brief: observacionAjuste
+              ? [ajusteRow.brief, observacionAjuste].filter(Boolean).join("\n")
+              : ajusteRow.brief,
+          })
+          .eq("id", ajusteRow.id);
+        if (updAj) throw new Error(updAj.message);
+      } else {
+        const { data: createdAj, error: insAj } = await supabase
+          .from("obras_ajustes")
+          .insert([
+            {
+              id_obra: obraIdFinal,
+              tipo: body.tipo || "cambio_menor",
+              estado: "cerrado",
+              origen: body.origen || "carga_propia",
+              id_integrante_arreglador: arregladorId,
+              id_usuario_solicita: body.id_usuario_solicita || null,
+              brief: observacionAjuste || body.brief || null,
+              partes_afectadas: body.partes_afectadas || null,
+              archivos_entregados: delivered,
+              cerrado_at: new Date().toISOString(),
+            },
+          ])
+          .select("id")
+          .single();
+        if (insAj) throw new Error(insAj.message);
+        ajusteIdFinal = createdAj?.id ?? null;
+      }
+
+      const tituloMail =
+        getTituloPrimeraLinea(obra.titulo || "") || `Obra #${obraIdFinal}`;
+      let emailArreglador: string | null = null;
+      if (arregladorId) {
+        const { data: intRow } = await supabase
+          .from("integrantes")
+          .select("mail, apellido, nombre")
+          .eq("id", arregladorId)
+          .maybeSingle();
+        emailArreglador = intRow?.mail || null;
+      }
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL");
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      const detalleMail = {
+        titulo: tituloMail,
+        id_obra: obraIdFinal,
+        id_ajuste: ajusteIdFinal,
+        link_drive: obra.link_drive,
+        archivos: delivered,
+        observacion: observacionAjuste || ajusteRow?.brief || "",
+        tipo: ajusteRow?.tipo || body.tipo || "cambio_menor",
+      };
+
+      const sendAjusteMail = async (to: string) => {
+        if (!supabaseUrl || !serviceKey || !to) return;
+        await fetch(`${supabaseUrl}/functions/v1/mails_produccion`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({
+            action: "enviar_mail",
+            templateId: "ajuste_entregado",
+            email: to,
+            nombre: "Sistema",
+            gira: null,
+            detalle: detalleMail,
+          }),
+        }).catch((e) => console.error("[entregar_ajuste] mail:", e));
+      };
+
+      await sendAjusteMail("ofrn.archivo@gmail.com");
+      if (emailArreglador && emailArreglador !== "ofrn.archivo@gmail.com") {
+        await sendAjusteMail(emailArreglador);
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          id_ajuste: ajusteIdFinal,
+          id_obra: obraIdFinal,
+          archivos: delivered,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // --- ACCIÓN: CREAR CARPETA DE VIÁTICOS/GIRA (Insertar esto) ---
     if (action === "create_viaticos_folder") {
       if (!giraId) throw new Error("ID de gira no proporcionado");
