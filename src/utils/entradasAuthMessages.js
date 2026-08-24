@@ -4,24 +4,84 @@ const NETWORK_EDGE_PATTERNS = [
   /edge function returned a non-2xx/i,
   /networkerror/i,
   /failed to fetch/i,
+  /couldn'?t fetch/i,
+  /could not fetch/i,
   /load failed/i,
   /network request failed/i,
+  /network connection was lost/i,
+  /internet connection appears to be offline/i,
+  /err_internet_disconnected/i,
+  /err_network_changed/i,
+  /err_connection/i,
   /\btimeout\b/i,
   /\baborted\b/i,
   /fetch failed/i,
   /network error/i,
+  /sin señal/i,
+  /sin conexi[oó]n/i,
 ];
 
 function rawAuthErrorMessage(errorOrMessage) {
   if (typeof errorOrMessage === "string") return errorOrMessage.trim();
-  return String(errorOrMessage?.message || errorOrMessage || "").trim();
+  if (!errorOrMessage) return "";
+  const parts = [
+    errorOrMessage.message,
+    errorOrMessage.details,
+    errorOrMessage.hint,
+    errorOrMessage.name,
+    typeof errorOrMessage.toString === "function" && errorOrMessage.toString !== Object.prototype.toString
+      ? String(errorOrMessage)
+      : "",
+  ]
+    .map((p) => String(p || "").trim())
+    .filter(Boolean);
+  return parts.join(" ").trim() || String(errorOrMessage).trim();
 }
 
 /** Errores de red / timeout (RPC, REST o edge). */
 export function isEntradasNetworkError(errorOrMessage) {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+  if (errorOrMessage?.name === "TypeError" && /fetch|network|load/i.test(rawAuthErrorMessage(errorOrMessage))) {
+    return true;
+  }
   const raw = rawAuthErrorMessage(errorOrMessage);
   if (!raw) return false;
   return NETWORK_EDGE_PATTERNS.some((re) => re.test(raw));
+}
+
+/**
+ * Mensaje en español para fallos de red (nunca devolver TypeError / Failed to fetch crudo).
+ * @param {"snapshot"|"snapshot_cached"|"ingreso"|"auth_request"|"auth_verify"|"generic"} context
+ */
+export function formatEntradasNetworkError(errorOrMessage, { context = "generic" } = {}) {
+  const msgs = {
+    snapshot: "Sin conexión: no se pudo actualizar el roster. Revisá la señal e intentá de nuevo.",
+    snapshot_cached: "Sin conexión: se usa el roster guardado en este dispositivo.",
+    ingreso: "Sin conexión. El ingreso puede quedar pendiente de sincronizar; reintentá cuando haya señal.",
+    auth_verify:
+      "No pudimos conectar con el servidor para validar el acceso. Revisá tu conexión a internet e intentá de nuevo en unos segundos.",
+    auth_request:
+      "No pudimos conectar con el servidor para enviar el enlace. Revisá tu conexión a internet e intentá de nuevo en unos segundos.",
+    generic: MSG_RED_GENERICA,
+  };
+
+  if (
+    context === "snapshot"
+    || context === "snapshot_cached"
+    || context === "ingreso"
+  ) {
+    return msgs[context];
+  }
+
+  if (!isEntradasNetworkError(errorOrMessage)) {
+    const raw = rawAuthErrorMessage(errorOrMessage);
+    if (/typeerror|failed to fetch|couldn'?t fetch|networkerror|load failed/i.test(raw)) {
+      return msgs.generic;
+    }
+    return raw || msgs.generic;
+  }
+
+  return msgs[context] || msgs.generic;
 }
 
 /**
@@ -42,10 +102,10 @@ export function formatEntradasAuthError(errorOrMessage, { action = "request" } =
       : "No se pudo enviar el enlace. Intentá de nuevo.";
   }
 
-  if (NETWORK_EDGE_PATTERNS.some((re) => re.test(raw))) {
-    return action === "verify"
-      ? "No pudimos conectar con el servidor para validar el acceso. Revisá tu conexión a internet e intentá de nuevo en unos segundos."
-      : "No pudimos conectar con el servidor para enviar el enlace. Revisá tu conexión a internet e intentá de nuevo en unos segundos.";
+  if (isEntradasNetworkError(errorOrMessage)) {
+    return formatEntradasNetworkError(errorOrMessage, {
+      context: action === "verify" ? "auth_verify" : "auth_request",
+    });
   }
 
   if (/edge function|functionshttp|supabase functions/i.test(raw)) {

@@ -29,7 +29,8 @@
 
 - [x] Al elegir concierto en Recepción: descarga roster (`entrada_recepcion_snapshot`) → IndexedDB en el dispositivo.
 - [x] Primera carga sin caché: cartel **«Descargando entradas…»**; cámara/código bloqueados hasta `ready` (o error con reintento).
-- [x] Encabezado: **«Actualizado a las hh:mm:ss»** (+ plazas), **Sin conexión**, y conteo de ingresos pendientes de sincronizar.
+- [x] Errores de red en recepción (snapshot / ingreso / cola): mensaje en español («Sin conexión…»), nunca `TypeError` / `Failed to fetch` / `couldn't fetch` crudo.
+
 - [x] Pull cada **~10 s** (y al volver online / tras flush de cola).
 - [x] Stats: last-known-good (no se ponen en 0/0 si falla el fetch).
 - [x] Fase 2: match offline del QR contra el snapshot (`matchTokenEnSnapshot` + `entradaQrHash.js`) antes del RPC; marca optimista en IndexedDB.

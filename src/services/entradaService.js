@@ -815,12 +815,19 @@ export async function validarYConsumirQr({
 export async function fetchRecepcionSnapshot(conciertoId) {
   const cid = Number(conciertoId);
   if (!Number.isFinite(cid) || cid <= 0) throw new Error("Concierto inválido.");
-  const { data, error } = await supabaseEntradasPublic.rpc("entrada_recepcion_snapshot", {
-    p_concierto_id: cid,
-  });
-  if (error) throw error;
-  if (!data?.ok) throw new Error(data?.detalle || data?.reason || "No se pudo descargar el roster.");
-  return data;
+  try {
+    const { data, error } = await supabaseEntradasPublic.rpc("entrada_recepcion_snapshot", {
+      p_concierto_id: cid,
+    });
+    if (error) throw error;
+    if (!data?.ok) throw new Error(data?.detalle || data?.reason || "No se pudo descargar el roster.");
+    return data;
+  } catch (err) {
+    if (isEntradasNetworkError(err)) {
+      throw new Error("Sin conexión: no se pudo actualizar el roster. Revisá la señal e intentá de nuevo.");
+    }
+    throw err;
+  }
 }
 
 export async function listAdminData() {

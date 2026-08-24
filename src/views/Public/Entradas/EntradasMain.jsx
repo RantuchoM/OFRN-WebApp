@@ -90,7 +90,7 @@ import {
   tokenToQrDataUrl,
   validarYConsumirQr,
 } from "../../../services/entradaService";
-import { isEntradasNetworkError } from "../../../utils/entradasAuthMessages";
+import { isEntradasNetworkError, formatEntradasNetworkError } from "../../../utils/entradasAuthMessages";
 import {
   countRecepcionIngresosPendientes,
   enqueueRecepcionIngreso,
@@ -1573,13 +1573,15 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           setRecepcionSnapshotAt(local.savedAt || local.generatedAt);
           setRecepcionSnapshotPlazaCount(local.plazaCount || 0);
           setRecepcionSnapshotError(
-            err?.message || "Sin conexión: se usa el roster guardado en este dispositivo.",
+            formatEntradasNetworkError(err, { context: "snapshot_cached" }),
           );
           return local;
         }
         setRecepcionSnapshotStatus("error");
         setRecepcionSnapshotError(
-          err?.message || "No se pudieron descargar las entradas. Revisá la señal e intentá de nuevo.",
+          isEntradasNetworkError(err) || /typeerror|fetch|network|load failed/i.test(String(err?.message || err || ""))
+            ? formatEntradasNetworkError(err, { context: "snapshot" })
+            : (err?.message || formatEntradasNetworkError(err, { context: "snapshot" })),
         );
         return null;
       } finally {
@@ -1649,13 +1651,15 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
             if (isEntradasNetworkError(err) || /señal|conectar|conexión/i.test(String(err?.message || ""))) {
               await updateRecepcionIngresoQueueItem(item.clientOpId, {
                 status: "pending",
-                lastError: err?.message || "Sin red",
+                lastError: formatEntradasNetworkError(err, { context: "ingreso" }),
               });
               break;
             }
             await updateRecepcionIngresoQueueItem(item.clientOpId, {
               status: "failed",
-              lastError: err?.message || "Error al sincronizar",
+              lastError: /typeerror|failed to fetch|couldn'?t fetch/i.test(String(err?.message || ""))
+                ? formatEntradasNetworkError(err, { context: "ingreso" })
+                : (err?.message || "Error al sincronizar"),
             });
           }
         }
@@ -1988,9 +1992,14 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       if (isEntradasNetworkError(err) || /señal|conectar|conexión/i.test(String(err?.message || ""))) {
         // Último recurso: si había match no debería llegar acá; encolar genérico no es seguro sin match.
         setRecepcionIngresoNetworkError(true);
-        toast.error(err?.message || "Sin conexión. Podés reintentar el ingreso.");
+        toast.error(formatEntradasNetworkError(err, { context: "ingreso" }));
       } else {
-        toast.error(err?.message || "No se pudo registrar el ingreso.");
+        const msg = String(err?.message || "");
+        toast.error(
+          /typeerror|failed to fetch|couldn'?t fetch|networkerror|load failed/i.test(msg)
+            ? formatEntradasNetworkError(err, { context: "ingreso" })
+            : (msg || "No se pudo registrar el ingreso."),
+        );
       }
     } finally {
       setIngresando(false);
