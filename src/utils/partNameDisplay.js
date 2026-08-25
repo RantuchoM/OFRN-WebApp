@@ -40,8 +40,9 @@ export function isPartIdentifierToken(token) {
 }
 
 /**
- * Separa el nombre para truncar el inicio y conservar el final
- * (nº de parte / tonalidad). Ej: "Clarinete Bb 2" → head "Clarinete", tail " Bb 2".
+ * Separa el nombre para truncar el inicio y conservar el nº de parte al final.
+ * Solo se fija el último identificador (2, I, EH…) para no aplastar el nombre
+ * en columnas angostas. Ej: "Clarinete Bb 2" → head "Clarinete Bb", tail "\u00A02".
  * Si no hay identificador corto al final, no hay cola (ellipsis CSS normal).
  */
 export function splitPartNameForTruncation(name) {
@@ -51,22 +52,20 @@ export function splitPartNameForTruncation(name) {
   const tokens = text.split(/\s+/).filter(Boolean);
   if (tokens.length <= 1) return { head: text, tail: "" };
 
-  let keepFrom = tokens.length;
-  while (keepFrom > 1) {
-    const token = tokens[keepFrom - 1];
-    if (isPunctuationToken(token) || isPartIdentifierToken(token)) {
-      keepFrom -= 1;
-      continue;
-    }
-    break;
-  }
-
-  if (keepFrom === tokens.length) {
+  const last = tokens[tokens.length - 1];
+  if (!isPartIdentifierToken(last) && !isPunctuationToken(last)) {
     return { head: text, tail: "" };
   }
 
+  let keepFrom = tokens.length - 1;
+  while (keepFrom > 1 && isPunctuationToken(tokens[keepFrom - 1])) {
+    keepFrom -= 1;
+  }
+  if (keepFrom < 1) keepFrom = 1;
+
   return {
     head: tokens.slice(0, keepFrom).join(" "),
-    tail: ` ${tokens.slice(keepFrom).join(" ")}`,
+    // nbsp: `whitespace-nowrap` colapsa espacios normales al inicio del span
+    tail: `\u00A0${tokens.slice(keepFrom).join(" ")}`,
   };
 }

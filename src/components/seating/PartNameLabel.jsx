@@ -95,15 +95,15 @@ export default function PartNameLabel({
     <>
       <span
         className={`inline-flex min-w-0 max-w-full overflow-hidden items-baseline ${className}`}
-        onMouseEnter={handleEnter}
-        onMouseLeave={hideTooltip}
-        onFocus={handleEnter}
-        onBlur={hideTooltip}
+        onMouseEnter={showTooltip ? handleEnter : undefined}
+        onMouseLeave={showTooltip ? hideTooltip : undefined}
+        onFocus={showTooltip ? handleEnter : undefined}
+        onBlur={showTooltip ? hideTooltip : undefined}
         aria-label={fullName}
       >
         <span className={`truncate min-w-0 ${textClassName}`}>{head}</span>
         {tail ? (
-          <span className={`shrink-0 whitespace-nowrap ${textClassName}`}>
+          <span className={`shrink-0 whitespace-pre ${textClassName}`}>
             {tail}
           </span>
         ) : null}
