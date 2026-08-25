@@ -16,6 +16,7 @@ import {
   getTramoGroupRows,
   isTramoViaticoRow,
   parseEtiquetaTramo,
+  resolveLugarComisionAutoForRow,
 } from "../../../utils/viaticosParadasIntegrante";
 import { resolveViaticoRowLogData } from "../../../utils/viaticosLogisticsSchedule";
 import DiasComputablesHelp from "./DiasComputablesHelp";
@@ -105,6 +106,108 @@ function TramoEtiquetaEditor({ row, onUpdateRow, getInputClass }) {
       >
         <IconEdit size={11} />
       </button>
+    </div>
+  );
+}
+
+/**
+ * Lugar de comisión: override persistido o default celeste desde paradas del transporte.
+ */
+function LugarComisionCell({
+  row,
+  config,
+  logisticsTransportsByPerson,
+  allEvents,
+  expanded,
+  onExpand,
+  onCollapse,
+  onUpdateRow,
+  getInputClass,
+}) {
+  const autoLugar = resolveLugarComisionAutoForRow(
+    row,
+    logisticsTransportsByPerson,
+    allEvents,
+  );
+  const stored = String(row.lugar_comision || "").trim();
+  const hasOverride = stored.length > 0;
+  const resolvedDisplay = hasOverride ? row.lugar_comision || "" : autoLugar;
+  const isAuto = !hasOverride && Boolean(autoLugar);
+  const placeholder =
+    autoLugar || config?.lugar_comision || "Lugar general";
+
+  const [draft, setDraft] = useState(null);
+  const isEditing = draft !== null;
+  const displayValue = isEditing ? draft : resolvedDisplay;
+
+  const commitDraft = (raw) => {
+    const next = String(raw ?? "");
+    const nextTrim = next.trim();
+    const autoTrim = String(autoLugar || "").trim();
+    if (!nextTrim || nextTrim === autoTrim) {
+      if (hasOverride) onUpdateRow(row.id, "lugar_comision", "");
+    } else if (next !== (row.lugar_comision || "")) {
+      onUpdateRow(row.id, "lugar_comision", next);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="relative min-h-[28px]">
+        <textarea
+          className={`text-xs border rounded px-1 py-1 w-full outline-none transition-all resize-y ${
+            expanded
+              ? "absolute left-0 top-0 z-30 min-h-[110px] w-[420px] bg-white shadow-xl border-indigo-400"
+              : "h-[28px] max-h-[28px] overflow-hidden focus:border-indigo-400"
+          } ${
+            hasOverride
+              ? "bg-white border-indigo-200 text-indigo-700 font-medium"
+              : isAuto
+                ? "bg-cyan-50/90 border-cyan-200 text-cyan-800"
+                : "bg-slate-50 border-slate-200 text-slate-500 italic"
+          } ${getInputClass(row.id, "lugar_comision")}`}
+          placeholder={placeholder}
+          value={displayValue}
+          title={
+            isAuto
+              ? "Localidades del transporte (subida → bajada). Editá para personalizar."
+              : hasOverride
+                ? "Lugar de comisión personalizado"
+                : undefined
+          }
+          onFocus={() => {
+            setDraft(resolvedDisplay);
+            onExpand(row.id);
+          }}
+          onBlur={() => {
+            commitDraft(draft);
+            setDraft(null);
+            onCollapse();
+          }}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+      </div>
+      {hasOverride && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            title={
+              autoLugar
+                ? "Restaurar localidades del transporte"
+                : "Volver al valor automático"
+            }
+            className="inline-flex items-center justify-center rounded-full border border-slate-200/90 bg-white p-0.5 text-slate-400 shadow-sm hover:border-cyan-300 hover:text-cyan-700 hover:shadow"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDraft(null);
+              onUpdateRow(row.id, "lugar_comision", "");
+            }}
+          >
+            <IconRefresh size={7} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -904,34 +1007,19 @@ export default function ViaticosTable({
                           </div>
                         </td>
                         <td className="p-2 border-r border-slate-100">
-                          <div className="flex flex-col">
-                            <div className="relative min-h-[28px]">
-                              <textarea
-                                className={`text-xs border rounded px-1 py-1 w-full outline-none transition-all resize-y ${
-                                  expandedLugarRowId === row.id
-                                    ? "absolute left-0 top-0 z-30 min-h-[110px] w-[420px] bg-white shadow-xl border-indigo-400"
-                                    : "h-[28px] max-h-[28px] overflow-hidden focus:border-indigo-400"
-                                } ${
-                                  row.lugar_comision
-                                    ? "bg-white border-indigo-200 text-indigo-700 font-medium"
-                                    : "bg-slate-50 border-slate-200 text-slate-500 italic"
-                                } ${getInputClass(row.id, "lugar_comision")}`}
-                                placeholder={
-                                  config?.lugar_comision || "Lugar general"
-                                }
-                                value={row.lugar_comision || ""}
-                                onFocus={() => setExpandedLugarRowId(row.id)}
-                                onBlur={() => setExpandedLugarRowId(null)}
-                                onChange={(e) =>
-                                  onUpdateRow(
-                                    row.id,
-                                    "lugar_comision",
-                                    e.target.value,
-                                  )
-                                }
-                              />
-                            </div>
-                          </div>
+                          <LugarComisionCell
+                            row={row}
+                            config={config}
+                            logisticsTransportsByPerson={
+                              logisticsTransportsByPerson
+                            }
+                            allEvents={allEvents}
+                            expanded={expandedLugarRowId === row.id}
+                            onExpand={setExpandedLugarRowId}
+                            onCollapse={() => setExpandedLugarRowId(null)}
+                            onUpdateRow={onUpdateRow}
+                            getInputClass={getInputClass}
+                          />
                         </td>
                         <td className={`${cellClass} text-xs text-slate-600`}>
                           <span className="truncate block" title={row.asiento_habitual || ""}>

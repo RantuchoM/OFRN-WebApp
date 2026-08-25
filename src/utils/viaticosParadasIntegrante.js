@@ -1,5 +1,10 @@
 /** Paradas (eventos) entre subida y bajada del integrante en cada transporte asignado. */
 
+import {
+  resolveLocalidadEfectivaViaticos,
+  resolveLocalidadResidencia,
+} from "./integranteDomicilioViaticos";
+
 const sliceTime = (value) => {
   if (!value) return null;
   return String(value).slice(0, 5);
@@ -79,22 +84,14 @@ export function groupParadasByRecorrido(paradas) {
 }
 
 /**
- * Paradas en las que participa el integrante (entre su subida y bajada por transporte).
+ * Paradas entre subida y bajada (inclusive) por cada transporte asignado.
+ * @param {object[]} transports - person.logistics.transports
+ * @param {object[]} allEvents
  */
-export function getParadasParticipacionIntegrante(
-  integranteId,
-  summary,
-  allEvents,
-) {
-  const person = (summary || []).find(
-    (p) => String(p.id) === String(integranteId),
-  );
-  if (!person) return [];
-
-  const transports = person.logistics?.transports || [];
+export function getParadasParticipacionFromTransports(transports, allEvents) {
   const byId = new Map();
 
-  transports.forEach((t) => {
+  (transports || []).forEach((t) => {
     const subidaId = t.subidaId;
     const bajadaId = t.bajadaId;
     if (!subidaId || !bajadaId) return;
@@ -127,6 +124,130 @@ export function getParadasParticipacionIntegrante(
   });
 
   return sortEventosCronologico(Array.from(byId.values()));
+}
+
+/**
+ * Paradas en las que participa el integrante (entre su subida y bajada por transporte).
+ */
+export function getParadasParticipacionIntegrante(
+  integranteId,
+  summary,
+  allEvents,
+) {
+  const person = (summary || []).find(
+    (p) => String(p.id) === String(integranteId),
+  );
+  if (!person) return [];
+
+  return getParadasParticipacionFromTransports(
+    person.logistics?.transports || [],
+    allEvents,
+  );
+}
+
+function normalizeLocalidadKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+/**
+ * Recorta paradas al tramo de la fila (inicio→fin inclusive) si está desdoblada.
+ */
+export function sliceParadasForViaticoRow(paradas, row) {
+  const inicioId = row?.id_evento_parada_inicio;
+  const finId = row?.id_evento_parada_fin;
+  if (!inicioId || !finId || !paradas?.length) return paradas || [];
+
+  const sorted = sortEventosCronologico(paradas);
+  const startIdx = sorted.findIndex((e) => String(e.id) === String(inicioId));
+  const endIdx = sorted.findIndex((e) => String(e.id) === String(finId));
+  if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) return sorted;
+  return sorted.slice(startIdx, endIdx + 1);
+}
+
+/**
+ * Localidades únicas (orden de parada) unidas por coma — default de Lugar de Comisión.
+ * @param {object[]} paradas
+ * @param {{ excludeNames?: string[], excludeIds?: Array<string|number|null> }} [options]
+ */
+export function lugarComisionAutoFromParadas(paradas, options = {}) {
+  const excludeKeys = new Set(
+    (options.excludeNames || [])
+      .map((n) => normalizeLocalidadKey(n))
+      .filter(Boolean),
+  );
+  const excludeIds = new Set(
+    (options.excludeIds || [])
+      .filter((id) => id != null && id !== "")
+      .map((id) => String(id)),
+  );
+
+  const seen = new Set();
+  const names = [];
+  for (const evt of paradas || []) {
+    const locId =
+      evt?.locaciones?.id_localidad ??
+      evt?.locaciones?.localidades?.id ??
+      evt?.id_localidad ??
+      null;
+    if (locId != null && excludeIds.has(String(locId))) continue;
+
+    const name = String(
+      evt?.locaciones?.localidades?.localidad || "",
+    ).trim();
+    if (!name) continue;
+    const key = normalizeLocalidadKey(name);
+    if (!key || seen.has(key) || excludeKeys.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names.join(", ");
+}
+
+function collectExcludeLocalidadPropia(row) {
+  const person = Array.isArray(row?.integrantes)
+    ? row.integrantes[0]
+    : row?.integrantes || row;
+  const loc = resolveLocalidadEfectivaViaticos(person);
+  const res = resolveLocalidadResidencia(person);
+
+  const excludeNames = [
+    loc?.nombre,
+    res?.nombre,
+    row?.ciudad_origen,
+    row?.asiento_habitual,
+  ].filter(Boolean);
+
+  const excludeIds = [loc?.id, res?.id].filter(
+    (id) => id != null && id !== "",
+  );
+
+  return { excludeNames, excludeIds };
+}
+
+/**
+ * Default de lugar de comisión para una fila individual (paradas entre subida y bajada).
+ * Omite la localidad propia del integrante (viáticos / residencia / ciudad origen).
+ */
+export function resolveLugarComisionAutoForRow(
+  row,
+  logisticsTransportsByPerson = {},
+  allEvents = [],
+) {
+  if (!row?.id_integrante) return "";
+  const transports =
+    logisticsTransportsByPerson[String(row.id_integrante)] || [];
+  const paradas = sliceParadasForViaticoRow(
+    getParadasParticipacionFromTransports(transports, allEvents),
+    row,
+  );
+  return lugarComisionAutoFromParadas(
+    paradas,
+    collectExcludeLocalidadPropia(row),
+  );
 }
 
 function eventoToSchedulePoint(evt) {

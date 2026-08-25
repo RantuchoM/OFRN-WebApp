@@ -6,6 +6,7 @@ import {
   resolveLocalidadEfectivaViaticos,
   resolveLocalidadNombresReferenciaRecorrido,
 } from "./integranteDomicilioViaticos";
+import { resolveLugarComisionAutoForRow } from "./viaticosParadasIntegrante";
 
 /** PDF de viático, destaque o rendición requieren motivo y lugar de comisión. */
 export function exportIncludesMotivoLugarPdf(options) {
@@ -28,9 +29,27 @@ export function resolveMotivoViaticosIndividual(row, config = {}) {
   return trimOrEmpty(config.motivo);
 }
 
-export function resolveLugarViaticosIndividual(row, config = {}) {
+/**
+ * Lugar de comisión individual: override de fila → localidades del transporte
+ * (subida→bajada) → lugar general de la gira.
+ * @param {object} [options]
+ * @param {Record<string, object[]>} [options.logisticsTransportsByPerson]
+ * @param {object[]} [options.allEvents]
+ * @param {string} [options.lugarFromParadas] - precomputado (evita recalcular)
+ */
+export function resolveLugarViaticosIndividual(row, config = {}, options = {}) {
   const personal = trimOrEmpty(row?.lugar_comision);
   if (personal) return personal;
+
+  const fromParadas = hasText(options.lugarFromParadas)
+    ? trimOrEmpty(options.lugarFromParadas)
+    : resolveLugarComisionAutoForRow(
+        row,
+        options.logisticsTransportsByPerson || {},
+        options.allEvents || [],
+      );
+  if (fromParadas) return fromParadas;
+
   return trimOrEmpty(config.lugar_comision);
 }
 
@@ -97,7 +116,10 @@ export function collectMotivoLugarWarningsForExport(rows, config, options = {}) 
         : resolveMotivoViaticosIndividual(row, config);
       const lugar = isDestaquesBatch
         ? resolveLugarDestaqueExport(row, config, localityNameById)
-        : resolveLugarViaticosIndividual(row, config);
+        : resolveLugarViaticosIndividual(row, config, {
+            logisticsTransportsByPerson: options.logisticsTransportsByPerson,
+            allEvents: options.allEvents,
+          });
       if (!hasText(motivo)) missingMotivo = true;
       if (!hasText(lugar)) missingLugar = true;
     }

@@ -1715,7 +1715,10 @@ const collectTransportSupportDocs = (personData) => {
           ...row,
           id: row.id,
           motivo: resolveMotivoViaticosIndividual(row, config),
-          lugar_comision: resolveLugarViaticosIndividual(row, config),
+          lugar_comision: resolveLugarViaticosIndividual(row, config, {
+            logisticsTransportsByPerson,
+            allEvents,
+          }),
           subtotal: effectiveSubtotal,
           totalFinal: totalFinalNorm,
           patente_oficial: patenteOficialFromRow || patenteOficialFromLogistics,
@@ -1754,6 +1757,8 @@ const collectTransportSupportDocs = (personData) => {
       unificationMode:
         options.unificationMode ||
         (options.unifyFiles ? "master" : "individual"),
+      logisticsTransportsByPerson,
+      allEvents,
     };
 
     const selectedData = buildSelectedExportData();
