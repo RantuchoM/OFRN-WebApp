@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { IconPlus, IconCheck, IconChevronDown, IconX } from "../ui/Icons";
+import PartNameLabel, { usePartNameTooltip } from "./PartNameLabel";
+import { getPartDisplayName } from "../../utils/partNameDisplay";
 
 export const CreateParticellaModal = ({ isOpen, onClose, onConfirm, instrumentList, defaultInstrumentId }) => {
   const [selectedInstr, setSelectedInstr] = useState(defaultInstrumentId || "");
@@ -50,10 +52,33 @@ export const CreateParticellaModal = ({ isOpen, onClose, onConfirm, instrumentLi
   );
 };
 
+const ParticellaTriggerLabel = ({
+  displayName,
+  showCountLabel,
+  currentAssignedCount,
+  countClassName,
+  textClassName = "",
+}) => (
+  <span className="flex min-w-0 w-full items-center">
+    <PartNameLabel
+      name={displayName}
+      showTooltip={false}
+      className="flex-1"
+      textClassName={textClassName}
+    />
+    {showCountLabel && (
+      <span className={`ml-1 shrink-0 font-extrabold ${countClassName}`}>
+        [x{currentAssignedCount}]
+      </span>
+    )}
+  </span>
+);
+
 export const ParticellaSelect = ({ options, value, onChange, onRequestCreate, placeholder = "-", disabled = false, preferredInstrumentId = null, counts = {} }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const containerRef = useRef(null);
+  const { showTooltip, hideTooltip, tooltipNode } = usePartNameTooltip();
 
   useEffect(() => {
     const handleClick = (e) => { if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false); };
@@ -62,12 +87,33 @@ export const ParticellaSelect = ({ options, value, onChange, onRequestCreate, pl
   }, [isOpen]);
 
   const selectedOption = options.find((o) => o.id === value);
+  const selectedName = getPartDisplayName(selectedOption) || (selectedOption ? "Sin nombre" : "");
   const currentAssignedCount = value ? counts[value] || 0 : 0;
   const showCountLabel = currentAssignedCount > 1;
 
+  const handleTriggerEnter = (event) => {
+    if (!selectedName) return;
+    showTooltip(event.currentTarget, selectedName);
+  };
+
   if (disabled) return (
-    <div className="w-full h-full min-h-[24px] px-1 text-[10px] border border-transparent flex items-center justify-center text-slate-600 bg-transparent truncate cursor-default" title={selectedOption?.nombre_archivo}>
-      {selectedOption ? (<span>{selectedOption.nombre_archivo || selectedOption.instrumentos?.instrumento}{showCountLabel && (<span className="font-bold ml-1 text-slate-800">[x{currentAssignedCount}]</span>)}</span>) : ("-")}
+    <div
+      className="w-full h-full min-h-[24px] px-1 text-[10px] border border-transparent flex items-center justify-center text-slate-600 bg-transparent cursor-default min-w-0"
+      onMouseEnter={handleTriggerEnter}
+      onMouseLeave={hideTooltip}
+      aria-label={selectedName || undefined}
+    >
+      {selectedOption ? (
+        <ParticellaTriggerLabel
+          displayName={selectedName}
+          showCountLabel={showCountLabel}
+          currentAssignedCount={currentAssignedCount}
+          countClassName="text-slate-800"
+        />
+      ) : (
+        "-"
+      )}
+      {tooltipNode}
     </div>
   );
 
@@ -78,11 +124,25 @@ export const ParticellaSelect = ({ options, value, onChange, onRequestCreate, pl
   const handleSelect = (id) => { onChange(id); setIsOpen(false); setSearch(""); };
   const renderOption = (opt) => {
     const assignedCount = counts[opt.id] || 0;
+    const optionName = getPartDisplayName(opt) || "Sin nombre";
     return (
-      <button key={opt.id} onClick={() => handleSelect(opt.id)} className={`w-full text-left px-2 py-1 text-[10px] rounded hover:bg-indigo-50 flex items-center justify-between group ${value === opt.id ? "bg-indigo-50 text-indigo-700 font-bold" : "text-slate-700"}`}>
-        <div className="truncate w-full">
-          <div className="flex items-center justify-between w-full">
-            <span className="block font-medium truncate text-slate-800">{opt.nombre_archivo || "Sin nombre"}</span>
+      <button
+        key={opt.id}
+        type="button"
+        onClick={() => handleSelect(opt.id)}
+        onMouseEnter={(event) => showTooltip(event.currentTarget, optionName)}
+        onMouseLeave={hideTooltip}
+        className={`w-full text-left px-2 py-1 text-[10px] rounded hover:bg-indigo-50 flex items-center justify-between group min-w-0 ${value === opt.id ? "bg-indigo-50 text-indigo-700 font-bold" : "text-slate-700"}`}
+        aria-label={optionName}
+      >
+        <div className="min-w-0 w-full">
+          <div className="flex items-center justify-between w-full min-w-0 gap-1">
+            <PartNameLabel
+              name={optionName}
+              showTooltip={false}
+              className="flex-1"
+              textClassName="font-medium text-slate-800"
+            />
             {assignedCount > 0 && (<span className="ml-1 text-[8px] bg-slate-100 text-slate-500 px-1 rounded-full border border-slate-200 shrink-0">{assignedCount}</span>)}
           </div>
           <span className="text-[9px] text-slate-400 font-normal truncate block">{opt.instrumentos?.instrumento || "Sin instr."}</span>
@@ -93,9 +153,29 @@ export const ParticellaSelect = ({ options, value, onChange, onRequestCreate, pl
   };
 
   return (
-    <div className="relative w-full h-full" ref={containerRef}>
-      <button onClick={() => setIsOpen(!isOpen)} className={`w-full h-full min-h-[24px] text-left px-1 text-[10px] border rounded transition-colors flex items-center justify-between gap-0.5 ${value ? "bg-indigo-50 border-indigo-200 text-indigo-700 font-bold" : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"}`}>
-        <span className="truncate block w-full">{selectedOption ? (<>{selectedOption.nombre_archivo || selectedOption.instrumentos?.instrumento}{showCountLabel && (<span className="text-indigo-900 ml-1 font-extrabold">[x{currentAssignedCount}]</span>)}</>) : (placeholder)}</span>
+    <div className="relative w-full h-full min-w-0" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => {
+          hideTooltip();
+          setIsOpen(!isOpen);
+        }}
+        onMouseEnter={handleTriggerEnter}
+        onMouseLeave={hideTooltip}
+        aria-label={selectedName || placeholder}
+        className={`w-full h-full min-h-[24px] min-w-0 text-left px-1 text-[10px] border rounded transition-colors flex items-center justify-between gap-0.5 ${value ? "bg-indigo-50 border-indigo-200 text-indigo-700 font-bold" : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"}`}
+      >
+        {selectedOption ? (
+          <ParticellaTriggerLabel
+            displayName={selectedName}
+            showCountLabel={showCountLabel}
+            currentAssignedCount={currentAssignedCount}
+            countClassName="text-indigo-900"
+            textClassName={value ? "text-indigo-700 font-bold" : ""}
+          />
+        ) : (
+          <span className="truncate block w-full">{placeholder}</span>
+        )}
         <IconChevronDown size={8} className={`shrink-0 transition-transform ${isOpen ? "rotate-180" : ""} opacity-50`} />
       </button>
       {isOpen && (
@@ -113,6 +193,7 @@ export const ParticellaSelect = ({ options, value, onChange, onRequestCreate, pl
           </div>
         </div>
       )}
+      {tooltipNode}
     </div>
   );
 };

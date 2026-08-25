@@ -49,6 +49,7 @@ import {
   ParticellaSelect,
   CreateParticellaModal,
 } from "../../components/seating/SeatingControls";
+import PartNameLabel from "../../components/seating/PartNameLabel";
 import { exportSeatingToExcel } from "../../utils/seatingExcelExporter";
 import {
   seatingItemMatrixPosition,
@@ -3276,31 +3277,30 @@ export default function ProgramSeating({
                                         size={12}
                                         className="text-amber-500"
                                       />
-                                      <span className="truncate">
-                                        {getPartLabelFromPart(suggestedPart)}
-                                      </span>
+                                      <PartNameLabel
+                                        name={getPartLabelFromPart(suggestedPart)}
+                                        textClassName="text-[10px] font-medium"
+                                      />
                                     </button>
                                   )}
                                 </div>
                               ) : (
                                 /* LECTURA OPTIMIZADA: Texto plano */
-                                <div className="flex items-center justify-center h-full px-2">
-                                  <span
-                                    className="text-xs text-slate-700 truncate"
-                                    title={
-                                      currentVal
-                                        ? availableParts.find(
-                                            (p) => p.id === currentVal,
-                                          )?.nombre_archivo
-                                        : ""
-                                    }
-                                  >
-                                    {currentVal
-                                      ? availableParts.find(
+                                <div className="flex items-center justify-center h-full px-2 min-w-0">
+                                  {currentVal ? (
+                                    <PartNameLabel
+                                      name={
+                                        availableParts.find(
                                           (p) => p.id === currentVal,
                                         )?.nombre_archivo
-                                      : "-"}
-                                  </span>
+                                      }
+                                      textClassName="text-xs text-slate-700"
+                                    />
+                                  ) : (
+                                    <span className="text-xs text-slate-700">
+                                      -
+                                    </span>
+                                  )}
                                 </div>
                               )}
                             </td>
@@ -3467,38 +3467,42 @@ export default function ProgramSeating({
                                         size={12}
                                         className="text-amber-500"
                                       />
-                                      <span className="truncate">
-                                        {getPartLabelFromPart(suggestedPart)}
-                                      </span>
+                                      <PartNameLabel
+                                        name={getPartLabelFromPart(suggestedPart)}
+                                        textClassName="text-[10px] font-medium"
+                                      />
                                     </button>
                                   )}
                                 </div>
                               ) : (
-                                <div className="flex items-center justify-center h-full px-2">
-                                  <span
-                                    className="text-xs text-slate-700 truncate"
-                                    title={partIds
-                                      .map(
-                                        (partId) =>
-                                          availableParts.find(
-                                            (p) =>
-                                              String(p.id) === String(partId),
-                                          )?.nombre_archivo,
-                                      )
-                                      .filter(Boolean)
-                                      .join(" + ")}
-                                  >
-                                    {partIds
-                                      .map(
-                                        (partId) =>
-                                          availableParts.find(
-                                            (p) =>
-                                              String(p.id) === String(partId),
-                                          )?.nombre_archivo,
-                                      )
-                                      .filter(Boolean)
-                                      .join(" + ") || "-"}
-                                  </span>
+                                <div className="flex items-center justify-center h-full px-2 min-w-0">
+                                  {partIds.length === 0 ? (
+                                    <span className="text-xs text-slate-700">
+                                      -
+                                    </span>
+                                  ) : (
+                                    <span className="flex min-w-0 max-w-full items-center text-xs text-slate-700">
+                                      {partIds.map((partId, index) => {
+                                        const partName = availableParts.find(
+                                          (p) =>
+                                            String(p.id) === String(partId),
+                                        )?.nombre_archivo;
+                                        return (
+                                          <React.Fragment key={`${partId}-${index}`}>
+                                            {index > 0 && (
+                                              <span className="shrink-0 px-0.5">
+                                                +
+                                              </span>
+                                            )}
+                                            <PartNameLabel
+                                              name={partName}
+                                              textClassName="text-xs text-slate-700"
+                                            />
+                                          </React.Fragment>
+                                        );
+                                      })}
+                                    </span>
+                                  )}
                                 </div>
                               )}
                             </td>
