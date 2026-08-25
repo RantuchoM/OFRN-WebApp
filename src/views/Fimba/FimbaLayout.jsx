@@ -180,10 +180,160 @@ const FIMBA_CSS = `
     white-space: normal;
     max-width: 11rem;
   }
-  .fimba-planilla-table .fimba-planilla-artistas {
+  .fimba-planilla-table .fimba-planilla-board-th-up {
+    color: #166534;
+    background: #f0fdf4 !important;
+  }
+  .fimba-planilla-table .fimba-planilla-board-th-down {
+    color: #9f1239;
+    background: #fff1f2 !important;
+  }
+  .fimba-planilla-table td.fimba-planilla-board {
     white-space: normal;
-    min-width: 9rem;
-    max-width: 16rem;
+    min-width: 8.5rem;
+    max-width: 14rem;
+    vertical-align: top;
+  }
+  .fimba-planilla-transito {
+    position: relative;
+    white-space: nowrap;
+  }
+  .fimba-transito-tooltip {
+    position: fixed;
+    z-index: 110;
+    min-width: 11rem;
+    max-width: 18rem;
+    padding: 0.55rem 0.7rem;
+    border-radius: 10px;
+    background: #1e293b;
+    color: #f8fafc;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.35);
+    pointer-events: none;
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+  .fimba-transito-tooltip-title {
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+    color: #e2e8f0;
+  }
+  .fimba-transito-tooltip-empty {
+    color: #94a3b8;
+    font-style: italic;
+  }
+  .fimba-transito-tooltip-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .fimba-transito-tooltip-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+  .fimba-transito-tooltip-dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+  .fimba-transito-tooltip-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .fimba-transito-tooltip-n {
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+  .fimba-transito-tooltip-foot {
+    margin-top: 0.4rem;
+    padding-top: 0.3rem;
+    border-top: 1px solid rgba(148, 163, 184, 0.35);
+    color: #94a3b8;
+    font-size: 0.68rem;
+  }
+  .fimba-planilla-board-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.25rem;
+    width: 100%;
+    min-width: 7.5rem;
+    padding: 0.35rem 0.4rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    text-align: left;
+  }
+  .fimba-planilla-board-head {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    font-size: 0.72rem;
+    font-weight: 800;
+  }
+  .fimba-planilla-board-add {
+    display: inline-flex;
+    opacity: 0.55;
+    margin-left: 0.1rem;
+  }
+  .fimba-planilla-board-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    justify-content: center;
+  }
+  .fimba-planilla-board-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+    max-width: 100%;
+    padding: 0.1rem 0.35rem;
+    border-radius: 999px;
+    border: 1px solid #e2e8f0;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .fimba-planilla-board-chip-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 9rem;
+  }
+  .fimba-planilla-board-chip-x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.55;
+    flex-shrink: 0;
+  }
+  .fimba-planilla-board-chip-x:hover:not(:disabled) {
+    opacity: 1;
+    color: #b91c1c;
+  }
+  .fimba-planilla-board-chip-x:disabled {
+    cursor: wait;
+    opacity: 0.35;
+  }
+  .fimba-planilla-board-empty {
+    display: block;
+    text-align: center;
+    font-size: 0.68rem;
+    font-weight: 600;
   }
   .fimba-planilla-table thead th {
     position: sticky;

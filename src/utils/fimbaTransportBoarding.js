@@ -12,10 +12,19 @@
  *
  * FIMBA — rides (prioridad):
  * 1) Explícitos: `fimba_propuesta_rutas` (plazas + subida/bajada por artista).
- * 2) Sintéticos legacy: `fimba_evento_transportes.plazas` (o suma tags) sube en el
- *    evento de asignación y baja en la **siguiente** parada de la unidad
- *    (si no hay siguiente, permanece a bordo). Se omiten plazas sintéticas de
- *    un evento que ya tiene rides explícitos que suben ahí en esa unidad.
+ * 2) Sintéticos residuales: solo en eventos de **tipo transporte** con
+ *    `fimba_evento_transportes.plazas` (o suma tags) − plazas explícitas que ya
+ *    suben ahí. Suben en ese trayecto y bajan en la **siguiente parada de la
+ *    secuencia unificada del vehículo** (incluye paradas OFRN del mismo
+ *    `giras_transportes`). Un Concierto sin ↑/↓ explícito no genera hop ni
+ *    entra a la secuencia solo por tener fila de flota.
+ *
+ * Modelo duro — **un vehículo = una línea de ocupación**:
+ * OFRN + FIMBA comparten la misma secuencia cronológica, el mismo Δ y el
+ * mismo «a bordo». No hay mundos de conteo separados por organización.
+ *
+ * Δ en parada = board_seats − alight_seats (net; bajadas dejan de contar en
+ * en_transito vía isOnBoardAfterStop: downIdx > i).
  *
  * Headcount "en el lugar" (Artistas column):
  *   presente_en_parada = boarded by idx && (no bajada | downIdx >= currentIdx)
@@ -27,6 +36,47 @@
  */
 
 import { sortEventsBySchedule } from "./giraTransportUtils";
+import { matchesRule, normalize } from "./giraUtils";
+
+/** Labels de categoría logística (alcance Categoria en `giras_logistica_rutas`). */
+const OFRN_CATEGORIA_CHIP_LABELS = {
+  SOLISTAS: "Solistas",
+  DIRECTORES: "Directores",
+  PRODUCCION: "Producción",
+  EXTERNOS: "Externos",
+  LOCALES: "Locales",
+  NO_LOCALES: "No Locales",
+};
+
+/** Paridad con `actividadUsaTransporte` / OFRN_TRANSPORT_TIPO_IDS (evita import circular). */
+const BOARDING_TRANSPORT_TIPO_IDS = new Set([11, 12, 28, 31, 35]);
+const BOARDING_TRANSPORT_CATEGORIA_ID = 6;
+
+/**
+ * ¿El evento es tipo catálogo transporte (Traslado / Interno / …)?
+ * Concierto, hotel, etc. → false aunque tengan fila en `fimba_evento_transportes`.
+ *
+ * @param {object|null|undefined} ev
+ */
+export function isTransportTipoEvent(ev) {
+  if (!ev) return false;
+  const id = Number(ev.id_tipo_evento);
+  if (Number.isFinite(id) && BOARDING_TRANSPORT_TIPO_IDS.has(id)) return true;
+  const catId = Number(
+    ev.tipo_id_categoria ??
+      ev.tipos_evento?.id_categoria ??
+      ev.tipos_evento?.categorias_tipos_eventos?.id,
+  );
+  if (catId === BOARDING_TRANSPORT_CATEGORIA_ID) return true;
+  const catNombre = String(
+    ev.categoria_nombre ||
+      ev.tipos_evento?.categorias_tipos_eventos?.nombre ||
+      "",
+  )
+    .trim()
+    .toLowerCase();
+  return catNombre === "transporte";
+}
 
 /**
  * Peso de asientos OFRN de un integrante (1 + plaza de instrumento si aplica).
@@ -482,12 +532,153 @@ export function buildFimbaBajadaArtistOptions(opts = {}) {
 }
 
 /**
- * Construye pasajeros-ride sintéticos FIMBA por secuencia de unidad (legacy).
+ * Instante fecha+hora → minutos desde epoch local (para solapes multi-día).
+ * @param {string|null|undefined} fecha — YYYY-MM-DD
+ * @param {string|null|undefined} hora — HH:MM o HH:MM:SS
+ * @returns {number|null}
+ */
+export function scheduleInstantMinutes(fecha, hora) {
+  const d = String(fecha || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  const hm = String(hora || "00:00").slice(0, 5);
+  const [hhRaw, mmRaw] = hm.split(":");
+  const hh = Number(hhRaw);
+  const mm = Number(mmRaw);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  const day = Date.parse(`${d}T00:00:00`);
+  if (!Number.isFinite(day)) return null;
+  return day / 60000 + hh * 60 + mm;
+}
+
+/**
+ * ¿El ride [subida, bajada) solapa la ventana de agenda?
+ * Bajada nula = permanece a bordo (fin abierto).
+ * Ventana sin hora_fin = al menos 1 minuto desde el inicio (punto usable).
  *
- * @param {Array<object>} sortedEvents
+ * @param {{ fecha?: string, hora_inicio?: string, date?: string, time?: string, hora?: string }|null} upEv
+ * @param {{ fecha?: string, hora_inicio?: string, date?: string, time?: string, hora?: string }|null} downEv
+ * @param {{ fecha: string, hora_inicio?: string|null, hora_fin?: string|null }} window
+ */
+export function rideOverlapsScheduleWindow(upEv, downEv, window) {
+  if (!window?.fecha || !upEv) return false;
+  const upFecha = upEv.fecha || upEv.date;
+  const upHora = upEv.hora_inicio || upEv.time || upEv.hora || "00:00";
+  const r0 = scheduleInstantMinutes(upFecha, upHora);
+  if (r0 == null) return false;
+
+  let r1 = Number.POSITIVE_INFINITY;
+  if (downEv) {
+    const downFecha = downEv.fecha || downEv.date;
+    const downHora = downEv.hora_inicio || downEv.time || downEv.hora || "00:00";
+    const downMs = scheduleInstantMinutes(downFecha, downHora);
+    if (downMs != null) r1 = downMs;
+  }
+
+  const w0 = scheduleInstantMinutes(
+    window.fecha,
+    window.hora_inicio || "00:00",
+  );
+  if (w0 == null) return false;
+  let w1 = scheduleInstantMinutes(
+    window.fecha,
+    window.hora_fin || window.hora_inicio || "00:00",
+  );
+  if (w1 == null) w1 = w0;
+  // Punto (sin fin o fin=inicio): 1 min de duración para poder solapar
+  const wEnd = w1 <= w0 ? w0 + 1 : w1;
+
+  return r0 < wEnd && w0 < r1;
+}
+
+/**
+ * Normaliza un evento (fila DB o subidaData/bajadaData de logística) a {fecha, hora_inicio}.
+ * @param {object|null|undefined} ev
+ */
+export function normalizeScheduleEvent(ev) {
+  if (!ev) return null;
+  const fecha = ev.fecha || ev.date || null;
+  if (!fecha) return null;
+  return {
+    fecha: String(fecha).slice(0, 10),
+    hora_inicio: ev.hora_inicio || ev.time || ev.hora || null,
+  };
+}
+
+/**
+ * Suma asientos de rides cuyo intervalo [subida, bajada) solapa la ventana.
+ *
+ * @param {Array<object>} rides
+ * @param {Record<string, object>|Map<string, object>|null} eventsById
+ * @param {{ fecha: string, hora_inicio?: string|null, hora_fin?: string|null }} window
+ * @param {{ excludeBoardEventIds?: Set<string>|null }} [opts]
+ */
+export function sumRidesOccupyingWindow(
+  rides,
+  eventsById,
+  window,
+  opts = {},
+) {
+  const exclude = opts.excludeBoardEventIds || null;
+  const lookup = (id) => {
+    if (id == null || id === "") return null;
+    const key = String(id);
+    if (eventsById instanceof Map) return eventsById.get(key) || null;
+    return eventsById?.[key] || null;
+  };
+
+  let total = 0;
+  for (const r of rides || []) {
+    if (r?.subidaId == null || r.subidaId === "") continue;
+    if (exclude && exclude.has(String(r.subidaId))) continue;
+
+    const upEv =
+      normalizeScheduleEvent(r.subidaEvent) ||
+      normalizeScheduleEvent(r.subidaData) ||
+      normalizeScheduleEvent(lookup(r.subidaId));
+    const downEv =
+      r.bajadaId == null || r.bajadaId === ""
+        ? null
+        : normalizeScheduleEvent(r.bajadaEvent) ||
+          normalizeScheduleEvent(r.bajadaData) ||
+          normalizeScheduleEvent(lookup(r.bajadaId));
+
+    if (rideOverlapsScheduleWindow(upEv, downEv, window)) {
+      total += Math.max(0, Number(r.seats) || 0);
+    }
+  }
+  return total;
+}
+
+/**
+ * Siguiente parada en la secuencia unificada del vehículo (OFRN + FIMBA).
+ * El residual sintético baja en la parada inmediata siguiente del mismo
+ * `giras_transportes` — no se saltean Arribos/paradas OFRN.
+ *
+ * @param {Array<object>} sorted — ya filtrada como secuencia de boarding
+ * @param {number} fromIdx
+ */
+export function nextSyntheticAlightEvent(sorted, fromIdx) {
+  const list = sorted || [];
+  if (!Number.isFinite(fromIdx) || fromIdx < 0 || fromIdx >= list.length - 1) {
+    return null;
+  }
+  return list[fromIdx + 1] || null;
+}
+
+/**
+ * Construye pasajeros-ride sintéticos FIMBA por secuencia unificada de unidad.
+ *
+ * Solo eventos de **tipo transporte** generan residual. Un Concierto con
+ * `fimba_evento_transportes.plazas` no inventa subida/bajada. La bajada
+ * sintética es la **siguiente parada del timeline** (OFRN o FIMBA).
+ *
+ * @param {Array<object>} sortedEvents — secuencia de boarding del vehículo
  * @param {number|string} idGiraTransporte
  * @param {(p: object) => { para_transporte?: number }} [capacityFn]
- * @param {{ skipBoardEventIds?: Set<string> }} [opts] — no sintetizar subidas ya cubiertas por rutas explícitas
+ * @param {{
+ *   skipBoardEventIds?: Set<string>,
+ *   explicitSeatsByEventId?: Map<string, number>|Record<string, number>|null,
+ * }} [opts] — residual = plazas evento − plazas explícitas que suben ahí
  * @returns {Array<{ key: string, subidaId: unknown, bajadaId: unknown|null, seats: number, source: 'fimba' }>}
  */
 export function buildFimbaSyntheticRides(
@@ -499,25 +690,125 @@ export function buildFimbaSyntheticRides(
   const rides = [];
   const sorted = sortedEvents || [];
   const skipBoard = opts.skipBoardEventIds || null;
+  const explicitByEvent = opts.explicitSeatsByEventId || null;
+  const explicitSeats = (eventId) => {
+    if (!explicitByEvent || eventId == null) return 0;
+    const key = String(eventId);
+    if (explicitByEvent instanceof Map) {
+      return Math.max(0, Number(explicitByEvent.get(key)) || 0);
+    }
+    return Math.max(0, Number(explicitByEvent[key]) || 0);
+  };
+
   sorted.forEach((ev, idx) => {
-    if (skipBoard && skipBoard.has(String(ev.id))) return;
+    // Legacy: skipBoard omite por completo (compat). Preferir residual vía explicitSeatsByEventId.
+    if (skipBoard && skipBoard.has(String(ev.id)) && !explicitByEvent) return;
+    // No hop sintético desde Concierto / no-transporte (aunque tengan plazas de flota).
+    if (!isTransportTipoEvent(ev)) return;
     const seats = resolveFimbaSeatsForVehicle(ev, idGiraTransporte, capacityFn);
     if (seats <= 0) return;
-    const next = sorted[idx + 1];
+    const residual = Math.max(0, seats - explicitSeats(ev.id));
+    if (residual <= 0) return;
+    const next = nextSyntheticAlightEvent(sorted, idx);
+    const props = ev?.propuestas || [];
+    const single = props.length === 1 ? props[0] : null;
     rides.push({
       key: `fimba-${ev.id}-${idGiraTransporte}`,
       subidaId: ev.id,
       bajadaId: next?.id ?? null,
-      seats,
+      seats: residual,
       source: "fimba",
-      id_propuesta: null,
+      id_propuesta: single?.id ?? null,
+      nombre: single?.nombre || null,
+      color: single?.color || null,
     });
   });
   return rides;
 }
 
 /**
+ * Ids de eventos que son ↑/↓ de rides explícitos FIMBA o OFRN en una unidad.
+ * @param {Array<object>} propuestaRoutes
+ * @param {Array<object>} ofrnRides
+ * @param {number|string} idGiraTransporte
+ * @returns {Set<string>}
+ */
+export function collectVehicleRideEndpointIds(
+  propuestaRoutes,
+  ofrnRides,
+  idGiraTransporte,
+) {
+  const want = Number(idGiraTransporte);
+  const ids = new Set();
+  for (const r of propuestaRoutes || []) {
+    if (Number.isFinite(want) && Number(r?.id_gira_transporte) !== want) {
+      continue;
+    }
+    if (r?.id_evento_subida != null && r.id_evento_subida !== "") {
+      ids.add(String(r.id_evento_subida));
+    }
+    if (r?.id_evento_bajada != null && r.id_evento_bajada !== "") {
+      ids.add(String(r.id_evento_bajada));
+    }
+  }
+  for (const r of ofrnRides || []) {
+    if (r?.subidaId != null && r.subidaId !== "") {
+      ids.add(String(r.subidaId));
+    }
+    if (r?.bajadaId != null && r.bajadaId !== "") {
+      ids.add(String(r.bajadaId));
+    }
+  }
+  return ids;
+}
+
+/**
+ * ¿Entra el evento a la secuencia unificada de boarding de la unidad?
+ * Misma flota física → mismas paradas OFRN + FIMBA en un solo timeline.
+ *
+ * Incluye:
+ * - Tipo transporte con asignación a la unidad
+ * - Parada OFRN (`id_gira_transporte` = unidad) — **nunca** se omiten
+ * - Endpoint de ruta explícita ↑/↓ (p.ej. Concierto con subida/bajada real)
+ *
+ * Excluye: Concierto/hotel/etc. que solo tienen `fimba_evento_transportes`
+ * sin ser tipo transporte ni endpoint ↑/↓ (no afectan subir/bajar).
+ *
+ * @param {object} ev
+ * @param {number|string} idGiraTransporte
+ * @param {(ev: object) => number[]} eventVehicleIds
+ * @param {Set<string>|null|undefined} endpointEventIds
+ */
+export function isVehicleBoardingSequenceEvent(
+  ev,
+  idGiraTransporte,
+  eventVehicleIds,
+  endpointEventIds,
+) {
+  const tid = Number(idGiraTransporte);
+  if (!Number.isFinite(tid) || !ev) return false;
+  const eid = ev.id != null ? String(ev.id) : "";
+  const isEndpoint = Boolean(eid && endpointEventIds?.has(eid));
+
+  const fleetIds =
+    typeof eventVehicleIds === "function" ? eventVehicleIds(ev) : [];
+  const onFleet = (fleetIds || []).some((id) => Number(id) === tid);
+  const ofrnUnit =
+    ev.id_gira_transporte != null &&
+    ev.id_gira_transporte !== "" &&
+    Number(ev.id_gira_transporte) === tid;
+
+  // Parada OFRN de esta unidad: siempre en la secuencia unificada
+  if (ofrnUnit) return true;
+  if (!onFleet && !isEndpoint) return false;
+  if (isTransportTipoEvent(ev)) return true;
+  if (isEndpoint) return true;
+  return false;
+}
+
+/**
  * Combina rides explícitos + residual sintético.
+ * Si hay ↑ artista (p.ej. 2) y el evento reserva 6 plazas, quedan 4 sintéticas.
  *
  * @param {Array<object>} sortedEvents
  * @param {number|string} idGiraTransporte
@@ -531,16 +822,21 @@ export function buildFimbaRidesForVehicle(
   capacityFn,
 ) {
   const explicit = buildFimbaExplicitRides(propuestaRoutes, idGiraTransporte);
-  const skipBoardEventIds = new Set(
-    explicit
-      .filter((r) => r.subidaId != null)
-      .map((r) => String(r.subidaId)),
-  );
+  /** @type {Map<string, number>} */
+  const explicitSeatsByEventId = new Map();
+  for (const r of explicit) {
+    if (r.subidaId == null || r.subidaId === "") continue;
+    const key = String(r.subidaId);
+    explicitSeatsByEventId.set(
+      key,
+      (explicitSeatsByEventId.get(key) || 0) + (Number(r.seats) || 0),
+    );
+  }
   const synthetic = buildFimbaSyntheticRides(
     sortedEvents,
     idGiraTransporte,
     capacityFn,
-    { skipBoardEventIds },
+    { explicitSeatsByEventId },
   );
   return [...explicit, ...synthetic];
 }
@@ -550,7 +846,7 @@ export function buildFimbaRidesForVehicle(
  *
  * @param {Array<object>} summary — output `calculateLogisticsSummary`
  * @param {number|string} idGiraTransporte
- * @returns {Array<{ id: unknown, seats: number, subidaId: unknown|null, bajadaId: unknown|null, source: 'ofrn' }>}
+ * @returns {Array<{ id: unknown, seats: number, subidaId: unknown|null, bajadaId: unknown|null, source: 'ofrn', subidaData?: object|null, bajadaData?: object|null }>}
  */
 export function extractOfrnRidesForVehicle(summary, idGiraTransporte) {
   const want = String(idGiraTransporte);
@@ -566,6 +862,8 @@ export function extractOfrnRidesForVehicle(summary, idGiraTransporte) {
       seats: ofrnSeatWeight(p),
       subidaId: tr.subidaId ?? null,
       bajadaId: tr.bajadaId ?? null,
+      subidaData: tr.subidaData || null,
+      bajadaData: tr.bajadaData || null,
       source: "ofrn",
       apellido: p.apellido,
       nombre: p.nombre,
@@ -647,6 +945,12 @@ export function headcountByPropuestaAtStop(fimbaRides, sorted, currentIdx) {
 }
 
 /**
+ * Label UI para plazas técnicas / residual de `fimba_evento_transportes`
+ * (no exponer “sintético” al usuario).
+ */
+export const FIMBA_RESERVA_EVENTO_LABEL = "Reserva del evento";
+
+/**
  * Etiqueta «Orquesta {n}».
  * @param {number|string|null|undefined} n
  */
@@ -654,6 +958,240 @@ export function formatOrquestaHeadcountLabel(n) {
   const num = Number(n);
   if (Number.isFinite(num) && num > 0) return `Orquesta ${num}`;
   return "Orquesta";
+}
+
+/**
+ * ¿El ride sigue a bordo al salir de `currentIdx`?
+ * @param {object} ride
+ * @param {Array} sorted
+ * @param {number} currentIdx
+ */
+function rideIsAboardAfterStop(ride, sorted, currentIdx) {
+  if (!ride?.subidaId) return false;
+  const upIdx = indexOfEvent(sorted, ride.subidaId);
+  const downIdx =
+    ride.bajadaId != null && ride.bajadaId !== ""
+      ? indexOfEvent(sorted, ride.bajadaId)
+      : null;
+  return isOnBoardAfterStop(upIdx, downIdx, currentIdx);
+}
+
+/**
+ * Personas OFRN presentes en la parada (pueden bajar aquí) sobre una unidad.
+ * Usa la jerarquía ya resuelta en `logistics.transports` (subidaId/bajadaId).
+ *
+ * @param {{
+ *   passengers?: Array<object>,
+ *   transportId?: unknown,
+ *   eventId?: unknown,
+ *   sortedEvents?: Array<{ id?: unknown }>,
+ * }} opts
+ * @returns {Array<{
+ *   id: unknown,
+ *   person: object,
+ *   seats: number,
+ *   subidaId: unknown|null,
+ *   bajadaId: unknown|null,
+ *   alreadyAlightingHere: boolean,
+ *   openRide: boolean,
+ *   label: string,
+ * }>}
+ */
+export function listOfrnPeopleAboardAtStop(opts = {}) {
+  const {
+    passengers = [],
+    transportId,
+    eventId,
+    sortedEvents = [],
+  } = opts;
+  if (transportId == null || transportId === "" || eventId == null || eventId === "") {
+    return [];
+  }
+
+  const sorted = Array.isArray(sortedEvents) ? sortedEvents : [];
+  const currentIdx = sorted.length ? indexOfEvent(sorted, eventId) : -1;
+  const want = String(transportId);
+  const out = [];
+
+  for (const p of passengers || []) {
+    if (p?.estado_gira === "ausente") continue;
+    const tr = (p.logistics?.transports || p.transports || []).find(
+      (t) => String(t.id) === want,
+    );
+    if (!tr?.subidaId) continue;
+
+    let present = false;
+    let openRide = false;
+    if (currentIdx >= 0) {
+      const upIdx = indexOfEvent(sorted, tr.subidaId);
+      const downIdx =
+        tr.bajadaId != null && tr.bajadaId !== ""
+          ? indexOfEvent(sorted, tr.bajadaId)
+          : null;
+      present = isPresentAtStop(upIdx, downIdx, currentIdx);
+      // Ride abierto = aún a bordo al salir de la parada *anterior*, o presente
+      // sin bajada / con bajada posterior (hay que fijar bajada aquí).
+      openRide =
+        present &&
+        (downIdx == null ||
+          downIdx < 0 ||
+          !Number.isFinite(downIdx) ||
+          downIdx > currentIdx);
+    } else {
+      // Sin secuencia: a bordo si tiene subida y (sin bajada o baja en este evento)
+      present =
+        !tr.bajadaId ||
+        tr.bajadaId === "" ||
+        String(tr.bajadaId) === String(eventId);
+      openRide = !tr.bajadaId || tr.bajadaId === "";
+    }
+    if (!present) continue;
+
+    const alreadyAlightingHere =
+      tr.bajadaId != null &&
+      tr.bajadaId !== "" &&
+      String(tr.bajadaId) === String(eventId);
+
+    out.push({
+      id: p.id,
+      person: p,
+      seats: ofrnSeatWeight(p),
+      subidaId: tr.subidaId ?? null,
+      bajadaId: tr.bajadaId ?? null,
+      alreadyAlightingHere,
+      openRide,
+      label:
+        `${p.apellido || ""}, ${p.nombre || ""}`
+          .replace(/^,\s*|,\s*$/g, "")
+          .trim() || `Integrante #${p.id}`,
+    });
+  }
+
+  out.sort((a, b) =>
+    String(a.label).localeCompare(String(b.label), "es", { sensitivity: "base" }),
+  );
+  return out;
+}
+
+/**
+ * Desglose de quién está a bordo **al salir** de la parada (misma semántica
+ * que `en_transito`): artistas FIMBA, Orquesta OFRN y reserva técnica.
+ *
+ * @param {{
+ *   ofrnRides?: Array<object>,
+ *   fimbaRides?: Array<object>,
+ *   sortedEvents?: Array<object>,
+ *   currentIdx?: number,
+ *   propuestas?: Array<object>,
+ * }} opts
+ * @returns {{
+ *   lines: Array<{ key: string, kind: 'fimba'|'ofrn'|'reserva', label: string, plazas: number, color?: string|null }>,
+ *   total: number,
+ *   titleText: string,
+ * }}
+ */
+export function resolveAboardAfterStopBreakdown(opts = {}) {
+  const {
+    ofrnRides = [],
+    fimbaRides = [],
+    sortedEvents = [],
+    currentIdx = -1,
+    propuestas = [],
+  } = opts;
+  /** @type {Array<{ key: string, kind: 'fimba'|'ofrn'|'reserva', label: string, plazas: number, color?: string|null }>} */
+  const lines = [];
+  if (!Number.isFinite(currentIdx) || currentIdx < 0) {
+    return { lines, total: 0, titleText: "Sin pasajeros a bordo" };
+  }
+
+  let ofrnSeats = 0;
+  /** @type {string[]} */
+  const ofrnSurnames = [];
+  for (const r of ofrnRides || []) {
+    if (!rideIsAboardAfterStop(r, sortedEvents, currentIdx)) continue;
+    ofrnSeats += Math.max(0, Number(r.seats) || 0);
+    const ap = String(r.apellido || "").trim();
+    if (ap) ofrnSurnames.push(ap);
+  }
+  if (ofrnSeats > 0) {
+    let ofrnLabel = "Orquesta";
+    if (ofrnSurnames.length > 0 && ofrnSurnames.length <= 4) {
+      ofrnLabel = `Orquesta · ${ofrnSurnames.join(", ")}`;
+    } else if (ofrnSurnames.length > 4) {
+      ofrnLabel = `Orquesta · ${ofrnSurnames.slice(0, 3).join(", ")}…`;
+    }
+    lines.push({
+      key: "ofrn",
+      kind: "ofrn",
+      label: ofrnLabel,
+      plazas: ofrnSeats,
+      color: null,
+    });
+  }
+
+  /** @type {Map<string, { key: string, kind: 'fimba', label: string, plazas: number, color: string|null }>} */
+  const byArtist = new Map();
+  let reservaSeats = 0;
+  for (const r of fimbaRides || []) {
+    if (!rideIsAboardAfterStop(r, sortedEvents, currentIdx)) continue;
+    const seats = Math.max(0, Number(r.seats) || 0);
+    if (seats <= 0) continue;
+    // Residual técnico (source `fimba` de buildFimbaSyntheticRides): siempre reserva.
+    if (r.source === "fimba" || r.source === "synthetic") {
+      reservaSeats += seats;
+      continue;
+    }
+    const pid = r.id_propuesta;
+    if (pid == null || pid === "") {
+      reservaSeats += seats;
+      continue;
+    }
+    const id = String(pid);
+    const fromList =
+      (propuestas || []).find((p) => String(p.id) === id) || null;
+    const nombre =
+      r.nombre ||
+      fromList?.nombre ||
+      `Artista #${id}`;
+    const cur = byArtist.get(id) || {
+      key: `fimba-${id}`,
+      kind: "fimba",
+      label: String(nombre).trim() || `Artista #${id}`,
+      plazas: 0,
+      color: r.color || fromList?.color || null,
+    };
+    cur.plazas += seats;
+    if (!cur.color && (r.color || fromList?.color)) {
+      cur.color = r.color || fromList?.color || null;
+    }
+    byArtist.set(id, cur);
+  }
+  for (const row of byArtist.values()) {
+    if (row.plazas > 0) lines.push(row);
+  }
+  if (reservaSeats > 0) {
+    lines.push({
+      key: "reserva",
+      kind: "reserva",
+      label: FIMBA_RESERVA_EVENTO_LABEL,
+      plazas: reservaSeats,
+      color: null,
+    });
+  }
+
+  lines.sort((a, b) => {
+    const order = { ofrn: 0, fimba: 1, reserva: 2 };
+    const d = (order[a.kind] ?? 9) - (order[b.kind] ?? 9);
+    if (d !== 0) return d;
+    return String(a.label).localeCompare(String(b.label), "es");
+  });
+
+  const total = lines.reduce((s, l) => s + (Number(l.plazas) || 0), 0);
+  const titleText =
+    lines.length === 0
+      ? "Sin pasajeros a bordo"
+      : lines.map((l) => `${l.label} — ${l.plazas}`).join("\n");
+  return { lines, total, titleText };
 }
 
 /**
@@ -670,6 +1208,14 @@ export function formatArtistaHeadcountLabel(nombre, n) {
 
 /**
  * Secuencia de paradas con Δ y en tránsito (plazas) para una unidad.
+ * OFRN + FIMBA en el mismo rolling «a bordo» (un vehículo = un timeline).
+ *
+ * En cada parada:
+ *   board_seats  = Σ plazas que suben aquí (OFRN + FIMBA)
+ *   alight_seats = Σ plazas que bajan aquí (OFRN + FIMBA)
+ *   delta        = board_seats − alight_seats
+ *   en_transito  = a bordo **al salir** (isOnBoardAfterStop: ya no cuenta
+ *                  quien bajó en esta parada; sí quien subió)
  *
  * @param {{
  *   events: Array<object>,
@@ -759,6 +1305,13 @@ export function buildVehicleBoardingSequence(opts = {}) {
         ? Math.max(0, capacidad - enTransito)
         : null;
 
+    const a_bordo = resolveAboardAfterStopBreakdown({
+      ofrnRides,
+      fimbaRides,
+      sortedEvents: sorted,
+      currentIdx,
+    });
+
     return {
       eventId: evt.id,
       evt,
@@ -776,6 +1329,8 @@ export function buildVehicleBoardingSequence(opts = {}) {
       en_transito: enTransito,
       en_transito_ofrn: enTransitoOfrn,
       en_transito_fimba: enTransitoFimba,
+      /** Desglose a bordo al salir (tooltip Tránsito/cap). */
+      a_bordo,
       orquesta_en_lugar,
       fimba_en_lugar,
       /** Map id_propuesta → { seats, nombre, color } */
@@ -851,10 +1406,19 @@ export function buildAllVehicleBoardingSequences(opts = {}) {
   for (const gt of vehiculos) {
     const tid = Number(gt.id);
     if (!Number.isFinite(tid)) continue;
-    const vehicleEvents = sortEventsBySchedule(
-      (eventos || []).filter((ev) => idFn(ev).includes(tid)),
-    );
+    // OFRN rides primero: sus endpoints entran a la secuencia aunque el evento
+    // no tenga fila FIMBA (y marcan Conciertos solo si son ↑/↓ reales).
     const ofrnRides = extractOfrnRidesForVehicle(logisticsSummary, tid);
+    const endpointIds = collectVehicleRideEndpointIds(
+      propuestaRoutes,
+      ofrnRides,
+      tid,
+    );
+    const vehicleEvents = sortEventsBySchedule(
+      (eventos || []).filter((ev) =>
+        isVehicleBoardingSequenceEvent(ev, tid, idFn, endpointIds),
+      ),
+    );
     const fimbaRides = buildFimbaRidesForVehicle(
       vehicleEvents,
       tid,
@@ -1051,6 +1615,284 @@ export function resolveStopArtistasLabels(ev, metrics, capacityFn) {
   }
 
   return { orquesta_label, artista_labels };
+}
+
+/**
+ * Etiqueta compacta de una regla `giras_logistica_rutas` (paridad GirasTransportesManager).
+ *
+ * @param {object} rule
+ * @param {{
+ *   passengers?: Array<object>,
+ *   localities?: Array<object>,
+ *   regions?: Array<object>,
+ * }} ctx
+ */
+export function resolveOfrnRouteRuleLabel(rule, ctx = {}) {
+  const { passengers = [], localities = [], regions = [] } = ctx;
+  const scope = rule?.alcance;
+  if (scope === "General") return "Todos";
+  if (scope === "Persona") {
+    const p = (passengers || []).find(
+      (m) => String(m.id) === String(rule.id_integrante),
+    );
+    if (p) {
+      const ap = String(p.apellido || "").trim();
+      return ap || `${p.nombre || "Persona"}`.trim() || "Individual";
+    }
+    return "Individual";
+  }
+  if (scope === "Region") {
+    const reg = (regions || []).find(
+      (x) => String(x.id) === String(rule.id_region),
+    );
+    return reg?.region || "Región";
+  }
+  if (scope === "Localidad") {
+    const loc = (localities || []).find(
+      (x) => String(x.id) === String(rule.id_localidad),
+    );
+    return loc?.localidad || "Loc";
+  }
+  if (scope === "Categoria") {
+    const raw = rule.target_ids?.[0];
+    if (!raw) return "Categoría";
+    const key = String(raw).toUpperCase();
+    return OFRN_CATEGORIA_CHIP_LABELS[key] || String(raw);
+  }
+  return scope ? String(scope) : "Regla";
+}
+
+/**
+ * Resumen de reglas OFRN que suben/bajan en una parada×vehículo
+ * (misma idea que `getEventRulesSummary` de GirasTransportesManager).
+ * `plazas` = Σ `ofrnSeatWeight` de pasajeros cuya regla ganadora es esa.
+ *
+ * @param {{
+ *   eventId: unknown,
+ *   type: 'up'|'down',
+ *   transportId?: unknown|null,
+ *   routeRules?: Array<object>,
+ *   passengers?: Array<object>,
+ *   localities?: Array<object>,
+ *   regions?: Array<object>,
+ * }} opts
+ * @returns {Array<{
+ *   key: string,
+ *   ruleId: unknown,
+ *   label: string,
+ *   plazas: number,
+ *   count: number,
+ *   alcance: string,
+ * }>}
+ */
+export function summarizeOfrnStopRules(opts = {}) {
+  const {
+    eventId,
+    type,
+    transportId = null,
+    routeRules = [],
+    passengers = [],
+    localities = [],
+    regions = [],
+  } = opts;
+  if (eventId == null || eventId === "" || transportId == null || transportId === "") {
+    return [];
+  }
+
+  const relevant = (routeRules || []).filter((r) => {
+    if (String(r.id_transporte_fisico) !== String(transportId)) return false;
+    if (type === "up") return String(r.id_evento_subida) === String(eventId);
+    if (type === "down") return String(r.id_evento_bajada) === String(eventId);
+    return false;
+  });
+
+  const labelCtx = { passengers, localities, regions };
+
+  return relevant.map((r) => {
+    const scopeNorm = normalize(r.alcance);
+    const matched = (passengers || []).filter((p) => {
+      if (p?.estado_gira === "ausente") return false;
+      if (!matchesRule(r, p, localities)) return false;
+      const tr = (p.logistics?.transports || p.transports || []).find(
+        (t) => String(t.id) === String(transportId),
+      );
+      if (!tr) return false;
+      const eventIdMatch =
+        type === "up"
+          ? String(tr.subidaId) === String(eventId)
+          : String(tr.bajadaId) === String(eventId);
+      if (!eventIdMatch) return false;
+      const winningScope =
+        type === "up" ? tr.subidaScope || "" : tr.bajadaScope || "";
+      return scopeNorm === normalize(winningScope);
+    });
+    const plazas = matched.reduce((s, p) => s + ofrnSeatWeight(p), 0);
+    return {
+      key: `ofrn-rule-${r.id}`,
+      ruleId: r.id,
+      label: resolveOfrnRouteRuleLabel(r, labelCtx),
+      plazas,
+      count: matched.length,
+      alcance: r.alcance || "",
+    };
+  });
+}
+
+/**
+ * Chips de Subidas / Bajadas para una parada de la planilla FIMBA.
+ * - FIMBA: filas de `fimba_propuesta_rutas` en ese extremo (removibles).
+ * - OFRN: una chip por regla `giras_logistica_rutas` (quién/alcance + plazas);
+ *   fallback «Orquesta n» si hay asientos boarding sin reglas listables.
+ * - Residual sintético: plazas FIMBA de boarding math sin ruta explícita (solo lectura).
+ *
+ * @param {{
+ *   eventId: unknown,
+ *   idGiraTransporte?: unknown|null,
+ *   type: 'up'|'down',
+ *   propuestaRoutes?: Array<object>,
+ *   propuestas?: Array<object>,
+ *   stop?: object|null,
+ *   ofrnRouteRules?: Array<object>,
+ *   ofrnPassengers?: Array<object>,
+ *   ofrnLocalities?: Array<object>,
+ *   ofrnRegions?: Array<object>,
+ * }} opts
+ * @returns {{
+ *   chips: Array<{
+ *     key: string,
+ *     kind: 'fimba'|'ofrn'|'synthetic',
+ *     label: string,
+ *     plazas: number,
+ *     color?: string|null,
+ *     rutaId?: unknown,
+ *     id_propuesta?: unknown,
+ *     removable: boolean,
+ *   }>,
+ *   total: number,
+ * }}
+ */
+export function resolveStopBoardAlightChips(opts = {}) {
+  const {
+    eventId,
+    idGiraTransporte = null,
+    type,
+    propuestaRoutes = [],
+    propuestas = [],
+    stop = null,
+    ofrnRouteRules = [],
+    ofrnPassengers = [],
+    ofrnLocalities = [],
+    ofrnRegions = [],
+  } = opts;
+  const chips = [];
+  if (eventId == null || eventId === "") {
+    return { chips, total: 0 };
+  }
+
+  const eventField = type === "down" ? "id_evento_bajada" : "id_evento_subida";
+  let fimbaExplicit = 0;
+
+  for (const r of propuestaRoutes || []) {
+    if (
+      idGiraTransporte != null &&
+      idGiraTransporte !== "" &&
+      Number(r?.id_gira_transporte) !== Number(idGiraTransporte)
+    ) {
+      continue;
+    }
+    const stopId = r?.[eventField];
+    if (stopId == null || stopId === "") continue;
+    if (String(stopId) !== String(eventId)) continue;
+    const plazas = Math.max(0, Number(r.plazas) || 0);
+    if (plazas <= 0) continue;
+
+    const fromJoin = r.propuesta || {};
+    const fromList =
+      (propuestas || []).find((p) => String(p.id) === String(r.id_propuesta)) ||
+      {};
+    const nombre =
+      fromJoin.nombre || fromList.nombre || `Artista #${r.id_propuesta}`;
+    const color = fromJoin.color || fromList.color || null;
+
+    chips.push({
+      key: `ruta-${r.id}`,
+      kind: "fimba",
+      label: String(nombre).trim() || `Artista #${r.id_propuesta}`,
+      plazas,
+      color,
+      rutaId: r.id,
+      id_propuesta: r.id_propuesta,
+      removable: true,
+    });
+    fimbaExplicit += plazas;
+  }
+
+  const ofrnSeats =
+    type === "down"
+      ? Math.max(0, Number(stop?.alight_ofrn) || 0)
+      : Math.max(0, Number(stop?.board_ofrn) || 0);
+
+  const ofrnRuleRows = summarizeOfrnStopRules({
+    eventId,
+    type,
+    transportId: idGiraTransporte,
+    routeRules: ofrnRouteRules,
+    passengers: ofrnPassengers,
+    localities: ofrnLocalities,
+    regions: ofrnRegions,
+  });
+
+  if (ofrnRuleRows.length > 0) {
+    for (const row of ofrnRuleRows) {
+      chips.push({
+        key: row.key,
+        kind: "ofrn",
+        label: row.label,
+        plazas: row.plazas,
+        color: null,
+        removable: false,
+        title: `Orquesta OFRN · ${row.alcance || "regla"} — clic para gestionar subir/bajar`,
+      });
+    }
+  } else if (ofrnSeats > 0) {
+    chips.push({
+      key: `ofrn-${eventId}-${type}`,
+      kind: "ofrn",
+      label: "Orquesta",
+      plazas: ofrnSeats,
+      color: null,
+      removable: false,
+      title: "Orquesta OFRN — clic para reglas de ruta",
+    });
+  }
+
+  const stopFimba =
+    type === "down"
+      ? Math.max(0, Number(stop?.alight_fimba) || 0)
+      : Math.max(0, Number(stop?.board_fimba) || 0);
+  const residual = Math.max(0, stopFimba - fimbaExplicit);
+  if (residual > 0) {
+    chips.push({
+      key: `sint-${eventId}-${type}`,
+      kind: "synthetic",
+      label: FIMBA_RESERVA_EVENTO_LABEL,
+      plazas: residual,
+      color: null,
+      removable: false,
+      title:
+        type === "down"
+          ? "Plazas técnicas del trayecto anterior que bajan aquí (sin artista nombrado)"
+          : "Plazas reservadas en el evento sin regla de artista (fimba_evento_transportes − ↑ explícitas)",
+    });
+  }
+
+  // Total: seats boarding (OFRN math) + FIMBA chips; no sumar reglas OFRN
+  // (pueden ser 0 plazas) ni double-count plaza_extra.
+  const fimbaChipSeats = chips
+    .filter((c) => c.kind === "fimba" || c.kind === "synthetic")
+    .reduce((s, c) => s + (Number(c.plazas) || 0), 0);
+  const total = fimbaChipSeats + ofrnSeats;
+  return { chips, total };
 }
 
 function eventHasOfrnHint(ev) {

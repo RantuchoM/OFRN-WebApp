@@ -1,7 +1,8 @@
 /**
  * FIMBA — Gestionar subidas / bajadas por parada.
- * - Artistas: plazas (tope = cantidad_planificada + plazas_extra_materiales)
- * - Orquesta OFRN: embebe StopRulesManager (giras_logistica_rutas) en la misma modal
+ * - Artistas/grupos: reglas persistidas en `fimba_propuesta_rutas` (cantidad editable)
+ * - Reserva técnica: `fimba_evento_transportes.plazas` (visible + editable en subida)
+ * - Orquesta OFRN: embebe StopRulesManager (`giras_logistica_rutas`)
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -13,20 +14,27 @@ import {
   IconClock,
   IconUsers,
   IconLoader,
+  IconCheck,
+  IconArrowDown,
 } from "../../components/ui/Icons";
 import {
+  alightAllFimbaAboardAtStop,
   capacidadGiraTransporte,
   clearFimbaPropuestaRutaStop,
   computeArtistaTransporteUsage,
   defaultArtistaAssignPlazas,
   labelGiraTransporte,
+  listFimbaEventoTransportes,
   listFimbaPropuestaRutas,
+  upsertFimbaEventoTransportePlazas,
   upsertFimbaPropuestaRutaStop,
   validateArtistaTransporteAssign,
 } from "../../services/fimbaService";
 import {
   buildFimbaBajadaArtistOptions,
+  FIMBA_RESERVA_EVENTO_LABEL,
   formatEventLocation,
+  isTransportTipoEvent,
 } from "../../utils/fimbaTransportBoarding";
 import StopRulesManager from "../Giras/StopRulesManager";
 import { supabase } from "../../services/supabase";
@@ -46,9 +54,19 @@ export default function FimbaStopRulesManager({
   regions = [],
   localities = [],
   sequencesByVehicle = null,
+  /** Tab inicial al abrir: `artistas` | `orquesta`. */
+  initialTab = "artistas",
+  /**
+   * Tras mutación: `scope` = `rutas` (default) | `reserva` | `ofrn`.
+   * La planilla hace refresh quirúrgico (sin spinner full-page).
+   */
   onRefresh,
+  /** Sin portal/backdrop: embeber en el editor de evento. */
+  embedded = false,
 }) {
-  const [tab, setTab] = useState("artistas"); // artistas | orquesta
+  const [tab, setTab] = useState(
+    initialTab === "orquesta" ? "orquesta" : "artistas",
+  ); // artistas | orquesta
   const [rutas, setRutas] = useState([]);
   /** Todas las rutas de la edición (para tope transporte por artista). */
   const [allRutas, setAllRutas] = useState([]);
@@ -56,14 +74,29 @@ export default function FimbaStopRulesManager({
   const [error, setError] = useState(null);
   const [propuestaId, setPropuestaId] = useState("");
   const [plazas, setPlazas] = useState("");
+  const [asientosEquipaje, setAsientosEquipaje] = useState("");
+  const [obsEquipaje, setObsEquipaje] = useState("");
   const [vehicleId, setVehicleId] = useState(
     transportId != null ? String(transportId) : "",
   );
   const [saving, setSaving] = useState(false);
+  /** id → 'saving'|'saved'|'error' para semáforo de cantidad en regla. */
+  const [ruleSync, setRuleSync] = useState({});
+  /** Plazas técnicas del evento×vehículo (`fimba_evento_transportes`). */
+  const [reservaPlazas, setReservaPlazas] = useState("");
+  const [reservaSync, setReservaSync] = useState("idle");
+  const [residualAlight, setResidualAlight] = useState(0);
+  const [bajarTodoBusy, setBajarTodoBusy] = useState(false);
 
   const title = type === "up" ? "Gestionar Subidas" : "Gestionar Bajadas";
   const colorClass = type === "up" ? "text-emerald-700" : "text-rose-700";
   const bgClass = type === "up" ? "bg-emerald-50" : "bg-rose-50";
+  const isBajada = type === "down";
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setTab(initialTab === "orquesta" ? "orquesta" : "artistas");
+  }, [isOpen, initialTab, event?.id, type]);
 
   useEffect(() => {
     if (isOpen && transportId != null) {
@@ -73,30 +106,77 @@ export default function FimbaStopRulesManager({
     }
   }, [isOpen, transportId, vehiculos, vehicleId]);
 
+  const reloadRutas = async () => {
+    const [stopRes, allRes] = await Promise.all([
+      listFimbaPropuestaRutas(edicionId, {
+        id_gira_transporte: vehicleId || null,
+        id_evento: event?.id,
+        type,
+        propuestas,
+      }),
+      listFimbaPropuestaRutas(edicionId, { propuestas }),
+    ]);
+    if (stopRes.error) setError(stopRes.error.message);
+    setRutas(stopRes.rutas || []);
+    setAllRutas(allRes.rutas || []);
+    return { stopRutas: stopRes.rutas || [], all: allRes.rutas || [] };
+  };
+
+  const reloadReserva = async () => {
+    if (!event?.id || !vehicleId) {
+      setReservaPlazas("");
+      setResidualAlight(0);
+      return;
+    }
+    const { rows, error: eRows } = await listFimbaEventoTransportes(event.id);
+    if (eRows) {
+      setError(eRows.message || "No se pudo cargar la reserva del evento");
+      return;
+    }
+    const row =
+      (rows || []).find(
+        (r) => String(r.id_gira_transporte) === String(vehicleId),
+      ) || null;
+    const assigned = Math.max(0, Number(row?.plazas) || 0);
+    setReservaPlazas(assigned > 0 ? String(assigned) : "");
+
+    // Residual que baja aquí (trayecto anterior → esta parada)
+    if (isBajada && sequencesByVehicle) {
+      const seq =
+        sequencesByVehicle.get?.(Number(vehicleId)) ||
+        sequencesByVehicle.get?.(String(vehicleId)) ||
+        null;
+      const stop = seq?.byEventId?.[String(event.id)] || null;
+      const alightFimba = Math.max(0, Number(stop?.alight_fimba) || 0);
+      const explicitDown = (await listFimbaPropuestaRutas(edicionId, {
+        id_gira_transporte: vehicleId,
+        id_evento: event.id,
+        type: "down",
+      })).rutas || [];
+      const explicitSum = explicitDown.reduce(
+        (s, r) => s + Math.max(0, Number(r.plazas) || 0),
+        0,
+      );
+      setResidualAlight(Math.max(0, alightFimba - explicitSum));
+    } else {
+      setResidualAlight(0);
+    }
+  };
+
   useEffect(() => {
     if (!isOpen || !edicionId) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
       setError(null);
-      const [stopRes, allRes] = await Promise.all([
-        listFimbaPropuestaRutas(edicionId, {
-          id_gira_transporte: vehicleId || null,
-          id_evento: event?.id,
-          type,
-        }),
-        listFimbaPropuestaRutas(edicionId, {}),
-      ]);
-      if (cancelled) return;
-      if (stopRes.error)
-        setError(stopRes.error.message || "No se pudieron cargar las rutas");
-      setRutas(stopRes.rutas || []);
-      setAllRutas(allRes.rutas || []);
-      setLoading(false);
+      await reloadRutas();
+      if (!cancelled) await reloadReserva();
+      if (!cancelled) setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, edicionId, vehicleId, event?.id, type]);
 
   const activeVehicle = useMemo(
@@ -106,11 +186,9 @@ export default function FimbaStopRulesManager({
   );
 
   const vehicleLibres = useMemo(() => {
-    // Sin secuencia de transit aquí: cap = capacidad_maxima del bus (libres ≤ cap).
     return capacidadGiraTransporte(activeVehicle);
   }, [activeVehicle]);
 
-  const isBajada = type === "down";
   const sortedEvents = useMemo(() => {
     if (!vehicleId || !sequencesByVehicle) return [];
     const seq =
@@ -162,6 +240,20 @@ export default function FimbaStopRulesManager({
     return computeArtistaTransporteUsage(p, allRutas, { excludeRutaIds });
   }, [propuestaId, propuestas, allRutas, existingRutaForSelection]);
 
+  const explicitPlazasAtStop = useMemo(
+    () =>
+      (rutas || []).reduce((s, r) => s + Math.max(0, Number(r.plazas) || 0), 0),
+    [rutas],
+  );
+
+  const reservaNum = Math.max(0, Number(reservaPlazas) || 0);
+  const residualUp = !isBajada
+    ? Math.max(0, reservaNum - explicitPlazasAtStop)
+    : 0;
+
+  const canEditReserva =
+    !isBajada && Boolean(event?.id) && Boolean(vehicleId) && isTransportTipoEvent(event);
+
   const defaultPlazasForPropuesta = (pid) => {
     if (isBajada) {
       const opt = bajadaByPropuesta.get(String(pid));
@@ -190,7 +282,6 @@ export default function FimbaStopRulesManager({
       remaining: usage.remaining,
       vehicleLibres,
     });
-    // Si re-edita una fila existente y aún no hay restantes “libres”, conservar valor actual
     if (n <= 0 && existing && Number(existing.plazas) > 0) {
       return Math.max(0, Number(existing.plazas) || 0);
     }
@@ -199,34 +290,115 @@ export default function FimbaStopRulesManager({
 
   const handlePropuestaChange = (id) => {
     setPropuestaId(id);
-    if (id) setPlazas(String(defaultPlazasForPropuesta(id)));
-    else setPlazas("");
+    if (id) {
+      setPlazas(String(defaultPlazasForPropuesta(id)));
+      const existing =
+        (rutas || []).find(
+          (r) =>
+            String(r.id_propuesta) === String(id) &&
+            String(r.id_gira_transporte) === String(vehicleId),
+        ) || null;
+      setAsientosEquipaje(
+        existing?.asientos_equipaje != null
+          ? String(existing.asientos_equipaje)
+          : "",
+      );
+      setObsEquipaje(existing?.observaciones_equipaje || "");
+    } else {
+      setPlazas("");
+      setAsientosEquipaje("");
+      setObsEquipaje("");
+    }
   };
 
-  // Recalcular default al cambiar vehículo / al refrescar uso global
   useEffect(() => {
     if (!propuestaId || !isOpen) return;
     setPlazas(String(defaultPlazasForPropuesta(propuestaId)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vehicleId, allRutas, vehicleLibres]);
 
-  const reloadRutas = async () => {
-    const [stopRes, allRes] = await Promise.all([
-      listFimbaPropuestaRutas(edicionId, {
-        id_gira_transporte: vehicleId || null,
-        id_evento: event?.id,
-        type,
-      }),
-      listFimbaPropuestaRutas(edicionId, {}),
-    ]);
-    if (stopRes.error) setError(stopRes.error.message);
-    setRutas(stopRes.rutas || []);
-    setAllRutas(allRes.rutas || []);
+  const luggagePayloadFromForm = () => ({
+    asientos_equipaje: Math.max(0, Number(asientosEquipaje) || 0),
+    observaciones_equipaje: String(obsEquipaje || "").trim() || null,
+  });
+
+  const persistRutaPlazas = async (ruta, nextPlazas) => {
+    const n = Math.max(0, Number(nextPlazas) || 0);
+    if (n <= 0) {
+      setError("Cantidad de plazas > 0");
+      return;
+    }
+    if (!isBajada) {
+      const full =
+        (propuestas || []).find(
+          (x) => String(x.id) === String(ruta.id_propuesta),
+        ) || ruta.propuesta;
+      if (full) {
+        const usage = computeArtistaTransporteUsage(full, allRutas, {
+          excludeRutaIds: [ruta.id],
+        });
+        const check = validateArtistaTransporteAssign(full, usage.used, n);
+        if (!check.ok) {
+          setError(check.error.message);
+          setRuleSync((s) => ({ ...s, [ruta.id]: "error" }));
+          return;
+        }
+      }
+    }
+    setRuleSync((s) => ({ ...s, [ruta.id]: "saving" }));
+    setError(null);
+    const res = await upsertFimbaPropuestaRutaStop({
+      id_propuesta: ruta.id_propuesta,
+      id_gira_transporte: ruta.id_gira_transporte || vehicleId,
+      plazas: n,
+      type,
+      id_evento: event.id,
+      replaceConflict: true,
+      asientos_equipaje: Math.max(0, Number(ruta.asientos_equipaje) || 0),
+      observaciones_equipaje: ruta.observaciones_equipaje ?? null,
+    });
+    if (res.error) {
+      setError(res.error.message || "No se pudo actualizar la regla");
+      setRuleSync((s) => ({ ...s, [ruta.id]: "error" }));
+      return;
+    }
+    setRuleSync((s) => ({ ...s, [ruta.id]: "saved" }));
+    await reloadRutas();
+    onRefresh?.("rutas");
+  };
+
+  const persistRutaLuggage = async (ruta, patch) => {
+    setRuleSync((s) => ({ ...s, [ruta.id]: "saving" }));
+    setError(null);
+    const res = await upsertFimbaPropuestaRutaStop({
+      id_propuesta: ruta.id_propuesta,
+      id_gira_transporte: ruta.id_gira_transporte || vehicleId,
+      plazas: Math.max(0, Number(ruta.plazas) || 0),
+      type,
+      id_evento: event.id,
+      replaceConflict: true,
+      asientos_equipaje:
+        patch.asientos_equipaje != null
+          ? Math.max(0, Number(patch.asientos_equipaje) || 0)
+          : Math.max(0, Number(ruta.asientos_equipaje) || 0),
+      observaciones_equipaje:
+        patch.observaciones_equipaje !== undefined
+          ? patch.observaciones_equipaje
+          : ruta.observaciones_equipaje ?? null,
+    });
+    if (res.error) {
+      setError(res.error.message || "No se pudo actualizar equipaje");
+      setRuleSync((s) => ({ ...s, [ruta.id]: "error" }));
+      return;
+    }
+    setRuleSync((s) => ({ ...s, [ruta.id]: "saved" }));
+    await reloadRutas();
+    onRefresh?.("rutas");
   };
 
   const handleAdd = async () => {
     if (!propuestaId) {
-      setError("Elegí un artista");
+      setError("Elegí un grupo / artista");
       return;
     }
     if (!vehicleId) {
@@ -264,6 +436,7 @@ export default function FimbaStopRulesManager({
     }
     setSaving(true);
     setError(null);
+    const luggage = luggagePayloadFromForm();
     let res = await upsertFimbaPropuestaRutaStop({
       id_propuesta: propuestaId,
       id_gira_transporte: vehicleId,
@@ -271,6 +444,7 @@ export default function FimbaStopRulesManager({
       type,
       id_evento: event.id,
       replaceConflict: false,
+      ...luggage,
     });
     if (res.conflict) {
       const ok = window.confirm(
@@ -284,6 +458,7 @@ export default function FimbaStopRulesManager({
           type,
           id_evento: event.id,
           replaceConflict: true,
+          ...luggage,
         });
       } else {
         setSaving(false);
@@ -297,12 +472,15 @@ export default function FimbaStopRulesManager({
     }
     setPropuestaId("");
     setPlazas("");
+    setAsientosEquipaje("");
+    setObsEquipaje("");
     await reloadRutas();
-    onRefresh?.();
+    await reloadReserva();
+    onRefresh?.("rutas");
   };
 
   const handleDelete = async (ruta) => {
-    if (!window.confirm("¿Quitar esta definición de parada?")) return;
+    if (!window.confirm("¿Quitar esta regla de parada?")) return;
     setSaving(true);
     const { error: err } = await clearFimbaPropuestaRutaStop(ruta.id, type);
     setSaving(false);
@@ -311,7 +489,70 @@ export default function FimbaStopRulesManager({
       return;
     }
     await reloadRutas();
-    onRefresh?.();
+    await reloadReserva();
+    onRefresh?.("rutas");
+  };
+
+  const handleBajarTodo = async () => {
+    if (!vehicleId || !event?.id) return;
+    const aboardCount = bajadaOptions.filter((o) => o.aboard).length;
+    if (aboardCount <= 0 && residualAlight <= 0) {
+      setError("No hay artistas a bordo ni residual técnico bajando aquí.");
+      return;
+    }
+    const ok = window.confirm(
+      `¿Bajar todo lo que está a bordo de este vehículo en esta parada?\n\n` +
+        `Se cerrarán ${aboardCount} ride(s) FIMBA abiertos` +
+        (residualAlight > 0
+          ? ` (la reserva residual ${residualAlight} ya figura bajando aquí).`
+          : ".") +
+        `\nOrquesta OFRN: usá la pestaña Orquesta → Bajar todo.`,
+    );
+    if (!ok) return;
+    setBajarTodoBusy(true);
+    setError(null);
+    const res = await alightAllFimbaAboardAtStop({
+      edicionId,
+      id_gira_transporte: vehicleId,
+      id_evento: event.id,
+      propuestas,
+      sortedEvents,
+    });
+    setBajarTodoBusy(false);
+    if (res.error) {
+      setError(res.error.message || "No se pudo bajar todo");
+      return;
+    }
+    await reloadRutas();
+    await reloadReserva();
+    onRefresh?.("rutas");
+  };
+
+  const handleSaveReserva = async () => {
+    if (!canEditReserva) return;
+    const n = Math.max(0, Number(reservaPlazas) || 0);
+    if (n > 0 && n < explicitPlazasAtStop) {
+      setError(
+        `La reserva (${n}) no puede ser menor que las plazas de artistas ya asignadas (${explicitPlazasAtStop}).`,
+      );
+      setReservaSync("error");
+      return;
+    }
+    setReservaSync("saving");
+    setError(null);
+    const { error: err } = await upsertFimbaEventoTransportePlazas(
+      event.id,
+      vehicleId,
+      n,
+    );
+    if (err) {
+      setError(err.message || "No se pudo guardar la reserva");
+      setReservaSync("error");
+      return;
+    }
+    setReservaSync("saved");
+    await reloadReserva();
+    onRefresh?.("reserva");
   };
 
   if (!isOpen || !event) return null;
@@ -319,66 +560,21 @@ export default function FimbaStopRulesManager({
   const location = formatEventLocation(event);
   const hora = event.hora_inicio ? String(event.hora_inicio).slice(0, 5) : "—";
 
-  const body = (
-    <>
-      <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] animate-in zoom-in-95">
-          <div
-            className={`p-4 border-b rounded-t-xl flex justify-between items-start ${bgClass}`}
-          >
-            <div>
-              <h3
-                className={`text-lg font-bold ${colorClass} flex items-center gap-2`}
-              >
-                <IconMapPin size={20} /> {title}
-              </h3>
-              <div className="mt-1 text-sm font-medium text-slate-600">
-                {location}
-              </div>
-              <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-                <IconClock size={12} /> {hora} hs
-                {activeVehicle ? (
-                  <span className="ml-2 font-semibold text-slate-600">
-                    · {labelGiraTransporte(activeVehicle)}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1 hover:bg-white/50 rounded-full transition-colors"
-            >
-              <IconX size={20} className="text-slate-500" />
-            </button>
-          </div>
+  const syncDot = (status) => {
+    if (status === "saving") {
+      return <IconLoader size={12} className="animate-spin text-slate-400" />;
+    }
+    if (status === "saved") {
+      return <IconCheck size={12} className="text-emerald-600" />;
+    }
+    if (status === "error") {
+      return <span className="text-[10px] font-bold text-rose-600">!</span>;
+    }
+    return null;
+  };
 
-          <div className="px-4 pt-3 flex gap-2 border-b border-slate-100">
-            <button
-              type="button"
-              className={`px-3 py-1.5 text-xs font-bold rounded-t ${
-                tab === "artistas"
-                  ? "bg-slate-100 text-slate-800"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-              onClick={() => setTab("artistas")}
-            >
-              Artistas FIMBA
-            </button>
-            <button
-              type="button"
-              className={`px-3 py-1.5 text-xs font-bold rounded-t ${
-                tab === "orquesta"
-                  ? "bg-slate-100 text-slate-800"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-              onClick={() => setTab("orquesta")}
-            >
-              Orquesta OFRN
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+  const panelInner = (
+          <div className={embedded ? "space-y-4" : "flex-1 overflow-y-auto p-4 space-y-4"}>
             {error && (
               <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded px-2 py-1.5">
                 {error}
@@ -387,6 +583,32 @@ export default function FimbaStopRulesManager({
 
             {tab === "artistas" && (
               <>
+                {isBajada && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleBajarTodo}
+                      disabled={
+                        bajarTodoBusy ||
+                        saving ||
+                        loading ||
+                        !vehicleId ||
+                        (bajadaOptions.every((o) => !o.aboard) &&
+                          residualAlight <= 0)
+                      }
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold text-white bg-rose-700 hover:bg-rose-800 disabled:opacity-50 shadow-sm"
+                      title="Cierra todos los rides FIMBA abiertos a bordo en esta parada"
+                    >
+                      {bajarTodoBusy ? (
+                        <IconLoader size={14} className="animate-spin" />
+                      ) : (
+                        <IconArrowDown size={14} />
+                      )}
+                      Bajar todo
+                    </button>
+                  </div>
+                )}
+
                 {(vehiculos || []).length > 1 && (
                   <div>
                     <label className="text-[10px] font-bold text-slate-400 block mb-1">
@@ -409,18 +631,22 @@ export default function FimbaStopRulesManager({
 
                 <div className="space-y-2">
                   <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                    Reglas activas (cantidad)
+                    Reglas activas
                   </h4>
                   {loading ? (
                     <div className="flex items-center gap-2 text-sm text-slate-500 py-4 justify-center">
                       <IconLoader size={16} className="animate-spin" /> Cargando…
                     </div>
-                  ) : rutas.length === 0 ? (
+                  ) : rutas.length === 0 &&
+                    !canEditReserva &&
+                    residualUp <= 0 &&
+                    residualAlight <= 0 &&
+                    reservaNum <= 0 ? (
                     <div className="text-center p-6 border-2 border-dashed border-slate-200 rounded-lg">
                       <span className="text-sm text-slate-400">
                         {isBajada
                           ? "Nadie baja en esta parada aún."
-                          : "Nadie tiene cantidad asignada en esta parada aún."}
+                          : "Ninguna regla de grupo/artista en esta parada aún."}
                       </span>
                     </div>
                   ) : (
@@ -428,59 +654,189 @@ export default function FimbaStopRulesManager({
                       {rutas.map((r) => {
                         const p = r.propuesta || {};
                         const name = p.nombre || `Artista #${r.id_propuesta}`;
-                        const full = (propuestas || []).find(
-                          (x) => String(x.id) === String(r.id_propuesta),
-                        ) || p;
+                        const full =
+                          (propuestas || []).find(
+                            (x) => String(x.id) === String(r.id_propuesta),
+                          ) || p;
                         const usage = computeArtistaTransporteUsage(
                           full,
                           allRutas,
                           {},
                         );
+                        const sync = ruleSync[r.id];
                         return (
                           <li
                             key={r.id}
-                            className="px-3 py-2 flex justify-between items-center bg-white hover:bg-slate-50"
+                            className="px-3 py-2 flex flex-col gap-1.5 bg-white hover:bg-slate-50"
                           >
-                            <div className="min-w-0">
-                              <div className="text-xs font-semibold text-slate-700 truncate">
-                                {name}
+                            <div className="flex justify-between items-center gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="text-xs font-semibold text-slate-700 truncate">
+                                  {name}
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  {type === "up" ? "Sube" : "Baja"}
+                                  {r.id_evento_subida && r.id_evento_bajada
+                                    ? " · trayecto completo"
+                                    : " · extremo pendiente"}
+                                  {isBajada ? (
+                                    <span className="ml-1">
+                                      · libera plazas del ride
+                                    </span>
+                                  ) : usage.tope > 0 ? (
+                                    <span className="ml-1">
+                                      · disp.{" "}
+                                      {Math.max(0, usage.tope - usage.used)}/
+                                      {usage.tope}
+                                    </span>
+                                  ) : null}
+                                </div>
                               </div>
-                              <div className="text-[10px] text-slate-400">
-                                {type === "up" ? "Sube" : "Baja"}
-                                {r.id_evento_subida && r.id_evento_bajada
-                                  ? " · trayecto completo"
-                                  : " · extremo pendiente"}
-                                {isBajada ? (
-                                  <span className="ml-1">
-                                    · libera {r.plazas} plaza
-                                    {Number(r.plazas) === 1 ? "" : "s"}
-                                  </span>
-                                ) : usage.tope > 0 ? (
-                                  <span className="ml-1">
-                                    · disponibles:{" "}
-                                    {Math.max(0, usage.tope - usage.used)} de{" "}
-                                    {usage.tope}
-                                  </span>
-                                ) : null}
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {syncDot(sync)}
+                                <span className="text-[10px] text-slate-400">
+                                  <IconUsers size={12} className="inline" />
+                                </span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  className="w-14 text-xs border rounded px-1.5 py-1 text-center outline-none focus:border-pink-500 bg-white"
+                                  defaultValue={r.plazas}
+                                  key={`${r.id}-${r.plazas}`}
+                                  disabled={saving}
+                                  onBlur={(e) => {
+                                    const next = Math.max(
+                                      0,
+                                      Number(e.target.value) || 0,
+                                    );
+                                    if (next === Number(r.plazas)) return;
+                                    persistRutaPlazas(r, next);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.currentTarget.blur();
+                                    }
+                                  }}
+                                  aria-label={`Plazas de ${name}`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(r)}
+                                  disabled={saving}
+                                  className="text-slate-300 hover:text-red-500 p-1"
+                                  title="Quitar regla"
+                                >
+                                  <IconTrash size={14} />
+                                </button>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-bold flex items-center gap-1 px-2 py-0.5 rounded-full text-slate-500 bg-slate-100">
-                                <IconUsers size={12} /> {r.plazas}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => handleDelete(r)}
+                            <div className="flex flex-wrap items-center gap-2 pl-0.5">
+                              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
+                                As. equipaje
+                              </label>
+                              <input
+                                type="number"
+                                min={0}
+                                className="w-14 text-[11px] border rounded px-1.5 py-0.5 text-center outline-none focus:border-pink-500 bg-white"
+                                defaultValue={r.asientos_equipaje || 0}
+                                key={`${r.id}-eq-${r.asientos_equipaje}`}
                                 disabled={saving}
-                                className="text-slate-300 hover:text-red-500 p-1"
-                                title="Quitar"
-                              >
-                                <IconTrash size={14} />
-                              </button>
+                                onBlur={(e) => {
+                                  const next = Math.max(
+                                    0,
+                                    Number(e.target.value) || 0,
+                                  );
+                                  if (
+                                    next ===
+                                    Math.max(0, Number(r.asientos_equipaje) || 0)
+                                  ) {
+                                    return;
+                                  }
+                                  persistRutaLuggage(r, {
+                                    asientos_equipaje: next,
+                                  });
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") e.currentTarget.blur();
+                                }}
+                                aria-label={`Asientos equipaje de ${name}`}
+                              />
+                              <input
+                                type="text"
+                                className="flex-1 min-w-[8rem] text-[11px] border rounded px-1.5 py-0.5 outline-none focus:border-pink-500 bg-white"
+                                defaultValue={r.observaciones_equipaje || ""}
+                                key={`${r.id}-obs-${r.observaciones_equipaje || ""}`}
+                                disabled={saving}
+                                placeholder="Obs. equipaje"
+                                onBlur={(e) => {
+                                  const next = e.target.value.trim();
+                                  const prev = String(
+                                    r.observaciones_equipaje || "",
+                                  ).trim();
+                                  if (next === prev) return;
+                                  persistRutaLuggage(r, {
+                                    observaciones_equipaje: next || null,
+                                  });
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") e.currentTarget.blur();
+                                }}
+                                aria-label={`Observaciones equipaje de ${name}`}
+                              />
                             </div>
                           </li>
                         );
                       })}
+
+                      {/* Reserva técnica / residual visible */}
+                      {(canEditReserva ||
+                        residualUp > 0 ||
+                        residualAlight > 0 ||
+                        reservaNum > 0) && (
+                        <li className="px-3 py-2 flex justify-between items-start gap-2 bg-amber-50/60">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold text-amber-900 truncate">
+                              {FIMBA_RESERVA_EVENTO_LABEL}
+                            </div>
+                            <div className="text-[10px] text-amber-800/80">
+                              {isBajada
+                                ? residualAlight > 0
+                                  ? `Baja aquí · plazas técnicas sin artista (${residualAlight})`
+                                  : "Sin residual técnico bajando aquí"
+                                : residualUp > 0
+                                  ? `Sin artista nombrado: ${residualUp} plaza${residualUp === 1 ? "" : "s"} (reserva − reglas)`
+                                  : "Plazas del trayecto en este vehículo (editable)"}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {syncDot(reservaSync)}
+                            {canEditReserva ? (
+                              <input
+                                type="number"
+                                min={0}
+                                className="w-14 text-xs border border-amber-200 rounded px-1.5 py-1 text-center outline-none focus:border-pink-500 bg-white"
+                                value={reservaPlazas}
+                                disabled={saving}
+                                onChange={(e) => {
+                                  setReservaPlazas(e.target.value);
+                                  setReservaSync("dirty");
+                                }}
+                                onBlur={handleSaveReserva}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") e.currentTarget.blur();
+                                }}
+                                aria-label={FIMBA_RESERVA_EVENTO_LABEL}
+                                title="Plazas en fimba_evento_transportes para este vehículo"
+                              />
+                            ) : (
+                              <span className="text-[10px] font-bold flex items-center gap-1 px-2 py-0.5 rounded-full text-amber-800 bg-amber-100">
+                                <IconUsers size={12} />{" "}
+                                {isBajada ? residualAlight : residualUp || reservaNum}
+                              </span>
+                            )}
+                          </div>
+                        </li>
+                      )}
                     </ul>
                   )}
                 </div>
@@ -488,13 +844,13 @@ export default function FimbaStopRulesManager({
                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
                   <h4 className="text-xs font-bold text-pink-900 uppercase tracking-wider">
                     {isBajada
-                      ? "Bajar artista (liberar plazas)"
-                      : "Asignar artista + cantidad"}
+                      ? "Bajar grupo / artista"
+                      : "Agregar regla (grupo + cantidad)"}
                   </h4>
                   <div className="flex gap-2">
                     <div className="flex-1">
                       <label className="text-[10px] font-bold text-slate-400 block mb-1">
-                        ARTISTA
+                        GRUPO / ARTISTA
                       </label>
                       <select
                         className="w-full text-xs border rounded p-2 outline-none focus:border-pink-500 bg-white"
@@ -537,7 +893,7 @@ export default function FimbaStopRulesManager({
                     </div>
                     <div style={{ width: 88 }}>
                       <label className="text-[10px] font-bold text-slate-400 block mb-1">
-                        {isBajada ? "A BORDO" : "PLAZAS"}
+                        CANTIDAD
                       </label>
                       <input
                         type="number"
@@ -553,11 +909,37 @@ export default function FimbaStopRulesManager({
                               ? Math.max(1, usageForSelection.remaining)
                               : 500
                         }
-                        readOnly={isBajada && !existingRutaForSelection}
                         className="w-full text-xs border rounded p-2 outline-none focus:border-pink-500 bg-white"
                         value={plazas}
                         onChange={(e) => setPlazas(e.target.value)}
                         placeholder="n"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <div style={{ width: 100 }}>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        ASIENTOS EQUIP.
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        className="w-full text-xs border rounded p-2 outline-none focus:border-pink-500 bg-white"
+                        value={asientosEquipaje}
+                        onChange={(e) => setAsientosEquipaje(e.target.value)}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        OBS. EQUIPAJE
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full text-xs border rounded p-2 outline-none focus:border-pink-500 bg-white"
+                        value={obsEquipaje}
+                        onChange={(e) => setObsEquipaje(e.target.value)}
+                        placeholder="Notas de equipaje"
                       />
                     </div>
                   </div>
@@ -582,8 +964,7 @@ export default function FimbaStopRulesManager({
                               .plazasAboard === 1
                               ? ""
                               : "s"}
-                            . La bajada las libera en este vehículo (no consume
-                            el tope del artista).
+                            . La bajada las libera en este vehículo.
                           </>
                         ) : (
                           <>
@@ -594,8 +975,7 @@ export default function FimbaStopRulesManager({
                       </p>
                     ) : (
                       <p className="text-[10px] text-slate-500 m-0">
-                        Elegí un artista que ya haya subido a este vehículo
-                        para bajarlo y liberar sus plazas.
+                        Elegí un grupo que ya haya subido a este vehículo.
                       </p>
                     )
                   ) : usageForSelection ? (
@@ -608,17 +988,6 @@ export default function FimbaStopRulesManager({
                     >
                       disponibles: {usageForSelection.remaining} de{" "}
                       {usageForSelection.tope}
-                      {usageForSelection.tope > 0 ? (
-                        <span className="text-slate-400 font-normal">
-                          {" "}
-                          ({usageForSelection.planificadas} planificadas +{" "}
-                          {usageForSelection.materiales} equip.
-                          {usageForSelection.used > 0
-                            ? ` · a bordo: ${usageForSelection.used}`
-                            : ""}
-                          )
-                        </span>
-                      ) : null}
                       {vehicleLibres != null ? (
                         <span className="text-slate-400">
                           {" "}
@@ -628,9 +997,9 @@ export default function FimbaStopRulesManager({
                     </p>
                   ) : (
                     <p className="text-[10px] text-slate-500 m-0">
-                      Default plazas = min(restantes del tope transporte, cap.
-                      del vehículo). Tope = planificada + extra equip.
-                      Hard-block si se superan.
+                      Cada asignación crea/actualiza una regla persistida
+                      (artista + cantidad). Cambiar la cantidad en la lista
+                      también guarda la regla.
                     </p>
                   )}
                   <button
@@ -659,7 +1028,9 @@ export default function FimbaStopRulesManager({
                     ) : (
                       <IconPlus size={14} />
                     )}{" "}
-                    Asignar parada
+                    {existingRutaForSelection
+                      ? "Actualizar regla"
+                      : "Agregar regla"}
                   </button>
                 </div>
               </>
@@ -671,7 +1042,9 @@ export default function FimbaStopRulesManager({
                   Las subidas y bajadas de orquesta usan las mismas reglas
                   OFRN (
                   <code className="text-[11px]">giras_logistica_rutas</code>
-                  ): por persona, categoría, localidad o región.
+                  ): por persona, categoría, localidad o región. En bajadas
+                  ves quién está a bordo (conteo = asientos reales) y podés
+                  usar <strong>Bajar todo</strong> o bajar uno a uno.
                 </p>
 
                 {(vehiculos || []).length > 1 && (
@@ -718,20 +1091,105 @@ export default function FimbaStopRulesManager({
                     localities={localities}
                     passengers={passengers}
                     admissionRules={admissionRules}
+                    sortedEvents={sortedEvents}
                     onRefresh={() => {
-                      onRefresh?.();
+                      onRefresh?.("ofrn");
                     }}
                   />
                 )}
 
                 <p className="text-[10px] text-slate-400 m-0">
                   IDs de integrantes son numéricos. Tras editar, la planilla
-                  recalcula «Orquesta n» con los pasajeros presentes en la
-                  parada (boarding), no el roster estático entero.
+                  refresca la logística OFRN y muestra chips por regla (no solo
+                  «Orquesta n»).
                 </p>
               </div>
             )}
           </div>
+  );
+
+  const tabsBar = (
+    <div className={`${embedded ? "pt-1" : "px-4 pt-3"} flex gap-2 border-b border-slate-100`}>
+      <button
+        type="button"
+        className={`px-3 py-1.5 text-xs font-bold rounded-t ${
+          tab === "artistas"
+            ? "bg-slate-100 text-slate-800"
+            : "text-slate-500 hover:text-slate-700"
+        }`}
+        onClick={() => setTab("artistas")}
+      >
+        Artistas FIMBA
+      </button>
+      <button
+        type="button"
+        className={`px-3 py-1.5 text-xs font-bold rounded-t ${
+          tab === "orquesta"
+            ? "bg-slate-100 text-slate-800"
+            : "text-slate-500 hover:text-slate-700"
+        }`}
+        onClick={() => setTab("orquesta")}
+      >
+        Orquesta OFRN
+      </button>
+    </div>
+  );
+
+  if (embedded) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+        <div className={`px-3 py-2 border-b ${bgClass}`}>
+          <div className={`text-sm font-bold ${colorClass} flex items-center gap-1.5`}>
+            <IconMapPin size={16} /> {title}
+          </div>
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            {location}
+            {activeVehicle ? ` · ${labelGiraTransporte(activeVehicle)}` : ""}
+          </div>
+        </div>
+        {tabsBar}
+        <div className="p-3">{panelInner}</div>
+      </div>
+    );
+  }
+
+  const body = (
+    <>
+      <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] animate-in zoom-in-95">
+          <div
+            className={`p-4 border-b rounded-t-xl flex justify-between items-start ${bgClass}`}
+          >
+            <div>
+              <h3
+                className={`text-lg font-bold ${colorClass} flex items-center gap-2`}
+              >
+                <IconMapPin size={20} /> {title}
+              </h3>
+              <div className="mt-1 text-sm font-medium text-slate-600">
+                {location}
+              </div>
+              <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                <IconClock size={12} /> {hora} hs
+                {activeVehicle ? (
+                  <span className="ml-2 font-semibold text-slate-600">
+                    · {labelGiraTransporte(activeVehicle)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 hover:bg-white/50 rounded-full transition-colors"
+            >
+              <IconX size={20} className="text-slate-500" />
+            </button>
+          </div>
+
+          {tabsBar}
+
+          {panelInner}
         </div>
       </div>
     </>

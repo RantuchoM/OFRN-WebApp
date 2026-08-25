@@ -15,9 +15,11 @@ FIMBA es una aplicación de festival con skin propia bajo `/fimba/*`, que reutil
 | `fimba_participantes` | Personas del artista (entidad propia; `id_integrante` opcional bigint). **`genero`**: `femenino` \| `masculino` \| `otro` \| `sin_especificar` (default). No vive en la propuesta: el artista es el grupo; el sexo/género es de cada persona. |
 | `fimba_usuarios` | Usuarios externos por edición: mail + `rol_fimba` (`editor_general` \| `consulta`) + `clave_acceso` / `token_login`. Staff OFRN (`isManagement`) no se registra aquí. |
 | `eventos.audiencia_ofrn` | `none` \| `tutti` \| `grupos` |
+| `eventos.asientos_equipaje` | Asientos de **equipaje** del evento/parada (no headcount de pasajeros). Legacy `# PAX` / `audiencia` se mantiene en sync. |
+| `eventos.observaciones_equipaje` | Notas de equipaje del evento (antes `Obs:` en `descripcion`) |
 | `eventos_fimba_propuestas` | Tags artista ↔ evento |
 | `fimba_evento_transportes` | Plazas FIMBA de un **trayecto** sobre una **unidad de flota** (`giras_transportes`) (legacy / asignación modal; residual sintético de boarding) |
-| `fimba_propuesta_rutas` | Subida/bajada FIMBA por **artista + cantidad de plazas** en una unidad (`giras_transportes`); análogo a `giras_logistica_rutas` sin id_integrante |
+| `fimba_propuesta_rutas` | Subida/bajada FIMBA por **artista + cantidad de plazas** (+ `asientos_equipaje` / `observaciones_equipaje` por regla) en una unidad (`giras_transportes`); análogo a `giras_logistica_rutas` sin id_integrante |
 | `fimba_contrataciones` | Planilla expedientes/contrataciones por edición: nº expediente, nombre (texto y/o `id_propuesta`), monto, fecha límite resol., tipo, flags firma/doc/ADM, `ultimo_estado_conocido` (denorm.), `orden`, **`carpeta_documentacion`** (URL/ID carpeta Google Drive del expediente) |
 | `fimba_contrataciones_estado_log` | Log append-only de cambios a «Último estado conocido»: `estado` text, `created_at`, `created_by_label`, `created_by_integrante_id` / `created_by_fimba_usuario_id` opcional |
 | `fimba_propuestas_habitaciones` | Slots de habitación por artista: `tipo` SGL/DBL/TPL/QAD, `matrimonial` (false en SGL; default twin), `orden`, `label` opcional |
@@ -47,12 +49,19 @@ transportes  1──*  giras_transportes  1──*  eventos (paradas OFRN, FK id
 - `labelGiraTransporte(gt)` = `transportes.nombre` + patente si hay (fallback a `detalle` solo si falta catálogo).
 - `detalleGiraTransporte(gt)` = `detalle` secundario si aporta algo distinto del nombre.
 - Capacidad en listado de vehículos = **capacidad_maxima** + **pico en tránsito** (plazas a bordo al salir de cada parada, máx. de la secuencia) y libres en pico.
-- **Planilla trayectos (UI):** scroll horizontal en `.fimba-planilla-scroll` (`overflow-x: auto`); tabla `width: max-content` (no se aplasta a 0). Columnas: Origen · Fecha · Com·Fin · Actividad · Locación · + · Destino · Vehículo · Mov. · Δ · Tránsito/cap · Artistas · acciones. Sticky izq.: Origen + Fecha + Com·Fin. Se eliminaron Cap/Libres/# PAX sueltos (cap y libres van en **Tránsito/cap** + tooltip; pax en badges de Artistas). Shell Transportes full-bleed (`.fimba-main:has(.fimba-transport-wide)` sin `max-width` de 1200px).
-- **Modo edición (Transportes):** mismo toggle que Artistas (`Modo edición` / `Salir de modo edición`, `IconPencil`, magenta). Off = vista; on = celdas inline + semáforo por fila (`fimba-sync-*`, sin leyenda). **Consulta / token RO** (`readOnly`): sin toggle. Autosave al blur/Enter (texto) o al cambiar (fecha, selects). Patch liviano `patchFimbaEventoPlanilla` (fecha, horas, actividad, destino texto, vuelo, obs.) — **no** reescribe flota/tags/grupos/`id_gira_transporte` ni `FimbaStopRulesManager`. Vehículo inline solo FIMBA puro con 0–1 unidad (`setFimbaEventoTransportes`, conserva plazas). Destino (columna calculada), Mov./Δ/Tránsito, ↑/↓ y alta de paradas siguen en modal. Flota: catálogo, nota OFRN, categoría y plazas inline con el mismo semáforo.
+- **Planilla trayectos (UI):** scroll horizontal en `.fimba-planilla-scroll` (`overflow-x: auto`); tabla `width: max-content` (no se aplasta a 0). Columnas: Origen · Fecha · Com·Fin · Actividad · Locación · + · Destino · Vehículo · **Subidas** · **Bajadas** · Tránsito/cap · acciones. Sticky izq.: Origen + Fecha + Com·Fin. Se eliminaron Mov. / Δ / Artistas / ↑↓ (quién sube/baja vive en Subidas/Bajadas; Δ sigue en el cálculo interno de boarding). **Tránsito/cap** = a bordo al salir / capacidad; hover (portal z-110) lista grupos/artistas + Orquesta + Reserva del evento. Shell Transportes full-bleed (`.fimba-main:has(.fimba-transport-wide)` sin `max-width` de 1200px).
+- **Modo edición (Transportes):** mismo toggle que Artistas (`Modo edición` / `Salir de modo edición`, `IconPencil`, magenta). Off = vista; on = celdas inline + semáforo por fila (`fimba-sync-*`, sin leyenda). **Consulta / token RO** (`readOnly`): sin toggle. Autosave al blur/Enter (texto) o al cambiar (fecha, selects). Patch liviano `patchFimbaEventoPlanilla` (fecha, horas, actividad, destino texto, vuelo, obs.) — **no** reescribe flota/tags/grupos/`id_gira_transporte` ni `FimbaStopRulesManager`. Vehículo inline solo FIMBA puro con 0–1 unidad (`setFimbaEventoTransportes`, conserva plazas). Destino (columna calculada), Tránsito y alta de paradas siguen en modal; Subidas/Bajadas = chips + modal. Flota: catálogo, nota OFRN, categoría y plazas inline con el mismo semáforo.
 
-**Capacidad / en tránsito (criterio OFRN)** se calcula **por unidad** (`giras_transportes`), con paradas ordenadas por fecha+hora:
+**Capacidad / en tránsito (criterio OFRN)** se calcula **por unidad** (`giras_transportes`), con paradas ordenadas por fecha+hora. **Regla dura:** un mismo `giras_transportes` = **una sola línea de ocupación** (OFRN + FIMBA juntos; no hay conteos separados por organización).
 
 ```
+Secuencia unificada por id_gira_transporte:
+  paradas = OFRN (id_gira_transporte) ∪ trayectos FIMBA tipo transporte con
+            fimba_evento_transportes ∪ endpoints ↑/↓ explícitos (fimba_propuesta_rutas
+            o giras_logistica_rutas). Orden: fecha + hora_inicio.
+  Concierto/hotel/etc. con fila de flota pero sin tipo transporte ni ↑/↓ real
+  → NO entran a la secuencia (no inventan hop subida/bajada).
+
 OFRN: subida/bajada por persona vía giras_logistica_rutas → logistics.transports.subidaId/bajadaId
       asientos = 1 + (instrumentos.plaza_extra ? 1 : 0)   // = GirasTransportesManager / ofrnSeatWeight
       a bordo al salir de i (en_transito cap): upIdx ≤ i && (sin bajada | downIdx > i)
@@ -61,25 +70,37 @@ FIMBA (rutas explícitas): fimba_propuesta_rutas (id_propuesta, id_gira_transpor
       headcount por cantidad (no nomina de id_participante); default plazas = para_transporte
       ride abierto = subida sin bajada → ocupa bus + tope artista; bajada cierra el ride y libera plazas
       (no es un segundo consumo de planificada+equip.; hop-off + subida luego = nuevo ride)
-FIMBA (legacy sintético): plazas en fimba_evento_transportes (o suma para_transporte de tags si plazas=0)
-      sube en el evento de asignación; baja en la siguiente parada de la unidad
-      solo si no hay subida explícita en fimba_propuesta_rutas para ese board-event+unidad
+FIMBA (legacy sintético): solo eventos **tipo transporte** con plazas en fimba_evento_transportes
+      (o suma para_transporte de tags si plazas=0)
+      residual = plazas_evento − Σ plazas explícitas que suben en ese evento/unidad
+      sube en el trayecto; baja en la **siguiente parada de la secuencia unificada**
+      (incluye paradas OFRN del mismo vehículo; no se saltean)
+Δ (Impacto) = board_seats − alight_seats en esa parada (OFRN + FIMBA)
 en_transito = Σ asientos OFRN a bordo (isOnBoardAfterStop) + Σ plazas FIMBA a bordo
-en_lugar (labels Artistas columna Transportes):
+libres (planilla) = max(0, capacidad_maxima − en_transito); overbook si en_transito > capacidad
+en_lugar (histórico / helper `resolveStopArtistasLabels`; planilla Transportes usa Subidas/Bajadas):
   Orquesta n     = Σ ofrnSeatWeight present at stop (isPresentAtStop) sobre unidad(es) de la fila
   {nombre} n     = Σ plazas FIMBA presentes en parada por propuesta (explicit + residual synthetic)
-libres = max(0, capacidad_maxima − en_transito); overbook si en_transito > capacidad
+
+Libres (modal / listVehiclesAvailability), misma flota compartida:
+  ocupadas_ofrn  = Σ OFRN cuyo ride [subida,bajada) solapa la ventana (1+plaza_extra)
+  ocupadas_fimba = Σ FIMBA (explícito+residual) cuyo ride solapa la ventana
+                 (excluye subidas del evento en edición)
+  libres = max(0, capacidad − ocupadas_ofrn − ocupadas_fimba)
 ```
 
-No usa tipos_evento Arribo/Salida: la parada es el evento; el sentido sube/baja viene de las reglas (OFRN / `fimba_propuesta_rutas`) o del sintético FIMBA.
+No usa tipos_evento Arribo/Salida: la parada es el evento; el sentido sube/baja viene de las reglas (OFRN / `fimba_propuesta_rutas`) o del sintético FIMBA sobre la secuencia unificada.
 
-Helper puro: `src/utils/fimbaTransportBoarding.js`. Carga OFRN: `loadFimbaTransportLogisticsSummary` (reusa `calculateLogisticsSummary` + passengers/admissionRules/regions/localities). Rutas FIMBA: `listFimbaPropuestaRutas` / `upsertFimbaPropuestaRutaStop` / `clearFimbaPropuestaRutaStop`.
+Helper puro: `src/utils/fimbaTransportBoarding.js`. Carga OFRN: `loadFimbaTransportLogisticsSummary` (reusa `calculateLogisticsSummary` + passengers/admissionRules/regions/localities + **`routeRules`** = `giras_logistica_rutas`). Rutas FIMBA: `listFimbaPropuestaRutas` / `upsertFimbaPropuestaRutaStop` / `clearFimbaPropuestaRutaStop`. Aserciones: `scripts/verify-fimba-boarding-delta.mjs`.
 
-**UI subidas/bajadas (planilla Transportes):** botones **↑ / ↓** por fila → `FimbaStopRulesManager` (portal z-[100]):
-- pestaña **Artistas FIMBA**: cantidad + vehículo → `fimba_propuesta_rutas` (paridad operativa con StopRules, pero plazas).
+**UI subidas/bajadas (planilla Transportes):** columnas **Subidas** / **Bajadas** (paridad con `GirasTransportesManager` Suben/Bajan). Cada celda: conteo + chips (nombre + plazas) + `+`. Clic en celda / vacío → `FimbaStopRulesManager` (portal z-[100]). × en chip FIMBA → `clearFimbaPropuestaRutaStop` (confirm). **Chips OFRN** = una por regla de `giras_logistica_rutas` en ese extremo (`summarizeOfrnStopRules` / label = localidad|categoría|apellido|Todos + plazas con `ofrnSeatWeight`); clic → tab **Orquesta**. Fallback compacto «Orquesta n» solo si hay asientos boarding sin reglas listables. Chip **«Reserva del evento»** → tab Artistas. RO/token: chips visibles, sin add/remove. Helper: `resolveStopBoardAlightChips` (recibe `ofrnRouteRules` + passengers/localities/regions). Tras mutar Orquesta → soft refresh `logistics` (recalcula chips + tránsito sin full reload).
+- pestaña **Artistas FIMBA**: lista de **reglas activas** (`fimba_propuesta_rutas`: grupo/artista + cantidad + **asientos/obs. equipaje**). Cantidad y equipaje editables inline → `upsertFimbaPropuestaRutaStop`. Alta: elegir grupo/artista + cantidad + equipaje. Fila **Reserva del evento** = plazas técnicas `fimba_evento_transportes` (editable en subida vía `upsertFimbaEventoTransportePlazas`); residual = reserva − Σ reglas de artista en esa parada. En bajada, el residual técnico que aligera se muestra (lectura). Botón **Bajar todo** (solo bajadas): cierra todos los rides FIMBA **abiertos** a bordo en ese vehículo/parada (`alightAllFimbaAboardAtStop`); reserva residual sintética ya baja en hop. Orquesta OFRN se baja aparte (pestaña Orquesta → **Bajar todo** / `alightAllOfrnAboardAtStop`).
   - **Subida:** dropdown = artistas con tope restante (`disp. remaining/tope` = planificada + extra equip. − plazas de rides **abiertos**). Consume tope / ocupa el bus.
-  - **Bajada:** objetivo = **liberar plazas**. Dropdown = quienes **ya están a bordo** de *este* vehículo (ride abierto: subida sin bajada, o presentes en la parada). Label `a bordo N` (no `disp. 0/2`). Guardar setea `id_evento_bajada` en ese ride (no inserta un board nuevo ni re-valida tope). Tras bajar, `isOnBoardAfterStop` deja de contarlos y el tope del artista se libera (pueden volver a subir). Quien nunca subió a esta unidad va al final, deshabilitado (`sin subida en este vehículo` / `ya bajó` / `sube más adelante`). Multi-vehículo: cada unidad tiene su propio ride; hop-off + subida posterior = nuevo ride.
-- pestaña **Orquesta OFRN**: embebe `StopRulesManager` **inline** (`embedded`) en la misma modal (sin segundo full-screen; evita stack z-[70] detrás del backdrop FIMBA). Props: `event`, `type`, `transportId` (vehículo), `giraId`, `passengers`/`admissionRules`/`regions`/`localities` OFRN, `supabase`. Tabla: `giras_logistica_rutas` (IDs integrantes numéricos). Modal standalone OFRN usa `z-[100]`. No se toca la pestaña Orquesta.
+  - **Bajada:** objetivo = **liberar plazas**. Dropdown = quienes **ya están a bordo** de *este* vehículo (ride abierto: subida sin bajada, o presentes en la parada). Label `a bordo N`. Guardar setea `id_evento_bajada` (+ plazas del ride). Tras bajar, `isOnBoardAfterStop` deja de contarlos y el tope del artista se libera. Quien nunca subió a esta unidad va al final, deshabilitado. Multi-vehículo: cada unidad tiene su propio ride; hop-off + subida posterior = nuevo ride.
+- pestaña **Orquesta OFRN**: embebe `StopRulesManager` **inline** (`embedded`) en la misma modal (sin segundo full-screen; evita stack z-[70] detrás del backdrop FIMBA). Props: `event`, `type`, `transportId` (vehículo), `giraId`, `passengers`/`admissionRules`/`regions`/`localities` OFRN, `sortedEvents` (secuencia del vehículo), `supabase`. Tabla: `giras_logistica_rutas` (IDs integrantes numéricos). Modal standalone OFRN usa `z-[100]`; confirms embebidos `z-[110]`. Jerarquía de match = misma que Giras (no reimplementada).
+  - **Fix bajada:** al asignar bajada/subida, si ya existe ride abierto (mismo alcance/objetivo con ese extremo vacío) → **UPDATE** de la fila (no insert huérfano). `calculateLogisticsSummary` usa `id_evento_subida`/`id_evento_bajada` como fuente de verdad (fallback si el embed PostgREST falta). `matchesRule`/`getMatchStrength` reconocen **Categoria** vía `target_ids` (SOLISTAS, …).
+  - **Bajadas — a bordo:** lista `listOfrnPeopleAboardAtStop` (presentes en parada vía `isPresentAtStop`; conteo = Σ `ofrnSeatWeight`). Botón **Bajar** por persona y **Bajar todo** → `alightOfrnPeopleAtStop` / `alightAllOfrnAboardAtStop` (reglas **Persona** fuerza 5 que cierran rides abiertos). Soft refresh `onRefresh('ofrn')` → slice logistics.
+- **Tránsito/cap hover:** tooltip portal `z-[110]` (`.fimba-transito-tooltip`) con desglose a bordo al salir (`resolveAboardAfterStopBreakdown` / `stop.a_bordo`): artistas FIMBA, **Orquesta** (con apellidos si ≤4 a bordo), Reserva del evento — formato `Nombre — n`.
 
 En UI FIMBA (`/transportes`):
 
@@ -89,7 +110,8 @@ En UI FIMBA (`/transportes`):
 - **No** master `fimba_transportes`.
 - Alta también posible en OFRN: gira → Logística → Transporte.
 - Sin vehículos: trayectos solo **SIN SERVICIO** (cero filas en `fimba_evento_transportes`).
-- **Modal asignación** (`FimbaEventoFormModal`, create y edit): tabla de **toda la flota** de la gira con **capacidad** (`capacidad_maxima`) siempre visible + **libres** de ventana si hay fecha/hora. Multi-vehículo: checkbox + input **plazas por unidad** (n / m / p; no un solo bus). Banner «Disponibles: Charter 1 (44) · Charter 2 (44) · Furgón (32) · 120 plazas de flota». Botón **Repartir N plazas** (`repartirPlazasEntreVehiculos`, greedy por cupo). Resumen `44 + 44 + 32 = 120` vs tope artista (`para_transporte`) o # PAX. **# PAX** (`eventos.audiencia`): default = Σ artistas taggeados (`para_transporte` = planificada + extra equip.; sin transporte = `para_hotel_comida`). Se sincroniza al taggear; en edit no pisa un valor guardado > 0 ni una edición manual. Hard-block al guardar: plazas > **asientos** (`validateEventoTransportPlazasVsCapacidad`); plazas > **libres** de solape FIMBA (`listVehiclesAvailability`); Σ > tope artistas taggeados. Libres de ventana = capacidad − plazas `fimba_evento_transportes` solapadas (no resta en tránsito OFRN; eso queda en planilla Transportes).
+- **Modal asignación** (`FimbaEventoFormModal`, create y edit): tabla de **toda la flota** de la gira con columnas **Cap. / OFRN / FIMBA / Libres / Plazas**. Orden por **mejor ajuste** a `need` = tope transporte de artistas taggeados (`plazasACubrir` / mismo número que **Repartir**): fits (`capacidad ≥ need`) por leftover asc `(cap − need)` luego `cap` asc; no-fits por `cap` desc; si `need` ≤ 0, orden original. Multi-vehículo: checkbox + input **plazas por unidad** (n / m / p). Banner «Disponibles…». Botón **Repartir N plazas** (solo tope artista taggeado; **no** usa asientos de equipaje como headcount). Resumen vs tope artista. Campos **Asientos Equipaje** / **Observaciones Equipaje** → `eventos.asientos_equipaje` / `observaciones_equipaje` (default equipaje = Σ `plazas_extra_materiales`). En eventos de **transporte**: sección **Artistas · Sube / Baja** (`FimbaEventoArtistasBoardingTable`) — tabla Tag | Sube | Baja (tags = `eventos_fimba_propuestas`; celdas = `upsertFimbaPropuestaRutaStop` / `clearFimbaPropuestaRutaStop` + equipaje por regla). Alta de tag: `SearchableSelect` («Buscar artista…»). Multi-vehículo: selector de unidad en cabecera. Create / sin vehículo: tags encolables; Sube/Baja deshabilitados hasta guardar. **Bajar todo** en cabecera. Reserva técnica = plazas del vehículo (no panel StopRules duplicado). **Sección Orquesta OFRN** (debajo de artistas): botones **Subir orquesta** / **Bajar orquesta** abren `StopRulesManager` **embedded** para el evento+vehículo (`giras_logistica_rutas`); resumen de reglas actuales; soft refresh `onBoardingRefresh('ofrn')` → slice logistics. Eventos no-transporte: chip cloud de tags. Planilla sigue usando `FimbaStopRulesManager` (chips Subidas/Bajadas + Orquesta). Hard-block al guardar: plazas > asientos; plazas > **libres**; Σ > tope artistas. **Libres de ventana** (`listVehiclesAvailability`): `capacidad − ocupadas_ofrn − ocupadas_fimba`, donde OFRN = asientos de roster (1+`plaza_extra`) con ride que solapa la franja, y FIMBA = plazas a bordo (explícitas `fimba_propuesta_rutas` + residual sintético de `fimba_evento_transportes.plazas`). Al editar, se excluyen las plazas FIMBA que suben en el propio evento. Misma fórmula en validación de `saveFimbaEvento`. Plazas del evento cuentan en planilla vía rides sintéticos (residual si ya hay ↑ artista).
+  - **Cierre del modal:** Enter en inputs (Sube/Baja, equipaje, etc.) **no** dispara Guardar ni cierra vía `onSaved`. Saves inline de reglas (`onBoardingRefresh`) refrescan planilla **sin** cerrar el modal ni pisar el borrador (debounce ~400–450 ms; solo slice `rutas`). Cerrar (backdrop / X / Escape / Cancelar) con borrador dirty → confirm «¿Descartar cambios?»; limpio → cierra. Dirty = campos del evento (tipo, fechas, actividad, vehículos/plazas, equipaje tocado, tags, audiencia/grupos); reglas Sube/Baja ya persistidas en DB **no** marcan dirty del formulario. Inline Sube/Baja: estado local del modal (seed desde `propuestaRoutes`); no re-list tras cada blur.
 - Locación: `locaciones.nombre` (+ ciudad) o texto `destino` del trayecto FIMBA.
 - **Destino (planilla Transportes)**: **calculado** = siguiente parada del **mismo vehículo** (`giras_transportes.id` / primary de la fila tras filtro de flota). Secuencia = `sortedEvents` de `buildVehicleBoardingSequence` (`sortEventsBySchedule` por fecha+`hora_inicio`). Label: `formatEventLocation(next)` (locación → destino texto → ciudad); si no hay locación, título `actividad` / `tipo_nombre` del next; sin next → `—`. Helpers: `nextEventInVehicleSequence` / `formatNextStopDestino` en `fimbaTransportBoarding.js` (expuestos también via `boardingMetricsForEventRow.destino_siguiente`).
 - **IconEdit junto a Destino** (no el lápiz de acciones de fila): abre modal compacto «Definir destino» (`FimbaDestinoStopModal`, portal `fimba-modal-backdrop` z-100). Campos: **Detalle** (actividad), **Destino** (`LocationSelectWithCreate` → `id_locacion`), **Hora**. Al Guardar **siempre crea** una fila nueva en la secuencia del mismo vehículo (nunca edita el next existente):
@@ -177,19 +199,19 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
   - Cada fila de ruta = un tramo continuo en un vehículo: `hora_inicio` = parada de subida; `hora_fin` = `hora_inicio` de la parada de bajada (si no hay bajada → fin vacío; si baja otro día → nota en observaciones).
   - Actividad tipo `Traslado · Origen → Destino`; badge «Traslado» (cian); vehículo `labelGiraTransporte`; # PAX = plazas de la ruta.
   - Varios rides (hop off/on) = varios bloques; multi-vehículo el mismo día = filas separadas.
-  - `es_ride_segment: true` → **siempre solo lectura** (no edit/delete; se editan en planilla Transportes ↑/↓). Desactivar con `include_ride_segments: false`.
+  - `es_ride_segment: true` → **siempre solo lectura** (no edit/delete; se editan en planilla Transportes Subidas/Bajadas). Desactivar con `include_ride_segments: false`.
   - **No** inventa sintético legacy sin `id_propuesta` en ride (solo rutas explícitas). Sin rutas / día sin bus → sin bloques de traslado.
 - Filtro planilla: **Todos / Solo FIMBA / Solo OFRN** (chips; **default Solo FIMBA**). Multi-select de **categoría de tipo** (`id_categoria` / `categorias_tipos_eventos`, dropdown `MultiSelectDropdown`; vacío = todas) alineado a UnifiedAgenda (no chips por `id_tipo_evento`). Multi-select de **locación** (`id_locacion` de filas cargadas; vacío = todas; sin `id_locacion` se ocultan si el filtro está activo). **Búsqueda** debounced 250ms (patrón UnifiedAgenda: pill + clear) sobre actividad, tipo, categoría, locación/ciudad/dirección, destino, vuelo, obs., artistas, grupos y vehículos. Opciones derivadas de filas cargadas. Filtro por artista desactiva merge OFRN puro.
 - Trayectos (`solo_traslados` / página Transportes):
   - Incluye **paradas/traslados OFRN** de la gira (`id_gira`) además de trayectos FIMBA.
-  - Criterio fila trayecto (`isFimbaTrasladoEvent`): `actividadUsaTransporte` **o** filas `fimba_evento_transportes` **o** `eventos.id_gira_transporte` set.
+  - Criterio fila trayecto (`isFimbaTrasladoEvent`): `actividadUsaTransporte` **o** `eventos.id_gira_transporte` set. Un Concierto con solo `fimba_evento_transportes` **no** entra a la planilla Transportes (no es parada de boarding); si tiene ↑/↓ en `fimba_propuesta_rutas`, entra a la **secuencia de boarding** del vehículo vía `isVehicleBoardingSequenceEvent` (endpoint).
   - Merge OFRN: misma convocatoria agenda (tutti/grupos/null) **+**, en modo trayectos, paradas de flota (`id_gira_transporte ∈ giras_transportes` de la gira) aunque `audiencia_ofrn = none`.
   - **No** mezcla ensayos/ensambles OFRN (solo filas que pasan el criterio transporte).
   - Filtro origen chips (**default Todos**); multi-select **vehículo** por `giras_transportes.id` (vacío = todos; FIMBA vía `fimba_evento_transportes`, OFRN vía `id_gira_transporte`).
 - Visual: badges origen FIMBA / OFRN; filas pure-OFRN muting cyan; columna convocatoria (Tutti / chips de grupo) en Agenda; en Transportes columnas origen + vehículo(s).
-- Columna **Artistas**:
+- Columna **Artistas** (Agenda) / **Subidas·Bajadas** (Transportes):
   - **Agenda** (sin secuencia de bus): chips de propuestas; **`Orquesta {n}`** con `n` = |roster contabilizado de la gira| (grupos ∩ countedIds; sin ausentes). Fallback `eventos.audiencia` si no hay roster.
-  - **Transportes** (contexto boarding por unidad): `resolveStopArtistasLabels` — **`Orquesta {n}`** = pax OFRN **presentes en la parada** (`isPresentAtStop` + `ofrnSeatWeight`); **`{nombre_propuesta} {n}`** = plazas FIMBA presentes (`fimba_propuesta_rutas` + residual sintético). Con filtro de vehículo, `n` refleja esa secuencia; multi-unidad suma; etiqueta 0/oculta si no hay presencia real (no inventa roster estático en cada fila).
+  - **Transportes**: columnas **Subidas** / **Bajadas** vía `resolveStopBoardAlightChips` — chips FIMBA `{nombre} {plazas}` desde `fimba_propuesta_rutas`; chips OFRN por regla (`summarizeOfrnStopRules`, fallback «Orquesta n»); **Reserva del evento** (residual técnico, no removible). **Tránsito/cap** hover = a bordo al salir (`a_bordo`, Orquesta con apellidos si pocos).
 - **Tipos = catálogo OFRN** (`tipos_evento` + `categorias_tipos_eventos`), mismo shape que `EventForm` / UnifiedAgenda. Persistencia: **`eventos.id_tipo_evento`** (FK). Sin tabla ni strings de tipo FIMBA-only.
 - UI modal: filtro por categoría + select de tipo (nombre + color de catálogo). Planilla: badge con `tipo_nombre` / `tipo_color` y subtítulo de categoría.
 - **Detección transporte** (`actividadUsaTransporte`): categoría id `6` («Transporte») **o** ids OFRN `11/12/28/31/35` (EventForm usa 11/12; logística también 35; catálogo tiene 28/31). Checkbox «Asignar vehículo(s)» permite flota en otros tipos.
@@ -329,8 +351,11 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Vehículos FIMBA = `giras_transportes` de la gira (sin master FIMBA); catálogo = `transportes`
 - [x] Trayectos FIMBA = `eventos` con `id_gira` de la edición, `audiencia_ofrn = 'none'`, tipo traslado (`id_tipo_evento = 11`)
 - [x] Multi-vehículo + plazas en `fimba_evento_transportes`; **SIN SERVICIO** = cero filas de vehículo
-- [x] Create/edit trayecto: flota visible con capacidad; n/m/p plazas por unidad; Repartir; hard-block asientos + libres FIMBA + tope artista
-- [x] Tags artista en `eventos_fimba_propuestas`; # PAX en `eventos.audiencia` (default = Σ `para_transporte` / `para_hotel_comida` de artistas taggeados; en edit se rellena si audiencia guardada es 0)
+- [x] Create/edit trayecto: flota Cap/OFRN/FIMBA/Libres/Plazas; n/m/p; Repartir; hard-block asientos + libres (OFRN+FIMBA) + tope artista
+- [x] Tags artista en `eventos_fimba_propuestas`; **Asientos Equipaje** en `eventos.asientos_equipaje` (+ sync legacy `audiencia`); obs. en `observaciones_equipaje`; pasajeros = reglas boarding + tags (no este campo)
+- [x] Equipaje también en `fimba_propuesta_rutas` (CRUD en StopRules / tabla Tag·Sube·Baja); **Bajar todo**; editor transporte = tabla Tag|Sube|Baja (no cloud + StopRules embebido)
+- [x] OFRN bajada desde FIMBA: cierra rides abiertos (UPDATE); logistics usa `id_evento_*`; Categoria vía `target_ids`; **Bajar todo** / lista a bordo Orquesta (`alightAllOfrnAboardAtStop`)
+- [x] Migración `20260825084834_fimba_equipaje_asientos_obs` Local = Remote (deploy linked)
 - [x] Capacidad en UI: por unidad rolling en tránsito (OFRN subida/bajada + plaza_extra + plazas FIMBA) vs `capacidad_maxima`; overbook y libres; locación en planilla
 - [x] UI distingue **Vehículos** vs **Trayectos**; alta/edición de vehículo embebida (`addFimbaVehiculo` / `updateFimbaVehiculo`)
 - [x] Agenda unificada (multi-tipo actividad) + filtro artista
@@ -358,7 +383,8 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Migración `20260811150000` (propuestas, histórica) + `20260811160000` (contrataciones + copy 1.ª fila + deprecate propuestas col) deploy linked
 - [x] Display vehículo FIMBA = catálogo (`transportes.nombre`) + patente; `detalle` = nota OFRN secundaria; trayecto = cada evento de la planilla
 - [x] En tránsito / boarding: helper `fimbaTransportBoarding.js` + `loadFimbaTransportLogisticsSummary` (equivalencia hoja de ruta OFRN)
-- [x] `fimba_propuesta_rutas` + UI ↑/↓ `FimbaStopRulesManager` (plazas artista + StopRules OFRN)
+- [x] Boarding unificado por vehículo: OFRN+FIMBA misma secuencia/Δ/a bordo; sintético solo tipo transporte; Concierto sin ↑/↓ no entra; `scripts/verify-fimba-boarding-delta.mjs`
+- [x] `fimba_propuesta_rutas` + UI Subidas/Bajadas (`FimbaStopRulesManager`: plazas artista + StopRules OFRN)
 - [x] Bajada FIMBA libera plazas: dropdown a bordo / cierra ride (`id_evento_bajada`); tope = solo rides abiertos
 - [x] Labels planilla Transportes: `Orquesta {en_lugar}` + `{nombre} {n}` desde `isPresentAtStop` (no roster estático por fila)
 - [x] Transportes **Modo edición** + semáforo (planilla trayectos + flota); `patchFimbaEventoPlanilla` sin tocar boarding/↑↓
@@ -414,6 +440,9 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Agenda unificada planilla (fecha, horas, tipo, actividad, destino/vuelo, vehículos, PAX, tags)
 - [x] Planilla agenda: badges FIMBA/OFRN + convocatoria + filtro origen (default Solo FIMBA) + multi-select **categoría** y **locación** + búsqueda debounced (tipo/actividad/lugar/personas/vehículos)
 - [x] Hotelería reporte + edición checkin/out/early/late/hotel + export TSV (cols Early/Late) + cupos habitaciones + rooming resumen
+- [x] Hotelería: carga batch (participantes + habitaciones), refresh por artista post-edición sin full reload
+- [x] Transportes: carga deduplicada (cache edicion/propuestas/flota; sin hotelería completa); spinner solo 1ª carga; soft refresh por slice (rutas / eventos / logistics OFRN) tras ↑↓, reserva, evento, destino
+- [x] Transportes perf (save/load): Sube/Baja inline = upsert + patch local + debounce refresh rutas (sin 2× list + await planilla); Guardar evento = pre-checks paralelos + tags/veh/grupos en paralelo + `clientValidated` (sin re-fetch logistics); post-Guardar solo slice `eventos`
 - [x] Hotelería: exports por artista en cada tarjeta (Pedido hotel hub + Rooming PDF + Excel rooming/hotelería; cabecera edición intacta)
 - [x] Ficha artista + token edición: panel **Hotelería / rooming** (`FimbaRoomingPanel`); consulta token RO
 
@@ -432,11 +461,11 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 ### Stub / deferred
 
 - [x] Tabla `fimba_evento_transportes` en SQL
-- [x] Helper métricas FIMBA por ventana (`listVehiclesAvailability` batch / `computeFimbaVehicleWindowMetrics` / `sumFimbaPlazasInWindow`)
+- [x] Helper métricas FIMBA por ventana (`listVehiclesAvailability` batch / `computeFimbaVehicleWindowMetrics` / `sumFimbaPlazasInWindow`) — libres = cap − OFRN − FIMBA (rides)
 - [x] Helper boarding rolling `fimbaTransportBoarding` + carga logística OFRN (`loadFimbaTransportLogisticsSummary`)
 - [x] Planilla Transportes: columna **Destino** (next stop mismo vehículo) + **Hora fin** guardada o calculada (`next.hora_inicio`) con estilo distinto
 - [x] Planilla Transportes: **+** entre Locación y Destino → create modal parada intermedia (midpoint / +30m; mismo vehículo; `audiencia_ofrn=none`)
-- [x] UI de asignación multi-vehículo por evento (trayectos): tabla flota (cap + libres + plazas n/m/p) + banner de unidades disponibles + **Repartir** greedy + resumen `n + m + p` vs tope artista/# PAX + hard-block asientos/libres/tope en modal y `saveFimbaEvento`
+- [x] UI de asignación multi-vehículo por evento (trayectos): tabla flota Cap/OFRN/FIMBA/Libres/Plazas + banner + **Repartir** + resumen vs tope + hard-block asientos/libres(OFRN+FIMBA)/tope en modal y `saveFimbaEvento`
 - [x] Agenda grilla FIMBA (planilla multi-tipo)
 - [x] Reportes hotel (lista + cupos; sin rooming graph)
 - [x] Paridad reportes OFRN→FIMBA: pedido/texto/detalle/rooming (print+Excel); comidas (texto/PDF/Excel + **cubiertos por día** check-in/out general/artista; sin asistencia por-evento); CNRT + paradas + hoja de ruta (PDF/Excel) por vehículo
@@ -475,7 +504,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 
 1. Edición → **Agenda** (`/fimba/edicion/:id/agenda`).
 2. Ver planilla mixta: eventos FIMBA + orquesta OFRN (badges origen). Filtrar **Todos / Solo FIMBA / Solo OFRN**.
-3. **Nuevo evento**: tipo del catálogo OFRN (filtro categoría opcional), fecha, horas, tag artistas, # PAX. Default tipo «Nuevo evento» (16).
+3. **Nuevo evento**: tipo del catálogo OFRN (filtro categoría opcional), fecha, horas, tag artistas, Asientos Equipaje. Default tipo «Nuevo evento» (16).
 4. Tipos Transporte / traslados OFRN abren flota + SIN SERVICIO; otros: sin vehículo salvo «Asignar vehículo(s) al trayecto».
 5. **Audiencia OFRN**: Ninguna | Tutti | Grupos (multi-select real de grupos de la gira). Al guardar con Grupos se escriben `eventos_grupos`.
 6. Editar un ensayo pure-OFRN desde FIMBA (staff) y agregar tags artista / cambiar audiencia — se guarda sin romper FK de transporte OFRN.
@@ -488,20 +517,24 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 3. Alternativa: OFRN Logística → Transporte de la misma gira.
 4. Planilla **Trayectos**: filas FIMBA + paradas/traslados OFRN (badges origen). Default origen **Todos**.
 5. Chips **Vehículo**: vacío = todos; seleccionar unidad filtra filas y ancla métricas de boarding a esa secuencia.
-6. Columnas planilla: **Origen** · **Fecha** · **Com·Fin** · **Actividad** · **Locación** · **+** · **Destino** · **Vehículo** · **Mov.** · **Δ** · **Tránsito/cap** · **Artistas** · acciones. Sticky izq. Origen/Fecha/Com. Scroll horizontal en wrapper (tabla `max-content`). Sin Cap/Libres/# PAX sueltos. **Hora fin** en celda Com·Fin (itálica/cián si calculada). Alerta **Sobre cupo** si en_transito > capacidad; libres vía tooltip de Tránsito/cap.
+6. Columnas planilla: **Origen** · **Fecha** · **Com·Fin** · **Actividad** · **Locación** · **+** · **Destino** · **Vehículo** · **Subidas** · **Bajadas** · **Tránsito/cap** · acciones. Sticky izq. Origen/Fecha/Com. Scroll horizontal en wrapper (tabla `max-content`). Chips Subidas/Bajadas (clic → modal; × quita FIMBA; Reserva del evento visible). **Hora fin** en celda Com·Fin (itálica/cián si calculada). Alerta **Sobre cupo** si en_transito > capacidad; Tránsito/cap hover = desglose a bordo.
 7. Paridad OFRN: músico con `plaza_extra` cuenta 2 plazas; subida/bajada desde reglas de ruta de la gira.
-8. **Nuevo trayecto** (y **Editar evento**): la flota aparece en tabla con nombre + **capacidad** + **libres** + input **plazas**. Elegí 3 buses y poné p.ej. 44 + 44 + 32 (organismo 120). **Repartir N plazas** llena los marcados (o toda la flota si no hay ninguno) sin pasar cupo. SIN SERVICIO = cero vehículos. Default al tildar = min(resto tope artista o # PAX, cupo). # PAX default = Σ taggeados (planificada + extra); en edit se rellena si audiencia=0.
+8. **Nuevo trayecto** (y **Editar evento**): la flota aparece en tabla con **Cap. / OFRN / FIMBA / Libres / Plazas**. Elegí 3 buses y poné p.ej. 44 + 44 + 32 (organismo 120). **Repartir N plazas** llena los marcados (o toda la flota si no hay ninguno) sin pasar cupo. SIN SERVICIO = cero vehículos. Default al tildar = min(resto tope artista, cupo). Asientos Equipaje default = Σ extras taggeados; no alimenta Repartir. En transporte: tabla **Tag | Sube | Baja** (`SearchableSelect` para agregar; Sube/Baja tras guardar). En Gestionar Bajadas (planilla): **Bajar todo**.
 9. **+** entre Locación y Destino en una fila con vehículo: modal «Parada intermedia» pre-filled (fecha/hora midpoint o +30m; mismo bus; plazas 0); al guardar aparece en secuencia y recalcula Destino/Hora fin de vecinos.
-10. Modal asignación: `listVehiclesAvailability` → libres = max(0, capacidad_maxima − Σ plazas `fimba_evento_transportes` de eventos solapados en fecha/hora); anota usos OFRN por FK (sin restar roster / en tránsito). Hard-block: plazas por bus ≤ **capacidad** (asientos); plazas ≤ libres si hay ventana; Σ plazas ≤ Σ `para_transporte` de artistas taggeados. Persistencia: N filas `fimba_evento_transportes` (no hay modelo paralelo).
+10. Modal asignación: `listVehiclesAvailability` → libres = max(0, capacidad − OFRN a bordo − FIMBA a bordo) en la ventana (rides que solapan fecha/hora; OFRN con `plaza_extra`; FIMBA = explícitas + residual sintético de `fimba_evento_transportes`). Excluye plazas FIMBA del evento en edición. Hard-block: plazas ≤ capacidad; plazas ≤ libres; Σ ≤ tope artistas. UI: columnas Cap/OFRN/FIMBA/Libres/Plazas. Persistencia: N filas `fimba_evento_transportes`. Conteo alineado a planilla (OFRN+FIMBA); residual sintético si ↑ parcial; solape de puntos (mismo inicio sin hora_fin).
+
+**Carga (`FimbaTransportPage`):** spinner full-page solo en la **primera** visita. `listFimbaTraslados` / `listFimbaPropuestaRutas` aceptan `edicion` + `propuestas` (+ `flota`) cacheados para no re-fetch. Participantes CNRT = batch liviano (`listFimbaParticipantesForPropuestas`, sin habitaciones) en background. Tras editar: refresh quirúrgico — rutas (↑↓ FIMBA), eventos+rutas (reserva/modal evento), logistics (Orquesta OFRN); la planilla permanece visible.
 
 ### Hotelería
 
 1. Edición → **Hotelería** (`/fimba/edicion/:id/hoteleria`).
 2. Ver PAX planificados, nominados, por confirmar; expandir personas; badges Early/Late junto a fechas; badges de **inventario** (ej. «3 DBL, 1 SGL») y ocupadas/plazas rooming.
-3. **Editar**: check-in/out, toggles Early/Late, hotel del catálogo `hoteles`, **cupos por tipo** (Single/Doble/Triple/Cuádruple).
+3. **Editar**: check-in/out, toggles Early/Late, hotel del catálogo `hoteles`, **cupos por tipo** (Single/Doble/Triple/Cuádruple). Tras guardar, la tarjeta del artista se actualiza con `getFimbaHoteleriaRow` (sin recargar toda la edición ni spinner full-page).
 4. Cabecera: **Reportes hotelería** / comidas / Excel (toda la edición o filtro Artista). Por tarjeta: **Pedido hotel**, Rooming PDF, Excel rooming, Excel hotelería (scope = esa propuesta; OK en readOnly).
 5. Expandir artista: columna Habitación + lista rooming; **Copiar tabla (Excel)** (TSV + cols habitaciones).
 6. Ficha artista o `/fimba/e/:token`: panel **Hotelería / rooming** — staff aplica cupos; editor asigna personas a plazas; matrimonial en multi; consulta `/fimba/a` RO.
+
+**Carga (`listFimbaHoteleria`):** participantes + habitaciones en **batch** (2 queries por edición, no N+1 secuencial). La página deduplica edición/propuestas y muestra spinner solo en la primera carga; cambio de filtro Artista = refresh inline.
 
 ### Contrataciones
 
@@ -568,8 +601,12 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/context/FimbaAccessContext.jsx` | `readOnly` / `canEditPropuestaMeta` / flags de secciones en shell staff |
 | `src/views/Fimba/FimbaLoginPage.jsx` | Form `/fimba/login` |
 | `src/views/Fimba/FimbaEdicionConsultaEntry.jsx` | Entry `/fimba/c/:token` → session + redirect |
-| `src/utils/fimbaTransportBoarding.js` | Secuencia subida/bajada + en tránsito + headcounts `isPresentAtStop` / labels Artistas + opciones bajada (`buildFimbaBajadaArtistOptions`) |
-| `src/views/Fimba/FimbaStopRulesManager.jsx` | Modal ↑/↓: subida consume tope; bajada cierra ride y libera plazas; StopRules OFRN `embedded` |
+| `src/utils/fimbaTransportBoarding.js` | Secuencia + en tránsito + chips (`resolveStopBoardAlightChips` / `summarizeOfrnStopRules`) + tooltip a bordo + opciones bajada |
+| `src/views/Fimba/FimbaStopRulesManager.jsx` | Modal planilla: reglas grupo+cantidad+equipaje; Reserva; **Bajar todo** FIMBA; StopRules OFRN `embedded` (+ Bajar todo orquesta) |
+| `src/views/Fimba/FimbaEventoArtistasBoardingTable.jsx` | Editor transporte: Tag \| Sube \| Baja + `SearchableSelect` alta; sync `fimba_propuesta_rutas` |
+| `src/views/Fimba/FimbaEventoFormModal.jsx` | Modal agenda + flota; Asientos/Obs. Equipaje; Repartir; tabla Sube/Baja; **Orquesta OFRN** (StopRules embedded + sortedEvents); dirty-guard cierre |
+| `src/views/Giras/StopRulesManager.jsx` | Reglas `giras_logistica_rutas`; cierra rides abiertos; lista a bordo + **Bajar todo**/Bajar; confirms z-110 embedded |
+| `src/services/fimbaService.js` | Rutas FIMBA + `alightAllFimbaAboardAtStop` + `alightAllOfrnAboardAtStop` / `alightOfrnPeopleAtStop` |
 | `src/views/Fimba/FimbaLayout.jsx` | Skin + header sticky + toggle + sesión/logout FIMBA |
 | `src/views/Fimba/FimbaSectionToggle.jsx` | Segmented control; oculta Contrataciones/Usuarios en consulta; Rider si `canSeeRider` |
 | `src/views/Fimba/FimbaRiderPage.jsx` | Pestaña Rider: acordeón + autosave + Imprimir/PDF (texto o imágenes) |
@@ -583,7 +620,6 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/views/Fimba/FimbaEdicionPage.jsx` | Artistas + modo planilla + semáforo; alta modal; lápiz → ficha |
 | `src/views/Fimba/FimbaArtistaPage.jsx` | Detalle: meta + finanzas (Drive desde contratos) + agenda + rooming + planilla; finanzas si `canSeeContrataciones` |
 | `src/views/Fimba/FimbaConsultaAgenda.jsx` | Agenda por tag artista + ride segments RO; create/edit/delete en tagged |
-| `src/views/Fimba/FimbaEventoFormModal.jsx` | Modal agenda + flota; tabla n/m/p plazas por unidad + Repartir; `lockPropuesta` fuerza tag artista |
 | `src/views/Fimba/FimbaAgendaPage.jsx` | Planilla agenda (tipo/color catálogo); ride segments al filtrar artista |
 | `src/utils/fimbaTransportBoarding.js` | Boarding + `buildArtistaTrasladoAgendaBlocks` / merge |
 | `src/views/Fimba/FimbaTransportPage.jsx` | Vehículos + trayectos + columnas boarding / locación |
@@ -614,6 +650,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | **20260811130000** | `fimba_contrataciones_estado_log` | Local = Remote (SQL linked + repair applied) |
 | **20260813120000** | `fimba_propuestas_rider` | Local = Remote (deploy linked) |
 | **20260824152341** | `fimba_propuestas_requiere_hotel_comidas` | Local = Remote (deploy linked) |
+| **20260825084834** | `fimba_equipaje_asientos_obs` | Local = Remote (SQL linked + repair applied) |
 
 ### Auth usuarios FIMBA — cómo usar
 

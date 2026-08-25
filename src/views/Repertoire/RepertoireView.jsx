@@ -426,6 +426,7 @@ const ColumnManager = ({ visibleColumns, onChange }) => {
 
   const columns = [
     { key: "compositor", label: "Compositor" },
+    { key: "pais", label: "País" },
     { key: "obra", label: "Obra" },
     { key: "arreglador", label: "Arreglador" },
     { key: "organico", label: "Orgánico" },
@@ -741,6 +742,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   // Visibilidad Columnas
   const [visibleColumns, setVisibleColumns] = useState({
     compositor: true,
+    pais: false,
     obra: true,
     arreglador: true,
     organico: true,
@@ -754,7 +756,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   });
 
   // Filtros
-  const [filters, setFilters] = useState({ titulo: "", compositor: "", arreglador: "", estado: "Todos", solicitante: "", duracionMin: "", duracionMax: "", fechaDesde: "", fechaHasta: "", observaciones: "" });
+  const [filters, setFilters] = useState({ titulo: "", compositor: "", pais: "", arreglador: "", estado: "Todos", solicitante: "", duracionMin: "", duracionMax: "", fechaDesde: "", fechaHasta: "", observaciones: "" });
   const [selectedTags, setSelectedTags] = useState(new Set());
   const [instrFilters, setInstrFilters] = useState([]);
   const [stringsFilter, setStringsFilter] = useState("all");
@@ -1103,7 +1105,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   };
 
   const clearAllFilters = () => {
-    setFilters({ titulo: "", compositor: "", arreglador: "", estado: "Todos", solicitante: "", duracionMin: "", duracionMax: "", fechaDesde: "", fechaHasta: "", observaciones: "" });
+    setFilters({ titulo: "", compositor: "", pais: "", arreglador: "", estado: "Todos", solicitante: "", duracionMin: "", duracionMax: "", fechaDesde: "", fechaHasta: "", observaciones: "" });
     setSelectedTags(new Set()); setInstrFilters([]); setStringsFilter("all"); setStrictMode(false);
     setShowLegacyOficialSinDrive(false);
     setShowYaProgramado(false);
@@ -1120,6 +1122,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
             stripHtml(work.titulo),
             work.compositor_full,
             work.arreglador_full,
+            work.pais_nombre,
           ],
           mobileQuickSearch,
         )
@@ -1135,6 +1138,13 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
         filters.compositor &&
         !normalizeForSearch(work.compositor_full).includes(
           normalizeForSearch(filters.compositor),
+        )
+      )
+        return false;
+      if (
+        filters.pais &&
+        !normalizeForSearch(work.pais_nombre).includes(
+          normalizeForSearch(filters.pais),
         )
       )
         return false;
@@ -1274,6 +1284,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const getGridTemplate = () => {
     let cols = canEdit ? "36px " : "";
     if (visibleColumns.compositor) cols += "minmax(150px, 1.2fr) ";
+    if (visibleColumns.pais) cols += "minmax(100px, 0.7fr) ";
     if (visibleColumns.obra) cols += "minmax(200px, 2fr) ";
     if (visibleColumns.arreglador) cols += "minmax(120px, 0.8fr) ";
     if (visibleColumns.organico) cols += "minmax(120px, 0.8fr) ";
@@ -1433,6 +1444,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     }
     addTextFilter("titulo", "Obra");
     addTextFilter("compositor", "Comp.");
+    addTextFilter("pais", "País");
     addTextFilter("arreglador", "Arr.");
     if (filters.estado !== "Todos") {
       chips.push({
@@ -1698,6 +1710,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                     </div>
                     )}
                     {visibleColumns.compositor && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("compositor_full")}>Compositor <SortIcon column="compositor_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.compositor} onChange={(e) => setFilters({ ...filters, compositor: e.target.value })} /></div>}
+                    {visibleColumns.pais && <div className="space-y-2 animate-in fade-in slide-in-from-top-1"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("pais_nombre")}>País <SortIcon column="pais_nombre" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.pais} onChange={(e) => setFilters({ ...filters, pais: e.target.value })} /></div>}
                     {visibleColumns.obra && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("titulo")}>Obra <SortIcon column="titulo" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.titulo} onChange={(e) => setFilters({ ...filters, titulo: e.target.value })} /></div>}
                     {visibleColumns.arreglador && <div className="space-y-2"><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("arreglador_full")}>Arreglador <SortIcon column="arreglador_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.arreglador} onChange={(e) => setFilters({ ...filters, arreglador: e.target.value })} /></div>}
                     {visibleColumns.organico && <div className="space-y-2 relative" ref={desktopInstrFilterAnchorRef}><div className="flex items-center justify-center text-center text-xs font-bold text-slate-500 uppercase">Orgánico</div><button onClick={() => setShowInstrFilter(!showInstrFilter)} className={`w-full text-xs p-1.5 border rounded flex items-center justify-between ${instrFilters.length > 0 || stringsFilter !== "all" ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-bold" : "bg-white border-slate-300 text-slate-500"}`}><span>{getInstrumentationFilterLabel(instrFilters, stringsFilter, strictMode)}</span><IconFilter size={10} /></button>{showInstrFilter && <InstrumentationFilterModal onClose={() => setShowInstrFilter(false)} currentFilters={instrFilters} stringsFilter={stringsFilter} setStringsFilter={setStringsFilter} strictMode={strictMode} setStrictMode={setStrictMode} onApply={(newRules) => { setInstrFilters(newRules); setShowInstrFilter(false); }} anchorRef={desktopInstrFilterAnchorRef} />}</div>}
@@ -1822,6 +1835,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                       </div>
                       )}
                       {visibleColumns.compositor && <div className="truncate font-medium text-slate-700">{work.compositor_full || <span className="text-slate-300 italic">-</span>}</div>}
+                      {visibleColumns.pais && <div className="truncate text-slate-500 text-xs">{work.pais_nombre || <span className="text-slate-300 italic">-</span>}</div>}
                       {visibleColumns.obra && (
                         <div className="min-w-0 flex flex-col justify-center gap-1 w-full">
                           <div className="text-slate-800 leading-tight line-clamp-2"><RichTextPreview content={work.titulo} /></div>
@@ -2223,6 +2237,16 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                         />
                       </label>
                     </div>
+
+                    <label className="space-y-1">
+                      <span className="text-[10px] font-bold uppercase text-slate-400">País</span>
+                      <input
+                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs outline-none"
+                        placeholder="Nacionalidad del compositor..."
+                        value={filters.pais}
+                        onChange={(e) => setFilters({ ...filters, pais: e.target.value })}
+                      />
+                    </label>
 
                     <div className="grid grid-cols-2 gap-2">
                       <label className="space-y-1">

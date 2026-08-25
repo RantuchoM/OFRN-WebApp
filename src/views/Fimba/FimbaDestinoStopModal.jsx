@@ -95,8 +95,8 @@ export default function FimbaDestinoStopModal({
       actividad: act,
       destino: locLabel || "",
       id_locacion: idLocacion || null,
-      observaciones: "",
-      pax: 0,
+      observaciones_equipaje: "",
+      asientos_equipaje: 0,
       sin_servicio: false,
       usa_transporte: true,
       vehiculos: [

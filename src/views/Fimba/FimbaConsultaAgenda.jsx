@@ -244,7 +244,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                   <th>Destino / Vuelo</th>
                   <th>Vehículo</th>
                   <th style={{ paddingRight: editable ? undefined : "1rem" }}>
-                    # PAX
+                    As. Equipaje
                   </th>
                   {editable && <th style={{ paddingRight: "0.75rem" }} />}
                 </tr>
@@ -338,7 +338,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                           paddingRight: editable ? undefined : "1rem",
                         }}
                       >
-                        {ev.pax || "—"}
+                        {ev.asientos_equipaje || ev.pax || "—"}
                       </td>
                       {editable && (
                         <td

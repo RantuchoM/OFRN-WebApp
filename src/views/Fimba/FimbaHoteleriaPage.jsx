@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -15,6 +15,7 @@ import {
 } from "../../components/ui/Icons";
 import {
   getFimbaEdicionById,
+  getFimbaHoteleriaRow,
   listFimbaHoteleria,
   listFimbaPropuestas,
   listHotelesCatalog,
@@ -67,7 +68,8 @@ export default function FimbaHoteleriaPage() {
   const [propuestas, setPropuestas] = useState([]);
   const [hoteles, setHoteles] = useState([]);
   const [filtroArtista, setFiltroArtista] = useState(filterFromQuery || "");
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [modal, setModal] = useState(null);
   const [expanded, setExpanded] = useState({});
@@ -158,40 +160,77 @@ export default function FimbaHoteleriaPage() {
   const rowsHotel = useMemo(() => filterHoteleriaRowsForHotel(rows), [rows]);
   const rowsComidas = useMemo(() => filterHoteleriaRowsForComidas(rows), [rows]);
 
-  const reload = async () => {
-    setLoading(true);
-    setError(null);
-    const edRes = await getFimbaEdicionById(edicionId);
-    if (edRes.error || !edRes.edicion) {
-      setError(edRes.error?.message || "Edición no encontrada");
-      setEdicion(null);
-      setLoading(false);
+  const hasLoadedOnce = useRef(false);
+  const loadedEdicionId = useRef(null);
+
+  const load = useCallback(
+    async ({ silent = false } = {}) => {
+      if (loadedEdicionId.current !== edicionId) {
+        hasLoadedOnce.current = false;
+        loadedEdicionId.current = edicionId;
+      }
+      const showFullSpinner = !silent && !hasLoadedOnce.current;
+      if (showFullSpinner) setInitialLoading(true);
+      else if (!silent) setRefreshing(true);
+      setError(null);
+
+      const [edRes, hotelCat, propsRes] = await Promise.all([
+        getFimbaEdicionById(edicionId),
+        listHotelesCatalog(),
+        listFimbaPropuestas(edicionId),
+      ]);
+
+      if (edRes.error || !edRes.edicion) {
+        setError(edRes.error?.message || "Edición no encontrada");
+        setEdicion(null);
+        setInitialLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      const hotRes = await listFimbaHoteleria(edicionId, {
+        id_propuesta: filtroArtista || null,
+        edicion: edRes.edicion,
+        propuestas: propsRes.propuestas,
+      });
+
+      if (hotRes.error || hotelCat.error || propsRes.error) {
+        setError(
+          (hotRes.error || hotelCat.error || propsRes.error)?.message || "Error al cargar",
+        );
+      }
+
+      setEdicion(edRes.edicion);
+      setRows(hotRes.rows || []);
+      setHoteles(hotelCat.hoteles || []);
+      setPropuestas(propsRes.propuestas || []);
+      hasLoadedOnce.current = true;
+      setInitialLoading(false);
+      setRefreshing(false);
+    },
+    [edicionId, filtroArtista],
+  );
+
+  const refreshRow = useCallback(async (propuestaId) => {
+    const { row, error: err } = await getFimbaHoteleriaRow(propuestaId);
+    if (err) {
+      setError(err.message || "Error al actualizar artista");
       return;
     }
-    const [hotRes, hotelCat, propsRes] = await Promise.all([
-      listFimbaHoteleria(edicionId, {
-        id_propuesta: filtroArtista || null,
-      }),
-      listHotelesCatalog(),
-      listFimbaPropuestas(edicionId),
-    ]);
-    if (hotRes.error || hotelCat.error || propsRes.error) {
-      setError(
-        (hotRes.error || hotelCat.error || propsRes.error).message ||
-          "Error al cargar",
-      );
-    }
-    setEdicion(edRes.edicion);
-    setRows(hotRes.rows || []);
-    setHoteles(hotelCat.hoteles || []);
-    setPropuestas(propsRes.propuestas || []);
-    setLoading(false);
-  };
+    if (!row) return;
+    setRows((prev) => {
+      const idx = prev.findIndex((r) => Number(r.propuesta.id) === Number(propuestaId));
+      if (idx < 0) return prev;
+      const next = prev.slice();
+      next[idx] = row;
+      return next;
+    });
+    setError(null);
+  }, []);
 
   useEffect(() => {
-    reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edicionId, filtroArtista]);
+    load({ silent: hasLoadedOnce.current });
+  }, [load]);
 
   const totals = useMemo(() => {
     return (rowsHotel || []).reduce(
@@ -264,7 +303,7 @@ export default function FimbaHoteleriaPage() {
     ? `/fimba/edicion/${edicionId}/artista/${artistaId}`
     : `/fimba/edicion/${edicionId}`;
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="fimba-card fimba-muted" style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <IconLoader size={18} className="animate-spin" /> Cargando hotelería…
@@ -363,6 +402,21 @@ export default function FimbaHoteleriaPage() {
       {error && (
         <div className="fimba-error" style={{ marginBottom: "1rem" }}>
           {error}
+        </div>
+      )}
+
+      {refreshing && (
+        <div
+          className="fimba-muted"
+          style={{
+            marginBottom: "1rem",
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            fontSize: "0.85rem",
+          }}
+        >
+          <IconLoader size={14} className="animate-spin" /> Actualizando…
         </div>
       )}
 
@@ -783,9 +837,9 @@ export default function FimbaHoteleriaPage() {
             row={modal.row}
             hoteles={hoteles}
             onClose={() => setModal(null)}
-            onSaved={() => {
+            onSaved={(propuestaId) => {
               setModal(null);
-              reload();
+              refreshRow(propuestaId);
             }}
           />,
           document.body,
@@ -879,7 +933,7 @@ function HotelEditModal({ row, hoteles, onClose, onSaved }) {
       return;
     }
     if (warning) setInvWarn(warning);
-    onSaved?.();
+    onSaved?.(prop.id);
   };
 
   return (

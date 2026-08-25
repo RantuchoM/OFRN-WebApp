@@ -15,6 +15,7 @@ const stripHtml = (html) =>
 /** Anchos relativos (suman ~100) para repartir el ancho útil de la página. */
 const PDF_COL_WEIGHTS = {
   compositor: 18,
+  pais: 12,
   obra: 28,
   arreglador: 14,
   organico: 12,
@@ -53,6 +54,9 @@ function compareWorksByKey(a, b, sortKey) {
   }
   if (sortKey === "compositor") {
     return cmpStr(a.compositor_full, b.compositor_full);
+  }
+  if (sortKey === "pais") {
+    return cmpStr(a.pais_nombre, b.pais_nombre);
   }
   if (sortKey === "arreglador") {
     return cmpStr(a.arreglador_full, b.arreglador_full);
@@ -164,6 +168,9 @@ export function buildYaProgramadoExportTable(works, visibleColumns = {}) {
   if (visibleColumns.compositor !== false) {
     columns.push({ header: "Compositor", key: "compositor", width: 28 });
   }
+  if (visibleColumns.pais) {
+    columns.push({ header: "País", key: "pais", width: 16 });
+  }
   if (visibleColumns.obra !== false) {
     columns.push({ header: "Obra", key: "obra", width: 36 });
   }
@@ -193,6 +200,7 @@ export function buildYaProgramadoExportTable(works, visibleColumns = {}) {
   const data = (works || []).map((work) => {
     const row = {
       compositor: work.compositor_full || "",
+      pais: work.pais_nombre || "",
       obra: work.titulo_plain || stripHtml(work.titulo) || "",
       arreglador: work.arreglador_full || "",
       organico: work.instrumentacion || "",

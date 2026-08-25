@@ -275,9 +275,17 @@ export const calculateLogisticsSummary = (
           ["persona", "integrante"].includes(normalize(r.alcance)) &&
           r.id_evento_bajada,
       );
-      let sub = { prio: -1, data: null, scope: null },
-        baj = { prio: -1, data: null, scope: null };
+      let sub = { prio: -1, data: null, scope: null, rawId: null },
+        baj = { prio: -1, data: null, scope: null, rawId: null };
       let maxPrio = 0;
+
+      const resolveRouteEvent = (joined, rawId) => {
+        if (joined?.id != null) return joined;
+        if (rawId == null || rawId === "") return null;
+        return (
+          (allEvents || []).find((e) => String(e.id) === String(rawId)) || null
+        );
+      };
 
       myRoutes.forEach((r) => {
         const scope = normalize(r.alcance);
@@ -289,10 +297,25 @@ export const calculateLogisticsSummary = (
         const allowBajada =
           !hasPersonalBajada || ["persona", "integrante"].includes(scope);
 
-        if (r.id_evento_subida && allowSubida && p >= sub.prio)
-          sub = { prio: p, data: r.evento_subida, scope };
-        if (r.id_evento_bajada && allowBajada && p >= baj.prio)
-          baj = { prio: p, data: r.evento_bajada, scope };
+        // Usar id_evento_* como fuente de verdad; el embed PostgREST puede
+        // faltar y dejaba subidaId/bajadaId en null aunque la regla existiera
+        // (síntoma típico: bajada OFRN «guardada» que no mueve el tránsito).
+        if (r.id_evento_subida && allowSubida && p >= sub.prio) {
+          sub = {
+            prio: p,
+            data: resolveRouteEvent(r.evento_subida, r.id_evento_subida),
+            scope,
+            rawId: r.id_evento_subida,
+          };
+        }
+        if (r.id_evento_bajada && allowBajada && p >= baj.prio) {
+          baj = {
+            prio: p,
+            data: resolveRouteEvent(r.evento_bajada, r.id_evento_bajada),
+            scope,
+            rawId: r.id_evento_bajada,
+          };
+        }
       });
 
       log.transports.push({
@@ -305,8 +328,8 @@ export const calculateLogisticsSummary = (
         vehicleDocumentation: transportMap[tid]?.transportes?.documentacion || "",
         id_chofer: transportMap[tid]?.id_chofer || null,
         chofer: transportMap[tid]?.chofer || null,
-        subidaId: sub.data?.id || null,
-        bajadaId: baj.data?.id || null,
+        subidaId: sub.data?.id ?? sub.rawId ?? null,
+        bajadaId: baj.data?.id ?? baj.rawId ?? null,
         subidaData: enrichEvent(sub.data),
         bajadaData: enrichEvent(baj.data),
         subidaScope: sub.scope,

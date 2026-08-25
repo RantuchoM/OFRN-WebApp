@@ -698,7 +698,7 @@ export function buildFimbaTransportePaxRows(sequence, passengerById = null) {
   for (const r of sequence?.fimbaRides || []) {
     const nombre =
       r.nombre ||
-      (r.id_propuesta != null ? `Artista #${r.id_propuesta}` : "FIMBA (sintético)");
+      (r.id_propuesta != null ? `Artista #${r.id_propuesta}` : "Reserva del evento");
     out.push({
       origen: r.source === "fimba_ruta" ? "FIMBA" : "FIMBA (sínt.)",
       pasajero: nombre,

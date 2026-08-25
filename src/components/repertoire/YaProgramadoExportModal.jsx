@@ -19,6 +19,7 @@ const PROGRAM_TYPE_OPTIONS = Object.keys(PROGRAM_TYPES).filter((k) => k !== "def
 
 const SORT_OPTIONS = [
   { key: "compositor", label: "Compositor" },
+  { key: "pais", label: "País" },
   { key: "obra", label: "Obra" },
   { key: "arreglador", label: "Arreglador" },
   { key: "organico", label: "Orgánico" },

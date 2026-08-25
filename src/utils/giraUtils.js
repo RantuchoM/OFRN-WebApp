@@ -685,10 +685,18 @@ export const getMatchStrength = (
   const { pLoc, pReg } = resolvePersonTerritoryIds(person, rule, allLocalities);
   const pCat = getCategoriaLogistica(person);
 
-  if ((rule.target_ids || []).map(String).includes(pId)) return 5;
+  // target_ids en alcance Persona = id integrante; en Categoria = nombre de categoría
+  // logística (SOLISTAS, …). No confundir ambos.
   if (
     normalize(rule.alcance) === "persona" &&
-    String(rule.id_integrante) === pId
+    ((rule.target_ids || []).map(String).includes(pId) ||
+      String(rule.id_integrante) === pId)
+  )
+    return 5;
+  if (
+    normalize(rule.alcance) !== "categoria" &&
+    normalize(rule.alcance) !== "instrumento" &&
+    (rule.target_ids || []).map(String).includes(pId)
   )
     return 5;
 
@@ -703,8 +711,19 @@ export const getMatchStrength = (
     normalize(rule.alcance) === "instrumento"
   ) {
     if (
+      rule.instrumento_familia &&
       normalize(rule.instrumento_familia) ===
-      normalize(person.instrumentos?.familia)
+        normalize(person.instrumentos?.familia)
+    )
+      return 4;
+    // StopRulesManager guarda categoría logística en target_ids (p.ej. SOLISTAS)
+    const cats = rule.target_ids || [];
+    if (
+      cats.some(
+        (cat) =>
+          normalize(cat) === normalize(pCat) ||
+          categoryMatches(cat, pCat, person, categoryContext),
+      )
     )
       return 4;
   }
@@ -833,28 +852,47 @@ export const matchesRule = (
     }
   }
 
-  if ((rule.target_ids || []).map(String).includes(pId)) return true;
+  const pCat = getCategoriaLogistica(person);
+
+  // Persona: target_ids puede ser id integrante (legacy) o id_integrante
+  if (scope === "persona") {
+    if (String(rule.id_integrante) === pId) return true;
+    if ((rule.target_ids || []).map(String).includes(pId)) return true;
+  } else if (
+    scope !== "categoria" &&
+    scope !== "instrumento" &&
+    (rule.target_ids || []).map(String).includes(pId)
+  ) {
+    return true;
+  }
+
   if ((rule.target_regions || []).map(String).includes(pReg)) return true;
   if ((rule.target_localities || []).map(String).includes(pLoc)) return true;
   if (
     (rule.target_categories || []).some((cat) =>
-      categoryMatches(
-        cat,
-        getCategoriaLogistica(person),
-        person,
-        categoryContext,
-      ),
+      categoryMatches(cat, pCat, person, categoryContext),
     )
   )
     return true;
 
   if (scope === "general") return true;
-  if (scope === "persona" && String(rule.id_integrante) === pId) return true;
   if (scope === "region" && String(rule.id_region) === pReg) return true;
   if (scope === "localidad" && String(rule.id_localidad) === pLoc) return true;
   if (scope === "categoria" || scope === "instrumento") {
-    const family = person.instrumentos?.familia;
-    return normalize(rule.instrumento_familia) === normalize(family);
+    if (
+      rule.instrumento_familia &&
+      normalize(rule.instrumento_familia) ===
+        normalize(person.instrumentos?.familia)
+    ) {
+      return true;
+    }
+    // Categoría logística en target_ids (StopRulesManager / giras_logistica_rutas)
+    const cats = rule.target_ids || [];
+    return cats.some(
+      (cat) =>
+        normalize(cat) === normalize(pCat) ||
+        categoryMatches(cat, pCat, person, categoryContext),
+    );
   }
   return false;
 };

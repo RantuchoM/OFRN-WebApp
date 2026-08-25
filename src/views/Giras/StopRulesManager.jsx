@@ -9,6 +9,8 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconCheck,
+  IconArrowDown,
+  IconLoader,
 } from "../../components/ui/Icons";
 import {
   normalize,
@@ -25,6 +27,13 @@ import {
   personWithViaticosAsResidence,
   viaticosDiffersFromResidencia,
 } from "../../utils/integranteDomicilioViaticos";
+import {
+  listOfrnPeopleAboardAtStop,
+} from "../../utils/fimbaTransportBoarding";
+import {
+  alightAllOfrnAboardAtStop,
+  alightOfrnPeopleAtStop,
+} from "../../services/fimbaService";
 
 /** Opciones de categoría logística (valor guardado en reglas = `id`). */
 const CATEGORIA_LOGISTICA_OPTIONS = [
@@ -133,6 +142,8 @@ export default function StopRulesManager({
   onRefresh,
   /** Sin shell modal/overlay: contenido al nivel del padre (ej. pestaña FIMBA Orquesta OFRN). */
   embedded = false,
+  /** Secuencia del vehículo (para «a bordo» / Bajar todo). */
+  sortedEvents = [],
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const [existingRules, setExistingRules] = useState([]);
@@ -145,6 +156,8 @@ export default function StopRulesManager({
   // Formulario nueva regla
   const [newScope, setNewScope] = useState("General");
   const [targetIds, setTargetIds] = useState([]);
+  const [bajarTodoBusy, setBajarTodoBusy] = useState(false);
+  const [quickAlightBusyId, setQuickAlightBusyId] = useState(null);
 
   const title = type === "up" ? "Gestionar Subidas" : "Gestionar Bajadas";
   const colorClass = type === "up" ? "text-emerald-700" : "text-rose-700";
@@ -348,33 +361,57 @@ export default function StopRulesManager({
       const selectedIds =
         newScope === "General" ? [null] : Array.from(new Set(targetIds));
 
+      const sameTarget = (r, currentId) => {
+        if (r.alcance !== newScope) return false;
+        if (newScope === "General") return true;
+        if (newScope === "Region")
+          return String(r.id_region) === String(currentId);
+        if (newScope === "Localidad")
+          return String(r.id_localidad) === String(currentId);
+        if (newScope === "Persona")
+          return String(r.id_integrante) === String(currentId);
+        if (newScope === "Categoria")
+          return String((r.target_ids || [])[0]) === String(currentId);
+        return false;
+      };
+
       let anyChange = false;
 
       for (const currentId of selectedIds) {
+        // 1) Ya apunta a este evento → noop
+        const alreadyHere = (existingAll || []).find(
+          (r) =>
+            sameTarget(r, currentId) &&
+            r[fieldToUpdate] != null &&
+            String(r[fieldToUpdate]) === String(event.id),
+        );
+        if (alreadyHere) continue;
+
+        // 2) Ride abierto / huérfano: mismo alcance+objetivo, este extremo vacío
+        //    → UPDATE (cierra el ride). Evita insertar bajada-only que a veces
+        //    no se reflejaba bien tras refresh desde el embed FIMBA.
+        const openRide = (existingAll || []).find(
+          (r) =>
+            sameTarget(r, currentId) &&
+            (r[fieldToUpdate] == null || r[fieldToUpdate] === ""),
+        );
+        if (openRide) {
+          const { error: updateErr } = await supabase
+            .from("giras_logistica_rutas")
+            .update({ [fieldToUpdate]: event.id })
+            .eq("id", openRide.id);
+          if (updateErr) throw updateErr;
+          openRide[fieldToUpdate] = event.id;
+          anyChange = true;
+          continue;
+        }
+
+        // 3) Conflicto: mismo alcance ya tiene este extremo en otro evento
         const conflict = (existingAll || []).find((r) => {
-          if (r.alcance !== newScope) return false;
-
-          const sameTarget =
-            newScope === "General"
-              ? true
-              : newScope === "Region"
-                ? String(r.id_region) === String(currentId)
-                : newScope === "Localidad"
-                  ? String(r.id_localidad) === String(currentId)
-                  : newScope === "Persona"
-                    ? String(r.id_integrante) === String(currentId)
-                    : newScope === "Categoria"
-                      ? (r.target_ids || [])[0] === currentId
-                      : false;
-
-          if (!sameTarget) return false;
-
+          if (!sameTarget(r, currentId)) return false;
           const currentEventId = r[fieldToUpdate];
           if (!currentEventId) return false;
-
-          // Si ya apunta a este mismo evento, no hacemos nada.
           if (String(currentEventId) === String(event.id)) return false;
-
           return true;
         });
 
@@ -388,19 +425,20 @@ export default function StopRulesManager({
               `Aceptar: reemplazar la ${actionLabel} anterior.\n` +
               `Cancelar: dejar todo como está para este objetivo.`,
             confirmText: "Reemplazar",
+            overlayClassName: embedded ? "z-[110]" : "z-[100]",
           });
 
           if (!confirmReplace) {
             continue;
           }
 
-          // Reemplazamos la subida/bajada en la misma regla
           const { error: updateErr } = await supabase
             .from("giras_logistica_rutas")
             .update({ [fieldToUpdate]: event.id })
             .eq("id", conflict.id);
 
           if (updateErr) throw updateErr;
+          conflict[fieldToUpdate] = event.id;
           anyChange = true;
           continue;
         }
@@ -467,10 +505,13 @@ export default function StopRulesManager({
           target_ids: newScope === "Categoria" && currentId ? [currentId] : [],
         };
 
-        const { error } = await supabase
+        const { data: inserted, error } = await supabase
           .from("giras_logistica_rutas")
-          .insert([payload]);
+          .insert([payload])
+          .select("*")
+          .maybeSingle();
         if (error) throw error;
+        if (inserted) existingAll.push(inserted);
         anyChange = true;
       }
 
@@ -495,6 +536,7 @@ export default function StopRulesManager({
         message: "¿Eliminar esta definición de parada?",
         destructive: true,
         confirmText: "Eliminar",
+        overlayClassName: embedded ? "z-[110]" : "z-[100]",
       }))
     )
       return;
@@ -819,10 +861,24 @@ export default function StopRulesManager({
     const fieldKey = type === "up" ? "subidaId" : "bajadaId";
     const eventId = event?.id;
 
-    // En bajadas, primero quienes aún no tienen bajada en este transporte,
-    // luego quienes ya tienen alguna bajada, siempre ordenados por apellido.
+    // En bajadas, primero quienes están a bordo sin bajada aquí,
+    // luego quienes ya bajan aquí, luego el resto.
     if (type === "down") {
+      const aboardIds = new Set(
+        listOfrnPeopleAboardAtStop({
+          passengers,
+          transportId,
+          eventId,
+          sortedEvents,
+        })
+          .filter((r) => r.openRide)
+          .map((r) => String(r.id)),
+      );
       list.sort((a, b) => {
+        const aAboard = aboardIds.has(String(a.id));
+        const bAboard = aboardIds.has(String(b.id));
+        if (aAboard !== bAboard) return aAboard ? -1 : 1;
+
         const trA = a.logistics?.transports?.find(
           (t) => String(t.id) === String(transportId),
         );
@@ -833,7 +889,6 @@ export default function StopRulesManager({
         const bHasDrop = Boolean(trB?.bajadaId);
 
         if (aHasDrop !== bHasDrop) {
-          // false (0) primero, true (1) después
           return Number(aHasDrop) - Number(bHasDrop);
         }
 
@@ -886,6 +941,17 @@ export default function StopRulesManager({
         };
       }
 
+      if (type === "down" && tr?.subidaId && !tr?.bajadaId) {
+        return {
+          id: idStr,
+          label,
+          subLabel: "A bordo (sin bajada)",
+          optionClassName: "bg-rose-50",
+          labelClassName: "text-rose-800",
+          subLabelClassName: "text-[10px] text-rose-600",
+        };
+      }
+
       if (hasAnotherStop) {
         return {
           id: idStr,
@@ -910,16 +976,182 @@ export default function StopRulesManager({
         subLabelClassName: "text-[10px] text-emerald-600",
       };
     });
-  }, [passengers, admittedIds, type, transportId, event?.id]);
+  }, [
+    passengers,
+    admittedIds,
+    type,
+    transportId,
+    event?.id,
+    sortedEvents,
+    transportAdmissionRules,
+    localities,
+  ]);
 
   const hasNewPersonToAutoInclude =
     newScope === "Persona" &&
     targetIds.some((id) => !admittedIds.has(String(id)));
 
+  const aboardAtStop = useMemo(() => {
+    if (type !== "down" || !event?.id || !transportId) return [];
+    return listOfrnPeopleAboardAtStop({
+      passengers,
+      transportId,
+      eventId: event.id,
+      sortedEvents,
+    });
+  }, [type, event?.id, transportId, passengers, sortedEvents]);
+
+  const aboardOpen = useMemo(
+    () => aboardAtStop.filter((r) => r.openRide && !r.alreadyAlightingHere),
+    [aboardAtStop],
+  );
+
+  const aboardSeats = useMemo(
+    () => aboardAtStop.reduce((s, r) => s + (Number(r.seats) || 0), 0),
+    [aboardAtStop],
+  );
+
+  const handleQuickAlightPerson = async (integranteId) => {
+    if (!giraId || !transportId || !event?.id) return;
+    setQuickAlightBusyId(String(integranteId));
+    try {
+      const res = await alightOfrnPeopleAtStop({
+        giraId,
+        id_transporte_fisico: transportId,
+        id_evento: event.id,
+        integranteIds: [integranteId],
+      });
+      if (res.error) {
+        toast.error(res.error.message || "No se pudo bajar");
+        return;
+      }
+      await fetchRules();
+      onRefresh?.();
+      toast.success("Bajada asignada");
+    } finally {
+      setQuickAlightBusyId(null);
+    }
+  };
+
+  const handleBajarTodoOfrn = async () => {
+    if (!giraId || !transportId || !event?.id) return;
+    if (aboardOpen.length === 0) {
+      toast.info("Nadie con ride abierto a bordo en esta parada.");
+      return;
+    }
+    const seats = aboardOpen.reduce((s, r) => s + (Number(r.seats) || 0), 0);
+    const ok = await confirm({
+      title: "Bajar todo (orquesta)",
+      message:
+        `¿Bajar a las ${aboardOpen.length} persona(s) a bordo de este vehículo ` +
+        `en esta parada (${seats} asiento${seats === 1 ? "" : "s"})?\n\n` +
+        `Se crearán/actualizarán reglas Persona en giras_logistica_rutas.`,
+      confirmText: "Bajar todo",
+      overlayClassName: embedded ? "z-[110]" : "z-[100]",
+    });
+    if (!ok) return;
+    setBajarTodoBusy(true);
+    try {
+      const res = await alightAllOfrnAboardAtStop({
+        giraId,
+        id_transporte_fisico: transportId,
+        id_evento: event.id,
+        passengers,
+        sortedEvents,
+      });
+      if (res.error) {
+        toast.error(res.error.message || "No se pudo bajar todo");
+        return;
+      }
+      await fetchRules();
+      onRefresh?.();
+      toast.success(
+        res.closed === 1
+          ? "Se bajó 1 persona"
+          : `Se bajaron ${res.closed} personas`,
+      );
+    } finally {
+      setBajarTodoBusy(false);
+    }
+  };
+
   if (!isOpen || !event) return null;
 
   const rulesBody = (
           <>
+          {type === "down" && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50/60 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <h4 className="text-xs font-bold text-rose-800 uppercase tracking-wider m-0 flex items-center gap-1.5">
+                    <IconUsers size={14} /> A bordo en esta parada
+                  </h4>
+                  <p className="text-[11px] text-rose-700/80 m-0 mt-0.5">
+                    {aboardAtStop.length === 0
+                      ? "Nadie de orquesta figura a bordo aquí."
+                      : `${aboardAtStop.length} persona${aboardAtStop.length === 1 ? "" : "s"} · ${aboardSeats} asiento${aboardSeats === 1 ? "" : "s"} (derivado de subida/bajada)`}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleBajarTodoOfrn}
+                  disabled={
+                    bajarTodoBusy || loading || aboardOpen.length === 0
+                  }
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[11px] font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 shadow-sm"
+                  title="Crear bajadas Persona para todos los rides abiertos a bordo"
+                >
+                  {bajarTodoBusy ? (
+                    <IconLoader size={12} className="animate-spin" />
+                  ) : (
+                    <IconArrowDown size={12} />
+                  )}
+                  Bajar todo
+                </button>
+              </div>
+              {aboardAtStop.length > 0 && (
+                <ul className="max-h-40 overflow-y-auto divide-y divide-rose-100 bg-white/80 rounded border border-rose-100 m-0 p-0 list-none">
+                  {aboardAtStop.map((row) => (
+                    <li
+                      key={String(row.id)}
+                      className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs"
+                    >
+                      <span className="text-slate-700 truncate">
+                        {row.label}
+                        <span className="text-slate-400 ml-1">
+                          · {row.seats} asiento{row.seats === 1 ? "" : "s"}
+                        </span>
+                        {row.alreadyAlightingHere ? (
+                          <span className="ml-1 text-[10px] font-semibold text-rose-600">
+                            (ya baja aquí)
+                          </span>
+                        ) : null}
+                      </span>
+                      {row.openRide && !row.alreadyAlightingHere ? (
+                        <button
+                          type="button"
+                          disabled={
+                            quickAlightBusyId === String(row.id) || loading
+                          }
+                          onClick={() => handleQuickAlightPerson(row.id)}
+                          className="shrink-0 px-2 py-0.5 rounded text-[10px] font-bold text-rose-700 bg-rose-100 hover:bg-rose-200 disabled:opacity-50"
+                        >
+                          {quickAlightBusyId === String(row.id)
+                            ? "…"
+                            : "Bajar"}
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 shrink-0">
+                          OK
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
           {/* 1. Lista de Reglas Existentes */}
           <div className="space-y-3">
             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">

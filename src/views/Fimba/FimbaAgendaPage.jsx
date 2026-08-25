@@ -671,7 +671,7 @@ export default function FimbaAgendaPage() {
                   <th>Actividad</th>
                   <th>Destino / Vuelo</th>
                   <th>Vehículo</th>
-                  <th># PAX</th>
+                  <th>As. Equipaje</th>
                   <th>OFRN</th>
                   <th>Artistas</th>
                   <th />
@@ -815,7 +815,7 @@ export default function FimbaAgendaPage() {
                           vehLabel
                         )}
                       </td>
-                      <td>{ev.pax || "—"}</td>
+                      <td>{ev.asientos_equipaje || ev.pax || "—"}</td>
                       <td>
                         {ev.es_ofrn && !isRide ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>

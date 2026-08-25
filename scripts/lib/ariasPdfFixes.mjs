@@ -1,13 +1,17 @@
-/** Mapeo IMSLP → instrumento (Va pensiero, Feduol scan, orden en página IMSLP). */
+/**
+ * Mapeo IMSLP → contenido real (Va pensiero, typeset Feduol).
+ * El rename previo cicló vientos; estos IDs son el contenido del PDF original
+ * (varios son combinados y deben partirse — ver nabuccoCatalog.mjs).
+ */
 export const NABUCCO_IMSLP_INSTRUMENTS = {
   902434: "SCORE",
-  902438: "Oboe 1-2",
-  902440: "Clarinete A 1-2",
-  902436: "Fagot 1-2",
-  902435: "Corno F 1-2",
-  902439: "Corno F 3-4",
-  902444: "Trompeta 1-2",
-  902442: "Trombón 1-3",
+  902438: "Fl Piccolo + Flauta",
+  902440: "Oboe 1 + Oboe 2",
+  902436: "Clarinete A 1 + Clarinete A 2",
+  902435: "Fagot 1 + Fagot 2",
+  902439: "Corno F 1 + 2 + 3 + 4",
+  902444: "Trompeta 1 + Trompeta 2",
+  902442: "Trombón 1 + 2 + 3",
   902441: "Tuba",
   902443: "Perc Timbal",
   902447: "Violín 1",

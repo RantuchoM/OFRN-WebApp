@@ -210,9 +210,9 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 
 ### Filtros móviles
 - Se agrega un menú superior de filtros con `IconFilter`, siguiendo el patrón de filtros tipo chip usado en vistas compactas.
-- **Búsqueda rápida (2026-06-29):** input junto al embudo de filtros. Busca en título, compositor y arreglador a la vez; cada palabra (separada por espacio o `+`) debe coincidir (AND), p. ej. `Beeth Sinf` → sinfonías de Beethoven. El embudo abre el panel de **filtros avanzados** (obra/compositor/arreglador por campo, estado, orgánico, etc.).
+- **Búsqueda rápida (2026-06-29):** input junto al embudo de filtros. Busca en título, compositor, arreglador y país a la vez; cada palabra (separada por espacio o `+`) debe coincidir (AND), p. ej. `Beeth Sinf` → sinfonías de Beethoven. El embudo abre el panel de **filtros avanzados** (obra/compositor/país/arreglador por campo, estado, orgánico, etc.).
 - Los filtros se aplican desde el menú y aparecen como **chips removibles** debajo de la barra móvil.
-- Chips soportados: búsqueda rápida, obra, compositor, arreglador, estado, solicitante, duración, fechas, observaciones, tags, orgánico y legacy "Oficial sin Drive".
+- Chips soportados: búsqueda rápida, obra, compositor, país, arreglador, estado, solicitante, duración, fechas, observaciones, tags, orgánico y legacy "Oficial sin Drive".
 - El filtro por orgánico reutiliza `InstrumentationFilterModal` con `anchorRef` para posicionarse correctamente en viewport móvil.
 - El botón de limpiar filtros se muestra como acción iconográfica cuando hay chips activos.
 
@@ -256,6 +256,17 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 | `scripts/patch-arias-lucevan-nabucco.mjs` | SQL patch obras 3507 y 3514 |
 | `scripts/patch-arias-particellas.mjs` | Re-sync particellas + instrumentación desde Drive (14 obras ARIAS) |
 | `scripts/verify-arias-particellas.mjs` | Auditoría BD vs Drive |
+
+### Nabucco IMSLP — Coro de los Esclavos (2026-08-24)
+- Carpeta ARIAS [Verdi, G. - Coro de los Esclavos ('Nabucco')](https://drive.google.com/drive/folders/1JDPuJjP9-36lQ5RTOJSVq9dzFmMUCKqV): mapa IMSLP previo cicló vientos (p.ej. “Oboe 1-2” = Picc+Flauta).
+- OCR → split a **25 particellas** individuales; SCORE sin portada tipográfica (21 p.).
+- Obra BD **id 3548** re-sync: instrumentación `2.2.2.2 - 4.2.3.1 - Timp - Str`.
+
+| Script | Rol |
+|--------|-----|
+| `scripts/lib/nabuccoCatalog.mjs` | Manifiestos split/crop + metadata obra 3548 |
+| `scripts/process-nabucco-local.mjs` | Split/crop/rename en sync local ARIAS |
+| `scripts/generate-nabucco-sync.mjs` | Seed `supabase/seed_nabucco_sync.sql` |
 
 ### Falla — Danza Española Nro 1 ('La Vida Breve') (2026-06-19)
 - Carpeta [Para acomodar / Falla](https://drive.google.com/open?id=16TvE6QokADJSSk9gpZXpP1D8GcrngIQS): 16 PDFs IMSLP → **26 particellas** canónicas.
@@ -737,4 +748,13 @@ Set de **16** arreglos sinfónicos de **Bob Marley** en [Para acomodar / Bahiano
 - Seed `supabase/seed_bahiano_sync.sql` (generado por `scripts/generate-bahiano-sync.mjs`): compositor Marley, tag `Bahiano`, estado **Oficial**, particellas + `obras.audios`.
 - Bloque **Bahiano** al final de gira `id_programa = 12` (`programas_repertorios.orden = MAX+1`), 16 obras en el orden del set (One Drop … Jamming).
 - [x] Seed **aplicado en linked** (2026-08-19).
+
+---
+
+## 13. Archivo: filtro y columna País del compositor (2026-08-24)
+
+- [x] Columna opcional **País** en `ColumnManager` (apagada por defecto), con filtro por texto y orden por `pais_nombre`.
+- [x] Datos ya disponibles via `compositores.paises(nombre)` → `processWork` arma `pais_nombre` (compositores del rol compositor, unidos con ` / `).
+- [x] Filtro de escritorio en el header de la columna; en móvil, campo en filtros avanzados + chip removible; la búsqueda rápida también incluye país.
+- [x] Export «Ya programado» incluye País cuando la columna está visible (Excel/PDF + criterio de orden).
 
