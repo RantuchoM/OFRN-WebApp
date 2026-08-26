@@ -27,6 +27,7 @@ import {
   filterHoteleriaRowsForComidas,
 } from "../../services/fimbaService";
 import { compareEsText } from "../../utils/fimbaAgendaSort";
+import { matchesFimbaArtistaPersonSearch } from "../../utils/fimbaArtistaSearch";
 import {
   exportFimbaComidasExcel,
   exportFimbaHoteleriaExcel,
@@ -35,6 +36,7 @@ import {
 import { printFimbaRooming } from "../../utils/fimbaReports";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import FimbaArtistaMetaSection from "./FimbaArtistaMetaSection";
+import FimbaArtistaPersonSearchField from "./FimbaArtistaPersonSearchField";
 import FimbaHoteleriaReports, {
   FimbaHoteleriaReportsButton,
 } from "./FimbaHoteleriaReports";
@@ -66,6 +68,8 @@ export default function FimbaHoteleriaPage() {
   const [rows, setRows] = useState([]);
   const [propuestas, setPropuestas] = useState([]);
   const [filtroArtista, setFiltroArtista] = useState(filterFromQuery || "");
+  /** Debounced: nombre artista o participantes (AND con filtro Artista). */
+  const [personSearchQuery, setPersonSearchQuery] = useState("");
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -158,6 +162,18 @@ export default function FimbaHoteleriaPage() {
 
   const rowsHotel = useMemo(() => filterHoteleriaRowsForHotel(rows), [rows]);
   const rowsComidas = useMemo(() => filterHoteleriaRowsForComidas(rows), [rows]);
+
+  const visibleRows = useMemo(() => {
+    const q = String(personSearchQuery || "").trim();
+    if (!q) return rows;
+    return (rows || []).filter((r) =>
+      matchesFimbaArtistaPersonSearch(
+        r?.propuesta?.nombre,
+        r?.personas || r?.participantes || [],
+        q,
+      ),
+    );
+  }, [rows, personSearchQuery]);
 
   const hasLoadedOnce = useRef(false);
   const loadedEdicionId = useRef(null);
@@ -443,21 +459,37 @@ export default function FimbaHoteleriaPage() {
             <div className="fimba-label">Camas-noche</div>
             <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{totals.camas_noche}</div>
           </div>
-          <div style={{ marginLeft: "auto" }}>
-            <label className="fimba-label">Artista</label>
-            <select
-              className="fimba-select"
-              style={{ width: "auto", minWidth: 180 }}
-              value={filtroArtista || ""}
-              onChange={(e) => setFiltroArtista(e.target.value)}
-            >
-              <option value="">Toda la edición</option>
-              {propuestas.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nombre}
-                </option>
-              ))}
-            </select>
+          <div
+            style={{
+              marginLeft: "auto",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 12,
+              alignItems: "flex-end",
+            }}
+          >
+            <div style={{ flex: "1 1 14rem", minWidth: "12rem" }}>
+              <label className="fimba-label">Buscar</label>
+              <FimbaArtistaPersonSearchField
+                onQueryChange={setPersonSearchQuery}
+              />
+            </div>
+            <div>
+              <label className="fimba-label">Artista</label>
+              <select
+                className="fimba-select"
+                style={{ width: "auto", minWidth: 180 }}
+                value={filtroArtista || ""}
+                onChange={(e) => setFiltroArtista(e.target.value)}
+              >
+                <option value="">Toda la edición</option>
+                {propuestas.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
       </section>
@@ -478,9 +510,13 @@ export default function FimbaHoteleriaPage() {
           No hay artistas para reportar hotelería
           {filtroArtista ? " con este filtro" : ""}.
         </div>
+      ) : visibleRows.length === 0 ? (
+        <div className="fimba-card fimba-muted">
+          Ningún artista coincide con «{String(personSearchQuery || "").trim()}».
+        </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          {rows.map((r) => {
+          {visibleRows.map((r) => {
             const pid = r.propuesta.id;
             const open = expanded[pid] !== false; // abierto por defecto (listado pedido hotel)
             const sinNombre = r.sin_nombre ?? r.por_confirmar ?? 0;

@@ -28,11 +28,14 @@ import {
   getFimbaEdicionById,
   labelFimbaAlimentacion,
   listFimbaParticipantes,
+  listFimbaParticipantesForPropuestas,
   listFimbaPropuestas,
   listHotelesCatalog,
   updateFimbaPropuesta,
 } from "../../services/fimbaService";
 import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
+import { matchesFimbaArtistaPersonSearch } from "../../utils/fimbaArtistaSearch";
+import FimbaArtistaPersonSearchField from "./FimbaArtistaPersonSearchField";
 
 /** Columnas editables en modo planilla (orden de Tab / Enter). Color/estado en ficha artista. */
 const EDITABLE_COLS = [
@@ -168,6 +171,8 @@ export default function FimbaEdicionPage() {
   const [error, setError] = useState(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  /** Debounced: nombre artista o participantes de la nómina. */
+  const [personSearchQuery, setPersonSearchQuery] = useState("");
 
   /** Soft reload preserves mounted table (expand state). Full reload shows spinner. */
   const reload = async ({ soft = false } = {}) => {
@@ -300,45 +305,57 @@ export default function FimbaEdicionPage() {
         </div>
       ) : (
         <>
-          {!readOnly && (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 10,
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 10,
-              }}
-            >
-              <button
-                type="button"
-                className={`fimba-btn ${editMode ? "fimba-btn-primary" : "fimba-btn-ghost"}`}
-                onClick={() => setEditMode((v) => !v)}
-                title={editMode ? "Salir del modo planilla" : "Editar celdas como planilla"}
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 10,
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 10,
+            }}
+          >
+            <FimbaArtistaPersonSearchField
+              onQueryChange={setPersonSearchQuery}
+            />
+            {!readOnly && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 10,
+                  alignItems: "center",
+                }}
               >
-                <IconPencil size={14} />
-                {editMode ? "Salir de modo edición" : "Modo edición"}
-              </button>
-              {editMode && (
-                <span className="fimba-muted" style={{ fontSize: "0.78rem" }}>
-                  Semáforo:{" "}
-                  <span className="fimba-sync-legend">
-                    <i className="fimba-sync-dot fimba-sync-saved" /> guardado
+                <button
+                  type="button"
+                  className={`fimba-btn ${editMode ? "fimba-btn-primary" : "fimba-btn-ghost"}`}
+                  onClick={() => setEditMode((v) => !v)}
+                  title={editMode ? "Salir del modo planilla" : "Editar celdas como planilla"}
+                >
+                  <IconPencil size={14} />
+                  {editMode ? "Salir de modo edición" : "Modo edición"}
+                </button>
+                {editMode && (
+                  <span className="fimba-muted" style={{ fontSize: "0.78rem" }}>
+                    Semáforo:{" "}
+                    <span className="fimba-sync-legend">
+                      <i className="fimba-sync-dot fimba-sync-saved" /> guardado
+                    </span>
+                    {" · "}
+                    <span className="fimba-sync-legend">
+                      <i className="fimba-sync-dot fimba-sync-pending" /> pendiente / guardando
+                    </span>
+                    {" · "}
+                    <span className="fimba-sync-legend">
+                      <i className="fimba-sync-dot fimba-sync-error" /> error
+                    </span>
+                    {" — "}Enter o blur guarda · Tab navega
                   </span>
-                  {" · "}
-                  <span className="fimba-sync-legend">
-                    <i className="fimba-sync-dot fimba-sync-pending" /> pendiente / guardando
-                  </span>
-                  {" · "}
-                  <span className="fimba-sync-legend">
-                    <i className="fimba-sync-dot fimba-sync-error" /> error
-                  </span>
-                  {" — "}Enter o blur guarda · Tab navega
-                </span>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
+          </div>
           <FimbaArtistasTable
             propuestas={propuestas}
             hoteles={hoteles}
@@ -347,6 +364,7 @@ export default function FimbaEdicionPage() {
             onDelete={readOnly ? null : handleDelete}
             onPropuestaPatched={handlePropuestaPatched}
             readOnly={readOnly}
+            personSearchQuery={personSearchQuery}
           />
         </>
       )}
@@ -380,6 +398,7 @@ function FimbaArtistasTable({
   onDelete,
   onPropuestaPatched,
   readOnly = false,
+  personSearchQuery = "",
 }) {
   const [drafts, setDrafts] = useState({});
   const [rowStatus, setRowStatus] = useState({}); // id key -> idle|dirty|saving|saved|error
@@ -388,11 +407,14 @@ function FimbaArtistasTable({
   const [expandedIds, setExpandedIds] = useState({});
   /** Lazy cache: propuestaKey -> { status, rows?, error? } */
   const [participantesByPropuesta, setParticipantesByPropuesta] = useState({});
+  /** Lightweight name index for search (batch load; may include inactive). */
+  const [participantesSearchIndex, setParticipantesSearchIndex] = useState({});
   const savingRef = useRef(new Set());
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
   const loadingPartsRef = useRef(new Set());
   const participantesCacheRef = useRef({});
+  const searchIndexGenRef = useRef(0);
 
   // Drafts: al entrar en modo edición se hidratan; si llegan filas nuevas se agregan
   // sin pisar filas dirty (cambios locales pendientes).
@@ -437,6 +459,70 @@ function FimbaArtistasTable({
     return map;
   }, [hoteles]);
 
+  // Batch name index for search (one query; seeds expand cache when empty).
+  useEffect(() => {
+    const ids = (propuestas || []).map((p) => p.id).filter((id) => id != null && id !== "");
+    if (!ids.length) {
+      setParticipantesSearchIndex({});
+      return undefined;
+    }
+    const gen = ++searchIndexGenRef.current;
+    let cancelled = false;
+    (async () => {
+      const { byPropuesta, error: err } = await listFimbaParticipantesForPropuestas(ids);
+      if (cancelled || gen !== searchIndexGenRef.current) return;
+      if (err) {
+        // Soft-fail: search still works on artist nombre alone.
+        console.warn("[FimbaArtistasTable] índice participantes:", err.message || err);
+        return;
+      }
+      const index = {};
+      const cachePatch = {};
+      for (const id of ids) {
+        const key = propuestaKey(id);
+        const rows = byPropuesta.get(Number(id)) || byPropuesta.get(id) || [];
+        index[key] = rows;
+        if (!participantesCacheRef.current[key]?.status) {
+          const ready = { status: "ready", rows };
+          participantesCacheRef.current[key] = ready;
+          cachePatch[key] = ready;
+        }
+      }
+      setParticipantesSearchIndex(index);
+      if (Object.keys(cachePatch).length) {
+        setParticipantesByPropuesta((prev) => ({ ...prev, ...cachePatch }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [propuestas]);
+
+  const visiblePropuestas = useMemo(() => {
+    const q = String(personSearchQuery || "").trim();
+    const list = propuestas || [];
+    if (!q) return list;
+    return list.filter((p) => {
+      const key = propuestaKey(p.id);
+      const parts =
+        participantesSearchIndex[key] ||
+        participantesByPropuesta[key]?.rows ||
+        participantesCacheRef.current[key]?.rows ||
+        [];
+      const nombre = editMode
+        ? drafts[p.id]?.nombre ?? p.nombre
+        : p.nombre;
+      return matchesFimbaArtistaPersonSearch(nombre, parts, q);
+    });
+  }, [
+    propuestas,
+    personSearchQuery,
+    participantesSearchIndex,
+    participantesByPropuesta,
+    editMode,
+    drafts,
+  ]);
+
   /** Column count for nested/error row colspan (sync + expand + 9 data cols). */
   const colCount = (editMode ? 1 : 0) + 1 + 9;
 
@@ -459,6 +545,12 @@ function FimbaArtistasTable({
         : { status: "ready", rows: participantes || [] };
       participantesCacheRef.current[key] = next;
       setParticipantesByPropuesta((prev) => ({ ...prev, [key]: next }));
+      if (!err) {
+        setParticipantesSearchIndex((prev) => ({
+          ...prev,
+          [key]: participantes || [],
+        }));
+      }
     } catch (e) {
       const next = {
         status: "error",
@@ -618,7 +710,7 @@ function FimbaArtistasTable({
     if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") {
       e.preventDefault();
       commitRow(propuestaId).then(() => {
-        const nextRow = Math.min(rowIdx + 1, (propuestas || []).length - 1);
+        const nextRow = Math.min(rowIdx + 1, (visiblePropuestas || []).length - 1);
         focusCell(nextRow, colIdx);
       });
       return;
@@ -629,7 +721,9 @@ function FimbaArtistasTable({
     }
     if (e.key === "Escape") {
       e.preventDefault();
-      const p = propuestas[rowIdx];
+      const p =
+        visiblePropuestas[rowIdx] ||
+        (propuestas || []).find((x) => x.id === propuestaId);
       if (!p) return;
       setDrafts((prev) => ({ ...prev, [propuestaId]: draftFromPropuesta(p) }));
       setRowStatus((prev) => ({ ...prev, [propuestaId]: "idle" }));
@@ -698,7 +792,18 @@ function FimbaArtistasTable({
           </tr>
         </thead>
         <tbody>
-          {propuestas.map((p, rowIdx) => {
+          {visiblePropuestas.length === 0 ? (
+            <tr>
+              <td
+                colSpan={colCount}
+                className="fimba-muted"
+                style={{ padding: "1.25rem 1rem", textAlign: "center" }}
+              >
+                Ningún artista coincide con «{String(personSearchQuery || "").trim()}».
+              </td>
+            </tr>
+          ) : (
+          visiblePropuestas.map((p, rowIdx) => {
             const draft = drafts[p.id] || draftFromPropuesta(p);
             const status = rowStatus[p.id] || "idle";
             const meta = statusMeta(status);
@@ -1055,7 +1160,8 @@ function FimbaArtistasTable({
                 )}
               </React.Fragment>
             );
-          })}
+          })
+          )}
         </tbody>
       </table>
     </div>

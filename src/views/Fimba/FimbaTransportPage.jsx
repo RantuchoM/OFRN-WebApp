@@ -43,6 +43,7 @@ import {
 import {
   boardingMetricsForEventRow,
   buildAllVehicleBoardingSequences,
+  defaultGapFillEventSchedule,
   defaultIntermediateStopSchedule,
   formatEventLocation,
   resolveStopBoardAlightChips,
@@ -1097,8 +1098,8 @@ export default function FimbaTransportPage() {
   };
 
   /**
-   * Abre modal create pre-filled para insertar parada intermedia en la
-   * secuencia del vehículo primary de la fila (entre esta y el next stop).
+   * Abre modal create pre-filled para insertar evento intermedio en la
+   * secuencia del vehículo (completa hueco hasta→desde entre esta y el next).
    */
   const openIntermediateStop = (ev, metrics) => {
     const vehicleId =
@@ -1109,7 +1110,10 @@ export default function FimbaTransportPage() {
     if (vehicleId == null || vehicleId === "") return;
 
     const nextEv = metrics?.next_event || null;
-    const { fecha, hora_inicio } = defaultIntermediateStopSchedule(ev, nextEv);
+    const { fecha, hora_inicio, hora_fin } = defaultGapFillEventSchedule(
+      ev,
+      nextEv,
+    );
     const gt =
       vehiculos.find((g) => Number(g.id) === Number(vehicleId)) || null;
     const tipoId = eventTypeIdForCategoria(gt?.categoria_logistica);
@@ -1119,10 +1123,10 @@ export default function FimbaTransportPage() {
       defaultTipoId: tipoId,
       preselectPropuesta: null,
       evento: {
-        // Draft de create (no es edit): fecha/hora entre paradas, mismo bus
+        // Draft create: gap-fill hasta→desde, mismo bus
         fecha: fecha || ev.fecha || "",
         hora_inicio: hora_inicio || null,
-        hora_fin: null,
+        hora_fin: hora_fin || null,
         actividad: "Parada intermedia",
         destino: "",
         observaciones_equipaje: "",
@@ -2348,7 +2352,7 @@ export default function FimbaTransportPage() {
                     <th>Detalle</th>
                     <th>Locación</th>
                     <th
-                      title="Agregar parada intermedia entre esta fila y el Destino"
+                      title="Insertar evento intermedio (completa hasta→desde entre esta parada y la siguiente)"
                       style={{ width: 36, textAlign: "center", padding: "0.4rem 0.15rem" }}
                     >
                       <span className="fimba-muted" style={{ fontSize: "0.7rem" }}>
@@ -2743,10 +2747,12 @@ export default function FimbaTransportPage() {
                             disabled={!canAddIntermediate}
                             title={
                               canAddIntermediate
-                                ? "Agregar parada intermedia"
-                                : "Asigná un vehículo a esta fila para agregar una parada intermedia"
+                                ? nextEvHasRealStop
+                                  ? "Insertar evento intermedio (hasta→desde entre esta parada y la siguiente)"
+                                  : "Insertar evento después de esta parada (desde = hora fin)"
+                                : "Asigná un vehículo a esta fila para insertar un evento intermedio"
                             }
-                            aria-label="Agregar parada intermedia"
+                            aria-label="Insertar evento intermedio"
                             onClick={() => openIntermediateStop(ev, metrics)}
                             style={{
                               minWidth: 28,

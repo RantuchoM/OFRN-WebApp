@@ -250,6 +250,9 @@ export function resolveHoraFinDisplay(ev, nextEv) {
  *   (full datetime so overnight gaps land on the correct calendar day).
  * - Without next: current + 30 minutes (may roll to next day).
  *
+ * Used by Destino compact modal (punto en el trayecto). For Agenda /
+ * Transportes «insertar evento» gap-fill, use `defaultGapFillEventSchedule`.
+ *
  * @param {object|null|undefined} currentEv
  * @param {object|null|undefined} nextEv
  * @returns {{ fecha: string|null, hora_inicio: string }}
@@ -298,6 +301,46 @@ export function defaultIntermediateStopSchedule(currentEv, nextEv) {
   }
 
   return fromMs(targetMs);
+}
+
+/**
+ * Prefill for «Insertar evento» / completar hueco hasta→desde between two
+ * chronological neighbors (Agenda same-day list or Transportes vehicle sequence).
+ *
+ * - `hora_inicio` = effective fin of previous (`hora_fin` stored, else cyan
+ *   calculated next-stop `hora_inicio` via `resolveHoraFinDisplay`).
+ * - `hora_fin` = next's `hora_inicio` when inserting between; null if only after.
+ * - No usable fin and no next → same +30m fallback as midpoint helper.
+ * - Overnight / degenerate (calculated fin equals next start): still prefill
+ *   those times; user can adjust in the create modal. Fecha stays on previous
+ *   unless +30m rolls the calendar day.
+ *
+ * @param {object|null|undefined} prevEv
+ * @param {object|null|undefined} nextEv
+ * @returns {{ fecha: string|null, hora_inicio: string|null, hora_fin: string|null }}
+ */
+export function defaultGapFillEventSchedule(prevEv, nextEv) {
+  const curFecha = String(prevEv?.fecha || "").slice(0, 10) || null;
+  const finDisp = resolveHoraFinDisplay(prevEv, nextEv);
+  const nextInicio = nextEv?.hora_inicio
+    ? String(nextEv.hora_inicio).slice(0, 5)
+    : null;
+
+  if (finDisp.value) {
+    return {
+      fecha: curFecha,
+      hora_inicio: finDisp.value,
+      hora_fin: nextInicio,
+    };
+  }
+
+  // Sin hasta ni next: +30 min desde el comienzo del prev
+  const fallback = defaultIntermediateStopSchedule(prevEv, null);
+  return {
+    fecha: fallback.fecha || curFecha,
+    hora_inicio: fallback.hora_inicio || null,
+    hora_fin: null,
+  };
 }
 
 

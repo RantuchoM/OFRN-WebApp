@@ -30,6 +30,7 @@ import {
   sortFimbaAgendaRows,
   sortFimbaPropuestasByNombre,
 } from "../../utils/fimbaAgendaSort";
+import { defaultGapFillEventSchedule } from "../../utils/fimbaTransportBoarding";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
@@ -513,6 +514,43 @@ export default function FimbaAgendaPage() {
     setModal({ mode: "edit", evento: copy });
   };
 
+  /**
+   * Vecino siguiente del mismo día en la planilla visible (sin ride segments).
+   * Insertar entre esta fila y ese next = completar hasta→desde.
+   */
+  const nextSameDayNeighbor = (ev) => {
+    const day = String(ev?.fecha || "").slice(0, 10);
+    if (!day) return null;
+    const list = eventosFiltrados.filter(
+      (r) => !r.es_ride_segment && String(r.fecha || "").slice(0, 10) === day,
+    );
+    const idx = list.findIndex((r) => String(r.id) === String(ev.id));
+    if (idx < 0) return null;
+    return list[idx + 1] || null;
+  };
+
+  const openIntermediateEvent = (ev) => {
+    const nextEv = nextSameDayNeighbor(ev);
+    const { fecha, hora_inicio, hora_fin } = defaultGapFillEventSchedule(
+      ev,
+      nextEv,
+    );
+    setModal({
+      mode: "create",
+      preselectPropuesta: filtroArtista || artistaId || null,
+      evento: {
+        fecha: fecha || ev.fecha || "",
+        hora_inicio: hora_inicio || null,
+        hora_fin: hora_fin || null,
+        actividad: "",
+        destino: "",
+        observaciones_equipaje: "",
+        asientos_equipaje: 0,
+        audiencia_ofrn: "none",
+      },
+    });
+  };
+
   const backHref = artistaId
     ? `/fimba/edicion/${edicionId}/artista/${artistaId}`
     : `/fimba/edicion/${edicionId}`;
@@ -933,6 +971,20 @@ export default function FimbaAgendaPage() {
                               title="Editar"
                             >
                               <IconEdit size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              className="fimba-btn fimba-btn-ghost"
+                              style={{ marginLeft: 4, color: "var(--fimba-cyan, #0e7490)" }}
+                              onClick={() => openIntermediateEvent(ev)}
+                              title={
+                                nextSameDayNeighbor(ev)
+                                  ? "Insertar evento intermedio (completa hasta→desde con el siguiente del día)"
+                                  : "Insertar evento después de este (desde = hora fin)"
+                              }
+                              aria-label="Insertar evento intermedio"
+                            >
+                              <IconPlus size={14} />
                             </button>
                             <button
                               type="button"

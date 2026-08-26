@@ -26,6 +26,7 @@ import {
   FIMBA_ALIMENTACION_OTRO,
   FIMBA_TIPOS_ALIMENTACION,
   FIMBA_PROPUESTA_ESTADOS,
+  computeFimbaCapacity,
   countActiveParticipantes,
   createFimbaParticipante,
   deleteFimbaParticipante,
