@@ -10,7 +10,8 @@ const partLabel = (part) =>
 
 /**
  * Modal para omitir (o restaurar) particellas pendientes en un programa.
- * mode="omit": solo partes sin asignar. mode="restore": solo ya omitidas.
+ * mode="omit": solo partes sin asignar (marcar → omitir).
+ * mode="restore": omitidas ya tildadas; desmarcar → restaurar al guardar.
  */
 export default function OmitPartsModal({
   isOpen,
@@ -23,10 +24,23 @@ export default function OmitPartsModal({
 }) {
   const [selected, setSelected] = useState(() => new Set());
 
+  const sortedParts = useMemo(
+    () =>
+      [...(parts || [])].sort((a, b) =>
+        partLabel(a).localeCompare(partLabel(b), "es"),
+      ),
+    [parts],
+  );
+
   useEffect(() => {
     if (!isOpen) return;
-    setSelected(new Set());
-  }, [isOpen, mode, parts]);
+    if (mode === "restore") {
+      // Todas las omitidas arrancan tildadas; desmarcar = restaurar.
+      setSelected(new Set(sortedParts.map((p) => String(p.id))));
+    } else {
+      setSelected(new Set());
+    }
+  }, [isOpen, mode, sortedParts]);
 
   useEffect(() => {
     if (!isOpen || !onClose) return undefined;
@@ -37,14 +51,6 @@ export default function OmitPartsModal({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isOpen, onClose]);
 
-  const sortedParts = useMemo(
-    () =>
-      [...(parts || [])].sort((a, b) =>
-        partLabel(a).localeCompare(partLabel(b), "es"),
-      ),
-    [parts],
-  );
-
   if (!isOpen || typeof document === "undefined") return null;
 
   const isRestore = mode === "restore";
@@ -52,15 +58,22 @@ export default function OmitPartsModal({
   const subtitle = isRestore
     ? "Estas partes no se tocan en este programa. Desmarcá para volver a exigirlas."
     : "Las partes seleccionadas no se tocarán en este programa y dejarán de contar en el requerido.";
-  const confirmLabel = isRestore
-    ? "Restaurar seleccionadas"
-    : "Omitir seleccionadas";
+
+  const idsToRestore = isRestore
+    ? sortedParts
+        .map((p) => p.id)
+        .filter((id) => !selected.has(String(id)))
+    : [];
+  const confirmIds = isRestore ? idsToRestore : [...selected];
+  const confirmLabel = isRestore ? "Aplicar cambios" : "Omitir seleccionadas";
+  const canConfirm = confirmIds.length > 0;
 
   const toggle = (id) => {
+    const key = String(id);
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -69,13 +82,13 @@ export default function OmitPartsModal({
     if (selected.size === sortedParts.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(sortedParts.map((p) => p.id)));
+      setSelected(new Set(sortedParts.map((p) => String(p.id))));
     }
   };
 
   const handleConfirm = () => {
-    if (selected.size === 0) return;
-    onConfirm?.([...selected]);
+    if (!canConfirm) return;
+    onConfirm?.(confirmIds);
   };
 
   return createPortal(
@@ -126,11 +139,14 @@ export default function OmitPartsModal({
             disabled={sortedParts.length === 0}
           >
             {selected.size === sortedParts.length && sortedParts.length > 0
-              ? "Deseleccionar todas"
-              : "Seleccionar todas"}
+              ? "Desmarcar todas"
+              : "Marcar todas"}
           </button>
           <span className="text-[10px] text-slate-400 font-medium">
             {selected.size}/{sortedParts.length}
+            {isRestore && idsToRestore.length > 0
+              ? ` · restaurar ${idsToRestore.length}`
+              : ""}
           </span>
         </div>
 
@@ -145,7 +161,7 @@ export default function OmitPartsModal({
             <ul className="space-y-1">
               {sortedParts.map((part) => {
                 const id = part.id;
-                const checked = selected.has(id);
+                const checked = selected.has(String(id));
                 const label = partLabel(part);
                 return (
                   <li key={id}>
@@ -179,7 +195,7 @@ export default function OmitPartsModal({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={saving || selected.size === 0}
+            disabled={saving || !canConfirm}
             className={`px-3 py-1.5 text-xs font-bold text-white rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${
               isRestore
                 ? "bg-slate-700 hover:bg-slate-800"
