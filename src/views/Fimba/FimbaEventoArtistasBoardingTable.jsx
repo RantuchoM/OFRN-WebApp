@@ -24,6 +24,7 @@ import {
   validateArtistaTransporteAssign,
 } from "../../services/fimbaService";
 import { buildFimbaBajadaArtistOptions } from "../../utils/fimbaTransportBoarding";
+import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
 
 function syncDot(status) {
   if (status === "saving") {
@@ -458,14 +459,11 @@ export default function FimbaEventoArtistasBoardingTable({
 
   const taggedPropuestas = useMemo(() => {
     const ids = (selectedPropIds || []).map(String);
-    return ids
-      .map((id) => (propuestas || []).find((p) => String(p.id) === id))
-      .filter(Boolean)
-      .sort((a, b) =>
-        String(a.nombre || "").localeCompare(String(b.nombre || ""), "es", {
-          sensitivity: "base",
-        }),
-      );
+    return sortFimbaPropuestasByNombre(
+      ids
+        .map((id) => (propuestas || []).find((p) => String(p.id) === id))
+        .filter(Boolean),
+    );
   }, [selectedPropIds, propuestas]);
 
   const filteredTaggedPropuestas = useMemo(() => {
@@ -478,13 +476,9 @@ export default function FimbaEventoArtistasBoardingTable({
 
   const availableToAdd = useMemo(() => {
     const have = new Set((selectedPropIds || []).map(String));
-    return (propuestas || [])
-      .filter((p) => !have.has(String(p.id)))
-      .sort((a, b) =>
-        String(a.nombre || "").localeCompare(String(b.nombre || ""), "es", {
-          sensitivity: "base",
-        }),
-      );
+    return sortFimbaPropuestasByNombre(
+      (propuestas || []).filter((p) => !have.has(String(p.id))),
+    );
   }, [propuestas, selectedPropIds]);
 
   const addOptions = useMemo(

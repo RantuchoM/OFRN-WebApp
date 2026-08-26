@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   IconClock,
@@ -18,6 +18,7 @@ import {
   listFimbaFlota,
   listFimbaPropuestas,
 } from "../../services/fimbaService";
+import { sortFimbaAgendaRows } from "../../utils/fimbaAgendaSort";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import { stripHtml } from "../../utils/eventDisplayUtils";
@@ -144,6 +145,12 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
     reloadAgenda();
   }, [propId, edicionId, reloadAgenda]);
 
+  /** Misma orden contractual que planilla staff (post-merge rides). */
+  const eventosOrdenados = useMemo(
+    () => sortFimbaAgendaRows(eventos),
+    [eventos],
+  );
+
   const handleDelete = async (ev) => {
     const label =
       stripHtml(ev.actividad) || ev.tipo_nombre || "evento";
@@ -251,13 +258,13 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
         >
           <IconLoader size={18} className="animate-spin" /> Cargando agenda…
         </div>
-      ) : eventos.length === 0 && !error ? (
+      ) : eventosOrdenados.length === 0 && !error ? (
         <div className="fimba-card fimba-muted">
           {editable
             ? "No hay eventos de este artista. Usá «Nuevo evento» para crear uno."
             : "No hay eventos ni traslados asignados a este artista."}
         </div>
-      ) : eventos.length > 0 ? (
+      ) : eventosOrdenados.length > 0 ? (
         <div className="fimba-card" style={{ padding: 0, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
             <table className="fimba-table">
@@ -277,7 +284,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                 </tr>
               </thead>
               <tbody>
-                {eventos.map((ev) => {
+                {eventosOrdenados.map((ev) => {
                   const isRide = Boolean(ev.es_ride_segment);
                   const veh = isRide
                     ? ev.vehicle_label || vehicleLabel(ev, flota)

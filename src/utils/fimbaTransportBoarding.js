@@ -35,6 +35,7 @@
  *   (suma multi-vehículo sin double-count de orquesta porque cada pax es 1 unidad).
  */
 
+import { sortFimbaAgendaRows } from "./fimbaAgendaSort";
 import { sortEventsBySchedule } from "./giraTransportUtils";
 import { matchesRule, normalize } from "./giraUtils";
 
@@ -2125,12 +2126,13 @@ export function buildArtistaTrasladoAgendaBlocks(opts = {}) {
 }
 
 /**
- * Fusiona eventos tagged + bloques de traslado y ordena por fecha/hora.
+ * Fusiona eventos tagged + bloques de traslado.
+ * Orden: fecha → hora → detalle (es) → tipo → id (ver `sortFimbaAgendaRows`).
  * @param {Array<object>} eventos
  * @param {Array<object>} rideBlocks
  */
 export function mergeAgendaWithTrasladoBlocks(eventos, rideBlocks) {
-  return sortEventsBySchedule([...(eventos || []), ...(rideBlocks || [])]);
+  return sortFimbaAgendaRows([...(eventos || []), ...(rideBlocks || [])]);
 }
 
 /**

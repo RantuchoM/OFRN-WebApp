@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { IconLoader, IconRefresh, IconX } from "./Icons";
+import { hasUnsavedWork } from "../../utils/unsavedWork";
 
 /** Rutas públicas de Entradas: actualización silenciosa sin overlay ni banner. */
 export function isEntradasPublicRoute(pathname = "") {
@@ -63,17 +64,22 @@ async function fetchRemoteBuildId() {
   }
 }
 
-function UpdateAvailableBanner({ onUpdate, onDismiss }) {
+function UpdateAvailableBanner({ onUpdate, onDismiss, subtitle }) {
   return (
     <div
-      className="fixed top-3 right-3 z-[9999] w-[min(220px,calc(100vw-1.5rem))] rounded-lg border border-slate-200/90 bg-white/95 backdrop-blur-sm shadow-md animate-in fade-in slide-in-from-top-2 duration-200"
+      className="fixed top-3 right-3 z-[9999] w-[min(240px,calc(100vw-1.5rem))] rounded-lg border border-slate-200/90 bg-white/95 backdrop-blur-sm shadow-md animate-in fade-in slide-in-from-top-2 duration-200"
       role="status"
       aria-live="polite"
     >
       <div className="flex items-start gap-1 pl-2.5 pr-1 pt-2 pb-1.5">
-        <p className="flex-1 text-[11px] leading-snug text-slate-600 pt-0.5">
-          Nueva versión disponible
-        </p>
+        <div className="flex-1 pt-0.5">
+          <p className="text-[11px] leading-snug font-semibold text-slate-700">
+            Nueva versión disponible
+          </p>
+          {subtitle ? (
+            <p className="mt-0.5 text-[10px] leading-snug text-slate-500">{subtitle}</p>
+          ) : null}
+        </div>
         <button
           type="button"
           onClick={onDismiss}
@@ -97,6 +103,14 @@ function UpdateAvailableBanner({ onUpdate, onDismiss }) {
   );
 }
 
+/**
+ * Actualizaciones de deploy (Vercel + PWA):
+ * - Staff: nunca fuerza reload mid-sesión; banner «Nueva versión / Actualizar».
+ * - Al cambiar de ruta sin trabajo dirty: aplica la SW waiting (navegación limpia).
+ * - Si hay dirty (FIMBA planilla/modal, data-unsaved-work): solo banner.
+ * - /entradas: sigue en modo silencioso (público).
+ * - version.json: detecta build nuevo aunque el SW tarde en needRefresh.
+ */
 function ReloadPrompt() {
   const { pathname } = useLocation();
   const entradasSilentUpdate = isEntradasPublicRoute(pathname);
@@ -104,10 +118,11 @@ function ReloadPrompt() {
   const restartStartedRef = useRef(false);
   const reloadPendingRef = useRef(false);
   const fallbackTimerRef = useRef(null);
-  /** true tras montaje o cambio de ruta: la próxima actualización se aplica sin banner. */
-  const entryAutoReloadRef = useRef(true);
+  const pathnameRef = useRef(pathname);
   const [isRestarting, setIsRestarting] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  /** Build remoto distinto del embebido (sin depender solo del SW). */
+  const [buildOutdated, setBuildOutdated] = useState(false);
 
   const reloadPageWithGuard = useCallback(() => {
     if (reloadPendingRef.current) return false;
@@ -141,7 +156,7 @@ function ReloadPrompt() {
 
   const {
     offlineReady: [offlineReady, setOfflineReady],
-    needRefresh: [needRefresh, setNeedRefresh],
+    needRefresh: [needRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onRegistered(r) {
@@ -156,49 +171,92 @@ function ReloadPrompt() {
     },
   });
 
+  const updateAvailable = needRefresh || buildOutdated;
+
   const applyWaitingServiceWorker = useCallback(async () => {
     const registration = swRegistrationRef.current;
-    if (!registration?.waiting) return false;
-
-    scheduleIosFallbackReload();
-    try {
-      await updateServiceWorker(true);
-      return true;
-    } catch (error) {
-      console.error("SW update failed", error);
-      clearFallbackTimer();
-      reloadPendingRef.current = false;
-      restartStartedRef.current = false;
-      setIsRestarting(false);
-      return false;
+    if (registration?.waiting) {
+      scheduleIosFallbackReload();
+      try {
+        await updateServiceWorker(true);
+        return true;
+      } catch (error) {
+        console.error("SW update failed", error);
+        clearFallbackTimer();
+        reloadPendingRef.current = false;
+        restartStartedRef.current = false;
+        setIsRestarting(false);
+        return false;
+      }
     }
-  }, [clearFallbackTimer, scheduleIosFallbackReload, updateServiceWorker]);
+    // Sin SW waiting (solo version.json): hard reload.
+    clearFallbackTimer();
+    return reloadPageWithGuard();
+  }, [
+    clearFallbackTimer,
+    reloadPageWithGuard,
+    scheduleIosFallbackReload,
+    updateServiceWorker,
+  ]);
+
+  const beginApplyUpdate = useCallback(() => {
+    if (restartStartedRef.current) return;
+    restartStartedRef.current = true;
+    setIsRestarting(true);
+    window.setTimeout(() => {
+      void applyWaitingServiceWorker();
+    }, RESTART_MESSAGE_MS);
+  }, [applyWaitingServiceWorker]);
 
   const checkForNewVersion = useCallback(async () => {
     swRegistrationRef.current?.update();
     if (!LOCAL_BUILD_ID) return;
     const remote = await fetchRemoteBuildId();
-    if (remote && remote === LOCAL_BUILD_ID) {
+    if (!remote) return;
+    if (remote === LOCAL_BUILD_ID) {
       clearReloadGuards();
-    }
-  }, []);
-
-  useEffect(() => {
-    entryAutoReloadRef.current = true;
-    void checkForNewVersion();
-  }, [pathname, checkForNewVersion]);
-
-  useEffect(() => {
-    if (!needRefresh) return;
-    if (entradasSilentUpdate || entryAutoReloadRef.current) {
-      if (restartStartedRef.current) return;
-      entryAutoReloadRef.current = false;
-      restartStartedRef.current = true;
-      void applyWaitingServiceWorker();
+      setBuildOutdated(false);
       return;
     }
-    setBannerDismissed(false);
-  }, [entradasSilentUpdate, needRefresh, applyWaitingServiceWorker]);
+    setBuildOutdated(true);
+  }, []);
+
+  // Al cambiar de ruta: si hay update pendiente y no hay dirty → aplicar.
+  // Si hay dirty → dejar el banner (no interrumpir edición).
+  useEffect(() => {
+    const prevPath = pathnameRef.current;
+    pathnameRef.current = pathname;
+    void checkForNewVersion();
+
+    if (prevPath === pathname) return;
+    if (entradasSilentUpdate) return;
+    if (!needRefresh && !buildOutdated) return;
+    if (restartStartedRef.current) return;
+    if (hasUnsavedWork()) {
+      setBannerDismissed(false);
+      return;
+    }
+    beginApplyUpdate();
+  }, [
+    pathname,
+    checkForNewVersion,
+    entradasSilentUpdate,
+    needRefresh,
+    buildOutdated,
+    beginApplyUpdate,
+  ]);
+
+  // Entradas: auto-aplicar. Staff: solo reabrir banner si el update vuelve tras estar al día.
+  useEffect(() => {
+    if (!needRefresh && !buildOutdated) {
+      setBannerDismissed(false);
+      return;
+    }
+    if (entradasSilentUpdate) {
+      if (restartStartedRef.current) return;
+      beginApplyUpdate();
+    }
+  }, [entradasSilentUpdate, needRefresh, buildOutdated, beginApplyUpdate]);
 
   useEffect(() => {
     if (!LOCAL_BUILD_ID) return undefined;
@@ -223,18 +281,22 @@ function ReloadPrompt() {
   const handleApplyUpdate = useCallback(() => {
     if (restartStartedRef.current) return;
 
+    if (hasUnsavedWork()) {
+      const ok = window.confirm(
+        "Hay cambios sin guardar. Si actualizás ahora, se pueden perder. ¿Actualizar de todos modos?"
+      );
+      if (!ok) return;
+    }
+
     const registration = swRegistrationRef.current;
-    if (!registration?.waiting) {
+    if (!registration?.waiting && !buildOutdated) {
       void registration?.update();
+      void checkForNewVersion();
       return;
     }
 
-    restartStartedRef.current = true;
-    setIsRestarting(true);
-    window.setTimeout(() => {
-      void applyWaitingServiceWorker();
-    }, RESTART_MESSAGE_MS);
-  }, [applyWaitingServiceWorker]);
+    beginApplyUpdate();
+  }, [beginApplyUpdate, buildOutdated, checkForNewVersion]);
 
   useEffect(() => {
     if (!offlineReady) return;
@@ -263,7 +325,11 @@ function ReloadPrompt() {
   useEffect(() => () => clearFallbackTimer(), [clearFallbackTimer]);
 
   const showBanner =
-    needRefresh && !entradasSilentUpdate && !isRestarting && !bannerDismissed;
+    updateAvailable && !entradasSilentUpdate && !isRestarting && !bannerDismissed;
+
+  const bannerSubtitle = hasUnsavedWork()
+    ? "Hay cambios sin guardar: guardá o descartá antes de actualizar."
+    : "Podés seguir trabajando; actualizá cuando te convenga.";
 
   return (
     <>
@@ -271,9 +337,11 @@ function ReloadPrompt() {
         <UpdateAvailableBanner
           onUpdate={handleApplyUpdate}
           onDismiss={() => {
+            // Solo oculta el banner; needRefresh/buildOutdated siguen para
+            // aplicar en la próxima navegación limpia.
             setBannerDismissed(true);
-            setNeedRefresh(false);
           }}
+          subtitle={bannerSubtitle}
         />
       )}
       {isRestarting && !entradasSilentUpdate && (

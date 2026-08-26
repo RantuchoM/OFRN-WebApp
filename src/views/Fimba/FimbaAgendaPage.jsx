@@ -26,6 +26,10 @@ import {
 } from "../../services/fimbaService";
 import { normalizeForSearch } from "../../utils/sanitize";
 import { stripHtml } from "../../utils/eventDisplayUtils";
+import {
+  sortFimbaAgendaRows,
+  sortFimbaPropuestasByNombre,
+} from "../../utils/fimbaAgendaSort";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
@@ -417,6 +421,12 @@ export default function FimbaAgendaPage() {
 
   const searchFilterActive = Boolean(normalizeForSearch(agendaSearchQuery));
 
+  /** Artistas del select: siempre alfabético (no `orden` de planilla). */
+  const propuestasParaFiltro = useMemo(
+    () => sortFimbaPropuestasByNombre(propuestas),
+    [propuestas],
+  );
+
   const eventosFiltrados = useMemo(() => {
     let list = eventos;
     if (filtroOrigen === "fimba") {
@@ -448,7 +458,9 @@ export default function FimbaAgendaPage() {
         eventMatchesFimbaAgendaSearch(ev, agendaSearchQuery, flotaById),
       );
     }
-    return list;
+    // Reordenar tras filtrar: fecha → hora → detalle (es) → tipo → id.
+    // Evita orden “pegado” al subset / reload por artista / rides mergeados.
+    return sortFimbaAgendaRows(list);
   }, [
     eventos,
     filtroOrigen,
@@ -659,7 +671,7 @@ export default function FimbaAgendaPage() {
               onChange={(e) => setFiltroArtista(e.target.value)}
             >
               <option value="">Toda la edición</option>
-              {propuestas.map((p) => (
+              {propuestasParaFiltro.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.nombre}
                 </option>
@@ -879,7 +891,7 @@ export default function FimbaAgendaPage() {
                             </span>
                           ) : (
                             <>
-                              {(ev.propuestas || []).map((p) => (
+                              {sortFimbaPropuestasByNombre(ev.propuestas || []).map((p) => (
                                 <span
                                   key={p.id}
                                   className="fimba-badge"

@@ -32,6 +32,7 @@ import {
   listHotelesCatalog,
   updateFimbaPropuesta,
 } from "../../services/fimbaService";
+import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
 
 /** Columnas editables en modo planilla (orden de Tab / Enter). Color/estado en ficha artista. */
 const EDITABLE_COLS = [
@@ -204,7 +205,11 @@ export default function FimbaEdicionPage() {
   const handlePropuestaPatched = useCallback((updated) => {
     if (!updated?.id) return;
     setPropuestas((prev) =>
-      (prev || []).map((p) => (Number(p.id) === Number(updated.id) ? { ...p, ...updated } : p)),
+      sortFimbaPropuestasByNombre(
+        (prev || []).map((p) =>
+          Number(p.id) === Number(updated.id) ? { ...p, ...updated } : p,
+        ),
+      ),
     );
   }, []);
 

@@ -26,6 +26,22 @@ window.addEventListener('vite:preloadError', (event) => {
   } catch {
     /* ignore */
   }
+  // Mensaje breve antes del reload forzado (chunks viejos tras deploy).
+  try {
+    let el = document.getElementById('ofrn-preload-reload-msg')
+    if (!el) {
+      el = document.createElement('div')
+      el.id = 'ofrn-preload-reload-msg'
+      el.setAttribute('role', 'status')
+      el.style.cssText =
+        'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.45);padding:1.5rem;font-family:system-ui,sans-serif'
+      el.innerHTML =
+        '<div style="background:#fff;border:2px solid #4f46e5;border-radius:1rem;padding:1.5rem 1.75rem;max-width:20rem;text-align:center;font-size:.875rem;font-weight:700;color:#1e293b;line-height:1.35">Hay una versión nueva. Recargando para continuar…</div>'
+      document.body?.appendChild(el)
+    }
+  } catch {
+    /* ignore */
+  }
   window.location.reload()
 })
 

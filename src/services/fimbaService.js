@@ -16,6 +16,10 @@ import { resolveGiraRosterForMatrix } from "./giraService";
 import { fetchRosterForGira } from "../hooks/useGiraRoster";
 import { calculateLogisticsSummary } from "../hooks/useLogistics";
 import { fetchGiraSegmentosBundle } from "./giraSegmentosService";
+import {
+  sortFimbaAgendaRows,
+  sortFimbaPropuestasByNombre,
+} from "../utils/fimbaAgendaSort";
 import { eventTypeIdForCategoria, sortEventsBySchedule } from "../utils/giraTransportUtils";
 import {
   buildArtistaTrasladoAgendaBlocks,
@@ -38,6 +42,10 @@ import {
   aggregateMealsPlans,
   computeArtistaMealsPlan,
 } from "../utils/fimbaMealsStay";
+import {
+  FIMBA_GENERO_DEFAULT as FIMBA_GENERO_DEFAULT_CANON,
+  canonicalizeFimbaGenero,
+} from "../utils/fimbaGenero";
 
 /**
  * Tipos de alimentación de `fimba_participantes.tipo_alimentacion`
@@ -105,7 +113,7 @@ export const FIMBA_GENEROS = [
   { value: "sin_especificar", label: "Sin especificar" },
 ];
 
-export const FIMBA_GENERO_DEFAULT = "sin_especificar";
+export const FIMBA_GENERO_DEFAULT = FIMBA_GENERO_DEFAULT_CANON;
 
 /** Tipos de habitación FIMBA (cupo por habitación). */
 export const FIMBA_TIPOS_HABITACION = [
@@ -282,7 +290,7 @@ export function categoriesFromTiposEvento(tipos) {
     }
   }
   return [...map.values()].sort((a, b) =>
-    a.nombre.localeCompare(b.nombre, "es"),
+    a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }),
   );
 }
 
@@ -673,6 +681,11 @@ export async function createFimbaEdicion(payload) {
 const PROPUESTA_SELECT =
   "id, id_edicion, nombre, color, orden, cantidad_planificada, plazas_extra_materiales, checkin_at, checkout_at, checkin_early, checkout_late, requiere_hotel, requiere_comidas, id_hotel, observaciones_logisticas, rider, token_consulta, token_edicion, estado, created_at, updated_at, hoteles:id_hotel ( id, nombre )";
 
+/**
+ * Lista artistas (propuestas) de una edición.
+ * **Display order:** alfabético por `nombre` (`es`, sensitivity base → id).
+ * Columna `orden` se sigue asignando al crear (metadata / legado); **no** ordena planillas ni pickers.
+ */
 export async function listFimbaPropuestas(edicionId) {
   if (edicionId == null || edicionId === "") {
     return { propuestas: [], error: null };
@@ -681,10 +694,9 @@ export async function listFimbaPropuestas(edicionId) {
     .from("fimba_propuestas")
     .select(PROPUESTA_SELECT)
     .eq("id_edicion", edicionId)
-    .order("orden", { ascending: true })
     .order("nombre", { ascending: true });
   if (error) return { propuestas: [], error };
-  return { propuestas: data || [], error: null };
+  return { propuestas: sortFimbaPropuestasByNombre(data || []), error: null };
 }
 
 export async function getFimbaPropuestaById(propuestaId) {
@@ -1472,10 +1484,9 @@ export async function renameFimbaDriveFile(fileIdOrUrl, newName) {
 const PARTICIPANTE_SELECT =
   "id, id_propuesta, nombre, apellido, documento, genero, tipo_alimentacion, nota_alimentacion, activo, id_integrante, created_at, updated_at";
 
+/** Acepta aliases OFRN (M/F/-) y textos (hombre/mujer) → valor canónico DB. */
 function normalizeGenero(value) {
-  const g = String(value || "").trim();
-  if (FIMBA_GENEROS.some((x) => x.value === g)) return g;
-  return FIMBA_GENERO_DEFAULT;
+  return canonicalizeFimbaGenero(value);
 }
 
 export async function listFimbaParticipantes(propuestaId) {
@@ -2944,7 +2955,7 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
       locacion_nombre: locNombre,
       locacion_ciudad: locCiudad,
       vehiculos: vehicles,
-      propuestas: propuestasTagged,
+      propuestas: sortFimbaPropuestasByNombre(propuestasTagged),
       grupos,
       // SIN SERVICIO solo para trayectos FIMBA/transporte sin unidad ni OFRN stop
       sin_servicio:
@@ -3028,6 +3039,9 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
       eventos = mergeAgendaWithTrasladoBlocks(eventos, blocks);
     }
   }
+
+  // Contrato planilla: fecha → hora → detalle (es) → tipo → id (también sin rides).
+  eventos = sortFimbaAgendaRows(eventos);
 
   return { eventos, error: null };
 }
@@ -4831,7 +4845,7 @@ export async function listFimbaHoteleria(edicionId, opts = {}) {
     propuestas = props;
   }
 
-  let props = propuestas || [];
+  let props = sortFimbaPropuestasByNombre(propuestas || []);
   if (opts.id_propuesta != null && opts.id_propuesta !== "") {
     props = props.filter((p) => Number(p.id) === Number(opts.id_propuesta));
   }

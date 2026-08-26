@@ -11,8 +11,8 @@ FIMBA es una aplicación de festival con skin propia bajo `/fimba/*`, que reutil
 | Tabla | Rol |
 |-------|-----|
 | `fimba_ediciones` | Edición del festival; **1:1** con `programas` vía `id_gira` |
-| `fimba_propuestas` | UI «Artista»: cupos, colores, tokens, fechas checkin/out, flags `checkin_early` / `checkout_late`, **`requiere_hotel`** / **`requiere_comidas`** (default true; false excluye de reportes/exportaciones), `id_hotel` opcional → `hoteles`, `observaciones_logisticas` (texto libre), **`rider`** (HTML rich-text logístico). **Sin** carpeta Drive (vive en contrataciones) |
-| `fimba_participantes` | Personas del artista (entidad propia; `id_integrante` opcional bigint). **`genero`**: `femenino` \| `masculino` \| `otro` \| `sin_especificar` (default). No vive en la propuesta: el artista es el grupo; el sexo/género es de cada persona. |
+| `fimba_propuestas` | UI «Artista»: cupos, colores, tokens, fechas checkin/out, flags `checkin_early` / `checkout_late`, **`requiere_hotel`** / **`requiere_comidas`** (default true; false excluye de reportes/exportaciones), `id_hotel` opcional → `hoteles`, `observaciones_logisticas` (texto libre), **`rider`** (HTML rich-text logístico). Columna **`orden`**: se asigna al crear (legado / metadata); **no** ordena UI staff. **Display** de planillas y pickers = alfabético por `nombre` (`localeCompare` es, `sensitivity: "base"`, desempate `id`) vía `listFimbaPropuestas` / `sortFimbaPropuestasByNombre`. **Sin** carpeta Drive (vive en contrataciones) |
+| `fimba_participantes` | Personas del artista (entidad propia; `id_integrante` opcional bigint). **`genero`**: `femenino` \| `masculino` \| `otro` \| `sin_especificar` (default). Alta/edición acepta aliases (`M`/`F`/`hombre`/`mujer`, etc.) vía `canonicalizeFimbaGenero`. Reportes hotelería mapean a Hombre/Mujer/Sin género — **sin** default a masculino. |
 | `fimba_usuarios` | Usuarios externos por edición: mail + `rol_fimba` (`editor_general` \| `consulta`) + `clave_acceso` / `token_login`. Staff OFRN (`isManagement`) no se registra aquí. |
 | `eventos.audiencia_ofrn` | `none` \| `tutti` \| `grupos` |
 | `eventos.asientos_equipaje` | Asientos de **equipaje** del evento/parada (no headcount de pasajeros). Legacy `# PAX` / `audiencia` se mantiene en sync. |
@@ -171,8 +171,8 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
 
 | OFRN (nombre UI) | Formato OFRN | FIMBA ubicación | Formato FIMBA | Notas / gaps |
 |------------------|--------------|-----------------|--------------|--------------|
-| **Pedido Inicial** (Rooming hub) | Print + vista | Hotelería → **Reportes hotelería** (edición) o tarjeta artista → **Pedido hotel**; ficha Artista → Pedido hotel | Print/PDF + Excel plazas | Por hotel + check-in/out artista (no tramos de gira). Sexo = `fimba_participantes.genero`; sin nombre = sin sexo |
-| **Texto pedido** (hotel) | Clipboard | Mismo hub → Texto pedido | Clipboard + print | Mismo texto estilo «N hombres, M mujeres. Check-in…» |
+| **Pedido Inicial** (Rooming hub) | Print + vista | Hotelería → **Reportes hotelería** (edición) o tarjeta artista → **Pedido hotel**; ficha Artista → Pedido hotel | Print/PDF + Excel plazas | Por hotel + check-in/out artista (no tramos de gira). Sexo hotelero vía `mapFimbaGeneroToSex` (`src/utils/fimbaGenero.js`): `masculino`/`m`/`hombre`→**Hombre**, `femenino`/`f`/`mujer`→**Mujer**; `otro` / `sin_especificar` / vacío → **Sin género** (nunca se asume hombre). Sin nombre = sin género. Detalle/Excel muestran Hombre/Mujer (no «Masculino»). |
+| **Texto pedido** (hotel) | Clipboard | Mismo hub → Texto pedido | Clipboard + print | Mismo texto estilo «N hombres, M mujeres. Check-in…»; ambiguos como «sin género / sin nombre» |
 | **Detalle de pasajeros** | Print | Hub → Detalle | Print/PDF | Orden por ingreso; sin habitaciones |
 | **Reporte de habitaciones** (RoomingReport) | Print/PDF | Hub → Reporte habitaciones; tarjeta Hotelería / `FimbaRoomingPanel` / Artista → Rooming PDF | Print/PDF + Excel rooming | Inventario `fimba_propuestas_habitaciones` + ocupantes |
 | **Excel hotelería** (resumen/personas) | — (FIMBA) | Hotelería cabecera (edición) o tarjeta artista → Excel hotelería | Excel 3 hojas | Scope = filas pasadas al builder |
@@ -279,12 +279,13 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
 - **Contrataciones** (`/fimba/edicion/:id/contrataciones`): planilla Excel de `fimba_contrataciones`. Nombre = select artista opcional (`id_propuesta` nullable; «Sin artista» en gris) + texto libre en la **misma fila**. **Monto** en ARS (es-AR) al blur; **total superior** suma montos de filas **visibles** (filtro activo). Headers **ordenables** (asc/desc; textos es; montos numéricos; vacíos al final). Filtro de nombre en el **header de la columna Nombre** (input compacto junto al título/sort). Fecha límite resol. en **negrita roja**. Flags boolean con color. Acciones por fila: **Drive** (icono carpeta → modal z-100), historial estados, eliminar. «Último estado» = presets coloreados + **Otro…**. Autosave + semáforo por fila (campos de la planilla; carpeta Drive se guarda en el modal). Columnas compactas (th+td, headers wrap): **Nº expediente** 6.5–7.25rem; **Tipo contrat.** 5.75–6.5rem; 4 flags check 3.6rem fijos. Tabla `min-width` 1080px (antes 1320). Nombre / monto / estado / Drive sin achicar.
 - **Finanzas en ficha artista** (`/fimba/edicion/:id/artista/:artistaId`): bloque «Finanzas / contrataciones» con filas de `fimba_contrataciones` donde `id_propuesta` = artista (nombre, monto es-AR RO, **«Último estado» editable** con el mismo `EstadoConocidoInput` de la planilla, nº expediente RO, tipo RO). Por cada contratación: join de **Documentación Drive** (Explorar lazy si hay `carpeta_documentacion`; empty-state + link a planilla si no). Persistencia estado: `updateFimbaContratacion` → `appendFimbaContratacionEstado`. Compartido: `FimbaEstadoConocido.jsx` + `FimbaDocumentacionDrivePreview.jsx`. Vacío → «Sin contrataciones». **Visibilidad estricta:** solo `canSeeContrataciones` (editor_general / OFRN management). **No** consulta / tokens `/c` `/a` `/e`.
 
-- **Datos generales / meta del artista** (ex modal «Editar artista»): vive **inline** en la ficha `FimbaArtistaPage` (`ArtistaMetaSection`), no en modal desde la planilla.
-  - Campos: nombre, color (swatches), cantidad planificada, Extra Equip., helper hotel/comida·transporte, check-in/out + Early/Late, hotel opcional, observaciones logísticas, **rider** (rich text), estado.
+- **Datos generales / meta del artista** (ex modal «Editar artista»): componente compartido `FimbaArtistaMetaSection` — **inline** en ficha `FimbaArtistaPage` y **modal** desde Hotelería (`HotelMetaEditModal`).
+  - Campos: nombre, color (swatches), cantidad planificada, Extra Equip., helper hotel/comida·transporte, check-in/out + Early/Late, toggles `requiere_hotel` / `requiere_comidas`, hotel opcional, observaciones logísticas, **rider** (rich text; solo ficha si `canSeeRider`), estado.
   - Persistencia: `updateFimbaPropuesta` (mismo patch que el alta; `rider` HTML o `null` si vacío).
   - **Autosave + semáforo** (solo `canEditPropuestaMeta`): sin botón «Guardar cambios». Debounce ~500 ms en texto/números/rider; ~80 ms en color, fechas, flags, hotel y estado. Blur en campos de texto hace flush. Estado `idle|dirty|saving|saved|error` con dot FIMBA (`fimba-sync-*`: verde guardado/sincronizado, ámbar pendiente/guardando, rojo error). Draft incompleto (nombre vacío, números a medio tipear) se queda en yellow sin thrash de error; validación dura (rango, fechas cruzadas) y fallos de red → rojo y draft conservado.
   - **Edición:** solo si `canEditPropuestaMeta` (editor_general / OFRN management). **No** editable por consulta, `/fimba/c`, `/fimba/a`, ni **`/fimba/e`** (editores de token siguen con nómina/agenda/rooming acomodo).
-  - Sin permiso: sección «Datos del artista» en solo lectura.
+  - Sin permiso: sección «Datos del artista» en solo lectura (ficha).
+  - **Hotelería:** botón **Editar datos** (lápiz) por tarjeta → portal z-100 con el mismo form (`variant=plain`, sin rider) + bloque **Cupos de habitaciones** (Aplicar cupos → `syncFimbaHabitacionesFromCounts`). Tras autosave meta o aplicar cupos: `refreshRow(propuestaId)` + patch liviano del select de artistas (sin full reload).
   - **Rider en ficha:** visible RO para consulta staff (`canSeeRider`); **oculto** en tokens `/a` `/e` y en token `/c` (`!canSeeRider`). Editor: Quill inline + mismo autosave. Imágenes inline (pegar / file picker / drag) → bucket `fimba-riders` (solo `canEditPropuestaMeta`).
   - **Documentación Drive** en la ficha: se muestra en Finanzas desde contrataciones vinculadas (no campo de meta).
   - Planilla edición: lápiz → `navigate`/`Link` a `/fimba/edicion/:id/artista/:artistaId` (ficha). Modal solo **«Nuevo artista»**. «Modo edición» de celdas en planilla se mantiene para generales.
@@ -376,7 +377,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Migración `20260811090000_fimba_propuestas_observaciones_logisticas` deploy linked
 - [x] Lista artistas (`/fimba/edicion/:id`): IN/OUT + Early/Late visibles; modo planilla con autosave + semáforo (patrón MealsManager / GiraForm)
 - [x] `observaciones_logisticas` por artista: planilla + ficha (sección datos/meta; **no** editable por token `/e`) + export TSV hotelería
-- [x] Meta artista (color, cupos, hotel, fechas, estado, obs., rider): **inline en ficha** `FimbaArtistaPage` con `canEditPropuestaMeta`; lápiz planilla → ficha; modal solo alta
+- [x] Meta artista (color, cupos, hotel, fechas, estado, obs., rider): `FimbaArtistaMetaSection` en ficha + modal **Editar datos** en Hotelería (`canEditPropuestaMeta`); lápiz planilla → ficha; modal alta solo en planilla
 - [x] Rider por artista (`fimba_propuestas.rider` HTML) + pestaña `/rider` + PDF solo con contenido (`20260813120000`)
 - [x] Rider imágenes inline: bucket `fimba-riders` (público) + paste/picker/drop + PDF espera load (`20260813130000`)
 - [x] Drive docs en **contrataciones** (`carpeta_documentacion`); ficha artista muestra join multi-contrato; componente `FimbaDocumentacionDrivePreview`
@@ -422,6 +423,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Link sidebar «FIMBA» (solo management)
 - [x] Home: listar / crear edición (elige `id_gira`)
 - [x] Edición: CRUD artistas + nav sticky header Artistas | Agenda | Transportes | Hotelería | Rider | Contrataciones | Usuarios (`FimbaSectionToggle`; siempre edición-root, sin `/artista`)
+- [x] Planilla / listas de artistas **alfabéticas** por `nombre` (`es`, `sensitivity: "base"` → id): `listFimbaPropuestas` + `sortFimbaPropuestasByNombre` (`fimbaAgendaSort`). Aplica Artistas, Hotelería (cards + filtro), Rider, Contrataciones (select), Transportes (filtro), pickers de evento/boarding. Columna `orden` de propuesta **no** define el display (sin drag-reorder de artistas). Agenda filtro artista ya estaba alineado.
 - [x] Usuarios staff: listado/alta/edición `fimba_usuarios` en `/fimba/edicion/:id/usuarios` (`FimbaUsuariosPage`)
 - [x] Enlace consulta general edición: `fimba_ediciones.token_consulta` + `/fimba/c/:token` + sección en Usuarios (copiar/regenerar); shell RO sin Usuarios/Contrataciones
 - [x] Rol `consulta` (login) entra al shell en read-only (mismo recorte de secciones; **sí** ve Rider RO + PDF)
@@ -442,11 +444,13 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Editor transportes: panel **Vehículos** (alta + editar lápiz: catálogo, detalle, plazas, categoría; nombre catálogo+patente, detalle OFRN sec.) + planilla **Trayectos** (= eventos FIMBA + paradas OFRN; filtros origen/vehículo)
 - [x] Agenda unificada planilla (fecha, horas, tipo, actividad, destino/vuelo, vehículos, PAX, tags)
 - [x] Planilla agenda: badges FIMBA/OFRN + convocatoria + filtro origen (default Solo FIMBA) + multi-select **categoría** y **locación** + búsqueda debounced (tipo/actividad/lugar/personas/vehículos)
+- [x] Planilla agenda **orden contractual**: fecha → hora_inicio → detalle/actividad (`localeCompare` es, `sensitivity: "base"`) → tipo → id. Se **reaplica tras cada filtro** (origen/categoría/locación/búsqueda); limpiar filtros no deja orden residual. Tags de artistas en fila y select Artista: alfabético ES. Merge de bloques Traslado (rides) usa el mismo comparador (no solo fecha+hora).
 - [x] Hotelería reporte + edición checkin/out/early/late/hotel + export TSV (cols Early/Late) + cupos habitaciones + rooming resumen
 - [x] Hotelería: carga batch (participantes + habitaciones), refresh por artista post-edición sin full reload
 - [x] Transportes: carga deduplicada (cache edicion/propuestas/flota; sin hotelería completa); spinner solo 1ª carga; soft refresh por slice (rutas / eventos / logistics OFRN) tras ↑↓, reserva, evento, destino
 - [x] Transportes perf (save/load): Sube/Baja inline = upsert + patch local + debounce refresh rutas (sin 2× list + await planilla); Guardar evento = pre-checks paralelos + tags/veh/grupos en paralelo + `clientValidated` (sin re-fetch logistics); post-Guardar solo slice `eventos`
 - [x] Hotelería: exports por artista en cada tarjeta (Pedido hotel hub + Rooming PDF + Excel rooming/hotelería; cabecera edición intacta)
+- [x] Hotelería: **Editar datos** por tarjeta = `FimbaArtistaMetaSection` (autosave) + cupos; `refreshRow` post-save; gate `canEditPropuestaMeta`
 - [x] Ficha artista + token edición: panel **Hotelería / rooming** (`FimbaRoomingPanel`); consulta token RO
 
 ### UI tokens
@@ -532,7 +536,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 
 1. Edición → **Hotelería** (`/fimba/edicion/:id/hoteleria`).
 2. Ver PAX planificados, nominados, por confirmar; expandir personas; badges Early/Late junto a fechas; badges de **inventario** (ej. «3 DBL, 1 SGL») y ocupadas/plazas rooming.
-3. **Editar**: check-in/out, toggles Early/Late, hotel del catálogo `hoteles`, **cupos por tipo** (Single/Doble/Triple/Cuádruple). Tras guardar, la tarjeta del artista se actualiza con `getFimbaHoteleriaRow` (sin recargar toda la edición ni spinner full-page).
+3. **Editar datos** (`canEditPropuestaMeta`): modal portal con `FimbaArtistaMetaSection` (nombre, color, planificada, extra equip., check-in/out + Early/Late, requiere hotel/comidas, hotel, obs. logísticas, estado; autosave + semáforo). Debajo: **cupos por tipo** (Aplicar cupos). Tras guardar meta o cupos, la tarjeta se actualiza con `getFimbaHoteleriaRow` / `refreshRow` (sin recargar toda la edición ni spinner full-page). Consulta / RO: sin botón.
 4. Cabecera: **Reportes hotelería** / comidas / Excel (toda la edición o filtro Artista). Por tarjeta: **Pedido hotel**, Rooming PDF, Excel rooming, Excel hotelería (scope = esa propuesta; OK en readOnly).
 5. Expandir artista: columna Habitación + lista rooming; **Copiar tabla (Excel)** (TSV + cols habitaciones).
 6. Ficha artista o `/fimba/e/:token`: panel **Hotelería / rooming** — staff aplica cupos; editor asigna personas a plazas; matrimonial en multi; consulta `/fimba/a` RO.
@@ -622,13 +626,15 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/views/Fimba/FimbaEstadoConocido.jsx` | Control compartido «Último estado» (presets + Otro… + badge historial) |
 | `src/views/Fimba/FimbaUsuariosPage.jsx` | Usuarios FIMBA + enlace consulta general edición |
 | `src/views/Fimba/FimbaStaffGuard.jsx` | isManagement **o** fimba_user **o** token consulta edición |
-| `src/views/Fimba/FimbaEdicionPage.jsx` | Artistas + modo planilla + semáforo; alta modal; lápiz → ficha |
+| `src/views/Fimba/FimbaEdicionPage.jsx` | Artistas + modo planilla + semáforo; alta modal; lápiz → ficha; lista **alfabética** por nombre |
+| `src/utils/fimbaAgendaSort.js` | `compareEsText` / `sortFimbaPropuestasByNombre` / orden contractual agenda |
+| `src/views/Fimba/FimbaArtistaMetaSection.jsx` | Datos generales / meta (autosave + semáforo); ficha + modal Hotelería |
 | `src/views/Fimba/FimbaArtistaPage.jsx` | Detalle: meta + finanzas (Drive desde contratos) + agenda + rooming + planilla; finanzas si `canSeeContrataciones` |
 | `src/views/Fimba/FimbaConsultaAgenda.jsx` | Agenda por tag artista + ride segments RO; create/edit/delete en tagged |
 | `src/views/Fimba/FimbaAgendaPage.jsx` | Planilla agenda (tipo/color catálogo); ride segments al filtrar artista |
 | `src/utils/fimbaTransportBoarding.js` | Boarding + `buildArtistaTrasladoAgendaBlocks` / merge |
 | `src/views/Fimba/FimbaTransportPage.jsx` | Vehículos + trayectos + columnas boarding / locación |
-| `src/views/Fimba/FimbaHoteleriaPage.jsx` | Hotelería + hub reportes edición + **exports por tarjeta artista** (pedido/rooming/Excel) + comidas |
+| `src/views/Fimba/FimbaHoteleriaPage.jsx` | Hotelería + **Editar datos** (meta compartida + cupos) + hub reportes + exports por tarjeta + comidas |
 | `src/views/Fimba/FimbaHoteleriaReports.jsx` | Hub OFRN + vistas print/Excel pedido hotel |
 | `src/views/Fimba/FimbaComidasReportModal.jsx` | Comidas: texto / PDF / Excel |
 | `src/views/Fimba/FimbaTransportReportsMenu.jsx` | CNRT · paradas · hoja de ruta · Excel por vehículo |
@@ -681,3 +687,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - **Causa:** `FimbaStaffApp` tenía catch-all `<Route path="*" element={<Navigate to="/fimba" replace />} />`. Cualquier no-match (ruta incompleta durante HMR, path mal resuelto, chunk en error) **redirigía en silencio al home de ediciones**, indistinguible de un enlace roto a agenda.
 - **Links:** ya apuntaban a absolutos `/fimba/edicion/:id/agenda|transportes|hoteleria` (y variante artista); el guard no alteraba el path.
 - **Fix:** rutas staff anidadas (`edicion/:id` → `agenda` / `transportes` / `hoteleria`); 404 con mensaje + link manual (sin auto-redirect a `/fimba`).
+
+## Deploys / PWA vs edición dirty
+
+Los deploys en Vercel **no** deben forzar reload mid-form. Banner «Nueva versión — Actualizar»; `FimbaEventoFormModal` dirty y planillas (`.fimba-row-dirty`) bloquean auto-apply. Detalle: `docs/specs/pwa-version-updates.md`.

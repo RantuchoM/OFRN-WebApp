@@ -40,6 +40,13 @@ import {
   buildFimbaMealsStayFromHoteleria,
   formatFechaMealDdMm,
 } from "./fimbaMealsStay";
+import {
+  canonicalizeFimbaGenero,
+  labelFimbaGeneroHotel,
+  mapFimbaGeneroToSex,
+} from "./fimbaGenero";
+
+export { mapFimbaGeneroToSex } from "./fimbaGenero";
 
 function formatFechaCorta(f) {
   if (!f) return "";
@@ -64,23 +71,8 @@ function formatFechaDDMM(f) {
 
 function genderWord(gender, count) {
   if (gender === "F") return count === 1 ? "mujer" : "mujeres";
-  return count === 1 ? "hombre" : "hombres";
-}
-
-/** Mapea genero FIMBA → F / M / null (otros). */
-export function mapFimbaGeneroToSex(g) {
-  const v = String(g || "").toLowerCase();
-  if (v === "femenino" || v === "f") return "F";
-  if (v === "masculino" || v === "m") return "M";
-  return null;
-}
-
-function labelGeneroEs(g) {
-  const v = String(g || "").toLowerCase();
-  if (v === "femenino") return "Femenino";
-  if (v === "masculino") return "Masculino";
-  if (v === "otro") return "Otro";
-  return "Sin especificar";
+  if (gender === "M") return count === 1 ? "hombre" : "hombres";
+  return count === 1 ? "persona" : "personas";
 }
 
 /**
@@ -139,7 +131,8 @@ export function buildFimbaPedidoGroups(hoteleriaRows = []) {
 
     for (const p of r.personas || r.participantes || []) {
       if (p.activo === false) continue;
-      const sex = mapFimbaGeneroToSex(p.genero);
+      const generoCanon = canonicalizeFimbaGenero(p.genero);
+      const sex = mapFimbaGeneroToSex(generoCanon);
       if (sex === "M") g.countM += 1;
       else if (sex === "F") g.countF += 1;
       else g.countOther += 1;
@@ -148,7 +141,8 @@ export function buildFimbaPedidoGroups(hoteleriaRows = []) {
         apellido: p.apellido || "",
         nombre: p.nombre || "",
         documento: p.documento || "",
-        genero: p.genero || "",
+        genero: generoCanon,
+        generoLabel: labelFimbaGeneroHotel(generoCanon),
         sexo: sex,
         artista,
         hotel,
@@ -171,6 +165,7 @@ export function buildFimbaPedidoGroups(hoteleriaRows = []) {
         nombre: `#${i + 1}`,
         documento: "",
         genero: "",
+        generoLabel: "Sin género",
         sexo: null,
         artista,
         hotel,
@@ -222,7 +217,7 @@ export function buildFimbaPedidoText(
     if (g.countF > 0) parts.push(`${g.countF} ${genderWord("F", g.countF)}`);
     if (g.countOther > 0) {
       parts.push(
-        `${g.countOther} ${g.countOther === 1 ? "persona" : "personas"} sin sexo / sin nombre`,
+        `${g.countOther} ${g.countOther === 1 ? "persona" : "personas"} sin género / sin nombre`,
       );
     }
 
@@ -257,7 +252,7 @@ export function buildFimbaPedidoText(
     const sexParts = [];
     if (totalM > 0) sexParts.push(`${totalM} ${genderWord("M", totalM)}`);
     if (totalF > 0) sexParts.push(`${totalF} ${genderWord("F", totalF)}`);
-    if (totalOther > 0) sexParts.push(`${totalOther} sin sexo / sin nombre`);
+    if (totalOther > 0) sexParts.push(`${totalOther} sin género / sin nombre`);
     if (sexParts.length) lines.push(`Sexo: ${sexParts.join(" · ")}`);
     if (showSuggestedRooms(bedsPerRoom)) {
       const sug = computeSuggestedRooms(totalF, totalM, bedsPerRoom);
@@ -308,11 +303,14 @@ export function buildFimbaRoomingPrintModel(hoteleriaRows = []) {
         capacidad: h.capacidad || 1,
         ocupantes: occs.map((o) => {
           const p = o.participante || {};
+          const generoCanon = canonicalizeFimbaGenero(p.genero);
           return {
             apellido: p.apellido || "",
             nombre: p.nombre || "",
             documento: p.documento || "",
-            genero: p.genero || "",
+            genero: generoCanon,
+            generoLabel: labelFimbaGeneroHotel(generoCanon),
+            sexo: mapFimbaGeneroToSex(generoCanon),
           };
         }),
       };
@@ -452,7 +450,7 @@ export async function exportFimbaPedidoExcel(opts = {}) {
         apellido: p.apellido,
         nombre: p.nombre,
         documento: p.documento,
-        genero: labelGeneroEs(p.genero),
+        genero: labelFimbaGeneroHotel(p.genero),
         checkin: formatFechaDDMM(g.checkin),
         checkout: formatFechaDDMM(g.checkout),
       });
@@ -474,7 +472,7 @@ export async function exportFimbaPedidoExcel(opts = {}) {
         { header: "Late", key: "late", width: 8 },
         { header: "Hombres", key: "hombres", width: 10 },
         { header: "Mujeres", key: "mujeres", width: 10 },
-        { header: "Otros / s.n.", key: "otros", width: 12 },
+        { header: "Sin género / s.n.", key: "otros", width: 14 },
         { header: "Total", key: "total", width: 10 },
         { header: "Habs sugeridas", key: "habs_sugeridas", width: 14 },
       ],
@@ -488,7 +486,7 @@ export async function exportFimbaPedidoExcel(opts = {}) {
         { header: "Apellido", key: "apellido", width: 18 },
         { header: "Nombre", key: "nombre", width: 18 },
         { header: "Documento", key: "documento", width: 14 },
-        { header: "Género", key: "genero", width: 14 },
+        { header: "Sexo", key: "genero", width: 12 },
         { header: "Check-in", key: "checkin", width: 12 },
         { header: "Check-out", key: "checkout", width: 12 },
       ],
@@ -593,7 +591,7 @@ export function printFimbaPedido(hoteleriaRows, { edicionNombre = "", bedsPerRoo
       <p class="muted">${g.artistas.join(" · ")}</p>
       <div class="summary">
         <div><b>Check-in:</b> ${formatFechaDDMM(g.checkin)}${g.early ? " (early)" : ""} · <b>Check-out:</b> ${formatFechaDDMM(g.checkout)}${g.late ? " (late)" : ""}</div>
-        <div style="margin-top:6px"><b>Hombres:</b> ${g.countM} · <b>Mujeres:</b> ${g.countF} · <b>Otros / s.n.:</b> ${g.countOther} · <b>Total:</b> ${g.totalPax}</div>
+        <div style="margin-top:6px"><b>Hombres:</b> ${g.countM} · <b>Mujeres:</b> ${g.countF} · <b>Sin género / s.n.:</b> ${g.countOther} · <b>Total:</b> ${g.totalPax}</div>
         ${sug > 0 ? `<div style="margin-top:4px"><b>${getSuggestedRoomsLabel(bedsPerRoom)}:</b> ${sug}</div>` : ""}
       </div></div>`);
   }
@@ -607,11 +605,11 @@ export function printFimbaDetallePasajeros(hoteleriaRows, { edicionNombre = "" }
   for (const g of groups) {
     if (!g.passengers.length) continue;
     parts.push(`<h2>${g.hotel} · ${formatFechaDDMM(g.checkin)} → ${formatFechaDDMM(g.checkout)}</h2>
-      <table><thead><tr><th>Artista</th><th>Apellido</th><th>Nombre</th><th>Documento</th><th>Género</th></tr></thead><tbody>
+      <table><thead><tr><th>Artista</th><th>Apellido</th><th>Nombre</th><th>Documento</th><th>Sexo</th></tr></thead><tbody>
       ${g.passengers
         .map(
           (p) =>
-            `<tr><td>${p.artista || ""}</td><td>${p.apellido || ""}</td><td>${p.nombre || ""}</td><td>${p.documento || ""}</td><td>${labelGeneroEs(p.genero)}</td></tr>`,
+            `<tr><td>${p.artista || ""}</td><td>${p.apellido || ""}</td><td>${p.nombre || ""}</td><td>${p.documento || ""}</td><td>${p.generoLabel || labelFimbaGeneroHotel(p.genero)}</td></tr>`,
         )
         .join("")}
       </tbody></table>`);
@@ -635,7 +633,7 @@ export function printFimbaRooming(hoteleriaRows, { edicionNombre = "" } = {}) {
       } else {
         for (const o of h.ocupantes) {
           parts.push(
-            `<li>${o.apellido || ""}, ${o.nombre || ""}${o.documento ? ` — ${o.documento}` : ""}</li>`,
+            `<li>${o.apellido || ""}, ${o.nombre || ""}${o.documento ? ` — ${o.documento}` : ""}${o.generoLabel ? ` · ${o.generoLabel}` : ""}</li>`,
           );
         }
       }
@@ -838,12 +836,12 @@ export function buildFimbaTransportPassengers(
           apellido: String(p.apellido || "").toUpperCase(),
           nombre: p.nombre || "",
           dni: p.documento || "",
-          genero:
-            mapFimbaGeneroToSex(p.genero) === "F"
-              ? "F"
-              : mapFimbaGeneroToSex(p.genero) === "M"
-                ? "M"
-                : p.genero || "",
+          genero: (() => {
+            const sex = mapFimbaGeneroToSex(p.genero);
+            // Solo F/M para consumidores OFRN (trataban !== "F" como hombre).
+            if (sex === "F" || sex === "M") return sex;
+            return "";
+          })(),
           fecha_nac: null,
           nacionalidad: "Argentina",
           logistics: {

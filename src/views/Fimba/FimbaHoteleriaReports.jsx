@@ -216,9 +216,10 @@ export default function FimbaHoteleriaReports({
             <>
               <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-4">
                 Pedido por hotel y fechas de check-in/out del artista (FIMBA no
-                usa tramos de gira OFRN). Sexo desde{" "}
-                <code className="text-[10px]">fimba_participantes.genero</code>;
-                plazas «sin nombre» entran como sin sexo.
+                usa tramos de gira OFRN).                 Sexo desde{" "}
+                <code className="text-[10px]">fimba_participantes.genero</code>
+                {" "}(masculino→hombre, femenino→mujer; sin asumir hombre si falta);
+                plazas «sin nombre» entran como sin género.
               </p>
               {report === "texto" ? (
                 <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed bg-slate-50 border border-slate-100 rounded-xl p-4">
@@ -250,7 +251,7 @@ export default function FimbaHoteleriaReports({
                         <div className="px-3 pb-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                           <Stat label="Hombres" value={g.countM} />
                           <Stat label="Mujeres" value={g.countF} />
-                          <Stat label="Otros / s.n." value={g.countOther} />
+                          <Stat label="Sin género / s.n." value={g.countOther} />
                           <Stat label="Total" value={g.totalPax} />
                         </div>
                       </div>
@@ -278,7 +279,7 @@ export default function FimbaHoteleriaReports({
                           <th className="p-2 border border-slate-200">Apellido</th>
                           <th className="p-2 border border-slate-200">Nombre</th>
                           <th className="p-2 border border-slate-200">Doc.</th>
-                          <th className="p-2 border border-slate-200">Género</th>
+                          <th className="p-2 border border-slate-200">Sexo</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -297,7 +298,7 @@ export default function FimbaHoteleriaReports({
                               {p.documento}
                             </td>
                             <td className="p-2 border border-slate-200">
-                              {p.genero || "—"}
+                              {p.generoLabel || p.genero || "—"}
                             </td>
                           </tr>
                         ))}
@@ -339,6 +340,7 @@ export default function FimbaHoteleriaReports({
                             <li key={i}>
                               {o.apellido}, {o.nombre}
                               {o.documento ? ` — ${o.documento}` : ""}
+                              {o.generoLabel ? ` · ${o.generoLabel}` : ""}
                             </li>
                           ))
                         )}

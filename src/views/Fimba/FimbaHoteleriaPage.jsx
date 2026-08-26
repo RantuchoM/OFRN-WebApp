@@ -18,9 +18,6 @@ import {
   getFimbaHoteleriaRow,
   listFimbaHoteleria,
   listFimbaPropuestas,
-  listHotelesCatalog,
-  nightsBetween,
-  updateFimbaPropuesta,
   syncFimbaHabitacionesFromCounts,
   FIMBA_TIPOS_HABITACION,
   formatFimbaHabitacionesCounts,
@@ -29,6 +26,7 @@ import {
   filterHoteleriaRowsForHotel,
   filterHoteleriaRowsForComidas,
 } from "../../services/fimbaService";
+import { compareEsText } from "../../utils/fimbaAgendaSort";
 import {
   exportFimbaComidasExcel,
   exportFimbaHoteleriaExcel,
@@ -36,6 +34,7 @@ import {
 } from "../../utils/fimbaExport";
 import { printFimbaRooming } from "../../utils/fimbaReports";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import FimbaArtistaMetaSection from "./FimbaArtistaMetaSection";
 import FimbaHoteleriaReports, {
   FimbaHoteleriaReportsButton,
 } from "./FimbaHoteleriaReports";
@@ -59,19 +58,19 @@ function asBool(v) {
  */
 export default function FimbaHoteleriaPage() {
   const { edicionId, artistaId } = useParams();
-  const { readOnly } = useFimbaAccess();
+  const { canEditPropuestaMeta } = useFimbaAccess();
   const [searchParams] = useSearchParams();
   const filterFromQuery = searchParams.get("artista") || artistaId || null;
 
   const [edicion, setEdicion] = useState(null);
   const [rows, setRows] = useState([]);
   const [propuestas, setPropuestas] = useState([]);
-  const [hoteles, setHoteles] = useState([]);
   const [filtroArtista, setFiltroArtista] = useState(filterFromQuery || "");
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [modal, setModal] = useState(null);
+  /** null | { row } — modal datos generales (+ cupos habitación). */
+  const [metaModal, setMetaModal] = useState(null);
   const [expanded, setExpanded] = useState({});
   const [exporting, setExporting] = useState(null);
   /** null = cerrado; { rows, label } = hub pedido/texto/detalle/rooming (edición o 1 artista). */
@@ -174,9 +173,8 @@ export default function FimbaHoteleriaPage() {
       else if (!silent) setRefreshing(true);
       setError(null);
 
-      const [edRes, hotelCat, propsRes] = await Promise.all([
+      const [edRes, propsRes] = await Promise.all([
         getFimbaEdicionById(edicionId),
-        listHotelesCatalog(),
         listFimbaPropuestas(edicionId),
       ]);
 
@@ -194,15 +192,14 @@ export default function FimbaHoteleriaPage() {
         propuestas: propsRes.propuestas,
       });
 
-      if (hotRes.error || hotelCat.error || propsRes.error) {
+      if (hotRes.error || propsRes.error) {
         setError(
-          (hotRes.error || hotelCat.error || propsRes.error)?.message || "Error al cargar",
+          (hotRes.error || propsRes.error)?.message || "Error al cargar",
         );
       }
 
       setEdicion(edRes.edicion);
       setRows(hotRes.rows || []);
-      setHoteles(hotelCat.hoteles || []);
       setPropuestas(propsRes.propuestas || []);
       hasLoadedOnce.current = true;
       setInitialLoading(false);
@@ -223,7 +220,11 @@ export default function FimbaHoteleriaPage() {
       if (idx < 0) return prev;
       const next = prev.slice();
       next[idx] = row;
-      return next;
+      return next.sort((a, b) => {
+        const byName = compareEsText(a?.propuesta?.nombre, b?.propuesta?.nombre);
+        if (byName) return byName;
+        return Number(a?.propuesta?.id) - Number(b?.propuesta?.id);
+      });
     });
     setError(null);
   }, []);
@@ -595,13 +596,14 @@ export default function FimbaHoteleriaPage() {
                         Sin nombre ({sinNombre})
                       </span>
                     )}
-                    {!readOnly && (
+                    {canEditPropuestaMeta && (
                       <button
                         type="button"
                         className="fimba-btn fimba-btn-ghost"
-                        onClick={() => setModal({ row: r })}
+                        onClick={() => setMetaModal({ row: r })}
+                        title="Editar datos generales del artista"
                       >
-                        <IconEdit size={14} /> Editar
+                        <IconEdit size={14} /> Editar datos
                       </button>
                     )}
                     <button
@@ -831,16 +833,25 @@ export default function FimbaHoteleriaPage() {
         </div>
       )}
 
-      {!readOnly && modal &&
+      {canEditPropuestaMeta && metaModal &&
         createPortal(
-          <HotelEditModal
-            row={modal.row}
-            hoteles={hoteles}
-            onClose={() => setModal(null)}
-            onSaved={(propuestaId) => {
-              setModal(null);
-              refreshRow(propuestaId);
+          <HotelMetaEditModal
+            row={metaModal.row}
+            onClose={() => setMetaModal(null)}
+            onMetaSaved={(updated) => {
+              const pid = updated?.id ?? metaModal.row?.propuesta?.id;
+              if (pid != null) {
+                refreshRow(pid);
+                setPropuestas((prev) => {
+                  const idx = prev.findIndex((p) => Number(p.id) === Number(pid));
+                  if (idx < 0) return prev;
+                  const next = prev.slice();
+                  next[idx] = { ...next[idx], ...updated };
+                  return next;
+                });
+              }
             }}
+            onError={setError}
           />,
           document.body,
         )}
@@ -873,67 +884,36 @@ function roomForParticipante(habitaciones, participanteId) {
   return null;
 }
 
-function HotelEditModal({ row, hoteles, onClose, onSaved }) {
+function HotelMetaEditModal({ row, onClose, onMetaSaved, onError }) {
   const prop = row.propuesta;
-  const [checkin, setCheckin] = useState(
-    prop.checkin_at ? String(prop.checkin_at).slice(0, 10) : "",
-  );
-  const [checkout, setCheckout] = useState(
-    prop.checkout_at ? String(prop.checkout_at).slice(0, 10) : "",
-  );
-  const [checkinEarly, setCheckinEarly] = useState(asBool(prop.checkin_early));
-  const [checkoutLate, setCheckoutLate] = useState(asBool(prop.checkout_late));
-  const [requiereHotel, setRequiereHotel] = useState(prop.requiere_hotel !== false);
-  const [requiereComidas, setRequiereComidas] = useState(
-    prop.requiere_comidas !== false,
-  );
-  const [idHotel, setIdHotel] = useState(prop.id_hotel != null ? String(prop.id_hotel) : "");
-  const [observacionesLogisticas, setObservacionesLogisticas] = useState(
-    prop.observaciones_logisticas || "",
-  );
   const [habitCounts, setHabitCounts] = useState(() => {
     const base = { SGL: 0, DBL: 0, TPL: 0, QAD: 0 };
     const by = row.rooming?.byTipo || {};
     for (const k of Object.keys(base)) base[k] = Number(by[k]) || 0;
     return base;
   });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
+  const [savingInv, setSavingInv] = useState(false);
+  const [invError, setInvError] = useState(null);
   const [invWarn, setInvWarn] = useState(null);
+  const [invSaved, setInvSaved] = useState(false);
 
-  const noches = nightsBetween(checkin || null, checkout || null);
-
-  const submit = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
+  const applyCupos = async () => {
+    setSavingInv(true);
+    setInvError(null);
     setInvWarn(null);
-    const { error: err } = await updateFimbaPropuesta(prop.id, {
-      checkin_at: checkin || null,
-      checkout_at: checkout || null,
-      checkin_early: checkinEarly,
-      checkout_late: checkoutLate,
-      requiere_hotel: requiereHotel,
-      requiere_comidas: requiereComidas,
-      id_hotel: idHotel || null,
-      observaciones_logisticas: observacionesLogisticas,
-    });
-    if (err) {
-      setSaving(false);
-      setError(err.message || "No se pudo guardar");
-      return;
-    }
+    setInvSaved(false);
     const { warning, error: eInv } = await syncFimbaHabitacionesFromCounts(
       prop.id,
       habitCounts,
     );
-    setSaving(false);
+    setSavingInv(false);
     if (eInv) {
-      setError(eInv.message || "Hotel guardado; falló inventario de habitaciones");
+      setInvError(eInv.message || "No se pudo actualizar el inventario de habitaciones");
       return;
     }
     if (warning) setInvWarn(warning);
-    onSaved?.(prop.id);
+    setInvSaved(true);
+    onMetaSaved?.({ id: prop.id });
   };
 
   return (
@@ -942,143 +922,117 @@ function HotelEditModal({ row, hoteles, onClose, onSaved }) {
         className="fimba-modal"
         role="dialog"
         aria-modal="true"
+        aria-labelledby="fimba-hoteleria-meta-title"
         onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 520 }}
+        style={{
+          maxWidth: 560,
+          maxHeight: "90vh",
+          overflowY: "auto",
+        }}
       >
-        <h2>Hotelería · {prop.nombre}</h2>
-        <p className="fimba-muted" style={{ margin: "-0.5rem 0 1rem", fontSize: "0.85rem" }}>
-          PAX hotel: {prop.cantidad_planificada} (cantidad planificada; no incluye extra equip.)
-        </p>
-        <form onSubmit={submit}>
-          <div className="fimba-grid-2" style={{ marginBottom: "0.75rem" }}>
-            <label className="fimba-flag-check">
-              <input
-                type="checkbox"
-                checked={requiereHotel}
-                onChange={(e) => setRequiereHotel(e.target.checked)}
-              />
-              Requiere hotelería
-            </label>
-            <label className="fimba-flag-check">
-              <input
-                type="checkbox"
-                checked={requiereComidas}
-                onChange={(e) => setRequiereComidas(e.target.checked)}
-              />
-              Requiere comidas
-            </label>
-          </div>
-          <div className="fimba-grid-2">
-            <div className="fimba-field">
-              <label className="fimba-label">Check-in</label>
-              <input
-                className="fimba-input"
-                type="date"
-                value={checkin}
-                onChange={(e) => setCheckin(e.target.value)}
-              />
-              <label className="fimba-flag-check" style={{ marginTop: 6 }}>
-                <input
-                  type="checkbox"
-                  checked={checkinEarly}
-                  onChange={(e) => setCheckinEarly(e.target.checked)}
-                />
-                Early check-in
-              </label>
-            </div>
-            <div className="fimba-field">
-              <label className="fimba-label">Check-out</label>
-              <input
-                className="fimba-input"
-                type="date"
-                value={checkout}
-                onChange={(e) => setCheckout(e.target.value)}
-              />
-              <label className="fimba-flag-check" style={{ marginTop: 6 }}>
-                <input
-                  type="checkbox"
-                  checked={checkoutLate}
-                  onChange={(e) => setCheckoutLate(e.target.checked)}
-                />
-                Late check-out
-              </label>
-            </div>
-          </div>
-          <p className="fimba-muted" style={{ margin: "-0.35rem 0 0.85rem", fontSize: "0.8rem" }}>
-            Noches: {noches != null ? noches : "—"}
-          </p>
-          <div className="fimba-field">
-            <label className="fimba-label">Hotel (catálogo OFRN)</label>
-            <select
-              className="fimba-select"
-              value={idHotel}
-              onChange={(e) => setIdHotel(e.target.value)}
-            >
-              <option value="">— Sin hotel —</option>
-              {hoteles.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.nombre}
-                  {h.localidades?.localidad ? ` (${h.localidades.localidad})` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="fimba-field">
-            <label className="fimba-label">Cupos de habitaciones</label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.65rem" }}>
-              {FIMBA_TIPOS_HABITACION.map((t) => (
-                <div key={t.value} style={{ minWidth: 70 }}>
-                  <label className="fimba-label" style={{ fontSize: "0.72rem" }}>
-                    {t.label}
-                  </label>
-                  <input
-                    className="fimba-input"
-                    type="number"
-                    min={0}
-                    max={200}
-                    value={habitCounts[t.value] ?? 0}
-                    onChange={(e) => {
-                      const v = Math.max(
-                        0,
-                        Math.min(200, Math.floor(Number(e.target.value) || 0)),
-                      );
-                      setHabitCounts((prev) => ({ ...prev, [t.value]: v }));
-                    }}
-                    style={{ width: 70 }}
-                  />
-                </div>
-              ))}
-            </div>
-            <p className="fimba-muted" style={{ margin: "0.35rem 0 0", fontSize: "0.75rem" }}>
-              Inventario: {formatFimbaHabitacionesCounts(habitCounts)}. El acomodo de personas
-              se hace abajo al expandir el artista o en ficha / enlace de edición.
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 12,
+            marginBottom: "0.75rem",
+          }}
+        >
+          <div>
+            <h2 id="fimba-hoteleria-meta-title" style={{ margin: 0 }}>
+              Datos generales
+            </h2>
+            <p className="fimba-muted" style={{ margin: "0.35rem 0 0", fontSize: "0.85rem" }}>
+              {prop.nombre} · autosave como en la ficha del artista
             </p>
           </div>
-          <div className="fimba-field">
-            <label className="fimba-label">Observaciones logísticas</label>
-            <textarea
-              className="fimba-textarea"
-              rows={3}
-              value={observacionesLogisticas}
-              onChange={(e) => setObservacionesLogisticas(e.target.value)}
-              placeholder="Early/late, transfer, equipaje, notas de hotel…"
-            />
+          <button type="button" className="fimba-btn fimba-btn-ghost" onClick={onClose}>
+            Cerrar
+          </button>
+        </div>
+
+        <FimbaArtistaMetaSection
+          propuesta={prop}
+          hotelNombre={row.hotel?.nombre || null}
+          canEdit
+          showRider={false}
+          variant="plain"
+          idPrefix={`fimba-hoteleria-meta-${prop.id}`}
+          onSaved={(next) => onMetaSaved?.(next)}
+          onError={onError}
+        />
+
+        <div
+          style={{
+            marginTop: "1.1rem",
+            paddingTop: "1rem",
+            borderTop: "1px solid var(--fimba-border)",
+          }}
+        >
+          <h3
+            style={{
+              margin: "0 0 0.65rem",
+              fontSize: "1rem",
+              color: "var(--fimba-deep)",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <IconBed size={16} /> Cupos de habitaciones
+          </h3>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.65rem" }}>
+            {FIMBA_TIPOS_HABITACION.map((t) => (
+              <div key={t.value} style={{ minWidth: 70 }}>
+                <label className="fimba-label" style={{ fontSize: "0.72rem" }}>
+                  {t.label}
+                </label>
+                <input
+                  className="fimba-input"
+                  type="number"
+                  min={0}
+                  max={200}
+                  value={habitCounts[t.value] ?? 0}
+                  onChange={(e) => {
+                    const v = Math.max(
+                      0,
+                      Math.min(200, Math.floor(Number(e.target.value) || 0)),
+                    );
+                    setHabitCounts((prev) => ({ ...prev, [t.value]: v }));
+                    setInvSaved(false);
+                  }}
+                  style={{ width: 70 }}
+                />
+              </div>
+            ))}
           </div>
-          {error && <div className="fimba-error" style={{ marginBottom: 12 }}>{error}</div>}
+          <p className="fimba-muted" style={{ margin: "0.35rem 0 0.75rem", fontSize: "0.75rem" }}>
+            Inventario: {formatFimbaHabitacionesCounts(habitCounts)}. El acomodo de personas
+            se hace al expandir el artista o en ficha / enlace de edición.
+          </p>
+          {invError && <div className="fimba-error" style={{ marginBottom: 12 }}>{invError}</div>}
           {invWarn && (
             <div className="fimba-muted" style={{ marginBottom: 12, fontSize: "0.82rem" }}>
               {invWarn}
             </div>
           )}
+          {invSaved && !invError && (
+            <div className="fimba-muted" style={{ marginBottom: 12, fontSize: "0.82rem" }}>
+              Cupos actualizados.
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button type="button" className="fimba-btn fimba-btn-ghost" onClick={onClose}>
-              Cancelar
-            </button>
-            <button type="submit" className="fimba-btn fimba-btn-primary" disabled={saving}>
-              {saving ? "Guardando…" : "Guardar"}
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-primary"
+              disabled={savingInv}
+              onClick={applyCupos}
+            >
+              {savingInv ? "Aplicando…" : "Aplicar cupos"}
             </button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );

@@ -5,12 +5,12 @@
 
 import { saveAs } from "file-saver";
 import {
-  FIMBA_GENEROS,
   FIMBA_TIPOS_ALIMENTACION,
   labelFimbaAlimentacion,
   labelFimbaHabitacionTipo,
   labelGiraTransporte,
 } from "../services/fimbaService";
+import { labelFimbaGeneroHotel } from "./fimbaGenero";
 import {
   formatEventLocation,
   formatNextStopDestino,
@@ -51,7 +51,7 @@ function asSi(v) {
 }
 
 function labelGenero(g) {
-  return FIMBA_GENEROS.find((x) => x.value === g)?.label || g || "";
+  return labelFimbaGeneroHotel(g);
 }
 
 function eventLabel(ev) {
@@ -439,7 +439,7 @@ const HOT_PERSONAS_COLS = [
   { header: "Apellido", key: "apellido", width: 18 },
   { header: "Nombre", key: "nombre", width: 18 },
   { header: "Documento", key: "documento", width: 14 },
-  { header: "Género", key: "genero", width: 14 },
+  { header: "Sexo", key: "genero", width: 12 },
   { header: "Habitación", key: "habitacion", width: 22 },
   { header: "Check-in", key: "checkin", width: 12 },
   { header: "Early", key: "early", width: 8 },
@@ -473,7 +473,7 @@ const COMIDAS_DETALLE_COLS = [
   { header: "Apellido", key: "apellido", width: 18 },
   { header: "Nombre", key: "nombre", width: 18 },
   { header: "Documento", key: "documento", width: 14 },
-  { header: "Género", key: "genero", width: 14 },
+  { header: "Sexo", key: "genero", width: 12 },
   { header: "Desde", key: "checkin_label", width: 12 },
   { header: "Hasta", key: "checkout_label", width: 12 },
   { header: "Early", key: "early", width: 8 },

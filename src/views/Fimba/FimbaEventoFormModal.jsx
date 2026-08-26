@@ -33,6 +33,11 @@ import FimbaEventDetalleEditor, {
   isFimbaDetalleEmpty,
 } from "./FimbaEventDetalleField";
 import FimbaEventoArtistasBoardingTable from "./FimbaEventoArtistasBoardingTable";
+import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
+import {
+  clearUnsavedWork,
+  markUnsavedWork,
+} from "../../utils/unsavedWork";
 
 /** Dirty-compare: HTML vacío (`<br>`, etc.) ≡ string vacío. */
 function detalleDirtyKey(html) {
@@ -711,6 +716,14 @@ export default function FimbaEventoFormModal({
     onClose?.();
   }, [isDirty, onClose]);
 
+  /** Evita que un deploy PWA recargue mientras hay edición dirty en el modal. */
+  useEffect(() => {
+    const token = "fimba-evento-form";
+    if (isDirty) markUnsavedWork(token);
+    else clearUnsavedWork(token);
+    return () => clearUnsavedWork(token);
+  }, [isDirty]);
+
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== "Escape") return;
@@ -863,11 +876,7 @@ export default function FimbaEventoFormModal({
 
   /** Chip cloud no-transporte: orden alfabético + filtro por nombre. */
   const filteredPropuestasChips = useMemo(() => {
-    const sorted = [...(propuestas || [])].sort((a, b) =>
-      String(a.nombre || "").localeCompare(String(b.nombre || ""), "es", {
-        sensitivity: "base",
-      }),
-    );
+    const sorted = sortFimbaPropuestasByNombre(propuestas);
     const q = tagFilter.trim().toLocaleLowerCase("es");
     if (!q) return sorted;
     return sorted.filter((p) =>
@@ -1185,6 +1194,7 @@ export default function FimbaEventoFormModal({
       className="fimba-modal-backdrop"
       onClick={requestClose}
       role="presentation"
+      data-unsaved-work={isDirty ? "true" : undefined}
     >
       <div
         className="fimba-modal"
