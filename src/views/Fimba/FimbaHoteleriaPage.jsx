@@ -459,37 +459,21 @@ export default function FimbaHoteleriaPage() {
             <div className="fimba-label">Camas-noche</div>
             <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{totals.camas_noche}</div>
           </div>
-          <div
-            style={{
-              marginLeft: "auto",
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 12,
-              alignItems: "flex-end",
-            }}
-          >
-            <div style={{ flex: "1 1 14rem", minWidth: "12rem" }}>
-              <label className="fimba-label">Buscar</label>
-              <FimbaArtistaPersonSearchField
-                onQueryChange={setPersonSearchQuery}
-              />
-            </div>
-            <div>
-              <label className="fimba-label">Artista</label>
-              <select
-                className="fimba-select"
-                style={{ width: "auto", minWidth: 180 }}
-                value={filtroArtista || ""}
-                onChange={(e) => setFiltroArtista(e.target.value)}
-              >
-                <option value="">Toda la edición</option>
-                {propuestas.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nombre}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div style={{ marginLeft: "auto" }}>
+            <label className="fimba-label">Artista</label>
+            <select
+              className="fimba-select"
+              style={{ width: "auto", minWidth: 180 }}
+              value={filtroArtista || ""}
+              onChange={(e) => setFiltroArtista(e.target.value)}
+            >
+              <option value="">Toda la edición</option>
+              {propuestas.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </section>
@@ -504,6 +488,21 @@ export default function FimbaHoteleriaPage() {
           mode={filtroArtista ? "artista" : "general"}
         />
       )}
+
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 12,
+          alignItems: "center",
+          marginBottom: "0.75rem",
+        }}
+      >
+        <FimbaArtistaPersonSearchField
+          onQueryChange={setPersonSearchQuery}
+          style={{ flex: "1 1 16rem", maxWidth: "28rem" }}
+        />
+      </div>
 
       {rows.length === 0 ? (
         <div className="fimba-card fimba-muted">
