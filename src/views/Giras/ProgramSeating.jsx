@@ -1325,12 +1325,12 @@ export default function ProgramSeating({
     return sortWindMusiciansForSeating(
       filtered,
       buildSeatingPartSortOptions({
-        obras,
+        obras: displayObras,
         musicianAssignments,
         particellas,
       }),
     );
-  }, [filteredRoster, obras, musicianAssignments, particellas]);
+  }, [filteredRoster, displayObras, musicianAssignments, particellas]);
 
   const particellaCounts = useMemo(() => {
     const counts = {};

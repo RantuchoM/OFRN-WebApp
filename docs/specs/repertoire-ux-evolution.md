@@ -772,3 +772,7 @@ Set de **16** arreglos sinfónicos de **Bob Marley** en [Para acomodar / Bahiano
 - [x] Carga diferida: al abrir el form solo se pide `count` de `obras_particellas` (bloquea instrumentación); el `select *` de filas ocurre al abrir el matcher. Acelera el montaje del WorkForm.
 - [x] Alta/edición/vínculos/orgánico de particellas quedan centralizados en el matcher (ya tenía esas acciones).
 
+### Completado (2026-08-26) — Orden seating vientos con parte duplicada
+- [x] `sortWindMusiciansForSeating` (`seatingWindOrder.js`): dentro del mismo `id_instr`, el número de parte se toma de la **primera obra sin duplicados** (p. ej. dos músicos con «Flauta 1» en la obra 1 → se usa la obra 2 donde uno es 1 y el otro 2). Aplica a cualquier instrumento. Fallback: primera parte disponible + apellido.
+- [x] En `ProgramSeating`, el orden visible usa `displayObras` (bloque activo).
+

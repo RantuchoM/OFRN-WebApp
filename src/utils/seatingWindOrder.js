@@ -31,6 +31,37 @@ export const getPartSlotNumberFromLabel = (label = "") => {
   return null;
 };
 
+const partNumberFromPartId = (partId, particellas = []) => {
+  const part = particellas.find((p) => String(p.id) === String(partId));
+  const label =
+    part?.nombre_archivo ||
+    part?.instrumentos?.instrumento ||
+    part?.instrumento_nombre ||
+    "";
+  return getPartSlotNumberFromLabel(label);
+};
+
+/** Número de parte del músico en una obra concreta (primera particella con número). */
+export const getMusicianSeatingPartNumberForObra = (
+  musicianId,
+  obraId,
+  { getPartIdsForObra, particellas = [] } = {},
+) => {
+  if (
+    musicianId == null ||
+    obraId == null ||
+    typeof getPartIdsForObra !== "function"
+  ) {
+    return null;
+  }
+  const partIds = getPartIdsForObra(musicianId, obraId) || [];
+  for (const partId of partIds) {
+    const num = partNumberFromPartId(partId, particellas);
+    if (num != null) return num;
+  }
+  return null;
+};
+
 export const getMusicianSeatingPartNumber = (
   musicianId,
   { obras = [], getPartIdsForObra, particellas = [] } = {},
@@ -40,23 +71,66 @@ export const getMusicianSeatingPartNumber = (
   for (const obra of obras) {
     const obraId = obra?.obra_id ?? obra?.id;
     if (obraId == null) continue;
-
-    const partIds = getPartIdsForObra(musicianId, obraId) || [];
-    for (const partId of partIds) {
-      const part = particellas.find(
-        (p) => String(p.id) === String(partId),
-      );
-      const label =
-        part?.nombre_archivo ||
-        part?.instrumentos?.instrumento ||
-        part?.instrumento_nombre ||
-        "";
-      const num = getPartSlotNumberFromLabel(label);
-      if (num != null) return num;
-    }
+    const num = getMusicianSeatingPartNumberForObra(musicianId, obraId, {
+      getPartIdsForObra,
+      particellas,
+    });
+    if (num != null) return num;
   }
 
   return null;
+};
+
+/**
+ * Elige la primera obra cuyo número de parte no esté duplicado entre ≥2 músicos
+ * del mismo instrumento (p. ej. dos «Flauta 1» en la obra 1 → usar la obra 2).
+ * @returns {Map<string, number>} musicianId → rank (menor = antes)
+ */
+export const resolveSeatingPartRanksForInstrumentGroup = (
+  musicians = [],
+  sortOptions = {},
+) => {
+  const { obras = [], getPartIdsForObra, particellas = [] } = sortOptions;
+  const ranks = new Map();
+  const list = (musicians || []).filter((m) => m?.id != null);
+  if (!list.length || typeof getPartIdsForObra !== "function") return ranks;
+
+  for (const obra of obras) {
+    const obraId = obra?.obra_id ?? obra?.id;
+    if (obraId == null) continue;
+
+    const byMusician = new Map();
+    for (const m of list) {
+      const num = getMusicianSeatingPartNumberForObra(m.id, obraId, {
+        getPartIdsForObra,
+        particellas,
+      });
+      if (num != null) byMusician.set(String(m.id), num);
+    }
+
+    if (byMusician.size < 2) continue;
+
+    const seen = new Set();
+    let hasDuplicate = false;
+    for (const num of byMusician.values()) {
+      if (seen.has(num)) {
+        hasDuplicate = true;
+        break;
+      }
+      seen.add(num);
+    }
+    if (hasDuplicate) continue;
+
+    for (const [id, num] of byMusician) ranks.set(id, num);
+    return ranks;
+  }
+
+  // Fallback: primera parte disponible por músico (comportamiento histórico)
+  for (const m of list) {
+    const num = getMusicianSeatingPartNumber(m.id, sortOptions);
+    if (num != null) ranks.set(String(m.id), num);
+  }
+  return ranks;
 };
 
 const PERCUSSION_INSTRUMENT_ID = "13";
@@ -123,13 +197,29 @@ export const buildSeatingPartSortOptions = ({
 
 /**
  * Ordena vientos/percusión: primero por id_instr, luego por número de parte asignada
- * (Fagot 1 antes que 2, Corno 1…4). En percusión (id 13), Perc Timp antes que el resto.
+ * (Fagot 1 antes que 2, Corno 1…4). Si en la 1.ª obra la misma parte está duplicada
+ * en dos músicos del mismo instrumento, se usa la siguiente obra sin duplicados.
+ * En percusión (id 13), Perc Timp antes que el resto de perc auxiliar.
  * Desempate por apellido si no hay número.
  */
 export const sortWindMusiciansForSeating = (musicians = [], sortOptions = {}) => {
+  const byInstr = new Map();
+  for (const m of musicians || []) {
+    const key = String(m?.id_instr ?? "9999");
+    if (!byInstr.has(key)) byInstr.set(key, []);
+    byInstr.get(key).push(m);
+  }
+
+  const rankByMusicianId = new Map();
+  for (const group of byInstr.values()) {
+    const ranks = resolveSeatingPartRanksForInstrumentGroup(group, sortOptions);
+    for (const [id, num] of ranks) rankByMusicianId.set(id, num);
+  }
+
   const resolveRank = (musician) => {
-    const num = getMusicianSeatingPartNumber(musician?.id, sortOptions);
-    return num ?? Number.POSITIVE_INFINITY;
+    const id = musician?.id != null ? String(musician.id) : null;
+    if (id && rankByMusicianId.has(id)) return rankByMusicianId.get(id);
+    return Number.POSITIVE_INFINITY;
   };
 
   return [...musicians].sort((a, b) => {
