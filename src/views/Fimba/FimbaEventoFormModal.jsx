@@ -555,6 +555,7 @@ export default function FimbaEventoFormModal({
     return map;
   });
   const [selectedProps, setSelectedProps] = useState(defaultProps);
+  const [tagFilter, setTagFilter] = useState("");
   const [audienciaOfrn, setAudienciaOfrn] = useState(() => initialAudienciaOfrn(evento));
   const [giraGrupos, setGiraGrupos] = useState([]);
   const [gruposLoading, setGruposLoading] = useState(false);
@@ -859,6 +860,20 @@ export default function FimbaEventoFormModal({
       0,
     );
   }, [propuestas, selectedProps]);
+
+  /** Chip cloud no-transporte: orden alfabético + filtro por nombre. */
+  const filteredPropuestasChips = useMemo(() => {
+    const sorted = [...(propuestas || [])].sort((a, b) =>
+      String(a.nombre || "").localeCompare(String(b.nombre || ""), "es", {
+        sensitivity: "base",
+      }),
+    );
+    const q = tagFilter.trim().toLocaleLowerCase("es");
+    if (!q) return sorted;
+    return sorted.filter((p) =>
+      String(p.nombre || "").toLocaleLowerCase("es").includes(q),
+    );
+  }, [propuestas, tagFilter]);
 
   const totalPlazasAsignadas = useMemo(
     () =>
@@ -1424,40 +1439,68 @@ export default function FimbaEventoFormModal({
                   Sin artistas en la edición. Podés guardar igual (evento de edición).
                 </p>
               ) : (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {propuestas.map((p) => {
-                    const on = selectedProps.includes(String(p.id));
-                    const locked = lockedPropId && String(p.id) === lockedPropId;
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        className={`fimba-btn fimba-chip${on ? " fimba-chip-on" : ""}`}
-                        onClick={() => toggleProp(p.id)}
-                        disabled={locked}
-                        title={locked ? "Artista de esta vista (fijo)" : undefined}
-                        style={{
-                          ...(on
-                            ? {
-                                background: p.color || "#d73289",
-                                borderColor: p.color || "#d73289",
-                                color: "#ffffff",
-                              }
-                            : {
-                                borderColor: p.color || "#e2e8f0",
-                              }),
-                          padding: "0.35rem 0.65rem",
-                          fontSize: "0.8rem",
-                          opacity: locked ? 0.95 : undefined,
-                          cursor: locked ? "default" : undefined,
-                        }}
-                      >
-                        {p.nombre}
-                        {locked ? " · fijo" : ""}
-                      </button>
-                    );
-                  })}
-                </div>
+                <>
+                  <input
+                    type="search"
+                    className="fimba-input"
+                    value={tagFilter}
+                    onChange={(e) => setTagFilter(e.target.value)}
+                    placeholder="Filtrar artistas…"
+                    aria-label="Filtrar artistas"
+                    style={{
+                      width: "100%",
+                      marginBottom: 8,
+                      padding: "0.4rem 0.65rem",
+                      fontSize: "0.8rem",
+                    }}
+                  />
+                  {filteredPropuestasChips.length === 0 ? (
+                    <p
+                      className="fimba-muted"
+                      style={{ margin: 0, fontSize: "0.85rem" }}
+                    >
+                      Ningún artista coincide con el filtro.
+                    </p>
+                  ) : (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {filteredPropuestasChips.map((p) => {
+                        const on = selectedProps.includes(String(p.id));
+                        const locked =
+                          lockedPropId && String(p.id) === lockedPropId;
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            className={`fimba-btn fimba-chip${on ? " fimba-chip-on" : ""}`}
+                            onClick={() => toggleProp(p.id)}
+                            disabled={locked}
+                            title={
+                              locked ? "Artista de esta vista (fijo)" : undefined
+                            }
+                            style={{
+                              ...(on
+                                ? {
+                                    background: p.color || "#d73289",
+                                    borderColor: p.color || "#d73289",
+                                    color: "#ffffff",
+                                  }
+                                : {
+                                    borderColor: p.color || "#e2e8f0",
+                                  }),
+                              padding: "0.35rem 0.65rem",
+                              fontSize: "0.8rem",
+                              opacity: locked ? 0.95 : undefined,
+                              cursor: locked ? "default" : undefined,
+                            }}
+                          >
+                            {p.nombre}
+                            {locked ? " · fijo" : ""}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               )}
               {lockedPropId && (
                 <p

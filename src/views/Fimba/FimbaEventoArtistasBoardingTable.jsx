@@ -339,6 +339,7 @@ export default function FimbaEventoArtistasBoardingTable({
   const [error, setError] = useState(null);
   const [cellSync, setCellSync] = useState({});
   const [bajarTodoBusy, setBajarTodoBusy] = useState(false);
+  const [tagFilter, setTagFilter] = useState("");
   const seededEventIdRef = useRef(null);
 
   useEffect(() => {
@@ -459,12 +460,31 @@ export default function FimbaEventoArtistasBoardingTable({
     const ids = (selectedPropIds || []).map(String);
     return ids
       .map((id) => (propuestas || []).find((p) => String(p.id) === id))
-      .filter(Boolean);
+      .filter(Boolean)
+      .sort((a, b) =>
+        String(a.nombre || "").localeCompare(String(b.nombre || ""), "es", {
+          sensitivity: "base",
+        }),
+      );
   }, [selectedPropIds, propuestas]);
+
+  const filteredTaggedPropuestas = useMemo(() => {
+    const q = tagFilter.trim().toLocaleLowerCase("es");
+    if (!q) return taggedPropuestas;
+    return taggedPropuestas.filter((p) =>
+      String(p.nombre || "").toLocaleLowerCase("es").includes(q),
+    );
+  }, [taggedPropuestas, tagFilter]);
 
   const availableToAdd = useMemo(() => {
     const have = new Set((selectedPropIds || []).map(String));
-    return (propuestas || []).filter((p) => !have.has(String(p.id)));
+    return (propuestas || [])
+      .filter((p) => !have.has(String(p.id)))
+      .sort((a, b) =>
+        String(a.nombre || "").localeCompare(String(b.nombre || ""), "es", {
+          sensitivity: "base",
+        }),
+      );
   }, [propuestas, selectedPropIds]);
 
   const addOptions = useMemo(
@@ -773,6 +793,23 @@ export default function FimbaEventoArtistasBoardingTable({
             </p>
           ) : null}
 
+          {taggedPropuestas.length > 0 && (
+            <input
+              type="search"
+              className="fimba-input"
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              placeholder="Filtrar artistas…"
+              aria-label="Filtrar artistas taggeados"
+              style={{
+                width: "100%",
+                marginBottom: 8,
+                padding: "0.4rem 0.65rem",
+                fontSize: "0.8rem",
+              }}
+            />
+          )}
+
           <div style={{ overflowX: "auto" }}>
             <table
               className="fimba-table"
@@ -792,8 +829,14 @@ export default function FimbaEventoArtistasBoardingTable({
                       Ningún artista taggeado. Agregá uno abajo.
                     </td>
                   </tr>
+                ) : filteredTaggedPropuestas.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="fimba-muted" style={{ textAlign: "center" }}>
+                      Ningún artista coincide con el filtro.
+                    </td>
+                  </tr>
                 ) : (
-                  taggedPropuestas.map((p) => {
+                  filteredTaggedPropuestas.map((p) => {
                     const locked =
                       lockedPropId && String(p.id) === String(lockedPropId);
                     const upRuta = canEditBoarding ? rutaFor(p.id, "up") : null;
