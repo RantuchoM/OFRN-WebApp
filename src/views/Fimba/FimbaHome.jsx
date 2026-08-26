@@ -8,14 +8,17 @@ import {
   searchProgramasForFimba,
 } from "../../services/fimbaService";
 import { useAuth } from "../../context/AuthContext";
+import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import { useFimbaUserSession } from "../../hooks/useFimbaUserSession";
 import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
 
 export default function FimbaHome() {
   const { isManagement } = useAuth();
+  const { canManageUsers, source } = useFimbaAccess();
   const fimbaUser = useFimbaUserSession();
   const consultaToken = useFimbaConsultaEdicionSession();
-  const isOfrnStaff = Boolean(isManagement);
+  const isOfrnStaff = Boolean(isManagement) && source !== "ofrn_fimba_consulta";
+  const canCreateEdicion = Boolean(canManageUsers && isOfrnStaff);
   const [ediciones, setEdiciones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -52,7 +55,7 @@ export default function FimbaHome() {
             Cada edición se vincula a un programa/gira OFRN (1:1).
           </p>
         </div>
-        {isOfrnStaff && (
+        {canCreateEdicion && (
           <button type="button" className="fimba-btn fimba-btn-primary" onClick={() => setModalOpen(true)}>
             <IconPlus size={16} /> Nueva edición
           </button>

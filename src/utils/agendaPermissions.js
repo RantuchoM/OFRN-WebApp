@@ -44,6 +44,12 @@ export function deriveAgendaPermissions(roles) {
   const canSeeTechEvents = hasAgendaTechStaffRole || isTechnician;
   /** Paradas con `visible_agenda === false` (ocultas / TÉC de transporte). */
   const canSeeHiddenAgendaEvents = hasAgendaTechStaffRole;
+  /**
+   * Observaciones internas de eventos (HTML + imágenes).
+   * Editores / técnicos / gestión operativa — no consulta_general ni público.
+   */
+  const canEditEventObservacionesInternas =
+    isEditor || isTechnician || hasAgendaTechStaffRole;
   const defaultPersonalFilter = (!isEditor && !isManagement) || isTechnician;
 
   return {
@@ -53,6 +59,7 @@ export function deriveAgendaPermissions(roles) {
     isConsultaGeneral,
     canSeeTechEvents,
     canSeeHiddenAgendaEvents,
+    canEditEventObservacionesInternas,
     defaultPersonalFilter,
   };
 }

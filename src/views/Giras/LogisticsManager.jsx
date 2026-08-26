@@ -48,6 +48,7 @@ import {
   isMealEvent,
 } from "../../utils/mealLogistics";
 import EventForm from "../../components/forms/EventForm";
+import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 
 // --- CONSTANTES ---
@@ -1156,6 +1157,9 @@ export default function LogisticsManager({
       fecha: rest.fecha || editingFormData.date,
       hora_inicio: rest.hora_inicio || editingFormData.time,
       descripcion: rest.descripcion,
+      observaciones_internas: normalizeEventosInternasHtml(
+        rest.observaciones_internas,
+      ),
       id_tipo_evento: rest.id_tipo_evento,
       id_locacion: rest.id_locacion,
       id_gira_transporte: rest.id_gira_transporte ?? null,

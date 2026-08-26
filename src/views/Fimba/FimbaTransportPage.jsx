@@ -249,7 +249,7 @@ function PlanillaBoardCell({
             return (
               <span
                 key={chip.key}
-                className="fimba-planilla-board-chip"
+                className={`fimba-planilla-board-chip${chip.kind === "ofrn" ? " fimba-planilla-board-chip-ofrn" : ""}`}
                 title={
                   chip.title ||
                   (chip.kind === "ofrn"

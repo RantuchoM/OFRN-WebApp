@@ -302,6 +302,9 @@ const FIMBA_CSS = `
     font-weight: 700;
     line-height: 1.2;
   }
+  .fimba-planilla-board-chip.fimba-planilla-board-chip-ofrn {
+    border-radius: 2px;
+  }
   .fimba-planilla-board-chip-label {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -655,6 +658,12 @@ const FIMBA_CSS = `
     background: rgba(0, 177, 235, 0.12);
     color: #0369a1;
     border: 1px solid rgba(0, 177, 235, 0.35);
+  }
+  /* OFRN orquesta grupos / Tutti: square vs FIMBA artist pills */
+  .fimba-badge-ofrn-grupo,
+  .fimba-btn.fimba-chip-ofrn,
+  .fimba-planilla-board-chip-ofrn {
+    border-radius: 2px;
   }
   .fimba-row-ofrn td {
     background: rgba(0, 177, 235, 0.04);

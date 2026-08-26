@@ -38,6 +38,7 @@ import {
   FIMBA_RIDER_BUCKET,
   normalizeFimbaRiderHtml,
 } from "../utils/fimbaRider";
+import { normalizeEventosInternasHtml } from "../utils/eventosInternas";
 import {
   aggregateMealsPlans,
   computeArtistaMealsPlan,
@@ -2881,7 +2882,7 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
   const { data: eventosRaw, error: eEvt } = await supabase
     .from("eventos")
     .select(
-      "id, id_gira, id_tipo_evento, id_locacion, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, audiencia_ofrn, id_gira_transporte, visible_agenda, is_deleted, tipos_evento ( id, nombre, color, id_categoria, categorias_tipos_eventos ( id, nombre ) ), locaciones ( id, nombre, direccion, localidades ( id, localidad, id_region ) ), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )",
+      "id, id_gira, id_tipo_evento, id_locacion, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, observaciones_internas, audiencia_ofrn, id_gira_transporte, visible_agenda, is_deleted, tipos_evento ( id, nombre, color, id_categoria, categorias_tipos_eventos ( id, nombre ) ), locaciones ( id, nombre, direccion, localidades ( id, localidad, id_region ) ), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )",
     )
     .in("id", eventIds)
     .eq("id_gira", edicion.id_gira)
@@ -3317,7 +3318,7 @@ export async function listFimbaArtistaTrasladoBlocks(edicionId, idPropuesta) {
   const { data: stopEvents, error: eEv } = await supabase
     .from("eventos")
     .select(
-      "id, id_gira, id_tipo_evento, id_locacion, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, audiencia_ofrn, id_gira_transporte, is_deleted, tipos_evento ( id, nombre, color, id_categoria, categorias_tipos_eventos ( id, nombre ) ), locaciones ( id, nombre, direccion, localidades ( id, localidad ) )",
+      "id, id_gira, id_tipo_evento, id_locacion, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, observaciones_internas, audiencia_ofrn, id_gira_transporte, is_deleted, tipos_evento ( id, nombre, color, id_categoria, categorias_tipos_eventos ( id, nombre ) ), locaciones ( id, nombre, direccion, localidades ( id, localidad ) )",
     )
     .in("id", eventIds)
     .or("is_deleted.is.null,is_deleted.eq.false");
@@ -4050,6 +4051,7 @@ export async function upsertFimbaEventoTransportePlazas(
  * @param {string} [payload.vuelo]
  * @param {string} [payload.observaciones] — alias de observaciones_equipaje
  * @param {string} [payload.observaciones_equipaje]
+ * @param {string|null} [payload.observaciones_internas] — HTML staff-only; omit to leave unchanged
  * @param {number} [payload.asientos_equipaje] — asientos de equipaje (no headcount)
  * @param {number} [payload.pax] — alias legacy de asientos_equipaje
  * @param {boolean} [payload.sin_servicio]
@@ -4290,6 +4292,12 @@ export async function saveFimbaEvento(payload) {
     updated_at: new Date().toISOString(),
   };
 
+  if (Object.prototype.hasOwnProperty.call(payload, "observaciones_internas")) {
+    row.observaciones_internas = normalizeEventosInternasHtml(
+      payload.observaciones_internas,
+    );
+  }
+
   // Locación opcional (destino de planilla / parada). null limpia; omitir en payload no toca en edit.
   if (Object.prototype.hasOwnProperty.call(payload, "id_locacion")) {
     const locRaw = payload.id_locacion;
@@ -4317,7 +4325,7 @@ export async function saveFimbaEvento(payload) {
       .update(row)
       .eq("id", Number(payload.id))
       .select(
-        "id, id_gira, id_tipo_evento, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, audiencia_ofrn, id_gira_transporte",
+        "id, id_gira, id_tipo_evento, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, observaciones_internas, audiencia_ofrn, id_gira_transporte",
       )
       .single());
   } else {
@@ -4325,7 +4333,7 @@ export async function saveFimbaEvento(payload) {
       .from("eventos")
       .insert(row)
       .select(
-        "id, id_gira, id_tipo_evento, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, audiencia_ofrn, id_gira_transporte",
+        "id, id_gira, id_tipo_evento, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, observaciones_internas, audiencia_ofrn, id_gira_transporte",
       )
       .single());
   }
@@ -4476,6 +4484,9 @@ export async function duplicateFimbaEvento(source, opts = {}) {
         : source.pax,
     observaciones_equipaje:
       source.observaciones_equipaje || source.observaciones || "",
+    observaciones_internas: normalizeEventosInternasHtml(
+      source.observaciones_internas,
+    ),
     sin_servicio: usaTx ? sinServicio : true,
     usa_transporte: usaTx,
     vehiculos: sinServicio || !usaTx ? [] : vehiculos,
@@ -5330,6 +5341,42 @@ export async function listFimbaUsuarios(edicionId) {
     .order("mail", { ascending: true });
   if (error) return { usuarios: [], error };
   return { usuarios: data || [], error: null };
+}
+
+/**
+ * Filas activas de `fimba_usuarios` para un mail (override OFRN / login externo).
+ * @param {string} mail
+ */
+export async function listFimbaUsuariosByMail(mail) {
+  const m = normalizeFimbaMail(mail);
+  if (!m) return { usuarios: [], error: null };
+  const { data, error } = await supabase
+    .from("fimba_usuarios")
+    .select("id, mail, rol_fimba, id_edicion, nombre, activo")
+    .ilike("mail", m)
+    .eq("activo", true);
+  if (error) return { usuarios: [], error };
+  const usuarios = (data || []).filter((r) => normalizeFimbaMail(r.mail) === m);
+  return { usuarios, error: null };
+}
+
+/**
+ * Elige la fila FIMBA de un mail para la edición de ruta (o la única / primera).
+ * @param {Array<{ rol_fimba?: string, id_edicion?: number|string }>|null|undefined} rows
+ * @param {number|string|null|undefined} edicionId
+ */
+export function pickFimbaUsuarioForEdicion(rows, edicionId) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.length === 0) return null;
+  if (edicionId != null && edicionId !== "") {
+    const hit = list.find((r) => String(r.id_edicion) === String(edicionId));
+    return hit || null;
+  }
+  if (list.length === 1) return list[0];
+  const consulta = list.find(
+    (r) => String(r.rol_fimba || "").trim() === "consulta",
+  );
+  return consulta || list[0];
 }
 
 /**

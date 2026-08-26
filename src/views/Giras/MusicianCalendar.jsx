@@ -33,6 +33,7 @@ import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";  
 import EventForm from '../../components/forms/EventForm'; 
 import { membershipActiveOnProgramDate } from "../../utils/ensembleMembership";
+import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
 
 export default function MusicianCalendar({ supabase }) {
   const { user, isEditor } = useAuth(); 
@@ -106,7 +107,7 @@ export default function MusicianCalendar({ supabase }) {
       const { data: eventsData } = await supabase
         .from("eventos")
         .select(
-          `id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, tipos_evento (id, nombre, color), locaciones (id, nombre), programas (id, fecha_desde, google_drive_folder_id, nomenclador, giras_fuentes (tipo, valor_id), giras_integrantes (id_integrante, estado))`
+          `id, fecha, hora_inicio, hora_fin, descripcion, observaciones_internas, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, tipos_evento (id, nombre, color), locaciones (id, nombre), programas (id, fecha_desde, google_drive_folder_id, nomenclador, giras_fuentes (tipo, valor_id), giras_integrantes (id_integrante, estado))`
         )
         .gte("fecha", startDateString) // <-- FIX APLICADO
         .lte("fecha", endDateString);   // <-- FIX APLICADO
@@ -157,6 +158,7 @@ export default function MusicianCalendar({ supabase }) {
       setEditFormData({
           id: evt.id,
           descripcion: evt.descripcion || '',
+          observaciones_internas: evt.observaciones_internas || '',
           fecha: evt.fecha || '',
           hora_inicio: evt.hora_inicio || '',
           hora_fin: evt.hora_fin || '',
@@ -175,7 +177,10 @@ export default function MusicianCalendar({ supabase }) {
       setLoading(true);
       try {
           const payload = {
-              descripcion: editFormData.descripcion.trim() || null, 
+              descripcion: editFormData.descripcion.trim() || null,
+              observaciones_internas: normalizeEventosInternasHtml(
+                editFormData.observaciones_internas,
+              ),
               fecha: editFormData.fecha,
               hora_inicio: editFormData.hora_inicio,
               hora_fin: editFormData.hora_fin.trim() || editFormData.hora_inicio, 

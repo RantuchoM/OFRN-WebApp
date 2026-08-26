@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import MultiSelectDropdown from "../ui/MultiSelectDropdown";
 import {
   fetchGiraGrupos,
@@ -26,6 +26,13 @@ import {
   VENUE_STATUS_OPTIONS,
   getVenueStatusById,
 } from "../../utils/venueUtils";
+import { deriveAgendaPermissions } from "../../utils/agendaPermissions";
+import {
+  isEventosInternasEmpty,
+  sanitizeEventosInternasHtml,
+} from "../../utils/eventosInternas";
+import { uploadEventoInternasImage } from "../../services/eventosInternasService";
+import FimbaRichTextEditor from "../../views/Fimba/FimbaRichTextEditor";
 
 const TIPO_TRANSPORTE_SALIDA = 11;
 const TIPO_TRANSPORTE_LLEGADA = 12;
@@ -45,14 +52,40 @@ export default function EventForm({
   onRefreshLocations,
   giraId = null,
 }) {
-  const { isEditor, isManagement } = useAuth();
+  const { isEditor, isManagement, roles } = useAuth();
+  const { canEditEventObservacionesInternas } = useMemo(
+    () => deriveAgendaPermissions(roles),
+    [roles],
+  );
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [transportesList, setTransportesList] = useState([]);
   const [isEditingVenueStatus, setIsEditingVenueStatus] = useState(false);
   const [gruposOptions, setGruposOptions] = useState([]);
+  /** Path Storage para imágenes en alta (antes de tener id de evento). */
+  const draftInternasKeyRef = useRef(
+    `draft-${
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    }`,
+  );
 
   // Usar giraId del evento si el padre no pasó giraId (ej. agenda sin gira en URL)
   const effectiveGiraId = giraId ?? formData?.id_gira ?? null;
+
+  const internasStorageKey =
+    formData?.id != null && formData.id !== ""
+      ? formData.id
+      : draftInternasKeyRef.current;
+
+  const uploadInternasImage = useCallback(
+    (file) =>
+      uploadEventoInternasImage({
+        eventoId: internasStorageKey,
+        file,
+      }),
+    [internasStorageKey],
+  );
 
   const isTransportEventType =
     Number(formData.id_tipo_evento) === TIPO_TRANSPORTE_SALIDA ||
@@ -563,6 +596,28 @@ export default function EventForm({
                 </span>
               </div>
             </label>
+          </div>
+        )}
+
+        {canEditEventObservacionesInternas && (
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">
+              Observaciones internas
+            </label>
+            <FimbaRichTextEditor
+              value={formData.observaciones_internas || ""}
+              onChange={(html) => handleChange("observaciones_internas", html)}
+              uploadFile={uploadInternasImage}
+              placeholder="Notas solo para staff…"
+              emptyLabel="Sin observaciones internas"
+              sanitizeHtml={sanitizeEventosInternasHtml}
+              isEmptyHtml={isEventosInternasEmpty}
+              className="border border-slate-200 rounded-lg overflow-hidden bg-white"
+            />
+            <p className="text-[9px] text-slate-400">
+              Solo staff (editores / técnicos). No sale en exports públicos ni
+              vistas de consulta.
+            </p>
           </div>
         )}
 

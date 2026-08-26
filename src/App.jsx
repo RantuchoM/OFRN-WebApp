@@ -1145,7 +1145,7 @@ const ProtectedApp = ({ initialTab }) => {
         </nav>
 
         <div className="p-4 border-t border-slate-100 shrink-0 space-y-1">
-          {isEditor && (
+          {isManagement && (
             <Link
               to="/fimba"
               onClick={() => setIsMobileMenuOpen(false)}

@@ -6,6 +6,7 @@ import {
   IconEdit,
   IconLoader,
   IconPlus,
+  IconPrinter,
   IconTrash,
 } from "../../components/ui/Icons";
 import {
@@ -19,6 +20,7 @@ import {
   listFimbaPropuestas,
 } from "../../services/fimbaService";
 import { sortFimbaAgendaRows } from "../../utils/fimbaAgendaSort";
+import { exportFimbaAgendaToPDF } from "../../utils/fimbaAgendaPdf";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import { stripHtml } from "../../utils/eventDisplayUtils";
@@ -151,6 +153,25 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
     [eventos],
   );
 
+  const flotaById = useMemo(() => {
+    const map = new Map();
+    for (const g of flota || []) {
+      map.set(Number(g.id), g);
+    }
+    return map;
+  }, [flota]);
+
+  const handleExportPdf = () => {
+    if (eventosOrdenados.length === 0) return;
+    const artistName = propuesta?.nombre || "Artista";
+    const edName = edicion?.nombre || propuesta?.fimba_ediciones?.nombre || "";
+    exportFimbaAgendaToPDF(eventosOrdenados, {
+      title: `Agenda FIMBA — ${artistName}`,
+      subTitle: [edName, `Artista: ${artistName}`].filter(Boolean).join(" · "),
+      flotaById,
+    });
+  };
+
   const handleDelete = async (ev) => {
     const label =
       stripHtml(ev.actividad) || ev.tipo_nombre || "evento";
@@ -224,25 +245,36 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
         >
           <IconClock size={16} /> Agenda
         </h2>
-        {editable ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <button
             type="button"
-            className="fimba-btn fimba-btn-primary"
-            disabled={!edicionForModal?.id_gira || loading}
-            onClick={() =>
-              setModal({
-                mode: "create",
-                preselectPropuesta: propuesta.id,
-              })
-            }
+            className="fimba-btn fimba-btn-ghost"
+            onClick={handleExportPdf}
+            disabled={loading || eventosOrdenados.length === 0}
+            title="Descargar PDF de la agenda de este artista"
           >
-            <IconPlus size={16} /> Nuevo evento
+            <IconPrinter size={14} /> Descargar PDF
           </button>
-        ) : (
-          <span className="fimba-muted" style={{ fontSize: "0.8rem" }}>
-            Solo lectura · eventos y traslados de este artista
-          </span>
-        )}
+          {editable ? (
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-primary"
+              disabled={!edicionForModal?.id_gira || loading}
+              onClick={() =>
+                setModal({
+                  mode: "create",
+                  preselectPropuesta: propuesta.id,
+                })
+              }
+            >
+              <IconPlus size={16} /> Nuevo evento
+            </button>
+          ) : (
+            <span className="fimba-muted" style={{ fontSize: "0.8rem" }}>
+              Solo lectura · eventos y traslados de este artista
+            </span>
+          )}
+        </div>
       </div>
 
       {error && (

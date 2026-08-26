@@ -3,15 +3,19 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useFimbaUserSession } from "../../hooks/useFimbaUserSession";
 import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
+import { useOfrnFimbaUsuarioOverride } from "../../hooks/useOfrnFimbaUsuarioOverride";
 import {
   FIMBA_ROLES,
+  fimbaConsultaPathAllowed,
   fimbaConsultaTokenCanAccessPath,
   fimbaSessionCanAccessPath,
+  resolveFimbaAccess,
 } from "../../utils/fimbaUserSession";
+import { parseFimbaSectionIds } from "./FimbaSectionToggle";
 
 /**
  * Acceso shell FIMBA:
- * 1) OFRN isManagement → full /fimba
+ * 1) OFRN isManagement → full /fimba, salvo fila `fimba_usuarios` consulta (RO)
  * 2) Sesión localStorage.fimba_user (editor_general o consulta) + match edición
  * 3) Sesión localStorage.fimba_consulta_edicion (enlace /fimba/c/:token) → RO sin Usuarios/Contrataciones/Rider
  *
@@ -22,8 +26,14 @@ export default function FimbaStaffGuard({ children }) {
   const fimbaUser = useFimbaUserSession();
   const consultaToken = useFimbaConsultaEdicionSession();
   const location = useLocation();
+  const fromPath = parseFimbaSectionIds(location.pathname);
+  const edicionIdFromPath = fromPath.edicionId ?? null;
 
-  if (loading) {
+  const ofrnManagement = Boolean(user && !isGuest && isManagement);
+  const { ofrnFimbaUsuario, loading: overrideLoading } =
+    useOfrnFimbaUsuarioOverride(user?.mail, ofrnManagement, edicionIdFromPath);
+
+  if (loading || (ofrnManagement && overrideLoading)) {
     return (
       <div className="flex h-screen items-center justify-center font-bold text-slate-400">
         Cargando...
@@ -31,8 +41,26 @@ export default function FimbaStaffGuard({ children }) {
     );
   }
 
-  const ofrnStaff = Boolean(user && !isGuest && isManagement);
-  if (ofrnStaff) {
+  const access = resolveFimbaAccess({
+    ofrnManagement,
+    ofrnFimbaUsuario,
+    fimbaUser,
+    consultaTokenSession: consultaToken,
+    edicionId: edicionIdFromPath,
+  });
+
+  if (access.source === "ofrn" || access.source === "ofrn_fimba_consulta") {
+    if (
+      access.source === "ofrn_fimba_consulta" &&
+      edicionIdFromPath != null &&
+      !fimbaConsultaPathAllowed(location.pathname, edicionIdFromPath)
+    ) {
+      return (
+        <ConsultaBlocked
+          idEdicion={edicionIdFromPath || ofrnFimbaUsuario?.id_edicion}
+        />
+      );
+    }
     return children;
   }
 
@@ -166,6 +194,50 @@ export default function FimbaStaffGuard({ children }) {
           }}
         >
           Volver al inicio
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function ConsultaBlocked({ idEdicion }) {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "1.5rem",
+        fontFamily: "system-ui, sans-serif",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 420,
+          border: "1px solid #e2e8f0",
+          borderRadius: 12,
+          padding: "1.5rem",
+          background: "#fff",
+        }}
+      >
+        <h1 style={{ margin: "0 0 0.5rem", fontSize: "1.15rem", color: "#94216D" }}>
+          Sin acceso a esta sección
+        </h1>
+        <p style={{ margin: 0, color: "#5c5c5c", fontSize: "0.9rem" }}>
+          Tu acceso FIMBA es de consulta (solo lectura). No incluye Usuarios ni
+          Contrataciones.
+        </p>
+        <a
+          href={idEdicion ? `/fimba/edicion/${idEdicion}` : "/fimba"}
+          style={{
+            display: "inline-block",
+            marginTop: "1rem",
+            color: "#00b1eb",
+            fontWeight: 600,
+          }}
+        >
+          Ir a la edición
         </a>
       </div>
     </div>

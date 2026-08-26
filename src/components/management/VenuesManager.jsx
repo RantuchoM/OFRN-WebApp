@@ -13,6 +13,7 @@ import EventForm from "../forms/EventForm";
 import { toast } from "sonner";
 import { format, startOfDay, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
+import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
 
 export function ManagementPanel({ supabase }) {
   const [activeTab, setActiveTab] = useState("venues");
@@ -357,7 +358,7 @@ export function VenuesManager({ supabase }) {
       const { data, error } = await supabase
         .from("eventos")
         .select(
-          "id, descripcion, fecha, hora_inicio, hora_fin, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, tecnica, id_estado_venue",
+          "id, descripcion, observaciones_internas, fecha, hora_inicio, hora_fin, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, tecnica, id_estado_venue",
         )
         .eq("id", evt.id)
         .single();
@@ -400,6 +401,9 @@ export function VenuesManager({ supabase }) {
     try {
       const payload = {
         descripcion: editFormData.descripcion,
+        observaciones_internas: normalizeEventosInternasHtml(
+          editFormData.observaciones_internas,
+        ),
         fecha: editFormData.fecha,
         hora_inicio: editFormData.hora_inicio,
         hora_fin: editFormData.hora_fin || editFormData.hora_inicio,

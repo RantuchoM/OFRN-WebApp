@@ -21,6 +21,7 @@ import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";
 import EventForm from "../../components/forms/EventForm";
+import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
 
 // --- SUBCOMPONENTE DE MODAL DE LECTURA DE EVENTO CON DETALLES ---
 const ReadOnlyEventDetailModal = ({
@@ -287,6 +288,7 @@ export default function WeeklyCalendar({
       setEditFormData({
         id: fullEvt.id,
         descripcion: fullEvt.descripcion || "",
+        observaciones_internas: fullEvt.observaciones_internas || "",
         fecha: fullEvt.fecha || "",
         hora_inicio: fullEvt.hora_inicio || "",
         hora_fin: fullEvt.hora_fin || "",
@@ -308,6 +310,9 @@ export default function WeeklyCalendar({
     try {
       const payload = {
         descripcion: editFormData.descripcion.trim() || null,
+        observaciones_internas: normalizeEventosInternasHtml(
+          editFormData.observaciones_internas,
+        ),
         fecha: editFormData.fecha,
         hora_inicio: editFormData.hora_inicio,
         hora_fin: editFormData.hora_fin.trim() || editFormData.hora_inicio,

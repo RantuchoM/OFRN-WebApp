@@ -250,10 +250,15 @@ export function fimbaConsultaTokenCanAccessPath(pathname, session) {
 
 /**
  * Resuelve permisos efectivos en el shell FIMBA.
- * Prioridad: OFRN management → editor_general → consulta (user o token).
+ * Prioridad:
+ * 1) OFRN management + fila `fimba_usuarios` consulta (misma edición) → RO
+ * 2) OFRN management → full
+ * 3) editor_general → full edición
+ * 4) consulta (user o token)
  *
  * @param {{
  *   ofrnManagement?: boolean,
+ *   ofrnFimbaUsuario?: {{ rol_fimba?: string, id_edicion?: number|string }|null,
  *   fimbaUser?: FimbaUserSession|null,
  *   consultaTokenSession?: FimbaConsultaEdicionSession|null,
  *   edicionId?: number|string|null,
@@ -261,10 +266,35 @@ export function fimbaConsultaTokenCanAccessPath(pathname, session) {
  */
 export function resolveFimbaAccess({
   ofrnManagement = false,
+  ofrnFimbaUsuario = null,
   fimbaUser = null,
   consultaTokenSession = null,
   edicionId = null,
 } = {}) {
+  const ofrnOverrideMatch =
+    ofrnManagement &&
+    ofrnFimbaUsuario &&
+    (edicionId == null ||
+      edicionId === "" ||
+      String(ofrnFimbaUsuario.id_edicion) === String(edicionId));
+
+  // Staff OFRN con fila explícita consulta: no hereda full edit en esa edición.
+  if (
+    ofrnOverrideMatch &&
+    String(ofrnFimbaUsuario.rol_fimba || "").trim() === FIMBA_ROLES.CONSULTA
+  ) {
+    return {
+      allowed: true,
+      readOnly: true,
+      canManageUsers: false,
+      canSeeUsuarios: false,
+      canSeeContrataciones: false,
+      canEditPropuestaMeta: false,
+      canSeeRider: true,
+      source: "ofrn_fimba_consulta",
+    };
+  }
+
   if (ofrnManagement) {
     return {
       allowed: true,

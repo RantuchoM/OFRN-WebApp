@@ -73,3 +73,7 @@ Garantizar que los eventos marcados con `is_deleted: true` no aparezcan en:
 **Conclusión**:  
 El filtrado de soft-delete en exportaciones (PDF e ICS) está **implementado y operativo**, manteniendo la visibilidad controlada de eventos eliminados dentro de `UnifiedAgenda` para fines de gestión y auditoría.
 
+### Observaciones internas (staff)
+- Columna `eventos.observaciones_internas` (HTML). UI solo en `EventForm` / FIMBA modal para editores+técnicos (`canEditEventObservacionesInternas`) / FIMBA `canEditPropuestaMeta`.
+- **No** se renderiza en cards de agenda pública, PDF (`agendaPdfExporter` usa `descripcion`) ni vistas consulta/token. Imágenes en bucket `eventos-internas`.
+

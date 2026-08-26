@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconX,
   IconUpload,
@@ -26,13 +26,21 @@ import {
   validateEventoTransportPlazasVsLibres,
 } from "../../services/fimbaService";
 import { eventGrupoIdsFromEvent } from "../../services/giraGruposService";
+import { uploadEventoInternasImage } from "../../services/eventosInternasService";
 import { summarizeOfrnStopRules } from "../../utils/fimbaTransportBoarding";
+import {
+  isEventosInternasEmpty,
+  normalizeEventosInternasHtml,
+  sanitizeEventosInternasHtml,
+} from "../../utils/eventosInternas";
 import { supabase } from "../../services/supabase";
+import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import StopRulesManager from "../Giras/StopRulesManager";
 import FimbaEventDetalleEditor, {
   isFimbaDetalleEmpty,
 } from "./FimbaEventDetalleField";
 import FimbaEventoArtistasBoardingTable from "./FimbaEventoArtistasBoardingTable";
+import FimbaRichTextEditor from "./FimbaRichTextEditor";
 import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
 import {
   clearUnsavedWork,
@@ -42,6 +50,10 @@ import {
 /** Dirty-compare: HTML vacío (`<br>`, etc.) ≡ string vacío. */
 function detalleDirtyKey(html) {
   return isFimbaDetalleEmpty(html) ? "" : String(html || "");
+}
+
+function internasDirtyKey(html) {
+  return isEventosInternasEmpty(html) ? "" : String(html || "");
 }
 
 function sliceTime(t) {
@@ -432,8 +444,31 @@ export default function FimbaEventoFormModal({
   onBoardingRefresh = null,
 }) {
   const isEdit = mode === "edit";
+  const { canEditPropuestaMeta } = useFimbaAccess();
+  const canEditObservacionesInternas = Boolean(canEditPropuestaMeta);
   const lockedPropId =
     lockPropuesta != null && lockPropuesta !== "" ? String(lockPropuesta) : null;
+
+  const draftInternasKeyRef = useRef(
+    `draft-${
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    }`,
+  );
+  const internasStorageKey =
+    isEdit && evento?.id != null && evento.id !== ""
+      ? evento.id
+      : draftInternasKeyRef.current;
+
+  const uploadInternasImage = useCallback(
+    (file) =>
+      uploadEventoInternasImage({
+        eventoId: internasStorageKey,
+        file,
+      }),
+    [internasStorageKey],
+  );
 
   const defaultProps = useMemo(() => {
     let ids = [];
@@ -504,6 +539,9 @@ export default function FimbaEventoFormModal({
       evento?.observaciones_equipaje ||
       evento?.observaciones ||
       "",
+  );
+  const [observacionesInternas, setObservacionesInternas] = useState(
+    () => evento?.observaciones_internas || "",
   );
   const [asientosEquipaje, setAsientosEquipaje] = useState(() =>
     isEdit
@@ -623,6 +661,9 @@ export default function FimbaEventoFormModal({
       vuelo: evento?.vuelo || "",
       observacionesEquipaje:
         evento?.observaciones_equipaje || evento?.observaciones || "",
+      observacionesInternas: internasDirtyKey(
+        evento?.observaciones_internas || "",
+      ),
       asientosEquipaje: initEq,
       sinServicio: initSin,
       selectedVehIdsKey: sortedIdsKey(draftVehIds),
@@ -654,6 +695,13 @@ export default function FimbaEventoFormModal({
     if (
       String(observacionesEquipaje || "").trim() !==
       String(initialForm.observacionesEquipaje || "").trim()
+    ) {
+      return true;
+    }
+    if (
+      canEditObservacionesInternas &&
+      internasDirtyKey(observacionesInternas) !==
+        (initialForm.observacionesInternas || "")
     ) {
       return true;
     }
@@ -695,6 +743,8 @@ export default function FimbaEventoFormModal({
     destino,
     vuelo,
     observacionesEquipaje,
+    observacionesInternas,
+    canEditObservacionesInternas,
     equipajeTouched,
     asientosEquipaje,
     sinServicio,
@@ -1160,6 +1210,9 @@ export default function FimbaEventoFormModal({
       vuelo,
       asientos_equipaje: Number(asientosEquipaje) || 0,
       observaciones_equipaje: observacionesEquipaje,
+      observaciones_internas: canEditObservacionesInternas
+        ? normalizeEventosInternasHtml(observacionesInternas)
+        : undefined,
       sin_servicio: usaTransporte ? sinServicio : true,
       usa_transporte: usaTransporte,
       vehiculos,
@@ -1403,6 +1456,28 @@ export default function FimbaEventoFormModal({
             </div>
           </div>
 
+          {canEditObservacionesInternas && (
+            <div className="fimba-field">
+              <label className="fimba-label">Observaciones internas</label>
+              <FimbaRichTextEditor
+                value={observacionesInternas}
+                onChange={setObservacionesInternas}
+                uploadFile={uploadInternasImage}
+                placeholder="Notas solo para staff…"
+                emptyLabel="Sin observaciones internas"
+                sanitizeHtml={sanitizeEventosInternasHtml}
+                isEmptyHtml={isEventosInternasEmpty}
+              />
+              <p
+                className="fimba-muted"
+                style={{ margin: "0.25rem 0 0", fontSize: "0.72rem" }}
+              >
+                Solo staff (editor general / OFRN). No sale en consulta, tokens ni
+                exports públicos.
+              </p>
+            </div>
+          )}
+
           {usaTransporte ? (
             <>
             <FimbaEventoArtistasBoardingTable
@@ -1532,11 +1607,12 @@ export default function FimbaEventoFormModal({
                 { value: "grupos", label: "Grupos" },
               ].map((opt) => {
                 const on = audienciaOfrn === opt.value;
+                const ofrnShape = opt.value !== "none";
                 return (
                   <button
                     key={opt.value}
                     type="button"
-                    className={`fimba-btn fimba-chip${on ? " fimba-chip-on" : ""}`}
+                    className={`fimba-btn fimba-chip${on ? " fimba-chip-on" : ""}${ofrnShape ? " fimba-chip-ofrn" : ""}`}
                     onClick={() => setAudienciaMode(opt.value)}
                     style={{ padding: "0.35rem 0.7rem", fontSize: "0.8rem" }}
                   >
@@ -1565,7 +1641,7 @@ export default function FimbaEventoFormModal({
                         <button
                           key={g.id}
                           type="button"
-                          className={`fimba-btn fimba-chip${on ? " fimba-chip-on" : ""}`}
+                          className={`fimba-btn fimba-chip fimba-chip-ofrn${on ? " fimba-chip-on" : ""}`}
                           onClick={() => toggleGrupo(g.id)}
                           style={{
                             background: on ? color : "#ffffff",
@@ -1580,7 +1656,7 @@ export default function FimbaEventoFormModal({
                             style={{
                               width: 8,
                               height: 8,
-                              borderRadius: 999,
+                              borderRadius: 2,
                               background: on ? "rgba(255,255,255,0.9)" : color,
                               display: "inline-block",
                             }}

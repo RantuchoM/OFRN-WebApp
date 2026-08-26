@@ -103,6 +103,7 @@ import { useEnsayoCheckin } from "../../hooks/useEnsayoCheckin";
 import { isIntegranteConvocadoAEnsayo } from "../../utils/ensayoCheckinBanner";
 import { notifyEnsayoEventoSoftDeleted } from "../../utils/ensayoCheckinLifecycle";
 import { deriveAgendaPermissions } from "../../utils/agendaPermissions";
+import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
 
 const DELETED_FILTERS_STORAGE_KEY_PREFIX = "unified_agenda_deleted_filters_v1_";
 const RECENT_CHANGES_ACK_STORAGE_KEY_PREFIX =
@@ -1472,6 +1473,7 @@ export default function UnifiedAgenda({
     setEditFormData({
       id: evt.id,
       descripcion: evt.descripcion || "",
+      observaciones_internas: evt.observaciones_internas || "",
       fecha: evt.fecha || "",
       hora_inicio: evt.hora_inicio || "",
       hora_fin: evt.hora_fin || "",
@@ -1610,6 +1612,9 @@ export default function UnifiedAgenda({
     try {
       const payload = {
         descripcion: (editFormData.descripcion || "") + " - Copia",
+        observaciones_internas: normalizeEventosInternasHtml(
+          editFormData.observaciones_internas,
+        ),
         fecha: editFormData.fecha,
         hora_inicio: editFormData.hora_inicio,
         hora_fin: editFormData.hora_fin,
@@ -1719,6 +1724,9 @@ export default function UnifiedAgenda({
     try {
       const payload = {
         descripcion: editFormData.descripcion,
+        observaciones_internas: normalizeEventosInternasHtml(
+          editFormData.observaciones_internas,
+        ),
         fecha: editFormData.fecha,
         hora_inicio: editFormData.hora_inicio,
         hora_fin: editFormData.hora_fin || editFormData.hora_inicio,
@@ -1826,6 +1834,7 @@ export default function UnifiedAgenda({
     setNewFormData({
       id: null,
       descripcion: "",
+      observaciones_internas: "",
       fecha: "",
       hora_inicio: "10:00",
       hora_fin: "12:00",
@@ -1883,6 +1892,9 @@ export default function UnifiedAgenda({
     const payload = {
       id_gira: giraId,
       descripcion: newFormData.descripcion || null,
+      observaciones_internas: normalizeEventosInternasHtml(
+        newFormData.observaciones_internas,
+      ),
       fecha: newFormData.fecha,
       hora_inicio: newFormData.hora_inicio,
       hora_fin: newFormData.hora_fin || newFormData.hora_inicio,

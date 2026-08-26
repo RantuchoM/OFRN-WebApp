@@ -3,6 +3,7 @@ import { useParams, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { useFimbaUserSession } from "../hooks/useFimbaUserSession";
 import { useFimbaConsultaEdicionSession } from "../hooks/useFimbaConsultaEdicionSession";
+import { useOfrnFimbaUsuarioOverride } from "../hooks/useOfrnFimbaUsuarioOverride";
 import {
   parseFimbaSectionIds,
 } from "../views/Fimba/FimbaSectionToggle";
@@ -20,10 +21,12 @@ const FimbaAccessContext = createContext({
   allowed: true,
   source: "none",
   edicionId: null,
+  overrideLoading: false,
 });
 
 /**
  * Acceso efectivo FIMBA en shell staff: OFRN management | editor | consulta (user/token).
+ * Si el mail OFRN tiene `fimba_usuarios.consulta` para la edición, fuerza RO.
  */
 export function FimbaAccessProvider({ children }) {
   const { user, isManagement, isGuest } = useAuth();
@@ -35,10 +38,14 @@ export function FimbaAccessProvider({ children }) {
   const edicionId =
     params.edicionId ?? fromPath.edicionId ?? null;
 
+  const ofrnManagement = Boolean(user && !isGuest && isManagement);
+  const { ofrnFimbaUsuario, loading: overrideLoading } =
+    useOfrnFimbaUsuarioOverride(user?.mail, ofrnManagement, edicionId);
+
   const value = useMemo(() => {
-    const ofrnManagement = Boolean(user && !isGuest && isManagement);
     const access = resolveFimbaAccess({
       ofrnManagement,
+      ofrnFimbaUsuario,
       fimbaUser,
       consultaTokenSession: consultaToken,
       edicionId,
@@ -46,8 +53,16 @@ export function FimbaAccessProvider({ children }) {
     return {
       ...access,
       edicionId,
+      overrideLoading,
     };
-  }, [user, isGuest, isManagement, fimbaUser, consultaToken, edicionId]);
+  }, [
+    ofrnManagement,
+    ofrnFimbaUsuario,
+    fimbaUser,
+    consultaToken,
+    edicionId,
+    overrideLoading,
+  ]);
 
   return (
     <FimbaAccessContext.Provider value={value}>

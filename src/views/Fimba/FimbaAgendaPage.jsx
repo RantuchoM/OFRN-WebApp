@@ -11,6 +11,7 @@ import {
   IconClock,
   IconSearch,
   IconX,
+  IconPrinter,
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import {
@@ -30,6 +31,10 @@ import {
   sortFimbaAgendaRows,
   sortFimbaPropuestasByNombre,
 } from "../../utils/fimbaAgendaSort";
+import {
+  buildFimbaAgendaPdfSubTitle,
+  exportFimbaAgendaToPDF,
+} from "../../utils/fimbaAgendaPdf";
 import { defaultGapFillEventSchedule } from "../../utils/fimbaTransportBoarding";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
@@ -551,6 +556,47 @@ export default function FimbaAgendaPage() {
     });
   };
 
+  const handleExportPdf = () => {
+    if (eventosFiltrados.length === 0) return;
+    const artistaNombre = filtroArtista
+      ? propuestasParaFiltro.find(
+          (p) => String(p.id) === String(filtroArtista),
+        )?.nombre
+      : null;
+    const categoryNames =
+      categoryFilterActive
+        ? availableCategories
+            .filter((c) =>
+              selectedCategoryIds.some((id) => Number(id) === Number(c.id)),
+            )
+            .map((c) => c.nombre)
+        : [];
+    const locationNames =
+      locationFilterActive
+        ? availableLocaciones
+            .filter((l) =>
+              selectedLocacionIds.some((id) => Number(id) === Number(l.id)),
+            )
+            .map((l) => l.nombre)
+        : [];
+    const subTitle = buildFimbaAgendaPdfSubTitle({
+      edicionNombre: edicion?.nombre,
+      filtroOrigen: filtroArtista ? "all" : filtroOrigen,
+      filtroArtistaNombre: artistaNombre || null,
+      categoryNames,
+      locationNames,
+      searchQuery: searchFilterActive ? agendaSearchQuery : "",
+    });
+    const title = artistaNombre
+      ? `Agenda FIMBA — ${artistaNombre}`
+      : `Agenda FIMBA — ${edicion?.nombre || "Edición"}`;
+    exportFimbaAgendaToPDF(eventosFiltrados, {
+      title,
+      subTitle,
+      flotaById,
+    });
+  };
+
   const backHref = artistaId
     ? `/fimba/edicion/${edicionId}/artista/${artistaId}`
     : `/fimba/edicion/${edicionId}`;
@@ -716,6 +762,15 @@ export default function FimbaAgendaPage() {
               ))}
             </select>
           </div>
+          <button
+            type="button"
+            className="fimba-btn fimba-btn-ghost"
+            onClick={handleExportPdf}
+            disabled={loading || eventosFiltrados.length === 0}
+            title="Descargar PDF de la vista filtrada actual"
+          >
+            <IconPrinter size={14} /> Descargar PDF
+          </button>
         </div>
       </div>
 
@@ -893,26 +948,32 @@ export default function FimbaAgendaPage() {
                       <td>{ev.asientos_equipaje || ev.pax || "—"}</td>
                       <td>
                         {ev.es_ofrn && !isRide ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                            <span className="fimba-muted" style={{ fontSize: "0.72rem" }}>
-                              {aoLabel}
-                            </span>
-                            {(ev.grupos || []).length > 0 && (
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                                {(ev.grupos || []).map((g) => (
-                                  <span
-                                    key={g.id}
-                                    className="fimba-badge"
-                                    style={{
-                                      background: g.color ? `${g.color}22` : "#e0f2fe",
-                                      color: g.color || "#0369a1",
-                                      border: `1px solid ${g.color || "#7dd3fc"}44`,
-                                    }}
-                                  >
-                                    {g.nombre}
-                                  </span>
-                                ))}
-                              </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                            {(ev.grupos || []).length > 0 ? (
+                              (ev.grupos || []).map((g) => (
+                                <span
+                                  key={g.id}
+                                  className="fimba-badge fimba-badge-ofrn-grupo"
+                                  style={{
+                                    background: g.color ? `${g.color}22` : "#e0f2fe",
+                                    color: g.color || "#0369a1",
+                                    border: `1px solid ${g.color || "#7dd3fc"}44`,
+                                  }}
+                                >
+                                  {g.nombre}
+                                </span>
+                              ))
+                            ) : (
+                              <span
+                                className="fimba-badge fimba-badge-ofrn-grupo"
+                                style={{
+                                  background: "#e0f2fe",
+                                  color: "#0369a1",
+                                  border: "1px solid #7dd3fc44",
+                                }}
+                              >
+                                {aoLabel}
+                              </span>
                             )}
                           </div>
                         ) : (

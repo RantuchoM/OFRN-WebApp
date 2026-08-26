@@ -51,8 +51,9 @@ function imageFilesFromDataTransfer(dt) {
 
 /**
  * Editor rich-text FIMBA (Quill / react-quill, ya en el proyecto).
- * Skin magenta; UI en español. Solo lectura renderiza HTML sanitizado.
- * Imágenes: toolbar (file picker), pegar del portapapeles o arrastrar → bucket fimba-riders.
+ * Skin magenta en shell FIMBA; fuera usa `.rich-text-quill` OFRN.
+ * Imágenes: toolbar / pegar / arrastrar.
+ * Upload: `uploadFile` inyectado, o rider (`edicionId`+`propuestaId` → fimba-riders).
  */
 export default function FimbaRichTextEditor({
   value = "",
@@ -62,6 +63,13 @@ export default function FimbaRichTextEditor({
   placeholder = "Información logística del rider…",
   edicionId,
   propuestaId,
+  /** @type {null|((file: File) => Promise<{ url?: string|null, error?: Error|null }>)} */
+  uploadFile = null,
+  emptyLabel = "Sin rider",
+  sanitizeHtml = sanitizeFimbaRiderHtml,
+  isEmptyHtml = isFimbaRiderEmpty,
+  className = "",
+  helperText = "Imagen: botón de la barra, pegar (Ctrl+V) o arrastrar. JPG, PNG, GIF o WebP · máx. 8 MB.",
 }) {
   const quillRef = useRef(null);
   const [editorTick, setEditorTick] = useState(0);
@@ -69,12 +77,14 @@ export default function FimbaRichTextEditor({
   const [uploadError, setUploadError] = useState(null);
   const uploadingRef = useRef(false);
 
-  const canUpload =
-    !readOnly &&
+  const riderUploadReady =
     edicionId != null &&
     edicionId !== "" &&
     propuestaId != null &&
     propuestaId !== "";
+
+  const canUpload =
+    !readOnly && (typeof uploadFile === "function" || riderUploadReady);
 
   const handleUploadFile = useCallback(
     async (file) => {
@@ -87,11 +97,21 @@ export default function FimbaRichTextEditor({
       setUploading(true);
       setUploadError(null);
       try {
-        const { url, error } = await uploadFimbaRiderImage({
-          edicionId,
-          propuestaId,
-          file,
-        });
+        let url = null;
+        let error = null;
+        if (typeof uploadFile === "function") {
+          const res = await uploadFile(file);
+          url = res?.url || null;
+          error = res?.error || null;
+        } else {
+          const res = await uploadFimbaRiderImage({
+            edicionId,
+            propuestaId,
+            file,
+          });
+          url = res?.url || null;
+          error = res?.error || null;
+        }
         if (error || !url) {
           throw error || new Error("No se pudo subir la imagen");
         }
@@ -104,7 +124,7 @@ export default function FimbaRichTextEditor({
         setUploading(false);
       }
     },
-    [canUpload, edicionId, propuestaId],
+    [canUpload, uploadFile, edicionId, propuestaId],
   );
 
   const imageHandlerRef = useRef(() => {});
@@ -186,23 +206,26 @@ export default function FimbaRichTextEditor({
   }, [canUpload, handleUploadFile, editorTick]);
 
   if (readOnly) {
-    if (isFimbaRiderEmpty(value)) {
+    if (isEmptyHtml(value)) {
       return (
-        <p className="fimba-muted" style={{ margin: 0 }}>
-          Sin rider
+        <p className="fimba-muted text-slate-400 text-sm" style={{ margin: 0 }}>
+          {emptyLabel}
         </p>
       );
     }
     return (
       <div
-        className="fimba-rider-html"
-        dangerouslySetInnerHTML={{ __html: sanitizeFimbaRiderHtml(value) }}
+        className="fimba-rider-html prose prose-sm max-w-none text-slate-700"
+        dangerouslySetInnerHTML={{ __html: sanitizeHtml(value) }}
       />
     );
   }
 
   return (
-    <div className="fimba-richtext rich-text-quill" style={{ position: "relative" }}>
+    <div
+      className={`fimba-richtext rich-text-quill ${className}`.trim()}
+      style={{ position: "relative" }}
+    >
       <ReactQuill
         ref={(el) => {
           quillRef.current = el;
@@ -222,13 +245,13 @@ export default function FimbaRichTextEditor({
       />
       {uploading && (
         <div
-          className="fimba-muted"
+          className="fimba-muted text-slate-500"
           style={{
             display: "flex",
             alignItems: "center",
             gap: 8,
             padding: "0.45rem 0.75rem",
-            borderTop: "1px solid var(--fimba-border)",
+            borderTop: "1px solid var(--fimba-border, #e2e8f0)",
             fontSize: "0.8rem",
           }}
         >
@@ -236,13 +259,19 @@ export default function FimbaRichTextEditor({
         </div>
       )}
       {uploadError && (
-        <div className="fimba-error" style={{ margin: "0.45rem 0.75rem 0.6rem" }}>
+        <div
+          className="fimba-error text-red-600 text-sm"
+          style={{ margin: "0.45rem 0.75rem 0.6rem" }}
+        >
           {uploadError}
         </div>
       )}
-      {canUpload && !uploading && !uploadError && (
-        <p className="fimba-muted" style={{ margin: "0.35rem 0.75rem 0.55rem", fontSize: "0.72rem" }}>
-          Imagen: botón de la barra, pegar (Ctrl+V) o arrastrar. JPG, PNG, GIF o WebP · máx. 8 MB.
+      {canUpload && !uploading && !uploadError && helperText && (
+        <p
+          className="fimba-muted text-slate-400"
+          style={{ margin: "0.35rem 0.75rem 0.55rem", fontSize: "0.72rem" }}
+        >
+          {helperText}
         </p>
       )}
     </div>
