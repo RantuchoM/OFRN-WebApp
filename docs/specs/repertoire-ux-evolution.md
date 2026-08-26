@@ -395,6 +395,7 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - [x] Eliminación individual y masiva de particella con `ConfirmDialog` (estilo destructivo), alineado con el design system del proyecto.
 - [x] **Ingreso por orgánico de vientos** en `WorkForm.jsx` y `DriveMatcherModal.jsx`: campo con placeholder `2.2.3.2 - 4.3.1.2` que genera particellas (Fl–Tba) vía `parseOrganicoVientosInput` (`src/utils/particellaOrganicoInput.js`) y `OrganicoVientosAddField.jsx`. Entrada solo numérica (8 dígitos) con autoformato progresivo (`22324312` → `2.2.3.2 - 4.3.1.2`).
 - [x] **Matcher Drive centralizado** en `src/utils/drivePartMatcher.js`: archivos combinados (`Corno 1y2`, `1 y 2`, `1&2`, `1-2`, `1/2`) expanden a varias particellas con el mismo link; sugerencias IconBulb + «Vincular sugerencias» para placeholders sin enlace en `DriveMatcherModal.jsx`; banner «Agregar faltantes» para crear las particellas detectadas en PDFs que aún no estén cubiertas por la obra. Ver `docs/drive-algo-deep-dive.md`.
+- [x] **Clarinete Bajo (`07b`):** prefijos `Clarinete Bajo` / `bass clar` / `Cl.B` ya no caen en Clarinete (`07`). Corregidas particellas gira 12: obra 3198 (ClB) y 3199 (Corno 2 + link Drive).
 
 ---
 
@@ -757,4 +758,17 @@ Set de **16** arreglos sinfónicos de **Bob Marley** en [Para acomodar / Bahiano
 - [x] Datos ya disponibles via `compositores.paises(nombre)` → `processWork` arma `pais_nombre` (compositores del rol compositor, unidos con ` / `).
 - [x] Filtro de escritorio en el header de la columna; en móvil, campo en filtros avanzados + chip removible; la búsqueda rápida también incluye país.
 - [x] Export «Ya programado» incluye País cuando la columna está visible (Excel/PDF + criterio de orden).
+
+---
+
+## 14. ProgramSeating: editar obra + matcher combinados `1-2` (2026-08-26)
+
+- [x] **ProgramSeating (escritorio, editores):** junto al icono de carpeta Drive, `IconEdit` abre `WorkForm` en modal (portal `z-[9999]`). Al cerrar/guardar se refrescan particellas y el bloque de repertorio.
+- [x] **Matcher Drive (`drivePartMatcher.js`):** el prefijo del PDF se toma con split por ` - ` (espaciado), no por `-` suelto. Así **cualquier** instrumento con sufijo combinado (`Oboe 1-2`, `Corno 3-4`, `Flauta 1–2`, `Clarinete 1y2`, etc.) expande a las dos (o más) particellas y sugiere vínculo compartido. Equivalente a `1y2` / `1&2` / `1/2`.
+
+### Completado (2026-08-26) — WorkForm: Editar Particellas → DriveMatcherModal
+- [x] Se elimina el listado/tabla inline de particellas en `WorkForm`.
+- [x] Al pie del formulario: botón **Editar Particellas** (badge con conteo) que abre `DriveMatcherModal` directamente.
+- [x] Carga diferida: al abrir el form solo se pide `count` de `obras_particellas` (bloquea instrumentación); el `select *` de filas ocurre al abrir el matcher. Acelera el montaje del WorkForm.
+- [x] Alta/edición/vínculos/orgánico de particellas quedan centralizados en el matcher (ya tenía esas acciones).
 

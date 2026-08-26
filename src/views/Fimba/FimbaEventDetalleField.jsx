@@ -1,0 +1,191 @@
+import React, { useEffect, useRef } from "react";
+import {
+  IconBold,
+  IconItalic,
+  IconUnderline,
+} from "../../components/ui/Icons";
+import {
+  hasHtmlMarkup,
+  stripHtml,
+} from "../../utils/eventDisplayUtils";
+
+/** True si el HTML de detalle no tiene texto visible (p. ej. `<br>`, `<div><br></div>`). */
+export function isFimbaDetalleEmpty(html) {
+  return !stripHtml(html);
+}
+
+/**
+ * Vista lectura de `eventos.descripcion` (parte actividad / Detalle FIMBA).
+ * Misma columna OFRN que EventForm / EventQuickView.
+ */
+export function FimbaEventDetallePreview({
+  html,
+  empty = "—",
+  className = "",
+  style,
+}) {
+  const raw = html == null ? "" : String(html);
+  const plain = stripHtml(raw);
+  if (!plain) {
+    return (
+      <span className={className} style={style}>
+        {empty}
+      </span>
+    );
+  }
+  if (hasHtmlMarkup(raw)) {
+    return (
+      <span
+        className={`fimba-detalle-preview ${className}`.trim()}
+        style={style}
+        dangerouslySetInnerHTML={{ __html: raw }}
+      />
+    );
+  }
+  return (
+    <span className={className} style={style}>
+      {plain}
+    </span>
+  );
+}
+
+/**
+ * Editor rich-text Detalle (contentEditable + B/I/U), mismo patrón que
+ * `EventForm` → `eventos.descripcion`. Skin FIMBA.
+ */
+export default function FimbaEventDetalleEditor({
+  value = "",
+  onChange,
+  placeholder = "Ej. Check-in hotel / Show noche 1",
+  id = "fimba-event-detalle",
+}) {
+  const editorRef = useRef(null);
+
+  const handleExecCommand = (command) => {
+    if (!editorRef.current) return;
+    document.execCommand(command, false, null);
+    editorRef.current.focus();
+    onChange?.(editorRef.current.innerHTML);
+  };
+
+  useEffect(() => {
+    if (!editorRef.current) return;
+    const next = value || "";
+    if (editorRef.current.innerHTML === next) return;
+    if (document.activeElement === editorRef.current) return;
+    editorRef.current.innerHTML = next;
+  }, [value]);
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-end",
+          marginBottom: 4,
+          gap: 8,
+        }}
+      >
+        <label className="fimba-label" htmlFor={id} style={{ marginBottom: 0 }}>
+          Detalle
+        </label>
+        <div
+          style={{
+            display: "flex",
+            gap: 2,
+            padding: 2,
+            borderRadius: 6,
+            border: "1px solid #e2e8f0",
+            background: "#f8fafc",
+          }}
+        >
+          {[
+            { cmd: "bold", Icon: IconBold, title: "Negrita" },
+            { cmd: "italic", Icon: IconItalic, title: "Cursiva" },
+            { cmd: "underline", Icon: IconUnderline, title: "Subrayado" },
+          ].map(({ cmd, Icon, title }) => (
+            <button
+              key={cmd}
+              type="button"
+              title={title}
+              aria-label={title}
+              className="fimba-btn fimba-btn-ghost"
+              style={{ padding: 4, lineHeight: 0 }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                handleExecCommand(cmd);
+              }}
+            >
+              <Icon size={14} />
+            </button>
+          ))}
+        </div>
+      </div>
+      <div
+        className="fimba-input"
+        style={{
+          padding: 0,
+          overflow: "hidden",
+          display: "block",
+        }}
+      >
+        <div
+          ref={editorRef}
+          id={id}
+          role="textbox"
+          aria-multiline="true"
+          aria-label="Detalle"
+          contentEditable
+          suppressContentEditableWarning
+          data-placeholder={placeholder}
+          className="fimba-detalle-editor"
+          style={{
+            padding: "0.55rem 0.75rem",
+            minHeight: 80,
+            maxHeight: 150,
+            overflowY: "auto",
+            outline: "none",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            fontSize: "0.9rem",
+            lineHeight: 1.45,
+            background: "#fff",
+          }}
+          onInput={(e) => {
+            onChange?.(e.currentTarget.innerHTML);
+          }}
+          onFocus={() => {
+            if (
+              editorRef.current &&
+              !editorRef.current.innerHTML &&
+              value
+            ) {
+              editorRef.current.innerHTML = value;
+            }
+          }}
+        />
+      </div>
+      <p
+        className="fimba-muted"
+        style={{ margin: "0.25rem 0 0", fontSize: "0.72rem" }}
+      >
+        Texto libre con formato (negrita / cursiva / subrayado). Se guarda en{" "}
+        <code style={{ fontSize: "0.68rem" }}>eventos.descripcion</code>{" "}
+        (mismo campo que OFRN).
+      </p>
+      <style>{`
+        .fimba-detalle-editor:empty:before {
+          content: attr(data-placeholder);
+          color: #94a3b8;
+          pointer-events: none;
+        }
+        .fimba-detalle-preview b,
+        .fimba-detalle-preview strong { font-weight: 700; }
+        .fimba-detalle-preview i,
+        .fimba-detalle-preview em { font-style: italic; }
+        .fimba-detalle-preview u { text-decoration: underline; }
+      `}</style>
+    </div>
+  );
+}

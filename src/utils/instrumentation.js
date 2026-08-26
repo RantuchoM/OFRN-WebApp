@@ -878,12 +878,58 @@ export function getEffectiveRequiredColumnMap(
   return result;
 }
 
-/** Familias con al menos una particella sin asignar en seating. */
-export function getInstrumentationUnassignedFamilies(parts = [], particellaCounts = {}) {
+/** Set de ids de particella (number|string) → Set normalizado a string. */
+export function normalizeParticellaIdSet(ids = null) {
+  if (!ids) return new Set();
+  if (ids instanceof Set) {
+    return new Set([...ids].map((id) => String(id)));
+  }
+  if (Array.isArray(ids)) {
+    return new Set(ids.map((id) => String(id)));
+  }
+  return new Set();
+}
+
+export function isParticellaOmitted(partId, omittedPartIds = null) {
+  if (!omittedPartIds) return false;
+  const set = normalizeParticellaIdSet(omittedPartIds);
+  return set.has(String(partId));
+}
+
+/** Partes activas (excluye omitidas del programa). */
+export function filterActiveParticellas(parts = [], omittedPartIds = null) {
+  const omitted = normalizeParticellaIdSet(omittedPartIds);
+  if (omitted.size === 0) return parts || [];
+  return (parts || []).filter((p) => !omitted.has(String(p.id)));
+}
+
+/** Familias con al menos una particella omitida en el programa. */
+export function getInstrumentationOmittedFamilies(parts = [], omittedPartIds = null) {
+  const omitted = normalizeParticellaIdSet(omittedPartIds);
+  if (omitted.size === 0) return [];
+
+  const families = new Set();
+  (parts || []).forEach((part) => {
+    if (!omitted.has(String(part.id))) return;
+    const familyKey = classifyParticellaToInstrumentationFamily(part);
+    const column = familyKey ? FAMILY_TO_COLUMN[familyKey] : null;
+    if (column) families.add(column);
+  });
+  return Array.from(families);
+}
+
+/** Familias con al menos una particella sin asignar en seating (ignora omitidas). */
+export function getInstrumentationUnassignedFamilies(
+  parts = [],
+  particellaCounts = {},
+  omittedPartIds = null,
+) {
+  const omitted = normalizeParticellaIdSet(omittedPartIds);
   const unassigned = new Set();
 
   (parts || []).forEach((part) => {
-    if (particellaCounts?.[part.id]) return;
+    if (omitted.has(String(part.id))) return;
+    if (particellaCounts?.[part.id] || particellaCounts?.[String(part.id)]) return;
     const familyKey = classifyParticellaToInstrumentationFamily(part);
     const column = familyKey ? FAMILY_TO_COLUMN[familyKey] : null;
     if (column) unassigned.add(column);
@@ -1108,16 +1154,20 @@ export function buildWorkInstrumentationAuditRow({
   musicianAssignments = {},
   particellas = [],
   preferObrasInstrumentacion = false,
+  omittedPartIds = null,
 }) {
-  const partsColumnMap = calculateInstrumentationCountsFromParts(parts);
+  const omittedFamilies = getInstrumentationOmittedFamilies(parts, omittedPartIds);
+  const activeParts = filterActiveParticellas(parts, omittedPartIds);
+  const partsColumnMap = calculateInstrumentationCountsFromParts(activeParts);
   const unassignedFamilies = getInstrumentationUnassignedFamilies(
-    parts,
+    activeParts,
     particellaCounts,
   );
 
   if (
     preferObrasInstrumentacion &&
-    String(manualInstrumentacion || "").trim()
+    String(manualInstrumentacion || "").trim() &&
+    omittedFamilies.length === 0
   ) {
     const instString = String(manualInstrumentacion).trim();
     return {
@@ -1126,6 +1176,7 @@ export function buildWorkInstrumentationAuditRow({
         instrumentationStringToColumnMap(instString),
       instrumentation_consolidated_families: [],
       instrumentation_unassigned_families: unassignedFamilies,
+      instrumentation_omitted_families: omittedFamilies,
       instrumentation_parts_column_map: partsColumnMap,
     };
   }
@@ -1155,16 +1206,17 @@ export function buildWorkInstrumentationAuditRow({
       consolidatedFamilies,
     );
     instString = instrumentationColumnMapToString(effectiveColumnMap);
-  } else if (parts.length > 0) {
-    instString = calculateInstrumentation(parts) || "";
+  } else if (activeParts.length > 0) {
+    instString = calculateInstrumentation(activeParts) || "";
     effectiveColumnMap = partsColumnMap;
-  } else if (manualInstrumentacion) {
+  } else if (manualInstrumentacion && omittedFamilies.length === 0) {
     instString = manualInstrumentacion;
     effectiveColumnMap = instrumentationStringToColumnMap(manualInstrumentacion);
   }
 
   if (
     manualInstrumentacion &&
+    omittedFamilies.length === 0 &&
     (!instString ||
       instString === "s/d" ||
       !hasInstrumentationMapContent(effectiveColumnMap))
@@ -1179,6 +1231,7 @@ export function buildWorkInstrumentationAuditRow({
     instrumentation_effective_column_map: effectiveColumnMap,
     instrumentation_consolidated_families: consolidatedFamilies,
     instrumentation_unassigned_families: unassignedFamilies,
+    instrumentation_omitted_families: omittedFamilies,
     instrumentation_parts_column_map: partsColumnMap,
   };
 }
@@ -1189,11 +1242,13 @@ export function buildProgramInstrumentationAudit(blocks = [], seatingContext = {
     containers = [],
     particellasByObra = {},
     particellas = [],
+    omittedPartIds = null,
   } = seatingContext;
 
   const particellaCounts = buildParticellaAssignmentCounts(assigns);
   const { assignments, musicianAssignments } =
     parseSeatingAssignmentsFromRows(assigns);
+  const omittedSet = normalizeParticellaIdSet(omittedPartIds);
 
   const workRows = [];
   (blocks || []).forEach((block) => {
@@ -1243,6 +1298,7 @@ export function buildProgramInstrumentationAudit(blocks = [], seatingContext = {
         musicianAssignments,
         particellas,
         preferObrasInstrumentacion: !ro.tiene_asignaciones_multiples,
+        omittedPartIds: omittedSet,
       });
 
       const ocList = Array.isArray(obra.obras_compositores)
@@ -1276,8 +1332,40 @@ export function buildProgramInstrumentationAudit(blocks = [], seatingContext = {
   const partsMax = maxInstrumentationColumnMap(
     workRows.map((w) => w.instrumentation_parts_column_map),
   );
+  const omittedFamilies = computeInstrumentationRequiredOmitted(workRows);
 
-  return { required, workRows, partsMax };
+  return { required, workRows, partsMax, omittedFamilies };
+}
+
+/**
+ * Mapa familia → true si alguna obra del programa tiene omisiones en esa familia.
+ * Usado para resaltar Req en celeste.
+ */
+export function computeInstrumentationRequiredOmitted(workRows = []) {
+  const omitted = {
+    Fl: false,
+    Ob: false,
+    Cl: false,
+    Fg: false,
+    Cr: false,
+    Tp: false,
+    Tb: false,
+    Tba: false,
+    Har: false,
+    Pno: false,
+    Str: false,
+    Perc: false,
+  };
+
+  (workRows || []).forEach((w) => {
+    (w.instrumentation_omitted_families || []).forEach((fam) => {
+      if (Object.prototype.hasOwnProperty.call(omitted, fam)) {
+        omitted[fam] = true;
+      }
+    });
+  });
+
+  return omitted;
 }
 
 export function computeInstrumentationRequiredConsolidated(

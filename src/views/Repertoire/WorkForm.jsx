@@ -31,13 +31,9 @@ import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import { useAuth } from "../../context/AuthContext";
 import { calculateInstrumentation } from "../../utils/instrumentation";
 import DriveMatcherModal from "../../components/repertoire/DriveMatcherModal";
-import LinksManagerModal from "../../components/repertoire/LinksManagerModal";
 import BowingSetManager from "../../components/repertoire/BowingSetManager";
 import ComposersManager from "./ComposersManager";
 import SearchableSelect from "../../components/ui/SearchableSelect";
-import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups";
-import { parseOrganicoVientosInput } from "../../utils/particellaOrganicoInput";
-import OrganicoVientosAddField from "../../components/repertoire/OrganicoVientosAddField";
 import { toast } from "sonner";
 import DateInput from "../../components/ui/DateInput";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
@@ -441,9 +437,6 @@ export function QuickComposerModal({ isOpen, onClose, onCreated, supabase, roleT
 }
 
 // --- UTILIDADES ---
-const capitalizeWords = (str) =>
-  !str ? "" : str.toLowerCase().replace(/\b\w/g, (l) => l.toUpperCase());
-
 const getYoutubeVideoId = (url) => {
   if (!url || typeof url !== "string") return null;
   const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^#&?]+)/);
@@ -490,9 +483,9 @@ export default function WorkForm({
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState("idle");
   const [particellas, setParticellas] = useState([]);
-  /** Multiselección en tabla de particellas (tempId) */
-  const [selectedPartTempIds, setSelectedPartTempIds] = useState(() => new Set());
-  const particellaSelectAllRef = useRef(null);
+  /** Conteo liviano para bloquear instrumentación sin cargar filas al abrir el form */
+  const [particellasCount, setParticellasCount] = useState(0);
+  const [loadingParticellasEditor, setLoadingParticellasEditor] = useState(false);
   const [instrumentList, setInstrumentList] = useState(
     catalogoInstrumentos || [],
   );
@@ -500,21 +493,11 @@ export default function WorkForm({
   const [integrantesArregladorOptions, setIntegrantesArregladorOptions] = useState([]);
   const [tagsOptions, setTagsOptions] = useState([]);
   const [selectedTags, setSelectedTags] = useState([]);
-  const [genInstrument, setGenInstrument] = useState("");
-  const [genQuantity, setGenQuantity] = useState(1);
-  const [organicoVientosInput, setOrganicoVientosInput] = useState("");
-  const [instrumentQuery, setInstrumentQuery] = useState("");
-  const [showInstrumentOptions, setShowInstrumentOptions] = useState(false);
   const [showDriveMatcher, setShowDriveMatcher] = useState(false);
   const [showDriveField, setShowDriveField] = useState(false);
   const [copyingToParaAcomodar, setCopyingToParaAcomodar] = useState(false);
   const [paraAcomodarConfirm, setParaAcomodarConfirm] = useState(null);
   const [paraAcomodarAccessError, setParaAcomodarAccessError] = useState(null);
-  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
-  const [editingLinksId, setEditingLinksId] = useState(null);
-  const instrumentInputRef = useRef(null);
-  const instrumentMenuRef = useRef(null);
-  const [instrumentMenuStyle, setInstrumentMenuStyle] = useState(null);
   // Auto-enrichment: YouTube suggestions and year
   const [youtubeSuggestions, setYoutubeSuggestions] = useState([]);
   const [loadingYouTube, setLoadingYouTube] = useState(false);
@@ -568,8 +551,6 @@ export default function WorkForm({
   });
   const [solicitarAjusteOpen, setSolicitarAjusteOpen] = useState(false);
   const [solicitarAjusteSaving, setSolicitarAjusteSaving] = useState(false);
-  /** null | { mode: 'single', tempId } | { mode: 'bulk' } */
-  const [particellaDeleteConfirm, setParticellaDeleteConfirm] = useState(null);
   const handleQuickCompCreated = (newComp) => {
     const newOption = {
       id: newComp.id,
@@ -617,7 +598,7 @@ export default function WorkForm({
     fetchIntegrantesArreglador();
     fetchTagsOptions();
     if (initialData?.id) {
-      fetchParticellas(initialData.id);
+      fetchParticellasCount(initialData.id);
       fetchWorkDetails(initialData.id);
     } else if (initialData && Object.keys(initialData).length > 0 && !initialData.arrangementFromWorkId) {
       setFormData((prev) => ({ ...prev, ...initialData }));
@@ -633,48 +614,6 @@ export default function WorkForm({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [encargoMenuOpen]);
-
-  const updateInstrumentMenuPosition = () => {
-    if (!instrumentInputRef.current) return;
-    const rect = instrumentInputRef.current.getBoundingClientRect();
-    setInstrumentMenuStyle(
-      getFixedMenuPosition(rect, {
-        width: Math.max(rect.width, 200),
-        estimatedHeight: 220,
-        measuredHeight: instrumentMenuRef.current?.offsetHeight,
-        minHeight: 100,
-      }),
-    );
-  };
-
-  const showInstrumentMenu = showInstrumentOptions && !!instrumentQuery;
-
-  useLayoutEffect(() => {
-    if (!showInstrumentMenu) {
-      setInstrumentMenuStyle(null);
-      return undefined;
-    }
-    updateInstrumentMenuPosition();
-    const frame = requestAnimationFrame(updateInstrumentMenuPosition);
-    window.addEventListener("resize", updateInstrumentMenuPosition);
-    window.addEventListener("scroll", updateInstrumentMenuPosition, true);
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("resize", updateInstrumentMenuPosition);
-      window.removeEventListener("scroll", updateInstrumentMenuPosition, true);
-    };
-  }, [showInstrumentMenu, instrumentQuery]);
-
-  useEffect(() => {
-    if (!showInstrumentMenu) return undefined;
-    const handleClickOutside = (event) => {
-      if (instrumentInputRef.current?.contains(event.target)) return;
-      if (instrumentMenuRef.current?.contains(event.target)) return;
-      setShowInstrumentOptions(false);
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showInstrumentMenu]);
 
   const refreshRefsCount = useCallback(async (obraId = formData.id) => {
     if (!obraId) {
@@ -1154,34 +1093,65 @@ export default function WorkForm({
     }
   };
 
+  const fetchParticellasCount = async (workId) => {
+    if (!workId) {
+      setParticellasCount(0);
+      return 0;
+    }
+    const { count, error } = await supabase
+      .from("obras_particellas")
+      .select("id", { count: "exact", head: true })
+      .eq("id_obra", workId);
+    if (error) {
+      console.warn("WorkForm fetchParticellasCount:", error);
+      return 0;
+    }
+    const n = count || 0;
+    setParticellasCount(n);
+    return n;
+  };
+
   const fetchParticellas = async (workId) => {
     const { data } = await supabase
       .from("obras_particellas")
       .select("*, instrumentos(instrumento, abreviatura)")
       .eq("id_obra", workId);
     if (data) {
-      setParticellas(
-        data
-          .map((p) => {
-            let links = [];
-            try {
-              links = JSON.parse(p.url_archivo) || [];
-            } catch {
-              if (p.url_archivo)
-                links = [{ url: p.url_archivo, description: "Enlace" }];
-            }
-            return {
-              tempId: p.id,
-              ...p,
-              links,
-              instrumento_nombre: p.instrumentos?.instrumento,
-              instrumento_abreviatura: p.instrumentos?.abreviatura || null,
-              es_solista: !!p.es_solista,
-            };
-          })
-          .sort((a, b) => a.id_instrumento.localeCompare(b.id_instrumento)),
-      );
+      const mapped = data
+        .map((p) => {
+          let links = [];
+          try {
+            links = JSON.parse(p.url_archivo) || [];
+          } catch {
+            if (p.url_archivo)
+              links = [{ url: p.url_archivo, description: "Enlace" }];
+          }
+          return {
+            tempId: p.id,
+            ...p,
+            links,
+            instrumento_nombre: p.instrumentos?.instrumento,
+            instrumento_abreviatura: p.instrumentos?.abreviatura || null,
+            es_solista: !!p.es_solista,
+          };
+        })
+        .sort((a, b) => a.id_instrumento.localeCompare(b.id_instrumento));
+      setParticellas(mapped);
+      setParticellasCount(mapped.length);
     }
+  };
+
+  const openParticellasEditor = async () => {
+    if (loadingParticellasEditor) return;
+    if (formData.id) {
+      setLoadingParticellasEditor(true);
+      try {
+        await fetchParticellas(formData.id);
+      } finally {
+        setLoadingParticellasEditor(false);
+      }
+    }
+    setShowDriveMatcher(true);
   };
 
   const setFieldStatusWithReset = (field, status) => {
@@ -1506,7 +1476,7 @@ export default function WorkForm({
 
   const debouncedSave = useDebouncedCallback(saveFieldToDb, 1000);
 
-  const instrumentacionLocked = particellas.length > 0;
+  const instrumentacionLocked = particellasCount > 0 || particellas.length > 0;
 
   const updateField = (field, val) => {
     if (field === "instrumentacion" && instrumentacionLocked) {
@@ -1626,6 +1596,7 @@ export default function WorkForm({
 
     const targetId = overrideId || formData.id;
     setParticellas(uniquified);
+    setParticellasCount(uniquified.length);
     const instr = calculateInstrumentation(uniquified);
     setFormData((prev) => ({ ...prev, instrumentacion: instr }));
 
@@ -1748,65 +1719,6 @@ export default function WorkForm({
 
   const flushPartsPersistQueue = () =>
     partsPersistChainRef.current.catch(() => {});
-
-  useEffect(() => {
-    const valid = new Set(particellas.map((p) => p.tempId));
-    setSelectedPartTempIds((prev) => {
-      const next = new Set([...prev].filter((id) => valid.has(id)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [particellas]);
-
-  useEffect(() => {
-    const el = particellaSelectAllRef.current;
-    if (!el) return;
-    const n = selectedPartTempIds.size;
-    const total = particellas.length;
-    el.indeterminate = total > 0 && n > 0 && n < total;
-  }, [selectedPartTempIds, particellas.length]);
-
-  const handleDeletePart = (tempId) => {
-    setParticellaDeleteConfirm({ mode: "single", tempId });
-  };
-
-  const handleBulkDeleteSelectedParticellas = () => {
-    if (selectedPartTempIds.size === 0) return;
-    setParticellaDeleteConfirm({ mode: "bulk" });
-  };
-
-  const confirmDeleteParticella = () => {
-    if (!particellaDeleteConfirm) return;
-    if (particellaDeleteConfirm.mode === "single") {
-      const { tempId } = particellaDeleteConfirm;
-      setSelectedPartTempIds((prev) => {
-        const next = new Set(prev);
-        next.delete(tempId);
-        return next;
-      });
-      handlePartsChange(particellas.filter((x) => x.tempId !== tempId));
-    } else {
-      const sel = selectedPartTempIds;
-      handlePartsChange(particellas.filter((x) => !sel.has(x.tempId)));
-      setSelectedPartTempIds(new Set());
-    }
-  };
-
-  const particellaDeleteMessage = (() => {
-    if (!particellaDeleteConfirm) return "";
-    if (particellaDeleteConfirm.mode === "bulk") {
-      const n = selectedPartTempIds.size;
-      return n === 1
-        ? "¿Eliminar esta particella?"
-        : `¿Eliminar las ${n} particellas seleccionadas?`;
-    }
-    const part = particellas.find(
-      (p) => p.tempId === particellaDeleteConfirm.tempId,
-    );
-    const name = (part?.nombre_archivo ?? "").trim();
-    return name
-      ? `¿Eliminar la particella «${name}»?`
-      : "¿Eliminar esta particella?";
-  })();
 
   const handleCreateInitial = async (shouldClose = false) => {
     if (!formData.titulo) {
@@ -2008,7 +1920,7 @@ export default function WorkForm({
           .filter(Boolean),
       );
       setParticellas([]);
-      setSelectedPartTempIds(new Set());
+      setParticellasCount(0);
       setDuplicateSuggestionsDismissed(true);
       setArrangementSourceWorkId(sourceWorkId);
       setRefsCount(0);
@@ -2052,89 +1964,6 @@ export default function WorkForm({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al montar / cambiar obra origen
   }, [initialData?.arrangementFromWorkId]);
-
-  const handleAddParts = () => {
-    let selectedId = genInstrument;
-    const queryNorm = normalizeForSearch(instrumentQuery);
-    const filtered = [...INSTRUMENT_GROUPS, ...instrumentList].filter((i) =>
-      normalizeForSearch(i.instrumento).includes(queryNorm),
-    );
-    if (!selectedId && filtered.length > 0 && instrumentQuery.length >= 2)
-      selectedId = filtered[0].id;
-    if (!selectedId) return;
-
-    const group = INSTRUMENT_GROUPS.find((g) => g.id === selectedId);
-    let newParts = [];
-    if (group) {
-      newParts = group.definitions.map((def) => ({
-        tempId: Math.random(),
-        id: null,
-        id_instrumento: def.id_instrumento,
-        nombre_archivo: def.nombre_archivo,
-        links: [],
-        nota_organico: "",
-        instrumento_nombre: def.instrumento_base,
-        es_solista: false,
-      }));
-    } else {
-      const instr = instrumentList.find((i) => i.id === selectedId);
-      for (let i = 1; i <= genQuantity; i++) {
-        newParts.push({
-          tempId: Math.random(),
-          id: Math.random(),
-          id_instrumento: selectedId,
-          nombre_archivo:
-            genQuantity > 1
-              ? `${capitalizeWords(instr.instrumento)} ${i}`
-              : capitalizeWords(instr.instrumento),
-          links: [],
-          nota_organico: "",
-          instrumento_nombre: instr.instrumento,
-          es_solista: false,
-        });
-      }
-    }
-    handlePartsChange(
-      [...particellas, ...newParts].sort((a, b) =>
-        a.id_instrumento.localeCompare(b.id_instrumento),
-      ),
-    );
-    setInstrumentQuery("");
-    setGenInstrument("");
-    setGenQuantity(1);
-  };
-
-  const handleAddPartsFromOrganico = () => {
-    const parsed = parseOrganicoVientosInput(organicoVientosInput);
-    if (!parsed.ok) {
-      toast.error(parsed.error);
-      return;
-    }
-    const newParts = parsed.definitions.map((def) => ({
-      tempId: Math.random(),
-      id: null,
-      id_instrumento: def.id_instrumento,
-      nombre_archivo: def.nombre_archivo,
-      links: [],
-      nota_organico: "",
-      instrumento_nombre: def.instrumento_base,
-      es_solista: false,
-    }));
-    handlePartsChange(
-      [...particellas, ...newParts].sort((a, b) =>
-        a.id_instrumento.localeCompare(b.id_instrumento),
-      ),
-    );
-    setOrganicoVientosInput("");
-    toast.success(
-      `${newParts.length} particella${newParts.length === 1 ? "" : "s"} añadida${newParts.length === 1 ? "" : "s"} desde orgánico`,
-    );
-  };
-
-  const allOptions = [...INSTRUMENT_GROUPS, ...instrumentList];
-  const filteredInstruments = allOptions.filter((i) =>
-    normalizeForSearch(i.instrumento).includes(normalizeForSearch(instrumentQuery)),
-  );
 
   const copyDriveUrl = useCallback(() => {
     const u = (formData.link_drive || "").trim();
@@ -3001,12 +2830,20 @@ export default function WorkForm({
                 </button>
                 <button
                   type="button"
-                  disabled={!formData.id || !((formData.link_drive || "").trim())}
-                  onClick={() => setShowDriveMatcher(true)}
+                  disabled={
+                    loadingParticellasEditor ||
+                    !formData.id ||
+                    !((formData.link_drive || "").trim())
+                  }
+                  onClick={openParticellasEditor}
                   className="flex items-center justify-center gap-0.5 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-blue-300 hover:bg-blue-50/80 disabled:cursor-not-allowed disabled:opacity-40"
-                  title="Escanear y emparejar particellas (Drive)"
+                  title="Editar particellas (Drive)"
                 >
-                  <IconLink size={16} className="text-blue-600" />
+                  {loadingParticellasEditor ? (
+                    <IconLoader size={16} className="animate-spin text-blue-600" />
+                  ) : (
+                    <IconLink size={16} className="text-blue-600" />
+                  )}
                 </button>
                 {!isOficial && (
                   <button
@@ -3062,8 +2899,12 @@ export default function WorkForm({
                 </span>
                 <button
                   type="button"
-                  disabled={!formData.id || !((formData.link_drive || "").trim())}
-                  onClick={() => setShowDriveMatcher(true)}
+                  disabled={
+                    loadingParticellasEditor ||
+                    !formData.id ||
+                    !((formData.link_drive || "").trim())
+                  }
+                  onClick={openParticellasEditor}
                   className="text-[10px] font-bold uppercase text-emerald-700 hover:text-emerald-900 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Elegir
@@ -3196,270 +3037,29 @@ export default function WorkForm({
       />
       </div>
 
-      {/* PARTICELLAS */}
-      <div className="w-full min-w-0 max-w-full border-t border-slate-200/80 pt-6 px-3 sm:px-4 md:px-5">
-        <h3 className="text-sm font-bold uppercase text-slate-500 mb-3">
-          Gestión de Particellas
-        </h3>
-
-        {/* BARRA DE CREACIÓN */}
-        <div className="flex flex-wrap gap-2 items-end bg-white/60 p-3 rounded-xl mb-4 border border-slate-200/80 shadow-sm min-w-0">
-          <div className="flex min-w-0 flex-1 basis-[14rem] gap-2 items-end">
-            <div className="flex-1 min-w-0 relative">
-              <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
-                Instrumento / Grupo
-              </label>
-              <input
-                ref={instrumentInputRef}
-                className="input"
-                placeholder="Buscar..."
-                value={instrumentQuery}
-                onChange={(e) => {
-                  setInstrumentQuery(e.target.value);
-                  setShowInstrumentOptions(true);
-                }}
-                onFocus={() => setShowInstrumentOptions(true)}
-              />
-              {showInstrumentMenu && instrumentMenuStyle && createPortal(
-                <div
-                  ref={instrumentMenuRef}
-                  data-fixed-menu="true"
-                  style={{
-                    top: instrumentMenuStyle.top,
-                    left: instrumentMenuStyle.left,
-                    width: instrumentMenuStyle.width,
-                    maxHeight: instrumentMenuStyle.maxHeight,
-                  }}
-                  className="fixed z-[100] bg-white border shadow-xl overflow-y-auto overscroll-contain rounded-lg"
-                >
-                  {filteredInstruments.map((i) => (
-                    <div
-                      key={i.id}
-                      className="p-2 hover:bg-indigo-50 cursor-pointer text-xs border-b border-slate-50 last:border-0"
-                      onMouseDown={() => {
-                        setGenInstrument(i.id);
-                        setInstrumentQuery(i.instrumento);
-                        setShowInstrumentOptions(false);
-                      }}
-                    >
-                      <span
-                        className={i.isGroup ? "font-bold text-indigo-700" : ""}
-                      >
-                        {i.instrumento}
-                      </span>
-                    </div>
-                  ))}
-                </div>,
-                document.body,
-              )}
-            </div>
-            <div className="shrink-0">
-              <div className="mb-1 flex gap-1.5">
-                <label className="w-16 text-[10px] font-bold uppercase text-slate-400 block">
-                  Cant.
-                </label>
-                <span className="w-[38px] shrink-0" aria-hidden="true" />
-              </div>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  min="1"
-                  className="input w-16 h-[38px] py-0 text-center"
-                  value={genQuantity}
-                  onChange={(e) => setGenQuantity(parseInt(e.target.value))}
-                />
-                <button
-                  type="button"
-                  onClick={handleAddParts}
-                  className="shrink-0 flex items-center justify-center bg-indigo-600 text-white h-[38px] w-[38px] rounded-lg hover:bg-indigo-700 shadow-sm"
-                  title="Añadir instrumento(s)"
-                >
-                  <IconPlus size={16} />
-                </button>
-              </div>
-            </div>
-          </div>
-          <OrganicoVientosAddField
-            variant="form"
-            value={organicoVientosInput}
-            onChange={setOrganicoVientosInput}
-            onAdd={handleAddPartsFromOrganico}
-            disabled={isSaving}
-          />
-        </div>
-
-        {selectedPartTempIds.size > 0 && (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-200 bg-rose-50/90 px-3 py-2 text-xs shadow-sm">
-            <span className="font-semibold text-rose-900">
-              {selectedPartTempIds.size}{" "}
-              {selectedPartTempIds.size === 1 ? "seleccionada" : "seleccionadas"}
+      {/* PARTICELLAS: editor = DriveMatcherModal (carga diferida) */}
+      <div className="w-full min-w-0 max-w-full border-t border-slate-200/80 pt-6 px-3 sm:px-4 md:px-5 pb-2">
+        <button
+          type="button"
+          onClick={openParticellasEditor}
+          disabled={loadingParticellasEditor}
+          className="w-full flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/80 px-4 py-3.5 text-sm font-bold uppercase tracking-wide text-indigo-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-70"
+        >
+          {loadingParticellasEditor ? (
+            <IconLoader size={18} className="animate-spin" />
+          ) : (
+            <IconList size={18} />
+          )}
+          Editar Particellas
+          {particellasCount > 0 && (
+            <span className="ml-1 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-black text-white normal-case tracking-normal">
+              {particellasCount}
             </span>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setSelectedPartTempIds(new Set())}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-bold text-slate-600 hover:bg-slate-50"
-              >
-                Quitar selección
-              </button>
-              <button
-                type="button"
-                onClick={handleBulkDeleteSelectedParticellas}
-                disabled={isSaving}
-                className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 font-bold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <IconTrash size={14} />
-                Eliminar seleccionadas
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* TABLA DE PARTICELLAS */}
-        <div className="bg-white/90 rounded-lg border border-slate-200/80 overflow-hidden shadow-sm">
-          <div className="grid grid-cols-12 gap-2 bg-slate-50 border-b border-slate-200 px-4 py-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider items-center">
-            <div className="col-span-1 flex justify-center">
-              <input
-                ref={particellaSelectAllRef}
-                type="checkbox"
-                disabled={particellas.length === 0 || isSaving}
-                checked={
-                  particellas.length > 0 &&
-                  selectedPartTempIds.size === particellas.length
-                }
-                onChange={(e) => {
-                  if (e.target.checked) {
-                    setSelectedPartTempIds(new Set(particellas.map((x) => x.tempId)));
-                  } else {
-                    setSelectedPartTempIds(new Set());
-                  }
-                }}
-                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                title="Seleccionar todas"
-                aria-label="Seleccionar todas las particellas"
-              />
-            </div>
-            <div className="col-span-1 text-center">ID</div>
-            <div className="col-span-3">Nombre de Particella</div>
-            <div className="col-span-1 text-center text-[10px] font-bold text-slate-500">Solista</div>
-            <div className="col-span-2 text-center">Nota Org.</div>
-            <div className="col-span-2 text-center">Enlaces</div>
-            <div className="col-span-2 text-right">Acciones</div>
-          </div>
-
-          <div className="divide-y divide-slate-100">
-            {particellas.map((p) => (
-              <div
-                key={p.tempId}
-                className={`grid grid-cols-12 gap-2 px-4 py-2 items-center transition-colors group text-sm ${p.es_solista ? "bg-sky-50 hover:bg-sky-100" : "hover:bg-slate-50"}`}
-              >
-                <div className="col-span-1 flex justify-center">
-                  <input
-                    type="checkbox"
-                    checked={selectedPartTempIds.has(p.tempId)}
-                    disabled={isSaving}
-                    onChange={() =>
-                      setSelectedPartTempIds((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(p.tempId)) next.delete(p.tempId);
-                        else next.add(p.tempId);
-                        return next;
-                      })
-                    }
-                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                    aria-label={`Seleccionar particella ${p.nombre_archivo || p.tempId}`}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                </div>
-                <div className="col-span-1 flex justify-center">
-                  <span className="w-8 h-6 rounded bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 uppercase">
-                    {p.id_instrumento}
-                  </span>
-                </div>
-                <div className="col-span-3">
-                  <input
-                    className="w-full bg-transparent border-none p-0 text-slate-700 font-bold focus:ring-0 placeholder:text-slate-300 focus:bg-white focus:shadow-sm rounded px-1 transition-all"
-                    value={p.nombre_archivo ?? ""}
-                    onChange={(e) =>
-                      setParticellas((prev) =>
-                        prev.map((x) =>
-                          x.tempId === p.tempId
-                            ? { ...x, nombre_archivo: e.target.value }
-                            : x,
-                        ),
-                      )
-                    }
-                    onBlur={() => handlePartsChange(particellas)}
-                  />
-                </div>
-                <div className="col-span-1 flex justify-center">
-                  <label className="flex items-center gap-1 cursor-pointer" title="Solista">
-                    <input
-                      type="checkbox"
-                      checked={!!p.es_solista}
-                      onChange={(e) => {
-                        const next = particellas.map((x) =>
-                          x.tempId === p.tempId ? { ...x, es_solista: e.target.checked } : x,
-                        );
-                        setParticellas(next);
-                        handlePartsChange(next);
-                      }}
-                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <span className="text-[10px] text-slate-500">Solista</span>
-                  </label>
-                </div>
-                <div className="col-span-2 flex justify-center">
-                  <input
-                    className="w-12 text-center bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 focus:bg-white text-xs text-slate-500 outline-none transition-all"
-                    placeholder="-"
-                    value={p.nota_organico || ""}
-                    onChange={(e) =>
-                      setParticellas((prev) =>
-                        prev.map((x) =>
-                          x.tempId === p.tempId
-                            ? { ...x, nota_organico: e.target.value }
-                            : x,
-                        ),
-                      )
-                    }
-                    onBlur={() => handlePartsChange(particellas)}
-                  />
-                </div>
-                <div className="col-span-2 flex justify-center">
-                  <button
-                    onClick={() => {
-                      setEditingLinksId(p.tempId);
-                      setIsLinkModalOpen(true);
-                    }}
-                    className={`text-[10px] px-2 py-1 rounded-full font-bold transition-all flex items-center gap-1 ${p.links?.length > 0 ? "bg-indigo-50 text-indigo-600 hover:bg-indigo-100" : "bg-slate-100 text-slate-400 hover:bg-slate-200"}`}
-                  >
-                    <IconLink size={12} />
-                    {p.links?.length > 0
-                      ? `${p.links.length} Link(s)`
-                      : "Sin Links"}
-                  </button>
-                </div>
-                <div className="col-span-2 flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    type="button"
-                    onClick={() => handleDeletePart(p.tempId)}
-                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                    title="Eliminar"
-                  >
-                    <IconTrash size={16} />
-                  </button>
-                </div>
-              </div>
-            ))}
-
-            {particellas.length === 0 && (
-              <div className="p-8 text-center text-slate-400 text-xs italic bg-slate-50">
-                No hay particellas cargadas.
-              </div>
-            )}
-          </div>
-        </div>
+          )}
+        </button>
+        <p className="mt-2 text-center text-[11px] text-slate-400">
+          Abre el asistente de Drive para crear, vincular y organizar particellas.
+        </p>
       </div>
 
       {/* FOOTER ACCIONES */}
@@ -3592,18 +3192,6 @@ export default function WorkForm({
       />
 
       <ConfirmDialog
-        isOpen={!!particellaDeleteConfirm}
-        onClose={() => setParticellaDeleteConfirm(null)}
-        onConfirm={confirmDeleteParticella}
-        title="Eliminar particella"
-        message={particellaDeleteMessage}
-        confirmText="Eliminar"
-        cancelText="Cancelar"
-        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-md transition-all active:scale-[0.98]"
-        overlayClassName="z-[110]"
-      />
-
-      <ConfirmDialog
         isOpen={draftExitConfirmOpen}
         onClose={() => {
           if (isSaving) return;
@@ -3673,27 +3261,6 @@ export default function WorkForm({
         onAudiosChange={persistAudios}
         supabase={supabase}
         catalogoInstrumentos={instrumentList}
-      />
-
-      <LinksManagerModal
-        isOpen={isLinkModalOpen}
-        onClose={() => {
-          setIsLinkModalOpen(false);
-          setEditingLinksId(null);
-        }}
-        links={
-          particellas.find((p) => p.tempId === editingLinksId)?.links || []
-        }
-        partName={
-          particellas.find((p) => p.tempId === editingLinksId)?.nombre_archivo
-        }
-        isSolista={!!particellas.find((p) => p.tempId === editingLinksId)?.es_solista}
-        onSave={(links) => {
-          const updated = particellas.map((p) =>
-            p.tempId === editingLinksId ? { ...p, links } : p,
-          );
-          handlePartsChange(updated);
-        }}
       />
       <QuickComposerModal
         isOpen={isQuickCompOpen}

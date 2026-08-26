@@ -641,6 +641,9 @@ function ProgramWorksTable({
                   const isConsolidated = (
                     w.instrumentation_consolidated_families || []
                   ).includes(col.id);
+                  const isOmitted = (
+                    w.instrumentation_omitted_families || []
+                  ).includes(col.id);
                   const requiredAboveConvoked =
                     col.id !== "Str" && requiredCount > convokedCount;
                   const requiredEqualsConvoked =
@@ -649,9 +652,11 @@ function ProgramWorksTable({
                     requiredCount > 0;
                   const countClass = requiredAboveConvoked
                     ? "bg-orange-500 text-white rounded px-1"
-                    : requiredEqualsConvoked && isConsolidated
-                      ? "bg-violet-200 text-violet-900 rounded px-1"
-                      : "text-slate-900";
+                    : isOmitted
+                      ? "bg-sky-200 text-sky-800 rounded px-1"
+                      : requiredEqualsConvoked && isConsolidated
+                        ? "bg-violet-200 text-violet-900 rounded px-1"
+                        : "text-slate-900";
 
                   return (
                     <td
@@ -661,11 +666,13 @@ function ProgramWorksTable({
                       <span
                         className={`font-mono text-xs font-extrabold ${countClass}`}
                         title={
-                          isConsolidated
-                            ? "Partes cubiertas con asignación múltiple"
-                            : requiredAboveConvoked
-                              ? `Requerido: ${requiredCount} · Convocado: ${convokedCount}`
-                              : undefined
+                          isOmitted
+                            ? "Requerido reducido por partes omitidas"
+                            : isConsolidated
+                              ? "Partes cubiertas con asignación múltiple"
+                              : requiredAboveConvoked
+                                ? `Requerido: ${requiredCount} · Convocado: ${convokedCount}`
+                                : undefined
                         }
                       >
                         {requiredCount || "-"}
@@ -901,6 +908,7 @@ export default function InstrumentationAudit({ supabase }) {
 
         const assignsByProgram = {};
         const containersByProgram = {};
+        const omittedByProgram = {};
         if (programIds.length > 0) {
           const { data: assigns } = await supabase
             .from("seating_asignaciones")
@@ -911,6 +919,17 @@ export default function InstrumentationAudit({ supabase }) {
               assignsByProgram[row.id_programa] = [];
             }
             assignsByProgram[row.id_programa].push(row);
+          });
+
+          const { data: omittedRows } = await supabase
+            .from("seating_particellas_omitidas")
+            .select("id_programa, id_particella")
+            .in("id_programa", programIds);
+          (omittedRows || []).forEach((row) => {
+            if (!omittedByProgram[row.id_programa]) {
+              omittedByProgram[row.id_programa] = new Set();
+            }
+            omittedByProgram[row.id_programa].add(String(row.id_particella));
           });
 
           const { data: conts } = await supabase
@@ -999,11 +1018,10 @@ export default function InstrumentationAudit({ supabase }) {
             containers: containersByProgram[p.id] || [],
             particellasByObra,
             particellas: allParticellas,
+            omittedPartIds: omittedByProgram[p.id] || new Set(),
           };
-          const { required, workRows, partsMax } = buildProgramInstrumentationAudit(
-            blocks,
-            seatingContext,
-          );
+          const { required, workRows, partsMax, omittedFamilies } =
+            buildProgramInstrumentationAudit(blocks, seatingContext);
           const consolidated = computeInstrumentationRequiredConsolidated(
             required,
             all,
@@ -1022,6 +1040,7 @@ export default function InstrumentationAudit({ supabase }) {
             instrumentationRequired: required,
             instrumentationPartsMax: partsMax,
             instrumentationRequiredConsolidated: consolidated,
+            instrumentationRequiredOmitted: omittedFamilies || {},
             instrumentationConvoked: all,
             instrumentationVacants: vacants,
           };
@@ -1378,6 +1397,7 @@ export default function InstrumentationAudit({ supabase }) {
           const isOpen = expandedIds.has(p.id);
           const requiredConsolidated =
             p.instrumentationRequiredConsolidated || {};
+          const requiredOmitted = p.instrumentationRequiredOmitted || {};
 
           const fechaDesde = p.fecha_desde || "";
           const fechaHasta = p.fecha_hasta || "";
@@ -1523,14 +1543,19 @@ export default function InstrumentationAudit({ supabase }) {
                                 ? requiredPercTotal
                                 : required[col.id] || 0;
                             const highlightDeficit = reqVal > convVal;
+                            const highlightOmitted =
+                              !highlightDeficit && !!requiredOmitted[col.id];
                             const highlightConsolidated =
                               !highlightDeficit &&
+                              !highlightOmitted &&
                               reqVal === convVal &&
                               reqVal > 0 &&
                               requiredConsolidated[col.id];
                             const reqMismatchStyle = p.organico_revisado
                               ? "bg-blue-100 text-blue-700 border border-blue-300 font-bold rounded"
                               : "bg-orange-500 text-white font-bold rounded";
+                            const reqOmittedStyle =
+                              "bg-sky-200 text-sky-800 font-bold rounded";
                             const reqConsolidatedStyle =
                               "bg-violet-200 text-violet-900 font-bold rounded";
 
@@ -1540,10 +1565,17 @@ export default function InstrumentationAudit({ supabase }) {
                                 className={`${AUDIT_SUMMARY_INST_TH_TD} font-mono ${
                                   highlightDeficit
                                     ? reqMismatchStyle
-                                    : highlightConsolidated
-                                      ? reqConsolidatedStyle
-                                      : "text-slate-800"
+                                    : highlightOmitted
+                                      ? reqOmittedStyle
+                                      : highlightConsolidated
+                                        ? reqConsolidatedStyle
+                                        : "text-slate-800"
                                 }`}
+                                title={
+                                  highlightOmitted
+                                    ? "Requerido reducido por partes omitidas"
+                                    : undefined
+                                }
                               >
                                 {reqVal}
                               </td>

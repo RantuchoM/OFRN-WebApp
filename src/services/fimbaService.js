@@ -1909,10 +1909,8 @@ export async function listFimbaEventoTransportes(eventoId) {
 }
 
 /**
- * Encode actividad + campos de planilla en `eventos.descripcion` (texto plano).
- */
-/**
- * Encode actividad + destino/vuelo en `eventos.descripcion`.
+ * Encode actividad/Detalle + destino/vuelo en `eventos.descripcion`.
+ * La parte libre (actividad) puede ser HTML rich-text (mismo campo OFRN EventForm).
  * Observaciones de equipaje viven en `eventos.observaciones_equipaje`
  * (no se reescriben aquí; se acepta `observaciones` solo por compat legacy).
  */
@@ -1926,7 +1924,14 @@ export function encodeFimbaTrasladoDescripcion({
 }) {
   const parts = [];
   const act = String(actividad || "").trim();
-  if (act) parts.push(act);
+  // Evitar persistir solo markup vacío (`<br>`, `<div><br></div>`, …)
+  const actPlain = act
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/(p|div|li|h[1-6])>/gi, " ")
+    .replace(/<[^>]*>?/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (actPlain) parts.push(act);
   const dest = String(destino || "").trim();
   if (dest) parts.push(`Destino: ${dest}`);
   const vu = String(vuelo || "").trim();
@@ -4025,7 +4030,8 @@ export async function upsertFimbaEventoTransportePlazas(
  * @param {string} payload.fecha
  * @param {string} [payload.hora_inicio]
  * @param {string} [payload.hora_fin]
- * @param {string} [payload.actividad]
+ * @param {string} [payload.actividad] — Detalle / título (HTML rich-text OK; parte libre de `eventos.descripcion`)
+ * @param {string} [payload.detalle] — alias de `actividad`
  * @param {string} [payload.destino]
  * @param {string} [payload.vuelo]
  * @param {string} [payload.observaciones] — alias de observaciones_equipaje
@@ -4248,7 +4254,7 @@ export async function saveFimbaEvento(payload) {
   ).trim();
 
   const descripcion = encodeFimbaTrasladoDescripcion({
-    actividad: payload.actividad,
+    actividad: payload.actividad ?? payload.detalle,
     destino: payload.destino,
     vuelo: payload.vuelo,
   });
@@ -4322,6 +4328,197 @@ export async function saveFimbaEvento(payload) {
   if (gruposRes.error) return { evento: null, error: gruposRes.error };
 
   return { evento, error: null };
+}
+
+/**
+ * Sufijo « - Copia» sobre Detalle / actividad (paridad OFRN). Respeta HTML.
+ */
+function actividadWithCopiaSuffix(actividad) {
+  const raw = String(actividad || "").trim();
+  if (!raw) return "Copia";
+  const plain = raw
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/(p|div|li|h[1-6])>/gi, " ")
+    .replace(/<[^>]*>?/gm, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/-\s*Copia$/i.test(plain)) return raw;
+  return `${raw} - Copia`;
+}
+
+/**
+ * Duplica un evento FIMBA (shell + tags + flota/plazas + audiencia).
+ * **No** copia `fimba_propuesta_rutas` ni reglas OFRN de boarding.
+ * Añade « - Copia» al Detalle. `clientValidated: true` evita hard-block de
+ * libres mientras el original sigue en la misma ventana.
+ *
+ * @param {object} source — fila mapeada de agenda/trayectos
+ * @param {object} [opts]
+ * @param {number|string} [opts.id_gira]
+ * @param {number|string} [opts.lockPropuesta]
+ * @param {boolean} [opts.appendCopia=true]
+ * @param {boolean} [opts.usa_transporte]
+ * @param {Array} [opts.logisticsSummary]
+ * @param {Array} [opts.propuestaRoutes]
+ * @returns {Promise<{ evento: object|null, error: Error|null }>}
+ */
+export async function duplicateFimbaEvento(source, opts = {}) {
+  if (source == null || source.id == null) {
+    return { evento: null, error: new Error("Evento origen requerido") };
+  }
+  if (source.es_ride_segment) {
+    return {
+      evento: null,
+      error: new Error("No se puede duplicar un tramo sintético de a bordo"),
+    };
+  }
+  const idGira = Number(source.id_gira ?? opts.id_gira);
+  if (!Number.isFinite(idGira)) {
+    return { evento: null, error: new Error("id_gira requerido") };
+  }
+
+  const propIds = [
+    ...new Set(
+      [
+        ...(source.propuestas || []).map((p) => Number(p?.id ?? p)),
+        opts.lockPropuesta != null && opts.lockPropuesta !== ""
+          ? Number(opts.lockPropuesta)
+          : null,
+      ].filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+
+  const grupoIds = [
+    ...new Set(
+      eventGrupoIdsFromEvent(source)
+        .map(Number)
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+
+  let vehiculos = (source.vehiculos || [])
+    .map((v) => ({
+      id_gira_transporte: Number(v.id_gira_transporte),
+      plazas: Math.max(0, Number(v.plazas) || 0),
+    }))
+    .filter(
+      (v) =>
+        Number.isFinite(v.id_gira_transporte) && v.id_gira_transporte > 0,
+    );
+
+  const ofrnUnitRaw = source.id_gira_transporte;
+  const ofrnUnit =
+    ofrnUnitRaw != null && ofrnUnitRaw !== ""
+      ? Number(ofrnUnitRaw)
+      : null;
+
+  const tipoId =
+    source.id_tipo_evento != null && source.id_tipo_evento !== ""
+      ? Number(source.id_tipo_evento)
+      : FIMBA_DEFAULT_TIPO_EVENTO;
+
+  const usaTx =
+    opts.usa_transporte != null
+      ? Boolean(opts.usa_transporte)
+      : actividadUsaTransporte(tipoId, source.tipos_evento);
+
+  let sinServicio = Boolean(source.sin_servicio);
+  if (
+    usaTx &&
+    vehiculos.length === 0 &&
+    Number.isFinite(ofrnUnit) &&
+    ofrnUnit > 0
+  ) {
+    vehiculos = [{ id_gira_transporte: ofrnUnit, plazas: 0 }];
+    sinServicio = false;
+  }
+  if (usaTx && vehiculos.length === 0) {
+    sinServicio = true;
+  }
+
+  const actividad =
+    opts.appendCopia === false
+      ? String(source.actividad || "")
+      : actividadWithCopiaSuffix(source.actividad);
+
+  let audienciaOfrn = ["none", "tutti", "grupos"].includes(source.audiencia_ofrn)
+    ? source.audiencia_ofrn
+    : "none";
+  if (grupoIds.length > 0 && audienciaOfrn === "none") {
+    audienciaOfrn = "grupos";
+  }
+
+  const { evento, error } = await saveFimbaEvento({
+    id_gira: idGira,
+    fecha: source.fecha,
+    hora_inicio: source.hora_inicio || null,
+    hora_fin: source.hora_fin || null,
+    actividad,
+    destino: source.destino || "",
+    vuelo: source.vuelo || "",
+    asientos_equipaje:
+      source.asientos_equipaje != null && source.asientos_equipaje !== ""
+        ? source.asientos_equipaje
+        : source.pax,
+    observaciones_equipaje:
+      source.observaciones_equipaje || source.observaciones || "",
+    sin_servicio: usaTx ? sinServicio : true,
+    usa_transporte: usaTx,
+    vehiculos: sinServicio || !usaTx ? [] : vehiculos,
+    id_propuestas: propIds,
+    id_grupos: audienciaOfrn === "grupos" ? grupoIds : [],
+    id_tipo_evento: Number.isFinite(tipoId) ? tipoId : FIMBA_DEFAULT_TIPO_EVENTO,
+    audiencia_ofrn: audienciaOfrn,
+    id_locacion:
+      source.id_locacion != null && source.id_locacion !== ""
+        ? source.id_locacion
+        : null,
+    visible_agenda: source.visible_agenda !== false,
+    clientValidated: true,
+    logisticsSummary: opts.logisticsSummary,
+    propuestaRoutes: opts.propuestaRoutes,
+  });
+
+  if (error) return { evento: null, error };
+
+  const propById = new Map(
+    (source.propuestas || []).map((p) => [Number(p.id), p]),
+  );
+  const propuestasTagged = propIds.map((id) => propById.get(id) || { id });
+  const gruposTagged = (source.grupos || []).filter((g) =>
+    grupoIds.includes(Number(g.id)),
+  );
+
+  return {
+    evento: {
+      ...source,
+      ...evento,
+      id: evento.id,
+      actividad,
+      destino: source.destino || "",
+      vuelo: source.vuelo || "",
+      propuestas: propuestasTagged,
+      grupos: gruposTagged,
+      vehiculos: sinServicio || !usaTx
+        ? []
+        : vehiculos.map((v) => ({
+            id_evento: evento.id,
+            id_gira_transporte: v.id_gira_transporte,
+            plazas: v.plazas,
+          })),
+      sin_servicio: usaTx ? sinServicio : true,
+      asientos_equipaje: Math.max(
+        0,
+        Number(source.asientos_equipaje ?? source.pax) || 0,
+      ),
+      observaciones_equipaje:
+        source.observaciones_equipaje || source.observaciones || "",
+      audiencia_ofrn: audienciaOfrn,
+      es_ride_segment: false,
+      ride_kind: null,
+    },
+    error: null,
+  };
 }
 
 /** Alias histórico del editor de transportes. */

@@ -26,6 +26,7 @@ import {
   attachDriveLinksByFilename,
   expandDriveFileToParts,
   getDirectorInstrumentId,
+  getDriveFilePrefix,
   getSuggestedParts,
   getUncoveredDrivePartSuggestions,
   suggestDriveLinksForParts,
@@ -717,7 +718,7 @@ export default function DriveMatcherModal({
       ? suggestionsForFile
       : expandDriveFileToParts(file, catalogoInstrumentos);
     if (!expanded.length) {
-      const prefix = (file.name || "").split(".")[0].split("-")[0].trim();
+      const prefix = getDriveFilePrefix(file);
       window.alert(
         prefix
           ? `No se pudo detectar un instrumento para "${prefix}".`

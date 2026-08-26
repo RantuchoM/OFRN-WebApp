@@ -6,6 +6,7 @@ import {
   IconPlus,
   IconEdit,
   IconTrash,
+  IconCopy,
   IconLoader,
   IconClock,
   IconSearch,
@@ -15,6 +16,7 @@ import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import {
   categoriesFromTiposEvento,
   deleteFimbaEvento,
+  duplicateFimbaEvento,
   FIMBA_DEFAULT_TIPO_EVENTO,
   getFimbaEdicionById,
   labelGiraTransporte,
@@ -23,8 +25,10 @@ import {
   listFimbaPropuestas,
 } from "../../services/fimbaService";
 import { normalizeForSearch } from "../../utils/sanitize";
+import { stripHtml } from "../../utils/eventDisplayUtils";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
+import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 
 const FIMBA_AGENDA_SEARCH_DEBOUNCE_MS = 250;
 
@@ -108,8 +112,8 @@ function FimbaAgendaSearchField({ onQueryChange }) {
         value={localQuery}
         onChange={handleChange}
         placeholder="Buscar..."
-        title="Buscar en tipo, actividad, locación, destino, artistas y vehículos"
-        aria-label="Buscar en tipo, actividad, locación, destino, artistas y vehículos"
+        title="Buscar en tipo, detalle, locación, destino, artistas y vehículos"
+        aria-label="Buscar en tipo, detalle, locación, destino, artistas y vehículos"
         className="fimba-input"
         style={{
           width: "10.5rem",
@@ -238,7 +242,7 @@ function getFimbaAgendaSearchParts(ev, flotaById = null) {
     if (gt) vehOfrn = labelGiraTransporte(gt);
   }
   return [
-    ev.actividad,
+    stripHtml(ev.actividad),
     ev.tipo_nombre,
     ev.tipos_evento?.nombre,
     ev.categoria_nombre,
@@ -456,7 +460,7 @@ export default function FimbaAgendaPage() {
   ]);
 
   const handleDelete = async (ev) => {
-    const label = ev.actividad || ev.tipo_nombre || "evento";
+    const label = stripHtml(ev.actividad) || ev.tipo_nombre || "evento";
     const ofrnNote =
       ev.es_ofrn && !ev.es_fimba
         ? "\n\nEs un evento de orquesta OFRN: se eliminará de la agenda de la gira."
@@ -474,6 +478,27 @@ export default function FimbaAgendaPage() {
       return;
     }
     reload();
+  };
+
+  const handleDuplicate = async (ev) => {
+    const label = stripHtml(ev.actividad) || ev.tipo_nombre || "evento";
+    if (
+      !window.confirm(
+        `¿Duplicar «${label}» del ${formatFecha(ev.fecha)}?\n\nSe copia tipo, horarios, detalle, locación, equipaje, tags y flota. No se copian subidas/bajadas de artistas.`,
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    const { evento: copy, error: err } = await duplicateFimbaEvento(ev, {
+      id_gira: edicion?.id_gira ?? ev.id_gira,
+    });
+    if (err || !copy?.id) {
+      setError(err?.message || "No se pudo duplicar");
+      return;
+    }
+    await reload();
+    setModal({ mode: "edit", evento: copy });
   };
 
   const backHref = artistaId
@@ -668,7 +693,7 @@ export default function FimbaAgendaPage() {
                   <th>Hora com</th>
                   <th>Hora fin</th>
                   <th>Tipo</th>
-                  <th>Actividad</th>
+                  <th>Detalle</th>
                   <th>Destino / Vuelo</th>
                   <th>Vehículo</th>
                   <th>As. Equipaje</th>
@@ -796,7 +821,7 @@ export default function FimbaAgendaPage() {
                         )}
                       </td>
                       <td style={{ fontWeight: 600, maxWidth: 180 }}>
-                        {ev.actividad || "—"}
+                        <FimbaEventDetallePreview html={ev.actividad} />
                         {ev.observaciones ? (
                           <span className="fimba-muted" style={{ display: "block", fontSize: "0.75rem", fontWeight: 400 }}>
                             {ev.observaciones}
@@ -896,6 +921,15 @@ export default function FimbaAgendaPage() {
                               title="Editar"
                             >
                               <IconEdit size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              className="fimba-btn fimba-btn-ghost"
+                              style={{ marginLeft: 4 }}
+                              onClick={() => handleDuplicate(ev)}
+                              title="Duplicar"
+                            >
+                              <IconCopy size={14} />
                             </button>
                             <button
                               type="button"

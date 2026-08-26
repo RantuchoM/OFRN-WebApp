@@ -35,13 +35,15 @@ La lógica vive en **`src/utils/drivePartMatcher.js`** (importada por el modal).
   2. Normaliza ese prefijo según las reglas anteriores.
   3. Calcula, para cada archivo, el instrumento más cercano en `catalogoInstrumentos`.
   4. Si el prefijo contiene `"Director"` o `"Score"`, fuerza el mapeo al ID de Director (catálogo o `50` como fallback).
-  5. Devuelve `parts` compatibles con `calculateInstrumentation`.
+  5. Prefijos `Clarinete Bajo` / `bass clar` / `Cl.B` resuelven a **Clarinete Bajo/Requinto** (`07b`), no a Clarinete (`07`).
+  6. Devuelve `parts` compatibles con `calculateInstrumentation`.
 
 - A partir de estas `parts` sugeridas se calcula instrumentación en el banner verde (solo cuando `parts.length === 0`).
 
 ## Archivos combinados (`1y2`, `1 y 2`, `1&2`, `1-2`, `1/2`)
 
-- `parseCombinedNumbers` detecta sufijos como `Corno F 1y2` → números `[1, 2]` + resto `Corno F`.
+- Prefijo de archivo: se corta por ` - ` (espacio-guión-espacio) entre instrumento y título; **no** por `-` suelto, para no romper `Oboe 1-2 - Título - Comp.pdf` (vale para **cualquier** instrumento).
+- `parseCombinedNumbers` detecta sufijos como `Corno F 1y2` / `Flauta 1-2` / `Trombon 1–2` → números `[1, 2]` + resto del instrumento.
 - **Auto-generación** (`Insertar y vincular`, botón `+` en archivo): un PDF combinado genera **varias** particellas (`Corno 1`, `Corno 2`, …) con el **mismo** enlace Drive.
 - **Placeholders existentes**: `attachDriveLinksByFilename` y `suggestDriveLinksForParts` permiten que un mismo archivo se vincule a cada slot incluido en el combinado.
 - **Prioridad**: match de slot exacto (`Corno 1.pdf` → solo `Corno 1`) gana sobre combinado (`Corno 1y2.pdf`).

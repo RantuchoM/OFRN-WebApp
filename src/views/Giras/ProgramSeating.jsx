@@ -35,7 +35,11 @@ import {
   calculateInstrumentationCountsFromParts,
   getInstrumentationUnassignedFamilies,
   getInstrumentationConsolidatedFamilies,
+  getInstrumentationOmittedFamilies,
+  filterActiveParticellas,
+  isParticellaOmitted,
   computeInstrumentationRequiredConsolidated,
+  computeInstrumentationRequiredOmitted,
   maxInstrumentationColumnMap,
   getEffectiveRequiredColumnMap,
   instrumentationColumnMapToString,
@@ -49,7 +53,9 @@ import {
   ParticellaSelect,
   CreateParticellaModal,
 } from "../../components/seating/SeatingControls";
+import OmitPartsModal from "../../components/seating/OmitPartsModal";
 import PartNameLabel from "../../components/seating/PartNameLabel";
+import { toast } from "sonner";
 import { exportSeatingToExcel } from "../../utils/seatingExcelExporter";
 import {
   seatingItemMatrixPosition,
@@ -74,6 +80,7 @@ import {
   sortWindMusiciansForSeating,
 } from "../../utils/seatingWindOrder";
 import { createPortal } from "react-dom";
+import WorkForm from "../Repertoire/WorkForm";
 import GiraGrupoChips from "../../components/giras/GiraGrupoChips";
 import {
   fetchGiraGrupos,
@@ -86,8 +93,26 @@ import {
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
-/** Tooltip por obra: lista las particellas sin asignar (Flauta 1, Oboe 2, etc.) */
-function ObraUnassignedTooltip({ parts }) {
+const WorkFormModalPortal = ({ children, onClose = null }) => {
+  useEffect(() => {
+    if (!onClose) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      {children}
+    </div>,
+    document.body,
+  );
+};
+
+/** Tooltip/botón por obra: lista las particellas sin asignar; click abre omitir. */
+function ObraUnassignedTooltip({ parts, onClick }) {
   const [pos, setPos] = useState(null);
   const ref = useRef(null);
 
@@ -124,21 +149,26 @@ function ObraUnassignedTooltip({ parts }) {
 
   return (
     <>
-      <span
+      <button
+        type="button"
         ref={ref}
         onMouseEnter={show}
         onMouseLeave={hide}
-        className="absolute top-1 right-1 cursor-help"
-        role="status"
-        aria-label={`Falta asignar: ${labels.join(", ")}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick?.();
+        }}
+        className="absolute top-1 right-1 cursor-pointer hover:scale-110 transition-transform"
+        aria-label={`Falta asignar: ${labels.join(", ")}. Clic para omitir partes.`}
+        title="Clic para omitir partes"
       >
         <IconAlertTriangle size={16} className="text-amber-400" />
-      </span>
+      </button>
       {pos &&
         typeof document !== "undefined" &&
         createPortal(
           <div
-            className="fixed z-[9999] -translate-x-1/2 -translate-y-full px-3 py-2 min-w-[140px] max-w-[220px] bg-slate-800 text-white text-xs font-medium rounded-lg shadow-lg border border-slate-700 animate-in fade-in duration-150"
+            className="fixed z-[9999] -translate-x-1/2 -translate-y-full px-3 py-2 min-w-[140px] max-w-[220px] bg-slate-800 text-white text-xs font-medium rounded-lg shadow-lg border border-slate-700 animate-in fade-in duration-150 pointer-events-none"
             style={{ top: pos.top, left: pos.left }}
             role="tooltip"
           >
@@ -150,6 +180,9 @@ function ObraUnassignedTooltip({ parts }) {
                 <li key={i}>{l}</li>
               ))}
             </ul>
+            <div className="mt-1.5 pt-1 border-t border-slate-600 text-[10px] text-sky-300">
+              Clic para omitir…
+            </div>
             <div
               className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent border-t-slate-800"
               aria-hidden
@@ -948,6 +981,13 @@ export default function ProgramSeating({
   const [activeBlockId, setActiveBlockId] = useState(null);
   const [showMobileActionsMenu, setShowMobileActionsMenu] = useState(false);
   const mobileActionsMenuRef = useRef(null);
+  const [workFormData, setWorkFormData] = useState(null);
+  const [particellasRefreshKey, setParticellasRefreshKey] = useState(0);
+  /** ids de obras_particellas omitidas en este programa */
+  const [omittedPartIds, setOmittedPartIds] = useState(() => new Set());
+  /** { mode: 'omit'|'restore', obra, parts } */
+  const [omitModal, setOmitModal] = useState(null);
+  const [omitSaving, setOmitSaving] = useState(false);
   const musicianTooltipById = useMemo(() => {
     const map = {};
     (confirmedRoster || []).forEach((m) => {
@@ -1240,7 +1280,37 @@ export default function ProgramSeating({
       setParticellas(partsData);
     };
     fetchParts();
-  }, [obras, supabase]);
+  }, [obras, supabase, particellasRefreshKey]);
+
+  const openWorkFormForObra = (obra) => {
+    if (!isEditor || !obra?.obra_id) return;
+    setWorkFormData({ id: obra.obra_id });
+  };
+
+  const closeWorkFormModal = () => {
+    setWorkFormData(null);
+    setParticellasRefreshKey((k) => k + 1);
+    if (repertoireBlocks.length === 0 && program?.id) {
+      supabase
+        .from("programas_repertorios")
+        .select(
+          `id, orden, nombre, google_drive_folder_id, organico_revisado, organico_comentario, programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), repertorio_obras (id, orden, obras (id, titulo, link_drive, instrumentacion, obras_compositores (rol, compositores (apellido))))`,
+        )
+        .eq("id_programa", program.id)
+        .order("orden")
+        .then(({ data }) => {
+          if (!data) return;
+          setFetchedBlocks(
+            data.map((block) => ({
+              ...block,
+              repertorio_obras:
+                block.repertorio_obras?.sort((a, b) => a.orden - b.orden) || [],
+            })),
+          );
+        });
+    }
+    onRefreshGira?.();
+  };
 
   const otherMusicians = useMemo(() => {
     const filtered = filteredRoster.filter((m) => {
@@ -1353,6 +1423,15 @@ export default function ProgramSeating({
     return map;
   }, [obras, particellas]);
 
+  /** Partes disponibles para asignar (excluye omitidas del programa). */
+  const assignablePartsByWork = useMemo(() => {
+    const map = {};
+    Object.entries(availablePartsByWork).forEach(([oid, parts]) => {
+      map[oid] = filterActiveParticellas(parts, omittedPartIds);
+    });
+    return map;
+  }, [availablePartsByWork, omittedPartIds]);
+
   /** Sugerencias bombilla (IconBulb) por músico: derivadas siempre de assignations + obras. Para cada celda vacía se usa la etiqueta de parte de la obra más cercana en el programa donde ese músico ya tiene asignación (primero columnas anteriores, luego posteriores). Así una obra nueva muestra sugerencia sin tener que re-asignar en la sesión. */
   const derivedMusicianSuggestions = useMemo(() => {
     const result = {};
@@ -1366,7 +1445,7 @@ export default function ProgramSeating({
         const targetKey = `M-${musicianId}-${targetObraId}`;
         if (getMusicianPartIds(musicianAssignments, targetKey).length > 0) return;
 
-        const available = availablePartsByWork[targetObraId] || [];
+        const available = assignablePartsByWork[targetObraId] || [];
         if (!available.length) return;
 
         const assignedInObra = assignedPartIdsByObra[targetObraId] || new Set();
@@ -1410,7 +1489,7 @@ export default function ProgramSeating({
     assignments,
     musicianAssignments,
     particellas,
-    availablePartsByWork,
+    assignablePartsByWork,
     assignedPartIdsByObra,
   ]);
 
@@ -1418,9 +1497,14 @@ export default function ProgramSeating({
     if (!obras || obras.length === 0) return [];
     return obras.map((obra) => {
       const parts = availablePartsByWork[obra.obra_id] || [];
-      const partsColumnMap = calculateInstrumentationCountsFromParts(parts);
-      const unassignedFamilies = getInstrumentationUnassignedFamilies(
+      const activeParts = filterActiveParticellas(parts, omittedPartIds);
+      const omittedFamilies = getInstrumentationOmittedFamilies(
         parts,
+        omittedPartIds,
+      );
+      const partsColumnMap = calculateInstrumentationCountsFromParts(activeParts);
+      const unassignedFamilies = getInstrumentationUnassignedFamilies(
+        activeParts,
         particellaCounts,
       );
       const fromAssignments = calculateInstrumentationFromSeatingAssignments({
@@ -1449,7 +1533,7 @@ export default function ProgramSeating({
         );
         instString = instrumentationColumnMapToString(effectiveColumnMap);
       } else {
-        instString = calculateInstrumentation(parts) || "";
+        instString = calculateInstrumentation(activeParts) || "";
       }
 
       return {
@@ -1458,6 +1542,7 @@ export default function ProgramSeating({
         instrumentation_effective_column_map: effectiveColumnMap,
         instrumentation_consolidated_families: consolidatedFamilies,
         instrumentation_unassigned_families: unassignedFamilies,
+        instrumentation_omitted_families: omittedFamilies,
         instrumentation_from_assignments: fromAssignments.hasAssignments,
         instrumentation_parts_column_map: partsColumnMap,
         instrumentation_assigned_column_map: fromAssignments.hasAssignments
@@ -1473,6 +1558,7 @@ export default function ProgramSeating({
     musicianAssignments,
     particellas,
     particellaCounts,
+    omittedPartIds,
   ]);
 
   const obrasWithInstrumentationForActiveBlock = useMemo(() => {
@@ -1543,7 +1629,7 @@ export default function ProgramSeating({
   // Sugerencia basada en nombre de contenedor (cuerdas)
   const getContainerSuggestedPart = useCallback(
     (container, obraId) => {
-      const available = availablePartsByWork[obraId] || [];
+      const available = assignablePartsByWork[obraId] || [];
       if (!available.length) return null;
 
       const assignedInObra = assignedPartIdsByObra[obraId] || new Set();
@@ -1570,7 +1656,7 @@ export default function ProgramSeating({
         }) || null
       );
     },
-    [availablePartsByWork, assignedPartIdsByObra],
+    [assignablePartsByWork, assignedPartIdsByObra],
   );
 
   const pendingParticellaSuggestionsCount = useMemo(() => {
@@ -1765,6 +1851,14 @@ export default function ProgramSeating({
     ],
   );
 
+  const instrumentationRequiredOmitted = useMemo(
+    () =>
+      computeInstrumentationRequiredOmitted(
+        obrasWithInstrumentationForActiveBlock,
+      ),
+    [obrasWithInstrumentationForActiveBlock],
+  );
+
   const hasVacancies = useMemo(
     () => (filteredRoster || []).some((r) => !!r.es_simulacion),
     [filteredRoster],
@@ -1817,6 +1911,8 @@ export default function ProgramSeating({
     consolidatedFamilies = {},
     showConsolidatedHighlight = false,
     skipDiffHighlight = false,
+    omittedFamilies = {},
+    showOmittedHighlight = false,
   ) => {
     const fl = displayMap.Fl || 0;
     const ob = displayMap.Ob || 0;
@@ -1864,10 +1960,17 @@ export default function ProgramSeating({
       : "bg-orange-200 text-black font-extrabold";
     const consolidatedClass =
       "bg-violet-200 text-violet-900 font-extrabold";
+    const omittedClass = "bg-sky-200 text-sky-800 font-extrabold";
+
+    const isOmittedFamily = (key) => {
+      if (key === "Tim") return !!omittedFamilies?.Perc;
+      return !!omittedFamilies?.[key];
+    };
 
     const tokenClass = (key, showConsolidatedHighlight = false) => {
       if (skipDiffHighlight) return "text-slate-700";
       if (isRequiredDifferentFromConvoked(key)) return highlightClass;
+      if (showOmittedHighlight && isOmittedFamily(key)) return omittedClass;
       if (showConsolidatedHighlight && isConsolidatedMatch(key)) {
         return consolidatedClass;
       }
@@ -2022,6 +2125,14 @@ export default function ProgramSeating({
       });
       setAssignments(finalMap);
       setMusicianAssignments(musicianMap);
+
+      const { data: omittedRows } = await supabase
+        .from("seating_particellas_omitidas")
+        .select("id_particella")
+        .eq("id_programa", program.id);
+      setOmittedPartIds(
+        new Set((omittedRows || []).map((r) => String(r.id_particella))),
+      );
     } catch (err) {
       console.error(err);
     } finally {
@@ -2220,6 +2331,77 @@ export default function ProgramSeating({
   }, [filteredRoster]);
 
   // --- MODALS & UPDATES ---
+  const openOmitPartsModal = (obra, mode = "omit") => {
+    if (!isEditor || !obra) return;
+    const obraParts = availablePartsByWork[obra.obra_id] || [];
+    if (mode === "restore") {
+      const parts = obraParts.filter((p) =>
+        isParticellaOmitted(p.id, omittedPartIds),
+      );
+      setOmitModal({ mode: "restore", obra, parts });
+      return;
+    }
+    const parts = obraParts.filter(
+      (p) =>
+        !particellaCounts[p.id] &&
+        !particellaCounts[String(p.id)] &&
+        !isParticellaOmitted(p.id, omittedPartIds),
+    );
+    setOmitModal({ mode: "omit", obra, parts });
+  };
+
+  const handleOmitPartsConfirm = async (partIds) => {
+    if (!omitModal || !program?.id || !partIds?.length) return;
+    const { mode, obra } = omitModal;
+    setOmitSaving(true);
+    try {
+      if (mode === "omit") {
+        const rows = partIds.map((id_particella) => ({
+          id_programa: program.id,
+          id_obra: obra.obra_id,
+          id_particella,
+        }));
+        const { error } = await supabase
+          .from("seating_particellas_omitidas")
+          .upsert(rows, { onConflict: "id_programa,id_particella" });
+        if (error) throw error;
+        setOmittedPartIds((prev) => {
+          const next = new Set(prev);
+          partIds.forEach((id) => next.add(String(id)));
+          return next;
+        });
+        toast.success(
+          partIds.length === 1
+            ? "Parte omitida"
+            : `${partIds.length} partes omitidas`,
+        );
+      } else {
+        const { error } = await supabase
+          .from("seating_particellas_omitidas")
+          .delete()
+          .eq("id_programa", program.id)
+          .in("id_particella", partIds);
+        if (error) throw error;
+        setOmittedPartIds((prev) => {
+          const next = new Set(prev);
+          partIds.forEach((id) => next.delete(String(id)));
+          return next;
+        });
+        toast.success(
+          partIds.length === 1
+            ? "Parte restaurada"
+            : `${partIds.length} partes restauradas`,
+        );
+      }
+      setOmitModal(null);
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.message || "No se pudo guardar la omisión");
+    } finally {
+      setOmitSaving(false);
+    }
+  };
+
   const openCreateModal = (
     obraId,
     defaultInstrId,
@@ -2509,6 +2691,16 @@ export default function ProgramSeating({
         defaultInstrumentId={createModalInfo?.defaultInstrId}
       />
 
+      <OmitPartsModal
+        isOpen={!!omitModal}
+        onClose={() => !omitSaving && setOmitModal(null)}
+        onConfirm={handleOmitPartsConfirm}
+        mode={omitModal?.mode || "omit"}
+        obraTitle={omitModal?.obra?.title || ""}
+        parts={omitModal?.parts || []}
+        saving={omitSaving}
+      />
+
       {(loading || rosterLoading || isExporting || isAcceptingAllSuggestions) && (
         <div className="absolute inset-0 bg-white/80 z-[60] flex flex-col items-center justify-center gap-2">
           <IconLoader className="animate-spin text-indigo-600" size={32} />
@@ -2632,6 +2824,9 @@ export default function ProgramSeating({
                           instrumentationConvoked,
                           organicoRevisado,
                           instrumentationRequiredConsolidated,
+                          true,
+                          false,
+                          instrumentationRequiredOmitted,
                           true,
                         )}
                       </span>
@@ -3020,7 +3215,7 @@ export default function ProgramSeating({
             containers={seatingContainers}
             particellas={particellas}
             isEditor={isEditor}
-            availablePartsByWork={availablePartsByWork}
+            availablePartsByWork={assignablePartsByWork}
             particellaCounts={particellaCounts}
             onAssign={handleAssign}
             onMusicianSlotAssign={handleMusicianSlotAssign}
@@ -3042,9 +3237,16 @@ export default function ProgramSeating({
                   // Pre-cálculo para el header (Unassigned Warning / Complete)
                   const obraParts = availablePartsByWork[obra.obra_id] || [];
                   const unassignedParts = obraParts.filter(
-                    (p) => !particellaCounts[p.id],
+                    (p) =>
+                      !particellaCounts[p.id] &&
+                      !particellaCounts[String(p.id)] &&
+                      !isParticellaOmitted(p.id, omittedPartIds),
+                  );
+                  const omittedPartsForObra = obraParts.filter((p) =>
+                    isParticellaOmitted(p.id, omittedPartIds),
                   );
                   const hasUnassigned = unassignedParts.length > 0;
+                  const hasOmitted = omittedPartsForObra.length > 0;
                   const hasParts = obraParts.length > 0;
 
                   return (
@@ -3053,9 +3255,9 @@ export default function ProgramSeating({
                       className="p-1 w-32 border-l border-slate-600 align-bottom relative group"
                     >
                       <div className="flex flex-col gap-0.5 items-center w-full pb-1 overflow-hidden">
-                        {/* Carpeta (solo edición) */}
+                        {/* Carpeta + editar obra (solo edición) */}
                         {isEditor && (
-                          <div className="mb-0.5">
+                          <div className="mb-0.5 flex items-center gap-1">
                             {obra.link ? (
                               <a
                                 href={obra.link}
@@ -3074,6 +3276,15 @@ export default function ProgramSeating({
                                 <IconFolder size={14} />
                               </span>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => openWorkFormForObra(obra)}
+                              className="text-slate-400 hover:text-white transition-colors"
+                              title="Editar obra"
+                              aria-label={`Editar obra ${obra.title || ""}`}
+                            >
+                              <IconEdit size={14} />
+                            </button>
                           </div>
                         )}
                         <div className="flex items-center gap-1 opacity-70 hover:opacity-100">
@@ -3096,11 +3307,27 @@ export default function ProgramSeating({
                           title={obra.title}
                           dangerouslySetInnerHTML={{ __html: obra.title }}
                         />
-                        {/* Indicador integridad (solo edición): check verde si completo, triángulo si falta asignar */}
+                        {/* Indicador integridad (solo edición): verde completo, celeste con omisiones, naranja si falta */}
                         {isEditor && (
                           <div className="absolute top-1 right-1">
                             {hasUnassigned ? (
-                              <ObraUnassignedTooltip parts={unassignedParts} />
+                              <ObraUnassignedTooltip
+                                parts={unassignedParts}
+                                onClick={() => openOmitPartsModal(obra, "omit")}
+                              />
+                            ) : hasParts && hasOmitted ? (
+                              <button
+                                type="button"
+                                className="text-sky-400 hover:text-sky-300 hover:scale-110 transition-transform"
+                                title="Partes omitidas — clic para restaurar"
+                                aria-label="Partes omitidas"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openOmitPartsModal(obra, "restore");
+                                }}
+                              >
+                                <IconCheckCircle size={16} />
+                              </button>
                             ) : hasParts ? (
                               <span
                                 className="text-emerald-400"
@@ -3150,7 +3377,7 @@ export default function ProgramSeating({
                           assignments[`C-${c.id}-${obra.obra_id}`];
                         if (currentVal) return false;
                         const available =
-                          availablePartsByWork[obra.obra_id] || [];
+                          assignablePartsByWork[obra.obra_id] || [];
                         if (!available.length) return false;
                         const hasUnassigned = available.some(
                           (p) => !particellaCounts[p.id],
@@ -3228,7 +3455,7 @@ export default function ProgramSeating({
                             assignments[`C-${c.id}-${obra.obra_id}`];
                           // Usamos la lista memoizada
                           const availableParts =
-                            availablePartsByWork[obra.obra_id] || [];
+                            assignablePartsByWork[obra.obra_id] || [];
                           const suggestedPart =
                             !currentVal && c.items.length > 0
                               ? getContainerSuggestedPart(c, obra.obra_id)
@@ -3400,7 +3627,7 @@ export default function ProgramSeating({
                           const key = `M-${m.id}-${obra.obra_id}`;
                           const partIds = getMusicianPartIds(musicianAssignments, key);
                           const availableParts =
-                            availablePartsByWork[obra.obra_id] || [];
+                            assignablePartsByWork[obra.obra_id] || [];
                           const hasRealPartForInstrument = availableParts.some(
                             (p) =>
                               String(p.id_instrumento) ===
@@ -3517,6 +3744,24 @@ export default function ProgramSeating({
           </table>
         </div>
       </div>
+
+      {workFormData && isEditor && (
+        <WorkFormModalPortal onClose={closeWorkFormModal}>
+          <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto overflow-x-hidden rounded-xl bg-white p-2 shadow-2xl animate-in zoom-in-95 sm:p-3">
+            <WorkForm
+              supabase={supabase}
+              formData={workFormData}
+              onCancel={closeWorkFormModal}
+              onSave={() => {
+                setParticellasRefreshKey((k) => k + 1);
+                onRefreshGira?.();
+              }}
+              catalogoInstrumentos={instrumentList}
+              context="program"
+            />
+          </div>
+        </WorkFormModalPortal>
+      )}
     </div>
   );
 }

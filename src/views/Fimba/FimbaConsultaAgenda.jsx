@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   IconClock,
+  IconCopy,
   IconEdit,
   IconLoader,
   IconPlus,
@@ -9,6 +10,7 @@ import {
 } from "../../components/ui/Icons";
 import {
   deleteFimbaEvento,
+  duplicateFimbaEvento,
   FIMBA_DEFAULT_TIPO_EVENTO,
   getFimbaEdicionById,
   labelGiraTransporte,
@@ -17,6 +19,8 @@ import {
   listFimbaPropuestas,
 } from "../../services/fimbaService";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
+import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
+import { stripHtml } from "../../utils/eventDisplayUtils";
 
 function sliceTime(t) {
   if (!t) return "—";
@@ -141,7 +145,8 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
   }, [propId, edicionId, reloadAgenda]);
 
   const handleDelete = async (ev) => {
-    const label = ev.actividad || ev.tipo_nombre || "evento";
+    const label =
+      stripHtml(ev.actividad) || ev.tipo_nombre || "evento";
     if (
       !window.confirm(`¿Eliminar «${label}» del ${formatFecha(ev.fecha)}?`)
     ) {
@@ -165,6 +170,28 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
           id_gira: propuesta.fimba_ediciones.id_gira,
         }
       : null);
+
+  const handleDuplicate = async (ev) => {
+    const label = stripHtml(ev.actividad) || ev.tipo_nombre || "evento";
+    if (
+      !window.confirm(
+        `¿Duplicar «${label}» del ${formatFecha(ev.fecha)}?\n\nSe copia tipo, horarios, detalle, locación, equipaje, tags y flota. No se copian subidas/bajadas de artistas.`,
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    const { evento: copy, error: err } = await duplicateFimbaEvento(ev, {
+      id_gira: edicionForModal?.id_gira ?? ev.id_gira,
+      lockPropuesta: propuesta?.id,
+    });
+    if (err || !copy?.id) {
+      setError(err?.message || "No se pudo duplicar");
+      return;
+    }
+    await reloadAgenda();
+    setModal({ mode: "edit", evento: copy });
+  };
 
   return (
     <section style={{ marginBottom: "1.5rem" }}>
@@ -240,7 +267,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                   <th>Hora com</th>
                   <th>Hora fin</th>
                   <th>Tipo</th>
-                  <th>Actividad</th>
+                  <th>Detalle</th>
                   <th>Destino / Vuelo</th>
                   <th>Vehículo</th>
                   <th style={{ paddingRight: editable ? undefined : "1rem" }}>
@@ -291,7 +318,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                         </span>
                       </td>
                       <td style={{ fontWeight: 600, maxWidth: 220 }}>
-                        {ev.actividad || "—"}
+                        <FimbaEventDetallePreview html={ev.actividad} />
                         {ev.observaciones ? (
                           <span
                             className="fimba-muted"
@@ -370,6 +397,15 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                               </button>
                               <button
                                 type="button"
+                                className="fimba-btn fimba-btn-ghost"
+                                style={{ marginLeft: 4 }}
+                                onClick={() => handleDuplicate(ev)}
+                                title="Duplicar"
+                              >
+                                <IconCopy size={14} />
+                              </button>
+                              <button
+                                type="button"
                                 className="fimba-btn fimba-btn-danger"
                                 style={{ marginLeft: 4 }}
                                 onClick={() => handleDelete(ev)}
@@ -411,6 +447,11 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
               setModal(null);
               reloadAgenda();
             }}
+            onDuplicate={
+              modal.mode === "edit" && modal.evento
+                ? () => handleDuplicate(modal.evento)
+                : undefined
+            }
           />,
           document.body,
         )}

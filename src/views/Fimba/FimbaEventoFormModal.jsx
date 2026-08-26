@@ -29,7 +29,15 @@ import { eventGrupoIdsFromEvent } from "../../services/giraGruposService";
 import { summarizeOfrnStopRules } from "../../utils/fimbaTransportBoarding";
 import { supabase } from "../../services/supabase";
 import StopRulesManager from "../Giras/StopRulesManager";
+import FimbaEventDetalleEditor, {
+  isFimbaDetalleEmpty,
+} from "./FimbaEventDetalleField";
 import FimbaEventoArtistasBoardingTable from "./FimbaEventoArtistasBoardingTable";
+
+/** Dirty-compare: HTML vacío (`<br>`, etc.) ≡ string vacío. */
+function detalleDirtyKey(html) {
+  return isFimbaDetalleEmpty(html) ? "" : String(html || "");
+}
 
 function sliceTime(t) {
   if (!t) return "";
@@ -604,7 +612,7 @@ export default function FimbaEventoFormModal({
       fecha: evento?.fecha || "",
       horaCom: sliceTime(evento?.hora_inicio),
       horaFin: sliceTime(evento?.hora_fin),
-      actividad: evento?.actividad || "",
+      actividad: detalleDirtyKey(evento?.actividad || ""),
       destino: evento?.destino || "",
       vuelo: evento?.vuelo || "",
       observacionesEquipaje:
@@ -632,7 +640,9 @@ export default function FimbaEventoFormModal({
     if ((fecha || "") !== (initialForm.fecha || "")) return true;
     if ((horaCom || "") !== (initialForm.horaCom || "")) return true;
     if ((horaFin || "") !== (initialForm.horaFin || "")) return true;
-    if ((actividad || "") !== (initialForm.actividad || "")) return true;
+    if (detalleDirtyKey(actividad) !== (initialForm.actividad || "")) {
+      return true;
+    }
     if ((destino || "") !== (initialForm.destino || "")) return true;
     if ((vuelo || "") !== (initialForm.vuelo || "")) return true;
     if (
@@ -1045,6 +1055,11 @@ export default function FimbaEventoFormModal({
       setSaving(false);
       return;
     }
+    if (isFimbaDetalleEmpty(actividad)) {
+      setError("El detalle del evento es obligatorio");
+      setSaving(false);
+      return;
+    }
     let ao = audienciaOfrn || "none";
     const idGrupos =
       ao === "grupos" ? selectedGrupoIds.map(Number).filter((n) => Number.isFinite(n)) : [];
@@ -1188,10 +1203,16 @@ export default function FimbaEventoFormModal({
           onSubmit={submit}
           onKeyDown={(e) => {
             // Enter en inputs (Sube/Baja, equipaje, etc.) no debe disparar Guardar
-            // ni cerrar el modal vía onSaved. Solo textarea / botón usan Enter nativo.
+            // ni cerrar el modal vía onSaved. Textarea / botón / Detalle rich usan Enter.
             if (e.key !== "Enter") return;
             const tag = e.target?.tagName;
-            if (tag === "TEXTAREA" || tag === "BUTTON") return;
+            if (
+              tag === "TEXTAREA" ||
+              tag === "BUTTON" ||
+              e.target?.isContentEditable
+            ) {
+              return;
+            }
             e.preventDefault();
           }}
         >
@@ -1304,13 +1325,10 @@ export default function FimbaEventoFormModal({
             </div>
           </div>
           <div className="fimba-field">
-            <label className="fimba-label">Actividad</label>
-            <input
-              className="fimba-input"
+            <FimbaEventDetalleEditor
               value={actividad}
-              onChange={(e) => setActividad(e.target.value)}
+              onChange={setActividad}
               placeholder="Ej. Check-in hotel / Show noche 1"
-              required
             />
           </div>
           <div className="fimba-grid-2">

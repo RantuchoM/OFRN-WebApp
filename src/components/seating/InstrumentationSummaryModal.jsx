@@ -362,6 +362,16 @@ function InstrumentationSummaryModalInner({
     );
   }, [works, required, convoked]);
 
+  const omittedFamilies = useMemo(() => {
+    const out = {};
+    (works || []).forEach((w) => {
+      (w.instrumentation_omitted_families || []).forEach((fam) => {
+        out[fam] = true;
+      });
+    });
+    return out;
+  }, [works]);
+
   const partsMaxByColumn = useMemo(() => {
     if (!works?.length) return {};
     return maxInstrumentationColumnMap(
@@ -382,10 +392,14 @@ function InstrumentationSummaryModalInner({
       !isMismatch &&
       value > 0 &&
       !!consolidatedFamilies[colId];
+    const isOmitted =
+      rowType === "required" && !!omittedFamilies[colId];
 
     let valueClass = "text-slate-800";
     if (isMismatch && isLarger) {
       valueClass = "bg-orange-200 text-black font-extrabold";
+    } else if (isOmitted) {
+      valueClass = "bg-sky-200 text-sky-800 font-extrabold";
     } else if (isConsolidatedMatch) {
       valueClass = "bg-violet-200 text-violet-900 font-extrabold";
     }
@@ -407,13 +421,15 @@ function InstrumentationSummaryModalInner({
         ? namesList.length > 0
           ? namesList.join("\n")
           : "Sin convocados"
-        : isConsolidatedMatch && partsSlotsCount != null
-          ? `Particellas en programa: ${partsSlotsCount} · Músicos asignados: ${value}`
-          : isConsolidatedMatch
-            ? "Partes cubiertas con asignación múltiple"
-            : isMismatch && isLarger
-              ? `Requerido: ${requiredValue} · Convocado: ${convokedValue}`
-              : undefined;
+        : isOmitted
+          ? "Requerido reducido por partes omitidas en el programa"
+          : isConsolidatedMatch && partsSlotsCount != null
+            ? `Particellas en programa: ${partsSlotsCount} · Músicos asignados: ${value}`
+            : isConsolidatedMatch
+              ? "Partes cubiertas con asignación múltiple"
+              : isMismatch && isLarger
+                ? `Requerido: ${requiredValue} · Convocado: ${convokedValue}`
+                : undefined;
 
     return (
       <span
@@ -442,6 +458,9 @@ function InstrumentationSummaryModalInner({
     const isConsolidated = (work.instrumentation_consolidated_families || []).includes(
       col.id,
     );
+    const isOmitted = (work.instrumentation_omitted_families || []).includes(
+      col.id,
+    );
     const partsSlotsCount =
       col.id === "Perc"
         ? getPercComparableTotal(work.instrumentation_parts_column_map || {})
@@ -458,9 +477,11 @@ function InstrumentationSummaryModalInner({
 
     const countClass = requiredAboveConvoked
       ? "bg-orange-200 text-black"
-      : requiredEqualsConvoked && isConsolidated
-        ? "bg-violet-200 text-violet-900"
-        : "text-slate-900";
+      : isOmitted
+        ? "bg-sky-200 text-sky-800"
+        : requiredEqualsConvoked && isConsolidated
+          ? "bg-violet-200 text-violet-900"
+          : "text-slate-900";
 
     if (!count && !obs) {
       return (
@@ -475,13 +496,15 @@ function InstrumentationSummaryModalInner({
         <span
           className={`font-mono text-xs font-extrabold rounded px-1 ${countClass}`}
           title={
-            isConsolidated && partsSlotsCount != null
-              ? `Particellas en obra: ${partsSlotsCount} · Músicos asignados: ${count || 0}`
-              : isConsolidated
-                ? "Partes cubiertas con asignación múltiple"
-                : requiredAboveConvoked
-                  ? `Requerido: ${requiredCount} · Convocado: ${convokedCount}`
-                  : undefined
+            isOmitted
+              ? "Requerido reducido por partes omitidas en el programa"
+              : isConsolidated && partsSlotsCount != null
+                ? `Particellas en obra: ${partsSlotsCount} · Músicos asignados: ${count || 0}`
+                : isConsolidated
+                  ? "Partes cubiertas con asignación múltiple"
+                  : requiredAboveConvoked
+                    ? `Requerido: ${requiredCount} · Convocado: ${convokedCount}`
+                    : undefined
           }
         >
           {count || "-"}

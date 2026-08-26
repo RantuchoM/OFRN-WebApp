@@ -23,13 +23,20 @@ Visualizar en tiempo real la diferencia entre la instrumentación técnica reque
 
 #### Tokens dentro del badge
 - **Naranja** (token): `requerido ≠ convocado` en esa familia.
-- **Violeta** (token, solo badge `Req`): `requerido == convocado` **y** consolidación por asignación múltiple (`partsMax > required` en programa).
-- **Neutro**: coincide sin reasignaciones.
-- Prioridad: naranja gana sobre violeta.
+- **Celeste** (token, solo badge `Req`): familia con **partes omitidas** en el programa (`seating_particellas_omitidas`); el Req baja excluyendo esas particellas.
+- **Violeta** (token, solo badge `Req`): `requerido == convocado` **y** consolidación por asignación múltiple (`partsMax > required` en programa), sin omisión en esa familia.
+- **Neutro**: coincide sin reasignaciones ni omisiones.
+- Prioridad: naranja > celeste (omisión) > violeta (consolidación).
 
 #### Modal de detalle (celdas por obra)
-- Misma semántica: naranja si `requerido > convocado`; violeta si `requerido == convocado` por asignación múltiple en esa obra.
+- Misma semántica: naranja si `requerido > convocado`; celeste si hay omisiones en la familia; violeta si consolidación por asignación múltiple.
 - Filas **Convocado** / **Requerido** en cabecera de tabla; resúmenes textuales de faltantes y sobrantes bajo la grilla.
+
+### 2bis. Omitir partes (por programa)
+- Tabla `seating_particellas_omitidas` (`id_programa`, `id_obra`, `id_particella`).
+- En header de obra (editores): clic en alerta naranja → modal con **solo partes pendientes** (sin asignar) para omitir.
+- Tras omitir todas las pendientes: desaparece el triángulo; tilde **celeste** (clic abre modal para restaurar omitidas). Tilde **verde** solo si todo está asignado y no hay omisiones.
+- Las omitidas no aparecen en selects de asignación ni cuentan en Req / auditoría (Seating badges, `InstrumentationSummaryModal`, Gestión → Auditoría).
 
 ### 3. Instrumentación Convocada
 - Se cuenta el personal de la gira usando el hook `useGiraRoster` (roster ya resuelto para la gira actual).
@@ -79,7 +86,8 @@ Visualizar en tiempo real la diferencia entre la instrumentación técnica reque
 - `getEffectiveRequiredColumnMap` — requerido híbrido por obra (particellas vs músicos según estado de asignación).
 - `instrumentationColumnMapToString` — mapa de columnas → string estándar.
 - `calculateInstrumentationFromSeatingAssignments` — conteo por músico + `columnMap`.
-- `getInstrumentationUnassignedFamilies` — familias con particellas sin asignar (alerta en columnas de seating, no colorea badges).
+- `getInstrumentationUnassignedFamilies` — familias con particellas sin asignar (alerta en columnas de seating, no colorea badges); ignora omitidas.
+- `getInstrumentationOmittedFamilies` / `filterActiveParticellas` / `computeInstrumentationRequiredOmitted` — omisiones por programa.
 - `getInstrumentationConsolidatedFamilies` — familias cubiertas con menos músicos que partes.
 - `maxInstrumentationColumnMap` — máximo de programa por slots de particella.
 - `getPercComparableTotal` — total Tim+Perc en mapa de columnas.
@@ -89,6 +97,9 @@ Visualizar en tiempo real la diferencia entre la instrumentación técnica reque
 ## Estado Actual
 - Implementación integrada en:
   - `src/views/Giras/ProgramSeating.jsx`
+  - `src/components/seating/OmitPartsModal.jsx`
   - `src/components/seating/InstrumentationSummaryModal.jsx`
+  - `src/views/Management/InstrumentationAudit.jsx`
   - `src/utils/instrumentation.js`
   - `docs/specs/instrumentation-badges-seating.md`
+  - Migración: `supabase/migrations/20260826131334_seating_particellas_omitidas.sql`

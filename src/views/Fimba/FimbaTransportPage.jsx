@@ -6,6 +6,7 @@ import {
   IconPlus,
   IconEdit,
   IconTrash,
+  IconCopy,
   IconLoader,
   IconBus,
   IconClock,
@@ -23,6 +24,7 @@ import {
   decodeFimbaTrasladoDescripcion,
   deleteFimbaTraslado,
   detalleGiraTransporte,
+  duplicateFimbaEvento,
   getFimbaEdicionById,
   giraTransporteIdsFromEvent,
   labelGiraTransporte,
@@ -53,8 +55,10 @@ import FimbaTransportReportsMenu from "./FimbaTransportReportsMenu";
 import { eventTypeIdForCategoria } from "../../utils/giraTransportUtils";
 import FimbaDestinoStopModal from "./FimbaDestinoStopModal";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
+import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import FimbaStopRulesManager from "./FimbaStopRulesManager";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { hasHtmlMarkup, stripHtml } from "../../utils/eventDisplayUtils";
 
 /** Índice id_propuesta → participantes activos (batch, sin hotelería). */
 function participantesMapFromBatch(byPropuesta) {
@@ -1048,7 +1052,7 @@ export default function FimbaTransportPage() {
       : null;
 
   const handleDelete = async (ev) => {
-    const label = ev.actividad || ev.tipo_nombre || "trayecto";
+    const label = stripHtml(ev.actividad) || ev.tipo_nombre || "trayecto";
     const ofrnNote =
       ev.es_ofrn && !ev.es_fimba
         ? "\n\nEs una parada/traslado de orquesta OFRN: se eliminará de la agenda de la gira."
@@ -1066,6 +1070,30 @@ export default function FimbaTransportPage() {
       return;
     }
     softRefresh({ eventos: true, rutas: true });
+  };
+
+  const handleDuplicate = async (ev) => {
+    const label = stripHtml(ev.actividad) || ev.tipo_nombre || "trayecto";
+    if (
+      !window.confirm(
+        `¿Duplicar «${label}» del ${formatFecha(ev.fecha)}?\n\nSe copia tipo, horarios, detalle, locación, equipaje, tags y flota. No se copian subidas/bajadas de artistas.`,
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    const { evento: copy, error: err } = await duplicateFimbaEvento(ev, {
+      id_gira: edicion?.id_gira ?? ev.id_gira,
+      usa_transporte: true,
+      logisticsSummary,
+      propuestaRoutes,
+    });
+    if (err || !copy?.id) {
+      setError(err?.message || "No se pudo duplicar");
+      return;
+    }
+    await softRefresh({ eventos: true, rutas: true });
+    setModal({ mode: "edit", evento: copy });
   };
 
   /**
@@ -2317,7 +2345,7 @@ export default function FimbaTransportPage() {
                     >
                       Com · Fin
                     </th>
-                    <th>Actividad</th>
+                    <th>Detalle</th>
                     <th>Locación</th>
                     <th
                       title="Agregar parada intermedia entre esta fila y el Destino"
@@ -2557,22 +2585,34 @@ export default function FimbaTransportPage() {
                         <td className="fimba-planilla-wrap" style={{ fontWeight: 600 }}>
                           {editMode ? (
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                              <input
-                                className="fimba-cell-input"
-                                value={evDraft.actividad}
-                                disabled={evSaving}
-                                placeholder="Actividad"
-                                onChange={(e) =>
-                                  setEventField(ev.id, "actividad", e.target.value)
-                                }
-                                onBlur={() => commitEvento(ev.id)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    commitEvento(ev.id);
+                              {hasHtmlMarkup(evDraft.actividad) ? (
+                                <>
+                                  <FimbaEventDetallePreview html={evDraft.actividad} />
+                                  <span
+                                    className="fimba-muted"
+                                    style={{ fontSize: "0.68rem", fontWeight: 400 }}
+                                  >
+                                    Con formato: editar en el modal del evento
+                                  </span>
+                                </>
+                              ) : (
+                                <input
+                                  className="fimba-cell-input"
+                                  value={evDraft.actividad}
+                                  disabled={evSaving}
+                                  placeholder="Detalle"
+                                  onChange={(e) =>
+                                    setEventField(ev.id, "actividad", e.target.value)
                                   }
-                                }}
-                              />
+                                  onBlur={() => commitEvento(ev.id)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      commitEvento(ev.id);
+                                    }
+                                  }}
+                                />
+                              )}
                               <input
                                 className="fimba-cell-input"
                                 value={evDraft.observaciones}
@@ -2593,7 +2633,10 @@ export default function FimbaTransportPage() {
                             </div>
                           ) : (
                             <>
-                              {ev.actividad || ev.tipo_nombre || "—"}
+                              <FimbaEventDetallePreview
+                                html={ev.actividad}
+                                empty={ev.tipo_nombre || "—"}
+                              />
                               {ev.observaciones ? (
                                 <span
                                   className="fimba-muted"
@@ -2863,6 +2906,15 @@ export default function FimbaTransportPage() {
                               </button>
                               <button
                                 type="button"
+                                className="fimba-btn fimba-btn-ghost"
+                                style={{ marginLeft: 4 }}
+                                onClick={() => handleDuplicate(ev)}
+                                title="Duplicar"
+                              >
+                                <IconCopy size={14} />
+                              </button>
+                              <button
+                                type="button"
                                 className="fimba-btn fimba-btn-danger"
                                 style={{ marginLeft: 4 }}
                                 onClick={() => handleDelete(ev)}
@@ -2908,6 +2960,11 @@ export default function FimbaTransportPage() {
               // Guardar evento no toca fimba_propuesta_rutas.
               softRefresh({ eventos: true });
             }}
+            onDuplicate={
+              modal.mode === "edit" && modal.evento
+                ? () => handleDuplicate(modal.evento)
+                : undefined
+            }
             // Solo refresca planilla; NO cerrar el modal ni tocar modal.evento
             onBoardingRefresh={handleBoardingRefresh}
           />,

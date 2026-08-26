@@ -7,8 +7,20 @@ const COMBINED_SUFFIX_PATTERNS = [
   { re: /(\d+)\s*y\s*(\d+)\s*$/i, pick: (m) => [m[1], m[2]] },
   { re: /(\d+)\s+y\s+(\d+)\s*$/i, pick: (m) => [m[1], m[2]] },
   { re: /(\d+)\s*&\s*(\d+)\s*$/i, pick: (m) => [m[1], m[2]] },
-  { re: /(\d+)\s*[-/]\s*(\d+)\s*$/i, pick: (m) => [m[1], m[2]] },
+  // Incluye guión ASCII y en-dash/em-dash (PDFs IMSLP / renombres mixtos)
+  { re: /(\d+)\s*[-–—/]\s*(\d+)\s*$/i, pick: (m) => [m[1], m[2]] },
 ];
+
+/**
+ * Segmento de instrumento antes de " - Título - Compositor".
+ * Parte solo por " - " (espaciado) para no romper combinados genéricos: "Oboe 1-2", "Corno 3-4", etc.
+ */
+const instrumentSegmentFromName = (nameWithoutExt) => {
+  const raw = String(nameWithoutExt || "").trim();
+  if (!raw) return "";
+  const bySpacedDash = raw.split(/\s+-\s+/);
+  return (bySpacedDash[0] || raw).trim();
+};
 
 export const normalizeInstrumentString = (str) => {
   if (!str) return "";
@@ -90,8 +102,9 @@ export const getDriveFilePrefix = (file, options = {}) => {
     const extracted = options.extractInstrument(rawName);
     if (extracted) return String(extracted).trim();
   }
-  const base = rawName.split(".")[0];
-  return base.split("-")[0].trim();
+  // Quitar extensión; no usar split("-") suelto (rompe "Inst 1-2 - Obra - Comp.pdf")
+  const base = rawName.replace(/\.[^./\\]+$/, "");
+  return instrumentSegmentFromName(base);
 };
 
 /** @returns {{ numbers: number[], remainder: string, isCombined: true } | null} */
@@ -120,7 +133,7 @@ export const parseCombinedNumbers = (text) => {
  * }}
  */
 export const parsePartSlot = (nombre_archivo) => {
-  const base = String(nombre_archivo || "").split("-")[0].trim();
+  const base = instrumentSegmentFromName(nombre_archivo);
   const combined = parseCombinedNumbers(base);
 
   if (combined) {
@@ -195,8 +208,21 @@ const resolveExplicitInstrument = (prefix, normalizedCatalog, fullCatalog) => {
   if (/clarinete\s+a|cl\s+a/i.test(rawL) || /clarinete a/i.test(rawL)) {
     return pickCatalog(normalizedCatalog, (i) => /clarinete/i.test(i.instrumento || ""));
   }
-  if (/clarinete\s+bajo|bass\s+clar/i.test(rawL)) {
-    return pickCatalog(normalizedCatalog, (i) => /clarinete/i.test(i.instrumento || ""));
+  if (/clarinete\s+bajo|bass\s+clar|cl\s*\.?\s*b(ajo)?\b/i.test(rawL)) {
+    return (
+      catalog.find(
+        (i) =>
+          /clarinete/i.test(i.instrumento || "") &&
+          /bajo|requinto/i.test(i.instrumento || ""),
+      ) ||
+      pickCatalog(
+        normalizedCatalog,
+        (i) =>
+          /clarinete/i.test(i.instrumento || "") &&
+          /bajo|requinto/i.test(i.instrumento || ""),
+      ) ||
+      pickCatalog(normalizedCatalog, (i) => String(i.id) === "07b")
+    );
   }
   if (/^celesta|^key\b/i.test(rawL)) {
     return pickCatalog(normalizedCatalog, (i) =>
