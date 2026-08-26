@@ -10,6 +10,7 @@ import {
   IconFilter,
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
+import AppNavLink from "../../components/ui/AppNavLink";
 
 export default function GirasListControls({
   mode,
@@ -78,9 +79,10 @@ export default function GirasListControls({
             { id: "WEEKLY", icon: IconColumns, title: "Semana" },
             { id: "FULL_AGENDA", icon: IconInfo, title: "Info" },
           ].map((v) => (
-            <button
+            <AppNavLink
               key={v.id}
-              onClick={() => updateView(v.id)}
+              tab="giras"
+              view={v.id === "LIST" ? null : v.id}
               className={`p-1 rounded-md transition-all ${
                 mode === v.id
                   ? "bg-white shadow-sm text-indigo-600"
@@ -89,7 +91,7 @@ export default function GirasListControls({
               title={v.title}
             >
               <v.icon size={16} />
-            </button>
+            </AppNavLink>
           ))}
         </div>
       </div>

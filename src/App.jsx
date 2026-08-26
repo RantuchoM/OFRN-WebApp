@@ -16,6 +16,8 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
+import AppNavLink from "./components/ui/AppNavLink";
+import { MODE_TO_TAB } from "./utils/appNavigation";
 import { AuthProvider, useAuth, getRolesDisplay } from "./context/AuthContext";
 import { supabase } from "./services/supabase";
 import ReloadPrompt from "./components/ui/ReloadPrompt";
@@ -704,9 +706,7 @@ const ProtectedApp = ({ initialTab }) => {
     music_translation: "MUSIC_TRANSLATION",
     difusion: "DIFUSION_GENERAL",
   };
-  const modeToTab = Object.fromEntries(
-    Object.entries(tabToMode).map(([k, v]) => [v, k]),
-  );
+  const modeToTab = MODE_TO_TAB;
 
   const currentTab = searchParams.get("tab");
   const defaultMode =
@@ -770,11 +770,6 @@ const ProtectedApp = ({ initialTab }) => {
 
     const search = newParams.toString();
     navigate({ pathname: "/", search: search ? `?${search}` : "" });
-    setIsMobileMenuOpen(false);
-  };
-
-  const handleMobileNavigate = (id) => {
-    updateView(id);
     setIsMobileMenuOpen(false);
   };
 
@@ -1123,9 +1118,10 @@ const ProtectedApp = ({ initialTab }) => {
 
         <nav className="flex-1 overflow-y-auto overflow-x-hidden py-4 px-3 space-y-1 custom-scrollbar">
           {visibleMenuItems.map((item) => (
-            <button
+            <AppNavLink
               key={item.id}
-              onClick={() => handleMobileNavigate(item.id)}
+              mode={item.id}
+              onClick={() => setIsMobileMenuOpen(false)}
               className={`
                 w-full flex items-center px-3 py-2.5 rounded-xl transition-all relative group
                 ${mode === item.id ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200" : "text-slate-600 hover:bg-slate-100"}
@@ -1140,7 +1136,7 @@ const ProtectedApp = ({ initialTab }) => {
               >
                 {item.label}
               </span>
-            </button>
+            </AppNavLink>
           ))}
         </nav>
 

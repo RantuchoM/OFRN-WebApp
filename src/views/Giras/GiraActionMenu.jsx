@@ -19,6 +19,7 @@ import {
   IconArrowRight,
   IconCopy,
 } from "../../components/ui/Icons";
+import AppNavLink from "../../components/ui/AppNavLink";
 
 const GiraActionMenu = ({
   gira,
@@ -71,19 +72,46 @@ const GiraActionMenu = ({
     setExpandedCategory(expandedCategory === key ? null : key);
   };
 
-  const SubMenuItem = ({ icon: Icon, label, onClick, className = "" }) => (
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        onClose();
-        if (onClick) onClick();
-      }}
-      className={`w-full text-left px-4 py-3 md:py-2 text-sm md:text-xs hover:bg-slate-50 flex items-center gap-3 md:gap-2 text-slate-600 border-l-2 border-transparent hover:border-indigo-500 pl-6 ${className}`}
-    >
-      <Icon size={16} className="text-slate-400 shrink-0" />{" "}
-      <span>{label}</span>
-    </button>
-  );
+  const SubMenuItem = ({
+    icon: Icon,
+    label,
+    onClick,
+    view = null,
+    subTab = null,
+    className = "",
+  }) => {
+    const itemClass = `w-full text-left px-4 py-3 md:py-2 text-sm md:text-xs hover:bg-slate-50 flex items-center gap-3 md:gap-2 text-slate-600 border-l-2 border-transparent hover:border-indigo-500 pl-6 ${className}`;
+    if (view) {
+      return (
+        <AppNavLink
+          giraId={gira.id}
+          view={view}
+          subTab={subTab}
+          className={itemClass}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+        >
+          <Icon size={16} className="text-slate-400 shrink-0" />{" "}
+          <span>{label}</span>
+        </AppNavLink>
+      );
+    }
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+          if (onClick) onClick();
+        }}
+        className={itemClass}
+      >
+        <Icon size={16} className="text-slate-400 shrink-0" />{" "}
+        <span>{label}</span>
+      </button>
+    );
+  };
 
   const CategoryItem = ({ label, icon: Icon, categoryKey, children }) => {
     if (categoryKey === "logistica" && isGuest) return null;
@@ -150,17 +178,19 @@ const GiraActionMenu = ({
               <SubMenuItem
                 icon={IconMusic}
                 label="Repertorio General"
-                onClick={() => onViewChange("REPERTOIRE")}
+                view="REPERTOIRE"
               />
               <SubMenuItem
                 icon={IconLayers}
                 label="Seating / Disposición"
-                onClick={() => onViewChange("REPERTOIRE", "seating")}
+                view="REPERTOIRE"
+                subTab="seating"
               />
               <SubMenuItem
                 icon={IconFileText}
                 label="Mis Partes"
-                onClick={() => onViewChange("REPERTOIRE", "my_parts")}
+                view="REPERTOIRE"
+                subTab="my_parts"
               />
             </CategoryItem>
 
@@ -172,7 +202,7 @@ const GiraActionMenu = ({
               <SubMenuItem
                 icon={IconCalendar}
                 label="Agenda Detallada"
-                onClick={() => onViewChange("AGENDA")}
+                view="AGENDA"
               />
             </CategoryItem>
 
@@ -185,27 +215,32 @@ const GiraActionMenu = ({
                 <SubMenuItem
                   icon={IconSettingsWheel}
                   label="Reglas"
-                  onClick={() => onViewChange("LOGISTICS", "coverage")}
+                  view="LOGISTICS"
+                  subTab="coverage"
                 />
                 <SubMenuItem
                   icon={IconMap}
                   label="Transporte"
-                  onClick={() => onViewChange("LOGISTICS", "transporte")}
+                  view="LOGISTICS"
+                  subTab="transporte"
                 />
                 <SubMenuItem
                   icon={IconHotel}
                   label="Rooming"
-                  onClick={() => onViewChange("LOGISTICS", "rooming")}
+                  view="LOGISTICS"
+                  subTab="rooming"
                 />
                 <SubMenuItem
                   icon={IconCalculator}
                   label="Viáticos"
-                  onClick={() => onViewChange("LOGISTICS", "viaticos")}
+                  view="LOGISTICS"
+                  subTab="viaticos"
                 />
                 <SubMenuItem
                   icon={IconUtensils}
                   label="Comidas"
-                  onClick={() => onViewChange("LOGISTICS", "meals")}
+                  view="LOGISTICS"
+                  subTab="meals"
                 />
               </CategoryItem>
             )}
@@ -220,7 +255,7 @@ const GiraActionMenu = ({
                 <SubMenuItem
                   icon={IconMegaphone}
                   label="Material de Prensa"
-                  onClick={() => onViewChange("DIFUSION")}
+                  view="DIFUSION"
                 />
               </CategoryItem>
             )}
@@ -235,7 +270,7 @@ const GiraActionMenu = ({
                   <SubMenuItem
                     icon={IconUsers}
                     label="Gestión de Roster"
-                    onClick={() => onViewChange("ROSTER")}
+                    view="ROSTER"
                   />
                 </CategoryItem>
 

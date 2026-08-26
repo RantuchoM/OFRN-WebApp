@@ -25,6 +25,7 @@ import {
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
+import AppNavLink from "../../components/ui/AppNavLink";
 import { fetchGiraRosterCached } from "../../hooks/useGiraRosterQuery";
 import { fetchProgramsByIds, useGirasList } from "../../hooks/useGirasList";
 import { useGirasYearSummary } from "../../hooks/useGirasYearSummary";
@@ -1431,8 +1432,8 @@ export default function GirasView({ supabase, trigger = 0 }) {
         {isDetailView ? (
           <div className="px-2.5 sm:px-4 py-1.5 sm:py-2 flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-3 print:hidden">
             <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
-              <button
-                onClick={() => updateView("LIST")}
+              <AppNavLink
+                tab="giras"
                 className={`p-1.5 sm:p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors ${
                   isGuest ? "invisible" : ""
                 }`}
@@ -1440,7 +1441,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
               >
                 {" "}
                 <IconArrowLeft size={20} />{" "}
-              </button>
+              </AppNavLink>
               <div className="flex flex-col overflow-hidden">
                 <h2 className="text-sm sm:text-m font-bold text-slate-800 truncate leading-tight">
                   {`${selectedGira.mes_letra} | ${selectedGira.nomenclador}. ${selectedGira.nombre_gira}`}
@@ -1531,9 +1532,11 @@ export default function GirasView({ supabase, trigger = 0 }) {
                   .map((item) => {
                     const isActive = mode === item.mode;
                     return (
-                      <button
+                      <AppNavLink
                         key={item.mode}
-                        onClick={() => updateView(item.mode, selectedGira.id)}
+                        tab="giras"
+                        giraId={selectedGira.id}
+                        view={item.mode}
                         className={`flex items-center justify-center ${isActive ? "gap-1" : "gap-0.5"} px-1 sm:px-3 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-bold transition-all whitespace-nowrap ${isActive ? "flex-[1.4] sm:flex-none" : "flex-1 sm:flex-none"} min-w-0 ${
                           isActive
                             ? "bg-white text-indigo-600 shadow-sm"
@@ -1545,7 +1548,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
                         <span className={`${isActive ? "inline" : "hidden"} sm:hidden 2xl:inline truncate max-w-[72px]`}>
                           {item.label}
                         </span>
-                      </button>
+                      </AppNavLink>
                     );
                   })}
                 </div>

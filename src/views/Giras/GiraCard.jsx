@@ -24,6 +24,7 @@ import LocacionNombreSpan, {
 import CommentButton from "../../components/comments/CommentButton";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import GiraActionMenu from "./GiraActionMenu";
+import AppNavLink from "../../components/ui/AppNavLink";
 import { getProgramStyle, checkIsConvoked } from "../../utils/giraUtils";
 import { filterMembershipRowsForProgramDate } from "../../utils/ensembleMembership";
 import { getMyRoomingStatus } from "../../services/giraService";
@@ -483,14 +484,13 @@ export default function GiraCard({
               </div>
             )}
         </div>
-        <div
-          className="text-[10px] text-center opacity-60 mt-1 pt-1 border-t border-black/5 cursor-pointer"
-          onClick={() =>
-            updateView(isDifusion ? "DIFUSION" : "AGENDA", gira.id)
-          }
+        <AppNavLink
+          className="text-[10px] text-center opacity-60 mt-1 pt-1 border-t border-black/5 block hover:opacity-100"
+          giraId={gira.id}
+          view={isDifusion ? "DIFUSION" : "AGENDA"}
         >
           Ver Agenda Completa
-        </div>
+        </AppNavLink>
       </div>
     );
   };
@@ -761,18 +761,23 @@ export default function GiraCard({
             </div>
             {/* Columna derecha: 5 iconos de acceso rápido */}
             <div className="w-11 flex flex-col items-center justify-evenly py-1 flex-1 min-h-0 border-l border-black/5">
-              <button
-                onClick={() => updateView("AGENDA", gira.id)}
+              <AppNavLink
+                giraId={gira.id}
+                view="AGENDA"
                 className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-fixed-indigo-600 transition-colors"
+                title="Agenda"
               >
                 <IconCalendar size={14} />
-              </button>
-              <button
-                onClick={() => updateView("REPERTOIRE", gira.id, "my_parts")}
+              </AppNavLink>
+              <AppNavLink
+                giraId={gira.id}
+                view="REPERTOIRE"
+                subTab="my_parts"
                 className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-fuchsia-600 transition-colors"
+                title="Mis Partes"
               >
                 <IconMusic size={14} />
-              </button>
+              </AppNavLink>
               <button
                 onClick={() =>
                   gira.google_drive_folder_id &&
@@ -785,12 +790,14 @@ export default function GiraCard({
               >
                 <IconDrive size={14} />
               </button>
-              <button
-                onClick={() => updateView("MEALS_PERSONAL", gira.id)}
+              <AppNavLink
+                giraId={gira.id}
+                view="MEALS_PERSONAL"
                 className={`p-2 rounded-full transition-colors hover:bg-white ${mealConfig.color} ${mealConfig.animate ? "animate-pulse" : ""}`}
+                title={mealConfig.title}
               >
                 <IconUtensils size={14} />
-              </button>
+              </AppNavLink>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -932,7 +939,11 @@ export default function GiraCard({
                   {renderSinConciertosAlert()}
                 </div>
               ) : null}
-              <div className="text-center pb-1">
+              <AppNavLink
+                giraId={gira.id}
+                view={isDifusion ? "DIFUSION" : "AGENDA"}
+                className="text-center pb-1 block"
+              >
                 <h3 className="text-sm font-bold text-slate-800 leading-tight line-clamp-2">
                   {gira.nombre_gira}
                 </h3>
@@ -941,7 +952,7 @@ export default function GiraCard({
                     {gira.subtitulo}
                   </p>
                 )}
-              </div>
+              </AppNavLink>
             </div>
             <div className="min-w-full w-full h-40 snap-center p-3 flex flex-col relative px-8">
               <div className="flex-1 overflow-hidden pt-2">
@@ -997,11 +1008,10 @@ export default function GiraCard({
               )}
             </div>
           </div>
-          <div
-            className="cursor-pointer flex-1 min-w-0 pt-0.5"
-            onClick={() =>
-              updateView(isDifusion ? "DIFUSION" : "AGENDA", gira.id)
-            }
+          <AppNavLink
+            className="cursor-pointer flex-1 min-w-0 pt-0.5 block"
+            giraId={gira.id}
+            view={isDifusion ? "DIFUSION" : "AGENDA"}
           >
             <div className="flex flex-wrap items-center gap-2 text-xs mb-1">
               <span
@@ -1049,7 +1059,7 @@ export default function GiraCard({
             <div className="flex flex-wrap items-center gap-2 text-xs opacity-80">
               {getPersonnelDisplayDesktop()}
             </div>
-          </div>
+          </AppNavLink>
         </div>
         {getConcertListDesktop() || (showSinConciertosAlert ? (
           <div className="mt-2 flex justify-start">{renderSinConciertosAlert()}</div>
@@ -1080,26 +1090,25 @@ export default function GiraCard({
             <>
               {showQuickAccessSidebar ? (
                 <>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateView("AGENDA", gira.id);
-                    }}
+                  <AppNavLink
+                    giraId={gira.id}
+                    view="AGENDA"
+                    onClick={(e) => e.stopPropagation()}
                     className={`${desktopBtnClass} hover:text-fixed-indigo-600`}
                     title="Agenda"
                   >
                     <IconCalendar size={14} />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateView("REPERTOIRE", gira.id, "my_parts");
-                    }}
+                  </AppNavLink>
+                  <AppNavLink
+                    giraId={gira.id}
+                    view="REPERTOIRE"
+                    subTab="my_parts"
+                    onClick={(e) => e.stopPropagation()}
                     className={`${desktopBtnClass} hover:text-fuchsia-600`}
                     title="Mis Partes"
                   >
                     <IconMusic size={14} />
-                  </button>
+                  </AppNavLink>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1114,16 +1123,15 @@ export default function GiraCard({
                   >
                     <IconDrive size={14} />
                   </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateView("MEALS_PERSONAL", gira.id);
-                    }}
+                  <AppNavLink
+                    giraId={gira.id}
+                    view="MEALS_PERSONAL"
+                    onClick={(e) => e.stopPropagation()}
                     className={`${desktopBtnClass} ${mealConfig.color} ${mealConfig.animate ? "animate-pulse" : ""}`}
                     title={mealConfig.title}
                   >
                     <IconUtensils size={14} />
-                  </button>
+                  </AppNavLink>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1165,15 +1173,15 @@ export default function GiraCard({
                       <IconDrive size={14} />
                     </button>
                   )}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateView("MEALS_PERSONAL", gira.id);
-                    }}
+                  <AppNavLink
+                    giraId={gira.id}
+                    view="MEALS_PERSONAL"
+                    onClick={(e) => e.stopPropagation()}
                     className={`${desktopBtnClass} hover:text-amber-600`}
+                    title="Mis Comidas"
                   >
                     <IconUtensils size={14} />
-                  </button>
+                  </AppNavLink>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

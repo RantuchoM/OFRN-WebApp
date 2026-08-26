@@ -30,6 +30,10 @@ Al navegar con `giraId` que no está en el listado filtrado, `GirasView` carga e
 | `DIFUSION` | Difusión. |
 | `EDICION` | Edición del programa (GiraForm). |
 
+## Middle-click / nueva pestaña
+
+La navegación de chrome OFRN (sidebar, pestañas de gira, cards, menú ⋮, dashboard) usa `AppNavLink` + `buildAppTo` (`src/utils/appNavigation.js`, `src/components/ui/AppNavLink.jsx`) para que el clic con rueda o Ctrl+clic abra otra pestaña. Evitar `button`/`div` + solo `navigate()` en destinos compartibles.
+
 ## Ejemplos de URL
 
 - Listado de giras (solo pestaña Giras):  

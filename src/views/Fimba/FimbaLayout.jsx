@@ -537,19 +537,27 @@ const FIMBA_CSS = `
     background: #fff;
     border: 1px solid var(--fimba-border);
     border-radius: 8px;
-    overflow: hidden;
+    /* visible: snow link tooltip is position:absolute inside .ql-container;
+       overflow:hidden clipped it when Quill set left < 0 (looked stuck left). */
+    overflow: visible;
   }
   .fimba-richtext .ql-toolbar.ql-snow {
     border: 0;
     border-bottom: 1px solid var(--fimba-border);
+    border-radius: 8px 8px 0 0;
     background: #fdf2f8;
     font-family: inherit;
   }
   .fimba-richtext .ql-container.ql-snow {
     border: 0;
+    border-radius: 0 0 8px 8px;
     font-family: inherit;
     font-size: 0.9rem;
     min-height: 140px;
+    overflow: visible;
+  }
+  .fimba-richtext .ql-tooltip {
+    z-index: 40;
   }
   .fimba-richtext .ql-editor {
     min-height: 140px;

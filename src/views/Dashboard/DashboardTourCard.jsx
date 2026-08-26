@@ -10,6 +10,7 @@ import {
 
 import { useLogistics } from "../../hooks/useLogistics";
 import { calculateStatsFromData, hasCalculator } from "../../utils/giraStatsCalculators";
+import AppNavLink from "../../components/ui/AppNavLink";
 
 const TOUR_SECTIONS = [
   {
@@ -57,7 +58,7 @@ const getTypeColor = (tipo) => {
 };
 
 const InteractiveSectionItem = ({
-  item, gira, go, supabase, userId, onStatusChange,
+  item, gira, supabase, userId, onStatusChange,
   roster, onRequestRefresh, isRosterLoading, externalStats,
   hospedajeExcluidosIds = [],
 }) => {
@@ -152,7 +153,12 @@ const InteractiveSectionItem = ({
 
   return (
     <div className="relative group/item">
-      <div onClick={() => go(item.view, item.subTab)} className={`w-full text-left flex items-center justify-between p-1.5 rounded-r-lg hover:bg-slate-50 transition-colors cursor-pointer ${stripColorClass} ${stripColorClass === 'border-transparent' ? 'pl-2 rounded-l-lg' : 'pl-2'}`}>
+      <AppNavLink
+        giraId={gira.id}
+        view={item.view}
+        subTab={item.subTab}
+        className={`w-full text-left flex items-center justify-between p-1.5 rounded-r-lg hover:bg-slate-50 transition-colors cursor-pointer ${stripColorClass} ${stripColorClass === 'border-transparent' ? 'pl-2 rounded-l-lg' : 'pl-2'}`}
+      >
         <div className="flex items-center gap-2 min-w-0 mr-2">
           <ItemIcon size={14} className={`group-hover/item:text-indigo-500 transition-colors shrink-0 ${isExcluded ? 'text-slate-300' : 'text-slate-400'}`} />
           <span className={`text-xs font-medium group-hover/item:text-slate-900 truncate ${isExcluded ? 'text-slate-400 decoration-slate-300' : 'text-slate-600'}`}>{item.label}</span>
@@ -166,9 +172,9 @@ const InteractiveSectionItem = ({
                     'text-emerald-600 bg-emerald-50'
                 }`}>{currentStats.kpi[0].value} {item.statusKey === 'ROSTER' ? 'Vacantes' : ''}</span>
             )}
-            <div className="shrink-0 relative z-10">{renderBadge()}</div>
+            <div className="shrink-0 relative z-10" onClick={(e) => e.stopPropagation()}>{renderBadge()}</div>
         </div>
-      </div>
+      </AppNavLink>
       {isOpen && (
         <div ref={popoverRef} className="absolute right-0 top-full mt-1 z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-2 min-w-[240px] animate-in fade-in zoom-in-95 origin-top-right" onClick={(e) => e.stopPropagation()}>
           <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1 flex justify-between items-center">
@@ -220,7 +226,6 @@ export default function DashboardTourCard({ gira, onViewChange, supabase, onStat
   }, [gira?.id, supabase, roster]);
   
   const [calculationResults, setCalculationResults] = useState({});
-  const go = (view, subTab) => onViewChange("GIRAS", gira.id, view, subTab);
 
   // Cálculo Global al cargar/refrescar
   useEffect(() => {
@@ -286,7 +291,13 @@ export default function DashboardTourCard({ gira, onViewChange, supabase, onStat
                   <button onClick={handleAnalyzeGira} disabled={isRosterLoading} title="Refrescar datos y recalcular" className={`hidden sm:flex shrink-0 text-xs font-bold px-3 py-1.5 rounded-full border items-center gap-1 shadow-sm transition-all ${isRosterLoading ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100 hover:text-indigo-800'}`}>
                     <IconRefresh size={14} className={isRosterLoading ? "animate-spin" : ""} />{isRosterLoading ? "Cargando..." : "Analizar"}
                   </button>
-                  <button onClick={() => go("AGENDA")} className="hidden sm:flex shrink-0 text-xs font-bold text-slate-600 hover:text-indigo-600 hover:bg-slate-50 bg-white px-3 py-1.5 rounded-full border border-slate-200 items-center gap-1 shadow-sm transition-all">Agenda <IconArrowRight size={14} /></button>
+                  <AppNavLink
+                    giraId={gira.id}
+                    view="AGENDA"
+                    className="hidden sm:flex shrink-0 text-xs font-bold text-slate-600 hover:text-indigo-600 hover:bg-slate-50 bg-white px-3 py-1.5 rounded-full border border-slate-200 items-center gap-1 shadow-sm transition-all"
+                  >
+                    Agenda <IconArrowRight size={14} />
+                  </AppNavLink>
               </div>
             </div>
             <div className="w-full max-w-md">
@@ -303,7 +314,7 @@ export default function DashboardTourCard({ gira, onViewChange, supabase, onStat
             <div className="space-y-1">{section.items.map((item, idx) => (
                 <InteractiveSectionItem 
                     key={`${section.id}-${idx}`} 
-                    item={item} gira={gira} go={go} supabase={supabase} userId={user?.id} 
+                    item={item} gira={gira} supabase={supabase} userId={user?.id} 
                     onStatusChange={onStatusChange} 
                     roster={roster} 
                     onRequestRefresh={refresh}

@@ -205,6 +205,20 @@ export default function FimbaRichTextEditor({
     };
   }, [canUpload, handleUploadFile, editorTick]);
 
+  // Snow tooltip is absolute in `.ql-container` but clamps to `document.body`
+  // by default — nested FIMBA overflow/offset pins it too far left.
+  useEffect(() => {
+    if (readOnly) return undefined;
+    const quill = quillRef.current?.getEditor?.();
+    if (!quill?.container) return undefined;
+    const boundsEl = quill.container;
+    quill.options.bounds = boundsEl;
+    if (quill.theme?.tooltip) {
+      quill.theme.tooltip.boundsContainer = boundsEl;
+    }
+    return undefined;
+  }, [readOnly, editorTick]);
+
   if (readOnly) {
     if (isEmptyHtml(value)) {
       return (

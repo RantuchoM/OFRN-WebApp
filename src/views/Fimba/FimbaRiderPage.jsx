@@ -335,7 +335,7 @@ export default function FimbaRiderPage() {
             const errMsg = errors[k];
 
             return (
-              <section key={k} className="fimba-card" style={{ margin: 0, padding: 0, overflow: "hidden" }}>
+              <section key={k} className="fimba-card" style={{ margin: 0, padding: 0, overflow: "visible" }}>
                 <button
                   type="button"
                   onClick={() => toggleOpen(k)}
