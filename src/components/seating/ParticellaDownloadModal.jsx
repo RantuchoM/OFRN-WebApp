@@ -1509,8 +1509,6 @@ export default function ParticellaDownloadModal({
             </div>
           )}
 
-          )}
-
           {results.length > 0 && (
             <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
               <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
