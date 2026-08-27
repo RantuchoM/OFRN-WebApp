@@ -1,4 +1,8 @@
 import { countsTowardInstrumentationConvoked } from "./instrumentation";
+import {
+  stagePlotItemHasInstrumentFootprint,
+  stagePlotItemUsesBanqueta,
+} from "./stagePlotCatalog";
 
 /**
  * Filas de orgánico para comparar plano vs roster convocado.
@@ -11,6 +15,20 @@ export const STAGE_PLOT_ORGANICO_ROWS = [
   { key: "cello", label: "Cello", types: ["cello"], idInstr: ["03"] },
   { key: "bass", label: "Contrabajo", types: ["bass"], idInstr: ["04"] },
   { key: "harp", label: "Arpa", types: ["harp"], nameMatch: ["arpa"] },
+  {
+    key: "guitar",
+    label: "Guitarra",
+    types: ["guitar"],
+    idInstr: ["21"],
+    nameMatch: ["guitar"],
+  },
+  {
+    key: "bandoneon",
+    label: "Bandoneón",
+    types: ["bandoneon"],
+    idInstr: ["22b"],
+    nameMatch: ["bandone"],
+  },
   { key: "flute", label: "Flauta", types: ["flute"], nameMatch: ["flaut", "picc"] },
   { key: "oboe", label: "Oboe", types: ["oboe"], nameMatch: ["oboe", "corno ing"] },
   {
@@ -69,6 +87,21 @@ export const STAGE_PLOT_ORGANICO_ROWS = [
   },
 ];
 
+/** Claves que comparten atril de a 2 (ceil(n/2)): vn, va, vc, contrabajo. */
+export const STAGE_PLOT_SHARED_ATRIL_KEYS = new Set([
+  "violin",
+  "viola",
+  "cello",
+  "bass",
+]);
+
+/** Claves de orgánico que cuentan como banqueta (no silla). */
+export const STAGE_PLOT_BANQUETA_ORGANICO_KEYS = new Set([
+  "bass",
+  "timpani",
+  "perc",
+]);
+
 const TYPE_TO_KEY = new Map();
 for (const row of STAGE_PLOT_ORGANICO_ROWS) {
   for (const t of row.types) TYPE_TO_KEY.set(t, row.key);
@@ -123,6 +156,173 @@ export function computeStagePlotOrganicoFromRoster(roster = []) {
   }
 
   return acc;
+}
+
+/**
+ * Clasifica un músico del roster para mobiliario / atriles.
+ * @returns {"bass"|"perc"|"chair"|null}
+ */
+export function classifyStagePlotMusicianSeat(member) {
+  if (!member) return null;
+  if (member.estado_gira === "ausente") return null;
+  if (!countsTowardInstrumentationConvoked(member.rol_gira)) return null;
+
+  const idInstr = String(member.id_instr || "");
+  const name = (member.instrumentos?.instrumento || "").toLowerCase();
+  const familia = (member.instrumentos?.familia || "").toLowerCase();
+
+  if (idInstr === "04" || name.includes("contrabaj")) return "bass";
+  if (
+    familia.includes("percus") ||
+    name.includes("timbal") ||
+    name.includes("perc") ||
+    name.includes("bombo") ||
+    name.includes("platillo") ||
+    name.includes("caja") ||
+    name.includes("xilof") ||
+    name.includes("vibraf") ||
+    name.includes("marimba") ||
+    name.includes("campana")
+  ) {
+    return "perc";
+  }
+  return "chair";
+}
+
+/**
+ * Clave organico para atril compartido (vn/va/vc/bass) o null.
+ * @param {object} member
+ */
+function organicoKeyForAtrilShare(member) {
+  const idInstr = String(member?.id_instr || "");
+  if (idInstr === "01") return "violin";
+  if (idInstr === "02") return "viola";
+  if (idInstr === "03") return "cello";
+  if (idInstr === "04") return "bass";
+  return null;
+}
+
+/**
+ * Atriles necesarios desde conteos por clave organico.
+ * vn/va/vc/bass → ceil(n/2); resto 1:1.
+ * @param {Record<string, number>} countsByKey
+ * @param {number} [extraOnes=0] instrumentistas sin fila organico (1:1)
+ */
+export function atrilesFromOrganicoCounts(countsByKey = {}, extraOnes = 0) {
+  let n = Math.max(0, Number(extraOnes) || 0);
+  for (const row of STAGE_PLOT_ORGANICO_ROWS) {
+    const c = Number(countsByKey[row.key]) || 0;
+    if (c <= 0) continue;
+    if (STAGE_PLOT_SHARED_ATRIL_KEYS.has(row.key)) {
+      n += Math.ceil(c / 2);
+    } else {
+      n += c;
+    }
+  }
+  return n;
+}
+
+/**
+ * Mobiliario + atriles: needed (roster) vs drawn (plano).
+ * - Sillas: 1 × instrumentista que no es contrabajo ni percusión.
+ * - Banquetas needed: #contrabajo + #percusionistas.
+ * - Banquetas drawn: ítems `bass` (auto) + ítems `banqueta` (manual perc).
+ * - Atriles: 1/instr salvo vn/va/vc/bass = ceil(n/2); drawn desde huellas.
+ *
+ * @param {Array} items
+ * @param {Array} roster
+ */
+export function computeStagePlotFurnitureSummary(items = [], roster = []) {
+  let sillasNeeded = 0;
+  let banquetasNeeded = 0;
+  const atrilBuckets = Object.fromEntries(
+    STAGE_PLOT_ORGANICO_ROWS.map((r) => [r.key, 0]),
+  );
+  let atrilExtraNeeded = 0;
+
+  for (const m of roster) {
+    const seat = classifyStagePlotMusicianSeat(m);
+    if (!seat) continue;
+    if (seat === "bass" || seat === "perc") {
+      banquetasNeeded += 1;
+    } else {
+      sillasNeeded += 1;
+    }
+
+    const shareKey = organicoKeyForAtrilShare(m);
+    if (shareKey) {
+      atrilBuckets[shareKey] += 1;
+      continue;
+    }
+    const idInstr = String(m.id_instr || "");
+    const name = (m.instrumentos?.instrumento || "").toLowerCase();
+    const byId = STAGE_PLOT_ORGANICO_ROWS.find(
+      (r) => r.idInstr && r.idInstr.includes(idInstr),
+    );
+    if (byId) {
+      atrilBuckets[byId.key] += 1;
+      continue;
+    }
+    const byName = STAGE_PLOT_ORGANICO_ROWS.find(
+      (r) =>
+        !r.idInstr &&
+        Array.isArray(r.nameMatch) &&
+        r.nameMatch.some((frag) => name.includes(frag)),
+    );
+    if (byName) atrilBuckets[byName.key] += 1;
+    else atrilExtraNeeded += 1;
+  }
+
+  let sillasDrawn = 0;
+  let banquetasDrawnBass = 0;
+  let banquetasDrawnManual = 0;
+  const drawnBuckets = Object.fromEntries(
+    STAGE_PLOT_ORGANICO_ROWS.map((r) => [r.key, 0]),
+  );
+  let atrilExtraDrawn = 0;
+
+  for (const it of items) {
+    const type = it?.type;
+    if (type === "banqueta") {
+      banquetasDrawnManual += 1;
+      continue;
+    }
+    if (type === "bass") banquetasDrawnBass += 1;
+    if (!stagePlotItemHasInstrumentFootprint(type)) continue;
+
+    if (!stagePlotItemUsesBanqueta(type)) sillasDrawn += 1;
+
+    const key = TYPE_TO_KEY.get(type);
+    if (key) drawnBuckets[key] += 1;
+    else atrilExtraDrawn += 1;
+  }
+
+  const banquetasDrawn = banquetasDrawnBass + banquetasDrawnManual;
+  const atrilesNeeded = atrilesFromOrganicoCounts(atrilBuckets, atrilExtraNeeded);
+  const atrilesDrawn = atrilesFromOrganicoCounts(drawnBuckets, atrilExtraDrawn);
+
+  const row = (key, label, drawn, required) => {
+    const delta = drawn - required;
+    return {
+      key,
+      label,
+      drawn,
+      required,
+      delta,
+      status: delta === 0 ? "ok" : delta < 0 ? "missing" : "excess",
+    };
+  };
+
+  return {
+    sillas: row("sillas", "Sillas", sillasDrawn, sillasNeeded),
+    banquetas: row("banquetas", "Banquetas", banquetasDrawn, banquetasNeeded),
+    atriles: row("atriles", "Atriles", atrilesDrawn, atrilesNeeded),
+    rows: [
+      row("sillas", "Sillas", sillasDrawn, sillasNeeded),
+      row("banquetas", "Banquetas", banquetasDrawn, banquetasNeeded),
+      row("atriles", "Atriles", atrilesDrawn, atrilesNeeded),
+    ],
+  };
 }
 
 /**

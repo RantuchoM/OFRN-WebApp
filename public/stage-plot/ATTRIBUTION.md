@@ -1,46 +1,58 @@
 # Atribución — iconos del Plano de escenario
 
-## Cuerdas medias/graves — FreeSVG.org (CC0 / dominio público)
+## Cuerdas (violín / viola / cello / contrabajo) — FreeSVG.org (CC0 / dominio público)
 
 | Archivo | Fuente | Uso en OFRN |
 |---------|--------|-------------|
-| viola.svg | [Detailed Violin Silhouette](https://freesvg.org/detailed-violin-silhouette) (SVG ID 166128; no hay viola musical en freesvg → silueta de violín, 1 path lateral) | viola |
-| cello.svg | [Cello musical instrument](https://freesvg.org/cello-musical-instrument) (SVG ID 150815; silueta lateral; publicdomainvectors.org) | cello |
-| bass.svg | [double bass 3253216](https://freesvg.org/double-bass-3253216) (SVG ID 183100; Openclipart; contrabajo lateral) | bass (contrabajo) |
+| violin.svg | [publicdomainq 0008893doscnq](https://freesvg.org/publicdomainq-0008893doscnq) (SVG ID 175059; OpenClipart / publicdomainq) | violin |
+| viola.svg | [publicdomainq violin2](https://freesvg.org/publicdomainq-violin2) (SVG ID 179008; OpenClipart / publicdomainq; silueta de violín usada como viola) | viola |
+| cello.svg | [Cello vector image](https://freesvg.org/cello-vector-image) (SVG ID 3882; papapishu / OpenClipart) | cello |
+| bass.svg | [double bass 3253216](https://freesvg.org/double-bass-3253216) (SVG ID 183100; OpenClipart) | bass (contrabajo) |
 
 Licencia del sitio: [Creative Commons 0 (dominio público)](https://freesvg.org/pages/public-domain-license).
-Adaptados a `currentColor` en OFRN (vía `src/utils/stagePlotIconAssets.js`).
+**Colores de origen preservados** (sanitize-only; no se reescriben fills a `currentColor`).
+
+## Excepción: guitarra (papapishu)
+
+| Archivo | Fuente | Uso en OFRN |
+|---------|--------|-------------|
+| guitar.svg | **papapishu** — clipart de guitarra acústica (dreadnought); colores de origen preservados | guitar → `instrumentos.id` `21` (Guitarra) |
+
+## Excepción: bandoneón (FreeSVG / OpenClipart CC0)
+
+| Archivo | Fuente | Uso en OFRN |
+|---------|--------|-------------|
+| bandoneon.svg | [Bandoneón](https://freesvg.org/bandone%C3%A3%C2%B3n) FreeSVG SVG ID **50642** (OpenClipart **216369**, CC0 / dominio público); colores de origen preservados (`#000` / `#333` / `#4d4d4d` / `#ccc`) | bandoneon → `instrumentos.id` **`22b`** (Bandoneón) |
 
 ## Excepción: flauta y oboe (Gerald_G / Openclipart)
 
 | Archivo | Fuente | Uso en OFRN |
 |---------|--------|-------------|
-| flute.svg | **Gerald_G** — [Flute](http://openclipart.org/detail/8614/flute-by-gerald_g-8614) (Openclipart, dominio público); adaptado a `currentColor` | flute |
-| oboe.svg | **Gerald_G** — [Oboe](https://openclipart.org/detail/699/oboe) (Openclipart, dominio público; silueta vertical); adaptado a `currentColor` | oboe |
+| flute.svg | **Gerald_G** — [Flute](http://openclipart.org/detail/8614/flute-by-gerald_g-8614) (Openclipart, dominio público); colores de origen preservados | flute |
+| oboe.svg | **Gerald_G** — [Oboe](https://openclipart.org/detail/699/oboe) (Openclipart, dominio público; silueta vertical con `currentColor` para tint de tema) | oboe |
 
 El resto del pack en esta carpeta sigue siendo game-icons (abajo). No usar Delapouite
 `flute`/`recorder` de game-icons mientras se evalúan estas siluetas Gerald_G.
 
 ## Game Icons (CC BY 3.0)
 
-Los demás SVG en `public/stage-plot/icons/` (salvo `flute.svg`/`oboe.svg` y las cuerdas FreeSVG arriba) provienen de
+Los demás SVG en `public/stage-plot/icons/` (salvo `flute.svg`, guitarra papapishu, bandoneón FreeSVG y las **cuerdas FreeSVG** arriba) provienen de
 [game-icons.net](https://game-icons.net)
 ([repositorio](https://github.com/game-icons/icons)), licencia
 [Creative Commons Attribution 3.0](https://creativecommons.org/licenses/by/3.0/).
 
 Se eliminó el fondo cuadrado negro del pack original y se usa `currentColor` para tintar
-(vía `src/utils/stagePlotIconAssets.js`).
+(vía `src/utils/stagePlotIconAssets.js`) — solo estos iconos mono y siluetas OFRN.
 
 | Archivo | Autor (game-icons) | Uso en OFRN |
 |---------|-------------------|-------------|
-| violin.svg | Zajkonur | violin |
 | harp.svg | Delapouite | harp |
 | clarinet.svg | Caro Asercion | clarinet |
 | bassoon.svg | Caro Asercion | bassoon |
 | french-horn.svg | Caro Asercion | horn |
 | trumpet.svg | Delapouite | trumpet |
 | trombone.svg | Caro Asercion | trombone |
-| tuba.svg | Caro Asercion | tuba |
+| tuba.svg | Delapouite | tuba |
 | drum-kit.svg | Caro Asercion | timpani *(closest; no hay kettle drums en el pack)* |
 | drum.svg | Delapouite | perc, snare *(compartido)* |
 | djembe.svg | Delapouite | bass_drum *(closest)* |
@@ -56,7 +68,6 @@ Se eliminó el fondo cuadrado negro del pack original y se usa `currentColor` pa
 | stairs.svg | Delapouite | riser |
 | musical-notes.svg | Delapouite | (reserva; no usado — `text` es solo label tipográfico) |
 | saxophone.svg | Delapouite | (reserva) |
-| guitar.svg | Lorc | (reserva) |
 | podium.svg | Delapouite | (reserva) |
 | tambourine.svg | Delapouite | (reserva) |
 | maracas.svg | Delapouite | (reserva) |
@@ -75,5 +86,5 @@ label tipográfico en lienzo/PDF; la paleta muestra el nombre «Texto» sin pict
 
 No se usan siluetas OFRN inventadas como iconos primarios del pack cuando existe
 equivalente (o closest) en game-icons o FreeSVG. **Viola:** freesvg no indexa
-viola musical (solo flor *Viola*); se usa silueta de violín (166128) como sustituto.
+viola musical (solo flor *Viola*); se usa `publicdomainq-violin2` como sustituto.
 `stagePlotSilhouettes.js` queda solo como fallback de tipos sin archivo SVG.

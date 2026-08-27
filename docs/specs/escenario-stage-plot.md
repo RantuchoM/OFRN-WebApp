@@ -124,8 +124,8 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Migración `stage_plots` v1 + deploy linked
 - [x] Menú Gira: Disposición + Escenario bajo Repertorio
 - [x] Exportar / Reportes unificado (dropdown en Disposición)
-- [x] Iconos cuerdas FreeSVG CC0: `viola.svg` (166128 violin silhouette), `cello.svg` (150815), `bass.svg` (183100); `currentColor`, vista lateral. Violín sigue en game-icons.
-- [x] Maderas Gerald_G (Openclipart PD): `flute.svg` (flauta traversa) y `oboe.svg` (silueta oboe #699) — archivos distintos; `oboe` ya no reutiliza `flute.svg`.
+- [x] Iconos cuerdas FreeSVG CC0 (colores de origen): `violin.svg` ([175059](https://freesvg.org/publicdomainq-0008893doscnq)), `viola.svg` ([179008](https://freesvg.org/publicdomainq-violin2)), `cello.svg` ([3882](https://freesvg.org/cello-vector-image) papapishu), `bass.svg` ([183100](https://freesvg.org/double-bass-3253216)).
+- [x] Maderas Gerald_G (Openclipart PD): `flute.svg` (colores de origen) y `oboe.svg` (silueta mono `currentColor`) — archivos distintos; `oboe` ya no reutiliza `flute.svg`.
 - [x] Borrar todo el escenario (confirmación, undo)
 - [x] Tamaño default 40 cm al colocar ítems nuevos
 - [x] Asas Transformer / formación: tamaño constante en pantalla (~7 px), compensando zoom y escala de ítem
@@ -133,10 +133,13 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Tooltip de ítems: nombre + tamaño real en cm (`bounds × scale / STAGE_PLOT_CM_TO_PX`); formato `W × H cm` o `≈ N cm` si cuadrado.
 - [x] Formaciones reescaladas al lienzo cm + ítems ~40 cm (defaults ~3–3.6 m; marcador 15 cm, snap 20 cm)
 - [x] Copiar formación / copiar formación con instrumentos (barra + menú contextual; +40 cm; undo)
-- [x] Cuadrado de silla detrás de instrumentos musicales (`ItemShape` + PDF)
-- [x] Recuadro silla más violeta si magnetizado a plaza (`slotId` + formación existente; `#e0e7ff` / `#818cf8`)
+- [x] Huella instrumento 50×80 cm + icono contain en 50×50 (upstage) + atril 35 cm (canvas + PDF/JPG; hit = huella; scale default 1; layout `stagePlotInstrumentFootprintLayout`)
+- [x] Orientación default hacia director al crear; `slot.rotation` al magnetizar
+- [x] Mobiliario orgánico: sillas / banquetas (bass auto + `banqueta` manual) / atriles ceil(n/2) vn·va·vc·bass
+- [x] Catálogo `banqueta` + silueta; locaciones `escenario_ancho_cm`/`escenario_profundo_cm` + picker
+- [x] Recuadro magnetizado (índigo) en huella si `slotId` válido
 - [x] Formaciones visibles (`stage.hideFormationGuides`; toggle **Formaciones** ON = guías visibles en popover Lienzo)
-- [x] Recuadros visibles (`stage.hideChairSquares`; toggle **Recuadros** ON = sillas visibles; UI + PDF)
+- [x] Recuadros visibles (`stage.hideChairSquares`; toggle **Recuadros** — legacy; huella de instrumento no depende de él)
 - [x] Fila de 4 toggles Lienzo (Cuadrícula / Radial / Formaciones / Recuadros; ON = mostrar)
 - [x] Texto: solo tipografía (sin TT/notes) + formato enriquecido limitado (negrita, cursiva, tamaño, color, alineación; PDF)
 - [x] Export PDF: hoja 1 solo escenario + dims Ancho/Profundo; channel list en hoja 2 si hay canales
@@ -144,6 +147,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Centrar formación en eje X del director (botón deshabilitado si ya centrada; snap magnético + histeresis al arrastrar)
 - [x] Flechas mueven formación seleccionada con reanchor (mismo path que drag; no demagnetiza `slotId`)
 - [x] Menú contextual de ítem: «Seleccionar formación» si magnetizado (`slotId` → formación existente)
+- [x] SVG en `instrumentos` (`svg_icon` + `stage_plot_type`) + seed 21 filas + guitarra papapishu (`21` / `guitar`) + bandoneón FreeSVG (`22b` / `bandoneon`)
 - [x] Clic derecho en vacío del lienzo: abre menú de la selección actual (formación o ítems) sin deseleccionar
 
 
@@ -164,18 +168,55 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 
 ## Silla detrás de instrumentos
 
-- **Tipos con silla:** categorías catálogo `Cuerdas`, `Maderas`, `Metales`, `Percusión`, `Teclado` (`stagePlotItemShowsChairSquare`).
-- **Sin silla:** `chair` (evitar doble), `conductor`, `music_stand`, `riser`, audio (`mic`, `mic_stand`, `di`, `wedge`, `speaker`), marcas (`mark_x`, `text` — texto plano sin icono).
-- **Tamaño:** lado = `max(boundsW, boundsH) × 0.6` (`stagePlotChairSquareSide` / `STAGE_PLOT_CHAIR_SQUARE_SCALE`); coords locales del ítem (el Group aplica `item.scale`).
-- **Estilo idle (libre):** fill `#e2e8f0`, stroke `#94a3b8` (`STAGE_PLOT_CHAIR_SQUARE_*`).
-- **Estilo magnetizado** (snap a plaza de formación): `parseSlotId(item.slotId)` válido **y** `formationId` existe en `payload.formations`. Fill `#e0e7ff`, stroke `#818cf8` (índigo lavado; más tenue que plazas/Transformer `#4f46e5`). El chrome de selección (borde ámbar del hit-box) no cambia; el recuadro violeta sigue visible seleccionado o no.
-- Centrado, `listening={false}`; z-order: silla → hit/selección → icono.
-- **PDF:** mismo criterio y colores (`drawChairSquareOnPdf` con flag magnetizado).
-- **Recuadros** (`stage.hideChairSquares`, default `false`):
-  - Toggle **Recuadros** en el popover **Lienzo** (fila con Cuadrícula / Radial / Formaciones): ON = recuadros visibles (`hideChairSquares: false`); OFF = ocultos.
-  - Cuando `hideChairSquares` es `true`: no se dibuja el `Rect` de silla detrás de instrumentos (ni gris libre ni violeta magnetizado). Iconos/siluetas, hit-box de selección y Transformer siguen activos; el snap a plazas no cambia.
-  - Persistido en el payload (undo/redo vía `patchStage` / `applyStagePlotStagePatch`).
-  - **PDF:** respeta el mismo flag (`exportStagePlotPdf` omite `drawChairSquareOnPdf` si `hideChairSquares`).
+- **Deprecado para instrumentos musicales:** el recuadro-silla genérico ya no se dibuja (`stagePlotItemShowsChairSquare` → siempre `false`). Reemplazado por **huella 50×80 + atril** (ver abajo).
+- Toggle **Recuadros** (`stage.hideChairSquares`) se conserva en payload/UI por compat; no afecta la huella de instrumentos.
+- Tipo catálogo `chair` (silla suelta) sigue disponible en paleta Escenario.
+
+
+## Huella de instrumento + atril (50×80 / icono 50×50 / atril 35 cm)
+
+- Constantes (`stagePlotConstants.js`):
+  - `STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM=50`, `DEPTH_CM=80`
+  - `STAGE_PLOT_INSTRUMENT_ICON_BOX_CM=50` (caja del SVG/icono)
+  - `STAGE_PLOT_ATRIL_LINE_CM=35`
+  - Helper `stagePlotInstrumentFootprintLayout()` → px @ `STAGE_PLOT_CM_TO_PX` (=4):
+    - Huella **200×320 px** (50×80 cm)
+    - Caja icono **200×200 px** (50×50 cm)
+    - Línea atril **140 px** (35 cm)
+    - `iconOffsetY = −60` px (centro del icono anclado al borde upstage: ocupa y ∈ [−160, +40]; franja frontal 30 cm / 120 px para atril)
+- Aplica a categorías musicales (Cuerdas/Maderas/Metales/Percusión/Teclado) vía `stagePlotItemHasInstrumentFootprint`.
+- **Local:** ancho = X; profundo = Y; **frente = +Y local** (borde hacia el director). Línea de atril de 35 cm centrada en ese borde.
+- **Icono:** `object-fit: contain` dentro de la caja 50×50 (`fitContainInBox` / `getStagePlotItemVisualBounds`); no usa `cat.w`/`cat.h` como tamaño de escena.
+- Hit-box / Transformer / tooltip = **huella 50×80** (no solo el icono). Escala default = `1` (huella = tamaño real en cm). `item.scale` escala el Group entero (huella + icono + atril).
+- Legacy: al normalizar, si `scale` ≈ el viejo default «~40 cm visual» (`targetPx / max(cat.w,h)`), se resetea a `1` para no inflar la huella.
+- Magnetizado: stroke/fill índigo lavado en la huella (mismo criterio `slotId` que antes).
+- **Canvas (`ItemShape`) + PDF/JPG:** misma huella + línea de atril + icono en caja 50×50 con el mismo `iconOffsetY`.
+- **Orientación (en principio hacia el director):**
+  - Al **crear** (paleta / drop / Insertar orgánico): `rotationFacingPoint` hacia `resolveFormationFacingPoint` (conductor o posición canónica).
+  - Al **magnetizar** a plaza: se aplica `slot.rotation` (ya mira al facing de la formación).
+  - No se reorienta en cada frame ni al arrastrar libre; el usuario puede rotar a mano.
+
+
+## Mobiliario: sillas / banquetas / atriles (panel Orgánico)
+
+- **Sillas needed:** 1 × instrumentista convocado que no es contrabajo ni percusión.
+- **Sillas drawn:** ítems con huella que no son tipos banqueta (bass/perc familia catálogo).
+- **Banquetas needed:** `#contrabajo + #percusionistas` (timpani+perc + familia perc del roster).
+- **Banquetas drawn:** cada ítem `bass` cuenta **1 auto** + cada ítem paleta `banqueta` (manual, p.ej. perc). Los iconos de perc **no** implican banqueta.
+- Catálogo: tipo `banqueta` en Escenario (silueta propia).
+- **Atriles needed/drawn:**
+  - Default **1:1** por instrumentista / ítem con huella.
+  - Excepción compartida **ceil(n/2)** para **violín, viola, cello y contrabajo** (ej. 5 bass → 3 atriles).
+  - Helper: `computeStagePlotFurnitureSummary` / `atrilesFromOrganicoCounts` en `stagePlotOrganico.js`.
+
+
+## Presets de locación (ancho × profundo)
+
+- Columnas en `locaciones`: `escenario_ancho_cm`, `escenario_profundo_cm` (nullable; checks 40–1600 / 30–1200). Migración `20260827123445_locaciones_escenario_dims` (aplicada en linked OFRN).
+- Editables en Datos → Locaciones (`DataView.jsx`).
+- Payload: `stage.id_locacion` opcional (recordatorio del preset aplicado).
+- **+ Lienzo:** diálogo nombre + select de locación con dims → crea payload con `widthCm`/`heightCm` + pin director.
+- **Lienzo popover:** select «Preset de locación» aplica tamaño vía `applyStagePlotStagePatch` (director recentrado; resto de ítems como al cambiar Ancho/Alto).
 
 ## Formaciones (escala cm)
 
@@ -247,7 +288,23 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - UI en `EventForm` para setear `eventos.id_repertorio` (hoy solo vía fallback; asociación principal es plot→eventos en editor).
 - Preview Konva inline en `StagePlotViewerModal` (hoy: resumen + export PDF/JPG con toggles locales).
 - Reordenar lienzos (drag sort_order) en el editor.
+- Editor SVG avanzado (dibujo); hoy: upload/paste en Datos → Instrumentos (`svg_icon`).
+- Ítems de instrumento con `scale` custom (no legacy ~40 cm) conservan escala al normalizar; si un plot viejo quedó sobredimensionado a mano, hay que reescalar manualmente o recrear.
+- `cat.w`/`cat.h` del catálogo siguen siendo aspect/fallback de paleta; ya no definen el tamaño en escena de instrumentos con huella.
 
+## Iconos SVG en `instrumentos` (2026-08)
+
+- **Columnas**: `svg_icon text` + `stage_plot_type text` (migración `20260827123803`, aplicada en linked).
+- **Cadena**: DB → `public/stage-plot/icons/` → silueta (`stagePlotIconAssets.js`).
+- **Admin**: Datos → Instrumentos (Tipo Escenario + SVG file/paste + preview); sanitizado (`stagePlotSvgSanitize.js`).
+- **Colores**:
+  - Uploads / FreeSVG multi-color: **se conservan fills/strokes/gradients del autor**. Sanitize quita script/eventos/`use` pero **no** reescribe paints a `currentColor`.
+  - Tint de tema (`item` color / palette) **solo** si el markup ya usa `currentColor` (game-icons mono, siluetas OFRN, oboe Gerald_G).
+  - Konva/PDF: `prepareStagePlotSvgMarkupForRaster` / `loadStagePlotIconImage` — sin override de fill vía padre salvo silueta mono.
+- **Seed**: 21+ filas precargadas; regenerar `node scripts/seed-instrumentos-stage-plot-svg.mjs`. Force overwrite cuerdas/flauta/guitarra/bandoneón: `node scripts/force-seed-string-svgs.mjs` + `npx supabase db query --linked -f temp_freesvg/force_seed_strings.sql`.
+- **Guitarra**: catálogo `guitar`; icono `public/stage-plot/icons/guitar.svg` (papapishu, colores de origen); `instrumentos.id` **`21`** / Guitarra; orgánico `idInstr: ["21"]`.
+- **Bandoneón**: catálogo `bandoneon` (Cuerdas); icono `public/stage-plot/icons/bandoneon.svg` ([FreeSVG 50642](https://freesvg.org/bandone%C3%A3%C2%B3n) / OpenClipart 216369, CC0, colores de origen); `instrumentos.id` **`22b`**; orgánico `idInstr: ["22b"]`.
+- **Seguridad**: sin script/eventos/`use`; Blob→Image (no `innerHTML`); límite 100k chars.
 
 ## Export PDF / JPG (plano de escenario)
 

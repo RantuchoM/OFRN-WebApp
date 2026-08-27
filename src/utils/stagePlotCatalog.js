@@ -22,6 +22,8 @@ export const STAGE_PLOT_CATALOG = [
   { type: "cello", name: "Cello", category: "Cuerdas", color: "#78350f", w: 52, h: 52, includeInChannels: true },
   { type: "bass", name: "Contrabajo", category: "Cuerdas", color: "#451a03", w: 56, h: 56, includeInChannels: true },
   { type: "harp", name: "Arpa", category: "Cuerdas", color: "#b45309", w: 48, h: 48, includeInChannels: true },
+  { type: "guitar", name: "Guitarra", category: "Cuerdas", color: "#92400e", w: 40, h: 56, includeInChannels: true },
+  { type: "bandoneon", name: "Bandoneón", category: "Cuerdas", color: "#78350f", w: 56, h: 36, includeInChannels: true },
   // Vientos madera
   { type: "flute", name: "Flauta", category: "Maderas", color: "#0f766e", w: 44, h: 44, includeInChannels: true },
   { type: "oboe", name: "Oboe", category: "Maderas", color: "#0f172a", w: 44, h: 44, includeInChannels: true },
@@ -44,6 +46,7 @@ export const STAGE_PLOT_CATALOG = [
   { type: "celesta", name: "Celesta", category: "Teclado", color: "#334155", w: 48, h: 48, includeInChannels: true },
   // Escenario / atriles
   { type: "chair", name: "Silla", category: "Escenario", color: "#64748b", w: 40, h: 40, includeInChannels: false },
+  { type: "banqueta", name: "Banqueta", category: "Escenario", color: "#78716c", w: 36, h: 36, includeInChannels: false },
   { type: "music_stand", name: "Atril", category: "Escenario", color: "#475569", w: 36, h: 48, includeInChannels: false },
   { type: "conductor", name: "Director", category: "Escenario", color: "#0f172a", w: 40, h: 40, includeInChannels: false },
   { type: "riser", name: "Tarima", category: "Escenario", color: "#94a3b8", w: 64, h: 40, includeInChannels: false },
@@ -61,12 +64,24 @@ export const STAGE_PLOT_CATALOG = [
 const BY_TYPE = new Map(STAGE_PLOT_CATALOG.map((c) => [c.type, c]));
 
 /** Categorías de instrumento musical (orgánico); no Escenario / Audio / Marcas. */
-const STAGE_PLOT_MUSICIAN_INSTRUMENT_CATEGORIES = new Set([
+export const STAGE_PLOT_MUSICIAN_INSTRUMENT_CATEGORIES = new Set([
   "Cuerdas",
   "Maderas",
   "Metales",
   "Percusión",
   "Teclado",
+]);
+
+/** Tipos que usan banqueta (no silla): contrabajo + familia percusión del catálogo. */
+export const STAGE_PLOT_BANQUETA_INSTRUMENT_TYPES = new Set([
+  "bass",
+  "timpani",
+  "perc",
+  "bass_drum",
+  "snare",
+  "cymbals",
+  "xylophone",
+  "tubular_bells",
 ]);
 
 /** @param {string} type */
@@ -75,14 +90,31 @@ export function getStagePlotCatalogItem(type) {
 }
 
 /**
- * ¿Dibujar cuadrado de silla detrás del icono?
- * Solo tipos de instrumento musical; nunca el tipo `chair` (ya es silla).
+ * ¿Instrumento musical con huella 50×80 + atril?
+ * No aplica a director, silla/banqueta, audio, marcas, atril suelto, tarima.
  * @param {string} type
  */
-export function stagePlotItemShowsChairSquare(type) {
-  if (!type || type === "chair") return false;
+export function stagePlotItemHasInstrumentFootprint(type) {
+  if (!type) return false;
   const cat = getStagePlotCatalogItem(type);
-  return Boolean(cat && STAGE_PLOT_MUSICIAN_INSTRUMENT_CATEGORIES.has(cat.category));
+  return Boolean(
+    cat && STAGE_PLOT_MUSICIAN_INSTRUMENT_CATEGORIES.has(cat.category),
+  );
+}
+
+/**
+ * Legacy: recuadro-silla detrás del icono.
+ * Ya no se dibuja para instrumentos (reemplazado por huella + atril).
+ * Conservado por compat PDF/toggle Recuadros; siempre false.
+ * @param {string} type
+ */
+export function stagePlotItemShowsChairSquare(_type) {
+  return false;
+}
+
+/** @param {string} type */
+export function stagePlotItemUsesBanqueta(type) {
+  return STAGE_PLOT_BANQUETA_INSTRUMENT_TYPES.has(type);
 }
 
 export function stagePlotCategories() {

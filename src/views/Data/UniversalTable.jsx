@@ -16,6 +16,12 @@ import {
 } from "../../components/ui/Icons";
 import UniversalExporter from "../../components/ui/UniversalExporter";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import {
+  sanitizeStagePlotSvgMarkup,
+  stagePlotSvgToDataUrl,
+  STAGE_PLOT_SVG_MAX_CHARS,
+} from "../../utils/stagePlotSvgSanitize";
+import { reloadStagePlotInstrumentIcons } from "../../services/stagePlotInstrumentIconsService";
 
 const toDateInputValue = (v) => {
   if (v == null || v === "") return "";
@@ -47,6 +53,93 @@ const labelForSelectValue = (value, options) => {
   if (opt) return opt.label;
   return value == null || value === "" ? "" : String(value);
 };
+
+/** Campo SVG: file input + textarea + preview (Datos → Instrumentos). */
+function SvgIconField({ value, onChange, fieldClass }) {
+  const [error, setError] = useState("");
+  const preview = useMemo(() => {
+    const r = sanitizeStagePlotSvgMarkup(value || "");
+    if (!r.ok || !r.svg) return null;
+    return stagePlotSvgToDataUrl(r.svg, "#1e293b");
+  }, [value]);
+
+  const applyRaw = (raw) => {
+    const r = sanitizeStagePlotSvgMarkup(raw);
+    if (!r.ok) {
+      setError(r.error);
+      return;
+    }
+    setError("");
+    onChange(r.svg || "");
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer min-h-[44px]">
+          Subir SVG
+          <input
+            type="file"
+            accept=".svg,image/svg+xml"
+            className="sr-only"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              if (file.size > STAGE_PLOT_SVG_MAX_CHARS) {
+                setError(`Archivo demasiado grande (máx. ${STAGE_PLOT_SVG_MAX_CHARS} caracteres).`);
+                return;
+              }
+              try {
+                applyRaw(await file.text());
+              } catch {
+                setError("No se pudo leer el archivo.");
+              }
+            }}
+          />
+        </label>
+        {value ? (
+          <button
+            type="button"
+            className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 min-h-[44px]"
+            onClick={() => {
+              setError("");
+              onChange("");
+            }}
+          >
+            Quitar
+          </button>
+        ) : null}
+      </div>
+      <textarea
+        className={`${fieldClass} font-mono text-[11px] min-h-[96px]`}
+        value={value ?? ""}
+        placeholder="<svg …>…</svg>"
+        onChange={(e) => applyRaw(e.target.value)}
+        spellCheck={false}
+      />
+      {error ? (
+        <p className="text-xs text-red-600">{error}</p>
+      ) : (
+        <p className="text-[10px] text-slate-400">
+          Máx. {STAGE_PLOT_SVG_MAX_CHARS.toLocaleString("es")} caracteres. Sin
+          script / eventos. Se conservan los colores del SVG; usá currentColor
+          solo si querés una silueta mono tintable.
+        </p>
+      )}
+      {preview ? (
+        <div className="flex items-center gap-3 p-2 rounded-lg border border-slate-100 bg-slate-50">
+          <img
+            src={preview}
+            alt="Vista previa SVG"
+            className="h-12 w-12 object-contain"
+          />
+          <span className="text-[10px] text-slate-500">Vista previa</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function RowEditModal({
   isOpen,
@@ -137,6 +230,22 @@ function RowEditModal({
             : Number(oldVal);
         if (nv === ov || (Number.isNaN(nv) && Number.isNaN(ov))) continue;
         await onFieldSave(rowId, col.key, Number.isNaN(nv) ? newVal : nv);
+        continue;
+      }
+
+      if (col.type === "svg") {
+        const prepared = sanitizeStagePlotSvgMarkup(newVal || "");
+        if (!prepared.ok) {
+          window.alert(prepared.error);
+          continue;
+        }
+        const nv = prepared.svg || null;
+        const ov =
+          oldVal === "" || oldVal === undefined || oldVal === null
+            ? null
+            : String(oldVal);
+        if (String(nv ?? "") === String(ov ?? "")) continue;
+        await onFieldSave(rowId, col.key, nv);
         continue;
       }
 
@@ -308,8 +417,17 @@ function RowEditModal({
                       placeholder={col.placeholder || ""}
                     />
                   )}
+                {!readOnlyId && col.type === "svg" && (
+                  <SvgIconField
+                    value={v ?? ""}
+                    fieldClass={fieldClass}
+                    onChange={(next) =>
+                      setForm((f) => ({ ...f, [col.key]: next }))
+                    }
+                  />
+                )}
                 {!readOnlyId &&
-                  !["checkbox", "select", "color", "date", "number", "int", "int8"].includes(
+                  !["checkbox", "select", "color", "date", "number", "int", "int8", "svg"].includes(
                     col.type,
                   ) && (
                     <input
@@ -645,6 +763,23 @@ const EditableCell = ({ row, col, rowId, onSave, onOpenRowModal }) => {
     );
   }
 
+  // 3b. SVG — indicador; editar en modal de fila
+  if (col.type === "svg") {
+    const has = !!(value && String(value).trim());
+    return (
+      <button
+        type="button"
+        onClick={() => onOpenRowModal?.(row)}
+        className={`w-full h-full min-h-[44px] md:min-h-0 px-2 text-left text-[11px] rounded ${getStatusClass()} ${
+          has ? "text-emerald-700 font-semibold" : "text-slate-400"
+        }`}
+        title="Editar SVG en el formulario"
+      >
+        {has ? "SVG ✓" : "—"}
+      </button>
+    );
+  }
+
   // 4. TEXTO
   return (
     <input
@@ -744,7 +879,16 @@ export default function UniversalTable({
   };
 
   const handleAutoSave = async (id, key, value) => {
-    const cleanValue = sanitizeValue(value);
+    let cleanValue = sanitizeValue(value);
+    const colDef = columns.find((c) => c.key === key);
+    if (colDef?.type === "svg") {
+      const prepared = sanitizeStagePlotSvgMarkup(cleanValue || "");
+      if (!prepared.ok) {
+        console.error(prepared.error);
+        return false;
+      }
+      cleanValue = prepared.svg || null;
+    }
 
     if (String(id).startsWith("temp-")) {
         setData((prev) =>
@@ -766,6 +910,9 @@ export default function UniversalTable({
       setData((prev) =>
         prev.map((row) => (getRowId(row) === id ? { ...row, [key]: cleanValue } : row))
       );
+      if (key === "svg_icon" || key === "stage_plot_type") {
+        reloadStagePlotInstrumentIcons().catch(() => {});
+      }
       if (onDataChange) onDataChange();
       return true;
     } catch (err) {

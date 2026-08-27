@@ -44,6 +44,7 @@ import { useAuth } from "../../context/AuthContext";
 import {
   getStagePlotCatalogItem,
   stagePlotCategories,
+  stagePlotItemHasInstrumentFootprint,
   stagePlotItemShowsChairSquare,
 } from "../../utils/stagePlotCatalog";
 import {
@@ -56,7 +57,7 @@ import {
   getStagePlotItemVisualBounds,
   formatStagePlotItemRealSize,
   loadStagePlotIconImage,
-  stagePlotIconImgSrc,
+  resolveStagePlotIconSvgMarkup,
 } from "../../utils/stagePlotIconAssets";
 import {
   STAGE_PLOT_DEFAULT_HEIGHT_CM,
@@ -74,10 +75,16 @@ import {
   stagePlotGridMajorPx,
   stagePlotGridMinorPx,
   stagePlotChairSquareSide,
+  stagePlotInstrumentFootprintLayout,
   STAGE_PLOT_CHAIR_SQUARE_FILL,
   STAGE_PLOT_CHAIR_SQUARE_STROKE,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_FILL,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_STROKE,
+  STAGE_PLOT_FOOTPRINT_FILL,
+  STAGE_PLOT_FOOTPRINT_STROKE,
+  STAGE_PLOT_FOOTPRINT_MAGNETIZED_FILL,
+  STAGE_PLOT_FOOTPRINT_MAGNETIZED_STROKE,
+  STAGE_PLOT_ATRIL_LINE_STROKE,
   STAGE_PLOT_ITEM_SCALE_MIN,
   STAGE_PLOT_ITEM_SCALE_MAX,
 } from "../../utils/stagePlotConstants";
@@ -121,6 +128,7 @@ import {
 import {
   buildStagePlotOrganicoCompare,
   computeOrganicoInsertPositions,
+  computeStagePlotFurnitureSummary,
   organicoRowIndex,
   organicoRowMissingCount,
   pickOrganicoRowCatalogType,
@@ -515,6 +523,8 @@ function StageLienzoPopover({
   onClearAll,
   overlayZ = 100,
   flushRef,
+  locaciones = [],
+  onApplyLocacionPreset,
 }) {
   const popoverRef = useRef(null);
   const flushersRef = useRef(null);
@@ -625,6 +635,39 @@ function StageLienzoPopover({
           (mín. {STAGE_PLOT_WIDTH_CM_MIN}×{STAGE_PLOT_HEIGHT_CM_MIN})
         </span>
       </p>
+      {canEdit && locaciones.length > 0 && (
+        <div className="mb-2 border-t border-slate-100 pt-2">
+          <label className="mb-1 block text-[10px] font-medium text-slate-500">
+            Preset de locación
+          </label>
+          <select
+            className="w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px] text-slate-700 disabled:bg-slate-50"
+            value={stage.id_locacion || ""}
+            onChange={(e) => {
+              const id = e.target.value ? Number(e.target.value) : null;
+              const loc = locaciones.find((l) => Number(l.id) === id);
+              onApplyLocacionPreset?.(loc || null);
+            }}
+          >
+            <option value="">Manual / sin preset</option>
+            {locaciones.map((loc) => {
+              const w = Number(loc.escenario_ancho_cm);
+              const d = Number(loc.escenario_profundo_cm);
+              const hasDims =
+                Number.isFinite(w) && w > 0 && Number.isFinite(d) && d > 0;
+              return (
+                <option key={loc.id} value={loc.id} disabled={!hasDims}>
+                  {loc.nombre}
+                  {hasDims ? ` (${w}×${d} cm)` : " (sin tamaño)"}
+                </option>
+              );
+            })}
+          </select>
+          <p className="mt-1 text-[9px] leading-snug text-slate-400">
+            Aplica ancho×profundo de la locación y recentra el director.
+          </p>
+        </div>
+      )}
       <div className="mb-2 border-t border-slate-100 pt-2">
         <div className="grid grid-cols-4 gap-0.5">
           <StageLienzoVisibilityToggle
@@ -1293,11 +1336,15 @@ const ItemShape = React.memo(function ItemShape({
   const h = cat?.h || 40;
   const fill = cat?.color || "#64748b";
   const isText = item.type === "text";
+  const hasFootprint = stagePlotItemHasInstrumentFootprint(item.type);
+  const footprint = useMemo(
+    () => (hasFootprint ? stagePlotInstrumentFootprintLayout() : null),
+    [hasFootprint],
+  );
   const pathD = isText ? null : getStagePlotSilhouettePath(item.type);
   const iconImage = useStagePlotIcon(isText ? null : item.type, fill);
   const stroke = selected ? "#f59e0b" : "#0f172a";
   const strokeW = selected ? 2.2 : 1.1;
-  const silScale = Math.min(w / VB, h / VB);
   const iconNatural = useMemo(
     () => (iconImage ? getStagePlotImageNaturalSize(iconImage) : null),
     [iconImage],
@@ -1306,28 +1353,43 @@ const ItemShape = React.memo(function ItemShape({
     () => (isText ? getStagePlotTextLayout(item, cat) : null),
     [isText, item, cat],
   );
+  /** Caja donde se hace contain del icono (pre–item.scale). */
+  const iconBoxW = footprint ? footprint.iconBoxPx : w;
+  const iconBoxH = footprint ? footprint.iconBoxPx : h;
+  const iconOffsetY = footprint ? footprint.iconOffsetY : 0;
   const visualBounds = useMemo(() => {
     if (isText && textLayout) {
       return { drawW: textLayout.textW, drawH: textLayout.textH };
     }
     if (iconImage && iconNatural?.w && iconNatural?.h) {
-      return getStagePlotItemVisualBounds(w, h, "icon", {
+      return getStagePlotItemVisualBounds(iconBoxW, iconBoxH, "icon", {
         contentW: iconNatural.w,
         contentH: iconNatural.h,
       });
     }
     if (pathD) {
-      return getStagePlotItemVisualBounds(w, h, "silhouette");
+      return getStagePlotItemVisualBounds(iconBoxW, iconBoxH, "silhouette");
     }
-    return getStagePlotItemVisualBounds(w, h, "catalog");
-  }, [isText, textLayout, iconImage, iconNatural, w, h, pathD]);
-  const boundsW = visualBounds.drawW;
-  const boundsH = visualBounds.drawH;
+    return getStagePlotItemVisualBounds(iconBoxW, iconBoxH, "catalog");
+  }, [
+    isText,
+    textLayout,
+    iconImage,
+    iconNatural,
+    iconBoxW,
+    iconBoxH,
+    pathD,
+  ]);
+  const drawW = visualBounds.drawW;
+  const drawH = visualBounds.drawH;
+  // Hit / Transformer / tooltip: huella completa para instrumentos; si no, caja visual.
+  const boundsW = footprint ? footprint.widthPx : drawW;
+  const boundsH = footprint ? footprint.depthPx : drawH;
   const itemScale = item.scale > 0 ? item.scale : 1;
   const showChairSquare =
     !hideChairSquares && stagePlotItemShowsChairSquare(item.type);
   const chairSide = showChairSquare
-    ? stagePlotChairSquareSide(boundsW, boundsH)
+    ? stagePlotChairSquareSide(drawW, drawH)
     : 0;
   const chairFill = magnetized
     ? STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_FILL
@@ -1335,6 +1397,13 @@ const ItemShape = React.memo(function ItemShape({
   const chairStroke = magnetized
     ? STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_STROKE
     : STAGE_PLOT_CHAIR_SQUARE_STROKE;
+  const footprintFill = magnetized
+    ? STAGE_PLOT_FOOTPRINT_MAGNETIZED_FILL
+    : STAGE_PLOT_FOOTPRINT_FILL;
+  const footprintStroke = magnetized
+    ? STAGE_PLOT_FOOTPRINT_MAGNETIZED_STROKE
+    : STAGE_PLOT_FOOTPRINT_STROKE;
+  const silScale = Math.min(drawW / VB, drawH / VB);
 
   useLayoutEffect(() => {
     if (!selected) return;
@@ -1423,6 +1492,31 @@ const ItemShape = React.memo(function ItemShape({
         });
       }}
     >
+      {footprint && (
+        <>
+          <Rect
+            width={footprint.widthPx}
+            height={footprint.depthPx}
+            offsetX={footprint.widthPx / 2}
+            offsetY={footprint.depthPx / 2}
+            fill={footprintFill}
+            stroke={footprintStroke}
+            strokeWidth={magnetized ? 1.5 : 1.1}
+            listening={false}
+          />
+          <Line
+            points={[
+              -footprint.atrilPx / 2,
+              footprint.depthPx / 2,
+              footprint.atrilPx / 2,
+              footprint.depthPx / 2,
+            ]}
+            stroke={STAGE_PLOT_ATRIL_LINE_STROKE}
+            strokeWidth={1.75}
+            listening={false}
+          />
+        </>
+      )}
       {showChairSquare && (
         <Rect
           width={chairSide}
@@ -1435,7 +1529,7 @@ const ItemShape = React.memo(function ItemShape({
           listening={false}
         />
       )}
-      {/* Hit + selección + bounds del Transformer = caja del icono o del texto */}
+      {/* Hit + selección + Transformer = huella (instrumentos) o caja visual */}
       <Rect
         width={boundsW}
         height={boundsH}
@@ -1464,18 +1558,22 @@ const ItemShape = React.memo(function ItemShape({
       ) : iconImage && iconNatural?.w && iconNatural?.h ? (
         <KonvaImage
           image={iconImage}
-          offsetX={boundsW / 2}
-          offsetY={boundsH / 2}
-          width={boundsW}
-          height={boundsH}
+          x={0}
+          y={iconOffsetY}
+          offsetX={drawW / 2}
+          offsetY={drawH / 2}
+          width={drawW}
+          height={drawH}
           listening={false}
         />
       ) : pathD ? (
         <Path
           data={pathD}
+          x={0}
+          y={iconOffsetY}
           fill={fill}
           stroke={stroke}
-          strokeWidth={strokeW / silScale}
+          strokeWidth={strokeW / Math.max(silScale, 1e-6)}
           scaleX={silScale}
           scaleY={silScale}
           offsetX={VB / 2}
@@ -1486,10 +1584,12 @@ const ItemShape = React.memo(function ItemShape({
         />
       ) : (
         <Rect
-          offsetX={w / 2}
-          offsetY={h / 2}
-          width={w}
-          height={h}
+          x={0}
+          y={iconOffsetY}
+          offsetX={drawW / 2}
+          offsetY={drawH / 2}
+          width={drawW}
+          height={drawH}
           fill={fill}
           cornerRadius={3}
           listening={false}
@@ -1500,6 +1600,8 @@ const ItemShape = React.memo(function ItemShape({
 }, (prev, next) =>
   prev.item === next.item &&
   prev.selected === next.selected &&
+  prev.magnetized === next.magnetized &&
+  prev.hideChairSquares === next.hideChairSquares &&
   prev.draggable === next.draggable &&
   prev.onSelect === next.onSelect &&
   prev.onContextMenu === next.onContextMenu &&
@@ -1521,37 +1623,34 @@ function PaletteIcon({ type, color }) {
       return undefined;
     }
     let cancelled = false;
-    const fileUrl = stagePlotIconImgSrc(type);
-    if (fileUrl) {
-      fetch(fileUrl)
-        .then((r) => r.text())
-        .then((svg) => {
-          if (cancelled) return;
-          const colored = svg.replace(/currentColor/gi, color || "#334155");
+    resolveStagePlotIconSvgMarkup(type)
+      .then((svg) => {
+        if (cancelled) return;
+        if (svg) {
+          const prepared = /currentColor/i.test(svg)
+            ? svg.replace(/currentColor/gi, color || "#334155")
+            : svg;
           setSrc(
-            `data:image/svg+xml;charset=utf-8,${encodeURIComponent(colored)}`,
+            `data:image/svg+xml;charset=utf-8,${encodeURIComponent(prepared)}`,
           );
-        })
-        .catch(() => {
-          if (!cancelled) {
-            const html = stagePlotSilhouetteSvgMarkup(type, color, 22);
-            setSrc(
-              html
-                ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(html)}`
-                : null,
-            );
-          }
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-    const html = stagePlotSilhouetteSvgMarkup(type, color, 22);
-    if (html) {
-      setSrc(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(html)}`);
-    } else {
-      setSrc(null);
-    }
+          return;
+        }
+        const html = stagePlotSilhouetteSvgMarkup(type, color, 22);
+        setSrc(
+          html
+            ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(html)}`
+            : null,
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        const html = stagePlotSilhouetteSvgMarkup(type, color, 22);
+        setSrc(
+          html
+            ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(html)}`
+            : null,
+        );
+      });
     return () => {
       cancelled = true;
     };
@@ -1660,6 +1759,10 @@ export default function ProgramStagePlot({
   /** Imperative flush of Lienzo Ancho/Alto/Líneas drafts (blur is unreliable on close). */
   const lienzoFlushRef = useRef(null);
   const [fullscreen, setFullscreen] = useState(false);
+  /** Locaciones con preset de escenario (ancho/profundo cm). */
+  const [locacionesPresets, setLocacionesPresets] = useState([]);
+  /** Diálogo al crear lienzo: elegir locación opcional. */
+  const [newPlotDialog, setNewPlotDialog] = useState(null); // { nombre, locacionId }
 
   useEffect(() => {
     viewportRef.current = viewport;
@@ -2079,6 +2182,10 @@ export default function ProgramStagePlot({
     () => summarizeStagePlotOrganico(organicoRows),
     [organicoRows],
   );
+  const furnitureSummary = useMemo(
+    () => computeStagePlotFurnitureSummary(payload.items, organicoRoster),
+    [payload.items, organicoRoster],
+  );
   /** Un solo ítem: editores de etiqueta / canal; null si 0 o varios. */
   const selected =
     selectedItems.length === 1 ? selectedItems[0] : null;
@@ -2126,6 +2233,39 @@ export default function ProgramStagePlot({
       commitPayload((prev) => applyStagePlotStagePatch(prev, patch));
     },
     [canEdit, commitPayload],
+  );
+
+  const applyLocacionPreset = useCallback(
+    (loc) => {
+      if (!canEdit) return;
+      if (!loc) {
+        patchStage({ id_locacion: null });
+        return;
+      }
+      const widthCm = Number(loc.escenario_ancho_cm);
+      const heightCm = Number(loc.escenario_profundo_cm);
+      if (
+        !Number.isFinite(widthCm) ||
+        widthCm <= 0 ||
+        !Number.isFinite(heightCm) ||
+        heightCm <= 0
+      ) {
+        toast.error("Esa locación no tiene ancho/profundo de escenario");
+        return;
+      }
+      userZoomedRef.current = true;
+      commitPayload((prev) =>
+        applyStagePlotStagePatch(prev, {
+          widthCm,
+          heightCm,
+          id_locacion: Number(loc.id),
+        }),
+      );
+      toast.success(
+        `Escenario ${Math.round(widthCm)}×${Math.round(heightCm)} cm (${loc.nombre})`,
+      );
+    },
+    [canEdit, commitPayload, patchStage],
   );
 
   const addOrFocusConductor = useCallback(() => {
@@ -2262,7 +2402,7 @@ export default function ProgramStagePlot({
 
   const loadMeta = useCallback(async () => {
     if (!supabase || !program?.id) return { plots: [], error: null };
-    const [{ data: plots, error }, blocksRes, gruposRes, eventsRes] =
+    const [{ data: plots, error }, blocksRes, gruposRes, eventsRes, locsRes] =
       await Promise.all([
         listStagePlotsByPrograma(supabase, program.id),
         supabase
@@ -2274,6 +2414,12 @@ export default function ProgramStagePlot({
           .order("orden", { ascending: true }),
         fetchGiraGrupos(supabase, program.id),
         listGiraStagePlotCandidateEvents(supabase, program.id),
+        supabase
+          .from("locaciones")
+          .select(
+            "id, nombre, escenario_ancho_cm, escenario_profundo_cm",
+          )
+          .order("nombre", { ascending: true }),
       ]);
     if (error) return { plots: [], error };
     const { data: linkMap } = await listStagePlotEventLinks(
@@ -2288,6 +2434,7 @@ export default function ProgramStagePlot({
     setRepertorioBlocks(blocksRes.data || []);
     setGiraGrupos(gruposRes.grupos || []);
     setGiraEvents(eventsRes.data || []);
+    setLocacionesPresets(locsRes.data || []);
     return { plots: withEvents, error: null };
   }, [supabase, program?.id]);
 
@@ -2372,20 +2519,52 @@ export default function ProgramStagePlot({
     [canEdit, supabase, program?.id, nombre, plotsMeta, applyPlotToEditor],
   );
 
-  const handleCreatePlot = useCallback(async () => {
+  const handleCreatePlot = useCallback(() => {
     if (!canEdit) return;
     const n = plotsMeta.length + 1;
-    const { data, error } = await createStagePlot(supabase, program.id, {
+    setNewPlotDialog({
       nombre: `Lienzo ${n}`,
+      locacionId: "",
     });
+  }, [canEdit, plotsMeta.length]);
+
+  const confirmCreatePlot = useCallback(async () => {
+    if (!canEdit || !newPlotDialog) return;
+    const locId = newPlotDialog.locacionId
+      ? Number(newPlotDialog.locacionId)
+      : null;
+    const loc =
+      locId && Number.isFinite(locId)
+        ? locacionesPresets.find((l) => Number(l.id) === locId)
+        : null;
+    let payloadInit;
+    if (loc) {
+      const widthCm = Number(loc.escenario_ancho_cm);
+      const heightCm = Number(loc.escenario_profundo_cm);
+      if (
+        Number.isFinite(widthCm) &&
+        widthCm > 0 &&
+        Number.isFinite(heightCm) &&
+        heightCm > 0
+      ) {
+        payloadInit = applyStagePlotStagePatch(normalizeStagePlotPayload(null), {
+          widthCm,
+          heightCm,
+          id_locacion: Number(loc.id),
+        });
+      }
+    }
+    const { data, error } = await createStagePlot(supabase, program.id, {
+      nombre: newPlotDialog.nombre?.trim() || `Lienzo ${plotsMeta.length + 1}`,
+      ...(payloadInit ? { payload: payloadInit } : {}),
+    });
+    setNewPlotDialog(null);
     if (error) {
       toast.error(error.message || "No se pudo crear el lienzo");
       return;
     }
     const row = { ...data, evento_ids: [] };
     setPlotsMeta((prev) => [...prev, row]);
-    await switchToPlot(row.id);
-    // switchToPlot may not find row yet in plotsMeta — apply directly
     skipSaveRef.current = true;
     skipHistoryRef.current = true;
     applyPlotToEditor(row);
@@ -2395,10 +2574,11 @@ export default function ProgramStagePlot({
     });
   }, [
     canEdit,
+    newPlotDialog,
+    locacionesPresets,
     supabase,
     program?.id,
     plotsMeta.length,
-    switchToPlot,
     applyPlotToEditor,
   ]);
 
@@ -2813,12 +2993,13 @@ export default function ProgramStagePlot({
     (type, x, y) => {
       if (!canEdit || !type) return;
       const stage = payloadRef.current.stage || {};
+      const items = payloadRef.current.items || [];
       const sw = stage.width || 900;
       const sh = stage.height || 560;
       const cx = Math.min(sw - 8, Math.max(8, Number(x) || sw / 2));
       const cy = Math.min(sh - 8, Math.max(8, Number(y) || sh / 2));
       const z = zCounterRef.current++;
-      const item = createStagePlotItem(type, cx, cy, z);
+      const item = createStagePlotItem(type, cx, cy, z, { items, stage });
       commitPayload((prev) => ({ ...prev, items: [...prev.items, item] }));
       setSelectedIds([item.id]);
       setSelectedFormationId(null);
@@ -3071,6 +3252,7 @@ export default function ProgramStagePlot({
       const type = pickOrganicoRowCatalogType(row);
       if (!type) return;
       const stage = payloadRef.current.stage || {};
+      const items = payloadRef.current.items || [];
       const positions = computeOrganicoInsertPositions(
         missing,
         stage,
@@ -3078,7 +3260,10 @@ export default function ProgramStagePlot({
       );
       let z = zCounterRef.current;
       const newItems = positions.map((pos) => {
-        const item = createStagePlotItem(type, pos.x, pos.y, z);
+        const item = createStagePlotItem(type, pos.x, pos.y, z, {
+          items,
+          stage,
+        });
         z += 1;
         return item;
       });
@@ -3334,11 +3519,16 @@ export default function ProgramStagePlot({
         STAGE_PLOT_SLOT_SNAP_PX,
       );
       if (slot) {
+        // Orientar al director / facing de la plaza al magnetizar (en principio).
+        const nextRot = stagePlotItemHasInstrumentFootprint(it.type)
+          ? Number(slot.rotation) || it.rotation || 0
+          : it.rotation || 0;
         next[i] = {
           ...it,
           x: slot.x,
           y: slot.y,
           slotId: slot.slotId,
+          rotation: nextRot,
         };
       }
     }
@@ -3516,6 +3706,10 @@ export default function ProgramStagePlot({
         const layout = getStagePlotTextLayout(it, cat);
         halfW = (layout.textW * itemScale) / 2;
         halfH = (layout.textH * itemScale) / 2;
+      } else if (stagePlotItemHasInstrumentFootprint(it.type)) {
+        const fp = stagePlotInstrumentFootprintLayout();
+        halfW = (fp.widthPx * itemScale) / 2;
+        halfH = (fp.depthPx * itemScale) / 2;
       }
       minX = Math.min(minX, it.x - halfW);
       maxX = Math.max(maxX, it.x + halfW);
@@ -3733,6 +3927,8 @@ export default function ProgramStagePlot({
             onClearAll={clearEntireStage}
             overlayZ={portalMenuZ}
             flushRef={lienzoFlushRef}
+            locaciones={locacionesPresets}
+            onApplyLocacionPreset={applyLocacionPreset}
           />
           <button
             type="button"
@@ -5023,10 +5219,159 @@ export default function ProgramStagePlot({
                 Orgánico = roster convocado (sin ausentes). Ámbar: falta en el
                 plano. Celeste: excede.
               </p>
+              <div className="mt-3 border-t border-slate-100 pt-2">
+                <p className="mb-1 px-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                  Mobiliario / atriles
+                </p>
+                <table className="w-full text-left text-[11px]">
+                  <thead>
+                    <tr className="text-slate-400">
+                      <th className="py-1 pr-1 font-medium">Ítem</th>
+                      <th className="py-1 pr-1 text-right font-medium">
+                        Plano
+                      </th>
+                      <th className="py-1 pr-1 text-right font-medium">
+                        Org.
+                      </th>
+                      <th className="py-1 text-right font-medium">Δ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(furnitureSummary.rows || []).map((row) => {
+                      const deltaLabel =
+                        row.delta === 0
+                          ? "="
+                          : row.delta > 0
+                            ? `+${row.delta}`
+                            : String(row.delta);
+                      const deltaClass =
+                        row.status === "ok"
+                          ? "text-emerald-600"
+                          : row.status === "missing"
+                            ? "text-amber-700"
+                            : "text-sky-700";
+                      return (
+                        <tr
+                          key={row.key}
+                          className="border-t border-slate-100"
+                          title={
+                            row.key === "sillas"
+                              ? "1 silla × instrumentista (sin contrabajo ni percusión)"
+                              : row.key === "banquetas"
+                                ? "Needed: contrabajos + percusionistas. Drawn: bass auto + banquetas manuales"
+                                : "1 atril × instr.; vn/va/vc/bass = ceil(n/2)"
+                          }
+                        >
+                          <td className="py-1 pr-1 font-medium text-slate-700">
+                            {row.label}
+                          </td>
+                          <td className="py-1 pr-1 text-right font-mono text-slate-700">
+                            {row.drawn}
+                          </td>
+                          <td className="py-1 pr-1 text-right font-mono text-slate-500">
+                            {row.required}
+                          </td>
+                          <td
+                            className={`py-1 text-right font-mono font-semibold ${deltaClass}`}
+                          >
+                            {deltaLabel}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <p className="mt-1.5 px-1 text-[9px] leading-snug text-slate-400">
+                  Sillas: 1 × instrumentista (no bass/perc). Banquetas: bass
+                  auto + banqueta manual (perc). Atriles: ceil(n/2) en
+                  vn/va/vc/bass; resto 1:1.
+                </p>
+              </div>
             </>
           )}
         </aside>
       </div>
+      {newPlotDialog &&
+        createPortal(
+          <div
+            className="fixed inset-0 flex items-center justify-center bg-slate-900/40 p-4"
+            style={{ zIndex: portalMenuZ }}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setNewPlotDialog(null);
+            }}
+          >
+            <div
+              role="dialog"
+              aria-label="Nuevo lienzo"
+              className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-4 shadow-xl"
+            >
+              <h3 className="text-sm font-semibold text-slate-800">
+                Nuevo lienzo
+              </h3>
+              <label className="mt-3 block text-[11px] font-medium text-slate-500">
+                Nombre
+              </label>
+              <input
+                value={newPlotDialog.nombre}
+                onChange={(e) =>
+                  setNewPlotDialog((d) =>
+                    d ? { ...d, nombre: e.target.value } : d,
+                  )
+                }
+                className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+              />
+              <label className="mt-3 block text-[11px] font-medium text-slate-500">
+                Locación (preset de tamaño)
+              </label>
+              <select
+                value={newPlotDialog.locacionId}
+                onChange={(e) =>
+                  setNewPlotDialog((d) =>
+                    d ? { ...d, locacionId: e.target.value } : d,
+                  )
+                }
+                className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+              >
+                <option value="">Default (90×56 cm)</option>
+                {locacionesPresets.map((loc) => {
+                  const w = Number(loc.escenario_ancho_cm);
+                  const d = Number(loc.escenario_profundo_cm);
+                  const hasDims =
+                    Number.isFinite(w) &&
+                    w > 0 &&
+                    Number.isFinite(d) &&
+                    d > 0;
+                  return (
+                    <option key={loc.id} value={loc.id} disabled={!hasDims}>
+                      {loc.nombre}
+                      {hasDims ? ` — ${w}×${d} cm` : " (sin tamaño)"}
+                    </option>
+                  );
+                })}
+              </select>
+              <p className="mt-1 text-[10px] text-slate-400">
+                El director queda centrado al tamaño elegido.
+              </p>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewPlotDialog(null)}
+                  className="rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmCreatePlot}
+                  className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                >
+                  Crear
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
       {dialog}
     </div>
   );

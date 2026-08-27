@@ -2,16 +2,23 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
   getStagePlotCatalogItem,
+  stagePlotItemHasInstrumentFootprint,
   stagePlotItemShowsChairSquare,
 } from "./stagePlotCatalog";
 import {
+  STAGE_PLOT_ATRIL_LINE_STROKE,
   STAGE_PLOT_CHAIR_SQUARE_FILL,
   STAGE_PLOT_CHAIR_SQUARE_STROKE,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_FILL,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_STROKE,
+  STAGE_PLOT_FOOTPRINT_FILL,
+  STAGE_PLOT_FOOTPRINT_STROKE,
+  STAGE_PLOT_FOOTPRINT_MAGNETIZED_FILL,
+  STAGE_PLOT_FOOTPRINT_MAGNETIZED_STROKE,
   stagePlotChairSquareSide,
   stagePlotGridMajorPx,
   stagePlotGridMinorPx,
+  stagePlotInstrumentFootprintLayout,
 } from "./stagePlotConstants";
 import {
   computeFormationSlots,
@@ -601,16 +608,67 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
 
     const wMm = (cat?.w || 40) * scale * itemScale;
     const hMm = (cat?.h || 40) * scale * itemScale;
+    const slotParsed = parseSlotId(item.slotId);
+    const magnetized = Boolean(
+      slotParsed && formationIdSet.has(slotParsed.formationId),
+    );
+
+    if (stagePlotItemHasInstrumentFootprint(item.type)) {
+      const fp = stagePlotInstrumentFootprintLayout();
+      const fpW = fp.widthPx * scale * itemScale;
+      const fpD = fp.depthPx * scale * itemScale;
+      const atril = fp.atrilPx * scale * itemScale;
+      const iconBox = fp.iconBoxPx * scale * itemScale;
+      const iconOffY = fp.iconOffsetY * scale * itemScale;
+      drawInstrumentFootprintOnPdf(
+        doc,
+        cx,
+        cy,
+        fpW,
+        fpD,
+        atril,
+        rotation,
+        magnetized,
+      );
+      const rad = (rotation * Math.PI) / 180;
+      const iconCx = cx - iconOffY * Math.sin(rad);
+      const iconCy = cy + iconOffY * Math.cos(rad);
+      const iconImg = await loadStagePlotIconImage(item.type, hex);
+      if (iconImg) {
+        drawImageRotated(doc, iconImg, iconCx, iconCy, iconBox, iconBox, rotation);
+      } else {
+        const pathD = getStagePlotSilhouettePath(item.type);
+        if (pathD) {
+          drawSilhouetteOnPdf(
+            doc,
+            pathD,
+            iconCx,
+            iconCy,
+            iconBox,
+            iconBox,
+            rotation,
+            rgb,
+          );
+        } else {
+          doc.setFillColor(rgb.r, rgb.g, rgb.b);
+          doc.setDrawColor(30);
+          doc.rect(
+            iconCx - iconBox / 2,
+            iconCy - iconBox / 2,
+            iconBox,
+            iconBox,
+            "FD",
+          );
+        }
+      }
+      continue;
+    }
 
     if (
       !payload.stage.hideChairSquares &&
       stagePlotItemShowsChairSquare(item.type)
     ) {
       const chairMm = stagePlotChairSquareSide(wMm, hMm);
-      const slotParsed = parseSlotId(item.slotId);
-      const magnetized = Boolean(
-        slotParsed && formationIdSet.has(slotParsed.formationId),
-      );
       drawChairSquareOnPdf(doc, cx, cy, chairMm, rotation, magnetized);
     }
 
@@ -658,16 +716,75 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
 
     const wPx = (cat?.w || 40) * scale * itemScale;
     const hPx = (cat?.h || 40) * scale * itemScale;
+    const slotParsed = parseSlotId(item.slotId);
+    const magnetized = Boolean(
+      slotParsed && formationIdSet.has(slotParsed.formationId),
+    );
+
+    if (stagePlotItemHasInstrumentFootprint(item.type)) {
+      const fp = stagePlotInstrumentFootprintLayout();
+      const fpW = fp.widthPx * scale * itemScale;
+      const fpD = fp.depthPx * scale * itemScale;
+      const atril = fp.atrilPx * scale * itemScale;
+      const iconBox = fp.iconBoxPx * scale * itemScale;
+      const iconOffY = fp.iconOffsetY * scale * itemScale;
+      drawInstrumentFootprintOnCanvas(
+        ctx,
+        cx,
+        cy,
+        fpW,
+        fpD,
+        atril,
+        rotation,
+        magnetized,
+      );
+      const rad = (rotation * Math.PI) / 180;
+      const iconCx = cx - iconOffY * Math.sin(rad);
+      const iconCy = cy + iconOffY * Math.cos(rad);
+      const iconImg = await loadStagePlotIconImage(item.type, hex);
+      if (iconImg) {
+        drawImageRotatedOnCanvas(
+          ctx,
+          iconImg,
+          iconCx,
+          iconCy,
+          iconBox,
+          iconBox,
+          rotation,
+        );
+      } else {
+        const pathD = getStagePlotSilhouettePath(item.type);
+        if (pathD) {
+          drawSilhouetteOnCanvas(
+            ctx,
+            pathD,
+            iconCx,
+            iconCy,
+            iconBox,
+            iconBox,
+            rotation,
+            rgb,
+          );
+        } else {
+          ctx.save();
+          ctx.translate(iconCx, iconCy);
+          if (rotation) ctx.rotate(rad);
+          ctx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+          ctx.strokeStyle = "#1e293b";
+          ctx.lineWidth = 1;
+          ctx.fillRect(-iconBox / 2, -iconBox / 2, iconBox, iconBox);
+          ctx.strokeRect(-iconBox / 2, -iconBox / 2, iconBox, iconBox);
+          ctx.restore();
+        }
+      }
+      continue;
+    }
 
     if (
       !payload.stage.hideChairSquares &&
       stagePlotItemShowsChairSquare(item.type)
     ) {
       const chairPx = stagePlotChairSquareSide(wPx, hPx);
-      const slotParsed = parseSlotId(item.slotId);
-      const magnetized = Boolean(
-        slotParsed && formationIdSet.has(slotParsed.formationId),
-      );
       drawChairSquareOnCanvas(ctx, cx, cy, chairPx, rotation, magnetized);
     }
 
@@ -787,6 +904,79 @@ function drawChairSquareOnCanvas(ctx, cx, cy, sidePx, rotationDeg, magnetized) {
   ctx.fillRect(-half + pad, -half + pad, sidePx - pad * 2, sidePx - pad * 2);
   ctx.strokeRect(-half + pad, -half + pad, sidePx - pad * 2, sidePx - pad * 2);
   ctx.restore();
+}
+
+function drawInstrumentFootprintOnCanvas(
+  ctx,
+  cx,
+  cy,
+  widthPx,
+  depthPx,
+  atrilPx,
+  rotationDeg,
+  magnetized,
+) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  if (rotationDeg) ctx.rotate((rotationDeg * Math.PI) / 180);
+  const hw = widthPx / 2;
+  const hd = depthPx / 2;
+  ctx.fillStyle = magnetized
+    ? STAGE_PLOT_FOOTPRINT_MAGNETIZED_FILL
+    : STAGE_PLOT_FOOTPRINT_FILL;
+  ctx.strokeStyle = magnetized
+    ? STAGE_PLOT_FOOTPRINT_MAGNETIZED_STROKE
+    : STAGE_PLOT_FOOTPRINT_STROKE;
+  ctx.lineWidth = magnetized ? 2.5 : 2;
+  ctx.fillRect(-hw, -hd, widthPx, depthPx);
+  ctx.strokeRect(-hw, -hd, widthPx, depthPx);
+  ctx.strokeStyle = STAGE_PLOT_ATRIL_LINE_STROKE;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(-atrilPx / 2, hd);
+  ctx.lineTo(atrilPx / 2, hd);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawInstrumentFootprintOnPdf(
+  doc,
+  cx,
+  cy,
+  widthMm,
+  depthMm,
+  atrilMm,
+  rotationDeg,
+  magnetized,
+) {
+  if (typeof document === "undefined") return;
+  const pxW = Math.max(64, Math.round(widthMm * 6));
+  const pxH = Math.max(64, Math.round(depthMm * 6));
+  const canvas = document.createElement("canvas");
+  canvas.width = pxW;
+  canvas.height = pxH;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  drawInstrumentFootprintOnCanvas(
+    ctx,
+    pxW / 2,
+    pxH / 2,
+    pxW - 4,
+    pxH - 4,
+    Math.max(8, (atrilMm / Math.max(widthMm, 0.001)) * (pxW - 4)),
+    rotationDeg,
+    magnetized,
+  );
+  doc.addImage(
+    canvas.toDataURL("image/png"),
+    "PNG",
+    cx - widthMm / 2,
+    cy - depthMm / 2,
+    widthMm,
+    depthMm,
+    undefined,
+    "FAST",
+  );
 }
 
 function drawImageRotated(doc, htmlImage, cx, cy, wMm, hMm, rotationDeg) {

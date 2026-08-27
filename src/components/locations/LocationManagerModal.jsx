@@ -26,6 +26,8 @@ const EMPTY_FORM = {
   id_localidad: "",
   telefono: "",
   mail: "",
+  escenario_ancho_cm: "",
+  escenario_profundo_cm: "",
 };
 
 /**
@@ -64,6 +66,12 @@ export default function LocationManagerModal({
       id_localidad: loc.id_localidad || "",
       telefono: loc.telefono ?? "",
       mail: loc.mail || "",
+      escenario_ancho_cm:
+        loc.escenario_ancho_cm != null ? String(loc.escenario_ancho_cm) : "",
+      escenario_profundo_cm:
+        loc.escenario_profundo_cm != null
+          ? String(loc.escenario_profundo_cm)
+          : "",
     });
     setView("form");
   }, []);
@@ -220,6 +228,14 @@ export default function LocationManagerModal({
         id_localidad: formData.id_localidad || null,
         telefono: formData.telefono ? formData.telefono : null,
         mail: formData.mail?.trim() || null,
+        escenario_ancho_cm:
+          formData.escenario_ancho_cm !== ""
+            ? Number(formData.escenario_ancho_cm)
+            : null,
+        escenario_profundo_cm:
+          formData.escenario_profundo_cm !== ""
+            ? Number(formData.escenario_profundo_cm)
+            : null,
       };
 
       if (formData.id) {
@@ -512,6 +528,46 @@ export default function LocationManagerModal({
                           setFormData({ ...formData, longitud: e.target.value })
                         }
                         placeholder="-63.00"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                        Escenario ancho (cm)
+                      </label>
+                      <input
+                        type="number"
+                        min={40}
+                        max={1600}
+                        className="w-full p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                        value={formData.escenario_ancho_cm}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            escenario_ancho_cm: e.target.value,
+                          })
+                        }
+                        placeholder="90"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                        Escenario profundo (cm)
+                      </label>
+                      <input
+                        type="number"
+                        min={30}
+                        max={1200}
+                        className="w-full p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                        value={formData.escenario_profundo_cm}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            escenario_profundo_cm: e.target.value,
+                          })
+                        }
+                        placeholder="56"
                       />
                     </div>
                   </div>

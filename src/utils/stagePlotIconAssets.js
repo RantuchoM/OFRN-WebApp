@@ -1,6 +1,7 @@
 /**
- * Assets SVG: game-icons.net (CC BY 3.0) + FreeSVG/OpenClipart CC0 (viola/cello/bass) +
- * flute/oboe Gerald_G (Openclipart PD).
+ * Assets SVG: game-icons.net (CC BY 3.0) + FreeSVG/OpenClipart CC0
+ * (violin/viola/cello/bass/guitar/bandoneon/flute con colores de origen) +
+ * oboe Gerald_G (silueta currentColor).
  * Atribución: public/stage-plot/ATTRIBUTION.md
  */
 
@@ -9,13 +10,15 @@ import { STAGE_PLOT_SILHOUETTE_VIEWBOX } from "./stagePlotSilhouettes";
 /** Keep in sync with STAGE_PLOT_CM_TO_PX (avoid circular import with stagePlotConstants). */
 const STAGE_PLOT_CM_TO_PX_LOCAL = 4;
 
-/** Archivo en /stage-plot/icons/ (game-icons CC BY 3.0; strings = FreeSVG CC0; flute/oboe = Gerald_G) */
+/** Archivo en /stage-plot/icons/ (game-icons CC BY 3.0; vn/va/vc/bass = FreeSVG CC0; flute/oboe = Gerald_G) */
 export const STAGE_PLOT_ICON_FILES = {
   violin: "violin.svg",
   viola: "viola.svg",
   cello: "cello.svg",
   bass: "bass.svg",
   harp: "harp.svg",
+  guitar: "guitar.svg",
+  bandoneon: "bandoneon.svg",
   flute: "flute.svg",
   oboe: "oboe.svg",
   clarinet: "clarinet.svg",
@@ -46,9 +49,60 @@ export const STAGE_PLOT_ICON_FILES = {
 
 const imageCache = new Map();
 
+/** Overrides desde `instrumentos.svg_icon` (tipo catálogo → markup). */
+let dbSvgByType = new Map();
+let dbIconsEnsurePromise = null;
+
+/**
+ * Registra SVGs de DB. Preferidos sobre `public/stage-plot/icons/`.
+ * @param {Map<string, string>|Record<string, string>|null|undefined} map
+ */
+export function setStagePlotDbIconOverrides(map) {
+  if (map instanceof Map) {
+    dbSvgByType = new Map(map);
+  } else if (map && typeof map === "object") {
+    dbSvgByType = new Map(Object.entries(map));
+  } else {
+    dbSvgByType = new Map();
+  }
+  imageCache.clear();
+}
+
+/** Limpia cache de imágenes y fuerza re-fetch de overrides en el próximo ensure. */
+export function clearStagePlotDbIconCache() {
+  imageCache.clear();
+  dbIconsEnsurePromise = null;
+}
+
+/** @param {string} type */
+export function getStagePlotDbIconSvg(type) {
+  if (!type) return null;
+  return dbSvgByType.get(type) || null;
+}
+
+/**
+ * Carga lazy overrides desde instrumentos (una vez por sesión / hasta clear).
+ * @returns {Promise<void>}
+ */
+export async function ensureStagePlotDbIconsLoaded() {
+  if (dbIconsEnsurePromise) return dbIconsEnsurePromise;
+  dbIconsEnsurePromise = (async () => {
+    try {
+      const { loadAndApplyStagePlotInstrumentIcons } = await import(
+        "../services/stagePlotInstrumentIconsService.js"
+      );
+      await loadAndApplyStagePlotInstrumentIcons();
+    } catch (err) {
+      console.warn("[stagePlotIconAssets] DB icons:", err);
+      dbSvgByType = new Map();
+    }
+  })();
+  return dbIconsEnsurePromise;
+}
+
 /**
  * @param {string} type
- * @returns {string|null} URL pública del SVG
+ * @returns {string|null} URL pública del SVG estático (sin DB)
  */
 export function getStagePlotIconUrl(type) {
   const file = STAGE_PLOT_ICON_FILES[type];
@@ -59,48 +113,123 @@ export function getStagePlotIconUrl(type) {
 }
 
 /**
- * Carga SVG, pinta con `color`, devuelve HTMLImageElement (cacheado).
+ * Markup SVG: DB → archivo estático (texto).
+ * @param {string} type
+ * @returns {Promise<string|null>}
+ */
+export async function resolveStagePlotIconSvgMarkup(type) {
+  if (!type || typeof fetch === "undefined") return null;
+  await ensureStagePlotDbIconsLoaded();
+  const fromDb = getStagePlotDbIconSvg(type);
+  if (fromDb) return fromDb;
+  const url = getStagePlotIconUrl(type);
+  if (!url) return null;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  return res.text();
+}
+
+/**
+ * True if markup is intentionally theme-tintable (silhouettes / game-icons).
+ * Multi-color uploads with explicit hex/rgb fills return false.
+ * @param {string} svg
+ */
+export function stagePlotSvgUsesThemeTint(svg) {
+  return /currentColor/i.test(String(svg || ""));
+}
+
+/**
+ * Prepara markup para raster: solo sustituye `currentColor` (siluetas).
+ * No reescribe fills/strokes hex del autor. Si no hay ningún paint y es
+ * path-only, inyecta fill del tema (fallback silueta mínima).
+ * @param {string} svg
+ * @param {string} color
+ */
+export function prepareStagePlotSvgMarkupForRaster(svg, color = "#1e293b") {
+  let out = String(svg || "");
+  if (!out) return out;
+  if (/currentColor/i.test(out)) {
+    return out.replace(/currentColor/gi, color);
+  }
+  // Path-only silhouette sin paint attrs → tint tema
+  if (!/\bfill\s*=/i.test(out) && !/\bstroke\s*=/i.test(out)) {
+    out = out.replace(/<path\s/g, `<path fill="${color}" `);
+  }
+  return out;
+}
+
+/**
+ * Rasteriza markup SVG → HTMLImageElement (colores de origen preservados).
+ * @param {string} type
+ * @param {string} svg
+ * @param {string} color
+ */
+async function svgMarkupToImage(type, svg, color) {
+  const prepared = prepareStagePlotSvgMarkupForRaster(svg, color);
+  const blob = new Blob([prepared], { type: "image/svg+xml;charset=utf-8" });
+  const objUrl = URL.createObjectURL(blob);
+  try {
+    return await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () =>
+        reject(new Error(`No se pudo decodificar ${type}`));
+      image.src = objUrl;
+    });
+  } finally {
+    URL.revokeObjectURL(objUrl);
+  }
+}
+
+/**
+ * Carga SVG (DB o estático) → HTMLImageElement (cacheado).
+ * `color` solo aplica si el markup usa `currentColor` (silueta mono).
  * @param {string} type
  * @param {string} color
  * @returns {Promise<HTMLImageElement|null>}
  */
 export async function loadStagePlotIconImage(type, color = "#1e293b") {
-  const url = getStagePlotIconUrl(type);
-  if (!url || typeof fetch === "undefined") return null;
-  const key = `${type}|${color}|${url}`;
-  if (imageCache.has(key)) return imageCache.get(key);
+  if (!type || typeof fetch === "undefined") return null;
+  await ensureStagePlotDbIconsLoaded();
+  const dbSvg = getStagePlotDbIconSvg(type);
+  const url = dbSvg ? null : getStagePlotIconUrl(type);
+  if (!dbSvg && !url) return null;
 
-  const promise = (async () => {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Icon ${type}: ${res.status}`);
-    let svg = await res.text();
-    svg = svg.replace(/currentColor/gi, color);
-    // Asegurar fill si faltara
-    if (!/fill=/.test(svg)) {
-      svg = svg.replace(/<path\s/g, `<path fill="${color}" `);
-    }
-    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-    const objUrl = URL.createObjectURL(blob);
-    try {
-      const img = await new Promise((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = () =>
-          reject(new Error(`No se pudo decodificar ${type}`));
-        image.src = objUrl;
+  const sourceKey = dbSvg ? `db:${dbSvg.length}:${dbSvg.slice(0, 48)}` : url;
+
+  const run = async (markup) => {
+    const tintKey = stagePlotSvgUsesThemeTint(markup) ? color : "author";
+    const key = `${type}|${tintKey}|${sourceKey}`;
+    if (imageCache.has(key)) return imageCache.get(key);
+    const p = svgMarkupToImage(type, markup, color).catch((err) => {
+      console.warn(err);
+      imageCache.delete(key);
+      return null;
+    });
+    imageCache.set(key, p);
+    return p;
+  };
+
+  if (dbSvg) return run(dbSvg);
+
+  const fetchKey = `${type}|fetch|${sourceKey}`;
+  let fetchPromise = imageCache.get(fetchKey);
+  if (!fetchPromise) {
+    fetchPromise = fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Icon ${type}: ${res.status}`);
+        return res.text();
+      })
+      .catch((err) => {
+        console.warn(err);
+        imageCache.delete(fetchKey);
+        return null;
       });
-      return img;
-    } finally {
-      URL.revokeObjectURL(objUrl);
-    }
-  })().catch((err) => {
-    console.warn(err);
-    imageCache.delete(key);
-    return null;
-  });
-
-  imageCache.set(key, promise);
-  return promise;
+    imageCache.set(fetchKey, fetchPromise);
+  }
+  const markup = await fetchPromise;
+  if (!markup) return null;
+  return run(markup);
 }
 
 /** @param {CanvasImageSource|null|undefined} htmlImage */
@@ -197,6 +326,11 @@ export function formatStagePlotItemRealSize(boundsW, boundsH, scale = 1) {
   return `${wR} × ${hR} cm`;
 }
 
+/**
+ * URL estática del icono (sin DB). Preferir `resolveStagePlotIconSvgMarkup` /
+ * `loadStagePlotIconImage` cuando hace falta override de instrumentos.
+ * @param {string} type
+ */
 export function stagePlotIconImgSrc(type) {
   return getStagePlotIconUrl(type);
 }

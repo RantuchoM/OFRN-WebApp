@@ -53,6 +53,9 @@ export const STAGE_PLOT_SILHOUETTES = {
   // --- Escenario ---
   chair:
     "M16 14h32v6H16v-6zm4 8h24v22c0 2-1.5 3.5-3.5 3.5h-17c-2 0-3.5-1.5-3.5-3.5V22zm-6 4h4v24H14V26zm38 0h4v24h-4V26zM22 28h20v3H22v-3z",
+  // Banqueta / stool (top-down): asiento redondo + patas
+  banqueta:
+    "M32 14c-9 0-16 7-16 16s7 16 16 16 16-7 16-16-7-16-16-16zm0 6c5.5 0 10 4.5 10 10s-4.5 10-10 10-10-4.5-10-10 4.5-10 10-10zM14 28h4v8h-4v-8zm32 0h4v8h-4v-8zM28 46h8v6h-8v-6z",
   music_stand:
     "M30 8h4v28h-4V8zm-10 28 12-8 12 8v4H20v-4zM18 44h28v3H18v-3zM22 50l-8 10h4l6-7 6 7h4l-8-10h-4z",
   conductor:

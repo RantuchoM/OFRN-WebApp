@@ -32,7 +32,7 @@ export const STAGE_PLOT_CONDUCTOR_DOWNSTAGE_CM = 3;
 export const STAGE_PLOT_ITEM_DEFAULT_SIZE_CM = 40;
 
 /**
- * Cuadrado de silla detrás de instrumentos: lado = max(bounds) × este factor
+ * Cuadrado de silla (legacy / tipo `chair`): lado = max(bounds) × este factor
  * (coords locales del ítem; el Group ya aplica item.scale).
  */
 export const STAGE_PLOT_CHAIR_SQUARE_SCALE = 0.6;
@@ -49,12 +49,66 @@ export const STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_FILL = "#e0e7ff";
 export const STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_STROKE = "#818cf8";
 
 /**
+ * Huella de instrumentista (cm reales → px vía STAGE_PLOT_CM_TO_PX).
+ * Ancho = izquierda-derecha local; profundo = atrás→adelante (atril en el frente / +Y local).
+ * Icono/SVG cabe en un cuadrado ICON_BOX_CM dentro de la huella (zona músico hacia upstage);
+ * la franja frontal DEPTH−ICON_BOX (30 cm) queda para atril (+ línea ATRIL_LINE_CM en el borde +Y).
+ */
+export const STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM = 50;
+export const STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM = 80;
+/** Caja del icono/SVG dentro de la huella (cm). */
+export const STAGE_PLOT_INSTRUMENT_ICON_BOX_CM = 50;
+/** Línea de atril centrada en el borde frontal (hacia el director). */
+export const STAGE_PLOT_ATRIL_LINE_CM = 35;
+
+export const STAGE_PLOT_FOOTPRINT_FILL = "rgba(241, 245, 249, 0.55)";
+export const STAGE_PLOT_FOOTPRINT_STROKE = "#94a3b8";
+export const STAGE_PLOT_FOOTPRINT_MAGNETIZED_FILL = "rgba(224, 231, 255, 0.55)";
+export const STAGE_PLOT_FOOTPRINT_MAGNETIZED_STROKE = "#818cf8";
+export const STAGE_PLOT_ATRIL_LINE_STROKE = "#475569";
+
+/**
  * Lado del cuadrado-silla en coords locales del ítem.
  * @param {number} boundsW
  * @param {number} boundsH
  */
 export function stagePlotChairSquareSide(boundsW, boundsH) {
   return Math.max(Number(boundsW) || 0, Number(boundsH) || 0, 1) * STAGE_PLOT_CHAIR_SQUARE_SCALE;
+}
+
+/**
+ * Huella + atril en px de escenario (@ STAGE_PLOT_CM_TO_PX).
+ * @returns {{ widthPx: number, depthPx: number, atrilPx: number, iconBoxPx: number }}
+ */
+export function stagePlotInstrumentFootprintPx() {
+  return {
+    widthPx: STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM * STAGE_PLOT_CM_TO_PX,
+    depthPx: STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM * STAGE_PLOT_CM_TO_PX,
+    atrilPx: STAGE_PLOT_ATRIL_LINE_CM * STAGE_PLOT_CM_TO_PX,
+    iconBoxPx: STAGE_PLOT_INSTRUMENT_ICON_BOX_CM * STAGE_PLOT_CM_TO_PX,
+  };
+}
+
+/**
+ * Layout local (pre–item.scale) de huella + caja de icono.
+ * Origen = centro de la huella; +Y = frente (director).
+ * Icono anclado al borde upstage (−Y): ocupa los primeros ICON_BOX_CM de profundidad.
+ * @returns {{
+ *   widthPx: number,
+ *   depthPx: number,
+ *   atrilPx: number,
+ *   iconBoxPx: number,
+ *   iconOffsetY: number,
+ * }}
+ */
+export function stagePlotInstrumentFootprintLayout() {
+  const fp = stagePlotInstrumentFootprintPx();
+  // Centro del icon box: desde el borde trasero (−depth/2) hacia +Y la mitad de la caja.
+  const iconOffsetY = -fp.depthPx / 2 + fp.iconBoxPx / 2;
+  return {
+    ...fp,
+    iconOffsetY,
+  };
 }
 
 /** Límites de escala por ítem (Transformer + persistencia). */

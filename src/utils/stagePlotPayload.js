@@ -1,6 +1,7 @@
 import {
   STAGE_PLOT_DEFAULT_SIZE,
   getStagePlotCatalogItem,
+  stagePlotItemHasInstrumentFootprint,
 } from "./stagePlotCatalog";
 import {
   STAGE_PLOT_DEFAULT_HEIGHT_CM,
@@ -19,7 +20,11 @@ import {
 } from "./stagePlotConstants";
 import { getStagePlotItemVisualBounds } from "./stagePlotIconAssets";
 import { getStagePlotSilhouettePath } from "./stagePlotSilhouettes";
-import { normalizeStagePlotFormation } from "./stagePlotFormations";
+import {
+  normalizeStagePlotFormation,
+  resolveFormationFacingPoint,
+  rotationFacingPoint,
+} from "./stagePlotFormations";
 import {
   normalizeStagePlotGroup,
   reconcileStagePlotGroups,
@@ -304,6 +309,13 @@ export function applyStagePlotStagePatch(prev, patch) {
         ? merged.hideChairSquares
         : false,
     radialLines: normalizeStagePlotRadialLines(merged.radialLines),
+    id_locacion:
+      merged.id_locacion != null &&
+      merged.id_locacion !== "" &&
+      Number.isFinite(Number(merged.id_locacion)) &&
+      Number(merged.id_locacion) > 0
+        ? Number(merged.id_locacion)
+        : null,
   };
 
   const prevDims = normalizeStagePlotStageDimensions(prev.stage);
@@ -333,6 +345,7 @@ export function createEmptyStagePlotPayload() {
       hideFormationGuides: false,
       hideChairSquares: false,
       radialLines: STAGE_PLOT_RADIAL_LINES_DEFAULT,
+      id_locacion: null,
     },
     items: [],
     formations: [],
@@ -365,6 +378,10 @@ export function normalizeStagePlotPayload(raw) {
       ? stageIn.hideChairSquares
       : false;
   const radialLines = normalizeStagePlotRadialLines(stageIn.radialLines);
+  const idLocacion =
+    stageIn.id_locacion != null && stageIn.id_locacion !== ""
+      ? Number(stageIn.id_locacion)
+      : null;
   const scaleFactor = stagePlotLegacyScaleFactor(stageIn);
   const { itemsRaw, formationsRaw } = rescaleStagePlotGeometry(
     Array.isArray(obj.items) ? obj.items : [],
@@ -392,6 +409,8 @@ export function normalizeStagePlotPayload(raw) {
       hideFormationGuides,
       hideChairSquares,
       radialLines,
+      id_locacion:
+        Number.isFinite(idLocacion) && idLocacion > 0 ? idLocacion : null,
     },
     items: pinnedItems,
     formations,
@@ -420,13 +439,26 @@ function normalizeStagePlotItem(it, idx) {
   const cat = getStagePlotCatalogItem(type);
   const includeDefault = cat ? cat.includeInChannels : false;
   const scaleRaw = Number(o.scale);
-  const scale =
+  let scale =
     Number.isFinite(scaleRaw) && scaleRaw > 0
       ? Math.min(
           STAGE_PLOT_ITEM_SCALE_MAX,
           Math.max(STAGE_PLOT_ITEM_SCALE_MIN, scaleRaw),
         )
       : 1;
+  // Huella 50×80 es tamaño físico en cm a scale=1. Ítems legacy creados con
+  // la lógica «~40 cm visual» (scale ≫ 1) se reanclan a 1 para no inflar la huella.
+  // Escalas deliberadas del Transformer (≠ default 40 cm) se conservan.
+  if (stagePlotItemHasInstrumentFootprint(type) && scale !== 1) {
+    const catW = cat?.w || 40;
+    const catH = cat?.h || 40;
+    const baseMax = Math.max(catW, catH, 1);
+    const legacyDefault =
+      (STAGE_PLOT_ITEM_DEFAULT_SIZE_CM * STAGE_PLOT_CM_TO_PX) / baseMax;
+    if (Math.abs(scale - legacyDefault) < 0.08) {
+      scale = 1;
+    }
+  }
   const slotId =
     o.slotId == null || o.slotId === "" ? null : String(o.slotId);
   const groupId =
@@ -475,9 +507,11 @@ export function deriveStagePlotChannels(payload) {
 
 /**
  * Escala inicial: max(drawW, drawH) × scale ≈ STAGE_PLOT_ITEM_DEFAULT_SIZE_CM en px.
+ * Instrumentos con huella: scale = 1 (huella fija 50×80 cm).
  * @param {string} type
  */
 export function defaultStagePlotItemScale(type) {
+  if (stagePlotItemHasInstrumentFootprint(type)) return 1;
   const cat = getStagePlotCatalogItem(type);
   const w = cat?.w || 40;
   const h = cat?.h || 40;
@@ -508,15 +542,33 @@ export function defaultStagePlotItemScale(type) {
  * @param {number} x
  * @param {number} y
  * @param {number} z
+ * @param {{
+ *   facingPoint?: { x: number, y: number }|null,
+ *   items?: Array,
+ *   stage?: object,
+ *   rotation?: number,
+ * }} [opts]
  */
-export function createStagePlotItem(type, x, y, z) {
+export function createStagePlotItem(type, x, y, z, opts = {}) {
   const cat = getStagePlotCatalogItem(type);
+  let rotation = Number.isFinite(Number(opts.rotation))
+    ? Number(opts.rotation)
+    : 0;
+  if (
+    !Number.isFinite(Number(opts.rotation)) &&
+    stagePlotItemHasInstrumentFootprint(type)
+  ) {
+    const facing =
+      opts.facingPoint ||
+      resolveFormationFacingPoint(opts.items || [], opts.stage || {});
+    rotation = rotationFacingPoint(x, y, facing.x, facing.y);
+  }
   const item = {
     id: newId(),
     type,
     x,
     y,
-    rotation: 0,
+    rotation,
     scale: defaultStagePlotItemScale(type),
     z,
     label: cat?.name || type,
