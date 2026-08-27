@@ -50,3 +50,11 @@
 - **UI**: Fuera del menú Filtros. En el sticky del **primer mes**, solo si `isEditor`: botones **1 semana antes** y **1 mes antes**.
 - **Comportamiento**: Retrocede `filterDateFrom` 7 días o 1 mes (repetible). En agenda general, el fetch inicial ya trae ~1 mes de pasado (`AGENDA_PRELOAD_PAST_MONTHS`); la vista sigue filtrando “desde hoy”. Dentro de esa ventana, expandir **solo re-filtra en cliente**. **Re-fetch** si el rango pide fechas anteriores a `getAgendaPreloadFromDateLocal()` (p. ej. el primer “1 mes antes” desde hoy, o semanas que salgan de la ventana). En gira se acota al primer evento. Ancla de scroll al expandir.
 - **Implementación**: `dates.js` (`getAgendaPreloadFromDateLocal`, `getAgendaQueryFromDateLocal`), `useAgendaData.js`, `UnifiedAgenda.jsx` (`handleOneWeekBefore` / `handleOneMonthBefore` + header primer mes).
+
+## 9. Agenda OFRN: toggle «con FIMBA»
+- **Estado**: Completado (2026-08-27).
+- **UI**: Chip sticky arriba (junto a Importar / Buscar), label **con FIMBA**, solo para staff (`filterIsEditor` / `filterIsManagement` / `filterIsTechnician`, incl. «Ver como…» según permisos efectivos). Músicos **no** ven el toggle.
+- **Default OFF**: oculta eventos **solo-FIMBA** (`audiencia_ofrn === 'none'`, sin `eventos_grupos`, sin `id_gira_transporte`). ON: los incluye junto a la agenda OFRN normal.
+- **Músicos**: eventos solo-FIMBA **siempre ocultos**. Si el evento también convoca OFRN (Tutti / grupos / general) o es parada de flota OFRN, aplica las reglas normales de convocatoria/grupo — no es “solo FIMBA”.
+- **Helper**: `isFimbaOnlyAgendaEvent` en `agendaHelpers.js`; select + caché agenda `audiencia_ofrn` (`useAgendaData` v9).
+- **Sin persistencia** localStorage (estado de componente).

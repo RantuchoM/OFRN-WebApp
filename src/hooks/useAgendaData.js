@@ -18,7 +18,7 @@ import {
 const ID_TIPO_ENSAYO_ENSAMBLE = 13;
 
 const EVENT_SELECT = `
-    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, observaciones_internas, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, id_repertorio, visible_agenda, updated_at, is_deleted, deleted_at, id_estado_venue, es_didactico,
+    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, observaciones_internas, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, id_repertorio, visible_agenda, audiencia_ofrn, updated_at, is_deleted, deleted_at, id_estado_venue, es_didactico,
     giras_transportes ( id, detalle, transportes ( nombre, color, icon ) ),
     tipos_evento ( id, nombre, color, categorias_tipos_eventos (id, nombre) ),
     locaciones ( id, nombre, direccion, link_mapa, localidades (localidad) ),
@@ -116,7 +116,7 @@ export function getAgendaCacheKey(
   const scope = giraId
     ? `${giraId}${includeAssociatedEnsembleRehearsals ? "_ensReh" : ""}`
     : "general";
-  return `agenda_cache_${effectiveUserId}_${scope}_v8`;
+  return `agenda_cache_${effectiveUserId}_${scope}_v9`;
 }
 
 function eventBelongsToProgramAgenda(evt, giraId, includeAssociatedEnsembleRehearsals) {

@@ -82,6 +82,7 @@ import {
   eventMatchesAgendaSearch,
   getAccentInsensitiveHighlightRanges,
   highlightHtmlSearch,
+  isFimbaOnlyAgendaEvent,
   ID_TIPO_TRASLADO_INTERNO,
 } from "../../utils/agendaHelpers";
 import { getProgramBadgeClasses, isUserConvoked } from "../../utils/giraUtils";
@@ -563,6 +564,13 @@ export default function UnifiedAgenda({
     canSeeHiddenAgendaEvents: filterCanSeeHiddenAgendaEvents,
     defaultPersonalFilter: filterDefaultPersonalFilter,
   } = filterPermissions;
+
+  /** Staff (editor/gestión/técnico): pueden revelar eventos solo-FIMBA. Músicos: nunca. */
+  const canToggleConFimba =
+    filterIsEditor || filterIsManagement || filterIsTechnician;
+  /** OFF por defecto: agenda OFRN limpia (sin eventos solo-FIMBA). */
+  const [showWithFimba, setShowWithFimba] = useState(false);
+
   // --- ESTADOS ---
   const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
   const [myEnsembleObjects, setMyEnsembleObjects] = useState([]);
@@ -1186,6 +1194,13 @@ export default function UnifiedAgenda({
         if (filterDateTo && item.fecha > filterDateTo) return false;
       }
 
+      // Solo-FIMBA: staff via toggle «con FIMBA»; músicos siempre ocultos
+      // (salvo que el evento también convoque OFRN / su grupo — entonces no es solo-FIMBA).
+      if (isFimbaOnlyAgendaEvent(item)) {
+        if (!canToggleConFimba) return false;
+        if (!showWithFimba) return false;
+      }
+
       const {
         isTransportEvent,
         isMyTransport,
@@ -1290,6 +1305,8 @@ export default function UnifiedAgenda({
     filterGrupoIds,
     includeGeneralEvents,
     agendaSearchQuery,
+    canToggleConFimba,
+    showWithFimba,
   ]);
 
   const minFilterDateFrom = giraId && giraFirstDate ? giraFirstDate : null;
@@ -2243,6 +2260,27 @@ export default function UnifiedAgenda({
               >
                 <IconRefresh size={14} />
                 <span>Importar</span>
+              </button>
+            )}
+
+            {canToggleConFimba && (
+              <button
+                type="button"
+                onClick={() => setShowWithFimba((v) => !v)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold shadow-sm transition-all ${
+                  showWithFimba
+                    ? "bg-[#d73289] text-white border-[#d73289] hover:bg-[#c02a7a]"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                }`}
+                title={
+                  showWithFimba
+                    ? "Ocultar eventos solo FIMBA"
+                    : "Mostrar eventos solo FIMBA"
+                }
+                aria-pressed={showWithFimba}
+              >
+                <IconTag size={14} />
+                <span>con FIMBA</span>
               </button>
             )}
 

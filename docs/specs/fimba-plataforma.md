@@ -206,6 +206,7 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
   2. **OFRN orquesta**: misma `id_gira` con `audiencia_ofrn ∈ {tutti, grupos}` o `NULL` (general histórico). No incluyen `audiencia_ofrn = 'none'`.
 - Pure FIMBA (`audiencia_ofrn=none` + solo propuestas/flota) sigue listándose vía (1).
 - Un evento puede ser **ambos** (tags FIMBA + convocatoria OFRN).
+- **Agenda OFRN (`UnifiedAgenda`)**: chip staff **con FIMBA** (default OFF) para incluir/ocultar eventos solo-FIMBA (`audiencia_ofrn=none` sin grupos ni `id_gira_transporte`). Músicos no ven el chip: solo-FIMBA siempre oculto; eventos con convocatoria OFRN/grupos siguen las reglas normales de roster.
 - **Agenda de artista** (`id_propuesta` en `listFimbaAgenda` / ficha `FimbaConsultaAgenda` / filtro artista en planilla):
   - Eventos tagged al artista **+** bloques calculados **a bordo** (traslados suben→bajan).
   - Fuente: `fimba_propuesta_rutas` con `plazas > 0` y `id_evento_subida` resuelto (`buildArtistaTrasladoAgendaBlocks` / `listFimbaArtistaTrasladoBlocks`).
@@ -463,6 +464,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Editor transportes: panel **Vehículos** (alta + editar lápiz: catálogo, detalle, plazas, categoría; nombre catálogo+patente, detalle OFRN sec.) + planilla **Trayectos** (= eventos FIMBA + paradas OFRN; filtros origen/vehículo)
 - [x] Agenda unificada planilla (fecha, horas, tipo, actividad, destino/vuelo, vehículos, PAX, tags)
 - [x] Planilla agenda: badges FIMBA/OFRN + convocatoria + filtro origen (default Solo FIMBA) + multi-select **categoría** y **locación** + búsqueda debounced (tipo/actividad/lugar/personas/vehículos)
+- [x] Agenda OFRN (`UnifiedAgenda`): toggle staff **con FIMBA** (default OFF); músicos siempre ocultan solo-FIMBA
 - [x] Agenda **Descargar PDF**: reusa UnifiedAgenda (`exportAgendaToPDF`) vía `fimbaAgendaPdf.js`; toolbar planilla + agenda artista/consulta; vista filtrada
 - [x] Planilla agenda **orden contractual**: fecha → hora_inicio → detalle/actividad (`localeCompare` es, `sensitivity: "base"`) → tipo → id. Se **reaplica tras cada filtro** (origen/categoría/locación/búsqueda); limpiar filtros no deja orden residual. Tags de artistas en fila y select Artista: alfabético ES. Merge de bloques Traslado (rides) usa el mismo comparador (no solo fecha+hora).
 - [x] Hotelería reporte + edición checkin/out/early/late/hotel + export TSV (cols Early/Late) + cupos habitaciones + rooming resumen

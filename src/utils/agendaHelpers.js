@@ -29,6 +29,29 @@ export function isLogisticsTransportEvent(item) {
 }
 
 /**
+ * Evento solo-FIMBA en la agenda OFRN: sin convocatoria de orquesta
+ * (`audiencia_ofrn === 'none'`, sin `eventos_grupos`) y sin parada de flota
+ * OFRN (`id_gira_transporte`). Los que también incluyen Tutti/grupos OFRN
+ * no son “solo FIMBA” y siguen las reglas normales de convocatoria.
+ */
+export function isFimbaOnlyAgendaEvent(item) {
+  if (!item || item.isProgramMarker) return false;
+  if (item.audiencia_ofrn !== "none") return false;
+  const grupos = item.eventos_grupos || [];
+  if (
+    grupos.some(
+      (eg) => eg?.id_grupo != null || eg?.giras_grupos?.id != null,
+    )
+  ) {
+    return false;
+  }
+  if (item.id_gira_transporte != null && item.id_gira_transporte !== "") {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Lista de eventos para exportar a PDF: misma vista filtrada, sin marcadores de programa
  * ni filas colapsadas ("eventos anteriores de hoy").
  */
