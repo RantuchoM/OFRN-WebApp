@@ -1,0 +1,16 @@
+HTTP/1.1 200 OK
+Date: Wed, 26 Aug 2026 19:41:30 GMT
+Content-Type: text/html; charset=UTF-8
+Transfer-Encoding: chunked
+Connection: keep-alive
+Server: cloudflare
+Nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+Cache-Control: no-cache, private
+Set-Cookie: XSRF-TOKEN=eyJpdiI6IklkOUlyZFFPeVJ5czArVmxzSndUQ2c9PSIsInZhbHVlIjoiRU1vYXh0NnRqVEFUREFFOEFGTzVsc1VyVE9qXC9pRUI5VExET1pKeFVkME8rY0k3Y0VqNGRsSlBWSU9IaUxxTTkiLCJtYWMiOiIyMWZkZTgzNTRkYTIzYmQ0OTk5YjllZGRiOWRhNmNiMjJlYzhlMjE2N2NmNzYwNGJkYThlZTFjMWQzNTk0NTQ1In0%3D; expires=Wed, 26-Aug-2026 21:41:30 GMT; Max-Age=7200; path=/
+Set-Cookie: laravel_session=eyJpdiI6ImxcL1puOVA1aDhnSVBXTGxUUU4xVXpRPT0iLCJ2YWx1ZSI6IjZ4emNwVFJQYkx5cldHOTN1UDNmb0xWSzZoZUpHM3pvblpcLzdFTmMzejBmRUZGck5TaW9aY1dFdVhDY1Z0YzgwIiwibWFjIjoiMjFiMDEwYjZiMWFmZWUwMDNhZDdmZWYyZWJjYzQ1MThiNzFlYWMzMTdmZTMyMTdlYTliOGJiMGE1NzBmOWNjNSJ9; expires=Wed, 26-Aug-2026 21:41:30 GMT; Max-Age=7200; path=/; httponly
+Report-To: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=7o04rSaNnUUqVObnzvdVmQg9u3OnQEGkRkWNg0%2FrmxtMybf2SKArMb%2BjzNXNZuuk9Rsb2ngD3PVL%2F5gsOE2sxRiC3grlBrf0n00pp8TeVmkNvp%2F%2B1yO4LOm7gXNDvg%3D%3D"}]}
+cf-cache-status: DYNAMIC
+vary: accept-encoding
+CF-RAY: a3155077a8b8684e-EZE
+alt-svc: h3=":443"; ma=86400
+

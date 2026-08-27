@@ -20,10 +20,14 @@ import {
   duplicateFimbaEvento,
   FIMBA_DEFAULT_TIPO_EVENTO,
   getFimbaEdicionById,
+  giraTransporteIdsFromEvent,
   labelGiraTransporte,
   listFimbaAgenda,
   listFimbaFlota,
+  listFimbaPropuestaRutas,
   listFimbaPropuestas,
+  loadFimbaTransportLogisticsSummary,
+  computeFimbaCapacity,
 } from "../../services/fimbaService";
 import { normalizeForSearch } from "../../utils/sanitize";
 import { stripHtml } from "../../utils/eventDisplayUtils";
@@ -35,7 +39,11 @@ import {
   buildFimbaAgendaPdfSubTitle,
   exportFimbaAgendaToPDF,
 } from "../../utils/fimbaAgendaPdf";
-import { defaultGapFillEventSchedule } from "../../utils/fimbaTransportBoarding";
+import {
+  buildAllVehicleBoardingSequences,
+  defaultGapFillEventSchedule,
+  resolveEventAboardCount,
+} from "../../utils/fimbaTransportBoarding";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
@@ -296,6 +304,8 @@ export default function FimbaAgendaPage() {
   const [propuestas, setPropuestas] = useState([]);
   const [flota, setFlota] = useState([]);
   const [eventos, setEventos] = useState([]);
+  const [logisticsSummary, setLogisticsSummary] = useState([]);
+  const [propuestaRoutes, setPropuestaRoutes] = useState([]);
   const [filtroArtista, setFiltroArtista] = useState(filterFromQuery || "");
   /** Default: Solo FIMBA (no Todos). */
   const [filtroOrigen, setFiltroOrigen] = useState("fimba");
@@ -330,12 +340,14 @@ export default function FimbaAgendaPage() {
       return;
     }
     const ed = edRes.edicion;
-    const [propsRes, flotaRes, agendaRes] = await Promise.all([
+    const [propsRes, flotaRes, agendaRes, logRes, rutasRes] = await Promise.all([
       listFimbaPropuestas(edicionId),
       listFimbaFlota(ed.id_gira),
       listFimbaAgenda(edicionId, {
         id_propuesta: filtroArtista || null,
       }),
+      loadFimbaTransportLogisticsSummary(ed.id_gira),
+      listFimbaPropuestaRutas(edicionId),
     ]);
     if (propsRes.error || flotaRes.error || agendaRes.error) {
       setError(
@@ -347,6 +359,8 @@ export default function FimbaAgendaPage() {
     setPropuestas(propsRes.propuestas || []);
     setFlota(flotaRes.flota || []);
     setEventos(agendaRes.eventos || []);
+    setLogisticsSummary(logRes.error ? [] : logRes.summary || []);
+    setPropuestaRoutes(rutasRes.error ? [] : rutasRes.rutas || []);
     setLoading(false);
   };
 
@@ -377,6 +391,20 @@ export default function FimbaAgendaPage() {
     }
     return map;
   }, [flota]);
+
+  /** Secuencias de abordaje (misma fuente que Transportes → Tránsito/cap). */
+  const sequencesByVehicle = useMemo(
+    () =>
+      buildAllVehicleBoardingSequences({
+        vehiculos: flota,
+        eventos,
+        logisticsSummary,
+        capacityFn: computeFimbaCapacity,
+        eventVehicleIds: giraTransporteIdsFromEvent,
+        propuestaRoutes,
+      }),
+    [flota, eventos, logisticsSummary, propuestaRoutes],
+  );
 
   const categoryOptions = useMemo(
     () =>
@@ -801,7 +829,11 @@ export default function FimbaAgendaPage() {
                   <th>Detalle</th>
                   <th>Destino / Vuelo</th>
                   <th>Vehículo</th>
-                  <th>As. Equipaje</th>
+                  <th
+                    title="Personas a bordo en el/los vehículo(s) al salir de esta parada (OFRN + FIMBA). No es el campo de asientos de equipaje del modal."
+                  >
+                    As. Equipaje
+                  </th>
                   <th>OFRN</th>
                   <th>Artistas</th>
                   <th />
@@ -832,8 +864,8 @@ export default function FimbaAgendaPage() {
                       ? (ev.vehiculos || [])
                           .map((r) => {
                             const label = labelGiraTransporte(r.giras_transportes);
-                            const pl = Number(r.plazas) || 0;
-                            return pl ? `${label} (${pl})` : label;
+                            const pl = Math.max(0, Number(r.plazas) || 0);
+                            return `${label} (${pl})`;
                           })
                           .join(", ") || "—"
                       : ofrnVeh
@@ -945,7 +977,27 @@ export default function FimbaAgendaPage() {
                           vehLabel
                         )}
                       </td>
-                      <td>{ev.asientos_equipaje || ev.pax || "—"}</td>
+                      <td
+                        title={
+                          isTx
+                            ? "A bordo al salir (misma métrica que Tránsito/cap en Transportes)"
+                            : "Solo aplica a eventos con transporte"
+                        }
+                        style={{
+                          fontVariantNumeric: "tabular-nums",
+                          fontWeight: isTx ? 600 : undefined,
+                        }}
+                      >
+                        {(() => {
+                          if (!isTx) return "—";
+                          const n = resolveEventAboardCount(
+                            ev,
+                            sequencesByVehicle,
+                            null,
+                          );
+                          return n != null ? n : "—";
+                        })()}
+                      </td>
                       <td>
                         {ev.es_ofrn && !isRide ? (
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>

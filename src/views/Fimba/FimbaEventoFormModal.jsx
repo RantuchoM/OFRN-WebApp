@@ -4,6 +4,7 @@ import {
   IconUpload,
   IconDownload,
   IconUsers,
+  IconEdit,
 } from "../../components/ui/Icons";
 import {
   actividadUsaTransporte,
@@ -27,7 +28,7 @@ import {
 } from "../../services/fimbaService";
 import { eventGrupoIdsFromEvent } from "../../services/giraGruposService";
 import { uploadEventoInternasImage } from "../../services/eventosInternasService";
-import { summarizeOfrnStopRules } from "../../utils/fimbaTransportBoarding";
+import { summarizeOfrnStopRules, boardingMetricsForEventRow, TRANSPORT_DESTINO_SIN_SIGUIENTE } from "../../utils/fimbaTransportBoarding";
 import {
   isEventosInternasEmpty,
   normalizeEventosInternasHtml,
@@ -442,6 +443,8 @@ export default function FimbaEventoFormModal({
   onSaved,
   /** Refresh de planilla tras mutar boarding embebido. */
   onBoardingRefresh = null,
+  /** Transportes: abre modal «Elegir destino creando evento» (opts.horaFinFromForm). */
+  onCambiarDestino = null,
 }) {
   const isEdit = mode === "edit";
   const { canEditPropuestaMeta } = useFimbaAccess();
@@ -597,6 +600,8 @@ export default function FimbaEventoFormModal({
     }
     return map;
   });
+  /** Plazas que el usuario editó a mano (no re-defaultar a 0→cupo). */
+  const plazasTouchedRef = useRef(new Set());
   const [selectedProps, setSelectedProps] = useState(defaultProps);
   const [tagFilter, setTagFilter] = useState("");
   const [audienciaOfrn, setAudienciaOfrn] = useState(() => initialAudienciaOfrn(evento));
@@ -690,7 +695,7 @@ export default function FimbaEventoFormModal({
     if (detalleDirtyKey(actividad) !== (initialForm.actividad || "")) {
       return true;
     }
-    if ((destino || "") !== (initialForm.destino || "")) return true;
+    if (!usaTransporte && (destino || "") !== (initialForm.destino || "")) return true;
     if ((vuelo || "") !== (initialForm.vuelo || "")) return true;
     if (
       String(observacionesEquipaje || "").trim() !==
@@ -891,6 +896,104 @@ export default function FimbaEventoFormModal({
     [tipos, tipoId],
   );
 
+  const transportDestinoMetrics = useMemo(() => {
+    if (!usaTransporte || !isEdit || !evento?.id || !sequencesByVehicle) {
+      return null;
+    }
+    return boardingMetricsForEventRow(evento, sequencesByVehicle, null);
+  }, [usaTransporte, isEdit, evento, sequencesByVehicle]);
+
+  const transportDestinoLabel = useMemo(() => {
+    if (!transportDestinoMetrics) return TRANSPORT_DESTINO_SIN_SIGUIENTE;
+    const label = transportDestinoMetrics.destino_siguiente;
+    if (label != null && label !== "—") return label;
+    return TRANSPORT_DESTINO_SIN_SIGUIENTE;
+  }, [transportDestinoMetrics]);
+
+  /** Vehículo del form (o del evento) — no depender solo de metrics.primary. */
+  const transportDestinoVehicleId = useMemo(() => {
+    if (!sinServicio) {
+      const fromForm = selectedVehIds
+        .map((id) => Number(id))
+        .find((n) => Number.isFinite(n));
+      if (fromForm != null) return fromForm;
+    }
+    const fromMetrics =
+      transportDestinoMetrics?.primary?.id_gira_transporte ??
+      transportDestinoMetrics?.perVehicle?.[0]?.id_gira_transporte ??
+      null;
+    if (fromMetrics != null && fromMetrics !== "") return Number(fromMetrics);
+    for (const r of evento?.vehiculos || []) {
+      const n = Number(r?.id_gira_transporte);
+      if (Number.isFinite(n)) return n;
+    }
+    if (evento?.id_gira_transporte != null && evento.id_gira_transporte !== "") {
+      const n = Number(evento.id_gira_transporte);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  }, [
+    sinServicio,
+    selectedVehIds,
+    transportDestinoMetrics,
+    evento,
+  ]);
+
+  const canOpenDestinoFlow = Boolean(
+    typeof onCambiarDestino === "function" && usaTransporte,
+  );
+  const canCambiarDestinoTransporte = Boolean(
+    canOpenDestinoFlow &&
+      isEdit &&
+      evento?.id != null &&
+      evento.id !== "" &&
+      transportDestinoVehicleId != null &&
+      !sinServicio,
+  );
+
+  const destinoActionBlockedReason = useMemo(() => {
+    if (!usaTransporte || !canOpenDestinoFlow) return null;
+    if (!isEdit || evento?.id == null || evento.id === "") {
+      return "Guardá el evento para poder elegir destino.";
+    }
+    if (sinServicio || transportDestinoVehicleId == null) {
+      return "Asigná un vehículo (desmarcá SIN SERVICIO) para elegir destino.";
+    }
+    return null;
+  }, [
+    usaTransporte,
+    canOpenDestinoFlow,
+    isEdit,
+    evento,
+    sinServicio,
+    transportDestinoVehicleId,
+  ]);
+
+  const openElegirDestino = () => {
+    if (!canCambiarDestinoTransporte || typeof onCambiarDestino !== "function") {
+      return;
+    }
+    const vid = transportDestinoVehicleId;
+    const metrics =
+      transportDestinoMetrics || {
+        primary: { id_gira_transporte: vid },
+        perVehicle: [{ id_gira_transporte: vid }],
+        next_event: null,
+        destino_siguiente: "—",
+      };
+    // Asegurar vehicleId aunque metrics.primary venga vacío (p.ej. sin secuencia).
+    const withVehicle = {
+      ...metrics,
+      primary: metrics.primary?.id_gira_transporte != null
+        ? metrics.primary
+        : { ...(metrics.primary || {}), id_gira_transporte: vid },
+    };
+    onCambiarDestino(evento, withVehicle, {
+      horaFinFromForm: horaFin || null,
+      vehicleId: vid,
+    });
+  };
+
   const applyTipoChange = (rawId) => {
     const id = Number(rawId);
     setTipoId(id);
@@ -952,14 +1055,17 @@ export default function FimbaEventoFormModal({
     setPlazasByVeh((prev) => {
       const next = { ...prev };
       let changed = false;
-      // Disponibles del tope artistas, contando solo lo ya defaultado en este pass
+      // Disponibles del tope artistas, contando solo lo ya asignado (>0) / tocado
       let poolRemaining =
         artistasCapTope != null
           ? Math.max(
               0,
               artistasCapTope -
                 selectedVehIds.reduce((s, id) => {
-                  if (prev[id] != null && prev[id] !== "") {
+                  if (plazasTouchedRef.current.has(id)) {
+                    return s + Math.max(0, Number(prev[id]) || 0);
+                  }
+                  if (prev[id] != null && prev[id] !== "" && Number(prev[id]) > 0) {
                     return s + Math.max(0, Number(prev[id]) || 0);
                   }
                   return s;
@@ -967,7 +1073,12 @@ export default function FimbaEventoFormModal({
             )
           : null;
       for (const id of selectedVehIds) {
-        if (next[id] != null && next[id] !== "") continue;
+        if (plazasTouchedRef.current.has(id)) continue;
+        const cur = next[id];
+        const hasPositive =
+          cur != null && cur !== "" && Number(cur) > 0;
+        // También defaulta `plazas = 0` guardado: capacidad (44) ≠ plazas aplicadas
+        if (hasPositive) continue;
         const gt = flota.find((f) => String(f.id) === String(id));
         const vehLibres = cupoPlazasVehiculo(metrics[id], gt);
         let remainingForSlot =
@@ -978,6 +1089,7 @@ export default function FimbaEventoFormModal({
           remaining: remainingForSlot,
           vehicleLibres: vehLibres,
         });
+        if (Number(cur) === def) continue;
         next[id] = def;
         changed = true;
         if (poolRemaining != null) {
@@ -1070,6 +1182,7 @@ export default function FimbaEventoFormModal({
 
   const setPlazasVehiculo = (id, raw) => {
     const sid = String(id);
+    plazasTouchedRef.current.add(sid);
     setPlazasByVeh((prev) => ({ ...prev, [sid]: raw }));
     const n = Number(raw);
     if (Number.isFinite(n) && n > 0) {
@@ -1085,6 +1198,7 @@ export default function FimbaEventoFormModal({
         : (flota || []).map((gt) => String(gt.id));
     if (ids.length === 0) return;
     if (selectedVehIds.length === 0) setSelectedVehIds(ids);
+    for (const id of ids) plazasTouchedRef.current.add(String(id));
     const slots = ids.map((id) => {
       const gt = flota.find((f) => String(f.id) === String(id));
       const m = metrics[id] || {};
@@ -1206,7 +1320,7 @@ export default function FimbaEventoFormModal({
       hora_inicio: horaCom || null,
       hora_fin: horaFin || null,
       actividad,
-      destino,
+      destino: usaTransporte ? "" : destino,
       vuelo,
       asientos_equipaje: Number(asientosEquipaje) || 0,
       observaciones_equipaje: observacionesEquipaje,
@@ -1385,21 +1499,109 @@ export default function FimbaEventoFormModal({
                 onChange={(e) => setHoraCom(e.target.value)}
               />
             </div>
-            <div className="fimba-field">
-              <label className="fimba-label">Hora fin</label>
-              <input
-                className="fimba-input"
-                type="time"
-                value={horaFin}
-                onChange={(e) => setHoraFin(e.target.value)}
-              />
-              <p
-                className="fimba-muted"
-                style={{ margin: "0.25rem 0 0", fontSize: "0.72rem" }}
-              >
-                Si queda vacía, en Transportes se muestra (en cyan) la hora com
-                de la siguiente parada del mismo vehículo.
-              </p>
+            <div>
+              <div className="fimba-field">
+                <label className="fimba-label">Hora fin</label>
+                <input
+                  className="fimba-input"
+                  type="time"
+                  value={horaFin}
+                  onChange={(e) => setHoraFin(e.target.value)}
+                />
+                <p
+                  className="fimba-muted"
+                  style={{ margin: "0.25rem 0 0", fontSize: "0.72rem" }}
+                >
+                  Si queda vacía, en Transportes se muestra (en cyan) la hora com
+                  de la siguiente parada del mismo vehículo.
+                </p>
+              </div>
+              {usaTransporte ? (
+                <div className="fimba-field" style={{ marginTop: "0.65rem" }}>
+                  <label className="fimba-label">Destino</label>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <span
+                      className="fimba-input"
+                      style={{
+                        flex: "1 1 10rem",
+                        display: "inline-block",
+                        background: "#f8fafc",
+                        fontStyle:
+                          !isEdit ||
+                          transportDestinoLabel === TRANSPORT_DESTINO_SIN_SIGUIENTE
+                            ? "italic"
+                            : undefined,
+                      }}
+                      title={
+                        isEdit &&
+                        transportDestinoLabel !== TRANSPORT_DESTINO_SIN_SIGUIENTE
+                          ? `Calculado desde la siguiente parada del mismo vehículo: ${transportDestinoLabel}`
+                          : isEdit
+                            ? "Sin siguiente parada en la secuencia del vehículo"
+                            : "Guardá el evento para poder elegir destino"
+                      }
+                    >
+                      {isEdit
+                        ? transportDestinoLabel
+                        : "Guardá el evento para definir destino"}
+                    </span>
+                    {canOpenDestinoFlow ? (
+                      canCambiarDestinoTransporte ? (
+                        <button
+                          type="button"
+                          className="fimba-btn fimba-btn-ghost"
+                          style={{ fontSize: "0.78rem", whiteSpace: "nowrap" }}
+                          title={
+                            transportDestinoLabel === TRANSPORT_DESTINO_SIN_SIGUIENTE
+                              ? "Crear la siguiente parada de este vehículo"
+                              : "Crear parada intermedia (nuevo destino)"
+                          }
+                          onClick={openElegirDestino}
+                        >
+                          <IconEdit size={14} style={{ marginRight: 4 }} />
+                          Elegir destino…
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="fimba-btn fimba-btn-ghost"
+                          style={{
+                            fontSize: "0.78rem",
+                            whiteSpace: "nowrap",
+                            opacity: 0.45,
+                            cursor: "not-allowed",
+                          }}
+                          disabled
+                          title={destinoActionBlockedReason || undefined}
+                          aria-disabled="true"
+                        >
+                          <IconEdit size={14} style={{ marginRight: 4 }} />
+                          Elegir destino…
+                        </button>
+                      )
+                    ) : null}
+                  </div>
+                  <p
+                    className="fimba-muted"
+                    style={{ margin: "0.25rem 0 0", fontSize: "0.72rem" }}
+                  >
+                    {destinoActionBlockedReason
+                      ? destinoActionBlockedReason
+                      : canCambiarDestinoTransporte
+                        ? "Calculado desde la siguiente parada del mismo vehículo. «Elegir destino…» crea un evento con esta Hora Fin como inicio y el lugar elegido como locación de salida."
+                        : isEdit
+                          ? "Calculado desde la siguiente parada del mismo vehículo (definir destino en Transportes)."
+                          : "Para elegir un lugar y crear la siguiente parada, guardá primero este evento."}
+                  </p>
+                </div>
+              ) : null}
             </div>
           </div>
           <div className="fimba-field">
@@ -1409,15 +1611,7 @@ export default function FimbaEventoFormModal({
               placeholder="Ej. Check-in hotel / Show noche 1"
             />
           </div>
-          <div className="fimba-grid-2">
-            <div className="fimba-field">
-              <label className="fimba-label">Destino / locación (opc.)</label>
-              <input
-                className="fimba-input"
-                value={destino}
-                onChange={(e) => setDestino(e.target.value)}
-              />
-            </div>
+          {usaTransporte ? (
             <div className="fimba-field">
               <label className="fimba-label">Vuelo / nota (opc.)</label>
               <input
@@ -1427,7 +1621,27 @@ export default function FimbaEventoFormModal({
                 placeholder="AR 1234"
               />
             </div>
-          </div>
+          ) : (
+            <div className="fimba-grid-2">
+              <div className="fimba-field">
+                <label className="fimba-label">Destino / locación (opc.)</label>
+                <input
+                  className="fimba-input"
+                  value={destino}
+                  onChange={(e) => setDestino(e.target.value)}
+                />
+              </div>
+              <div className="fimba-field">
+                <label className="fimba-label">Vuelo / nota (opc.)</label>
+                <input
+                  className="fimba-input"
+                  value={vuelo}
+                  onChange={(e) => setVuelo(e.target.value)}
+                  placeholder="AR 1234"
+                />
+              </div>
+            </div>
+          )}
           <div className="fimba-grid-2">
             <div className="fimba-field">
               <label className="fimba-label">Asientos Equipaje</label>
@@ -1747,9 +1961,29 @@ export default function FimbaEventoFormModal({
                     style={{ margin: "0 0 0.5rem", fontSize: "0.78rem" }}
                   >
                     Marcá uno o más buses y asigná <strong>n / m / p</strong> plazas
-                    en cada uno (ej. organismo de 120 → 44 + 44 + 32). No hace falta
-                    un solo vehículo.
+                    en cada uno (ej. organismo de 120 → 44 + 44 + 32). El número entre
+                    paréntesis en «Disponibles» es la <strong>capacidad</strong> del
+                    vehículo, no plazas ya aplicadas. Guardá para persistir la columna
+                    Plazas.
                   </p>
+                  {artistasCapTope != null &&
+                  artistasCapTope > 0 &&
+                  !sinServicio &&
+                  selectedVehIds.length > 0 &&
+                  totalPlazasAsignadas === 0 ? (
+                    <p
+                      style={{
+                        margin: "0 0 0.5rem",
+                        fontSize: "0.78rem",
+                        color: "#b45309",
+                        fontWeight: 600,
+                      }}
+                    >
+                      Hay artistas taggeados (tope {artistasCapTope}) pero 0 plazas en
+                      flota. Usá «Repartir» o completá Plazas y guardá — si no, el
+                      detalle de transportes sigue en libre.
+                    </p>
+                  ) : null}
                   {flota.length > 0 ? (
                     <div
                       style={{
@@ -1766,13 +2000,13 @@ export default function FimbaEventoFormModal({
                       </strong>
                       {": "}
                       {flota.length} vehículo{flota.length === 1 ? "" : "s"}
-                      {flotaCapTotal > 0 ? ` · ${flotaCapTotal} plazas de flota` : ""}
+                      {flotaCapTotal > 0 ? ` · ${flotaCapTotal} asientos de flota` : ""}
                       {" · "}
                       {flotaOrdenada
                         .map((gt) => {
                           const cap = capacidadGiraTransporte(gt);
                           return `${labelGiraTransporte(gt)}${
-                            cap != null ? ` (${cap})` : ""
+                            cap != null ? ` (cap ${cap})` : ""
                           }`;
                         })
                         .join(" · ")}

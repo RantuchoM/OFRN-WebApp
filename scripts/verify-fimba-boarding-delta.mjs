@@ -276,6 +276,26 @@ assert(
   fimbaRides.every((r) => r.subidaId !== 3986 && r.subidaId !== 3987),
   "Sintéticos no suben en Conciertos",
 );
+
+// plazas=0 + tags NO inventa headcount (capacidad ≠ plazas aplicadas)
+const zeroPlazasEv = {
+  id: 9999,
+  fecha: "2026-09-13",
+  hora_inicio: "08:00:00",
+  id_tipo_evento: 11,
+  tipos_evento: TIPO_TRASLADO,
+  vehiculos: [{ id_gira_transporte: tid, plazas: 0 }],
+  propuestas: [{ id: 4, nombre: "Orquesta Infantil", cantidad_planificada: 120 }],
+};
+assert(
+  resolveFimbaSeatsForVehicle(zeroPlazasEv, tid) === 0,
+  "plazas=0 no inventa para_transporte de tags",
+);
+assert(
+  buildFimbaSyntheticRides([zeroPlazasEv], tid).length === 0,
+  "sin residual sintético si plazas=0",
+);
+
 assert(
   fimbaRides.some(
     (r) => r.subidaId === 3946 && r.bajadaId === 3818 && r.seats === 7,

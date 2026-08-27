@@ -42,6 +42,7 @@ import {
   IconTrash,
   IconTag,
   IconSearch,
+  IconLayout,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -58,6 +59,7 @@ import IndependentRehearsalForm from "../../views/Ensembles/IndependentRehearsal
 import SearchableSelect from "../ui/SearchableSelect";
 import MultiSelectDropdown from "../ui/MultiSelectDropdown";
 import EventGruposAssignModal from "./EventGruposAssignModal";
+import StagePlotViewerModal from "../../views/Giras/StagePlotViewerModal";
 import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
 import { calculateLogisticsSummary } from "../../hooks/useLogistics";
 import { useClickOutside } from "../../hooks/useClickOutside";
@@ -495,6 +497,7 @@ export default function UnifiedAgenda({
   const [includeGeneralEventsLocal, setIncludeGeneralEventsLocal] =
     useState(true);
   const [gruposAssignTarget, setGruposAssignTarget] = useState(null);
+  const [stagePlotViewerEvent, setStagePlotViewerEvent] = useState(null);
   // Query usada para filtrar/resaltar (debounced vía AgendaSearchField).
   const [agendaSearchQuery, setAgendaSearchQuery] = useState("");
   const handleAgendaSearchQueryChange = useCallback((query) => {
@@ -3317,6 +3320,24 @@ export default function UnifiedAgenda({
                                           </button>
                                         )}
                                       <DriveSmartButton evt={evt} />
+                                      {(isConcertEvent ||
+                                        Number(evt.id_tipo_evento) === 13) &&
+                                        (evt.id_gira || evt.programas?.id) &&
+                                        (isTechnician ||
+                                          isEditor ||
+                                          isManagement) && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setStagePlotViewerEvent(evt);
+                                            }}
+                                            className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50"
+                                            title="Ver escenario"
+                                          >
+                                            <IconLayout size={16} />
+                                          </button>
+                                        )}
                                       <div className="flex flex-col gap-1 items-end">
                                         <CommentButton
                                           supabase={supabase}
@@ -3778,6 +3799,26 @@ export default function UnifiedAgenda({
                                       <div className="flex flex-col items-end gap-1 mt-auto">
                                         <div className="flex gap-1">
                                           <DriveSmartButton evt={evt} />
+                                          {(isConcertEvent ||
+                                            Number(evt.id_tipo_evento) ===
+                                              13) &&
+                                            (evt.id_gira ||
+                                              evt.programas?.id) &&
+                                            (isTechnician ||
+                                              isEditor ||
+                                              isManagement) && (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setStagePlotViewerEvent(evt);
+                                                }}
+                                                className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50"
+                                                title="Ver escenario"
+                                              >
+                                                <IconLayout size={16} />
+                                              </button>
+                                            )}
                                           {evt.programas?.id &&
                                             onOpenRepertoire &&
                                             !isNonConvokedMeal && (
@@ -3886,6 +3927,13 @@ export default function UnifiedAgenda({
           markLocalEventMutation(eventId);
           await refreshEventById(eventId);
         }}
+      />
+      <StagePlotViewerModal
+        open={!!stagePlotViewerEvent}
+        onClose={() => setStagePlotViewerEvent(null)}
+        supabase={supabase}
+        evento={stagePlotViewerEvent}
+        gira={stagePlotViewerEvent?.programas || mainProgram}
       />
       <ConfirmDialog
         isOpen={isHideRecentChangesOpen}

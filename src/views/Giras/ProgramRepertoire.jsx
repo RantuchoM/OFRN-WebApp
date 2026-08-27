@@ -523,7 +523,26 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
   const { user, isEditor, isManagement, isCoordGeneral } = useAuth();
   const { roster, loading: rosterLoading } = useGiraRoster(supabase, program);
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get("subTab") || "repertoire";
+  const subTab = searchParams.get("subTab") || "repertoire";
+  const activeTab = subTab === "stage_plot" ? "seating" : subTab;
+  const seatingViewRaw = searchParams.get("seatingView");
+  const seatingView =
+    subTab === "stage_plot" || seatingViewRaw === "escenario"
+      ? "escenario"
+      : "disposicion";
+
+  useEffect(() => {
+    if (searchParams.get("subTab") !== "stage_plot") return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("subTab", "seating");
+        next.set("seatingView", "escenario");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchParams, setSearchParams]);
 
   // Estado local para los datos completos del repertorio
   const [repertorios, setRepertorios] = useState([]);
@@ -759,6 +778,23 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
     setSearchParams((prev) => {
       const newParams = new URLSearchParams(prev);
       newParams.set("subTab", newTab);
+      if (newTab === "seating") {
+        newParams.set("seatingView", "disposicion");
+      } else {
+        newParams.delete("seatingView");
+      }
+      return newParams;
+    });
+  };
+
+  const handleSeatingViewChange = (view) => {
+    setSearchParams((prev) => {
+      const newParams = new URLSearchParams(prev);
+      newParams.set("subTab", "seating");
+      newParams.set(
+        "seatingView",
+        view === "escenario" ? "escenario" : "disposicion",
+      );
       return newParams;
     });
   };
@@ -1432,7 +1468,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
         )}
 
         {activeTab === "seating" && (
-          <div className="box-border h-full min-h-0 min-w-0 w-full overflow-y-auto">
+          <div className="box-border h-full min-h-0 min-w-0 w-full overflow-hidden">
             <ProgramSeating
               key={repertoireKey}
               supabase={supabase}
@@ -1441,6 +1477,9 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
               canAccessStringsConfig={canEdit}
               onBack={() => handleTabChange("repertoire")}
               onOrganicoSave={handleBlockOrganicoSave}
+              seatingView={seatingView}
+              onSeatingViewChange={handleSeatingViewChange}
+              readOnly={!canEdit}
             />
           </div>
         )}

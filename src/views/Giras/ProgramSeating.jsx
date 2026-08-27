@@ -26,6 +26,7 @@ import {
   IconDownload,
   IconBulb,
   IconInfo,
+  IconLayout,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
@@ -910,6 +911,59 @@ const InstrumentationSummaryModal = React.lazy(
 const ParticellaDownloadModal = React.lazy(
   () => import("../../components/seating/ParticellaDownloadModal"),
 );
+const ProgramStagePlot = React.lazy(() => import("./ProgramStagePlot"));
+
+function SeatingExportMenuItems({
+  onExportReport,
+  onExportExcel,
+  onDownloadParticellas,
+  isExporting,
+  onItemClick,
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          onItemClick?.();
+          onExportReport();
+        }}
+        disabled={isExporting}
+        className="w-full px-3 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-2"
+        role="menuitem"
+      >
+        <IconDownload size={16} className="text-indigo-600" />
+        Reporte PDF (seating)
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onItemClick?.();
+          onExportExcel();
+        }}
+        disabled={isExporting}
+        className="w-full px-3 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-2"
+        role="menuitem"
+      >
+        <IconDownload size={16} className="text-emerald-600" />
+        Excel
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onItemClick?.();
+          onDownloadParticellas();
+        }}
+        disabled={isExporting}
+        className="w-full px-3 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-2"
+        role="menuitem"
+      >
+        <IconLayers size={16} className="text-slate-700" />
+        Descargar particellas
+      </button>
+    </>
+  );
+}
 
 export default function ProgramSeating({
   supabase,
@@ -919,6 +973,9 @@ export default function ProgramSeating({
   canAccessStringsConfig = false,
   onRefreshGira = null,
   onOrganicoSave = null,
+  seatingView = "disposicion",
+  onSeatingViewChange = null,
+  readOnly = false,
 }) {
   const { isAdmin, isEditor, user } = useAuth();
   const { roster: rawRoster, loading: rosterLoading } = useGiraRoster(
@@ -942,6 +999,7 @@ export default function ProgramSeating({
   const canSeeInstrumentationBadges = isAdmin || isEditor;
   const canViewStringsConfig = canManageSeating || canAccessStringsConfig;
   const canEditStringsConfig = isEditor || canAccessStringsConfig;
+  const isEscenarioView = seatingView === "escenario";
 
   const [confirmedRoster, setConfirmedRoster] = useState([]);
   const [giraGrupos, setGiraGrupos] = useState([]);
@@ -980,7 +1038,9 @@ export default function ProgramSeating({
   const [blockOrganicoOverrides, setBlockOrganicoOverrides] = useState({});
   const [activeBlockId, setActiveBlockId] = useState(null);
   const [showMobileActionsMenu, setShowMobileActionsMenu] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const mobileActionsMenuRef = useRef(null);
+  const exportMenuRef = useRef(null);
   const [workFormData, setWorkFormData] = useState(null);
   const [particellasRefreshKey, setParticellasRefreshKey] = useState(0);
   /** ids de obras_particellas omitidas en este programa */
@@ -1061,6 +1121,20 @@ export default function ProgramSeating({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showMobileActionsMenu]);
+
+  useEffect(() => {
+    if (!showExportMenu) return undefined;
+    const handleClickOutside = (event) => {
+      if (
+        exportMenuRef.current &&
+        !exportMenuRef.current.contains(event.target)
+      ) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showExportMenu]);
 
   // Fetch Obras
   useEffect(() => {
@@ -2767,76 +2841,116 @@ export default function ProgramSeating({
         )}
       </Suspense>
 
-      <div className="px-2 sm:px-4 py-1.5 sm:py-2 border-b border-slate-200 bg-white flex items-start md:items-center justify-between gap-2 shrink-0">
-        <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex flex-wrap items-center gap-1.5 sm:gap-2 min-w-0 pt-1 md:pt-0">
-          <IconUsers size={18} className="text-indigo-600 shrink-0" />
-          <span className="truncate">Seating & Particellas</span>
-          {showInstrumentationBadges && (() => {
-            const organicoRevisado = !!activeBlockOrganico.organico_revisado;
-            const organicoComentario =
-              activeBlockOrganico.organico_comentario ?? null;
-            const hasWorks = obrasWithInstrumentationForActiveBlock.length > 0;
-            const badgeBaseClass = getInstrumentationBadgeBaseClass({
-              hasWorks,
-              organicoRevisado,
-              mismatch: hasInstrumentationMismatch,
-              hasVacancies,
-            });
-            return (
-              <div className="hidden md:flex items-center gap-1 ml-3 min-w-0">
-                {organicoRevisado && (
-                  <IconCheckCircle size={14} className="text-sky-600 shrink-0" title="Adaptación validada" />
-                )}
-                {organicoComentario && (
-                  <span className="text-sky-600 cursor-help shrink-0" title={organicoComentario}>
-                    <IconInfo size={14} />
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setShowInstrumentationModal(true)}
-                  className={`inline-grid grid-cols-[auto_minmax(0,1fr)] gap-x-1 gap-y-px items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border text-left transition-colors min-w-0 max-w-[22rem] ${badgeBaseClass}`}
-                  title={
-                    hasWorks
-                      ? `${formatInstrumentationStandard(instrumentationConvoked)}\n${formatInstrumentationStandard(instrumentationRequired)}`
-                      : formatInstrumentationStandard(instrumentationConvoked)
-                  }
-                >
-                  <span className="leading-tight shrink-0">Conv:</span>
-                  <span className="leading-tight min-w-0 overflow-hidden whitespace-nowrap">
-                    {renderInstrumentationStandardDiff(
-                      instrumentationConvoked,
-                      instrumentationRequired,
-                      instrumentationConvoked,
-                      organicoRevisado,
-                      undefined,
-                      false,
-                      !hasWorks,
-                    )}
-                  </span>
-                  {obrasWithInstrumentationForActiveBlock.length > 0 && (
-                    <>
-                      <span className="leading-tight shrink-0">Req:</span>
-                      <span className="leading-tight min-w-0 overflow-hidden whitespace-nowrap">
-                        {renderInstrumentationStandardDiff(
-                          instrumentationRequired,
-                          instrumentationRequired,
-                          instrumentationConvoked,
-                          organicoRevisado,
-                          instrumentationRequiredConsolidated,
-                          true,
-                          false,
-                          instrumentationRequiredOmitted,
-                          true,
-                        )}
-                      </span>
-                    </>
+      <div className="px-2 sm:px-4 py-1.5 sm:py-2 border-b border-slate-200 bg-white flex items-center justify-between gap-2 shrink-0">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
+          <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex flex-wrap items-center gap-1.5 sm:gap-2 min-w-0">
+            {isEscenarioView ? (
+              <IconLayout size={18} className="text-indigo-600 shrink-0" />
+            ) : (
+              <IconUsers size={18} className="text-indigo-600 shrink-0" />
+            )}
+            <span className="truncate">
+              {isEscenarioView ? "Escenario" : "Seating & Particellas"}
+            </span>
+            {!isEscenarioView && showInstrumentationBadges && (() => {
+              const organicoRevisado = !!activeBlockOrganico.organico_revisado;
+              const organicoComentario =
+                activeBlockOrganico.organico_comentario ?? null;
+              const hasWorks = obrasWithInstrumentationForActiveBlock.length > 0;
+              const badgeBaseClass = getInstrumentationBadgeBaseClass({
+                hasWorks,
+                organicoRevisado,
+                mismatch: hasInstrumentationMismatch,
+                hasVacancies,
+              });
+              return (
+                <div className="hidden md:flex items-center gap-1 ml-3 min-w-0">
+                  {organicoRevisado && (
+                    <IconCheckCircle size={14} className="text-sky-600 shrink-0" title="Adaptación validada" />
                   )}
-                </button>
-              </div>
-            );
-          })()}
-        </h2>
+                  {organicoComentario && (
+                    <span className="text-sky-600 cursor-help shrink-0" title={organicoComentario}>
+                      <IconInfo size={14} />
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowInstrumentationModal(true)}
+                    className={`inline-grid grid-cols-[auto_minmax(0,1fr)] gap-x-1 gap-y-px items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border text-left transition-colors min-w-0 max-w-[22rem] ${badgeBaseClass}`}
+                    title={
+                      hasWorks
+                        ? `${formatInstrumentationStandard(instrumentationConvoked)}\n${formatInstrumentationStandard(instrumentationRequired)}`
+                        : formatInstrumentationStandard(instrumentationConvoked)
+                    }
+                  >
+                    <span className="leading-tight shrink-0">Conv:</span>
+                    <span className="leading-tight min-w-0 overflow-hidden whitespace-nowrap">
+                      {renderInstrumentationStandardDiff(
+                        instrumentationConvoked,
+                        instrumentationRequired,
+                        instrumentationConvoked,
+                        organicoRevisado,
+                        undefined,
+                        false,
+                        !hasWorks,
+                      )}
+                    </span>
+                    {obrasWithInstrumentationForActiveBlock.length > 0 && (
+                      <>
+                        <span className="leading-tight shrink-0">Req:</span>
+                        <span className="leading-tight min-w-0 overflow-hidden whitespace-nowrap">
+                          {renderInstrumentationStandardDiff(
+                            instrumentationRequired,
+                            instrumentationRequired,
+                            instrumentationConvoked,
+                            organicoRevisado,
+                            instrumentationRequiredConsolidated,
+                            true,
+                            false,
+                            instrumentationRequiredOmitted,
+                            true,
+                          )}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              );
+            })()}
+          </h2>
+          <div
+            role="tablist"
+            aria-label="Sección de seating"
+            className="flex shrink-0 gap-0.5 rounded-lg bg-slate-100 p-0.5"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!isEscenarioView}
+              onClick={() => onSeatingViewChange?.("disposicion")}
+              className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-all flex items-center gap-1.5 ${
+                !isEscenarioView
+                  ? "bg-white text-indigo-700 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700 hover:bg-white/70"
+              }`}
+            >
+              <IconUsers size={14} /> Disposición
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isEscenarioView}
+              onClick={() => onSeatingViewChange?.("escenario")}
+              className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-all flex items-center gap-1.5 ${
+                isEscenarioView
+                  ? "bg-white text-indigo-700 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700 hover:bg-white/70"
+              }`}
+            >
+              <IconLayout size={14} /> Escenario
+            </button>
+          </div>
+        </div>
         <div className="relative shrink-0 md:hidden" ref={mobileActionsMenuRef}>
           <button
             type="button"
@@ -2907,50 +3021,21 @@ export default function ProgramSeating({
                   Aceptar sugerencias
                 </button>
               )}
-              {canDownloadSeatingReports && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowMobileActionsMenu(false);
-                      handleExportReport();
-                    }}
-                    disabled={isExporting}
-                    className="w-full px-3 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-2 border-b border-slate-100"
-                    role="menuitem"
-                  >
-                    <IconDownload size={16} className="text-indigo-600" />
-                    Descargar reporte PDF
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowMobileActionsMenu(false);
-                      handleExportExcel();
-                    }}
-                    disabled={isExporting}
-                    className="w-full px-3 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-2 border-b border-slate-100"
-                    role="menuitem"
-                  >
-                    <IconDownload size={16} className="text-emerald-600" />
-                    Descargar Excel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowMobileActionsMenu(false);
-                      setShowParticellaModal(true);
-                    }}
-                    disabled={isExporting}
-                    className="w-full px-3 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-2 border-b border-slate-100"
-                    role="menuitem"
-                  >
-                    <IconLayers size={16} className="text-slate-700" />
-                    Descargar particellas
-                  </button>
-                </>
+              {canDownloadSeatingReports && !isEscenarioView && (
+                <div className="border-b border-slate-100 py-1">
+                  <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    Exportar / Reportes
+                  </p>
+                  <SeatingExportMenuItems
+                    onExportReport={handleExportReport}
+                    onExportExcel={handleExportExcel}
+                    onDownloadParticellas={() => setShowParticellaModal(true)}
+                    isExporting={isExporting}
+                    onItemClick={() => setShowMobileActionsMenu(false)}
+                  />
+                </div>
               )}
-              {canViewStringsConfig && (
+              {canViewStringsConfig && !isEscenarioView && (
                 <>
                   <button
                     type="button"
@@ -3009,7 +3094,7 @@ export default function ProgramSeating({
           )}
         </div>
         <div className="hidden md:flex md:w-auto gap-2 overflow-visible">
-          {isEditor && pendingParticellaSuggestionsCount > 0 && (
+          {!isEscenarioView && isEditor && pendingParticellaSuggestionsCount > 0 && (
             <button
               type="button"
               onClick={handleAcceptAllParticellaSuggestions}
@@ -3030,36 +3115,40 @@ export default function ProgramSeating({
               <span className="sm:hidden">Sugerencias</span>
             </button>
           )}
-          {canDownloadSeatingReports && (
-            <>
+          {canDownloadSeatingReports && !isEscenarioView && (
+            <div className="relative shrink-0" ref={exportMenuRef}>
               <button
-                onClick={handleExportReport}
-                disabled={isExporting}
-                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm active:scale-95 disabled:opacity-50 shrink-0"
-              >
-                <IconDownload size={16} />{" "}
-                <span className="hidden sm:inline">Reporte</span>
-              </button>
-              <button
-                onClick={handleExportExcel}
-                disabled={isExporting}
-                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm active:scale-95 disabled:opacity-50 shrink-0"
-              >
-                <IconDownload size={16} />{" "}
-                <span className="hidden sm:inline">Excel</span>
-              </button>
-              <button
-                onClick={() => setShowParticellaModal(true)}
+                type="button"
+                onClick={() => setShowExportMenu((open) => !open)}
                 disabled={isExporting}
                 className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-slate-800 text-white hover:bg-slate-900 shadow-sm active:scale-95 disabled:opacity-50 shrink-0"
+                aria-expanded={showExportMenu}
+                aria-haspopup="menu"
               >
                 <IconDownload size={16} />
-                <IconLayers size={14} />
-                <span className="hidden sm:inline">Descargar Particellas</span>
+                <span className="hidden sm:inline">Exportar / Reportes</span>
+                <IconChevronDown
+                  size={14}
+                  className={`transition-transform ${showExportMenu ? "rotate-180" : ""}`}
+                />
               </button>
-            </>
+              {showExportMenu && (
+                <div
+                  className="absolute right-0 top-full z-[100] mt-1 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl animate-in fade-in zoom-in-95"
+                  role="menu"
+                >
+                  <SeatingExportMenuItems
+                    onExportReport={handleExportReport}
+                    onExportExcel={handleExportExcel}
+                    onDownloadParticellas={() => setShowParticellaModal(true)}
+                    isExporting={isExporting}
+                    onItemClick={() => setShowExportMenu(false)}
+                  />
+                </div>
+              )}
+            </div>
           )}
-          {canViewStringsConfig && (
+          {canViewStringsConfig && !isEscenarioView && (
             <>
               <button
                 onClick={() => setShowRotationModal(true)}
@@ -3092,6 +3181,25 @@ export default function ProgramSeating({
         </div>
       </div>
 
+      {isEscenarioView ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <Suspense
+            fallback={
+              <div className="flex flex-1 items-center justify-center">
+                <IconLoader className="animate-spin text-indigo-600" size={32} />
+              </div>
+            }
+          >
+            <ProgramStagePlot
+              supabase={supabase}
+              program={program}
+              readOnly={readOnly}
+              embedded
+            />
+          </Suspense>
+        </div>
+      ) : (
+        <>
       {effectiveBlocks.length > 0 && (
         <div className="shrink-0 bg-slate-100 border-b border-slate-300">
           <div className="flex items-end gap-1.5 px-2 sm:px-4 pt-1.5 overflow-x-auto">
@@ -3744,6 +3852,8 @@ export default function ProgramSeating({
           </table>
         </div>
       </div>
+        </>
+      )}
 
       {workFormData && isEditor && (
         <WorkFormModalPortal onClose={closeWorkFormModal}>

@@ -14,13 +14,21 @@ import {
   duplicateFimbaEvento,
   FIMBA_DEFAULT_TIPO_EVENTO,
   getFimbaEdicionById,
+  giraTransporteIdsFromEvent,
   labelGiraTransporte,
   listFimbaAgenda,
   listFimbaFlota,
+  listFimbaPropuestaRutas,
   listFimbaPropuestas,
+  loadFimbaTransportLogisticsSummary,
+  computeFimbaCapacity,
 } from "../../services/fimbaService";
 import { sortFimbaAgendaRows } from "../../utils/fimbaAgendaSort";
 import { exportFimbaAgendaToPDF } from "../../utils/fimbaAgendaPdf";
+import {
+  buildAllVehicleBoardingSequences,
+  resolveEventAboardCount,
+} from "../../utils/fimbaTransportBoarding";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import { stripHtml } from "../../utils/eventDisplayUtils";
@@ -47,8 +55,8 @@ function vehicleLabel(ev, flota) {
       (ev.vehiculos || [])
         .map((r) => {
           const label = labelGiraTransporte(r.giras_transportes);
-          const pl = Number(r.plazas) || 0;
-          return pl ? `${label} (${pl})` : label;
+          const pl = Math.max(0, Number(r.plazas) || 0);
+          return `${label} (${pl})`;
         })
         .join(", ") || "—"
     );
@@ -73,6 +81,8 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
   const [flota, setFlota] = useState([]);
   const [edicion, setEdicion] = useState(null);
   const [propuestas, setPropuestas] = useState([]);
+  const [logisticsSummary, setLogisticsSummary] = useState([]);
+  const [propuestaRoutes, setPropuestaRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [modal, setModal] = useState(null);
@@ -114,13 +124,17 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
       giraId != null
         ? listFimbaFlota(giraId)
         : Promise.resolve({ flota: [], error: null }),
+      giraId != null
+        ? loadFimbaTransportLogisticsSummary(giraId)
+        : Promise.resolve({ summary: [], error: null }),
+      listFimbaPropuestaRutas(edicionId),
     ];
     if (editable) {
       tasks.push(listFimbaPropuestas(edicionId));
     }
 
     const results = await Promise.all(tasks);
-    const [agendaRes, flotaRes, propsRes] = results;
+    const [agendaRes, flotaRes, logRes, rutasRes, propsRes] = results;
 
     if (agendaRes.error) {
       setError(agendaRes.error.message || "No se pudo cargar la agenda");
@@ -132,6 +146,8 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
       setError((prev) => prev || flotaRes.error.message || "Error al cargar flota");
     }
     setFlota(flotaRes.flota || []);
+    setLogisticsSummary(logRes?.error ? [] : logRes?.summary || []);
+    setPropuestaRoutes(rutasRes?.error ? [] : rutasRes?.rutas || []);
     if (ed) setEdicion(ed);
     if (propsRes) {
       if (propsRes.error) {
@@ -160,6 +176,19 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
     }
     return map;
   }, [flota]);
+
+  const sequencesByVehicle = useMemo(
+    () =>
+      buildAllVehicleBoardingSequences({
+        vehiculos: flota,
+        eventos,
+        logisticsSummary,
+        capacityFn: computeFimbaCapacity,
+        eventVehicleIds: giraTransporteIdsFromEvent,
+        propuestaRoutes,
+      }),
+    [flota, eventos, logisticsSummary, propuestaRoutes],
+  );
 
   const handleExportPdf = () => {
     if (eventosOrdenados.length === 0) return;
@@ -309,7 +338,10 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                   <th>Detalle</th>
                   <th>Destino / Vuelo</th>
                   <th>Vehículo</th>
-                  <th style={{ paddingRight: editable ? undefined : "1rem" }}>
+                  <th
+                    style={{ paddingRight: editable ? undefined : "1rem" }}
+                    title="Personas a bordo en el/los vehículo(s) al salir de esta parada (OFRN + FIMBA). No es el campo de asientos de equipaje del modal."
+                  >
                     As. Equipaje
                   </th>
                   {editable && <th style={{ paddingRight: "0.75rem" }} />}
@@ -318,6 +350,11 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
               <tbody>
                 {eventosOrdenados.map((ev) => {
                   const isRide = Boolean(ev.es_ride_segment);
+                  const isTx =
+                    isRide ||
+                    Boolean(ev.es_traslado) ||
+                    (ev.vehiculos || []).length > 0 ||
+                    ev.id_gira_transporte != null;
                   const veh = isRide
                     ? ev.vehicle_label || vehicleLabel(ev, flota)
                     : vehicleLabel(ev, flota);
@@ -326,6 +363,9 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                       [ev.destino, ev.vuelo].filter(Boolean).join(" · ") ||
                       "—"
                     : [ev.destino, ev.vuelo].filter(Boolean).join(" · ") || "—";
+                  const aboard = isTx
+                    ? resolveEventAboardCount(ev, sequencesByVehicle, null)
+                    : null;
                   return (
                     <tr
                       key={ev.id}
@@ -402,9 +442,16 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                       <td
                         style={{
                           paddingRight: editable ? undefined : "1rem",
+                          fontVariantNumeric: "tabular-nums",
+                          fontWeight: isTx ? 600 : undefined,
                         }}
+                        title={
+                          isTx
+                            ? "A bordo al salir (misma métrica que Tránsito/cap en Transportes)"
+                            : "Solo aplica a eventos con transporte"
+                        }
                       >
-                        {ev.asientos_equipaje || ev.pax || "—"}
+                        {isTx ? (aboard != null ? aboard : "—") : "—"}
                       </td>
                       {editable && (
                         <td

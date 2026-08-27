@@ -13,11 +13,12 @@
  * FIMBA — rides (prioridad):
  * 1) Explícitos: `fimba_propuesta_rutas` (plazas + subida/bajada por artista).
  * 2) Sintéticos residuales: solo en eventos de **tipo transporte** con
- *    `fimba_evento_transportes.plazas` (o suma tags) − plazas explícitas que ya
- *    suben ahí. Suben en ese trayecto y bajan en la **siguiente parada de la
- *    secuencia unificada del vehículo** (incluye paradas OFRN del mismo
- *    `giras_transportes`). Un Concierto sin ↑/↓ explícito no genera hop ni
- *    entra a la secuencia solo por tener fila de flota.
+ *    `fimba_evento_transportes.plazas > 0` − plazas explícitas que ya
+ *    suben ahí. `plazas = 0` no inventa headcount desde tags. Suben en ese
+ *    trayecto y bajan en la **siguiente parada de la secuencia unificada del
+ *    vehículo** (incluye paradas OFRN del mismo `giras_transportes`). Un
+ *    Concierto sin ↑/↓ explícito no genera hop ni entra a la secuencia solo
+ *    por tener fila de flota.
  *
  * Modelo duro — **un vehículo = una línea de ocupación**:
  * OFRN + FIMBA comparten la misma secuencia cronológica, el mismo Δ y el
@@ -204,9 +205,66 @@ export function nextEventInVehicleSequence(seq, eventId) {
   return sorted[idx + 1] || null;
 }
 
+/** Placeholder UI cuando no hay siguiente parada en la secuencia del vehículo. */
+export const TRANSPORT_DESTINO_SIN_SIGUIENTE = "Sin siguiente parada";
+
+/**
+ * Destino derivado de un evento de transporte = locación del next stop en la
+ * secuencia unificada del vehículo (OFRN + FIMBA).
+ *
+ * @param {object|null|undefined} event — parada actual
+ * @param {{ sortedEvents?: Array<object> }|Map<number, { sortedEvents?: Array<object> }>|null|undefined} sequenceOrMetrics — secuencia del vehículo o Map de `buildAllVehicleBoardingSequences`
+ * @param {number|string|null|undefined} [vehicleId] — unidad primary; si falta, usa la primera del evento
+ * @returns {{ nextEvent: object|null, label: string }}
+ */
+export function resolveTransportDestinoFromNextStop(
+  event,
+  sequenceOrMetrics,
+  vehicleId = null,
+) {
+  if (!event) {
+    return { nextEvent: null, label: TRANSPORT_DESTINO_SIN_SIGUIENTE };
+  }
+
+  let seq = null;
+  if (sequenceOrMetrics instanceof Map) {
+    const ids = [];
+    if (vehicleId != null && vehicleId !== "") {
+      ids.push(Number(vehicleId));
+    }
+    for (const r of event?.vehiculos || []) {
+      const n = Number(r?.id_gira_transporte);
+      if (Number.isFinite(n)) ids.push(n);
+    }
+    if (event?.id_gira_transporte != null && event.id_gira_transporte !== "") {
+      const n = Number(event.id_gira_transporte);
+      if (Number.isFinite(n)) ids.push(n);
+    }
+    const unique = [...new Set(ids.filter(Number.isFinite))];
+    for (const tid of unique) {
+      seq = sequenceOrMetrics.get(tid) || sequenceOrMetrics.get(String(tid));
+      if (seq?.sortedEvents?.length) break;
+    }
+  } else if (sequenceOrMetrics?.sortedEvents) {
+    seq = sequenceOrMetrics;
+  } else if (sequenceOrMetrics?.next_event !== undefined) {
+    const nextEvent = sequenceOrMetrics.next_event || null;
+    return {
+      nextEvent,
+      label: formatNextStopDestino(nextEvent),
+    };
+  }
+
+  const nextEvent = nextEventInVehicleSequence(seq, event.id);
+  return {
+    nextEvent,
+    label: formatNextStopDestino(nextEvent),
+  };
+}
+
 /**
  * Destino de planilla: locación/destino del next stop; si falta, título actividad.
- * Sin next stop → "—".
+ * Sin next stop → "—" (usar `TRANSPORT_DESTINO_SIN_SIGUIENTE` en UI Transportes).
  *
  * @param {object|null|undefined} nextEv
  */
@@ -250,7 +308,9 @@ export function resolveHoraFinDisplay(ev, nextEv) {
  *   (full datetime so overnight gaps land on the correct calendar day).
  * - Without next: current + 30 minutes (may roll to next day).
  *
- * Used by Destino compact modal (punto en el trayecto). For Agenda /
+ * Used by Destino compact modal when Hora Fin is empty and there is no cyan
+ * next.hora_inicio (midpoint / +30m fallback). Prefer `resolveHoraFinDisplay`
+ * first so new-stop `hora_inicio` aligns with current Hora Fin. For Agenda /
  * Transportes «insertar evento» gap-fill, use `defaultGapFillEventSchedule`.
  *
  * @param {object|null|undefined} currentEv
@@ -345,43 +405,25 @@ export function defaultGapFillEventSchedule(prevEv, nextEv) {
 
 
 /**
- * Plazas FIMBA del evento en una unidad:
- * 1) `fimba_evento_transportes.plazas` si > 0
- * 2) si no, suma `para_transporte` de propuestas taggeadas (tope + extras materiales)
+ * Plazas FIMBA de reserva técnica del evento en una unidad.
+ *
+ * Solo `fimba_evento_transportes.plazas` (> 0). Un `plazas = 0` explícito
+ * **no** inventa headcount desde tags: eso dejaba Capacidad (p.ej. 44) y
+ * “libre” desfasados, y confundía asientos físicos con plazas aplicadas.
+ * Headcount de artistas = `fimba_propuesta_rutas` (↑/↓) o plazas > 0.
  *
  * @param {object} ev — evento mapeado FIMBA
  * @param {number|string} idGiraTransporte
- * @param {(p: object) => { para_transporte?: number }} [capacityFn]
+ * @param {(p: object) => { para_transporte?: number }} [capacityFn] — reserved (API stable)
  */
-export function resolveFimbaSeatsForVehicle(ev, idGiraTransporte, capacityFn) {
+export function resolveFimbaSeatsForVehicle(ev, idGiraTransporte, _capacityFn) {
   const want = Number(idGiraTransporte);
   if (!Number.isFinite(want)) return 0;
 
   const row = (ev?.vehiculos || []).find(
     (r) => Number(r?.id_gira_transporte) === want,
   );
-  const assigned = Math.max(0, Number(row?.plazas) || 0);
-  if (assigned > 0) return assigned;
-
-  // Solo aporta headcount FIMBA si hay asignación a esta unidad o solo OFRN unit match
-  const hasFimbaRow = Boolean(row);
-  const isOfrnUnit =
-    ev?.id_gira_transporte != null &&
-    Number(ev.id_gira_transporte) === want;
-  if (!hasFimbaRow && !isOfrnUnit) return 0;
-
-  // Sin plazas numéricas: headcount de artistas taggeados (si hay tags)
-  const props = ev?.propuestas || [];
-  if (!props.length || typeof capacityFn !== "function") {
-    // Pure OFRN stop sin tags: el cupo orquesta lo llevan las subidas logísticas
-    return 0;
-  }
-  if (!hasFimbaRow) return 0; // no inventar FIMBA en parada OFRN sin fila de asignación
-
-  return props.reduce((sum, p) => {
-    const cap = capacityFn(p);
-    return sum + Math.max(0, Number(cap?.para_transporte) || 0);
-  }, 0);
+  return Math.max(0, Number(row?.plazas) || 0);
 }
 
 /**
@@ -1480,6 +1522,37 @@ export function buildAllVehicleBoardingSequences(opts = {}) {
   }
 
   return map;
+}
+
+/**
+ * Personas a bordo al salir (Σ `en_transito`) de las unidades del evento.
+ * Misma fuente que Tránsito/cap en Transportes.
+ *
+ * @param {object} ev
+ * @param {Map<number, ReturnType<typeof buildVehicleBoardingSequence>>} sequencesByVehicle
+ * @param {number[]|null} [preferVehicleIds]
+ * @returns {number|null} total a bordo, o `null` si el evento no tiene flota / no es transporte abordable
+ */
+export function resolveEventAboardCount(
+  ev,
+  sequencesByVehicle,
+  preferVehicleIds = null,
+) {
+  const metrics = boardingMetricsForEventRow(
+    ev,
+    sequencesByVehicle,
+    preferVehicleIds,
+  );
+  const per = metrics?.perVehicle || [];
+  if (per.length === 0) return null;
+  let total = 0;
+  let sawStop = false;
+  for (const pv of per) {
+    if (!pv?.stop) continue;
+    sawStop = true;
+    total += Math.max(0, Number(pv.stop.en_transito) || 0);
+  }
+  return sawStop ? total : 0;
 }
 
 /**

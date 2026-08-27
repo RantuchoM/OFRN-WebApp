@@ -13,6 +13,7 @@ export default function AppNavLink({
   giraId = null,
   view = null,
   subTab = null,
+  seatingView = null,
   className = "",
   children,
   onClick = null,
@@ -26,6 +27,7 @@ export default function AppNavLink({
       giraId,
       view,
       subTab,
+      seatingView,
     });
 
   return (

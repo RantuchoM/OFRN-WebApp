@@ -4269,9 +4269,10 @@ export async function saveFimbaEvento(payload) {
     payload.observaciones_equipaje ?? payload.observaciones ?? "",
   ).trim();
 
+  // Transporte: destino no se persiste en el evento; se deriva del next stop.
   const descripcion = encodeFimbaTrasladoDescripcion({
     actividad: payload.actividad ?? payload.detalle,
-    destino: payload.destino,
+    destino: usaTransporte ? "" : payload.destino,
     vuelo: payload.vuelo,
   });
 
@@ -4557,7 +4558,8 @@ export async function saveFimbaTraslado(payload) {
 
 /**
  * Patch liviano de planilla Transportes (modo edición).
- * Solo fecha / horas / descripcion (actividad, destino texto, vuelo) + obs equipaje.
+ * Solo fecha / horas / descripcion (actividad, vuelo) + obs equipaje.
+ * `stripDestino: true` limpia línea `Destino:` legacy (transporte derivado del next stop).
  * No toca flota, tags, grupos, `id_gira_transporte` ni rutas de boarding.
  */
 export async function patchFimbaEventoPlanilla(eventoId, patch = {}) {
@@ -4572,7 +4574,7 @@ export async function patchFimbaEventoPlanilla(eventoId, patch = {}) {
 
   const descripcion = encodeFimbaTrasladoDescripcion({
     actividad: patch.actividad,
-    destino: patch.destino,
+    destino: patch.stripDestino ? "" : patch.destino,
     vuelo: patch.vuelo,
   });
 

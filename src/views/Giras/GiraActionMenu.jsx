@@ -18,6 +18,7 @@ import {
   IconChevronDown,
   IconArrowRight,
   IconCopy,
+  IconLayout,
 } from "../../components/ui/Icons";
 import AppNavLink from "../../components/ui/AppNavLink";
 
@@ -78,6 +79,7 @@ const GiraActionMenu = ({
     onClick,
     view = null,
     subTab = null,
+    seatingView = null,
     className = "",
   }) => {
     const itemClass = `w-full text-left px-4 py-3 md:py-2 text-sm md:text-xs hover:bg-slate-50 flex items-center gap-3 md:gap-2 text-slate-600 border-l-2 border-transparent hover:border-indigo-500 pl-6 ${className}`;
@@ -87,6 +89,7 @@ const GiraActionMenu = ({
           giraId={gira.id}
           view={view}
           subTab={subTab}
+          seatingView={seatingView}
           className={itemClass}
           onClick={(e) => {
             e.stopPropagation();
@@ -182,9 +185,17 @@ const GiraActionMenu = ({
               />
               <SubMenuItem
                 icon={IconLayers}
-                label="Seating / Disposición"
+                label="Disposición"
                 view="REPERTOIRE"
                 subTab="seating"
+                seatingView="disposicion"
+              />
+              <SubMenuItem
+                icon={IconLayout}
+                label="Escenario"
+                view="REPERTOIRE"
+                subTab="seating"
+                seatingView="escenario"
               />
               <SubMenuItem
                 icon={IconFileText}

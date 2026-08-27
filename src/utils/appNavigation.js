@@ -35,6 +35,7 @@ export const MODE_TO_TAB = {
  * @param {string|number|null} [opts.giraId]
  * @param {string|null} [opts.view] — AGENDA, REPERTOIRE, LIST, CALENDAR, …
  * @param {string|null} [opts.subTab]
+ * @param {string|null} [opts.seatingView] — disposicion | escenario (con subTab=seating)
  * @returns {string | { pathname: string, search: string }}
  */
 export function buildAppTo({
@@ -43,6 +44,7 @@ export function buildAppTo({
   giraId = null,
   view = null,
   subTab = null,
+  seatingView = null,
 } = {}) {
   if (mode === "MANAGEMENT" || tab === "management") {
     return "/management";
@@ -63,6 +65,7 @@ export function buildAppTo({
       params.set("giraId", String(giraId));
       if (viewVal) params.set("view", viewVal);
       if (subTab) params.set("subTab", String(subTab));
+      if (seatingView) params.set("seatingView", String(seatingView));
     } else if (viewVal) {
       params.set("view", viewVal);
     }
