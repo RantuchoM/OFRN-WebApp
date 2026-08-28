@@ -64,6 +64,8 @@ export default function FimbaRoomingPanel({
             hotel: hotelNombre ? { nombre: hotelNombre } : null,
             checkin_at: checkinAt,
             checkout_at: checkoutAt,
+            personas: participantes,
+            participantes,
             habitaciones,
           },
         ],

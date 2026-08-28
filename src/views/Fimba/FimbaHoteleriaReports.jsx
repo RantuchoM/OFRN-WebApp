@@ -15,15 +15,26 @@ import {
   buildFimbaDetallePasajeros,
   buildFimbaPedidoGroups,
   buildFimbaRoomingPrintModel,
+  buildFimbaRoomingText,
   printFimbaPedido,
   printFimbaDetallePasajeros,
   printFimbaRooming,
   exportFimbaPedidoExcel,
+  exportFimbaDetallePasajerosExcel,
   DEFAULT_BEDS_PER_ROOM,
 } from "../../utils/fimbaReports";
+import { exportFimbaRoomingExcel } from "../../utils/fimbaExport";
 import {
   INITIAL_ORDER_BEDS_PER_ROOM_OPTIONS,
 } from "../../utils/roomingInitialOrder";
+
+function formatFechaUi(f) {
+  if (!f) return "—";
+  const s = String(f).slice(0, 10);
+  const [y, m, d] = s.split("-");
+  if (!d) return s;
+  return `${d}/${m}${y ? `/${y}` : ""}`;
+}
 
 /**
  * Hub + vistas de reportes hotelería FIMBA (pedido / texto / detalle / rooming).
@@ -63,6 +74,10 @@ export default function FimbaHoteleriaReports({
     () => buildFimbaRoomingPrintModel(hoteleriaRows),
     [hoteleriaRows],
   );
+  const roomingText = useMemo(
+    () => buildFimbaRoomingText(hoteleriaRows, { edicionNombre }),
+    [hoteleriaRows, edicionNombre],
+  );
 
   if (!open) return null;
 
@@ -74,9 +89,14 @@ export default function FimbaHoteleriaReports({
     setReport(id);
   };
 
-  const handleCopy = async () => {
+  const handleCopy = async (text) => {
+    const payload = String(text || "").trim();
+    if (!payload) {
+      alert("No hay texto para copiar.");
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(textSummary);
+      await navigator.clipboard.writeText(payload);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -141,7 +161,7 @@ export default function FimbaHoteleriaReports({
             {(report === "pedido" || report === "texto") && (
               <button
                 type="button"
-                onClick={handleCopy}
+                onClick={() => handleCopy(textSummary)}
                 disabled={!textSummary}
                 className="bg-emerald-600 text-white px-3 py-1.5 rounded text-sm font-bold hover:bg-emerald-700 flex items-center gap-1.5 disabled:opacity-50"
               >
@@ -174,6 +194,67 @@ export default function FimbaHoteleriaReports({
                 )}
                 Excel
               </button>
+            )}
+            {report === "detalle" && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await exportFimbaDetallePasajerosExcel({
+                      edicionNombre,
+                      rows: hoteleriaRows,
+                    });
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+                className="bg-emerald-800 text-white px-3 py-1.5 rounded text-sm font-bold hover:bg-emerald-900 flex items-center gap-1.5"
+              >
+                {busy ? (
+                  <IconLoader size={16} className="animate-spin" />
+                ) : (
+                  <IconFileExcel size={16} />
+                )}
+                Excel
+              </button>
+            )}
+            {report === "rooming" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(roomingText)}
+                  disabled={!roomingText}
+                  className="bg-emerald-600 text-white px-3 py-1.5 rounded text-sm font-bold hover:bg-emerald-700 flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {copied ? <IconCheck size={16} /> : <IconClipboard size={16} />}
+                  {copied ? "Copiado" : "Copiar texto"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await exportFimbaRoomingExcel({
+                        edicionNombre,
+                        rows: hoteleriaRows,
+                      });
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  className="bg-emerald-800 text-white px-3 py-1.5 rounded text-sm font-bold hover:bg-emerald-900 flex items-center gap-1.5"
+                >
+                  {busy ? (
+                    <IconLoader size={16} className="animate-spin" />
+                  ) : (
+                    <IconFileExcel size={16} />
+                  )}
+                  Excel
+                </button>
+              </>
             )}
             <button
               type="button"
@@ -266,11 +347,15 @@ export default function FimbaHoteleriaReports({
 
           {report === "detalle" && (
             <div className="space-y-5">
+              <p className="text-[11px] text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                Check-in y check-out de cada persona (si no tiene fechas propias,
+                hereda las del artista). Excel incluye las mismas columnas.
+              </p>
               {detail.map((g) =>
                 g.passengers.length === 0 ? null : (
                   <div key={g.key}>
                     <h4 className="font-bold text-indigo-900 border-b border-indigo-100 pb-1 mb-2">
-                      {g.hotel} · ingreso {g.checkin || "—"}
+                      {g.hotel} · {formatFechaUi(g.checkin)} → {formatFechaUi(g.checkout)}
                     </h4>
                     <table className="w-full text-xs border-collapse">
                       <thead>
@@ -280,6 +365,8 @@ export default function FimbaHoteleriaReports({
                           <th className="p-2 border border-slate-200">Nombre</th>
                           <th className="p-2 border border-slate-200">Doc.</th>
                           <th className="p-2 border border-slate-200">Sexo</th>
+                          <th className="p-2 border border-slate-200">Check-in</th>
+                          <th className="p-2 border border-slate-200">Check-out</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -300,6 +387,12 @@ export default function FimbaHoteleriaReports({
                             <td className="p-2 border border-slate-200">
                               {p.generoLabel || p.genero || "—"}
                             </td>
+                            <td className="p-2 border border-slate-200">
+                              {formatFechaUi(p.checkin || g.checkin)}
+                            </td>
+                            <td className="p-2 border border-slate-200">
+                              {formatFechaUi(p.checkout || g.checkout)}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -312,13 +405,18 @@ export default function FimbaHoteleriaReports({
 
           {report === "rooming" && (
             <div className="space-y-5">
+              <p className="text-[11px] text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                Rooming discriminado por habitación. Excel: hoja{" "}
+                <b>Habitaciones</b> (una fila por hab., ocupantes con IN→OUT;
+                pegable en Word) y hoja <b>Rooming plazas</b>.
+              </p>
               {rooming.map((b, idx) => (
                 <div key={`${b.artista}-${idx}`}>
                   <h4 className="font-bold text-indigo-900 border-b border-indigo-100 pb-1 mb-2">
                     {b.hotel} — {b.artista}
                   </h4>
                   <p className="text-xs text-slate-500 mb-2">
-                    {b.checkin || "—"} → {b.checkout || "—"}
+                    Rango artista: {formatFechaUi(b.checkin)} → {formatFechaUi(b.checkout)}
                     {b.noches != null ? ` · ${b.noches} noches` : ""}
                   </p>
                   {!b.habitaciones.length && (
@@ -326,39 +424,79 @@ export default function FimbaHoteleriaReports({
                       Sin inventario de habitaciones.
                     </p>
                   )}
-                  {b.habitaciones.map((h) => (
-                    <div key={h.id || h.label} className="mb-3">
-                      <div className="text-xs font-bold text-slate-700">
-                        {h.label}
-                        {h.matrimonial ? " · Matrimonial" : ""}
-                      </div>
-                      <ul className="list-disc ml-5 text-xs text-slate-600">
-                        {h.ocupantes.length === 0 ? (
-                          <li className="text-slate-400">(vacante)</li>
-                        ) : (
-                          h.ocupantes.map((o, i) => (
-                            <li key={i}>
-                              {o.apellido}, {o.nombre}
-                              {o.documento ? ` — ${o.documento}` : ""}
-                              {o.generoLabel ? ` · ${o.generoLabel}` : ""}
-                            </li>
-                          ))
-                        )}
-                      </ul>
-                    </div>
-                  ))}
+                  {b.habitaciones.length > 0 && (
+                    <table className="w-full text-xs border-collapse mb-3">
+                      <thead>
+                        <tr className="bg-slate-100 text-left">
+                          <th className="p-2 border border-slate-200">Habitación</th>
+                          <th className="p-2 border border-slate-200">Ocupante</th>
+                          <th className="p-2 border border-slate-200">Doc.</th>
+                          <th className="p-2 border border-slate-200">Check-in</th>
+                          <th className="p-2 border border-slate-200">Check-out</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {b.habitaciones.map((h) => {
+                          const label = `${h.label}${h.matrimonial ? " · Matrimonial" : ""}`;
+                          if (!h.ocupantes.length) {
+                            return (
+                              <tr key={h.id || label}>
+                                <td className="p-2 border border-slate-200">{label}</td>
+                                <td className="p-2 border border-slate-200 text-slate-400 italic" colSpan={4}>
+                                  (vacante)
+                                </td>
+                              </tr>
+                            );
+                          }
+                          return h.ocupantes.map((o, i) => (
+                            <tr key={`${h.id || label}-${i}`}>
+                              <td className="p-2 border border-slate-200">
+                                {i === 0 ? label : ""}
+                              </td>
+                              <td className="p-2 border border-slate-200">
+                                {o.apellido}, {o.nombre}
+                                {o.generoLabel ? ` · ${o.generoLabel}` : ""}
+                              </td>
+                              <td className="p-2 border border-slate-200">
+                                {o.documento || ""}
+                              </td>
+                              <td className="p-2 border border-slate-200">
+                                {formatFechaUi(o.checkin)}
+                              </td>
+                              <td className="p-2 border border-slate-200">
+                                {formatFechaUi(o.checkout)}
+                              </td>
+                            </tr>
+                          ));
+                        })}
+                      </tbody>
+                    </table>
+                  )}
                   {b.sinAsignar.length > 0 && (
                     <div className="mb-2">
-                      <div className="text-xs font-bold text-amber-800">
-                        Sin habitación
+                      <div className="text-xs font-bold text-amber-800 mb-1">
+                        Sin habitación asignada
                       </div>
-                      <ul className="list-disc ml-5 text-xs">
-                        {b.sinAsignar.map((o, i) => (
-                          <li key={i}>
-                            {o.apellido}, {o.nombre}
-                          </li>
-                        ))}
-                      </ul>
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-amber-50 text-left">
+                            <th className="p-2 border border-slate-200">Apellido</th>
+                            <th className="p-2 border border-slate-200">Nombre</th>
+                            <th className="p-2 border border-slate-200">Check-in</th>
+                            <th className="p-2 border border-slate-200">Check-out</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {b.sinAsignar.map((o, i) => (
+                            <tr key={i}>
+                              <td className="p-2 border border-slate-200">{o.apellido}</td>
+                              <td className="p-2 border border-slate-200">{o.nombre}</td>
+                              <td className="p-2 border border-slate-200">{formatFechaUi(o.checkin)}</td>
+                              <td className="p-2 border border-slate-200">{formatFechaUi(o.checkout)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>

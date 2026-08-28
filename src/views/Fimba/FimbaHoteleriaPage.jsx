@@ -109,6 +109,7 @@ export default function FimbaHoteleriaPage() {
       data = filterHoteleriaRowsForComidas(data);
     } else if (
       kind === "hoteleria" ||
+      kind === "rooming" ||
       String(kind).startsWith("hoteleria:") ||
       String(kind).startsWith("rooming:")
     ) {
@@ -134,11 +135,11 @@ export default function FimbaHoteleriaPage() {
           edicionNombre: label,
           rows: data,
         });
-      } else if (String(kind).startsWith("rooming:")) {
+      } else if (kind === "rooming" || String(kind).startsWith("rooming:")) {
         const row = data[0];
         await exportFimbaRoomingExcel({
           edicionNombre: label,
-          artistaNombre: row?.propuesta?.nombre,
+          artistaNombre: data.length === 1 ? row?.propuesta?.nombre : undefined,
           rows: data,
         });
       }
@@ -275,7 +276,7 @@ export default function FimbaHoteleriaPage() {
       "PAX planif.",
       "Nominados",
       "Sin nombre",
-      "Habitaciones",
+      "Inventario tipos",
       "Rooming ocupadas",
       "Observaciones logísticas",
       "Personas",
@@ -388,7 +389,7 @@ export default function FimbaHoteleriaPage() {
             className="fimba-btn fimba-btn-ghost"
             disabled={!!exporting || rows.length === 0}
             onClick={() => runExport("hoteleria")}
-            title="Excel: resumen, personas y rooming"
+            title="Excel: habitaciones discriminadas, plazas, personas y resumen"
           >
             {exporting === "hoteleria" ? (
               <IconLoader size={14} className="animate-spin" />
@@ -396,6 +397,20 @@ export default function FimbaHoteleriaPage() {
               <IconFileExcel size={14} />
             )}{" "}
             Exportar hotelería
+          </button>
+          <button
+            type="button"
+            className="fimba-btn fimba-btn-ghost"
+            disabled={!!exporting || rowsHotel.length === 0}
+            onClick={() => runExport("rooming")}
+            title="Excel rooming de la edición (una fila por habitación + plazas)"
+          >
+            {exporting === "rooming" ? (
+              <IconLoader size={14} className="animate-spin" />
+            ) : (
+              <IconFileExcel size={14} />
+            )}{" "}
+            Excel rooming
           </button>
           <button
             type="button"

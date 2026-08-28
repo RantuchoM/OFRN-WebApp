@@ -272,6 +272,7 @@ export function buildFimbaHoteleriaResumenRows(hoteleriaRows) {
 
 /**
  * Lista de habitaciones con ocupantes (rooming list).
+ * Una fila por plaza; fechas = estadía efectiva de esa persona.
  */
 export function buildFimbaRoomingRows(hoteleriaRows) {
   const out = [];
@@ -279,17 +280,17 @@ export function buildFimbaRoomingRows(hoteleriaRows) {
     if (r.requiere_hotel === false || r.propuesta?.requiere_hotel === false) continue;
     const artista = r.propuesta?.nombre || "";
     const hotel = r.hotel?.nombre || "";
-    const checkin = formatFecha(r.checkin_at);
-    const checkout = formatFecha(r.checkout_at);
     const habs = r.habitaciones || [];
     if (!habs.length) {
       out.push({
         artista,
         hotel,
-        checkin,
-        checkout,
+        checkin: formatFecha(r.checkin_at),
+        checkout: formatFecha(r.checkout_at),
+        noches: r.noches != null ? r.noches : "",
         habitacion: "(sin inventario)",
         tipo: "",
+        matrimonial: "",
         plaza: "",
         ocupante: "",
         documento: "",
@@ -306,16 +307,21 @@ export function buildFimbaRoomingRows(hoteleriaRows) {
         .slice()
         .sort((a, b) => (a.orden || 0) - (b.orden || 0));
       const cap = h.capacidad || 1;
+      const mat =
+        h.tipo === "SGL" ? "" : h.matrimonial === true ? "Matrimonial" : "Twin";
       for (let i = 0; i < cap; i += 1) {
         const o = occs[i];
         const p = o?.participante || null;
+        const stay = p ? resolveParticipanteStay(p, r) : null;
         out.push({
           artista,
           hotel,
-          checkin,
-          checkout,
+          checkin: formatFecha(stay?.checkin_at || r.checkin_at),
+          checkout: formatFecha(stay?.checkout_at || r.checkout_at),
+          noches: stay?.noches != null ? stay.noches : r.noches != null ? r.noches : "",
           habitacion: habName,
           tipo,
+          matrimonial: mat,
           plaza: i + 1,
           ocupante: p
             ? `${p.apellido || ""}, ${p.nombre || ""}`.replace(/^,\s*/, "")
@@ -323,6 +329,90 @@ export function buildFimbaRoomingRows(hoteleriaRows) {
           documento: p?.documento || "",
         });
       }
+    }
+  }
+  return out;
+}
+
+/**
+ * Una fila por habitación (ocupantes concatenados). Pegable en Word.
+ */
+export function buildFimbaRoomingHabitacionRows(hoteleriaRows) {
+  const out = [];
+  for (const r of hoteleriaRows || []) {
+    if (r.requiere_hotel === false || r.propuesta?.requiere_hotel === false) continue;
+    const artista = r.propuesta?.nombre || "";
+    const hotel = r.hotel?.nombre || "";
+    const habs = r.habitaciones || [];
+    const assigned = new Set();
+    for (const h of habs) {
+      const tipo = labelFimbaHabitacionTipo(h);
+      const habName = [tipo, h.orden != null ? `#${h.orden}` : "", h.label || ""]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      const occs = (h.ocupantes || [])
+        .slice()
+        .sort((a, b) => (a.orden || 0) - (b.orden || 0));
+      const cap = h.capacidad || 1;
+      const mat =
+        h.tipo === "SGL" ? "" : h.matrimonial === true ? "Matrimonial" : "Twin";
+      const names = [];
+      let minIn = null;
+      let maxOut = null;
+      for (const o of occs) {
+        const p = o.participante || null;
+        if (p?.id != null) assigned.add(Number(p.id));
+        else if (o.id_participante != null) assigned.add(Number(o.id_participante));
+        if (!p) continue;
+        const stay = resolveParticipanteStay(p, r);
+        const inL = formatFecha(stay.checkin_at);
+        const outL = formatFecha(stay.checkout_at);
+        const name = `${p.apellido || ""}, ${p.nombre || ""}`.replace(/^,\s*/, "");
+        names.push(
+          inL || outL ? `${name} (${inL || "—"} → ${outL || "—"})` : name,
+        );
+        if (stay.checkin_at && (!minIn || stay.checkin_at < minIn)) {
+          minIn = stay.checkin_at;
+        }
+        if (stay.checkout_at && (!maxOut || stay.checkout_at > maxOut)) {
+          maxOut = stay.checkout_at;
+        }
+      }
+      const vacantes = Math.max(0, cap - occs.length);
+      if (vacantes > 0) {
+        names.push(vacantes === 1 ? "(1 vacante)" : `(${vacantes} vacantes)`);
+      }
+      out.push({
+        artista,
+        hotel,
+        habitacion: habName,
+        tipo,
+        matrimonial: mat,
+        capacidad: cap,
+        ocupadas: occs.length,
+        ocupantes: names.join("; ") || "(vacante)",
+        checkin: formatFecha(minIn || r.checkin_at),
+        checkout: formatFecha(maxOut || r.checkout_at),
+      });
+    }
+    const sinAsignar = (r.personas || r.participantes || []).filter(
+      (p) => p.activo !== false && !assigned.has(Number(p.id)),
+    );
+    for (const p of sinAsignar) {
+      const stay = resolveParticipanteStay(p, r);
+      out.push({
+        artista,
+        hotel,
+        habitacion: "(sin asignar)",
+        tipo: "",
+        matrimonial: "",
+        capacidad: "",
+        ocupadas: "",
+        ocupantes: `${p.apellido || ""}, ${p.nombre || ""}`.replace(/^,\s*/, ""),
+        checkin: formatFecha(stay.checkin_at),
+        checkout: formatFecha(stay.checkout_at),
+      });
     }
   }
   return out;
@@ -430,8 +520,8 @@ const HOT_RESUMEN_COLS = [
   { header: "PAX planif.", key: "pax_planificada", width: 12 },
   { header: "Nominados", key: "nominados", width: 12 },
   { header: "Sin nombre", key: "sin_nombre", width: 12 },
-  { header: "Habitaciones", key: "habitaciones", width: 18 },
-  { header: "Rooming", key: "rooming", width: 12 },
+  { header: "Inventario tipos", key: "habitaciones", width: 18 },
+  { header: "Plazas ocupadas", key: "rooming", width: 12 },
   { header: "Camas-noche", key: "camas_noche", width: 12 },
   { header: "Obs. logísticas", key: "observaciones", width: 36 },
 ];
@@ -458,11 +548,27 @@ const ROOMING_COLS = [
   { header: "Hotel", key: "hotel", width: 24 },
   { header: "Check-in", key: "checkin", width: 12 },
   { header: "Check-out", key: "checkout", width: 12 },
+  { header: "Noches", key: "noches", width: 10 },
   { header: "Habitación", key: "habitacion", width: 24 },
   { header: "Tipo", key: "tipo", width: 18 },
+  { header: "Cama", key: "matrimonial", width: 14 },
   { header: "Plaza", key: "plaza", width: 8 },
   { header: "Ocupante", key: "ocupante", width: 28 },
   { header: "Documento", key: "documento", width: 14 },
+];
+
+/** Una fila por habitación; ocupantes concatenados (pegar en Word). */
+const ROOMING_HABITACION_COLS = [
+  { header: "Artista", key: "artista", width: 24 },
+  { header: "Hotel", key: "hotel", width: 24 },
+  { header: "Habitación", key: "habitacion", width: 26 },
+  { header: "Tipo", key: "tipo", width: 18 },
+  { header: "Cama", key: "matrimonial", width: 14 },
+  { header: "Capacidad", key: "capacidad", width: 12 },
+  { header: "Ocupadas", key: "ocupadas", width: 10 },
+  { header: "Ocupantes (IN → OUT)", key: "ocupantes", width: 52 },
+  { header: "Check-in", key: "checkin", width: 12 },
+  { header: "Check-out", key: "checkout", width: 12 },
 ];
 
 const COMIDAS_RESUMEN_COLS = [
@@ -547,7 +653,8 @@ function buildFimbaComidasPorDiaRows(hoteleriaRows) {
 }
 
 /**
- * Excel hotelería: resumen + personas + rooming (multi-hoja).
+ * Excel hotelería: habitaciones discriminadas primero (pegar en Word),
+ * luego plazas, personas y resumen de cupos/obs. logísticas.
  * @param {{ edicionNombre?: string, rows: Array, fileName?: string }} opts
  */
 export async function exportFimbaHoteleriaExcel(opts = {}) {
@@ -556,22 +663,24 @@ export async function exportFimbaHoteleriaExcel(opts = {}) {
     alert("No hay datos de hotelería para exportar.");
     return false;
   }
-  const resumen = buildFimbaHoteleriaResumenRows(rows);
-  const personas = buildFimbaHoteleriaPersonasRows(rows);
+  const habitaciones = buildFimbaRoomingHabitacionRows(rows);
   const rooming = buildFimbaRoomingRows(rows);
+  const personas = buildFimbaHoteleriaPersonasRows(rows);
+  const resumen = buildFimbaHoteleriaResumenRows(rows);
   const name =
     fileName ||
     `FIMBA_Hoteleria_${safeFilePart(edicionNombre)}_${stamp()}`;
   await writeFimbaWorkbook(name, [
-    { name: "Resumen artistas", columns: HOT_RESUMEN_COLS, rows: resumen },
+    { name: "Habitaciones", columns: ROOMING_HABITACION_COLS, rows: habitaciones },
+    { name: "Rooming plazas", columns: ROOMING_COLS, rows: rooming },
     { name: "Personas", columns: HOT_PERSONAS_COLS, rows: personas },
-    { name: "Rooming", columns: ROOMING_COLS, rows: rooming },
+    { name: "Resumen artistas", columns: HOT_RESUMEN_COLS, rows: resumen },
   ]);
   return true;
 }
 
 /**
- * Solo rooming list (útil desde ficha artista).
+ * Rooming list: una hoja por habitación (Word) + una por plaza.
  */
 export async function exportFimbaRoomingExcel(opts = {}) {
   const { edicionNombre = "Edicion", artistaNombre, rows = [], fileName } = opts;
@@ -579,12 +688,18 @@ export async function exportFimbaRoomingExcel(opts = {}) {
     alert("No hay rooming para exportar.");
     return false;
   }
+  const habitaciones = buildFimbaRoomingHabitacionRows(rows);
   const rooming = buildFimbaRoomingRows(rows);
+  if (!habitaciones.length && !rooming.length) {
+    alert("No hay rooming para exportar.");
+    return false;
+  }
   const name =
     fileName ||
     `FIMBA_Rooming_${safeFilePart(artistaNombre || edicionNombre)}_${stamp()}`;
   await writeFimbaWorkbook(name, [
-    { name: "Rooming", columns: ROOMING_COLS, rows: rooming },
+    { name: "Habitaciones", columns: ROOMING_HABITACION_COLS, rows: habitaciones },
+    { name: "Rooming plazas", columns: ROOMING_COLS, rows: rooming },
   ]);
   return true;
 }

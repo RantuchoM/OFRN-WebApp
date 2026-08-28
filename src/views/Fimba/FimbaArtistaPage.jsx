@@ -246,6 +246,7 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
   const [tokenMsg, setTokenMsg] = useState(null);
   const [comidasReportOpen, setComidasReportOpen] = useState(false);
   const [hotelReportsOpen, setHotelReportsOpen] = useState(false);
+  const [artistaHabitaciones, setArtistaHabitaciones] = useState([]);
 
   const propId = propuestaOverride?.id || artistaId;
 
@@ -269,13 +270,28 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
           (propuesta.cantidad_planificada || 0) -
             countActiveParticipantes(participantes),
         ),
-        habitaciones: [],
+        habitaciones: artistaHabitaciones,
       },
     ];
-  }, [propuesta, participantes]);
+  }, [propuesta, participantes, artistaHabitaciones]);
 
   const edicionLabel =
     edicion?.nombre || propuesta?.nombre || "FIMBA";
+
+  const openHotelReports = async () => {
+    if (propuesta?.requiere_hotel === false) {
+      setError("Este artista no requiere hotelería (excluido de reportes).");
+      return;
+    }
+    try {
+      const { habitaciones, error: err } = await listFimbaHabitaciones(propId);
+      if (err) throw err;
+      setArtistaHabitaciones(habitaciones || []);
+    } catch (err) {
+      setError(err?.message || "No se pudo cargar el rooming");
+    }
+    setHotelReportsOpen(true);
+  };
 
   const printArtistaRooming = async () => {
     if (propuesta?.requiere_hotel === false) {
@@ -317,15 +333,30 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
     setPropuesta(prop);
     setParticipantes(parts || []);
     if (results[2]) setEdicion(results[2].edicion);
+    try {
+      const pid = prop?.id || propId;
+      if (pid) {
+        const { habitaciones } = await listFimbaHabitaciones(pid);
+        setArtistaHabitaciones(habitaciones || []);
+      } else {
+        setArtistaHabitaciones([]);
+      }
+    } catch {
+      setArtistaHabitaciones([]);
+    }
     setLoading(false);
   };
 
   useEffect(() => {
     if (propuestaOverride) {
       setPropuesta(propuestaOverride);
-      listFimbaParticipantes(propuestaOverride.id).then(({ participantes: parts, error: err }) => {
-        if (err) setError(err.message);
-        setParticipantes(parts || []);
+      Promise.all([
+        listFimbaParticipantes(propuestaOverride.id),
+        listFimbaHabitaciones(propuestaOverride.id),
+      ]).then(([partRes, habRes]) => {
+        if (partRes.error) setError(partRes.error.message);
+        setParticipantes(partRes.participantes || []);
+        setArtistaHabitaciones(habRes.habitaciones || []);
         setLoading(false);
       });
       return;
@@ -554,11 +585,11 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
                 !participantes.filter((p) => p.activo !== false).length ||
                 propuesta?.requiere_hotel === false
               }
-              onClick={() => setHotelReportsOpen(true)}
+              onClick={openHotelReports}
               title={
                 propuesta?.requiere_hotel === false
                   ? "Artista sin hotelería"
-                  : "Pedido hotel / texto / detalle (este artista)"
+                  : "Pedido hotel / texto / detalle / rooming (este artista)"
               }
             >
               <IconFileText size={14} /> Pedido hotel

@@ -105,6 +105,68 @@ assert(pedidoKeys.has("2026-09-16|2026-09-18"), "grupo resto 16-18");
 assert(isoDateOrNull("0009-10-18") == null, "no persiste año 0009");
 assert(isoDateOrNull("2026-09-16") === "2026-09-16", "ISO 2026 ok");
 
+function formatFechaVerify(f) {
+  if (!f) return "";
+  const s = String(f).slice(0, 10);
+  const [y, m, d] = s.split("-");
+  if (!d) return s;
+  return `${d}/${m}/${y}`;
+}
+
+const ruggieroRow = {
+  propuesta,
+  hotel: { nombre: "Hotel test" },
+  checkin_at: propuesta.checkin_at,
+  checkout_at: propuesta.checkout_at,
+  personas: people,
+  habitaciones: [
+    {
+      id: 55,
+      orden: 1,
+      ocupantes: [
+        { orden: 1, id_participante: 3, participante: others[1] },
+        { orden: 2, id_participante: 2, participante: others[0] },
+      ],
+    },
+    {
+      id: 56,
+      orden: 2,
+      ocupantes: [
+        { orden: 1, id_participante: 4, participante: others[2] },
+        { orden: 2, id_participante: 1, participante: ruggiero },
+      ],
+    },
+  ],
+};
+
+const hab2Occs = ruggieroRow.habitaciones[1].ocupantes.map((o) => {
+  const stay = resolveParticipanteStay(o.participante, ruggieroRow);
+  const name = `${o.participante.apellido}, ${o.participante.nombre}`;
+  return `${name} (${formatFechaVerify(stay.checkin_at)} → ${formatFechaVerify(stay.checkout_at)})`;
+});
+assert(hab2Occs.length === 2, "rooming DBL #2: 2 ocupantes");
+assert(
+  hab2Occs.some((s) => s.includes("Ruggiero") && s.includes("15/09/2026")),
+  "contrato Excel hab.: Ruggiero IN 15/09/2026",
+);
+assert(
+  hab2Occs.some((s) => s.includes("Negri") && s.includes("16/09/2026")),
+  "contrato Excel hab.: Negri IN 16/09/2026",
+);
+
+const detalleFechas = people.map((p) => {
+  const s = resolveParticipanteStay(p, propuesta);
+  return { apellido: p.apellido, checkin: s.checkin_at, checkout: s.checkout_at };
+});
+assert(
+  detalleFechas.find((p) => p.apellido === "Ruggiero")?.checkin === "2026-09-15",
+  "detalle: Ruggiero check-in 15",
+);
+assert(
+  detalleFechas.find((p) => p.apellido === "Longo")?.checkin === "2026-09-16",
+  "detalle: Longo check-in 16",
+);
+
 if (process.exitCode) {
   console.error("verify-fimba-stay: FAILED");
 } else {

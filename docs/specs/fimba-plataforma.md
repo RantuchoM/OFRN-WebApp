@@ -175,7 +175,7 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
 
 **Permisos:** quien puede **ver** la sección puede exportar (staff OFRN management, `editor_general`, `consulta` por usuario o token de edición, tokens de artista en su ficha). No se limita al modo edición: lectura + export.
 
-**Por artista (Hotelería):** cada tarjeta de artista en `/fimba/edicion/:id/hoteleria` tiene fila **Reportes de este artista**: Pedido hotel (hub pedido/texto/detalle/rooming acotado a esa `id_propuesta`), Rooming PDF, Excel rooming, Excel hotelería. Reusa `fimbaReports` / `fimbaExport` con `hoteleriaRows = [row]`. Los botones de cabecera (**Reportes hotelería**, Exportar hotelería/comidas) siguen siendo de toda la edición (o del filtro Artista del select). Misma disponibilidad en `readOnly` (consulta / token RO): export OK, sin Editar.
+**Por artista (Hotelería):** cada tarjeta de artista en `/fimba/edicion/:id/hoteleria` tiene fila **Reportes de este artista**: Pedido hotel (hub pedido/texto/detalle/rooming acotado a esa `id_propuesta`), Rooming PDF, Excel rooming, Excel hotelería. Reusa `fimbaReports` / `fimbaExport` con `hoteleriaRows = [row]`. Los botones de cabecera (**Reportes hotelería**, **Excel rooming**, Exportar hotelería/comidas) siguen siendo de toda la edición (o del filtro Artista del select). Misma disponibilidad en `readOnly` (consulta / token RO): export OK, sin Editar. Ficha `/artista/:id` y token `/e` cargan `listFimbaHabitaciones` al abrir Pedido hotel (el row de ficha ya no manda `habitaciones: []`).
 
 #### Matriz OFRN → FIMBA
 
@@ -183,9 +183,9 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
 |------------------|--------------|-----------------|--------------|--------------|
 | **Pedido Inicial** (Rooming hub) | Print + vista | Hotelería → **Reportes hotelería** (edición) o tarjeta artista → **Pedido hotel**; ficha Artista → Pedido hotel | Print/PDF + Excel plazas | Por hotel + check-in/out artista (no tramos de gira). Sexo hotelero vía `mapFimbaGeneroToSex` (`src/utils/fimbaGenero.js`): `masculino`/`m`/`hombre`→**Hombre**, `femenino`/`f`/`mujer`→**Mujer**; `otro` / `sin_especificar` / vacío → **Sin género** (nunca se asume hombre). Sin nombre = sin género. Detalle/Excel muestran Hombre/Mujer (no «Masculino»). |
 | **Texto pedido** (hotel) | Clipboard | Mismo hub → Texto pedido | Clipboard + print | Mismo texto estilo «N hombres, M mujeres. Check-in…»; ambiguos como «sin género / sin nombre» |
-| **Detalle de pasajeros** | Print | Hub → Detalle | Print/PDF | Orden por ingreso; sin habitaciones |
-| **Reporte de habitaciones** (RoomingReport) | Print/PDF | Hub → Reporte habitaciones; tarjeta Hotelería / `FimbaRoomingPanel` / Artista → Rooming PDF | Print/PDF + Excel rooming | Inventario `fimba_propuestas_habitaciones` + ocupantes |
-| **Excel hotelería** (resumen/personas) | — (FIMBA) | Hotelería cabecera (edición) o tarjeta artista → Excel hotelería | Excel 3 hojas | Scope = filas pasadas al builder |
+| **Detalle de pasajeros** | Print | Hub → Detalle | Print/PDF + Excel | Orden por ingreso; **check-in/out por persona** (hereda artista si vacío); sin columna habitación |
+| **Reporte de habitaciones** (RoomingReport) | Print/PDF | Hub → Reporte habitaciones; tarjeta Hotelería / `FimbaRoomingPanel` / Artista → Rooming PDF / **Excel rooming** | Print/PDF + Excel 2 hojas + texto clipboard | Hoja **Habitaciones** = 1 fila/hab. con ocupantes `(IN → OUT)` (pegar en Word); hoja **Rooming plazas** = 1 fila/cama. Inventario `fimba_propuestas_habitaciones` + ocupantes. Ficha artista carga habitaciones al abrir Pedido hotel. |
+| **Excel hotelería** (resumen/personas) | — (FIMBA) | Hotelería cabecera (edición) o tarjeta artista → Excel hotelería | Excel 4 hojas | **1. Habitaciones** (rooming discriminado) · 2. Rooming plazas · 3. Personas (IN/OUT) · 4. Resumen artistas (cupos + obs. logísticas/vuelos, al final para no confundir con rooming) |
 | **MealsReport** por evento | Print/PDF + texto | Hotelería / Artista → **Reportes comidas** | Print/PDF + texto + Excel | Cubiertos por día (check-in/out) + regímenes nominados; **sin** asistencia por evento OFRN |
 | **Texto pedido** (comidas) | Clipboard | Reportes comidas | Clipboard | Resumen regímenes + detalle |
 | **Excel comidas** | — | Hotelería / Artista / modal comidas | Excel 2 hojas | Ya existía |
@@ -503,7 +503,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] UI de asignación multi-vehículo por evento (trayectos): tabla flota Cap/OFRN/FIMBA/Libres/Plazas + banner + **Repartir** + resumen vs tope + hard-block asientos/libres(OFRN+FIMBA)/tope en modal y `saveFimbaEvento`
 - [x] Agenda grilla FIMBA (planilla multi-tipo)
 - [x] Reportes hotel (lista + cupos; sin rooming graph)
-- [x] Paridad reportes OFRN→FIMBA: pedido/texto/detalle/rooming (print+Excel); comidas (texto/PDF/Excel + **cubiertos por día** check-in/out general/artista; sin asistencia por-evento); CNRT + paradas + hoja de ruta (PDF/Excel) por vehículo
+- [x] Paridad reportes OFRN→FIMBA: pedido/texto/detalle/rooming (print+Excel); **detalle con IN/OUT por persona**; **rooming Excel 2 hojas** (habitación + plazas) + texto para Word; comidas (texto/PDF/Excel + **cubiertos por día** check-in/out general/artista; sin asistencia por-evento); CNRT + paradas + hoja de ruta (PDF/Excel) por vehículo
 - [x] Hotelería: matriz noches/comidas (`fimbaMealsStay`) — desayuno/almuerzo/cena por día; Early/Late; PAX planificada; desglose régimen opcional
 - [x] Toggles por artista `requiere_hotel` / `requiere_comidas` (default true): planilla Artistas, ficha, modal Hotelería; exclusiones en totales/exportaciones hotel y comidas
 - [x] Alta/edición de vehículo embebida en FIMBA (`giras_transportes` / catálogo `transportes` en alta; update alineado a OFRN)
@@ -567,8 +567,8 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 1. Edición → **Hotelería** (`/fimba/edicion/:id/hoteleria`).
 2. Ver PAX planificados, nominados, por confirmar; expandir personas; badges Early/Late junto a fechas; badges de **inventario** (ej. «3 DBL, 1 SGL») y ocupadas/plazas rooming.
 3. **Editar datos** (`canEditPropuestaMeta`): modal portal con `FimbaArtistaMetaSection` (nombre, color, planificada, extra equip., check-in/out + Early/Late, requiere hotel/comidas, hotel, obs. logísticas, estado; autosave + semáforo). Debajo: **cupos por tipo** (Aplicar cupos). Tras guardar meta o cupos, la tarjeta se actualiza con `getFimbaHoteleriaRow` / `refreshRow` (sin recargar toda la edición ni spinner full-page). Consulta / RO: sin botón.
-4. Cabecera: **Reportes hotelería** / comidas / Excel (toda la edición o filtro Artista). Por tarjeta: **Pedido hotel**, Rooming PDF, Excel rooming, Excel hotelería (scope = esa propuesta; OK en readOnly).
-5. Expandir artista: columna Habitación + lista rooming; **Copiar tabla (Excel)** (TSV + cols habitaciones).
+4. Cabecera: **Reportes hotelería** / **Excel rooming** / comidas / Excel hotelería (toda la edición o filtro Artista). **Excel rooming** y la 1ª hoja de **Exportar hotelería** son el rooming discriminado (quién en cada hab. + IN/OUT), no el resumen de cupos/vuelos. Por tarjeta: **Pedido hotel**, Rooming PDF, Excel rooming, Excel hotelería (scope = esa propuesta; OK en readOnly).
+5. Hub **Detalle de pasajeros**: columnas Check-in / Check-out por persona + Excel. Hub **Reporte de habitaciones**: tabla con IN/OUT por ocupante, **Excel** (2 hojas) y **Copiar texto** (pegar en Word). Expandir artista: columna Habitación + lista rooming; **Copiar tabla (TSV)** (inventario tipos + obs. log.).
 6. Ficha artista o `/fimba/e/:token`: panel **Hotelería / rooming** — staff aplica cupos; editor asigna personas a plazas; matrimonial en multi; consulta `/fimba/a` RO.
 
 **Carga (`listFimbaHoteleria`):** participantes + habitaciones en **batch** (2 queries por edición, no N+1 secuencial). La página deduplica edición/propuestas y muestra spinner solo en la primera carga; cambio de filtro Artista = refresh inline.

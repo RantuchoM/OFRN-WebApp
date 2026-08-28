@@ -4798,7 +4798,7 @@ const HABITACION_SELECT =
   "id, id_propuesta, tipo, matrimonial, orden, label, created_at, updated_at";
 
 const OCUPANTE_SELECT =
-  "id, id_habitacion, id_participante, orden, created_at, participante:id_participante ( id, id_propuesta, nombre, apellido, documento, genero, tipo_alimentacion, activo )";
+  "id, id_habitacion, id_participante, orden, created_at, participante:id_participante ( id, id_propuesta, nombre, apellido, documento, genero, tipo_alimentacion, activo, checkin_at, checkout_at )";
 
 function normalizeHabTipo(tipo) {
   const t = String(tipo || "").toUpperCase().trim();

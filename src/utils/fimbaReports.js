@@ -318,6 +318,7 @@ export function buildFimbaRoomingPrintModel(hoteleriaRows = []) {
         ocupantes: occs.map((o) => {
           const p = o.participante || {};
           const generoCanon = canonicalizeFimbaGenero(p.genero);
+          const stay = resolveParticipanteStay(p, r);
           return {
             apellido: p.apellido || "",
             nombre: p.nombre || "",
@@ -325,6 +326,9 @@ export function buildFimbaRoomingPrintModel(hoteleriaRows = []) {
             genero: generoCanon,
             generoLabel: labelFimbaGeneroHotel(generoCanon),
             sexo: mapFimbaGeneroToSex(generoCanon),
+            checkin: stay.checkin_at,
+            checkout: stay.checkout_at,
+            noches: stay.noches,
           };
         }),
       };
@@ -350,11 +354,16 @@ export function buildFimbaRoomingPrintModel(hoteleriaRows = []) {
           }
           return !assigned.has(Number(p.id));
         })
-        .map((p) => ({
-          apellido: p.apellido || "",
-          nombre: p.nombre || "",
-          documento: p.documento || "",
-        })),
+        .map((p) => {
+          const stay = resolveParticipanteStay(p, r);
+          return {
+            apellido: p.apellido || "",
+            nombre: p.nombre || "",
+            documento: p.documento || "",
+            checkin: stay.checkin_at,
+            checkout: stay.checkout_at,
+          };
+        }),
     };
   });
 }
@@ -465,8 +474,8 @@ export async function exportFimbaPedidoExcel(opts = {}) {
         nombre: p.nombre,
         documento: p.documento,
         genero: labelFimbaGeneroHotel(p.genero),
-        checkin: formatFechaDDMM(g.checkin),
-        checkout: formatFechaDDMM(g.checkout),
+        checkin: formatFechaDDMM(p.checkin || g.checkin),
+        checkout: formatFechaDDMM(p.checkout || g.checkout),
       });
     }
   }
@@ -508,6 +517,107 @@ export async function exportFimbaPedidoExcel(opts = {}) {
     },
   ]);
   return true;
+}
+
+/**
+ * Excel solo del detalle de pasajeros (check-in/out por persona).
+ */
+export async function exportFimbaDetallePasajerosExcel(opts = {}) {
+  const { edicionNombre = "Edicion", rows = [], fileName } = opts;
+  const groups = buildFimbaDetallePasajeros(rows);
+  const detalle = [];
+  for (const g of groups) {
+    for (const p of g.passengers) {
+      detalle.push({
+        hotel: g.hotel,
+        artista: p.artista,
+        apellido: p.apellido,
+        nombre: p.nombre,
+        documento: p.documento,
+        genero: labelFimbaGeneroHotel(p.genero),
+        checkin: formatFechaDDMM(p.checkin || g.checkin),
+        checkout: formatFechaDDMM(p.checkout || g.checkout),
+      });
+    }
+  }
+  if (!detalle.length) {
+    alert("No hay pasajeros para exportar.");
+    return false;
+  }
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const name =
+    fileName ||
+    `FIMBA_Detalle_Pasajeros_${String(edicionNombre).replace(/\s+/g, "_")}_${stamp}`;
+  await writeFimbaWorkbook(name, [
+    {
+      name: "Detalle pasajeros",
+      columns: [
+        { header: "Hotel", key: "hotel", width: 24 },
+        { header: "Artista", key: "artista", width: 24 },
+        { header: "Apellido", key: "apellido", width: 18 },
+        { header: "Nombre", key: "nombre", width: 18 },
+        { header: "Documento", key: "documento", width: 14 },
+        { header: "Sexo", key: "genero", width: 12 },
+        { header: "Check-in", key: "checkin", width: 12 },
+        { header: "Check-out", key: "checkout", width: 12 },
+      ],
+      rows: detalle,
+    },
+  ]);
+  return true;
+}
+
+/**
+ * Texto plano del rooming (pegar en Word / mail).
+ */
+export function buildFimbaRoomingText(hoteleriaRows = [], { edicionNombre = "" } = {}) {
+  const blocks = buildFimbaRoomingPrintModel(hoteleriaRows);
+  const lines = [];
+  if (edicionNombre) {
+    lines.push(`Rooming — ${edicionNombre}`);
+    lines.push("");
+  }
+  for (const b of blocks) {
+    lines.push(`${b.hotel} — ${b.artista}`);
+    const rango = [formatFechaDDMM(b.checkin), formatFechaDDMM(b.checkout)]
+      .filter((x) => x && x !== "—")
+      .join(" → ");
+    if (rango) lines.push(`Rango artista: ${rango}`);
+    if (!b.habitaciones.length) {
+      lines.push("Sin inventario de habitaciones.");
+    }
+    for (const h of b.habitaciones) {
+      const tipo = `${h.label}${h.matrimonial ? " · Matrimonial" : ""}`;
+      lines.push("");
+      lines.push(tipo);
+      if (!h.ocupantes.length) {
+        lines.push("  (vacante)");
+      } else {
+        for (const o of h.ocupantes) {
+          const name = `${o.apellido || ""}, ${o.nombre || ""}`.replace(/^,\s*/, "");
+          const inOut =
+            o.checkin || o.checkout
+              ? ` · IN ${formatFechaDDMM(o.checkin)} · OUT ${formatFechaDDMM(o.checkout)}`
+              : "";
+          lines.push(`  - ${name}${inOut}`);
+        }
+      }
+    }
+    if (b.sinAsignar.length) {
+      lines.push("");
+      lines.push("Sin habitación asignada");
+      for (const o of b.sinAsignar) {
+        const name = `${o.apellido || ""}, ${o.nombre || ""}`.replace(/^,\s*/, "");
+        const inOut =
+          o.checkin || o.checkout
+            ? ` · IN ${formatFechaDDMM(o.checkin)} · OUT ${formatFechaDDMM(o.checkout)}`
+            : "";
+        lines.push(`  - ${name}${inOut}`);
+      }
+    }
+    lines.push("");
+  }
+  return lines.join("\n").trim();
 }
 
 /** Abre ventana de impresión con HTML + CSS (mismo patrón RoomingReport). */
@@ -615,15 +725,15 @@ export function printFimbaPedido(hoteleriaRows, { edicionNombre = "", bedsPerRoo
 export function printFimbaDetallePasajeros(hoteleriaRows, { edicionNombre = "" } = {}) {
   const groups = buildFimbaDetallePasajeros(hoteleriaRows);
   const parts = [`<h1>Detalle de pasajeros</h1><p class="muted">${edicionNombre}</p>
-    <p class="gap-note">Listado por fecha de ingreso (sin habitaciones), análogo al «Detalle» OFRN.</p>`];
+    <p class="gap-note">Listado por fecha de ingreso, con check-in y check-out de cada persona.</p>`];
   for (const g of groups) {
     if (!g.passengers.length) continue;
     parts.push(`<h2>${g.hotel} · ${formatFechaDDMM(g.checkin)} → ${formatFechaDDMM(g.checkout)}</h2>
-      <table><thead><tr><th>Artista</th><th>Apellido</th><th>Nombre</th><th>Documento</th><th>Sexo</th></tr></thead><tbody>
+      <table><thead><tr><th>Artista</th><th>Apellido</th><th>Nombre</th><th>Documento</th><th>Sexo</th><th>Check-in</th><th>Check-out</th></tr></thead><tbody>
       ${g.passengers
         .map(
           (p) =>
-            `<tr><td>${p.artista || ""}</td><td>${p.apellido || ""}</td><td>${p.nombre || ""}</td><td>${p.documento || ""}</td><td>${p.generoLabel || labelFimbaGeneroHotel(p.genero)}</td></tr>`,
+            `<tr><td>${p.artista || ""}</td><td>${p.apellido || ""}</td><td>${p.nombre || ""}</td><td>${p.documento || ""}</td><td>${p.generoLabel || labelFimbaGeneroHotel(p.genero)}</td><td>${formatFechaDDMM(p.checkin || g.checkin)}</td><td>${formatFechaDDMM(p.checkout || g.checkout)}</td></tr>`,
         )
         .join("")}
       </tbody></table>`);
@@ -636,29 +746,34 @@ export function printFimbaRooming(hoteleriaRows, { edicionNombre = "" } = {}) {
   const parts = [`<h1>Listado de distribución de habitaciones</h1><p class="muted">${edicionNombre}</p>`];
   for (const b of blocks) {
     parts.push(`<h2>${b.hotel} — ${b.artista}</h2>
-      <p class="muted">In: ${formatFechaDDMM(b.checkin)}${b.early ? " early" : ""} · Out: ${formatFechaDDMM(b.checkout)}${b.late ? " late" : ""}${b.noches != null ? ` · ${b.noches} noches` : ""}</p>`);
+      <p class="muted">Rango artista: In ${formatFechaDDMM(b.checkin)}${b.early ? " early" : ""} · Out ${formatFechaDDMM(b.checkout)}${b.late ? " late" : ""}${b.noches != null ? ` · ${b.noches} noches` : ""}</p>`);
     if (!b.habitaciones.length) {
       parts.push(`<p class="muted">Sin inventario de habitaciones.</p>`);
     }
-    for (const h of b.habitaciones) {
-      parts.push(`<h3>${h.label}${h.matrimonial ? " · Matrimonial" : ""}</h3><ul>`);
-      if (!h.ocupantes.length) {
-        parts.push(`<li class="muted">(vacante)</li>`);
-      } else {
-        for (const o of h.ocupantes) {
-          parts.push(
-            `<li>${o.apellido || ""}, ${o.nombre || ""}${o.documento ? ` — ${o.documento}` : ""}${o.generoLabel ? ` · ${o.generoLabel}` : ""}</li>`,
-          );
+    if (b.habitaciones.length) {
+      parts.push(`<table><thead><tr><th>Habitación</th><th>Ocupante</th><th>Doc.</th><th>Sexo</th><th>Check-in</th><th>Check-out</th></tr></thead><tbody>`);
+      for (const h of b.habitaciones) {
+        const label = `${h.label}${h.matrimonial ? " · Matrimonial" : ""}`;
+        if (!h.ocupantes.length) {
+          parts.push(`<tr><td>${label}</td><td class="muted">(vacante)</td><td></td><td></td><td></td><td></td></tr>`);
+        } else {
+          h.ocupantes.forEach((o, i) => {
+            parts.push(
+              `<tr><td>${i === 0 ? label : ""}</td><td>${o.apellido || ""}, ${o.nombre || ""}</td><td>${o.documento || ""}</td><td>${o.generoLabel || ""}</td><td>${formatFechaDDMM(o.checkin)}</td><td>${formatFechaDDMM(o.checkout)}</td></tr>`,
+            );
+          });
         }
       }
-      parts.push(`</ul>`);
+      parts.push(`</tbody></table>`);
     }
     if (b.sinAsignar.length) {
-      parts.push(`<h3>Sin habitación asignada</h3><ul>`);
+      parts.push(`<h3>Sin habitación asignada</h3><table><thead><tr><th>Apellido</th><th>Nombre</th><th>Check-in</th><th>Check-out</th></tr></thead><tbody>`);
       for (const o of b.sinAsignar) {
-        parts.push(`<li>${o.apellido || ""}, ${o.nombre || ""}</li>`);
+        parts.push(
+          `<tr><td>${o.apellido || ""}</td><td>${o.nombre || ""}</td><td>${formatFechaDDMM(o.checkin)}</td><td>${formatFechaDDMM(o.checkout)}</td></tr>`,
+        );
       }
-      parts.push(`</ul>`);
+      parts.push(`</tbody></table>`);
     }
   }
   openPrintWindow(`Rooming — ${edicionNombre}`, parts.join(""));
