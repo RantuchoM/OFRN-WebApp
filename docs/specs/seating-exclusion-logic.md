@@ -16,11 +16,20 @@ Refactorizar el selector de músicos en la vista de Seating para validar contra 
 ## Grupos de convocatoria por bloque
 - El seating consume `useGiraRoster` (ausentes / no confirmados fuera) y, si el **bloque activo** tiene filas en `programas_repertorios_grupos`, recorta el roster visible a la unión de miembros de esos grupos.
 - Bloque sin grupos = roster confirmado completo (comportamiento histórico).
-- La config de cuerdas y los exports PDF/Excel no usan este recorte por bloque.
+- El **panel de edición** de cuerdas usa el mismo recorte por grupo del bloque activo (disponibles + atriles visibles). Los ítems de músicos fuera del filtro quedan ocultos pero persisten en la config compartida.
 - **UI pestañas:** chip de grupo en pestaña inactiva = iniciales (`compact`); pestaña activa = nombre completo. No cambia el filtro.
 
+## Configs de cuerdas multi-bloque (2026-08-27)
+- Tabla `seating_cuerdas_configs` (`id_programa`, `nombre`, `sort_order`, `bloque_ids[]`). Contenedores: `seating_contenedores.id_config` (NOT NULL).
+- **1 config** en la gira → aplica a **todos** los bloques (aunque `bloque_ids` esté vacío).
+- **N configs (alternativas)** → asociación **1:1** bloque↔config (`bloque_ids` con un solo id). Resolución: (1) dueño 1:1 del bloque; (2) config con `bloque_ids={}` (fallback); (3) primera por `sort_order`.
+- Sin UI de chips «Asociar»: al crear/duplicar / «Config para este bloque» se reclama el bloque activo en exclusiva (`claimCuerdasBloqueOneToOne`).
+- Unicidad de músico: **una vez por config** (no por programa). El mismo integrante puede estar en atriles distintos en configs distintas.
+- Helper: `src/utils/seatingCuerdasConfig.js`. UI: pills en la fila de Bloques + Duplicar; oferta «Config para este bloque» si la disposición es compartida.
+- PDF: una sección de disposición por config. Mis Partes resuelve contenedor según el bloque de la obra.
+
 ## Deduplicación de Cuerdas en Contenedores
-- **Regla:** dentro de la configuración de cuerdas de una gira, cada `id_musico` debe aparecer como máximo una vez en `seating_contenedores_items` para los contenedores del programa.
+- **Regla:** dentro de **una** config de cuerdas, cada `id_musico` debe aparecer como máximo una vez en `seating_contenedores_items` para los contenedores de esa config.
 - **Lectura:** si existen filas duplicadas persistidas, las vistas de Seating, reportes, listados y composición `Str` deben mostrar solo la posición visual más alta. La prioridad visual se resuelve por `seating_contenedores.orden`, luego `atril_num`, `lado`, `orden` e `id` de la fila.
 - **Escritura:** cualquier cambio realizado desde el manager de cuerdas (crear/editar/eliminar contenedor, agregar/mover/quitar músicos, importar o reordenar) dispara una limpieza persistente que borra las filas duplicadas y conserva la misma fila ganadora que se muestra en lectura.
 - **Estado:** implementado en `src/utils/seatingStringItemsDedupe.js`, `ProgramSeating.jsx`, `GlobalStringsManager.jsx` y consumidores directos de seating.

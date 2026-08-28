@@ -11,8 +11,8 @@ import {
   didParseCellSeatingStringsStandPairs,
   seatingStringsGridEvenRowCount,
 } from "./seatingPdfStringsTableHooks";
-import { dedupeSeatingStringItems } from "./seatingStringItemsDedupe";
 import { sortWindMusiciansForSeating } from "./seatingWindOrder";
+import { fetchCuerdasDispositionGroups } from "./seatingCuerdasConfig";
 
 // Identifica si un instrumento es cuerda (códigos tal cual en BD; sin forzar "1"→"01")
 const isStringInstrument = (id) =>
@@ -31,6 +31,47 @@ const getComposerName = (obra) => {
   return "Autor Desconocido";
 };
 
+const appendDispositionTable = (doc, containers, validItems, startY, title) => {
+  if (title) {
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.text(title, 14, startY);
+    startY += 4;
+  }
+  const rawMaxRows = Math.max(
+    ...containers.map(
+      (c) => validItems.filter((i) => i.id_contenedor === c.id).length || 0,
+    ),
+    0,
+  );
+  const maxRows = seatingStringsGridEvenRowCount(rawMaxRows);
+  const containerHeaders = containers.map((c) => c.nombre.toUpperCase());
+  const containerBody = [];
+  for (let i = 0; i < maxRows; i++) {
+    containerBody.push(
+      containers.map((c) => {
+        const groupItems = sortSeatingItems(
+          validItems.filter((item) => item.id_contenedor === c.id),
+        );
+        const item = groupItems[i];
+        if (!item?.integrantes) return "";
+        return `${item.integrantes.apellido}, ${item.integrantes.nombre}.` || "";
+      }),
+    );
+  }
+  autoTable(doc, {
+    startY,
+    head: [containerHeaders],
+    body: containerBody,
+    theme: "grid",
+    styles: { fontSize: 6.5, cellPadding: 0.6, halign: "center" },
+    headStyles: { fillColor: [63, 81, 181], textColor: 255 },
+    margin: { left: 14, right: 14 },
+    didParseCell: didParseCellSeatingStringsStandPairs,
+  });
+  return doc.lastAutoTable.finalY;
+};
+
 /**
  * Genera el reporte PDF de Seating.
  * @param {Object} supabase - Cliente Supabase
@@ -45,24 +86,14 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
       .flatMap(r => r.repertorio_obras?.map(o => o.obras.id))
       .filter(Boolean);
 
-    const [contsRes, itemsRes, assignsRes, partsRes] = await Promise.all([
-      supabase.from("seating_contenedores").select("*").eq("id_programa", gira.id).order("orden"),
-      supabase
-        .from("seating_contenedores_items")
-        .select("*, integrantes(nombre, apellido)")
-        .order("atril_num", { ascending: true, nullsFirst: true })
-        .order("lado", { ascending: true, nullsFirst: true })
-        .order("orden", { ascending: true, nullsFirst: true })
-        .order("id", { ascending: true }),
+    const [disposition, assignsRes, partsRes] = await Promise.all([
+      fetchCuerdasDispositionGroups(supabase, gira.id),
       supabase.from("seating_asignaciones").select("*").eq("id_programa", gira.id),
       supabase.from("obras_particellas").select("id, nombre_archivo").in("id_obra", workIds)
     ]);
 
-    if (contsRes.error) throw contsRes.error;
-    if (itemsRes.error) throw itemsRes.error;
-
-    const conts = contsRes.data || [];
-    const items = itemsRes.data || [];
+    const groups = disposition.groups || [];
+    const conts = groups.flatMap((g) => g.containers);
     const assigns = assignsRes.data || [];
     const allParts = partsRes.data || [];
 
@@ -81,52 +112,37 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
     doc.text(`Generado: ${new Date().toLocaleDateString()}`, 14, 16);
     doc.line(14, 18, 196, 18);
 
-    // 3. TABLA 1: DISPOSICIÓN (Cuerdas)
-    // Solo filas cuyo músico está convocado y confirmado en esta gira (misma regla que GiraRoster / ProgramSeating)
+    // 3. TABLA(S) DISPOSICIÓN: una por config de cuerdas
     const rosterKeys = confirmedSeatingRosterKeySet(roster);
-    const programItems = items.filter((i) =>
-      conts.some((c) => c.id === i.id_contenedor),
-    );
-    const validItems = dedupeSeatingStringItems(programItems, conts).filter(
-      (i) => isMusicianOnConfirmedSeatingRoster(rosterKeys, i.id_musico),
-    );
-    const rawMaxRows = Math.max(
-      ...conts.map(
-        (c) => validItems.filter((i) => i.id_contenedor === c.id).length || 0,
-      ),
-      0,
-    );
-    const maxRows = seatingStringsGridEvenRowCount(rawMaxRows);
-    
-    const containerHeaders = conts.map((c) => c.nombre.toUpperCase());
-    const containerBody = [];
-
-    for (let i = 0; i < maxRows; i++) {
-      containerBody.push(
-        conts.map((c) => {
-          const groupItems = sortSeatingItems(
-            validItems.filter((item) => item.id_contenedor === c.id),
-          );
-          const item = groupItems[i];
-          if (!item?.integrantes) return "";
-          return `${item.integrantes.apellido}, ${item.integrantes.nombre}.` || "";
-        })
+    let cursorY = 22;
+    const multi = groups.length > 1;
+    const allStringItems = [];
+    for (const { config, containers } of groups) {
+      if (!containers.length) continue;
+      const flatItems = containers.flatMap((c) => c.items || []);
+      const validItems = flatItems.filter((i) =>
+        isMusicianOnConfirmedSeatingRoster(rosterKeys, i.id_musico),
       );
+      allStringItems.push(...validItems);
+      const title = multi
+        ? `Disposición · ${config.nombre || "Cuerdas"}`
+        : null;
+      if (multi && cursorY > 22) {
+        doc.addPage();
+        cursorY = 16;
+      }
+      cursorY = appendDispositionTable(
+        doc,
+        containers,
+        validItems,
+        cursorY,
+        title,
+      );
+      cursorY += 6;
     }
 
-    autoTable(doc, {
-      startY: 22,
-      head: [containerHeaders],
-      body: containerBody,
-      theme: "grid",
-      styles: { fontSize: 6.5, cellPadding: 0.6, halign: "center" },
-      headStyles: { fillColor: [63, 81, 181], textColor: 255 },
-      margin: { left: 14, right: 14 },
-      didParseCell: didParseCellSeatingStringsStandPairs,
-    });
-
     // 4. TABLA 2: ASIGNACIÓN DE PARTICELLAS (Vientos y Otros)
-    const finalY = doc.lastAutoTable.finalY;
+    const finalY = doc.lastAutoTable?.finalY ?? cursorY;
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
     doc.text("Asignación de Particellas (Vientos y Otros)", 14, finalY + 8);
@@ -140,7 +156,7 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
     ).filter(Boolean);
 
     const stringMusicianIds = new Set(
-      validItems.map((i) => integranteKey(i.id_musico ?? i.id_integrante)),
+      allStringItems.map((i) => integranteKey(i.id_musico ?? i.id_integrante)),
     );
 
     const otherMusicians = sortWindMusiciansForSeating(

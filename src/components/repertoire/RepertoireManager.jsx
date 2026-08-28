@@ -77,6 +77,7 @@ import { useAuth } from "../../context/AuthContext";
 import WorkForm from "../../views/Repertoire/WorkForm";
 import RepertoireWorkPickerModal from "./RepertoireWorkPickerModal";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
+import { fetchCuerdasDispositionGroups } from "../../utils/seatingCuerdasConfig";
 import { isRepertorioPlaceholder, filterRepertorioObraRowsForDisplay } from "../../utils/repertorioRowDisplay";
 import { workHasPlayableAudio } from "../../utils/repertoireAudioTracks";
 import OrganicoVientosAddField from "./OrganicoVientosAddField";
@@ -1741,16 +1742,22 @@ export default function RepertoireManager({
   const fetchSeating = async () => {
     if (!programId) return;
 
-    const { data: containers } = await supabase
-      .from("seating_contenedores")
-      .select("id, nombre, orden")
-      .eq("id_programa", programId)
-      .order("orden");
-
-    const { data: items } = await supabase
-      .from("seating_contenedores_items")
-      .select("id, id_contenedor, id_musico, orden, atril_num, lado")
-      .in("id_contenedor", containers?.map((c) => c.id) || []);
+    const { groups } = await fetchCuerdasDispositionGroups(supabase, programId);
+    const containers = (groups[0]?.containers || []).map((c) => ({
+      id: c.id,
+      nombre: c.nombre,
+      orden: c.orden,
+    }));
+    const items = (groups[0]?.containers || []).flatMap((c) =>
+      (c.items || []).map((it) => ({
+        id: it.id,
+        id_contenedor: it.id_contenedor,
+        id_musico: it.id_musico,
+        orden: it.orden,
+        atril_num: it.atril_num,
+        lado: it.lado,
+      })),
+    );
 
     const { data: asigns } = await supabase
       .from("seating_asignaciones")

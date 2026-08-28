@@ -39,7 +39,10 @@ import {
   IconAlignRight,
   IconUpload,
   IconLink,
+  IconMousePointer,
+  IconMove,
 } from "../../components/ui/Icons";
+import SearchableSelect from "../../components/ui/SearchableSelect";
 import { useAuth } from "../../context/AuthContext";
 import {
   getStagePlotCatalogItem,
@@ -76,14 +79,13 @@ import {
   stagePlotGridMinorPx,
   stagePlotChairSquareSide,
   stagePlotInstrumentFootprintLayout,
+  stagePlotSatelliteAtrilGeometry,
+  STAGE_PLOT_ATRIL_LINE_CM,
+  STAGE_PLOT_CM_TO_PX,
   STAGE_PLOT_CHAIR_SQUARE_FILL,
   STAGE_PLOT_CHAIR_SQUARE_STROKE,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_FILL,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_STROKE,
-  STAGE_PLOT_FOOTPRINT_FILL,
-  STAGE_PLOT_FOOTPRINT_STROKE,
-  STAGE_PLOT_FOOTPRINT_MAGNETIZED_FILL,
-  STAGE_PLOT_FOOTPRINT_MAGNETIZED_STROKE,
   STAGE_PLOT_ATRIL_LINE_STROKE,
   STAGE_PLOT_ITEM_SCALE_MIN,
   STAGE_PLOT_ITEM_SCALE_MAX,
@@ -105,24 +107,40 @@ import {
 } from "../../utils/stagePlotPayload";
 import {
   STAGE_PLOT_FORMATIONATION_LABELS,
+  STAGE_PLOT_CENTERABLE_FORMATION_KINDS,
+  STAGE_PLOT_SLOT_MODES,
+  STAGE_PLOT_SLOT_MODE_LABELS,
   STAGE_PLOT_SLOT_SNAP_PX,
   FORMATION_MIN_RADIUS,
   FORMATION_MIN_WIDTH,
   FORMATION_MIN_DEPTH,
   FORMATION_MIN_LENGTH,
+  FORMATION_MIN_WING_LENGTH,
+  FORMATION_WING_ANGLE_MIN,
+  FORMATION_WING_ANGLE_MAX,
+  applyFormationSlotMode,
+  applySemiArcSlotCounts,
   clearFormationAnchors,
   cloneStagePlotFormation,
   computeFormationSlots,
   createStagePlotFormation,
   findNearestFreeSlot,
+  formationAllResizeHandlesWorld,
+  formationBoundsBoxLinePoints,
+  formationFromBoundsBoxHandleDrag,
   formationGuideLinePoints,
+  formationGuideWorldPoints,
   formationParamsFromHandlePosition,
-  formationResizeHandlesWorld,
   formationSlotMarkerSize,
   isFormationCenteredOnConductor,
+  normalizeStagePlotSlotMode,
   parseSlotId,
+  projectWorldPointToFormationT,
   reanchorItemsToFormations,
+  resizeFormationSlotTs,
   resolveFormationFacingPoint,
+  rotationInstrumentBaseFacingPoint,
+  setFormationSlotT,
   snapFormationXToConductorCenter,
 } from "../../utils/stagePlotFormations";
 import {
@@ -142,7 +160,12 @@ import {
   resolveSharedAlignGroup,
   setGroupAlignAngle,
   ungroupStagePlotItems,
+  insertStagePlotStringPair,
 } from "../../utils/stagePlotGroups";
+import {
+  collectStagePlotSatelliteAtrils,
+  STAGE_PLOT_STRING_PAIR_TYPES,
+} from "../../utils/stagePlotAtril";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import {
@@ -201,16 +224,170 @@ const FLOATING_TOOLBAR_ABOVE_CLEARANCE_PX = 40;
 const FLOATING_TOOLBAR_BTN_PX = 32;
 const FLOATING_TOOLBAR_PAD_PX = 8; // p-1 × 2
 const FLOATING_TOOLBAR_GAP_PX = 4; // gap-1
+/** Arrastre mínimo en pantalla (px) antes de tratar el gesto como marquee (vs clic). */
+const MARQUEE_DRAG_THRESHOLD_SCREEN_PX = 4;
+/** Herramientas del lienzo: selección/marquee vs arrastre de objetos. */
+const STAGE_PLOT_TOOL_SELECT = "select";
+const STAGE_PLOT_TOOL_MOVE = "move";
 
-function averageAbsNodeScale(node) {
-  return (Math.abs(node.scaleX()) + Math.abs(node.scaleY())) / 2;
+/** CSS resize cursor from axis angle in degrees (stage space). */
+function stagePlotResizeCursorForAngle(deg) {
+  const d = ((deg % 180) + 180) % 180;
+  if (d < 22.5) return "ew-resize";
+  if (d < 67.5) return "nwse-resize";
+  if (d < 112.5) return "ns-resize";
+  if (d < 157.5) return "nesw-resize";
+  return "ew-resize";
 }
 
-function maxAbsScaleFromNodes(nodes) {
-  if (!nodes?.length) return 1;
-  return Math.max(1, ...nodes.map(averageAbsNodeScale));
+/** Unrotated formation handle → local axis angle (°). null = grab (tip handles). */
+function stagePlotFormationHandleAxisDeg(handleId) {
+  const id = handleId?.startsWith("box_") ? handleId.slice(4) : handleId;
+  switch (id) {
+    case "e":
+    case "w":
+      return 0;
+    case "n":
+    case "s":
+      return 90;
+    case "ne":
+    case "sw":
+      return 45;
+    case "nw":
+    case "se":
+      return 135;
+    case "tip_l":
+    case "tip_r":
+      return null;
+    default:
+      return 0;
+  }
 }
 
+function stagePlotFormationHandleCursor(handleId, formationRotation = 0) {
+  const axis = stagePlotFormationHandleAxisDeg(handleId);
+  if (axis == null) return "grab";
+  return stagePlotResizeCursorForAngle(axis + (formationRotation || 0));
+}
+
+const TRANSFORMER_ANCHOR_AXIS_DEG = {
+  "top-left": 135,
+  "top-right": 45,
+  "bottom-left": 45,
+  "bottom-right": 135,
+  "middle-left": 0,
+  "middle-right": 0,
+  "top-center": 90,
+  "bottom-center": 90,
+};
+
+function stagePlotTransformerAnchorCursor(anchorName, nodeRotation = 0) {
+  const base = TRANSFORMER_ANCHOR_AXIS_DEG[anchorName];
+  if (base == null) return "pointer";
+  return stagePlotResizeCursorForAngle(base + nodeRotation);
+}
+
+/** Mitades del hit/visual box en coords de escenario (antes de rotación). */
+function getStagePlotItemHalfExtents(item) {
+  const cat = getStagePlotCatalogItem(item.type);
+  const itemScale = item.scale > 0 ? item.scale : 1;
+  let halfW = ((cat?.w || 40) * itemScale) / 2;
+  let halfH = ((cat?.h || 40) * itemScale) / 2;
+  if (item.type === "text") {
+    const layout = getStagePlotTextLayout(item, cat);
+    halfW = (layout.textW * itemScale) / 2;
+    halfH = (layout.textH * itemScale) / 2;
+  } else if (stagePlotItemHasInstrumentFootprint(item.type)) {
+    const fp = stagePlotInstrumentFootprintLayout();
+    halfW = (fp.widthPx * itemScale) / 2;
+    halfH = (fp.depthPx * itemScale) / 2;
+  }
+  return { halfW, halfH };
+}
+
+/** AABB en coords de escenario (px), con rotación del ítem. */
+function getStagePlotItemStageAabb(item) {
+  const { halfW, halfH } = getStagePlotItemHalfExtents(item);
+  const rad = ((Number(item.rotation) || 0) * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const corners = [
+    [-halfW, -halfH],
+    [halfW, -halfH],
+    [halfW, halfH],
+    [-halfW, halfH],
+  ];
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const [lx, ly] of corners) {
+    const wx = item.x + lx * cos - ly * sin;
+    const wy = item.y + lx * sin + ly * cos;
+    minX = Math.min(minX, wx);
+    maxX = Math.max(maxX, wx);
+    minY = Math.min(minY, wy);
+    maxY = Math.max(maxY, wy);
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+/**
+ * AABB de formación: guía + plazas (pad = ½ marcador).
+ * Intersección con el marquee → candidata a selección si no hay ítems.
+ */
+function getStagePlotFormationStageAabb(formation) {
+  const pts = formationGuideWorldPoints(formation);
+  const pad = formationSlotMarkerSize() / 2;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  const include = (x, y) => {
+    minX = Math.min(minX, x - pad);
+    maxX = Math.max(maxX, x + pad);
+    minY = Math.min(minY, y - pad);
+    maxY = Math.max(maxY, y + pad);
+  };
+  include(formation.x, formation.y);
+  for (const p of pts) include(p.x, p.y);
+  if (!Number.isFinite(minX)) {
+    return {
+      minX: formation.x - pad,
+      maxX: formation.x + pad,
+      minY: formation.y - pad,
+      maxY: formation.y + pad,
+    };
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function stagePlotAabbIntersects(a, b) {
+  return (
+    a.minX <= b.maxX &&
+    a.maxX >= b.minX &&
+    a.minY <= b.maxY &&
+    a.maxY >= b.minY
+  );
+}
+
+function normalizeStagePlotMarqueeAabb(x0, y0, x1, y1) {
+  return {
+    minX: Math.min(x0, x1),
+    minY: Math.min(y0, y1),
+    maxX: Math.max(x0, x1),
+    maxY: Math.max(y0, y1),
+  };
+}
+
+/** Client → coords de escenario (respeta pan/zoom del Stage Konva). */
+function clientToStagePlotPoint(stage, clientX, clientY) {
+  if (!stage) return null;
+  const rect = stage.container().getBoundingClientRect();
+  const pointer = { x: clientX - rect.left, y: clientY - rect.top };
+  const transform = stage.getAbsoluteTransform().copy().invert();
+  return transform.point(pointer);
+}
 
 /**
  * Encaja el lienzo anclando el director (o centro downstage) abajo-centro del viewport.
@@ -282,11 +459,17 @@ function rayEndpoint(ox, oy, angleDeg, width, height) {
   return { x: ox + t * dx, y: oy + t * dy };
 }
 
-function StageRadialGuide({ width, height, items, stage }) {
-  const origin = useMemo(
-    () => resolveFormationFacingPoint(items, stage),
-    [items, stage],
-  );
+function StageRadialGuide({ width, height, items, stage, originOverride }) {
+  const origin = useMemo(() => {
+    if (
+      originOverride &&
+      Number.isFinite(Number(originOverride.x)) &&
+      Number.isFinite(Number(originOverride.y))
+    ) {
+      return { x: Number(originOverride.x), y: Number(originOverride.y) };
+    }
+    return resolveFormationFacingPoint(items, stage);
+  }, [items, stage, originOverride]);
 
   const lines = useMemo(() => {
     const { x: ox, y: oy } = origin;
@@ -511,6 +694,22 @@ function StageLienzoVisibilityToggle({ label, checked, disabled, onChange }) {
   );
 }
 
+/** Opción SearchableSelect: `Nombre · Ancho × Profundo cm` (+ ciudad en subLabel). */
+function formatLocacionPresetOption(loc) {
+  const w = Number(loc.escenario_ancho_cm);
+  const d = Number(loc.escenario_profundo_cm);
+  const hasDims =
+    Number.isFinite(w) && w > 0 && Number.isFinite(d) && d > 0;
+  const city = String(loc.localidades?.localidad || "").trim();
+  const sizePart = hasDims ? `${w} × ${d} cm` : "sin medida";
+  return {
+    id: loc.id,
+    label: `${loc.nombre || "Locación"} · ${sizePart}`,
+    subLabel: city || undefined,
+    disabled: !hasDims,
+  };
+}
+
 function StageLienzoPopover({
   open,
   anchorRef,
@@ -530,6 +729,14 @@ function StageLienzoPopover({
   const flushersRef = useRef(null);
   if (!flushersRef.current) flushersRef.current = new Set();
   const [pos, setPos] = useState({ left: 0, top: 0 });
+
+  const locacionOptions = useMemo(
+    () => [
+      { id: "", label: "Manual / sin preset" },
+      ...locaciones.map(formatLocacionPresetOption),
+    ],
+    [locaciones],
+  );
 
   const flushAllDrafts = useCallback(() => {
     flushersRef.current.forEach((fn) => {
@@ -553,7 +760,7 @@ function StageLienzoPopover({
     if (!open || !anchorRef.current) return;
     const rect = anchorRef.current.getBoundingClientRect();
     setPos({
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - 280)),
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 320)),
       top: rect.bottom + 6,
     });
   }, [open, anchorRef]);
@@ -568,7 +775,8 @@ function StageLienzoPopover({
     const onPointerDown = (e) => {
       if (
         popoverRef.current?.contains(e.target) ||
-        anchorRef.current?.contains(e.target)
+        anchorRef.current?.contains(e.target) ||
+        e.target.closest?.(".searchable-portal")
       ) {
         return;
       }
@@ -595,7 +803,7 @@ function StageLienzoPopover({
       ref={popoverRef}
       role="dialog"
       aria-label="Ajustes del lienzo"
-      className="fixed w-64 rounded-md border border-slate-200 bg-white p-3 shadow-lg"
+      className="fixed w-72 rounded-md border border-slate-200 bg-white p-3 shadow-lg"
       style={{ left: pos.left, top: pos.top, zIndex: overlayZ }}
     >
       <p className="mb-2 text-[11px] font-bold text-slate-700">Lienzo</p>
@@ -640,29 +848,21 @@ function StageLienzoPopover({
           <label className="mb-1 block text-[10px] font-medium text-slate-500">
             Preset de locación
           </label>
-          <select
-            className="w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px] text-slate-700 disabled:bg-slate-50"
-            value={stage.id_locacion || ""}
-            onChange={(e) => {
-              const id = e.target.value ? Number(e.target.value) : null;
-              const loc = locaciones.find((l) => Number(l.id) === id);
+          <SearchableSelect
+            options={locacionOptions}
+            value={stage.id_locacion ?? ""}
+            onChange={(id) => {
+              if (id == null || id === "") {
+                onApplyLocacionPreset?.(null);
+                return;
+              }
+              const loc = locaciones.find((l) => Number(l.id) === Number(id));
               onApplyLocacionPreset?.(loc || null);
             }}
-          >
-            <option value="">Manual / sin preset</option>
-            {locaciones.map((loc) => {
-              const w = Number(loc.escenario_ancho_cm);
-              const d = Number(loc.escenario_profundo_cm);
-              const hasDims =
-                Number.isFinite(w) && w > 0 && Number.isFinite(d) && d > 0;
-              return (
-                <option key={loc.id} value={loc.id} disabled={!hasDims}>
-                  {loc.nombre}
-                  {hasDims ? ` (${w}×${d} cm)` : " (sin tamaño)"}
-                </option>
-              );
-            })}
-          </select>
+            placeholder="Buscar locación…"
+            dropdownMinWidth={280}
+            className="text-[11px]"
+          />
           <p className="mt-1 text-[9px] leading-snug text-slate-400">
             Aplica ancho×profundo de la locación y recentra el director.
           </p>
@@ -848,24 +1048,32 @@ function StageCentimeterGrid({ width, height }) {
 
 function FormationResizeHandles({
   formation,
+  facingPoint,
   handleSize,
   strokeWidth,
+  onHandleDragStart,
   onHandleDragMove,
   onHandleDragEnd,
+  onWrapCursor,
+  onWrapCursorClear,
 }) {
-  const handles = formationResizeHandlesWorld(formation);
+  const handles = formationAllResizeHandlesWorld(formation, facingPoint);
+  const handleCursor = (handleId) =>
+    stagePlotFormationHandleCursor(handleId, formation.rotation || 0);
 
   return (
     <Group listening name="stage-plot-formation-handles">
-      {handles.map((h) => (
+      {handles.map((h) => {
+        const isBox = h.variant === "box" || h.id?.startsWith("box_");
+        return (
         <Circle
           key={`${formation.id}:${h.id}`}
           name="stage-plot-formation-handle"
           x={h.x}
           y={h.y}
           radius={handleSize / 2}
-          fill="#fff"
-          stroke="#4f46e5"
+          fill={isBox ? "#f8fafc" : "#fff"}
+          stroke={isBox ? "#94a3b8" : "#4f46e5"}
           strokeWidth={strokeWidth}
           draggable
           onMouseDown={(e) => {
@@ -873,6 +1081,12 @@ function FormationResizeHandles({
           }}
           onTap={(e) => {
             e.cancelBubble = true;
+          }}
+          onMouseEnter={() => onWrapCursor?.(handleCursor(h.id))}
+          onMouseLeave={() => onWrapCursorClear?.()}
+          onDragStart={() => {
+            onHandleDragStart?.(formation.id, h.id);
+            onWrapCursor?.("grabbing");
           }}
           onDragMove={(e) => {
             e.cancelBubble = true;
@@ -885,9 +1099,11 @@ function FormationResizeHandles({
             const node = e.target;
             onHandleDragEnd(formation.id, h.id, node.x(), node.y());
             node.position({ x: h.x, y: h.y });
+            onWrapCursorClear?.();
           }}
         />
-      ))}
+        );
+      })}
     </Group>
   );
 }
@@ -1185,11 +1401,16 @@ function FormationShape({
   selected,
   draggable,
   highlightSlotId,
+  slotsDraggable = false,
   onSelect,
   onContextMenu,
   onDragStart,
   onDragMove,
   onDragEnd,
+  onSlotDragMove,
+  onSlotDragEnd,
+  onWrapCursor,
+  onWrapCursorClear,
 }) {
   const facing = resolveFormationFacingPoint(items, stage, formation.facing);
   const slots = computeFormationSlots(formation, facing);
@@ -1210,6 +1431,9 @@ function FormationShape({
         e.cancelBubble = true;
         onSelect(formation.id, e);
       }}
+      onClick={(e) => {
+        e.cancelBubble = true;
+      }}
       onTap={(e) => {
         e.cancelBubble = true;
         onSelect(formation.id, e);
@@ -1227,6 +1451,7 @@ function FormationShape({
         );
         centerSnapLatchedRef.current = latched;
         onDragStart?.(formation.id, facing.x, latched);
+        if (draggable) onWrapCursor?.("grabbing");
       }}
       onDragMove={(e) => {
         const rawX = formation.x + e.target.x();
@@ -1255,6 +1480,13 @@ function FormationShape({
         );
         centerSnapLatchedRef.current = false;
         onDragEnd(formation.id, x, rawY);
+        onWrapCursorClear?.();
+      }}
+      onMouseEnter={() => {
+        if (draggable) onWrapCursor?.("move");
+      }}
+      onMouseLeave={() => {
+        if (draggable) onWrapCursorClear?.();
       }}
     >
       <Line
@@ -1266,20 +1498,34 @@ function FormationShape({
         lineJoin="round"
         listening={false}
       />
-      {/* Hit area invisible around guide */}
+      {/* Hit area invisible around guide — always hittable in Select and Move */}
       <Line
+        name="stage-plot-formation-hit"
         points={linePts}
         stroke="transparent"
         strokeWidth={Math.max(40, marker * 0.35)}
         lineCap="round"
         lineJoin="round"
       />
+      {selected && (
+        <Line
+          name="stage-plot-formation-bounds-box"
+          points={formationBoundsBoxLinePoints(formation, facing)}
+          closed
+          fill="rgba(148, 163, 184, 0.07)"
+          stroke="#94a3b8"
+          strokeWidth={1.5}
+          strokeScaleEnabled={false}
+          listening={false}
+        />
+      )}
       {slots.map((slot) => {
         const filled = occupied.has(slot.slotId);
         const isSnapTarget = highlightSlotId === slot.slotId;
         return (
           <Rect
             key={slot.slotId}
+            name="stage-plot-formation-slot"
             x={slot.x}
             y={slot.y}
             width={marker}
@@ -1305,13 +1551,98 @@ function FormationShape({
             }
             strokeWidth={isSnapTarget ? 2.25 : 2}
             strokeScaleEnabled={false}
-            listening={false}
+            // Always listen so Select/Move can pick the formation via plazas;
+            // only drag plazas when slotsDraggable (selected + non-fixed mode).
+            listening
+            draggable={slotsDraggable}
+            onMouseDown={(e) => {
+              e.cancelBubble = true;
+              onSelect(formation.id, e);
+            }}
+            onTap={(e) => {
+              e.cancelBubble = true;
+              onSelect(formation.id, e);
+            }}
+            onDragStart={(e) => {
+              e.cancelBubble = true;
+              onSelect(formation.id, e);
+              if (slotsDraggable) onWrapCursor?.("grabbing");
+            }}
+            onMouseEnter={() => {
+              if (slotsDraggable) onWrapCursor?.("grab");
+            }}
+            onMouseLeave={() => {
+              if (slotsDraggable) onWrapCursorClear?.();
+            }}
+            onDragMove={(e) => {
+              e.cancelBubble = true;
+              const node = e.target;
+              const parent = node.getParent();
+              const gx = parent?.x?.() || 0;
+              const gy = parent?.y?.() || 0;
+              onSlotDragMove?.(
+                formation.id,
+                slot.index,
+                node.x() + gx,
+                node.y() + gy,
+              );
+              node.position({ x: slot.x, y: slot.y });
+            }}
+            onDragEnd={(e) => {
+              e.cancelBubble = true;
+              const node = e.target;
+              const parent = node.getParent();
+              const gx = parent?.x?.() || 0;
+              const gy = parent?.y?.() || 0;
+              onSlotDragEnd?.(
+                formation.id,
+                slot.index,
+                node.x() + gx,
+                node.y() + gy,
+              );
+              node.position({ x: slot.x, y: slot.y });
+              if (slotsDraggable) onWrapCursorClear?.();
+            }}
           />
         );
       })}
     </Group>
   );
 }
+
+const SatelliteAtrilShape = React.memo(function SatelliteAtrilShape({
+  x,
+  y,
+  rotationDeg,
+}) {
+  const atrilPx = STAGE_PLOT_ATRIL_LINE_CM * STAGE_PLOT_CM_TO_PX;
+  const { plateWidthPx, plateThicknessPx, legs } = useMemo(
+    () => stagePlotSatelliteAtrilGeometry(atrilPx),
+    [atrilPx],
+  );
+  return (
+    <Group x={x} y={y} rotation={rotationDeg || 0} listening={false}>
+      <Rect
+        x={-plateWidthPx / 2}
+        y={-plateThicknessPx / 2}
+        width={plateWidthPx}
+        height={plateThicknessPx}
+        fill={STAGE_PLOT_ATRIL_LINE_STROKE}
+        listening={false}
+      />
+      {legs.map((pts, i) => (
+        <Line
+          key={`sat-atril-leg-${i}`}
+          points={pts}
+          stroke={STAGE_PLOT_ATRIL_LINE_STROKE}
+          strokeWidth={i === 0 ? 2.5 : 2.25}
+          lineCap="round"
+          listening={false}
+        />
+      ))}
+    </Group>
+  );
+});
 
 const ItemShape = React.memo(function ItemShape({
   item,
@@ -1326,6 +1657,8 @@ const ItemShape = React.memo(function ItemShape({
   onMouseEnter,
   onMouseLeave,
   onMouseMove,
+  onWrapCursor,
+  onWrapCursorClear,
   onDragStart,
   onDragMove,
   onDragEnd,
@@ -1397,12 +1730,6 @@ const ItemShape = React.memo(function ItemShape({
   const chairStroke = magnetized
     ? STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_STROKE
     : STAGE_PLOT_CHAIR_SQUARE_STROKE;
-  const footprintFill = magnetized
-    ? STAGE_PLOT_FOOTPRINT_MAGNETIZED_FILL
-    : STAGE_PLOT_FOOTPRINT_FILL;
-  const footprintStroke = magnetized
-    ? STAGE_PLOT_FOOTPRINT_MAGNETIZED_STROKE
-    : STAGE_PLOT_FOOTPRINT_STROKE;
   const silScale = Math.min(drawW / VB, drawH / VB);
 
   useLayoutEffect(() => {
@@ -1457,14 +1784,17 @@ const ItemShape = React.memo(function ItemShape({
           boundsH,
           itemScale,
         });
+        if (draggable) onWrapCursor?.("move");
       }}
       onMouseLeave={() => {
         onMouseLeave?.();
+        if (draggable) onWrapCursorClear?.();
       }}
       onMouseMove={(e) => {
         onMouseMove?.(e);
       }}
       onDragStart={(e) => {
+        if (draggable) onWrapCursor?.("grabbing");
         onDragStart?.(item.id, e);
       }}
       onDragMove={(e) => {
@@ -1472,6 +1802,7 @@ const ItemShape = React.memo(function ItemShape({
       }}
       onDragEnd={(e) => {
         onDragEnd(item.id, e.target.x(), e.target.y());
+        if (draggable) onWrapCursorClear?.();
       }}
       onTransformEnd={(e) => {
         const node = e.target;
@@ -1492,31 +1823,6 @@ const ItemShape = React.memo(function ItemShape({
         });
       }}
     >
-      {footprint && (
-        <>
-          <Rect
-            width={footprint.widthPx}
-            height={footprint.depthPx}
-            offsetX={footprint.widthPx / 2}
-            offsetY={footprint.depthPx / 2}
-            fill={footprintFill}
-            stroke={footprintStroke}
-            strokeWidth={magnetized ? 1.5 : 1.1}
-            listening={false}
-          />
-          <Line
-            points={[
-              -footprint.atrilPx / 2,
-              footprint.depthPx / 2,
-              footprint.atrilPx / 2,
-              footprint.depthPx / 2,
-            ]}
-            stroke={STAGE_PLOT_ATRIL_LINE_STROKE}
-            strokeWidth={1.75}
-            listening={false}
-          />
-        </>
-      )}
       {showChairSquare && (
         <Rect
           width={chairSide}
@@ -1609,6 +1915,8 @@ const ItemShape = React.memo(function ItemShape({
   prev.onMouseEnter === next.onMouseEnter &&
   prev.onMouseLeave === next.onMouseLeave &&
   prev.onMouseMove === next.onMouseMove &&
+  prev.onWrapCursor === next.onWrapCursor &&
+  prev.onWrapCursorClear === next.onWrapCursorClear &&
   prev.onDragStart === next.onDragStart &&
   prev.onDragMove === next.onDragMove &&
   prev.onDragEnd === next.onDragEnd &&
@@ -1722,8 +2030,13 @@ export default function ProgramStagePlot({
   const [paletteDrag, setPaletteDrag] = useState(null); // { type, name, color, x, y }
   /** Vista previa de params mientras se arrastra un asa de formación. */
   const [formationResizePreview, setFormationResizePreview] = useState(null);
+  /** Snapshot al inicio de drag de asa (box_* usa base fija + facing). */
+  const formationHandleDragBaseRef = useRef(null);
+  const [formationSlotPreview, setFormationSlotPreview] = useState(null);
   /** Eje X del director mientras se arrastra una formación cerca del centro. */
   const [formationCenterGuideX, setFormationCenterGuideX] = useState(null);
+  /** Origen radial en vivo mientras se arrastra el director (centro del ítem). */
+  const [conductorDragOrigin, setConductorDragOrigin] = useState(null);
   const transformerRef = useRef(null);
   const konvaStageRef = useRef(null);
   const itemNodeRefs = useRef(new Map());
@@ -1732,7 +2045,12 @@ export default function ProgramStagePlot({
   const spaceHeldRef = useRef(false);
   const [isPanning, setIsPanning] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
-  const [stageBgHover, setStageBgHover] = useState(false);
+  /** Rectángulo de selección por arrastre en vacío (coords de escenario). */
+  const [marqueeRect, setMarqueeRect] = useState(null);
+  const marqueeDragRef = useRef(null);
+  /** Herramienta activa: Seleccionar (marquee) vs Mover (drag de ítems/formaciones). */
+  const [canvasTool, setCanvasTool] = useState(STAGE_PLOT_TOOL_SELECT);
+  const canvasToolRef = useRef(canvasTool);
   const selectedIdsRef = useRef(selectedIds);
   const selectedFormationIdRef = useRef(selectedFormationId);
   const payloadRef = useRef(payload);
@@ -1740,8 +2058,16 @@ export default function ProgramStagePlot({
   const skipHistoryRef = useRef(false);
   /** Batches multi-node Transformer transformend into one history entry. */
   const pendingTransformRef = useRef(null);
-  /** Orígenes de posición al iniciar arrastre grupal. */
+  /**
+   * Orígenes de posición al iniciar arrastre grupal.
+   * Konva Transformer `_proxyDrag` also startDrags every selected node; only the
+   * leader may commit history (followers' dragStart/Move/End are ignored).
+   */
   const dragGroupRef = useRef(null);
+  /** Ids whose dragEnd must be ignored after a group commit (proxy followers). */
+  const suppressItemDragEndIdsRef = useRef(null);
+  /** Coalesce held-arrow nudges into one history entry (first keydown pushes). */
+  const keyboardNudgeBurstRef = useRef(false);
   /** Vista previa magnética durante arrastre (plaza objetivo). */
   const [itemSnapPreview, setItemSnapPreview] = useState(null);
   /** Menú contextual de ítem (clic derecho). */
@@ -1764,9 +2090,21 @@ export default function ProgramStagePlot({
   /** Diálogo al crear lienzo: elegir locación opcional. */
   const [newPlotDialog, setNewPlotDialog] = useState(null); // { nombre, locacionId }
 
+  const newPlotLocacionOptions = useMemo(
+    () => [
+      { id: "", label: "Default (90 × 56 cm)" },
+      ...locacionesPresets.map(formatLocacionPresetOption),
+    ],
+    [locacionesPresets],
+  );
+
   useEffect(() => {
     viewportRef.current = viewport;
   }, [viewport]);
+
+  useEffect(() => {
+    canvasToolRef.current = canvasTool;
+  }, [canvasTool]);
 
   useEffect(() => {
     selectedIdsRef.current = selectedIds;
@@ -1939,42 +2277,56 @@ export default function ProgramStagePlot({
     return false;
   }, [deleteSelected, deleteSelectedFormation]);
 
+  /** First nudge in a hold pushes history; key-repeat updates without new entries. */
+  const withKeyboardNudgeHistory = useCallback((fn) => {
+    const burst = keyboardNudgeBurstRef.current;
+    if (burst) skipHistoryRef.current = true;
+    try {
+      fn();
+    } finally {
+      if (burst) skipHistoryRef.current = false;
+      else keyboardNudgeBurstRef.current = true;
+    }
+  }, []);
+
   const moveSelectedItemsByKeyboard = useCallback(
     (dx, dy) => {
       if (!canEdit || (dx === 0 && dy === 0)) return false;
       const ids = selectedIdsRef.current;
       if (!ids.length) return false;
       const idSet = new Set(ids);
-      commitPayload((prev) => {
-        const nextItems = prev.items.map((it) =>
-          idSet.has(it.id)
-            ? { ...it, x: it.x + dx, y: it.y + dy, slotId: null }
-            : it,
-        );
-        const movedGroupIds = new Set(
-          prev.items
-            .filter((it) => idSet.has(it.id) && it.groupId)
-            .map((it) => it.groupId),
-        );
-        const groups =
-          movedGroupIds.size > 0
-            ? (prev.groups || []).map((g) =>
-                movedGroupIds.has(g.id) && g.alignAnchor
-                  ? {
-                      ...g,
-                      alignAnchor: {
-                        x: g.alignAnchor.x + dx,
-                        y: g.alignAnchor.y + dy,
-                      },
-                    }
-                  : g,
-              )
-            : prev.groups;
-        return { ...prev, items: nextItems, groups };
+      withKeyboardNudgeHistory(() => {
+        commitPayload((prev) => {
+          const nextItems = prev.items.map((it) =>
+            idSet.has(it.id)
+              ? { ...it, x: it.x + dx, y: it.y + dy, slotId: null }
+              : it,
+          );
+          const movedGroupIds = new Set(
+            prev.items
+              .filter((it) => idSet.has(it.id) && it.groupId)
+              .map((it) => it.groupId),
+          );
+          const groups =
+            movedGroupIds.size > 0
+              ? (prev.groups || []).map((g) =>
+                  movedGroupIds.has(g.id) && g.alignAnchor
+                    ? {
+                        ...g,
+                        alignAnchor: {
+                          x: g.alignAnchor.x + dx,
+                          y: g.alignAnchor.y + dy,
+                        },
+                      }
+                    : g,
+                )
+              : prev.groups;
+          return { ...prev, items: nextItems, groups };
+        });
       });
       return true;
     },
-    [canEdit, commitPayload],
+    [canEdit, commitPayload, withKeyboardNudgeHistory],
   );
 
   const moveSelectedFormationByKeyboard = useCallback(
@@ -1988,10 +2340,12 @@ export default function ProgramStagePlot({
       );
       if (!fm) return false;
       // Same path as handleFormationDragEnd: absolute position + reanchor (keep slotId).
-      commitFormationPosition(fid, fm.x + dx, fm.y + dy);
+      withKeyboardNudgeHistory(() => {
+        commitFormationPosition(fid, fm.x + dx, fm.y + dy);
+      });
       return true;
     },
-    [canEdit, commitFormationPosition],
+    [canEdit, commitFormationPosition, withKeyboardNudgeHistory],
   );
 
   const moveKeyboardSelection = useCallback(
@@ -2049,6 +2403,20 @@ export default function ProgramStagePlot({
           return;
         }
       }
+      // V = Seleccionar, M = Mover (sin modificadores).
+      if (!mod && !e.altKey && !e.shiftKey) {
+        const k = key?.toLowerCase?.() || "";
+        if (k === "v") {
+          e.preventDefault();
+          setCanvasTool(STAGE_PLOT_TOOL_SELECT);
+          return;
+        }
+        if (k === "m") {
+          e.preventDefault();
+          setCanvasTool(STAGE_PLOT_TOOL_MOVE);
+          return;
+        }
+      }
       const arrow = ARROW_KEY_DELTA[key];
       if (arrow) {
         const hasSelection =
@@ -2071,7 +2439,21 @@ export default function ProgramStagePlot({
       }
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    const onKeyUp = (e) => {
+      if (ARROW_KEY_DELTA[e.key]) {
+        keyboardNudgeBurstRef.current = false;
+      }
+    };
+    const endBurst = () => {
+      keyboardNudgeBurstRef.current = false;
+    };
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", endBurst);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", endBurst);
+    };
   }, [
     canEdit,
     lienzoOpen,
@@ -2121,30 +2503,6 @@ export default function ProgramStagePlot({
     () => payload.items.filter((i) => selectedIdSet.has(i.id)),
     [payload.items, selectedIdSet],
   );
-  const selectedNodeScale = useMemo(() => {
-    if (!selectedItems.length) return 1;
-    return Math.max(
-      1,
-      ...selectedItems.map((item) => (item.scale > 0 ? item.scale : 1)),
-    );
-  }, [selectedItems]);
-  const [transformerLiveNodeScale, setTransformerLiveNodeScale] = useState(1);
-
-  useEffect(() => {
-    setTransformerLiveNodeScale(selectedNodeScale);
-  }, [selectedIds, selectedNodeScale]);
-
-  const handleTransformerTransform = useCallback(() => {
-    const tr = transformerRef.current;
-    if (!tr) return;
-    const nodes = tr.nodes();
-    if (!nodes.length) return;
-    const next = maxAbsScaleFromNodes(nodes);
-    setTransformerLiveNodeScale((prev) =>
-      Math.abs(prev - next) > 0.01 ? next : prev,
-    );
-  }, []);
-
   // Adjuntar Transformer a todos los nodos seleccionados (no formaciones).
   useLayoutEffect(() => {
     const tr = transformerRef.current;
@@ -2170,7 +2528,7 @@ export default function ProgramStagePlot({
     attach();
     const t = requestAnimationFrame(attach);
     return () => cancelAnimationFrame(t);
-  }, [selectedIds, selectedFormationId, payload.items, viewport.scale, selectedNodeScale, resolveItemNode]);
+  }, [selectedIds, selectedFormationId, payload.items, viewport.scale, resolveItemNode]);
 
   const categories = useMemo(() => stagePlotCategories(), []);
   const channels = useMemo(() => deriveStagePlotChannels(payload), [payload]);
@@ -2183,8 +2541,18 @@ export default function ProgramStagePlot({
     [organicoRows],
   );
   const furnitureSummary = useMemo(
-    () => computeStagePlotFurnitureSummary(payload.items, organicoRoster),
-    [payload.items, organicoRoster],
+    () =>
+      computeStagePlotFurnitureSummary(
+        payload.items,
+        organicoRoster,
+        payload.groups,
+      ),
+    [payload.items, payload.groups, organicoRoster],
+  );
+  const satelliteAtrils = useMemo(
+    () =>
+      collectStagePlotSatelliteAtrils(payload, conductorDragOrigin),
+    [payload, conductorDragOrigin],
   );
   /** Un solo ítem: editores de etiqueta / canal; null si 0 o varios. */
   const selected =
@@ -2199,7 +2567,7 @@ export default function ProgramStagePlot({
   const selectedFormationCenteredOnConductor = useMemo(() => {
     if (
       !selectedFormation ||
-      !["arc", "horseshoe", "rect", "line"].includes(selectedFormation.kind)
+      !STAGE_PLOT_CENTERABLE_FORMATION_KINDS.includes(selectedFormation.kind)
     ) {
       return false;
     }
@@ -2315,13 +2683,35 @@ export default function ProgramStagePlot({
 
   const renderFormations = useMemo(() => {
     const list = payload.formations || [];
-    if (!formationResizePreview) return list;
-    return list.map((f) =>
-      f.id === formationResizePreview.formationId
-        ? { ...f, params: formationResizePreview.params }
-        : f,
-    );
-  }, [payload.formations, formationResizePreview]);
+    return list.map((f) => {
+      let next = f;
+      if (
+        formationResizePreview &&
+        f.id === formationResizePreview.formationId
+      ) {
+        next = {
+          ...next,
+          params: formationResizePreview.params ?? next.params,
+          ...(formationResizePreview.x != null ? { x: formationResizePreview.x } : {}),
+          ...(formationResizePreview.y != null ? { y: formationResizePreview.y } : {}),
+        };
+      }
+      if (
+        formationSlotPreview &&
+        f.id === formationSlotPreview.formationId
+      ) {
+        next = {
+          ...next,
+          slotMode:
+            normalizeStagePlotSlotMode(next.slotMode) === "fixed"
+              ? "free"
+              : next.slotMode,
+          slotTs: formationSlotPreview.slotTs,
+        };
+      }
+      return next;
+    });
+  }, [payload.formations, formationResizePreview, formationSlotPreview]);
 
   const formationForHandles = useMemo(() => {
     if (!selectedFormationId) return null;
@@ -2330,17 +2720,94 @@ export default function ProgramStagePlot({
     );
   }, [renderFormations, selectedFormationId]);
 
-  /** Asas del Transformer: ~7px en pantalla; compensar zoom del Stage y escala del nodo. */
+  const formationFacingForHandles = useMemo(() => {
+    if (!formationForHandles) return null;
+    return resolveFormationFacingPoint(
+      payload.items,
+      payload.stage,
+      formationForHandles.facing,
+    );
+  }, [formationForHandles, payload.items, payload.stage]);
+
+  /**
+   * Transformer (Konva): `getAbsoluteTransform` ignora el scale del Stage; x/y/width
+   * ya vienen en coords absolutas (pantalla). `anchorSize` etc. = px de pantalla fijos.
+   * NO dividir por viewport.scale (eso agranda las asas al hacer zoom out).
+   */
+  const transformerAnchorSize = TRANSFORMER_HANDLE_SCREEN_PX;
+  const transformerBorderWidth = 1;
+  const transformerRotateOffset = 20;
+  const transformerAnchorCornerRadius = 1.5;
+  const transformerAnchorStrokeWidth = 1.5;
+  /** Asas de formación: Circles normales bajo Stage → compensar zoom (stage space). */
   const viewportScale = Math.max(viewport.scale, ZOOM_MIN);
-  const transformerNodeScale = Math.max(transformerLiveNodeScale, 1);
-  const transformerScreenDenom = viewportScale * transformerNodeScale;
-  const transformerAnchorSize = TRANSFORMER_HANDLE_SCREEN_PX / transformerScreenDenom;
-  const transformerBorderWidth = 1 / transformerScreenDenom;
-  const transformerRotateOffset = 20 / transformerScreenDenom;
-  const transformerAnchorCornerRadius = 1.5 / transformerScreenDenom;
-  /** Asas de formación: solo compensan zoom (coords de capa, sin escala de ítem). */
   const formationHandleSize = TRANSFORMER_HANDLE_SCREEN_PX / viewportScale;
   const formationHandleStroke = 1.5 / viewportScale;
+
+  /** Inline cursor on stage wrap; wins over Tailwind tool cursor while hovering handles. */
+  const setStageWrapCursor = useCallback((cursor) => {
+    const el = stageWrapRef.current;
+    if (!el || !cursor) return;
+    el.style.cursor = cursor;
+  }, []);
+
+  const clearStageWrapCursor = useCallback(() => {
+    const el = stageWrapRef.current;
+    if (!el) return;
+    el.style.cursor = "";
+  }, []);
+
+  const transformerAnchorStyleFunc = useCallback(
+    (anchor) => {
+      anchor.on("mouseenter", () => {
+        const name = anchor.name();
+        let cursor = "pointer";
+        if (name === "rotater") {
+          cursor = "grab";
+        } else if (TRANSFORMER_ANCHOR_AXIS_DEG[name] != null) {
+          const nodes = transformerRef.current?.nodes?.() || [];
+          const rot = nodes.length === 1 ? nodes[0].rotation() : 0;
+          cursor = stagePlotTransformerAnchorCursor(name, rot);
+        }
+        setStageWrapCursor(cursor);
+      });
+      anchor.on("mouseleave", () => {
+        clearStageWrapCursor();
+      });
+      anchor.on("dragstart", () => {
+        setStageWrapCursor("grabbing");
+      });
+      anchor.on("dragend", () => {
+        clearStageWrapCursor();
+      });
+    },
+    [setStageWrapCursor, clearStageWrapCursor],
+  );
+
+  const formationIsDraggable = useCallback(
+    (formationId) =>
+      canEdit &&
+      !formationResizePreview &&
+      !formationSlotPreview &&
+      (canvasTool === STAGE_PLOT_TOOL_MOVE ||
+        (canvasTool === STAGE_PLOT_TOOL_SELECT &&
+          selectedFormationId === formationId)),
+    [
+      canEdit,
+      formationResizePreview,
+      formationSlotPreview,
+      canvasTool,
+      selectedFormationId,
+    ],
+  );
+
+  const itemIsDraggable = useCallback(
+    (itemId) =>
+      canEdit &&
+      (canvasTool === STAGE_PLOT_TOOL_MOVE ||
+        (canvasTool === STAGE_PLOT_TOOL_SELECT && selectedIdSet.has(itemId))),
+    [canEdit, canvasTool, selectedIdSet],
+  );
 
   // Asas de la formación seleccionada por encima de ítems (y del Transformer vacío).
   useLayoutEffect(() => {
@@ -2394,6 +2861,7 @@ export default function ProgramStagePlot({
       activePlotIdRef.current = plotRow?.id || null;
       setSelectedIds([]);
       setSelectedFormationId(null);
+      setConductorDragOrigin(null);
       syncZCounter(p.items);
       userZoomedRef.current = false;
     },
@@ -2417,7 +2885,7 @@ export default function ProgramStagePlot({
         supabase
           .from("locaciones")
           .select(
-            "id, nombre, escenario_ancho_cm, escenario_profundo_cm",
+            "id, nombre, escenario_ancho_cm, escenario_profundo_cm, localidades(localidad)",
           )
           .order("nombre", { ascending: true }),
       ]);
@@ -2764,6 +3232,142 @@ export default function ProgramStagePlot({
     [endStagePan],
   );
 
+  const applyMarqueeSelection = useCallback((aabb, additive) => {
+    const items = payloadRef.current.items || [];
+    const formations = payloadRef.current.formations || [];
+    const hitItemIds = items
+      .filter((it) => stagePlotAabbIntersects(getStagePlotItemStageAabb(it), aabb))
+      .map((it) => it.id);
+
+    if (hitItemIds.length) {
+      setSelectedFormationId(null);
+      selectedFormationIdRef.current = null;
+      setSelectedIds((prev) => {
+        let next;
+        if (additive) {
+          const set = new Set(prev);
+          for (const id of hitItemIds) set.add(id);
+          next = [...set];
+        } else {
+          next = hitItemIds;
+        }
+        selectedIdsRef.current = next;
+        return next;
+      });
+      return;
+    }
+
+    // Sin ítems: si alguna formación intersecta (guías visibles), seleccionarla.
+    // selectedFormationId es singular → si hay varias, toma la primera.
+    const hideGuides = !!payloadRef.current.stage?.hideFormationGuides;
+    const hitFormations = hideGuides
+      ? []
+      : formations.filter((fm) =>
+          stagePlotAabbIntersects(getStagePlotFormationStageAabb(fm), aabb),
+        );
+    if (!additive && hitFormations.length >= 1) {
+      const id = hitFormations[0].id;
+      setSelectedFormationId(id);
+      selectedFormationIdRef.current = id;
+      setSelectedIds([]);
+      selectedIdsRef.current = [];
+      return;
+    }
+
+    if (!additive) {
+      setSelectedIds([]);
+      selectedIdsRef.current = [];
+      setSelectedFormationId(null);
+      selectedFormationIdRef.current = null;
+    }
+  }, []);
+
+  const startStageMarquee = useCallback(
+    (clientX, clientY, additive) => {
+      const stage = konvaStageRef.current;
+      const origin = clientToStagePlotPoint(stage, clientX, clientY);
+      if (!origin) return;
+
+      marqueeDragRef.current = {
+        startClientX: clientX,
+        startClientY: clientY,
+        originX: origin.x,
+        originY: origin.y,
+        additive: !!additive,
+        activated: false,
+      };
+      setMarqueeRect(null);
+      setItemContextMenu(null);
+      setFormationContextMenu(null);
+      setFormationCopyMenuOpen(false);
+      setItemHoverTooltip(null);
+
+      const move = (ev) => {
+        const drag = marqueeDragRef.current;
+        if (!drag) return;
+        const dx = ev.clientX - drag.startClientX;
+        const dy = ev.clientY - drag.startClientY;
+        if (
+          !drag.activated &&
+          dx * dx + dy * dy >=
+            MARQUEE_DRAG_THRESHOLD_SCREEN_PX * MARQUEE_DRAG_THRESHOLD_SCREEN_PX
+        ) {
+          drag.activated = true;
+          if (!drag.additive) {
+            setSelectedIds([]);
+            selectedIdsRef.current = [];
+            setSelectedFormationId(null);
+            selectedFormationIdRef.current = null;
+          }
+        }
+        if (!drag.activated) return;
+        const pt = clientToStagePlotPoint(konvaStageRef.current, ev.clientX, ev.clientY);
+        if (!pt) return;
+        setMarqueeRect({
+          x0: drag.originX,
+          y0: drag.originY,
+          x1: pt.x,
+          y1: pt.y,
+        });
+      };
+
+      const up = (ev) => {
+        document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", up);
+        document.removeEventListener("pointercancel", up);
+        const drag = marqueeDragRef.current;
+        marqueeDragRef.current = null;
+        setMarqueeRect(null);
+        if (!drag) return;
+        if (drag.activated) {
+          const pt = clientToStagePlotPoint(
+            konvaStageRef.current,
+            ev.clientX ?? drag.startClientX,
+            ev.clientY ?? drag.startClientY,
+          );
+          if (!pt) return;
+          const aabb = normalizeStagePlotMarqueeAabb(
+            drag.originX,
+            drag.originY,
+            pt.x,
+            pt.y,
+          );
+          applyMarqueeSelection(aabb, drag.additive);
+        } else if (!drag.additive) {
+          setSelectedIds([]);
+          selectedIdsRef.current = [];
+          setSelectedFormationId(null);
+          selectedFormationIdRef.current = null;
+        }
+      };
+
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", up);
+      document.addEventListener("pointercancel", up);
+    },
+    [applyMarqueeSelection],
+  );
+
   const persist = useCallback(
     async (nextPayload, nextNombre, nextBloqueIds, nextEventoIds) => {
       if (!canEdit || !supabase || !program?.id) return;
@@ -2898,23 +3502,90 @@ export default function ProgramStagePlot({
     patchFormationsAndReanchor((formations) =>
       formations.map((f) => {
         if (f.id !== selectedFormationId) return f;
-        if (patch.params) {
-          return {
-            ...f,
-            ...patch,
-            params: { ...f.params, ...patch.params },
+        if (
+          f.kind === "semi_arc" &&
+          (patch.wingSlots != null || patch.arcSlots != null)
+        ) {
+          return applySemiArcSlotCounts(f, {
+            wingSlots: patch.wingSlots,
+            arcSlots: patch.arcSlots,
+          });
+        }
+        let next = patch.params
+          ? {
+              ...f,
+              ...patch,
+              params: { ...f.params, ...patch.params },
+            }
+          : { ...f, ...patch };
+        if (
+          patch.slots != null &&
+          normalizeStagePlotSlotMode(next.slotMode) !== "fixed"
+        ) {
+          next = {
+            ...next,
+            slotTs: resizeFormationSlotTs(
+              f.slotTs,
+              next.slots,
+              next.slotMode,
+            ),
           };
         }
-        return { ...f, ...patch };
+        return next;
       }),
     );
   };
+
+  const setSelectedFormationSlotMode = (mode) => {
+    if (!canEdit || !selectedFormationId) return;
+    patchFormationsAndReanchor((formations) =>
+      formations.map((f) =>
+        f.id === selectedFormationId ? applyFormationSlotMode(f, mode) : f,
+      ),
+    );
+  };
+
+  const handleFormationSlotDragMove = useCallback(
+    (formationId, slotIndex, worldX, worldY) => {
+      const base = payloadRef.current.formations?.find(
+        (f) => f.id === formationId,
+      );
+      if (!base) return;
+      const mode = normalizeStagePlotSlotMode(base.slotMode);
+      if (mode === "fixed") return;
+      const t = projectWorldPointToFormationT(base, worldX, worldY);
+      const slotTs = setFormationSlotT(base, slotIndex, t);
+      setFormationSlotPreview({ formationId, slotTs });
+    },
+    [],
+  );
+
+  const handleFormationSlotDragEnd = useCallback(
+    (formationId, slotIndex, worldX, worldY) => {
+      setFormationSlotPreview(null);
+      const base = payloadRef.current.formations?.find(
+        (f) => f.id === formationId,
+      );
+      if (!base) return;
+      const mode = normalizeStagePlotSlotMode(base.slotMode);
+      if (mode === "fixed") return;
+      const t = projectWorldPointToFormationT(base, worldX, worldY);
+      const slotTs = setFormationSlotT(base, slotIndex, t);
+      patchFormationsAndReanchor((formations) =>
+        formations.map((f) =>
+          f.id === formationId ? { ...f, slotTs, slotMode: mode } : f,
+        ),
+      );
+    },
+    [patchFormationsAndReanchor],
+  );
+
 
   const centerSelectedFormationOnConductor = () => {
     if (!canEdit || !selectedFormationId) return;
     const prev = payloadRef.current;
     const fm = (prev.formations || []).find((f) => f.id === selectedFormationId);
-    if (!fm || !["arc", "horseshoe", "rect", "line"].includes(fm.kind)) return;
+    if (!fm || !STAGE_PLOT_CENTERABLE_FORMATION_KINDS.includes(fm.kind)) return;
     if (isFormationCenteredOnConductor(fm, prev.items, prev.stage)) return;
     const facing = resolveFormationFacingPoint(
       prev.items,
@@ -3278,6 +3949,65 @@ export default function ProgramStagePlot({
     [canEdit, commitPayload],
   );
 
+  const insertOrganicoPair = useCallback(
+    (row) => {
+      if (!canEdit) return;
+      const type = pickOrganicoRowCatalogType(row);
+      if (!type || !STAGE_PLOT_STRING_PAIR_TYPES.has(type)) return;
+      const stage = payloadRef.current.stage || {};
+      const positions = computeOrganicoInsertPositions(
+        1,
+        stage,
+        organicoRowIndex(row.key),
+      );
+      const center = positions[0] || {
+        x: (stage.width || 900) / 2,
+        y: (stage.height || 560) / 2,
+      };
+      const z = zCounterRef.current;
+      zCounterRef.current = z + 2;
+      let memberIds = [];
+      commitPayload((prev) => {
+        const next = insertStagePlotStringPair(
+          prev,
+          type,
+          center.x,
+          center.y,
+          z,
+        );
+        const g = (next.groups || [])[next.groups.length - 1];
+        memberIds = g?.itemIds || [];
+        return next;
+      });
+      setSelectedFormationId(null);
+      setSelectedIds(memberIds);
+    },
+    [canEdit, commitPayload],
+  );
+
+  const insertStringPairAt = useCallback(
+    (type, x, y) => {
+      if (!canEdit || !STAGE_PLOT_STRING_PAIR_TYPES.has(type)) return;
+      const stage = payloadRef.current.stage || {};
+      const sw = stage.width || 900;
+      const sh = stage.height || 560;
+      const cx = Math.min(sw - 8, Math.max(8, Number(x) || sw / 2));
+      const cy = Math.min(sh - 8, Math.max(8, Number(y) || sh / 2));
+      const z = zCounterRef.current;
+      zCounterRef.current = z + 2;
+      let memberIds = [];
+      commitPayload((prev) => {
+        const next = insertStagePlotStringPair(prev, type, cx, cy, z);
+        const g = (next.groups || [])[next.groups.length - 1];
+        memberIds = g?.itemIds || [];
+        return next;
+      });
+      setSelectedFormationId(null);
+      setSelectedIds(memberIds);
+    },
+    [canEdit, commitPayload],
+  );
+
   const unifyScaleOfType = useCallback(
     (type, referenceScale) => {
       const scale = Math.max(
@@ -3418,6 +4148,12 @@ export default function ProgramStagePlot({
       hideItemHoverTooltip();
       setItemSnapPreview(null);
 
+      // Transformer `_proxyDrag` startDrags every selected node; ignore followers.
+      const existing = dragGroupRef.current;
+      if (existing?.origins?.has(id) && existing.leaderId !== id) {
+        return;
+      }
+
       const prev = payloadRef.current;
       const item = prev.items.find((i) => i.id === id);
       let dragIds = selectedIdsRef.current;
@@ -3449,6 +4185,10 @@ export default function ProgramStagePlot({
 
   const handleItemDragMove = useCallback((id, e) => {
     const g = dragGroupRef.current;
+    if (g && g.origins.has(id) && g.leaderId !== id) {
+      // Follower proxy-drag from Transformer — leader owns positions.
+      return;
+    }
     if (g && g.leaderId === id) {
       setItemSnapPreview(null);
       const origin = g.origins.get(id);
@@ -3463,20 +4203,47 @@ export default function ProgramStagePlot({
           node.y(o.y + dy);
         }
       }
+      const prev = payloadRef.current;
+      const conductorId = (prev.items || []).find(
+        (it) => it.type === "conductor" && g.origins.has(it.id),
+      )?.id;
+      if (conductorId) {
+        const cNode =
+          conductorId === id
+            ? e.target
+            : itemNodeRefs.current.get(conductorId);
+        if (cNode) {
+          setConductorDragOrigin({ x: cNode.x(), y: cNode.y() });
+        }
+      }
       transformerRef.current?.forceUpdate();
       return;
     }
 
     const node = e.target;
+    const prev = payloadRef.current;
+    const stage = prev.stage || {};
+    const sw = Number(stage.width) || 900;
+    const sh = Number(stage.height) || 560;
+    const dragged = prev.items.find((it) => it.id === id);
+    if (dragged?.type === "conductor") {
+      const cx = Math.min(sw - 8, Math.max(8, node.x()));
+      const cy = Math.min(sh - 8, Math.max(8, node.y()));
+      node.position({ x: cx, y: cy });
+      setItemSnapPreview(null);
+      setConductorDragOrigin({ x: cx, y: cy });
+      transformerRef.current?.forceUpdate();
+      return;
+    }
+
     const rawX = node.x();
     const rawY = node.y();
-    const prev = payloadRef.current;
     const slot = findNearestFreeSlot(
       rawX,
       rawY,
       prev.formations || [],
       prev.items,
-      prev.stage || {},
+      stage,
       id,
       STAGE_PLOT_SLOT_SNAP_PX,
     );
@@ -3501,14 +4268,19 @@ export default function ProgramStagePlot({
   const applySnapToMovedItems = useCallback((prev, movedPositions) => {
     const formations = prev.formations || [];
     const stage = prev.stage || {};
+    const sw = Number(stage.width) || 900;
+    const sh = Number(stage.height) || 560;
     const next = prev.items.map((it) => {
       if (!movedPositions.has(it.id)) return it;
       const p = movedPositions.get(it.id);
-      return { ...it, x: p.x, y: p.y, slotId: null };
+      const x = Math.min(sw - 8, Math.max(8, Number(p.x) || 0));
+      const y = Math.min(sh - 8, Math.max(8, Number(p.y) || 0));
+      return { ...it, x, y, slotId: null };
     });
     for (let i = 0; i < next.length; i++) {
       const it = next[i];
       if (!movedPositions.has(it.id)) continue;
+      if (it.type === "conductor") continue;
       const slot = findNearestFreeSlot(
         it.x,
         it.y,
@@ -3519,16 +4291,24 @@ export default function ProgramStagePlot({
         STAGE_PLOT_SLOT_SNAP_PX,
       );
       if (slot) {
-        // Orientar al director / facing de la plaza al magnetizar (en principio).
-        const nextRot = stagePlotItemHasInstrumentFootprint(it.type)
-          ? Number(slot.rotation) || it.rotation || 0
-          : it.rotation || 0;
+        // Magnetizar: posición + slotId; huella rota base (−Y) hacia director
+        // (no slot.rotation — evita torsión tangente en arco).
+        const facing = resolveFormationFacingPoint(next, stage);
         next[i] = {
           ...it,
           x: slot.x,
           y: slot.y,
           slotId: slot.slotId,
-          rotation: nextRot,
+          ...(stagePlotItemHasInstrumentFootprint(it.type)
+            ? {
+                rotation: rotationInstrumentBaseFacingPoint(
+                  slot.x,
+                  slot.y,
+                  facing.x,
+                  facing.y,
+                ),
+              }
+            : {}),
         };
       }
     }
@@ -3537,19 +4317,42 @@ export default function ProgramStagePlot({
 
   const handleItemDragEnd = useCallback(
     (id, x, y) => {
-      itemDraggingRef.current = false;
-      setItemSnapPreview(null);
+      const suppressed = suppressItemDragEndIdsRef.current;
+      if (suppressed?.has(id)) {
+        return;
+      }
 
       const g = dragGroupRef.current;
+      // Follower dragEnds from Transformer `_proxyDrag` — do not commit or clear.
+      if (g && g.origins.has(id) && g.leaderId !== id) {
+        return;
+      }
+
+      itemDraggingRef.current = false;
+      setItemSnapPreview(null);
+      setConductorDragOrigin(null);
+
       if (g && g.leaderId === id && g.origins.size > 1) {
         const origin = g.origins.get(id);
         const dx = x - (origin?.x ?? x);
         const dy = y - (origin?.y ?? y);
         const movedIds = g.origins;
         const movedPositions = new Map();
+        const stage = payloadRef.current.stage || {};
+        const sw = Number(stage.width) || 900;
+        const sh = Number(stage.height) || 560;
         for (const [sid, o] of movedIds) {
-          movedPositions.set(sid, { x: o.x + dx, y: o.y + dy });
+          movedPositions.set(sid, {
+            x: Math.min(sw - 8, Math.max(8, o.x + dx)),
+            y: Math.min(sh - 8, Math.max(8, o.y + dy)),
+          });
         }
+        // Suppress follower dragEnds that fire after we clear dragGroupRef.
+        suppressItemDragEndIdsRef.current = new Set(movedIds.keys());
+        queueMicrotask(() => {
+          suppressItemDragEndIdsRef.current = null;
+        });
+        // One history entry for the whole multi/group drag (all positions).
         commitPayload((prev) => {
           const leader = prev.items.find((it) => it.id === id);
           const nextItems = prev.items.map((it) => {
@@ -3559,16 +4362,16 @@ export default function ProgramStagePlot({
           });
           const groups =
             leader?.groupId && (dx !== 0 || dy !== 0)
-              ? (prev.groups || []).map((g) =>
-                  g.id === leader.groupId && g.alignAnchor
+              ? (prev.groups || []).map((grp) =>
+                  grp.id === leader.groupId && grp.alignAnchor
                     ? {
-                        ...g,
+                        ...grp,
                         alignAnchor: {
-                          x: g.alignAnchor.x + dx,
-                          y: g.alignAnchor.y + dy,
+                          x: grp.alignAnchor.x + dx,
+                          y: grp.alignAnchor.y + dy,
                         },
                       }
-                    : g,
+                    : grp,
                 )
               : prev.groups;
           return { ...prev, items: nextItems, groups };
@@ -3616,12 +4419,57 @@ export default function ProgramStagePlot({
     [commitFormationPosition],
   );
 
-  const handleFormationHandleDragMove = useCallback(
-    (formationId, handleId, worldX, worldY) => {
+  const handleFormationHandleDragStart = useCallback(
+    (formationId, handleId) => {
       const base = payloadRef.current.formations?.find(
         (f) => f.id === formationId,
       );
       if (!base) return;
+      formationHandleDragBaseRef.current = {
+        formationId,
+        handleId,
+        formation: base,
+        facing: resolveFormationFacingPoint(
+          payloadRef.current.items,
+          payloadRef.current.stage,
+          base.facing,
+        ),
+      };
+    },
+    [],
+  );
+
+  const handleFormationHandleDragMove = useCallback(
+    (formationId, handleId, worldX, worldY) => {
+      const dragBase = formationHandleDragBaseRef.current;
+      const base =
+        dragBase?.formationId === formationId && dragBase?.formation
+          ? dragBase.formation
+          : payloadRef.current.formations?.find((f) => f.id === formationId);
+      if (!base) return;
+      if (handleId.startsWith("box_")) {
+        const facing =
+          dragBase?.facing ??
+          resolveFormationFacingPoint(
+            payloadRef.current.items,
+            payloadRef.current.stage,
+            base.facing,
+          );
+        const next = formationFromBoundsBoxHandleDrag(
+          base,
+          handleId,
+          worldX,
+          worldY,
+          facing,
+        );
+        setFormationResizePreview({
+          formationId,
+          params: next.params,
+          x: next.x,
+          y: next.y,
+        });
+        return;
+      }
       const params = formationParamsFromHandlePosition(
         base,
         handleId,
@@ -3635,11 +4483,38 @@ export default function ProgramStagePlot({
 
   const handleFormationHandleDragEnd = useCallback(
     (formationId, handleId, worldX, worldY) => {
+      const dragBase = formationHandleDragBaseRef.current;
+      formationHandleDragBaseRef.current = null;
       setFormationResizePreview(null);
-      const base = payloadRef.current.formations?.find(
-        (f) => f.id === formationId,
-      );
+      const base =
+        dragBase?.formationId === formationId && dragBase?.formation
+          ? dragBase.formation
+          : payloadRef.current.formations?.find((f) => f.id === formationId);
       if (!base) return;
+      if (handleId.startsWith("box_")) {
+        const facing =
+          dragBase?.facing ??
+          resolveFormationFacingPoint(
+            payloadRef.current.items,
+            payloadRef.current.stage,
+            base.facing,
+          );
+        const next = formationFromBoundsBoxHandleDrag(
+          base,
+          handleId,
+          worldX,
+          worldY,
+          facing,
+        );
+        patchFormationsAndReanchor((formations) =>
+          formations.map((f) =>
+            f.id === formationId
+              ? { ...f, params: next.params, x: next.x, y: next.y }
+              : f,
+          ),
+        );
+        return;
+      }
       const params = formationParamsFromHandlePosition(
         base,
         handleId,
@@ -3657,6 +4532,10 @@ export default function ProgramStagePlot({
 
   const handleItemTransformEnd = useCallback(
     (id, next) => {
+      // Group drag owns history; ignore stray transformend from Transformer.
+      if (suppressItemDragEndIdsRef.current?.has(id)) return;
+      if (dragGroupRef.current?.origins?.has(id)) return;
+
       if (!pendingTransformRef.current) {
         pendingTransformRef.current = new Map();
         queueMicrotask(() => {
@@ -3697,20 +4576,8 @@ export default function ProgramStagePlot({
     let minY = Infinity;
     let hasText = false;
     for (const it of selectedItems) {
-      const cat = getStagePlotCatalogItem(it.type);
-      const itemScale = it.scale > 0 ? it.scale : 1;
-      let halfW = ((cat?.w || 40) * itemScale) / 2;
-      let halfH = ((cat?.h || 40) * itemScale) / 2;
-      if (it.type === "text") {
-        hasText = true;
-        const layout = getStagePlotTextLayout(it, cat);
-        halfW = (layout.textW * itemScale) / 2;
-        halfH = (layout.textH * itemScale) / 2;
-      } else if (stagePlotItemHasInstrumentFootprint(it.type)) {
-        const fp = stagePlotInstrumentFootprintLayout();
-        halfW = (fp.widthPx * itemScale) / 2;
-        halfH = (fp.depthPx * itemScale) / 2;
-      }
+      if (it.type === "text") hasText = true;
+      const { halfW, halfH } = getStagePlotItemHalfExtents(it);
       minX = Math.min(minX, it.x - halfW);
       maxX = Math.max(maxX, it.x + halfW);
       minY = Math.min(minY, it.y - halfH);
@@ -3930,6 +4797,42 @@ export default function ProgramStagePlot({
             locaciones={locacionesPresets}
             onApplyLocacionPreset={applyLocacionPreset}
           />
+          {canEdit && (
+            <div
+              className="inline-flex overflow-hidden rounded border border-slate-200 bg-white"
+              role="group"
+              aria-label="Herramienta del lienzo"
+            >
+              <button
+                type="button"
+                onClick={() => setCanvasTool(STAGE_PLOT_TOOL_SELECT)}
+                className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium ${
+                  canvasTool === STAGE_PLOT_TOOL_SELECT
+                    ? "bg-indigo-50 text-indigo-700"
+                    : "text-slate-600 hover:bg-slate-50"
+                }`}
+                title="Seleccionar (V) — clic y marquee; no mueve objetos"
+                aria-pressed={canvasTool === STAGE_PLOT_TOOL_SELECT}
+              >
+                <IconMousePointer size={14} />
+                Seleccionar
+              </button>
+              <button
+                type="button"
+                onClick={() => setCanvasTool(STAGE_PLOT_TOOL_MOVE)}
+                className={`inline-flex items-center gap-1 border-l border-slate-200 px-2 py-1 text-xs font-medium ${
+                  canvasTool === STAGE_PLOT_TOOL_MOVE
+                    ? "bg-indigo-50 text-indigo-700"
+                    : "text-slate-600 hover:bg-slate-50"
+                }`}
+                title="Mover (M) — arrastrar ítems y formaciones"
+                aria-pressed={canvasTool === STAGE_PLOT_TOOL_MOVE}
+              >
+                <IconMove size={14} />
+                Mover
+              </button>
+            </div>
+          )}
           <button
             type="button"
             onClick={resetZoom}
@@ -4134,12 +5037,7 @@ export default function ProgramStagePlot({
               </p>
               <div className="flex flex-wrap gap-1">
                 {(
-                  [
-                    ["arc", "Arco"],
-                    ["horseshoe", "Herradura"],
-                    ["rect", "Rectángulo"],
-                    ["line", "Línea recta"],
-                  ]
+                  Object.entries(STAGE_PLOT_FORMATIONATION_LABELS)
                 ).map(([kind, label]) => (
                   <button
                     key={kind}
@@ -4168,17 +5066,36 @@ export default function ProgramStagePlot({
               {(paletteCat === null || paletteCat === category) && (
                 <div className="flex flex-wrap gap-1">
                   {items.map((it) => (
-                    <button
-                      key={it.type}
-                      type="button"
-                      disabled={!canEdit}
-                      onPointerDown={(e) => startPalettePointerDrag(e, it)}
-                      title={`${it.name} — arrastrar al escenario`}
-                      className="inline-flex cursor-grab touch-none items-center gap-1.5 rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <PaletteIcon type={it.type} color={it.color} />
-                      {it.name}
-                    </button>
+                    <div key={it.type} className="inline-flex flex-col gap-0.5">
+                      <button
+                        type="button"
+                        disabled={!canEdit}
+                        onPointerDown={(e) => startPalettePointerDrag(e, it)}
+                        title={`${it.name} — arrastrar al escenario`}
+                        className="inline-flex cursor-grab touch-none items-center gap-1.5 rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <PaletteIcon type={it.type} color={it.color} />
+                        {it.name}
+                      </button>
+                      {canEdit && STAGE_PLOT_STRING_PAIR_TYPES.has(it.type) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const sw = payload.stage.width || 900;
+                            const sh = payload.stage.height || 560;
+                            insertStringPairAt(
+                              it.type,
+                              sw / 2 + (Math.random() * 40 - 20),
+                              sh / 2 + (Math.random() * 40 - 20),
+                            );
+                          }}
+                          title={`Par de ${it.name} — atril compartido a 40 cm del director`}
+                          className="rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[9px] font-semibold text-violet-800 hover:bg-violet-100"
+                        >
+                          Par
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
@@ -4198,15 +5115,23 @@ export default function ProgramStagePlot({
             } ${
               isPanning
                 ? "cursor-grabbing"
-                : stageBgHover || spaceHeld
-                  ? "cursor-grab"
-                  : ""
+                : marqueeRect
+                  ? "cursor-crosshair"
+                  : spaceHeld
+                    ? "cursor-grab"
+                    : canEdit && canvasTool === STAGE_PLOT_TOOL_MOVE
+                      ? "cursor-move"
+                      : canEdit && canvasTool === STAGE_PLOT_TOOL_SELECT
+                        ? "cursor-default"
+                        : ""
             }`}
           >
             <p className="pointer-events-none absolute bottom-2 left-2 z-10 rounded bg-white/80 px-1.5 py-0.5 text-[10px] text-slate-500">
               {paletteDrag
                 ? "Soltá para colocar"
-                : "Arrastrar fondo / Espacio / rueda central = mover vista · Rueda = zoom · Supr/Del = borrar · Ctrl/⌘Z deshacer · Ctrl/⌘ clic = multi"}
+                : canEdit && canvasTool === STAGE_PLOT_TOOL_MOVE
+                  ? "Mover: arrastrá ítems/formaciones · Espacio / rueda central = vista · Rueda = zoom · V = seleccionar · M = mover"
+                  : "Seleccionar: clic / arrastrar vacío = marquee · seleccionado = arrastrar para mover · Espacio / rueda central = vista · Rueda = zoom · Supr = borrar · V/M = herramientas · Ctrl/⌘/Shift = multi"}
             </p>
 
             {selectedItems.length > 0 && canEdit && floatingToolbarPos && (
@@ -4298,16 +5223,16 @@ export default function ProgramStagePlot({
               y={viewport.y}
               onWheel={handleWheel}
               onContextMenu={handleStageContextMenu}
+              onMouseLeave={clearStageWrapCursor}
               onMouseDown={(e) => {
                 const nativeEvt = e.evt;
-                const { interactive, isBackground } =
+                const { interactive } =
                   classifyStagePlotPointerTarget(e.target);
                 const middlePan = nativeEvt.button === 1;
                 const spacePan =
                   spaceHeldRef.current && nativeEvt.button === 0;
-                const backgroundPan =
-                  nativeEvt.button === 0 && isBackground && !interactive;
-                const shouldPan = middlePan || spacePan || backgroundPan;
+                // Pan: Espacio+arrastre o botón central. Marquee solo en Seleccionar.
+                const shouldPan = middlePan || spacePan;
 
                 if (shouldPan) {
                   if (middlePan) nativeEvt.preventDefault();
@@ -4315,13 +5240,32 @@ export default function ProgramStagePlot({
                   return;
                 }
 
-                // Solo clic izquierdo en vacío deselecciona; el derecho abre menú de la selección.
-                if (!interactive && nativeEvt.button === 0) {
-                  setSelectedIds([]);
-                  setSelectedFormationId(null);
-                  closeItemContextMenu();
-                  closeFormationContextMenu();
-                  hideItemHoverTooltip();
+                // Clic/arrastre izquierdo en vacío.
+                // Seleccionar → marquee (o deselección si no hubo drag).
+                // Mover → solo deselección (sin marquee).
+                // No inicia sobre ítem/formación/asa/Transformer (`interactive`).
+                if (
+                  !interactive &&
+                  nativeEvt.button === 0 &&
+                  !paletteDrag
+                ) {
+                  const additive = !!(
+                    nativeEvt.ctrlKey ||
+                    nativeEvt.metaKey ||
+                    nativeEvt.shiftKey
+                  );
+                  if (canvasToolRef.current === STAGE_PLOT_TOOL_SELECT) {
+                    startStageMarquee(
+                      nativeEvt.clientX,
+                      nativeEvt.clientY,
+                      additive,
+                    );
+                  } else if (!additive) {
+                    setSelectedIds([]);
+                    selectedIdsRef.current = [];
+                    setSelectedFormationId(null);
+                    selectedFormationIdRef.current = null;
+                  }
                 }
               }}
             >
@@ -4337,8 +5281,6 @@ export default function ProgramStagePlot({
                   shadowColor="rgba(15,23,42,0.12)"
                   shadowBlur={12}
                   shadowOffsetY={2}
-                  onMouseEnter={() => setStageBgHover(true)}
-                  onMouseLeave={() => setStageBgHover(false)}
                 />
                 {payload.stage.showGrid !== false && (
                   <StageCentimeterGrid width={sw} height={sh} />
@@ -4349,6 +5291,7 @@ export default function ProgramStagePlot({
                     height={sh}
                     items={payload.items}
                     stage={payload.stage}
+                    originOverride={conductorDragOrigin}
                   />
                 )}
                 <Text
@@ -4359,6 +5302,7 @@ export default function ProgramStagePlot({
                   align="center"
                   fontSize={11}
                   fill="#94a3b8"
+                  listening={false}
                 />
                 <Text
                   text={`${Math.round(payload.stage.widthCm)} × ${Math.round(payload.stage.heightCm)} cm`}
@@ -4378,12 +5322,14 @@ export default function ProgramStagePlot({
                   align="center"
                   fontSize={11}
                   fill="#94a3b8"
+                  listening={false}
                 />
                 <Line
                   points={[40, sh - 28, sw - 40, sh - 28]}
                   stroke="#e2e8f0"
                   strokeWidth={1}
                   dash={[6, 4]}
+                  listening={false}
                 />
                 {!payload.stage.hideFormationGuides &&
                   renderFormations.map((fm) => (
@@ -4393,14 +5339,24 @@ export default function ProgramStagePlot({
                     items={payload.items}
                     stage={payload.stage}
                     selected={selectedFormationId === fm.id}
-                    draggable={canEdit && !formationResizePreview}
+                    draggable={formationIsDraggable(fm.id)}
                     highlightSlotId={itemSnapPreview?.slotId ?? null}
+                    slotsDraggable={
+                      canEdit &&
+                      selectedFormationId === fm.id &&
+                      normalizeStagePlotSlotMode(fm.slotMode) !== "fixed"
+                    }
                     onSelect={handleSelectFormation}
                     onContextMenu={handleFormationContextMenu}
                     onDragStart={handleFormationDragStart}
                     onDragMove={handleFormationDragMove}
                     onDragEnd={handleFormationDragEnd}
+                    onSlotDragMove={handleFormationSlotDragMove}
+                    onSlotDragEnd={handleFormationSlotDragEnd}
+                    onWrapCursor={setStageWrapCursor}
+                    onWrapCursorClear={clearStageWrapCursor}
                   />
+
                   ))}
                 {!payload.stage.hideFormationGuides && (
                   <SnapMagnetGuide preview={itemSnapPreview} />
@@ -4426,7 +5382,7 @@ export default function ProgramStagePlot({
                     selected={selectedIdSet.has(item.id)}
                     magnetized={magnetized}
                     hideChairSquares={!!payload.stage.hideChairSquares}
-                    draggable={canEdit && item.type !== "conductor"}
+                    draggable={itemIsDraggable(item.id)}
                     shapeRef={(node) => {
                       if (node) itemNodeRefs.current.set(item.id, node);
                       else itemNodeRefs.current.delete(item.id);
@@ -4437,6 +5393,8 @@ export default function ProgramStagePlot({
                     onMouseEnter={showItemHoverTooltip}
                     onMouseLeave={hideItemHoverTooltip}
                     onMouseMove={moveItemHoverTooltip}
+                    onWrapCursor={setStageWrapCursor}
+                    onWrapCursorClear={clearStageWrapCursor}
                     onDragStart={handleItemDragStart}
                     onDragMove={handleItemDragMove}
                     onDragEnd={handleItemDragEnd}
@@ -4444,21 +5402,29 @@ export default function ProgramStagePlot({
                   />
                   );
                 })}
+                {satelliteAtrils.map((atril) => (
+                  <SatelliteAtrilShape
+                    key={atril.id}
+                    x={atril.x}
+                    y={atril.y}
+                    rotationDeg={atril.rotationDeg}
+                  />
+                ))}
                 {canEdit && (
                   <Transformer
                     ref={transformerRef}
                     rotateEnabled
                     keepRatio
-                    onTransform={handleTransformerTransform}
                     anchorSize={transformerAnchorSize}
                     anchorCornerRadius={transformerAnchorCornerRadius}
-                    anchorStrokeWidth={1.5 / transformerScreenDenom}
+                    anchorStrokeWidth={transformerAnchorStrokeWidth}
                     borderStrokeWidth={transformerBorderWidth}
                     rotateAnchorOffset={transformerRotateOffset}
                     padding={0}
                     anchorStroke="#4f46e5"
                     anchorFill="#fff"
                     borderStroke="#4f46e5"
+                    anchorStyleFunc={transformerAnchorStyleFunc}
                     enabledAnchors={[
                       "top-left",
                       "top-right",
@@ -4477,12 +5443,30 @@ export default function ProgramStagePlot({
                   formationForHandles && (
                     <FormationResizeHandles
                       formation={formationForHandles}
+                      facingPoint={formationFacingForHandles}
                       handleSize={formationHandleSize}
                       strokeWidth={formationHandleStroke}
+                      onHandleDragStart={handleFormationHandleDragStart}
                       onHandleDragMove={handleFormationHandleDragMove}
                       onHandleDragEnd={handleFormationHandleDragEnd}
+                      onWrapCursor={setStageWrapCursor}
+                      onWrapCursorClear={clearStageWrapCursor}
                     />
                   )}
+                {marqueeRect && (
+                  <Rect
+                    name="stage-plot-marquee"
+                    x={Math.min(marqueeRect.x0, marqueeRect.x1)}
+                    y={Math.min(marqueeRect.y0, marqueeRect.y1)}
+                    width={Math.abs(marqueeRect.x1 - marqueeRect.x0)}
+                    height={Math.abs(marqueeRect.y1 - marqueeRect.y0)}
+                    fill="rgba(79, 70, 229, 0.12)"
+                    stroke="#4f46e5"
+                    strokeWidth={1}
+                    strokeScaleEnabled={false}
+                    listening={false}
+                  />
+                )}
               </Layer>
             </Stage>
           </div>
@@ -4553,25 +5537,103 @@ export default function ProgramStagePlot({
                   {STAGE_PLOT_FORMATIONATION_LABELS[selectedFormation.kind] ||
                     selectedFormation.kind}
                 </span>
-                <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
-                  Plazas
-                  <input
-                    type="number"
-                    min={1}
-                    max={64}
-                    value={selectedFormation.slots}
-                    onChange={(e) =>
-                      updateSelectedFormation({
-                        slots: Math.max(
-                          1,
-                          Math.min(64, Number(e.target.value) || 1),
-                        ),
-                      })
-                    }
-                    className="w-14 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
-                  />
-                </label>
+                {selectedFormation.kind === "semi_arc" ? (
+                  <>
+                    <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
+                      Plazas laterales
+                      <input
+                        type="number"
+                        min={0}
+                        max={32}
+                        value={selectedFormation.wingSlots ?? 0}
+                        onChange={(e) =>
+                          updateSelectedFormation({
+                            wingSlots: Math.max(
+                              0,
+                              Math.min(32, Number(e.target.value) || 0),
+                            ),
+                          })
+                        }
+                        className="w-12 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
+                        title="Por ala, desde el extremo hacia el arco (sin la juntura)"
+                      />
+                    </label>
+                    <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
+                      Plazas en arco
+                      <input
+                        type="number"
+                        min={1}
+                        max={64}
+                        value={selectedFormation.arcSlots ?? 1}
+                        onChange={(e) =>
+                          updateSelectedFormation({
+                            arcSlots: Math.max(
+                              1,
+                              Math.min(64, Number(e.target.value) || 1),
+                            ),
+                          })
+                        }
+                        className="w-12 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
+                        title="Incluye las junturas ala–arco como primera y última plaza del arco"
+                      />
+                    </label>
+                    <span
+                      className="shrink-0 text-[10px] text-slate-400"
+                      title="Total = 2×laterales + arco"
+                    >
+                      Σ {selectedFormation.slots}
+                    </span>
+                  </>
+                ) : (
+                  <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
+                    Plazas
+                    <input
+                      type="number"
+                      min={1}
+                      max={64}
+                      value={selectedFormation.slots}
+                      onChange={(e) =>
+                        updateSelectedFormation({
+                          slots: Math.max(
+                            1,
+                            Math.min(64, Number(e.target.value) || 1),
+                          ),
+                        })
+                      }
+                      className="w-14 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
+                    />
+                  </label>
+                )}
+                <div className="flex shrink-0 items-center gap-0.5 rounded border border-slate-200 p-0.5">
+                  {STAGE_PLOT_SLOT_MODES.map((mode) => {
+                    const active =
+                      normalizeStagePlotSlotMode(selectedFormation.slotMode) ===
+                      mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setSelectedFormationSlotMode(mode)}
+                        className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                          active
+                            ? "bg-indigo-600 text-white"
+                            : "text-slate-600 hover:bg-slate-50"
+                        }`}
+                        title={
+                          mode === "fixed"
+                            ? "Plazas equidistantes"
+                            : mode === "free"
+                              ? "Arrastrar plazas sobre la guía"
+                              : "Espejo 1↔N, 2↔N-1…"
+                        }
+                      >
+                        {STAGE_PLOT_SLOT_MODE_LABELS[mode]}
+                      </button>
+                    );
+                  })}
+                </div>
                 {selectedFormation.kind === "arc" ? (
+
                   <>
                     <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
                       rx
@@ -4636,9 +5698,84 @@ export default function ProgramStagePlot({
                       />
                     </label>
                   </>
+                ) : selectedFormation.kind === "semi_arc" ? (
+                  <>
+                    <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
+                      rx
+                      <input
+                        type="number"
+                        min={FORMATION_MIN_RADIUS}
+                        value={Math.round(selectedFormation.params.rx || 0)}
+                        onChange={(e) =>
+                          updateSelectedFormation({
+                            params: {
+                              rx: Number(e.target.value) || FORMATION_MIN_RADIUS,
+                            },
+                          })
+                        }
+                        className="w-16 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
+                      />
+                    </label>
+                    <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
+                      ry
+                      <input
+                        type="number"
+                        min={FORMATION_MIN_RADIUS}
+                        value={Math.round(selectedFormation.params.ry || 0)}
+                        onChange={(e) =>
+                          updateSelectedFormation({
+                            params: {
+                              ry: Number(e.target.value) || FORMATION_MIN_RADIUS,
+                            },
+                          })
+                        }
+                        className="w-16 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
+                      />
+                    </label>
+                    <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
+                      Ala
+                      <input
+                        type="number"
+                        min={FORMATION_MIN_WING_LENGTH}
+                        value={Math.round(
+                          selectedFormation.params.wingLength || 0,
+                        )}
+                        onChange={(e) =>
+                          updateSelectedFormation({
+                            params: {
+                              wingLength:
+                                Number(e.target.value) ||
+                                FORMATION_MIN_WING_LENGTH,
+                            },
+                          })
+                        }
+                        className="w-16 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
+                      />
+                    </label>
+                    <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
+                      Áng. ala °
+                      <input
+                        type="number"
+                        min={FORMATION_WING_ANGLE_MIN}
+                        max={FORMATION_WING_ANGLE_MAX}
+                        value={Math.round(
+                          selectedFormation.params.wingAngle ?? 0,
+                        )}
+                        onChange={(e) =>
+                          updateSelectedFormation({
+                            params: {
+                              wingAngle: Number(e.target.value) || 0,
+                            },
+                          })
+                        }
+                        className="w-14 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
+                      />
+                    </label>
+                  </>
                 ) : selectedFormation.kind === "line" ? (
                   <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
                     Longitud
+
                     <input
                       type="number"
                       min={FORMATION_MIN_LENGTH}
@@ -4696,7 +5833,7 @@ export default function ProgramStagePlot({
                     className="w-14 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
                   />
                 </label>
-                {["arc", "horseshoe", "rect", "line"].includes(
+                {STAGE_PLOT_CENTERABLE_FORMATION_KINDS.includes(
                   selectedFormation.kind,
                 ) ? (
                   <button
@@ -5193,20 +6330,36 @@ export default function ProgramStagePlot({
                           </td>
                           {canEdit && (
                             <td className="py-1 text-right">
-                              <button
-                                type="button"
-                                disabled={missing <= 0}
-                                title={
-                                  missing > 0
-                                    ? `Insertar ${missing} ${row.label} (esquina superior derecha)`
-                                    : "Ya coincide con el orgánico"
-                                }
-                                onClick={() => insertOrganicoRow(row)}
-                                className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
-                              >
-                                <IconPlus size={10} />
-                                Insertar
-                              </button>
+                              <div className="inline-flex flex-col items-end gap-0.5">
+                                <button
+                                  type="button"
+                                  disabled={missing <= 0}
+                                  title={
+                                    missing > 0
+                                      ? `Insertar ${missing} ${row.label} (esquina superior derecha)`
+                                      : "Ya coincide con el orgánico"
+                                  }
+                                  onClick={() => insertOrganicoRow(row)}
+                                  className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+                                >
+                                  <IconPlus size={10} />
+                                  Insertar
+                                </button>
+                                {STAGE_PLOT_STRING_PAIR_TYPES.has(
+                                  pickOrganicoRowCatalogType(row) || "",
+                                ) && (
+                                  <button
+                                    type="button"
+                                    disabled={missing < 2}
+                                    title={`Par de ${row.label} con atril compartido (2 músicos + 1 atril)`}
+                                    onClick={() => insertOrganicoPair(row)}
+                                    className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-violet-700 hover:bg-violet-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+                                  >
+                                    <IconPlus size={10} />
+                                    Insertar par
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           )}
                         </tr>
@@ -5259,7 +6412,7 @@ export default function ProgramStagePlot({
                               ? "1 silla × instrumentista (sin contrabajo ni percusión)"
                               : row.key === "banquetas"
                                 ? "Needed: contrabajos + percusionistas. Drawn: bass auto + banquetas manuales"
-                                : "1 atril × instr.; vn/va/vc/bass = ceil(n/2)"
+                                : "1 atril × instr.; vn/va/vc/bass = ceil(n/2); pares = 1 atril compartido"
                           }
                         >
                           <td className="py-1 pr-1 font-medium text-slate-700">
@@ -5283,8 +6436,9 @@ export default function ProgramStagePlot({
                 </table>
                 <p className="mt-1.5 px-1 text-[9px] leading-snug text-slate-400">
                   Sillas: 1 × instrumentista (no bass/perc). Banquetas: bass
-                  auto + banqueta manual (perc). Atriles: ceil(n/2) en
-                  vn/va/vc/bass; resto 1:1.
+                  auto + banqueta manual (perc). Atriles: pares compartidos +
+                  ceil(n/2) sueltos en vn/va/vc/bass; resto 1:1; + atriles
+                  manuales (paleta).
                 </p>
               </div>
             </>
@@ -5323,32 +6477,24 @@ export default function ProgramStagePlot({
               <label className="mt-3 block text-[11px] font-medium text-slate-500">
                 Locación (preset de tamaño)
               </label>
-              <select
+              <SearchableSelect
+                options={newPlotLocacionOptions}
                 value={newPlotDialog.locacionId}
-                onChange={(e) =>
+                onChange={(id) =>
                   setNewPlotDialog((d) =>
-                    d ? { ...d, locacionId: e.target.value } : d,
+                    d
+                      ? {
+                          ...d,
+                          locacionId:
+                            id == null || id === "" ? "" : String(id),
+                        }
+                      : d,
                   )
                 }
-                className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
-              >
-                <option value="">Default (90×56 cm)</option>
-                {locacionesPresets.map((loc) => {
-                  const w = Number(loc.escenario_ancho_cm);
-                  const d = Number(loc.escenario_profundo_cm);
-                  const hasDims =
-                    Number.isFinite(w) &&
-                    w > 0 &&
-                    Number.isFinite(d) &&
-                    d > 0;
-                  return (
-                    <option key={loc.id} value={loc.id} disabled={!hasDims}>
-                      {loc.nombre}
-                      {hasDims ? ` — ${w}×${d} cm` : " (sin tamaño)"}
-                    </option>
-                  );
-                })}
-              </select>
+                placeholder="Buscar locación…"
+                dropdownMinWidth={280}
+                className="mt-1"
+              />
               <p className="mt-1 text-[10px] text-slate-400">
                 El director queda centrado al tamaño elegido.
               </p>

@@ -73,6 +73,7 @@ import {
 } from "../../utils/integranteIds";
 import { sendConvocatoriaNotificationTasks } from "../../utils/convocatoriaNotificationSend";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
+import { fetchCuerdasDispositionGroups } from "../../utils/seatingCuerdasConfig";
 import {
   buildRosterSeatingSortContext,
   compareRosterByInstrument,
@@ -578,25 +579,27 @@ export default function GiraRoster({
 
     const loadSeatingSort = async () => {
       try {
-        const { data: containers, error: contsError } = await supabase
-          .from("seating_contenedores")
-          .select("id, nombre, orden")
-          .eq("id_programa", gira.id)
-          .order("orden");
+        const { groups } = await fetchCuerdasDispositionGroups(
+          supabase,
+          gira.id,
+        );
+        const containers = (groups[0]?.containers || []).map((c) => ({
+          id: c.id,
+          nombre: c.nombre,
+          orden: c.orden,
+        }));
+        const items = (groups[0]?.containers || []).flatMap((c) =>
+          (c.items || []).map((it) => ({
+            id: it.id,
+            id_contenedor: it.id_contenedor,
+            id_musico: it.id_musico,
+            atril_num: it.atril_num,
+            lado: it.lado,
+            orden: it.orden,
+          })),
+        );
 
         if (cancelled) return;
-        if (contsError) throw contsError;
-
-        const contIds = (containers || []).map((c) => c.id);
-        let items = [];
-        if (contIds.length > 0) {
-          const { data: itemsData, error: itemsError } = await supabase
-            .from("seating_contenedores_items")
-            .select("id, id_contenedor, id_musico, atril_num, lado, orden")
-            .in("id_contenedor", contIds);
-          if (itemsError) throw itemsError;
-          items = itemsData || [];
-        }
 
         const dedupedItems = dedupeSeatingStringItems(items, containers || []);
 

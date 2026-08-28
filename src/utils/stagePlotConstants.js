@@ -50,17 +50,29 @@ export const STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_STROKE = "#818cf8";
 
 /**
  * Huella de instrumentista (cm reales → px vía STAGE_PLOT_CM_TO_PX).
- * Ancho = izquierda-derecha local; profundo = atrás→adelante (atril en el frente / +Y local).
- * Icono/SVG cabe en un cuadrado ICON_BOX_CM dentro de la huella (zona músico hacia upstage);
- * la franja frontal DEPTH−ICON_BOX (30 cm) queda para atril (+ línea ATRIL_LINE_CM en el borde +Y).
+ * Cuadrado 50×50: ancho = X local; profundo = Y local.
+ * +Y local = cuello/mástil del SVG; −Y = base/cuerpo (hacia director tras rotación de ítem).
+ * Atril satélite: separado de la huella, 40 cm hacia el director desde el centro del ítem (o midpoint del par).
  */
 export const STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM = 50;
-export const STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM = 80;
-/** Caja del icono/SVG dentro de la huella (cm). */
+export const STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM = 50;
+/** Caja del icono/SVG dentro de la huella (cm); igual a WIDTH/DEPTH → icono centrado. */
 export const STAGE_PLOT_INSTRUMENT_ICON_BOX_CM = 50;
-/** Línea de atril centrada en el borde frontal (hacia el director). */
-export const STAGE_PLOT_ATRIL_LINE_CM = 35;
+/** Distancia del centro del atril satélite hacia el director (cm). */
+export const STAGE_PLOT_ATRIL_DISTANCE_CM = 40;
+/** Ancho del plato del atril satélite (cm); algo menor que el legacy 35 cm en borde. */
+export const STAGE_PLOT_ATRIL_LINE_CM = 29;
+/** Longitud del mástil hacia el músico (cm); base 13 × 0.7. */
+export const STAGE_PLOT_ATRIL_SHAFT_CM = 9.1;
+/** Longitud de las patas hacia el director (cm); base 15 × 0.7. */
+export const STAGE_PLOT_ATRIL_LEG_CM = 10.5;
+/** Grosor del plato horizontal (cm); base ~0.75 × 1.4. Solo el borde del atril, no patas. */
+export const STAGE_PLOT_ATRIL_PLATE_THICKNESS_CM = 1.05;
+/** Grosor visual del plato en px de escena (Konva/PDF fill). */
+export const STAGE_PLOT_ATRIL_PLATE_STROKE_PX =
+  STAGE_PLOT_ATRIL_PLATE_THICKNESS_CM * STAGE_PLOT_CM_TO_PX;
 
+/** Colores de huella (rect no se dibuja; se conservan por compat / debug). */
 export const STAGE_PLOT_FOOTPRINT_FILL = "rgba(241, 245, 249, 0.55)";
 export const STAGE_PLOT_FOOTPRINT_STROKE = "#94a3b8";
 export const STAGE_PLOT_FOOTPRINT_MAGNETIZED_FILL = "rgba(224, 231, 255, 0.55)";
@@ -91,8 +103,7 @@ export function stagePlotInstrumentFootprintPx() {
 
 /**
  * Layout local (pre–item.scale) de huella + caja de icono.
- * Origen = centro de la huella; +Y = frente (director).
- * Icono anclado al borde upstage (−Y): ocupa los primeros ICON_BOX_CM de profundidad.
+ * Origen = centro de la huella; +Y = borde cuello SVG (atrils en y = +depthPx/2).
  * @returns {{
  *   widthPx: number,
  *   depthPx: number,
@@ -103,12 +114,61 @@ export function stagePlotInstrumentFootprintPx() {
  */
 export function stagePlotInstrumentFootprintLayout() {
   const fp = stagePlotInstrumentFootprintPx();
-  // Centro del icon box: desde el borde trasero (−depth/2) hacia +Y la mitad de la caja.
+  // Si ICON_BOX < DEPTH (layout histórico 50×80), el icono queda anclado upstage.
   const iconOffsetY = -fp.depthPx / 2 + fp.iconBoxPx / 2;
   return {
     ...fp,
     iconOffsetY,
   };
+}
+
+/** Ángulos (rad, 0 = +X): índice 0 = mástil −Y (músico/upstage); 1–2 = par hacia +Y (director). */
+const STAGE_PLOT_ATRIL_LEG_ANGLES_RAD = [
+  -Math.PI / 2,
+  Math.PI / 6,
+  (5 * Math.PI) / 6,
+];
+
+/**
+ * Geometría local del atril satélite (origen = centro del plato).
+ * Plato horizontal sobre X; 1 pata −Y (músico); 2 patas abren hacia +Y (director).
+ * @param {number} [atrilPx] ancho del plato en px; default desde STAGE_PLOT_ATRIL_LINE_CM
+ * @returns {{
+ *   plateWidthPx: number,
+ *   plateThicknessPx: number,
+ *   plate: [number, number, number, number],
+ *   legs: Array<[number, number, number, number]>,
+ * }}
+ */
+export function stagePlotSatelliteAtrilGeometry(atrilPx) {
+  const platePx =
+    atrilPx != null && Number.isFinite(atrilPx)
+      ? atrilPx
+      : STAGE_PLOT_ATRIL_LINE_CM * STAGE_PLOT_CM_TO_PX;
+  const plateThicknessPx = STAGE_PLOT_ATRIL_PLATE_STROKE_PX;
+  const cx = 0;
+  const cy = 0;
+  const shaftLen = STAGE_PLOT_ATRIL_SHAFT_CM * STAGE_PLOT_CM_TO_PX;
+  const legLen = STAGE_PLOT_ATRIL_LEG_CM * STAGE_PLOT_CM_TO_PX;
+  const legs = STAGE_PLOT_ATRIL_LEG_ANGLES_RAD.map((angle, i) => {
+    const len = i === 0 ? shaftLen : legLen;
+    return [cx, cy, cx + len * Math.cos(angle), cy + len * Math.sin(angle)];
+  });
+  return {
+    plateWidthPx: platePx,
+    plateThicknessPx,
+    plate: [-platePx / 2, cy, platePx / 2, cy],
+    legs,
+  };
+}
+
+/**
+ * @deprecated Usar stagePlotSatelliteAtrilGeometry. Alias legacy para compat.
+ * @param {number} _depthPx ignorado
+ * @param {number} atrilPx
+ */
+export function stagePlotAtrilFootprintGeometry(_depthPx, atrilPx) {
+  return stagePlotSatelliteAtrilGeometry(atrilPx);
 }
 
 /** Límites de escala por ítem (Transformer + persistencia). */

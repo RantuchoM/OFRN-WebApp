@@ -1,7 +1,7 @@
 /**
  * Assets SVG: game-icons.net (CC BY 3.0) + FreeSVG/OpenClipart CC0
  * (violin/viola/cello/bass/guitar/bandoneon/flute con colores de origen) +
- * oboe Gerald_G (silueta currentColor).
+ * oboe Gerald_G (silueta currentColor) + music-stand OFRN original.
  * Atribución: public/stage-plot/ATTRIBUTION.md
  */
 
@@ -10,7 +10,7 @@ import { STAGE_PLOT_SILHOUETTE_VIEWBOX } from "./stagePlotSilhouettes";
 /** Keep in sync with STAGE_PLOT_CM_TO_PX (avoid circular import with stagePlotConstants). */
 const STAGE_PLOT_CM_TO_PX_LOCAL = 4;
 
-/** Archivo en /stage-plot/icons/ (game-icons CC BY 3.0; vn/va/vc/bass = FreeSVG CC0; flute/oboe = Gerald_G) */
+/** Archivo en /stage-plot/icons/ (game-icons CC BY 3.0; vn/va/vc/bass = FreeSVG CC0; flute/oboe = Gerald_G; music_stand = OFRN) */
 export const STAGE_PLOT_ICON_FILES = {
   violin: "violin.svg",
   viola: "viola.svg",
@@ -38,7 +38,8 @@ export const STAGE_PLOT_ICON_FILES = {
   piano: "grand-piano.svg",
   celesta: "keyboard.svg",
   chair: "desk.svg",
-  // music_stand: sin equivalente game-icons — silhouette fallback (upright)
+  /** Atril OFRN-original (plato + 3 palitos 120°); no hay equivalente game-icons. */
+  music_stand: "music-stand.svg",
   conductor: "person.svg",
   riser: "stairs.svg",
   mic: "microphone.svg",

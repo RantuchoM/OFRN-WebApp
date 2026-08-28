@@ -36,7 +36,7 @@ El resto del pack en esta carpeta sigue siendo game-icons (abajo). No usar Delap
 
 ## Game Icons (CC BY 3.0)
 
-Los demás SVG en `public/stage-plot/icons/` (salvo `flute.svg`, guitarra papapishu, bandoneón FreeSVG y las **cuerdas FreeSVG** arriba) provienen de
+Los demás SVG en `public/stage-plot/icons/` (salvo `flute.svg`, guitarra papapishu, bandoneón FreeSVG, las **cuerdas FreeSVG** arriba y `music-stand.svg` OFRN) provienen de
 [game-icons.net](https://game-icons.net)
 ([repositorio](https://github.com/game-icons/icons)), licencia
 [Creative Commons Attribution 3.0](https://creativecommons.org/licenses/by/3.0/).
@@ -76,11 +76,20 @@ Formato de atribución sugerido por game-icons.net:
 
 > Icons made by [author]. Available on https://game-icons.net
 
+## OFRN original — atril / music stand
+
+| Archivo | Fuente | Uso en OFRN |
+|---------|--------|-------------|
+| music-stand.svg | **OFRN original** (geometría propia; plato `#1e293b` + patas `#64748b`) — esquema mínimo: rectángulo horizontal + tres palitos a **120°** desde el centro (uno vertical arriba, dos diagonales abajo) | `music_stand` (paleta Escenario «Atril») |
+
+No hay equivalente usable en game-icons; se dibujó a propósito para leerse a ~22 px en paleta y ~50×50 cm en lienzo. Colores fijos (no `currentColor`) para legibilidad en miniatura.
+
 ## Paths propios (fallback)
 
-Piezas **sin** archivo en `STAGE_PLOT_ICON_FILES` (`music_stand`, `mic_stand`, `di`, `mark_x`, etc.)
+Piezas **sin** archivo en `STAGE_PLOT_ICON_FILES` (`mic_stand`, `di`, `mark_x`, `banqueta`, etc.)
 usan siluetas vectoriales propias en `src/utils/stagePlotSilhouettes.js` (dominio OFRN).
-El atril (`music_stand`) queda en silhouette upright (desk arriba, trípode abajo).
+`music_stand` tiene SVG primario (`music-stand.svg`); la silueta en `stagePlotSilhouettes.js`
+queda como fallback alineado (mismo esquema plato + 3 palitos 120°).
 El tipo `text` **no** usa icono ni silueta (ni `musical-notes.svg` ni glifo TT): solo el
 label tipográfico en lienzo/PDF; la paleta muestra el nombre «Texto» sin pictograma.
 

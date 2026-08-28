@@ -3,6 +3,7 @@ import {
   stagePlotItemHasInstrumentFootprint,
   stagePlotItemUsesBanqueta,
 } from "./stagePlotCatalog";
+import { countStagePlotDrawnAtriles } from "./stagePlotAtril";
 
 /**
  * Filas de orgánico para comparar plano vs roster convocado.
@@ -231,8 +232,9 @@ export function atrilesFromOrganicoCounts(countsByKey = {}, extraOnes = 0) {
  *
  * @param {Array} items
  * @param {Array} roster
+ * @param {Array} [groups]
  */
-export function computeStagePlotFurnitureSummary(items = [], roster = []) {
+export function computeStagePlotFurnitureSummary(items = [], roster = [], groups = []) {
   let sillasNeeded = 0;
   let banquetasNeeded = 0;
   const atrilBuckets = Object.fromEntries(
@@ -299,7 +301,7 @@ export function computeStagePlotFurnitureSummary(items = [], roster = []) {
 
   const banquetasDrawn = banquetasDrawnBass + banquetasDrawnManual;
   const atrilesNeeded = atrilesFromOrganicoCounts(atrilBuckets, atrilExtraNeeded);
-  const atrilesDrawn = atrilesFromOrganicoCounts(drawnBuckets, atrilExtraDrawn);
+  const atrilesDrawn = countStagePlotDrawnAtriles(items, groups);
 
   const row = (key, label, drawn, required) => {
     const delta = drawn - required;

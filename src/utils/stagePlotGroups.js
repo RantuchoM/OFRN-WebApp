@@ -3,6 +3,18 @@
  * Independiente de formaciones (slotId).
  */
 
+import {
+  STAGE_PLOT_STRING_PAIR_SPACING_CM,
+  STAGE_PLOT_STRING_PAIR_TYPES,
+  computeSatelliteAtrilPlacement,
+  resolveStagePlotConductorPoint,
+} from "./stagePlotAtril";
+import {
+  createStagePlotItem,
+} from "./stagePlotPayload";
+import { STAGE_PLOT_CM_TO_PX } from "./stagePlotConstants";
+import { rotationInstrumentBaseFacingPoint } from "./stagePlotFormations";
+
 function newId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -38,9 +50,17 @@ export function normalizeStagePlotGroup(g) {
     o.alignSpan != null && Number.isFinite(Number(o.alignSpan))
       ? Math.max(0, Number(o.alignSpan))
       : undefined;
+  const kind =
+    o.kind === "string_pair" ? "string_pair" : o.kind === "align" ? "align" : undefined;
+  const instrumentType =
+    typeof o.instrumentType === "string" && o.instrumentType
+      ? o.instrumentType
+      : undefined;
   return {
     id: String(o.id || newId()),
     itemIds,
+    ...(kind ? { kind } : {}),
+    ...(instrumentType ? { instrumentType } : {}),
     ...(alignAngle != null ? { alignAngle } : {}),
     ...(alignAnchor ? { alignAnchor } : {}),
     ...(alignSpan != null ? { alignSpan } : {}),
@@ -370,4 +390,87 @@ export function resolveSharedAlignGroup(payload, selectedIds) {
   const members = getGroupMemberIds(payload, groupIds[0]);
   if (!members.every((id) => ids.includes(id))) return null;
   return group;
+}
+
+/**
+ * Inserta un par de cuerdas (mismo tipo) con atril compartido satélite.
+ * Layout: dos huellas lado a lado, base hacia director; atril en el midpoint + 40 cm hacia director.
+ *
+ * @param {ReturnType<typeof import('./stagePlotPayload').normalizeStagePlotPayload>} payload
+ * @param {string} type — violin | viola | cello | bass
+ * @param {number} centerX
+ * @param {number} centerY
+ * @param {number} zStart — z del primer ítem
+ */
+export function insertStagePlotStringPair(payload, type, centerX, centerY, zStart) {
+  if (!STAGE_PLOT_STRING_PAIR_TYPES.has(type)) return payload;
+
+  const items = payload.items || [];
+  const stage = payload.stage || {};
+  const conductor = resolveStagePlotConductorPoint(items, stage);
+  const placement = computeSatelliteAtrilPlacement(
+    centerX,
+    centerY,
+    conductor.x,
+    conductor.y,
+    0,
+  );
+  const tangentRad = (placement.rotationDeg * Math.PI) / 180;
+  const halfSpacing =
+    (STAGE_PLOT_STRING_PAIR_SPACING_CM * STAGE_PLOT_CM_TO_PX) / 2;
+  const tx = Math.cos(tangentRad);
+  const ty = Math.sin(tangentRad);
+
+  const pos1 = {
+    x: centerX - halfSpacing * tx,
+    y: centerY - halfSpacing * ty,
+  };
+  const pos2 = {
+    x: centerX + halfSpacing * tx,
+    y: centerY + halfSpacing * ty,
+  };
+
+  const facing = conductor;
+  const rot1 = rotationInstrumentBaseFacingPoint(
+    pos1.x,
+    pos1.y,
+    facing.x,
+    facing.y,
+  );
+  const rot2 = rotationInstrumentBaseFacingPoint(
+    pos2.x,
+    pos2.y,
+    facing.x,
+    facing.y,
+  );
+
+  const item1 = createStagePlotItem(type, pos1.x, pos1.y, zStart, {
+    items,
+    stage,
+    rotation: rot1,
+  });
+  const item2 = createStagePlotItem(type, pos2.x, pos2.y, zStart + 1, {
+    items,
+    stage,
+    rotation: rot2,
+  });
+  const groupId = newId();
+  const group = {
+    id: groupId,
+    kind: "string_pair",
+    instrumentType: type,
+    itemIds: [item1.id, item2.id],
+  };
+
+  const nextItems = [
+    ...items,
+    { ...item1, groupId, slotId: null },
+    { ...item2, groupId, slotId: null },
+  ];
+
+  return reconcileStagePlotGroups({
+    ...payload,
+    items: nextItems,
+    groups: [...(payload.groups || []), group],
+  });
 }

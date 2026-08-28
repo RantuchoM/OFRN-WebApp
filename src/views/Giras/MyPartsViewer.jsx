@@ -13,6 +13,10 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { seatingItemMatrixPosition } from "../../services/giraService";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
+import {
+  fetchCuerdasConfigsForProgram,
+  resolveCuerdasConfigForBlock,
+} from "../../utils/seatingCuerdasConfig";
 import GiraGrupoChips from "../../components/giras/GiraGrupoChips";
 import {
   fetchGiraGrupos,
@@ -693,7 +697,7 @@ export default function MyPartsViewer({
           : "Sin instrumento asignado",
       );
 
-      // 2. Obtener el Contenedor (Atril) CON DATOS EXTRA
+      // 2. Obtener el Contenedor (Atril) CON DATOS EXTRA (puede haber uno por config)
       const { data: seatingJoinRows } = await supabase
         .from("seating_contenedores_items")
         .select(`
@@ -702,17 +706,37 @@ export default function MyPartsViewer({
             orden,
             atril_num,
             lado,
-            seating_contenedores!inner (id, id_programa, nombre, orden)
+            seating_contenedores!inner (id, id_programa, id_config, nombre, orden)
         `)
         .eq("id_musico", user.id)
         .eq("seating_contenedores.id_programa", gira.id);
       const seatingContainers = (seatingJoinRows || [])
         .map((row) => row.seating_contenedores)
         .filter(Boolean);
-      const seatingJoin =
-        dedupeSeatingStringItems(seatingJoinRows || [], seatingContainers)[0] ||
-        null;
+      const seatingJoinsDeduped = dedupeSeatingStringItems(
+        seatingJoinRows || [],
+        seatingContainers,
+      );
 
+      const cuerdasConfigs = await fetchCuerdasConfigsForProgram(
+        supabase,
+        gira.id,
+      );
+
+      const resolveMyContainerForBlock = (blockId) => {
+        const cfg = resolveCuerdasConfigForBlock(cuerdasConfigs, blockId);
+        if (!cfg) return seatingJoinsDeduped[0] || null;
+        return (
+          seatingJoinsDeduped.find(
+            (row) =>
+              String(row.seating_contenedores?.id_config) === String(cfg.id),
+          ) ||
+          seatingJoinsDeduped[0] ||
+          null
+        );
+      };
+
+      const seatingJoin = resolveMyContainerForBlock(null);
       const myContainerId = seatingJoin?.id_contenedor;
 
       // Calcular info de atril si existe
@@ -793,6 +817,9 @@ export default function MyPartsViewer({
           if (!item.obras) return;
           const obra = item.obras;
 
+          const blockSeating = resolveMyContainerForBlock(cat.id);
+          const blockContainerId = blockSeating?.id_contenedor;
+
           // Triangulación
           const workAsigns = assignments.filter(
             (a) => String(a.id_obra) === String(obra.id),
@@ -804,8 +831,8 @@ export default function MyPartsViewer({
           );
           const groupAsign = workAsigns.find(
             (a) =>
-              myContainerId &&
-              String(a.id_contenedor) === String(myContainerId),
+              blockContainerId &&
+              String(a.id_contenedor) === String(blockContainerId),
           );
           const finalAsigns =
             specificAsigns.length > 0

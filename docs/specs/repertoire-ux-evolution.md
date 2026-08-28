@@ -443,7 +443,8 @@ Permitir que el músico descargue de una vez todas sus partes disponibles desde 
 - [x] Tabla `programas_repertorios_grupos` (migración `20260813140000_programas_repertorios_grupos.sql`, applied linked). Vacío = todos; ≥1 grupo = solo esos miembros.
 - [x] **Staff** (`RepertoireManager`): multi-select de grupos en el header del bloque, **oculto** si la gira no tiene grupos. Placeholder “Todos…”.
 - [x] **Músicos**: chips de grupo en el bloque (repertorio + Mis Partes). Mis Partes omite bloques de grupos a los que no pertenece.
-- [x] **Seating**: con grupo en el bloque activo, el roster visible (vientos + atriles) se recorta a miembros del grupo, encima de `useGiraRoster` / ausencia / confirmado. Sin grupo = todos. PDF/Excel, config de cuerdas y descarga de particellas siguen el programa completo. Chips en las pestañas de bloque (chrome tipo carpeta intacto).
+- [x] **Seating**: con grupo en el bloque activo, el roster visible (vientos + atriles + **panel de cuerdas**) se recorta a miembros del grupo, encima de `useGiraRoster` / ausencia / confirmado. Sin grupo = todos. PDF/Excel y descarga de particellas siguen el programa completo. Chips en las pestañas de bloque (chrome tipo carpeta intacto).
+- [x] **Configs de cuerdas**: oferta «Config para este bloque» (duplica + asocia **1:1** al bloque activo) cuando la disposición es compartida. Sin chips multi-asociación.
 - [x] No se inventa otro sistema de grupos: reutiliza `giras_grupos` / `giraGruposService` / chips de agenda.
 
 ### Completado (2026-08-13) — Chip de grupo compacto en pestañas inactivas de Seating
@@ -775,4 +776,11 @@ Set de **16** arreglos sinfónicos de **Bob Marley** en [Para acomodar / Bahiano
 ### Completado (2026-08-26) — Orden seating vientos con parte duplicada
 - [x] `sortWindMusiciansForSeating` (`seatingWindOrder.js`): dentro del mismo `id_instr`, el número de parte se toma de la **primera obra sin duplicados** (p. ej. dos músicos con «Flauta 1» en la obra 1 → se usa la obra 2 donde uno es 1 y el otro 2). Aplica a cualquier instrumento. Fallback: primera parte disponible + apellido.
 - [x] En `ProgramSeating`, el orden visible usa `displayObras` (bloque activo).
+
+### Completado (2026-08-27) — Configs de cuerdas multi-bloque
+- [x] Tabla `seating_cuerdas_configs` + `seating_contenedores.id_config` (migración `20260827221517`, applied linked). Backfill: una config «Cuerdas» por gira con atriles.
+- [x] Semántica: 1 config → todos los bloques; N configs → `bloque_ids[]` + fallback global. Unicidad de músico por config.
+- [x] `GlobalStringsManager`: pills, crear/duplicar/eliminar/renombrar, panel Asociar bloques.
+- [x] `ProgramSeating` resuelve config por bloque activo y carga atriles filtrados.
+- [x] PDF multi-sección; Mis Partes / Str labels / reports / roster usan config primaria o resolución por bloque.
 

@@ -1114,13 +1114,23 @@ export const getAllConcertVenues = async (supabase) => {
         id_tipo_evento,
         id_gira,
         id_locacion,
-        locaciones ( id, nombre, direccion, localidades (localidad) ),
+        id_repertorio,
+        locaciones (
+          id,
+          nombre,
+          direccion,
+          escenario_ancho_cm,
+          escenario_profundo_cm,
+          localidades ( localidad )
+        ),
         programas ( id, nombre_gira, nomenclador, tipo ),
         venue_status_types ( id, nombre, color, slug ),
-        eventos_venue_log ( nota, created_at )
+        eventos_venue_log ( nota, created_at ),
+        eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )
       `,
       )
       .eq("id_tipo_evento", 1)
+      .not("id_locacion", "is", null)
       .order("fecha", { ascending: true })
       .order("hora_inicio", { ascending: true });
 

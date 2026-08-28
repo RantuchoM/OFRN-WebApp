@@ -1,4 +1,15 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
+import {
+  ensureDefaultCuerdasConfig,
+  duplicateCuerdasConfig,
+  fetchCuerdasConfigsForProgram,
+  normalizeCuerdasBloqueIds,
+  sortCuerdasConfigs,
+  uncoveredCuerdasBlockIds,
+  findCuerdasConfigOwnerForBlock,
+  claimCuerdasBloqueOneToOne,
+} from "../../utils/seatingCuerdasConfig";
 import {
   IconLayers,
   IconLoader,
@@ -10,6 +21,7 @@ import {
   IconEdit,
   IconChevronDown,
   IconBulb,
+  IconCopy,
 } from "../ui/Icons";
 import DateInput from "../ui/DateInput";
 import {
@@ -20,6 +32,7 @@ import {
 } from "../../services/giraService";
 import { getDuplicateSeatingStringItemIds } from "../../utils/seatingStringItemsDedupe";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import { toast } from "sonner";
 
 const PROGRAM_TYPES = [
   { value: "Todos", label: "Todos" },
@@ -90,10 +103,26 @@ const ImportSeatingModal = ({
       const ids = programasData.map((p) => p.id);
       const { data: contenedores } = await supabase
         .from("seating_contenedores")
-        .select("id, id_programa, nombre, id_instrumento, orden")
+        .select("id, id_programa, id_config, nombre, id_instrumento, orden")
         .in("id_programa", ids);
 
-      const contIds = (contenedores || []).map((c) => c.id);
+      // Preferir contenedores de la config primaria (sort_order) por programa
+      const primaryByProgram = new Map();
+      await Promise.all(
+        ids.map(async (pid) => {
+          const cfgs = await fetchCuerdasConfigsForProgram(supabase, pid);
+          const primary = sortCuerdasConfigs(cfgs)[0];
+          if (primary) primaryByProgram.set(pid, Number(primary.id));
+        }),
+      );
+
+      const filteredConts = (contenedores || []).filter((c) => {
+        const primaryId = primaryByProgram.get(c.id_programa);
+        if (primaryId == null) return true;
+        return Number(c.id_config) === primaryId;
+      });
+
+      const contIds = filteredConts.map((c) => c.id);
       let itemsByContainer = {};
       if (contIds.length > 0) {
         const { data: items } = await supabase
@@ -111,7 +140,7 @@ const ImportSeatingModal = ({
       }
 
       const grouped = {};
-      (contenedores || []).forEach((c) => {
+      filteredConts.forEach((c) => {
         if (!grouped[c.id_programa]) grouped[c.id_programa] = [];
         grouped[c.id_programa].push(c);
       });
@@ -449,6 +478,15 @@ export default function GlobalStringsManager({
   supabase,
   readOnly,
   fillHeight = false,
+  configs = [],
+  activeConfigId = null,
+  repertoireBlocks = [],
+  activeBlockId = null,
+  activeBlockName = null,
+  rosterFilteredByBlock = false,
+  toolbarHostEl = null,
+  onConfigsChange = null,
+  onSelectConfig = null,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const getItemMatrixPosition = (item, fallbackIndex = 0) =>
@@ -476,6 +514,71 @@ export default function GlobalStringsManager({
     return tooltipParts.join(" ");
   };
 
+  const sortedConfigs = useMemo(() => sortCuerdasConfigs(configs), [configs]);
+  const activeConfig = useMemo(
+    () =>
+      sortedConfigs.find((c) => String(c.id) === String(activeConfigId)) ||
+      sortedConfigs[0] ||
+      null,
+    [sortedConfigs, activeConfigId],
+  );
+  const effectiveConfigId = activeConfig?.id ?? null;
+
+  const [renamingConfigId, setRenamingConfigId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [configBusy, setConfigBusy] = useState(false);
+
+  const blockOptions = useMemo(
+    () =>
+      (repertoireBlocks || []).map((b) => ({
+        id: Number(b.id),
+        nombre: b.nombre || `Bloque ${b.id}`,
+      })),
+    [repertoireBlocks],
+  );
+
+  const uncoveredBlocks = useMemo(
+    () =>
+      uncoveredCuerdasBlockIds(
+        sortedConfigs,
+        blockOptions.map((b) => b.id),
+      ),
+    [sortedConfigs, blockOptions],
+  );
+
+  const activeBlockIdNum =
+    activeBlockId != null && activeBlockId !== ""
+      ? Number(activeBlockId)
+      : null;
+
+  const configExclusiveToActiveBlock = useMemo(() => {
+    if (!Number.isFinite(activeBlockIdNum) || !activeConfig) return false;
+    const ids = normalizeCuerdasBloqueIds(activeConfig.bloque_ids);
+    return ids.length === 1 && ids[0] === activeBlockIdNum;
+  }, [activeConfig, activeBlockIdNum]);
+
+  /** Ofrecer config propia del bloque cuando la actual es compartida. */
+  const showIndependentConfigOffer =
+    !readOnly &&
+    Number.isFinite(activeBlockIdNum) &&
+    blockOptions.length > 1 &&
+    effectiveConfigId != null &&
+    !configExclusiveToActiveBlock;
+
+  const emitConfigs = async (nextActiveId = effectiveConfigId) => {
+    const list = await fetchCuerdasConfigsForProgram(supabase, programId);
+    if (onConfigsChange) await onConfigsChange(list, nextActiveId);
+    return list;
+  };
+
+  const resolveConfigIdOrCreate = async () => {
+    if (effectiveConfigId != null) return effectiveConfigId;
+    const created = await ensureDefaultCuerdasConfig(supabase, programId);
+    if (!created) return null;
+    await emitConfigs(created.id);
+    return created.id;
+  };
+
   const validMusicianIds = useMemo(() => new Set(roster.map((m) => m.id)), [roster]);
   const displayContainers = useMemo(() => containers.map((c) => ({ ...c, validItems: c.items?.filter((i) => validMusicianIds.has(i.id_musico)) || [] })), [containers, validMusicianIds]);
   const stringMusicians = useMemo(() => roster.filter((m) => ["01", "02", "03", "04"].includes(m.id_instr)), [roster]);
@@ -496,12 +599,13 @@ export default function GlobalStringsManager({
   const [previewMap, setPreviewMap] = useState({}); // { [itemId]: { atril_num, lado, orden } }
 
   const cleanupDuplicateMusiciansOnServer = async () => {
-    if (!supabase || !programId) return;
+    if (!supabase || !programId || effectiveConfigId == null) return;
 
     const { data: programContainers, error: containersError } = await supabase
       .from("seating_contenedores")
       .select("id, orden")
       .eq("id_programa", programId)
+      .eq("id_config", effectiveConfigId)
       .order("orden");
 
     if (containersError) throw containersError;
@@ -606,16 +710,262 @@ export default function GlobalStringsManager({
   const hasSeatingSuggestions =
     Object.keys(seatingSuggestionsByContainer).length > 0;
 
+  const blockLabelFor = (blockId) => {
+    const bid = Number(blockId);
+    return (
+      blockOptions.find((b) => b.id === bid)?.nombre ||
+      (Number.isFinite(bid) ? `Bloque ${bid}` : null)
+    );
+  };
+
+  const linkedBlockIdOf = (cfg) => {
+    const ids = normalizeCuerdasBloqueIds(cfg?.bloque_ids);
+    return ids.length === 1 ? ids[0] : null;
+  };
+
+  /** Rechaza si otro config ya es dueño 1:1 del bloque activo. */
+  const assertActiveBlockFreeOrOwnedBy = (configId, siblings) => {
+    if (!Number.isFinite(activeBlockIdNum)) return { ok: true };
+    const owner = findCuerdasConfigOwnerForBlock(siblings, activeBlockIdNum);
+    if (owner && String(owner.id) !== String(configId)) {
+      return {
+        ok: false,
+        message: `«${blockLabelFor(activeBlockIdNum)}» ya tiene la config «${
+          owner.nombre || "Cuerdas"
+        }».`,
+      };
+    }
+    return { ok: true };
+  };
+
+  const handleCreateConfig = async () => {
+    if (readOnly || configBusy) return;
+    setConfigBusy(true);
+    try {
+      await resolveConfigIdOrCreate();
+      const siblings = await fetchCuerdasConfigsForProgram(supabase, programId);
+      if (Number.isFinite(activeBlockIdNum)) {
+        const gate = assertActiveBlockFreeOrOwnedBy(null, siblings);
+        if (!gate.ok) {
+          toast.error(gate.message);
+          return;
+        }
+      }
+      const nextOrder =
+        siblings.reduce((max, c) => Math.max(max, c.sort_order ?? 0), -1) + 1;
+      const blockLabel = Number.isFinite(activeBlockIdNum)
+        ? blockLabelFor(activeBlockIdNum)
+        : null;
+      const { data, error } = await supabase
+        .from("seating_cuerdas_configs")
+        .insert({
+          id_programa: programId,
+          nombre: blockLabel ? `Cuerdas · ${blockLabel}` : `Cuerdas ${siblings.length + 1}`,
+          sort_order: nextOrder,
+          bloque_ids: Number.isFinite(activeBlockIdNum) ? [activeBlockIdNum] : [],
+        })
+        .select("id, id_programa, nombre, sort_order, bloque_ids, created_at")
+        .single();
+      if (error || !data) {
+        toast.error(error?.message || "No se pudo crear la config");
+        return;
+      }
+      if (Number.isFinite(activeBlockIdNum)) {
+        const claim = await claimCuerdasBloqueOneToOne(supabase, {
+          programId,
+          configId: data.id,
+          bloqueId: activeBlockIdNum,
+        });
+        if (claim.error) {
+          toast.error(claim.error);
+          return;
+        }
+      }
+      await emitConfigs(data.id);
+      toast.success(
+        blockLabel
+          ? `Config creada para «${blockLabel}»`
+          : "Config creada",
+      );
+    } finally {
+      setConfigBusy(false);
+    }
+  };
+
+  const handleDuplicateConfig = async () => {
+    if (readOnly || configBusy || effectiveConfigId == null) return;
+    setConfigBusy(true);
+    try {
+      const siblings = await fetchCuerdasConfigsForProgram(supabase, programId);
+      if (Number.isFinite(activeBlockIdNum)) {
+        const gate = assertActiveBlockFreeOrOwnedBy(null, siblings);
+        if (!gate.ok) {
+          toast.error(gate.message);
+          return;
+        }
+      }
+      const blockLabel = Number.isFinite(activeBlockIdNum)
+        ? blockLabelFor(activeBlockIdNum)
+        : null;
+      const { config, error } = await duplicateCuerdasConfig(
+        supabase,
+        effectiveConfigId,
+        {
+          nombre: blockLabel
+            ? `Cuerdas · ${blockLabel}`
+            : undefined,
+          bloque_ids: Number.isFinite(activeBlockIdNum)
+            ? [activeBlockIdNum]
+            : [],
+        },
+      );
+      if (error || !config) {
+        toast.error(error || "No se pudo duplicar");
+        return;
+      }
+      if (Number.isFinite(activeBlockIdNum)) {
+        const claim = await claimCuerdasBloqueOneToOne(supabase, {
+          programId,
+          configId: config.id,
+          bloqueId: activeBlockIdNum,
+        });
+        if (claim.error) {
+          toast.error(claim.error);
+          return;
+        }
+      }
+      await emitConfigs(config.id);
+      toast.success(
+        blockLabel
+          ? `Config duplicada para «${blockLabel}»`
+          : "Config duplicada",
+      );
+    } finally {
+      setConfigBusy(false);
+    }
+  };
+
+  const handleCreateIndependentForBlock = async () => {
+    if (
+      readOnly ||
+      configBusy ||
+      effectiveConfigId == null ||
+      !Number.isFinite(activeBlockIdNum)
+    ) {
+      return;
+    }
+    const blockLabel = blockLabelFor(activeBlockIdNum);
+    setConfigBusy(true);
+    try {
+      const siblings = await fetchCuerdasConfigsForProgram(supabase, programId);
+      const gate = assertActiveBlockFreeOrOwnedBy(null, siblings);
+      if (!gate.ok) {
+        toast.error(gate.message);
+        return;
+      }
+      const { config, error } = await duplicateCuerdasConfig(
+        supabase,
+        effectiveConfigId,
+        {
+          nombre: `Cuerdas · ${blockLabel}`,
+          bloque_ids: [activeBlockIdNum],
+        },
+      );
+      if (error || !config) {
+        toast.error(error || "No se pudo crear la config");
+        return;
+      }
+      const claim = await claimCuerdasBloqueOneToOne(supabase, {
+        programId,
+        configId: config.id,
+        bloqueId: activeBlockIdNum,
+      });
+      if (claim.error) {
+        toast.error(claim.error);
+        return;
+      }
+      await emitConfigs(config.id);
+      toast.success(`Config para «${blockLabel}»`);
+    } finally {
+      setConfigBusy(false);
+    }
+  };
+
+  const handleDeleteConfig = async () => {
+    if (readOnly || configBusy || effectiveConfigId == null) return;
+    if (sortedConfigs.length <= 1) {
+      toast.error("Debe quedar al menos una config de cuerdas.");
+      return;
+    }
+    const ok = await confirm({
+      title: "Eliminar config",
+      message: `¿Eliminar «${activeConfig?.nombre || "Cuerdas"}» y todos sus atriles?`,
+      destructive: true,
+    });
+    if (!ok) return;
+    setConfigBusy(true);
+    try {
+      const { error } = await supabase
+        .from("seating_cuerdas_configs")
+        .delete()
+        .eq("id", effectiveConfigId);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      const list = await fetchCuerdasConfigsForProgram(supabase, programId);
+      const next = list[0]?.id ?? null;
+      await onConfigsChange?.(list, next);
+      toast.success("Config eliminada");
+    } finally {
+      setConfigBusy(false);
+    }
+  };
+
+  const handleRenameConfig = async (configId) => {
+    const name = (renameDraft || "").trim();
+    if (!name) {
+      setRenamingConfigId(null);
+      return;
+    }
+    const { error } = await supabase
+      .from("seating_cuerdas_configs")
+      .update({ nombre: name })
+      .eq("id", configId);
+    setRenamingConfigId(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    await emitConfigs(effectiveConfigId);
+  };
+
   const createContainer = async () => {
     if (readOnly) return;
+    const configId = await resolveConfigIdOrCreate();
+    if (configId == null) {
+      toast.error("No se pudo crear la config de cuerdas.");
+      return;
+    }
     const name = prompt("Nombre del grupo:", `Grupo ${containers.length + 1}`);
     if (!name) return;
-    await supabase.from("seating_contenedores").insert({ id_programa: programId, nombre: name, orden: containers.length, id_instrumento: "00" });
+    await supabase.from("seating_contenedores").insert({
+      id_programa: programId,
+      id_config: configId,
+      nombre: name,
+      orden: containers.length,
+      id_instrumento: "00",
+    });
     await refreshAfterContainerChange();
   };
 
   const createBaseContainers = async () => {
     if (readOnly || isCreatingBase) return;
+    const configId = await resolveConfigIdOrCreate();
+    if (configId == null) {
+      toast.error("No se pudo crear la config de cuerdas.");
+      return;
+    }
     if (containers.length > 0) {
       const ok = await confirm({
         title: "Agregar grupos base",
@@ -631,6 +981,7 @@ export default function GlobalStringsManager({
           : 0;
       const rows = BASE_STRING_CONTAINERS.map((def, index) => ({
         id_programa: programId,
+        id_config: configId,
         nombre: def.nombre,
         orden: startOrder + index,
         id_instrumento: def.id_instrumento,
@@ -984,15 +1335,20 @@ export default function GlobalStringsManager({
         sourceItemsByContainer[it.id_contenedor].push(it);
       });
 
-      // Si el modo es full_replace, limpiamos todos los contenedores del programa actual
+      // Si el modo es full_replace, limpiamos los contenedores de esta config
       if (mode === "full_replace") {
         if (
           !(await confirm({
             title: "Reemplazar disposición",
-            message: "Esto eliminará todos los grupos y sus integrantes actuales. ¿Continuar?",
+            message: "Esto eliminará todos los grupos y sus integrantes de esta config. ¿Continuar?",
             destructive: true,
           }))
         ) {
+          setIsImporting(false);
+          return;
+        }
+        const configId = await resolveConfigIdOrCreate();
+        if (configId == null) {
           setIsImporting(false);
           return;
         }
@@ -1006,17 +1362,25 @@ export default function GlobalStringsManager({
         await supabase
           .from("seating_contenedores")
           .delete()
-          .eq("id_programa", programId);
+          .eq("id_config", configId);
       }
 
       // Mapa de contenedores actuales por nombre normalizado (para match inteligente)
       const normalizeName = (name) =>
         (name || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
+      const configIdForImport = await resolveConfigIdOrCreate();
+      if (configIdForImport == null) {
+        setIsImporting(false);
+        toast.error("No hay config de cuerdas activa.");
+        return;
+      }
+
       let { data: currentContainers } = await supabase
         .from("seating_contenedores")
         .select("*")
         .eq("id_programa", programId)
+        .eq("id_config", configIdForImport)
         .order("orden");
 
       currentContainers = currentContainers || [];
@@ -1083,6 +1447,7 @@ export default function GlobalStringsManager({
           .from("seating_contenedores")
           .insert({
             id_programa: programId,
+            id_config: configIdForImport,
             nombre: srcCont.nombre,
             id_instrumento: srcCont.id_instrumento || "00",
             orden: currentOrderIndex++,
@@ -1537,65 +1902,219 @@ export default function GlobalStringsManager({
           </div>
         </div>
       )}
-      <div className="flex justify-between items-center mb-3 shrink-0">
-        <h3 className="font-bold text-slate-700 flex items-center gap-2 text-sm"><IconLayers size={16} /> Disposición de Cuerdas</h3>
-        {!readOnly && (
-          <div className="flex items-center gap-2">
-            {hasSeatingSuggestions && (
-              <button
-                onClick={() => applySeatingSuggestions()}
-                className="bg-orange-100 border border-orange-300 text-orange-800 px-2 py-1 rounded text-[10px] font-bold hover:bg-orange-200 flex items-center gap-1"
-                title="Aplicar sugerencias de compactación y superposición"
-              >
-                <IconBulb size={12} /> Aplicar sugerencias
-              </button>
-            )}
-            <span className="text-[10px] text-slate-400 italic mr-2 hidden sm:inline">
-              Arrastra para reordenar
-            </span>
-            <button
-              onClick={() => {
-                const initialPreview = buildPreviewForMode(reorderMode);
-                setPreviewMap(initialPreview);
-                setShowReorderModal(true);
-              }}
-              className="bg-white border border-slate-300 text-slate-600 px-2 py-1 rounded text-[10px] font-bold hover:bg-slate-50 flex items-center gap-1"
+      <div className="flex flex-col gap-2 mb-3 shrink-0">
+        {(() => {
+          const configPills = (
+            <div
+              className={`flex flex-wrap items-center gap-1.5 ${
+                toolbarHostEl ? "justify-end" : ""
+              }`}
             >
-              <IconEdit size={12} /> Reordenar
-            </button>
+              {sortedConfigs.map((cfg) => {
+                const isActive = String(cfg.id) === String(effectiveConfigId);
+                const linkedId = linkedBlockIdOf(cfg);
+                const linkedBlock = linkedId != null ? blockLabelFor(linkedId) : null;
+                if (
+                  renamingConfigId != null &&
+                  String(renamingConfigId) === String(cfg.id)
+                ) {
+                  return (
+                    <input
+                      key={cfg.id}
+                      autoFocus
+                      className="rounded-full border border-indigo-300 px-2 py-0.5 text-[11px] font-bold text-indigo-800 outline-none"
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onBlur={() => handleRenameConfig(cfg.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleRenameConfig(cfg.id);
+                        if (e.key === "Escape") setRenamingConfigId(null);
+                      }}
+                    />
+                  );
+                }
+                return (
+                  <button
+                    key={cfg.id}
+                    type="button"
+                    onClick={() => onSelectConfig?.(cfg.id)}
+                    onDoubleClick={() => {
+                      if (readOnly) return;
+                      setRenamingConfigId(cfg.id);
+                      setRenameDraft(cfg.nombre || "Cuerdas");
+                    }}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-bold border transition-colors ${
+                      isActive
+                        ? "bg-indigo-600 text-white border-indigo-600"
+                        : "bg-white text-slate-600 border-slate-300 hover:border-indigo-300 hover:bg-indigo-50"
+                    }`}
+                    title={
+                      linkedBlock
+                        ? `Bloque: ${linkedBlock} · Doble clic para renombrar`
+                        : "Doble clic para renombrar"
+                    }
+                  >
+                    {cfg.nombre || "Cuerdas"}
+                    {linkedBlock && !(cfg.nombre || "").includes(linkedBlock) && (
+                      <span
+                        className={`ml-1 font-semibold ${
+                          isActive ? "text-indigo-100" : "text-slate-400"
+                        }`}
+                      >
+                        ·{linkedBlock}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+              {!readOnly && (
+                <>
+                  <button
+                    type="button"
+                    disabled={configBusy}
+                    onClick={handleCreateConfig}
+                    className="rounded-full border border-dashed border-slate-300 px-2 py-1 text-[11px] font-bold text-slate-500 hover:border-indigo-400 hover:text-indigo-700 disabled:opacity-50"
+                  >
+                    <span className="inline-flex items-center gap-0.5">
+                      <IconPlus size={12} /> Config
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={configBusy || effectiveConfigId == null}
+                    onClick={handleDuplicateConfig}
+                    className="rounded-full border border-slate-300 px-2 py-1 text-[11px] font-bold text-slate-500 hover:border-indigo-400 hover:text-indigo-700 disabled:opacity-50"
+                    title="Duplicar config activa (atriles e integrantes)"
+                  >
+                    <span className="inline-flex items-center gap-0.5">
+                      <IconCopy size={12} /> Duplicar
+                    </span>
+                  </button>
+                  {sortedConfigs.length > 1 && (
+                    <button
+                      type="button"
+                      disabled={configBusy || effectiveConfigId == null}
+                      onClick={handleDeleteConfig}
+                      className="rounded-full border border-rose-200 px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                      title="Eliminar config activa"
+                    >
+                      <IconTrash size={12} />
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          );
+
+          return toolbarHostEl
+            ? createPortal(configPills, toolbarHostEl)
+            : configPills;
+        })()}
+        {!toolbarHostEl && (
+          <p className="text-[10px] text-slate-400">
+            {rosterFilteredByBlock
+              ? `Integrantes filtrados por el bloque «${
+                  activeBlockName || "activo"
+                }» (grupos del repertorio).`
+            : sortedConfigs.length <= 1
+              ? "Una config compartida. Creá una por bloque cuando necesites atriles distintos."
+              : uncoveredBlocks.length > 0
+                ? `${uncoveredBlocks.length} bloque(s) sin config propia usan el fallback.`
+                : "Cada config alternativa está ligada a un solo bloque (1:1)."}
+          </p>
+        )}
+        {showIndependentConfigOffer && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-2.5 py-1.5 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] text-amber-900 leading-snug">
+              {rosterFilteredByBlock
+                ? `Filtrado por «${activeBlockName || "bloque"}». `
+                : ""}
+              Disposición compartida
+              {activeBlockName ? ` · ${activeBlockName}` : ""}: creá una config
+              1:1 para este bloque (copia los atriles).
+            </p>
             <button
-              onClick={() => setShowImportModal(true)}
-              disabled={isImporting}
-              className="bg-white border border-slate-300 text-slate-600 px-2 py-1 rounded text-[10px] font-bold hover:bg-slate-50 flex items-center gap-1 transition-colors disabled:opacity-50"
+              type="button"
+              disabled={configBusy}
+              onClick={handleCreateIndependentForBlock}
+              className="shrink-0 rounded border border-amber-400 bg-white px-2.5 py-1 text-[10px] font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
             >
-              {isImporting ? (
-                <IconLoader className="animate-spin" size={12} />
-              ) : (
-                <IconDownload size={12} />
-              )}{" "}
-              Importar
-            </button>
-            <button
-              onClick={createBaseContainers}
-              disabled={isCreatingBase}
-              className="bg-white border border-indigo-300 text-indigo-700 px-2 py-1 rounded text-[10px] font-bold hover:bg-indigo-50 flex items-center gap-1 transition-colors disabled:opacity-50"
-              title="Crea Violín 1, Violín 2, Viola, Cello y Contrabajo"
-            >
-              {isCreatingBase ? (
-                <IconLoader className="animate-spin" size={12} />
-              ) : (
-                <IconLayers size={12} />
-              )}{" "}
-              Crear cuerdas base
-            </button>
-            <button
-              onClick={createContainer}
-              className="bg-indigo-600 text-white px-2 py-1 rounded text-[10px] font-bold hover:bg-indigo-700 flex items-center gap-1"
-            >
-              <IconPlus size={12} /> Nuevo Grupo
+              Config para este bloque
             </button>
           </div>
         )}
+        {!showIndependentConfigOffer && toolbarHostEl && rosterFilteredByBlock && (
+          <p className="text-[10px] text-slate-400">
+            Integrantes filtrados por «{activeBlockName || "bloque activo"}».
+          </p>
+        )}
+        <div className="flex justify-between items-center gap-2 flex-wrap">
+          <h3 className="font-bold text-slate-700 flex items-center gap-2 text-sm">
+            <IconLayers size={16} /> Disposición de Cuerdas
+            {activeConfig?.nombre ? (
+              <span className="text-slate-400 font-medium normal-case text-xs">
+                · {activeConfig.nombre}
+              </span>
+            ) : null}
+          </h3>
+          {!readOnly && (
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {hasSeatingSuggestions && (
+                <button
+                  onClick={() => applySeatingSuggestions()}
+                  className="bg-orange-100 border border-orange-300 text-orange-800 px-2 py-1 rounded text-[10px] font-bold hover:bg-orange-200 flex items-center gap-1"
+                  title="Aplicar sugerencias de compactación y superposición"
+                >
+                  <IconBulb size={12} /> Aplicar sugerencias
+                </button>
+              )}
+              <span className="text-[10px] text-slate-400 italic mr-2 hidden sm:inline">
+                Arrastra para reordenar
+              </span>
+              <button
+                onClick={() => {
+                  const initialPreview = buildPreviewForMode(reorderMode);
+                  setPreviewMap(initialPreview);
+                  setShowReorderModal(true);
+                }}
+                className="bg-white border border-slate-300 text-slate-600 px-2 py-1 rounded text-[10px] font-bold hover:bg-slate-50 flex items-center gap-1"
+              >
+                <IconEdit size={12} /> Reordenar
+              </button>
+              <button
+                onClick={() => setShowImportModal(true)}
+                disabled={isImporting}
+                className="bg-white border border-slate-300 text-slate-600 px-2 py-1 rounded text-[10px] font-bold hover:bg-slate-50 flex items-center gap-1 transition-colors disabled:opacity-50"
+              >
+                {isImporting ? (
+                  <IconLoader className="animate-spin" size={12} />
+                ) : (
+                  <IconDownload size={12} />
+                )}{" "}
+                Importar
+              </button>
+              <button
+                onClick={createBaseContainers}
+                disabled={isCreatingBase}
+                className="bg-white border border-indigo-300 text-indigo-700 px-2 py-1 rounded text-[10px] font-bold hover:bg-indigo-50 flex items-center gap-1 transition-colors disabled:opacity-50"
+                title="Crea Violín 1, Violín 2, Viola, Cello y Contrabajo"
+              >
+                {isCreatingBase ? (
+                  <IconLoader className="animate-spin" size={12} />
+                ) : (
+                  <IconLayers size={12} />
+                )}{" "}
+                Crear cuerdas base
+              </button>
+              <button
+                onClick={createContainer}
+                className="bg-indigo-600 text-white px-2 py-1 rounded text-[10px] font-bold hover:bg-indigo-700 flex items-center gap-1"
+              >
+                <IconPlus size={12} /> Nuevo Grupo
+              </button>
+            </div>
+          )}
+        </div>
       </div>
       <div
         className={`grid grid-cols-12 gap-3 ${
