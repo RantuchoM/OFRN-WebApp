@@ -254,7 +254,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - Aplica a categorías musicales (Cuerdas/Maderas/Metales/Percusión/Teclado) vía `stagePlotItemHasInstrumentFootprint`.
 - **Local:** ancho = X; profundo = Y; **+Y local** = cuello/mástil del SVG. **Orientación de ítems:** `rotationInstrumentBaseFacingPoint` → base (−Y) hacia director.
 - **Atril satélite:** ya **no** se dibuja dentro del Group del instrumento ni en el borde +Y de la huella. Se renderiza como entidad separada (`SatelliteAtrilShape` en editor; paso dedicado en PDF/JPG) en coords de escena, 40 cm hacia el director desde el centro del ítem.
-- **Hit / Transformer:** solo la huella 50×50 del instrumento. El atril satélite `listening={false}` (sigue al ítem al soltar; durante drag puede rezagarse hasta commit).
+- **Hit / Transformer:** solo la huella 50×50 del instrumento. El atril satélite `listening={false}` y sigue en vivo (`liveItemPositions` durante drag).
 - **Icono:** `object-fit: contain` en caja 50×50; escala default = `1`.
 - **Dibujo:** rectángulo de huella invisible; icono + atril satélite visibles.
 - Legacy: flag `stage.instrumentFootprintMigrated` sin cambio.
@@ -268,7 +268,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
   ```json
   { "id": "…", "kind": "string_pair", "instrumentType": "violin", "itemIds": ["id1", "id2"] }
   ```
-  Ítems llevan `groupId` común; drag grupal vía lógica existente de `groupId`.
+  Ítems llevan `groupId` común. **Movilidad libre entre A y B:** arrastrar uno no mueve al otro (`kind: "string_pair"` no entra en el drag rígido). El atril satélite se recalcula al midpoint A–B + 40 cm hacia el director, en vivo durante el drag. Multi-selección de ambos sí mueve el conjunto.
 - Layout default (`insertStagePlotStringPair`): dos huellas separadas **50 cm** (`STAGE_PLOT_STRING_PAIR_SPACING_CM`) en tangente al rayo hacia director; base de cada una hacia director; atril en **midpoint** + 40 cm hacia director.
 - UI insert:
   - Panel orgánico: botón **Insertar par** (vn/va/vc/bass; requiere Δ ≥ 2).

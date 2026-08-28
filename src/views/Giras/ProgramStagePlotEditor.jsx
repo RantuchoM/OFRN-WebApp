@@ -156,6 +156,7 @@ import {
   alignLineGuidePoints,
   alignStagePlotItems,
   getGroupMemberIds,
+  getGroupById,
   groupStagePlotItems,
   resolveSharedAlignGroup,
   setGroupAlignAngle,
@@ -2037,6 +2038,8 @@ export default function ProgramStagePlot({
   const [formationCenterGuideX, setFormationCenterGuideX] = useState(null);
   /** Origen radial en vivo mientras se arrastra el director (centro del ítem). */
   const [conductorDragOrigin, setConductorDragOrigin] = useState(null);
+  /** Posiciones live de ítems en drag (atril satélite del par sigue a A–B). */
+  const [liveItemPositions, setLiveItemPositions] = useState(null);
   const transformerRef = useRef(null);
   const konvaStageRef = useRef(null);
   const itemNodeRefs = useRef(new Map());
@@ -2551,8 +2554,12 @@ export default function ProgramStagePlot({
   );
   const satelliteAtrils = useMemo(
     () =>
-      collectStagePlotSatelliteAtrils(payload, conductorDragOrigin),
-    [payload, conductorDragOrigin],
+      collectStagePlotSatelliteAtrils(
+        payload,
+        conductorDragOrigin,
+        liveItemPositions,
+      ),
+    [payload, conductorDragOrigin, liveItemPositions],
   );
   /** Un solo ítem: editores de etiqueta / canal; null si 0 o varios. */
   const selected =
@@ -4158,8 +4165,12 @@ export default function ProgramStagePlot({
       const item = prev.items.find((i) => i.id === id);
       let dragIds = selectedIdsRef.current;
       if (item?.groupId) {
-        const groupMembers = getGroupMemberIds(prev, item.groupId);
-        dragIds = [...new Set([...dragIds, ...groupMembers])];
+        const group = getGroupById(prev, item.groupId);
+        // Pares de atril: A y B se mueven con libertad relativa (el satélite sigue).
+        if (group?.kind !== "string_pair") {
+          const groupMembers = getGroupMemberIds(prev, item.groupId);
+          dragIds = [...new Set([...dragIds, ...groupMembers])];
+        }
       }
       if (!dragIds.includes(id)) {
         dragGroupRef.current = null;
@@ -4216,6 +4227,14 @@ export default function ProgramStagePlot({
           setConductorDragOrigin({ x: cNode.x(), y: cNode.y() });
         }
       }
+      const live = {};
+      for (const [sid, o] of g.origins) {
+        live[sid] =
+          sid === id
+            ? { x: e.target.x(), y: e.target.y() }
+            : { x: o.x + dx, y: o.y + dy };
+      }
+      setLiveItemPositions(live);
       transformerRef.current?.forceUpdate();
       return;
     }
@@ -4262,6 +4281,7 @@ export default function ProgramStagePlot({
       setItemSnapPreview(null);
     }
 
+    setLiveItemPositions({ [id]: { x: node.x(), y: node.y() } });
     transformerRef.current?.forceUpdate();
   }, []);
 
@@ -4331,6 +4351,7 @@ export default function ProgramStagePlot({
       itemDraggingRef.current = false;
       setItemSnapPreview(null);
       setConductorDragOrigin(null);
+      setLiveItemPositions(null);
 
       if (g && g.leaderId === id && g.origins.size > 1) {
         const origin = g.origins.get(id);

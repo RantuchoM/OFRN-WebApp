@@ -120,11 +120,30 @@ export function getStringPairMemberItemIds(payload) {
  * Lista de atriles satélite derivados para canvas/PDF.
  * @param {ReturnType<typeof import('./stagePlotPayload').normalizeStagePlotPayload>} payload
  * @param {{ x: number, y: number }|null} [conductorOverride]
+ * @param {Record<string, { x: number, y: number }>|Map<string, { x: number, y: number }>|null} [livePositions]
  * @returns {Array<{ id: string, x: number, y: number, rotationDeg: number, kind: 'single'|'pair', parentIds: string[] }>}
  */
-export function collectStagePlotSatelliteAtrils(payload, conductorOverride) {
+export function collectStagePlotSatelliteAtrils(
+  payload,
+  conductorOverride,
+  livePositions = null,
+) {
   const items = payload.items || [];
   const groups = payload.groups || [];
+  const live =
+    livePositions instanceof Map
+      ? livePositions
+      : livePositions && typeof livePositions === "object"
+        ? new Map(Object.entries(livePositions))
+        : null;
+  const resolveItem = (it) => {
+    if (!it) return it;
+    const p = live?.get(it.id);
+    if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+      return { ...it, x: p.x, y: p.y };
+    }
+    return it;
+  };
   const conductor = resolveStagePlotConductorPoint(
     items,
     payload.stage || {},
@@ -137,7 +156,7 @@ export function collectStagePlotSatelliteAtrils(payload, conductorOverride) {
   for (const g of groups) {
     if (g.kind !== "string_pair" || usedPairGroups.has(g.id)) continue;
     const members = (g.itemIds || [])
-      .map((id) => items.find((it) => it.id === id))
+      .map((id) => resolveItem(items.find((it) => it.id === id)))
       .filter(Boolean);
     if (members.length < 2) continue;
     usedPairGroups.add(g.id);
@@ -164,9 +183,10 @@ export function collectStagePlotSatelliteAtrils(payload, conductorOverride) {
   for (const item of items) {
     if (!stagePlotItemHasInstrumentFootprint(item.type)) continue;
     if (pairedIds.has(item.id)) continue;
+    const liveItem = resolveItem(item);
     const placement = computeSatelliteAtrilPlacement(
-      item.x,
-      item.y,
+      liveItem.x,
+      liveItem.y,
       conductor.x,
       conductor.y,
     );
