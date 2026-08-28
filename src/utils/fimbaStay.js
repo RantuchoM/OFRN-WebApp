@@ -12,10 +12,19 @@ function parseIso(iso) {
   return { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]), iso: s };
 }
 
-/** YYYY-MM-DD o null. */
+/** YYYY-MM-DD o null. Años fuera de 2000–2100 se tratan como inválidos (no persistir). */
 export function isoDateOrNull(value) {
   const p = parseIso(value);
-  return p ? p.iso : null;
+  if (!p) return null;
+  if (p.y < 2000 || p.y > 2100) return null;
+  return p.iso;
+}
+
+/** Vacío (hereda artista) o ISO completa con año razonable. */
+export function isCommitableStayDate(value) {
+  const s = String(value || "").trim();
+  if (!s) return true;
+  return Boolean(isoDateOrNull(s));
 }
 
 /** Misma regla que `nightsBetween` en fimbaService. */

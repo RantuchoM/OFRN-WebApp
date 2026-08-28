@@ -44,7 +44,7 @@ import {
   updateFimbaContratacion,
   updateFimbaParticipante,
 } from "../../services/fimbaService";
-import { resolveParticipanteStay } from "../../utils/fimbaStay";
+import { isCommitableStayDate, resolveParticipanteStay } from "../../utils/fimbaStay";
 import { DocumentacionDrivePreview } from "./FimbaDocumentacionDrivePreview";
 import { exportFimbaComidasExcel } from "../../utils/fimbaExport";
 import FimbaComidasReportModal from "./FimbaComidasReportModal";
@@ -176,6 +176,12 @@ function validateParticipanteDraft(draft, { isCreate = false } = {}) {
 
   const checkin = draft.checkin_at ? String(draft.checkin_at).slice(0, 10) : "";
   const checkout = draft.checkout_at ? String(draft.checkout_at).slice(0, 10) : "";
+  if (checkin && !isCommitableStayDate(checkin)) {
+    return { ok: false, error: "Check-in inválido" };
+  }
+  if (checkout && !isCommitableStayDate(checkout)) {
+    return { ok: false, error: "Check-out inválido" };
+  }
   if (checkin && checkout && checkout < checkin) {
     return { ok: false, error: "El check-out no puede ser anterior al check-in" };
   }
@@ -1526,13 +1532,20 @@ function ParticipantesPlanilla({ propuestaId, propuesta, participantes, onListCh
               data-fimba-part-cell={`${rowIdx}-4`}
               className="fimba-cell-input fimba-cell-date"
               type="date"
+              min="2020-01-01"
+              max="2035-12-31"
               value={draft.checkin_at || ""}
               title={
                 draft.checkin_at
                   ? "Check-in propio"
                   : `Vacío = check-in del artista (${defaultCheckinLabel})`
               }
-              onChange={(e) => changeAndCommit(rowKey, "checkin_at", e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (isCommitableStayDate(v)) changeAndCommit(rowKey, "checkin_at", v);
+                else setField(rowKey, "checkin_at", v);
+              }}
+              onBlur={() => commitRow(rowKey)}
               onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 4, rowKey)}
               disabled={status === "saving"}
             />
@@ -1547,13 +1560,20 @@ function ParticipantesPlanilla({ propuestaId, propuesta, participantes, onListCh
               data-fimba-part-cell={`${rowIdx}-5`}
               className="fimba-cell-input fimba-cell-date"
               type="date"
+              min="2020-01-01"
+              max="2035-12-31"
               value={draft.checkout_at || ""}
               title={
                 draft.checkout_at
                   ? "Check-out propio"
                   : `Vacío = check-out del artista (${defaultCheckoutLabel})`
               }
-              onChange={(e) => changeAndCommit(rowKey, "checkout_at", e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (isCommitableStayDate(v)) changeAndCommit(rowKey, "checkout_at", v);
+                else setField(rowKey, "checkout_at", v);
+              }}
+              onBlur={() => commitRow(rowKey)}
               onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 5, rowKey)}
               disabled={status === "saving"}
             />

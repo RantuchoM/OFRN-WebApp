@@ -5,6 +5,7 @@
 
 import {
   computeStayOccupancy,
+  isoDateOrNull,
   resolveParticipanteStay,
 } from "../src/utils/fimbaStay.js";
 import { computeArtistaMealsPlan } from "../src/utils/fimbaMealsStay.js";
@@ -101,6 +102,8 @@ const pedidoKeys = new Set(
 assert(pedidoKeys.size === 2, "pedido hotel parte en dos rangos (15-18 y 16-18)");
 assert(pedidoKeys.has("2026-09-15|2026-09-18"), "grupo Ruggiero 15-18");
 assert(pedidoKeys.has("2026-09-16|2026-09-18"), "grupo resto 16-18");
+assert(isoDateOrNull("0009-10-18") == null, "no persiste año 0009");
+assert(isoDateOrNull("2026-09-16") === "2026-09-16", "ISO 2026 ok");
 
 if (process.exitCode) {
   console.error("verify-fimba-stay: FAILED");
