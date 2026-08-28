@@ -1,5 +1,5 @@
 import React from "react";
-import { Routes, Route, Outlet, Link } from "react-router-dom";
+import { Routes, Route, Outlet, Link, Navigate } from "react-router-dom";
 import { FimbaAccessProvider } from "../../context/FimbaAccessContext";
 import FimbaLayout from "./FimbaLayout";
 import FimbaStaffGuard from "./FimbaStaffGuard";
@@ -12,6 +12,7 @@ import FimbaHoteleriaPage from "./FimbaHoteleriaPage";
 import FimbaUsuariosPage from "./FimbaUsuariosPage";
 import FimbaContratacionesPage from "./FimbaContratacionesPage";
 import FimbaRiderPage from "./FimbaRiderPage";
+import FimbaVenuesPage from "./FimbaVenuesPage";
 
 /**
  * Shell pathless: hijos de `edicion/:id` y `artista/:id` usan Outlet implícito
@@ -29,12 +30,14 @@ export default function FimbaStaffApp() {
         <Routes>
           <Route element={<FimbaLayout mode="staff" />}>
             <Route index element={<FimbaHome />} />
-            {/* Segmentos: Artistas | agenda | transportes | hoteleria | rider | contrataciones | usuarios */}
+            {/* Segmentos: Artistas | agenda | transportes | hoteleria | venues | rider | contrataciones | usuarios */}
             <Route path="edicion/:edicionId" element={<FimbaPathShell />}>
               <Route index element={<FimbaEdicionPage />} />
               <Route path="agenda" element={<FimbaAgendaPage />} />
               <Route path="transportes" element={<FimbaTransportPage />} />
               <Route path="hoteleria" element={<FimbaHoteleriaPage />} />
+              <Route path="venues" element={<FimbaVenuesPage />} />
+              <Route path="espacios" element={<Navigate to="../venues" replace />} />
               <Route path="rider" element={<FimbaRiderPage />} />
               <Route path="contrataciones" element={<FimbaContratacionesPage />} />
               <Route path="usuarios" element={<FimbaUsuariosPage />} />

@@ -56,8 +56,9 @@ export const STAGE_PLOT_SILHOUETTES = {
   // Banqueta / stool (top-down): asiento redondo + patas
   banqueta:
     "M32 14c-9 0-16 7-16 16s7 16 16 16 16-7 16-16-7-16-16-16zm0 6c5.5 0 10 4.5 10 10s-4.5 10-10 10-10-4.5-10-10 4.5-10 10-10zM14 28h4v8h-4v-8zm32 0h4v8h-4v-8zM28 46h8v6h-8v-6z",
+  // Atril: plato + 1 pata −Y (músico) + 2 patas +Y (director); alineado a music-stand.svg
   music_stand:
-    "M30 8h4v28h-4V8zm-10 28 12-8 12 8v4H20v-4zM18 44h28v3H18v-3zM22 50l-8 10h4l6-7 6 7h4l-8-10h-4z",
+    "M8 10 H56 V17 H8 Z M31 14 H33 V5 H31 Z M32 15 L41 22 L39.5 23.5 Z M32 15 L23 22 L24.5 23.5 Z",
   conductor:
     "M28 6h8v6h-8V6zm-6 8h20c2 0 3.5 1.5 3.5 3.5V28H18.5V17.5c0-2 1.5-3.5 3.5-3.5zM14 30h36v6H40v20h-4V36H28v20h-4V36H14v-6zM24 18h4v6h-4v-6zm12 0h4v6h-4v-6z",
   riser:

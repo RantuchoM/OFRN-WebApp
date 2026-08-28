@@ -2865,3 +2865,42 @@ export const IconMaximize = ({ size = 24, className = "" }) => (
     <path d="M3 21l7-7" />
   </svg>
 );
+/** Cursor/pointer — herramienta Seleccionar (stage plot). */
+export const IconMousePointer = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
+  </svg>
+);
+/** Flechas de desplazamiento — herramienta Mover (stage plot). */
+export const IconMove = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M5 9l-3 3 3 3" />
+    <path d="M9 5l3-3 3 3" />
+    <path d="M15 19l-3 3-3-3" />
+    <path d="M19 9l3 3-3 3" />
+    <path d="M2 12h20" />
+    <path d="M12 2v20" />
+  </svg>
+);

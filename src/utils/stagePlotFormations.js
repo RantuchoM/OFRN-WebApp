@@ -12,6 +12,7 @@ import {
 
 export const STAGE_PLOT_FORMATIONATION_KINDS = [
   "arc",
+  "semi_arc",
   "horseshoe",
   "rect",
   "line",
@@ -19,10 +20,120 @@ export const STAGE_PLOT_FORMATIONATION_KINDS = [
 
 export const STAGE_PLOT_FORMATIONATION_LABELS = {
   arc: "Arco",
+  semi_arc: "Semi-arco",
   horseshoe: "Herradura",
   rect: "Rectángulo",
   line: "Línea recta",
 };
+
+/** Kinds that support Centrar / snap al eje X del director. */
+export const STAGE_PLOT_CENTERABLE_FORMATION_KINDS = [
+  "arc",
+  "semi_arc",
+  "horseshoe",
+  "rect",
+  "line",
+];
+
+/** Espaciado de plazas: fijo / libre / simétrico. */
+export const STAGE_PLOT_SLOT_MODES = ["fixed", "free", "symmetric"];
+
+export const STAGE_PLOT_SLOT_MODE_LABELS = {
+  fixed: "Fijo",
+  free: "Libre",
+  symmetric: "Simétrico",
+};
+
+
+
+/** Defaults semi-arco: 2 laterales/ala + 4 en arco → total 8. */
+export const SEMI_ARC_DEFAULT_WING_SLOTS = 2;
+export const SEMI_ARC_DEFAULT_ARC_SLOTS = 4;
+
+export function clampSemiArcWingSlots(n) {
+  return clamp(Math.round(Number(n) || 0), 0, 32);
+}
+
+export function clampSemiArcArcSlots(n) {
+  return clamp(Math.round(Number(n) || 0), 1, 64);
+}
+
+/** Total plazas = 2·L (alas simétricas) + A (arco, extremos incluidos). */
+export function semiArcTotalSlots(wingSlots, arcSlots) {
+  return (
+    2 * clampSemiArcWingSlots(wingSlots) + clampSemiArcArcSlots(arcSlots)
+  );
+}
+
+/**
+ * Migra `slots` legacy o lee `wingSlots`/`arcSlots`/`lateralSlots`.
+ * @returns {{ wingSlots: number, arcSlots: number, slots: number }}
+ */
+export function resolveSemiArcSlotCounts(raw) {
+  const o = raw && typeof raw === "object" ? raw : {};
+  const hasSplit =
+    o.wingSlots != null ||
+    o.arcSlots != null ||
+    o.lateralSlots != null;
+  if (hasSplit) {
+    const wingSlots = clampSemiArcWingSlots(
+      o.wingSlots != null ? o.wingSlots : o.lateralSlots,
+    );
+    const arcSlots = clampSemiArcArcSlots(
+      o.arcSlots != null ? o.arcSlots : SEMI_ARC_DEFAULT_ARC_SLOTS,
+    );
+    return {
+      wingSlots,
+      arcSlots,
+      slots: semiArcTotalSlots(wingSlots, arcSlots),
+    };
+  }
+  const old = clamp(Math.round(Number(o.slots) || 8), 1, 64);
+  // Prefer 2 laterales/ala; resto al arco (mín. 1).
+  let wingSlots = Math.min(
+    SEMI_ARC_DEFAULT_WING_SLOTS,
+    Math.max(0, Math.floor((old - 1) / 2)),
+  );
+  let arcSlots = Math.max(1, old - 2 * wingSlots);
+  // Clamp por si old era enorme
+  wingSlots = clampSemiArcWingSlots(wingSlots);
+  arcSlots = clampSemiArcArcSlots(arcSlots);
+  return {
+    wingSlots,
+    arcSlots,
+    slots: semiArcTotalSlots(wingSlots, arcSlots),
+  };
+}
+
+/**
+ * t fijos semi-arco por segmento (no equiespaciado en toda la polilínea).
+ * Ala izq: L plazas en u = 0, 1/L, …, (L-1)/L (extremo → hacia arco; excluye juntura).
+ * Arco: A plazas con extremos (junturas) si A≥2; A=1 → centro del arco.
+ * Ala der: espejo, u = 1/L … 1 desde la juntura hacia el extremo (excluye juntura).
+ */
+/**
+ * Aplica wingSlots/arcSlots y sincroniza `slots` (= 2L+A). Opcional resize de slotTs.
+ * @param {object} formation
+ * @param {{ wingSlots?: number, arcSlots?: number }} patch
+ */
+export function applySemiArcSlotCounts(formation, patch = {}) {
+  if (!formation || formation.kind !== "semi_arc") return formation;
+  const wingSlots = clampSemiArcWingSlots(
+    patch.wingSlots != null ? patch.wingSlots : formation.wingSlots,
+  );
+  const arcSlots = clampSemiArcArcSlots(
+    patch.arcSlots != null ? patch.arcSlots : formation.arcSlots,
+  );
+  const slots = semiArcTotalSlots(wingSlots, arcSlots);
+  const mode = normalizeStagePlotSlotMode(formation.slotMode);
+  let slotTs = formation.slotTs;
+  if (mode === "fixed") {
+    slotTs = null;
+  } else if (slots !== formation.slots) {
+    slotTs = resizeFormationSlotTs(formation.slotTs, slots, mode);
+  }
+  return { ...formation, wingSlots, arcSlots, slots, slotTs };
+}
 
 /**
  * Snap a plaza libre (px de escenario).
@@ -62,6 +173,10 @@ export const FORMATION_MIN_HALF = stagePlotCmToPx(12);
 export const FORMATION_MIN_WIDTH = stagePlotCmToPx(30);
 export const FORMATION_MIN_DEPTH = stagePlotCmToPx(20);
 export const FORMATION_MIN_LENGTH = stagePlotCmToPx(40);
+export const FORMATION_MIN_WING_LENGTH = stagePlotCmToPx(20);
+/** Ángulo de ala (+/- deg); positivo = abrir afuera. */
+export const FORMATION_WING_ANGLE_MIN = -75;
+export const FORMATION_WING_ANGLE_MAX = 75;
 
 function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
@@ -82,12 +197,270 @@ function radToDeg(r) {
   return (Number(r) || 0) * (180 / Math.PI);
 }
 
+function normalizeVec(x, y) {
+  const len = Math.hypot(x, y) || 1;
+  return { x: x / len, y: y / len };
+}
+
+/** Ángulo firmado (grados) de `from` → `to` (CCW positivo, Y hacia abajo como Konva). */
+function signedAngleDeg(from, to) {
+  const cross = from.x * to.y - from.y * to.x;
+  const dot = from.x * to.x + from.y * to.y;
+  return radToDeg(Math.atan2(cross, dot));
+}
+
+function ellipsePoint(rx, ry, angleRad) {
+  return { x: rx * Math.cos(angleRad), y: ry * Math.sin(angleRad) };
+}
+
+/** Tangente unitaria d/dθ de la elipse (sentido de ángulo creciente). */
+function ellipseTangentUnit(rx, ry, angleRad) {
+  return normalizeVec(-rx * Math.sin(angleRad), ry * Math.cos(angleRad));
+}
+
+function clampWingAngle(deg) {
+  return clamp(
+    Number(deg) || 0,
+    FORMATION_WING_ANGLE_MIN,
+    FORMATION_WING_ANGLE_MAX,
+  );
+}
+
 /**
- * Rotación Konva para que el “frente” del ítem (eje −Y local) mire al punto.
+ * Anclas locales del semi-arco: extremos del arco, tangentes y puntas de ala.
+ * Alas simétricas: mismo wingLength y mismo |wingAngle| espejado.
+ * wingAngle > 0 abre las alas hacia afuera (lejos del eje de simetría).
+ * @param {Record<string, number>} p
+ */
+function semiArcLocalGeometry(p) {
+  const rx = Math.max(FORMATION_MIN_RADIUS, Number(p.rx) || stagePlotCmToPx(180));
+  const ry = Math.max(FORMATION_MIN_RADIUS, Number(p.ry) || stagePlotCmToPx(100));
+  let a0 = degToRad(p.startAngle ?? 180);
+  let a1 = degToRad(p.endAngle ?? 360);
+  if (a1 < a0) a1 += Math.PI * 2;
+  const wingLength = Math.max(
+    FORMATION_MIN_WING_LENGTH,
+    Number(p.wingLength) || stagePlotCmToPx(80),
+  );
+  const wingAngle = clampWingAngle(p.wingAngle ?? 0);
+  const L = ellipsePoint(rx, ry, a0);
+  const R = ellipsePoint(rx, ry, a1);
+  const Ts = ellipseTangentUnit(rx, ry, a0);
+  const Te = ellipseTangentUnit(rx, ry, a1);
+  const leftTravel = rotateLocal(Ts.x, Ts.y, wingAngle);
+  const rightTravel = rotateLocal(Te.x, Te.y, -wingAngle);
+  const leftTip = {
+    x: L.x - wingLength * leftTravel.x,
+    y: L.y - wingLength * leftTravel.y,
+  };
+  const rightTip = {
+    x: R.x + wingLength * rightTravel.x,
+    y: R.y + wingLength * rightTravel.y,
+  };
+  return {
+    rx,
+    ry,
+    a0,
+    a1,
+    wingLength,
+    wingAngle,
+    L,
+    R,
+    Ts,
+    Te,
+    leftTip,
+    rightTip,
+  };
+}
+
+/** @param {unknown} mode */
+export function normalizeStagePlotSlotMode(mode) {
+  const s = String(mode || "fixed");
+  return STAGE_PLOT_SLOT_MODES.includes(s) ? s : "fixed";
+}
+
+/** Plazas equiespaciadas en t ∈ [0,1]. */
+export function evenFormationSlotTs(n) {
+  const count = clamp(Math.round(Number(n) || 0), 0, 64);
+  if (count <= 0) return [];
+  if (count === 1) return [0.5];
+  const out = [];
+  for (let i = 0; i < count; i++) out.push(i / (count - 1));
+  return out;
+}
+
+/**
+ * Espeja t[i] ↔ 1−t[i] forzando desde índices bajos; centro (N impar) = 0.5.
+ * @param {number[]} ts
+ */
+export function enforceSymmetricSlotTs(ts) {
+  const n = (ts || []).length;
+  if (n <= 0) return [];
+  const out = (ts || []).map((t) => clamp(Number(t) || 0, 0, 1));
+  for (let i = 0; i < Math.floor(n / 2); i++) {
+    const j = n - 1 - i;
+    out[j] = 1 - out[i];
+  }
+  if (n % 2 === 1) {
+    out[Math.floor(n / 2)] = 0.5;
+  }
+  return out;
+}
+
+/**
+ * Al cambiar N: conserva t existentes (best-effort) e inserta nuevas en los huecos más grandes.
+ * @param {number[]|null|undefined} prevTs
+ * @param {number} nextCount
+ * @param {"fixed"|"free"|"symmetric"} mode
+ */
+export function resizeFormationSlotTs(prevTs, nextCount, mode = "free") {
+  const n = clamp(Math.round(Number(nextCount) || 0), 0, 64);
+  if (n <= 0) return [];
+  const m = normalizeStagePlotSlotMode(mode);
+  if (m === "fixed") return evenFormationSlotTs(n);
+
+  let ts = Array.isArray(prevTs)
+    ? prevTs
+        .map((t) => clamp(Number(t) || 0, 0, 1))
+        .filter((t) => Number.isFinite(t))
+    : [];
+  ts.sort((a, b) => a - b);
+
+  if (ts.length === 0) {
+    ts = evenFormationSlotTs(n);
+  } else if (ts.length > n) {
+    if (n === 1) {
+      ts = [ts[Math.floor(ts.length / 2)]];
+    } else {
+      const kept = [];
+      for (let i = 0; i < n; i++) {
+        const src = Math.round((i * (ts.length - 1)) / (n - 1));
+        kept.push(ts[src]);
+      }
+      ts = kept;
+    }
+  } else if (ts.length < n) {
+    while (ts.length < n) {
+      let bestGap = -1;
+      let bestT = 0.5;
+      const extended = [0, ...ts, 1];
+      for (let i = 0; i < extended.length - 1; i++) {
+        const gap = extended[i + 1] - extended[i];
+        if (gap > bestGap) {
+          bestGap = gap;
+          bestT = (extended[i] + extended[i + 1]) / 2;
+        }
+      }
+      if (bestGap < 0) break;
+      ts.push(bestT);
+      ts.sort((a, b) => a - b);
+    }
+  }
+
+  ts = ts.map((t) => clamp(t, 0, 1));
+  if (m === "symmetric") ts = enforceSymmetricSlotTs(ts);
+  return ts;
+}
+
+/**
+ * t efectivos de la formación según slotMode.
+ * @param {{ slots?: number, slotMode?: string, slotTs?: number[]|null }} formation
+ */
+export function resolveFormationSlotTs(formation) {
+  const n = clamp(Math.round(Number(formation?.slots) || 0), 0, 64);
+  const mode = normalizeStagePlotSlotMode(formation?.slotMode);
+  if (n <= 0) return [];
+  if (mode === "fixed") {
+    if (formation?.kind === "semi_arc") return evenSemiArcFixedSlotTs(formation);
+    return evenFormationSlotTs(n);
+  }
+  const ts = resizeFormationSlotTs(formation?.slotTs, n, mode);
+  return mode === "symmetric" ? enforceSymmetricSlotTs(ts) : ts;
+}
+
+/**
+ * Cambia slotMode; fijo limpia slotTs (redistribuye equidistante).
+ * Simétrico espeja desde índices bajos. Libre conserva / siembra equidistante.
+ * @param {object} formation
+ * @param {"fixed"|"free"|"symmetric"} nextMode
+ */
+export function applyFormationSlotMode(formation, nextMode) {
+  if (!formation || typeof formation !== "object") return formation;
+  const mode = normalizeStagePlotSlotMode(nextMode);
+  const n = clamp(Math.round(Number(formation.slots) || 8), 1, 64);
+  if (mode === "fixed") {
+    return { ...formation, slotMode: "fixed", slotTs: null, slots: n };
+  }
+  let ts;
+  const prevMode = normalizeStagePlotSlotMode(formation.slotMode);
+  if (
+    prevMode === "fixed" ||
+    !Array.isArray(formation.slotTs) ||
+    !formation.slotTs.length
+  ) {
+    ts =
+      formation.kind === "semi_arc"
+        ? evenSemiArcFixedSlotTs({ ...formation, slots: n })
+        : evenFormationSlotTs(n);
+  } else {
+    ts = resizeFormationSlotTs(formation.slotTs, n, "free");
+  }
+  if (mode === "symmetric") ts = enforceSymmetricSlotTs(ts);
+  return { ...formation, slotMode: mode, slotTs: ts, slots: n };
+}
+
+/**
+ * Actualiza t de una plaza (y espejo si simétrico). Devuelve nuevo slotTs.
+ * @param {object} formation
+ * @param {number} index
+ * @param {number} t
+ */
+export function setFormationSlotT(formation, index, t) {
+  const n = clamp(Math.round(Number(formation?.slots) || 0), 0, 64);
+  const mode = normalizeStagePlotSlotMode(formation?.slotMode);
+  if (mode === "fixed" || n <= 0) return resolveFormationSlotTs(formation);
+  const i = Math.floor(Number(index));
+  if (!Number.isFinite(i) || i < 0 || i >= n) {
+    return resolveFormationSlotTs(formation);
+  }
+  const ts = resolveFormationSlotTs(formation).slice();
+  const nt = clamp(Number(t) || 0, 0, 1);
+  if (mode === "symmetric") {
+    const j = n - 1 - i;
+    if (i === j) {
+      ts[i] = 0.5;
+    } else {
+      ts[i] = nt;
+      ts[j] = 1 - nt;
+    }
+    return enforceSymmetricSlotTs(ts);
+  }
+  ts[i] = nt;
+  return ts;
+}
+
+
+/** Normaliza grados Konva a [0, 360). */
+export function normalizeRotationDeg(deg) {
+  const n = Number(deg) || 0;
+  return ((n % 360) + 360) % 360;
+}
+
+/**
+ * Rotacion Konva para que el eje +Y local (cuello/mastil del SVG) mire al punto.
+ * Usado en marcadores de plaza (slot.rotation), no en items con huella.
  */
 export function rotationFacingPoint(fromX, fromY, toX, toY) {
   const ang = Math.atan2(toY - fromY, toX - fromX);
-  return radToDeg(ang) + 90;
+  return normalizeRotationDeg(radToDeg(ang) + 90);
+}
+
+/**
+ * Rotacion para items con huella: base/cuerpo (-Y local) hacia el punto
+ * (p. ej. director). Equivalente a rotationFacingPoint(...) + 180 deg.
+ */
+export function rotationInstrumentBaseFacingPoint(fromX, fromY, toX, toY) {
+  return normalizeRotationDeg(rotationFacingPoint(fromX, fromY, toX, toY) + 180);
 }
 
 /**
@@ -184,19 +557,24 @@ export function parseSlotId(slotId) {
 
 function defaultParams(kind) {
   if (kind === "rect") {
-    // 300 × 150 cm
     return { width: stagePlotCmToPx(300), depth: stagePlotCmToPx(150) };
   }
   if (kind === "horseshoe") {
-    // 280 × 160 cm
     return { width: stagePlotCmToPx(280), depth: stagePlotCmToPx(160) };
   }
   if (kind === "line") {
-    // 360 cm ≈ 3.6 m
     return { length: stagePlotCmToPx(360) };
   }
-  // Hemi-óvalo upstage, abierto hacia público / director
-  // rx/ry 180×100 cm → arco ~3.6 m de ancho
+  if (kind === "semi_arc") {
+    return {
+      rx: stagePlotCmToPx(180),
+      ry: stagePlotCmToPx(100),
+      startAngle: 180,
+      endAngle: 360,
+      wingLength: stagePlotCmToPx(80),
+      wingAngle: 15,
+    };
+  }
   return {
     rx: stagePlotCmToPx(180),
     ry: stagePlotCmToPx(100),
@@ -206,14 +584,14 @@ function defaultParams(kind) {
 }
 
 /**
- * @param {"arc"|"horseshoe"|"rect"} kind
+ * @param {"arc"|"semi_arc"|"horseshoe"|"rect"|"line"} kind
  * @param {number} x
  * @param {number} y
  * @param {number} [slots]
  */
 export function createStagePlotFormation(kind, x, y, slots = 8) {
   const k = STAGE_PLOT_FORMATIONATION_KINDS.includes(kind) ? kind : "arc";
-  return {
+  const base = {
     id: newId(),
     kind: k,
     x: Number(x) || 0,
@@ -221,8 +599,29 @@ export function createStagePlotFormation(kind, x, y, slots = 8) {
     rotation: 0,
     params: defaultParams(k),
     slots: clamp(Math.round(Number(slots) || 8), 1, 64),
+    slotMode: "fixed",
+    slotTs: null,
     facing: "conductor",
   };
+  if (k === "semi_arc") {
+    const wingSlots = SEMI_ARC_DEFAULT_WING_SLOTS;
+    const arcSlots =
+      Number(slots) === 8
+        ? SEMI_ARC_DEFAULT_ARC_SLOTS
+        : clampSemiArcArcSlots(
+            Math.max(
+              1,
+              clamp(Math.round(Number(slots) || 8), 1, 64) - 2 * wingSlots,
+            ),
+          );
+    return {
+      ...base,
+      wingSlots,
+      arcSlots,
+      slots: semiArcTotalSlots(wingSlots, arcSlots),
+    };
+  }
+  return base;
 }
 
 /**
@@ -246,9 +645,20 @@ export function normalizeStagePlotFormation(raw) {
     const v = Number(paramsIn[key]);
     if (Number.isFinite(v)) params[key] = v;
   }
-  if (kind === "arc") {
+  if (kind === "arc" || kind === "semi_arc") {
     params.rx = Math.max(FORMATION_MIN_RADIUS, Number(params.rx) || stagePlotCmToPx(180));
     params.ry = Math.max(FORMATION_MIN_RADIUS, Number(params.ry) || stagePlotCmToPx(100));
+  }
+  if (kind === "semi_arc") {
+    params.wingLength = Math.max(
+      FORMATION_MIN_WING_LENGTH,
+      Number(params.wingLength) || stagePlotCmToPx(80),
+    );
+    params.wingAngle = clampWingAngle(
+      Number.isFinite(Number(params.wingAngle)) ? params.wingAngle : 15,
+    );
+    if (!Number.isFinite(Number(params.startAngle))) params.startAngle = 180;
+    if (!Number.isFinite(Number(params.endAngle))) params.endAngle = 360;
   }
   if (kind === "line") {
     params.length = Math.max(FORMATION_MIN_LENGTH, Number(params.length) || stagePlotCmToPx(360));
@@ -257,12 +667,36 @@ export function normalizeStagePlotFormation(raw) {
     params.width = Math.max(FORMATION_MIN_WIDTH, Number(params.width) || stagePlotCmToPx(280));
     params.depth = Math.max(FORMATION_MIN_DEPTH, Number(params.depth) || stagePlotCmToPx(150));
   }
-  const slots = clamp(Math.round(Number(o.slots) || 8), 1, 64);
+  const slotMode = normalizeStagePlotSlotMode(o.slotMode);
+  /** @type {number} */
+  let slots;
+  /** @type {number|undefined} */
+  let wingSlots;
+  /** @type {number|undefined} */
+  let arcSlots;
+  if (kind === "semi_arc") {
+    const counts = resolveSemiArcSlotCounts(o);
+    wingSlots = counts.wingSlots;
+    arcSlots = counts.arcSlots;
+    slots = counts.slots;
+  } else {
+    slots = clamp(Math.round(Number(o.slots) || 8), 1, 64);
+  }
+  /** @type {number[]|null} */
+  let slotTs = null;
+  if (slotMode !== "fixed") {
+    slotTs = resizeFormationSlotTs(
+      Array.isArray(o.slotTs) ? o.slotTs : null,
+      slots,
+      slotMode,
+    );
+  }
   let facing = /** @type {"conductor"|string} */ ("conductor");
   if (o.facing != null && o.facing !== "conductor") {
     facing = String(o.facing);
   }
-  return {
+  /** @type {Record<string, unknown>} */
+  const out = {
     id: String(o.id || newId()),
     kind,
     x: Number(o.x) || 0,
@@ -270,8 +704,15 @@ export function normalizeStagePlotFormation(raw) {
     rotation: Number(o.rotation) || 0,
     params,
     slots,
+    slotMode,
+    slotTs,
     facing,
   };
+  if (kind === "semi_arc") {
+    out.wingSlots = wingSlots;
+    out.arcSlots = arcSlots;
+  }
+  return out;
 }
 
 function rotateLocal(lx, ly, rotDeg) {
@@ -331,6 +772,20 @@ export function formationGuidePointsLocal(formation) {
     return out;
   }
 
+  if (kind === "semi_arc") {
+    const g = semiArcLocalGeometry(p);
+    const out = [{ x: g.leftTip.x, y: g.leftTip.y }, { x: g.L.x, y: g.L.y }];
+    const steps = 48;
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      const a = g.a0 + (g.a1 - g.a0) * t;
+      out.push(ellipsePoint(g.rx, g.ry, a));
+    }
+    out.push({ x: g.R.x, y: g.R.y });
+    out.push({ x: g.rightTip.x, y: g.rightTip.y });
+    return out;
+  }
+
   // arc
   const rx = Math.max(FORMATION_MIN_RADIUS, Number(p.rx) || stagePlotCmToPx(180));
   const ry = Math.max(FORMATION_MIN_RADIUS, Number(p.ry) || stagePlotCmToPx(100));
@@ -357,6 +812,44 @@ function polylineCumLengths(pts) {
     cum.push(total);
   }
   return { cum, total };
+}
+
+
+export function evenSemiArcFixedSlotTs(formation) {
+  const wingSlots = clampSemiArcWingSlots(formation?.wingSlots);
+  const arcSlots = clampSemiArcArcSlots(formation?.arcSlots);
+  const n = semiArcTotalSlots(wingSlots, arcSlots);
+  if (n <= 0) return [];
+
+  const localPts = formationGuidePointsLocal(formation);
+  const { cum, total } = polylineCumLengths(localPts);
+  if (!localPts || localPts.length < 4 || total <= 0) {
+    return evenFormationSlotTs(n);
+  }
+
+  // Guía: tip_l → L → …arco… → R → tip_r  (índices 0, 1, …, len-2, len-1)
+  const leftWingLen = cum[1] - cum[0];
+  const rightWingStart = cum[cum.length - 2];
+  const arcLen = Math.max(0, rightWingStart - cum[1]);
+  const rightWingLen = Math.max(0, total - rightWingStart);
+  const ts = [];
+
+  for (let i = 0; i < wingSlots; i++) {
+    const u = i / wingSlots; // 0 .. (L-1)/L
+    ts.push(clamp((u * leftWingLen) / total, 0, 1));
+  }
+
+  for (let j = 0; j < arcSlots; j++) {
+    const a = arcSlots === 1 ? 0.5 : j / (arcSlots - 1);
+    ts.push(clamp((leftWingLen + a * arcLen) / total, 0, 1));
+  }
+
+  for (let k = 0; k < wingSlots; k++) {
+    const u = (k + 1) / wingSlots; // 1/L .. 1 (excluye juntura)
+    ts.push(clamp((leftWingLen + arcLen + u * rightWingLen) / total, 0, 1));
+  }
+
+  return ts;
 }
 
 function pointAtArcLength(pts, cum, total, dist) {
@@ -388,9 +881,11 @@ export function computeFormationSlots(formation, facingPoint) {
   const { cum, total } = polylineCumLengths(localPts);
   if (total <= 0) return [];
 
+  const ts = resolveFormationSlotTs(formation);
   const slots = [];
   for (let i = 0; i < n; i++) {
-    const dist = n === 1 ? total / 2 : (total * i) / (n - 1);
+    const t = ts[i] ?? (n === 1 ? 0.5 : i / Math.max(1, n - 1));
+    const dist = total * clamp(t, 0, 1);
     const local = pointAtArcLength(localPts, cum, total, dist);
     const world = rotateLocal(local.x, local.y, formation.rotation || 0);
     const x = formation.x + world.x;
@@ -401,8 +896,10 @@ export function computeFormationSlots(formation, facingPoint) {
       facingPoint.x,
       facingPoint.y,
     );
+    // slot.rotation: marcadores de plaza (canvas/PDF). Items magnetizados: base hacia director via rotationInstrumentBaseFacingPoint.
     slots.push({
       index: i,
+      t: clamp(t, 0, 1),
       x,
       y,
       rotation,
@@ -410,6 +907,42 @@ export function computeFormationSlots(formation, facingPoint) {
     });
   }
   return slots;
+}
+
+/**
+ * Proyecta un punto de escena al t in [0,1] mas cercano sobre la guia.
+ * @param {object} formation
+ * @param {number} worldX
+ * @param {number} worldY
+ */
+export function projectWorldPointToFormationT(formation, worldX, worldY) {
+  if (!formation) return 0;
+  const local = worldToFormationLocal(formation, worldX, worldY);
+  const localPts = formationGuidePointsLocal(formation);
+  const { cum, total } = polylineCumLengths(localPts);
+  if (total <= 0 || localPts.length < 2) return 0;
+
+  let bestDist = Infinity;
+  let bestAlong = 0;
+  for (let i = 1; i < localPts.length; i++) {
+    const ax = localPts[i - 1].x;
+    const ay = localPts[i - 1].y;
+    const bx = localPts[i].x;
+    const by = localPts[i].y;
+    const abx = bx - ax;
+    const aby = by - ay;
+    const abLen2 = abx * abx + aby * aby || 1;
+    let u = ((local.x - ax) * abx + (local.y - ay) * aby) / abLen2;
+    u = clamp(u, 0, 1);
+    const px = ax + abx * u;
+    const py = ay + aby * u;
+    const d = Math.hypot(local.x - px, local.y - py);
+    if (d < bestDist) {
+      bestDist = d;
+      bestAlong = cum[i - 1] + Math.hypot(abx, aby) * u;
+    }
+  }
+  return clamp(bestAlong / total, 0, 1);
 }
 
 export function formationGuideWorldPoints(formation) {
@@ -459,6 +992,17 @@ export function formationResizeHandlesLocal(formation) {
       { id: "w", x: -rx, y: 0 },
       { id: "e", x: rx, y: 0 },
       { id: "n", x: 0, y: -ry },
+    ];
+  }
+
+  if (kind === "semi_arc") {
+    const g = semiArcLocalGeometry(p);
+    return [
+      { id: "w", x: -g.rx, y: 0 },
+      { id: "e", x: g.rx, y: 0 },
+      { id: "n", x: 0, y: -g.ry },
+      { id: "tip_l", x: g.leftTip.x, y: g.leftTip.y },
+      { id: "tip_r", x: g.rightTip.x, y: g.rightTip.y },
     ];
   }
 
@@ -524,6 +1068,39 @@ export function formationParamsFromHandlePosition(
     return p;
   }
 
+  if (formation.kind === "semi_arc") {
+    if (handleId === "e" || handleId === "w" || handleId === "n") {
+      if (handleId === "e") p.rx = Math.max(FORMATION_MIN_RADIUS, lx);
+      else if (handleId === "w") p.rx = Math.max(FORMATION_MIN_RADIUS, -lx);
+      else if (handleId === "n") p.ry = Math.max(FORMATION_MIN_RADIUS, -ly);
+      return p;
+    }
+    const g = semiArcLocalGeometry(p);
+    if (handleId === "tip_l") {
+      const vx = lx - g.L.x;
+      const vy = ly - g.L.y;
+      const len = Math.hypot(vx, vy);
+      p.wingLength = Math.max(FORMATION_MIN_WING_LENGTH, len);
+      if (len > 1e-6) {
+        const leftTravel = { x: -vx / len, y: -vy / len };
+        p.wingAngle = clampWingAngle(signedAngleDeg(g.Ts, leftTravel));
+      }
+      return p;
+    }
+    if (handleId === "tip_r") {
+      const vx = lx - g.R.x;
+      const vy = ly - g.R.y;
+      const len = Math.hypot(vx, vy);
+      p.wingLength = Math.max(FORMATION_MIN_WING_LENGTH, len);
+      if (len > 1e-6) {
+        const rightTravel = { x: vx / len, y: vy / len };
+        p.wingAngle = clampWingAngle(-signedAngleDeg(g.Te, rightTravel));
+      }
+      return p;
+    }
+    return p;
+  }
+
   if (formation.kind === "line") {
     let hl = Math.max(
       FORMATION_MIN_HALF,
@@ -585,6 +1162,297 @@ export function formationParamsFromHandlePosition(
     width: Math.max(FORMATION_MIN_WIDTH, hw * 2),
     depth: Math.max(FORMATION_MIN_DEPTH, hd * 2),
   };
+}
+
+
+/** Padding extra alrededor del AABB local de la formación (≈½ marcador de plaza). */
+export const FORMATION_BOUNDS_BOX_PADDING_PX = SLOT_MARKER / 2;
+
+const FORMATION_BOUNDS_BOX_HANDLE_OPPOSITE = {
+  box_nw: "box_se",
+  box_se: "box_nw",
+  box_ne: "box_sw",
+  box_sw: "box_ne",
+  box_n: "box_s",
+  box_s: "box_n",
+  box_e: "box_w",
+  box_w: "box_e",
+};
+
+/**
+ * Local → escena (origen en centro de formación + rotación).
+ * @param {{ x: number, y: number, rotation?: number }} formation
+ */
+export function formationLocalToWorld(formation, localX, localY) {
+  const w = rotateLocal(localX, localY, formation.rotation || 0);
+  return { x: formation.x + w.x, y: formation.y + w.y };
+}
+
+/**
+ * AABB local (antes de rotación) de guía + alas + plazas + padding.
+ * @param {object} formation
+ * @param {{ x: number, y: number }|null} [facingPoint]
+ */
+export function getFormationBoundsLocal(formation, facingPoint = null) {
+  const points = [...formationGuidePointsLocal(formation)];
+  if (formation.kind === "semi_arc") {
+    const g = semiArcLocalGeometry(
+      formation.params || defaultParams("semi_arc"),
+    );
+    points.push(g.leftTip, g.rightTip);
+  }
+  if (facingPoint) {
+    for (const slot of computeFormationSlots(formation, facingPoint)) {
+      points.push(worldToFormationLocal(formation, slot.x, slot.y));
+    }
+  }
+  const pad = FORMATION_BOUNDS_BOX_PADDING_PX;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const p of points) {
+    minX = Math.min(minX, p.x - pad);
+    maxX = Math.max(maxX, p.x + pad);
+    minY = Math.min(minY, p.y - pad);
+    maxY = Math.max(maxY, p.y + pad);
+  }
+  if (!Number.isFinite(minX)) {
+    return { minX: -pad, maxX: pad, minY: -pad, maxY: pad };
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+/**
+ * AABB en coords de escena (axis-aligned).
+ * @param {object} formation
+ * @param {{ x: number, y: number }|null} [facingPoint]
+ */
+export function getFormationBounds(formation, facingPoint = null) {
+  const corners = formationBoundsBoxWorldCorners(formation, facingPoint);
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const p of corners) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y);
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+/**
+ * Esquinas del rect de selección (local → mundo, respeta rotación).
+ * @param {object} formation
+ * @param {{ x: number, y: number }|null} [facingPoint]
+ */
+export function formationBoundsBoxWorldCorners(formation, facingPoint = null) {
+  const b = getFormationBoundsLocal(formation, facingPoint);
+  return [
+    { x: b.minX, y: b.minY },
+    { x: b.maxX, y: b.minY },
+    { x: b.maxX, y: b.maxY },
+    { x: b.minX, y: b.maxY },
+  ].map((c) => formationLocalToWorld(formation, c.x, c.y));
+}
+
+/**
+ * Puntos planos [x0,y0,…] para Konva Line cerrada del recuadro gris.
+ * @param {object} formation
+ * @param {{ x: number, y: number }|null} [facingPoint]
+ */
+export function formationBoundsBoxLinePoints(formation, facingPoint = null) {
+  const corners = formationBoundsBoxWorldCorners(formation, facingPoint);
+  const flat = [];
+  for (const p of corners) flat.push(p.x, p.y);
+  return flat;
+}
+
+function formationBoundsBoxHandlePositionsLocal(formation, facingPoint = null) {
+  const b = getFormationBoundsLocal(formation, facingPoint);
+  const { minX, minY, maxX, maxY } = b;
+  const mx = (minX + maxX) / 2;
+  const my = (minY + maxY) / 2;
+  return [
+    { id: "box_nw", x: minX, y: minY },
+    { id: "box_ne", x: maxX, y: minY },
+    { id: "box_sw", x: minX, y: maxY },
+    { id: "box_se", x: maxX, y: maxY },
+    { id: "box_n", x: mx, y: minY },
+    { id: "box_s", x: mx, y: maxY },
+    { id: "box_w", x: minX, y: my },
+    { id: "box_e", x: maxX, y: my },
+  ];
+}
+
+/**
+ * Asas del recuadro gris (escala uniforme) en coords de escena.
+ * @param {object} formation
+ * @param {{ x: number, y: number }|null} [facingPoint]
+ */
+export function formationBoundsBoxHandlesWorld(formation, facingPoint = null) {
+  return formationBoundsBoxHandlePositionsLocal(formation, facingPoint).map(
+    (h) => {
+      const w = formationLocalToWorld(formation, h.x, h.y);
+      return { id: h.id, x: w.x, y: w.y, variant: "box" };
+    },
+  );
+}
+
+/** Todas las asas: paramétricas + recuadro (box_*). */
+export function formationAllResizeHandlesWorld(formation, facingPoint = null) {
+  return [
+    ...formationResizeHandlesWorld(formation).map((h) => ({
+      ...h,
+      variant: "param",
+    })),
+    ...formationBoundsBoxHandlesWorld(formation, facingPoint),
+  ];
+}
+
+function scaleFormationParams(kind, params, scaleFactor) {
+  const p = { ...(params || defaultParams(kind)) };
+  const s = scaleFactor;
+  if (kind === "arc" || kind === "semi_arc") {
+    p.rx = Math.max(
+      FORMATION_MIN_RADIUS,
+      (Number(p.rx) || stagePlotCmToPx(180)) * s,
+    );
+    p.ry = Math.max(
+      FORMATION_MIN_RADIUS,
+      (Number(p.ry) || stagePlotCmToPx(100)) * s,
+    );
+    if (kind === "semi_arc") {
+      p.wingLength = Math.max(
+        FORMATION_MIN_WING_LENGTH,
+        (Number(p.wingLength) || stagePlotCmToPx(80)) * s,
+      );
+    }
+    return p;
+  }
+  if (kind === "line") {
+    return {
+      ...p,
+      length: Math.max(
+        FORMATION_MIN_LENGTH,
+        (Number(p.length) || stagePlotCmToPx(360)) * s,
+      ),
+    };
+  }
+  return {
+    ...p,
+    width: Math.max(
+      FORMATION_MIN_WIDTH,
+      (Number(p.width) || stagePlotCmToPx(280)) * s,
+    ),
+    depth: Math.max(
+      FORMATION_MIN_DEPTH,
+      (Number(p.depth) || stagePlotCmToPx(150)) * s,
+    ),
+  };
+}
+
+/** Factor mínimo de escala uniforme para respetar mínimos por kind. */
+export function minUniformScaleForFormation(formation) {
+  const kind = formation.kind;
+  const p = formation.params || defaultParams(kind);
+  const candidates = [0.05];
+  if (kind === "arc" || kind === "semi_arc") {
+    candidates.push(
+      FORMATION_MIN_RADIUS / (Number(p.rx) || stagePlotCmToPx(180)),
+      FORMATION_MIN_RADIUS / (Number(p.ry) || stagePlotCmToPx(100)),
+    );
+    if (kind === "semi_arc") {
+      candidates.push(
+        FORMATION_MIN_WING_LENGTH /
+          (Number(p.wingLength) || stagePlotCmToPx(80)),
+      );
+    }
+  } else if (kind === "line") {
+    candidates.push(
+      FORMATION_MIN_LENGTH / (Number(p.length) || stagePlotCmToPx(360)),
+    );
+  } else {
+    candidates.push(
+      FORMATION_MIN_WIDTH / (Number(p.width) || stagePlotCmToPx(280)),
+      FORMATION_MIN_DEPTH / (Number(p.depth) || stagePlotCmToPx(150)),
+    );
+  }
+  return Math.max(...candidates);
+}
+
+/**
+ * Escala uniforme de todos los params lineales; ancla fija en coords locales.
+ * slotTs / ángulos sin cambio.
+ */
+export function scaleFormationUniform(formation, scaleFactor, anchorLocal) {
+  const s = Math.max(scaleFactor, minUniformScaleForFormation(formation));
+  const params = scaleFormationParams(
+    formation.kind,
+    formation.params || defaultParams(formation.kind),
+    s,
+  );
+  const anchorWorld = formationLocalToWorld(
+    formation,
+    anchorLocal.x,
+    anchorLocal.y,
+  );
+  const scaledOffset = rotateLocal(
+    anchorLocal.x * s,
+    anchorLocal.y * s,
+    formation.rotation || 0,
+  );
+  return {
+    ...formation,
+    params,
+    x: anchorWorld.x - scaledOffset.x,
+    y: anchorWorld.y - scaledOffset.y,
+  };
+}
+
+/**
+ * Redimensionado proporcional arrastrando una asa box_* (recuadro gris).
+ * @param {object} baseFormation — snapshot al inicio del drag
+ */
+export function formationFromBoundsBoxHandleDrag(
+  baseFormation,
+  handleId,
+  worldX,
+  worldY,
+  facingPoint = null,
+) {
+  if (!handleId?.startsWith("box_")) return baseFormation;
+  const positions = formationBoundsBoxHandlePositionsLocal(
+    baseFormation,
+    facingPoint,
+  );
+  const byId = Object.fromEntries(positions.map((h) => [h.id, h]));
+  const dragged = byId[handleId];
+  const anchorId = FORMATION_BOUNDS_BOX_HANDLE_OPPOSITE[handleId];
+  const anchor = byId[anchorId];
+  if (!dragged || !anchor) return baseFormation;
+
+  const dragLocal = worldToFormationLocal(baseFormation, worldX, worldY);
+  const baseDx = dragged.x - anchor.x;
+  const baseDy = dragged.y - anchor.y;
+  const newDx = dragLocal.x - anchor.x;
+  const newDy = dragLocal.y - anchor.y;
+
+  let s = 1;
+  if (handleId === "box_e" || handleId === "box_w") {
+    if (Math.abs(baseDx) > 1e-6) s = newDx / baseDx;
+  } else if (handleId === "box_n" || handleId === "box_s") {
+    if (Math.abs(baseDy) > 1e-6) s = newDy / baseDy;
+  } else {
+    const baseDist = Math.hypot(baseDx, baseDy);
+    const newDist = Math.hypot(newDx, newDy);
+    if (baseDist > 1e-6) s = newDist / baseDist;
+  }
+
+  if (!Number.isFinite(s) || s <= 0) return baseFormation;
+  return scaleFormationUniform(baseFormation, s, anchor);
 }
 
 /**
@@ -848,6 +1716,8 @@ export function cloneStagePlotFormation(formation, items, opts = {}) {
     x: (Number(formation.x) || 0) + offsetX,
     y: (Number(formation.y) || 0) + offsetY,
     params: { ...(formation.params || {}) },
+    slotMode: normalizeStagePlotSlotMode(formation.slotMode),
+    slotTs: Array.isArray(formation.slotTs) ? formation.slotTs.slice() : null,
   };
 
   if (!withInstruments) {

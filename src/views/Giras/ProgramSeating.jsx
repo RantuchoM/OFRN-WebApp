@@ -80,6 +80,10 @@ import {
   buildSeatingPartSortOptions,
   sortWindMusiciansForSeating,
 } from "../../utils/seatingWindOrder";
+import {
+  fetchCuerdasConfigsForProgram,
+  resolveCuerdasConfigForBlock,
+} from "../../utils/seatingCuerdasConfig";
 import { createPortal } from "react-dom";
 import WorkForm from "../Repertoire/WorkForm";
 import GiraGrupoChips from "../../components/giras/GiraGrupoChips";
@@ -1008,7 +1012,10 @@ export default function ProgramSeating({
   const [assignments, setAssignments] = useState({});
   const [musicianAssignments, setMusicianAssignments] = useState({});
   const [containers, setContainers] = useState([]);
+  const [cuerdasConfigs, setCuerdasConfigs] = useState([]);
+  const [managerConfigId, setManagerConfigId] = useState(null);
   const [showConfig, setShowConfig] = useState(false);
+  const [cuerdasToolbarHostEl, setCuerdasToolbarHostEl] = useState(null);
   const [stringsPanelHeight, setStringsPanelHeight] = useState(() => {
     try {
       const stored = localStorage.getItem(STRINGS_PANEL_HEIGHT_KEY);
@@ -1307,6 +1314,36 @@ export default function ProgramSeating({
     if (!resolvedBlockId) return obras;
     return obras.filter((obra) => obra.blockId === resolvedBlockId);
   }, [obras, resolvedBlockId]);
+
+  const activeCuerdasConfig = useMemo(
+    () => resolveCuerdasConfigForBlock(cuerdasConfigs, resolvedBlockId),
+    [cuerdasConfigs, resolvedBlockId],
+  );
+
+  const activeCuerdasConfigId = activeCuerdasConfig?.id ?? null;
+
+  // Al cambiar de bloque (o de configs), cargar atriles de la config resuelta
+  useEffect(() => {
+    if (!program?.id || !supabase) return undefined;
+    let cancelled = false;
+    (async () => {
+      const configs =
+        cuerdasConfigs.length > 0
+          ? cuerdasConfigs
+          : await fetchCuerdasConfigsForProgram(supabase, program.id);
+      if (cancelled) return;
+      if (!cuerdasConfigs.length && configs.length) setCuerdasConfigs(configs);
+      // Siempre seguir la pestaña de bloque (también con el panel Cuerdas abierto).
+      const resolved = resolveCuerdasConfigForBlock(configs, resolvedBlockId);
+      setManagerConfigId(resolved?.id ?? null);
+      await fetchContainers(resolved?.id ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // fetchContainers es estable en la práctica vía program/supabase/rawRoster
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-fetch al cambiar bloque/configs
+  }, [resolvedBlockId, program?.id, supabase]);
 
   const handleBlockTabKeyDown = (event, index) => {
     if (
@@ -2170,7 +2207,11 @@ export default function ProgramSeating({
         return (a.apellido || "").localeCompare(b.apellido || "");
       });
       setConfirmedRoster(musicians);
-      await fetchContainers();
+      const configs = await fetchCuerdasConfigsForProgram(supabase, program.id);
+      setCuerdasConfigs(configs);
+      const resolved = resolveCuerdasConfigForBlock(configs, activeBlockId);
+      if (resolved?.id) setManagerConfigId(resolved.id);
+      await fetchContainers(resolved?.id ?? null);
 
       const { data: assigns } = await supabase
         .from("seating_asignaciones")
@@ -2214,11 +2255,27 @@ export default function ProgramSeating({
     }
   };
 
-  const fetchContainers = async () => {
+  const fetchContainers = async (configIdOverride = null) => {
+    let configId = configIdOverride;
+    if (configId == null) {
+      let configs = cuerdasConfigs;
+      if (!configs.length) {
+        configs = await fetchCuerdasConfigsForProgram(supabase, program.id);
+        setCuerdasConfigs(configs);
+      }
+      const resolved = resolveCuerdasConfigForBlock(configs, resolvedBlockId);
+      configId = resolved?.id ?? null;
+    }
+    if (configId == null) {
+      setContainers([]);
+      return;
+    }
+
     const { data: conts } = await supabase
       .from("seating_contenedores")
       .select("*")
       .eq("id_programa", program.id)
+      .eq("id_config", configId)
       .order("orden");
     if (conts) {
       const { data: items } = await supabase
@@ -2249,6 +2306,8 @@ export default function ProgramSeating({
           };
         }),
       );
+    } else {
+      setContainers([]);
     }
   };
 
@@ -3258,6 +3317,13 @@ export default function ProgramSeating({
                 );
               })}
             </div>
+            {showConfig && canViewStringsConfig && (
+              <div
+                ref={setCuerdasToolbarHostEl}
+                className="shrink-0 self-center pb-1.5 pl-2 ml-auto flex items-center min-h-[2.25rem]"
+                aria-label="Configs de cuerdas"
+              />
+            )}
           </div>
         </div>
       )}
@@ -3288,12 +3354,46 @@ export default function ProgramSeating({
               >
                 <GlobalStringsManager
                   programId={program.id}
-                  roster={confirmedRoster}
+                  roster={filteredRoster}
                   containers={containers}
-                  onUpdate={fetchContainers}
+                  onUpdate={() =>
+                    fetchContainers(managerConfigId ?? activeCuerdasConfigId)
+                  }
                   supabase={supabase}
                   readOnly={!canEditStringsConfig}
                   fillHeight
+                  configs={cuerdasConfigs}
+                  activeConfigId={managerConfigId ?? activeCuerdasConfigId}
+                  repertoireBlocks={effectiveBlocks}
+                  activeBlockId={resolvedBlockId}
+                  activeBlockName={
+                    effectiveBlocks.find(
+                      (b) => Number(b.id) === Number(resolvedBlockId),
+                    )?.nombre || null
+                  }
+                  rosterFilteredByBlock={Boolean(activeBlockGrupoMemberIds)}
+                  toolbarHostEl={
+                    effectiveBlocks.length > 0 ? cuerdasToolbarHostEl : null
+                  }
+                  onConfigsChange={async (nextConfigs, nextActiveId) => {
+                    setCuerdasConfigs(nextConfigs || []);
+                    if (nextActiveId != null) {
+                      setManagerConfigId(nextActiveId);
+                      await fetchContainers(nextActiveId);
+                    } else {
+                      const list = nextConfigs || [];
+                      const resolved = resolveCuerdasConfigForBlock(
+                        list,
+                        resolvedBlockId,
+                      );
+                      setManagerConfigId(resolved?.id ?? null);
+                      await fetchContainers(resolved?.id ?? null);
+                    }
+                  }}
+                  onSelectConfig={async (configId) => {
+                    setManagerConfigId(configId);
+                    await fetchContainers(configId);
+                  }}
                 />
               </Suspense>
             </div>

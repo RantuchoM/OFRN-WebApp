@@ -474,6 +474,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Hotelería: exports por artista en cada tarjeta (Pedido hotel hub + Rooming PDF + Excel rooming/hotelería; cabecera edición intacta)
 - [x] Hotelería: **Editar datos** por tarjeta = `FimbaArtistaMetaSection` (autosave) + cupos; `refreshRow` post-save; gate `canEditPropuestaMeta`
 - [x] Ficha artista + token edición: panel **Hotelería / rooming** (`FimbaRoomingPanel`); consulta token RO
+- [x] **Venues** `/fimba/edicion/:id/venues`: conciertos por locación (scope gira edición), metadata operativa por edición (`fimba_venue_info`), stage plot; consulta RO + Ver escenario. Redirect legacy `/espacios` → `/venues`.
 
 ### UI tokens
 
@@ -569,6 +570,42 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 
 **Carga (`listFimbaHoteleria`):** participantes + habitaciones en **batch** (2 queries por edición, no N+1 secuencial). La página deduplica edición/propuestas y muestra spinner solo en la primera carga; cambio de filtro Artista = refresh inline.
 
+### Venues (locaciones de la edición)
+
+1. Edición → **Venues** (`/fimba/edicion/:id/venues`) — pestaña del toggle superior (entre Hotelería y Rider). Legacy `/espacios` redirige aquí.
+2. **Scope:** solo conciertos (`eventos.id_tipo_evento = 1`) con `id_locacion` de la gira enlazada (`fimba_ediciones.id_gira`). No es el listado global OFRN de Gestión → Espacios (ese módulo sigue usando **estado de venue**).
+3. Agrupado por **locación**: card expandible con metadata operativa FIMBA + tabla de espectáculos.
+4. **Campos por venue** (editable staff no RO; consulta RO):
+
+| Campo UI | Origen DB | Notas |
+|----------|-----------|-------|
+| Nombre | `locaciones.nombre` | Editable (catálogo compartido) |
+| Dirección | `locaciones.direccion` | Editable |
+| Localidad | `locaciones` → `localidades` | Solo lectura |
+| Referente | `fimba_venue_info.referente_nombre` | Por edición + locación |
+| Teléfono referente | `fimba_venue_info.referente_telefono` | |
+| Rider disponible | `fimba_venue_info.rider_disponible` | Texto libre (sí/no/enlace) |
+| Sillas disponibles | `fimba_venue_info.sillas_disponibles` | Texto libre |
+| Agua | `fimba_venue_info.agua` | Texto libre |
+| Observaciones | `fimba_venue_info.observaciones` | |
+| Espectáculos | `eventos` (conciertos en la locación) | Tabla debajo del card |
+| Agenda | link | `/fimba/edicion/:id/agenda?locacion=:id_locacion` |
+
+5. Medidas de escenario en header: `locaciones.escenario_ancho_cm` × `escenario_profundo_cm`.
+6. Por espectáculo: fecha/hora, actividad, bloque repertorio, artistas taggeados, grupos OFRN.
+7. Filtros: fecha desde/hasta, locación.
+8. Acciones por espectáculo:
+   - **Ver escenario** → `StagePlotViewerModal`.
+   - **Editar escenario** (solo staff OFRN `isManagement`) → Giras → Seating → Escenario.
+   - **Editar evento** → `FimbaEventoFormModal` (staff no RO).
+9. Autosave debounced + semáforo en `FimbaVenueInfoSection` (patrón meta artista).
+10. **Permisos edición venue info:** `!readOnly` — OFRN management, `editor_general` FIMBA; consulta (user/token `/c`) y OFRN con fila `fimba_usuarios.consulta` = solo lectura.
+11. **Sin** estado de venue (`id_estado_venue`, `eventos_venue_log`) en esta vista.
+
+**Servicios:** `listFimbaConcertVenues`, `listFimbaVenueInfo`, `upsertFimbaVenueInfo`, `updateLocacionBasics` en `fimbaService.js`. UI: `FimbaVenuesPage.jsx`, `FimbaVenueInfoSection.jsx`. Helpers: `src/utils/venueDisplayUtils.js`.
+
+**Migración:** `20260827230000_fimba_venue_info.sql` — tabla `fimba_venue_info` (`id_edicion`, `id_locacion` unique).
+
 ### Contrataciones
 
 1. Edición → **Contrataciones** (`/fimba/edicion/:id/contrataciones`).
@@ -597,6 +634,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `/fimba/edicion/:id/agenda` | Agenda unificada |
 | `/fimba/edicion/:id/transportes` | Vehículos + trayectos |
 | `/fimba/edicion/:id/hoteleria` | Hotelería |
+| `/fimba/edicion/:id/venues` | Venues de la edición (metadata + espectáculos + escenario). Legacy `/espacios` → redirect |
 | `/fimba/edicion/:id/contrataciones` | Contrataciones / expedientes (`fimba_contrataciones`) |
 | `/fimba/edicion/:id/usuarios` | Usuarios FIMBA de la edición (`fimba_usuarios`) |
 | `/fimba/edicion/:id/artista/:artistaId` | Detalle artista: agenda + rooming + planilla participantes + tokens (+ finanzas solo `canSeeContrataciones`) |
@@ -665,6 +703,10 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/utils/fimbaTransportBoarding.js` | Boarding + `buildArtistaTrasladoAgendaBlocks` / merge |
 | `src/views/Fimba/FimbaTransportPage.jsx` | Vehículos + trayectos + columnas boarding / locación |
 | `src/views/Fimba/FimbaHoteleriaPage.jsx` | Hotelería + **Editar datos** (meta compartida + cupos) + hub reportes + exports por tarjeta + comidas |
+| `src/views/Fimba/FimbaVenuesPage.jsx` | Venues: metadata operativa + espectáculos + stage plot (scope edición) |
+| `src/views/Fimba/FimbaVenueInfoSection.jsx` | Card editable venue info (autosave + semáforo) |
+| `supabase/migrations/20260827230000_fimba_venue_info.sql` | Tabla `fimba_venue_info` |
+| `src/utils/venueDisplayUtils.js` | Helpers compartidos agrupación/formato venues |
 | `src/views/Fimba/FimbaHoteleriaReports.jsx` | Hub OFRN + vistas print/Excel pedido hotel |
 | `src/views/Fimba/FimbaComidasReportModal.jsx` | Comidas: texto / PDF / Excel |
 | `src/views/Fimba/FimbaTransportReportsMenu.jsx` | CNRT · paradas · hoja de ruta · Excel por vehículo |
@@ -706,7 +748,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
    - Alternativa: `/fimba/login?token={token_login}` (UUID de la fila).
 3. **Enlace consulta general edición** (sin login de usuario):
    - En **Usuarios**: sección «Enlace consulta general edición» → copiar `/fimba/c/<token>`.
-   - Abrir en incógnito: shell RO de esa edición (Artistas, Agenda, Transportes, Hotelería; **sin Rider**).
+   - Abrir en incógnito: shell RO de esa edición (Artistas, Agenda, Transportes, Hotelería, Venues; **sin Rider**).
    - **Regenerar** invalida el enlace anterior (`fimba_ediciones.token_consulta`).
 4. **Logout FIMBA**: botón **Salir** en el header (sesión usuario y/o token consulta).
 5. Staff OFRN sigue entrando por login intranet (`isManagement`) sin registro en `fimba_usuarios`, salvo override `consulta` (mail en `fimba_usuarios` → RO).

@@ -1,4 +1,8 @@
 import { countsTowardInstrumentationConvoked } from "./instrumentation";
+import {
+  fetchCuerdasConfigsForProgram,
+  sortCuerdasConfigs,
+} from "./seatingCuerdasConfig";
 import { dedupeSeatingStringItems } from "./seatingStringItemsDedupe";
 
 /** Códigos de pupitre en BD (solo estos cuatro). */
@@ -16,17 +20,26 @@ function passesRosterFilters(m) {
 }
 
 /**
- * Para un programa: mapa id_musico → nombre del contenedor de seating (primera fila si hubiera duplicados).
+ * Para un programa: mapa id_musico → nombre del contenedor de seating.
+ * Usa la primera config (sort_order) para evitar choques multi-config.
  */
 export async function fetchMusicianSeatingContainerLabels(supabase, programId) {
   const map = new Map();
   if (programId == null) return map;
 
-  const { data: conts, error: e1 } = await supabase
+  const configs = await fetchCuerdasConfigsForProgram(supabase, programId);
+  const primary = sortCuerdasConfigs(configs)[0];
+
+  let contsQuery = supabase
     .from("seating_contenedores")
-    .select("id, nombre, orden")
+    .select("id, nombre, orden, id_config")
     .eq("id_programa", programId)
     .order("orden");
+  if (primary?.id != null) {
+    contsQuery = contsQuery.eq("id_config", primary.id);
+  }
+
+  const { data: conts, error: e1 } = await contsQuery;
 
   if (e1) throw e1;
   if (!conts?.length) return map;
@@ -70,17 +83,33 @@ export async function batchFetchMusicianSeatingContainerLabels(
 
   const { data: conts, error: e1 } = await supabase
     .from("seating_contenedores")
-    .select("id, id_programa, nombre, orden")
+    .select("id, id_programa, id_config, nombre, orden")
     .in("id_programa", ids)
     .order("orden");
 
   if (e1) throw e1;
   if (!conts?.length) return out;
 
+  // Una config primaria por programa (sort_order mínimo)
+  const primaryConfigByProgram = new Map();
+  await Promise.all(
+    ids.map(async (pid) => {
+      const cfgs = await fetchCuerdasConfigsForProgram(supabase, pid);
+      const primary = sortCuerdasConfigs(cfgs)[0];
+      if (primary) primaryConfigByProgram.set(pid, Number(primary.id));
+    }),
+  );
+
+  const filteredConts = conts.filter((c) => {
+    const primaryId = primaryConfigByProgram.get(Number(c.id_programa));
+    if (primaryId == null) return true;
+    return Number(c.id_config) === primaryId;
+  });
+
   const contsByProgram = new Map();
   const idToNombre = new Map();
   const contIds = [];
-  for (const c of conts) {
+  for (const c of filteredConts) {
     const pid = Number(c.id_programa);
     if (!contsByProgram.has(pid)) contsByProgram.set(pid, []);
     contsByProgram.get(pid).push(c);
@@ -90,6 +119,8 @@ export async function batchFetchMusicianSeatingContainerLabels(
     );
     contIds.push(c.id);
   }
+
+  if (!contIds.length) return out;
 
   const { data: items, error: e2 } = await supabase
     .from("seating_contenedores_items")

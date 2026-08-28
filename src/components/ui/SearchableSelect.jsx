@@ -11,7 +11,7 @@ const cleanOptionText = (value) => {
 };
 
 export default function SearchableSelect({ 
-    options = [], // Array de { id, label, subLabel?, color? }
+    options = [], // Array de { id, label, subLabel?, color?, disabled? }
     value,        // ID o Array de IDs (si es multi)
     onChange, 
     placeholder = "Buscar...", 
@@ -138,6 +138,10 @@ export default function SearchableSelect({
     }, [isOpen]);
 
     const handleSelect = (id) => {
+        const opt = normalizedOptions.find(
+            (o) => String(o.id).trim() === String(id == null ? "" : id).trim(),
+        );
+        if (opt?.disabled) return;
         if (isMulti) {
             const current = Array.isArray(value) ? value : [];
             const newValue = current.includes(id) 
@@ -239,15 +243,17 @@ export default function SearchableSelect({
                                 const isSelected = isMulti
                                     ? (value || []).includes(opt.id)
                                     : String(value == null ? "" : value).trim() === String(opt.id).trim();
+                                const isDisabled = !!opt.disabled;
                                 const optionStatusClass = opt.optionClassName || "";
                                 const optionLabelClass = opt.labelClassName || "text-slate-700";
                                 const optionSubLabelClass = opt.subLabelClassName || "text-[10px] text-slate-500";
-                                const hoverClass = optionStatusClass ? "" : "hover:bg-slate-50";
+                                const hoverClass = optionStatusClass || isDisabled ? "" : "hover:bg-slate-50";
                                 return (
                                     <div 
                                         key={opt.id} 
-                                        onClick={() => handleSelect(opt.id)} 
-                                        className={`px-3 py-2 text-xs cursor-pointer border-b border-slate-50 last:border-0 flex items-center justify-between gap-2 ${isSelected ? 'bg-indigo-50' : ''} ${hoverClass} ${optionStatusClass}`}
+                                        onClick={() => !isDisabled && handleSelect(opt.id)} 
+                                        aria-disabled={isDisabled || undefined}
+                                        className={`px-3 py-2 text-xs border-b border-slate-50 last:border-0 flex items-center justify-between gap-2 ${isSelected ? 'bg-indigo-50' : ''} ${hoverClass} ${optionStatusClass} ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                     >
                                         <div className="flex items-start gap-2 min-w-0">
                                             {opt.color ? (

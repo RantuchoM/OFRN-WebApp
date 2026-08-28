@@ -623,6 +623,140 @@ export async function getFimbaEdicionByGiraId(giraId) {
 }
 
 /**
+ * Conciertos (id_tipo_evento = 1) con locación de la gira FIMBA enlazada a la edición.
+ * Scope: solo eventos de `fimba_ediciones.id_gira`, no global OFRN.
+ */
+export async function listFimbaConcertVenues(edicionId) {
+  if (edicionId == null || edicionId === "") {
+    return { events: [], error: new Error("id de edición requerido") };
+  }
+  const { edicion, error: eEd } = await getFimbaEdicionById(edicionId);
+  if (eEd) return { events: [], error: eEd };
+  const idGira = edicion?.id_gira;
+  if (idGira == null || idGira === "") {
+    return { events: [], error: new Error("La edición no tiene gira enlazada") };
+  }
+
+  const { data, error } = await supabase
+    .from("eventos")
+    .select(
+      `
+        id,
+        fecha,
+        hora_inicio,
+        hora_fin,
+        descripcion,
+        id_tipo_evento,
+        id_gira,
+        id_locacion,
+        id_repertorio,
+        locaciones (
+          id,
+          nombre,
+          direccion,
+          telefono,
+          escenario_ancho_cm,
+          escenario_profundo_cm,
+          localidades ( localidad )
+        ),
+        programas ( id, nombre_gira, nomenclador, tipo ),
+        programas_repertorios ( id, nombre ),
+        eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ),
+        eventos_fimba_propuestas (
+          id_propuesta,
+          fimba_propuestas ( id, nombre, color )
+        )
+      `,
+    )
+    .eq("id_gira", idGira)
+    .eq("id_tipo_evento", 1)
+    .not("id_locacion", "is", null)
+    .order("fecha", { ascending: true })
+    .order("hora_inicio", { ascending: true });
+
+  if (error) return { events: [], error };
+  return { events: data || [], edicion, error: null };
+}
+
+const FIMBA_VENUE_INFO_SELECT =
+  "id, id_edicion, id_locacion, referente_nombre, referente_telefono, rider_disponible, sillas_disponibles, agua, observaciones, updated_at";
+
+/**
+ * Metadata operativa FIMBA por locación en una edición.
+ * @param {number|string} edicionId
+ */
+export async function listFimbaVenueInfo(edicionId) {
+  if (edicionId == null || edicionId === "") {
+    return { venueInfo: [], error: new Error("id de edición requerido") };
+  }
+  const { data, error } = await supabase
+    .from("fimba_venue_info")
+    .select(FIMBA_VENUE_INFO_SELECT)
+    .eq("id_edicion", edicionId);
+  if (error) return { venueInfo: [], error };
+  return { venueInfo: data || [], error: null };
+}
+
+/**
+ * Upsert metadata FIMBA de venue (por edición + locación).
+ * @param {number|string} edicionId
+ * @param {number|string} idLocacion
+ * @param {object} patch
+ */
+export async function upsertFimbaVenueInfo(edicionId, idLocacion, patch) {
+  if (edicionId == null || edicionId === "" || idLocacion == null || idLocacion === "") {
+    return { venueInfo: null, error: new Error("edición y locación requeridas") };
+  }
+  const row = {
+    id_edicion: Number(edicionId),
+    id_locacion: Number(idLocacion),
+    referente_nombre: patch.referente_nombre?.trim() || null,
+    referente_telefono: patch.referente_telefono?.trim() || null,
+    rider_disponible: patch.rider_disponible?.trim() || null,
+    sillas_disponibles: patch.sillas_disponibles?.trim() || null,
+    agua: patch.agua?.trim() || null,
+    observaciones: patch.observaciones?.trim() || null,
+    updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabase
+    .from("fimba_venue_info")
+    .upsert(row, { onConflict: "id_edicion,id_locacion" })
+    .select(FIMBA_VENUE_INFO_SELECT)
+    .single();
+  return { venueInfo: data, error };
+}
+
+/**
+ * Actualiza nombre/dirección de locación (catálogo compartido).
+ * @param {number|string} idLocacion
+ * @param {{ nombre?: string, direccion?: string }} patch
+ */
+export async function updateLocacionBasics(idLocacion, patch) {
+  if (idLocacion == null || idLocacion === "") {
+    return { locacion: null, error: new Error("id de locación requerido") };
+  }
+  const payload = {};
+  if (patch.nombre != null) {
+    const nombre = String(patch.nombre).trim();
+    if (!nombre) return { locacion: null, error: new Error("El nombre es obligatorio") };
+    payload.nombre = nombre;
+  }
+  if (patch.direccion != null) {
+    payload.direccion = String(patch.direccion).trim() || null;
+  }
+  if (Object.keys(payload).length === 0) {
+    return { locacion: null, error: new Error("Sin cambios") };
+  }
+  const { data, error } = await supabase
+    .from("locaciones")
+    .update(payload)
+    .eq("id", idLocacion)
+    .select("id, nombre, direccion")
+    .single();
+  return { locacion: data, error };
+}
+
+/**
  * Resuelve edición por token de consulta general (/fimba/c/:token).
  * @param {string} token
  */

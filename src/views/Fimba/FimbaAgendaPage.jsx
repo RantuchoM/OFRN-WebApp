@@ -299,6 +299,7 @@ export default function FimbaAgendaPage() {
   const { readOnly } = useFimbaAccess();
   const [searchParams] = useSearchParams();
   const filterFromQuery = searchParams.get("artista") || artistaId || null;
+  const locacionFromQuery = searchParams.get("locacion");
 
   const [edicion, setEdicion] = useState(null);
   const [propuestas, setPropuestas] = useState([]);
@@ -319,7 +320,12 @@ export default function FimbaAgendaPage() {
    * Multi-select de locaciones (`id_locacion`): vacío = todas; con ids = solo esas.
    * Filas sin locación quedan ocultas si el filtro está activo.
    */
-  const [selectedLocacionIds, setSelectedLocacionIds] = useState([]);
+  const [selectedLocacionIds, setSelectedLocacionIds] = useState(() => {
+    const raw = locacionFromQuery;
+    if (!raw) return [];
+    const id = Number(raw);
+    return Number.isFinite(id) ? [id] : [];
+  });
   /** Query de búsqueda debounced (vía FimbaAgendaSearchField). */
   const [agendaSearchQuery, setAgendaSearchQuery] = useState("");
   const handleAgendaSearchQueryChange = useCallback((query) => {
@@ -368,6 +374,12 @@ export default function FimbaAgendaPage() {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [edicionId, filtroArtista]);
+
+  useEffect(() => {
+    if (!locacionFromQuery) return;
+    const id = Number(locacionFromQuery);
+    if (Number.isFinite(id)) setSelectedLocacionIds([id]);
+  }, [locacionFromQuery]);
 
   // Con filtro por artista no hay orquesta pura; reset origen
   useEffect(() => {

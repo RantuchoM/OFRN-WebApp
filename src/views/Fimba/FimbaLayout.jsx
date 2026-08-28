@@ -139,7 +139,8 @@ const FIMBA_CSS = `
   }
   .fimba-main:has(.fimba-agenda-wide),
   .fimba-main:has(.fimba-hotel-wide),
-  .fimba-main:has(.fimba-edicion-wide) {
+  .fimba-main:has(.fimba-edicion-wide),
+  .fimba-main:has(.fimba-venues-wide) {
     max-width: 1200px;
   }
   /* Transportes: full-bleed within viewport so the planilla can scroll horizontally */

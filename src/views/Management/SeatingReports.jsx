@@ -30,6 +30,7 @@ import {
   seatingStringsGridEvenRowCount,
 } from "../../utils/seatingPdfStringsTableHooks";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
+import { fetchCuerdasDispositionGroups } from "../../utils/seatingCuerdasConfig";
 import {
   buildSeatingPartSortOptions,
   sortWindMusiciansForSeating,
@@ -240,37 +241,17 @@ export default function SeatingReports({ supabase }) {
   };
 
   const buildSeatingStateForProgram = async (program, roster, localRepertorio) => {
-    // Contenedores e items (cuerdas)
+    // Contenedores e items (cuerdas) — config primaria (sort_order) para preview/export
     let containers = [];
-    const { data: conts, error: contsError } = await supabase
-      .from("seating_contenedores")
-      .select("*")
-      .eq("id_programa", program.id)
-      .order("orden");
-    if (contsError) throw contsError;
+    const { groups } = await fetchCuerdasDispositionGroups(supabase, program.id);
+    const primaryGroup = groups[0];
+    const conts = primaryGroup?.containers || [];
 
-    if (conts && conts.length > 0) {
-      const { data: items, error: itemsError } = await supabase
-        .from("seating_contenedores_items")
-        .select("*, integrantes(nombre, apellido, instrumentos(instrumento))")
-        .in(
-          "id_contenedor",
-          conts.map((c) => c.id),
-        )
-        .order("atril_num", { ascending: true, nullsFirst: true })
-        .order("lado", { ascending: true, nullsFirst: true })
-        .order("id", { ascending: true });
-      if (itemsError) throw itemsError;
-
+    if (conts.length > 0) {
       const rosterKeys = confirmedSeatingRosterKeySet(roster);
-      const dedupedItems = dedupeSeatingStringItems(items || [], conts);
 
       containers = conts.map((c) => {
-        const containerItems =
-          dedupedItems.filter(
-            (i) => Number(i.id_contenedor) === Number(c.id),
-          ) || [];
-        const presentItems = containerItems.filter((item) =>
+        const presentItems = (c.items || []).filter((item) =>
           isMusicianOnConfirmedSeatingRoster(rosterKeys, item.id_musico),
         );
         return {

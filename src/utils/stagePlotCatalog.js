@@ -90,7 +90,7 @@ export function getStagePlotCatalogItem(type) {
 }
 
 /**
- * ¿Instrumento musical con huella 50×80 + atril?
+ * ¿Instrumento musical con huella 50×50 + atril?
  * No aplica a director, silla/banqueta, audio, marcas, atril suelto, tarima.
  * @param {string} type
  */

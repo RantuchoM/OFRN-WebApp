@@ -1,5 +1,16 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
-import { IconLoader, IconHistory, IconPencil, IconX } from "../ui/Icons";
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { Link } from "react-router-dom";
+import {
+  IconLoader,
+  IconHistory,
+  IconPencil,
+  IconX,
+  IconChevronDown,
+  IconChevronUp,
+  IconEye,
+  IconLayout,
+  IconMapPin,
+} from "../ui/Icons";
 import MultiSelect from "../ui/MultiSelect";
 import DateInput from "../ui/DateInput";
 import SearchableSelect from "../ui/SearchableSelect";
@@ -10,10 +21,52 @@ import {
   getVenueStatusById,
 } from "../../utils/venueUtils";
 import EventForm from "../forms/EventForm";
+import StagePlotViewerModal from "../../views/Giras/StagePlotViewerModal";
+import GiraGrupoChips from "../giras/GiraGrupoChips";
+import VenueStatusPin from "../ui/VenueStatusPin";
+import { buildAppTo } from "../../utils/appNavigation";
 import { toast } from "sonner";
 import { format, startOfDay, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
+
+function formatVenueStageDims(loc) {
+  const w = Number(loc?.escenario_ancho_cm);
+  const d = Number(loc?.escenario_profundo_cm);
+  if (Number.isFinite(w) && w > 0 && Number.isFinite(d) && d > 0) {
+    return `${Math.round(w)} × ${Math.round(d)} cm`;
+  }
+  return null;
+}
+
+function formatEventDate(fechaRaw) {
+  if (!fechaRaw) return "";
+  try {
+    const d = parseISO(fechaRaw);
+    const s = format(d, "EEEE, dd/MM/yyyy", { locale: es });
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  } catch {
+    return fechaRaw;
+  }
+}
+
+function getLatestVenueNote(evt) {
+  if (!Array.isArray(evt.eventos_venue_log) || evt.eventos_venue_log.length === 0) {
+    return null;
+  }
+  return evt.eventos_venue_log.reduce((latest, current) => {
+    if (!latest) return current;
+    return new Date(current.created_at) > new Date(latest.created_at)
+      ? current
+      : latest;
+  }, null);
+}
+
+function extractEventGrupos(evt) {
+  return (evt.eventos_grupos || [])
+    .map((eg) => eg.giras_grupos)
+    .filter(Boolean);
+}
 
 export function ManagementPanel({ supabase }) {
   const [activeTab, setActiveTab] = useState("venues");
@@ -75,6 +128,8 @@ export function VenuesManager({ supabase }) {
   const [bulkNote, setBulkNote] = useState("");
   const [bulkSaving, setBulkSaving] = useState(false);
   const statusDropdownRef = useRef(null);
+  const [expandedVenueIds, setExpandedVenueIds] = useState(() => new Set());
+  const [stagePlotViewerEvent, setStagePlotViewerEvent] = useState(null);
 
   const canView = isEditor || isAdmin;
 
@@ -134,10 +189,11 @@ export function VenuesManager({ supabase }) {
         if (!byId.has(loc.id)) {
           const localidad =
             loc.localidades?.localidad || loc.localidad?.localidad || null;
+          const dims = formatVenueStageDims(loc);
           byId.set(loc.id, {
             id: loc.id,
             label: loc.nombre || "Sin nombre",
-            subLabel: localidad || loc.direccion || null,
+            subLabel: [localidad, dims].filter(Boolean).join(" · ") || loc.direccion || null,
           });
         }
       }
@@ -187,6 +243,43 @@ export function VenuesManager({ supabase }) {
     dateTo,
   ]);
 
+  const venuesGrouped = useMemo(() => {
+    const byLoc = new Map();
+    filteredEvents.forEach((evt) => {
+      const loc = evt.locaciones;
+      const locId = loc?.id ?? evt.id_locacion ?? null;
+      if (locId == null) return;
+      if (!byLoc.has(locId)) {
+        byLoc.set(locId, { locacion: loc, events: [] });
+      }
+      byLoc.get(locId).events.push(evt);
+    });
+    return Array.from(byLoc.values()).sort((a, b) => {
+      const nameA = a.locacion?.nombre || "";
+      const nameB = b.locacion?.nombre || "";
+      return nameA.localeCompare(nameB, "es");
+    });
+  }, [filteredEvents]);
+
+  useEffect(() => {
+    setExpandedVenueIds((prev) => {
+      const next = new Set(prev);
+      venuesGrouped.forEach(({ locacion }) => {
+        if (locacion?.id != null) next.add(locacion.id);
+      });
+      return next;
+    });
+  }, [venuesGrouped]);
+
+  const toggleVenueExpanded = useCallback((locId) => {
+    setExpandedVenueIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(locId)) next.delete(locId);
+      else next.add(locId);
+      return next;
+    });
+  }, []);
+
   const handleToggleSelectOne = (eventId, checked) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -194,22 +287,6 @@ export function VenuesManager({ supabase }) {
         next.add(eventId);
       } else {
         next.delete(eventId);
-      }
-      return next;
-    });
-  };
-
-  const handleToggleSelectAllVisible = (checked) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (checked) {
-        filteredEvents.forEach((evt) => {
-          next.add(evt.id);
-        });
-      } else {
-        filteredEvents.forEach((evt) => {
-          next.delete(evt.id);
-        });
       }
       return next;
     });
@@ -501,246 +578,149 @@ export function VenuesManager({ supabase }) {
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-          <h3 className="text-sm font-bold text-slate-700">
-            Conciertos y Venues
-          </h3>
+          <div>
+            <h3 className="text-sm font-bold text-slate-700">
+              Locaciones con conciertos programados
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {venuesGrouped.length} espacio{venuesGrouped.length === 1 ? "" : "s"} ·{" "}
+              {filteredEvents.length} concierto
+              {filteredEvents.length === 1 ? "" : "s"}
+            </p>
+          </div>
           {loading && (
             <span className="flex items-center gap-1 text-[11px] text-slate-400">
               <IconLoader className="animate-spin" size={14} /> Cargando...
             </span>
           )}
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-xs table-fixed">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr className="text-left text-[10px] font-bold uppercase text-slate-500">
-                <th className="px-2 py-2 w-[4%]">
-                  <input
-                    type="checkbox"
-                    className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                    onChange={(e) =>
-                      handleToggleSelectAllVisible(e.target.checked)
-                    }
-                    checked={
-                      filteredEvents.length > 0 &&
-                      filteredEvents.every((evt) => selectedIds.has(evt.id))
-                    }
-                    aria-label="Seleccionar todos los conciertos visibles"
-                  />
-                </th>
-                <th className="px-3 py-2 w-[14%]">Fecha</th>
-                <th className="px-3 py-2 w-[20%]">Concierto</th>
-                <th className="px-3 py-2 w-[20%]">Programa</th>
-                <th className="px-3 py-2 w-[14%]">Estado Venue</th>
-                <th className="px-3 py-2 w-[28%]">Nota Estado</th>
-                <th className="px-2 py-2 w-[8%] text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredEvents.length === 0 && !loading && (
-                <tr>
-                  <td
-                    colSpan={7}
-                    className="px-3 py-4 text-center text-slate-400 text-xs"
+
+        {filteredEvents.length === 0 && !loading ? (
+          <div className="px-4 py-10 text-center text-slate-400 text-xs">
+            No hay conciertos con locación que coincidan con los filtros actuales.
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {venuesGrouped.map(({ locacion, events: venueEvents }) => {
+              const locId = locacion.id;
+              const isExpanded = expandedVenueIds.has(locId);
+              const localidad =
+                locacion.localidades?.localidad ||
+                locacion.localidad?.localidad ||
+                null;
+              const stageDims = formatVenueStageDims(locacion);
+              const allSelected =
+                venueEvents.length > 0 &&
+                venueEvents.every((evt) => selectedIds.has(evt.id));
+
+              return (
+                <section key={locId} className="bg-white">
+                  <button
+                    type="button"
+                    onClick={() => toggleVenueExpanded(locId)}
+                    className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-slate-50/80 transition-colors"
                   >
-                    No hay conciertos que coincidan con los filtros actuales.
-                  </td>
-                </tr>
-              )}
-              {filteredEvents.map((evt) => {
-                const status = getVenueStatusById(evt.id_estado_venue);
-                const program = evt.programas;
-                const fechaRaw = evt.fecha || "";
-                const fechaFormatted = fechaRaw
-                  ? (() => {
-                      try {
-                        const d = parseISO(fechaRaw);
-                        const s = format(d, "EEEE, dd/MM/yyyy", { locale: es });
-                        return s.charAt(0).toUpperCase() + s.slice(1);
-                      } catch {
-                        return fechaRaw;
-                      }
-                    })()
-                  : "";
-                const hora = evt.hora_inicio
-                  ? evt.hora_inicio.slice(0, 5)
-                  : "";
-                let lastVenueNote = null;
-                if (Array.isArray(evt.eventos_venue_log) && evt.eventos_venue_log.length > 0) {
-                  lastVenueNote = evt.eventos_venue_log.reduce((latest, current) => {
-                    if (!latest) return current;
-                    return new Date(current.created_at) > new Date(latest.created_at)
-                      ? current
-                      : latest;
-                  }, null);
-                }
-                return (
-                  <tr
-                    key={evt.id}
-                    className="border-b border-slate-100 hover:bg-slate-50/80"
-                  >
-                    <td className="px-2 py-2 w-[4%] align-top">
+                    <span className="mt-0.5 text-slate-400 shrink-0">
+                      {isExpanded ? (
+                        <IconChevronUp size={16} />
+                      ) : (
+                        <IconChevronDown size={16} />
+                      )}
+                    </span>
+                    <span className="mt-0.5 text-indigo-500 shrink-0">
+                      <IconMapPin size={16} />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="text-sm font-bold text-slate-800">
+                          {locacion.nombre || "Sin nombre"}
+                        </span>
+                        {localidad && (
+                          <span className="text-xs text-slate-500">{localidad}</span>
+                        )}
+                        <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+                          {venueEvents.length} concierto
+                          {venueEvents.length === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
+                        {locacion.direccion && (
+                          <span className="truncate max-w-md">{locacion.direccion}</span>
+                        )}
+                        {stageDims ? (
+                          <span className="font-medium text-slate-600">
+                            Escenario: {stageDims}
+                          </span>
+                        ) : (
+                          <span className="italic text-slate-400">Sin medidas de escenario</span>
+                        )}
+                      </div>
+                    </div>
+                    <span
+                      className="shrink-0 mt-1"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
                       <input
                         type="checkbox"
                         className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                        checked={selectedIds.has(evt.id)}
-                        onChange={(e) =>
-                          handleToggleSelectOne(evt.id, e.target.checked)
-                        }
-                        aria-label="Seleccionar concierto para edición masiva"
+                        checked={allSelected}
+                        onChange={(e) => {
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            venueEvents.forEach((evt) => {
+                              if (e.target.checked) next.add(evt.id);
+                              else next.delete(evt.id);
+                            });
+                            return next;
+                          });
+                        }}
+                        aria-label={`Seleccionar todos los conciertos en ${locacion.nombre}`}
                       />
-                    </td>
-                    <td className="px-3 py-2 text-slate-700 w-[14%]">
-                      <div className="flex flex-col">
-                        <span className="text-xs font-medium">{fechaFormatted}</span>
-                        {hora && (
-                          <span className="text-[11px] text-slate-400">
-                            {hora} hs
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 w-[20%] text-slate-700 align-top">
-                      <button
-                        type="button"
-                        className="text-left w-full min-w-0"
-                        onClick={() => openEditModal(evt)}
-                      >
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-xs font-semibold truncate block" title={evt.descripcion ? String(evt.descripcion).replace(/<[^>]+>/g, "") : "Concierto"}>
-                            {evt.descripcion ? (
-                              <span
-                                className="[&>b]:font-bold [&>strong]:font-bold"
-                                dangerouslySetInnerHTML={{
-                                  __html: evt.descripcion,
-                                }}
-                              />
-                            ) : (
-                              "Concierto"
-                            )}
-                          </span>
-                          {program?.nombre_gira && (
-                            <span className="text-[11px] text-slate-400 truncate block">
-                              {program.nombre_gira}
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    </td>
-                    <td className="px-3 py-2 w-[20%] text-slate-700 align-top">
-                      {program ? (
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-xs font-semibold truncate block">
-                            {program.nombre_gira}
-                          </span>
-                          {program.nomenclador && (
-                            <span className="text-[11px] text-slate-400 truncate block">
-                              {program.nomenclador}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-slate-400 italic">
-                          Sin programa
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 w-[14%] align-top">
-                      <div className="relative inline-block" ref={openStatusDropdownId === evt.id ? statusDropdownRef : null}>
-                        <button
-                          type="button"
-                          onClick={() => setOpenStatusDropdownId((prev) => (prev === evt.id ? null : evt.id))}
-                          className={`inline-flex items-center gap-2 px-2 py-1 rounded-full text-[11px] font-semibold border border-transparent hover:ring-2 hover:ring-slate-300 transition-all ${
-                            status
-                              ? ""
-                              : "text-slate-500 bg-slate-100 hover:bg-slate-200"
-                          }`}
-                          style={status ? { backgroundColor: `${status.color}20`, color: "#0f172a" } : undefined}
-                          title="Cambiar estado"
-                        >
-                          {status ? (
-                            <>
-                              <span
-                                className="inline-block w-2 h-2 rounded-full shrink-0"
-                                style={{ backgroundColor: status.color }}
-                              />
-                              <span className="truncate">{status.nombre}</span>
-                            </>
-                          ) : (
-                            <span className="italic">Sin estado</span>
-                          )}
-                          <svg className="w-3 h-3 shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </button>
-                        {openStatusDropdownId === evt.id && (
-                          <div className="absolute left-0 top-full mt-1 z-50 min-w-[10rem] py-1 bg-white border border-slate-200 rounded-lg shadow-lg">
-                            {VENUE_STATUS_OPTIONS.map((s) => (
-                              <button
-                                key={s.id}
-                                type="button"
-                                onClick={() => handleStatusOptionFromChip(evt, s.id)}
-                                className={`w-full text-left px-3 py-2 text-[11px] font-medium flex items-center gap-2 hover:bg-slate-50 first:rounded-t-lg last:rounded-b-lg ${
-                                  (evt.id_estado_venue ?? null) === s.id ? "bg-indigo-50 text-indigo-800" : "text-slate-700"
-                                }`}
-                              >
-                                <span
-                                  className="inline-block w-2 h-2 rounded-full shrink-0"
-                                  style={{ backgroundColor: s.color }}
-                                />
-                                {s.nombre}
-                              </button>
-                            ))}
-                            <button
-                              type="button"
-                              onClick={() => handleStatusOptionFromChip(evt, null)}
-                              className={`w-full text-left px-3 py-2 text-[11px] font-medium hover:bg-slate-50 rounded-b-lg ${
-                                evt.id_estado_venue == null ? "bg-indigo-50 text-indigo-800" : "text-slate-500 italic"
-                              }`}
-                            >
-                              Sin estado
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 w-[28%] min-w-0">
-                      {lastVenueNote?.nota ? (
-                        <span className="text-[11px] text-slate-600 line-clamp-3 block">
-                          {lastVenueNote.nota}
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-slate-400 italic">
-                          Sin nota
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-2 py-2 w-[8%] text-right align-top">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openEditModal(evt)}
-                          className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
-                          title="Historial / Editar"
-                        >
-                          <IconHistory size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openQuickEdit(evt)}
-                          className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
-                          title="Editar estado"
-                        >
-                          <IconPencil size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    </span>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="overflow-x-auto border-t border-slate-100">
+                      <table className="min-w-full text-xs">
+                        <thead className="bg-slate-50/80 border-b border-slate-100">
+                          <tr className="text-left text-[10px] font-bold uppercase text-slate-500">
+                            <th className="px-2 py-2 w-[4%]" />
+                            <th className="px-3 py-2 w-[13%]">Fecha</th>
+                            <th className="px-3 py-2 w-[18%]">Concierto</th>
+                            <th className="px-3 py-2 w-[16%]">Programa / Gira</th>
+                            <th className="px-3 py-2 w-[12%]">Grupos</th>
+                            <th className="px-3 py-2 w-[12%]">Estado</th>
+                            <th className="px-3 py-2 w-[15%]">Nota</th>
+                            <th className="px-2 py-2 w-[10%] text-right">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {venueEvents.map((evt) => (
+                            <VenueEventRow
+                              key={evt.id}
+                              evt={evt}
+                              supabase={supabase}
+                              selected={selectedIds.has(evt.id)}
+                              onToggleSelect={handleToggleSelectOne}
+                              openStatusDropdownId={openStatusDropdownId}
+                              setOpenStatusDropdownId={setOpenStatusDropdownId}
+                              statusDropdownRef={statusDropdownRef}
+                              onStatusOptionFromChip={handleStatusOptionFromChip}
+                              onOpenEdit={openEditModal}
+                              onQuickEdit={openQuickEdit}
+                              onViewStagePlot={setStagePlotViewerEvent}
+                            />
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {selectedIds.size > 0 && (
@@ -758,7 +738,7 @@ export function VenuesManager({ supabase }) {
 
       {quickEditEvt && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={() => {
             setQuickEditEvt(null);
             setQuickEditStatusId(null);
@@ -835,7 +815,7 @@ export function VenuesManager({ supabase }) {
       )}
 
       {isEditOpen && editFormData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <EventForm
             formData={editFormData}
             setFormData={setEditFormData}
@@ -851,7 +831,248 @@ export function VenuesManager({ supabase }) {
           />
         </div>
       )}
+
+      <StagePlotViewerModal
+        open={!!stagePlotViewerEvent}
+        onClose={() => setStagePlotViewerEvent(null)}
+        supabase={supabase}
+        evento={stagePlotViewerEvent}
+        gira={stagePlotViewerEvent?.programas || null}
+      />
     </div>
+  );
+}
+
+function VenueEventRow({
+  evt,
+  supabase,
+  selected,
+  onToggleSelect,
+  openStatusDropdownId,
+  setOpenStatusDropdownId,
+  statusDropdownRef,
+  onStatusOptionFromChip,
+  onOpenEdit,
+  onQuickEdit,
+  onViewStagePlot,
+}) {
+  const status = getVenueStatusById(evt.id_estado_venue);
+  const program = evt.programas;
+  const fechaFormatted = formatEventDate(evt.fecha);
+  const hora = evt.hora_inicio ? evt.hora_inicio.slice(0, 5) : "";
+  const lastVenueNote = getLatestVenueNote(evt);
+  const grupos = extractEventGrupos(evt);
+  const stagePlotTo =
+    evt.id_gira != null
+      ? buildAppTo({
+          mode: "GIRAS",
+          giraId: evt.id_gira,
+          subTab: "seating",
+          seatingView: "escenario",
+        })
+      : null;
+
+  return (
+    <tr className="border-b border-slate-100 hover:bg-slate-50/80">
+      <td className="px-2 py-2 align-top">
+        <input
+          type="checkbox"
+          className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+          checked={selected}
+          onChange={(e) => onToggleSelect(evt.id, e.target.checked)}
+          aria-label="Seleccionar concierto"
+        />
+      </td>
+      <td className="px-3 py-2 text-slate-700 align-top">
+        <div className="flex items-start gap-1.5">
+          <VenueStatusPin
+            eventId={evt.id}
+            idEstadoVenue={evt.id_estado_venue}
+            supabase={supabase}
+            size={12}
+            className="mt-0.5 shrink-0"
+          />
+          <div className="flex flex-col min-w-0">
+            <span className="text-xs font-medium">{fechaFormatted}</span>
+            {hora && (
+              <span className="text-[11px] text-slate-400">{hora} hs</span>
+            )}
+          </div>
+        </div>
+      </td>
+      <td className="px-3 py-2 text-slate-700 align-top">
+        <button
+          type="button"
+          className="text-left w-full min-w-0"
+          onClick={() => onOpenEdit(evt)}
+        >
+          <span
+            className="text-xs font-semibold truncate block [&>b]:font-bold [&>strong]:font-bold"
+            title={
+              evt.descripcion
+                ? String(evt.descripcion).replace(/<[^>]+>/g, "")
+                : "Concierto"
+            }
+          >
+            {evt.descripcion ? (
+              <span dangerouslySetInnerHTML={{ __html: evt.descripcion }} />
+            ) : (
+              "Concierto"
+            )}
+          </span>
+        </button>
+      </td>
+      <td className="px-3 py-2 text-slate-700 align-top">
+        {program ? (
+          <div className="flex flex-col min-w-0">
+            <span className="text-xs font-semibold truncate block">
+              {program.nombre_gira}
+            </span>
+            {program.nomenclador && (
+              <span className="text-[11px] text-slate-400 truncate block">
+                {program.nomenclador}
+                {program.tipo ? ` · ${program.tipo}` : ""}
+              </span>
+            )}
+          </div>
+        ) : (
+          <span className="text-[11px] text-slate-400 italic">Sin programa</span>
+        )}
+      </td>
+      <td className="px-3 py-2 align-top">
+        {grupos.length > 0 ? (
+          <GiraGrupoChips grupos={grupos} compact />
+        ) : (
+          <span className="text-[11px] text-slate-400 italic">—</span>
+        )}
+      </td>
+      <td className="px-3 py-2 align-top">
+        <div
+          className="relative inline-block"
+          ref={openStatusDropdownId === evt.id ? statusDropdownRef : null}
+        >
+          <button
+            type="button"
+            onClick={() =>
+              setOpenStatusDropdownId((prev) => (prev === evt.id ? null : evt.id))
+            }
+            className={`inline-flex items-center gap-2 px-2 py-1 rounded-full text-[11px] font-semibold border border-transparent hover:ring-2 hover:ring-slate-300 transition-all ${
+              status ? "" : "text-slate-500 bg-slate-100 hover:bg-slate-200"
+            }`}
+            style={
+              status
+                ? { backgroundColor: `${status.color}20`, color: "#0f172a" }
+                : undefined
+            }
+            title="Cambiar estado"
+          >
+            {status ? (
+              <>
+                <span
+                  className="inline-block w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: status.color }}
+                />
+                <span className="truncate">{status.nombre}</span>
+              </>
+            ) : (
+              <span className="italic">Sin estado</span>
+            )}
+            <svg
+              className="w-3 h-3 shrink-0 opacity-70"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+          </button>
+          {openStatusDropdownId === evt.id && (
+            <div className="absolute left-0 top-full mt-1 z-[110] min-w-[10rem] py-1 bg-white border border-slate-200 rounded-lg shadow-lg">
+              {VENUE_STATUS_OPTIONS.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => onStatusOptionFromChip(evt, s.id)}
+                  className={`w-full text-left px-3 py-2 text-[11px] font-medium flex items-center gap-2 hover:bg-slate-50 first:rounded-t-lg last:rounded-b-lg ${
+                    (evt.id_estado_venue ?? null) === s.id
+                      ? "bg-indigo-50 text-indigo-800"
+                      : "text-slate-700"
+                  }`}
+                >
+                  <span
+                    className="inline-block w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: s.color }}
+                  />
+                  {s.nombre}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => onStatusOptionFromChip(evt, null)}
+                className={`w-full text-left px-3 py-2 text-[11px] font-medium hover:bg-slate-50 rounded-b-lg ${
+                  evt.id_estado_venue == null
+                    ? "bg-indigo-50 text-indigo-800"
+                    : "text-slate-500 italic"
+                }`}
+              >
+                Sin estado
+              </button>
+            </div>
+          )}
+        </div>
+      </td>
+      <td className="px-3 py-2 min-w-0 align-top">
+        {lastVenueNote?.nota ? (
+          <span className="text-[11px] text-slate-600 line-clamp-3 block">
+            {lastVenueNote.nota}
+          </span>
+        ) : (
+          <span className="text-[11px] text-slate-400 italic">Sin nota</span>
+        )}
+      </td>
+      <td className="px-2 py-2 text-right align-top">
+        <div className="flex items-center justify-end gap-0.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => onViewStagePlot(evt)}
+            className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+            title="Ver escenario"
+          >
+            <IconEye size={14} />
+          </button>
+          {stagePlotTo && (
+            <Link
+              to={stagePlotTo}
+              className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors inline-flex"
+              title="Editar escenario en la gira"
+            >
+              <IconLayout size={14} />
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={() => onOpenEdit(evt)}
+            className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+            title="Historial / Editar evento"
+          >
+            <IconHistory size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => onQuickEdit(evt)}
+            className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+            title="Editar estado"
+          >
+            <IconPencil size={14} />
+          </button>
+        </div>
+      </td>
+    </tr>
   );
 }
 
