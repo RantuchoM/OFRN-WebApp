@@ -28,6 +28,7 @@ import {
 } from "../../services/fimbaService";
 import { compareEsText } from "../../utils/fimbaAgendaSort";
 import { matchesFimbaArtistaPersonSearch } from "../../utils/fimbaArtistaSearch";
+import { resolveParticipanteStay } from "../../utils/fimbaStay";
 import {
   exportFimbaComidasExcel,
   exportFimbaHoteleriaExcel,
@@ -566,6 +567,8 @@ export default function FimbaHoteleriaPage() {
                       </span>
                       {" · "}
                       {r.noches != null ? `${r.noches} noche${r.noches === 1 ? "" : "s"}` : "noches —"}
+                      {r.stay_staggered ? " · llegadas desfasadas" : ""}
+                      {r.pax_noches != null && r.requiere_hotel !== false ? ` · ${r.pax_noches} pax-noche` : ""}
                       {r.comidas_totales && (
                         <>
                           {" · "}
@@ -758,6 +761,7 @@ export default function FimbaHoteleriaPage() {
                         <tbody>
                           {(r.personas || []).map((p) => {
                             const roomInfo = roomForParticipante(r.habitaciones, p.id);
+                            const stay = resolveParticipanteStay(p, r);
                             return (
                               <tr key={p.id}>
                                 <td style={{ paddingLeft: 0, fontWeight: 600 }}>
@@ -767,21 +771,21 @@ export default function FimbaHoteleriaPage() {
                                 <td className="fimba-muted">{roomInfo || "—"}</td>
                                 <td>
                                   <span className="fimba-date-flag-read">
-                                    {formatFecha(r.checkin_at)}
-                                    {asBool(r.checkin_early) && (
+                                    {formatFecha(stay.checkin_at)}
+                                    {asBool(r.checkin_early) && stay.checkin_at === String(r.checkin_at || "").slice(0, 10) && (
                                       <span className="fimba-badge fimba-badge-early">Early</span>
                                     )}
                                   </span>
                                 </td>
                                 <td>
                                   <span className="fimba-date-flag-read">
-                                    {formatFecha(r.checkout_at)}
-                                    {asBool(r.checkout_late) && (
+                                    {formatFecha(stay.checkout_at)}
+                                    {asBool(r.checkout_late) && stay.checkout_at === String(r.checkout_at || "").slice(0, 10) && (
                                       <span className="fimba-badge fimba-badge-late">Late</span>
                                     )}
                                   </span>
                                 </td>
-                                <td>{r.noches || "—"}</td>
+                                <td>{stay.noches != null ? stay.noches : "—"}</td>
                                 <td className="fimba-muted">
                                   {labelFimbaAlimentacion(
                                     p.tipo_alimentacion,

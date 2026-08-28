@@ -44,6 +44,10 @@ import {
   computeArtistaMealsPlan,
 } from "../utils/fimbaMealsStay";
 import {
+  computeStayOccupancy,
+  isoDateOrNull,
+} from "../utils/fimbaStay";
+import {
   FIMBA_GENERO_DEFAULT as FIMBA_GENERO_DEFAULT_CANON,
   canonicalizeFimbaGenero,
 } from "../utils/fimbaGenero";
@@ -537,21 +541,14 @@ export function filterHoteleriaRowsForComidas(rows) {
   return (rows || []).filter((r) => propuestaRequiereComidas(r));
 }
 
+export { resolveParticipanteStay } from "../utils/fimbaStay";
+
 /**
  * @param {{ cantidad_planificada?: number } | null} propuesta
  * @param {Array<{ activo?: boolean }> | null} participantes
  */
 export function computeHotelOccupancy(propuesta, participantes) {
-  const pax = Math.max(0, Number(propuesta?.cantidad_planificada) || 0);
-  const nominados = (participantes || []).filter((p) => p.activo !== false);
-  const nominadosCount = nominados.length;
-  const porConfirmar = Math.max(0, pax - nominadosCount);
-  return {
-    pax_planificada: pax,
-    nominados: nominadosCount,
-    por_confirmar: porConfirmar,
-    noches: nightsBetween(propuesta?.checkin_at, propuesta?.checkout_at),
-  };
+  return computeStayOccupancy(propuesta, participantes);
 }
 
 /**
@@ -1617,7 +1614,7 @@ export async function renameFimbaDriveFile(fileIdOrUrl, newName) {
 // ---------------------------------------------------------------------------
 
 const PARTICIPANTE_SELECT =
-  "id, id_propuesta, nombre, apellido, documento, genero, tipo_alimentacion, nota_alimentacion, activo, id_integrante, created_at, updated_at";
+  "id, id_propuesta, nombre, apellido, documento, genero, tipo_alimentacion, nota_alimentacion, activo, id_integrante, checkin_at, checkout_at, created_at, updated_at";
 
 /** Acepta aliases OFRN (M/F/-) y textos (hombre/mujer) → valor canónico DB. */
 function normalizeGenero(value) {
@@ -1654,6 +1651,8 @@ export async function createFimbaParticipante(payload) {
       : null,
     activo: payload.activo !== false,
     id_integrante: payload.id_integrante != null ? Number(payload.id_integrante) : null,
+    checkin_at: isoDateOrNull(payload.checkin_at),
+    checkout_at: isoDateOrNull(payload.checkout_at),
   };
   const { data, error } = await supabase
     .from("fimba_participantes")
@@ -1681,6 +1680,10 @@ export async function updateFimbaParticipante(participanteId, patch) {
       patch.id_integrante != null && patch.id_integrante !== ""
         ? Number(patch.id_integrante)
         : null;
+  }
+  if (patch.checkin_at !== undefined) row.checkin_at = isoDateOrNull(patch.checkin_at);
+  if (patch.checkout_at !== undefined) {
+    row.checkout_at = isoDateOrNull(patch.checkout_at);
   }
   const { data, error } = await supabase
     .from("fimba_participantes")
@@ -4892,8 +4895,7 @@ export function buildFimbaHoteleriaRow(prop, participantes, habitaciones) {
   const sin_nombre = occ.por_confirmar;
   const requiereHotel = prop.requiere_hotel !== false;
   const requiereComidas = prop.requiere_comidas !== false;
-  const camas_noche =
-    requiereHotel && occ.noches != null ? occ.pax_planificada * occ.noches : 0;
+  const camas_noche = requiereHotel ? occ.pax_noches || 0 : 0;
   const alimentacion = summarizeAlimentacion(participantes);
   const rooming = summarizeFimbaHabitaciones(habitaciones);
   const mealsStay = requiereComidas

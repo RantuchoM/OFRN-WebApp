@@ -848,6 +848,15 @@ const FIMBA_CSS = `
     width: 3.5rem;
     text-align: right;
   }
+  .fimba-cell-date {
+    min-width: 8.75rem;
+    width: 8.75rem;
+  }
+  .fimba-date-inherit {
+    font-size: 0.65rem;
+    line-height: 1.2;
+    margin-top: 2px;
+  }
   .fimba-sync-col {
     width: 28px;
     padding-left: 0.5rem !important;

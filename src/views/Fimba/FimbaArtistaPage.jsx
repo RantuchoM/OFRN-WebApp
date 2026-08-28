@@ -44,6 +44,7 @@ import {
   updateFimbaContratacion,
   updateFimbaParticipante,
 } from "../../services/fimbaService";
+import { resolveParticipanteStay } from "../../utils/fimbaStay";
 import { DocumentacionDrivePreview } from "./FimbaDocumentacionDrivePreview";
 import { exportFimbaComidasExcel } from "../../utils/fimbaExport";
 import FimbaComidasReportModal from "./FimbaComidasReportModal";
@@ -67,6 +68,8 @@ const EDITABLE_COLS = [
   "nombre",
   "documento",
   "genero",
+  "checkin_at",
+  "checkout_at",
   "tipo_alimentacion",
   "nota_alimentacion",
   "activo",
@@ -84,6 +87,8 @@ function draftFromParticipante(p) {
       nombre: p?.nombre || "",
       documento: p?.documento || "",
       genero: p?.genero || FIMBA_GENERO_DEFAULT,
+      checkin_at: p?.checkin_at ? String(p.checkin_at).slice(0, 10) : "",
+      checkout_at: p?.checkout_at ? String(p.checkout_at).slice(0, 10) : "",
       tipo_alimentacion: FIMBA_ALIMENTACION_OTRO,
       nota_alimentacion: p?.nota_alimentacion || tipoRaw,
       activo: p?.activo !== false,
@@ -94,6 +99,8 @@ function draftFromParticipante(p) {
     nombre: p?.nombre || "",
     documento: p?.documento || "",
     genero: p?.genero || FIMBA_GENERO_DEFAULT,
+    checkin_at: p?.checkin_at ? String(p.checkin_at).slice(0, 10) : "",
+    checkout_at: p?.checkout_at ? String(p.checkout_at).slice(0, 10) : "",
     tipo_alimentacion: resolved?.value || "regular",
     nota_alimentacion: p?.nota_alimentacion || "",
     activo: p?.activo !== false,
@@ -167,6 +174,12 @@ function validateParticipanteDraft(draft, { isCreate = false } = {}) {
     nota = "";
   }
 
+  const checkin = draft.checkin_at ? String(draft.checkin_at).slice(0, 10) : "";
+  const checkout = draft.checkout_at ? String(draft.checkout_at).slice(0, 10) : "";
+  if (checkin && checkout && checkout < checkin) {
+    return { ok: false, error: "El check-out no puede ser anterior al check-in" };
+  }
+
   return {
     ok: true,
     patch: {
@@ -177,6 +190,8 @@ function validateParticipanteDraft(draft, { isCreate = false } = {}) {
       tipo_alimentacion: tipo,
       nota_alimentacion: nota || null,
       activo: draft.activo !== false,
+      checkin_at: checkin || null,
+      checkout_at: checkout || null,
     },
   };
 }
@@ -603,16 +618,21 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
                 <i className="fimba-sync-dot fimba-sync-error" /> error
               </span>
               {" — "}Enter o blur guarda · Tab navega · fila inferior = alta
+              {" · "}Check-in/out vacíos = fechas del artista
             </span>
           )}
           </div>
         </div>
 
         {effectiveReadOnly ? (
-          <ParticipantesReadOnlyTable participantes={participantes} />
+          <ParticipantesReadOnlyTable
+            participantes={participantes}
+            propuesta={propuesta}
+          />
         ) : (
           <ParticipantesPlanilla
             propuestaId={propId}
+            propuesta={propuesta}
             participantes={participantes}
             onListChange={setParticipantes}
             onError={setError}
@@ -1069,7 +1089,7 @@ function TokenRow({ label, url, icon, onCopy, onRegen }) {
   );
 }
 
-function ParticipantesReadOnlyTable({ participantes }) {
+function ParticipantesReadOnlyTable({ participantes, propuesta }) {
   if (!participantes?.length) {
     return <div className="fimba-card fimba-muted">Sin participantes cargados.</div>;
   }
@@ -1082,21 +1102,38 @@ function ParticipantesReadOnlyTable({ participantes }) {
             <th>Nombre</th>
             <th>Documento</th>
             <th>Género</th>
+            <th>Check-in</th>
+            <th>Check-out</th>
             <th>Alimentación</th>
             <th>Activo</th>
           </tr>
         </thead>
         <tbody>
-          {participantes.map((p) => (
-            <tr key={p.id} style={{ opacity: p.activo === false ? 0.5 : 1 }}>
-              <td style={{ paddingLeft: "1rem", fontWeight: 600 }}>{p.apellido}</td>
-              <td>{p.nombre}</td>
-              <td className="fimba-muted">{p.documento || "—"}</td>
-              <td>{labelGenero(p.genero)}</td>
-              <td>{labelAlimentacion(p.tipo_alimentacion, p.nota_alimentacion)}</td>
-              <td>{p.activo === false ? "No" : "Sí"}</td>
-            </tr>
-          ))}
+          {participantes.map((p) => {
+            const stay = resolveParticipanteStay(p, propuesta);
+            return (
+              <tr key={p.id} style={{ opacity: p.activo === false ? 0.5 : 1 }}>
+                <td style={{ paddingLeft: "1rem", fontWeight: 600 }}>{p.apellido}</td>
+                <td>{p.nombre}</td>
+                <td className="fimba-muted">{p.documento || "—"}</td>
+                <td>{labelGenero(p.genero)}</td>
+                <td
+                  className={stay.inherited_checkin ? "fimba-muted" : undefined}
+                  title={stay.inherited_checkin ? "Fecha del artista" : "Fecha propia"}
+                >
+                  {formatFecha(stay.checkin_at)}
+                </td>
+                <td
+                  className={stay.inherited_checkout ? "fimba-muted" : undefined}
+                  title={stay.inherited_checkout ? "Fecha del artista" : "Fecha propia"}
+                >
+                  {formatFecha(stay.checkout_at)}
+                </td>
+                <td>{labelAlimentacion(p.tipo_alimentacion, p.nota_alimentacion)}</td>
+                <td>{p.activo === false ? "No" : "Sí"}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -1107,7 +1144,7 @@ function ParticipantesReadOnlyTable({ participantes }) {
  * Planilla Excel de participantes: celdas inline, blur/Enter guarda, semáforo por fila.
  * Fila inferior `__new__` crea en Supabase al completar apellido+nombre.
  */
-function ParticipantesPlanilla({ propuestaId, participantes, onListChange, onError }) {
+function ParticipantesPlanilla({ propuestaId, propuesta, participantes, onListChange, onError }) {
   const [drafts, setDrafts] = useState({});
   const [rowStatus, setRowStatus] = useState({});
   const [rowErrors, setRowErrors] = useState({});
@@ -1394,7 +1431,15 @@ function ParticipantesPlanilla({ propuestaId, participantes, onListChange, onErr
     }
   };
 
-  const colCount = 8; // sync + 6 data + actions
+  const colCount = 10; // sync + 8 data + actions
+  const defaultCheckin = propuesta?.checkin_at
+    ? String(propuesta.checkin_at).slice(0, 10)
+    : "";
+  const defaultCheckout = propuesta?.checkout_at
+    ? String(propuesta.checkout_at).slice(0, 10)
+    : "";
+  const defaultCheckinLabel = defaultCheckin ? formatFecha(defaultCheckin) : "artista";
+  const defaultCheckoutLabel = defaultCheckout ? formatFecha(defaultCheckout) : "artista";
 
   const renderRow = (rowKey, rowIdx, draft, { isNew = false } = {}) => {
     const status = rowStatus[rowKey] || "idle";
@@ -1476,22 +1521,64 @@ function ParticipantesPlanilla({ propuestaId, participantes, onListChange, onErr
               ))}
             </select>
           </td>
+          <td>
+            <input
+              data-fimba-part-cell={`${rowIdx}-4`}
+              className="fimba-cell-input fimba-cell-date"
+              type="date"
+              value={draft.checkin_at || ""}
+              title={
+                draft.checkin_at
+                  ? "Check-in propio"
+                  : `Vacío = check-in del artista (${defaultCheckinLabel})`
+              }
+              onChange={(e) => changeAndCommit(rowKey, "checkin_at", e.target.value)}
+              onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 4, rowKey)}
+              disabled={status === "saving"}
+            />
+            {!draft.checkin_at && defaultCheckin ? (
+              <div className="fimba-muted fimba-date-inherit">
+                {defaultCheckinLabel}
+              </div>
+            ) : null}
+          </td>
+          <td>
+            <input
+              data-fimba-part-cell={`${rowIdx}-5`}
+              className="fimba-cell-input fimba-cell-date"
+              type="date"
+              value={draft.checkout_at || ""}
+              title={
+                draft.checkout_at
+                  ? "Check-out propio"
+                  : `Vacío = check-out del artista (${defaultCheckoutLabel})`
+              }
+              onChange={(e) => changeAndCommit(rowKey, "checkout_at", e.target.value)}
+              onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 5, rowKey)}
+              disabled={status === "saving"}
+            />
+            {!draft.checkout_at && defaultCheckout ? (
+              <div className="fimba-muted fimba-date-inherit">
+                {defaultCheckoutLabel}
+              </div>
+            ) : null}
+          </td>
           <td className="fimba-ali-cell">
             <AlimentacionInput
               tipo={draft.tipo_alimentacion || "regular"}
               nota={draft.nota_alimentacion || ""}
-              selectDataAttr={`${rowIdx}-4`}
+              selectDataAttr={`${rowIdx}-6`}
               onChange={(patch) =>
                 applyDraftPatch(rowKey, patch, { commit: false })
               }
               onCommit={() => commitRow(rowKey)}
-              onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 4, rowKey)}
+              onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 6, rowKey)}
               disabled={status === "saving"}
             />
           </td>
           <td style={{ textAlign: "center" }}>
             <input
-              data-fimba-part-cell={`${rowIdx}-5`}
+              data-fimba-part-cell={`${rowIdx}-7`}
               type="checkbox"
               checked={asBool(draft.activo)}
               onChange={(e) => changeAndCommit(rowKey, "activo", e.target.checked)}
@@ -1542,6 +1629,8 @@ function ParticipantesPlanilla({ propuestaId, participantes, onListChange, onErr
             <th>Nombre</th>
             <th>Documento</th>
             <th>Género</th>
+            <th title="Vacío = fechas del artista">Check-in</th>
+            <th title="Vacío = fechas del artista">Check-out</th>
             <th className="fimba-ali-cell">Alimentación</th>
             <th style={{ textAlign: "center" }}>Activo</th>
             <th className="fimba-col-actions" />

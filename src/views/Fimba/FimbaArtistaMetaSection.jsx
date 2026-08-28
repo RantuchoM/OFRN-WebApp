@@ -649,6 +649,9 @@ export default function FimbaArtistaMetaSection({
               />
               Early check-in
             </label>
+            <p className="fimba-muted" style={{ fontSize: "0.75rem", margin: "4px 0 0" }}>
+              Rango del grupo. Si alguien llega o se va otro día, cargalo en la planilla de participantes (vacío = estas fechas).
+            </p>
           </div>
           <div className="fimba-field">
             <label className="fimba-label" htmlFor={fid("checkout")}>

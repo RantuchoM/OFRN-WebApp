@@ -11,6 +11,7 @@ import {
   labelGiraTransporte,
 } from "../services/fimbaService";
 import { labelFimbaGeneroHotel } from "./fimbaGenero";
+import { resolveParticipanteStay } from "./fimbaStay";
 import {
   formatEventLocation,
   formatNextStopDestino,
@@ -188,23 +189,21 @@ export function buildFimbaHoteleriaPersonasRows(hoteleriaRows) {
     if (r.requiere_hotel === false || r.propuesta?.requiere_hotel === false) continue;
     const artista = r.propuesta?.nombre || "";
     const hotel = r.hotel?.nombre || "";
-    const checkin = formatFecha(r.checkin_at);
-    const checkout = formatFecha(r.checkout_at);
-    const noches = r.noches != null ? r.noches : "";
     const early = asSi(r.checkin_early);
     const late = asSi(r.checkout_late);
     const obs = String(r.propuesta?.observaciones_logisticas || "").trim();
 
     for (const p of r.personas || r.participantes || []) {
       if (p.activo === false) continue;
+      const stay = resolveParticipanteStay(p, r);
       out.push({
         artista,
         hotel,
-        checkin,
+        checkin: formatFecha(stay.checkin_at),
         early,
-        checkout,
+        checkout: formatFecha(stay.checkout_at),
         late,
-        noches,
+        noches: stay.noches != null ? stay.noches : "",
         apellido: p.apellido || "",
         nombre: p.nombre || "",
         documento: p.documento || "",
@@ -219,15 +218,18 @@ export function buildFimbaHoteleriaPersonasRows(hoteleriaRows) {
     }
 
     const sinNombre = r.sin_nombre ?? r.por_confirmar ?? 0;
+    const artistNoches = r.noches != null ? r.noches : "";
+    const artistCheckin = formatFecha(r.checkin_at);
+    const artistCheckout = formatFecha(r.checkout_at);
     for (let i = 0; i < sinNombre; i += 1) {
       out.push({
         artista,
         hotel,
-        checkin,
+        checkin: artistCheckin,
         early,
-        checkout,
+        checkout: artistCheckout,
         late,
-        noches,
+        noches: artistNoches,
         apellido: "(sin nombre)",
         nombre: `#${i + 1}`,
         documento: "",
@@ -341,8 +343,6 @@ export function buildFimbaComidasExportData(hoteleriaRows) {
       continue;
     }
     const artista = r.propuesta?.nombre || "";
-    const checkin = r.checkin_at ? String(r.checkin_at).slice(0, 10) : null;
-    const checkout = r.checkout_at ? String(r.checkout_at).slice(0, 10) : null;
     const early = r.checkin_early === true || r.checkin_early === "true";
     const late = r.checkout_late === true || r.checkout_late === "true";
     for (const p of r.personas || r.participantes || []) {
@@ -351,6 +351,9 @@ export function buildFimbaComidasExportData(hoteleriaRows) {
       const tipo = String(p.tipo_alimentacion || "regular").toLowerCase();
       counts[tipo] = (counts[tipo] || 0) + 1;
       if (tipo === "regular") continue;
+      const stay = resolveParticipanteStay(p, r);
+      const checkin = stay.checkin_at;
+      const checkout = stay.checkout_at;
       detalle.push({
         artista,
         apellido: p.apellido || "",

@@ -12,7 +12,7 @@ FIMBA es una aplicación de festival con skin propia bajo `/fimba/*`, que reutil
 |-------|-----|
 | `fimba_ediciones` | Edición del festival; **1:1** con `programas` vía `id_gira` |
 | `fimba_propuestas` | UI «Artista»: cupos, colores, tokens, fechas checkin/out, flags `checkin_early` / `checkout_late`, **`requiere_hotel`** / **`requiere_comidas`** (default true; false excluye de reportes/exportaciones), `id_hotel` opcional → `hoteles`, `observaciones_logisticas` (texto libre), **`rider`** (HTML rich-text logístico). Columna **`orden`**: se asigna al crear (legado / metadata); **no** ordena UI staff. **Display** de planillas y pickers = alfabético por `nombre` (`localeCompare` es, `sensitivity: "base"`, desempate `id`) vía `listFimbaPropuestas` / `sortFimbaPropuestasByNombre`. **Sin** carpeta Drive (vive en contrataciones) |
-| `fimba_participantes` | Personas del artista (entidad propia; `id_integrante` opcional bigint). **`genero`**: `femenino` \| `masculino` \| `otro` \| `sin_especificar` (default). Alta/edición acepta aliases (`M`/`F`/`hombre`/`mujer`, etc.) vía `canonicalizeFimbaGenero`. Reportes hotelería mapean a Hombre/Mujer/Sin género — **sin** default a masculino. |
+| `fimba_participantes` | Personas del artista (entidad propia; `id_integrante` opcional bigint). **`genero`**: `femenino` \| `masculino` \| `otro` \| `sin_especificar` (default). Alta/edición acepta aliases (`M`/`F`/`hombre`/`mujer`, etc.) vía `canonicalizeFimbaGenero`. Reportes hotelería mapean a Hombre/Mujer/Sin género — **sin** default a masculino. **`checkin_at` / `checkout_at`** opcionales: override de estadía por persona; `NULL` = hereda el rango del artista (`fimba_propuestas`). Early/Late siguen en la propuesta. |
 | `fimba_usuarios` | Usuarios por edición: mail + `rol_fimba` (`editor_general` \| `consulta`) + `clave_acceso` / `token_login`. Staff OFRN management no requiere fila (full); fila `consulta` **sí** fuerza RO aunque sea management. |
 | `eventos.audiencia_ofrn` | `none` \| `tutti` \| `grupos` |
 | `eventos.asientos_equipaje` | Asientos de **equipaje** del evento/parada (no headcount de pasajeros). Legacy `# PAX` / `audiencia` se mantiene en sync. |
@@ -147,13 +147,14 @@ para_transporte = tope_personas + plazas_extra_materiales
 
 `plazas_extra_materiales` **solo** afecta transporte (no hotel ni comidas). UI label: **Extra Equip.** (columna/campo; error/help: “extra equip.”). Columna DB sin renombrar.
 
-Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participantes activos; **por confirmar** = max(0, PAX − nominados). Noches = check-out − check-in. Flags **Early** (`checkin_early`) y **Late** (`checkout_late`) por artista: booleanes `default false` junto a las fechas (OFRN hospedaje usa fecha+hora en `programas_hospedajes`; FIMBA prioriza flags operativos sin horas).
+Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participantes activos; **por confirmar** = max(0, PAX − nominados). Noches de cabecera = check-out − check-in del **artista** (rango del grupo). **Pax-noche / camas-noche** = suma de estadías individuales (`resolveParticipanteStay`: override de `fimba_participantes` o rango del artista; cupos sin nombre usan el rango del grupo). Flags **Early** (`checkin_early`) y **Late** (`checkout_late`) por artista: booleanes `default false` junto a las fechas (OFRN hospedaje usa fecha+hora en `programas_hospedajes`; FIMBA prioriza flags operativos sin horas).
 
-**Cubiertos / comidas por estadía** (`src/utils/fimbaMealsStay.js`): a partir de check-in/out + Early/Late + PAX planificada.
+**Cubiertos / comidas por estadía** (`src/utils/fimbaMealsStay.js`): a partir de check-in/out **por persona** (o del artista si la celda está vacía) + Early/Late + PAX planificada.
 - Llegada: cena; almuerzo solo si Early.
 - Días intermedios: desayuno + almuerzo + cena.
 - Salida: desayuno; almuerzo solo si Late.
 - UI: Hotelería (matriz general + por artista) y modal Reportes comidas; Excel comidas con hojas «Por día» / «Por artista y día»; desglose opcional por régimen (nominados + por confirmar). Sin merienda.
+- Pedido hotel (`buildFimbaPedidoGroups`): agrupa por hotel **y** rango efectivo de cada persona (un cuarteto con 15/9 y 16/9 genera dos líneas).
 **Rooming (habitaciones por artista)** — inventario de slots ≠ headcount hotel:
 - **No** se confunde con `cantidad_planificada` / PAX hotel: la planificada sigue contando pax para cupos/noches; el rooming es acomodo físico de personas nominadas.
 - Tipos: **SGL=1**, **DBL=2**, **TPL=3**, **QAD=4**. Multi: flag **Matrimonial** (default **Twin** = `matrimonial=false`). SGL fuerza `matrimonial=false`.
@@ -388,6 +389,8 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Tipos de evento desde catálogo OFRN (`tipos_evento`); sin presets hardcodeados FIMBA
 - [x] Detección transporte alineada a categoría 6 + ids OFRN (11/12/28/31/35)
 - [x] Hotelería: reporte por artista (checkin/out, early/late, noches, nominados, por confirmar) + hotel opcional (`fimba_propuestas.id_hotel`)
+- [x] Estadía por persona: `fimba_participantes.checkin_at` / `checkout_at` (NULL = hereda artista). Planilla + token `/e`; pedido hotel parte grupos; comidas/pax-noche por estadía efectiva. Caso Ruggiero cuarteto (IN 15 vs 16/9).
+- [x] Migración `20260828034520_fimba_participantes_stay` deploy linked
 - [x] Rooming por artista: `fimba_propuestas_habitaciones` + `fimba_habitaciones_ocupantes` (SGL/DBL/TPL/QAD + matrimonial); inventario admin + acomodo token
 - [x] Cupos rooming: feedback live de plazas borrador vs roster activo (faltan / exacto / sobran) antes de «Aplicar cupos»
 - [x] Migración `20260811140000_fimba_habitaciones` deploy linked
@@ -458,8 +461,8 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Documentación Drive en contrataciones: modal planilla + preview ficha artista (join multi-contrato) + Explorar lazy + copiar/descargar/subir + drag&drop OS
 - [x] Edición: filas de artista **expandibles** (chevron); nómina lazy `listFimbaParticipantes`; subheader nominados/planificada; nested table read-only con col **Género** (también en modo planilla). Keys de expand normalizados (`propuestaKey`); estado como object (no `Set`); load fuera del setState; soft-reload no desmonta la planilla; errores de nómina visibles + Reintentar
 - [x] Detalle artista: participantes + `genero` + tipo_alimentacion (+ nota «Otros…»); deep links opcionales `/artista/:id/{agenda|transportes|hoteleria}` (toggle superior → secciones edición-root sin `/artista`)
-- [x] Detalle artista / token edición: **planilla Excel de participantes** (`FimbaArtistaPage` → `ParticipantesPlanilla`): celdas apellido, nombre, documento, **genero**, alimentación (select presets + **Otros...** → `nota_alimentacion`), activo; semáforo por fila; Enter o blur guarda; Tab navega; fila inferior = alta `createFimbaParticipante`; delete por fila; consulta token read-only
-- [x] Alimentación: CHECK en `fimba_participantes.tipo_alimentacion` (regular/vegetariano/vegano/celiaco/sin_tacc/otro); free text en **`nota_alimentacion`** (sin migración); UI `AlimentacionInput` (select + input **siempre en fila** al elegir Otros…; `flex-wrap: nowrap` + `width:auto !important` / estilos inline p/ vencer `.fimba-cell-input{width:100%}`; `FimbaAlimentacionStyles` montado en `ParticipantesPlanilla`, no solo en finanzas). **Detalle comidas / Excel / PDF / texto:** solo excepciones (≠ `regular`) + fechas check-in→check-out del artista.
+- [x] Detalle artista / token edición: **planilla Excel de participantes** (`FimbaArtistaPage` → `ParticipantesPlanilla`): celdas apellido, nombre, documento, **genero**, **check-in / check-out** (vacío = fechas del artista; hint con el default), alimentación (select presets + **Otros...** → `nota_alimentacion`), activo; semáforo por fila; Enter o blur guarda; Tab navega; fila inferior = alta `createFimbaParticipante`; delete por fila; consulta token read-only
+- [x] Alimentación: CHECK en `fimba_participantes.tipo_alimentacion` (regular/vegetariano/vegano/celiaco/sin_tacc/otro); free text en **`nota_alimentacion`** (sin migración); UI `AlimentacionInput` (select + input **siempre en fila** al elegir Otros…; `flex-wrap: nowrap` + `width:auto !important` / estilos inline p/ vencer `.fimba-cell-input{width:100%}`; `FimbaAlimentacionStyles` montado en `ParticipantesPlanilla`, no solo en finanzas). **Detalle comidas / Excel / PDF / texto:** solo excepciones (≠ `regular`) + fechas check-in→check-out **efectivas de la persona**.
 - [x] Regenerar / copiar tokens consulta y edición
 - [x] Editor transportes: panel **Vehículos** (alta + editar lápiz: catálogo, detalle, plazas, categoría; nombre catálogo+patente, detalle OFRN sec.) + planilla **Trayectos** (= eventos FIMBA + paradas OFRN; filtros origen/vehículo)
 - [x] Agenda unificada planilla (fecha, horas, tipo, actividad, destino/vuelo, vehículos, PAX, tags)
@@ -523,7 +526,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 1. Login OFRN con rol de management.
 2. Sidebar → **FIMBA** o ir a `/fimba`.
 3. **Nueva edición** → el select debe listar giras recientes sin escribir; la búsqueda por nomenclador/nombre filtra.
-4. Crear artistas con cupos; abrir artista → planilla de participantes (Excel): cargar personas en celdas; fila inferior = alta; Enter/blur guarda; semáforo por fila; delete opcional.
+4. Crear artistas con cupos; abrir artista → planilla de participantes (Excel): cargar personas en celdas; fila inferior = alta; Enter/blur guarda; semáforo por fila; delete opcional. **Check-in/out por fila** (vacío = fechas del artista, hint gris); un integrante el 15 y el resto el 16 (Daniel Ruggiero cuarteto) debe verse distinto en nómina, Hotelería y pedido hotel.
 5. En listado de edición: ver **Check-in / Check-out / Hotel**; badges **Early** / **Late** si aplican; activar **Modo edición** y editar celdas (nombre, planificada, extras, fechas + early/late, hotel, obs.). Semáforo: amarillo al editar, verde al guardar, rojo si falla Supabase/validación. **Lápiz** → ficha artista (color/estado/meta completa).
 6. Expandir fila de artista (chevron / nombre): ver nested nómina (nominados/planificada); vacío = «Sin nómina cargada» + link. Multi-expand OK; lazy load por artista.
 7. Copiar enlace consulta y abrir en incógnito (`/fimba/a/...`); verificar solo lectura (participantes tabla RO, sin planilla editable).

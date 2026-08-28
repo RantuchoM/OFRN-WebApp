@@ -40,6 +40,7 @@ import {
   buildFimbaMealsStayFromHoteleria,
   formatFechaMealDdMm,
 } from "./fimbaMealsStay";
+import { resolveParticipanteStay } from "./fimbaStay";
 import {
   canonicalizeFimbaGenero,
   labelFimbaGeneroHotel,
@@ -101,36 +102,44 @@ export function buildFimbaPedidoGroups(hoteleriaRows = []) {
   for (const r of hoteleriaRows || []) {
     if (r.requiere_hotel === false || r.propuesta?.requiere_hotel === false) continue;
     const hotel = r.hotel?.nombre || "(sin hotel)";
-    const checkin = r.checkin_at ? String(r.checkin_at).slice(0, 10) : null;
-    const checkout = r.checkout_at ? String(r.checkout_at).slice(0, 10) : null;
-    const early = r.checkin_early === true || r.checkin_early === "true";
-    const late = r.checkout_late === true || r.checkout_late === "true";
-    const key = `${hotel}|${checkin || ""}|${checkout || ""}|${early ? 1 : 0}|${late ? 1 : 0}`;
-
-    if (!map.has(key)) {
-      map.set(key, {
-        key,
-        title: hotel,
-        hotel,
-        checkin,
-        checkout,
-        early,
-        late,
-        countM: 0,
-        countF: 0,
-        countOther: 0,
-        sinNombre: 0,
-        totalPax: 0,
-        artistas: [],
-        passengers: [],
-      });
-    }
-    const g = map.get(key);
+    const artistEarly = r.checkin_early === true || r.checkin_early === "true";
+    const artistLate = r.checkout_late === true || r.checkout_late === "true";
     const artista = r.propuesta?.nombre || "Artista";
-    if (!g.artistas.includes(artista)) g.artistas.push(artista);
+
+    const bumpGroup = (checkin, checkout, early, late) => {
+      const key = `${hotel}|${checkin || ""}|${checkout || ""}|${early ? 1 : 0}|${late ? 1 : 0}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          title: hotel,
+          hotel,
+          checkin,
+          checkout,
+          early,
+          late,
+          countM: 0,
+          countF: 0,
+          countOther: 0,
+          sinNombre: 0,
+          totalPax: 0,
+          artistas: [],
+          passengers: [],
+        });
+      }
+      const g = map.get(key);
+      if (!g.artistas.includes(artista)) g.artistas.push(artista);
+      return g;
+    };
 
     for (const p of r.personas || r.participantes || []) {
       if (p.activo === false) continue;
+      const stay = resolveParticipanteStay(p, r);
+      const g = bumpGroup(
+        stay.checkin_at,
+        stay.checkout_at,
+        stay.checkin_early,
+        stay.checkout_late,
+      );
       const generoCanon = canonicalizeFimbaGenero(p.genero);
       const sex = mapFimbaGeneroToSex(generoCanon);
       if (sex === "M") g.countM += 1;
@@ -146,8 +155,8 @@ export function buildFimbaPedidoGroups(hoteleriaRows = []) {
         sexo: sex,
         artista,
         hotel,
-        checkin,
-        checkout,
+        checkin: stay.checkin_at,
+        checkout: stay.checkout_at,
         alimentacion: labelFimbaAlimentacion(
           p.tipo_alimentacion,
           p.nota_alimentacion,
@@ -156,23 +165,28 @@ export function buildFimbaPedidoGroups(hoteleriaRows = []) {
     }
 
     const sin = Number(r.sin_nombre ?? r.por_confirmar ?? 0) || 0;
-    g.sinNombre += sin;
-    g.countOther += sin;
-    g.totalPax += sin;
-    for (let i = 0; i < sin; i += 1) {
-      g.passengers.push({
-        apellido: "(sin nombre)",
-        nombre: `#${i + 1}`,
-        documento: "",
-        genero: "",
-        generoLabel: "Sin género",
-        sexo: null,
-        artista,
-        hotel,
-        checkin,
-        checkout,
-        alimentacion: "",
-      });
+    if (sin > 0) {
+      const checkin = r.checkin_at ? String(r.checkin_at).slice(0, 10) : null;
+      const checkout = r.checkout_at ? String(r.checkout_at).slice(0, 10) : null;
+      const g = bumpGroup(checkin, checkout, artistEarly, artistLate);
+      g.sinNombre += sin;
+      g.countOther += sin;
+      g.totalPax += sin;
+      for (let i = 0; i < sin; i += 1) {
+        g.passengers.push({
+          apellido: "(sin nombre)",
+          nombre: `#${i + 1}`,
+          documento: "",
+          genero: "",
+          generoLabel: "Sin género",
+          sexo: null,
+          artista,
+          hotel,
+          checkin,
+          checkout,
+          alimentacion: "",
+        });
+      }
     }
   }
 

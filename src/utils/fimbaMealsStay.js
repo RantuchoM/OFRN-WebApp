@@ -1,14 +1,24 @@
 /**
- * Noches y comidas FIMBA a partir de check-in / check-out del artista.
+ * Noches y comidas FIMBA a partir de check-in / check-out.
  *
- * Convención operativa (por persona / PAX hotel = cantidad_planificada):
+ * Convención operativa (por persona; PAX hotel = cantidad_planificada):
  * - Noches = checkout − checkin (fechas calendario).
  * - Día de llegada (check-in): Cena; Almuerzo solo si Early.
  * - Días intermedios: Desayuno + Almuerzo + Cena.
  * - Día de salida (check-out): Desayuno; Almuerzo solo si Late. Sin cena.
+ * - Si un participante tiene checkin_at/checkout_at propios, se usan esas fechas;
+ *   si no, hereda el rango del artista. Cupos sin nominar usan el rango del artista.
  *
  * No se modela merienda (queda fuera del pedido estándar).
  */
+
+import {
+  isoDateOrNull,
+  nightsBetweenStay,
+  resolveParticipanteStay,
+} from "./fimbaStay.js";
+
+export { nightsBetweenStay } from "./fimbaStay.js";
 
 export const FIMBA_MEAL_SERVICES = [
   { key: "desayuno", label: "Desayuno" },
@@ -32,17 +42,6 @@ function addDaysIso(iso, delta) {
   const mo = String(dt.getMonth() + 1).padStart(2, "0");
   const d = String(dt.getDate()).padStart(2, "0");
   return `${y}-${mo}-${d}`;
-}
-
-/** Misma regla que `nightsBetween` en fimbaService (sin import circular). */
-export function nightsBetweenStay(checkin, checkout) {
-  const a = parseIso(checkin);
-  const b = parseIso(checkout);
-  if (!a || !b) return null;
-  const da = new Date(a.y, a.mo - 1, a.d);
-  const db = new Date(b.y, b.mo - 1, b.d);
-  const diff = Math.round((db - da) / 86400000);
-  return Math.max(0, diff);
 }
 
 /**
@@ -137,6 +136,44 @@ export function paxByRegimenFromParticipantes(participantes, paxPlanificada) {
 }
 
 /**
+ * Unidades de comida: nominados (con estadía propia o heredada) + cupos sin nombre.
+ */
+function mealStayUnits(input) {
+  const artistCheckin = isoDateOrNull(input.checkin_at);
+  const artistCheckout = isoDateOrNull(input.checkout_at);
+  const pax = Math.max(0, Number(input.pax) || 0);
+  const activos = (input.participantes || []).filter((p) => p.activo !== false);
+  const porConfirmar = Math.max(0, pax - activos.length);
+  const artistRef = {
+    checkin_at: artistCheckin,
+    checkout_at: artistCheckout,
+    checkin_early: input.checkin_early,
+    checkout_late: input.checkout_late,
+  };
+
+  const units = [];
+  for (const p of activos) {
+    const stay = resolveParticipanteStay(p, artistRef);
+    if (!stay.checkin_at || !stay.checkout_at) continue;
+    units.push({
+      checkin: stay.checkin_at,
+      checkout: stay.checkout_at,
+      regimen: String(p.tipo_alimentacion || "regular").toLowerCase() || "regular",
+    });
+  }
+  if (artistCheckin && artistCheckout) {
+    for (let i = 0; i < porConfirmar; i += 1) {
+      units.push({
+        checkin: artistCheckin,
+        checkout: artistCheckout,
+        regimen: "por_confirmar",
+      });
+    }
+  }
+  return { units, artistCheckin, artistCheckout };
+}
+
+/**
  * Plan de comidas de un artista.
  * @param {object} input
  * @param {string|null} input.checkin_at
@@ -149,35 +186,49 @@ export function paxByRegimenFromParticipantes(participantes, paxPlanificada) {
  * @param {number|string} [input.id_propuesta]
  */
 export function computeArtistaMealsPlan(input = {}) {
-  const checkin = input.checkin_at ? String(input.checkin_at).slice(0, 10) : null;
-  const checkout = input.checkout_at
-    ? String(input.checkout_at).slice(0, 10)
-    : null;
   const early = input.checkin_early === true;
   const late = input.checkout_late === true;
   const pax = Math.max(0, Number(input.pax) || 0);
+  const { units, artistCheckin, artistCheckout } = mealStayUnits(input);
+
+  let minIn = artistCheckin;
+  let maxOut = artistCheckout;
+  for (const u of units) {
+    if (!minIn || u.checkin < minIn) minIn = u.checkin;
+    if (!maxOut || u.checkout > maxOut) maxOut = u.checkout;
+  }
+
+  const checkin = artistCheckin || minIn;
+  const checkout = artistCheckout || maxOut;
   const noches = nightsBetweenStay(checkin, checkout);
-  const daysIso = enumerateStayDays(checkin, checkout);
-  const regimenPax = paxByRegimenFromParticipantes(input.participantes, pax);
+  const daysIso = enumerateStayDays(minIn, maxOut);
 
   const totals = emptyMealCounts();
   const days = [];
+  let paxNoches = 0;
+  for (const u of units) {
+    const n = nightsBetweenStay(u.checkin, u.checkout);
+    if (n != null) paxNoches += n;
+  }
 
   for (const fecha of daysIso) {
-    const flags = mealFlagsForDay(fecha, checkin, checkout, { early, late });
+    const flags = { desayuno: false, almuerzo: false, cena: false };
     const counts = emptyMealCounts();
-    addMealCounts(counts, flags, pax);
-
     const byRegimen = {};
-    for (const [reg, n] of Object.entries(regimenPax)) {
-      const c = emptyMealCounts();
-      addMealCounts(c, flags, n);
-      if (c.desayuno || c.almuerzo || c.cena) {
-        byRegimen[reg] = c;
+    for (const u of units) {
+      const uFlags = mealFlagsForDay(fecha, u.checkin, u.checkout, { early, late });
+      addMealCounts(counts, uFlags, 1);
+      if (uFlags.desayuno) flags.desayuno = true;
+      if (uFlags.almuerzo) flags.almuerzo = true;
+      if (uFlags.cena) flags.cena = true;
+      if (uFlags.desayuno || uFlags.almuerzo || uFlags.cena) {
+        if (!byRegimen[u.regimen]) byRegimen[u.regimen] = emptyMealCounts();
+        addMealCounts(byRegimen[u.regimen], uFlags, 1);
       }
     }
-
-    addMealCounts(totals, flags, pax);
+    totals.desayuno += counts.desayuno;
+    totals.almuerzo += counts.almuerzo;
+    totals.cena += counts.cena;
     days.push({
       fecha,
       flags,
@@ -185,8 +236,6 @@ export function computeArtistaMealsPlan(input = {}) {
       byRegimen,
     });
   }
-
-  const paxNoches = noches != null ? pax * noches : 0;
 
   return {
     id_propuesta: input.id_propuesta ?? null,
@@ -203,8 +252,7 @@ export function computeArtistaMealsPlan(input = {}) {
       ...totals,
       noches: noches ?? 0,
       pax_noches: paxNoches,
-      comidas:
-        totals.desayuno + totals.almuerzo + totals.cena,
+      comidas: totals.desayuno + totals.almuerzo + totals.cena,
     },
   };
 }

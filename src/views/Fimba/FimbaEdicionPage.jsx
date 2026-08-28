@@ -35,6 +35,7 @@ import {
 } from "../../services/fimbaService";
 import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
 import { matchesFimbaArtistaPersonSearch } from "../../utils/fimbaArtistaSearch";
+import { resolveParticipanteStay } from "../../utils/fimbaStay";
 import FimbaArtistaPersonSearchField from "./FimbaArtistaPersonSearchField";
 
 /** Columnas editables en modo planilla (orden de Tab / Enter). Color/estado en ficha artista. */
@@ -1238,21 +1239,38 @@ function ArtistaNominaPanel({ edicionId, propuesta, cap, cache, onRetry }) {
               <th>Nombre</th>
               <th>Documento</th>
               <th>Género</th>
+              <th>Check-in</th>
+              <th>Check-out</th>
               <th>Alimentación</th>
               <th>Activo</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((part) => (
+            {rows.map((part) => {
+              const stay = resolveParticipanteStay(part, propuesta);
+              return (
               <tr key={part.id} style={{ opacity: part.activo === false ? 0.5 : 1 }}>
                 <td style={{ paddingLeft: "0.75rem", fontWeight: 600 }}>{part.apellido}</td>
                 <td>{part.nombre}</td>
                 <td className="fimba-muted">{part.documento || "—"}</td>
                 <td>{labelGenero(part.genero)}</td>
+                <td
+                  className={stay.inherited_checkin ? "fimba-muted" : undefined}
+                  title={stay.inherited_checkin ? "Fecha del artista" : "Fecha propia"}
+                >
+                  {formatFecha(stay.checkin_at)}
+                </td>
+                <td
+                  className={stay.inherited_checkout ? "fimba-muted" : undefined}
+                  title={stay.inherited_checkout ? "Fecha del artista" : "Fecha propia"}
+                >
+                  {formatFecha(stay.checkout_at)}
+                </td>
                 <td>{labelAlimentacion(part.tipo_alimentacion, part.nota_alimentacion)}</td>
                 <td>{part.activo === false ? "No" : "Sí"}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )}

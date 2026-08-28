@@ -24,7 +24,9 @@ CREATE TEMP TABLE _fimba_seed_participantes (
   nombre text NOT NULL,
   apellido text NOT NULL,
   tipo_alimentacion text NOT NULL DEFAULT 'regular',
-  activo boolean NOT NULL DEFAULT true
+  activo boolean NOT NULL DEFAULT true,
+  checkin_at date,
+  checkout_at date
 ) ON COMMIT DROP;
 
 INSERT INTO _fimba_seed_propuestas (
@@ -52,12 +54,12 @@ INSERT INTO _fimba_seed_participantes (propuesta_nombre, nombre, apellido) VALUE
 INSERT INTO _fimba_seed_participantes (propuesta_nombre, nombre, apellido) VALUES
   ('Filarmónica, CPN y Cecilia Eguiarte', 'Cecilia', 'Eguiarte');
 
--- Daniel Ruggiero cuarteto (qty 4) — fechas individuales en planilla; rango en propuesta
-INSERT INTO _fimba_seed_participantes (propuesta_nombre, nombre, apellido) VALUES
-  ('Daniel Ruggiero cuarteto', 'Osvaldo Daniel', 'Ruggiero'),
-  ('Daniel Ruggiero cuarteto', 'Nicolas Adrián', 'Mastrocola'),
-  ('Daniel Ruggiero cuarteto', 'Emilio Carlos', 'Longo'),
-  ('Daniel Ruggiero cuarteto', 'Facundo Nahuel', 'Negri');
+-- Daniel Ruggiero cuarteto (qty 4) — IN por persona: Ruggiero 15/9, resto 16/9; OUT 18/9
+INSERT INTO _fimba_seed_participantes (propuesta_nombre, nombre, apellido, checkin_at, checkout_at) VALUES
+  ('Daniel Ruggiero cuarteto', 'Osvaldo Daniel', 'Ruggiero', DATE '2026-09-15', DATE '2026-09-18'),
+  ('Daniel Ruggiero cuarteto', 'Nicolas Adrián', 'Mastrocola', DATE '2026-09-16', DATE '2026-09-18'),
+  ('Daniel Ruggiero cuarteto', 'Emilio Carlos', 'Longo', DATE '2026-09-16', DATE '2026-09-18'),
+  ('Daniel Ruggiero cuarteto', 'Facundo Nahuel', 'Negri', DATE '2026-09-16', DATE '2026-09-18');
 
 -- The Camarada Tango Quartet (qty 4)
 INSERT INTO _fimba_seed_participantes (propuesta_nombre, nombre, apellido) VALUES
@@ -125,14 +127,18 @@ INSERT INTO public.fimba_participantes (
   nombre,
   apellido,
   tipo_alimentacion,
-  activo
+  activo,
+  checkin_at,
+  checkout_at
 )
 SELECT
   i.id,
   sp.nombre,
   sp.apellido,
   sp.tipo_alimentacion,
-  sp.activo
+  sp.activo,
+  sp.checkin_at,
+  sp.checkout_at
 FROM inserted i
 JOIN _fimba_seed_participantes sp ON sp.propuesta_nombre = i.nombre;
 
