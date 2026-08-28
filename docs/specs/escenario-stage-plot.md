@@ -54,6 +54,8 @@
 | `src/views/Giras/ProgramStagePlot.jsx` | Re-export → `ProgramStagePlotEditor.jsx` |
 | `src/views/Giras/ProgramStagePlotEditor.jsx` | Editor Konva multi-lienzo, Asociar, Imp/Exp |
 | `src/utils/stagePlotFormations.js` | Geometría de formaciones; defaults en cm→px |
+| `src/utils/stagePlotGroups.js` | Agrupación rígida y alineación en línea |
+| `src/utils/stagePlotDeskPairs.js` | Pares de atril: movilidad libre A–B + satélite |
 | `src/services/stagePlotService.js` | CRUD multi-plot, `stage_plot_eventos`, `resolveStagePlotForEvent` |
 | `src/utils/stagePlotTransfer.js` | Export/import JSON (`.ofrn-escenario.json`) |
 | `src/views/Giras/StagePlotImportModal.jsx` | Import archivo / otra gira + export JSON |
@@ -138,6 +140,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Mobiliario orgánico: sillas / banquetas (bass auto + `banqueta` manual) / atriles ceil(n/2) vn·va·vc·bass
 - [x] Catálogo `banqueta` + silueta; locaciones `escenario_ancho_cm`/`escenario_profundo_cm` + picker
 - [x] Recuadro magnetizado (índigo) en huella si `slotId` válido
+- [x] Pares de instrumentos: movilidad libre A–B + atril satélite a 40 cm (perpendicular al segmento, lado del director)
 - [x] Formaciones visibles (`stage.hideFormationGuides`; toggle **Formaciones** ON = guías visibles en popover Lienzo)
 - [x] Recuadros visibles (`stage.hideChairSquares`; toggle **Recuadros** — legacy; huella de instrumento no depende de él)
 - [x] Fila de 4 toggles Lienzo (Cuadrícula / Radial / Formaciones / Recuadros; ON = mostrar)
@@ -190,7 +193,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - Hit-box / Transformer / tooltip = **huella 50×80** (no solo el icono). Escala default = `1` (huella = tamaño real en cm). `item.scale` escala el Group entero (huella + icono + atril).
 - Legacy: al normalizar, si `scale` ≈ el viejo default «~40 cm visual» (`targetPx / max(cat.w,h)`), se resetea a `1` para no inflar la huella.
 - Magnetizado: stroke/fill índigo lavado en la huella (mismo criterio `slotId` que antes).
-- **Canvas (`ItemShape`) + PDF/JPG:** misma huella + línea de atril + icono en caja 50×50 con el mismo `iconOffsetY`.
+- **Canvas (`ItemShape`) + PDF/JPG:** misma huella + línea de atril + icono en caja 50×50 con el mismo `iconOffsetY`. Si el ítem está en un **par de atril** (`deskPairs`), se omite la línea del borde (el satélite la reemplaza).
 - **Orientación (en principio hacia el director):**
   - Al **crear** (paleta / drop / Insertar orgánico): `rotationFacingPoint` hacia `resolveFormationFacingPoint` (conductor o posición canónica).
   - Al **magnetizar** a plaza: se aplica `slot.rotation` (ya mira al facing de la formación).
@@ -208,6 +211,24 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
   - Default **1:1** por instrumentista / ítem con huella.
   - Excepción compartida **ceil(n/2)** para **violín, viola, cello y contrabajo** (ej. 5 bass → 3 atriles).
   - Helper: `computeStagePlotFurnitureSummary` / `atrilesFromOrganicoCounts` en `stagePlotOrganico.js`.
+
+
+## Pares de instrumentos (atril satélite)
+
+A y B del par se mueven **con libertad relativa** (no son un grupo rígido). El atril no se arrastra: es un satélite derivado.
+
+- **Payload:** `deskPairs: [{ id, itemIds: [a, b] }]`. Un ítem pertenece a lo sumo a un par. Se reconcilia al normalizar (miembros vivos con huella; pares huérfanos se disuelven).
+- **Geometría** (`computeDeskPairSatelliteAtril` / `STAGE_PLOT_DESK_PAIR_ATRIL_OFFSET_CM = 40`):
+  1. Segmento **A–B** (centros de huella); punto medio **M**.
+  2. Perpendicular a A–B del lado del **director** (`resolveFormationFacingPoint`).
+  3. El atril queda a **40 cm** de M sobre esa perpendicular (160 px @ 4 px/cm).
+  4. Línea de atril **35 cm** (`STAGE_PLOT_ATRIL_LINE_CM`) paralela a A–B (perpendicular al offset) + polo (círculo).
+  5. Si A y B coinciden: se usa el rayo M→director. Si el director está sobre A–B: fallback al rayo M→director o +Y.
+- **UI:** menú contextual **Emparejar atril** (2 huellas) / **Desemparejar atril**. Emparejar saca a los dos de un grupo rígido; Agrupar / Alinear disuelve el par (el grupo rígido gana).
+- **Insertar orgánico** vn/va/vc/bass: empareja de a 2 los ítems recién insertados (`pairConsecutiveStagePlotItems`); el impar queda suelto.
+- **Drag:** mover A no mueve B; el satélite se actualiza en vivo (`liveItemPositions`). Multi-selección de ambos sigue moviendo el conjunto.
+- **Copiar formación con instrumentos:** si ambos miembros de un par se clonan, se crea un par nuevo para los clones (`cloneDeskPairsForIdMap`).
+- **PDF / JPG:** misma geometría; huellas emparejadas sin línea propia.
 
 
 ## Presets de locación (ancho × profundo)

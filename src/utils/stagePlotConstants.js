@@ -61,6 +61,12 @@ export const STAGE_PLOT_INSTRUMENT_ICON_BOX_CM = 50;
 /** Línea de atril centrada en el borde frontal (hacia el director). */
 export const STAGE_PLOT_ATRIL_LINE_CM = 35;
 
+/**
+ * Par de instrumentos: el atril satélite queda a esta distancia (cm) del
+ * segmento A–B, sobre la perpendicular que mira al director.
+ */
+export const STAGE_PLOT_DESK_PAIR_ATRIL_OFFSET_CM = 40;
+
 export const STAGE_PLOT_FOOTPRINT_FILL = "rgba(241, 245, 249, 0.55)";
 export const STAGE_PLOT_FOOTPRINT_STROKE = "#94a3b8";
 export const STAGE_PLOT_FOOTPRINT_MAGNETIZED_FILL = "rgba(224, 231, 255, 0.55)";

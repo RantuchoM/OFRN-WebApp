@@ -132,6 +132,7 @@ import {
   organicoRowIndex,
   organicoRowMissingCount,
   pickOrganicoRowCatalogType,
+  STAGE_PLOT_SHARED_ATRIL_KEYS,
   summarizeStagePlotOrganico,
 } from "../../utils/stagePlotOrganico";
 import {
@@ -143,6 +144,14 @@ import {
   setGroupAlignAngle,
   ungroupStagePlotItems,
 } from "../../utils/stagePlotGroups";
+import {
+  cloneDeskPairsForIdMap,
+  computeDeskPairSatellites,
+  deskPairIdByItemId,
+  pairConsecutiveStagePlotItems,
+  pairStagePlotItems,
+  unpairStagePlotItems,
+} from "../../utils/stagePlotDeskPairs";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import {
@@ -1063,6 +1072,8 @@ function StagePlotItemContextMenu({
   onGroup,
   onUngroup,
   onAlignInLine,
+  onPair,
+  onUnpair,
   overlayZ = 100,
 }) {
   const menuRef = useRef(null);
@@ -1094,11 +1105,13 @@ function StagePlotItemContextMenu({
   const canGroup = selectedCount >= 2;
   const canAlign = selectedCount >= 2;
   const canUngroup = !!menu.canUngroup;
+  const canPair = !!menu.canPair;
+  const canUnpair = !!menu.canUnpair;
   const formationId = menu.formationId || null;
 
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   const left = clamp(menu.x, 8, window.innerWidth - 240);
-  const top = clamp(menu.y, 8, window.innerHeight - 200);
+  const top = clamp(menu.y, 8, window.innerHeight - 260);
 
   return createPortal(
     <div
@@ -1138,7 +1151,27 @@ function StagePlotItemContextMenu({
           Alinear en línea
         </button>
       )}
-      {(canGroup || canUngroup || canAlign) && (
+      {canPair && (
+        <button
+          type="button"
+          role="menuitem"
+          className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+          onClick={onPair}
+        >
+          Emparejar atril
+        </button>
+      )}
+      {canUnpair && (
+        <button
+          type="button"
+          role="menuitem"
+          className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+          onClick={onUnpair}
+        >
+          Desemparejar atril
+        </button>
+      )}
+      {(canGroup || canUngroup || canAlign || canPair || canUnpair) && (
         <div className="my-1 border-t border-slate-100" role="separator" />
       )}
       {formationId && (
@@ -1318,6 +1351,7 @@ const ItemShape = React.memo(function ItemShape({
   selected,
   magnetized,
   hideChairSquares,
+  hideAtril,
   draggable,
   shapeRef,
   onSelect,
@@ -1504,6 +1538,7 @@ const ItemShape = React.memo(function ItemShape({
             strokeWidth={magnetized ? 1.5 : 1.1}
             listening={false}
           />
+          {!hideAtril && (
           <Line
             points={[
               -footprint.atrilPx / 2,
@@ -1515,6 +1550,7 @@ const ItemShape = React.memo(function ItemShape({
             strokeWidth={1.75}
             listening={false}
           />
+          )}
         </>
       )}
       {showChairSquare && (
@@ -1602,6 +1638,7 @@ const ItemShape = React.memo(function ItemShape({
   prev.selected === next.selected &&
   prev.magnetized === next.magnetized &&
   prev.hideChairSquares === next.hideChairSquares &&
+  prev.hideAtril === next.hideAtril &&
   prev.draggable === next.draggable &&
   prev.onSelect === next.onSelect &&
   prev.onContextMenu === next.onContextMenu &&
@@ -1613,6 +1650,35 @@ const ItemShape = React.memo(function ItemShape({
   prev.onDragMove === next.onDragMove &&
   prev.onDragEnd === next.onDragEnd &&
   prev.onTransformEnd === next.onTransformEnd);
+
+function DeskPairSatellites({ satellites }) {
+  if (!satellites?.length) return null;
+  return satellites.map((sat) => {
+    const stroke = sat.selected ? "#4f46e5" : STAGE_PLOT_ATRIL_LINE_STROKE;
+    return (
+      <Group key={sat.id} listening={false}>
+        {sat.selected && (
+          <Line
+            points={[sat.midX, sat.midY, sat.x, sat.y]}
+            stroke="#818cf8"
+            strokeWidth={1}
+            dash={[5, 4]}
+            listening={false}
+          />
+        )}
+        <Group x={sat.x} y={sat.y} rotation={sat.rotation} listening={false}>
+          <Line
+            points={[-sat.atrilPx / 2, 0, sat.atrilPx / 2, 0]}
+            stroke={stroke}
+            strokeWidth={sat.selected ? 2.4 : 1.9}
+            listening={false}
+          />
+          <Circle radius={3.5} fill={stroke} listening={false} />
+        </Group>
+      </Group>
+    );
+  });
+}
 
 function PaletteIcon({ type, color }) {
   const [src, setSrc] = useState(null);
@@ -1744,6 +1810,8 @@ export default function ProgramStagePlot({
   const dragGroupRef = useRef(null);
   /** Vista previa magnética durante arrastre (plaza objetivo). */
   const [itemSnapPreview, setItemSnapPreview] = useState(null);
+  /** Posiciones live de ítems en drag (atril satélite sigue al par). */
+  const [liveItemPositions, setLiveItemPositions] = useState(null);
   /** Menú contextual de ítem (clic derecho). */
   const [itemContextMenu, setItemContextMenu] = useState(null);
   /** Menú contextual de formación (clic derecho). */
@@ -2306,6 +2374,7 @@ export default function ProgramStagePlot({
       items: [],
       formations: [],
       groups: [],
+      deskPairs: [],
     }));
     setSelectedIds([]);
     setSelectedFormationId(null);
@@ -2951,12 +3020,26 @@ export default function ProgramStagePlot({
         },
       );
       if (!clone) return;
+      const idMap = new Map();
+      if (clonedItems.length) {
+        const anchored = (prev.items || []).filter((it) => {
+          const parsed = parseSlotId(it.slotId);
+          return parsed && parsed.formationId === src.id;
+        });
+        anchored.forEach((srcItem, i) => {
+          if (clonedItems[i]) idMap.set(srcItem.id, clonedItems[i].id);
+        });
+      }
+      const clonedPairs = cloneDeskPairsForIdMap(prev.deskPairs, idMap);
       commitPayload((p) => ({
         ...p,
         formations: [...(p.formations || []), clone],
         items: clonedItems.length
           ? [...(p.items || []), ...clonedItems]
           : p.items,
+        deskPairs: clonedPairs.length
+          ? [...(p.deskPairs || []), ...clonedPairs]
+          : p.deskPairs,
       }));
       setSelectedFormationId(clone.id);
       selectedFormationIdRef.current = clone.id;
@@ -3178,6 +3261,27 @@ export default function ProgramStagePlot({
         nextSel.includes(it.id),
       );
       const canUngroup = selItems.some((it) => it.groupId);
+      const pairByItem = deskPairIdByItemId(payloadRef.current);
+      const footprintSel = selItems.filter((it) =>
+        stagePlotItemHasInstrumentFootprint(it.type),
+      );
+      const pairIdA = footprintSel[0]
+        ? pairByItem.get(footprintSel[0].id)
+        : null;
+      const pairIdB = footprintSel[1]
+        ? pairByItem.get(footprintSel[1].id)
+        : null;
+      const alreadyPairedTogether = Boolean(
+        footprintSel.length === 2 &&
+          nextSel.length === 2 &&
+          pairIdA &&
+          pairIdA === pairIdB,
+      );
+      const canPair =
+        footprintSel.length === 2 &&
+        nextSel.length === 2 &&
+        !alreadyPairedTogether;
+      const canUnpair = selItems.some((it) => pairByItem.has(it.id));
       // Formación del ítem bajo el clic (no de toda la multi-selección).
       const slotParsed = parseSlotId(item.slotId);
       const formationExists =
@@ -3193,6 +3297,8 @@ export default function ProgramStagePlot({
         selectedCount: nextSel.length,
         selectedIds: nextSel,
         canUngroup,
+        canPair,
+        canUnpair,
         formationId: formationExists ? slotParsed.formationId : null,
         x: nativeEvt?.clientX ?? 0,
         y: nativeEvt?.clientY ?? 0,
@@ -3268,10 +3374,19 @@ export default function ProgramStagePlot({
         return item;
       });
       zCounterRef.current = z;
-      commitPayload((prev) => ({
-        ...prev,
-        items: [...prev.items, ...newItems],
-      }));
+      commitPayload((prev) => {
+        const withItems = {
+          ...prev,
+          items: [...prev.items, ...newItems],
+        };
+        if (STAGE_PLOT_SHARED_ATRIL_KEYS.has(row.key)) {
+          return pairConsecutiveStagePlotItems(
+            withItems,
+            newItems.map((it) => it.id),
+          );
+        }
+        return withItems;
+      });
       setSelectedFormationId(null);
       setSelectedIds(newItems.map((it) => it.id));
     },
@@ -3313,6 +3428,20 @@ export default function ProgramStagePlot({
     const ids = selectedIdsRef.current;
     if (ids.length < 2) return;
     commitPayload((prev) => alignStagePlotItems(prev, ids));
+    closeItemContextMenu();
+  }, [commitPayload, closeItemContextMenu]);
+
+  const pairSelected = useCallback(() => {
+    const ids = selectedIdsRef.current;
+    if (ids.length !== 2) return;
+    commitPayload((prev) => pairStagePlotItems(prev, ids));
+    closeItemContextMenu();
+  }, [commitPayload, closeItemContextMenu]);
+
+  const unpairSelected = useCallback(() => {
+    const ids = selectedIdsRef.current;
+    if (!ids.length) return;
+    commitPayload((prev) => unpairStagePlotItems(prev, ids));
     closeItemContextMenu();
   }, [commitPayload, closeItemContextMenu]);
 
@@ -3449,20 +3578,37 @@ export default function ProgramStagePlot({
 
   const handleItemDragMove = useCallback((id, e) => {
     const g = dragGroupRef.current;
+    const pairMap = deskPairIdByItemId(payloadRef.current);
+    const collectLive = (entries) => {
+      const live = {};
+      let anyPaired = false;
+      for (const [sid, pos] of entries) {
+        live[sid] = pos;
+        if (pairMap.has(sid)) anyPaired = true;
+      }
+      setLiveItemPositions(anyPaired ? live : null);
+    };
+
     if (g && g.leaderId === id) {
       setItemSnapPreview(null);
       const origin = g.origins.get(id);
       if (!origin) return;
       const dx = e.target.x() - origin.x;
       const dy = e.target.y() - origin.y;
+      const liveEntries = [];
       for (const [sid, o] of g.origins) {
-        if (sid === id) continue;
+        if (sid === id) {
+          liveEntries.push([sid, { x: e.target.x(), y: e.target.y() }]);
+          continue;
+        }
         const node = itemNodeRefs.current.get(sid);
         if (node) {
           node.x(o.x + dx);
           node.y(o.y + dy);
         }
+        liveEntries.push([sid, { x: o.x + dx, y: o.y + dy }]);
       }
+      collectLive(liveEntries);
       transformerRef.current?.forceUpdate();
       return;
     }
@@ -3494,6 +3640,7 @@ export default function ProgramStagePlot({
     } else {
       setItemSnapPreview(null);
     }
+    collectLive([[id, { x: node.x(), y: node.y() }]]);
 
     transformerRef.current?.forceUpdate();
   }, []);
@@ -3539,6 +3686,7 @@ export default function ProgramStagePlot({
     (id, x, y) => {
       itemDraggingRef.current = false;
       setItemSnapPreview(null);
+      setLiveItemPositions(null);
 
       const g = dragGroupRef.current;
       if (g && g.leaderId === id && g.origins.size > 1) {
@@ -3795,6 +3943,17 @@ export default function ProgramStagePlot({
   );
   const formationIdSet = new Set(
     (payload.formations || []).map((f) => String(f.id)),
+  );
+  const pairedItemIds = deskPairIdByItemId(payload);
+  const deskPairFacing = resolveFormationFacingPoint(
+    payload.items,
+    payload.stage,
+  );
+  const deskPairSatellites = computeDeskPairSatellites(
+    payload,
+    deskPairFacing,
+    liveItemPositions,
+    selectedIdSet,
   );
   const portalMenuZ = fullscreen ? STAGE_PLOT_OVERLAY_Z : 110;
   const portalTooltipZ = fullscreen ? STAGE_PLOT_OVERLAY_TOOLTIP_Z : 110;
@@ -4426,6 +4585,7 @@ export default function ProgramStagePlot({
                     selected={selectedIdSet.has(item.id)}
                     magnetized={magnetized}
                     hideChairSquares={!!payload.stage.hideChairSquares}
+                    hideAtril={pairedItemIds.has(item.id)}
                     draggable={canEdit && item.type !== "conductor"}
                     shapeRef={(node) => {
                       if (node) itemNodeRefs.current.set(item.id, node);
@@ -4444,6 +4604,7 @@ export default function ProgramStagePlot({
                   />
                   );
                 })}
+                <DeskPairSatellites satellites={deskPairSatellites} />
                 {canEdit && (
                   <Transformer
                     ref={transformerRef}
@@ -4516,6 +4677,8 @@ export default function ProgramStagePlot({
               onGroup={groupSelected}
               onUngroup={ungroupSelected}
               onAlignInLine={alignSelectedInLine}
+              onPair={pairSelected}
+              onUnpair={unpairSelected}
               overlayZ={portalMenuZ}
             />
           )}

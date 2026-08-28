@@ -28,6 +28,10 @@ import {
   resolveFormationFacingPoint,
 } from "./stagePlotFormations";
 import {
+  computeDeskPairSatellites,
+  deskPairIdByItemId,
+} from "./stagePlotDeskPairs";
+import {
   STAGE_PLOT_SILHOUETTE_VIEWBOX,
   getStagePlotSilhouettePath,
 } from "./stagePlotSilhouettes";
@@ -589,6 +593,7 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
   const formationIdSet = new Set(
     (payload.formations || []).map((f) => String(f.id)),
   );
+  const pairedItemIds = deskPairIdByItemId(payload);
   for (const item of sorted) {
     const cat = getStagePlotCatalogItem(item.type);
     const itemScale = item.scale > 0 ? item.scale : 1;
@@ -629,6 +634,7 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
         atril,
         rotation,
         magnetized,
+        pairedItemIds.has(item.id),
       );
       const rad = (rotation * Math.PI) / 180;
       const iconCx = cx - iconOffY * Math.sin(rad);
@@ -686,6 +692,7 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
       }
     }
   }
+  drawDeskPairSatellitesOnPdf(doc, payload, ox, oy, scale);
 }
 
 /**
@@ -697,6 +704,7 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
   const formationIdSet = new Set(
     (payload.formations || []).map((f) => String(f.id)),
   );
+  const pairedItemIds = deskPairIdByItemId(payload);
   for (const item of sorted) {
     const cat = getStagePlotCatalogItem(item.type);
     const itemScale = item.scale > 0 ? item.scale : 1;
@@ -737,6 +745,7 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
         atril,
         rotation,
         magnetized,
+        pairedItemIds.has(item.id),
       );
       const rad = (rotation * Math.PI) / 180;
       const iconCx = cx - iconOffY * Math.sin(rad);
@@ -808,6 +817,7 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
       }
     }
   }
+  drawDeskPairSatellitesOnCanvas(ctx, payload, ox, oy, scale);
 }
 
 /**
@@ -906,6 +916,61 @@ function drawChairSquareOnCanvas(ctx, cx, cy, sidePx, rotationDeg, magnetized) {
   ctx.restore();
 }
 
+function deskPairSatelliteEndpoints(sat, ox, oy, scale) {
+  const cx = ox + sat.x * scale;
+  const cy = oy + sat.y * scale;
+  const half = (sat.atrilPx * scale) / 2;
+  const rad = ((Number(sat.rotation) || 0) * Math.PI) / 180;
+  const dx = Math.cos(rad) * half;
+  const dy = Math.sin(rad) * half;
+  return {
+    x1: cx - dx,
+    y1: cy - dy,
+    x2: cx + dx,
+    y2: cy + dy,
+    cx,
+    cy,
+  };
+}
+
+function drawDeskPairSatellitesOnPdf(doc, payload, ox, oy, scale) {
+  const facing = resolveFormationFacingPoint(payload.items, payload.stage);
+  const sats = computeDeskPairSatellites(payload, facing);
+  const rgb = hexToRgb(STAGE_PLOT_ATRIL_LINE_STROKE);
+  doc.setDrawColor(rgb.r, rgb.g, rgb.b);
+  doc.setFillColor(rgb.r, rgb.g, rgb.b);
+  const lineW = Math.max(0.35, 0.55 * Math.min(scale * 4, 1.4));
+  doc.setLineWidth(lineW);
+  const poleR = Math.max(0.35, 0.7 * Math.min(scale * 4, 1.2));
+  for (const sat of sats) {
+    const e = deskPairSatelliteEndpoints(sat, ox, oy, scale);
+    doc.line(e.x1, e.y1, e.x2, e.y2);
+    doc.circle(e.cx, e.cy, poleR, "F");
+  }
+}
+
+function drawDeskPairSatellitesOnCanvas(ctx, payload, ox, oy, scale) {
+  const facing = resolveFormationFacingPoint(payload.items, payload.stage);
+  const sats = computeDeskPairSatellites(payload, facing);
+  ctx.save();
+  ctx.strokeStyle = STAGE_PLOT_ATRIL_LINE_STROKE;
+  ctx.fillStyle = STAGE_PLOT_ATRIL_LINE_STROKE;
+  ctx.lineWidth = Math.max(1.5, 2.2 * Math.min(scale, 1.5));
+  ctx.lineCap = "round";
+  const poleR = Math.max(1.6, 3 * Math.min(scale, 1.4));
+  for (const sat of sats) {
+    const e = deskPairSatelliteEndpoints(sat, ox, oy, scale);
+    ctx.beginPath();
+    ctx.moveTo(e.x1, e.y1);
+    ctx.lineTo(e.x2, e.y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(e.cx, e.cy, poleR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawInstrumentFootprintOnCanvas(
   ctx,
   cx,
@@ -915,6 +980,7 @@ function drawInstrumentFootprintOnCanvas(
   atrilPx,
   rotationDeg,
   magnetized,
+  hideAtril = false,
 ) {
   ctx.save();
   ctx.translate(cx, cy);
@@ -930,12 +996,14 @@ function drawInstrumentFootprintOnCanvas(
   ctx.lineWidth = magnetized ? 2.5 : 2;
   ctx.fillRect(-hw, -hd, widthPx, depthPx);
   ctx.strokeRect(-hw, -hd, widthPx, depthPx);
-  ctx.strokeStyle = STAGE_PLOT_ATRIL_LINE_STROKE;
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  ctx.moveTo(-atrilPx / 2, hd);
-  ctx.lineTo(atrilPx / 2, hd);
-  ctx.stroke();
+  if (!hideAtril) {
+    ctx.strokeStyle = STAGE_PLOT_ATRIL_LINE_STROKE;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(-atrilPx / 2, hd);
+    ctx.lineTo(atrilPx / 2, hd);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -948,6 +1016,7 @@ function drawInstrumentFootprintOnPdf(
   atrilMm,
   rotationDeg,
   magnetized,
+  hideAtril = false,
 ) {
   if (typeof document === "undefined") return;
   const pxW = Math.max(64, Math.round(widthMm * 6));
@@ -966,6 +1035,7 @@ function drawInstrumentFootprintOnPdf(
     Math.max(8, (atrilMm / Math.max(widthMm, 0.001)) * (pxW - 4)),
     rotationDeg,
     magnetized,
+    hideAtril,
   );
   doc.addImage(
     canvas.toDataURL("image/png"),

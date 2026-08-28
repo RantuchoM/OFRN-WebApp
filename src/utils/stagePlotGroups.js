@@ -3,6 +3,8 @@
  * Independiente de formaciones (slotId).
  */
 
+import { unpairStagePlotItems } from "./stagePlotDeskPairs";
+
 function newId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -205,15 +207,16 @@ export function groupStagePlotItems(payload, itemIds) {
   const ids = [...new Set(itemIds.filter(Boolean))];
   if (ids.length < 2) return payload;
 
+  const unpaired = unpairStagePlotItems(payload, ids);
   const groupId = newId();
-  const nextItems = payload.items.map((it) =>
+  const nextItems = unpaired.items.map((it) =>
     ids.includes(it.id) ? { ...it, groupId, slotId: null } : it,
   );
   const groups = [
-    ...(payload.groups || []),
+    ...(unpaired.groups || []),
     { id: groupId, itemIds: ids },
   ];
-  return reconcileStagePlotGroups({ ...payload, items: nextItems, groups });
+  return reconcileStagePlotGroups({ ...unpaired, items: nextItems, groups });
 }
 
 /**
@@ -284,7 +287,9 @@ export function alignStagePlotItems(payload, itemIds, angleDeg) {
   ];
   let groupId = existingGroupIds.length === 1 ? existingGroupIds[0] : newId();
 
-  const nextItems = payload.items.map((it) => {
+  const unpaired = unpairStagePlotItems(payload, ids);
+
+  const nextItems = unpaired.items.map((it) => {
     if (!ids.includes(it.id)) return it;
     const p = posMap.get(it.id);
     return {
@@ -303,10 +308,10 @@ export function alignStagePlotItems(payload, itemIds, angleDeg) {
     itemIds: ids,
   };
 
-  const others = (payload.groups || []).filter((g) => g.id !== groupId);
+  const others = (unpaired.groups || []).filter((g) => g.id !== groupId);
   const groups = [...others, { id: groupId, ...alignMeta }];
 
-  return reconcileStagePlotGroups({ ...payload, items: nextItems, groups });
+  return reconcileStagePlotGroups({ ...unpaired, items: nextItems, groups });
 }
 
 /**

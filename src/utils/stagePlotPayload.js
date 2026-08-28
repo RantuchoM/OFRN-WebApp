@@ -29,6 +29,10 @@ import {
   normalizeStagePlotGroup,
   reconcileStagePlotGroups,
 } from "./stagePlotGroups";
+import {
+  pruneStagePlotDeskPairs,
+  reconcileStagePlotDeskPairs,
+} from "./stagePlotDeskPairs";
 
 export const STAGE_PLOT_PAYLOAD_VERSION = 1;
 
@@ -350,6 +354,7 @@ export function createEmptyStagePlotPayload() {
     items: [],
     formations: [],
     groups: [],
+    deskPairs: [],
   };
 }
 
@@ -399,23 +404,29 @@ export function normalizeStagePlotPayload(raw) {
   const groups = groupsRaw
     .map((g) => normalizeStagePlotGroup(g))
     .filter(Boolean);
+  const deskPairs = pruneStagePlotDeskPairs(
+    Array.isArray(obj.deskPairs) ? obj.deskPairs : [],
+  );
   const pinnedItems = pinStagePlotConductors(items, dims.width, dims.height);
-  return reconcileStagePlotGroups({
-    version: STAGE_PLOT_PAYLOAD_VERSION,
-    stage: {
-      ...dims,
-      showGrid,
-      showRadial,
-      hideFormationGuides,
-      hideChairSquares,
-      radialLines,
-      id_locacion:
-        Number.isFinite(idLocacion) && idLocacion > 0 ? idLocacion : null,
-    },
-    items: pinnedItems,
-    formations,
-    groups,
-  });
+  return reconcileStagePlotDeskPairs(
+    reconcileStagePlotGroups({
+      version: STAGE_PLOT_PAYLOAD_VERSION,
+      stage: {
+        ...dims,
+        showGrid,
+        showRadial,
+        hideFormationGuides,
+        hideChairSquares,
+        radialLines,
+        id_locacion:
+          Number.isFinite(idLocacion) && idLocacion > 0 ? idLocacion : null,
+      },
+      items: pinnedItems,
+      formations,
+      groups,
+      deskPairs,
+    }),
+  );
 }
 
 /** Deep clone + normalize for undo/redo snapshots. */
