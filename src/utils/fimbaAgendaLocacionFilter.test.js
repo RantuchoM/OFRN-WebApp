@@ -70,6 +70,16 @@ const campusInvap = {
   id_locacion: null,
 };
 
+/** Concierto con FK de otro venue y Destino: Puerto San Carlos. */
+const pscWrongCatalog = {
+  id: 3973,
+  actividad: "Concierto Cápsula Mercado de la Música",
+  destino: "Puerto San Carlos",
+  id_locacion: 7,
+  locacion_nombre: "Camping Musical Campus de Artes y Música Bariloche",
+  locacion_ciudad: "San Carlos de Bariloche",
+};
+
 describe("eventLocacionId", () => {
   it("lee id numérico o embed locaciones.id", () => {
     assert.equal(eventLocacionId({ id_locacion: "59" }), 59);
@@ -112,10 +122,16 @@ describe("eventMatchesLocacionFilter", () => {
   });
 
   it("seleccionar Puerto San Carlos incluye apertura solo-destino y concierto con id", () => {
-    const opts = locacionesFromAgendaRows([pscCatalog, pscConcert, campusInvap]);
+    const opts = locacionesFromAgendaRows([
+      pscCatalog,
+      pscConcert,
+      campusInvap,
+      pscWrongCatalog,
+    ]);
     const pscKey = opts.find((o) => o.id === 59).key;
     assert.equal(eventMatchesLocacionFilter(pscCatalog, [pscKey], opts), true);
     assert.equal(eventMatchesLocacionFilter(pscConcert, [pscKey], opts), true);
+    assert.equal(eventMatchesLocacionFilter(pscWrongCatalog, [pscKey], opts), true);
     assert.equal(eventMatchesLocacionFilter(campusInvap, [pscKey], opts), false);
   });
 

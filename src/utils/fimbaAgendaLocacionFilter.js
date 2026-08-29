@@ -93,13 +93,23 @@ export function locacionKeyFromQuery(raw) {
 
 /**
  * Textos de destino con los que un evento puede matchear una opción de catálogo.
- * Solo filas SIN `id_locacion`: `listFimbaAgenda` rellena `destino` con el
- * nombre de catálogo y cruzaría «A definir · Viedma» con «A definir · Cipolletti».
+ *
+ * `listFimbaAgenda` rellena `destino` con el nombre de catálogo si no hay
+ * línea `Destino:`. Ese fallback no debe matchear (cruzaría varios «A definir»).
+ * Un destino distinto del nombre de catálogo sí (p. ej. id=Camping y texto
+ * «Puerto San Carlos»).
  */
 export function eventDestinoMatchNorms(ev) {
-  if (eventLocacionId(ev) != null) return [];
   const dest = eventDestinoText(ev);
   if (!dest) return [];
+  const locNombre = locacionNombreFromEvent(ev);
+  if (
+    eventLocacionId(ev) != null &&
+    locNombre &&
+    normalizeForSearch(dest) === normalizeForSearch(locNombre)
+  ) {
+    return [];
+  }
   const norms = new Set();
   const add = (value) => {
     const n = normalizeForSearch(value);
