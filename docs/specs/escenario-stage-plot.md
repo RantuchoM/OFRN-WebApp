@@ -523,7 +523,7 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 
 ## Export PDF / JPG (plano de escenario)
 
-- **Archivo**: `src/utils/stagePlotPdf.js` — `exportStagePlotPdf`, `exportStagePlotJpg`.
+- **Archivo**: `src/utils/stagePlotPdf.js` — `exportStagePlotPdf`, `exportStagePlotJpg`. Íconos/siluetas: `drawImageRotated` / `drawImageRotatedOnCanvas` / `drawSilhouetteOnPdf` / `drawSilhouetteOnCanvas` (restauradas: sin ellas el PDF/JPG rompía en lienzos con instrumentos, p. ej. BOB MARLEY gira 12).
 - **Editor** (`ProgramStagePlotEditor.jsx`): botones **PDF** / **JPG** abren `StagePlotExportOptionsModal` con las **mismas 4 opciones** que el técnico (`StagePlotVisibilityToggles`: Cuadrícula / Radial / Formaciones / Recuadros). Los toggles se siembran desde el Lienzo actual pero son **override solo de esa descarga** (`applyStagePlotStagePatch` sobre una copia; **no** persisten ni marcan dirty el payload del editor).
 - **Técnico** (`StagePlotViewerModal`): mismos toggles (componente compartido) sobre una copia local del payload; PDF/JPG usan ese payload parchado.
 - **Helpers**: `readStagePlotVisibility` / `visibilityToStagePatch` en `StagePlotVisibilityToggles.jsx`.

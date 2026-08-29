@@ -19,7 +19,6 @@ import {
   stagePlotGridMajorPx,
   stagePlotGridMinorPx,
   stagePlotInstrumentFootprintLayout,
-  STAGE_PLOT_CM_TO_PX,
 } from "./stagePlotConstants";
 import { stagePlotTarimaDimensionsCm } from "./stagePlotOrganico";
 import {
@@ -1043,6 +1042,127 @@ function drawChairSquareOnCanvas(ctx, cx, cy, sidePx, rotationDeg, magnetized) {
   ctx.lineWidth = magnetized ? 2.5 : 2;
   ctx.fillRect(-half + pad, -half + pad, sidePx - pad * 2, sidePx - pad * 2);
   ctx.strokeRect(-half + pad, -half + pad, sidePx - pad * 2, sidePx - pad * 2);
+  ctx.restore();
+}
+
+function drawImageRotated(doc, htmlImage, cx, cy, wMm, hMm, rotationDeg) {
+  if (typeof document === "undefined") return;
+  const widthMm = Number(wMm);
+  const heightMm = Number(hMm);
+  if (!Number.isFinite(widthMm) || !Number.isFinite(heightMm)) return;
+  if (widthMm <= 0 || heightMm <= 0) return;
+  const pxW = Math.max(48, Math.round(widthMm * 6));
+  const pxH = Math.max(48, Math.round(heightMm * 6));
+  const canvas = document.createElement("canvas");
+  canvas.width = pxW;
+  canvas.height = pxH;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  drawImageRotatedOnCanvas(
+    ctx,
+    htmlImage,
+    pxW / 2,
+    pxH / 2,
+    pxW,
+    pxH,
+    rotationDeg,
+  );
+  try {
+    doc.addImage(
+      canvas.toDataURL("image/png"),
+      "PNG",
+      cx - widthMm / 2,
+      cy - heightMm / 2,
+      widthMm,
+      heightMm,
+      undefined,
+      "FAST",
+    );
+  } catch (err) {
+    console.warn("[stagePlotPdf] addImage icon:", err);
+  }
+}
+
+function drawImageRotatedOnCanvas(ctx, htmlImage, cx, cy, wPx, hPx, rotationDeg) {
+  if (!htmlImage) return;
+  const { w: iw, h: ih } = getStagePlotImageNaturalSize(htmlImage);
+  if (!iw || !ih) return;
+  ctx.save();
+  ctx.translate(cx, cy);
+  if (rotationDeg) ctx.rotate((rotationDeg * Math.PI) / 180);
+  const fit = fitContainInBox(wPx, hPx, iw, ih);
+  if (!fit.drawW || !fit.drawH) {
+    ctx.restore();
+    return;
+  }
+  ctx.drawImage(
+    htmlImage,
+    -fit.drawW / 2,
+    -fit.drawH / 2,
+    fit.drawW,
+    fit.drawH,
+  );
+  ctx.restore();
+}
+
+function drawSilhouetteOnPdf(doc, pathD, cx, cy, wMm, hMm, rotationDeg, rgb) {
+  if (typeof document === "undefined" || !pathD) return;
+  const widthMm = Number(wMm);
+  const heightMm = Number(hMm);
+  if (!Number.isFinite(widthMm) || !Number.isFinite(heightMm)) return;
+  if (widthMm <= 0 || heightMm <= 0) return;
+  const pxW = Math.max(48, Math.round(widthMm * 6));
+  const pxH = Math.max(48, Math.round(heightMm * 6));
+  const canvas = document.createElement("canvas");
+  canvas.width = pxW;
+  canvas.height = pxH;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  drawSilhouetteOnCanvas(
+    ctx,
+    pathD,
+    pxW / 2,
+    pxH / 2,
+    pxW,
+    pxH,
+    rotationDeg,
+    rgb,
+  );
+  try {
+    doc.addImage(
+      canvas.toDataURL("image/png"),
+      "PNG",
+      cx - widthMm / 2,
+      cy - heightMm / 2,
+      widthMm,
+      heightMm,
+      undefined,
+      "FAST",
+    );
+  } catch (err) {
+    console.warn("[stagePlotPdf] addImage silhouette:", err);
+  }
+}
+
+function drawSilhouetteOnCanvas(ctx, pathD, cx, cy, wPx, hPx, rotationDeg, rgb) {
+  if (!pathD) return;
+  ctx.save();
+  ctx.translate(cx, cy);
+  if (rotationDeg) ctx.rotate((rotationDeg * Math.PI) / 180);
+  const silScale = Math.min(wPx / VB, hPx / VB);
+  if (!Number.isFinite(silScale) || silScale <= 0) {
+    ctx.restore();
+    return;
+  }
+  ctx.scale(silScale, silScale);
+  ctx.translate(-VB / 2, -VB / 2);
+  const path = new Path2D(pathD);
+  ctx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+  ctx.strokeStyle = "#0f172a";
+  ctx.lineWidth = 1.2 / silScale;
+  ctx.lineJoin = "round";
+  ctx.fill(path);
+  ctx.stroke(path);
   ctx.restore();
 }
 
