@@ -33,3 +33,12 @@ Refactorizar el selector de músicos en la vista de Seating para validar contra 
 - **Lectura:** si existen filas duplicadas persistidas, las vistas de Seating, reportes, listados y composición `Str` deben mostrar solo la posición visual más alta. La prioridad visual se resuelve por `seating_contenedores.orden`, luego `atril_num`, `lado`, `orden` e `id` de la fila.
 - **Escritura:** cualquier cambio realizado desde el manager de cuerdas (crear/editar/eliminar contenedor, agregar/mover/quitar músicos, importar o reordenar) dispara una limpieza persistente que borra las filas duplicadas y conserva la misma fila ganadora que se muestra en lectura.
 - **Estado:** implementado en `src/utils/seatingStringItemsDedupe.js`, `ProgramSeating.jsx`, `GlobalStringsManager.jsx` y consumidores directos de seating.
+
+## Undo / redo — disposición de cuerdas (2026-08-28)
+- [x] **In-memory** (no localStorage): stack por sesión en `useUndoStack` + snapshots en `seatingCuerdasUndo.js` (`cloneCuerdasSnapshot` / `applyCuerdasSnapshot`). Se resetea al cambiar config o programa.
+- [x] **Atajos:** Ctrl+Z deshacer · Ctrl+Y / Ctrl+Shift+Z rehacer (ignorados en inputs/modales de edición).
+- [x] **UI:** botones Deshacer/Rehacer en toolbar de `GlobalStringsManager`; hint «Ctrl+Z deshacer».
+- [x] **Cubre:** drag-and-drop (mover/agregar desde pool), quitar músico, crear/editar/eliminar grupo, grupos base, aplicar sugerencias, reordenar modal, importar disposición.
+- [x] **No cubre:** CRUD de configs (crear/duplicar/eliminar/renombrar config de cuerdas).
+- [x] **Persistencia al undo:** restaura contenedores + ítems en Supabase (preserva IDs cuando la DB lo permite) y refresca vía `onUpdate`.
+- **Por qué no localStorage:** evita desfase con la DB, otras pestañas o usuarios; el caso de uso es corregir el último movimiento en la misma sesión (igual que stage plot).

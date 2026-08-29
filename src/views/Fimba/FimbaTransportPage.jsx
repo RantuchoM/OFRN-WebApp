@@ -62,6 +62,7 @@ import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import FimbaStopRulesManager from "./FimbaStopRulesManager";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import { hasHtmlMarkup, stripHtml } from "../../utils/eventDisplayUtils";
+import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
 
 /** Índice id_propuesta → participantes activos (batch, sin hotelería). */
 function participantesMapFromBatch(byPropuesta) {
@@ -2236,10 +2237,10 @@ export default function FimbaTransportPage() {
           Tránsito = plazas a bordo al <em>salir</em> de la parada vs{" "}
           <code style={{ fontSize: "0.75rem" }}>capacidad_maxima</code> (libres al hover).
           Origen, fecha y horario quedan fijos al desplazar horizontalmente el resto de la
-          planilla. Filtrá un vehículo para la secuencia de esa unidad. Columnas{" "}
-          <strong>Subidas</strong> / <strong>Bajadas</strong>: chips de artistas
-          (plazas) y Orquesta (reglas OFRN: localidad/categoría/persona); clic para
-          asignar, × para quitar artistas.
+          planilla. Filtrá un vehículo para la secuencia de esa unidad. Columna{" "}
+          <strong>Artistas</strong>: tags del evento (como Agenda). Columnas{" "}
+          <strong>Subidas</strong> / <strong>Bajadas</strong>: quién sube/baja en la
+          parada (plazas FIMBA + reglas OFRN); clic para asignar, × para quitar.
           {editMode
             ? " Modo edición: fecha, horas, actividad, obs., locación texto y vehículo FIMBA (una unidad) se guardan solos."
             : ""}
@@ -2379,6 +2380,11 @@ export default function FimbaTransportPage() {
                       Destino
                     </th>
                     <th>Vehículo</th>
+                    <th
+                      title="Artistas taggeados en el evento (misma fuente que Agenda)"
+                    >
+                      Artistas
+                    </th>
                     <th
                       className="fimba-planilla-board-th fimba-planilla-board-th-up"
                       title="Quién sube en esta parada (artistas FIMBA + orquesta)"
@@ -2845,6 +2851,38 @@ export default function FimbaTransportPage() {
                           ) : (
                             vehLabel
                           )}
+                        </td>
+                        <td className="fimba-planilla-wrap" style={{ maxWidth: "11rem" }}>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                            {sortFimbaPropuestasByNombre(ev.propuestas || []).map((p) => (
+                              <span
+                                key={p.id}
+                                className="fimba-badge"
+                                style={{
+                                  background: p.color ? `${p.color}22` : undefined,
+                                  color: p.color || undefined,
+                                }}
+                              >
+                                {p.nombre}
+                              </span>
+                            ))}
+                            {ev.orquesta_label ? (
+                              <span
+                                className="fimba-muted"
+                                style={{ fontSize: "0.8rem" }}
+                              >
+                                {ev.orquesta_label}
+                              </span>
+                            ) : null}
+                            {(ev.propuestas || []).length === 0 && !ev.orquesta_label ? (
+                              <span
+                                className="fimba-muted"
+                                style={{ fontSize: "0.8rem" }}
+                              >
+                                Edición
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="fimba-planilla-board">
                           <PlanillaBoardCell

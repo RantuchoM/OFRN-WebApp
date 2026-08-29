@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
   ensureDefaultCuerdasConfig,
@@ -22,6 +22,7 @@ import {
   IconChevronDown,
   IconBulb,
   IconCopy,
+  IconUndo,
 } from "../ui/Icons";
 import DateInput from "../ui/DateInput";
 import {
@@ -32,6 +33,13 @@ import {
 } from "../../services/giraService";
 import { getDuplicateSeatingStringItemIds } from "../../utils/seatingStringItemsDedupe";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import { useUndoStack } from "../../hooks/useUndoStack";
+import {
+  applyCuerdasSnapshot,
+  cloneCuerdasSnapshot,
+  CUERDAS_UNDO_HISTORY_LIMIT,
+} from "../../utils/seatingCuerdasUndo";
+import { isEditableKeyboardTarget } from "../../utils/isEditableKeyboardTarget";
 import { toast } from "sonner";
 
 const PROGRAM_TYPES = [
@@ -524,6 +532,32 @@ export default function GlobalStringsManager({
   );
   const effectiveConfigId = activeConfig?.id ?? null;
 
+  const containersRef = useRef(containers);
+  useEffect(() => {
+    containersRef.current = containers;
+  }, [containers]);
+
+  const {
+    push: pushUndoSnapshot,
+    undo: undoCuerdas,
+    redo: redoCuerdas,
+    reset: resetCuerdasUndo,
+    canUndo: canUndoCuerdas,
+    canRedo: canRedoCuerdas,
+  } = useUndoStack({
+    limit: CUERDAS_UNDO_HISTORY_LIMIT,
+    clone: cloneCuerdasSnapshot,
+  });
+
+  useEffect(() => {
+    resetCuerdasUndo();
+  }, [effectiveConfigId, programId, resetCuerdasUndo]);
+
+  const pushHistoryBeforeEdit = useCallback(() => {
+    if (readOnly || effectiveConfigId == null) return;
+    pushUndoSnapshot(containersRef.current);
+  }, [readOnly, effectiveConfigId, pushUndoSnapshot]);
+
   const [renamingConfigId, setRenamingConfigId] = useState(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [configBusy, setConfigBusy] = useState(false);
@@ -645,6 +679,76 @@ export default function GlobalStringsManager({
       onUpdate();
     }
   };
+
+  const restoreCuerdasSnapshot = useCallback(
+    async (snapshot) => {
+      const { error } = await applyCuerdasSnapshot(
+        supabase,
+        programId,
+        effectiveConfigId,
+        snapshot,
+      );
+      if (error) {
+        toast.error(`No se pudo restaurar: ${error}`);
+        throw new Error(error);
+      }
+      await refreshAfterContainerChange();
+    },
+    [supabase, programId, effectiveConfigId, onUpdate],
+  );
+
+  const handleUndoCuerdas = useCallback(async () => {
+    const ok = await undoCuerdas(
+      () => containersRef.current,
+      restoreCuerdasSnapshot,
+    );
+    if (ok) toast.message("Deshacer", { duration: 1200 });
+  }, [undoCuerdas, restoreCuerdasSnapshot]);
+
+  const handleRedoCuerdas = useCallback(async () => {
+    const ok = await redoCuerdas(
+      () => containersRef.current,
+      restoreCuerdasSnapshot,
+    );
+    if (ok) toast.message("Rehacer", { duration: 1200 });
+  }, [redoCuerdas, restoreCuerdasSnapshot]);
+
+  useEffect(() => {
+    if (readOnly) return undefined;
+    const onKeyDown = (e) => {
+      if (isEditableKeyboardTarget(e.target)) return;
+      if (
+        showImportModal ||
+        showReorderModal ||
+        editingId != null ||
+        renamingConfigId != null
+      ) {
+        return;
+      }
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const k = e.key?.toLowerCase?.() || "";
+      if (k === "z" && !e.shiftKey) {
+        e.preventDefault();
+        handleUndoCuerdas();
+        return;
+      }
+      if (k === "y" || (k === "z" && e.shiftKey)) {
+        e.preventDefault();
+        handleRedoCuerdas();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    readOnly,
+    showImportModal,
+    showReorderModal,
+    editingId,
+    renamingConfigId,
+    handleUndoCuerdas,
+    handleRedoCuerdas,
+  ]);
 
   const seatingSuggestionsByContainer = useMemo(() => {
     const byContainer = {};
@@ -949,6 +1053,7 @@ export default function GlobalStringsManager({
     }
     const name = prompt("Nombre del grupo:", `Grupo ${containers.length + 1}`);
     if (!name) return;
+    pushHistoryBeforeEdit();
     await supabase.from("seating_contenedores").insert({
       id_programa: programId,
       id_config: configId,
@@ -973,6 +1078,7 @@ export default function GlobalStringsManager({
       });
       if (!ok) return;
     }
+    pushHistoryBeforeEdit();
     setIsCreatingBase(true);
     try {
       const startOrder =
@@ -1054,11 +1160,13 @@ export default function GlobalStringsManager({
       message: "¿Eliminar este grupo?",
       destructive: true,
     }))) return;
+    pushHistoryBeforeEdit();
     await supabase.from("seating_contenedores").delete().eq("id", id);
     await refreshAfterContainerChange();
   };
   const startEditing = (c) => { setEditingId(c.id); setEditName(c.nombre); setEditCap(c.capacidad || ""); };
   const saveEditing = async (id) => {
+    pushHistoryBeforeEdit();
     await supabase.from("seating_contenedores").update({ nombre: editName, capacidad: editCap ? parseInt(editCap) : null }).eq("id", id);
     setEditingId(null); await refreshAfterContainerChange();
   };
@@ -1149,6 +1257,8 @@ export default function GlobalStringsManager({
       }
     }
 
+    pushHistoryBeforeEdit();
+
     const orden = seatingMatrixToOrder(atril_num, lado);
 
     const { data: newItem } = await supabase
@@ -1201,6 +1311,8 @@ export default function GlobalStringsManager({
       return;
     }
 
+    pushHistoryBeforeEdit();
+
     const targetOccupied = (targetContainer?.validItems || []).some((item, idx) => {
       if (String(item.id) === String(itemId)) return false;
       const pos = getItemMatrixPosition(item, idx);
@@ -1236,6 +1348,8 @@ export default function GlobalStringsManager({
   };
   const removeMusician = async (itemId) => {
     if (readOnly) return;
+
+    pushHistoryBeforeEdit();
 
     // Localizamos el contenedor y el item para conocer su posición matricial
     const container = displayContainers.find((c) =>
@@ -1292,6 +1406,7 @@ export default function GlobalStringsManager({
       });
     });
     if (updates.length) {
+      pushHistoryBeforeEdit();
       await Promise.all(updates);
       await refreshAfterContainerChange();
     }
@@ -1335,7 +1450,7 @@ export default function GlobalStringsManager({
         sourceItemsByContainer[it.id_contenedor].push(it);
       });
 
-      // Si el modo es full_replace, limpiamos los contenedores de esta config
+      // Si el modo es full_replace, confirmar antes de mutar
       if (mode === "full_replace") {
         if (
           !(await confirm({
@@ -1347,6 +1462,11 @@ export default function GlobalStringsManager({
           setIsImporting(false);
           return;
         }
+      }
+
+      pushHistoryBeforeEdit();
+
+      if (mode === "full_replace") {
         const configId = await resolveConfigIdOrCreate();
         if (configId == null) {
           setIsImporting(false);
@@ -1610,6 +1730,7 @@ export default function GlobalStringsManager({
   };
 
   const applyReorderFromPreview = async () => {
+    pushHistoryBeforeEdit();
     const updates = [];
     Object.entries(previewMap).forEach(([id, pos]) => {
       updates.push(
@@ -2069,8 +2190,26 @@ export default function GlobalStringsManager({
                 </button>
               )}
               <span className="text-[10px] text-slate-400 italic mr-2 hidden sm:inline">
-                Arrastra para reordenar
+                Arrastra para reordenar · Ctrl+Z deshacer
               </span>
+              <button
+                type="button"
+                disabled={!canUndoCuerdas}
+                onClick={handleUndoCuerdas}
+                title="Deshacer (Ctrl+Z)"
+                className="p-1 rounded border border-slate-200 text-slate-500 hover:bg-white hover:text-indigo-700 disabled:opacity-35 disabled:pointer-events-none"
+              >
+                <IconUndo size={14} />
+              </button>
+              <button
+                type="button"
+                disabled={!canRedoCuerdas}
+                onClick={handleRedoCuerdas}
+                title="Rehacer (Ctrl+Y)"
+                className="p-1 rounded border border-slate-200 text-slate-500 hover:bg-white hover:text-indigo-700 disabled:opacity-35 disabled:pointer-events-none scale-x-[-1]"
+              >
+                <IconUndo size={14} />
+              </button>
               <button
                 onClick={() => {
                   const initialPreview = buildPreviewForMode(reorderMode);
