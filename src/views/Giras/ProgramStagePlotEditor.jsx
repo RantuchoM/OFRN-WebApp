@@ -51,7 +51,7 @@ import StagePlotInstrumentsPanel from "./StagePlotInstrumentsPanel";
 import {
   StagePlotMobileAddFab,
   StagePlotMobileAddSheet,
-  StagePlotMobileEntryCard,
+  StagePlotMobileHub,
   StagePlotMobileTopBar,
   useStagePlotNarrowViewport,
 } from "./StagePlotMobileEditor";
@@ -209,6 +209,10 @@ import {
   exportStagePlotJpg,
   exportStagePlotPdf,
 } from "../../utils/stagePlotPdf";
+import {
+  buildStagePlotTransferDocument,
+  downloadStagePlotTransferFile,
+} from "../../utils/stagePlotTransfer";
 import {
   createStagePlot,
   deleteStagePlot,
@@ -2616,9 +2620,8 @@ export default function ProgramStagePlot({
   const [mobileAddOpen, setMobileAddOpen] = useState(false);
   /** Usuario eligió vista escritorio en viewport angosto. */
   const [forceDesktopChrome, setForceDesktopChrome] = useState(false);
-  /** Cerró el editor móvil en angosto → mostrar landing. */
-  const [mobileDismissed, setMobileDismissed] = useState(false);
   const isNarrowViewport = useStagePlotNarrowViewport();
+  const [hubSwitching, setHubSwitching] = useState(false);
   /** Locaciones con preset de escenario (ancho/profundo cm). */
   const [locacionesPresets, setLocacionesPresets] = useState([]);
   /** Diálogo al crear lienzo: elegir locación opcional. */
@@ -2627,7 +2630,6 @@ export default function ProgramStagePlot({
   const immersive = fullscreen || mobileUi;
 
   const openMobileEditor = useCallback(() => {
-    setMobileDismissed(false);
     setForceDesktopChrome(false);
     setMobileUi(true);
     setCanvasTool(STAGE_PLOT_TOOL_MOVE);
@@ -2637,7 +2639,6 @@ export default function ProgramStagePlot({
   const closeMobileEditor = useCallback(() => {
     setMobileUi(false);
     setMobileAddOpen(false);
-    setMobileDismissed(true);
   }, []);
 
   const newPlotLocacionOptions = useMemo(
@@ -2952,27 +2953,6 @@ export default function ProgramStagePlot({
     lienzoOpen,
     itemContextMenu,
     formationContextMenu,
-  ]);
-
-  /** Auto-abrir editor móvil en viewports angostos (ajustes mínimos). */
-  useEffect(() => {
-    if (loading || !canEdit) return;
-    if (
-      isNarrowViewport &&
-      !forceDesktopChrome &&
-      !mobileDismissed &&
-      !mobileUi
-    ) {
-      openMobileEditor();
-    }
-  }, [
-    loading,
-    canEdit,
-    isNarrowViewport,
-    forceDesktopChrome,
-    mobileDismissed,
-    mobileUi,
-    openMobileEditor,
   ]);
 
   /** En móvil: herramienta Mover (tap = select, drag seleccionado = move). */
@@ -3684,6 +3664,19 @@ export default function ProgramStagePlot({
       });
     },
     [canEdit, supabase, program?.id, nombre, plotsMeta, applyPlotToEditor],
+  );
+
+  const handleHubSelectPlot = useCallback(
+    async (plotId) => {
+      if (!plotId || plotId === activePlotId) return;
+      setHubSwitching(true);
+      try {
+        await switchToPlot(plotId);
+      } finally {
+        setHubSwitching(false);
+      }
+    },
+    [activePlotId, switchToPlot],
   );
 
   const handleCreatePlot = useCallback(() => {
@@ -5652,6 +5645,30 @@ export default function ProgramStagePlot({
 
   const handleExportPdf = () => setExportModal({ kind: "pdf" });
   const handleExportJpg = () => setExportModal({ kind: "jpg" });
+  const handleExportJson = () => {
+    try {
+      const doc = buildStagePlotTransferDocument({
+        payload,
+        nombre,
+        bloque_ids: bloqueIds,
+        source: {
+          id_programa: program?.id,
+          plot_id: activePlotId,
+          nombre_gira: program?.nombre_gira,
+        },
+      });
+      downloadStagePlotTransferFile(
+        doc,
+        nombre ||
+          program?.nomenclador ||
+          program?.nombre_gira ||
+          "escenario",
+      );
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.message || "No se pudo exportar el JSON");
+    }
+  };
 
   const handleConfirmExport = async (stagePatch) => {
     const exportPayload = applyStagePlotStagePatch(payload, stagePatch);
@@ -5689,23 +5706,38 @@ export default function ProgramStagePlot({
     );
   }
 
-  const showMobileEntry =
-    isNarrowViewport &&
-    !mobileUi &&
-    !forceDesktopChrome &&
-    canEdit;
+  const showMobileHub =
+    isNarrowViewport && !mobileUi && !forceDesktopChrome;
 
-  if (showMobileEntry) {
+  if (showMobileHub) {
     return (
-      <StagePlotMobileEntryCard
-        canEdit={canEdit}
-        onOpenMobile={openMobileEditor}
-        onUseDesktop={() => {
-          setForceDesktopChrome(true);
-          setMobileDismissed(true);
-          setMobileUi(false);
-        }}
-      />
+      <div className="flex h-full min-h-0 flex-col">
+        <StagePlotMobileHub
+          plots={plotsMeta}
+          activePlotId={activePlotId}
+          onSelectPlot={handleHubSelectPlot}
+          onExportPdf={handleExportPdf}
+          onExportJpg={handleExportJpg}
+          onExportJson={handleExportJson}
+          onEdit={openMobileEditor}
+          canEdit={canEdit}
+          switching={hubSwitching}
+          programLabel={program?.nombre_gira || program?.nomenclador || ""}
+          onUseDesktop={() => {
+            setForceDesktopChrome(true);
+            setMobileUi(false);
+          }}
+        />
+        <StagePlotExportOptionsModal
+          open={!!exportModal}
+          kind={exportModal?.kind || "pdf"}
+          stage={payload.stage}
+          plotNombre={nombre}
+          zIndex={100}
+          onClose={() => setExportModal(null)}
+          onConfirm={handleConfirmExport}
+        />
+      </div>
     );
   }
 

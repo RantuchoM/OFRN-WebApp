@@ -7,6 +7,11 @@ import {
   IconLayers,
   IconMusic,
   IconLayout,
+  IconDownload,
+  IconFileText,
+  IconPhoto,
+  IconPencil,
+  IconCheck,
 } from "../../components/ui/Icons";
 import {
   STAGE_PLOT_CATALOG,
@@ -317,49 +322,272 @@ export function StagePlotMobileAddSheet({
   );
 }
 
+function plotAssocLabel(plot) {
+  const bloques = Array.isArray(plot?.bloque_ids) ? plot.bloque_ids.length : 0;
+  const eventos = Array.isArray(plot?.evento_ids) ? plot.evento_ids.length : 0;
+  const parts = [];
+  if (bloques)
+    parts.push(`${bloques} bloque${bloques === 1 ? "" : "s"}`);
+  if (eventos)
+    parts.push(`${eventos} evento${eventos === 1 ? "" : "s"}`);
+  return parts.length ? parts.join(" · ") : "Sin bloques ni eventos asociados";
+}
+
 /**
- * Landing when Escenario is open on a narrow viewport but the mobile editor
- * is not active (user closed it, or chose desktop chrome).
+ * Bottom sheet: PDF / JPG / JSON for the selected plot.
  */
-export function StagePlotMobileEntryCard({
-  onOpenMobile,
+export function StagePlotMobileExportSheet({
+  open,
+  plotLabel,
+  onClose,
+  onExportPdf,
+  onExportJpg,
+  onExportJson,
+  overlayZ = 100,
+}) {
+  if (!open) return null;
+
+  const variants = [
+    {
+      id: "pdf",
+      label: "PDF",
+      hint: "Hoja 1 escenario + dims; canales en hoja 2",
+      icon: IconFileText,
+      onClick: onExportPdf,
+    },
+    {
+      id: "jpg",
+      label: "JPG",
+      hint: "Solo escenario + dimensiones",
+      icon: IconPhoto,
+      onClick: onExportJpg,
+    },
+    {
+      id: "json",
+      label: "JSON",
+      hint: "Archivo .ofrn-escenario.json para otra gira",
+      icon: IconDownload,
+      onClick: onExportJson,
+    },
+  ];
+
+  return createPortal(
+    <div
+      className="fixed inset-0 flex flex-col justify-end"
+      style={{ zIndex: overlayZ }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Exportar escenario"
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-slate-900/40"
+        aria-label="Cerrar"
+        onClick={onClose}
+      />
+      <div className="relative rounded-t-2xl bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-xl">
+        <div className="mb-3 flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-base font-semibold text-slate-900">Exportar</p>
+            <p className="truncate text-[11px] text-slate-500">
+              {plotLabel || "Escenario"} · elegí el formato
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-600"
+            aria-label="Cerrar"
+          >
+            <IconX size={18} />
+          </button>
+        </div>
+        <div className="space-y-2">
+          {variants.map(({ id, label, hint, icon: Icon, onClick }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => {
+                onClick?.();
+                onClose?.();
+              }}
+              className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left active:border-indigo-300 active:bg-indigo-50"
+            >
+              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-indigo-600 shadow-sm">
+                <Icon size={20} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-slate-900">
+                  {label}
+                </span>
+                <span className="block text-[11px] text-slate-500">{hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * Mobile Escenario hub: pick a created plot, then Export (all formats) or Edit.
+ * The editor only opens after Edit.
+ */
+export function StagePlotMobileHub({
+  plots = [],
+  activePlotId,
+  onSelectPlot,
+  onExportPdf,
+  onExportJpg,
+  onExportJson,
+  onEdit,
   onUseDesktop,
   canEdit,
+  programLabel,
+  switching = false,
 }) {
+  const [exportOpen, setExportOpen] = useState(false);
+  const active = plots.find((p) => p.id === activePlotId) || plots[0] || null;
+  const activeLabel =
+    active?.nombre?.trim() ||
+    (active ? `Lienzo ${plots.indexOf(active) + 1}` : "Escenario");
+
   return (
-    <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-4 bg-slate-50 px-6 py-10 text-center">
-      <IconLayout size={36} className="text-indigo-600" />
-      <div className="max-w-sm space-y-1">
-        <h3 className="text-lg font-semibold text-slate-900">
-          Editor móvil de escenario
-        </h3>
-        <p className="text-sm text-slate-600">
-          Pantalla completa para mover, copiar, eliminar y agregar piezas.
-          Pensado para ajustes mínimos.
+    <div className="flex h-full min-h-0 flex-col bg-slate-50">
+      <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3">
+        <div className="flex items-center gap-2">
+          <IconLayout size={22} className="shrink-0 text-indigo-600" />
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-slate-900">
+              Escenario
+            </h3>
+            {programLabel ? (
+              <p className="truncate text-[11px] text-slate-500">
+                {programLabel}
+              </p>
+            ) : null}
+          </div>
+        </div>
+        <p className="mt-2 text-sm text-slate-600">
+          Elegí un escenario. Después exportalo o abrí el editor.
         </p>
       </div>
-      {canEdit ? (
-        <button
-          type="button"
-          onClick={onOpenMobile}
-          className="inline-flex min-h-12 w-full max-w-xs items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white active:bg-indigo-700"
-        >
-          <IconMaximize size={18} />
-          Abrir editor móvil
-        </button>
-      ) : (
-        <p className="text-sm text-slate-500">Solo lectura en este dispositivo.</p>
-      )}
-      {onUseDesktop ? (
-        <button
-          type="button"
-          onClick={onUseDesktop}
-          className="text-sm font-medium text-slate-500 underline-offset-2 hover:underline"
-        >
-          Usar vista de escritorio
-        </button>
-      ) : null}
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        {plots.length === 0 ? (
+          <p className="py-10 text-center text-sm text-slate-500">
+            Esta gira aún no tiene un plano de escenario.
+          </p>
+        ) : (
+          <ul className="space-y-2" role="listbox" aria-label="Escenarios">
+            {plots.map((plot, idx) => {
+              const selected = plot.id === (active?.id ?? activePlotId);
+              const label = plot.nombre?.trim() || `Lienzo ${idx + 1}`;
+              return (
+                <li key={plot.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    disabled={switching}
+                    onClick={() => onSelectPlot?.(plot.id)}
+                    className={`flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left disabled:opacity-60 ${
+                      selected
+                        ? "border-indigo-300 bg-indigo-50 shadow-sm"
+                        : "border-slate-200 bg-white active:bg-slate-50"
+                    }`}
+                  >
+                    <span
+                      className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
+                        selected
+                          ? "border-indigo-500 bg-indigo-600 text-white"
+                          : "border-slate-300 bg-white text-transparent"
+                      }`}
+                      aria-hidden
+                    >
+                      <IconCheck size={14} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className={`block truncate text-sm font-semibold ${
+                          selected ? "text-indigo-900" : "text-slate-800"
+                        }`}
+                      >
+                        {label}
+                      </span>
+                      <span className="block truncate text-[11px] text-slate-500">
+                        {plotAssocLabel(plot)}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            disabled={!active || switching}
+            onClick={() => setExportOpen(true)}
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 active:bg-slate-50 disabled:opacity-40"
+          >
+            <IconDownload size={18} />
+            Exportar
+          </button>
+          {canEdit ? (
+            <button
+              type="button"
+              disabled={!active || switching}
+              onClick={onEdit}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 text-sm font-semibold text-white active:bg-indigo-700 disabled:opacity-40"
+            >
+              <IconPencil size={18} />
+              Editar
+            </button>
+          ) : (
+            <p className="flex min-h-12 items-center justify-center text-center text-xs text-slate-500">
+              Solo lectura
+            </p>
+          )}
+        </div>
+        {onUseDesktop ? (
+          <button
+            type="button"
+            onClick={onUseDesktop}
+            className="mt-2 w-full py-2 text-center text-sm font-medium text-slate-500 underline-offset-2 hover:underline"
+          >
+            Usar vista de escritorio
+          </button>
+        ) : null}
+      </div>
+
+      <StagePlotMobileExportSheet
+        open={exportOpen}
+        plotLabel={activeLabel}
+        onClose={() => setExportOpen(false)}
+        onExportPdf={onExportPdf}
+        onExportJpg={onExportJpg}
+        onExportJson={onExportJson}
+      />
     </div>
+  );
+}
+
+/** @deprecated Use StagePlotMobileHub */
+export function StagePlotMobileEntryCard(props) {
+  return (
+    <StagePlotMobileHub
+      plots={[]}
+      canEdit={props.canEdit}
+      onEdit={props.onOpenMobile}
+      onUseDesktop={props.onUseDesktop}
+    />
   );
 }
 

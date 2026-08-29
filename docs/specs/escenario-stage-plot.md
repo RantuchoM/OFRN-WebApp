@@ -116,15 +116,16 @@ Hint del canvas cambia según la herramienta activa.
 | `src/views/Giras/StagePlotViewerModal.jsx` | Vista técnico solo lectura (toggles + PDF/JPG) |
 | `src/views/Giras/StagePlotVisibilityToggles.jsx` | 4 toggles Lienzo compartidos (técnico + export editor) |
 | `src/views/Giras/StagePlotExportOptionsModal.jsx` | Modal previo a PDF/JPG en el editor (overrides solo de descarga) |
-| `src/views/Giras/StagePlotMobileEditor.jsx` | Chrome móvil: top bar, FAB +, bottom sheet agregar, landing; hook `useStagePlotNarrowViewport` |
+| `src/views/Giras/StagePlotMobileEditor.jsx` | Chrome móvil: hub (elegir lienzo → Exportar PDF/JPG/JSON o Editar), top bar, FAB +, bottom sheet agregar; hook `useStagePlotNarrowViewport` |
 
 ## Editor móvil (ajustes mínimos)
 
-- **Entrada**: viewport `< 768px` + `canEdit` → autoabre editor móvil fullscreen (`fixed inset-0`, z como pantalla completa). Botón **Editor móvil** en toolbar escritorio. Al cerrar en angosto → landing «Abrir editor móvil» / «Usar vista de escritorio».
-- **Chrome**: sin paneles Paleta/Editor/Channels/Orgánico/Inventario ni barra inferior densa ni Lienzo/Asociar/tools V·M. Top bar: cerrar, sync, zoom − / fit% / +. FAB **+** → sheet (Escenario, Formaciones, instrumentos catálogo estático, Audio).
+- **Hub (entrada angosta)**: viewport `< 768px` **no** autoabre el editor. Muestra `StagePlotMobileHub`: lista de lienzos creados (nombre + bloques/eventos). El usuario elige uno y después **Exportar** o **Editar**. El editor fullscreen solo se abre con **Editar** (`canEdit`). Al cerrar el editor en angosto se vuelve al hub.
+- **Exportar (todas las variantes)**: sheet PDF / JPG / JSON. PDF y JPG abren `StagePlotExportOptionsModal` (4 toggles Lienzo, override solo de descarga). JSON = `.ofrn-escenario.json` del lienzo elegido.
+- **Chrome del editor**: sin paneles Paleta/Editor/Channels/Orgánico/Inventario ni barra inferior densa ni Lienzo/Asociar/tools V·M. Top bar: cerrar, sync, zoom − / fit% / +. FAB **+** → sheet (Escenario, Formaciones, instrumentos catálogo estático, Audio). Botón **Editor móvil** en toolbar escritorio. «Usar vista de escritorio» en el hub.
 - **Gestos**: herramienta fija **Mover** (tap = select; drag seleccionado = move; vacío = pan + deselect). Pinch zoom; botones zoom. Floating Copiar/Eliminar (ítems) + pill formación.
 - **Persistencia**: misma instancia `ProgramStagePlotEditor` (autosave / undo sin duplicar estado).
-- **Diferido**: resize/rotar con asas (siguen en desktop), Editor SVG, asociar bloques/eventos, Imp/Exp, inventario stock, marquee, formaciones con params, variantes DB de instrumentos.
+- **Diferido**: resize/rotar con asas (siguen en desktop), Editor SVG, asociar bloques/eventos, Imp/Exp en el editor, inventario stock, marquee, formaciones con params, variantes DB de instrumentos.
 
 ## Modelo v2 — multi-lienzo por gira (implementado)
 
@@ -231,6 +232,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Recuadro gris de selección en formación + asas `box_*` (8) para **escala uniforme** (params lineales + traslación anclada); convive con asas paramétricas; undo en drag end + reanchor
 - [x] **Vista Venues** (`/management/venues`): locaciones con conciertos programados agrupadas; eventos con fecha, programa, grupos, estado venue; medidas de escenario de la locación; «Ver escenario» (`StagePlotViewerModal`) y enlace al editor Escenario de la gira
 - [x] **Editor móvil** simplificado (fullscreen; mover / + sheet / floating Copiar·Eliminar; pinch + zoom buttons; autosave compartido)
+- [x] **Hub móvil Escenario**: elegir lienzo creado → Exportar (PDF / JPG / JSON + opciones de guía) o Editar (recién ahí abre el editor); sin autoabrir editor
 
 
 ## Undo / redo (historial)
