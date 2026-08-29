@@ -311,7 +311,7 @@ export default function DataView({ supabase }) {
         },
         {
           key: "stage_plot_type",
-          label: "Tipo Escenario",
+          label: "Clave de ícono (plano)",
           type: "select",
           options: [
             { value: "violin", label: "violin" },
@@ -330,6 +330,8 @@ export default function DataView({ supabase }) {
             { value: "tuba", label: "tuba" },
             { value: "timpani", label: "timpani" },
             { value: "perc", label: "perc" },
+            { value: "marimba", label: "marimba" },
+            { value: "vibraphone", label: "vibraphone" },
             { value: "bass_drum", label: "bass_drum" },
             { value: "snare", label: "snare" },
             { value: "cymbals", label: "cymbals" },
@@ -338,7 +340,20 @@ export default function DataView({ supabase }) {
             { value: "piano", label: "piano" },
             { value: "celesta", label: "celesta" },
             { value: "conductor", label: "conductor" },
+            { value: "bandoneon", label: "bandoneon" },
           ],
+        },
+        {
+          key: "stage_plot_width_cm",
+          label: "Ancho insert (cm)",
+          type: "number",
+          placeholder: "50",
+        },
+        {
+          key: "stage_plot_height_cm",
+          label: "Profundo insert (cm)",
+          type: "number",
+          placeholder: "50",
         },
         {
           key: "svg_icon",
@@ -347,7 +362,7 @@ export default function DataView({ supabase }) {
         },
       ],
       warning:
-        "🎭 Rol gira defecto: convocatoria. SVG Escenario: silueta del plano (Datos); vacío = icono estático. Sanitizado al guardar.",
+        "🎭 Rol gira defecto: convocatoria. Escenario: familia = clasificación; clave de ícono (plano) = slug interno; tamaño insert (cm, vacío=50) + SVG. Material sin instrumento → Inventario.",
     },
     paises: {
       label: "Países",

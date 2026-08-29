@@ -45,6 +45,20 @@ export const STAGE_PLOT_SILHOUETTES = {
     "M32 8c-14 0-26 8-26 20v4c0 2 1 3 3 3h46c2 0 3-1 3-3v-4c0-12-12-20-26-20zm0 6c9.5 0 18 5.2 18 12H14c0-6.8 8.5-12 18-12zM10 38h44v4c0 8-10 14-22 14S10 50 10 42v-4zm18 6h8v8h-8v-8z",
   perc:
     "M8 18h20v10H8V18zm28 0h20v10H36V18zM6 32h24l-2 22H8L6 32zm28 0h24l-2 22H36l-2-22zM18 12h4v6h-4v-6zm24 0h4v6h-4v-6zM14 36h8v4h-8v-4zm28 0h8v4h-8v-4z",
+  marimba:
+    "M6 20h52v24H6V20zm4 4h3.5v16H10V24zm6.5 0h3.5v16h-3.5V24zm6.5 0h3.5v16H23V24zm6.5 0h3.5v16h-3.5V24zm6.5 0h3.5v16H36V24zm6.5 0h3.5v16h-3.5V24zm6.5 0h3.5v16H49V24z",
+  vibraphone:
+    "M6 16h52v18H6V16zm4 3h3.5v12H10V19zm6.5 0h3.5v12h-3.5V19zm6.5 0h3.5v12H23V19zm6.5 0h3.5v12h-3.5V19zm6.5 0h3.5v12H36V19zm6.5 0h3.5v12h-3.5V19zm6.5 0h3.5v12H49V19zM12 40a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm10 0a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm10 0a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm10 0a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm10 0a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
+  bass_drum:
+    "M32 6C17.6 6 6 17.6 6 32s11.6 26 26 26 26-11.6 26-26S46.4 6 32 6zm0 6c11 0 20 9 20 20s-9 20-20 20-20-9-20-20 9-20 20-20zm0 8c-6.6 0-12 5.4-12 12s5.4 12 12 12 12-5.4 12-12-5.4-12-12-12z",
+  snare:
+    "M32 10c-12.2 0-22 9.8-22 22s9.8 22 22 22 22-9.8 22-22-9.8-22-22-22zm0 5c9.4 0 17 7.6 17 17s-7.6 17-17 17-17-7.6-17-17 7.6-17 17-17zM14 30h36v4H14v-4zm4-10 4 4-2.8 2.8-4-4L18 20zm24 0 2.8 2.8-4 4L38 28l4-4zM18 44l2.8-2.8 4 4L22 48l-4-4zm24 0 4 4-2.8 2.8-4-4L42 44z",
+  cymbals:
+    "M22 12c-9.4 0-17 7.6-17 17s7.6 17 17 17c3.2 0 6.2-.9 8.8-2.4A17 17 0 0 0 42 52c9.4 0 17-7.6 17-17s-7.6-17-17-17c-3.2 0-6.2.9-8.8 2.4A17 17 0 0 0 22 12zm0 6c6.1 0 11 4.9 11 11s-4.9 11-11 11-11-4.9-11-11 4.9-11 11-11zm20 6c6.1 0 11 4.9 11 11s-4.9 11-11 11-11-4.9-11-11 4.9-11 11-11z",
+  xylophone:
+    "M10 18h44l-4 28H14L10 18zm6 5h3v18h-3V23zm7 2h3v16h-3V25zm7 2h3v14h-3V27zm7 2h3v12h-3V29zm7 2h3v10h-3V31z",
+  tubular_bells:
+    "M12 8h40v6H12V8zm4 10h4v38h-4V18zm8 4h4v34h-4V22zm8 0h4v34h-4V22zm8-2h4v36h-4V20zm8 6h4v30h-4V26zM10 56h44v4H10v-4z",
   piano:
     "M6 14c0-2 1.5-3.5 3.5-3.5H38c12 0 20 8 20 18.5S50 47.5 38 47.5H9.5C7.5 47.5 6 46 6 44V14zm8 4v26h24c8 0 13.5-5.5 13.5-13S46 18 38 18H14zm4 6h16v3H18v-3zm0 7h12v3H18v-3z",
   celesta:
@@ -61,6 +75,11 @@ export const STAGE_PLOT_SILHOUETTES = {
     "M8 10 H56 V17 H8 Z M31 14 H33 V5 H31 Z M32 15 L41 22 L39.5 23.5 Z M32 15 L23 22 L24.5 23.5 Z",
   conductor:
     "M28 6h8v6h-8V6zm-6 8h20c2 0 3.5 1.5 3.5 3.5V28H18.5V17.5c0-2 1.5-3.5 3.5-3.5zM14 30h36v6H40v20h-4V36H28v20h-4V36H14v-6zM24 18h4v6h-4v-6zm12 0h4v6h-4v-6z",
+  /** Tarima rectangular (vista cenital): redondeada, aspect ~2:1 — distinta de oval. */
+  tarima_rect:
+    "M8 20h48a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H8a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z",
+  /** Tarima oval: elipse (rx=26, ry=16); arcos A, no rect redondeado. */
+  tarima_oval: "M6 32a26 16 0 1 0 52 0a26 16 0 1 0-52 0",
   riser:
     "M4 40 16 16h32l12 24H4zm8-4h40l-6-12H18L12 36zm-4 6h48v8H8v-8z",
 
@@ -97,8 +116,15 @@ export function getStagePlotSilhouettePath(type) {
  * @param {number} [size]
  */
 export function stagePlotSilhouetteSvgMarkup(type, color, size = 28) {
+  const fill = color || "#334155";
+  // Elipse nativa: más clara que un path aproximado (paleta tarima_oval).
+  if (type === "tarima_oval") {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><ellipse cx="32" cy="32" rx="26" ry="16" fill="${fill}" stroke="#0f172a" stroke-width="1.2"/></svg>`;
+  }
+  if (type === "tarima_rect") {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><rect x="6" y="20" width="52" height="24" rx="6" ry="6" fill="${fill}" stroke="#0f172a" stroke-width="1.2"/></svg>`;
+  }
   const d = getStagePlotSilhouettePath(type);
   if (!d) return "";
-  const fill = color || "#334155";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><path fill="${fill}" stroke="#0f172a" stroke-width="1.2" stroke-linejoin="round" d="${d}"/></svg>`;
 }

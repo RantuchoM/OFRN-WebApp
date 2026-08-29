@@ -3,23 +3,25 @@ import autoTable from "jspdf-autotable";
 import {
   getStagePlotCatalogItem,
   stagePlotItemHasInstrumentFootprint,
+  stagePlotItemIsTarima,
   stagePlotItemShowsChairSquare,
+  stagePlotTarimaShape,
 } from "./stagePlotCatalog";
 import {
-  STAGE_PLOT_ATRIL_LINE_STROKE,
   STAGE_PLOT_CHAIR_SQUARE_FILL,
   STAGE_PLOT_CHAIR_SQUARE_STROKE,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_FILL,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_STROKE,
+  STAGE_PLOT_TARIMA_FILL,
+  STAGE_PLOT_TARIMA_STROKE,
+  STAGE_PLOT_TARIMA_LABEL_FILL,
   stagePlotChairSquareSide,
   stagePlotGridMajorPx,
   stagePlotGridMinorPx,
   stagePlotInstrumentFootprintLayout,
-  stagePlotSatelliteAtrilGeometry,
-  STAGE_PLOT_ATRIL_LINE_CM,
   STAGE_PLOT_CM_TO_PX,
 } from "./stagePlotConstants";
-import { collectStagePlotSatelliteAtrils } from "./stagePlotAtril";
+import { stagePlotTarimaDimensionsCm } from "./stagePlotOrganico";
 import {
   computeFormationSlots,
   formationGuideLinePoints,
@@ -585,7 +587,12 @@ function drawSlotMarkerOnCanvas(ctx, cx, cy, sidePx, rotationDeg, filled) {
  * @param {ReturnType<typeof normalizeStagePlotPayload>} payload
  */
 async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
-  const sorted = [...payload.items].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
+  const sorted = [...payload.items].sort((a, b) => {
+    const aT = stagePlotItemIsTarima(a.type) ? 0 : 1;
+    const bT = stagePlotItemIsTarima(b.type) ? 0 : 1;
+    if (aT !== bT) return aT - bT;
+    return (a.z ?? 0) - (b.z ?? 0);
+  });
   const formationIdSet = new Set(
     (payload.formations || []).map((f) => String(f.id)),
   );
@@ -603,6 +610,11 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
       const wMm = layout.textW * scale * itemScale;
       const hMm = layout.textH * scale * itemScale;
       drawTextItemOnPdf(doc, item, layout, cx, cy, wMm, hMm, rotation);
+      continue;
+    }
+
+    if (stagePlotItemIsTarima(item.type)) {
+      drawTarimaOnPdf(doc, item, cat, cx, cy, scale, rotation);
       continue;
     }
 
@@ -673,16 +685,88 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
       }
     }
   }
-  const atrilPx = STAGE_PLOT_ATRIL_LINE_CM * STAGE_PLOT_CM_TO_PX * scale;
-  for (const atril of collectStagePlotSatelliteAtrils(payload)) {
-    drawSatelliteAtrilOnPdf(
-      doc,
-      ox + atril.x * scale,
-      oy + atril.y * scale,
-      atrilPx,
-      atril.rotationDeg,
-    );
+}
+
+/**
+ * @param {import("jspdf").jsPDF} doc
+ */
+function drawTarimaOnPdf(doc, item, cat, cx, cy, scale, rotation) {
+  const sx =
+    Number.isFinite(Number(item.scaleX)) && Number(item.scaleX) > 0
+      ? Number(item.scaleX)
+      : item.scale > 0
+        ? Number(item.scale)
+        : 1;
+  const sy =
+    Number.isFinite(Number(item.scaleY)) && Number(item.scaleY) > 0
+      ? Number(item.scaleY)
+      : item.scale > 0
+        ? Number(item.scale)
+        : 1;
+  const wMm = (cat?.w || 800) * scale * sx;
+  const hMm = (cat?.h || 400) * scale * sy;
+  const fill = hexToRgb(STAGE_PLOT_TARIMA_FILL);
+  const stroke = hexToRgb(STAGE_PLOT_TARIMA_STROKE);
+  const dims = stagePlotTarimaDimensionsCm(item);
+  const shape = stagePlotTarimaShape(item.type);
+  if (typeof document !== "undefined") {
+    const pxW = Math.max(64, Math.round(wMm * 6));
+    const pxH = Math.max(64, Math.round(hMm * 6));
+    const fontPx = Math.max(12, Math.min(22, Math.min(pxW, pxH) / 9));
+    const labelPad = Math.ceil(fontPx * 2.2 + 6);
+    const canvas = document.createElement("canvas");
+    canvas.width = pxW + 2 * labelPad;
+    canvas.height = pxH + 2 * labelPad;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      const localScale = pxW / ((cat?.w || 800) * sx);
+      drawTarimaOnCanvas(
+        ctx,
+        item,
+        cat,
+        labelPad + pxW / 2,
+        labelPad + pxH / 2,
+        localScale,
+        rotation,
+      );
+      const mmPerPx = wMm / pxW;
+      const imgW = canvas.width * mmPerPx;
+      const imgH = canvas.height * mmPerPx;
+      doc.addImage(
+        canvas.toDataURL("image/png"),
+        "PNG",
+        cx - imgW / 2,
+        cy - imgH / 2,
+        imgW,
+        imgH,
+        undefined,
+        "FAST",
+      );
+      return;
+    }
   }
+  doc.setFillColor(fill.r, fill.g, fill.b);
+  doc.setDrawColor(stroke.r, stroke.g, stroke.b);
+  if (shape === "oval") {
+    doc.ellipse(cx, cy, wMm / 2, hMm / 2, "FD");
+  } else {
+    doc.roundedRect(cx - wMm / 2, cy - hMm / 2, wMm, hMm, 1, 1, "FD");
+  }
+  const labelRgb = hexToRgb(STAGE_PLOT_TARIMA_LABEL_FILL);
+  doc.setTextColor(labelRgb.r, labelRgb.g, labelRgb.b);
+  const fontMm = Math.max(7, Math.min(12, Math.min(wMm, hMm) / 10));
+  doc.setFontSize(fontMm);
+  doc.setFont("helvetica", "bold");
+  const gapMm = Math.max(1.2, fontMm * 0.35);
+  doc.text(`${dims.widthCm} cm`, cx, cy - hMm / 2 - gapMm, {
+    align: "center",
+    baseline: "bottom",
+  });
+  doc.text(`${dims.depthCm} cm`, cx - wMm / 2 - gapMm, cy, {
+    align: "center",
+    baseline: "bottom",
+    angle: 90,
+  });
 }
 
 /**
@@ -690,7 +774,12 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
  * @param {ReturnType<typeof normalizeStagePlotPayload>} payload
  */
 async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
-  const sorted = [...payload.items].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
+  const sorted = [...payload.items].sort((a, b) => {
+    const aT = stagePlotItemIsTarima(a.type) ? 0 : 1;
+    const bT = stagePlotItemIsTarima(b.type) ? 0 : 1;
+    if (aT !== bT) return aT - bT;
+    return (a.z ?? 0) - (b.z ?? 0);
+  });
   const formationIdSet = new Set(
     (payload.formations || []).map((f) => String(f.id)),
   );
@@ -708,6 +797,11 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
       const wPx = layout.textW * scale * itemScale;
       const hPx = layout.textH * scale * itemScale;
       drawTextItemOnCanvas(ctx, item, layout, cx, cy, wPx, hPx, rotation);
+      continue;
+    }
+
+    if (stagePlotItemIsTarima(item.type)) {
+      drawTarimaOnCanvas(ctx, item, cat, cx, cy, scale, rotation);
       continue;
     }
 
@@ -792,16 +886,68 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
       }
     }
   }
-  const atrilPx = STAGE_PLOT_ATRIL_LINE_CM * STAGE_PLOT_CM_TO_PX * scale;
-  for (const atril of collectStagePlotSatelliteAtrils(payload)) {
-    drawSatelliteAtrilOnCanvas(
-      ctx,
-      ox + atril.x * scale,
-      oy + atril.y * scale,
-      atrilPx,
-      atril.rotationDeg,
-    );
+}
+
+function drawTarimaOnCanvas(ctx, item, cat, cx, cy, scale, rotation) {
+  const sx =
+    Number.isFinite(Number(item.scaleX)) && Number(item.scaleX) > 0
+      ? Number(item.scaleX)
+      : item.scale > 0
+        ? Number(item.scale)
+        : 1;
+  const sy =
+    Number.isFinite(Number(item.scaleY)) && Number(item.scaleY) > 0
+      ? Number(item.scaleY)
+      : item.scale > 0
+        ? Number(item.scale)
+        : 1;
+  const wPx = (cat?.w || 800) * scale * sx;
+  const hPx = (cat?.h || 400) * scale * sy;
+  const dims = stagePlotTarimaDimensionsCm(item);
+  const shape = stagePlotTarimaShape(item.type);
+  ctx.save();
+  ctx.translate(cx, cy);
+  if (rotation) ctx.rotate((rotation * Math.PI) / 180);
+  ctx.fillStyle = STAGE_PLOT_TARIMA_FILL;
+  ctx.strokeStyle = STAGE_PLOT_TARIMA_STROKE;
+  ctx.lineWidth = 1.5;
+  if (shape === "oval") {
+    ctx.beginPath();
+    ctx.ellipse(0, 0, wPx / 2, hPx / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  } else {
+    const r = 4;
+    roundRectPath(ctx, -wPx / 2, -hPx / 2, wPx, hPx, r);
+    ctx.fill();
+    ctx.stroke();
   }
+  const fontSize = Math.max(12, Math.min(22, Math.min(wPx, hPx) / 9));
+  const gap = Math.max(4, fontSize * 0.3);
+  ctx.fillStyle = STAGE_PLOT_TARIMA_LABEL_FILL;
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  // Ancho: fuera, centrado sobre el borde superior
+  ctx.fillText(`${dims.widthCm} cm`, 0, -hPx / 2 - gap - fontSize / 2);
+  // Profundo: fuera, centrado en el borde izquierdo (−90°)
+  ctx.save();
+  ctx.translate(-wPx / 2 - gap - fontSize / 2, 0);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(`${dims.depthCm} cm`, 0, 0);
+  ctx.restore();
+  ctx.restore();
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
 }
 
 /**
@@ -897,130 +1043,6 @@ function drawChairSquareOnCanvas(ctx, cx, cy, sidePx, rotationDeg, magnetized) {
   ctx.lineWidth = magnetized ? 2.5 : 2;
   ctx.fillRect(-half + pad, -half + pad, sidePx - pad * 2, sidePx - pad * 2);
   ctx.strokeRect(-half + pad, -half + pad, sidePx - pad * 2, sidePx - pad * 2);
-  ctx.restore();
-}
-
-function drawSatelliteAtrilOnCanvas(ctx, cx, cy, atrilPx, rotationDeg) {
-  ctx.save();
-  ctx.translate(cx, cy);
-  if (rotationDeg) ctx.rotate((rotationDeg * Math.PI) / 180);
-  const { plateWidthPx, plateThicknessPx, legs } =
-    stagePlotSatelliteAtrilGeometry(atrilPx);
-  ctx.fillStyle = STAGE_PLOT_ATRIL_LINE_STROKE;
-  ctx.fillRect(
-    -plateWidthPx / 2,
-    -plateThicknessPx / 2,
-    plateWidthPx,
-    plateThicknessPx,
-  );
-  ctx.strokeStyle = STAGE_PLOT_ATRIL_LINE_STROKE;
-  ctx.lineCap = "round";
-  legs.forEach((pts, i) => {
-    ctx.beginPath();
-    ctx.moveTo(pts[0], pts[1]);
-    ctx.lineTo(pts[2], pts[3]);
-    ctx.lineWidth = i === 0 ? 2.5 : 2.25;
-    ctx.stroke();
-  });
-  ctx.restore();
-}
-
-function drawSatelliteAtrilOnPdf(doc, cx, cy, atrilMm, rotationDeg) {
-  if (typeof document === "undefined") return;
-  const px = Math.max(48, Math.round(atrilMm * 6));
-  const canvas = document.createElement("canvas");
-  canvas.width = px;
-  canvas.height = px;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  drawSatelliteAtrilOnCanvas(ctx, px / 2, px / 2, px * 0.55, rotationDeg);
-  const sizeMm = atrilMm * 1.8;
-  doc.addImage(
-    canvas.toDataURL("image/png"),
-    "PNG",
-    cx - sizeMm / 2,
-    cy - sizeMm / 2,
-    sizeMm,
-    sizeMm,
-    undefined,
-    "FAST",
-  );
-}
-
-function drawImageRotated(doc, htmlImage, cx, cy, wMm, hMm, rotationDeg) {
-  if (typeof document === "undefined") return;
-  const pxW = Math.max(48, Math.round(wMm * 6));
-  const pxH = Math.max(48, Math.round(hMm * 6));
-  const canvas = document.createElement("canvas");
-  canvas.width = pxW;
-  canvas.height = pxH;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  drawImageRotatedOnCanvas(ctx, htmlImage, pxW / 2, pxH / 2, pxW, pxH, rotationDeg);
-  doc.addImage(
-    canvas.toDataURL("image/png"),
-    "PNG",
-    cx - wMm / 2,
-    cy - hMm / 2,
-    wMm,
-    hMm,
-    undefined,
-    "FAST",
-  );
-}
-
-function drawImageRotatedOnCanvas(ctx, htmlImage, cx, cy, wPx, hPx, rotationDeg) {
-  ctx.save();
-  ctx.translate(cx, cy);
-  if (rotationDeg) ctx.rotate((rotationDeg * Math.PI) / 180);
-  const { w: iw, h: ih } = getStagePlotImageNaturalSize(htmlImage);
-  const fit = fitContainInBox(wPx, hPx, iw, ih);
-  ctx.drawImage(
-    htmlImage,
-    -fit.drawW / 2,
-    -fit.drawH / 2,
-    fit.drawW,
-    fit.drawH,
-  );
-  ctx.restore();
-}
-
-function drawSilhouetteOnPdf(doc, pathD, cx, cy, wMm, hMm, rotationDeg, rgb) {
-  if (typeof document === "undefined") return;
-  const pxW = Math.max(48, Math.round(wMm * 6));
-  const pxH = Math.max(48, Math.round(hMm * 6));
-  const canvas = document.createElement("canvas");
-  canvas.width = pxW;
-  canvas.height = pxH;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  drawSilhouetteOnCanvas(ctx, pathD, pxW / 2, pxH / 2, pxW, pxH, rotationDeg, rgb);
-  doc.addImage(
-    canvas.toDataURL("image/png"),
-    "PNG",
-    cx - wMm / 2,
-    cy - hMm / 2,
-    wMm,
-    hMm,
-    undefined,
-    "FAST",
-  );
-}
-
-function drawSilhouetteOnCanvas(ctx, pathD, cx, cy, wPx, hPx, rotationDeg, rgb) {
-  ctx.save();
-  ctx.translate(cx, cy);
-  if (rotationDeg) ctx.rotate((rotationDeg * Math.PI) / 180);
-  const silScale = Math.min(wPx / VB, hPx / VB);
-  ctx.scale(silScale, silScale);
-  ctx.translate(-VB / 2, -VB / 2);
-  const path = new Path2D(pathD);
-  ctx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
-  ctx.strokeStyle = "#0f172a";
-  ctx.lineWidth = 1.2 / silScale;
-  ctx.lineJoin = "round";
-  ctx.fill(path);
-  ctx.stroke(path);
   ctx.restore();
 }
 

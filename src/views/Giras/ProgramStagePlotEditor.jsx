@@ -12,6 +12,7 @@ import {
   Layer,
   Group,
   Rect,
+  Ellipse,
   Text,
   Line,
   Path,
@@ -41,15 +42,34 @@ import {
   IconLink,
   IconMousePointer,
   IconMove,
+  IconMusic,
+  IconPencil,
+  IconX,
 } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
+import StagePlotInstrumentsPanel from "./StagePlotInstrumentsPanel";
+import {
+  StagePlotMobileAddFab,
+  StagePlotMobileAddSheet,
+  StagePlotMobileEntryCard,
+  StagePlotMobileTopBar,
+  useStagePlotNarrowViewport,
+} from "./StagePlotMobileEditor";
 import { useAuth } from "../../context/AuthContext";
 import {
   getStagePlotCatalogItem,
+  getStagePlotCatalogEpoch,
   stagePlotCategories,
+  STAGE_PLOT_MUSICIAN_INSTRUMENT_CATEGORIES,
   stagePlotItemHasInstrumentFootprint,
+  stagePlotItemIsElemento,
+  stagePlotItemIsTarima,
   stagePlotItemShowsChairSquare,
+  stagePlotTarimaShape,
 } from "../../utils/stagePlotCatalog";
+import {
+  partitionInstrumentosByStagePlotIcon,
+} from "../../services/stagePlotInstrumentIconsService";
 import {
   STAGE_PLOT_SILHOUETTE_VIEWBOX,
   getStagePlotSilhouettePath,
@@ -79,16 +99,29 @@ import {
   stagePlotGridMinorPx,
   stagePlotChairSquareSide,
   stagePlotInstrumentFootprintLayout,
-  stagePlotSatelliteAtrilGeometry,
-  STAGE_PLOT_ATRIL_LINE_CM,
   STAGE_PLOT_CM_TO_PX,
+  STAGE_PLOT_BG_FILL,
+  STAGE_PLOT_BG_STROKE,
+  STAGE_PLOT_BG_FILL_NIGHT,
+  STAGE_PLOT_BG_STROKE_NIGHT,
+  STAGE_PLOT_GRID_MAJOR_STROKE,
+  STAGE_PLOT_GRID_MINOR_STROKE,
+  STAGE_PLOT_GRID_MAJOR_STROKE_NIGHT,
+  STAGE_PLOT_GRID_MINOR_STROKE_NIGHT,
+  STAGE_PLOT_RADIAL_STROKE,
+  STAGE_PLOT_RADIAL_STROKE_NIGHT,
   STAGE_PLOT_CHAIR_SQUARE_FILL,
   STAGE_PLOT_CHAIR_SQUARE_STROKE,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_FILL,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_STROKE,
-  STAGE_PLOT_ATRIL_LINE_STROKE,
   STAGE_PLOT_ITEM_SCALE_MIN,
   STAGE_PLOT_ITEM_SCALE_MAX,
+  STAGE_PLOT_TARIMA_DEFAULT_WIDTH_CM,
+  STAGE_PLOT_TARIMA_DEFAULT_DEPTH_CM,
+  STAGE_PLOT_TARIMA_FILL,
+  STAGE_PLOT_TARIMA_STROKE,
+  STAGE_PLOT_TARIMA_LABEL_FILL,
+  STAGE_PLOT_TARIMA_LABEL_FILL_NIGHT,
 } from "../../utils/stagePlotConstants";
 import {
   applyStagePlotStagePatch,
@@ -129,9 +162,9 @@ import {
   formationBoundsBoxLinePoints,
   formationFromBoundsBoxHandleDrag,
   formationGuideLinePoints,
-  formationGuideWorldPoints,
   formationParamsFromHandlePosition,
   formationSlotMarkerSize,
+  getFormationBounds,
   isFormationCenteredOnConductor,
   normalizeStagePlotSlotMode,
   parseSlotId,
@@ -139,7 +172,6 @@ import {
   reanchorItemsToFormations,
   resizeFormationSlotTs,
   resolveFormationFacingPoint,
-  rotationInstrumentBaseFacingPoint,
   setFormationSlotT,
   snapFormationXToConductorCenter,
 } from "../../utils/stagePlotFormations";
@@ -150,6 +182,7 @@ import {
   organicoRowIndex,
   organicoRowMissingCount,
   pickOrganicoRowCatalogType,
+  stagePlotTarimaDimensionsCm,
   summarizeStagePlotOrganico,
 } from "../../utils/stagePlotOrganico";
 import {
@@ -161,10 +194,13 @@ import {
   resolveSharedAlignGroup,
   setGroupAlignAngle,
   ungroupStagePlotItems,
-  insertStagePlotStringPair,
+  insertStagePlotStringPairWithSharedAtril,
 } from "../../utils/stagePlotGroups";
 import {
-  collectStagePlotSatelliteAtrils,
+  computeSatelliteAtrilPlacement,
+  resolveStagePlotConductorPoint,
+  stagePlotSelectionCanAddAtril,
+  stagePlotSelectionCanAddSharedAtril,
   STAGE_PLOT_STRING_PAIR_TYPES,
 } from "../../utils/stagePlotAtril";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
@@ -188,7 +224,17 @@ import {
   repertorioGrupoIdsFromBlock,
 } from "../../services/giraGruposService";
 import { isConfirmedConvocadoForSeatingReports } from "../../utils/seatingRosterGate";
+import StagePlotExportOptionsModal from "./StagePlotExportOptionsModal";
 import StagePlotImportModal from "./StagePlotImportModal";
+import StagePlotInventarioPanel from "./StagePlotInventarioPanel";
+import {
+  findInventarioElementoRow,
+  findInventarioTarimaRow,
+  inventarioSimpleStock,
+  listInventarioItems,
+  loadAndApplyElementosEscenario,
+} from "../../services/stagePlotInventarioService";
+import { applyStagePlotWheelToViewport } from "../../utils/stagePlotViewportGestures";
 
 const SAVE_DEBOUNCE_MS = 700;
 const HISTORY_LIMIT = 80;
@@ -214,6 +260,13 @@ const STAGE_PLOT_OVERLAY_DRAG_Z = 10020;
 /** Tamaño objetivo de asas de resize en px de pantalla (Transformer + formaciones). */
 const TRANSFORMER_HANDLE_SCREEN_PX = 7;
 /**
+ * Etiquetas de dims de tarima: tamaño en pantalla (editor).
+ * Local fontSize = max(TARGET, MIN / viewportScale) / itemScale
+ * → screenPx ≈ max(TARGET × viewportScale, MIN) (nunca ilegible al zoom out).
+ */
+const TARIMA_DIM_LABEL_MIN_SCREEN_PX = 12;
+const TARIMA_DIM_LABEL_TARGET_SCREEN_PX = 14;
+/**
  * Floating copy/delete toolbar (HTML overlay, screen px).
  * Prefer right of selection AABB so it never covers the centered Konva rotate handle
  * (~20–36 px above the box). Above fallback clears that rotate zone.
@@ -230,6 +283,34 @@ const MARQUEE_DRAG_THRESHOLD_SCREEN_PX = 4;
 /** Herramientas del lienzo: selección/marquee vs arrastre de objetos. */
 const STAGE_PLOT_TOOL_SELECT = "select";
 const STAGE_PLOT_TOOL_MOVE = "move";
+
+/**
+ * OFRN forced night mode = `html.dark` + filtro invert global (`index.css`).
+ * El Stage Konva usa `.no-dark-invert` para conservar colores autorados.
+ */
+function useOfrnForcedDarkMode() {
+  const [isDark, setIsDark] = useState(() =>
+    typeof document !== "undefined"
+      ? document.documentElement.classList.contains("dark")
+      : false,
+  );
+  useEffect(() => {
+    const sync = () =>
+      setIsDark(document.documentElement.classList.contains("dark"));
+    sync();
+    const obs = new MutationObserver(sync);
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    window.addEventListener("theme-changed", sync);
+    return () => {
+      obs.disconnect();
+      window.removeEventListener("theme-changed", sync);
+    };
+  }, []);
+  return isDark;
+}
 
 /** CSS resize cursor from axis angle in degrees (stage space). */
 function stagePlotResizeCursorForAngle(deg) {
@@ -302,6 +383,17 @@ function getStagePlotItemHalfExtents(item) {
     const fp = stagePlotInstrumentFootprintLayout();
     halfW = (fp.widthPx * itemScale) / 2;
     halfH = (fp.depthPx * itemScale) / 2;
+  } else if (stagePlotItemIsTarima(item.type)) {
+    const sx =
+      Number.isFinite(Number(item.scaleX)) && Number(item.scaleX) > 0
+        ? Number(item.scaleX)
+        : itemScale;
+    const sy =
+      Number.isFinite(Number(item.scaleY)) && Number(item.scaleY) > 0
+        ? Number(item.scaleY)
+        : itemScale;
+    halfW = ((cat?.w || 800) * sx) / 2;
+    halfH = ((cat?.h || 400) * sy) / 2;
   }
   return { halfW, halfH };
 }
@@ -334,33 +426,14 @@ function getStagePlotItemStageAabb(item) {
 }
 
 /**
- * AABB de formación: guía + plazas (pad = ½ marcador).
- * Intersección con el marquee → candidata a selección si no hay ítems.
+ * AABB de formación en escena: misma caja canónica que el recuadro gris
+ * (guía + tips/plazas + pad). Siempre candidata a marquee si intersecta
+ * (junto con ítems; no exclusiva).
+ * @param {object} formation
+ * @param {{ x: number, y: number }|null} [facingPoint]
  */
-function getStagePlotFormationStageAabb(formation) {
-  const pts = formationGuideWorldPoints(formation);
-  const pad = formationSlotMarkerSize() / 2;
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  const include = (x, y) => {
-    minX = Math.min(minX, x - pad);
-    maxX = Math.max(maxX, x + pad);
-    minY = Math.min(minY, y - pad);
-    maxY = Math.max(maxY, y + pad);
-  };
-  include(formation.x, formation.y);
-  for (const p of pts) include(p.x, p.y);
-  if (!Number.isFinite(minX)) {
-    return {
-      minX: formation.x - pad,
-      maxX: formation.x + pad,
-      minY: formation.y - pad,
-      maxY: formation.y + pad,
-    };
-  }
-  return { minX, minY, maxX, maxY };
+function getStagePlotFormationStageAabb(formation, facingPoint = null) {
+  return getFormationBounds(formation, facingPoint);
 }
 
 function stagePlotAabbIntersects(a, b) {
@@ -460,7 +533,14 @@ function rayEndpoint(ox, oy, angleDeg, width, height) {
   return { x: ox + t * dx, y: oy + t * dy };
 }
 
-function StageRadialGuide({ width, height, items, stage, originOverride }) {
+function StageRadialGuide({
+  width,
+  height,
+  items,
+  stage,
+  originOverride,
+  nightStage = false,
+}) {
   const origin = useMemo(() => {
     if (
       originOverride &&
@@ -475,20 +555,23 @@ function StageRadialGuide({ width, height, items, stage, originOverride }) {
   const lines = useMemo(() => {
     const { x: ox, y: oy } = origin;
     const angles = radialGuideAngles(stage?.radialLines);
+    const stroke = nightStage
+      ? STAGE_PLOT_RADIAL_STROKE_NIGHT
+      : STAGE_PLOT_RADIAL_STROKE;
     return angles.map((deg, idx) => {
       const end = rayEndpoint(ox, oy, deg, width, height);
       return (
         <Line
           key={`rad-${idx}-${deg}`}
           points={[ox, oy, end.x, end.y]}
-          stroke="#8b5cf6"
+          stroke={stroke}
           strokeWidth={1.5}
           opacity={0.88}
           listening={false}
         />
       );
     });
-  }, [origin, width, height, stage?.radialLines]);
+  }, [origin, width, height, stage?.radialLines, nightStage]);
 
   return <Group listening={false}>{lines}</Group>;
 }
@@ -1006,10 +1089,16 @@ function classifyStagePlotPointerTarget(node) {
   return { interactive: false, isBackground: false };
 }
 
-function StageCentimeterGrid({ width, height }) {
+function StageCentimeterGrid({ width, height, nightStage = false }) {
   const lines = useMemo(() => {
     const w = Math.round(width);
     const h = Math.round(height);
+    const majorStroke = nightStage
+      ? STAGE_PLOT_GRID_MAJOR_STROKE_NIGHT
+      : STAGE_PLOT_GRID_MAJOR_STROKE;
+    const minorStroke = nightStage
+      ? STAGE_PLOT_GRID_MINOR_STROKE_NIGHT
+      : STAGE_PLOT_GRID_MINOR_STROKE;
     const out = [];
     for (let i = 0, x = 0; x <= w; i += 1, x = i * GRID_MINOR) {
       const major = i % GRID_MAJOR_EVERY === 0;
@@ -1017,7 +1106,7 @@ function StageCentimeterGrid({ width, height }) {
         <Line
           key={`v-${x}`}
           points={[x, 0, x, h]}
-          stroke={major ? "#64748b" : "#cbd5e1"}
+          stroke={major ? majorStroke : minorStroke}
           strokeWidth={major ? 1.25 : 1}
           opacity={major ? 0.9 : 0.55}
           strokeScaleEnabled={false}
@@ -1032,7 +1121,7 @@ function StageCentimeterGrid({ width, height }) {
         <Line
           key={`h-${y}`}
           points={[0, y, w, y]}
-          stroke={major ? "#64748b" : "#cbd5e1"}
+          stroke={major ? majorStroke : minorStroke}
           strokeWidth={major ? 1.25 : 1}
           opacity={major ? 0.9 : 0.55}
           strokeScaleEnabled={false}
@@ -1042,7 +1131,7 @@ function StageCentimeterGrid({ width, height }) {
       );
     }
     return out;
-  }, [width, height]);
+  }, [width, height, nightStage]);
 
   return <Group listening={false}>{lines}</Group>;
 }
@@ -1169,11 +1258,27 @@ function buildStagePlotItemTooltipText(item, visual = null) {
   const cat = getStagePlotCatalogItem(item.type);
   const name = cat?.name || item.type;
   const label = item.label?.trim();
-  const itemScale = item.scale > 0 ? item.scale : 1;
-  const size =
-    visual?.boundsW != null && visual?.boundsH != null
-      ? formatStagePlotItemRealSize(visual.boundsW, visual.boundsH, itemScale)
-      : null;
+  let size = null;
+  if (stagePlotItemIsTarima(item.type)) {
+    const dims = stagePlotTarimaDimensionsCm(item);
+    size = `Ancho ${dims.widthCm} × Profundo ${dims.depthCm} cm`;
+  } else if (visual?.boundsW != null && visual?.boundsH != null) {
+    const itemScale = item.scale > 0 ? item.scale : 1;
+    const sx =
+      Number.isFinite(Number(visual.scaleX)) && Number(visual.scaleX) > 0
+        ? Number(visual.scaleX)
+        : itemScale;
+    const sy =
+      Number.isFinite(Number(visual.scaleY)) && Number(visual.scaleY) > 0
+        ? Number(visual.scaleY)
+        : itemScale;
+    size = formatStagePlotItemRealSize(
+      visual.boundsW,
+      visual.boundsH,
+      sx,
+      sy,
+    );
+  }
   return {
     primary: name,
     size,
@@ -1205,6 +1310,126 @@ function StagePlotItemTooltip({ tooltip, overlayZ = 110 }) {
           {tooltip.secondary}
         </span>
       ) : null}
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * Modal compacto: tamaño inicial al insertar tarima desde paleta Escenario.
+ * Portal a document.body; z-[100] (o overlay fullscreen).
+ */
+function StagePlotTarimaSizeModal({
+  open,
+  title,
+  anchoCm,
+  profundoCm,
+  onAnchoChange,
+  onProfundoChange,
+  onCancel,
+  onConfirm,
+  overlayZ = 100,
+}) {
+  const dialogRef = useRef(null);
+  const anchoRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const t = window.setTimeout(() => anchoRef.current?.focus?.(), 0);
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel();
+      } else if (e.key === "Enter" && !e.isComposing) {
+        const tag = e.target?.tagName;
+        if (tag === "INPUT" || tag === "BUTTON") {
+          e.preventDefault();
+          onConfirm();
+        }
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onCancel, onConfirm]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-slate-900/40 p-4 z-[100]"
+      style={{ zIndex: overlayZ }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title || "Tamaño de tarima"}
+        className="w-full max-w-[16rem] rounded-lg border border-slate-200 bg-white p-3 shadow-xl"
+      >
+        <h3 className="text-sm font-semibold text-slate-800">
+          {title || "Tarima"}
+        </h3>
+        <p className="mt-0.5 text-[10px] text-slate-400">
+          Tamaño inicial (cm)
+        </p>
+        <div className="mt-2.5 flex items-center gap-1.5">
+          <label className="sr-only" htmlFor="tarima-modal-ancho">
+            Ancho cm
+          </label>
+          <input
+            ref={anchoRef}
+            id="tarima-modal-ancho"
+            type="text"
+            inputMode="numeric"
+            title="Ancho (cm)"
+            placeholder={String(STAGE_PLOT_TARIMA_DEFAULT_WIDTH_CM)}
+            value={anchoCm}
+            onChange={(e) => onAnchoChange(e.target.value)}
+            className="w-0 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-700"
+          />
+          <span className="shrink-0 text-[11px] text-slate-400">×</span>
+          <label className="sr-only" htmlFor="tarima-modal-prof">
+            Profundo cm
+          </label>
+          <input
+            id="tarima-modal-prof"
+            type="text"
+            inputMode="numeric"
+            title="Profundo (cm)"
+            placeholder={String(STAGE_PLOT_TARIMA_DEFAULT_DEPTH_CM)}
+            value={profundoCm}
+            onChange={(e) => onProfundoChange(e.target.value)}
+            className="w-0 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-700"
+          />
+          <span className="shrink-0 text-[10px] text-slate-400">cm</span>
+        </div>
+        <p className="mt-1.5 text-[9px] leading-snug text-slate-400">
+          Vacío = {STAGE_PLOT_TARIMA_DEFAULT_WIDTH_CM}×
+          {STAGE_PLOT_TARIMA_DEFAULT_DEPTH_CM} cm
+        </p>
+        <div className="mt-3 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="inline-flex items-center gap-1 rounded bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+          >
+            <IconPlus size={12} /> Insertar
+          </button>
+        </div>
+      </div>
     </div>,
     document.body,
   );
@@ -1280,6 +1505,9 @@ function StagePlotItemContextMenu({
   onGroup,
   onUngroup,
   onAlignInLine,
+  onAddAtril,
+  onAddSharedAtril,
+  onAddPairAndAtril,
   overlayZ = 100,
 }) {
   const menuRef = useRef(null);
@@ -1312,10 +1540,13 @@ function StagePlotItemContextMenu({
   const canAlign = selectedCount >= 2;
   const canUngroup = !!menu.canUngroup;
   const formationId = menu.formationId || null;
+  const canAddAtril = !!menu.canAddAtril;
+  const canAddSharedAtril = !!menu.canAddSharedAtril;
+  const canAddPairAndAtril = !!menu.canAddPairAndAtril;
 
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   const left = clamp(menu.x, 8, window.innerWidth - 240);
-  const top = clamp(menu.y, 8, window.innerHeight - 200);
+  const top = clamp(menu.y, 8, window.innerHeight - 300);
 
   return createPortal(
     <div
@@ -1356,6 +1587,39 @@ function StagePlotItemContextMenu({
         </button>
       )}
       {(canGroup || canUngroup || canAlign) && (
+        <div className="my-1 border-t border-slate-100" role="separator" />
+      )}
+      {canAddAtril && (
+        <button
+          type="button"
+          role="menuitem"
+          className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+          onClick={onAddAtril}
+        >
+          Agregar atril
+        </button>
+      )}
+      {canAddSharedAtril && (
+        <button
+          type="button"
+          role="menuitem"
+          className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+          onClick={onAddSharedAtril}
+        >
+          Agregar atril compartido
+        </button>
+      )}
+      {canAddPairAndAtril && (
+        <button
+          type="button"
+          role="menuitem"
+          className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+          onClick={onAddPairAndAtril}
+        >
+          Agregar par y atril
+        </button>
+      )}
+      {(canAddAtril || canAddSharedAtril || canAddPairAndAtril) && (
         <div className="my-1 border-t border-slate-100" role="separator" />
       )}
       {formationId && (
@@ -1611,40 +1875,6 @@ function FormationShape({
   );
 }
 
-const SatelliteAtrilShape = React.memo(function SatelliteAtrilShape({
-  x,
-  y,
-  rotationDeg,
-}) {
-  const atrilPx = STAGE_PLOT_ATRIL_LINE_CM * STAGE_PLOT_CM_TO_PX;
-  const { plateWidthPx, plateThicknessPx, legs } = useMemo(
-    () => stagePlotSatelliteAtrilGeometry(atrilPx),
-    [atrilPx],
-  );
-  return (
-    <Group x={x} y={y} rotation={rotationDeg || 0} listening={false}>
-      <Rect
-        x={-plateWidthPx / 2}
-        y={-plateThicknessPx / 2}
-        width={plateWidthPx}
-        height={plateThicknessPx}
-        fill={STAGE_PLOT_ATRIL_LINE_STROKE}
-        listening={false}
-      />
-      {legs.map((pts, i) => (
-        <Line
-          key={`sat-atril-leg-${i}`}
-          points={pts}
-          stroke={STAGE_PLOT_ATRIL_LINE_STROKE}
-          strokeWidth={i === 0 ? 2.5 : 2.25}
-          lineCap="round"
-          listening={false}
-        />
-      ))}
-    </Group>
-  );
-});
-
 const ItemShape = React.memo(function ItemShape({
   item,
   selected,
@@ -1652,6 +1882,10 @@ const ItemShape = React.memo(function ItemShape({
   hideChairSquares,
   draggable,
   shapeRef,
+  /** Escala del viewport del Stage (pan/zoom); solo afecta labels de tarima. */
+  viewportScale = 1,
+  /** Piso nocturno (Stage re-invertido): labels de tarima claros. */
+  nightStage = false,
   onSelect,
   onContextMenu,
   onDblClick,
@@ -1670,13 +1904,17 @@ const ItemShape = React.memo(function ItemShape({
   const h = cat?.h || 40;
   const fill = cat?.color || "#64748b";
   const isText = item.type === "text";
+  const isTarima = stagePlotItemIsTarima(item.type);
   const hasFootprint = stagePlotItemHasInstrumentFootprint(item.type);
   const footprint = useMemo(
     () => (hasFootprint ? stagePlotInstrumentFootprintLayout() : null),
     [hasFootprint],
   );
-  const pathD = isText ? null : getStagePlotSilhouettePath(item.type);
-  const iconImage = useStagePlotIcon(isText ? null : item.type, fill);
+  const pathD = isText || isTarima ? null : getStagePlotSilhouettePath(item.type);
+  const iconImage = useStagePlotIcon(
+    isText || isTarima ? null : item.type,
+    fill,
+  );
   const stroke = selected ? "#f59e0b" : "#0f172a";
   const strokeW = selected ? 2.2 : 1.1;
   const iconNatural = useMemo(
@@ -1687,6 +1925,10 @@ const ItemShape = React.memo(function ItemShape({
     () => (isText ? getStagePlotTextLayout(item, cat) : null),
     [isText, item, cat],
   );
+  const tarimaDims = useMemo(
+    () => (isTarima ? stagePlotTarimaDimensionsCm(item) : null),
+    [isTarima, item],
+  );
   /** Caja donde se hace contain del icono (pre–item.scale). */
   const iconBoxW = footprint ? footprint.iconBoxPx : w;
   const iconBoxH = footprint ? footprint.iconBoxPx : h;
@@ -1694,6 +1936,9 @@ const ItemShape = React.memo(function ItemShape({
   const visualBounds = useMemo(() => {
     if (isText && textLayout) {
       return { drawW: textLayout.textW, drawH: textLayout.textH };
+    }
+    if (isTarima) {
+      return { drawW: w, drawH: h };
     }
     if (iconImage && iconNatural?.w && iconNatural?.h) {
       return getStagePlotItemVisualBounds(iconBoxW, iconBoxH, "icon", {
@@ -1707,12 +1952,15 @@ const ItemShape = React.memo(function ItemShape({
     return getStagePlotItemVisualBounds(iconBoxW, iconBoxH, "catalog");
   }, [
     isText,
+    isTarima,
     textLayout,
     iconImage,
     iconNatural,
     iconBoxW,
     iconBoxH,
     pathD,
+    w,
+    h,
   ]);
   const drawW = visualBounds.drawW;
   const drawH = visualBounds.drawH;
@@ -1720,6 +1968,16 @@ const ItemShape = React.memo(function ItemShape({
   const boundsW = footprint ? footprint.widthPx : drawW;
   const boundsH = footprint ? footprint.depthPx : drawH;
   const itemScale = item.scale > 0 ? item.scale : 1;
+  const scaleX = isTarima
+    ? Number.isFinite(Number(item.scaleX)) && Number(item.scaleX) > 0
+      ? Number(item.scaleX)
+      : itemScale
+    : itemScale;
+  const scaleY = isTarima
+    ? Number.isFinite(Number(item.scaleY)) && Number(item.scaleY) > 0
+      ? Number(item.scaleY)
+      : itemScale
+    : itemScale;
   const showChairSquare =
     !hideChairSquares && stagePlotItemShowsChairSquare(item.type);
   const chairSide = showChairSquare
@@ -1732,28 +1990,105 @@ const ItemShape = React.memo(function ItemShape({
     ? STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_STROKE
     : STAGE_PLOT_CHAIR_SQUARE_STROKE;
   const silScale = Math.min(drawW / VB, drawH / VB);
+  const tarimaShape = isTarima ? stagePlotTarimaShape(item.type) : null;
+  /**
+   * Labels viven dentro del Group escalado → compensar itemScale y viewport.scale
+   * para un mínimo legible en px de pantalla.
+   * screenPx ≈ fontSizeLocal × itemScale × viewportScale
+   */
+  const tarimaLabelFont =
+    isTarima && tarimaDims
+      ? (() => {
+          const itemS = Math.max(
+            Math.min(Math.abs(scaleX), Math.abs(scaleY)),
+            1e-3,
+          );
+          const vp = Math.max(Number(viewportScale) || 1, ZOOM_MIN);
+          return (
+            Math.max(
+              TARIMA_DIM_LABEL_TARGET_SCREEN_PX,
+              TARIMA_DIM_LABEL_MIN_SCREEN_PX / vp,
+            ) / itemS
+          );
+        })()
+      : 12;
+  const tarimaLabelGap =
+    isTarima && tarimaDims
+      ? Math.max(3, tarimaLabelFont * 0.28)
+      : 0;
+
+  const groupRef = useRef(null);
+  const setGroupRef = useCallback(
+    (node) => {
+      groupRef.current = node;
+      if (typeof shapeRef === "function") shapeRef(node);
+      else if (shapeRef && typeof shapeRef === "object") shapeRef.current = node;
+    },
+    [shapeRef],
+  );
+
+  /**
+   * Transformer llama `getClientRect({ skipTransform: true })` y luego aplica
+   * `node.getAbsoluteTransform()` a las esquinas (ver Konva `__getNodeRect`).
+   *
+   * El Group por defecto une TODOS los hijos (labels de cm incluidos) → asas
+   * grandes. Delegar al hit Rect con el mismo `config` también falla: Rect no
+   * es `_centroid`, y con `skipTransform: true` ignora offsetX/Y → local
+   * `{x:0,y:0,w,h}` en vez del AABB centrado `{-w/2,-h/2,w,h}` del visual.
+   *
+   * Devolver siempre la huella local centrada (fill del oval/rect); labels fuera.
+   */
+  useLayoutEffect(() => {
+    const node = groupRef.current;
+    if (!node || !isTarima) return undefined;
+    const localRect = {
+      x: -boundsW / 2,
+      y: -boundsH / 2,
+      width: boundsW,
+      height: boundsH,
+    };
+    node.getClientRect = function tarimaClientRect(config = {}) {
+      if (config.skipTransform) {
+        return { ...localRect };
+      }
+      return this._transformedRect(localRect, config.relativeTo);
+    };
+    return () => {
+      delete node.getClientRect;
+    };
+  }, [isTarima, boundsW, boundsH]);
 
   useLayoutEffect(() => {
     if (!selected) return;
-    const node = shapeRef?.current;
+    const node = groupRef.current;
     if (!node) return;
     const tr = node.getStage()?.findOne("Transformer");
     if (tr?.nodes()?.includes(node)) {
       tr.forceUpdate();
       tr.getLayer()?.batchDraw();
     }
-  }, [boundsW, boundsH, itemScale, selected, shapeRef, iconImage, textLayout]);
+  }, [
+    boundsW,
+    boundsH,
+    itemScale,
+    scaleX,
+    scaleY,
+    selected,
+    iconImage,
+    textLayout,
+    isTarima,
+  ]);
 
   return (
     <Group
-      ref={shapeRef}
+      ref={setGroupRef}
       id={String(item.id)}
       name="stage-plot-item"
       x={item.x}
       y={item.y}
       rotation={item.rotation || 0}
-      scaleX={itemScale}
-      scaleY={itemScale}
+      scaleX={scaleX}
+      scaleY={scaleY}
       draggable={draggable}
       onMouseDown={(e) => {
         e.cancelBubble = true;
@@ -1783,7 +2118,8 @@ const ItemShape = React.memo(function ItemShape({
         onMouseEnter?.(item, e, {
           boundsW,
           boundsH,
-          itemScale,
+          scaleX: isTarima ? scaleX : itemScale,
+          scaleY: isTarima ? scaleY : itemScale,
         });
         if (draggable) onWrapCursor?.("move");
       }}
@@ -1807,6 +2143,27 @@ const ItemShape = React.memo(function ItemShape({
       }}
       onTransformEnd={(e) => {
         const node = e.target;
+        if (isTarima) {
+          const sx = Math.max(
+            SCALE_MIN,
+            Math.min(SCALE_MAX, Math.abs(node.scaleX()) || 1),
+          );
+          const sy = Math.max(
+            SCALE_MIN,
+            Math.min(SCALE_MAX, Math.abs(node.scaleY()) || 1),
+          );
+          node.scaleX(1);
+          node.scaleY(1);
+          onTransformEnd(item.id, {
+            x: node.x(),
+            y: node.y(),
+            rotation: node.rotation(),
+            scale: (sx + sy) / 2,
+            scaleX: sx,
+            scaleY: sy,
+          });
+          return;
+        }
         const absScale = Math.max(
           SCALE_MIN,
           Math.min(
@@ -1836,18 +2193,94 @@ const ItemShape = React.memo(function ItemShape({
           listening={false}
         />
       )}
-      {/* Hit + selección + Transformer = huella (instrumentos) o caja visual */}
       <Rect
+        name={isTarima ? "stage-plot-tarima-hit" : undefined}
         width={boundsW}
         height={boundsH}
         offsetX={boundsW / 2}
         offsetY={boundsH / 2}
         fill="rgba(0,0,0,0.001)"
-        stroke={selected ? "#f59e0b" : undefined}
-        strokeWidth={selected ? 1.5 : 0}
-        dash={selected ? [4, 3] : undefined}
+        stroke={selected && !isTarima ? "#f59e0b" : undefined}
+        strokeWidth={selected && !isTarima ? 1.5 : 0}
+        dash={selected && !isTarima ? [4, 3] : undefined}
       />
-      {isText && textLayout ? (
+      {isTarima ? (
+        <>
+          {tarimaShape === "oval" ? (
+            <Ellipse
+              name="stage-plot-tarima-visual"
+              radiusX={boundsW / 2}
+              radiusY={boundsH / 2}
+              fill={STAGE_PLOT_TARIMA_FILL}
+              stroke={selected ? "#f59e0b" : STAGE_PLOT_TARIMA_STROKE}
+              strokeWidth={selected ? 2.5 : 1.5}
+              listening={false}
+            />
+          ) : (
+            <Rect
+              name="stage-plot-tarima-visual"
+              width={boundsW}
+              height={boundsH}
+              offsetX={boundsW / 2}
+              offsetY={boundsH / 2}
+              fill={STAGE_PLOT_TARIMA_FILL}
+              stroke={selected ? "#f59e0b" : STAGE_PLOT_TARIMA_STROKE}
+              strokeWidth={selected ? 2.5 : 1.5}
+              cornerRadius={6}
+              listening={false}
+            />
+          )}
+          {tarimaDims && (
+            <>
+              {/* Ancho: fuera del fill; excluidas del Transformer vía getClientRect */}
+              <Text
+                name="stage-plot-tarima-dim-label"
+                text={`${tarimaDims.widthCm} cm`}
+                fontSize={tarimaLabelFont}
+                fontStyle="bold"
+                fill={
+                  nightStage
+                    ? STAGE_PLOT_TARIMA_LABEL_FILL_NIGHT
+                    : STAGE_PLOT_TARIMA_LABEL_FILL
+                }
+                align="center"
+                verticalAlign="middle"
+                width={Math.max(boundsW, tarimaLabelFont * 6)}
+                height={tarimaLabelFont * 1.3}
+                x={0}
+                y={-boundsH / 2 - tarimaLabelGap - (tarimaLabelFont * 1.3) / 2}
+                offsetX={Math.max(boundsW, tarimaLabelFont * 6) / 2}
+                offsetY={(tarimaLabelFont * 1.3) / 2}
+                listening={false}
+                perfectDrawEnabled={false}
+              />
+              {/* Profundo: fuera, centrado en el borde izquierdo (−90°) */}
+              <Text
+                name="stage-plot-tarima-dim-label"
+                text={`${tarimaDims.depthCm} cm`}
+                fontSize={tarimaLabelFont}
+                fontStyle="bold"
+                fill={
+                  nightStage
+                    ? STAGE_PLOT_TARIMA_LABEL_FILL_NIGHT
+                    : STAGE_PLOT_TARIMA_LABEL_FILL
+                }
+                align="center"
+                verticalAlign="middle"
+                width={Math.max(boundsH, tarimaLabelFont * 6)}
+                height={tarimaLabelFont * 1.3}
+                x={-boundsW / 2 - tarimaLabelGap - (tarimaLabelFont * 1.3) / 2}
+                y={0}
+                offsetX={Math.max(boundsH, tarimaLabelFont * 6) / 2}
+                offsetY={(tarimaLabelFont * 1.3) / 2}
+                rotation={-90}
+                listening={false}
+                perfectDrawEnabled={false}
+              />
+            </>
+          )}
+        </>
+      ) : isText && textLayout ? (
         <Text
           text={textLayout.label}
           fontSize={textLayout.fontSize}
@@ -1922,12 +2355,81 @@ const ItemShape = React.memo(function ItemShape({
   prev.onDragMove === next.onDragMove &&
   prev.onDragEnd === next.onDragEnd &&
   prev.onTransformEnd === next.onTransformEnd);
+/** Mini esquemáticos de formación para la paleta (trazo índigo, no genéricos +). */
+function FormationPaletteIcon({ kind, size = 18 }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.75,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": true,
+    className: "shrink-0 text-indigo-700",
+  };
+  switch (kind) {
+    case "arc":
+      // Arco elíptico abierto hacia abajo (director)
+      return (
+        <svg {...common}>
+          <path d="M4 17 A8 6.5 0 0 1 20 17" />
+        </svg>
+      );
+    case "semi_arc":
+      // Alas rectas + arco central
+      return (
+        <svg {...common}>
+          <path d="M3.5 20 L5.5 12 A7 5.5 0 0 1 18.5 12 L20.5 20" />
+        </svg>
+      );
+    case "horseshoe":
+      // U con tope curvo
+      return (
+        <svg {...common}>
+          <path d="M5 20 L5 12 A7 7 0 0 1 19 12 L19 20" />
+        </svg>
+      );
+    case "rect":
+      // Tres lados abiertos abajo (como la guía)
+      return (
+        <svg {...common}>
+          <path d="M5 19 L5 6 L19 6 L19 19" />
+        </svg>
+      );
+    case "line":
+      return (
+        <svg {...common}>
+          <path d="M3 12 L21 12" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...common}>
+          <path d="M4 17 A8 6.5 0 0 1 20 17" />
+        </svg>
+      );
+  }
+}
 
 function PaletteIcon({ type, color }) {
   const [src, setSrc] = useState(null);
+  const fill = color || "#334155";
+  // Tarimas: silueta sync (rect vs elipse) — no fallback cuadrado redondeado.
+  const tarimaSilhouetteHtml =
+    type === "tarima_rect" || type === "tarima_oval"
+      ? stagePlotSilhouetteSvgMarkup(type, fill, 22)
+      : "";
+
   useEffect(() => {
     // Texto: sin icono/silueta TT — el botón muestra solo el label "Texto".
     if (type === "text") {
+      setSrc(null);
+      return undefined;
+    }
+    // Tarimas ya tienen silueta sync; no pedir SVG async (no hay asset).
+    if (type === "tarima_rect" || type === "tarima_oval") {
       setSrc(null);
       return undefined;
     }
@@ -1937,14 +2439,14 @@ function PaletteIcon({ type, color }) {
         if (cancelled) return;
         if (svg) {
           const prepared = /currentColor/i.test(svg)
-            ? svg.replace(/currentColor/gi, color || "#334155")
+            ? svg.replace(/currentColor/gi, fill)
             : svg;
           setSrc(
             `data:image/svg+xml;charset=utf-8,${encodeURIComponent(prepared)}`,
           );
           return;
         }
-        const html = stagePlotSilhouetteSvgMarkup(type, color, 22);
+        const html = stagePlotSilhouetteSvgMarkup(type, fill, 22);
         setSrc(
           html
             ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(html)}`
@@ -1953,7 +2455,7 @@ function PaletteIcon({ type, color }) {
       })
       .catch(() => {
         if (cancelled) return;
-        const html = stagePlotSilhouetteSvgMarkup(type, color, 22);
+        const html = stagePlotSilhouetteSvgMarkup(type, fill, 22);
         setSrc(
           html
             ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(html)}`
@@ -1963,15 +2465,25 @@ function PaletteIcon({ type, color }) {
     return () => {
       cancelled = true;
     };
-  }, [type, color]);
+  }, [type, fill]);
 
   if (type === "text") return null;
+
+  if (tarimaSilhouetteHtml) {
+    return (
+      <img
+        src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(tarimaSilhouetteHtml)}`}
+        alt=""
+        className="h-[22px] w-[22px] shrink-0 object-contain"
+      />
+    );
+  }
 
   if (!src) {
     return (
       <span
         className="inline-block h-3 w-3 rounded-sm"
-        style={{ background: color }}
+        style={{ background: fill }}
       />
     );
   }
@@ -1994,11 +2506,12 @@ export default function ProgramStagePlot({
   readOnly = false,
   embedded = false,
 }) {
-  const { isEditor, isManagement, isAdmin } = useAuth();
+  const { isEditor, isManagement, isAdmin, user } = useAuth();
   const canEdit = !readOnly && (isEditor || isManagement || isAdmin);
   const { confirm, dialog } = useConfirmDialog();
   const { roster } = useGiraRoster(supabase, program);
 
+  const isForcedDark = useOfrnForcedDarkMode();
   const [loading, setLoading] = useState(true);
   const [payload, setPayload] = useState(() => normalizeStagePlotPayload(null));
   const [nombre, setNombre] = useState("");
@@ -2011,11 +2524,20 @@ export default function ProgramStagePlot({
   const [giraEvents, setGiraEvents] = useState([]);
   const [assocOpen, setAssocOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  /** `{ kind: 'pdf'|'jpg' }` o null — modal de opciones antes de exportar. */
+  const [exportModal, setExportModal] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectedFormationId, setSelectedFormationId] = useState(null);
-  const [rightPanel, setRightPanel] = useState("organico"); // channels | organico
+  const [rightPanel, setRightPanel] = useState("organico"); // channels | organico | inventario
+  const [leftPanel, setLeftPanel] = useState("palette"); // palette | instrumentos (UI label: Editor)
+  const [inventarioItems, setInventarioItems] = useState([]);
+  /** Filas `instrumentos` para paleta (con/sin ícono). */
+  const [instrumentosRows, setInstrumentosRows] = useState([]);
+  const [catalogEpoch, setCatalogEpoch] = useState(0);
   const [syncState, setSyncState] = useState("idle"); // idle|dirty|saving|saved|error
   const [paletteCat, setPaletteCat] = useState(null);
+  /** Modal tamaño inicial al insertar tarima desde paleta Escenario. */
+  const [tarimaSizeModal, setTarimaSizeModal] = useState(null);
   const activePlotIdRef = useRef(null);
   const bloqueIdsRef = useRef([]);
   const eventoIdsRef = useRef([]);
@@ -2088,10 +2610,35 @@ export default function ProgramStagePlot({
   /** Imperative flush of Lienzo Ancho/Alto/Líneas drafts (blur is unreliable on close). */
   const lienzoFlushRef = useRef(null);
   const [fullscreen, setFullscreen] = useState(false);
+  /** Editor móvil simplificado (fullscreen + chrome mínimo). */
+  const [mobileUi, setMobileUi] = useState(false);
+  const mobileUiRef = useRef(false);
+  const [mobileAddOpen, setMobileAddOpen] = useState(false);
+  /** Usuario eligió vista escritorio en viewport angosto. */
+  const [forceDesktopChrome, setForceDesktopChrome] = useState(false);
+  /** Cerró el editor móvil en angosto → mostrar landing. */
+  const [mobileDismissed, setMobileDismissed] = useState(false);
+  const isNarrowViewport = useStagePlotNarrowViewport();
   /** Locaciones con preset de escenario (ancho/profundo cm). */
   const [locacionesPresets, setLocacionesPresets] = useState([]);
   /** Diálogo al crear lienzo: elegir locación opcional. */
   const [newPlotDialog, setNewPlotDialog] = useState(null); // { nombre, locacionId }
+
+  const immersive = fullscreen || mobileUi;
+
+  const openMobileEditor = useCallback(() => {
+    setMobileDismissed(false);
+    setForceDesktopChrome(false);
+    setMobileUi(true);
+    setCanvasTool(STAGE_PLOT_TOOL_MOVE);
+    setMobileAddOpen(false);
+  }, []);
+
+  const closeMobileEditor = useCallback(() => {
+    setMobileUi(false);
+    setMobileAddOpen(false);
+    setMobileDismissed(true);
+  }, []);
 
   const newPlotLocacionOptions = useMemo(
     () => [
@@ -2100,6 +2647,10 @@ export default function ProgramStagePlot({
     ],
     [locacionesPresets],
   );
+
+  useEffect(() => {
+    mobileUiRef.current = mobileUi;
+  }, [mobileUi]);
 
   useEffect(() => {
     viewportRef.current = viewport;
@@ -2365,26 +2916,70 @@ export default function ProgramStagePlot({
   );
 
   useEffect(() => {
-    if (!fullscreen) return undefined;
+    if (!immersive) return undefined;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prevOverflow;
     };
-  }, [fullscreen]);
+  }, [immersive]);
 
   useEffect(() => {
-    if (!fullscreen) return undefined;
+    if (!immersive) return undefined;
     const onKeyDown = (e) => {
       if (e.key !== "Escape") return;
       if (isEditableKeyboardTarget(e.target)) return;
+      if (mobileAddOpen) {
+        e.preventDefault();
+        setMobileAddOpen(false);
+        return;
+      }
       if (lienzoOpen || itemContextMenu || formationContextMenu) return;
       e.preventDefault();
-      setFullscreen(false);
+      if (mobileUi) {
+        closeMobileEditor();
+      } else {
+        setFullscreen(false);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [fullscreen, lienzoOpen, itemContextMenu, formationContextMenu]);
+  }, [
+    immersive,
+    mobileUi,
+    mobileAddOpen,
+    closeMobileEditor,
+    lienzoOpen,
+    itemContextMenu,
+    formationContextMenu,
+  ]);
+
+  /** Auto-abrir editor móvil en viewports angostos (ajustes mínimos). */
+  useEffect(() => {
+    if (loading || !canEdit) return;
+    if (
+      isNarrowViewport &&
+      !forceDesktopChrome &&
+      !mobileDismissed &&
+      !mobileUi
+    ) {
+      openMobileEditor();
+    }
+  }, [
+    loading,
+    canEdit,
+    isNarrowViewport,
+    forceDesktopChrome,
+    mobileDismissed,
+    mobileUi,
+    openMobileEditor,
+  ]);
+
+  /** En móvil: herramienta Mover (tap = select, drag seleccionado = move). */
+  useEffect(() => {
+    if (!mobileUi) return;
+    setCanvasTool(STAGE_PLOT_TOOL_MOVE);
+  }, [mobileUi]);
 
   useEffect(() => {
     if (!canEdit) return undefined;
@@ -2533,7 +3128,60 @@ export default function ProgramStagePlot({
     return () => cancelAnimationFrame(t);
   }, [selectedIds, selectedFormationId, payload.items, viewport.scale, resolveItemNode]);
 
-  const categories = useMemo(() => stagePlotCategories(), []);
+  const { withIcon: paletteInstrumentsWithIcon, withoutIcon: paletteInstrumentsSinIcono } =
+    useMemo(
+      () => partitionInstrumentosByStagePlotIcon(instrumentosRows),
+      [instrumentosRows],
+    );
+
+  /**
+   * Paleta: instrumentos musicales desde DB (con ícono) + categorías no-músico
+   * del catálogo estático (Escenario / Audio / Marcas / Elementos).
+   * Si aún no cargó DB, fallback al catálogo musical estático.
+   */
+  const categories = useMemo(() => {
+    const base = stagePlotCategories();
+    const nonMusician = base.filter(
+      (c) => !STAGE_PLOT_MUSICIAN_INSTRUMENT_CATEGORIES.has(c.category),
+    );
+    if (!instrumentosRows.length) {
+      return base;
+    }
+    const order = [];
+    const map = new Map();
+    for (const row of paletteInstrumentsWithIcon) {
+      const type = String(row.stage_plot_type || "").trim();
+      if (!type) continue;
+      const catItem = getStagePlotCatalogItem(type);
+      const category =
+        (catItem?.category &&
+          STAGE_PLOT_MUSICIAN_INSTRUMENT_CATEGORIES.has(catItem.category) &&
+          catItem.category) ||
+        row.familia ||
+        "Instrumentos";
+      if (!map.has(category)) {
+        map.set(category, []);
+        order.push(category);
+      }
+      const already = map.get(category).some((it) => it.type === type);
+      if (already) continue;
+      map.get(category).push({
+        type,
+        name: row.instrumento || catItem?.name || type,
+        color: catItem?.color || "#64748b",
+        w: catItem?.w,
+        h: catItem?.h,
+        includeInChannels: catItem?.includeInChannels ?? true,
+        instrumentId: row.id,
+      });
+    }
+    const musicCats = order.map((category) => ({
+      category,
+      items: map.get(category),
+    }));
+    return [...musicCats, ...nonMusician];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogEpoch, instrumentosRows, paletteInstrumentsWithIcon]);
   const channels = useMemo(() => deriveStagePlotChannels(payload), [payload]);
   const organicoRows = useMemo(
     () => buildStagePlotOrganicoCompare(payload.items, organicoRoster),
@@ -2552,14 +3200,15 @@ export default function ProgramStagePlot({
       ),
     [payload.items, payload.groups, organicoRoster],
   );
-  const satelliteAtrils = useMemo(
+  const inventarioStock = useMemo(
+    () => inventarioSimpleStock(inventarioItems),
+    [inventarioItems],
+  );
+  const tarimaSelectedOnly = useMemo(
     () =>
-      collectStagePlotSatelliteAtrils(
-        payload,
-        conductorDragOrigin,
-        liveItemPositions,
-      ),
-    [payload, conductorDragOrigin, liveItemPositions],
+      selectedItems.length > 0 &&
+      selectedItems.every((it) => stagePlotItemIsTarima(it.type)),
+    [selectedItems],
   );
   /** Un solo ítem: editores de etiqueta / canal; null si 0 o varios. */
   const selected =
@@ -2673,7 +3322,7 @@ export default function ProgramStagePlot({
       confirmText: "Borrar",
       cancelText: "Cancelar",
       destructive: true,
-      overlayClassName: fullscreen ? "z-[10000]" : undefined,
+      overlayClassName: immersive ? "z-[10000]" : undefined,
     });
     if (!ok) return;
     commitPayload((prev) => ({
@@ -2686,7 +3335,7 @@ export default function ProgramStagePlot({
     setSelectedFormationId(null);
     syncZCounter([]);
     setLienzoOpen(false);
-  }, [canEdit, commitPayload, confirm, fullscreen, syncZCounter]);
+  }, [canEdit, commitPayload, confirm, immersive, syncZCounter]);
 
   const renderFormations = useMemo(() => {
     const list = payload.formations || [];
@@ -2955,6 +3604,49 @@ export default function ProgramStagePlot({
     load();
   }, [load]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [inv, , instrResult] = await Promise.all([
+          listInventarioItems(),
+          loadAndApplyElementosEscenario(),
+          supabase
+            ? supabase
+                .from("instrumentos")
+                .select(
+                  "id, instrumento, familia, stage_plot_type, svg_icon",
+                )
+                .order("instrumento", { ascending: true })
+            : Promise.resolve({ data: [], error: null }),
+        ]);
+        if (cancelled) return;
+        setInventarioItems(inv || []);
+        setCatalogEpoch(getStagePlotCatalogEpoch());
+        if (instrResult?.error) {
+          console.warn(
+            "[instrumentos palette]",
+            instrResult.error.message || instrResult.error,
+          );
+          setInstrumentosRows([]);
+        } else {
+          setInstrumentosRows(instrResult?.data || []);
+        }
+      } catch (err) {
+        console.warn("[inventario]", err?.message || err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
+
+  const handleInventoryChange = useCallback(async (inv) => {
+    setInventarioItems(inv || []);
+    await loadAndApplyElementosEscenario();
+    setCatalogEpoch(getStagePlotCatalogEpoch());
+  }, []);
+
   const switchToPlot = useCallback(
     async (plotId) => {
       if (!plotId || plotId === activePlotIdRef.current) return;
@@ -3122,31 +3814,38 @@ export default function ProgramStagePlot({
       window.clearTimeout(t);
       window.clearTimeout(t2);
     };
-  }, [loading, fitViewport, activePlotId]);
+  }, [loading, fitViewport, activePlotId, mobileUi, immersive]);
+
+  // Evitar scroll de página sobre el lienzo (wheel debe ser non-passive).
+  useEffect(() => {
+    if (loading) return undefined;
+    const el = stageWrapRef.current;
+    if (!el) return undefined;
+    const onWheel = (evt) => {
+      evt.preventDefault();
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [loading, activePlotId]);
 
   const handleWheel = useCallback((e) => {
+    // Trackpad: pinch → ctrlKey+wheel (zoom); scroll paralelo → pan.
+    // Mouse: rueda sola = pan; Ctrl/⌘+rueda = zoom.
     e.evt.preventDefault();
     const stage = e.target.getStage();
     if (!stage) return;
     const pointer = stage.getPointerPosition();
-    if (!pointer) return;
-    userZoomedRef.current = true;
 
     setViewport((prev) => {
-      const oldScale = prev.scale;
-      const direction = e.evt.deltaY > 0 ? -1 : 1;
-      let newScale =
-        direction > 0 ? oldScale * ZOOM_FACTOR : oldScale / ZOOM_FACTOR;
-      newScale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, newScale));
-      const mousePointTo = {
-        x: (pointer.x - prev.x) / oldScale,
-        y: (pointer.y - prev.y) / oldScale,
-      };
-      return {
-        scale: newScale,
-        x: pointer.x - mousePointTo.x * newScale,
-        y: pointer.y - mousePointTo.y * newScale,
-      };
+      const next = applyStagePlotWheelToViewport(prev, e.evt, {
+        pointer,
+        zoomFactor: ZOOM_FACTOR,
+        zoomMin: ZOOM_MIN,
+        zoomMax: ZOOM_MAX,
+      });
+      if (next.kind === "noop") return prev;
+      userZoomedRef.current = true;
+      return { scale: next.scale, x: next.x, y: next.y };
     });
   }, []);
 
@@ -3159,6 +3858,107 @@ export default function ProgramStagePlot({
       fitViewport(canvasSize.w, canvasSize.h);
     }
   }, [fitViewport, canvasSize.w, canvasSize.h]);
+
+  /** Zoom ± anclado al centro del wrap (botones móviles / toolbar). */
+  const zoomByFactor = useCallback((factor) => {
+    const el = stageWrapRef.current;
+    if (!el) return;
+    const pointer = { x: el.clientWidth / 2, y: el.clientHeight / 2 };
+    userZoomedRef.current = true;
+    setViewport((prev) => {
+      const oldScale = prev.scale;
+      const newScale = Math.min(
+        ZOOM_MAX,
+        Math.max(ZOOM_MIN, oldScale * factor),
+      );
+      if (newScale === oldScale) return prev;
+      const mousePointTo = {
+        x: (pointer.x - prev.x) / oldScale,
+        y: (pointer.y - prev.y) / oldScale,
+      };
+      return {
+        scale: newScale,
+        x: pointer.x - mousePointTo.x * newScale,
+        y: pointer.y - mousePointTo.y * newScale,
+      };
+    });
+  }, []);
+
+  /** Pinch-to-zoom (+ leve pan de dos dedos) en editor móvil. */
+  useEffect(() => {
+    if (!mobileUi) return undefined;
+    const el = stageWrapRef.current;
+    if (!el) return undefined;
+
+    let lastDist = 0;
+    let lastCenterClient = null;
+
+    const touchDist = (touches) =>
+      Math.hypot(
+        touches[0].clientX - touches[1].clientX,
+        touches[0].clientY - touches[1].clientY,
+      );
+    const touchCenter = (touches) => ({
+      x: (touches[0].clientX + touches[1].clientX) / 2,
+      y: (touches[0].clientY + touches[1].clientY) / 2,
+    });
+
+    const onTouchStart = (e) => {
+      if (e.touches.length === 2) {
+        lastDist = touchDist(e.touches);
+        lastCenterClient = touchCenter(e.touches);
+      }
+    };
+    const onTouchMove = (e) => {
+      if (e.touches.length !== 2 || lastDist <= 0 || !lastCenterClient) return;
+      e.preventDefault();
+      const dist = touchDist(e.touches);
+      const center = touchCenter(e.touches);
+      const rect = el.getBoundingClientRect();
+      const pointer = {
+        x: center.x - rect.left,
+        y: center.y - rect.top,
+      };
+      const ratio = dist / lastDist;
+      lastDist = dist;
+      lastCenterClient = center;
+      userZoomedRef.current = true;
+      setViewport((prev) => {
+        const oldScale = prev.scale;
+        const newScale = Math.min(
+          ZOOM_MAX,
+          Math.max(ZOOM_MIN, oldScale * ratio),
+        );
+        const mousePointTo = {
+          x: (pointer.x - prev.x) / oldScale,
+          y: (pointer.y - prev.y) / oldScale,
+        };
+        // Zoom anclado al centro del pellizco; al mover el centro también pannea.
+        return {
+          scale: newScale,
+          x: pointer.x - mousePointTo.x * newScale,
+          y: pointer.y - mousePointTo.y * newScale,
+        };
+      });
+    };
+    const onTouchEnd = (e) => {
+      if (e.touches.length < 2) {
+        lastDist = 0;
+        lastCenterClient = null;
+      }
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [mobileUi, loading]);
 
   useEffect(() => {
     const isTypingTarget = (el) => {
@@ -3240,50 +4040,69 @@ export default function ProgramStagePlot({
   );
 
   const applyMarqueeSelection = useCallback((aabb, additive) => {
-    const items = payloadRef.current.items || [];
-    const formations = payloadRef.current.formations || [];
+    const payload = payloadRef.current;
+    const items = payload.items || [];
+    const formations = payload.formations || [];
+    // Todos los tipos de ítem (instrumentos, tarimas, atriles, texto, riser,
+    // elementos, director, …) participan vía AABB de huella/visual.
     const hitItemIds = items
-      .filter((it) => stagePlotAabbIntersects(getStagePlotItemStageAabb(it), aabb))
+      .filter((it) =>
+        stagePlotAabbIntersects(getStagePlotItemStageAabb(it), aabb),
+      )
       .map((it) => it.id);
 
-    if (hitItemIds.length) {
-      setSelectedFormationId(null);
-      selectedFormationIdRef.current = null;
-      setSelectedIds((prev) => {
-        let next;
-        if (additive) {
-          const set = new Set(prev);
-          for (const id of hitItemIds) set.add(id);
-          next = [...set];
-        } else {
-          next = hitItemIds;
-        }
-        selectedIdsRef.current = next;
-        return next;
-      });
-      return;
-    }
-
-    // Sin ítems: si alguna formación intersecta (guías visibles), seleccionarla.
-    // selectedFormationId es singular → si hay varias, toma la primera.
-    const hideGuides = !!payloadRef.current.stage?.hideFormationGuides;
+    const hideGuides = !!payload.stage?.hideFormationGuides;
+    // Formaciones: siempre junto a ítems (no solo si hitItemIds vacío).
+    // Modelo singular: primaria = primera que intersecta (o la ya
+    // seleccionada si sigue en el rect y el gesto es aditivo).
     const hitFormations = hideGuides
       ? []
-      : formations.filter((fm) =>
-          stagePlotAabbIntersects(getStagePlotFormationStageAabb(fm), aabb),
-        );
-    if (!additive && hitFormations.length >= 1) {
-      const id = hitFormations[0].id;
-      setSelectedFormationId(id);
-      selectedFormationIdRef.current = id;
-      setSelectedIds([]);
-      selectedIdsRef.current = [];
+      : formations.filter((fm) => {
+          const facing = resolveFormationFacingPoint(
+            items,
+            payload.stage,
+            fm.facing,
+          );
+          return stagePlotAabbIntersects(
+            getStagePlotFormationStageAabb(fm, facing),
+            aabb,
+          );
+        });
+
+    if (!hitItemIds.length && !hitFormations.length) {
+      if (!additive) {
+        setSelectedIds([]);
+        selectedIdsRef.current = [];
+        setSelectedFormationId(null);
+        selectedFormationIdRef.current = null;
+      }
       return;
     }
 
-    if (!additive) {
-      setSelectedIds([]);
-      selectedIdsRef.current = [];
+    setSelectedIds((prev) => {
+      let next;
+      if (additive) {
+        const set = new Set(prev);
+        for (const id of hitItemIds) set.add(id);
+        next = [...set];
+      } else {
+        next = hitItemIds;
+      }
+      selectedIdsRef.current = next;
+      return next;
+    });
+
+    if (hitFormations.length >= 1) {
+      const existing = selectedFormationIdRef.current;
+      const id =
+        additive &&
+        existing &&
+        hitFormations.some((f) => f.id === existing)
+          ? existing
+          : hitFormations[0].id;
+      setSelectedFormationId(id);
+      selectedFormationIdRef.current = id;
+    } else if (!additive) {
       setSelectedFormationId(null);
       selectedFormationIdRef.current = null;
     }
@@ -3667,6 +4486,147 @@ export default function ProgramStagePlot({
     [canEdit],
   );
 
+  const warnIfTarimaOverStock = useCallback(
+    (nextItems, dims) => {
+      const forma = dims.forma === "oval" ? "oval" : "rect";
+      const stockRow = findInventarioTarimaRow(inventarioItems, {
+        forma,
+        ancho_cm: dims.ancho_cm,
+        profundo_cm: dims.profundo_cm,
+      });
+      const stock = stockRow ? Number(stockRow.cantidad) || 0 : 0;
+      const drawn = (nextItems || []).filter((it) => {
+        if (!stagePlotItemIsTarima(it.type)) return false;
+        const d = stagePlotTarimaDimensionsCm(it);
+        const f = it.type === "tarima_oval" ? "oval" : "rect";
+        return (
+          f === forma &&
+          Math.abs(d.widthCm - dims.ancho_cm) < 0.5 &&
+          Math.abs(d.depthCm - dims.profundo_cm) < 0.5
+        );
+      }).length;
+      if (drawn > stock) {
+        toast.warning(
+          `Tarimas ${forma} ${Math.round(dims.ancho_cm)}×${Math.round(dims.profundo_cm)} cm: usás ${drawn} de ${stock} en inventario`,
+        );
+      }
+    },
+    [inventarioItems],
+  );
+
+  const warnIfElementoOverStock = useCallback(
+    (nextItems, type) => {
+      if (!stagePlotItemIsElemento(type)) return;
+      const stockRow = findInventarioElementoRow(inventarioItems, type);
+      const stock = stockRow ? Number(stockRow.cantidad) || 0 : 0;
+      const drawn = (nextItems || []).filter((it) => String(it?.type) === String(type))
+        .length;
+      if (drawn > stock) {
+        const label = stockRow?.nombre || type;
+        toast.warning(
+          `${label}: usás ${drawn} de ${stock} en inventario`,
+        );
+      }
+    },
+    [inventarioItems],
+  );
+
+  const resolveCustomTarimaDimsCm = useCallback((ancho_cm, profundo_cm) => {
+    const rawW = Number(ancho_cm);
+    const rawD = Number(profundo_cm);
+    const w =
+      Number.isFinite(rawW) && rawW > 0
+        ? Math.min(800, Math.max(10, rawW))
+        : STAGE_PLOT_TARIMA_DEFAULT_WIDTH_CM;
+    const d =
+      Number.isFinite(rawD) && rawD > 0
+        ? Math.min(800, Math.max(10, rawD))
+        : STAGE_PLOT_TARIMA_DEFAULT_DEPTH_CM;
+    return { ancho_cm: w, profundo_cm: d };
+  }, []);
+
+  /** Inserta tarima con dims custom; x/y opcionales (centro con jitter si faltan). */
+  const insertTarimaFromInventario = useCallback(
+    ({ forma, type: typeOpt, ancho_cm, profundo_cm, x, y }) => {
+      if (!canEdit) return;
+      const type =
+        typeOpt && stagePlotItemIsTarima(typeOpt)
+          ? typeOpt
+          : forma === "oval"
+            ? "tarima_oval"
+            : "tarima_rect";
+      const formaResolved = type === "tarima_oval" ? "oval" : "rect";
+      const dims = resolveCustomTarimaDimsCm(ancho_cm, profundo_cm);
+      const stage = payloadRef.current.stage || {};
+      const sw = stage.width || 900;
+      const sh = stage.height || 560;
+      const z = zCounterRef.current++;
+      const sx = Math.max(
+        SCALE_MIN,
+        Math.min(
+          SCALE_MAX,
+          dims.ancho_cm / STAGE_PLOT_TARIMA_DEFAULT_WIDTH_CM,
+        ),
+      );
+      const sy = Math.max(
+        SCALE_MIN,
+        Math.min(
+          SCALE_MAX,
+          dims.profundo_cm / STAGE_PLOT_TARIMA_DEFAULT_DEPTH_CM,
+        ),
+      );
+      const hasXY =
+        Number.isFinite(Number(x)) && Number.isFinite(Number(y));
+      const cx = hasXY
+        ? Math.min(sw - 8, Math.max(8, Number(x)))
+        : sw / 2 + (Math.random() * 40 - 20);
+      const cy = hasXY
+        ? Math.min(sh - 8, Math.max(8, Number(y)))
+        : sh / 2 + (Math.random() * 40 - 20);
+      const item = createStagePlotItem(type, cx, cy, z, {
+        scaleX: sx,
+        scaleY: sy,
+        scale: (sx + sy) / 2,
+      });
+      commitPayload((prev) => {
+        const nextItems = [...prev.items, item];
+        queueMicrotask(() =>
+          warnIfTarimaOverStock(nextItems, {
+            forma: formaResolved,
+            ancho_cm: dims.ancho_cm,
+            profundo_cm: dims.profundo_cm,
+          }),
+        );
+        return { ...prev, items: nextItems };
+      });
+      setSelectedIds([item.id]);
+      setSelectedFormationId(null);
+    },
+    [canEdit, commitPayload, resolveCustomTarimaDimsCm, warnIfTarimaOverStock],
+  );
+
+  const openTarimaSizeModal = useCallback((it) => {
+    if (!it?.type || !stagePlotItemIsTarima(it.type)) return;
+    setTarimaSizeModal({
+      type: it.type,
+      name: it.name || getStagePlotCatalogItem(it.type)?.name || "Tarima",
+      ancho_cm: String(STAGE_PLOT_TARIMA_DEFAULT_WIDTH_CM),
+      profundo_cm: String(STAGE_PLOT_TARIMA_DEFAULT_DEPTH_CM),
+    });
+  }, []);
+
+  const confirmTarimaSizeModal = useCallback(() => {
+    if (!tarimaSizeModal) return;
+    const { type, ancho_cm, profundo_cm } = tarimaSizeModal;
+    setTarimaSizeModal(null);
+    insertTarimaFromInventario({
+      type,
+      forma: type === "tarima_oval" ? "oval" : "rect",
+      ancho_cm,
+      profundo_cm,
+    });
+  }, [tarimaSizeModal, insertTarimaFromInventario]);
+
   const addFromPaletteAt = useCallback(
     (type, x, y) => {
       if (!canEdit || !type) return;
@@ -3678,11 +4638,26 @@ export default function ProgramStagePlot({
       const cy = Math.min(sh - 8, Math.max(8, Number(y) || sh / 2));
       const z = zCounterRef.current++;
       const item = createStagePlotItem(type, cx, cy, z, { items, stage });
-      commitPayload((prev) => ({ ...prev, items: [...prev.items, item] }));
+      commitPayload((prev) => {
+        const nextItems = [...prev.items, item];
+        if (stagePlotItemIsTarima(type)) {
+          const dims = stagePlotTarimaDimensionsCm(item);
+          queueMicrotask(() =>
+            warnIfTarimaOverStock(nextItems, {
+              forma: type === "tarima_oval" ? "oval" : "rect",
+              ancho_cm: dims.widthCm,
+              profundo_cm: dims.depthCm,
+            }),
+          );
+        } else if (stagePlotItemIsElemento(type)) {
+          queueMicrotask(() => warnIfElementoOverStock(nextItems, type));
+        }
+        return { ...prev, items: nextItems };
+      });
       setSelectedIds([item.id]);
       setSelectedFormationId(null);
     },
-    [canEdit, commitPayload],
+    [canEdit, commitPayload, warnIfTarimaOverStock, warnIfElementoOverStock],
   );
 
   const addFromPalette = (type) => {
@@ -3699,6 +4674,11 @@ export default function ProgramStagePlot({
     if (!canEdit || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+    // Tarimas: modal de tamaño (clic); sin drag-from-palette (incómodo con modal).
+    if (stagePlotItemIsTarima(it.type)) {
+      openTarimaSizeModal(it);
+      return;
+    }
     const type = it.type;
     const startX = e.clientX;
     const startY = e.clientY;
@@ -3872,6 +4852,9 @@ export default function ProgramStagePlot({
         selectedIds: nextSel,
         canUngroup,
         formationId: formationExists ? slotParsed.formationId : null,
+        canAddAtril: stagePlotSelectionCanAddAtril(selItems),
+        canAddSharedAtril: stagePlotSelectionCanAddSharedAtril(selItems),
+        canAddPairAndAtril: STAGE_PLOT_STRING_PAIR_TYPES.has(item.type),
         x: nativeEvt?.clientX ?? 0,
         y: nativeEvt?.clientY ?? 0,
       });
@@ -3956,64 +4939,36 @@ export default function ProgramStagePlot({
     [canEdit, commitPayload],
   );
 
-  const insertOrganicoPair = useCallback(
-    (row) => {
-      if (!canEdit) return;
-      const type = pickOrganicoRowCatalogType(row);
-      if (!type || !STAGE_PLOT_STRING_PAIR_TYPES.has(type)) return;
-      const stage = payloadRef.current.stage || {};
-      const positions = computeOrganicoInsertPositions(
-        1,
-        stage,
-        organicoRowIndex(row.key),
-      );
-      const center = positions[0] || {
-        x: (stage.width || 900) / 2,
-        y: (stage.height || 560) / 2,
-      };
-      const z = zCounterRef.current;
-      zCounterRef.current = z + 2;
-      let memberIds = [];
-      commitPayload((prev) => {
-        const next = insertStagePlotStringPair(
-          prev,
-          type,
-          center.x,
-          center.y,
-          z,
-        );
-        const g = (next.groups || [])[next.groups.length - 1];
-        memberIds = g?.itemIds || [];
-        return next;
-      });
-      setSelectedFormationId(null);
-      setSelectedIds(memberIds);
-    },
-    [canEdit, commitPayload],
-  );
-
-  const insertStringPairAt = useCallback(
-    (type, x, y) => {
-      if (!canEdit || !STAGE_PLOT_STRING_PAIR_TYPES.has(type)) return;
-      const stage = payloadRef.current.stage || {};
-      const sw = stage.width || 900;
-      const sh = stage.height || 560;
-      const cx = Math.min(sw - 8, Math.max(8, Number(x) || sw / 2));
-      const cy = Math.min(sh - 8, Math.max(8, Number(y) || sh / 2));
-      const z = zCounterRef.current;
-      zCounterRef.current = z + 2;
-      let memberIds = [];
-      commitPayload((prev) => {
-        const next = insertStagePlotStringPair(prev, type, cx, cy, z);
-        const g = (next.groups || [])[next.groups.length - 1];
-        memberIds = g?.itemIds || [];
-        return next;
-      });
-      setSelectedFormationId(null);
-      setSelectedIds(memberIds);
-    },
-    [canEdit, commitPayload],
-  );
+  /** Par + atril compartido del tipo del ítem bajo el menú contextual, cerca de él. */
+  const addPairAndAtrilNearContextItem = useCallback(() => {
+    const menu = itemContextMenu;
+    const type = menu?.type;
+    if (!canEdit || !type || !STAGE_PLOT_STRING_PAIR_TYPES.has(type)) return;
+    const anchor =
+      payloadRef.current.items.find((it) => it.id === menu.itemId) ||
+      payloadRef.current.items.find((it) => it.type === type);
+    const stage = payloadRef.current.stage || {};
+    const sw = stage.width || 900;
+    const sh = stage.height || 560;
+    const offsetPx = 70 * STAGE_PLOT_CM_TO_PX; // ~70 cm a la derecha del ancla
+    const cx = Math.min(
+      sw - 8,
+      Math.max(8, (anchor?.x ?? sw / 2) + offsetPx),
+    );
+    const cy = Math.min(sh - 8, Math.max(8, anchor?.y ?? sh / 2));
+    const z = zCounterRef.current;
+    zCounterRef.current = z + 3;
+    let selectIds = [];
+    commitPayload((prev) => {
+      const { payload: next, memberIds, atrilId } =
+        insertStagePlotStringPairWithSharedAtril(prev, type, cx, cy, z);
+      selectIds = atrilId ? [...memberIds, atrilId] : memberIds;
+      return next;
+    });
+    setSelectedFormationId(null);
+    setSelectedIds(selectIds);
+    closeItemContextMenu();
+  }, [canEdit, commitPayload, closeItemContextMenu, itemContextMenu]);
 
   const unifyScaleOfType = useCallback(
     (type, referenceScale) => {
@@ -4050,6 +5005,71 @@ export default function ProgramStagePlot({
     const ids = selectedIdsRef.current;
     if (ids.length < 2) return;
     commitPayload((prev) => alignStagePlotItems(prev, ids));
+    closeItemContextMenu();
+  }, [commitPayload, closeItemContextMenu]);
+
+  const addAtrilForSelection = useCallback(() => {
+    const ids = selectedIdsRef.current;
+    const items = payloadRef.current.items.filter((it) => ids.includes(it.id));
+    if (!stagePlotSelectionCanAddAtril(items)) return;
+    const anchor = items[0];
+    const conductor = resolveStagePlotConductorPoint(
+      payloadRef.current.items,
+      payloadRef.current.stage,
+    );
+    const placement = computeSatelliteAtrilPlacement(
+      anchor.x,
+      anchor.y,
+      conductor.x,
+      conductor.y,
+    );
+    const z = zCounterRef.current++;
+    const atril = createStagePlotItem(
+      "music_stand",
+      placement.x,
+      placement.y,
+      z,
+      { rotation: placement.rotationDeg },
+    );
+    commitPayload((prev) => ({
+      ...prev,
+      items: [...prev.items, atril],
+    }));
+    setSelectedFormationId(null);
+    setSelectedIds([atril.id]);
+    closeItemContextMenu();
+  }, [commitPayload, closeItemContextMenu]);
+
+  const addSharedAtrilForSelection = useCallback(() => {
+    const ids = selectedIdsRef.current;
+    const items = payloadRef.current.items.filter((it) => ids.includes(it.id));
+    if (!stagePlotSelectionCanAddSharedAtril(items)) return;
+    const cx = (items[0].x + items[1].x) / 2;
+    const cy = (items[0].y + items[1].y) / 2;
+    const conductor = resolveStagePlotConductorPoint(
+      payloadRef.current.items,
+      payloadRef.current.stage,
+    );
+    const placement = computeSatelliteAtrilPlacement(
+      cx,
+      cy,
+      conductor.x,
+      conductor.y,
+    );
+    const z = zCounterRef.current++;
+    const atril = createStagePlotItem(
+      "music_stand",
+      placement.x,
+      placement.y,
+      z,
+      { rotation: placement.rotationDeg },
+    );
+    commitPayload((prev) => ({
+      ...prev,
+      items: [...prev.items, atril],
+    }));
+    setSelectedFormationId(null);
+    setSelectedIds([atril.id]);
     closeItemContextMenu();
   }, [commitPayload, closeItemContextMenu]);
 
@@ -4301,6 +5321,7 @@ export default function ProgramStagePlot({
       const it = next[i];
       if (!movedPositions.has(it.id)) continue;
       if (it.type === "conductor") continue;
+      if (stagePlotItemIsTarima(it.type)) continue;
       const slot = findNearestFreeSlot(
         it.x,
         it.y,
@@ -4311,24 +5332,12 @@ export default function ProgramStagePlot({
         STAGE_PLOT_SLOT_SNAP_PX,
       );
       if (slot) {
-        // Magnetizar: posición + slotId; huella rota base (−Y) hacia director
-        // (no slot.rotation — evita torsión tangente en arco).
-        const facing = resolveFormationFacingPoint(next, stage);
+        // Magnetizar: solo posición + slotId. Sin auto-rotación.
         next[i] = {
           ...it,
           x: slot.x,
           y: slot.y,
           slotId: slot.slotId,
-          ...(stagePlotItemHasInstrumentFootprint(it.type)
-            ? {
-                rotation: rotationInstrumentBaseFacingPoint(
-                  slot.x,
-                  slot.y,
-                  facing.x,
-                  facing.y,
-                ),
-              }
-            : {}),
         };
       }
     }
@@ -4641,21 +5650,25 @@ export default function ProgramStagePlot({
     );
   }, [selectedItems, viewport, canvasSize.w, canvasSize.h]);
 
-  const handleExportPdf = async () => {
-    try {
-      await exportStagePlotPdf(program, payload, nombre || undefined);
-    } catch (err) {
-      console.error(err);
-      toast.error("No se pudo generar el PDF");
-    }
-  };
+  const handleExportPdf = () => setExportModal({ kind: "pdf" });
+  const handleExportJpg = () => setExportModal({ kind: "jpg" });
 
-  const handleExportJpg = async () => {
+  const handleConfirmExport = async (stagePatch) => {
+    const exportPayload = applyStagePlotStagePatch(payload, stagePatch);
     try {
-      await exportStagePlotJpg(program, payload, nombre || undefined);
+      if (exportModal?.kind === "pdf") {
+        await exportStagePlotPdf(program, exportPayload, nombre || undefined);
+      } else {
+        await exportStagePlotJpg(program, exportPayload, nombre || undefined);
+      }
     } catch (err) {
       console.error(err);
-      toast.error("No se pudo generar el JPG");
+      toast.error(
+        exportModal?.kind === "pdf"
+          ? "No se pudo generar el PDF"
+          : "No se pudo generar el JPG",
+      );
+      throw err;
     }
   };
 
@@ -4676,27 +5689,67 @@ export default function ProgramStagePlot({
     );
   }
 
+  const showMobileEntry =
+    isNarrowViewport &&
+    !mobileUi &&
+    !forceDesktopChrome &&
+    canEdit;
+
+  if (showMobileEntry) {
+    return (
+      <StagePlotMobileEntryCard
+        canEdit={canEdit}
+        onOpenMobile={openMobileEditor}
+        onUseDesktop={() => {
+          setForceDesktopChrome(true);
+          setMobileDismissed(true);
+          setMobileUi(false);
+        }}
+      />
+    );
+  }
+
   const sw = payload.stage.width;
   const sh = payload.stage.height;
   const sortedItems = [...payload.items].sort(
     (a, b) => (a.z ?? 0) - (b.z ?? 0),
   );
+  const tarimaItems = sortedItems.filter((it) =>
+    stagePlotItemIsTarima(it.type),
+  );
+  const nonTarimaItems = sortedItems.filter(
+    (it) => !stagePlotItemIsTarima(it.type),
+  );
   const formationIdSet = new Set(
     (payload.formations || []).map((f) => String(f.id)),
   );
-  const portalMenuZ = fullscreen ? STAGE_PLOT_OVERLAY_Z : 110;
-  const portalTooltipZ = fullscreen ? STAGE_PLOT_OVERLAY_TOOLTIP_Z : 110;
-  const portalDragZ = fullscreen ? STAGE_PLOT_OVERLAY_DRAG_Z : 200;
+  const portalMenuZ = immersive ? STAGE_PLOT_OVERLAY_Z : 110;
+  const portalTooltipZ = immersive ? STAGE_PLOT_OVERLAY_TOOLTIP_Z : 110;
+  const portalDragZ = immersive ? STAGE_PLOT_OVERLAY_DRAG_Z : 200;
+  const activePlotLabel =
+    plotsMeta.find((p) => p.id === activePlotId)?.nombre?.trim() ||
+    nombre?.trim() ||
+    "";
 
   return (
     <div
       className={`flex min-h-0 w-full flex-col ${
-        fullscreen
-          ? `fixed inset-0 h-screen bg-white`
-          : "h-full bg-slate-100"
+        immersive ? `fixed inset-0 h-screen bg-white` : "h-full bg-slate-100"
       }`}
-      style={fullscreen ? { zIndex: STAGE_PLOT_FULLSCREEN_Z } : undefined}
+      style={immersive ? { zIndex: STAGE_PLOT_FULLSCREEN_Z } : undefined}
+      data-stage-plot-mobile={mobileUi ? "1" : undefined}
     >
+      {mobileUi ? (
+        <StagePlotMobileTopBar
+          syncClassName={syncDot}
+          plotLabel={activePlotLabel}
+          zoomPct={Math.round(viewport.scale * 100)}
+          onZoomIn={() => zoomByFactor(ZOOM_FACTOR)}
+          onZoomOut={() => zoomByFactor(1 / ZOOM_FACTOR)}
+          onFit={resetZoom}
+          onClose={closeMobileEditor}
+        />
+      ) : (
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           {!fullscreen && !embedded && (
@@ -4862,6 +5915,17 @@ export default function ProgramStagePlot({
           >
             Zoom {Math.round(viewport.scale * 100)}%
           </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={openMobileEditor}
+              className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              title="Editor móvil simplificado (pantalla completa)"
+            >
+              <IconMaximize size={14} />
+              Editor móvil
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setFullscreen((f) => !f)}
@@ -4922,8 +5986,9 @@ export default function ProgramStagePlot({
           )}
         </div>
       </div>
+      )}
 
-      {assocOpen && canEdit && (
+      {assocOpen && canEdit && !mobileUi && (
         <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-3 py-2">
           <div className="grid gap-3 md:grid-cols-2">
             <div>
@@ -5011,6 +6076,16 @@ export default function ProgramStagePlot({
         </div>
       )}
 
+      <StagePlotExportOptionsModal
+        open={!!exportModal}
+        kind={exportModal?.kind || "pdf"}
+        stage={payload.stage}
+        plotNombre={nombre}
+        zIndex={immersive ? STAGE_PLOT_OVERLAY_Z : 100}
+        onClose={() => setExportModal(null)}
+        onConfirm={handleConfirmExport}
+      />
+
       <StagePlotImportModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
@@ -5041,97 +6116,155 @@ export default function ProgramStagePlot({
       />
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        {/* Palette */}
-        <aside className="max-h-40 shrink-0 overflow-y-auto border-b border-slate-200 bg-white p-2 lg:max-h-none lg:w-52 lg:border-b-0 lg:border-r">
-          <p className="mb-1 px-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
-            Paleta
-          </p>
-          {canEdit && (
-            <p className="mb-2 px-1 text-[10px] leading-snug text-slate-400">
-              Arrastrá al escenario (o clic = centro)
-            </p>
-          )}
-          {canEdit && (
-            <div className="mb-3">
-              <p className="mb-1 flex items-center gap-1 px-1 text-[11px] font-bold text-slate-600">
-                <IconLayers size={12} /> Formaciones
+        {/* Left: Paleta | Editor */}
+        {!mobileUi && (
+        <aside
+          className={`max-h-40 shrink-0 overflow-y-auto border-b border-slate-200 bg-white p-2 lg:max-h-none lg:border-b-0 lg:border-r ${
+            leftPanel === "instrumentos" ? "lg:w-64" : "lg:w-56"
+          }`}
+        >
+          <div className="mb-2 flex rounded-md border border-slate-200 bg-slate-50 p-0.5">
+            <button
+              type="button"
+              onClick={() => setLeftPanel("palette")}
+              className={`flex-1 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+                leftPanel === "palette"
+                  ? "bg-white text-slate-800 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              Paleta
+            </button>
+            <button
+              type="button"
+              onClick={() => setLeftPanel("instrumentos")}
+              className={`inline-flex flex-1 items-center justify-center gap-0.5 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+                leftPanel === "instrumentos"
+                  ? "bg-white text-slate-800 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+              title="Editor: tipo, tamaño insert e ícono SVG de instrumentos"
+            >
+              <IconPencil size={11} /> Editor
+            </button>
+          </div>
+
+          {leftPanel === "instrumentos" ? (
+            <StagePlotInstrumentsPanel
+              supabase={supabase}
+              canEdit={canEdit}
+              onInstrumentsChange={setInstrumentosRows}
+            />
+          ) : (
+            <>
+              <p className="mb-1 px-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                Paleta
               </p>
-              <div className="flex flex-wrap gap-1">
-                {(
-                  Object.entries(STAGE_PLOT_FORMATIONATION_LABELS)
-                ).map(([kind, label]) => (
-                  <button
-                    key={kind}
-                    type="button"
-                    onClick={() => addFormation(kind)}
-                    title={`Agregar formación: ${label}`}
-                    className="inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-1 text-[10px] font-medium text-indigo-800 hover:bg-indigo-100"
-                  >
-                    <IconPlus size={11} /> {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {categories.map(({ category, items }) => (
-            <div key={category} className="mb-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setPaletteCat((c) => (c === category ? null : category))
-                }
-                className="mb-1 w-full px-1 text-left text-[11px] font-bold text-slate-600"
-              >
-                {category}
-              </button>
-              {(paletteCat === null || paletteCat === category) && (
-                <div className="flex flex-wrap gap-1">
-                  {items.map((it) => (
-                    <div key={it.type} className="inline-flex flex-col gap-0.5">
-                      <button
-                        type="button"
-                        disabled={!canEdit}
-                        onPointerDown={(e) => startPalettePointerDrag(e, it)}
-                        title={`${it.name} — arrastrar al escenario`}
-                        className="inline-flex cursor-grab touch-none items-center gap-1.5 rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        <PaletteIcon type={it.type} color={it.color} />
-                        {it.name}
-                      </button>
-                      {canEdit && STAGE_PLOT_STRING_PAIR_TYPES.has(it.type) && (
+              {canEdit && (
+                <p className="mb-2 px-1 text-[10px] leading-snug text-slate-400">
+                  Arrastrá al escenario (o clic = centro). Tarimas: clic =
+                  tamaño.
+                </p>
+              )}
+              {canEdit && (
+                <div className="mb-3">
+                  <p className="mb-1 flex items-center gap-1 px-1 text-[11px] font-bold text-slate-600">
+                    <IconLayers size={12} /> Formaciones
+                  </p>
+                  <div className="flex flex-col gap-0.5">
+                    {Object.entries(STAGE_PLOT_FORMATIONATION_LABELS).map(
+                      ([kind, label]) => (
                         <button
+                          key={kind}
                           type="button"
-                          onClick={() => {
-                            const sw = payload.stage.width || 900;
-                            const sh = payload.stage.height || 560;
-                            insertStringPairAt(
-                              it.type,
-                              sw / 2 + (Math.random() * 40 - 20),
-                              sh / 2 + (Math.random() * 40 - 20),
-                            );
-                          }}
-                          title={`Par de ${it.name} — atril compartido a 40 cm del director`}
-                          className="rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[9px] font-semibold text-violet-800 hover:bg-violet-100"
+                          onClick={() => addFormation(kind)}
+                          title={`Agregar formación: ${label}`}
+                          className="flex w-full items-center gap-2 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-1.5 text-left text-[10px] font-medium text-indigo-800 hover:bg-indigo-100"
                         >
-                          Par
+                          <FormationPaletteIcon kind={kind} size={18} />
+                          <span>{label}</span>
                         </button>
-                      )}
-                    </div>
-                  ))}
+                      ),
+                    )}
+                  </div>
                 </div>
               )}
-            </div>
-          ))}
-          {!canEdit && (
-            <p className="mt-2 px-1 text-[10px] text-slate-400">Solo lectura</p>
+              {categories.map(({ category, items }) => (
+                <div key={category} className="mb-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPaletteCat((c) => (c === category ? null : category))
+                    }
+                    className="mb-1 w-full px-1 text-left text-[11px] font-bold text-slate-600"
+                  >
+                    {category}
+                  </button>
+                  {(paletteCat === null || paletteCat === category) && (
+                    <div className="flex flex-wrap gap-1">
+                      {items.map((it) => (
+                        <button
+                          key={it.type}
+                          type="button"
+                          disabled={!canEdit}
+                          onPointerDown={(e) =>
+                            startPalettePointerDrag(e, it)
+                          }
+                          title={
+                            stagePlotItemIsTarima(it.type)
+                              ? `${it.name} — clic = tamaño inicial`
+                              : `${it.name} — arrastrar al escenario`
+                          }
+                          className="inline-flex cursor-grab touch-none items-center gap-1.5 rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <PaletteIcon type={it.type} color={it.color} />
+                          {it.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {paletteInstrumentsSinIcono.length > 0 && (
+                <div className="mb-2">
+                  <p className="mb-1 px-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    Instrumentos sin ícono
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {paletteInstrumentsSinIcono.map((row) => (
+                      <span
+                        key={row.id}
+                        title={
+                          row.stage_plot_type
+                            ? `${row.instrumento || row.id} — tipo sin visual (asigná SVG en Editor)`
+                            : `${row.instrumento || row.id} — sin tipo de escenario`
+                        }
+                        className="inline-flex items-center gap-1 rounded border border-dashed border-slate-200 bg-slate-50/80 px-1.5 py-1 text-[10px] font-medium text-slate-500"
+                      >
+                        <IconMusic size={11} className="shrink-0 text-slate-400" />
+                        {row.instrumento || row.id}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!canEdit && (
+                <p className="mt-2 px-1 text-[10px] text-slate-400">
+                  Solo lectura
+                </p>
+              )}
+            </>
           )}
         </aside>
+        )}
 
         {/* Canvas */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div
             ref={stageWrapRef}
             className={`relative min-h-[280px] flex-1 overflow-hidden bg-slate-200/60 ${
+              mobileUi ? "touch-none" : ""
+            } ${
               paletteDrag ? "ring-2 ring-inset ring-indigo-400" : ""
             } ${
               isPanning
@@ -5147,13 +6280,15 @@ export default function ProgramStagePlot({
                         : ""
             }`}
           >
+            {!mobileUi && (
             <p className="pointer-events-none absolute bottom-2 left-2 z-10 rounded bg-white/80 px-1.5 py-0.5 text-[10px] text-slate-500">
               {paletteDrag
                 ? "Soltá para colocar"
                 : canEdit && canvasTool === STAGE_PLOT_TOOL_MOVE
-                  ? "Mover: arrastrá ítems/formaciones · Espacio / rueda central = vista · Rueda = zoom · V = seleccionar · M = mover"
-                  : "Seleccionar: clic / arrastrar vacío = marquee · seleccionado = arrastrar para mover · Espacio / rueda central = vista · Rueda = zoom · Supr = borrar · V/M = herramientas · Ctrl/⌘/Shift = multi"}
+                  ? "Mover: arrastrá ítems/formaciones · Espacio / rueda central / trackpad = vista · Pinch o Ctrl/⌘+rueda = zoom · V = seleccionar · M = mover"
+                  : "Seleccionar: clic / arrastrar vacío = marquee · seleccionado = arrastrar para mover · Espacio / rueda central / trackpad = vista · Pinch o Ctrl/⌘+rueda = zoom · Supr = borrar · V/M = herramientas · Ctrl/⌘/Shift = multi"}
             </p>
+            )}
 
             {selectedItems.length > 0 && canEdit && floatingToolbarPos && (
               <div
@@ -5234,6 +6369,42 @@ export default function ProgramStagePlot({
               </div>
             )}
 
+            {mobileUi &&
+              selectedFormation &&
+              canEdit &&
+              !selectedItems.length && (
+                <div
+                  className="pointer-events-auto absolute bottom-20 left-1/2 z-[30] flex -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-lg"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    title="Copiar formación"
+                    onClick={() => duplicateSelectedFormation(false)}
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 active:bg-indigo-50 active:text-indigo-700"
+                  >
+                    <IconCopy size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    title="Eliminar formación"
+                    onClick={deleteSelectedFormation}
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 active:bg-red-50 active:text-red-600"
+                  >
+                    <IconTrash size={18} />
+                  </button>
+                </div>
+              )}
+
+            {mobileUi && canEdit && (
+              <StagePlotMobileAddFab
+                onClick={() => setMobileAddOpen(true)}
+                disabled={false}
+              />
+            )}
+
+            <div className="no-dark-invert">
             <Stage
               ref={konvaStageRef}
               width={canvasSize.w}
@@ -5253,10 +6424,22 @@ export default function ProgramStagePlot({
                 const spacePan =
                   spaceHeldRef.current && nativeEvt.button === 0;
                 // Pan: Espacio+arrastre o botón central. Marquee solo en Seleccionar.
-                const shouldPan = middlePan || spacePan;
+                // Móvil: arrastre en vacío = pan (+ deselección).
+                const mobileEmptyPan =
+                  mobileUiRef.current &&
+                  !interactive &&
+                  nativeEvt.button === 0 &&
+                  !paletteDrag;
+                const shouldPan = middlePan || spacePan || mobileEmptyPan;
 
                 if (shouldPan) {
                   if (middlePan) nativeEvt.preventDefault();
+                  if (mobileEmptyPan) {
+                    setSelectedIds([]);
+                    selectedIdsRef.current = [];
+                    setSelectedFormationId(null);
+                    selectedFormationIdRef.current = null;
+                  }
                   startStagePan(nativeEvt.clientX, nativeEvt.clientY);
                   return;
                 }
@@ -5297,14 +6480,26 @@ export default function ProgramStagePlot({
                   y={0}
                   width={sw}
                   height={sh}
-                  fill="#f8fafc"
-                  stroke="#cbd5e1"
+                  fill={
+                    isForcedDark
+                      ? STAGE_PLOT_BG_FILL_NIGHT
+                      : STAGE_PLOT_BG_FILL
+                  }
+                  stroke={
+                    isForcedDark
+                      ? STAGE_PLOT_BG_STROKE_NIGHT
+                      : STAGE_PLOT_BG_STROKE
+                  }
                   shadowColor="rgba(15,23,42,0.12)"
                   shadowBlur={12}
                   shadowOffsetY={2}
                 />
                 {payload.stage.showGrid !== false && (
-                  <StageCentimeterGrid width={sw} height={sh} />
+                  <StageCentimeterGrid
+                    width={sw}
+                    height={sh}
+                    nightStage={isForcedDark}
+                  />
                 )}
                 {payload.stage.showRadial && (
                   <StageRadialGuide
@@ -5313,6 +6508,7 @@ export default function ProgramStagePlot({
                     items={payload.items}
                     stage={payload.stage}
                     originOverride={conductorDragOrigin}
+                    nightStage={isForcedDark}
                   />
                 )}
                 <Text
@@ -5352,6 +6548,35 @@ export default function ProgramStagePlot({
                   dash={[6, 4]}
                   listening={false}
                 />
+                {/* Tarimas detrás de formaciones e instrumentos */}
+                {tarimaItems.map((item) => (
+                  <ItemShape
+                    key={item.id}
+                    item={item}
+                    selected={selectedIdSet.has(item.id)}
+                    magnetized={false}
+                    hideChairSquares={!!payload.stage.hideChairSquares}
+                    draggable={itemIsDraggable(item.id)}
+                    viewportScale={viewportScale}
+                    nightStage={isForcedDark}
+                    shapeRef={(node) => {
+                      if (node) itemNodeRefs.current.set(item.id, node);
+                      else itemNodeRefs.current.delete(item.id);
+                    }}
+                    onSelect={handleSelectItem}
+                    onContextMenu={handleItemContextMenu}
+                    onDblClick={focusLabelEditor}
+                    onMouseEnter={showItemHoverTooltip}
+                    onMouseLeave={hideItemHoverTooltip}
+                    onMouseMove={moveItemHoverTooltip}
+                    onWrapCursor={setStageWrapCursor}
+                    onWrapCursorClear={clearStageWrapCursor}
+                    onDragStart={handleItemDragStart}
+                    onDragMove={handleItemDragMove}
+                    onDragEnd={handleItemDragEnd}
+                    onTransformEnd={handleItemTransformEnd}
+                  />
+                ))}
                 {!payload.stage.hideFormationGuides &&
                   renderFormations.map((fm) => (
                   <FormationShape
@@ -5391,7 +6616,7 @@ export default function ProgramStagePlot({
                 {sharedAlignGroup && (
                   <AlignLineGuide group={sharedAlignGroup} />
                 )}
-                {sortedItems.map((item) => {
+                {nonTarimaItems.map((item) => {
                   const slotParsed = parseSlotId(item.slotId);
                   const magnetized = Boolean(
                     slotParsed && formationIdSet.has(slotParsed.formationId),
@@ -5404,6 +6629,8 @@ export default function ProgramStagePlot({
                     magnetized={magnetized}
                     hideChairSquares={!!payload.stage.hideChairSquares}
                     draggable={itemIsDraggable(item.id)}
+                    viewportScale={viewportScale}
+                    nightStage={isForcedDark}
                     shapeRef={(node) => {
                       if (node) itemNodeRefs.current.set(item.id, node);
                       else itemNodeRefs.current.delete(item.id);
@@ -5423,19 +6650,11 @@ export default function ProgramStagePlot({
                   />
                   );
                 })}
-                {satelliteAtrils.map((atril) => (
-                  <SatelliteAtrilShape
-                    key={atril.id}
-                    x={atril.x}
-                    y={atril.y}
-                    rotationDeg={atril.rotationDeg}
-                  />
-                ))}
                 {canEdit && (
                   <Transformer
                     ref={transformerRef}
                     rotateEnabled
-                    keepRatio
+                    keepRatio={!tarimaSelectedOnly}
                     anchorSize={transformerAnchorSize}
                     anchorCornerRadius={transformerAnchorCornerRadius}
                     anchorStrokeWidth={transformerAnchorStrokeWidth}
@@ -5446,12 +6665,25 @@ export default function ProgramStagePlot({
                     anchorFill="#fff"
                     borderStroke="#4f46e5"
                     anchorStyleFunc={transformerAnchorStyleFunc}
-                    enabledAnchors={[
-                      "top-left",
-                      "top-right",
-                      "bottom-left",
-                      "bottom-right",
-                    ]}
+                    enabledAnchors={
+                      tarimaSelectedOnly
+                        ? [
+                            "top-left",
+                            "top-right",
+                            "bottom-left",
+                            "bottom-right",
+                            "middle-left",
+                            "middle-right",
+                            "top-center",
+                            "bottom-center",
+                          ]
+                        : [
+                            "top-left",
+                            "top-right",
+                            "bottom-left",
+                            "bottom-right",
+                          ]
+                    }
                     boundBoxFunc={(oldBox, newBox) => {
                       if (newBox.width < 16 || newBox.height < 16) return oldBox;
                       return newBox;
@@ -5490,6 +6722,7 @@ export default function ProgramStagePlot({
                 )}
               </Layer>
             </Stage>
+            </div>
           </div>
 
           {paletteDrag && (
@@ -5521,6 +6754,9 @@ export default function ProgramStagePlot({
               onGroup={groupSelected}
               onUngroup={ungroupSelected}
               onAlignInLine={alignSelectedInLine}
+              onAddAtril={addAtrilForSelection}
+              onAddSharedAtril={addSharedAtrilForSelection}
+              onAddPairAndAtril={addPairAndAtrilNearContextItem}
               overlayZ={portalMenuZ}
             />
           )}
@@ -5546,6 +6782,7 @@ export default function ProgramStagePlot({
           )}
 
           {/* Altura fija siempre: evita que el lienzo salte al seleccionar (ResizeObserver/fitViewport). */}
+          {!mobileUi && (
           <div
             className={`flex shrink-0 items-center gap-2 overflow-x-auto border-t border-slate-200 bg-white px-3 ${
               selected?.type === "text" ? "min-h-14 py-1.5" : "h-11"
@@ -6134,26 +7371,28 @@ export default function ProgramStagePlot({
               </span>
             )}
           </div>
+          )}
         </div>
 
         {/* Channels / Orgánico */}
+        {!mobileUi && (
         <aside className="max-h-52 shrink-0 overflow-y-auto border-t border-slate-200 bg-white p-2 lg:max-h-none lg:w-64 lg:border-l lg:border-t-0">
           <div className="mb-2 flex rounded-md border border-slate-200 bg-slate-50 p-0.5">
             <button
               type="button"
               onClick={() => setRightPanel("channels")}
-              className={`flex-1 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+              className={`flex-1 rounded px-1 py-1 text-[9px] font-semibold uppercase tracking-wide ${
                 rightPanel === "channels"
                   ? "bg-white text-slate-800 shadow-sm"
                   : "text-slate-500 hover:text-slate-700"
               }`}
             >
-              Channel list
+              Channels
             </button>
             <button
               type="button"
               onClick={() => setRightPanel("organico")}
-              className={`flex-1 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+              className={`flex-1 rounded px-1 py-1 text-[9px] font-semibold uppercase tracking-wide ${
                 rightPanel === "organico"
                   ? "bg-white text-slate-800 shadow-sm"
                   : "text-slate-500 hover:text-slate-700"
@@ -6161,9 +7400,29 @@ export default function ProgramStagePlot({
             >
               Orgánico
             </button>
+            <button
+              type="button"
+              onClick={() => setRightPanel("inventario")}
+              className={`flex-1 rounded px-1 py-1 text-[9px] font-semibold uppercase tracking-wide ${
+                rightPanel === "inventario"
+                  ? "bg-white text-slate-800 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              Inventario
+            </button>
           </div>
 
-          {rightPanel === "channels" ? (
+          {rightPanel === "inventario" ? (
+            <StagePlotInventarioPanel
+              canEdit={canEdit}
+              userId={user?.id != null ? Number(user.id) : null}
+              furnitureSummary={furnitureSummary}
+              onInsertTarima={insertTarimaFromInventario}
+              onInsertElemento={(type) => addFromPalette(type)}
+              onInventoryChange={handleInventoryChange}
+            />
+          ) : rightPanel === "channels" ? (
             <>
               <div className="mb-2 flex items-center justify-between px-1">
                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
@@ -6351,36 +7610,20 @@ export default function ProgramStagePlot({
                           </td>
                           {canEdit && (
                             <td className="py-1 text-right">
-                              <div className="inline-flex flex-col items-end gap-0.5">
-                                <button
-                                  type="button"
-                                  disabled={missing <= 0}
-                                  title={
-                                    missing > 0
-                                      ? `Insertar ${missing} ${row.label} (esquina superior derecha)`
-                                      : "Ya coincide con el orgánico"
-                                  }
-                                  onClick={() => insertOrganicoRow(row)}
-                                  className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
-                                >
-                                  <IconPlus size={10} />
-                                  Insertar
-                                </button>
-                                {STAGE_PLOT_STRING_PAIR_TYPES.has(
-                                  pickOrganicoRowCatalogType(row) || "",
-                                ) && (
-                                  <button
-                                    type="button"
-                                    disabled={missing < 2}
-                                    title={`Par de ${row.label} con atril compartido (2 músicos + 1 atril)`}
-                                    onClick={() => insertOrganicoPair(row)}
-                                    className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-violet-700 hover:bg-violet-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
-                                  >
-                                    <IconPlus size={10} />
-                                    Insertar par
-                                  </button>
-                                )}
-                              </div>
+                              <button
+                                type="button"
+                                disabled={missing <= 0}
+                                title={
+                                  missing > 0
+                                    ? `Insertar ${missing} ${row.label} (esquina superior derecha)`
+                                    : "Ya coincide con el orgánico"
+                                }
+                                onClick={() => insertOrganicoRow(row)}
+                                className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+                              >
+                                <IconPlus size={10} />
+                                Insertar
+                              </button>
                             </td>
                           )}
                         </tr>
@@ -6407,6 +7650,9 @@ export default function ProgramStagePlot({
                       <th className="py-1 pr-1 text-right font-medium">
                         Org.
                       </th>
+                      <th className="py-1 pr-1 text-right font-medium">
+                        Inv.
+                      </th>
                       <th className="py-1 text-right font-medium">Δ</th>
                     </tr>
                   </thead>
@@ -6424,6 +7670,18 @@ export default function ProgramStagePlot({
                           : row.status === "missing"
                             ? "text-amber-700"
                             : "text-sky-700";
+                      const stock =
+                        row.key === "sillas"
+                          ? inventarioStock.silla
+                          : row.key === "banquetas"
+                            ? inventarioStock.banqueta
+                            : row.key === "atriles"
+                              ? inventarioStock.atril
+                              : null;
+                      const stockShort =
+                        stock != null &&
+                        Number.isFinite(Number(row.required)) &&
+                        stock < Number(row.required);
                       return (
                         <tr
                           key={row.key}
@@ -6433,7 +7691,16 @@ export default function ProgramStagePlot({
                               ? "1 silla × instrumentista (sin contrabajo ni percusión)"
                               : row.key === "banquetas"
                                 ? "Needed: contrabajos + percusionistas. Drawn: bass auto + banquetas manuales"
-                                : "1 atril × instr.; vn/va/vc/bass = ceil(n/2); pares = 1 atril compartido"
+                                : row.key === "atriles" || row.key.startsWith("atril")
+                                  ? "Solo atriles explícitos (paleta / menú contextual)"
+                                  : row.key === "tarimas" ||
+                                      row.key.startsWith("tarima")
+                                    ? row.shape === "oval"
+                                      ? "Tarimas ovales en el plano (visual; dims Ancho × Profundo)"
+                                      : row.shape === "rect"
+                                        ? "Tarimas rectangulares en el plano (visual; dims Ancho × Profundo)"
+                                        : "Tarimas en el plano (visual; dims Ancho × Profundo)"
+                                    : ""
                           }
                         >
                           <td className="py-1 pr-1 font-medium text-slate-700">
@@ -6446,6 +7713,15 @@ export default function ProgramStagePlot({
                             {row.required}
                           </td>
                           <td
+                            className={`py-1 pr-1 text-right font-mono ${
+                              stockShort
+                                ? "font-semibold text-amber-700"
+                                : "text-slate-500"
+                            }`}
+                          >
+                            {stock != null ? stock : "—"}
+                          </td>
+                          <td
                             className={`py-1 text-right font-mono font-semibold ${deltaClass}`}
                           >
                             {deltaLabel}
@@ -6456,16 +7732,50 @@ export default function ProgramStagePlot({
                   </tbody>
                 </table>
                 <p className="mt-1.5 px-1 text-[9px] leading-snug text-slate-400">
-                  Sillas: 1 × instrumentista (no bass/perc). Banquetas: bass
-                  auto + banqueta manual (perc). Atriles: pares compartidos +
-                  ceil(n/2) sueltos en vn/va/vc/bass; resto 1:1; + atriles
-                  manuales (paleta).
+                  Plano vs Orgánico (roster) + Inv. (stock global). Ámbar en
+                  Inv. = stock &lt; orgánico. Dibujar no descuenta inventario;
+                  toast si tarimas/elementos exceden stock.
                 </p>
               </div>
             </>
           )}
         </aside>
+        )}
       </div>
+      {tarimaSizeModal && (
+        <StagePlotTarimaSizeModal
+          open
+          title={tarimaSizeModal.name}
+          anchoCm={tarimaSizeModal.ancho_cm}
+          profundoCm={tarimaSizeModal.profundo_cm}
+          onAnchoChange={(v) =>
+            setTarimaSizeModal((m) => (m ? { ...m, ancho_cm: v } : m))
+          }
+          onProfundoChange={(v) =>
+            setTarimaSizeModal((m) => (m ? { ...m, profundo_cm: v } : m))
+          }
+          onCancel={() => setTarimaSizeModal(null)}
+          onConfirm={confirmTarimaSizeModal}
+          overlayZ={immersive ? STAGE_PLOT_OVERLAY_Z : 100}
+        />
+      )}
+      {mobileUi && (
+        <StagePlotMobileAddSheet
+          open={mobileAddOpen}
+          onClose={() => setMobileAddOpen(false)}
+          canEdit={canEdit}
+          onAddType={addFromPalette}
+          onAddFormation={addFormation}
+          onAddDirector={addOrFocusConductor}
+          onAddTarima={(type) =>
+            openTarimaSizeModal({
+              type,
+              name: getStagePlotCatalogItem(type)?.name,
+            })
+          }
+          overlayZ={STAGE_PLOT_OVERLAY_Z}
+        />
+      )}
       {newPlotDialog &&
         createPortal(
           <div

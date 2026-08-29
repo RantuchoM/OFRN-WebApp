@@ -1,9 +1,13 @@
 import { countsTowardInstrumentationConvoked } from "./instrumentation";
 import {
+  getStagePlotCatalogItem,
   stagePlotItemHasInstrumentFootprint,
+  stagePlotItemIsTarima,
   stagePlotItemUsesBanqueta,
+  stagePlotTarimaShape,
 } from "./stagePlotCatalog";
 import { countStagePlotDrawnAtriles } from "./stagePlotAtril";
+import { STAGE_PLOT_CM_TO_PX } from "./stagePlotConstants";
 
 /**
  * Filas de orgánico para comparar plano vs roster convocado.
@@ -72,13 +76,64 @@ export const STAGE_PLOT_ORGANICO_ROWS = [
     key: "timpani",
     label: "Timbales",
     types: ["timpani"],
+    idInstr: ["13a"],
     nameMatch: ["timbal"],
+  },
+  {
+    key: "marimba",
+    label: "Marimba",
+    types: ["marimba"],
+    idInstr: ["13b"],
+    nameMatch: ["marimba"],
+  },
+  {
+    key: "vibraphone",
+    label: "Vibráfono",
+    types: ["vibraphone"],
+    idInstr: ["13c"],
+    nameMatch: ["vibraf"],
+  },
+  {
+    key: "bass_drum",
+    label: "Bombo",
+    types: ["bass_drum"],
+    idInstr: ["13d"],
+    nameMatch: ["bombo"],
+  },
+  {
+    key: "snare",
+    label: "Caja",
+    types: ["snare"],
+    idInstr: ["13e"],
+    nameMatch: ["caja"],
+  },
+  {
+    key: "cymbals",
+    label: "Platillos",
+    types: ["cymbals"],
+    idInstr: ["13f"],
+    nameMatch: ["platillo"],
+  },
+  {
+    key: "xylophone",
+    label: "Xilófono",
+    types: ["xylophone"],
+    idInstr: ["13g"],
+    nameMatch: ["xilof"],
+  },
+  {
+    key: "tubular_bells",
+    label: "Campanas",
+    types: ["tubular_bells"],
+    idInstr: ["13h"],
+    nameMatch: ["campana"],
   },
   {
     key: "perc",
     label: "Percusión",
     types: ["perc"],
-    nameMatch: ["perc", "bombo", "platillo", "caja"],
+    idInstr: ["13"],
+    nameMatch: ["perc"],
   },
   {
     key: "keyboard",
@@ -100,6 +155,13 @@ export const STAGE_PLOT_SHARED_ATRIL_KEYS = new Set([
 export const STAGE_PLOT_BANQUETA_ORGANICO_KEYS = new Set([
   "bass",
   "timpani",
+  "marimba",
+  "vibraphone",
+  "bass_drum",
+  "snare",
+  "cymbals",
+  "xylophone",
+  "tubular_bells",
   "perc",
 ]);
 
@@ -224,11 +286,91 @@ export function atrilesFromOrganicoCounts(countsByKey = {}, extraOnes = 0) {
 }
 
 /**
+ * Dimensiones visibles de una tarima en cm (Ancho × Profundo).
+ * @param {{ type?: string, scale?: number, scaleX?: number, scaleY?: number }} item
+ * @returns {{ widthCm: number, depthCm: number, label: string }}
+ */
+export function stagePlotTarimaDimensionsCm(item) {
+  const cat = getStagePlotCatalogItem(item?.type);
+  const baseW = cat?.w || 800;
+  const baseH = cat?.h || 400;
+  const sx =
+    Number.isFinite(Number(item?.scaleX)) && Number(item.scaleX) > 0
+      ? Number(item.scaleX)
+      : item?.scale > 0
+        ? Number(item.scale)
+        : 1;
+  const sy =
+    Number.isFinite(Number(item?.scaleY)) && Number(item.scaleY) > 0
+      ? Number(item.scaleY)
+      : item?.scale > 0
+        ? Number(item.scale)
+        : 1;
+  const widthCm = Math.round((baseW * sx) / STAGE_PLOT_CM_TO_PX);
+  const depthCm = Math.round((baseH * sy) / STAGE_PLOT_CM_TO_PX);
+  return {
+    widthCm,
+    depthCm,
+    label: `${widthCm} × ${depthCm} cm`,
+  };
+}
+
+/**
+ * Resumen de tarimas: conteo + agrupado por forma (rect/oval) y dimensiones.
+ * `tarima_rect` / legacy `riser` → rect; `tarima_oval` → oval.
+ * @param {Array} items
+ * @returns {{
+ *   count: number,
+ *   rectCount: number,
+ *   ovalCount: number,
+ *   groups: Array<{ key: string, shape: 'rect'|'oval', label: string, count: number, widthCm: number, depthCm: number }>
+ * }}
+ */
+export function summarizeStagePlotTarimas(items = []) {
+  /** @type {Map<string, { key: string, shape: 'rect'|'oval', label: string, count: number, widthCm: number, depthCm: number }>} */
+  const byShapeSize = new Map();
+  let count = 0;
+  let rectCount = 0;
+  let ovalCount = 0;
+  for (const it of items) {
+    if (!stagePlotItemIsTarima(it?.type)) continue;
+    count += 1;
+    const shape = stagePlotTarimaShape(it.type);
+    if (shape === "oval") ovalCount += 1;
+    else rectCount += 1;
+    const dims = stagePlotTarimaDimensionsCm(it);
+    const key = `${shape}-${dims.widthCm}x${dims.depthCm}`;
+    const prev = byShapeSize.get(key);
+    if (prev) prev.count += 1;
+    else {
+      byShapeSize.set(key, {
+        key,
+        shape,
+        label: dims.label,
+        count: 1,
+        widthCm: dims.widthCm,
+        depthCm: dims.depthCm,
+      });
+    }
+  }
+  const shapeOrder = (s) => (s === "oval" ? 1 : 0);
+  const groups = [...byShapeSize.values()].sort(
+    (a, b) =>
+      shapeOrder(a.shape) - shapeOrder(b.shape) ||
+      b.count - a.count ||
+      a.widthCm - b.widthCm ||
+      a.depthCm - b.depthCm,
+  );
+  return { count, rectCount, ovalCount, groups };
+}
+
+/**
  * Mobiliario + atriles: needed (roster) vs drawn (plano).
  * - Sillas: 1 × instrumentista que no es contrabajo ni percusión.
  * - Banquetas needed: #contrabajo + #percusionistas.
  * - Banquetas drawn: ítems `bass` (auto) + ítems `banqueta` (manual perc).
- * - Atriles: 1/instr salvo vn/va/vc/bass = ceil(n/2); drawn desde huellas.
+ * - Atriles drawn: solo ítems `music_stand` explícitos.
+ * - Tarimas: conteo por forma (rect/oval) + dims (solo visual; sin «needed»).
  *
  * @param {Array} items
  * @param {Array} roster
@@ -278,10 +420,6 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
   let sillasDrawn = 0;
   let banquetasDrawnBass = 0;
   let banquetasDrawnManual = 0;
-  const drawnBuckets = Object.fromEntries(
-    STAGE_PLOT_ORGANICO_ROWS.map((r) => [r.key, 0]),
-  );
-  let atrilExtraDrawn = 0;
 
   for (const it of items) {
     const type = it?.type;
@@ -293,15 +431,12 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
     if (!stagePlotItemHasInstrumentFootprint(type)) continue;
 
     if (!stagePlotItemUsesBanqueta(type)) sillasDrawn += 1;
-
-    const key = TYPE_TO_KEY.get(type);
-    if (key) drawnBuckets[key] += 1;
-    else atrilExtraDrawn += 1;
   }
 
   const banquetasDrawn = banquetasDrawnBass + banquetasDrawnManual;
   const atrilesNeeded = atrilesFromOrganicoCounts(atrilBuckets, atrilExtraNeeded);
   const atrilesDrawn = countStagePlotDrawnAtriles(items, groups);
+  const tarimas = summarizeStagePlotTarimas(items);
 
   const row = (key, label, drawn, required) => {
     const delta = drawn - required;
@@ -315,15 +450,54 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
     };
   };
 
+  const furnitureRows = [
+    row("sillas", "Sillas", sillasDrawn, sillasNeeded),
+    row("banquetas", "Banquetas", banquetasDrawn, banquetasNeeded),
+    row("atriles", "Atriles", atrilesDrawn, atrilesNeeded),
+  ];
+
+  // Tarimas: after sillas/banquetas/atriles; no «needed» — headers por forma + dims.
+  /** @type {Array<{ shape: 'rect'|'oval', label: string, count: number }>} */
+  const tarimaShapeSections = [
+    { shape: "rect", label: "Tarimas rect.", count: tarimas.rectCount },
+    { shape: "oval", label: "Tarimas oval", count: tarimas.ovalCount },
+  ];
+  const tarimaRows = [];
+  for (const sec of tarimaShapeSections) {
+    if (sec.count <= 0) continue;
+    tarimaRows.push({
+      key: `tarimas-${sec.shape}`,
+      label: sec.label,
+      drawn: sec.count,
+      required: "—",
+      delta: 0,
+      status: "ok",
+      kind: "tarimas_header",
+      shape: sec.shape,
+    });
+    for (const g of tarimas.groups) {
+      if (g.shape !== sec.shape) continue;
+      tarimaRows.push({
+        key: `tarima-${g.key}`,
+        label: `  · ${g.label}`,
+        drawn: g.count,
+        required: "—",
+        delta: 0,
+        status: "ok",
+        kind: "tarima_size",
+        shape: g.shape,
+        widthCm: g.widthCm,
+        depthCm: g.depthCm,
+      });
+    }
+  }
+
   return {
     sillas: row("sillas", "Sillas", sillasDrawn, sillasNeeded),
     banquetas: row("banquetas", "Banquetas", banquetasDrawn, banquetasNeeded),
     atriles: row("atriles", "Atriles", atrilesDrawn, atrilesNeeded),
-    rows: [
-      row("sillas", "Sillas", sillasDrawn, sillasNeeded),
-      row("banquetas", "Banquetas", banquetasDrawn, banquetasNeeded),
-      row("atriles", "Atriles", atrilesDrawn, atrilesNeeded),
-    ],
+    tarimas,
+    rows: [...furnitureRows, ...tarimaRows],
   };
 }
 

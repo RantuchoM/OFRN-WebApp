@@ -117,90 +117,13 @@ export function getStringPairMemberItemIds(payload) {
 }
 
 /**
- * Lista de atriles satélite derivados para canvas/PDF.
- * @param {ReturnType<typeof import('./stagePlotPayload').normalizeStagePlotPayload>} payload
- * @param {{ x: number, y: number }|null} [conductorOverride]
- * @param {Record<string, { x: number, y: number }>|Map<string, { x: number, y: number }>|null} [livePositions]
- * @returns {Array<{ id: string, x: number, y: number, rotationDeg: number, kind: 'single'|'pair', parentIds: string[] }>}
+ * Lista de atriles satélite derivados.
+ * @deprecated Auto-atriles desactivados: los atriles son ítems `music_stand` explícitos
+ * (menú contextual / paleta). Conservado por si se necesita recalcular colocación.
+ * @returns {[]}
  */
-export function collectStagePlotSatelliteAtrils(
-  payload,
-  conductorOverride,
-  livePositions = null,
-) {
-  const items = payload.items || [];
-  const groups = payload.groups || [];
-  const live =
-    livePositions instanceof Map
-      ? livePositions
-      : livePositions && typeof livePositions === "object"
-        ? new Map(Object.entries(livePositions))
-        : null;
-  const resolveItem = (it) => {
-    if (!it) return it;
-    const p = live?.get(it.id);
-    if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
-      return { ...it, x: p.x, y: p.y };
-    }
-    return it;
-  };
-  const conductor = resolveStagePlotConductorPoint(
-    items,
-    payload.stage || {},
-    conductorOverride,
-  );
-  const pairedIds = getStringPairMemberItemIds(payload);
-  const atrils = [];
-  const usedPairGroups = new Set();
-
-  for (const g of groups) {
-    if (g.kind !== "string_pair" || usedPairGroups.has(g.id)) continue;
-    const members = (g.itemIds || [])
-      .map((id) => resolveItem(items.find((it) => it.id === id)))
-      .filter(Boolean);
-    if (members.length < 2) continue;
-    usedPairGroups.add(g.id);
-    const cx =
-      members.reduce((s, it) => s + it.x, 0) / members.length;
-    const cy =
-      members.reduce((s, it) => s + it.y, 0) / members.length;
-    const placement = computeSatelliteAtrilPlacement(
-      cx,
-      cy,
-      conductor.x,
-      conductor.y,
-    );
-    atrils.push({
-      id: `pair-atril-${g.id}`,
-      x: placement.x,
-      y: placement.y,
-      rotationDeg: placement.rotationDeg,
-      kind: "pair",
-      parentIds: members.map((m) => m.id),
-    });
-  }
-
-  for (const item of items) {
-    if (!stagePlotItemHasInstrumentFootprint(item.type)) continue;
-    if (pairedIds.has(item.id)) continue;
-    const liveItem = resolveItem(item);
-    const placement = computeSatelliteAtrilPlacement(
-      liveItem.x,
-      liveItem.y,
-      conductor.x,
-      conductor.y,
-    );
-    atrils.push({
-      id: `atril-${item.id}`,
-      x: placement.x,
-      y: placement.y,
-      rotationDeg: placement.rotationDeg,
-      kind: "single",
-      parentIds: [item.id],
-    });
-  }
-
-  return atrils;
+export function collectStagePlotSatelliteAtrils() {
+  return [];
 }
 
 /** @param {number} [atrilPx] */
@@ -213,44 +136,14 @@ export function stagePlotSatelliteAtrilDrawMm(atrilPx) {
 }
 
 /**
- * Cuenta atriles dibujados: pares compartidos + ceil(singles/2) cuerdas + 1:1 resto + atriles manuales.
+ * Cuenta atriles dibujados: solo ítems explícitos `music_stand` (paleta / menú contextual).
  * @param {Array} items
- * @param {Array} groups
+ * @param {Array} [_groups] legacy; ignorado
  */
-export function countStagePlotDrawnAtriles(items = [], groups = []) {
+export function countStagePlotDrawnAtriles(items = [], _groups = []) {
   let count = 0;
-  const pairedIds = new Set();
-
-  for (const g of groups) {
-    if (g.kind === "string_pair" && (g.itemIds || []).length >= 2) {
-      count += 1;
-      for (const id of g.itemIds) pairedIds.add(id);
-    }
-  }
-
-  const stringBuckets = Object.fromEntries(
-    [...SHARED_ATRIL_ORGANICO_KEYS].map((k) => [k, 0]),
-  );
-  let nonString = 0;
-
   for (const it of items) {
-    if (it.type === "music_stand") {
-      count += 1;
-      continue;
-    }
-    if (!stagePlotItemHasInstrumentFootprint(it.type)) continue;
-    if (pairedIds.has(it.id)) continue;
-    const key = TYPE_TO_ORGANICO_KEY.get(it.type);
-    if (key && SHARED_ATRIL_ORGANICO_KEYS.has(key)) {
-      stringBuckets[key] += 1;
-    } else {
-      nonString += 1;
-    }
-  }
-
-  count += nonString;
-  for (const key of SHARED_ATRIL_ORGANICO_KEYS) {
-    count += Math.ceil((stringBuckets[key] || 0) / 2);
+    if (it.type === "music_stand") count += 1;
   }
   return count;
 }
@@ -258,4 +151,23 @@ export function countStagePlotDrawnAtriles(items = [], groups = []) {
 /** @param {string} type */
 export function stagePlotTypeSupportsStringPair(type) {
   return STAGE_PLOT_STRING_PAIR_TYPES.has(type);
+}
+
+/**
+ * ¿Selección admite «Agregar atril» (1 instrumento con huella)?
+ * @param {Array} items
+ */
+export function stagePlotSelectionCanAddAtril(items = []) {
+  return (
+    items.length === 1 && stagePlotItemHasInstrumentFootprint(items[0]?.type)
+  );
+}
+
+/**
+ * ¿Selección admite «Agregar atril compartido» (2 cuerdas)?
+ * @param {Array} items
+ */
+export function stagePlotSelectionCanAddSharedAtril(items = []) {
+  if (items.length !== 2) return false;
+  return items.every((it) => STAGE_PLOT_STRING_PAIR_TYPES.has(it?.type));
 }

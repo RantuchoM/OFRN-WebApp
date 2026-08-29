@@ -53,12 +53,12 @@ Se eliminó el fondo cuadrado negro del pack original y se usa `currentColor` pa
 | trumpet.svg | Delapouite | trumpet |
 | trombone.svg | Caro Asercion | trombone |
 | tuba.svg | Delapouite | tuba |
-| drum-kit.svg | Caro Asercion | timpani *(closest; no hay kettle drums en el pack)* |
-| drum.svg | Delapouite | perc, snare *(compartido)* |
-| djembe.svg | Delapouite | bass_drum *(closest)* |
-| gong.svg | Delapouite | cymbals *(closest; no hay cymbals en el pack)* |
-| xylophone.svg | Delapouite | xylophone |
-| ringing-bell.svg | Lorc | tubular_bells *(closest)* |
+| drum-kit.svg | Caro Asercion | *(reserva; timpani → OFRN `timpani.svg`)* |
+| drum.svg | Delapouite | *(reserva; perc/snare → OFRN)* |
+| djembe.svg | Delapouite | *(reserva; bass_drum → OFRN)* |
+| gong.svg | Delapouite | *(reserva; cymbals → OFRN)* |
+| xylophone.svg | Delapouite | *(reserva; xylophone → OFRN `xylophone-ofrn.svg`)* |
+| ringing-bell.svg | Lorc | *(reserva; tubular_bells → OFRN)* |
 | grand-piano.svg | Caro Asercion | piano |
 | keyboard.svg | Delapouite (`musical-keyboard`) | celesta |
 | microphone.svg | Delapouite | mic |
@@ -83,6 +83,24 @@ Formato de atribución sugerido por game-icons.net:
 | music-stand.svg | **OFRN original** (geometría propia; plato `#1e293b` + patas `#64748b`) — esquema mínimo: rectángulo horizontal + tres palitos a **120°** desde el centro (uno vertical arriba, dos diagonales abajo) | `music_stand` (paleta Escenario «Atril») |
 
 No hay equivalente usable en game-icons; se dibujó a propósito para leerse a ~22 px en paleta y ~50×50 cm en lienzo. Colores fijos (no `currentColor`) para legibilidad en miniatura.
+
+## OFRN original — percusión (ids `13` / `13a`–`13h`)
+
+Siluetas geométricas vista cenital (`currentColor`), seed en `instrumentos.svg_icon` + fallback estático. Migración `20260829020843_instrumentos_percusion_variants`.
+
+| Archivo | Tipo | `instrumentos.id` |
+|---------|------|-------------------|
+| timpani.svg | timpani | 13a Timbales |
+| marimba.svg | marimba | 13b Marimba |
+| vibraphone.svg | vibraphone | 13c Vibráfono |
+| bass-drum.svg | bass_drum | 13d Bombo |
+| snare.svg | snare | 13e Caja |
+| cymbals.svg | cymbals | 13f Platillos |
+| xylophone-ofrn.svg | xylophone | 13g Xilófono |
+| tubular-bells.svg | tubular_bells | 13h Campanas tubulares |
+| perc.svg | perc | 13 Percusión (genérico; ya existía) |
+
+Los SVG game-icons `drum-kit` / `drum` / `djembe` / `gong` / `xylophone` / `ringing-bell` quedan en la carpeta como reserva histórica; el catálogo apunta a los OFRN de arriba.
 
 ## Paths propios (fallback)
 

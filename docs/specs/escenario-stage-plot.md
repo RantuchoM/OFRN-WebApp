@@ -25,13 +25,27 @@
 - **Menor**: cada 10 cm (40 px lógicos @ 4 px/cm).
 - **Mayor**: cada 50 cm (200 px); cada 5ª línea menor.
 - Trazos con `strokeScaleEnabled={false}` para que sigan visibles al hacer zoom out.
+- **Contraste día / night** (Stage `.no-dark-invert`; semántica 10/50 cm sin cambio):
+  - Día: mayor `#64748b` @ 0.9 · menor `#cbd5e1` @ 0.55 (`STAGE_PLOT_GRID_*_STROKE`).
+  - Night (`html.dark`): mayor `#cbd5e1` @ 0.9 · menor `#94a3b8` @ 0.55 (`*_NIGHT`) sobre piso `#1e293b`.
+  - Radial: día `#8b5cf6` · night `#c4b5fd` (`STAGE_PLOT_RADIAL_STROKE[_NIGHT]`).
+  - PDF/JPG de export siguen en fondo claro (sin variante night).
 
 ## Vista (pan / zoom)
 
-- **Zoom**: rueda del mouse sobre el lienzo (`viewport.scale`, ancla al cursor); `userZoomedRef` evita re-fit al redimensionar.
-- **Pan**: **Espacio** + arrastre en cualquier punto del lienzo; **botón central** del mouse. (El arrastre en vacío ya no pannea: es marquee **solo en herramienta Seleccionar**.)
+- **Zoom**: pinch del trackpad (Chromium lo entrega como `wheel` + `ctrlKey`) o **Ctrl/⌘ + rueda** sobre el lienzo (`viewport.scale`, ancla al cursor); `userZoomedRef` evita re-fit al redimensionar. Helper: `applyStagePlotWheelToViewport` / `isStagePlotViewportZoomWheel` en `stagePlotViewportGestures.js`.
+- **Pan**: **Espacio** + arrastre; **botón central**; **scroll paralelo de trackpad** / rueda sin modificador (`deltaX`/`deltaY` sin `ctrlKey`/`metaKey` → offset `viewport.x`/`y`). (El arrastre en vacío ya no pannea: es marquee **solo en herramienta Seleccionar**.)
+- Sobre el lienzo el `wheel` hace `preventDefault` para no scrollear la página.
 - Cursor `grab` / `grabbing` con Espacio pulsado o mientras se pannea; `default` en Seleccionar; `move` en Mover; `crosshair` durante marquee. Sobre **asas** (Transformer, formación, plazas libres): cursor de resize (`ew`/`ns`/`nwse`/`nesw`) o `grab`/`grabbing` según el asa; la asa gana sobre el cursor de herramienta vía `style.cursor` inline en el wrap del Stage.
 - **Ajustar vista** (reset zoom): botón toolbar; limpia `userZoomedRef`.
+
+## Modo nocturno forzado (OFRN)
+
+- La app aplica modo oscuro con `html.dark` + filtro CSS global `invert(…) hue-rotate(180deg)` (`src/index.css`). Eso invertiría también el bitmap Konva (íconos SVG, formaciones, guías).
+- **Excepción Escenario**: el `<Stage>` vive dentro de un wrapper `.no-dark-invert` (re-invertir) para que el contenido del lienzo conserve colores autorados.
+- El **piso** (`Rect` `stage-plot-bg`) sí se pinta oscuro en night: `STAGE_PLOT_BG_FILL_NIGHT` / `STROKE_NIGHT` cuando `html.dark`. Labels de dims de tarima usan `STAGE_PLOT_TARIMA_LABEL_FILL_NIGHT` sobre ese piso. La **cuadrícula** y la **radial** usan trazos más claros (`STAGE_PLOT_GRID_*_STROKE_NIGHT`, `STAGE_PLOT_RADIAL_STROKE_NIGHT`) para contraste sobre ese piso.
+- Chrome del editor (paneles, toolbar flotante, hint) sigue bajo el invert global; no se toca.
+- Export PDF/JPG no depende del tema de la UI (siempre fill claro de export).
 
 ## Herramientas Seleccionar / Mover
 
@@ -43,7 +57,8 @@ Toggle en la toolbar del editor (junto a Lienzo / Zoom), solo si `canEdit`. Esta
 | Arrastrar ítem / formación **no seleccionado(a)** | Solo selecciona (no mueve hasta el siguiente gesto) | Mueve sin pre-selección |
 | Arrastrar ítem / formación **ya seleccionado(a)** | Mueve (multi-move / formación + reanchor; un paso undo grupal) | Mueve (multi-move / formación + reanchor existentes) |
 | Arrastrar vacío | Marquee (rectángulo) | Sin marquee; clic vacío sin modificador **limpia** selección |
-| Espacio / rueda central | Pan (igual) | Pan (igual) |
+| Espacio / rueda central / trackpad scroll | Pan (igual) | Pan (igual) |
+| Pinch / Ctrl/⌘+rueda | Zoom (igual) | Zoom (igual) |
 | Asas Transformer / formación / plazas libres | Siguen editables si hay selección; cursor de asa al hover | Igual |
 | Flechas teclado | Nudge (sin cambio) | Nudge (sin cambio) |
 
@@ -59,15 +74,15 @@ Hint del canvas cambia según la herramienta activa.
 - **No inicia** sobre ítem, formación, asa de formación ni Transformer (`classifyStagePlotPointerTarget` → `interactive`).
 - En **Mover**, el vacío no inicia marquee (clic limpia selección si no hay modificador aditivo).
 - Mientras se arrastra (≥ ~4 px pantalla): rectángulo translúcido índigo en **coords de escenario** (`clientToStagePlotPoint` invierte el transform del Stage → correcto con pan/zoom).
-- **Criterio**: **intersección** AABB (no contención estricta).
-  - Ítems (incl. **director/conductor**): AABB del hit/visual box (huella / texto / catálogo) **con rotación**.
-  - Formaciones: AABB de la guía + plazas (pad ½ marcador), solo si `!hideFormationGuides`.
+- **Criterio**: **intersección** AABB (no contención estricta). Por defecto **todo** lo que intersecta es seleccionable:
+  - **Ítems** (todos los tipos): instrumentos, **tarimas** (`tarima_rect` / `tarima_oval` / `riser`), atriles/`music_stand`, texto, elementos de inventario, director/conductor, audio/marcas, etc. AABB del hit/visual box (huella / texto / catálogo / `scaleX`·`scaleY` en tarimas) **con rotación**.
+  - **Formaciones** (guías visibles, `!hideFormationGuides`): AABB canónica `getFormationBounds` (guía + tips/plazas + pad del recuadro gris), **siempre** evaluada junto a los ítems — no solo cuando el rect no toca ítems.
 - **Al soltar**:
-  1. Todos los **ítems** que intersectan → `selectedIds` (prioridad; el director cuenta como ítem).
-  2. Si **ningún** ítem y **al menos una** formación intersecta → `selectedFormationId` (modelo singular: si hay varias, la primera).
+  1. Todos los **ítems** que intersectan → `selectedIds` (unión si aditivo).
+  2. Todas las **formaciones** que intersectan → `selectedFormationId` = primera (modelo singular; si aditivo y la formación ya seleccionada sigue en el rect, se conserva). Ítems y formación pueden quedar seleccionados **a la vez** (igual que tras «copiar con instrumentos»: asas de formación; Transformer de ítems se omite mientras hay formación).
   3. Si nada intersecta (sin modificadores) → limpia selección.
 - **Modificadores** (igual que clic en ítem): **Ctrl / ⌘ / Shift** = aditivo (unión de ítems; no limpia al activar el marquee). Sin modificador: reemplaza selección al activar el drag (o limpia en clic sin drag).
-- **Pan** sigue con Espacio / botón central (no compite con el marquee).
+- **Pan** sigue con Espacio / botón central / scroll de trackpad (no compite con el marquee).
 - Hint (Seleccionar): «Seleccionar: clic / arrastrar vacío = marquee · seleccionado = arrastrar para mover · … · V/M = herramientas».
 
 ## Director (conductor)
@@ -89,13 +104,27 @@ Hint del canvas cambia según la herramienta activa.
 | `src/utils/stagePlotPdf.js` | Export PDF (hoja 1 escenario + dims; canales hoja 2) y JPG (solo escenario + dims) |
 | `src/utils/stagePlotConstants.js` | Escala cm↔px, grid, offset director, clamps |
 | `src/utils/stagePlotPayload.js` | Normalización `widthCm`/`heightCm`, `applyStagePlotStagePatch`, `pinStagePlotConductors` |
+| `src/utils/stagePlotGroups.js` | Geometría de alineación / distribución en formaciones |
+| `src/utils/stagePlotViewportGestures.js` | Distingue pan (scroll trackpad / rueda) vs zoom (pinch / Ctrl+rueda) |
 | `src/views/Giras/ProgramStagePlot.jsx` | Re-export → `ProgramStagePlotEditor.jsx` |
-| `src/views/Giras/ProgramStagePlotEditor.jsx` | Editor Konva multi-lienzo, Asociar, Imp/Exp |
+| `src/views/Giras/ProgramStagePlotEditor.jsx` | Editor Konva multi-lienzo, Asociar, Imp/Exp; panel izq. **Paleta** (Formaciones en lista vertical + íconos esquemáticos; categorías DB/catálogo + **Instrumentos sin ícono**) \| **Editor**; tarimas Escenario → modal tamaño inicial |
+| `src/views/Giras/StagePlotInstrumentsPanel.jsx` | Panel **Editor**: familia + tamaño + SVG; clave de ícono demoted; **Crear instrumento**; agrupado por familia + **Instrumentos sin ícono** |
 | `src/utils/stagePlotFormations.js` | Geometría de formaciones; defaults en cm→px |
 | `src/services/stagePlotService.js` | CRUD multi-plot, `stage_plot_eventos`, `resolveStagePlotForEvent` |
 | `src/utils/stagePlotTransfer.js` | Export/import JSON (`.ofrn-escenario.json`) |
 | `src/views/Giras/StagePlotImportModal.jsx` | Import archivo / otra gira + export JSON |
 | `src/views/Giras/StagePlotViewerModal.jsx` | Vista técnico solo lectura (toggles + PDF/JPG) |
+| `src/views/Giras/StagePlotVisibilityToggles.jsx` | 4 toggles Lienzo compartidos (técnico + export editor) |
+| `src/views/Giras/StagePlotExportOptionsModal.jsx` | Modal previo a PDF/JPG en el editor (overrides solo de descarga) |
+| `src/views/Giras/StagePlotMobileEditor.jsx` | Chrome móvil: top bar, FAB +, bottom sheet agregar, landing; hook `useStagePlotNarrowViewport` |
+
+## Editor móvil (ajustes mínimos)
+
+- **Entrada**: viewport `< 768px` + `canEdit` → autoabre editor móvil fullscreen (`fixed inset-0`, z como pantalla completa). Botón **Editor móvil** en toolbar escritorio. Al cerrar en angosto → landing «Abrir editor móvil» / «Usar vista de escritorio».
+- **Chrome**: sin paneles Paleta/Editor/Channels/Orgánico/Inventario ni barra inferior densa ni Lienzo/Asociar/tools V·M. Top bar: cerrar, sync, zoom − / fit% / +. FAB **+** → sheet (Escenario, Formaciones, instrumentos catálogo estático, Audio).
+- **Gestos**: herramienta fija **Mover** (tap = select; drag seleccionado = move; vacío = pan + deselect). Pinch zoom; botones zoom. Floating Copiar/Eliminar (ítems) + pill formación.
+- **Persistencia**: misma instancia `ProgramStagePlotEditor` (autosave / undo sin duplicar estado).
+- **Diferido**: resize/rotar con asas (siguen en desktop), Editor SVG, asociar bloques/eventos, Imp/Exp, inventario stock, marquee, formaciones con params, variantes DB de instrumentos.
 
 ## Modelo v2 — multi-lienzo por gira (implementado)
 
@@ -146,7 +175,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Feedback Lienzo al tocar min/max (hint + toast sonner)
 - [x] Cuadrícula en cm (10 / 50) con trazos legibles a todo zoom
 - [x] Pan del lienzo (Espacio / botón central; arrastre en vacío = marquee **solo en Seleccionar**)
-- [x] Selección marquee (rectángulo; intersección AABB; ítems prioritarios incl. director; formación si no hay ítems)
+- [x] Selección marquee (rectángulo; intersección AABB; **todos** los ítems + formaciones a la vez; tarimas/elementos incluidos; formación al envolver con o sin plazas/instrumentos)
 - [x] Herramientas **Seleccionar** / **Mover** (toolbar + V/M; marquee solo en select; drag en move o select si ya seleccionado; cursor hint + asas)
 - [x] Clic en formación (guía + plazas always-listening) y en director selecciona en ambas herramientas
 - [x] Lienzo UI en cm con límites
@@ -163,6 +192,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] «Ver escenario» técnico (agenda + FIMBA Espacios) con 4 toggles Lienzo + PDF/JPG
 - [x] Orgánico filtrado por bloques asociados (roster confirmado)
 - [x] Montaje en Seating (sub-tabs Disposición | Escenario)
+- [x] Modo nocturno: Stage `.no-dark-invert` + piso `STAGE_PLOT_BG_FILL_NIGHT` + grilla/radial `*_STROKE_NIGHT` (contenido sin invertir)
 - [x] Migración `stage_plots` v1 + deploy linked
 - [x] Menú Gira: Disposición + Escenario bajo Repertorio
 - [x] Exportar / Reportes unificado (dropdown en Disposición)
@@ -172,16 +202,15 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Tamaño default 40 cm al colocar ítems nuevos
 - [x] Asas Transformer / formación: tamaño constante en pantalla (~7 px); Transformer en px pantalla (sin /zoom); formaciones compensan `viewport.scale`
 - [x] Asas de formación seleccionada por encima de instrumentos (z-order + hit: Layer al final + `moveToTop`)
-- [x] Tooltip de ítems: nombre + tamaño real en cm (`bounds × scale / STAGE_PLOT_CM_TO_PX`); formato `W × H cm` o `≈ N cm` si cuadrado.
+- [x] Tooltip de ítems: nombre + tamaño real en cm (`bounds × scale / STAGE_PLOT_CM_TO_PX`); siempre ambas dims `W × H cm` (también cuadrados 50×50); tarimas `Ancho W × Profundo D cm` (`scaleX`/`scaleY`).
 - [x] Formaciones reescaladas al lienzo cm + ítems ~40 cm (defaults ~3–3.6 m; marcador 15 cm, snap 20 cm)
 - [x] Copiar formación / copiar formación con instrumentos (barra + menú contextual; +40 cm; undo)
-- [x] Huella instrumento 50×50 cm + icono contain en 50×50 + atril 35 cm en borde frontal (canvas + PDF/JPG; hit = huella; scale default 1; layout `stagePlotInstrumentFootprintLayout`)
-- [x] Huella 50×50 **invisible** (sin stroke/fill); atril + icono visibles; hit/Transformer = huella
-- [x] Atril stand-alone: `music-stand.svg` OFRN (plato + 3 palitos 120°) + marca frontal alineada en huellas
-- [x] Migración one-shot `stage.instrumentFootprintMigrated`: scales pre-huella ≫ 1 → 1 (evita ítems 2–5× inflados sobre la huella física)
-- [x] Orientación default base hacia director al crear/magnetizar (`rotationInstrumentBaseFacingPoint`); sin `slot.rotation` en ítems
-- [x] Mobiliario orgánico: sillas / banquetas (bass auto + `banqueta` manual) / atriles ceil(n/2) vn·va·vc·bass
-- [x] Catálogo `banqueta` + silueta; locaciones `escenario_ancho_cm`/`escenario_profundo_cm` + picker
+- [x] Huella instrumento 50×50 cm + icono contain; atril **opcional** (menú / paleta), no auto
+- [x] Orientación default **rotation=0** (sin auto hacia director)
+- [x] Mobiliario orgánico: sillas / banquetas / atriles (`music_stand`) / tarimas por forma (rect|oval) + dims
+- [x] Catálogo `banqueta` + `tarima_rect`/`tarima_oval` (gris oscuro) + atril paleta
+- [x] Menú contextual: Agregar atril / Agregar atril compartido / Agregar par y atril (vn/va/vc/bass)
+- [x] SVG + tamaño insert en `instrumentos` (Escenario panel izquierdo **Editor** + Datos → Instrumentos)
 - [x] Magnetizado: ya no pinta el rect de huella (invisible); hit/slotId sin cambio
 - [x] Formaciones visibles (`stage.hideFormationGuides`; toggle **Formaciones** ON = guías visibles en popover Lienzo)
 - [x] Recuadros visibles (`stage.hideChairSquares`; toggle **Recuadros** — legacy; huella de instrumento no depende de él)
@@ -189,17 +218,19 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Texto: solo tipografía (sin TT/notes) + formato enriquecido limitado (negrita, cursiva, tamaño, color, alineación; PDF)
 - [x] Export PDF: hoja 1 solo escenario + dims Ancho/Profundo; channel list en hoja 2 si hay canales
 - [x] Export JPG: escenario sin channels + dims Ancho/Profundo (`widthCm`/`heightCm`)
+- [x] Editor: modal de opciones PDF/JPG (`StagePlotExportOptionsModal`) con mismos 4 toggles que técnico (override solo descarga)
 - [x] Centrar formación en eje X del director (botón deshabilitado si ya centrada; snap magnético + histeresis al arrastrar)
 - [x] Formación **semi-arco** (ala–arco–ala, `wingLength`/`wingAngle` simétricos, asas tip_l/tip_r)
 - [x] Semi-arco: plazas laterales (`wingSlots`) + plazas en arco (`arcSlots`); fijo paramétrico por segmento; UI dual + migración desde `slots`
 - [x] Modos de plaza **fijo / libre / simétrico** (`slotMode` + `slotTs`; UI barra inferior)
 - [x] Flechas mueven formación seleccionada con reanchor (mismo path que drag; no demagnetiza `slotId`)
 - [x] Menú contextual de ítem: «Seleccionar formación» si magnetizado (`slotId` → formación existente)
-- [x] SVG en `instrumentos` (`svg_icon` + `stage_plot_type`) + seed 21 filas + guitarra papapishu (`21` / `guitar`) + bandoneón FreeSVG (`22b` / `bandoneon`)
+- [x] SVG en `instrumentos` (`svg_icon` + `stage_plot_type`) + seed 21 filas + guitarra papapishu (`21` / `guitar`) + bandoneón FreeSVG (`22b` / `bandoneon`) + percusión OFRN (`13` / `13a`–`13h`)
 - [x] Clic derecho en vacío del lienzo: abre menú de la selección actual (formación o ítems) sin deseleccionar
 - [x] Undo/redo de movimiento grupal = **una** entrada: multi-selección / grupo explícito / formación+reanchor; rafaga de flechas coalescida
 - [x] Recuadro gris de selección en formación + asas `box_*` (8) para **escala uniforme** (params lineales + traslación anclada); convive con asas paramétricas; undo en drag end + reanchor
 - [x] **Vista Venues** (`/management/venues`): locaciones con conciertos programados agrupadas; eventos con fecha, programa, grupos, estado venue; medidas de escenario de la locación; «Ver escenario» (`StagePlotViewerModal`) y enlace al editor Escenario de la gira
+- [x] **Editor móvil** simplificado (fullscreen; mover / + sheet / floating Copiar·Eliminar; pinch + zoom buttons; autosave compartido)
 
 
 ## Undo / redo (historial)
@@ -236,61 +267,130 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - Tipo catálogo `chair` (silla suelta) sigue disponible en paleta Escenario.
 
 
-## Huella de instrumento + atril satélite (50×50 / icono 50×50 / atril 29 cm @ 40 cm)
+## Huella de instrumento (50×50) — sin atril automático
 
-- Constantes (`stagePlotConstants.js` + `stagePlotAtril.js`):
+- Constantes (`stagePlotConstants.js`):
   - `STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM=50`, `DEPTH_CM=50` (cuadrado)
-  - `STAGE_PLOT_INSTRUMENT_ICON_BOX_CM=50` (caja del SVG/icono = huella)
-  - `STAGE_PLOT_ATRIL_DISTANCE_CM=40` — distancia del **centro del atril** hacia el director desde el centro del ítem (o midpoint del par)
-  - `STAGE_PLOT_ATRIL_LINE_CM=29` — ancho del plato (antes 35 cm en borde frontal)
-  - `STAGE_PLOT_ATRIL_SHAFT_CM=9.1`, `STAGE_PLOT_ATRIL_LEG_CM=10.5` — longitudes ×0.7 vs base 13/15 cm
-  - `STAGE_PLOT_ATRIL_PLATE_THICKNESS_CM=1.05` — grosor del plato ×1.4 (solo borde del atril; patas sin cambio de trazo)
-  - Orientación patas (local, tras rotación conductor→atril): **1** pata −Y (músico/upstage) + **2** patas hacia +Y (director/downstage, ±30°/150°)
-  - Rotación del plato: `atan2(atril − conductor) + 90°` (no usar conductor − ancla, evita invertir 180°)
-  - Helper `stagePlotInstrumentFootprintLayout()` → px @ `STAGE_PLOT_CM_TO_PX` (=4): huella 200×200, icono centrado
-  - Helper `stagePlotSatelliteAtrilGeometry()` → plato horizontal + 3 palitos 120° (mástil −Y hacia instrumento)
-  - Helper `computeSatelliteAtrilPlacement(anchorX, anchorY, conductorX, conductorY)` → `{ x, y, rotationDeg }` con plato **perpendicular** al rayo director→atril (`rotation = atan2(dy,dx) + 90°`)
-  - Helper `collectStagePlotSatelliteAtrils(payload)` → lista de atriles derivados para canvas/PDF
-- Aplica a categorías musicales (Cuerdas/Maderas/Metales/Percusión/Teclado) vía `stagePlotItemHasInstrumentFootprint`.
-- **Local:** ancho = X; profundo = Y; **+Y local** = cuello/mástil del SVG. **Orientación de ítems:** `rotationInstrumentBaseFacingPoint` → base (−Y) hacia director.
-- **Atril satélite:** ya **no** se dibuja dentro del Group del instrumento ni en el borde +Y de la huella. Se renderiza como entidad separada (`SatelliteAtrilShape` en editor; paso dedicado en PDF/JPG) en coords de escena, 40 cm hacia el director desde el centro del ítem.
-- **Hit / Transformer:** solo la huella 50×50 del instrumento. El atril satélite `listening={false}` y sigue en vivo (`liveItemPositions` durante drag).
-- **Icono:** `object-fit: contain` en caja 50×50; escala default = `1`.
-- **Dibujo:** rectángulo de huella invisible; icono + atril satélite visibles.
-- Legacy: flag `stage.instrumentFootprintMigrated` sin cambio.
-- Magnetizado: sin cambio de `slotId` / reanchor.
-- **Orientación del atril:** independiente de `item.rotation`; siempre hacia el director actual (o override en vivo al arrastrar director).
+  - `STAGE_PLOT_INSTRUMENT_ICON_BOX_CM=50`
+  - Helpers de atril (`stagePlotAtril.js` / `stagePlotSatelliteAtrilGeometry`) se conservan para **colocar** atriles manuales (orientación hacia director).
+- **Atriles automáticos / satélite derivados: eliminados.** Ya no se dibujan atriles al colocar instrumentos ni pares; `collectStagePlotSatelliteAtrils` → `[]`.
+- **Atril opcional (menú contextual clic derecho)** sobre selección:
+  - 1 instrumento con huella → **Agregar atril** (ítem `music_stand` a 40 cm hacia el director).
+  - 2 cuerdas (vn/va/vc/bass) → **Agregar atril compartido** (un `music_stand` en el midpoint + 40 cm hacia director).
+  - Ítem vn/va/vc/bass (tipo del ítem bajo el clic) → **Agregar par y atril** (par `string_pair` del mismo tipo + atril compartido ~70 cm a la derecha del ancla).
+- Paleta **Atril** (`music_stand`) sigue disponible para colocación manual.
+- Conteo orgánico **atriles drawn** = solo ítems `music_stand` (`countStagePlotDrawnAtriles`).
+- **Rotación de instrumentos:** default `rotation = 0` (upright). **Sin** auto-rotar en create / palette / orgánico / par / magnetize / reanchor. Solo rota el usuario con Transformer. `rotationInstrumentBaseFacingPoint` queda para marcadores de plaza / orientación de atril al agregar.
 
-### Pares de cuerdas con atril compartido (`string_pair`)
+### Pares de cuerdas (`string_pair`)
 
 - Tipos: `violin`, `viola`, `cello`, `bass`.
-- Payload grupo (`stagePlotGroups.js`):
-  ```json
-  { "id": "…", "kind": "string_pair", "instrumentType": "violin", "itemIds": ["id1", "id2"] }
-  ```
-  Ítems llevan `groupId` común. **Movilidad libre entre A y B:** arrastrar uno no mueve al otro (`kind: "string_pair"` no entra en el drag rígido). El atril satélite se recalcula al midpoint A–B + 40 cm hacia el director, en vivo durante el drag. Multi-selección de ambos sí mueve el conjunto.
-- Layout default (`insertStagePlotStringPair`): dos huellas separadas **50 cm** (`STAGE_PLOT_STRING_PAIR_SPACING_CM`) en tangente al rayo hacia director; base de cada una hacia director; atril en **midpoint** + 40 cm hacia director.
-- UI insert:
-  - Panel orgánico: botón **Insertar par** (vn/va/vc/bass; requiere Δ ≥ 2).
-  - Paleta Cuerdas: botón **Par** bajo cada tipo admitido.
-- Conteo orgánico atriles dibujados (`countStagePlotDrawnAtriles`): 1 por par + ceil(sueltos/2) por tipo cuerda + 1:1 resto + ítems `music_stand` manuales.
-- Atril stand-alone (`music_stand` en paleta): sigue colocable a mano (perc, etc.); no genera satélite derivado.
+- Layout: dos huellas separadas 50 cm; **rotación 0**; atril compartido solo si se pide explícitamente.
+- UI: **sin** botones Par / Insertar par en paleta ni panel Orgánico. Solo menú contextual **«Agregar par y atril»** sobre un ítem de cuerda (`insertStagePlotStringPairWithSharedAtril`).
+- «Agregar atril» / «Agregar atril compartido» se conservan para atriles sueltos sobre selección existente.
 
 
-## Mobiliario: sillas / banquetas / atriles (panel Orgánico)
+## Tarimas (`tarima_rect` / `tarima_oval` / `riser`)
 
-- **Sillas needed:** 1 × instrumentista convocado que no es contrabajo ni percusión.
-- **Sillas drawn:** ítems con huella que no son tipos banqueta (bass/perc familia catálogo).
-- **Banquetas needed:** `#contrabajo + #percusionistas` (timpani+perc + familia perc del roster).
-- **Banquetas drawn:** cada ítem `bass` cuenta **1 auto** + cada ítem paleta `banqueta` (manual, p.ej. perc). Los iconos de perc **no** implican banqueta.
-- Catálogo: tipo `banqueta` en Escenario (silueta propia).
-- Catálogo: tipo `music_stand` («Atril») en Escenario — SVG OFRN `public/stage-plot/icons/music-stand.svg` (plato `#1e293b` + patas `#64748b`; esquema rectángulo + 3 palitos 120°); cableado en `STAGE_PLOT_ICON_FILES`; silueta fallback alineada. **No** suma al conteo orgánico de atriles (ese conteo sigue siendo por ítems con huella / ceil(n/2) cuerdas).
-- **Atriles needed/drawn:**
-  - Default **1:1** por instrumentista / ítem con huella (contado vía `countStagePlotDrawnAtriles`).
-  - Excepción compartida **ceil(n/2)** para **violín, viola, cello y contrabajo** sueltos (no en par).
-  - **Pares** (`kind: string_pair`): **1 atril** por par en el conteo dibujado.
-  - Ítems paleta `music_stand`: +1 cada uno (manual; no satélite derivado).
-  - Helpers: `computeStagePlotFurnitureSummary` / `atrilesFromOrganicoCounts` / `countStagePlotDrawnAtriles` en `stagePlotOrganico.js` + `stagePlotAtril.js`.
+- Paleta Escenario: **Tarima rect.** / **Tarima oval** / **Escalera** (`riser`, icono stairs; label-only — type key estable) — **clic abre modal** de tamaño inicial (no drag-from-palette).
+- **Iconos paleta** (distintos): `tarima_rect` = `<rect rx>`; `tarima_oval` = `<ellipse>` (no fallback `rounded-sm` cuadrado). Markup en `stagePlotSilhouetteSvgMarkup` + paths en `stagePlotSilhouettes.js`; `PaletteIcon` las pinta sync (sin asset SVG estático).
+- **Lienzo Konva:** `tarima_oval` → `Ellipse`; `tarima_rect`/`riser` → `Rect` + `cornerRadius`. Hit invisible = `Rect` AABB.
+- **PDF/JPG:** `ctx.ellipse` / `doc.ellipse` vs rounded rect (`drawTarimaOnCanvas` / jsPDF fallback).
+- **Modal** (`StagePlotTarimaSizeModal`, portal `document.body`, `z-[100]` / overlay fullscreen): **Ancho cm** + **Profundo cm** (defaults **200×100**; vacío → mismos defaults; clamp 10–800). **Insertar** → coloca cerca del centro con `scaleX/Y` desde dims; **Cancelar** / Escape / backdrop → aborta. Comparte insert path con Inventario (`insertTarimaFromInventario` + warn stock si hay fila matching).
+- **Sin** bloque duplicado «Tarimas» (forma + inputs + Insertar) en el panel izquierdo Paleta — eliminado; solo Escenario + Inventario **+ Plano**.
+- Color **gris oscuro**: fill `#4b5563`, stroke `#1f2937`; medidas en **negro** `#111`.
+- Default **200 × 100 cm** (catálogo w/h @ scale 1 = cm × 4 px/cm); `scaleX`/`scaleY` independientes (Transformer sin keepRatio si solo tarimas).
+- **Z-order:** detrás de formaciones e instrumentos (canvas + PDF/JPG).
+- Dimensiones **siempre visibles fuera** de la forma (lienzo + PDF/JPG): **Ancho** centrado sobre el borde superior (`{W} cm`); **Profundo** centrado en el borde izquierdo, rotado −90° (`{D} cm`).
+- **Transformer / asas:** `Group.getClientRect` override devuelve el AABB local centrado del fill (`{-w/2,-h/2,w,h}`), no la unión de hijos. Motivo: Konva Transformer pide `skipTransform: true` y aplica luego el transform del Group; delegar al hit `Rect` con ese config ignoraba `offsetX/Y` (Rect no es `_centroid`) y dejaba el box desfasado; sin override, los Text de dims (`listening={false}`) también expandían el AABB. Asas en el borde real (AABB del oval / rect); números **fuera** del recuadro de selección. Válido con `scaleX≠scaleY` y rotación (el transform del Group aplica sobre ese local rect).
+- **Legibilidad editor (zoom):** `fontSizeLocal = max(TARGET, MIN / viewport.scale) / itemScale` con `TARGET=14`, `MIN=12` px pantalla → `screenPx ≈ max(14 × zoom, 12)`. Compensa `scaleX/Y` del ítem y zoom del viewport; al zoom out no bajan de ~12 px. PDF/JPG siguen con tamaño absoluto (sin compensación de viewport).
+- Solo visual: sin snap a plazas; instrumentos/formaciones encima libremente.
+- Orgánico / mobiliario: tras sillas/banquetas/atriles → secciones **Tarimas rect.** / **Tarimas oval** (conteo por forma; `riser` legacy cuenta como rect) + filas agrupadas por tamaño bajo cada forma (`· W × D cm`).
+
+
+## Mobiliario: sillas / banquetas / atriles / tarimas (panel Orgánico)
+
+- **Sillas / Banquetas:** sin cambio de reglas needed/drawn.
+- **Atriles needed:** sigue ceil(n/2) cuerdas + 1:1 resto (objetivo de roster).
+- **Atriles drawn:** solo `music_stand` explícitos.
+- **Tarimas:** solo drawn (sin needed); resumen **por forma** (rect vs oval) + dims (`summarizeStagePlotTarimas` → `stagePlotTarimaShape`).
+- **Inventario stock:** columna **Inv.** (stock global) junto a Plano / Org. / Δ. Ámbar si stock &lt; orgánico.
+
+
+## Inventario global de escenario (2026-08)
+
+Inventario **de orquesta** (no por gira). UI: Escenario → panel derecho tab **Inventario** (junto a Channel list / Orgánico).
+
+### Schema
+
+| Tabla | Rol |
+|-------|-----|
+| `elementos_escenario` | Props no-instrumento: `nombre`, `stage_plot_type` (slug único), `svg_icon`, `width_cm`/`height_cm`, `activo` |
+| `inventario_items` | Stock: `categoria` ∈ silla\|banqueta\|atril\|tarima\|elemento; tarimas = **1 fila por** (`forma`,`ancho_cm`,`profundo_cm`); FK `elemento_escenario_id`; `notas` (estado actual) |
+| `inventario_log` | Auditoría: `inventario_item_id`, `user_id` (integrante), `created_at`, `mensaje`, `cantidad_anterior`/`cantidad_nueva`, `payload` jsonb |
+
+Migraciones (linked OFRN): `20260828190606_inventario_escenario` + `20260828191841_inventario_tarima_seed_elemento_uidx`.
+
+Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial: 1 fila simple por categoría; 1 tarima por dims+forma; 1 stock por `elemento_escenario_id`. RLS authenticated/anon ALL (mismo patrón `stage_plots`).
+
+### Reglas UX
+
+- **Sillas / banquetas / atriles:** solo stock + notas + historial (no placeables desde Inventario).
+- **Tarimas:** CRUD por dimensión; **+ Plano** (Inventario) o paleta Escenario (modal tamaño) insertan con `scaleX/Y` desde W×D; toast warning si drawn &gt; stock; **no** auto-descuenta.
+- **Elementos:** alta nombre+slug+SVG+cm → `elementos_escenario` + fila stock; aparecen en paleta categoría **Elementos**; **+ Plano** / paleta insertan; toast si drawn &gt; stock.
+- Catálogo dinámico: `setStagePlotDynamicCatalogItems` + merge SVG/size en `stagePlotIconAssets` (vía `loadAndApplyElementosEscenario`).
+- Archivos: `src/services/stagePlotInventarioService.js`, `src/views/Giras/StagePlotInventarioPanel.jsx`.
+
+
+## Iconos SVG + tamaño insert en `instrumentos`
+
+- **Regla 1:1**: cada SVG de instrumento vive en una fila de `instrumentos` (`svg_icon` + clave `stage_plot_type`). Material de escenario sin instrumento → `elementos_escenario` / Inventario (no el Editor).
+- Columnas: `svg_icon`, `stage_plot_type` (slug interno de ícono/paleta, **no** taxonomía de usuario), **`stage_plot_width_cm`**, **`stage_plot_height_cm`** (migración `20260828185148` + backfill/DEFAULT `20260828190819`; todas las filas **50×50**; DEFAULT 50; NULL legacy también = 50 cm).
+- **Clasificación de usuario**: `instrumentos.familia` (FK `public.familia`). En Editor se agrupa y edita por familia.
+- **`stage_plot_type`**: clave de ícono en el plano (violin, bandoneon, …). Preferir única al crear; variantes pueden compartir (hoy `oboe` 06/06b, `clarinet` 07/07b, `bassoon` 08/08b). **Sin** UNIQUE constraint en DB (compartir es válido). Índice parcial existente `instrumentos_stage_plot_type_idx`.
+- **PK `id`**: `text` manual (ej. `01`, `06b`, `22c`) — no serial.
+- **Percusión variantes** (base **`13`** Percusión / `perc`): ids `13a`–`13h` con `stage_plot_type` únicos y SVG OFRN (`currentColor`, viewBox 64). Migración `20260829020843_instrumentos_percusion_variants` (linked).
+
+| id | Nombre | stage_plot_type |
+|----|--------|-----------------|
+| 13 | Percusión | perc |
+| 13a | Timbales | timpani |
+| 13b | Marimba | marimba |
+| 13c | Vibráfono | vibraphone |
+| 13d | Bombo | bass_drum |
+| 13e | Caja | snare |
+| 13f | Platillos | cymbals |
+| 13g | Xilófono | xylophone |
+| 13h | Campanas tubulares | tubular_bells |
+
+  Fallback estático: `public/stage-plot/icons/{timpani,marimba,vibraphone,bass-drum,snare,cymbals,xylophone-ofrn,tubular-bells,perc}.svg`. Orgánico: filas por tipo + `idInstr` 13/13a–h; banquetas para toda la familia.
+- **Editor accesible desde Escenario (primario) y Datos**:
+  - **Escenario → panel izquierdo → pestaña Editor** (`StagePlotInstrumentsPanel.jsx`): lista agrupada por **Familia**; sección **Instrumentos sin ícono**; thumbnail; edición Familia + tamaño + SVG; **Clave de ícono en el plano** en `<details>` (no «Tipo escenario»). Abajo: **Crear instrumento** (portal `z-[100]`: id, nombre, familia requerida, dims default 50, clave opcional/auto desde nombre si libre, SVG). Confirm SVG `z-[100]`. `createInstrumento` + `reloadStagePlotInstrumentIcons`.
+  - **Paleta**: categorías musicales desde DB (filas con ícono); resto Escenario/Audio/Marcas/Elementos; abajo **Instrumentos sin ícono** (no arrastrables).
+  - **Sin ícono** = sin `stage_plot_type` **o** clave sin visual. Helpers: `instrumentHasStagePlotIcon` / `partitionInstrumentosByStagePlotIcon` / `groupInstrumentosByFamilia`.
+  - **Datos → Instrumentos**: familia + **Clave de ícono (plano)** + tamaño + SVG.
+- Escenario: al crear ítem con huella, `scale = width_cm / 50` → **50 cm ⇒ scale 1**.
+- [x] Panel Editor + listado completo + sección sin ícono (Paleta y Editor)
+- [x] Familia como clasificación UI; `stage_plot_type` demoted a clave de ícono
+- [x] Crear instrumento desde Editor (insert linked `instrumentos`)
+
+
+## Completado (añadidos)
+
+- [x] Atriles opcionales vía menú contextual (sin auto-satélite); par+atril solo desde menú (no sidebars)
+- [x] Sin auto-rotación de instrumentos (rotation=0 salvo Transformer)
+- [x] `stage_plot_width_cm` / `stage_plot_height_cm` + editor Datos + apply on insert
+- [x] Editor Instrumentos en Escenario (panel izquierdo) con preview SVG + confirm de reemplazo
+- [x] Pestaña izquierda renombrada **Editor**; todas las filas `instrumentos` + sección **Instrumentos sin ícono** (Paleta y Editor)
+- [x] Tarimas rect/oval gris oscuro, dims fuera (ancho arriba / profundo izq. −90°, negro), z detrás, resumen orgánico **por forma** (Tarimas rect. / Tarimas oval + dims)
+- [x] Tarima Transformer: asas en borde exacto — `getClientRect` local centrado `{-w/2,-h/2,w,h}` (no hit+skipTransform ni unión con labels); labels min ~12 px pantalla vía `max(14, 12/zoom)/itemScale`
+- [x] Paleta Escenario → tarimas abren **modal tamaño inicial** (Ancho×Profundo; default 200×100); sin bloque duplicado en Paleta izq.
+- [x] Migración size deploy linked
+- [x] Backfill + DEFAULT 50×50 cm (`20260828190819`, linked)
+- [x] Inventario global + `elementos_escenario` + `inventario_log` (`20260828190606` + seed/uidx `20260828191841`, linked Local=Remote)
+- [x] Panel Escenario → Inventario (stock, tarimas por dims, elementos SVG, log, toast overstock; Orgánico columna Inv.)
+- [x] Editor: familia-first + Crear instrumento; `stage_plot_type` = clave de ícono (sin UNIQUE DB)
+- [x] Percusión `13a`–`13h` (Timbales…Campanas) + SVG OFRN + catálogo/orgánico (`20260829020843`, linked)
 
 
 ## Presets de locación (ancho × profundo)
@@ -359,6 +459,7 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
   - Snap magnético al arrastrar: `snapFormationXToConductorCenter` atrae a `conductorX` dentro de `STAGE_PLOT_FORMATIONATION_CENTER_SNAP_PX` (18 cm / 72 px); histeresis de salida `STAGE_PLOT_FORMATIONATION_CENTER_UNSNAP_PX` (28 cm / 112 px). Commit en drag end con `x` snappeado.
   - Guía vertical sutil en `conductorX` mientras la formación está snappeada al centro.
 - **Mover con teclado** (formación seleccionada): flechas 12 px / Ctrl+flechas 4 px. Misma ruta que drag end (`commitFormationPosition` → `reanchorItemsToFormations` con el `formationId`): actualiza `x,y` de la formación y reposiciona ítems con ese `slotId` **sin** limpiar `slotId`. Prioridad igual que Delete: formación primero, luego ítems. Refs de selección se sincronizan al instante al seleccionar (evita que un keydown temprano mueva ítems y demagnetice).
+- **Paleta → Formaciones** (panel izq., `canEdit`): lista **vertical** (una fila por kind), no chips en wrap. Cada fila: mini SVG esquemático (`FormationPaletteIcon` en `ProgramStagePlotEditor.jsx`, trazo índigo) + label; clic = `addFormation(kind)` (centro). Iconos por kind: **Arco** arco elíptico abierto abajo; **Semi-arco** alas rectas + arco; **Herradura** U con tope curvo; **Rectángulo** tres lados abiertos abajo; **Línea recta** segmento horizontal. Sin `IconPlus` genérico.
 - **Formaciones** (`stage.hideFormationGuides`, default `false`):
   - Toggle **Formaciones** **solo** en el popover **Lienzo** (fila con Cuadrícula / Radial / Recuadros): ON = guías visibles (`hideFormationGuides: false`); OFF = ocultas.
   - **No** hay control de visibilidad de guías en la barra inferior de formación (Centrar / Copiar… / Eliminar) ni en el header de la paleta Formaciones.
@@ -403,27 +504,27 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - UI en `EventForm` para setear `eventos.id_repertorio` (hoy solo vía fallback; asociación principal es plot→eventos en editor).
 - Preview Konva inline en `StagePlotViewerModal` y en vista Venues (hoy: resumen + export PDF/JPG con toggles locales).
 - Reordenar lienzos (drag sort_order) en el editor.
-- Editor SVG avanzado (dibujo); hoy: upload/paste en Datos → Instrumentos (`svg_icon`).
+- Editor SVG avanzado (dibujo); hoy: upload en Escenario → **Editor** (panel izquierdo) y Datos → Instrumentos (`svg_icon`), con confirm visual al cambiar.
 - Plots ya migrados (`instrumentFootprintMigrated`): escalas custom del Transformer se conservan. Si un plot se veía enorme **antes** del one-shot, al reabrir/autosave queda a 50×50 cm reales; reescalar a mano solo si se quiere otro tamaño físico.
 - `cat.w`/`cat.h` del catálogo siguen siendo aspect/fallback de paleta; ya no definen el tamaño en escena de instrumentos con huella.
 
 ## Iconos SVG en `instrumentos` (2026-08)
 
-- **Columnas**: `svg_icon text` + `stage_plot_type text` (migración `20260827123803`, aplicada en linked).
-- **Cadena**: DB → `public/stage-plot/icons/` → silueta (`stagePlotIconAssets.js`).
-- **Admin**: Datos → Instrumentos (Tipo Escenario + SVG file/paste + preview); sanitizado (`stagePlotSvgSanitize.js`).
-- **Colores**:
-  - Uploads / FreeSVG multi-color: **se conservan fills/strokes/gradients del autor**. Sanitize quita script/eventos/`use` pero **no** reescribe paints a `currentColor`.
-  - Tint de tema (`item` color / palette) **solo** si el markup ya usa `currentColor` (game-icons mono, siluetas OFRN, oboe Gerald_G).
-  - Konva/PDF: `prepareStagePlotSvgMarkupForRaster` / `loadStagePlotIconImage` — sin override de fill vía padre salvo silueta mono.
-- **Seed**: 21+ filas precargadas; regenerar `node scripts/seed-instrumentos-stage-plot-svg.mjs`. Force overwrite cuerdas/flauta/guitarra/bandoneón: `node scripts/force-seed-string-svgs.mjs` + `npx supabase db query --linked -f temp_freesvg/force_seed_strings.sql`.
-- **Guitarra**: catálogo `guitar`; icono `public/stage-plot/icons/guitar.svg` (papapishu, colores de origen); `instrumentos.id` **`21`** / Guitarra; orgánico `idInstr: ["21"]`.
-- **Bandoneón**: catálogo `bandoneon` (Cuerdas); icono `public/stage-plot/icons/bandoneon.svg` ([FreeSVG 50642](https://freesvg.org/bandone%C3%A3%C2%B3n) / OpenClipart 216369, CC0, colores de origen); `instrumentos.id` **`22b`**; orgánico `idInstr: ["22b"]`.
-- **Seguridad**: sin script/eventos/`use`; Blob→Image (no `innerHTML`); límite 100k chars.
+- **Columnas**: `svg_icon text` + `stage_plot_type text` (migración `20260827123803`) + **`stage_plot_width_cm` / `stage_plot_height_cm`** (migración `20260828185148` + backfill/DEFAULT `20260828190819`; filas **50×50**, DEFAULT 50; NULL legacy → 50 cm).
+- **1 SVG ↔ 1 fila `instrumentos`**: no hay íconos de instrumento sueltos; sin fila → Inventario / `elementos_escenario`.
+- **Familia** = clasificación de usuario; **`stage_plot_type`** = clave de ícono/paleta (preferir única al crear; compartir permitido para variantes).
+- **Cadena**: DB → `public/stage-plot/icons/` → silueta (`stagePlotIconAssets.js`); tamaños en `setStagePlotDbSizeOverrides`.
+- **Admin / editor**: Escenario panel izquierdo **Editor** (familia, tamaño, SVG, clave demoted; **Crear instrumento**) y Datos → Instrumentos (**Clave de ícono (plano)** + Ancho/Profundo insert cm, placeholder **50**; SVG); sanitizado (`stagePlotSvgSanitize.js`).
+- **Insert Escenario**: `defaultStagePlotItemScale(type)` usa `width_cm / 50` para ítems con huella (**50×50 → scale 1**).
+- **Colores**: Uploads conservan fills; sanitize sin rewrite a `currentColor`.
+- **Seguridad / tamaño**: sanitizado liviano (sin script/eventos/`use`; Blob→Image). Límite **app-imposed** `STAGE_PLOT_SVG_MAX_CHARS = 500_000` (antes 100k; no es tope de Postgres `text`). Clipart detallado (p. ej. bandoneón ~68k compactado; SVGs más ricos suelen superar 100k) es normal. Antes de guardar se compacta (metadata Inkscape/Adobe, whitespace, precisión decimal). Solo accept SVG (PNG/JPG → error claro). Toasts muestran el máx. formateado (`500.000`).
 
 ## Export PDF / JPG (plano de escenario)
 
-- **Archivo**: `src/utils/stagePlotPdf.js` — `exportStagePlotPdf`, `exportStagePlotJpg`. Triggers en toolbar del editor (`ProgramStagePlotEditor.jsx`): botones **PDF** y **JPG**. También `StagePlotViewerModal` (técnicos) con toggles locales sobre el payload.
+- **Archivo**: `src/utils/stagePlotPdf.js` — `exportStagePlotPdf`, `exportStagePlotJpg`.
+- **Editor** (`ProgramStagePlotEditor.jsx`): botones **PDF** / **JPG** abren `StagePlotExportOptionsModal` con las **mismas 4 opciones** que el técnico (`StagePlotVisibilityToggles`: Cuadrícula / Radial / Formaciones / Recuadros). Los toggles se siembran desde el Lienzo actual pero son **override solo de esa descarga** (`applyStagePlotStagePatch` sobre una copia; **no** persisten ni marcan dirty el payload del editor).
+- **Técnico** (`StagePlotViewerModal`): mismos toggles (componente compartido) sobre una copia local del payload; PDF/JPG usan ese payload parchado.
+- **Helpers**: `readStagePlotVisibility` / `visibilityToStagePatch` en `StagePlotVisibilityToggles.jsx`.
 - **Dimensiones** (ambos formatos): usan `payload.stage.widthCm` / `heightCm` (mismos valores que Lienzo Ancho / Alto). En el export se etiquetan **Ancho** (widthCm) y **Profundo** (heightCm = profundidad del escenario). Texto resumen `Ancho: X cm · Profundo: Y cm` + etiquetas en bordes inferior (ancho) e izquierdo (profundo).
 - **Guías de lienzo** (ambos formatos; misma semántica que toggles Lienzo, ON = visible):
   - **Cuadrícula** si `stage.showGrid !== false` (menor 10 cm / mayor 50 cm).

@@ -34,9 +34,11 @@ export const STAGE_PLOT_CATALOG = [
   { type: "trumpet", name: "Trompeta", category: "Metales", color: "#eab308", w: 44, h: 44, includeInChannels: true },
   { type: "trombone", name: "Trombón", category: "Metales", color: "#a16207", w: 48, h: 48, includeInChannels: true },
   { type: "tuba", name: "Tuba", category: "Metales", color: "#854d0e", w: 48, h: 48, includeInChannels: true },
-  // Percusión / teclado
+  // Percusión / teclado (ids DB: 13 + 13a–13h)
   { type: "timpani", name: "Timbales", category: "Percusión", color: "#b91c1c", w: 48, h: 48, includeInChannels: true },
   { type: "perc", name: "Percusión", category: "Percusión", color: "#991b1b", w: 48, h: 48, includeInChannels: true },
+  { type: "marimba", name: "Marimba", category: "Percusión", color: "#c2410c", w: 56, h: 44, includeInChannels: true },
+  { type: "vibraphone", name: "Vibráfono", category: "Percusión", color: "#ea580c", w: 56, h: 44, includeInChannels: true },
   { type: "bass_drum", name: "Bombo", category: "Percusión", color: "#9f1239", w: 52, h: 48, includeInChannels: true },
   { type: "snare", name: "Caja", category: "Percusión", color: "#be123c", w: 44, h: 44, includeInChannels: true },
   { type: "cymbals", name: "Platillos", category: "Percusión", color: "#e11d48", w: 48, h: 48, includeInChannels: true },
@@ -49,7 +51,27 @@ export const STAGE_PLOT_CATALOG = [
   { type: "banqueta", name: "Banqueta", category: "Escenario", color: "#78716c", w: 36, h: 36, includeInChannels: false },
   { type: "music_stand", name: "Atril", category: "Escenario", color: "#475569", w: 36, h: 48, includeInChannels: false },
   { type: "conductor", name: "Director", category: "Escenario", color: "#0f172a", w: 40, h: 40, includeInChannels: false },
-  { type: "riser", name: "Tarima", category: "Escenario", color: "#94a3b8", w: 64, h: 40, includeInChannels: false },
+  /** Tarimas: w/h = px @ scale 1 (= cm × STAGE_PLOT_CM_TO_PX); default 200×100 cm. */
+  {
+    type: "tarima_rect",
+    name: "Tarima rect.",
+    category: "Escenario",
+    color: "#4b5563",
+    w: 800,
+    h: 400,
+    includeInChannels: false,
+  },
+  {
+    type: "tarima_oval",
+    name: "Tarima oval",
+    category: "Escenario",
+    color: "#4b5563",
+    w: 800,
+    h: 400,
+    includeInChannels: false,
+  },
+  /** Escalera (icono stairs); type `riser` estable en payloads; se trata como tarima_rect al dibujar. */
+  { type: "riser", name: "Escalera", category: "Escenario", color: "#4b5563", w: 800, h: 400, includeInChannels: false },
   // Audio
   { type: "mic", name: "Micrófono", category: "Audio", color: "#1d4ed8", w: 40, h: 40, includeInChannels: true },
   { type: "mic_stand", name: "Pie de mic", category: "Audio", color: "#1e40af", w: 28, h: 48, includeInChannels: false },
@@ -62,6 +84,66 @@ export const STAGE_PLOT_CATALOG = [
 ];
 
 const BY_TYPE = new Map(STAGE_PLOT_CATALOG.map((c) => [c.type, c]));
+
+/** Overrides dinámicos desde `elementos_escenario` (props con SVG). */
+let dynamicByType = new Map();
+let catalogEpoch = 0;
+
+/**
+ * Registra ítems de catálogo dinámicos (reemplaza el set anterior).
+ * @param {StagePlotCatalogItem[]|null|undefined} items
+ */
+export function setStagePlotDynamicCatalogItems(items) {
+  const next = new Map();
+  for (const it of items || []) {
+    if (!it?.type) continue;
+    next.set(String(it.type), {
+      type: String(it.type),
+      name: it.name || it.type,
+      category: it.category || "Elementos",
+      color: it.color || "#475569",
+      w: Number(it.w) > 0 ? Number(it.w) : 200,
+      h: Number(it.h) > 0 ? Number(it.h) : 200,
+      includeInChannels: !!it.includeInChannels,
+      isElemento: true,
+      elementoId: it.elementoId ?? null,
+    });
+  }
+  dynamicByType = next;
+  catalogEpoch += 1;
+}
+
+/** Epoch para invalidar useMemo de paleta cuando cambian elementos. */
+export function getStagePlotCatalogEpoch() {
+  return catalogEpoch;
+}
+
+/**
+ * Filas DB → ítems de catálogo (px @ scale 1 = cm × STAGE_PLOT_CM_TO_PX vía caller).
+ * @param {Array<{ id?: number, nombre?: string, stage_plot_type?: string, width_cm?: number, height_cm?: number }>} rows
+ * @param {number} [cmToPx=4]
+ */
+export function stagePlotElementCatalogFromRows(rows = [], cmToPx = 4) {
+  return (rows || [])
+    .filter((r) => r?.stage_plot_type)
+    .map((r) => {
+      const wCm = Number(r.width_cm);
+      const hCm = Number(r.height_cm);
+      const w = (Number.isFinite(wCm) && wCm > 0 ? wCm : 50) * cmToPx;
+      const h = (Number.isFinite(hCm) && hCm > 0 ? hCm : 50) * cmToPx;
+      return {
+        type: String(r.stage_plot_type).trim(),
+        name: r.nombre || r.stage_plot_type,
+        category: "Elementos",
+        color: "#475569",
+        w,
+        h,
+        includeInChannels: false,
+        isElemento: true,
+        elementoId: r.id ?? null,
+      };
+    });
+}
 
 /** Categorías de instrumento musical (orgánico); no Escenario / Audio / Marcas. */
 export const STAGE_PLOT_MUSICIAN_INSTRUMENT_CATEGORIES = new Set([
@@ -77,6 +159,8 @@ export const STAGE_PLOT_BANQUETA_INSTRUMENT_TYPES = new Set([
   "bass",
   "timpani",
   "perc",
+  "marimba",
+  "vibraphone",
   "bass_drum",
   "snare",
   "cymbals",
@@ -86,11 +170,18 @@ export const STAGE_PLOT_BANQUETA_INSTRUMENT_TYPES = new Set([
 
 /** @param {string} type */
 export function getStagePlotCatalogItem(type) {
-  return BY_TYPE.get(type) || null;
+  if (!type) return null;
+  return BY_TYPE.get(type) || dynamicByType.get(type) || null;
+}
+
+/** @param {string} type */
+export function stagePlotItemIsElemento(type) {
+  const cat = getStagePlotCatalogItem(type);
+  return Boolean(cat?.isElemento || cat?.category === "Elementos");
 }
 
 /**
- * ¿Instrumento musical con huella 50×50 + atril?
+ * ¿Instrumento musical con huella 50×50?
  * No aplica a director, silla/banqueta, audio, marcas, atril suelto, tarima.
  * @param {string} type
  */
@@ -100,6 +191,24 @@ export function stagePlotItemHasInstrumentFootprint(type) {
   return Boolean(
     cat && STAGE_PLOT_MUSICIAN_INSTRUMENT_CATEGORIES.has(cat.category),
   );
+}
+
+/** Tipos de tarima (plataforma visual; z detrás de formaciones/ítems). */
+export const STAGE_PLOT_TARIMA_TYPES = new Set([
+  "tarima_rect",
+  "tarima_oval",
+  "riser", // legacy
+]);
+
+/** @param {string} type */
+export function stagePlotItemIsTarima(type) {
+  return STAGE_PLOT_TARIMA_TYPES.has(type);
+}
+
+/** Forma de dibujo: rect | oval */
+export function stagePlotTarimaShape(type) {
+  if (type === "tarima_oval") return "oval";
+  return "rect";
 }
 
 /**
@@ -126,6 +235,14 @@ export function stagePlotCategories() {
       order.push(item.category);
     }
     map.get(item.category).push(item);
+  }
+  for (const item of dynamicByType.values()) {
+    const category = item.category || "Elementos";
+    if (!map.has(category)) {
+      map.set(category, []);
+      order.push(category);
+    }
+    map.get(category).push(item);
   }
   return order.map((category) => ({ category, items: map.get(category) }));
 }

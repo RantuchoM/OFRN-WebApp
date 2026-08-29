@@ -9,11 +9,8 @@ import {
   computeSatelliteAtrilPlacement,
   resolveStagePlotConductorPoint,
 } from "./stagePlotAtril";
-import {
-  createStagePlotItem,
-} from "./stagePlotPayload";
+import { createStagePlotItem } from "./stagePlotPayload";
 import { STAGE_PLOT_CM_TO_PX } from "./stagePlotConstants";
-import { rotationInstrumentBaseFacingPoint } from "./stagePlotFormations";
 
 function newId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -393,8 +390,10 @@ export function resolveSharedAlignGroup(payload, selectedIds) {
 }
 
 /**
- * Inserta un par de cuerdas (mismo tipo) con atril compartido satélite.
- * Layout: dos huellas lado a lado, base hacia director; atril en el midpoint + 40 cm hacia director.
+ * Inserta un par de cuerdas (mismo tipo).
+ * Layout: dos huellas lado a lado (separación STAGE_PLOT_STRING_PAIR_SPACING_CM);
+ * rotación = 0 (sin auto-orientar al director). Sin atril; usar
+ * `insertStagePlotStringPairWithSharedAtril` para par + atril compartido.
  *
  * @param {ReturnType<typeof import('./stagePlotPayload').normalizeStagePlotPayload>} payload
  * @param {string} type — violin | viola | cello | bass
@@ -408,6 +407,7 @@ export function insertStagePlotStringPair(payload, type, centerX, centerY, zStar
   const items = payload.items || [];
   const stage = payload.stage || {};
   const conductor = resolveStagePlotConductorPoint(items, stage);
+  // Tangente al rayo hacia director solo para separar A/B lateralmente; rotación de ítems = 0.
   const placement = computeSatelliteAtrilPlacement(
     centerX,
     centerY,
@@ -430,29 +430,15 @@ export function insertStagePlotStringPair(payload, type, centerX, centerY, zStar
     y: centerY + halfSpacing * ty,
   };
 
-  const facing = conductor;
-  const rot1 = rotationInstrumentBaseFacingPoint(
-    pos1.x,
-    pos1.y,
-    facing.x,
-    facing.y,
-  );
-  const rot2 = rotationInstrumentBaseFacingPoint(
-    pos2.x,
-    pos2.y,
-    facing.x,
-    facing.y,
-  );
-
   const item1 = createStagePlotItem(type, pos1.x, pos1.y, zStart, {
     items,
     stage,
-    rotation: rot1,
+    rotation: 0,
   });
   const item2 = createStagePlotItem(type, pos2.x, pos2.y, zStart + 1, {
     items,
     stage,
-    rotation: rot2,
+    rotation: 0,
   });
   const groupId = newId();
   const group = {
@@ -473,4 +459,71 @@ export function insertStagePlotStringPair(payload, type, centerX, centerY, zStar
     items: nextItems,
     groups: [...(payload.groups || []), group],
   });
+}
+
+/**
+ * Par de cuerdas + atril compartido (`music_stand` en midpoint hacia director).
+ * @param {ReturnType<typeof import('./stagePlotPayload').normalizeStagePlotPayload>} payload
+ * @param {string} type — violin | viola | cello | bass
+ * @param {number} centerX
+ * @param {number} centerY
+ * @param {number} zStart — z del primer instrumento; atril usa zStart+2
+ * @returns {{
+ *   payload: ReturnType<typeof import('./stagePlotPayload').normalizeStagePlotPayload>,
+ *   memberIds: string[],
+ *   atrilId: string|null,
+ * }}
+ */
+export function insertStagePlotStringPairWithSharedAtril(
+  payload,
+  type,
+  centerX,
+  centerY,
+  zStart,
+) {
+  const withPair = insertStagePlotStringPair(
+    payload,
+    type,
+    centerX,
+    centerY,
+    zStart,
+  );
+  if (withPair === payload) {
+    return { payload, memberIds: [], atrilId: null };
+  }
+  const group = (withPair.groups || [])[withPair.groups.length - 1];
+  const memberIds = group?.kind === "string_pair" ? [...(group.itemIds || [])] : [];
+  const members = (withPair.items || []).filter((it) =>
+    memberIds.includes(it.id),
+  );
+  if (members.length < 2) {
+    return { payload: withPair, memberIds, atrilId: null };
+  }
+  const cx = (members[0].x + members[1].x) / 2;
+  const cy = (members[0].y + members[1].y) / 2;
+  const conductor = resolveStagePlotConductorPoint(
+    withPair.items,
+    withPair.stage,
+  );
+  const placement = computeSatelliteAtrilPlacement(
+    cx,
+    cy,
+    conductor.x,
+    conductor.y,
+  );
+  const atril = createStagePlotItem(
+    "music_stand",
+    placement.x,
+    placement.y,
+    zStart + 2,
+    { rotation: placement.rotationDeg },
+  );
+  return {
+    payload: {
+      ...withPair,
+      items: [...withPair.items, atril],
+    },
+    memberIds,
+    atrilId: atril.id,
+  };
 }

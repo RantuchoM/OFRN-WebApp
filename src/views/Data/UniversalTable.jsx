@@ -20,6 +20,7 @@ import {
   sanitizeStagePlotSvgMarkup,
   stagePlotSvgToDataUrl,
   STAGE_PLOT_SVG_MAX_CHARS,
+  formatStagePlotSvgMaxChars,
 } from "../../utils/stagePlotSvgSanitize";
 import { reloadStagePlotInstrumentIcons } from "../../services/stagePlotInstrumentIconsService";
 
@@ -86,8 +87,18 @@ function SvgIconField({ value, onChange, fieldClass }) {
               const file = e.target.files?.[0];
               e.target.value = "";
               if (!file) return;
+              if (
+                !/\.svg$/i.test(file.name || "") &&
+                file.type &&
+                file.type !== "image/svg+xml"
+              ) {
+                setError("Solo se aceptan archivos SVG (no PNG/JPG).");
+                return;
+              }
               if (file.size > STAGE_PLOT_SVG_MAX_CHARS) {
-                setError(`Archivo demasiado grande (máx. ${STAGE_PLOT_SVG_MAX_CHARS} caracteres).`);
+                setError(
+                  `Archivo demasiado grande (máx. ${formatStagePlotSvgMaxChars()} caracteres).`,
+                );
                 return;
               }
               try {
@@ -122,7 +133,7 @@ function SvgIconField({ value, onChange, fieldClass }) {
         <p className="text-xs text-red-600">{error}</p>
       ) : (
         <p className="text-[10px] text-slate-400">
-          Máx. {STAGE_PLOT_SVG_MAX_CHARS.toLocaleString("es")} caracteres. Sin
+          Máx. {formatStagePlotSvgMaxChars()} caracteres. Solo SVG (no PNG). Sin
           script / eventos. Se conservan los colores del SVG; usá currentColor
           solo si querés una silueta mono tintable.
         </p>
@@ -910,7 +921,7 @@ export default function UniversalTable({
       setData((prev) =>
         prev.map((row) => (getRowId(row) === id ? { ...row, [key]: cleanValue } : row))
       );
-      if (key === "svg_icon" || key === "stage_plot_type") {
+      if (key === "svg_icon" || key === "stage_plot_type" || key === "stage_plot_width_cm" || key === "stage_plot_height_cm") {
         reloadStagePlotInstrumentIcons().catch(() => {});
       }
       if (onDataChange) onDataChange();

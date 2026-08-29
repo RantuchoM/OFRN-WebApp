@@ -396,7 +396,7 @@ html.dark img:hover {
   opacity: 1;
 }
 
-/* 4. Excepción manual */
+/* 4. Excepción manual (re-invertir subárbol: p. ej. Stage Konva de Escenario) */
 html.dark .no-dark-invert {
   /* Aquí también compensamos la saturación global */
   filter: invert(1) hue-rotate(180deg) saturate(1.2) contrast(1.1);

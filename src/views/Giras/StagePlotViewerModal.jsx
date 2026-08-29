@@ -20,6 +20,10 @@ import {
   exportStagePlotJpg,
   exportStagePlotPdf,
 } from "../../utils/stagePlotPdf";
+import StagePlotVisibilityToggles, {
+  readStagePlotVisibility,
+  visibilityToStagePatch,
+} from "./StagePlotVisibilityToggles";
 
 /**
  * Vista de solo lectura para técnicos: elige lienzo, 4 toggles Lienzo, PDF/JPG.
@@ -90,13 +94,12 @@ export default function StagePlotViewerModal({
   }, [activeId, plots]);
 
   const stage = payload.stage || {};
-  const showGrid = stage.showGrid !== false;
-  const showRadial = !!stage.showRadial;
-  const showFormations = !stage.hideFormationGuides;
-  const showChairs = !stage.hideChairSquares;
+  const vis = readStagePlotVisibility(stage);
 
-  const patchVis = (patch) => {
-    setPayload((prev) => applyStagePlotStagePatch(prev, patch));
+  const patchVis = (nextVis) => {
+    setPayload((prev) =>
+      applyStagePlotStagePatch(prev, visibilityToStagePatch(nextVis)),
+    );
   };
 
   const activeNombre = useMemo(() => {
@@ -192,50 +195,11 @@ export default function StagePlotViewerModal({
                 ))}
               </div>
 
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {[
-                  {
-                    label: "Cuadrícula",
-                    on: showGrid,
-                    toggle: () => patchVis({ showGrid: !showGrid }),
-                  },
-                  {
-                    label: "Radial",
-                    on: showRadial,
-                    toggle: () => patchVis({ showRadial: !showRadial }),
-                  },
-                  {
-                    label: "Formaciones",
-                    on: showFormations,
-                    toggle: () =>
-                      patchVis({ hideFormationGuides: showFormations }),
-                  },
-                  {
-                    label: "Recuadros",
-                    on: showChairs,
-                    toggle: () =>
-                      patchVis({ hideChairSquares: showChairs }),
-                  },
-                ].map((t) => (
-                  <button
-                    key={t.label}
-                    type="button"
-                    role="switch"
-                    aria-checked={t.on}
-                    onClick={t.toggle}
-                    className={`rounded-lg border px-2 py-2 text-left text-xs font-medium ${
-                      t.on
-                        ? "border-indigo-200 bg-indigo-50 text-indigo-800"
-                        : "border-slate-200 bg-slate-50 text-slate-500"
-                    }`}
-                  >
-                    <span className="block text-[10px] uppercase tracking-wide opacity-70">
-                      Lienzo
-                    </span>
-                    {t.label}: {t.on ? "ON" : "OFF"}
-                  </button>
-                ))}
-              </div>
+              <StagePlotVisibilityToggles
+                value={vis}
+                onChange={patchVis}
+                disabled={exporting}
+              />
 
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
                 <p className="font-semibold text-slate-800">{activeNombre}</p>

@@ -27,14 +27,16 @@ export const STAGE_PLOT_ICON_FILES = {
   trumpet: "trumpet.svg",
   trombone: "trombone.svg",
   tuba: "tuba.svg",
-  // Percusión: sin timpani/cymbals/snare exactos en el pack — closest distinct icons
-  timpani: "drum-kit.svg",
-  perc: "drum.svg",
-  bass_drum: "djembe.svg",
-  snare: "drum.svg",
-  cymbals: "gong.svg",
-  xylophone: "xylophone.svg",
-  tubular_bells: "ringing-bell.svg",
+  // Percusión: siluetas OFRN-original (DB preferida; estos = fallback estático)
+  timpani: "timpani.svg",
+  perc: "perc.svg",
+  marimba: "marimba.svg",
+  vibraphone: "vibraphone.svg",
+  bass_drum: "bass-drum.svg",
+  snare: "snare.svg",
+  cymbals: "cymbals.svg",
+  xylophone: "xylophone-ofrn.svg",
+  tubular_bells: "tubular-bells.svg",
   piano: "grand-piano.svg",
   celesta: "keyboard.svg",
   chair: "desk.svg",
@@ -52,6 +54,8 @@ const imageCache = new Map();
 
 /** Overrides desde `instrumentos.svg_icon` (tipo catálogo → markup). */
 let dbSvgByType = new Map();
+/** Overrides de tamaño default (cm) desde `instrumentos.stage_plot_*_cm`. */
+let dbSizeByType = new Map();
 let dbIconsEnsurePromise = null;
 
 /**
@@ -67,6 +71,64 @@ export function setStagePlotDbIconOverrides(map) {
     dbSvgByType = new Map();
   }
   imageCache.clear();
+}
+
+/**
+ * Fusiona SVGs adicionales (p. ej. elementos_escenario) sin borrar instrumentos.
+ * @param {Map<string, string>|Record<string, string>|null|undefined} map
+ */
+export function mergeStagePlotDbIconOverrides(map) {
+  const entries =
+    map instanceof Map
+      ? map.entries()
+      : map && typeof map === "object"
+        ? Object.entries(map)
+        : [];
+  for (const [k, v] of entries) {
+    if (k && v) dbSvgByType.set(k, v);
+  }
+  imageCache.clear();
+}
+
+/**
+ * Registra tamaños default de inserción (cm) por tipo de catálogo.
+ * @param {Map<string, { widthCm: number, heightCm: number }>|null|undefined} map
+ */
+export function setStagePlotDbSizeOverrides(map) {
+  if (map instanceof Map) {
+    dbSizeByType = new Map(map);
+  } else if (map && typeof map === "object") {
+    dbSizeByType = new Map(Object.entries(map));
+  } else {
+    dbSizeByType = new Map();
+  }
+}
+
+/**
+ * Fusiona tamaños adicionales sin borrar overrides de instrumentos.
+ * @param {Map<string, { widthCm: number, heightCm: number }>|Record<string, { widthCm: number, heightCm: number }>|null|undefined} map
+ */
+export function mergeStagePlotDbSizeOverrides(map) {
+  const entries =
+    map instanceof Map
+      ? map.entries()
+      : map && typeof map === "object"
+        ? Object.entries(map)
+        : [];
+  for (const [k, v] of entries) {
+    if (k && v) dbSizeByType.set(k, v);
+  }
+}
+
+/** Solo limpia cache de imágenes rasterizadas (no invalida ensure promise). */
+export function clearStagePlotImageCache() {
+  imageCache.clear();
+}
+
+/** @param {string} type */
+export function getStagePlotDbDefaultSizeCm(type) {
+  if (!type) return null;
+  return dbSizeByType.get(type) || null;
 }
 
 /** Limpia cache de imágenes y fuerza re-fetch de overrides en el próximo ensure. */
@@ -93,6 +155,14 @@ export async function ensureStagePlotDbIconsLoaded() {
         "../services/stagePlotInstrumentIconsService.js"
       );
       await loadAndApplyStagePlotInstrumentIcons();
+      try {
+        const { loadAndApplyElementosEscenario } = await import(
+          "../services/stagePlotInventarioService.js"
+        );
+        await loadAndApplyElementosEscenario();
+      } catch (elErr) {
+        console.warn("[stagePlotIconAssets] elementos:", elErr);
+      }
     } catch (err) {
       console.warn("[stagePlotIconAssets] DB icons:", err);
       dbSvgByType = new Map();
@@ -304,26 +374,27 @@ function roundStagePlotCm(cm) {
 
 /**
  * Tamaño real en escena para tooltip/PDF.
+ * Siempre muestra ambas dimensiones (`W × H cm`), también si es cuadrado.
  * @param {number} boundsW
  * @param {number} boundsH
- * @param {number} [scale=1]
+ * @param {number} [scaleX=1] escala X (o uniforme si no hay scaleY)
+ * @param {number} [scaleY] escala Y; default = scaleX
  * @returns {string|null}
  */
-export function formatStagePlotItemRealSize(boundsW, boundsH, scale = 1) {
-  const s = Number(scale) > 0 ? Number(scale) : 1;
-  const wCm = ((Number(boundsW) || 0) * s) / STAGE_PLOT_CM_TO_PX_LOCAL;
-  const hCm = ((Number(boundsH) || 0) * s) / STAGE_PLOT_CM_TO_PX_LOCAL;
+export function formatStagePlotItemRealSize(
+  boundsW,
+  boundsH,
+  scaleX = 1,
+  scaleY = undefined,
+) {
+  const sx = Number(scaleX) > 0 ? Number(scaleX) : 1;
+  const sy =
+    scaleY !== undefined && Number(scaleY) > 0 ? Number(scaleY) : sx;
+  const wCm = ((Number(boundsW) || 0) * sx) / STAGE_PLOT_CM_TO_PX_LOCAL;
+  const hCm = ((Number(boundsH) || 0) * sy) / STAGE_PLOT_CM_TO_PX_LOCAL;
   const wR = roundStagePlotCm(wCm);
   const hR = roundStagePlotCm(hCm);
   if (wR == null || hR == null) return null;
-
-  const maxDim = Math.max(wR, hR);
-  const minDim = Math.min(wR, hR);
-  const squareish = maxDim <= 0 || minDim / maxDim >= 0.85;
-
-  if (squareish) {
-    return `≈ ${maxDim} cm`;
-  }
   return `${wR} × ${hR} cm`;
 }
 

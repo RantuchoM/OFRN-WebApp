@@ -896,7 +896,7 @@ export function computeFormationSlots(formation, facingPoint) {
       facingPoint.x,
       facingPoint.y,
     );
-    // slot.rotation: marcadores de plaza (canvas/PDF). Items magnetizados: base hacia director via rotationInstrumentBaseFacingPoint.
+    // slot.rotation: marcadores de plaza (canvas/PDF). Items magnetizados: rotacion manual (sin auto-orientar).
     slots.push({
       index: i,
       t: clamp(t, 0, 1),

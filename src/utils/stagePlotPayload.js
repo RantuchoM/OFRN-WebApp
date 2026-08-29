@@ -2,11 +2,14 @@ import {
   STAGE_PLOT_DEFAULT_SIZE,
   getStagePlotCatalogItem,
   stagePlotItemHasInstrumentFootprint,
+  stagePlotItemIsElemento,
+  stagePlotItemIsTarima,
 } from "./stagePlotCatalog";
 import {
   STAGE_PLOT_DEFAULT_HEIGHT_CM,
   STAGE_PLOT_DEFAULT_WIDTH_CM,
   STAGE_PLOT_CM_TO_PX,
+  STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM,
   STAGE_PLOT_ITEM_DEFAULT_SIZE_CM,
   STAGE_PLOT_ITEM_SCALE_MAX,
   STAGE_PLOT_ITEM_SCALE_MIN,
@@ -18,13 +21,12 @@ import {
   stagePlotConductorPosition,
   stagePlotLegacyScaleFactor,
 } from "./stagePlotConstants";
-import { getStagePlotItemVisualBounds } from "./stagePlotIconAssets";
-import { getStagePlotSilhouettePath } from "./stagePlotSilhouettes";
 import {
-  normalizeStagePlotFormation,
-  resolveFormationFacingPoint,
-  rotationInstrumentBaseFacingPoint,
-} from "./stagePlotFormations";
+  getStagePlotDbDefaultSizeCm,
+  getStagePlotItemVisualBounds,
+} from "./stagePlotIconAssets";
+import { getStagePlotSilhouettePath } from "./stagePlotSilhouettes";
+import { normalizeStagePlotFormation } from "./stagePlotFormations";
 import {
   normalizeStagePlotGroup,
   reconcileStagePlotGroups,
@@ -514,6 +516,21 @@ function normalizeStagePlotItem(it, idx, opts = {}) {
   if (type === "text") {
     return { ...base, ...normalizeStagePlotTextFormat(o) };
   }
+  if (stagePlotItemIsTarima(type)) {
+    const sx = Number(o.scaleX);
+    const sy = Number(o.scaleY);
+    return {
+      ...base,
+      scaleX:
+        Number.isFinite(sx) && sx > 0
+          ? Math.min(STAGE_PLOT_ITEM_SCALE_MAX, Math.max(STAGE_PLOT_ITEM_SCALE_MIN, sx))
+          : 1,
+      scaleY:
+        Number.isFinite(sy) && sy > 0
+          ? Math.min(STAGE_PLOT_ITEM_SCALE_MAX, Math.max(STAGE_PLOT_ITEM_SCALE_MIN, sy))
+          : 1,
+    };
+  }
   return base;
 }
 
@@ -538,11 +555,26 @@ export function deriveStagePlotChannels(payload) {
 
 /**
  * Escala inicial: max(drawW, drawH) × scale ≈ STAGE_PLOT_ITEM_DEFAULT_SIZE_CM en px.
- * Instrumentos con huella: scale = 1 (huella fija 50×50 cm).
+ * Instrumentos con huella: scale desde `instrumentos.stage_plot_width_cm` (default 50 → scale 1).
+ * Tarimas: scale = 1 (catálogo ya es 200×100 cm en px).
  * @param {string} type
  */
 export function defaultStagePlotItemScale(type) {
-  if (stagePlotItemHasInstrumentFootprint(type)) return 1;
+  if (stagePlotItemIsTarima(type)) return 1;
+  // Elementos: catálogo ya en cm×px; scale 1 = tamaño real.
+  if (stagePlotItemIsElemento(type)) return 1;
+  if (stagePlotItemHasInstrumentFootprint(type)) {
+    const db = getStagePlotDbDefaultSizeCm(type);
+    const widthCm =
+      db?.widthCm != null && Number.isFinite(db.widthCm)
+        ? db.widthCm
+        : STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM;
+    const raw = widthCm / STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM;
+    return Math.min(
+      STAGE_PLOT_ITEM_SCALE_MAX,
+      Math.max(STAGE_PLOT_ITEM_SCALE_MIN, raw),
+    );
+  }
   const cat = getStagePlotCatalogItem(type);
   const w = cat?.w || 40;
   const h = cat?.h || 40;
@@ -574,39 +606,47 @@ export function defaultStagePlotItemScale(type) {
  * @param {number} y
  * @param {number} z
  * @param {{
- *   facingPoint?: { x: number, y: number }|null,
  *   items?: Array,
  *   stage?: object,
  *   rotation?: number,
+ *   scale?: number,
+ *   scaleX?: number,
+ *   scaleY?: number,
  * }} [opts]
  */
 export function createStagePlotItem(type, x, y, z, opts = {}) {
   const cat = getStagePlotCatalogItem(type);
-  let rotation = Number.isFinite(Number(opts.rotation))
+  // Sin auto-rotación: upright (0) salvo que el usuario pase rotation explícita.
+  const rotation = Number.isFinite(Number(opts.rotation))
     ? Number(opts.rotation)
     : 0;
-  if (
-    !Number.isFinite(Number(opts.rotation)) &&
-    stagePlotItemHasInstrumentFootprint(type)
-  ) {
-    const facing =
-      opts.facingPoint ||
-      resolveFormationFacingPoint(opts.items || [], opts.stage || {});
-    rotation = rotationInstrumentBaseFacingPoint(x, y, facing.x, facing.y);
-  }
+  const scale = Number.isFinite(Number(opts.scale))
+    ? Number(opts.scale)
+    : defaultStagePlotItemScale(type);
   const item = {
     id: newId(),
     type,
     x,
     y,
     rotation,
-    scale: defaultStagePlotItemScale(type),
+    scale,
     z,
     label: cat?.name || type,
     notes: "",
     includeInChannels: cat ? cat.includeInChannels : false,
     slotId: null,
   };
+  if (stagePlotItemIsTarima(type)) {
+    // Escala independiente por eje para redimensionar ancho/profundo libremente.
+    item.scaleX =
+      Number.isFinite(Number(opts.scaleX)) && Number(opts.scaleX) > 0
+        ? Number(opts.scaleX)
+        : 1;
+    item.scaleY =
+      Number.isFinite(Number(opts.scaleY)) && Number(opts.scaleY) > 0
+        ? Number(opts.scaleY)
+        : 1;
+  }
   if (type === "text") {
     return {
       ...item,

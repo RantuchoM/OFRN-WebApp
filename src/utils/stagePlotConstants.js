@@ -58,6 +58,38 @@ export const STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM = 50;
 export const STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM = 50;
 /** Caja del icono/SVG dentro de la huella (cm); igual a WIDTH/DEPTH → icono centrado. */
 export const STAGE_PLOT_INSTRUMENT_ICON_BOX_CM = 50;
+
+/**
+ * Piso del escenario (Rect `stage-plot-bg`). En modo nocturno OFRN el Stage
+ * se re-invierte (`.no-dark-invert`); el fill oscuro se pinta a propósito.
+ */
+export const STAGE_PLOT_BG_FILL = "#f8fafc";
+export const STAGE_PLOT_BG_STROKE = "#cbd5e1";
+export const STAGE_PLOT_BG_FILL_NIGHT = "#1e293b";
+export const STAGE_PLOT_BG_STROKE_NIGHT = "#475569";
+
+/**
+ * Cuadrícula cm (mayor 50 / menor 10). Día sobre piso claro; night sobre
+ * `STAGE_PLOT_BG_FILL_NIGHT` (Stage `.no-dark-invert` → trazo autorado, no invertido).
+ */
+export const STAGE_PLOT_GRID_MAJOR_STROKE = "#64748b";
+export const STAGE_PLOT_GRID_MINOR_STROKE = "#cbd5e1";
+export const STAGE_PLOT_GRID_MAJOR_STROKE_NIGHT = "#cbd5e1";
+export const STAGE_PLOT_GRID_MINOR_STROKE_NIGHT = "#94a3b8";
+/** Guía radial (origen director). Night: violeta más claro sobre piso oscuro. */
+export const STAGE_PLOT_RADIAL_STROKE = "#8b5cf6";
+export const STAGE_PLOT_RADIAL_STROKE_NIGHT = "#c4b5fd";
+
+/** Tarimas: tamaño default al colocar (cm reales). Catálogo w/h @ scale 1 = cm × STAGE_PLOT_CM_TO_PX. */
+export const STAGE_PLOT_TARIMA_DEFAULT_WIDTH_CM = 200;
+export const STAGE_PLOT_TARIMA_DEFAULT_DEPTH_CM = 100;
+export const STAGE_PLOT_TARIMA_FILL = "#4b5563";
+export const STAGE_PLOT_TARIMA_STROKE = "#1f2937";
+/** Medidas de tarima (fuera de la forma): negro legible sobre lienzo claro. */
+export const STAGE_PLOT_TARIMA_LABEL_FILL = "#111111";
+/** Misma etiqueta sobre piso nocturno (Stage re-invertido). */
+export const STAGE_PLOT_TARIMA_LABEL_FILL_NIGHT = "#f1f5f9";
+
 /** Distancia del centro del atril satélite hacia el director (cm). */
 export const STAGE_PLOT_ATRIL_DISTANCE_CM = 40;
 /** Ancho del plato del atril satélite (cm); algo menor que el legacy 35 cm en borde. */
