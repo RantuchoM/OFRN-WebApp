@@ -233,6 +233,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] **Vista Venues** (`/management/venues`): locaciones con conciertos programados agrupadas; eventos con fecha, programa, grupos, estado venue; medidas de escenario de la locación; «Ver escenario» (`StagePlotViewerModal`) y enlace al editor Escenario de la gira
 - [x] **Editor móvil** simplificado (fullscreen; mover / + sheet / floating Copiar·Eliminar; pinch + zoom buttons; autosave compartido)
 - [x] **Hub móvil Escenario**: elegir lienzo creado → Exportar (PDF / JPG / JSON + opciones de guía) o Editar (recién ahí abre el editor); sin autoabrir editor
+- [x] Export PDF/JPG: helpers de ícono/silueta restaurados (`drawImageRotated*`, `drawSilhouetteOn*`) — fallaba p. ej. BOB MARLEY (gira 12)
 
 
 ## Undo / redo (historial)
