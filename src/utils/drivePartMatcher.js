@@ -1,6 +1,7 @@
 /**
  * Motor de matching Drive ↔ particellas (modal, seeds futuros).
  * Soporta archivos combinados: "Corno 1y2", "1 y 2", "1&2", "1-2", "1/2".
+ * También numeración romana de parte: "Corno F I y III", "Violín II", "Flauta I".
  */
 
 const COMBINED_SUFFIX_PATTERNS = [
@@ -10,6 +11,65 @@ const COMBINED_SUFFIX_PATTERNS = [
   // Incluye guión ASCII y en-dash/em-dash (PDFs IMSLP / renombres mixtos)
   { re: /(\d+)\s*[-–—/]\s*(\d+)\s*$/i, pick: (m) => [m[1], m[2]] },
 ];
+
+/** Romanos de atril/parte (orden: más largos primero). */
+const ROMAN_PART_SRC = "XII|XI|IX|VIII|VII|VI|IV|V|III|II|X|I";
+const ROMAN_PART_MAP = {
+  I: 1,
+  II: 2,
+  III: 3,
+  IV: 4,
+  V: 5,
+  VI: 6,
+  VII: 7,
+  VIII: 8,
+  IX: 9,
+  X: 10,
+  XI: 11,
+  XII: 12,
+};
+
+/**
+ * Convierte numeración romana de parte a arábiga en el prefijo de instrumento.
+ * Ej: "Corno F I y III" → "Corno F 1 y 3"; "Violín II" → "Violín 2"; "Violín I1" → "Violín 1 1".
+ */
+export const arabicizeRomanPartNumbers = (prefix) => {
+  let t = String(prefix || "").trim();
+  if (!t) return t;
+
+  // Combinados romanos al final: I y III / II & IV / I-III
+  const combined = t.match(
+    new RegExp(
+      `^(.*?)\\s*(${ROMAN_PART_SRC})\\s*(?:y|&|[-–—/])\\s*(${ROMAN_PART_SRC})\\s*$`,
+      "i",
+    ),
+  );
+  if (combined) {
+    const a = ROMAN_PART_MAP[combined[2].toUpperCase()];
+    const b = ROMAN_PART_MAP[combined[3].toUpperCase()];
+    if (a != null && b != null) {
+      const rem = combined[1].replace(/\s+/g, " ").trim();
+      return `${rem} ${a} y ${b}`.trim();
+    }
+  }
+
+  // Romano pegado a atril: "Violín I1" / "Violoncello II2"
+  t = t.replace(
+    new RegExp(`\\b(${ROMAN_PART_SRC})(\\d+)\\b`, "gi"),
+    (_, r, d) => `${ROMAN_PART_MAP[r.toUpperCase()]} ${d}`,
+  );
+
+  // Romanos sueltos como número de parte: "Flauta I", "Clarinete I in Bb", "Violín I. (1)"
+  t = t.replace(
+    new RegExp(`\\b(${ROMAN_PART_SRC})\\b`, "gi"),
+    (m) => String(ROMAN_PART_MAP[m.toUpperCase()] ?? m),
+  );
+
+  // Limpieza leve: "Violín 1. (1)" → "Violín 1 (1)"; "Violoncello1" → "Violoncello 1"
+  t = t.replace(/(\d)\.\s*\(/g, "$1 (");
+  t = t.replace(/([A-Za-zÁÉÍÓÚáéíóúÑñ])(\d+)\b/g, "$1 $2");
+  return t.replace(/\s+/g, " ").trim();
+};
 
 /**
  * Segmento de instrumento antes de " - Título - Compositor".
@@ -100,11 +160,11 @@ export const getDriveFilePrefix = (file, options = {}) => {
   const rawName = file?.name || "";
   if (options.extractInstrument) {
     const extracted = options.extractInstrument(rawName);
-    if (extracted) return String(extracted).trim();
+    if (extracted) return arabicizeRomanPartNumbers(String(extracted).trim());
   }
   // Quitar extensión; no usar split("-") suelto (rompe "Inst 1-2 - Obra - Comp.pdf")
   const base = rawName.replace(/\.[^./\\]+$/, "");
-  return instrumentSegmentFromName(base);
+  return arabicizeRomanPartNumbers(instrumentSegmentFromName(base));
 };
 
 /** @returns {{ numbers: number[], remainder: string, isCombined: true } | null} */
@@ -133,7 +193,7 @@ export const parseCombinedNumbers = (text) => {
  * }}
  */
 export const parsePartSlot = (nombre_archivo) => {
-  const base = instrumentSegmentFromName(nombre_archivo);
+  const base = arabicizeRomanPartNumbers(instrumentSegmentFromName(nombre_archivo));
   const combined = parseCombinedNumbers(base);
 
   if (combined) {

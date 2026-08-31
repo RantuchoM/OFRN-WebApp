@@ -45,6 +45,7 @@ import {
   buildAllVehicleBoardingSequences,
   defaultGapFillEventSchedule,
   defaultIntermediateStopSchedule,
+  formatBoardChipLabel,
   formatEventLocation,
   resolveHoraFinDisplay,
   resolveStopBoardAlightChips,
@@ -256,7 +257,7 @@ function PlanillaBoardCell({
                   (chip.kind === "ofrn"
                     ? "Orquesta OFRN — clic para reglas de ruta"
                     : chip.kind === "synthetic"
-                      ? `${chip.label}: ${chip.plazas} plaza${chip.plazas === 1 ? "" : "s"} (sin artista nombrado)`
+                      ? `${chip.label}: ${chip.plazas} plaza${chip.plazas === 1 ? "" : "s"} (reserva técnica anónima)`
                       : `${chip.label}: ${chip.plazas} plaza${chip.plazas === 1 ? "" : "s"}`)
                 }
                 onClick={
@@ -289,7 +290,7 @@ function PlanillaBoardCell({
                 }}
               >
                 <span className="fimba-planilla-board-chip-label">
-                  {chip.label} {chip.plazas}
+                  {formatBoardChipLabel(chip.label, chip.plazas)}
                 </span>
                 {canEdit && chip.removable ? (
                   <button
@@ -2415,8 +2416,8 @@ export default function FimbaTransportPage() {
                             .map((r) => {
                               const label = labelGiraTransporte(r.giras_transportes);
                               const pl = Math.max(0, Number(r.plazas) || 0);
-                              // Siempre mostrar plazas (incl. 0): no confundir con Capacidad
-                              return `${label} (${pl})`;
+                              // Reserva técnica: solo mostrar si > 0 (0 = sin cupo anónimo)
+                              return pl > 0 ? `${label} (reserva ${pl})` : label;
                             })
                             .join(", ") || "—"
                         : ofrnVeh

@@ -937,6 +937,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
         allWorks.push({
           obraId,
           obraTitulo: obra?.titulo || "",
+          repertoireBlockId: bloque.id ?? null,
         });
       }
     }
@@ -954,6 +955,9 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
     }
 
     const obraIds = uniqueWorks.map((w) => w.obraId);
+    const blockByObra = new Map(
+      uniqueWorks.map((w) => [String(w.obraId), w.repertoireBlockId]),
+    );
     const { data: particellas, error } = await supabase
       .from("obras_particellas")
       .select("id, id_obra, id_instrumento, nombre_archivo, url_archivo")
@@ -989,6 +993,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
       files.push({
         fileId,
         prefixLabel: "[ARCOS] ",
+        repertoireBlockId: blockByObra.get(String(part.id_obra)) ?? null,
       });
     }
 

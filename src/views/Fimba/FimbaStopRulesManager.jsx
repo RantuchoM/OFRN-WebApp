@@ -801,11 +801,11 @@ export default function FimbaStopRulesManager({
                             <div className="text-[10px] text-amber-800/80">
                               {isBajada
                                 ? residualAlight > 0
-                                  ? `Baja aquí · plazas técnicas sin artista (${residualAlight})`
+                                  ? `Baja aquí · reserva técnica sin artista (${residualAlight})`
                                   : "Sin residual técnico bajando aquí"
                                 : residualUp > 0
-                                  ? `Sin artista nombrado: ${residualUp} plaza${residualUp === 1 ? "" : "s"} (reserva − reglas)`
-                                  : "Plazas del trayecto en este vehículo (editable)"}
+                                  ? `Sin artista nombrado: ${residualUp} plaza${residualUp === 1 ? "" : "s"} (reserva − Sube)`
+                                  : "Reserva técnica anónima (staff/TBD). Artistas → Sube."}
                             </div>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
@@ -826,7 +826,7 @@ export default function FimbaStopRulesManager({
                                   if (e.key === "Enter") e.currentTarget.blur();
                                 }}
                                 aria-label={FIMBA_RESERVA_EVENTO_LABEL}
-                                title="Plazas en fimba_evento_transportes para este vehículo"
+                                title="Reserva técnica (fimba_evento_transportes.plazas). No son artistas nombrados."
                               />
                             ) : (
                               <span className="text-[10px] font-bold flex items-center gap-1 px-2 py-0.5 rounded-full text-amber-800 bg-amber-100">

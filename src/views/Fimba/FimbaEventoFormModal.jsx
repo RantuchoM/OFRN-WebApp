@@ -11,8 +11,6 @@ import {
   categoriesFromTiposEvento,
   capacidadGiraTransporte,
   computeFimbaCapacity,
-  cupoPlazasVehiculo,
-  defaultArtistaAssignPlazas,
   FIMBA_DEFAULT_TIPO_EVENTO,
   FIMBA_TIPO_EVENTO_TRASLADO,
   labelGiraTransporte,
@@ -20,9 +18,7 @@ import {
   listFimbaGiraGrupos,
   listTiposEventoForFimba,
   listVehiclesAvailability,
-  repartirPlazasEntreVehiculos,
   saveFimbaEvento,
-  validateEventoTransportPlazasVsArtistas,
   validateEventoTransportPlazasVsCapacidad,
   validateEventoTransportPlazasVsLibres,
 } from "../../services/fimbaService";
@@ -603,7 +599,7 @@ export default function FimbaEventoFormModal({
     }
     return map;
   });
-  /** Plazas que el usuario editó a mano (no re-defaultar a 0→cupo). */
+  /** Reserva técnica editada a mano (dirty tracking del input). */
   const plazasTouchedRef = useRef(new Set());
   const [selectedProps, setSelectedProps] = useState(defaultProps);
   const [tagFilter, setTagFilter] = useState("");
@@ -1058,59 +1054,30 @@ export default function FimbaEventoFormModal({
     [selectedVehIds, plazasByVeh],
   );
 
-  const artistasCapRemaining =
-    artistasCapTope != null
-      ? Math.max(0, artistasCapTope - totalPlazasAsignadas)
-      : null;
-
-  useEffect(() => {
-    setPlazasByVeh((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      // Disponibles del tope artistas, contando solo lo ya asignado (>0) / tocado
-      let poolRemaining =
-        artistasCapTope != null
-          ? Math.max(
-              0,
-              artistasCapTope -
-                selectedVehIds.reduce((s, id) => {
-                  if (plazasTouchedRef.current.has(id)) {
-                    return s + Math.max(0, Number(prev[id]) || 0);
-                  }
-                  if (prev[id] != null && prev[id] !== "" && Number(prev[id]) > 0) {
-                    return s + Math.max(0, Number(prev[id]) || 0);
-                  }
-                  return s;
-                }, 0),
-            )
-          : null;
-      for (const id of selectedVehIds) {
-        if (plazasTouchedRef.current.has(id)) continue;
-        const cur = next[id];
-        const hasPositive =
-          cur != null && cur !== "" && Number(cur) > 0;
-        // También defaulta `plazas = 0` guardado: capacidad (44) ≠ plazas aplicadas
-        if (hasPositive) continue;
-        const gt = flota.find((f) => String(f.id) === String(id));
-        const vehLibres = cupoPlazasVehiculo(metrics[id], gt);
-        let remainingForSlot =
-          poolRemaining != null
-            ? poolRemaining
-            : 0;
-        const def = defaultArtistaAssignPlazas({
-          remaining: remainingForSlot,
-          vehicleLibres: vehLibres,
-        });
-        if (Number(cur) === def) continue;
-        next[id] = def;
-        changed = true;
-        if (poolRemaining != null) {
-          poolRemaining = Math.max(0, poolRemaining - def);
-        }
-      }
-      return changed ? next : prev;
+  /** Sube nombrados en este evento (cualquier vehículo del form). */
+  const hasNamedSubeOnEvent = useMemo(() => {
+    if (!isEdit || evento?.id == null) return false;
+    const eid = String(evento.id);
+    return (propuestaRoutes || []).some((r) => {
+      if (r?.id_evento_subida == null) return false;
+      if (String(r.id_evento_subida) !== eid) return false;
+      return Math.max(0, Number(r.plazas) || 0) > 0;
     });
-  }, [selectedVehIds, artistasCapTope, metrics, flota]);
+  }, [isEdit, evento?.id, propuestaRoutes]);
+
+  const warnAnonymousReservaWithoutSube =
+    !sinServicio &&
+    selectedProps.length > 0 &&
+    selectedVehIds.length > 0 &&
+    totalPlazasAsignadas > 0 &&
+    !hasNamedSubeOnEvent;
+
+  const warnArtistasNeedSube =
+    !sinServicio &&
+    selectedProps.length > 0 &&
+    selectedVehIds.length > 0 &&
+    totalPlazasAsignadas === 0 &&
+    !hasNamedSubeOnEvent;
 
   // Libres de toda la flota en la ventana (OFRN a bordo + FIMBA a bordo).
   // Debounce horas: no disparar availability en cada tecla.
@@ -1202,28 +1169,6 @@ export default function FimbaEventoFormModal({
     }
   };
 
-  /** Reparte tope artista entre los buses marcados; si no hay ninguno, toda la flota. */
-  const repartirPlazas = () => {
-    const ids =
-      selectedVehIds.length > 0
-        ? selectedVehIds
-        : (flota || []).map((gt) => String(gt.id));
-    if (ids.length === 0) return;
-    if (selectedVehIds.length === 0) setSelectedVehIds(ids);
-    for (const id of ids) plazasTouchedRef.current.add(String(id));
-    const slots = ids.map((id) => {
-      const gt = flota.find((f) => String(f.id) === String(id));
-      const m = metrics[id] || {};
-      return {
-        id,
-        libres: m.libres,
-        capacidad: m.capacidad ?? capacidadGiraTransporte(gt),
-      };
-    });
-    const split = repartirPlazasEntreVehiculos(plazasACubrir, slots);
-    setPlazasByVeh((prev) => ({ ...prev, ...split }));
-  };
-
   const toggleProp = (id) => {
     const sid = String(id);
     if (lockedPropId && sid === lockedPropId) return;
@@ -1282,26 +1227,9 @@ export default function FimbaEventoFormModal({
         propIds = [...propIds, lockedNum];
       }
     }
-    // Hard-block: Σ plazas vehículos ≤ Σ para_transporte de artistas taggeados
-    if (vehiculos.length > 0 && propIds.length > 0) {
-      const propsTagged = (propuestas || []).filter((p) =>
-        propIds.some((id) => String(id) === String(p.id)),
-      );
-      const totalPl = vehiculos.reduce(
-        (s, v) => s + Math.max(0, Number(v.plazas) || 0),
-        0,
-      );
-      const capCheck = validateEventoTransportPlazasVsArtistas(
-        propsTagged,
-        totalPl,
-      );
-      if (!capCheck.ok) {
-        setError(capCheck.error.message);
-        setSaving(false);
-        return;
-      }
-    }
-    // Hard-block: plazas por unidad ≤ asientos del vehículo
+    // Hard-block: reserva técnica por unidad ≤ asientos / libres de ventana.
+    // No se valida vs tope artista: la reserva es anónima (staff/TBD); el
+    // headcount de artistas va por Sube (`fimba_propuesta_rutas`).
     if (vehiculos.length > 0) {
       const capCheckSeats = validateEventoTransportPlazasVsCapacidad(
         vehiculos,
@@ -1313,7 +1241,6 @@ export default function FimbaEventoFormModal({
         return;
       }
     }
-    // Hard-block: plazas por unidad ≤ libres de ventana
     if (vehiculos.length > 0) {
       const libresCheck = validateEventoTransportPlazasVsLibres(
         vehiculos,
@@ -1991,23 +1918,20 @@ export default function FimbaEventoFormModal({
               {!sinServicio && (
                 <div className="fimba-field">
                   <label className="fimba-label">
-                    Flota — plazas por vehículo
+                    Flota — reserva técnica por vehículo
                   </label>
                   <p
                     className="fimba-muted"
                     style={{ margin: "0 0 0.5rem", fontSize: "0.78rem" }}
                   >
-                    Marcá uno o más buses y asigná <strong>n / m / p</strong> plazas
-                    en cada uno (ej. organismo de 120 → 44 + 44 + 32). El número entre
+                    Marcá uno o más buses. La columna <strong>Reserva técnica</strong>{" "}
+                    es cupo <em>anónimo</em> (staff / TBD / holgura) —{" "}
+                    <strong>no</strong> son personas nombradas. Para artistas usá{" "}
+                    <strong>Sube</strong> en la tabla de arriba. El número entre
                     paréntesis en «Disponibles» es la <strong>capacidad</strong> del
-                    vehículo, no plazas ya aplicadas. Guardá para persistir la columna
-                    Plazas.
+                    vehículo.
                   </p>
-                  {artistasCapTope != null &&
-                  artistasCapTope > 0 &&
-                  !sinServicio &&
-                  selectedVehIds.length > 0 &&
-                  totalPlazasAsignadas === 0 ? (
+                  {warnArtistasNeedSube ? (
                     <p
                       style={{
                         margin: "0 0 0.5rem",
@@ -2016,9 +1940,24 @@ export default function FimbaEventoFormModal({
                         fontWeight: 600,
                       }}
                     >
-                      Hay artistas taggeados (tope {artistasCapTope}) pero 0 plazas en
-                      flota. Usá «Repartir» o completá Plazas y guardá — si no, el
-                      detalle de transportes sigue en libre.
+                      Hay artistas taggeados (tope {artistasCapTope}) sin reglas{" "}
+                      <strong>Sube</strong>. Asigná Sube por artista en la tabla de
+                      arriba; la reserva técnica no cuenta como pasajeros nombrados.
+                    </p>
+                  ) : null}
+                  {warnAnonymousReservaWithoutSube ? (
+                    <p
+                      style={{
+                        margin: "0 0 0.5rem",
+                        fontSize: "0.78rem",
+                        color: "#b45309",
+                        fontWeight: 600,
+                      }}
+                    >
+                      Hay reserva técnica ({totalPlazasAsignadas}) y artistas taggeados,
+                      pero ningún <strong>Sube</strong> nombrado. Esa reserva saldrá
+                      como «Reserva del evento» anónima — usá Sube para atribuir
+                      artistas.
                     </p>
                   ) : null}
                   {flota.length > 0 ? (
@@ -2067,7 +2006,8 @@ export default function FimbaEventoFormModal({
                           className="fimba-muted"
                           style={{ margin: "0 0 0.35rem", fontSize: "0.72rem" }}
                         >
-                          Orden: mejor ajuste a {plazasACubrir} plazas
+                          Orden flota: mejor ajuste a tope artistas {plazasACubrir}{" "}
+                          (referencia; el headcount va por Sube)
                         </p>
                       ) : null}
                       <table className="fimba-table" style={{ fontSize: "0.82rem" }}>
@@ -2084,12 +2024,17 @@ export default function FimbaEventoFormModal({
                             </th>
                             <th
                               style={{ width: 56, textAlign: "right" }}
-                              title="Plazas FIMBA a bordo en la ventana (reserva + ↑ artistas)"
+                              title="Plazas FIMBA a bordo en la ventana (reserva técnica + ↑ artistas)"
                             >
                               FIMBA
                             </th>
                             <th style={{ width: 64, textAlign: "right" }}>Libres</th>
-                            <th style={{ width: 96, textAlign: "right" }}>Plazas</th>
+                            <th
+                              style={{ width: 110, textAlign: "right" }}
+                              title="Cupo anónimo (staff/TBD). No son artistas — usá Sube."
+                            >
+                              Reserva técnica
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2253,7 +2198,7 @@ export default function FimbaEventoFormModal({
                                         ? "#dc2626"
                                         : undefined,
                                     }}
-                                    aria-label={`Plazas en ${labelGiraTransporte(gt)}`}
+                                    aria-label={`Reserva técnica en ${labelGiraTransporte(gt)}`}
                                   />
                                   {rowBad ? (
                                     <div
@@ -2277,32 +2222,6 @@ export default function FimbaEventoFormModal({
                       </table>
                     </div>
                   )}
-                  {flota.length > 0 ? (
-                    <div
-                      style={{
-                        marginTop: 8,
-                        display: "flex",
-                        flexWrap: "wrap",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <button
-                        type="button"
-                        className="fimba-btn fimba-btn-ghost"
-                        onClick={repartirPlazas}
-                        disabled={plazasACubrir <= 0}
-                        title="Reparte el tope de transporte de los artistas taggeados entre los vehículos marcados, sin superar capacidad/libres"
-                      >
-                        Repartir {plazasACubrir > 0 ? plazasACubrir : ""} plazas
-                      </button>
-                      <span className="fimba-muted" style={{ fontSize: "0.72rem" }}>
-                        {artistasCapTope != null
-                          ? "Usa el tope de transporte de los artistas taggeados."
-                          : "Taggeá artistas para repartir por tope de transporte (equipaje no cuenta como pasajeros)."}
-                      </span>
-                    </div>
-                  ) : null}
                   {selectedVehIds.length > 0 ? (
                     <div
                       style={{
@@ -2315,7 +2234,7 @@ export default function FimbaEventoFormModal({
                       }}
                     >
                       <strong style={{ color: "var(--fimba-deep, #8b1e5b)" }}>
-                        Asignación
+                        Reserva técnica
                       </strong>
                       {": "}
                       {plazasSplitParts.join(" + ")} = {totalPlazasAsignadas}
@@ -2326,20 +2245,12 @@ export default function FimbaEventoFormModal({
                         <>
                           {" · Tope artista"}
                           {selectedProps.length > 1 ? "s" : ""}: {artistasCapTope}
-                          {artistasCapRemaining != null
-                            ? ` · quedan ${artistasCapRemaining}`
-                            : ""}
-                          {totalPlazasAsignadas > artistasCapTope ? (
-                            <span style={{ color: "#dc2626", fontWeight: 600 }}>
-                              {" "}
-                              (supera tope)
-                            </span>
-                          ) : null}
+                          {" (vía Sube)"}
                         </>
                       ) : (
                         <span className="fimba-muted">
                           {" "}
-                          · sin artistas taggeados (no hay tope de cupo transport)
+                          · sin artistas taggeados
                         </span>
                       )}
                       {Number(asientosEquipaje) > 0 ? (
@@ -2353,11 +2264,10 @@ export default function FimbaEventoFormModal({
                   ) : null}
                   <p className="fimba-muted" style={{ margin: "0.5rem 0 0", fontSize: "0.72rem" }}>
                     Capacidad = asientos de la unidad. OFRN / FIMBA = asientos ya a
-                    bordo cuyo ride solapa la fecha/hora (orquesta con plaza_extra +
-                    plazas FIMBA de reserva o ↑ artistas). Libres = capacidad − OFRN −
-                    FIMBA. Al editar este trayecto no se cuentan sus propias plazas
-                    guardadas. Al guardar se bloquea si superás asientos, libres o el
-                    tope del artista.
+                    bordo cuyo ride solapa la fecha/hora (orquesta + Sube artistas +
+                    reserva técnica residual). Libres = capacidad − OFRN − FIMBA. Al
+                    editar este trayecto no se cuentan su propia reserva guardada. Al
+                    guardar se bloquea si la reserva supera asientos o libres.
                   </p>
                 </div>
               )}

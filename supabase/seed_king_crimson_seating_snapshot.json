@@ -1,0 +1,665 @@
+[
+  {
+    "id": 3004,
+    "id_programa": 12,
+    "id_obra": 1111,
+    "id_particella": 16227,
+    "id_contenedor": 97,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "01",
+      "nombre_archivo": "Violín I"
+    }
+  },
+  {
+    "id": 3005,
+    "id_programa": 12,
+    "id_obra": 1111,
+    "id_particella": 16226,
+    "id_contenedor": 99,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "02",
+      "nombre_archivo": "Viola"
+    }
+  },
+  {
+    "id": 3006,
+    "id_programa": 12,
+    "id_obra": 1111,
+    "id_particella": 16229,
+    "id_contenedor": 100,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "03",
+      "nombre_archivo": "Violoncello"
+    }
+  },
+  {
+    "id": 3007,
+    "id_programa": 12,
+    "id_obra": 1111,
+    "id_particella": 16206,
+    "id_contenedor": 101,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "04",
+      "nombre_archivo": "Contrabajo"
+    }
+  },
+  {
+    "id": 3008,
+    "id_programa": 12,
+    "id_obra": 1111,
+    "id_particella": 16216,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      1767967586833
+    ],
+    "obras_particellas": {
+      "id_instrumento": "06",
+      "nombre_archivo": "Oboe I"
+    }
+  },
+  {
+    "id": 3009,
+    "id_programa": 12,
+    "id_obra": 1111,
+    "id_particella": 16211,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      4310905
+    ],
+    "obras_particellas": {
+      "id_instrumento": "05",
+      "nombre_archivo": "Flauta I"
+    }
+  },
+  {
+    "id": 3010,
+    "id_programa": 12,
+    "id_obra": 1111,
+    "id_particella": 16204,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      2313644
+    ],
+    "obras_particellas": {
+      "id_instrumento": "07",
+      "nombre_archivo": "Clarinete I in Bb"
+    }
+  },
+  {
+    "id": 3011,
+    "id_programa": 12,
+    "id_obra": 1111,
+    "id_particella": 16209,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      1767967586834
+    ],
+    "obras_particellas": {
+      "id_instrumento": "08",
+      "nombre_archivo": "Fagot I"
+    }
+  },
+  {
+    "id": 3012,
+    "id_programa": 12,
+    "id_obra": 1111,
+    "id_particella": 16207,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      1767967586835
+    ],
+    "obras_particellas": {
+      "id_instrumento": "09",
+      "nombre_archivo": "Corno F I & III"
+    }
+  },
+  {
+    "id": 3013,
+    "id_programa": 12,
+    "id_obra": 1111,
+    "id_particella": 16223,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      2325804
+    ],
+    "obras_particellas": {
+      "id_instrumento": "10",
+      "nombre_archivo": "Trompeta I in Bb"
+    }
+  },
+  {
+    "id": 3014,
+    "id_programa": 12,
+    "id_obra": 1111,
+    "id_particella": 16220,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      8675952
+    ],
+    "obras_particellas": {
+      "id_instrumento": "11",
+      "nombre_archivo": "Trombón bajo"
+    }
+  },
+  {
+    "id": 3015,
+    "id_programa": 12,
+    "id_obra": 1111,
+    "id_particella": 16225,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      8168742
+    ],
+    "obras_particellas": {
+      "id_instrumento": "12",
+      "nombre_archivo": "Tuba"
+    }
+  },
+  {
+    "id": 3016,
+    "id_programa": 12,
+    "id_obra": 1112,
+    "id_particella": 16260,
+    "id_contenedor": 97,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "01",
+      "nombre_archivo": "Violín I"
+    }
+  },
+  {
+    "id": 3017,
+    "id_programa": 12,
+    "id_obra": 1112,
+    "id_particella": 16259,
+    "id_contenedor": 99,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "02",
+      "nombre_archivo": "Viola"
+    }
+  },
+  {
+    "id": 3018,
+    "id_programa": 12,
+    "id_obra": 1112,
+    "id_particella": 16262,
+    "id_contenedor": 100,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "03",
+      "nombre_archivo": "Violoncello"
+    }
+  },
+  {
+    "id": 3019,
+    "id_programa": 12,
+    "id_obra": 1112,
+    "id_particella": 16233,
+    "id_contenedor": 101,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "04",
+      "nombre_archivo": "Contrabajo"
+    }
+  },
+  {
+    "id": 3020,
+    "id_programa": 12,
+    "id_obra": 1112,
+    "id_particella": 16238,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      4310905
+    ],
+    "obras_particellas": {
+      "id_instrumento": "05",
+      "nombre_archivo": "Flauta I"
+    }
+  },
+  {
+    "id": 3021,
+    "id_programa": 12,
+    "id_obra": 1112,
+    "id_particella": 16247,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      1767967586833
+    ],
+    "obras_particellas": {
+      "id_instrumento": "06",
+      "nombre_archivo": "Oboe I"
+    }
+  },
+  {
+    "id": 3022,
+    "id_programa": 12,
+    "id_obra": 1112,
+    "id_particella": 16231,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      2313644
+    ],
+    "obras_particellas": {
+      "id_instrumento": "07",
+      "nombre_archivo": "Clarinete in Bb I"
+    }
+  },
+  {
+    "id": 3023,
+    "id_programa": 12,
+    "id_obra": 1112,
+    "id_particella": 16236,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      1767967586834
+    ],
+    "obras_particellas": {
+      "id_instrumento": "08",
+      "nombre_archivo": "Fagot I"
+    }
+  },
+  {
+    "id": 3024,
+    "id_programa": 12,
+    "id_obra": 1112,
+    "id_particella": 16234,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      1386645
+    ],
+    "obras_particellas": {
+      "id_instrumento": "09",
+      "nombre_archivo": "Corno F I y III"
+    }
+  },
+  {
+    "id": 3025,
+    "id_programa": 12,
+    "id_obra": 1112,
+    "id_particella": 16256,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      2325804
+    ],
+    "obras_particellas": {
+      "id_instrumento": "10",
+      "nombre_archivo": "Trompeta Bb I"
+    }
+  },
+  {
+    "id": 3026,
+    "id_programa": 12,
+    "id_obra": 1112,
+    "id_particella": 16253,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      8675952
+    ],
+    "obras_particellas": {
+      "id_instrumento": "11",
+      "nombre_archivo": "Trombón bajo"
+    }
+  },
+  {
+    "id": 3027,
+    "id_programa": 12,
+    "id_obra": 1112,
+    "id_particella": 16258,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      8168742
+    ],
+    "obras_particellas": {
+      "id_instrumento": "12",
+      "nombre_archivo": "Tuba"
+    }
+  },
+  {
+    "id": 3056,
+    "id_programa": 12,
+    "id_obra": 1120,
+    "id_particella": 16358,
+    "id_contenedor": 97,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "01",
+      "nombre_archivo": "Violín I"
+    }
+  },
+  {
+    "id": 3057,
+    "id_programa": 12,
+    "id_obra": 1120,
+    "id_particella": 16357,
+    "id_contenedor": 99,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "02",
+      "nombre_archivo": "Viola"
+    }
+  },
+  {
+    "id": 3058,
+    "id_programa": 12,
+    "id_obra": 1120,
+    "id_particella": 16360,
+    "id_contenedor": 100,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "03",
+      "nombre_archivo": "Violoncello"
+    }
+  },
+  {
+    "id": 3059,
+    "id_programa": 12,
+    "id_obra": 1120,
+    "id_particella": 16330,
+    "id_contenedor": 101,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "04",
+      "nombre_archivo": "Contrabajo"
+    }
+  },
+  {
+    "id": 3060,
+    "id_programa": 12,
+    "id_obra": 1120,
+    "id_particella": 16335,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      4310905
+    ],
+    "obras_particellas": {
+      "id_instrumento": "05",
+      "nombre_archivo": "Flauta I"
+    }
+  },
+  {
+    "id": 3061,
+    "id_programa": 12,
+    "id_obra": 1120,
+    "id_particella": 16344,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      1767967586833
+    ],
+    "obras_particellas": {
+      "id_instrumento": "06",
+      "nombre_archivo": "Oboe I"
+    }
+  },
+  {
+    "id": 3062,
+    "id_programa": 12,
+    "id_obra": 1120,
+    "id_particella": 16328,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      2313644
+    ],
+    "obras_particellas": {
+      "id_instrumento": "07",
+      "nombre_archivo": "Clarinete in Bb I"
+    }
+  },
+  {
+    "id": 3063,
+    "id_programa": 12,
+    "id_obra": 1120,
+    "id_particella": 16333,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      1767967586834
+    ],
+    "obras_particellas": {
+      "id_instrumento": "08",
+      "nombre_archivo": "Fagot I"
+    }
+  },
+  {
+    "id": 3064,
+    "id_programa": 12,
+    "id_obra": 1120,
+    "id_particella": 16331,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      1386645
+    ],
+    "obras_particellas": {
+      "id_instrumento": "09",
+      "nombre_archivo": "CornoF I y III"
+    }
+  },
+  {
+    "id": 3065,
+    "id_programa": 12,
+    "id_obra": 1120,
+    "id_particella": 16354,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      2325804
+    ],
+    "obras_particellas": {
+      "id_instrumento": "10",
+      "nombre_archivo": "Trompeta Bb I"
+    }
+  },
+  {
+    "id": 3066,
+    "id_programa": 12,
+    "id_obra": 1120,
+    "id_particella": 16356,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      8168742
+    ],
+    "obras_particellas": {
+      "id_instrumento": "12",
+      "nombre_archivo": "Tuba"
+    }
+  },
+  {
+    "id": 3067,
+    "id_programa": 12,
+    "id_obra": 1120,
+    "id_particella": 16351,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      8675952
+    ],
+    "obras_particellas": {
+      "id_instrumento": "11",
+      "nombre_archivo": "Trombón bajo"
+    }
+  },
+  {
+    "id": 3068,
+    "id_programa": 12,
+    "id_obra": 1120,
+    "id_particella": 16347,
+    "id_contenedor": null,
+    "id_musicos_asignados": [
+      9681690,
+      6438674
+    ],
+    "obras_particellas": {
+      "id_instrumento": "13",
+      "nombre_archivo": "Perc Bass Drum"
+    }
+  },
+  {
+    "id": 3069,
+    "id_programa": 12,
+    "id_obra": 1298,
+    "id_particella": 16367,
+    "id_contenedor": 97,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "01",
+      "nombre_archivo": "Violín I. (1)"
+    }
+  },
+  {
+    "id": 3070,
+    "id_programa": 12,
+    "id_obra": 1298,
+    "id_particella": 16365,
+    "id_contenedor": 98,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "01",
+      "nombre_archivo": "Violín I (2)"
+    }
+  },
+  {
+    "id": 3071,
+    "id_programa": 12,
+    "id_obra": 1298,
+    "id_particella": 16363,
+    "id_contenedor": 99,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "02",
+      "nombre_archivo": "Viola I"
+    }
+  },
+  {
+    "id": 3072,
+    "id_programa": 12,
+    "id_obra": 1298,
+    "id_particella": 16371,
+    "id_contenedor": 100,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "03",
+      "nombre_archivo": "Violoncello I"
+    }
+  },
+  {
+    "id": 3073,
+    "id_programa": 12,
+    "id_obra": 1298,
+    "id_particella": 16361,
+    "id_contenedor": 101,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "04",
+      "nombre_archivo": "Contrabajo (Con extensión hasta C)"
+    }
+  },
+  {
+    "id": 3074,
+    "id_programa": 12,
+    "id_obra": 1300,
+    "id_particella": 16377,
+    "id_contenedor": 97,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "01",
+      "nombre_archivo": "Violín I1"
+    }
+  },
+  {
+    "id": 3075,
+    "id_programa": 12,
+    "id_obra": 1300,
+    "id_particella": 16375,
+    "id_contenedor": 99,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "02",
+      "nombre_archivo": "Viola 1"
+    }
+  },
+  {
+    "id": 3076,
+    "id_programa": 12,
+    "id_obra": 1300,
+    "id_particella": 16383,
+    "id_contenedor": 100,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "03",
+      "nombre_archivo": "Violoncello1"
+    }
+  },
+  {
+    "id": 3077,
+    "id_programa": 12,
+    "id_obra": 1300,
+    "id_particella": 16373,
+    "id_contenedor": 101,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "04",
+      "nombre_archivo": "Contrabajo"
+    }
+  },
+  {
+    "id": 3093,
+    "id_programa": 12,
+    "id_obra": 2857,
+    "id_particella": 16430,
+    "id_contenedor": 100,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "03",
+      "nombre_archivo": "Violoncello I"
+    }
+  },
+  {
+    "id": 3094,
+    "id_programa": 12,
+    "id_obra": 2857,
+    "id_particella": 16424,
+    "id_contenedor": 97,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "01",
+      "nombre_archivo": "Violín I 1"
+    }
+  },
+  {
+    "id": 3095,
+    "id_programa": 12,
+    "id_obra": 2857,
+    "id_particella": 16425,
+    "id_contenedor": 98,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "01",
+      "nombre_archivo": "Violín I 2"
+    }
+  },
+  {
+    "id": 3096,
+    "id_programa": 12,
+    "id_obra": 2857,
+    "id_particella": 16422,
+    "id_contenedor": 99,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "02",
+      "nombre_archivo": "Viola I"
+    }
+  },
+  {
+    "id": 3097,
+    "id_programa": 12,
+    "id_obra": 2857,
+    "id_particella": 16420,
+    "id_contenedor": 101,
+    "id_musicos_asignados": null,
+    "obras_particellas": {
+      "id_instrumento": "04",
+      "nombre_archivo": "Contrabajo"
+    }
+  }
+]

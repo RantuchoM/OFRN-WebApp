@@ -538,6 +538,25 @@ Dropbox compartido [ARREGLOS ORQUESTALES OK](https://www.dropbox.com/scl/fo/lw38
 - [x] Seed **aplicado en linked** (2026-08-13): obra **3571**, `link_drive` [1DKNjjnw51jgx9TcWWskunnBlucqwqQqP](https://drive.google.com/open?id=1DKNjjnw51jgx9TcWWskunnBlucqwqQqP)
 - Matcher: Guitarra 1–5; Trompa en Fa `1&2`/`3&4` → `Corno F 1y2`/`3y4`; tam-tam/cymbals → Perc Percusión.
 
+### Completado (2026-08-31) — Sync particellas King Crimson (11 obras)
+
+Las 11 obras del bloque (excepto Larks **3571**, ya OK) tenían stubs sin `url_archivo` y sin SCORE. Se re-sincronizaron desde `link_drive` con el matcher:
+
+| Script | Rol |
+|--------|-----|
+| `scripts/sync-king-crimson-particellas.mjs` | Dry-run / `--apply`: genera SQL + aplica linked + snapshot seating |
+| `scripts/rematch-king-crimson-seating.mjs` | Rearma seating tras CASCADE (unicidad `id_programa,id_particella`) |
+| `supabase/seed_king_crimson_particellas_sync.sql` | DELETE+INSERT particellas + UPDATE instrumentacion |
+
+- Todas con URL + SCORE (id 50) salvo que Drive no tenga el PDF.
+- Seating: rematch parcial donde hay menos atriles nuevos que stubs viejos (p. ej. una sola `Viola` vs Viola 1/2).
+- Unmatched intencional: `Reducido - Partitura completa` (Dangerous curves).
+- Pie Jesu: nombres Drive compactos (`Violín I1`…); Black Light: SCORE vertical fusionado en la misma fila SCORE (2 URLs).
+
+### Completado (2026-08-31) — Numeración romana → arábiga (matcher)
+
+`arabicizeRomanPartNumbers` en `src/utils/drivePartMatcher.js`: `I/II/III/IV` → `1/2/3/4`; combinados `I y III` / `II & IV` se expanden a Corno 1+3 / 2+4. Re-sync aplicado a Asturias, Dangerous curves, Eye of the Needle, Black Light, Pie Jesu, Midnight Blue.
+
 ### Completado (2026-08-13) — Bloque **King Crimson** en gira 12 (FIMBA)
 
 Seed `supabase/seed_gira_12_king_crimson.sql` aplicado en linked. **No** inserta obras: solo crea/reutiliza el bloque y vincula ids existentes con `[The LCG]`.

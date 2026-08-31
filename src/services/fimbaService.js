@@ -453,8 +453,10 @@ export function validateArtistaTransporteAssign(propuesta, usedPlazas, plazas) {
 }
 
 /**
- * Evento multi-vehículo: Σ plazas asignadas del evento ≤ Σ para_transporte de artistas taggeados.
- * Un solo campo `plazas` (sin split persona/material) → tope transporte total.
+ * Evento multi-vehículo: Σ plazas vs tope transporte de artistas taggeados.
+ * @deprecated No usar para `fimba_evento_transportes.plazas` (reserva técnica anónima).
+ * El headcount de artistas va por Sube (`fimba_propuesta_rutas`). Conservada por si
+ * se reutiliza al validar Σ Sube vs tope. `saveFimbaEvento` ya no la llama.
  * Sin tags: no aplica (orquesta/flota libre de este check).
  *
  * @param {Array<{ cantidad_planificada?: number, plazas_extra_materiales?: number }>} propuestas
@@ -4294,21 +4296,11 @@ export async function saveFimbaEvento(payload) {
   }
   const grupoIds = audienciaOfrn === "grupos" ? rawGrupoIds : [];
 
-  const propIdsForCap = [
-    ...new Set(
-      (payload.id_propuestas || [])
-        .map(Number)
-        .filter((id) => Number.isFinite(id) && id > 0),
-    ),
-  ];
   const needFlota = vehiculos.length > 0;
-  const needPropsCap = needFlota && propIdsForCap.length > 0;
   const needGrupos = grupoIds.length > 0;
 
   /** @type {Array<object>} */
   let flotaOwned = [];
-  /** @type {Array<object>|null} */
-  let propsCap = null;
 
   // Pre-checks independientes en paralelo (antes: 3–4 round-trips secuenciales)
   const preTasks = [];
@@ -4321,15 +4313,6 @@ export async function saveFimbaEvento(payload) {
         .eq("id_gira", idGira)
         .in("id", ids)
         .then(({ data, error }) => ({ key: "flota", data, error, ids })),
-    );
-  }
-  if (needPropsCap) {
-    preTasks.push(
-      supabase
-        .from("fimba_propuestas")
-        .select("id, cantidad_planificada, plazas_extra_materiales")
-        .in("id", propIdsForCap)
-        .then(({ data, error }) => ({ key: "props", data, error })),
     );
   }
   if (needGrupos) {
@@ -4365,20 +4348,6 @@ export async function saveFimbaEvento(payload) {
         );
         if (!checkCapAsientos.ok) {
           return { evento: null, error: checkCapAsientos.error };
-        }
-      }
-      if (t.key === "props") {
-        propsCap = t.data || [];
-        const totalPlazas = vehiculos.reduce(
-          (s, v) => s + Math.max(0, Number(v.plazas) || 0),
-          0,
-        );
-        const checkCap = validateEventoTransportPlazasVsArtistas(
-          propsCap,
-          totalPlazas,
-        );
-        if (!checkCap.ok) {
-          return { evento: null, error: checkCap.error };
         }
       }
       if (t.key === "grupos") {

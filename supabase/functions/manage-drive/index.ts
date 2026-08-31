@@ -4116,16 +4116,37 @@ serve(async (req) => {
         error?: string;
       }> = [];
 
+      const blockDestCache = new Map<string, string>();
+
       for (const entry of files) {
         const rawId = entry?.fileId || entry?.sourceId;
         let destFolder = entry?.destinationFolderId || entry?.targetFolderId;
         const newNameForCopy: string | undefined = entry?.newName;
         const prefixLabel: string | undefined = entry?.prefixLabel;
+        const repertoireBlockId =
+          entry?.repertoireBlockId ?? entry?.id_repertorio ?? null;
 
         const fileId = typeof rawId === "string" ? rawId : extractFileId(rawId);
 
+        let tourArcosRootId: string | null = null;
         if (!destFolder && giraIdForBatch != null) {
-          destFolder = await ensureTourArcosFolderForBatch();
+          tourArcosRootId = await ensureTourArcosFolderForBatch();
+          destFolder = tourArcosRootId;
+          if (repertoireBlockId != null && repertoireBlockId !== "") {
+            const cacheKey = String(repertoireBlockId);
+            if (blockDestCache.has(cacheKey)) {
+              destFolder = blockDestCache.get(cacheKey)!;
+            } else {
+              destFolder = await resolveTourArcosShortcutsParent(
+                supabase,
+                drive,
+                tourArcosRootId,
+                giraIdForBatch,
+                repertoireBlockId,
+              );
+              blockDestCache.set(cacheKey, destFolder);
+            }
+          }
         }
 
         if (!fileId || !destFolder) {
@@ -4178,6 +4199,33 @@ serve(async (req) => {
             fields: "id, webViewLink, name",
             supportsAllDrives: true,
           });
+
+          // Migración: si el score quedó en una subcarpeta por bloque, borrar
+          // copia homónima legada en la raíz de arcos de la gira.
+          if (
+            tourArcosRootId &&
+            destFolder !== tourArcosRootId &&
+            finalName
+          ) {
+            try {
+              const legacy = await drive.files.list({
+                q: `'${tourArcosRootId}' in parents and name = '${safeNameForQuery}' and trashed = false`,
+                fields: "files(id)",
+                supportsAllDrives: true,
+                includeItemsFromAllDrives: true,
+              });
+              for (const legacyFile of legacy.data.files || []) {
+                if (legacyFile.id) {
+                  await drive.files.delete({ fileId: legacyFile.id });
+                }
+              }
+            } catch (cleanErr) {
+              console.warn(
+                "[COPY_FILES_BATCH] Limpieza score legado en raíz falló:",
+                (cleanErr as Error)?.message || cleanErr,
+              );
+            }
+          }
 
           results.push({
             sourceId: fileId,

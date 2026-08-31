@@ -37,6 +37,7 @@ import {
   extractEventArtistas,
   extractEventGrupos,
   formatVenueEventDate,
+  formatVenueShowsDateRange,
   formatVenueStageDims,
   groupEventsByLocacion,
 } from "../../utils/venueDisplayUtils";
@@ -293,7 +294,11 @@ export default function FimbaVenuesPage() {
   );
   const [dateTo, setDateTo] = useState("");
   const [selectedLocationIds, setSelectedLocationIds] = useState([]);
+  /** Venue-level accordion: all collapsed on load (no auto-expand). */
   const [expandedVenueIds, setExpandedVenueIds] = useState(() => new Set());
+  /** Nested: Información / Espectáculos — both start collapsed until user opens. */
+  const [expandedInfoIds, setExpandedInfoIds] = useState(() => new Set());
+  const [expandedShowsIds, setExpandedShowsIds] = useState(() => new Set());
 
   const [stagePlotViewerEvent, setStagePlotViewerEvent] = useState(null);
   const [editModal, setEditModal] = useState(null);
@@ -386,21 +391,20 @@ export default function FimbaVenuesPage() {
     [filteredEvents],
   );
 
-  useEffect(() => {
-    setExpandedVenueIds((prev) => {
-      const next = new Set(prev);
-      venuesGrouped.forEach(({ locacion }) => {
-        if (locacion?.id != null) next.add(locacion.id);
-      });
-      return next;
-    });
-  }, [venuesGrouped]);
-
   const toggleVenueExpanded = useCallback((locId) => {
     setExpandedVenueIds((prev) => {
       const next = new Set(prev);
       if (next.has(locId)) next.delete(locId);
       else next.add(locId);
+      return next;
+    });
+  }, []);
+
+  const toggleSetId = useCallback((setter, id) => {
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }, []);
@@ -558,10 +562,19 @@ export default function FimbaVenuesPage() {
             {venuesGrouped.map(({ locacion, events: venueEvents }) => {
               const locId = locacion.id;
               const isExpanded = expandedVenueIds.has(locId);
+              const infoOpen = expandedInfoIds.has(locId);
+              const showsOpen = expandedShowsIds.has(locId);
               const localidad = locacion.localidades?.localidad || null;
               const stageDims = formatVenueStageDims(locacion);
               const venueInfo = venueInfoByLocId.get(locId) || null;
               const agendaHref = `/fimba/edicion/${edicionId}/agenda?locacion=${locId}`;
+              const dateRange = formatVenueShowsDateRange(venueEvents);
+              const badgeLabel = [
+                `${venueEvents.length} espectáculo${venueEvents.length === 1 ? "" : "s"}`,
+                dateRange,
+              ]
+                .filter(Boolean)
+                .join(" ");
 
               return (
                 <section
@@ -571,6 +584,7 @@ export default function FimbaVenuesPage() {
                   <button
                     type="button"
                     onClick={() => toggleVenueExpanded(locId)}
+                    aria-expanded={isExpanded}
                     style={{
                       width: "100%",
                       display: "flex",
@@ -600,8 +614,7 @@ export default function FimbaVenuesPage() {
                           </span>
                         )}
                         <span className="fimba-badge fimba-badge-fimba">
-                          {venueEvents.length} espectáculo
-                          {venueEvents.length === 1 ? "" : "s"}
+                          {badgeLabel}
                         </span>
                       </div>
                       <div
@@ -627,53 +640,126 @@ export default function FimbaVenuesPage() {
                   </button>
 
                   {isExpanded && (
-                    <>
-                      <FimbaVenueInfoSection
-                        edicionId={edicionId}
-                        locacion={locacion}
-                        venueInfo={venueInfo}
-                        canEdit={canEditVenueInfo}
-                        onSaved={handleVenueInfoSaved}
-                        agendaHref={agendaHref}
-                      />
-                      <div className="fimba-planilla-scroll">
-                        <div
+                    <div
+                      style={{
+                        /* Align body under venue name (past chevron + pin). */
+                        padding:
+                          "0 1rem 0.85rem calc(1rem + 32px + 1.3rem)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          border: "1px solid #eef2f7",
+                          borderRadius: 8,
+                          overflow: "hidden",
+                          background: "#fafbfc",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleSetId(setExpandedInfoIds, locId)}
+                          aria-expanded={infoOpen}
                           style={{
-                            padding: "0.5rem 1rem 0.25rem",
-                            fontSize: "0.78rem",
-                            fontWeight: 600,
-                            color: "var(--fimba-deep)",
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.5rem",
+                            padding: "0.55rem 0.75rem",
+                            border: 0,
+                            borderBottom: "1px solid #eef2f7",
+                            background: "transparent",
+                            cursor: "pointer",
+                            textAlign: "left",
                           }}
                         >
-                          Espectáculos
-                        </div>
-                        <table className="fimba-table fimba-planilla-table">
-                          <thead>
-                            <tr>
-                              <th>Fecha</th>
-                              <th>Actividad</th>
-                              <th>Artistas</th>
-                              <th>Grupos OFRN</th>
-                              <th>Obs. aforo</th>
-                              <th style={{ textAlign: "right" }}>Acciones</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {venueEvents.map((evt) => (
-                              <FimbaVenueEventRow
-                                key={evt.id}
-                                evt={evt}
-                                readOnly={readOnly}
-                                showStagePlotEditorLink={isManagement}
-                                onViewStagePlot={setStagePlotViewerEvent}
-                                onEditEvent={openEditEvent}
-                                onAforoSaved={handleAforoSaved}
-                              />
-                            ))}
-                          </tbody>
-                        </table>
+                          <span className="fimba-muted">
+                            {infoOpen ? (
+                              <IconChevronUp size={14} />
+                            ) : (
+                              <IconChevronDown size={14} />
+                            )}
+                          </span>
+                          <strong style={{ fontSize: "0.8rem", color: "var(--fimba-deep)" }}>
+                            Información
+                          </strong>
+                        </button>
+                        {infoOpen && (
+                          <div style={{ padding: "0 0.75rem" }}>
+                            <FimbaVenueInfoSection
+                              edicionId={edicionId}
+                              locacion={locacion}
+                              venueInfo={venueInfo}
+                              canEdit={canEditVenueInfo}
+                              onSaved={handleVenueInfoSaved}
+                              agendaHref={agendaHref}
+                              hideTitle
+                            />
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => toggleSetId(setExpandedShowsIds, locId)}
+                          aria-expanded={showsOpen}
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.5rem",
+                            padding: "0.55rem 0.75rem",
+                            border: 0,
+                            borderTop: infoOpen ? "1px solid #eef2f7" : undefined,
+                            borderBottom: showsOpen ? "1px solid #eef2f7" : undefined,
+                            background: "transparent",
+                            cursor: "pointer",
+                            textAlign: "left",
+                          }}
+                        >
+                          <span className="fimba-muted">
+                            {showsOpen ? (
+                              <IconChevronUp size={14} />
+                            ) : (
+                              <IconChevronDown size={14} />
+                            )}
+                          </span>
+                          <strong style={{ fontSize: "0.8rem", color: "var(--fimba-deep)" }}>
+                            Espectáculos
+                          </strong>
+                          <span className="fimba-muted" style={{ fontSize: "0.72rem" }}>
+                            ({venueEvents.length})
+                          </span>
+                        </button>
+                        {showsOpen && (
+                          <div className="fimba-planilla-scroll">
+                            <table className="fimba-table fimba-planilla-table">
+                              <thead>
+                                <tr>
+                                  <th>Fecha</th>
+                                  <th>Actividad</th>
+                                  <th>Artistas</th>
+                                  <th>Grupos OFRN</th>
+                                  <th>Obs. aforo</th>
+                                  <th style={{ textAlign: "right" }}>Acciones</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {venueEvents.map((evt) => (
+                                  <FimbaVenueEventRow
+                                    key={evt.id}
+                                    evt={evt}
+                                    readOnly={readOnly}
+                                    showStagePlotEditorLink={isManagement}
+                                    onViewStagePlot={setStagePlotViewerEvent}
+                                    onEditEvent={openEditEvent}
+                                    onAforoSaved={handleAforoSaved}
+                                  />
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                       </div>
-                    </>
+                    </div>
                   )}
                 </section>
               );

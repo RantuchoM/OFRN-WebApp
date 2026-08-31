@@ -21,6 +21,34 @@ export function formatVenueEventDate(fechaRaw) {
   }
 }
 
+/** Short date for venue badge: `dd/MM/yyyy`. */
+export function formatVenueShortDate(fechaRaw) {
+  if (!fechaRaw) return "";
+  try {
+    return format(parseISO(fechaRaw), "dd/MM/yyyy");
+  } catch {
+    return String(fechaRaw);
+  }
+}
+
+/**
+ * First–last concert dates for badge, e.g. `18/09/2026 - 19/09/2026`.
+ * Same date twice → single date. Empty events → "".
+ */
+export function formatVenueShowsDateRange(events) {
+  const dates = (events || [])
+    .map((e) => e?.fecha)
+    .filter(Boolean)
+    .slice()
+    .sort();
+  if (dates.length === 0) return "";
+  const first = formatVenueShortDate(dates[0]);
+  const last = formatVenueShortDate(dates[dates.length - 1]);
+  if (!first) return "";
+  if (!last || first === last) return first;
+  return `${first} - ${last}`;
+}
+
 export function extractEventGrupos(evt) {
   return (evt.eventos_grupos || [])
     .map((eg) => eg.giras_grupos)

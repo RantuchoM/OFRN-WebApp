@@ -689,12 +689,15 @@ const MergeLocationPick = ({
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const wrapperRef = useRef(null);
+  const inputRef = useRef(null);
   const selected = options.find((o) => String(o.id) === String(value));
+  const showSearch = isOpen || !selected;
 
   useEffect(() => {
     const onDoc = (e) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
         setIsOpen(false);
+        setQuery("");
       }
     };
     document.addEventListener("mousedown", onDoc);
@@ -702,12 +705,43 @@ const MergeLocationPick = ({
   }, []);
 
   useEffect(() => {
-    if (selected) setQuery(selected.label);
-    else if (!value) setQuery("");
-  }, [selected, value]);
+    if (!value) setQuery("");
+  }, [value]);
 
-  const filtered = options.filter((item) =>
-    normalizeForSearch(item.label).includes(normalizeForSearch(query)),
+  useEffect(() => {
+    if (showSearch && isOpen) {
+      inputRef.current?.focus();
+    }
+  }, [showSearch, isOpen]);
+
+  const filtered = options.filter((item) => {
+    const q = normalizeForSearch(query);
+    if (!q) return true;
+    const haystack = normalizeForSearch(
+      item.searchText || [item.label, item.direccion].filter(Boolean).join(" "),
+    );
+    return haystack.includes(q);
+  });
+
+  const renderThreeLines = (opt, { compact = false } = {}) => (
+    <div className={`min-w-0 ${compact ? "" : "pr-6"}`}>
+      <div className="flex items-baseline gap-1.5 min-w-0">
+        <span className="font-semibold text-sm text-slate-800 break-words">
+          {opt.nombre || opt.label}
+        </span>
+        <span className="text-slate-300 text-[10px] font-mono shrink-0">#{opt.id}</span>
+      </div>
+      <div className="text-xs text-slate-500 mt-0.5 break-words">
+        {opt.localidad || (
+          <span className="italic text-slate-300">Sin localidad</span>
+        )}
+      </div>
+      <div className="text-xs text-slate-500 mt-0.5 break-words">
+        {opt.direccion || (
+          <span className="italic text-slate-300">Sin dirección</span>
+        )}
+      </div>
+    </div>
   );
 
   return (
@@ -715,29 +749,54 @@ const MergeLocationPick = ({
       <label className={`text-[10px] font-bold uppercase mb-1 block ${colorClass}`}>
         {label}
       </label>
-      <div className="relative">
-        <input
-          type="text"
-          className={`w-full p-2.5 pr-8 border rounded-lg text-sm outline-none focus:ring-2 transition-shadow min-h-[44px] ${
-            isOpen ? "ring-2 ring-violet-400 border-violet-300" : "border-slate-200"
-          }`}
-          placeholder={placeholder}
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
+
+      {selected && !isOpen ? (
+        <button
+          type="button"
+          onClick={() => {
             setIsOpen(true);
-            if (value) onChange("");
+            setQuery("");
           }}
-          onFocus={() => setIsOpen(true)}
-        />
-        <div
-          className={`absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none ${iconColorClass}`}
+          className={`w-full text-left p-2.5 pr-9 border rounded-lg bg-white hover:bg-slate-50 transition-shadow min-h-[44px] relative ${
+            colorClass.includes("red")
+              ? "border-red-200 ring-1 ring-red-100"
+              : "border-emerald-200 ring-1 ring-emerald-100"
+          }`}
         >
-          {isOpen ? <IconSearch size={14} /> : <IconChevronDown size={14} />}
+          {renderThreeLines(selected)}
+          <span
+            className={`absolute right-2 top-2.5 pointer-events-none ${iconColorClass}`}
+          >
+            <IconChevronDown size={14} />
+          </span>
+        </button>
+      ) : (
+        <div className="relative">
+          <input
+            ref={inputRef}
+            type="text"
+            className={`w-full p-2.5 pr-8 border rounded-lg text-sm outline-none focus:ring-2 transition-shadow min-h-[44px] ${
+              isOpen ? "ring-2 ring-violet-400 border-violet-300" : "border-slate-200"
+            }`}
+            placeholder={placeholder}
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setIsOpen(true);
+              if (value) onChange("");
+            }}
+            onFocus={() => setIsOpen(true)}
+          />
+          <div
+            className={`absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none ${iconColorClass}`}
+          >
+            {isOpen ? <IconSearch size={14} /> : <IconChevronDown size={14} />}
+          </div>
         </div>
-      </div>
+      )}
+
       {isOpen && (
-        <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-52 overflow-y-auto z-[110]">
+        <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-64 overflow-y-auto z-[110]">
           {filtered.length > 0 ? (
             filtered.map((opt) => (
               <button
@@ -746,15 +805,11 @@ const MergeLocationPick = ({
                 onClick={() => {
                   onChange(String(opt.id));
                   setIsOpen(false);
-                  setQuery(opt.label);
+                  setQuery("");
                 }}
-                className="w-full text-left p-2.5 text-sm hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-0 text-slate-700"
+                className="w-full text-left p-2.5 hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-0"
               >
-                <span className="font-semibold">{opt.nombre || opt.label}</span>
-                {opt.localidad ? (
-                  <span className="text-slate-400 text-xs ml-1">· {opt.localidad}</span>
-                ) : null}
-                <span className="text-slate-300 text-[10px] font-mono ml-1">#{opt.id}</span>
+                {renderThreeLines(opt, { compact: true })}
               </button>
             ))
           ) : (
@@ -799,11 +854,19 @@ const MergeLocationsModal = ({
       .map((l) => {
         const localidad = locLabel(l.id_localidad);
         const nombre = l.nombre || "(sin nombre)";
+        const direccion = (l.direccion && String(l.direccion).trim()) || "";
+        const label = `${nombre}${localidad ? ` · ${localidad}` : ""}${
+          direccion ? ` · ${direccion}` : ""
+        } (#${l.id})`;
         return {
           id: l.id,
           nombre,
           localidad,
-          label: `${nombre}${localidad ? ` · ${localidad}` : ""} (#${l.id})`,
+          direccion,
+          label,
+          searchText: [nombre, localidad, direccion, String(l.id)]
+            .filter(Boolean)
+            .join(" "),
         };
       })
       .sort((a, b) => a.label.localeCompare(b.label, "es"));
@@ -882,7 +945,7 @@ const MergeLocationsModal = ({
 
             <MergeLocationPick
               label="1. Eliminar (duplicado)"
-              placeholder="Buscar duplicado..."
+              placeholder="Buscar por nombre, dirección o localidad..."
               options={options.filter((c) => String(c.id) !== String(targetId))}
               value={sourceId}
               onChange={setSourceId}
@@ -896,7 +959,7 @@ const MergeLocationsModal = ({
 
             <MergeLocationPick
               label="2. Mantener (correcta)"
-              placeholder="Buscar destino..."
+              placeholder="Buscar por nombre, dirección o localidad..."
               options={options.filter((c) => String(c.id) !== String(sourceId))}
               value={targetId}
               onChange={setTargetId}

@@ -1032,7 +1032,8 @@ export function headcountByPropuestaAtStop(fimbaRides, sorted, currentIdx) {
 
 /**
  * Label UI para plazas técnicas / residual de `fimba_evento_transportes`
- * (no exponer “sintético” al usuario).
+ * (cupo anónimo staff/TBD; no exponer “sintético”). Chip solo si
+ * residual = plazas − Σ Sube > 0. Artistas nombrados → Sube.
  */
 export const FIMBA_RESERVA_EVENTO_LABEL = "Reserva del evento";
 
@@ -1290,6 +1291,34 @@ export function formatArtistaHeadcountLabel(nombre, n) {
   const num = Number(n);
   if (Number.isFinite(num) && num > 0) return `${name} ${num}`;
   return name;
+}
+
+/** Máx. caracteres del nombre en chips Subidas/Bajadas (planilla Transportes). */
+export const BOARD_CHIP_NAME_MAX_CHARS = 18;
+
+/**
+ * Label de chip Subidas/Bajadas: `{nombre} {n}` o `{nombre}… {n}`.
+ * Trunca por caracteres para que la cantidad nunca se pierda en ellipsis CSS.
+ *
+ * @param {string|null|undefined} label
+ * @param {number|string|null|undefined} plazas
+ * @param {number} [maxNameChars=BOARD_CHIP_NAME_MAX_CHARS]
+ * @returns {string}
+ */
+export function formatBoardChipLabel(
+  label,
+  plazas,
+  maxNameChars = BOARD_CHIP_NAME_MAX_CHARS,
+) {
+  const name = String(label ?? "").trim();
+  const n = Number(plazas);
+  const qty = Number.isFinite(n) ? String(n) : String(plazas ?? "").trim();
+  if (!name) return qty;
+  if (!qty) return name;
+  const limit = Math.max(1, Number(maxNameChars) || BOARD_CHIP_NAME_MAX_CHARS);
+  if (name.length <= limit) return `${name} ${qty}`;
+  const cut = name.slice(0, limit).replace(/\s+$/u, "");
+  return `${cut || name.slice(0, 1)}… ${qty}`;
 }
 
 /**

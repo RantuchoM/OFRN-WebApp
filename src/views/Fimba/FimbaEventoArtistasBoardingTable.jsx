@@ -961,8 +961,8 @@ export default function FimbaEventoArtistasBoardingTable({
               style={{ margin: "0.35rem 0 0", fontSize: "0.72rem" }}
             >
               Mismas reglas que «Gestionar subidas/bajadas» en la planilla
-              (artista + plazas + equipaje). La reserva técnica son las plazas del
-              vehículo arriba.
+              (artista + plazas + equipaje). La <strong>reserva técnica</strong> del
+              vehículo (abajo) es cupo anónimo — no cuenta como Sube de artista.
               {vehiculos.length > 1
                 ? " Cambiá el vehículo del selector para editar otra unidad."
                 : ""}

@@ -95,6 +95,8 @@ export default function FimbaVenueInfoSection({
   canEdit,
   onSaved,
   agendaHref,
+  /** When nested under a parent "Información" accordion, hide duplicate title. */
+  hideTitle = false,
 }) {
   const locId = locacion?.id;
   const [draft, setDraft] = useState(() => draftFromVenue(locacion, venueInfo));
@@ -230,9 +232,9 @@ export default function FimbaVenueInfoSection({
     return (
       <div
         style={{
-          padding: "0.75rem 1rem 1rem",
-          borderBottom: "1px solid #f1f5f9",
-          background: "#fafbfc",
+          padding: hideTitle ? "0.5rem 0 0.75rem" : "0.75rem 1rem 1rem",
+          borderBottom: hideTitle ? "none" : "1px solid #f1f5f9",
+          background: hideTitle ? "transparent" : "#fafbfc",
         }}
       >
         <div
@@ -283,23 +285,25 @@ export default function FimbaVenueInfoSection({
   return (
     <div
       style={{
-        padding: "0.75rem 1rem 1rem",
-        borderBottom: "1px solid #f1f5f9",
-        background: "#fafbfc",
+        padding: hideTitle ? "0.5rem 0 0.75rem" : "0.75rem 1rem 1rem",
+        borderBottom: hideTitle ? "none" : "1px solid #f1f5f9",
+        background: hideTitle ? "transparent" : "#fafbfc",
       }}
     >
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: hideTitle ? "flex-end" : "space-between",
           gap: "0.5rem",
           marginBottom: "0.65rem",
         }}
       >
-        <span className="fimba-label" style={{ margin: 0 }}>
-          Información del venue
-        </span>
+        {!hideTitle && (
+          <span className="fimba-label" style={{ margin: 0 }}>
+            Información del venue
+          </span>
+        )}
         <span
           className={`fimba-sync-dot ${sync.cls}`}
           title={sync.title}

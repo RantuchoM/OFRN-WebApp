@@ -17,7 +17,9 @@ Permitir que los editores generen automáticamente copias de las particellas de 
    - Se llama a `manage-drive` con una acción `COPY_FILES_BATCH`.
    - Payload: `files: Array<{ fileId, destinationFolderId, newName? }>` asociado al `giraId` actual.
    - La función debe copiar el archivo original y renombrarlo (ej: `[ARCOS] Nombre_Obra.pdf`).
-6. **Destino (scores):** Campo `id_folder_arcos` de la tabla `programas` (raíz `Arcos {nomenclador}`).
+6. **Destino (scores):** Misma jerarquía que los shortcuts. Con **más de un** bloque, `COPY_FILES_BATCH` (Scores para Arcos) copia a:
+   `Arcos {nomenclador}/{orden}. {nombreBloque}/`
+   Con un solo bloque (o sin `repertoireBlockId`), destino = raíz `id_folder_arcos`. Al copiar a subcarpeta se borran copias homónimas legadas en la raíz.
 7. **Subcarpetas por bloque de repertorio (shortcuts de arcos):**
    - Si el programa tiene **más de un** bloque en `programas_repertorios`, los shortcuts S2 se crean bajo:
      `Arcos {nomenclador}/{orden}. {nombreBloque}/`
@@ -59,7 +61,11 @@ COMMENT ON COLUMN public.programas.id_folder_arcos IS 'ID de Google Drive de la 
   - `executeGenerateBowScores` / `executeRepairArcos` reutilizados por el flujo batch y el modal final de scores.
   - `handleSyncArco` / `syncBowingToProgram` pasan `repertoireBlockId`.
   - Lógica que filtra `obras_particellas` por `id_instrumento === "50"` y parsea `url_archivo` como string o JSON de versiones.
-  - La operación de scores usa `program.id_folder_arcos` como carpeta destino en Drive.
+  - Scores: `executeGenerateBowScores` envía `repertoireBlockId` por archivo; `COPY_FILES_BATCH` anida con `resolveTourArcosShortcutsParent` cuando hay >1 bloque.
 - **Permisos**:
   - Menú Arcos: visible para `isEditor` o `isManagement`.
   - «Importar Repertorio» y «Sincronizar Drive»: visibles solo para editores/admins (`isEditor`).
+- **Migración gira/programa 12 (Sinf 11/26, 2026-08-31):**
+  - Bloques con arcos: Gala Lírica (14), King Crimson (12), Bob Marley (16). Alba Carmona sin obras.
+  - Shortcuts: `sync_bowing_to_program` × 42 (0 fallos) → subcarpetas por bloque.
+  - Scores `[ARCOS]`: 31 PDFs movidos a las mismas subcarpetas (Gala 14, King Crimson 1, Bob Marley 16); raíz de arcos solo con las 3 carpetas de bloque.

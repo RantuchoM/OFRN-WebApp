@@ -6,6 +6,7 @@ import { extractInstrumentFromExistingName } from "./pdfPartsRenaming.mjs";
 import {
   DIRECTOR_INSTRUMENT_ID,
   attachDriveLinksByFilename,
+  arabicizeRomanPartNumbers,
   expandDriveFileToParts as coreExpandDriveFileToParts,
   fileProducesParticella,
   getDirectorInstrumentId,
@@ -25,6 +26,7 @@ import {
 export {
   DIRECTOR_INSTRUMENT_ID,
   attachDriveLinksByFilename,
+  arabicizeRomanPartNumbers,
   fileProducesParticella,
   getDirectorInstrumentId,
   getDriveFilePrefix,
