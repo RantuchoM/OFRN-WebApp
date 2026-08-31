@@ -306,7 +306,7 @@ const FIMBA_CSS = `
   .fimba-planilla-board-chip.fimba-planilla-board-chip-ofrn {
     border-radius: 2px;
   }
-  /* Truncación de nombre + «… n» en JS (`formatBoardChipLabel`); no ellipsis CSS. */
+  /* Truncación de nombre + «… n» en JS (formatBoardChipLabel); no backticks here: FIMBA_CSS is a template literal. */
   .fimba-planilla-board-chip-label {
     white-space: nowrap;
     max-width: 11rem;
