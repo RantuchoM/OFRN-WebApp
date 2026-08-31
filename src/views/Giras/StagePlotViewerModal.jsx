@@ -20,13 +20,13 @@ import {
   exportStagePlotJpg,
   exportStagePlotPdf,
 } from "../../utils/stagePlotPdf";
-import StagePlotVisibilityToggles, {
-  readStagePlotVisibility,
-  visibilityToStagePatch,
-} from "./StagePlotVisibilityToggles";
+import StagePlotOpacityControls, {
+  opacitiesToStagePatch,
+  readStagePlotOpacities,
+} from "./StagePlotOpacityControls";
 
 /**
- * Vista de solo lectura para técnicos: elige lienzo, 4 toggles Lienzo, PDF/JPG.
+ * Vista de solo lectura para técnicos: elige lienzo, 4 opacidades Lienzo, PDF/JPG.
  */
 export default function StagePlotViewerModal({
   open,
@@ -94,11 +94,11 @@ export default function StagePlotViewerModal({
   }, [activeId, plots]);
 
   const stage = payload.stage || {};
-  const vis = readStagePlotVisibility(stage);
+  const op = readStagePlotOpacities(stage);
 
-  const patchVis = (nextVis) => {
+  const patchOp = (nextOp) => {
     setPayload((prev) =>
-      applyStagePlotStagePatch(prev, visibilityToStagePatch(nextVis)),
+      applyStagePlotStagePatch(prev, opacitiesToStagePatch(nextOp)),
     );
   };
 
@@ -195,9 +195,9 @@ export default function StagePlotViewerModal({
                 ))}
               </div>
 
-              <StagePlotVisibilityToggles
-                value={vis}
-                onChange={patchVis}
+              <StagePlotOpacityControls
+                value={op}
+                onChange={patchOp}
                 disabled={exporting}
               />
 
@@ -210,8 +210,8 @@ export default function StagePlotViewerModal({
                   {(payload.formations || []).length} formaciones
                 </p>
                 <p className="mt-2 text-[11px] text-slate-500">
-                  Vista de solo lectura. Descargá PDF o JPG con los toggles
-                  aplicados (cuadrícula, radial, formaciones y recuadros).
+                  Vista de solo lectura. Descargá PDF o JPG con las opacidades
+                  aplicadas (cuadrícula, radial, formaciones y recuadros).
                 </p>
               </div>
             </>

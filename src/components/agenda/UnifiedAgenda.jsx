@@ -1215,14 +1215,20 @@ export default function UnifiedAgenda({
 
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
 
-      // Filtro de giras activas: permitir paradas de mi transporte aunque el programa no esté vigente
+      // Filtro de giras activas: permitir paradas de mi transporte aunque el programa no esté vigente.
+      // Conciertos de programa en Borrador: visibles por defecto (músicos y staff) con tag «Borrador».
+      // Otros tipos de evento del programa borrador siguen ocultos salvo «Mostrar borradores».
       if (!showNonActiveForFilter) {
         const estadoGira = item.programas?.estado || "Borrador";
+        const isDraftConcert =
+          !item.isProgramMarker &&
+          Number(item.id_tipo_evento) === 1 &&
+          estadoGira === "Borrador";
         if (item.isProgramMarker) {
           if (estadoGira !== "Vigente" && !isMyAssignedTransportParada)
             return false;
         } else if (item.programas && estadoGira !== "Vigente") {
-          if (!isMyAssignedTransportParada) return false;
+          if (!isMyAssignedTransportParada && !isDraftConcert) return false;
         }
       }
 
@@ -2830,6 +2836,9 @@ export default function UnifiedAgenda({
                       ? highlightHtmlSearch(evt.descripcion, agendaSearchQuery)
                       : "";
                     const isConcertEvent = Number(evt.id_tipo_evento) === 1;
+                    const isDraftProgramConcert =
+                      isConcertEvent &&
+                      (evt.programas?.estado || "Borrador") === "Borrador";
 
                     const cardStyle = { backgroundColor: `${eventColor}10` };
 
@@ -3002,39 +3011,48 @@ export default function UnifiedAgenda({
 
                                 <div className="flex-1 min-w-0 flex flex-col gap-1 py-1">
                                   <div className="flex items-start gap-1.5 mb-0.5">
-                                    <div className="w-[7rem] shrink-0 flex flex-wrap gap-1 items-center">
-                                      <span
-                                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-full [&_mark]:bg-yellow-200 [&_mark]:text-yellow-900 [&_mark]:rounded-sm [&_mark]:px-0.5"
-                                        style={{
-                                          color: eventColor,
-                                          borderColor: `${eventColor}40`,
-                                          backgroundColor: `${eventColor}10`,
-                                        }}
-                                      >
-                                        <AgendaSearchHighlight
-                                          text={evt.tipos_evento?.nombre}
-                                          query={agendaSearchQuery}
-                                        />
-                                      </span>
+                                    <div className="min-w-[7rem] shrink-0 flex flex-col gap-1">
+                                      <div className="flex flex-wrap gap-1 items-center">
+                                        <span
+                                          className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-full [&_mark]:bg-yellow-200 [&_mark]:text-yellow-900 [&_mark]:rounded-sm [&_mark]:px-0.5"
+                                          style={{
+                                            color: eventColor,
+                                            borderColor: `${eventColor}40`,
+                                            backgroundColor: `${eventColor}10`,
+                                          }}
+                                        >
+                                          <AgendaSearchHighlight
+                                            text={evt.tipos_evento?.nombre}
+                                            query={agendaSearchQuery}
+                                          />
+                                        </span>
+                                        {isDraftProgramConcert && (
+                                          <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded text-[9px] uppercase font-bold shrink-0">
+                                            Borrador
+                                          </span>
+                                        )}
+                                        {(canEditAgendaTechVisibility ||
+                                          isTechnician) && (
+                                          <AgendaEventAdminToggle
+                                            evt={evt}
+                                            isTransportEvent={isTransportEvent}
+                                            canEditAdmin={
+                                              canEditAgendaTechVisibility
+                                            }
+                                            isTechnicianRole={isTechnician}
+                                            onToggleVisibleAgenda={
+                                              toggleEventVisibleAgenda
+                                            }
+                                            onToggleTechnica={
+                                              toggleEventTechnica
+                                            }
+                                          />
+                                        )}
+                                      </div>
                                       {evt.programas?.nomenclador && (
-                                        <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">
+                                        <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0 w-fit">
                                           {evt.programas.nomenclador}
                                         </span>
-                                      )}
-                                      {(canEditAgendaTechVisibility ||
-                                        isTechnician) && (
-                                        <AgendaEventAdminToggle
-                                          evt={evt}
-                                          isTransportEvent={isTransportEvent}
-                                          canEditAdmin={
-                                            canEditAgendaTechVisibility
-                                          }
-                                          isTechnicianRole={isTechnician}
-                                          onToggleVisibleAgenda={
-                                            toggleEventVisibleAgenda
-                                          }
-                                          onToggleTechnica={toggleEventTechnica}
-                                        />
                                       )}
                                     </div>
                                     {showGruposColumn && (
@@ -3503,6 +3521,11 @@ export default function UnifiedAgenda({
                                         query={agendaSearchQuery}
                                       />
                                     </span>
+                                    {isDraftProgramConcert && (
+                                      <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded text-[9px] uppercase font-bold shrink-0">
+                                        Borrador
+                                      </span>
+                                    )}
                                     {(canEditAgendaTechVisibility ||
                                       isTechnician) && (
                                       <AgendaEventAdminToggle

@@ -6,20 +6,20 @@ import {
   IconPhoto,
   IconX,
 } from "../../components/ui/Icons";
-import StagePlotVisibilityToggles, {
-  readStagePlotVisibility,
-  visibilityToStagePatch,
-} from "./StagePlotVisibilityToggles";
+import StagePlotOpacityControls, {
+  opacitiesToStagePatch,
+  readStagePlotOpacities,
+} from "./StagePlotOpacityControls";
 
 /**
- * Modal previo a descargar PDF/JPG: mismas 4 opciones que el técnico
- * en StagePlotViewerModal. Los toggles son override solo de exportación
+ * Modal previo a descargar PDF/JPG: mismas 4 opacidades que el técnico
+ * en StagePlotViewerModal. Los deslizantes son override solo de exportación
  * (no escriben el payload del Lienzo).
  */
 export default function StagePlotExportOptionsModal({
   open,
   kind = "pdf",
-  /** `payload.stage` actual del editor (semilla de toggles). */
+  /** `payload.stage` actual del editor (semilla de opacidades). */
   stage,
   plotNombre,
   onClose,
@@ -28,12 +28,12 @@ export default function StagePlotExportOptionsModal({
   /** Por encima del editor inmersivo (`STAGE_PLOT_OVERLAY_Z`). */
   zIndex = 100,
 }) {
-  const [vis, setVis] = useState(() => readStagePlotVisibility(stage));
+  const [op, setOp] = useState(() => readStagePlotOpacities(stage));
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setVis(readStagePlotVisibility(stage));
+    setOp(readStagePlotOpacities(stage));
     setBusy(false);
     // Semilla solo al abrir; no resetear si `stage` cambia por autosave.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
@@ -48,7 +48,7 @@ export default function StagePlotExportOptionsModal({
     if (busy || !onConfirm) return;
     setBusy(true);
     try {
-      await onConfirm(visibilityToStagePatch(vis));
+      await onConfirm(opacitiesToStagePatch(op));
       onClose?.();
     } catch {
       // El padre ya muestra toast; mantener modal abierto.
@@ -96,12 +96,12 @@ export default function StagePlotExportOptionsModal({
 
         <div className="space-y-3 px-4 py-3">
           <p className="text-xs text-slate-600">
-            Elegí qué guías incluir en la descarga (igual que en «Ver
-            escenario»). No modifica el Lienzo guardado.
+            Elegí la opacidad de cada guía en la descarga (igual que en «Ver
+            escenario»). 0% = oculto. No modifica el Lienzo guardado.
           </p>
-          <StagePlotVisibilityToggles
-            value={vis}
-            onChange={setVis}
+          <StagePlotOpacityControls
+            value={op}
+            onChange={setOp}
             disabled={busy}
           />
         </div>

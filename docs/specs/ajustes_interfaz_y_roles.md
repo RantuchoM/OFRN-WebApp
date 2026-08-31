@@ -58,3 +58,10 @@
 - **Músicos**: eventos solo-FIMBA **siempre ocultos**. Si el evento también convoca OFRN (Tutti / grupos / general) o es parada de flota OFRN, aplica las reglas normales de convocatoria/grupo — no es “solo FIMBA”.
 - **Helper**: `isFimbaOnlyAgendaEvent` en `agendaHelpers.js`; select + caché agenda `audiencia_ofrn` (`useAgendaData` v9).
 - **Sin persistencia** localStorage (estado de componente).
+
+## 10. Agenda: conciertos de programa en Borrador
+- **Estado**: Completado (2026-08-30).
+- **Comportamiento**: Con el filtro de giras activas (sin «Mostrar borradores»), los **conciertos** (`id_tipo_evento = 1`) de un programa en estado `Borrador` se muestran por defecto a músicos y al resto de roles, con tag **Borrador** en la tarjeta (móvil y desktop). Ensayos, comidas, logística y demás tipos del mismo programa borrador siguen ocultos.
+- **Excepciones previas**: paradas del vehículo asignado siguen visibles aunque el programa no esté vigente.
+- **Staff**: el toggle «Mostrar borradores» sigue revelando el resto de eventos no vigentes.
+- **Implementación**: `UnifiedAgenda.jsx` (`filteredItems` + badge en tarjeta).

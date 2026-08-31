@@ -39,6 +39,116 @@ export const STAGE_PLOT_RADIAL_LINES_DEFAULT = 13;
 export const STAGE_PLOT_RADIAL_LINES_MIN = 3;
 export const STAGE_PLOT_RADIAL_LINES_MAX = 36;
 
+/** Opacidad de capas Lienzo (0 = oculto, 1 = opaco). */
+export function clampStagePlotOpacity(value, fallback = 1) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(1, Math.max(0, n));
+}
+
+/**
+ * Lee opacidades de `stage`, migrando flags boolean legacy si no hay `*Opacity`.
+ * @param {Record<string, unknown>} [stage]
+ */
+export function readStagePlotLayerOpacities(stage = {}) {
+  const s = stage && typeof stage === "object" ? stage : {};
+  const gridOpacity =
+    s.gridOpacity != null && Number.isFinite(Number(s.gridOpacity))
+      ? clampStagePlotOpacity(s.gridOpacity, 1)
+      : s.showGrid !== false
+        ? 1
+        : 0;
+  const radialOpacity =
+    s.radialOpacity != null && Number.isFinite(Number(s.radialOpacity))
+      ? clampStagePlotOpacity(s.radialOpacity, 0)
+      : s.showRadial
+        ? 1
+        : 0;
+  const formationGuidesOpacity =
+    s.formationGuidesOpacity != null &&
+    Number.isFinite(Number(s.formationGuidesOpacity))
+      ? clampStagePlotOpacity(s.formationGuidesOpacity, 1)
+      : s.hideFormationGuides
+        ? 0
+        : 1;
+  const chairSquaresOpacity =
+    s.chairSquaresOpacity != null &&
+    Number.isFinite(Number(s.chairSquaresOpacity))
+      ? clampStagePlotOpacity(s.chairSquaresOpacity, 1)
+      : s.hideChairSquares
+        ? 0
+        : 1;
+  return {
+    gridOpacity,
+    radialOpacity,
+    formationGuidesOpacity,
+    chairSquaresOpacity,
+  };
+}
+
+/**
+ * Resuelve opacidades al aplicar un patch (opacidad gana sobre boolean si ambos vienen).
+ * @param {Record<string, unknown>} prevStage
+ * @param {Record<string, unknown>} patch
+ */
+export function resolveStagePlotLayerOpacitiesFromPatch(prevStage = {}, patch = {}) {
+  const prev = readStagePlotLayerOpacities(prevStage);
+  const p = patch && typeof patch === "object" ? patch : {};
+
+  const pick = (opacityKey, fallback, fromBool) => {
+    if (
+      Object.prototype.hasOwnProperty.call(p, opacityKey) &&
+      p[opacityKey] != null &&
+      Number.isFinite(Number(p[opacityKey]))
+    ) {
+      return clampStagePlotOpacity(p[opacityKey], fallback);
+    }
+    const fromLegacy = fromBool(p);
+    if (fromLegacy != null) return fromLegacy;
+    return fallback;
+  };
+
+  return {
+    gridOpacity: pick("gridOpacity", prev.gridOpacity, (x) =>
+      typeof x.showGrid === "boolean" ? (x.showGrid ? 1 : 0) : null,
+    ),
+    radialOpacity: pick("radialOpacity", prev.radialOpacity, (x) =>
+      typeof x.showRadial === "boolean" ? (x.showRadial ? 1 : 0) : null,
+    ),
+    formationGuidesOpacity: pick(
+      "formationGuidesOpacity",
+      prev.formationGuidesOpacity,
+      (x) =>
+        typeof x.hideFormationGuides === "boolean"
+          ? x.hideFormationGuides
+            ? 0
+            : 1
+          : null,
+    ),
+    chairSquaresOpacity: pick(
+      "chairSquaresOpacity",
+      prev.chairSquaresOpacity,
+      (x) =>
+        typeof x.hideChairSquares === "boolean"
+          ? x.hideChairSquares
+            ? 0
+            : 1
+          : null,
+    ),
+  };
+}
+
+/** Flags boolean legacy sincronizados desde opacidades (compat / export viejo). */
+export function stagePlotVisibilityBooleansFromOpacities(opacities) {
+  const o = opacities || readStagePlotLayerOpacities();
+  return {
+    showGrid: o.gridOpacity > 0,
+    showRadial: o.radialOpacity > 0,
+    hideFormationGuides: o.formationGuidesOpacity <= 0,
+    hideChairSquares: o.chairSquaresOpacity <= 0,
+  };
+}
+
 /** Formato enriquecido limitado para ítems `text` (Konva Text). */
 export const STAGE_PLOT_TEXT_DEFAULT_FONT_SIZE = 14;
 export const STAGE_PLOT_TEXT_FONT_SIZE_MIN = 8;
@@ -295,23 +405,19 @@ export function pinStagePlotConductors(items, stageWidth, stageHeight) {
  * @param {Record<string, unknown>} patch
  */
 export function applyStagePlotStagePatch(prev, patch) {
-  const merged = { ...prev.stage, ...patch };
+  const patchObj = patch && typeof patch === "object" ? patch : {};
+  const merged = { ...prev.stage, ...patchObj };
   const dims = normalizeStagePlotStageDimensions(merged);
+  const opacities = resolveStagePlotLayerOpacitiesFromPatch(
+    prev.stage,
+    patchObj,
+  );
+  const flags = stagePlotVisibilityBooleansFromOpacities(opacities);
   const newStage = {
     ...merged,
     ...dims,
-    showGrid:
-      typeof merged.showGrid === "boolean" ? merged.showGrid : true,
-    showRadial:
-      typeof merged.showRadial === "boolean" ? merged.showRadial : false,
-    hideFormationGuides:
-      typeof merged.hideFormationGuides === "boolean"
-        ? merged.hideFormationGuides
-        : false,
-    hideChairSquares:
-      typeof merged.hideChairSquares === "boolean"
-        ? merged.hideChairSquares
-        : false,
+    ...opacities,
+    ...flags,
     radialLines: normalizeStagePlotRadialLines(merged.radialLines),
     id_locacion:
       merged.id_locacion != null &&
@@ -341,14 +447,18 @@ export function applyStagePlotStagePatch(prev, patch) {
 
 export function createEmptyStagePlotPayload() {
   const dims = normalizeStagePlotStageDimensions({});
+  const opacities = {
+    gridOpacity: 1,
+    radialOpacity: 0,
+    formationGuidesOpacity: 1,
+    chairSquaresOpacity: 1,
+  };
   return {
     version: STAGE_PLOT_PAYLOAD_VERSION,
     stage: {
       ...dims,
-      showGrid: true,
-      showRadial: false,
-      hideFormationGuides: false,
-      hideChairSquares: false,
+      ...opacities,
+      ...stagePlotVisibilityBooleansFromOpacities(opacities),
       radialLines: STAGE_PLOT_RADIAL_LINES_DEFAULT,
       id_locacion: null,
       /** Plots nuevos ya usan huella 50×50 a scale=1; no re-migrar. */
@@ -372,18 +482,8 @@ export function normalizeStagePlotPayload(raw) {
       ? /** @type {Record<string, unknown>} */ (obj.stage)
       : {};
   const dims = normalizeStagePlotStageDimensions(stageIn);
-  const showGrid =
-    typeof stageIn.showGrid === "boolean" ? stageIn.showGrid : true;
-  const showRadial =
-    typeof stageIn.showRadial === "boolean" ? stageIn.showRadial : false;
-  const hideFormationGuides =
-    typeof stageIn.hideFormationGuides === "boolean"
-      ? stageIn.hideFormationGuides
-      : false;
-  const hideChairSquares =
-    typeof stageIn.hideChairSquares === "boolean"
-      ? stageIn.hideChairSquares
-      : false;
+  const opacities = readStagePlotLayerOpacities(stageIn);
+  const flags = stagePlotVisibilityBooleansFromOpacities(opacities);
   const radialLines = normalizeStagePlotRadialLines(stageIn.radialLines);
   const idLocacion =
     stageIn.id_locacion != null && stageIn.id_locacion !== ""
@@ -416,10 +516,8 @@ export function normalizeStagePlotPayload(raw) {
     version: STAGE_PLOT_PAYLOAD_VERSION,
     stage: {
       ...dims,
-      showGrid,
-      showRadial,
-      hideFormationGuides,
-      hideChairSquares,
+      ...opacities,
+      ...flags,
       radialLines,
       id_locacion:
         Number.isFinite(idLocacion) && idLocacion > 0 ? idLocacion : null,

@@ -11,7 +11,7 @@
   - Si hay `widthCm`/`heightCm` → usarlos y re-derivar px con la escala actual.
   - Si solo hay `width`/`height` px (v1 a 10 px/cm) → `cm = px / 10`, luego px nuevos = `cm × 4`.
   - Si `width`/`widthCm` indican otra escala (ratio), `stagePlotLegacyScaleFactor` reescala geometría de ítems/formaciones.
-- **UI Lienzo**: inputs **Ancho (cm)** / **Alto (cm)** con límites 40–1600 cm (ancho) y 30–1200 cm (alto). Hint fijo bajo los inputs: `Máx. Ancho 1600 · Alto 1200 cm`. Toast (sonner) al clampear o al live-apply OOB: `Máximo 1600 cm de ancho` / `Máximo 1200 cm de alto` (y análogo para mínimo); debounce ~2.2 s para no spamear. **Visibilidad** (fila de 4 switches `role="switch"`, ON = visible): **Cuadrícula** → `showGrid`; **Radial** → `showRadial`; **Formaciones** → `!hideFormationGuides`; **Recuadros** → `!hideChairSquares` (flags de payload sin cambio; el control invierte los `hide*`). **Radial → Líneas** (3–36, `normalizeStagePlotRadialLines`) usa el mismo patrón (`StageLienzoDimensionInput`):
+- **UI Lienzo**: inputs **Ancho (cm)** / **Alto (cm)** con límites 40–1600 cm (ancho) y 30–1200 cm (alto). Hint fijo bajo los inputs: `Máx. Ancho 1600 · Alto 1200 cm`. Toast (sonner) al clampear o al live-apply OOB: `Máximo 1600 cm de ancho` / `Máximo 1200 cm de alto` (y análogo para mínimo); debounce ~2.2 s para no spamear. **Opacidad** (2×2 deslizantes 0–100%): **Cuadrícula** → `gridOpacity`; **Radial** → `radialOpacity`; **Formaciones** → `formationGuidesOpacity`; **Recuadros** → `chairSquaresOpacity` (0 = oculto, 1 = opaco; valores intermedios = semi-transparente). Migración desde boolean legacy al normalizar: `showGrid !== false` → 1 else 0; `showRadial` → 1/0; `hideFormationGuides` → 0 si hide else 1; `hideChairSquares` → 0 si hide else 1. Al guardar se sincronizan también los flags boolean (`showGrid`/`showRadial`/`hide*`) desde las opacidades. **Radial → Líneas** (3–36, `normalizeStagePlotRadialLines`) se muestra si `radialOpacity > 0` y usa el mismo patrón (`StageLienzoDimensionInput`):
   - **Draft local** mientras hay foco (no clampea mid-keystroke al mínimo).
   - **Live apply**: en `onChange`, tras debounce ~220 ms, si `Number(draft)` es finito y ya está dentro de `[min, max]`, llama `onCommit` → `patchStage` **sin cerrar el popover** (el lienzo Konva y la etiqueta `W × H cm` se actualizan en vivo). Draft vacío / parcial / fuera de rango no parchea (si OOB y hay `limitNoun`, toast).
   - **Commit final**: blur, Enter o `flushAllDrafts()` clampea (vacío → valor actual/fallback; OOB → min/max + toast) y sincroniza el string del input.
@@ -34,9 +34,9 @@
 ## Vista (pan / zoom)
 
 - **Zoom**: pinch del trackpad (Chromium lo entrega como `wheel` + `ctrlKey`) o **Ctrl/⌘ + rueda** sobre el lienzo (`viewport.scale`, ancla al cursor); `userZoomedRef` evita re-fit al redimensionar. Helper: `applyStagePlotWheelToViewport` / `isStagePlotViewportZoomWheel` en `stagePlotViewportGestures.js`.
-- **Pan**: **Espacio** + arrastre; **botón central**; **scroll paralelo de trackpad** / rueda sin modificador (`deltaX`/`deltaY` sin `ctrlKey`/`metaKey` → offset `viewport.x`/`y`). (El arrastre en vacío ya no pannea: es marquee **solo en herramienta Seleccionar**.)
+- **Pan**: **Espacio** + arrastre; **botón central**; **arrastre en vacío con herramienta Mover** (mismo `startStagePan`); **scroll paralelo de trackpad** / rueda sin modificador (`deltaX`/`deltaY` sin `ctrlKey`/`metaKey` → offset `viewport.x`/`y`). En **Seleccionar**, el arrastre en vacío es marquee (no pan).
 - Sobre el lienzo el `wheel` hace `preventDefault` para no scrollear la página.
-- Cursor `grab` / `grabbing` con Espacio pulsado o mientras se pannea; `default` en Seleccionar; `move` en Mover; `crosshair` durante marquee. Sobre **asas** (Transformer, formación, plazas libres): cursor de resize (`ew`/`ns`/`nwse`/`nesw`) o `grab`/`grabbing` según el asa; la asa gana sobre el cursor de herramienta vía `style.cursor` inline en el wrap del Stage.
+- Cursor `grab` / `grabbing` con Espacio pulsado o mientras se pannea; `default` en Seleccionar; `move` en Mover; `crosshair` durante marquee. Sobre **asas** (Transformer, formación, plazas libres): cursor de resize (`ew`/`ns`/`nwse`/`nesw`) o `grab`/`grabbing` según el asa; la **asa de giro** del Transformer (`rotater`) usa cursor SVG custom de flechas en círculo (`STAGE_PLOT_ROTATE_CURSOR`, data-URL + hotspot 12,12; fallback `grab`/`grabbing`). La asa gana sobre el cursor de herramienta vía `style.cursor` inline en el wrap del Stage.
 - **Ajustar vista** (reset zoom): botón toolbar; limpia `userZoomedRef`.
 
 ## Modo nocturno forzado (OFRN)
@@ -49,20 +49,27 @@
 
 ## Herramientas Seleccionar / Mover
 
-Toggle en la toolbar del editor (junto a Lienzo / Zoom), solo si `canEdit`. Estado de sesión: `canvasTool` (`"select"` | `"move"`); default **Seleccionar**. Atajos: **V** = Seleccionar, **M** = Mover (sin modificadores; no en inputs). Iconos: `IconMousePointer` / `IconMove` en `Icons.jsx`.
+Toggle en la toolbar del editor (junto a Lienzo / Zoom), solo si `canEdit`. Estado de sesión: `canvasTool` (`"select"` | `"move"`); default **Mover**. Atajos: **V** = Seleccionar, **M** = Mover (sin modificadores; no en inputs). Iconos: `IconMousePointer` / `IconMove` en `Icons.jsx`.
 
 | Gestos | **Seleccionar** | **Mover** |
 |--------|-----------------|-----------|
 | Clic en ítem (incl. **director**) / formación | Selecciona (Ctrl/⌘/Shift = aditivo en ítems) | Selecciona (igual); luego se puede arrastrar |
 | Arrastrar ítem / formación **no seleccionado(a)** | Solo selecciona (no mueve hasta el siguiente gesto) | Mueve sin pre-selección |
-| Arrastrar ítem / formación **ya seleccionado(a)** | Mueve (multi-move / formación + reanchor; un paso undo grupal) | Mueve (multi-move / formación + reanchor existentes) |
-| Arrastrar vacío | Marquee (rectángulo) | Sin marquee; clic vacío sin modificador **limpia** selección |
+| Arrastrar ítem / formación **ya seleccionado(a)** | Mueve **toda** la selección (ítems + formación + tarimas/décor si están en `selectedIds`) con el mismo delta; un paso undo | Igual (multi-move / formación + reanchor) |
+| Arrastrar vacío | Marquee (rectángulo) | **Pan** del viewport (igual que Espacio/central); sin marquee; sin modificador **limpia** selección al iniciar |
 | Espacio / rueda central / trackpad scroll | Pan (igual) | Pan (igual) |
 | Pinch / Ctrl/⌘+rueda | Zoom (igual) | Zoom (igual) |
-| Asas Transformer / formación / plazas libres | Siguen editables si hay selección; cursor de asa al hover | Igual |
-| Flechas teclado | Nudge (sin cambio) | Nudge (sin cambio) |
+| Asas Transformer / formación / plazas libres | Siguen editables si hay selección; cursor de asa al hover (giro = flechas en círculo) | Igual |
+| Flechas teclado | Nudge de **toda** la selección (mixta = ítems+formación, un paso) | Igual |
 
 **Hit de formación**: guía (línea hit transparente) **y plazas** siempre `listening` para clic/tap → `handleSelectFormation` en Seleccionar y Mover. `draggable` de la formación en Seleccionar solo si `selectedFormationId === id`; en Mover siempre (salvo preview de asa/plaza). `draggable` de plazas solo si la formación está seleccionada y `slotMode !== "fixed"`. Ítems: `draggable` en Seleccionar solo si `selectedIds` incluye el id; en Mover siempre. El clic en no-seleccionado no arrastra en el mismo gesto porque `draggable` pasa a true recién tras el render post-selección.
+
+**Preservar selección mixta en mousedown**: `ItemShape` / `FormationShape` llaman `onSelect` en `onMouseDown` **antes** de `dragStart`. Por eso:
+- `handleSelectItem`: si el ítem **ya** está en `selectedIds` y hay `selectedFormationId`, **no** limpia la formación ni reduce la multi (igual que multi-ítem).
+- `handleSelectFormation`: si la formación **ya** está seleccionada y hay `selectedIds`, **no** vacía los ítems.
+Sin esto, el arrastre grupal nunca veía ambos lados en `dragGroupRef`.
+
+**Drag de selección mixta** (ítems + formación a la vez, p. ej. tras marquee): `dragGroupRef` incluye orígenes de ítems **y** `formationId`/`formationOrigin`. Da igual si el puntero arrastra un ítem o la formación: el mismo `dx,dy` se aplica a todos los nodos seleccionados (live: nodos ítem + `liveFormationPos` si el leader es ítem). Al soltar, `commitSelectionGroupDrag` hace **un** `commitPayload`: traslada la formación, reancla magnetizados de esa formación (`reanchorItemsToFormations`, conservan `slotId`), y traslada el resto de ítems seleccionados (limpian `slotId` si no pertenecen a esa formación). Sin doble commit (followers / proxy ignorados). Flechas usan `moveMixedSelectionByKeyboard` con la misma semántica.
 
 **Decoración del lienzo** (textos FONDO/PÚBLICO, línea downstage, dims): `listening={false}` para no robar hits al director u otros ítems cerca del borde.
 
@@ -72,14 +79,14 @@ Hint del canvas cambia según la herramienta activa.
 
 - **Activación**: solo con herramienta **Seleccionar** — clic/arrastre **izquierdo en vacío** del lienzo (fondo u área no interactiva).
 - **No inicia** sobre ítem, formación, asa de formación ni Transformer (`classifyStagePlotPointerTarget` → `interactive`).
-- En **Mover**, el vacío no inicia marquee (clic limpia selección si no hay modificador aditivo).
+- En **Mover**, el vacío no inicia marquee: arrastre = pan del viewport; sin modificador aditivo limpia selección al iniciar el pan.
 - Mientras se arrastra (≥ ~4 px pantalla): rectángulo translúcido índigo en **coords de escenario** (`clientToStagePlotPoint` invierte el transform del Stage → correcto con pan/zoom).
 - **Criterio**: **intersección** AABB (no contención estricta). Por defecto **todo** lo que intersecta es seleccionable:
   - **Ítems** (todos los tipos): instrumentos, **tarimas** (`tarima_rect` / `tarima_oval` / `riser`), atriles/`music_stand`, texto, elementos de inventario, director/conductor, audio/marcas, etc. AABB del hit/visual box (huella / texto / catálogo / `scaleX`·`scaleY` en tarimas) **con rotación**.
-  - **Formaciones** (guías visibles, `!hideFormationGuides`): AABB canónica `getFormationBounds` (guía + tips/plazas + pad del recuadro gris), **siempre** evaluada junto a los ítems — no solo cuando el rect no toca ítems.
+  - **Formaciones** (guías con `formationGuidesOpacity > 0`): AABB canónica `getFormationBounds` (guía + tips/plazas + pad del recuadro gris), **siempre** evaluada junto a los ítems — no solo cuando el rect no toca ítems.
 - **Al soltar**:
   1. Todos los **ítems** que intersectan → `selectedIds` (unión si aditivo).
-  2. Todas las **formaciones** que intersectan → `selectedFormationId` = primera (modelo singular; si aditivo y la formación ya seleccionada sigue en el rect, se conserva). Ítems y formación pueden quedar seleccionados **a la vez** (igual que tras «copiar con instrumentos»: asas de formación; Transformer de ítems se omite mientras hay formación).
+  2. Todas las **formaciones** que intersectan → `selectedFormationId` = primera (modelo singular; si aditivo y la formación ya seleccionada sigue en el rect, se conserva). Ítems y formación pueden quedar seleccionados **a la vez** (igual que tras «copiar con instrumentos»). **Chrome visual mixta**: borde índigo del Transformer en los ítems (sin asas de resize/giro) + guía/bounds/asas de la formación; `FormationResizeHandles` quedan encima vía `moveToTop`.
   3. Si nada intersecta (sin modificadores) → limpia selección.
 - **Modificadores** (igual que clic en ítem): **Ctrl / ⌘ / Shift** = aditivo (unión de ítems; no limpia al activar el marquee). Sin modificador: reemplaza selección al activar el drag (o limpia en clic sin drag).
 - **Pan** sigue con Espacio / botón central / scroll de trackpad (no compite con el marquee).
@@ -107,25 +114,25 @@ Hint del canvas cambia según la herramienta activa.
 | `src/utils/stagePlotGroups.js` | Geometría de alineación / distribución en formaciones |
 | `src/utils/stagePlotViewportGestures.js` | Distingue pan (scroll trackpad / rueda) vs zoom (pinch / Ctrl+rueda) |
 | `src/views/Giras/ProgramStagePlot.jsx` | Re-export → `ProgramStagePlotEditor.jsx` |
-| `src/views/Giras/ProgramStagePlotEditor.jsx` | Editor Konva multi-lienzo, Asociar, Imp/Exp; panel izq. **Paleta** (Formaciones en lista vertical + íconos esquemáticos; categorías DB/catálogo + **Instrumentos sin ícono**) \| **Editor**; tarimas Escenario → modal tamaño inicial |
+| `src/views/Giras/ProgramStagePlotEditor.jsx` | Editor Konva multi-lienzo, Asociar, dropdown **Importar / Exportar** (PDF/JPG/JSON + modal import); panel izq. **Paleta** (Formaciones en lista vertical + íconos esquemáticos; categorías DB/catálogo + **Instrumentos sin ícono**) \| **Editor**; tarimas Escenario → modal tamaño inicial |
 | `src/views/Giras/StagePlotInstrumentsPanel.jsx` | Panel **Editor**: familia + tamaño + SVG; clave de ícono demoted; **Crear instrumento**; agrupado por familia + **Instrumentos sin ícono** |
 | `src/utils/stagePlotFormations.js` | Geometría de formaciones; defaults en cm→px |
 | `src/services/stagePlotService.js` | CRUD multi-plot, `stage_plot_eventos`, `resolveStagePlotForEvent` |
 | `src/utils/stagePlotTransfer.js` | Export/import JSON (`.ofrn-escenario.json`) |
 | `src/views/Giras/StagePlotImportModal.jsx` | Import archivo / otra gira + export JSON |
-| `src/views/Giras/StagePlotViewerModal.jsx` | Vista técnico solo lectura (toggles + PDF/JPG) |
-| `src/views/Giras/StagePlotVisibilityToggles.jsx` | 4 toggles Lienzo compartidos (técnico + export editor) |
+| `src/views/Giras/StagePlotViewerModal.jsx` | Vista técnico solo lectura (opacidades + PDF/JPG) |
+| `src/views/Giras/StagePlotOpacityControls.jsx` | 4 deslizantes de opacidad Lienzo (técnico + export editor) |
 | `src/views/Giras/StagePlotExportOptionsModal.jsx` | Modal previo a PDF/JPG en el editor (overrides solo de descarga) |
 | `src/views/Giras/StagePlotMobileEditor.jsx` | Chrome móvil: hub (elegir lienzo → Exportar PDF/JPG/JSON o Editar), top bar, FAB +, bottom sheet agregar; hook `useStagePlotNarrowViewport` |
 
 ## Editor móvil (ajustes mínimos)
 
 - **Hub (entrada angosta)**: viewport `< 768px` **no** autoabre el editor. Muestra `StagePlotMobileHub`: lista de lienzos creados (nombre + bloques/eventos). El usuario elige uno y después **Exportar** o **Editar**. El editor fullscreen solo se abre con **Editar** (`canEdit`). Al cerrar el editor en angosto se vuelve al hub.
-- **Exportar (todas las variantes)**: sheet PDF / JPG / JSON. PDF y JPG abren `StagePlotExportOptionsModal` (4 toggles Lienzo, override solo de descarga). JSON = `.ofrn-escenario.json` del lienzo elegido.
-- **Chrome del editor**: sin paneles Paleta/Editor/Channels/Orgánico/Inventario ni barra inferior densa ni Lienzo/Asociar/tools V·M. Top bar: cerrar, sync, zoom − / fit% / +. FAB **+** → sheet (Escenario, Formaciones, instrumentos catálogo estático, Audio). Botón **Editor móvil** en toolbar escritorio. «Usar vista de escritorio» en el hub.
+- **Exportar (todas las variantes)**: sheet PDF / JPG / JSON. PDF y JPG abren `StagePlotExportOptionsModal` (4 opacidades Lienzo, override solo de descarga). JSON = `.ofrn-escenario.json` del lienzo elegido.
+- **Chrome del editor**: sin paneles Paleta/Editor/Channels/Orgánico/Inventario ni barra inferior densa ni Lienzo/Asociar/tools V·M. Top bar: cerrar, sync, zoom − / fit% / +. FAB **+** → sheet (Escenario, Formaciones, instrumentos catálogo estático, Audio). Botón **Editor móvil** en toolbar **solo en viewport angosto** (`isNarrowViewport` / `< 768px`, p. ej. tras «Usar vista de escritorio»); **no** se renderiza en escritorio. «Usar vista de escritorio» en el hub.
 - **Gestos**: herramienta fija **Mover** (tap = select; drag seleccionado = move; vacío = pan + deselect). Pinch zoom; botones zoom. Floating Copiar/Eliminar (ítems) + pill formación.
 - **Persistencia**: misma instancia `ProgramStagePlotEditor` (autosave / undo sin duplicar estado).
-- **Diferido**: resize/rotar con asas (siguen en desktop), Editor SVG, asociar bloques/eventos, Imp/Exp en el editor, inventario stock, marquee, formaciones con params, variantes DB de instrumentos.
+- **Diferido**: resize/rotar con asas (siguen en desktop), Editor SVG, asociar bloques/eventos, Importar / Exportar en el editor, inventario stock, marquee, formaciones con params, variantes DB de instrumentos.
 
 ## Modelo v2 — multi-lienzo por gira (implementado)
 
@@ -156,9 +163,9 @@ Migraciones: `20260826162040_stage_plots` → `20260827095903_stage_plots_multi_
 
 ### UI
 
-- Editor: pills de lienzos, + Lienzo, renombrar, eliminar (mín. 1), panel **Asociar**, Imp/Exp JSON + otra gira.
+- Editor: switcher multi-lienzo = label **Elegir lienzo** + `SearchableSelect` (lista de plots) + **lápiz** renombrar (`IconPencil`, input inline Enter/blur / Escape) **junto al dropdown** + botón **+ Lienzo**; eliminar (mín. 1), panel **Asociar**, dropdown desktop **Importar / Exportar** (PDF, JPG, Descargar JSON, Importar archivo/otra gira → `StagePlotImportModal`). (No pills horizontales.)
 - Orgánico: `isConfirmedConvocadoForSeatingReports` + filtro por `bloque_ids`.
-- Agenda: botón «Ver escenario» en concierto/ensayo (técnico / editor / management) → `StagePlotViewerModal` (toggles locales + PDF/JPG).
+- Agenda: botón «Ver escenario» en concierto/ensayo (técnico / editor / management) → `StagePlotViewerModal` (opacidades locales + PDF/JPG).
 - **FIMBA Venues** (`/fimba/edicion/:id/venues`): listado por locación de conciertos (`id_tipo_evento = 1`) de la gira enlazada a la edición. Metadata operativa en `fimba_venue_info` (referente, rider, sillas, agua, observaciones); nombre/dirección desde `locaciones`. Espectáculos: artistas taggeados, grupos OFRN, bloque repertorio. Acciones: **Ver escenario** (`StagePlotViewerModal`); enlace al editor OFRN (Seating → Escenario) solo staff `isManagement`; edición de evento vía `FimbaEventoFormModal` (staff no RO). Link **Agenda** filtrada por locación. **Sin** estado de venue OFRN. Consulta / token `/c`: lectura + Ver escenario.
 
 ### Montaje / URLs (sin cambio)
@@ -175,9 +182,10 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Migración legacy 10→4 px/cm (dims cm + coords/scale ítems + params formaciones)
 - [x] Feedback Lienzo al tocar min/max (hint + toast sonner)
 - [x] Cuadrícula en cm (10 / 50) con trazos legibles a todo zoom
-- [x] Pan del lienzo (Espacio / botón central; arrastre en vacío = marquee **solo en Seleccionar**)
+- [x] Pan del lienzo (Espacio / botón central / vacío en **Mover**; arrastre en vacío = marquee **solo en Seleccionar**)
 - [x] Selección marquee (rectángulo; intersección AABB; **todos** los ítems + formaciones a la vez; tarimas/elementos incluidos; formación al envolver con o sin plazas/instrumentos)
-- [x] Herramientas **Seleccionar** / **Mover** (toolbar + V/M; marquee solo en select; drag en move o select si ya seleccionado; cursor hint + asas)
+- [x] Herramientas **Seleccionar** / **Mover** (toolbar + V/M; default **Mover**; marquee solo en select; vacío en move = pan; drag en move o select si ya seleccionado; cursor hint + asas; asa giro = cursor SVG rotate)
+- [x] Drag de selección mixta (ítems + formación + tarimas en `selectedIds`): mismo delta para todos; `commitSelectionGroupDrag` + reanchor; un undo
 - [x] Clic en formación (guía + plazas always-listening) y en director selecciona en ambas herramientas
 - [x] Lienzo UI en cm con límites
 - [x] Radial Líneas: draft local + commit en blur/Enter (mismo patrón que Ancho/Alto)
@@ -190,7 +198,8 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] `resolveFormationFacingPoint` usa posición del director (o canónica si no hay ítem)
 - [x] Multi-lienzo por gira + `bloque_ids` + `stage_plot_eventos` + resolución técnico
 - [x] Export/import JSON + import desde otra gira
-- [x] «Ver escenario» técnico (agenda + FIMBA Espacios) con 4 toggles Lienzo + PDF/JPG
+- [x] «Ver escenario» técnico (agenda + FIMBA Espacios) con 4 opacidades Lienzo + PDF/JPG
+- [x] Opacidad Lienzo (cuadrícula / radial / formaciones / recuadros) con deslizantes 0–100% y persistencia `*Opacity` + migración desde boolean legacy
 - [x] Orgánico filtrado por bloques asociados (roster confirmado)
 - [x] Montaje en Seating (sub-tabs Disposición | Escenario)
 - [x] Modo nocturno: Stage `.no-dark-invert` + piso `STAGE_PLOT_BG_FILL_NIGHT` + grilla/radial `*_STROKE_NIGHT` (contenido sin invertir)
@@ -213,13 +222,14 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Menú contextual: Agregar atril / Agregar atril compartido / Agregar par y atril (vn/va/vc/bass)
 - [x] SVG + tamaño insert en `instrumentos` (Escenario panel izquierdo **Editor** + Datos → Instrumentos)
 - [x] Magnetizado: ya no pinta el rect de huella (invisible); hit/slotId sin cambio
-- [x] Formaciones visibles (`stage.hideFormationGuides`; toggle **Formaciones** ON = guías visibles en popover Lienzo)
-- [x] Recuadros visibles (`stage.hideChairSquares`; toggle **Recuadros** — legacy; huella de instrumento no depende de él)
-- [x] Fila de 4 toggles Lienzo (Cuadrícula / Radial / Formaciones / Recuadros; ON = mostrar)
+- [x] Formaciones visibles (`stage.formationGuidesOpacity`; 0 = ocultas, 1 = opacas; popover Lienzo)
+- [x] Recuadros (`stage.chairSquaresOpacity` — legacy boolean `hideChairSquares` sincronizado; huella de instrumento no depende de él)
+- [x] Fila de 4 deslizantes de opacidad Lienzo (Cuadrícula / Radial / Formaciones / Recuadros; 0–100%)
 - [x] Texto: solo tipografía (sin TT/notes) + formato enriquecido limitado (negrita, cursiva, tamaño, color, alineación; PDF)
 - [x] Export PDF: hoja 1 solo escenario + dims Ancho/Profundo; channel list en hoja 2 si hay canales
 - [x] Export JPG: escenario sin channels + dims Ancho/Profundo (`widthCm`/`heightCm`)
-- [x] Editor: modal de opciones PDF/JPG (`StagePlotExportOptionsModal`) con mismos 4 toggles que técnico (override solo descarga)
+- [x] Editor: modal de opciones PDF/JPG (`StagePlotExportOptionsModal`) con mismas 4 opacidades que técnico (override solo descarga)
+- [x] Toolbar desktop: dropdown **Importar / Exportar** (PDF, JPG, JSON, Importar archivo/otra gira); sin botones PDF/JPG sueltos
 - [x] Centrar formación en eje X del director (botón deshabilitado si ya centrada; snap magnético + histeresis al arrastrar)
 - [x] Formación **semi-arco** (ala–arco–ala, `wingLength`/`wingAngle` simétricos, asas tip_l/tip_r)
 - [x] Semi-arco: plazas laterales (`wingSlots`) + plazas en arco (`arcSlots`); fijo paramétrico por segmento; UI dual + migración desde `slots`
@@ -228,7 +238,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Menú contextual de ítem: «Seleccionar formación» si magnetizado (`slotId` → formación existente)
 - [x] SVG en `instrumentos` (`svg_icon` + `stage_plot_type`) + seed 21 filas + guitarra papapishu (`21` / `guitar`) + bandoneón FreeSVG (`22b` / `bandoneon`) + percusión OFRN (`13` / `13a`–`13h`)
 - [x] Clic derecho en vacío del lienzo: abre menú de la selección actual (formación o ítems) sin deseleccionar
-- [x] Undo/redo de movimiento grupal = **una** entrada: multi-selección / grupo explícito / formación+reanchor; rafaga de flechas coalescida
+- [x] Undo/redo de movimiento grupal = **una** entrada: multi-selección / grupo explícito / formación+reanchor / selección mixta ítems+formación; rafaga de flechas coalescida
 - [x] Recuadro gris de selección en formación + asas `box_*` (8) para **escala uniforme** (params lineales + traslación anclada); convive con asas paramétricas; undo en drag end + reanchor
 - [x] **Vista Venues** (`/management/venues`): locaciones con conciertos programados agrupadas; eventos con fecha, programa, grupos, estado venue; medidas de escenario de la locación; «Ver escenario» (`StagePlotViewerModal`) y enlace al editor Escenario de la gira
 - [x] **Editor móvil** simplificado (fullscreen; mover / + sheet / floating Copiar·Eliminar; pinch + zoom buttons; autosave compartido)
@@ -242,9 +252,10 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - **Ctrl+Z** undo · **Ctrl+Y** / **Ctrl+Shift+Z** redo.
 - **Una sola entrada** cuando:
   1. Se arrastra un **grupo explícito** o una **multi-selección** (marquee/recorte incluido): Konva Transformer `_proxyDrag` dispara `dragEnd` en cada nodo; solo el **leader** hace `commitPayload` con todas las posiciones; los followers se ignoran (`dragGroupRef` + `suppressItemDragEndIdsRef`).
-  2. Se mueve una **formación**: `commitFormationPosition` actualiza formación + `reanchorItemsToFormations` en el mismo commit.
-  3. **Transform** multi-nodo: `pendingTransformRef` agrupa los `transformend` en un microtask.
-  4. **Flechas** (ítems o formación): el primer keydown empuja historial; el key-repeat actualiza con `skipHistoryRef` hasta `keyup`/`blur` (`keyboardNudgeBurstRef`).
+  2. Se mueve una **formación** sola: `commitFormationPosition` actualiza formación + `reanchorItemsToFormations` en el mismo commit.
+  3. Se arrastra una **selección mixta** (ítems + formación): `commitSelectionGroupDrag` aplica el mismo delta a formación + ítems seleccionados (+ reanchor de magnetizados) en un solo commit, sea el leader un ítem o la formación.
+  4. **Transform** multi-nodo: `pendingTransformRef` agrupa los `transformend` en un microtask.
+  5. **Flechas** (ítems, formación o **mixta**): el primer keydown empuja historial; el key-repeat actualiza con `skipHistoryRef` hasta `keyup`/`blur` (`keyboardNudgeBurstRef`). Mixta → `moveMixedSelectionByKeyboard` (mismo delta + reanchor que el drag).
 - Autosave / load de plot resetea el stack (sin undo hacia vacío).
 
 
@@ -266,7 +277,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 ## Silla detrás de instrumentos
 
 - **Deprecado para instrumentos musicales:** el recuadro-silla genérico ya no se dibuja (`stagePlotItemShowsChairSquare` → siempre `false`). Reemplazado por **huella 50×50 + atril** (ver abajo).
-- Toggle **Recuadros** (`stage.hideChairSquares`) se conserva en payload/UI por compat; no afecta la huella de instrumentos.
+- Deslizante **Recuadros** (`stage.chairSquaresOpacity`; boolean `hideChairSquares` sync) se conserva en payload/UI por compat; no afecta la huella de instrumentos.
 - Tipo catálogo `chair` (silla suelta) sigue disponible en paleta Escenario.
 
 
@@ -394,6 +405,7 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - [x] Panel Escenario → Inventario (stock, tarimas por dims, elementos SVG, log, toast overstock; Orgánico columna Inv.)
 - [x] Editor: familia-first + Crear instrumento; `stage_plot_type` = clave de ícono (sin UNIQUE DB)
 - [x] Percusión `13a`–`13h` (Timbales…Campanas) + SVG OFRN + catálogo/orgánico (`20260829020843`, linked)
+- [x] Renombrar lienzo: botón lápiz (`IconPencil`) **inmediatamente a la derecha del dropdown** Elegir lienzo → input inline; Enter/blur guarda, Escape cancela (ya no input siempre visible; no entre + Lienzo y Asociar)
 
 
 ## Presets de locación (ancho × profundo)
@@ -463,13 +475,13 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
   - Guía vertical sutil en `conductorX` mientras la formación está snappeada al centro.
 - **Mover con teclado** (formación seleccionada): flechas 12 px / Ctrl+flechas 4 px. Misma ruta que drag end (`commitFormationPosition` → `reanchorItemsToFormations` con el `formationId`): actualiza `x,y` de la formación y reposiciona ítems con ese `slotId` **sin** limpiar `slotId`. Prioridad igual que Delete: formación primero, luego ítems. Refs de selección se sincronizan al instante al seleccionar (evita que un keydown temprano mueva ítems y demagnetice).
 - **Paleta → Formaciones** (panel izq., `canEdit`): lista **vertical** (una fila por kind), no chips en wrap. Cada fila: mini SVG esquemático (`FormationPaletteIcon` en `ProgramStagePlotEditor.jsx`, trazo índigo) + label; clic = `addFormation(kind)` (centro). Iconos por kind: **Arco** arco elíptico abierto abajo; **Semi-arco** alas rectas + arco; **Herradura** U con tope curvo; **Rectángulo** tres lados abiertos abajo; **Línea recta** segmento horizontal. Sin `IconPlus` genérico.
-- **Formaciones** (`stage.hideFormationGuides`, default `false`):
-  - Toggle **Formaciones** **solo** en el popover **Lienzo** (fila con Cuadrícula / Radial / Recuadros): ON = guías visibles (`hideFormationGuides: false`); OFF = ocultas.
+- **Formaciones** (`stage.formationGuidesOpacity`, default `1`; legacy `hideFormationGuides`):
+  - Deslizante **Formaciones** **solo** en el popover **Lienzo** (junto a Cuadrícula / Radial / Recuadros): 100% = guías opacas; 0% = ocultas; intermedio = semi-transparente.
   - **No** hay control de visibilidad de guías en la barra inferior de formación (Centrar / Copiar… / Eliminar) ni en el header de la paleta Formaciones.
-  - Cuando `hideFormationGuides` es `true`: no se renderizan `FormationShape` (línea guía + plazas) ni `FormationResizeHandles`. Los ítems siguen visibles; el snap magnético a slots sigue activo (slots lógicos).
-  - Para editar/mover formaciones de nuevo: activar **Formaciones** en Lienzo.
+  - Cuando `formationGuidesOpacity <= 0`: no se renderizan `FormationShape` (línea guía + plazas) ni `FormationResizeHandles`. Los ítems siguen visibles; el snap magnético a slots sigue activo (slots lógicos).
+  - Para editar/mover formaciones de nuevo: subir opacidad **Formaciones** en Lienzo.
   - Persistido en el payload (undo/redo vía `patchStage` / `applyStagePlotStagePatch`).
-  - **PDF / JPG**: `exportStagePlotPdf` / `exportStagePlotJpg` dibujan línea guía + plazas cuando `hideFormationGuides` es `false` (mismo criterio que el lienzo).
+  - **PDF / JPG**: `exportStagePlotPdf` / `exportStagePlotJpg` dibujan línea guía + plazas con la misma opacidad (mismo criterio que el lienzo).
 - **Menú contextual de ítem — «Seleccionar formación»**:
   - Visible solo si el ítem bajo el clic derecho está magnetizado: `parseSlotId(item.slotId)` válido **y** ese `formationId` existe en `payload.formations` (mismo criterio que el recuadro violeta). Si no, la acción se **oculta**.
   - Multi-selección: usa siempre la formación del **ítem bajo el clic** (no exige que todos compartan la misma).
@@ -482,7 +494,7 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
     - Si no hay formación pero hay `selectedIds` → menú de **ítem(s)** usando el primer id como ancla (multi-selección se conserva; «Seleccionar formación» según magnetismo de ese ancla).
     - Sin selección → no abre menú (solo `preventDefault`).
   - El menú se posiciona en el puntero (`clientX`/`clientY`).
-  - **No** limpia la selección: `onMouseDown` del Stage solo inicia marquee/deselección con **clic izquierdo** (`button === 0`) en vacío **en herramienta Seleccionar** (o limpia selección en Mover); el botón derecho no deselecciona.
+  - **No** limpia la selección: `onMouseDown` del Stage solo inicia marquee (Seleccionar) o pan+limpia (Mover) con **clic izquierdo** (`button === 0`) en vacío; el botón derecho no deselecciona.
 
 
 ## Navegación (2026-08)
@@ -494,8 +506,8 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - **Lienzo:** botón interno del editor (popover toolbar), no ítem de menú principal
 - **Borrar todo:** botón danger en popover Lienzo → confirmación (`useConfirmDialog` / portal `z-[100]` o `z-[10000]` en pantalla completa) → vacía `items`, `formations`, `groups`, limpia selección; `commitPayload` (undo). Oculto si `readOnly`.
 - **Tamaño default ítems:** al colocar (paleta, drop, orgánico Insertar) `createStagePlotItem` → `defaultStagePlotItemScale(type)`: `scale = clamp( (STAGE_PLOT_ITEM_DEFAULT_SIZE_CM × STAGE_PLOT_CM_TO_PX) / max(drawW, drawH), 0.25…12 )` con bounds de `getStagePlotItemVisualBounds` (silueta o catálogo). Duplicar conserva `scale`. Ítems existentes sin cambios.
-- **Asas de resize (Transformer):** tamaño fijo ~7 px en pantalla. Konva `Transformer` overridea `getAbsoluteTransform()` (ignora scale del Stage) y toma el box de nodos en coords absolutas → `anchorSize` / `borderStrokeWidth` / `rotateAnchorOffset` / `anchorCornerRadius` / `anchorStrokeWidth` son **px de pantalla constantes** (no dividir por `viewport.scale` ni `item.scale`; eso agrandaba las asas al zoom out). **Formaciones** (`FormationResizeHandles`): Circles normales bajo Stage → `handleSize = 7 / max(viewport.scale, 0.15)`.
-- **Z-order asas de formación (seleccionada):** en el `Layer` Konva el orden es guías de formación → ítems → Transformer → **asas de la formación seleccionada** (`FormationResizeHandles` al final). Además `useLayoutEffect` hace `moveToTop()` sobre `.stage-plot-formation-handles` al seleccionar/redibujar, para que peak/side no queden tapadas por sillas/iconos ni por un Transformer vacío tras `moveToTop` de ítems. Formaciones **no** seleccionadas siguen debajo de los instrumentos (solo el path/plazas; sin asas). Snap magnético / `slotId` sin cambios.
+- **Asas de resize (Transformer):** tamaño fijo ~7 px en pantalla. Konva `Transformer` overridea `getAbsoluteTransform()` (ignora scale del Stage) y toma el box de nodos en coords absolutas → `anchorSize` / `borderStrokeWidth` / `rotateAnchorOffset` / `anchorCornerRadius` / `anchorStrokeWidth` son **px de pantalla constantes** (no dividir por `viewport.scale` ni `item.scale`; eso agrandaba las asas al zoom out). **Asa de giro** (`rotater`): cursor SVG `STAGE_PLOT_ROTATE_CURSOR` (flechas en círculo) vía `anchorStyleFunc` mouseenter/dragstart; no `cursor: grab`. **Formaciones** (`FormationResizeHandles`): Circles normales bajo Stage → `handleSize = 7 / max(viewport.scale, 0.15)`.
+- **Z-order asas de formación (seleccionada):** en el `Layer` Konva el orden es guías de formación → ítems → Transformer (borde de ítems; en selección mixta sin asas de resize/giro) → **asas de la formación seleccionada** (`FormationResizeHandles` al final). Además `useLayoutEffect` hace `moveToTop()` sobre `.stage-plot-formation-handles` al seleccionar/redibujar (deps incluyen `selectedIds` para ganar al `moveToTop` del Transformer). Formaciones **no** seleccionadas siguen debajo de los instrumentos (solo el path/plazas; sin asas). Snap magnético / `slotId` sin cambios.
 - **Floating toolbar (Copiar / Eliminar, + formato texto):** overlay HTML sobre el canvas (`pointer-events` solo en la pill). Posición en **coords de pantalla** (`viewport.x/y + stageCoord × viewport.scale`). Regla de colocación (AABB de la selección, single/multi/texto):
   1. Preferir **a la derecha** del AABB: `left = screenMaxX + 8`, `top = screenMinY` (no tapa el rotate handle centrado arriba, ~20–36 px).
   2. Si no cabe: **a la izquierda** `left = screenMinX − 8 − toolbarW`, mismo `top`.
@@ -505,7 +517,7 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 ## Pendiente / deuda
 
 - UI en `EventForm` para setear `eventos.id_repertorio` (hoy solo vía fallback; asociación principal es plot→eventos en editor).
-- Preview Konva inline en `StagePlotViewerModal` y en vista Venues (hoy: resumen + export PDF/JPG con toggles locales).
+- Preview Konva inline en `StagePlotViewerModal` y en vista Venues (hoy: resumen + export PDF/JPG con opacidades locales).
 - Reordenar lienzos (drag sort_order) en el editor.
 - Editor SVG avanzado (dibujo); hoy: upload en Escenario → **Editor** (panel izquierdo) y Datos → Instrumentos (`svg_icon`), con confirm visual al cambiar.
 - Plots ya migrados (`instrumentFootprintMigrated`): escalas custom del Transformer se conservan. Si un plot se veía enorme **antes** del one-shot, al reabrir/autosave queda a 50×50 cm reales; reescalar a mano solo si se quiere otro tamaño físico.
@@ -525,18 +537,18 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 ## Export PDF / JPG (plano de escenario)
 
 - **Archivo**: `src/utils/stagePlotPdf.js` — `exportStagePlotPdf`, `exportStagePlotJpg`. Íconos/siluetas: `drawImageRotated` / `drawImageRotatedOnCanvas` / `drawSilhouetteOnPdf` / `drawSilhouetteOnCanvas` (restauradas: sin ellas el PDF/JPG rompía en lienzos con instrumentos, p. ej. BOB MARLEY gira 12).
-- **Editor** (`ProgramStagePlotEditor.jsx`): botones **PDF** / **JPG** abren `StagePlotExportOptionsModal` con las **mismas 4 opciones** que el técnico (`StagePlotVisibilityToggles`: Cuadrícula / Radial / Formaciones / Recuadros). Los toggles se siembran desde el Lienzo actual pero son **override solo de esa descarga** (`applyStagePlotStagePatch` sobre una copia; **no** persisten ni marcan dirty el payload del editor).
-- **Técnico** (`StagePlotViewerModal`): mismos toggles (componente compartido) sobre una copia local del payload; PDF/JPG usan ese payload parchado.
-- **Helpers**: `readStagePlotVisibility` / `visibilityToStagePatch` en `StagePlotVisibilityToggles.jsx`.
+- **Editor** (`ProgramStagePlotEditor.jsx`): toolbar desktop — dropdown **Importar / Exportar** (no botones PDF/JPG sueltos). Ítems: **Exportar PDF** / **Exportar JPG** (abren `StagePlotExportOptionsModal` con las **mismas 4 opacidades** que el técnico), **Descargar JSON**, **Importar (archivo / otra gira)…** → `StagePlotImportModal`. Los deslizantes del modal de opciones se siembran desde el Lienzo actual pero son **override solo de esa descarga** (`applyStagePlotStagePatch` sobre una copia; **no** persisten ni marcan dirty el payload del editor).
+- **Técnico** (`StagePlotViewerModal`): mismos deslizantes (componente compartido) sobre una copia local del payload; PDF/JPG usan ese payload parchado.
+- **Helpers**: `readStagePlotOpacities` / `opacitiesToStagePatch` en `StagePlotOpacityControls.jsx`; `readStagePlotLayerOpacities` / `resolveStagePlotLayerOpacitiesFromPatch` en `stagePlotPayload.js`.
 - **Dimensiones** (ambos formatos): usan `payload.stage.widthCm` / `heightCm` (mismos valores que Lienzo Ancho / Alto). En el export se etiquetan **Ancho** (widthCm) y **Profundo** (heightCm = profundidad del escenario). Texto resumen `Ancho: X cm · Profundo: Y cm` + etiquetas en bordes inferior (ancho) e izquierdo (profundo).
-- **Guías de lienzo** (ambos formatos; misma semántica que toggles Lienzo, ON = visible):
-  - **Cuadrícula** si `stage.showGrid !== false` (menor 10 cm / mayor 50 cm).
-  - **Radial** si `stage.showRadial` — abanico desde el centro del conductor (`resolveFormationFacingPoint`; canónico si no hay ítem) con `stage.radialLines` (3–36).
-  - **Formaciones** si `!stage.hideFormationGuides` — línea guía + plazas (`formationGuideLinePoints` / `computeFormationSlots`); plazas ocupadas vs vacías.
-  - **Recuadros** de silla si `!stage.hideChairSquares` (sin cambio).
+- **Guías de lienzo** (ambos formatos; misma semántica que Lienzo, 0 = oculto, 1 = opaco):
+  - **Cuadrícula** si `gridOpacity > 0` (menor 10 cm / mayor 50 cm; alpha de trazo × opacidad de capa).
+  - **Radial** si `radialOpacity > 0` — abanico desde el centro del conductor (`resolveFormationFacingPoint`; canónico si no hay ítem) con `stage.radialLines` (3–36).
+  - **Formaciones** si `formationGuidesOpacity > 0` — línea guía + plazas (`formationGuideLinePoints` / `computeFormationSlots`); plazas ocupadas vs vacías.
+  - **Recuadros** de silla si `chairSquaresOpacity > 0`.
   - Orden de dibujo: fondo → guías → ítems (como en Konva).
 - **PDF**:
-  - **Hoja 1**: solo el escenario (guías según flags, ítems, sillas según `hideChairSquares`, tipografía texto, labels FONDO/PÚBLICO, dimensiones). Sin channel list en página 1.
+  - **Hoja 1**: solo el escenario (guías según opacidades, ítems, sillas según `chairSquaresOpacity`, tipografía texto, labels FONDO/PÚBLICO, dimensiones). Sin channel list en página 1.
   - **Hoja 2+**: `Channel list` (autoTable Ch / Elemento / Notas) **solo si** `deriveStagePlotChannels` tiene filas; si no hay canales, el PDF es de una sola hoja.
   - Título / nombre del plano / fecha en cabecera; atribución de iconos al pie.
 - **JPG**: raster del escenario únicamente (mismas guías + ítems/sillas/texto). **No** incluye channel list. Incluye título, dims Ancho/Profundo en bordes + resumen. Calidad JPEG ~0.92; nombre `plano-escenario_{nomenclador}.jpg`.

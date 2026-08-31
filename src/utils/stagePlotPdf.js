@@ -45,6 +45,7 @@ import {
   normalizeStagePlotRadialLines,
   normalizeStagePlotTextAlign,
   normalizeStagePlotTextFill,
+  readStagePlotLayerOpacities,
 } from "./stagePlotPayload";
 
 const VB = STAGE_PLOT_SILHOUETTE_VIEWBOX;
@@ -325,20 +326,26 @@ function rayEndpoint(ox, oy, angleDeg, width, height) {
 }
 
 /**
- * Guías de lienzo (cuadrícula / radial / formaciones) según flags de `payload.stage`.
- * Semántica igual que los toggles Lienzo: ON = visible.
+ * Guías de lienzo (cuadrícula / radial / formaciones) según opacidades de `payload.stage`.
+ * Semántica: 0 = oculto, 1 = opaco (ex-toggles OFF/ON).
  * @param {ReturnType<typeof normalizeStagePlotPayload>} payload
  */
 function drawStageGuidesOnPdf(doc, payload, ox, oy, scale, sw, sh) {
-  const stage = payload.stage || {};
-  if (stage.showGrid !== false) {
-    drawCentimeterGridOnPdf(doc, ox, oy, scale, sw, sh);
+  const op = readStagePlotLayerOpacities(payload.stage || {});
+  if (op.gridOpacity > 0) {
+    withPdfOpacity(doc, op.gridOpacity, () => {
+      drawCentimeterGridOnPdf(doc, ox, oy, scale, sw, sh);
+    });
   }
-  if (stage.showRadial) {
-    drawRadialGuideOnPdf(doc, payload, ox, oy, scale, sw, sh);
+  if (op.radialOpacity > 0) {
+    withPdfOpacity(doc, op.radialOpacity, () => {
+      drawRadialGuideOnPdf(doc, payload, ox, oy, scale, sw, sh);
+    });
   }
-  if (!stage.hideFormationGuides) {
-    drawFormationGuidesOnPdf(doc, payload, ox, oy, scale);
+  if (op.formationGuidesOpacity > 0) {
+    withPdfOpacity(doc, op.formationGuidesOpacity, () => {
+      drawFormationGuidesOnPdf(doc, payload, ox, oy, scale);
+    });
   }
 }
 
@@ -347,16 +354,41 @@ function drawStageGuidesOnPdf(doc, payload, ox, oy, scale, sw, sh) {
  * @param {ReturnType<typeof normalizeStagePlotPayload>} payload
  */
 function drawStageGuidesOnCanvas(ctx, payload, ox, oy, scale, sw, sh) {
-  const stage = payload.stage || {};
-  if (stage.showGrid !== false) {
+  const op = readStagePlotLayerOpacities(payload.stage || {});
+  if (op.gridOpacity > 0) {
+    ctx.save();
+    ctx.globalAlpha *= op.gridOpacity;
     drawCentimeterGridOnCanvas(ctx, ox, oy, scale, sw, sh);
+    ctx.restore();
   }
-  if (stage.showRadial) {
+  if (op.radialOpacity > 0) {
+    ctx.save();
+    ctx.globalAlpha *= op.radialOpacity;
     drawRadialGuideOnCanvas(ctx, payload, ox, oy, scale, sw, sh);
+    ctx.restore();
   }
-  if (!stage.hideFormationGuides) {
+  if (op.formationGuidesOpacity > 0) {
+    ctx.save();
+    ctx.globalAlpha *= op.formationGuidesOpacity;
     drawFormationGuidesOnCanvas(ctx, payload, ox, oy, scale);
+    ctx.restore();
   }
+}
+
+/** jsPDF graphics-state opacity wrapper (fill + stroke). */
+function withPdfOpacity(doc, opacity, drawFn) {
+  const a = Math.min(1, Math.max(0, Number(opacity) || 0));
+  if (!(a > 0)) return;
+  if (a >= 0.999 || typeof doc.GState !== "function") {
+    drawFn();
+    return;
+  }
+  const canSave = typeof doc.saveGraphicsState === "function";
+  const canRestore = typeof doc.restoreGraphicsState === "function";
+  if (canSave) doc.saveGraphicsState();
+  doc.setGState(new doc.GState({ opacity: a, stroke: a, fill: a }));
+  drawFn();
+  if (canRestore) doc.restoreGraphicsState();
 }
 
 function drawCentimeterGridOnPdf(doc, ox, oy, scale, sw, sh) {
@@ -595,6 +627,8 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
   const formationIdSet = new Set(
     (payload.formations || []).map((f) => String(f.id)),
   );
+  const chairOp = readStagePlotLayerOpacities(payload.stage || {})
+    .chairSquaresOpacity;
   for (const item of sorted) {
     const cat = getStagePlotCatalogItem(item.type);
     const itemScale = item.scale > 0 ? item.scale : 1;
@@ -662,12 +696,9 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
       continue;
     }
 
-    if (
-      !payload.stage.hideChairSquares &&
-      stagePlotItemShowsChairSquare(item.type)
-    ) {
+    if (chairOp > 0 && stagePlotItemShowsChairSquare(item.type)) {
       const chairMm = stagePlotChairSquareSide(wMm, hMm);
-      drawChairSquareOnPdf(doc, cx, cy, chairMm, rotation, magnetized);
+      drawChairSquareOnPdf(doc, cx, cy, chairMm, rotation, magnetized, chairOp);
     }
 
     const iconImg = await loadStagePlotIconImage(item.type, hex);
@@ -782,6 +813,8 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
   const formationIdSet = new Set(
     (payload.formations || []).map((f) => String(f.id)),
   );
+  const chairOp = readStagePlotLayerOpacities(payload.stage || {})
+    .chairSquaresOpacity;
   for (const item of sorted) {
     const cat = getStagePlotCatalogItem(item.type);
     const itemScale = item.scale > 0 ? item.scale : 1;
@@ -857,12 +890,17 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
       continue;
     }
 
-    if (
-      !payload.stage.hideChairSquares &&
-      stagePlotItemShowsChairSquare(item.type)
-    ) {
+    if (chairOp > 0 && stagePlotItemShowsChairSquare(item.type)) {
       const chairPx = stagePlotChairSquareSide(wPx, hPx);
-      drawChairSquareOnCanvas(ctx, cx, cy, chairPx, rotation, magnetized);
+      drawChairSquareOnCanvas(
+        ctx,
+        cx,
+        cy,
+        chairPx,
+        rotation,
+        magnetized,
+        chairOp,
+      );
     }
 
     const iconImg = await loadStagePlotIconImage(item.type, hex);
@@ -1006,7 +1044,15 @@ function drawTextItemOnCanvas(ctx, item, layout, cx, cy, wPx, hPx, rotationDeg) 
   ctx.restore();
 }
 
-function drawChairSquareOnPdf(doc, cx, cy, sideMm, rotationDeg, magnetized) {
+function drawChairSquareOnPdf(
+  doc,
+  cx,
+  cy,
+  sideMm,
+  rotationDeg,
+  magnetized,
+  opacity = 1,
+) {
   if (typeof document === "undefined") return;
   const px = Math.max(48, Math.round(sideMm * 6));
   const canvas = document.createElement("canvas");
@@ -1014,7 +1060,15 @@ function drawChairSquareOnPdf(doc, cx, cy, sideMm, rotationDeg, magnetized) {
   canvas.height = px;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-  drawChairSquareOnCanvas(ctx, px / 2, px / 2, px - 2, rotationDeg, magnetized);
+  drawChairSquareOnCanvas(
+    ctx,
+    px / 2,
+    px / 2,
+    px - 2,
+    rotationDeg,
+    magnetized,
+    opacity,
+  );
   doc.addImage(
     canvas.toDataURL("image/png"),
     "PNG",
@@ -1027,8 +1081,17 @@ function drawChairSquareOnPdf(doc, cx, cy, sideMm, rotationDeg, magnetized) {
   );
 }
 
-function drawChairSquareOnCanvas(ctx, cx, cy, sidePx, rotationDeg, magnetized) {
+function drawChairSquareOnCanvas(
+  ctx,
+  cx,
+  cy,
+  sidePx,
+  rotationDeg,
+  magnetized,
+  opacity = 1,
+) {
   ctx.save();
+  ctx.globalAlpha *= Math.min(1, Math.max(0, Number(opacity) || 0));
   ctx.translate(cx, cy);
   if (rotationDeg) ctx.rotate((rotationDeg * Math.PI) / 180);
   const pad = 1;

@@ -39,6 +39,7 @@ import {
   IconAlignCenter,
   IconAlignRight,
   IconUpload,
+  IconDownload,
   IconLink,
   IconMousePointer,
   IconMove,
@@ -373,6 +374,21 @@ function stagePlotTransformerAnchorCursor(anchorName, nodeRotation = 0) {
   return stagePlotResizeCursorForAngle(base + nodeRotation);
 }
 
+/**
+ * Cursor de asa de giro (Transformer `rotater`): flechas en círculo.
+ * Hotspot centrado; fallback `grab` si el browser no acepta el data-URL.
+ */
+const STAGE_PLOT_ROTATE_CURSOR_SVG = encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">` +
+    `<path stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" d="M4.5 12a7.5 7.5 0 0 1 12.4-5.7L18 4.5V9h-4.5"/>` +
+    `<path stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" d="M19.5 12a7.5 7.5 0 0 1-12.4 5.7L6 19.5V15h4.5"/>` +
+    `<path stroke="#0f172a" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" d="M4.5 12a7.5 7.5 0 0 1 12.4-5.7L18 4.5V9h-4.5"/>` +
+    `<path stroke="#0f172a" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" d="M19.5 12a7.5 7.5 0 0 1-12.4 5.7L6 19.5V15h4.5"/>` +
+    `</svg>`,
+);
+const STAGE_PLOT_ROTATE_CURSOR = `url("data:image/svg+xml,${STAGE_PLOT_ROTATE_CURSOR_SVG}") 12 12, grab`;
+const STAGE_PLOT_ROTATE_CURSOR_ACTIVE = `url("data:image/svg+xml,${STAGE_PLOT_ROTATE_CURSOR_SVG}") 12 12, grabbing`;
+
 /** Mitades del hit/visual box en coords de escenario (antes de rotación). */
 function getStagePlotItemHalfExtents(item) {
   const cat = getStagePlotCatalogItem(item.type);
@@ -544,6 +560,7 @@ function StageRadialGuide({
   stage,
   originOverride,
   nightStage = false,
+  opacity = 1,
 }) {
   const origin = useMemo(() => {
     if (
@@ -577,7 +594,11 @@ function StageRadialGuide({
     });
   }, [origin, width, height, stage?.radialLines, nightStage]);
 
-  return <Group listening={false}>{lines}</Group>;
+  return (
+    <Group listening={false} opacity={opacity}>
+      {lines}
+    </Group>
+  );
 }
 
 
@@ -745,40 +766,41 @@ function StageLienzoDimensionInput({
   );
 }
 
-/** Compact switch: ON = that canvas layer is visible. */
-function StageLienzoVisibilityToggle({ label, checked, disabled, onChange }) {
+/** Compact opacity slider for Lienzo popover (0–100%). */
+function StageLienzoOpacitySlider({ label, value, disabled, onChange }) {
+  const pct = Math.round(
+    Math.min(1, Math.max(0, Number(value) || 0)) * 100,
+  );
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => {
-        if (!disabled) onChange(!checked);
-      }}
-      className={`flex flex-col items-center gap-1 rounded px-0.5 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60 ${
-        disabled
-          ? "cursor-not-allowed opacity-50"
-          : "cursor-pointer hover:bg-slate-50"
+    <label
+      className={`block rounded px-0.5 py-0.5 ${
+        disabled ? "cursor-not-allowed opacity-50" : ""
       }`}
     >
-      <span
-        className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
-          checked ? "bg-indigo-600" : "bg-slate-300"
-        }`}
-        aria-hidden
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${
-            checked ? "translate-x-3" : "translate-x-0"
-          }`}
-        />
+      <span className="mb-0.5 flex items-baseline justify-between gap-1">
+        <span className="text-[9px] font-medium leading-tight text-slate-700">
+          {label}
+        </span>
+        <span className="tabular-nums text-[9px] text-slate-400">{pct}%</span>
       </span>
-      <span className="text-center text-[9px] font-medium leading-tight text-slate-700">
-        {label}
-      </span>
-    </button>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={pct}
+        disabled={disabled}
+        aria-label={`${label} opacidad`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        onChange={(e) => {
+          if (disabled) return;
+          onChange(Number(e.target.value) / 100);
+        }}
+        className="h-1 w-full cursor-pointer accent-indigo-600 disabled:cursor-not-allowed"
+      />
+    </label>
   );
 }
 
@@ -957,35 +979,40 @@ function StageLienzoPopover({
         </div>
       )}
       <div className="mb-2 border-t border-slate-100 pt-2">
-        <div className="grid grid-cols-4 gap-0.5">
-          <StageLienzoVisibilityToggle
+        <p className="mb-1 text-[9px] font-medium uppercase tracking-wide text-slate-400">
+          Opacidad
+        </p>
+        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+          <StageLienzoOpacitySlider
             label="Cuadrícula"
-            checked={stage.showGrid !== false}
+            value={stage.gridOpacity ?? 1}
             disabled={!canEdit}
-            onChange={(showGrid) => onPatchStage({ showGrid })}
+            onChange={(gridOpacity) => onPatchStage({ gridOpacity })}
           />
-          <StageLienzoVisibilityToggle
+          <StageLienzoOpacitySlider
             label="Radial"
-            checked={!!stage.showRadial}
+            value={stage.radialOpacity ?? 0}
             disabled={!canEdit}
-            onChange={(showRadial) => onPatchStage({ showRadial })}
+            onChange={(radialOpacity) => onPatchStage({ radialOpacity })}
           />
-          <StageLienzoVisibilityToggle
+          <StageLienzoOpacitySlider
             label="Formaciones"
-            checked={!stage.hideFormationGuides}
+            value={stage.formationGuidesOpacity ?? 1}
             disabled={!canEdit}
-            onChange={(show) =>
-              onPatchStage({ hideFormationGuides: !show })
+            onChange={(formationGuidesOpacity) =>
+              onPatchStage({ formationGuidesOpacity })
             }
           />
-          <StageLienzoVisibilityToggle
+          <StageLienzoOpacitySlider
             label="Recuadros"
-            checked={!stage.hideChairSquares}
+            value={stage.chairSquaresOpacity ?? 1}
             disabled={!canEdit}
-            onChange={(show) => onPatchStage({ hideChairSquares: !show })}
+            onChange={(chairSquaresOpacity) =>
+              onPatchStage({ chairSquaresOpacity })
+            }
           />
         </div>
-        {stage.showRadial && (
+        {(stage.radialOpacity ?? 0) > 0 && (
           <div className="mt-2">
             <StageLienzoDimensionInput
               label="Líneas"
@@ -1093,7 +1120,12 @@ function classifyStagePlotPointerTarget(node) {
   return { interactive: false, isBackground: false };
 }
 
-function StageCentimeterGrid({ width, height, nightStage = false }) {
+function StageCentimeterGrid({
+  width,
+  height,
+  nightStage = false,
+  opacity = 1,
+}) {
   const lines = useMemo(() => {
     const w = Math.round(width);
     const h = Math.round(height);
@@ -1137,7 +1169,11 @@ function StageCentimeterGrid({ width, height, nightStage = false }) {
     return out;
   }, [width, height, nightStage]);
 
-  return <Group listening={false}>{lines}</Group>;
+  return (
+    <Group listening={false} opacity={opacity}>
+      {lines}
+    </Group>
+  );
 }
 
 function FormationResizeHandles({
@@ -1671,6 +1707,7 @@ function FormationShape({
   draggable,
   highlightSlotId,
   slotsDraggable = false,
+  opacity = 1,
   onSelect,
   onContextMenu,
   onDragStart,
@@ -1695,6 +1732,7 @@ function FormationShape({
     <Group
       name="stage-plot-formation"
       id={`formation:${formation.id}`}
+      opacity={opacity}
       draggable={draggable}
       onMouseDown={(e) => {
         e.cancelBubble = true;
@@ -1883,7 +1921,7 @@ const ItemShape = React.memo(function ItemShape({
   item,
   selected,
   magnetized,
-  hideChairSquares,
+  chairSquaresOpacity = 1,
   draggable,
   shapeRef,
   /** Escala del viewport del Stage (pan/zoom); solo afecta labels de tarima. */
@@ -1919,7 +1957,8 @@ const ItemShape = React.memo(function ItemShape({
     isText || isTarima ? null : item.type,
     fill,
   );
-  const stroke = selected ? "#f59e0b" : "#0f172a";
+  /** Selección: índigo (alineado al Transformer); visible sin depender de asas. */
+  const stroke = selected ? "#4f46e5" : "#0f172a";
   const strokeW = selected ? 2.2 : 1.1;
   const iconNatural = useMemo(
     () => (iconImage ? getStagePlotImageNaturalSize(iconImage) : null),
@@ -1983,7 +2022,7 @@ const ItemShape = React.memo(function ItemShape({
       : itemScale
     : itemScale;
   const showChairSquare =
-    !hideChairSquares && stagePlotItemShowsChairSquare(item.type);
+    chairSquaresOpacity > 0 && stagePlotItemShowsChairSquare(item.type);
   const chairSide = showChairSquare
     ? stagePlotChairSquareSide(drawW, drawH)
     : 0;
@@ -2194,6 +2233,7 @@ const ItemShape = React.memo(function ItemShape({
           fill={chairFill}
           stroke={chairStroke}
           strokeWidth={magnetized ? 1.25 : 1}
+          opacity={chairSquaresOpacity}
           listening={false}
         />
       )}
@@ -2204,9 +2244,10 @@ const ItemShape = React.memo(function ItemShape({
         offsetX={boundsW / 2}
         offsetY={boundsH / 2}
         fill="rgba(0,0,0,0.001)"
-        stroke={selected && !isTarima ? "#f59e0b" : undefined}
-        strokeWidth={selected && !isTarima ? 1.5 : 0}
+        stroke={selected && !isTarima ? "#4f46e5" : undefined}
+        strokeWidth={selected && !isTarima ? 2 : 0}
         dash={selected && !isTarima ? [4, 3] : undefined}
+        strokeScaleEnabled={false}
       />
       {isTarima ? (
         <>
@@ -2216,8 +2257,9 @@ const ItemShape = React.memo(function ItemShape({
               radiusX={boundsW / 2}
               radiusY={boundsH / 2}
               fill={STAGE_PLOT_TARIMA_FILL}
-              stroke={selected ? "#f59e0b" : STAGE_PLOT_TARIMA_STROKE}
+              stroke={selected ? "#4f46e5" : STAGE_PLOT_TARIMA_STROKE}
               strokeWidth={selected ? 2.5 : 1.5}
+              strokeScaleEnabled={false}
               listening={false}
             />
           ) : (
@@ -2228,8 +2270,9 @@ const ItemShape = React.memo(function ItemShape({
               offsetX={boundsW / 2}
               offsetY={boundsH / 2}
               fill={STAGE_PLOT_TARIMA_FILL}
-              stroke={selected ? "#f59e0b" : STAGE_PLOT_TARIMA_STROKE}
+              stroke={selected ? "#4f46e5" : STAGE_PLOT_TARIMA_STROKE}
               strokeWidth={selected ? 2.5 : 1.5}
+              strokeScaleEnabled={false}
               cornerRadius={6}
               listening={false}
             />
@@ -2345,7 +2388,7 @@ const ItemShape = React.memo(function ItemShape({
   prev.item === next.item &&
   prev.selected === next.selected &&
   prev.magnetized === next.magnetized &&
-  prev.hideChairSquares === next.hideChairSquares &&
+  prev.chairSquaresOpacity === next.chairSquaresOpacity &&
   prev.draggable === next.draggable &&
   prev.onSelect === next.onSelect &&
   prev.onContextMenu === next.onContextMenu &&
@@ -2528,6 +2571,8 @@ export default function ProgramStagePlot({
   const [giraEvents, setGiraEvents] = useState([]);
   const [assocOpen, setAssocOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  /** Dropdown desktop Importar / Exportar (PDF, JPG, JSON, modal import). */
+  const [importExportOpen, setImportExportOpen] = useState(false);
   /** `{ kind: 'pdf'|'jpg' }` o null — modal de opciones antes de exportar. */
   const [exportModal, setExportModal] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -2566,6 +2611,11 @@ export default function ProgramStagePlot({
   const [conductorDragOrigin, setConductorDragOrigin] = useState(null);
   /** Posiciones live de ítems en drag (atril satélite del par sigue a A–B). */
   const [liveItemPositions, setLiveItemPositions] = useState(null);
+  /**
+   * Posición live de formación cuando el leader del drag es un ítem
+   * (ítems + formación seleccionados juntos).
+   */
+  const [liveFormationPos, setLiveFormationPos] = useState(null);
   const transformerRef = useRef(null);
   const konvaStageRef = useRef(null);
   const itemNodeRefs = useRef(new Map());
@@ -2577,8 +2627,8 @@ export default function ProgramStagePlot({
   /** Rectángulo de selección por arrastre en vacío (coords de escenario). */
   const [marqueeRect, setMarqueeRect] = useState(null);
   const marqueeDragRef = useRef(null);
-  /** Herramienta activa: Seleccionar (marquee) vs Mover (drag de ítems/formaciones). */
-  const [canvasTool, setCanvasTool] = useState(STAGE_PLOT_TOOL_SELECT);
+  /** Herramienta activa: Mover (default) vs Seleccionar (marquee). */
+  const [canvasTool, setCanvasTool] = useState(STAGE_PLOT_TOOL_MOVE);
   const canvasToolRef = useRef(canvasTool);
   const selectedIdsRef = useRef(selectedIds);
   const selectedFormationIdRef = useRef(selectedFormationId);
@@ -2588,7 +2638,9 @@ export default function ProgramStagePlot({
   /** Batches multi-node Transformer transformend into one history entry. */
   const pendingTransformRef = useRef(null);
   /**
-   * Orígenes de posición al iniciar arrastre grupal.
+   * Orígenes de posición al iniciar arrastre grupal (ítems y/o formación).
+   * Shape: { leaderId, leaderKind: 'item'|'formation', origins: Map<itemId,{x,y}>,
+   *          formationId?, formationOrigin? }.
    * Konva Transformer `_proxyDrag` also startDrags every selected node; only the
    * leader may commit history (followers' dragStart/Move/End are ignored).
    */
@@ -2606,6 +2658,7 @@ export default function ProgramStagePlot({
   /** Dropdown Copiar… en la barra inferior (formación seleccionada). */
   const [formationCopyMenuOpen, setFormationCopyMenuOpen] = useState(false);
   const formationCopyMenuRef = useRef(null);
+  const importExportMenuRef = useRef(null);
   /** Tooltip hover sobre ítem dibujado. */
   const [itemHoverTooltip, setItemHoverTooltip] = useState(null);
   const itemDraggingRef = useRef(false);
@@ -2613,6 +2666,11 @@ export default function ProgramStagePlot({
   const lienzoBtnRef = useRef(null);
   /** Imperative flush of Lienzo Ancho/Alto/Líneas drafts (blur is unreliable on close). */
   const lienzoFlushRef = useRef(null);
+  /** Inline rename of active plot name (pencil → input). */
+  const [renamingNombre, setRenamingNombre] = useState(false);
+  const [nombreDraft, setNombreDraft] = useState("");
+  const nombreInputRef = useRef(null);
+  const skipNombreCommitRef = useRef(false);
   const [fullscreen, setFullscreen] = useState(false);
   /** Editor móvil simplificado (fullscreen + chrome mínimo). */
   const [mobileUi, setMobileUi] = useState(false);
@@ -2628,6 +2686,14 @@ export default function ProgramStagePlot({
   const [newPlotDialog, setNewPlotDialog] = useState(null); // { nombre, locacionId }
 
   const immersive = fullscreen || mobileUi;
+
+  useEffect(() => {
+    if (!renamingNombre) return;
+    const el = nombreInputRef.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+  }, [renamingNombre]);
 
   const openMobileEditor = useCallback(() => {
     setForceDesktopChrome(false);
@@ -2647,6 +2713,15 @@ export default function ProgramStagePlot({
       ...locacionesPresets.map(formatLocacionPresetOption),
     ],
     [locacionesPresets],
+  );
+
+  const plotSelectOptions = useMemo(
+    () =>
+      plotsMeta.map((p, idx) => ({
+        id: p.id,
+        label: p.nombre?.trim() || `Lienzo ${idx + 1}`,
+      })),
+    [plotsMeta],
   );
 
   useEffect(() => {
@@ -2903,17 +2978,115 @@ export default function ProgramStagePlot({
     [canEdit, commitFormationPosition, withKeyboardNudgeHistory],
   );
 
+  /**
+   * Mixed keyboard nudge (items + formation). Uses the same commit semantics as
+   * commitSelectionGroupDrag; defined here (before that callback) via inline commit.
+   */
+  const moveMixedSelectionByKeyboard = useCallback(
+    (dx, dy) => {
+      if (!canEdit || (dx === 0 && dy === 0)) return false;
+      const formationId = selectedFormationIdRef.current;
+      let dragIds = [...selectedIdsRef.current];
+      if (!formationId || !dragIds.length) return false;
+      const prev = payloadRef.current;
+      const fm = (prev.formations || []).find(
+        (f) => String(f.id) === String(formationId),
+      );
+      if (!fm) return false;
+
+      for (const sid of [...dragIds]) {
+        const item = prev.items.find((i) => i.id === sid);
+        if (!item?.groupId) continue;
+        const group = getGroupById(prev, item.groupId);
+        if (group?.kind === "string_pair") continue;
+        const groupMembers = getGroupMemberIds(prev, item.groupId);
+        dragIds = [...new Set([...dragIds, ...groupMembers])];
+      }
+
+      const origins = new Map();
+      for (const sid of dragIds) {
+        const it = prev.items.find((i) => i.id === sid);
+        origins.set(sid, { x: it?.x ?? 0, y: it?.y ?? 0 });
+      }
+
+      const fid = String(formationId);
+      withKeyboardNudgeHistory(() => {
+        commitPayload((p) => {
+          const stage = p.stage || {};
+          const sw = Number(stage.width) || 900;
+          const sh = Number(stage.height) || 560;
+          const clamp = (v, max) => Math.min(max - 8, Math.max(8, v));
+
+          const formations = (p.formations || []).map((f) =>
+            String(f.id) === fid
+              ? { ...f, x: fm.x + dx, y: fm.y + dy }
+              : f,
+          );
+
+          let items = (p.items || []).map((it) => {
+            if (!origins.has(it.id)) return it;
+            const parsed = parseSlotId(it.slotId);
+            if (parsed && String(parsed.formationId) === fid) {
+              return it;
+            }
+            const o = origins.get(it.id);
+            return {
+              ...it,
+              x: clamp(o.x + dx, sw),
+              y: clamp(o.y + dy, sh),
+              slotId: null,
+            };
+          });
+          items = reanchorItemsToFormations(formations, items, stage, [fid]);
+
+          const movedGroupIds = new Set(
+            (p.items || [])
+              .filter((it) => origins.has(it.id) && it.groupId)
+              .map((it) => it.groupId),
+          );
+          const groups =
+            movedGroupIds.size > 0
+              ? (p.groups || []).map((grp) =>
+                  movedGroupIds.has(grp.id) && grp.alignAnchor
+                    ? {
+                        ...grp,
+                        alignAnchor: {
+                          x: grp.alignAnchor.x + dx,
+                          y: grp.alignAnchor.y + dy,
+                        },
+                      }
+                    : grp,
+                )
+              : p.groups;
+
+          return { ...p, formations, items, groups };
+        });
+      });
+      return true;
+    },
+    [canEdit, commitPayload, withKeyboardNudgeHistory],
+  );
+
   const moveKeyboardSelection = useCallback(
     (dx, dy) => {
-      if (selectedFormationIdRef.current) {
+      const formationId = selectedFormationIdRef.current;
+      const ids = selectedIdsRef.current;
+      if (formationId && ids.length) {
+        return moveMixedSelectionByKeyboard(dx, dy);
+      }
+      if (formationId) {
         return moveSelectedFormationByKeyboard(dx, dy);
       }
-      if (selectedIdsRef.current.length) {
+      if (ids.length) {
         return moveSelectedItemsByKeyboard(dx, dy);
       }
       return false;
     },
-    [moveSelectedFormationByKeyboard, moveSelectedItemsByKeyboard],
+    [
+      moveMixedSelectionByKeyboard,
+      moveSelectedFormationByKeyboard,
+      moveSelectedItemsByKeyboard,
+    ],
   );
 
   useEffect(() => {
@@ -3061,6 +3234,23 @@ export default function ProgramStagePlot({
   }, [formationCopyMenuOpen]);
 
   useEffect(() => {
+    if (!importExportOpen) return undefined;
+    const onPointerDown = (e) => {
+      if (importExportMenuRef.current?.contains(e.target)) return;
+      setImportExportOpen(false);
+    };
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") setImportExportOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [importExportOpen]);
+
+  useEffect(() => {
     if (!selectedFormationId) setFormationCopyMenuOpen(false);
   }, [selectedFormationId]);
 
@@ -3081,13 +3271,15 @@ export default function ProgramStagePlot({
     () => payload.items.filter((i) => selectedIdSet.has(i.id)),
     [payload.items, selectedIdSet],
   );
-  // Adjuntar Transformer a todos los nodos seleccionados (no formaciones).
+  // Adjuntar Transformer a ítems seleccionados. Con formación también
+  // seleccionada (mixta) se mantiene el borde de selección; las asas de
+  // resize/giro se desactivan para no competir con FormationResizeHandles.
   useLayoutEffect(() => {
     const tr = transformerRef.current;
     if (!tr) return;
 
     const attach = () => {
-      if (!selectedIds.length || selectedFormationId) {
+      if (!selectedIds.length) {
         tr.nodes([]);
         tr.getLayer()?.batchDraw();
         return;
@@ -3096,6 +3288,9 @@ export default function ProgramStagePlot({
         .map((id) => resolveItemNode(id))
         .filter(Boolean);
       tr.nodes(nodes);
+      const mixed = selectedFormationId != null;
+      tr.resizeEnabled(!mixed);
+      tr.rotateEnabled(!mixed);
       if (nodes.length) {
         tr.moveToTop();
         tr.forceUpdate();
@@ -3332,6 +3527,13 @@ export default function ProgramStagePlot({
           ...(formationResizePreview.y != null ? { y: formationResizePreview.y } : {}),
         };
       }
+      if (liveFormationPos && String(f.id) === String(liveFormationPos.id)) {
+        next = {
+          ...next,
+          x: liveFormationPos.x,
+          y: liveFormationPos.y,
+        };
+      }
       if (
         formationSlotPreview &&
         f.id === formationSlotPreview.formationId
@@ -3347,7 +3549,12 @@ export default function ProgramStagePlot({
       }
       return next;
     });
-  }, [payload.formations, formationResizePreview, formationSlotPreview]);
+  }, [
+    payload.formations,
+    formationResizePreview,
+    formationSlotPreview,
+    liveFormationPos,
+  ]);
 
   const formationForHandles = useMemo(() => {
     if (!selectedFormationId) return null;
@@ -3399,7 +3606,7 @@ export default function ProgramStagePlot({
         const name = anchor.name();
         let cursor = "pointer";
         if (name === "rotater") {
-          cursor = "grab";
+          cursor = STAGE_PLOT_ROTATE_CURSOR;
         } else if (TRANSFORMER_ANCHOR_AXIS_DEG[name] != null) {
           const nodes = transformerRef.current?.nodes?.() || [];
           const rot = nodes.length === 1 ? nodes[0].rotation() : 0;
@@ -3411,7 +3618,10 @@ export default function ProgramStagePlot({
         clearStageWrapCursor();
       });
       anchor.on("dragstart", () => {
-        setStageWrapCursor("grabbing");
+        const name = anchor.name();
+        setStageWrapCursor(
+          name === "rotater" ? STAGE_PLOT_ROTATE_CURSOR_ACTIVE : "grabbing",
+        );
       });
       anchor.on("dragend", () => {
         clearStageWrapCursor();
@@ -3445,7 +3655,8 @@ export default function ProgramStagePlot({
     [canEdit, canvasTool, selectedIdSet],
   );
 
-  // Asas de la formación seleccionada por encima de ítems (y del Transformer vacío).
+  // Asas de la formación seleccionada por encima de ítems y del Transformer
+  // (borde de ítems en selección mixta). Re-assert tras attach del Transformer.
   useLayoutEffect(() => {
     if (!formationForHandles || !canEdit) return undefined;
     const stage = konvaStageRef.current;
@@ -3467,6 +3678,7 @@ export default function ProgramStagePlot({
     payload.items,
     viewport.scale,
     formationHandleSize,
+    selectedIds,
   ]);
 
   const fitViewport = useCallback((boxW, boxH) => {
@@ -3490,6 +3702,9 @@ export default function ProgramStagePlot({
       payloadRef.current = p;
       setPayload(p);
       setNombre(plotRow?.nombre || "");
+      setRenamingNombre(false);
+      setNombreDraft("");
+      skipNombreCommitRef.current = false;
       setBloqueIds(plotRow?.bloque_ids || []);
       setEventoIds(plotRow?.evento_ids || []);
       dirtyEventosRef.current = false;
@@ -4044,7 +4259,7 @@ export default function ProgramStagePlot({
       )
       .map((it) => it.id);
 
-    const hideGuides = !!payload.stage?.hideFormationGuides;
+    const hideGuides = (payload.stage?.formationGuidesOpacity ?? 1) <= 0;
     // Formaciones: siempre junto a ítems (no solo si hitItemIds vacío).
     // Modelo singular: primaria = primera que intersecta (o la ya
     // seleccionada si sigue en el rect y el gesto es aditivo).
@@ -4415,10 +4630,18 @@ export default function ProgramStagePlot({
   };
 
   const handleSelectFormation = useCallback((id) => {
+    const alreadySelected =
+      selectedFormationIdRef.current != null &&
+      String(selectedFormationIdRef.current) === String(id);
+    const hadItems = selectedIdsRef.current.length > 0;
+    // Keep mixed selection on mousedown of the already-selected formation
+    // so dragStart can populate dragGroupRef (items + formation).
     setSelectedFormationId(id);
     selectedFormationIdRef.current = id;
-    setSelectedIds([]);
-    selectedIdsRef.current = [];
+    if (!(alreadySelected && hadItems)) {
+      setSelectedIds([]);
+      selectedIdsRef.current = [];
+    }
     setItemContextMenu(null);
     setFormationContextMenu(null);
     setFormationCopyMenuOpen(false);
@@ -4738,16 +4961,25 @@ export default function ProgramStagePlot({
       evt &&
       (evt.ctrlKey || evt.metaKey || evt.shiftKey)
     );
-    setSelectedFormationId(null);
-    selectedFormationIdRef.current = null;
+    const alreadySelected = selectedIdsRef.current.includes(id);
+    const hadFormation = selectedFormationIdRef.current != null;
+    // Preserve mixed selection when mousedown on an already-selected item
+    // (dragStart runs after this and needs selectedFormationId intact).
+    if (!(alreadySelected && hadFormation && !additive)) {
+      setSelectedFormationId(null);
+      selectedFormationIdRef.current = null;
+    }
     setSelectedIds((prev) => {
       let next;
       if (additive) {
         next = prev.includes(id)
           ? prev.filter((x) => x !== id)
           : [...prev, id];
-      } else if (prev.includes(id) && prev.length > 1) {
-        // Mantener multi si se hace mousedown en un miembro ya seleccionado (arrastre grupal).
+      } else if (
+        prev.includes(id) &&
+        (prev.length > 1 || hadFormation)
+      ) {
+        // Mantener multi o mixta (ítems + formación) para arrastre grupal.
         next = prev;
       } else {
         next = [id];
@@ -5189,7 +5421,14 @@ export default function ProgramStagePlot({
         dragGroupRef.current = null;
         return;
       }
-      if (dragIds.length <= 1) {
+
+      const formationId = selectedFormationIdRef.current;
+      const fm = formationId
+        ? (prev.formations || []).find((f) => f.id === formationId)
+        : null;
+      const includeFormation = Boolean(fm);
+
+      if (dragIds.length <= 1 && !includeFormation) {
         dragGroupRef.current = null;
         return;
       }
@@ -5202,7 +5441,15 @@ export default function ProgramStagePlot({
           y: node ? node.y() : it?.y ?? 0,
         });
       }
-      dragGroupRef.current = { leaderId: id, origins };
+      dragGroupRef.current = {
+        leaderId: id,
+        leaderKind: "item",
+        origins,
+        formationId: includeFormation ? formationId : null,
+        formationOrigin: includeFormation
+          ? { x: fm.x, y: fm.y }
+          : null,
+      };
     },
     [hideItemHoverTooltip],
   );
@@ -5226,6 +5473,13 @@ export default function ProgramStagePlot({
           node.x(o.x + dx);
           node.y(o.y + dy);
         }
+      }
+      if (g.formationId && g.formationOrigin) {
+        setLiveFormationPos({
+          id: g.formationId,
+          x: g.formationOrigin.x + dx,
+          y: g.formationOrigin.y + dy,
+        });
       }
       const prev = payloadRef.current;
       const conductorId = (prev.items || []).find(
@@ -5337,6 +5591,84 @@ export default function ProgramStagePlot({
     return next;
   }, []);
 
+  /**
+   * One history entry: translate selected items + optional formation by the same
+   * delta. Slotted items on the moved formation keep slotId and are reanchored.
+   */
+  const commitSelectionGroupDrag = useCallback(
+    (g, dx, dy) => {
+      const movedIds = g.origins;
+      if (movedIds?.size) {
+        suppressItemDragEndIdsRef.current = new Set(movedIds.keys());
+        queueMicrotask(() => {
+          suppressItemDragEndIdsRef.current = null;
+        });
+      }
+      commitPayload((prev) => {
+        const stage = prev.stage || {};
+        const sw = Number(stage.width) || 900;
+        const sh = Number(stage.height) || 560;
+        const clamp = (v, max) => Math.min(max - 8, Math.max(8, v));
+        const fid = g.formationId ? String(g.formationId) : null;
+
+        let formations = prev.formations || [];
+        if (fid && g.formationOrigin) {
+          formations = formations.map((f) =>
+            String(f.id) === fid
+              ? {
+                  ...f,
+                  x: g.formationOrigin.x + dx,
+                  y: g.formationOrigin.y + dy,
+                }
+              : f,
+          );
+        }
+
+        let items = (prev.items || []).map((it) => {
+          if (!movedIds?.has(it.id)) return it;
+          const parsed = fid ? parseSlotId(it.slotId) : null;
+          if (fid && parsed && String(parsed.formationId) === fid) {
+            return it;
+          }
+          const o = movedIds.get(it.id);
+          return {
+            ...it,
+            x: clamp(o.x + dx, sw),
+            y: clamp(o.y + dy, sh),
+            slotId: null,
+          };
+        });
+
+        if (fid) {
+          items = reanchorItemsToFormations(formations, items, stage, [fid]);
+        }
+
+        const movedGroupIds = new Set(
+          (prev.items || [])
+            .filter((it) => movedIds?.has(it.id) && it.groupId)
+            .map((it) => it.groupId),
+        );
+        const groups =
+          movedGroupIds.size > 0 && (dx !== 0 || dy !== 0)
+            ? (prev.groups || []).map((grp) =>
+                movedGroupIds.has(grp.id) && grp.alignAnchor
+                  ? {
+                      ...grp,
+                      alignAnchor: {
+                        x: grp.alignAnchor.x + dx,
+                        y: grp.alignAnchor.y + dy,
+                      },
+                    }
+                  : grp,
+              )
+            : prev.groups;
+
+        return { ...prev, formations, items, groups };
+      });
+    },
+    [commitPayload],
+  );
+
   const handleItemDragEnd = useCallback(
     (id, x, y) => {
       const suppressed = suppressItemDragEndIdsRef.current;
@@ -5354,51 +5686,60 @@ export default function ProgramStagePlot({
       setItemSnapPreview(null);
       setConductorDragOrigin(null);
       setLiveItemPositions(null);
+      setLiveFormationPos(null);
 
-      if (g && g.leaderId === id && g.origins.size > 1) {
+      if (
+        g &&
+        g.leaderId === id &&
+        (g.origins.size > 1 || g.formationId)
+      ) {
         const origin = g.origins.get(id);
         const dx = x - (origin?.x ?? x);
         const dy = y - (origin?.y ?? y);
-        const movedIds = g.origins;
-        const movedPositions = new Map();
-        const stage = payloadRef.current.stage || {};
-        const sw = Number(stage.width) || 900;
-        const sh = Number(stage.height) || 560;
-        for (const [sid, o] of movedIds) {
-          movedPositions.set(sid, {
-            x: Math.min(sw - 8, Math.max(8, o.x + dx)),
-            y: Math.min(sh - 8, Math.max(8, o.y + dy)),
+        if (g.formationId) {
+          commitSelectionGroupDrag(g, dx, dy);
+        } else {
+          const movedIds = g.origins;
+          const movedPositions = new Map();
+          const stage = payloadRef.current.stage || {};
+          const sw = Number(stage.width) || 900;
+          const sh = Number(stage.height) || 560;
+          for (const [sid, o] of movedIds) {
+            movedPositions.set(sid, {
+              x: Math.min(sw - 8, Math.max(8, o.x + dx)),
+              y: Math.min(sh - 8, Math.max(8, o.y + dy)),
+            });
+          }
+          // Suppress follower dragEnds that fire after we clear dragGroupRef.
+          suppressItemDragEndIdsRef.current = new Set(movedIds.keys());
+          queueMicrotask(() => {
+            suppressItemDragEndIdsRef.current = null;
+          });
+          // One history entry for the whole multi/group drag (all positions).
+          commitPayload((prev) => {
+            const leader = prev.items.find((it) => it.id === id);
+            const nextItems = prev.items.map((it) => {
+              if (!movedPositions.has(it.id)) return it;
+              const p = movedPositions.get(it.id);
+              return { ...it, x: p.x, y: p.y, slotId: null };
+            });
+            const groups =
+              leader?.groupId && (dx !== 0 || dy !== 0)
+                ? (prev.groups || []).map((grp) =>
+                    grp.id === leader.groupId && grp.alignAnchor
+                      ? {
+                          ...grp,
+                          alignAnchor: {
+                            x: grp.alignAnchor.x + dx,
+                            y: grp.alignAnchor.y + dy,
+                          },
+                        }
+                      : grp,
+                  )
+                : prev.groups;
+            return { ...prev, items: nextItems, groups };
           });
         }
-        // Suppress follower dragEnds that fire after we clear dragGroupRef.
-        suppressItemDragEndIdsRef.current = new Set(movedIds.keys());
-        queueMicrotask(() => {
-          suppressItemDragEndIdsRef.current = null;
-        });
-        // One history entry for the whole multi/group drag (all positions).
-        commitPayload((prev) => {
-          const leader = prev.items.find((it) => it.id === id);
-          const nextItems = prev.items.map((it) => {
-            if (!movedPositions.has(it.id)) return it;
-            const p = movedPositions.get(it.id);
-            return { ...it, x: p.x, y: p.y, slotId: null };
-          });
-          const groups =
-            leader?.groupId && (dx !== 0 || dy !== 0)
-              ? (prev.groups || []).map((grp) =>
-                  grp.id === leader.groupId && grp.alignAnchor
-                    ? {
-                        ...grp,
-                        alignAnchor: {
-                          x: grp.alignAnchor.x + dx,
-                          y: grp.alignAnchor.y + dy,
-                        },
-                      }
-                    : grp,
-                )
-              : prev.groups;
-          return { ...prev, items: nextItems, groups };
-        });
         dragGroupRef.current = null;
         return;
       }
@@ -5409,27 +5750,108 @@ export default function ProgramStagePlot({
       }));
       setSelectedIds((prev) => (prev.includes(id) ? prev : [id]));
     },
-    [applySnapToMovedItems, commitPayload],
+    [applySnapToMovedItems, commitPayload, commitSelectionGroupDrag],
   );
 
   const handleFormationDragStart = useCallback(
-    (_formationId, conductorX, latched) => {
+    (formationId, conductorX, latched) => {
       if (latched && Number.isFinite(Number(conductorX))) {
         setFormationCenterGuideX(Number(conductorX));
       } else {
         setFormationCenterGuideX(null);
       }
+
+      // Mixed selection: formation + selected items move together.
+      if (
+        selectedFormationIdRef.current == null ||
+        String(selectedFormationIdRef.current) !== String(formationId)
+      ) {
+        dragGroupRef.current = null;
+        return;
+      }
+      const prev = payloadRef.current;
+      const fm = (prev.formations || []).find((f) => f.id === formationId);
+      if (!fm) {
+        dragGroupRef.current = null;
+        return;
+      }
+
+      let dragIds = [...selectedIdsRef.current];
+      for (const sid of [...dragIds]) {
+        const item = prev.items.find((i) => i.id === sid);
+        if (!item?.groupId) continue;
+        const group = getGroupById(prev, item.groupId);
+        if (group?.kind === "string_pair") continue;
+        const groupMembers = getGroupMemberIds(prev, item.groupId);
+        dragIds = [...new Set([...dragIds, ...groupMembers])];
+      }
+
+      if (!dragIds.length) {
+        dragGroupRef.current = null;
+        return;
+      }
+
+      const origins = new Map();
+      for (const sid of dragIds) {
+        const node = itemNodeRefs.current.get(sid);
+        const it = prev.items.find((i) => i.id === sid);
+        origins.set(sid, {
+          x: node ? node.x() : it?.x ?? 0,
+          y: node ? node.y() : it?.y ?? 0,
+        });
+      }
+      dragGroupRef.current = {
+        leaderId: `formation:${formationId}`,
+        leaderKind: "formation",
+        origins,
+        formationId,
+        formationOrigin: { x: fm.x, y: fm.y },
+      };
     },
     [],
   );
 
   const handleFormationDragMove = useCallback(
-    (_formationId, _x, _y, snapped, conductorX) => {
+    (formationId, x, y, snapped, conductorX) => {
       if (snapped && Number.isFinite(Number(conductorX))) {
         setFormationCenterGuideX(Number(conductorX));
       } else {
         setFormationCenterGuideX(null);
       }
+
+      const g = dragGroupRef.current;
+      if (
+        !g ||
+        g.leaderKind !== "formation" ||
+        String(g.formationId) !== String(formationId) ||
+        !g.formationOrigin
+      ) {
+        return;
+      }
+      const dx = x - g.formationOrigin.x;
+      const dy = y - g.formationOrigin.y;
+      for (const [sid, o] of g.origins) {
+        const node = itemNodeRefs.current.get(sid);
+        if (node) {
+          node.x(o.x + dx);
+          node.y(o.y + dy);
+        }
+      }
+      const prev = payloadRef.current;
+      const conductorId = (prev.items || []).find(
+        (it) => it.type === "conductor" && g.origins.has(it.id),
+      )?.id;
+      if (conductorId) {
+        const cNode = itemNodeRefs.current.get(conductorId);
+        if (cNode) {
+          setConductorDragOrigin({ x: cNode.x(), y: cNode.y() });
+        }
+      }
+      const live = {};
+      for (const [sid, o] of g.origins) {
+        live[sid] = { x: o.x + dx, y: o.y + dy };
+      }
+      setLiveItemPositions(live);
     },
     [],
   );
@@ -5437,9 +5859,28 @@ export default function ProgramStagePlot({
   const handleFormationDragEnd = useCallback(
     (formationId, x, y) => {
       setFormationCenterGuideX(null);
+      setConductorDragOrigin(null);
+      setLiveItemPositions(null);
+      setLiveFormationPos(null);
+
+      const g = dragGroupRef.current;
+      if (
+        g &&
+        g.leaderKind === "formation" &&
+        String(g.formationId) === String(formationId) &&
+        g.formationOrigin &&
+        g.origins.size > 0
+      ) {
+        const dx = x - g.formationOrigin.x;
+        const dy = y - g.formationOrigin.y;
+        commitSelectionGroupDrag(g, dx, dy);
+        dragGroupRef.current = null;
+        return;
+      }
+      dragGroupRef.current = null;
       commitFormationPosition(formationId, x, y);
     },
-    [commitFormationPosition],
+    [commitFormationPosition, commitSelectionGroupDrag],
   );
 
   const handleFormationHandleDragStart = useCallback(
@@ -5806,26 +6247,73 @@ export default function ProgramStagePlot({
               Escenario
             </span>
           )}
-          <div className="flex max-w-full flex-wrap items-center gap-1">
-            {plotsMeta.map((p, idx) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => switchToPlot(p.id)}
-                className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
-                  p.id === activePlotId
-                    ? "border-indigo-300 bg-indigo-50 text-indigo-800"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                {p.nombre?.trim() || `Lienzo ${idx + 1}`}
-              </button>
-            ))}
+          <div className="flex max-w-full min-w-0 flex-wrap items-center gap-2">
+            <span className="shrink-0 text-[11px] font-medium text-slate-500">
+              Elegir lienzo
+            </span>
+            <div className="w-44 min-w-0 sm:w-52">
+              <SearchableSelect
+                options={plotSelectOptions}
+                value={activePlotId ?? ""}
+                onChange={(id) => {
+                  if (id == null || id === "") return;
+                  void switchToPlot(id);
+                }}
+                placeholder="Elegir lienzo…"
+                dropdownMinWidth={220}
+                className="text-[11px]"
+              />
+            </div>
+            {canEdit &&
+              (renamingNombre ? (
+                <input
+                  ref={nombreInputRef}
+                  type="text"
+                  value={nombreDraft}
+                  onChange={(e) => setNombreDraft(e.target.value)}
+                  onBlur={() => {
+                    if (skipNombreCommitRef.current) {
+                      skipNombreCommitRef.current = false;
+                      return;
+                    }
+                    setRenamingNombre(false);
+                    setNombre(nombreDraft.trim());
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      e.currentTarget.blur();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      skipNombreCommitRef.current = true;
+                      setRenamingNombre(false);
+                      setNombreDraft("");
+                    }
+                  }}
+                  placeholder="Nombre del lienzo"
+                  aria-label="Renombrar lienzo"
+                  className="w-40 rounded border border-indigo-300 px-2 py-1 text-xs outline-none ring-1 ring-indigo-200"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    skipNombreCommitRef.current = false;
+                    setNombreDraft(nombre);
+                    setRenamingNombre(true);
+                  }}
+                  className="inline-flex shrink-0 items-center justify-center rounded border border-slate-200 bg-white p-1.5 text-slate-600 hover:bg-slate-50 hover:text-indigo-700"
+                  title="Renombrar lienzo"
+                  aria-label="Renombrar lienzo"
+                >
+                  <IconPencil size={14} />
+                </button>
+              ))}
             {canEdit && (
               <button
                 type="button"
                 onClick={handleCreatePlot}
-                className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-slate-300 px-2 py-0.5 text-[11px] text-slate-500 hover:border-indigo-300 hover:text-indigo-700"
+                className="inline-flex shrink-0 items-center gap-0.5 rounded border border-dashed border-slate-300 px-2 py-1 text-[11px] text-slate-500 hover:border-indigo-300 hover:text-indigo-700"
                 title="Nuevo lienzo"
               >
                 <IconPlus size={12} /> Lienzo
@@ -5834,15 +6322,6 @@ export default function ProgramStagePlot({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {canEdit && (
-            <input
-              type="text"
-              value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
-              placeholder="Nombre del lienzo"
-              className="w-40 rounded border border-slate-200 px-2 py-1 text-xs"
-            />
-          )}
           {canEdit && (
             <button
               type="button"
@@ -5862,14 +6341,83 @@ export default function ProgramStagePlot({
               )}
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => setImportOpen(true)}
-            className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-            title="Exportar / importar escenario"
-          >
-            <IconUpload size={14} /> Imp/Exp
-          </button>
+          <div className="relative shrink-0" ref={importExportMenuRef}>
+            <button
+              type="button"
+              onClick={() => setImportExportOpen((o) => !o)}
+              className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${
+                importExportOpen
+                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+              title="Importar / exportar escenario"
+              aria-expanded={importExportOpen}
+              aria-haspopup="menu"
+            >
+              <IconUpload size={14} /> Importar / Exportar
+              <IconChevronDown
+                size={12}
+                className={`transition-transform ${importExportOpen ? "rotate-180" : ""}`}
+              />
+            </button>
+            {importExportOpen && (
+              <div
+                className="absolute left-0 top-full z-[110] mt-1 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+                style={{ zIndex: portalMenuZ }}
+                role="menu"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setImportExportOpen(false);
+                    handleExportPdf();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+                >
+                  <IconFileText size={14} className="text-indigo-600" />
+                  Exportar PDF
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setImportExportOpen(false);
+                    handleExportJpg();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  title="Exportar plano (solo escenario, sin channel list)"
+                >
+                  <IconPhoto size={14} className="text-slate-500" />
+                  Exportar JPG
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setImportExportOpen(false);
+                    handleExportJson();
+                  }}
+                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <IconDownload size={14} className="text-slate-500" />
+                  Descargar JSON
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setImportExportOpen(false);
+                    setImportOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <IconUpload size={14} className="text-slate-500" />
+                  Importar (archivo / otra gira)…
+                </button>
+              </div>
+            )}
+          </div>
           <button
             ref={lienzoBtnRef}
             type="button"
@@ -5931,7 +6479,7 @@ export default function ProgramStagePlot({
                     ? "bg-indigo-50 text-indigo-700"
                     : "text-slate-600 hover:bg-slate-50"
                 }`}
-                title="Mover (M) — arrastrar ítems y formaciones"
+                title="Mover (M) — arrastrar ítems/formaciones; vacío = desplazar vista"
                 aria-pressed={canvasTool === STAGE_PLOT_TOOL_MOVE}
               >
                 <IconMove size={14} />
@@ -5947,7 +6495,7 @@ export default function ProgramStagePlot({
           >
             Zoom {Math.round(viewport.scale * 100)}%
           </button>
-          {canEdit && (
+          {canEdit && isNarrowViewport && (
             <button
               type="button"
               onClick={openMobileEditor}
@@ -5981,21 +6529,6 @@ export default function ProgramStagePlot({
             className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
           >
             <IconRefresh size={14} /> Recargar
-          </button>
-          <button
-            type="button"
-            onClick={handleExportPdf}
-            className="inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
-          >
-            <IconFileText size={14} /> PDF
-          </button>
-          <button
-            type="button"
-            onClick={handleExportJpg}
-            className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-            title="Exportar plano (solo escenario, sin channel list)"
-          >
-            <IconPhoto size={14} /> JPG
           </button>
           {onBack && !embedded && (
             <button
@@ -6317,7 +6850,7 @@ export default function ProgramStagePlot({
               {paletteDrag
                 ? "Soltá para colocar"
                 : canEdit && canvasTool === STAGE_PLOT_TOOL_MOVE
-                  ? "Mover: arrastrá ítems/formaciones · Espacio / rueda central / trackpad = vista · Pinch o Ctrl/⌘+rueda = zoom · V = seleccionar · M = mover"
+                  ? "Mover: arrastrá ítems/formaciones · vacío = desplazar vista · Espacio / rueda central / trackpad = vista · Pinch o Ctrl/⌘+rueda = zoom · V = seleccionar · M = mover"
                   : "Seleccionar: clic / arrastrar vacío = marquee · seleccionado = arrastrar para mover · Espacio / rueda central / trackpad = vista · Pinch o Ctrl/⌘+rueda = zoom · Supr = borrar · V/M = herramientas · Ctrl/⌘/Shift = multi"}
             </p>
             )}
@@ -6455,36 +6988,41 @@ export default function ProgramStagePlot({
                 const middlePan = nativeEvt.button === 1;
                 const spacePan =
                   spaceHeldRef.current && nativeEvt.button === 0;
-                // Pan: Espacio+arrastre o botón central. Marquee solo en Seleccionar.
-                // Móvil: arrastre en vacío = pan (+ deselección).
-                const mobileEmptyPan =
-                  mobileUiRef.current &&
+                // Pan: Espacio+arrastre, botón central, vacío en Mover, o vacío en móvil.
+                // Marquee solo en Seleccionar (nunca en Mover).
+                const emptyLeft =
                   !interactive &&
                   nativeEvt.button === 0 &&
                   !paletteDrag;
-                const shouldPan = middlePan || spacePan || mobileEmptyPan;
+                const moveEmptyPan =
+                  emptyLeft &&
+                  canvasToolRef.current === STAGE_PLOT_TOOL_MOVE;
+                const mobileEmptyPan = mobileUiRef.current && emptyLeft;
+                const shouldPan =
+                  middlePan || spacePan || moveEmptyPan || mobileEmptyPan;
 
                 if (shouldPan) {
                   if (middlePan) nativeEvt.preventDefault();
-                  if (mobileEmptyPan) {
-                    setSelectedIds([]);
-                    selectedIdsRef.current = [];
-                    setSelectedFormationId(null);
-                    selectedFormationIdRef.current = null;
+                  if (moveEmptyPan || mobileEmptyPan) {
+                    const additive = !!(
+                      nativeEvt.ctrlKey ||
+                      nativeEvt.metaKey ||
+                      nativeEvt.shiftKey
+                    );
+                    if (!additive) {
+                      setSelectedIds([]);
+                      selectedIdsRef.current = [];
+                      setSelectedFormationId(null);
+                      selectedFormationIdRef.current = null;
+                    }
                   }
                   startStagePan(nativeEvt.clientX, nativeEvt.clientY);
                   return;
                 }
 
-                // Clic/arrastre izquierdo en vacío.
-                // Seleccionar → marquee (o deselección si no hubo drag).
-                // Mover → solo deselección (sin marquee).
+                // Clic/arrastre izquierdo en vacío → marquee solo en Seleccionar.
                 // No inicia sobre ítem/formación/asa/Transformer (`interactive`).
-                if (
-                  !interactive &&
-                  nativeEvt.button === 0 &&
-                  !paletteDrag
-                ) {
+                if (emptyLeft) {
                   const additive = !!(
                     nativeEvt.ctrlKey ||
                     nativeEvt.metaKey ||
@@ -6496,11 +7034,6 @@ export default function ProgramStagePlot({
                       nativeEvt.clientY,
                       additive,
                     );
-                  } else if (!additive) {
-                    setSelectedIds([]);
-                    selectedIdsRef.current = [];
-                    setSelectedFormationId(null);
-                    selectedFormationIdRef.current = null;
                   }
                 }
               }}
@@ -6526,14 +7059,15 @@ export default function ProgramStagePlot({
                   shadowBlur={12}
                   shadowOffsetY={2}
                 />
-                {payload.stage.showGrid !== false && (
+                {(payload.stage.gridOpacity ?? 1) > 0 && (
                   <StageCentimeterGrid
                     width={sw}
                     height={sh}
                     nightStage={isForcedDark}
+                    opacity={payload.stage.gridOpacity ?? 1}
                   />
                 )}
-                {payload.stage.showRadial && (
+                {(payload.stage.radialOpacity ?? 0) > 0 && (
                   <StageRadialGuide
                     width={sw}
                     height={sh}
@@ -6541,6 +7075,7 @@ export default function ProgramStagePlot({
                     stage={payload.stage}
                     originOverride={conductorDragOrigin}
                     nightStage={isForcedDark}
+                    opacity={payload.stage.radialOpacity ?? 0}
                   />
                 )}
                 <Text
@@ -6587,7 +7122,9 @@ export default function ProgramStagePlot({
                     item={item}
                     selected={selectedIdSet.has(item.id)}
                     magnetized={false}
-                    hideChairSquares={!!payload.stage.hideChairSquares}
+                    chairSquaresOpacity={
+                      payload.stage.chairSquaresOpacity ?? 1
+                    }
                     draggable={itemIsDraggable(item.id)}
                     viewportScale={viewportScale}
                     nightStage={isForcedDark}
@@ -6609,7 +7146,7 @@ export default function ProgramStagePlot({
                     onTransformEnd={handleItemTransformEnd}
                   />
                 ))}
-                {!payload.stage.hideFormationGuides &&
+                {(payload.stage.formationGuidesOpacity ?? 1) > 0 &&
                   renderFormations.map((fm) => (
                   <FormationShape
                     key={fm.id}
@@ -6618,6 +7155,7 @@ export default function ProgramStagePlot({
                     stage={payload.stage}
                     selected={selectedFormationId === fm.id}
                     draggable={formationIsDraggable(fm.id)}
+                    opacity={payload.stage.formationGuidesOpacity ?? 1}
                     highlightSlotId={itemSnapPreview?.slotId ?? null}
                     slotsDraggable={
                       canEdit &&
@@ -6636,10 +7174,10 @@ export default function ProgramStagePlot({
                   />
 
                   ))}
-                {!payload.stage.hideFormationGuides && (
+                {(payload.stage.formationGuidesOpacity ?? 1) > 0 && (
                   <SnapMagnetGuide preview={itemSnapPreview} />
                 )}
-                {!payload.stage.hideFormationGuides && (
+                {(payload.stage.formationGuidesOpacity ?? 1) > 0 && (
                   <FormationCenterAxisGuide
                     x={formationCenterGuideX}
                     height={sh}
@@ -6659,7 +7197,9 @@ export default function ProgramStagePlot({
                     item={item}
                     selected={selectedIdSet.has(item.id)}
                     magnetized={magnetized}
-                    hideChairSquares={!!payload.stage.hideChairSquares}
+                    chairSquaresOpacity={
+                      payload.stage.chairSquaresOpacity ?? 1
+                    }
                     draggable={itemIsDraggable(item.id)}
                     viewportScale={viewportScale}
                     nightStage={isForcedDark}
@@ -6685,7 +7225,7 @@ export default function ProgramStagePlot({
                 {canEdit && (
                   <Transformer
                     ref={transformerRef}
-                    rotateEnabled
+                    rotateEnabled={!selectedFormationId}
                     keepRatio={!tarimaSelectedOnly}
                     anchorSize={transformerAnchorSize}
                     anchorCornerRadius={transformerAnchorCornerRadius}
@@ -6698,23 +7238,25 @@ export default function ProgramStagePlot({
                     borderStroke="#4f46e5"
                     anchorStyleFunc={transformerAnchorStyleFunc}
                     enabledAnchors={
-                      tarimaSelectedOnly
-                        ? [
-                            "top-left",
-                            "top-right",
-                            "bottom-left",
-                            "bottom-right",
-                            "middle-left",
-                            "middle-right",
-                            "top-center",
-                            "bottom-center",
-                          ]
-                        : [
-                            "top-left",
-                            "top-right",
-                            "bottom-left",
-                            "bottom-right",
-                          ]
+                      selectedFormationId
+                        ? []
+                        : tarimaSelectedOnly
+                          ? [
+                              "top-left",
+                              "top-right",
+                              "bottom-left",
+                              "bottom-right",
+                              "middle-left",
+                              "middle-right",
+                              "top-center",
+                              "bottom-center",
+                            ]
+                          : [
+                              "top-left",
+                              "top-right",
+                              "bottom-left",
+                              "bottom-right",
+                            ]
                     }
                     boundBoxFunc={(oldBox, newBox) => {
                       if (newBox.width < 16 || newBox.height < 16) return oldBox;
@@ -6724,7 +7266,7 @@ export default function ProgramStagePlot({
                 )}
                 {/* Selected formation handles above items so peak/side asas stay hittable. */}
                 {canEdit &&
-                  !payload.stage.hideFormationGuides &&
+                  (payload.stage.formationGuidesOpacity ?? 1) > 0 &&
                   formationForHandles && (
                     <FormationResizeHandles
                       formation={formationForHandles}
