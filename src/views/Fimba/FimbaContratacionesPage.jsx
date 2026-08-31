@@ -58,7 +58,6 @@ const EDITABLE_FIELDS = [
   "id_propuesta",
   "nombre",
   "monto",
-  "fecha_limite_resol",
   "tipo_contratacion",
   ...BOOL_FIELDS,
   "ultimo_estado_conocido",
@@ -163,7 +162,6 @@ function draftFromRow(r) {
     id_propuesta: r?.id_propuesta != null ? String(r.id_propuesta) : "",
     nombre: r?.nombre || "",
     monto: r?.monto != null && r.monto !== "" ? String(r.monto) : "",
-    fecha_limite_resol: r?.fecha_limite_resol || "",
     tipo_contratacion: r?.tipo_contratacion || FIMBA_TIPO_CONTRATACION_DEFAULT,
     envio_firma_mfm_nota: asBool(r?.envio_firma_mfm_nota),
     nota_firmada: asBool(r?.nota_firmada),
@@ -209,7 +207,6 @@ function isEmptyDraft(draft) {
     String(d.nombre || "").trim() ||
     String(d.ultimo_estado_conocido || "").trim() ||
     String(d.monto || "").trim() ||
-    String(d.fecha_limite_resol || "").trim() ||
     (String(d.tipo_contratacion || "").trim() &&
       String(d.tipo_contratacion).trim() !== FIMBA_TIPO_CONTRATACION_DEFAULT);
   const hasProp = d.id_propuesta != null && String(d.id_propuesta) !== "";
@@ -241,7 +238,6 @@ function validateDraft(draft, { isCreate = false } = {}) {
       id_propuesta: Number.isFinite(id_propuesta) ? id_propuesta : null,
       nombre: String(draft.nombre || "").trim() || null,
       monto: parseFimbaMonto(draft.monto),
-      fecha_limite_resol: draft.fecha_limite_resol || null,
       tipo_contratacion:
         String(draft.tipo_contratacion || "").trim() ||
         FIMBA_TIPO_CONTRATACION_DEFAULT,
@@ -282,7 +278,6 @@ const SORT_TYPES = {
   numero_expediente: "text",
   nombre: "text",
   monto: "number",
-  fecha_limite_resol: "text",
   tipo_contratacion: "text",
   envio_firma_mfm_nota: "bool",
   nota_firmada: "bool",
@@ -316,8 +311,6 @@ function getRowSortValue(key, draft, row, propuestasById) {
     }
     case "monto":
       return parseFimbaMonto(draft?.monto);
-    case "fecha_limite_resol":
-      return String(draft?.fecha_limite_resol || "").trim();
     case "tipo_contratacion":
       return String(draft?.tipo_contratacion || "").trim();
     case "envio_firma_mfm_nota":
@@ -1171,7 +1164,7 @@ function ContratacionesPlanilla({
   };
 
   const list = rows || [];
-  const colCount = 14;
+  const colCount = 13;
   const newDraft = drafts[NEW_ROW_KEY] || emptyDraft();
 
   const propuestasById = useMemo(() => {
@@ -1326,19 +1319,6 @@ function ContratacionesPlanilla({
               disabled={disabled}
               title={formatMontoCurrency(draft.monto) || "Monto opcional"}
               aria-label="Monto"
-            />
-          </td>
-          <td>
-            <input
-              type="date"
-              className="fimba-cell-input fimba-ctr-fecha-limite"
-              value={draft.fecha_limite_resol || ""}
-              onChange={(e) =>
-                changeAndCommit(rowKey, "fecha_limite_resol", e.target.value)
-              }
-              disabled={disabled}
-              title="Fecha límite para la resolución"
-              aria-label="Fecha límite para la resolución"
             />
           </td>
           <td className="fimba-ctr-tipo">
@@ -1551,15 +1531,6 @@ function ContratacionesPlanilla({
               onSort={handleSort}
             >
               Monto
-            </SortableTh>
-            <SortableTh
-              colKey="fecha_limite_resol"
-              sortKey={sortKey}
-              sortDir={sortDir}
-              onSort={handleSort}
-              title="Fecha límite para la resolución"
-            >
-              Fecha límite resol.
             </SortableTh>
             <SortableTh
               colKey="tipo_contratacion"
@@ -1953,7 +1924,7 @@ function EstadoHistorialModal({ contratacionId, label, onClose }) {
 
 const CTR_STYLES = `
   .fimba-ctr-table {
-    min-width: 1080px;
+    min-width: 980px;
     width: max-content;
   }
   .fimba-ctr-table th {
@@ -2137,11 +2108,6 @@ const CTR_STYLES = `
     font-weight: 500 !important;
     padding: 0.12rem 0.4rem !important;
     border-radius: 6px !important;
-  }
-  .fimba-ctr-fecha-limite {
-    color: #dc2626 !important;
-    font-weight: 700 !important;
-    min-width: 8.5rem;
   }
   .fimba-ctr-th-check,
   .fimba-ctr-td-check {

@@ -955,6 +955,7 @@ const ProtectedApp = ({ initialTab }) => {
               "asistencia_ensayos",
               "conciertos",
               "audiencia",
+              "viaticos_seguimiento",
             ]}
           />
         );

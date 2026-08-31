@@ -63,6 +63,8 @@ const DETALLE_DB_FIELD_KEYS = [
   "id_evento_parada_fin",
   "tramo_orden",
   "etiqueta_tramo",
+  "seguimiento_tipo",
+  "seguimiento_color",
 ];
 
 function pickDetalleForDb(row, overrides = {}) {

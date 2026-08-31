@@ -18,6 +18,7 @@ import {
   IconClipboard,
   IconChevronDown,
   IconCheck,
+  IconDollarSign,
 } from "../../components/ui/Icons";
 import { VenuesManager } from "../../components/management/VenuesManager";
 import SeatingReports from "./SeatingReports";
@@ -28,6 +29,7 @@ import EnsayoCheckinAttendanceReport from "./EnsayoCheckinAttendanceReport";
 import ConciertosView from "../Giras/ConciertosView";
 import AudienceView from "./AudienceView";
 import ServiciosCantidadReport from "./ServiciosCantidadReport";
+import ViaticosSeguimientoReport from "./ViaticosSeguimientoReport";
 import ManagementSectionCard from "./ManagementSectionCard";
 
 const DEFAULT_SECTIONS = [
@@ -40,6 +42,7 @@ const DEFAULT_SECTIONS = [
   "asistencia_ensayos",
   "conciertos",
   "audiencia",
+  "viaticos_seguimiento",
 ];
 
 const HOME_VIEW = "home";
@@ -64,6 +67,7 @@ const SECTION_ORDER = [
   "asistencia_ensayos",
   "conciertos",
   "audiencia",
+  "viaticos_seguimiento",
 ];
 
 const SECTION_CONFIG = {
@@ -183,6 +187,19 @@ const SECTION_CONFIG = {
     iconClasses:
       "bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white",
     titleClasses: "text-rose-900 group-hover:text-rose-700",
+  },
+  viaticos_seguimiento: {
+    title: "Seguimiento viáticos",
+    tabLabel: "Viáticos",
+    subtitle: "Planilla consolidada de viáticos individuales",
+    description:
+      "Lista todos los viáticos individuales del año con salida, regreso, programa y monto; tipificá Viatico/Reintegro y marcá filas.",
+    icon: IconDollarSign,
+    cardClasses:
+      "border-lime-100 hover:border-lime-300 hover:shadow-md focus-visible:ring-lime-300",
+    iconClasses:
+      "bg-lime-50 text-lime-700 group-hover:bg-lime-600 group-hover:text-white",
+    titleClasses: "text-lime-900 group-hover:text-lime-800",
   },
 };
 
@@ -349,7 +366,8 @@ export default function ManagementView({
     activeTab === "ensayos" ||
     activeTab === "asistencia_ensayos" ||
     activeTab === "conciertos" ||
-    activeTab === "audiencia";
+    activeTab === "audiencia" ||
+    activeTab === "viaticos_seguimiento";
 
   const headerSubtitle = isHomeView
     ? "Selecciona el informe que deseas abrir. Las vistas se cargan bajo demanda."
@@ -488,6 +506,12 @@ export default function ManagementView({
             <AudienceView supabase={supabase} />
           </div>
         )}
+        {activeTab === "viaticos_seguimiento" &&
+          enabledSections.has("viaticos_seguimiento") && (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <ViaticosSeguimientoReport supabase={supabase} />
+            </div>
+          )}
       </div>
     </div>
   );

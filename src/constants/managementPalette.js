@@ -67,6 +67,12 @@ export const MANAGEMENT_PALETTE_ENTRIES = [
     label: "Gestión: Audiencia",
     section: "Informes de Gestión",
   },
+  {
+    slug: "viaticos_seguimiento",
+    id: "mgmt-viaticos-seguimiento",
+    label: "Gestión: Seguimiento viáticos",
+    section: "Informes de Gestión",
+  },
 ];
 
 export function managementPalettePath(slug) {

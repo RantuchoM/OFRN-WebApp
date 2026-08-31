@@ -3,7 +3,7 @@
  * Full replace de datos (preserva/reescribe header). Manual + cron diario.
  * Auth Google: G_CLIENT_ID / G_CLIENT_SECRET / G_REFRESH_TOKEN (cuenta Archivo).
  * Columna Carpeta: Drive smart chips (chipRuns / richLinkProperties); fallback URL.
- * Layout A–K: Fecha | Nº exp. | Carpeta | Nombre | Monto | Tipo | 4 flags | Estado.
+ * Layout B–K (col A intacta): Nº exp. | Carpeta | Nombre | Monto | Tipo | 4 flags | Estado.
  * Monto (E): número + CURRENCY ARS. Flags (G–J): TRUE/FALSE nativos;
  * checkbox UI vía setDataValidation best-effort (omitido si columnas tipadas).
  */
@@ -39,7 +39,6 @@ const lockedSheetUrl = (id: string) =>
  * Configurable vía env FIMBA_CONTRATACIONES_SHEET_HEADERS (JSON array) si hace falta.
  */
 const DEFAULT_HEADERS = [
-  "Fecha",
   "Número de expediente",
   "Carpeta",
   "Nombre",
@@ -91,13 +90,14 @@ function parseMonto(value: unknown): number | "" {
 }
 
 /**
- * Mapped data block starts at sheet column A (0-based index 0).
+ * Mapped data block starts at sheet column B (0-based index 1).
  * Field indices below are 0-based within the block; sheetCol() adds the offset.
+ * Column A is left untouched.
  */
-const DATA_START_COL = 0; // A
+const DATA_START_COL = 1; // B
 
 /** 0-based index of Monto in DEFAULT_HEADERS → sheet col E. */
-const MONTO_COL = 4;
+const MONTO_COL = 3;
 
 /** ARS-style currency pattern; separators follow spreadsheet locale (es-AR → 1.234,56). */
 const MONTO_CURRENCY_PATTERN = '"$"#,##0.00';
@@ -118,8 +118,8 @@ function formatBool(v: unknown): boolean {
 }
 
 /** 0-based indices of flag columns in DEFAULT_HEADERS → sheet cols G–J. */
-const BOOL_COL_START = 6; // Envio a la firma de MFM nota
-const BOOL_COL_END = 10; // exclusive — Enviado a ADM is 9
+const BOOL_COL_START = 5; // Envio a la firma de MFM nota
+const BOOL_COL_END = 9; // exclusive — Enviado a ADM is 8
 
 /** 0-based sheet column for a field index in the mapped block. */
 function sheetCol(fieldIndex: number): number {
@@ -135,14 +135,6 @@ function colLetter(sheetIndex: number): string {
     x = Math.floor(x / 26) - 1;
   } while (x >= 0);
   return s;
-}
-
-function formatFecha(dateStr: string | null | undefined): string {
-  if (!dateStr || typeof dateStr !== "string") return "";
-  const iso = dateStr.slice(0, 10);
-  const [y, m, d] = iso.split("-").map(Number);
-  if (!y || !m || !d) return dateStr;
-  return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
 }
 
 function driveFolderUrl(raw: string | null | undefined): string {
@@ -173,7 +165,7 @@ function carpetaColumnIndex(headers: string[]): number {
   const i = headers.findIndex(
     (h) => String(h || "").trim().toLowerCase() === "carpeta",
   );
-  return i >= 0 ? i : 2; // default: 3.ª field del mapping → sheet col C
+  return i >= 0 ? i : 1; // default: 2.ª field del mapping → sheet col C
 }
 
 /** Chip cell: placeholder `@` + richLink to Drive folder/file. */
@@ -215,9 +207,11 @@ async function resolveEdicionId(
 type SheetCell = string | boolean | number;
 
 /** Field index of Nombre in the mapped row (= sheet col D). */
-const NOMBRE_FIELD_INDEX = 3;
+const NOMBRE_FIELD_INDEX = 2;
 /** Field index of Carpeta in the mapped row (= sheet col C). */
-const CARPETA_FIELD_INDEX = 2;
+const CARPETA_FIELD_INDEX = 1;
+/** Field index of Nº expediente in the mapped row (= sheet col B). */
+const EXPEDIENTE_FIELD_INDEX = 0;
 
 /**
  * Export order: col D (Nombre) ascending.
@@ -244,10 +238,14 @@ function compareRowsByNombreAsc(a: SheetCell[], b: SheetCell[]): number {
       numeric: true,
     });
   if (byCarpeta !== 0) return byCarpeta;
-  return String(a[1] ?? "").localeCompare(String(b[1] ?? ""), "es", {
-    sensitivity: "base",
-    numeric: true,
-  });
+  return String(a[EXPEDIENTE_FIELD_INDEX] ?? "").localeCompare(
+    String(b[EXPEDIENTE_FIELD_INDEX] ?? ""),
+    "es",
+    {
+      sensitivity: "base",
+      numeric: true,
+    },
+  );
 }
 
 async function fetchContratacionesRows(
@@ -263,7 +261,6 @@ async function fetchContratacionesRows(
       numero_expediente,
       nombre,
       monto,
-      fecha_limite_resol,
       tipo_contratacion,
       envio_firma_mfm_nota,
       nota_firmada,
@@ -287,7 +284,6 @@ async function fetchContratacionesRows(
       String(prop?.nombre || "").trim() ||
       "";
     return [
-      formatFecha(row.fecha_limite_resol as string | null),
       String(row.numero_expediente || "").trim(),
       driveFolderUrl(row.carpeta_documentacion as string | null),
       nombre,
@@ -440,7 +436,7 @@ async function rewriteSheet(
 
   const dataStartLetter = colLetter(DATA_START_COL);
   const clearEndRow = Math.max(rows.length + 5, 200);
-  // Full replace of mapped block starting at A.
+  // Full replace of mapped block starting at B (column A left untouched).
   await sheets.spreadsheets.values.clear({
     spreadsheetId,
     range: `${SHEET_TAB}!${dataStartLetter}1:Z${clearEndRow}`,

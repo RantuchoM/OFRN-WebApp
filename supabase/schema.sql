@@ -737,13 +737,24 @@ CREATE TABLE public.giras_viaticos_detalle (
   backup_fecha_llegada date,
   backup_hora_llegada time without time zone,
   backup_dias_computables numeric,
+  backup_viatico numeric,
   fecha_ultima_exportacion timestamp with time zone,
   motivo text,
   lugar_comision text,
   anticipo_custom numeric,
+  seguimiento_tipo text,
+  seguimiento_color text,
   CONSTRAINT giras_viaticos_detalle_pkey PRIMARY KEY (id),
   CONSTRAINT giras_viaticos_detalle_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
-  CONSTRAINT giras_viaticos_detalle_id_integrante_fkey FOREIGN KEY (id_integrante) REFERENCES public.integrantes(id)
+  CONSTRAINT giras_viaticos_detalle_id_integrante_fkey FOREIGN KEY (id_integrante) REFERENCES public.integrantes(id),
+  CONSTRAINT giras_viaticos_detalle_seguimiento_tipo_check CHECK (
+    seguimiento_tipo IS NULL
+    OR seguimiento_tipo = ANY (ARRAY['viatico'::text, 'reintegro'::text])
+  ),
+  CONSTRAINT giras_viaticos_detalle_seguimiento_color_check CHECK (
+    seguimiento_color IS NULL
+    OR seguimiento_color = ANY (ARRAY['amarillo'::text, 'verde'::text])
+  )
 );
 CREATE TABLE public.horas_catedra (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,

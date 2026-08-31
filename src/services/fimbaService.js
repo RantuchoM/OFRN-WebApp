@@ -5878,7 +5878,7 @@ export function resolveFimbaEstadoActor(opts = {}) {
 }
 
 const CONTRATACION_SELECT =
-  "id, id_edicion, orden, numero_expediente, id_propuesta, nombre, monto, fecha_limite_resol, tipo_contratacion, envio_firma_mfm_nota, nota_firmada, falta_documentacion, enviado_adm, ultimo_estado_conocido, carpeta_documentacion, created_at, updated_at, fimba_propuestas:id_propuesta ( id, nombre, color )";
+  "id, id_edicion, orden, numero_expediente, id_propuesta, nombre, monto, tipo_contratacion, envio_firma_mfm_nota, nota_firmada, falta_documentacion, enviado_adm, ultimo_estado_conocido, carpeta_documentacion, created_at, updated_at, fimba_propuestas:id_propuesta ( id, nombre, color )";
 
 const ESTADO_LOG_SELECT =
   "id, id_contratacion, estado, created_at, created_by_label, created_by_integrante_id, created_by_fimba_usuario_id";
@@ -6129,7 +6129,6 @@ export async function createFimbaContratacion(payload, opts = {}) {
     id_propuesta: Number.isFinite(id_propuesta) ? id_propuesta : null,
     nombre,
     monto: parseFimbaMonto(payload?.monto),
-    fecha_limite_resol: payload?.fecha_limite_resol || null,
     tipo_contratacion:
       payload?.tipo_contratacion != null &&
       String(payload.tipo_contratacion).trim() !== ""
@@ -6224,10 +6223,6 @@ export async function updateFimbaContratacion(
   }
   if (patch.monto !== undefined) {
     body.monto = parseFimbaMonto(patch.monto);
-    hasFieldPatch = true;
-  }
-  if (patch.fecha_limite_resol !== undefined) {
-    body.fecha_limite_resol = patch.fecha_limite_resol || null;
     hasFieldPatch = true;
   }
   if (patch.tipo_contratacion !== undefined) {
