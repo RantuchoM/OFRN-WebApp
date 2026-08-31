@@ -11,6 +11,7 @@ import {
   IconMapPin,
 } from "../../components/ui/Icons";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaSheetLeaveGuard } from "./FimbaSheetLeaveGuardContext";
 
 /** Path without trailing slash (except root). */
 function normalizePath(pathname) {
@@ -115,6 +116,7 @@ export default function FimbaSectionToggle({
   const params = useParams();
   const { pathname } = useLocation();
   const { canSeeUsuarios, canSeeContrataciones, canSeeRider } = useFimbaAccess();
+  const { tryNavigate } = useFimbaSheetLeaveGuard();
   const fromPath = parseFimbaSectionIds(pathname);
   const edicionId = edicionIdProp ?? params.edicionId ?? fromPath.edicionId;
 
@@ -139,6 +141,9 @@ export default function FimbaSectionToggle({
             key={key}
             to={to}
             end={segment == null}
+            onClick={(e) => {
+              if (!tryNavigate(to)) e.preventDefault();
+            }}
             className={() => {
               const active =
                 key === "artistas"

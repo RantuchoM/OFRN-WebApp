@@ -48,8 +48,9 @@ description: >-
 | Script | Rol |
 |--------|-----|
 | `scripts/lib/pdfPartsRenaming.mjs` | Renombrado canónico PDF + audio; `canonicalAudioFilename`, `renameAudioFilesInFolder`, `normalizeWorkNumberForFilename`, `formatCombinedSlot`, `canonicalCombinedSuffix` |
-| `scripts/lib/<obra>Catalog.mjs` | Manifiestos `splits` + `crops` por obra |
-| `scripts/process-<obra>-local.mjs` | Split/crop/rename en sync local |
+| `scripts/lib/<obra>Catalog.mjs` | Manifiestos `splits` + `crops` (+ `merges` para unir movimientos) por obra |
+| `scripts/process-<obra>-local.mjs` | Split/crop/rename (y merge) en sync local |
+| `scripts/lib/merge_pdfs.py` | Concatena PDFs en orden (p. ej. 3 movs → 1 SCORE/Piano/Bandoneón) |
 | `scripts/rename-combined-slots-local.mjs` | Corrige `1-2` → `1y2` en PDFs ya renombrados |
 | `scripts/generate-<obra>-sync.mjs` | Seed SQL desde Drive (`list_folder` + matcher) |
 | `scripts/process-para-acomodar-local.mjs` | Varias obras legacy (ARIAS/Grieg/Verdi…) |

@@ -108,3 +108,14 @@ verify_jwt = false
 entrypoint = "./functions/sync-conciertos-sheet/index.ts"
 # Cron/trigger: header x-conciertos-sheet-cron-secret = CONCIERTOS_SHEET_CRON_SECRET
 # UI: Authorization Bearer (usuario management).
+
+[functions.sync-fimba-contrataciones-sheet]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/sync-fimba-contrataciones-sheet/index.ts"
+# Cron: header x-fimba-contrataciones-sheet-cron-secret
+#   = FIMBA_CONTRATACIONES_SHEET_CRON_SECRET (o fallback CONCIERTOS / db_backup)
+# UI: Bearer OFRN management, o body.fimbaAuth (editor_general).
+# Google: G_CLIENT_ID / G_CLIENT_SECRET / G_REFRESH_TOKEN
+# Sheet: FIMBA_CONTRATACIONES_SHEET_ID (default 1rAd7j4phD6hx3jHujTUHM5KiBZNmfotz11tE3NHFox8)
+# Tab: FIMBA_CONTRATACIONES_SHEET_TAB (default Contrataciones)

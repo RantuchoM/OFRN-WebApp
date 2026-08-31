@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -11,13 +11,19 @@ import {
   IconHistory,
   IconDrive,
   IconFolder,
+  IconCloudUpload,
+  IconExternalLink,
 } from "../../components/ui/Icons";
+import ConfirmModal from "../../components/ui/ConfirmModal";
 import { useAuth } from "../../context/AuthContext";
+import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import { useFimbaUserSession } from "../../hooks/useFimbaUserSession";
 import {
+  FIMBA_CONTRATACIONES_SHEET_URL,
   FIMBA_TIPO_CONTRATACION_DEFAULT,
   createFimbaContratacion,
   deleteFimbaContratacion,
+  getFimbaContratacionesSheetSyncState,
   getFimbaEdicionById,
   listFimbaContratacionEstadoLog,
   listFimbaContrataciones,
@@ -25,6 +31,7 @@ import {
   normalizeCarpetaDocumentacion,
   parseFimbaMonto,
   resolveFimbaEstadoActor,
+  syncFimbaContratacionesSheet,
   updateFimbaContratacion,
 } from "../../services/fimbaService";
 import {
@@ -34,6 +41,8 @@ import {
   formatFimbaEstadoTimestamp,
 } from "./FimbaEstadoConocido";
 import { DocumentacionDrivePreview } from "./FimbaDocumentacionDrivePreview";
+import { FIMBA_ROLES } from "../../utils/fimbaUserSession";
+import { useFimbaSheetLeaveGuard } from "./FimbaSheetLeaveGuardContext";
 
 const NEW_ROW_KEY = "__new__";
 
@@ -56,7 +65,96 @@ const EDITABLE_FIELDS = [
 ];
 
 function asBool(v) {
-  return v === true || v === "true" || v === 1 || v === "1";
+  if (v === true || v === 1 || v === "1" || v === "true") return true;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    // Sheet / imports may send «Sí»; treat as true for display/toggle only.
+    if (s === "sí" || s === "si" || s === "yes") return true;
+  }
+  return false;
+}
+
+/** Inline SVGs — no text labels; true = tildado, false = cuadro vacío. */
+function CtrCheckIcon({ checked }) {
+  if (checked) {
+    return (
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        aria-hidden
+        focusable="false"
+      >
+        <rect
+          x="1.5"
+          y="1.5"
+          width="13"
+          height="13"
+          rx="2"
+          fill="currentColor"
+          stroke="currentColor"
+          strokeWidth="1.5"
+        />
+        <path
+          d="M4.2 8.1 L6.8 10.6 L11.8 5.2"
+          fill="none"
+          stroke="#fff"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      aria-hidden
+      focusable="false"
+    >
+      <rect
+        x="1.5"
+        y="1.5"
+        width="13"
+        height="13"
+        rx="2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+      />
+    </svg>
+  );
+}
+
+/** Flag de planilla: check tildado / cuadro vacío (colores por columna). Nunca texto «Sí». */
+function ContratacionBoolToggle({
+  checked,
+  color,
+  onChange,
+  disabled,
+  title,
+  "aria-label": ariaLabel,
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      title={title}
+      disabled={disabled}
+      data-ctr-bool={checked ? "1" : "0"}
+      className={`fimba-ctr-check-btn fimba-ctr-check-${color}`}
+      onClick={() => {
+        if (disabled) return;
+        onChange(!checked);
+      }}
+    >
+      <CtrCheckIcon checked={checked} />
+    </button>
+  );
 }
 
 function draftFromRow(r) {
@@ -306,16 +404,33 @@ function SortableTh({
 
 /**
  * Planilla Contrataciones: expedientes + flags + estado con log de cambios.
+ * Backup Google Sheets: botón «Actualizar» + contador de cambios sin sync + bloqueo de salida.
  */
 export default function FimbaContratacionesPage() {
   const { edicionId } = useParams();
   const { user, isManagement } = useAuth();
   const fimbaUser = useFimbaUserSession();
+  const access = useFimbaAccess();
+  const { registerGuard, tryNavigate } = useFimbaSheetLeaveGuard();
   const [edicion, setEdicion] = useState(null);
   const [rows, setRows] = useState([]);
   const [propuestas, setPropuestas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  const [unsyncedChanges, setUnsyncedChanges] = useState(0);
+  const [hasDirtyDrafts, setHasDirtyDrafts] = useState(false);
+  const [sheetSyncing, setSheetSyncing] = useState(false);
+  const [sheetSyncMsg, setSheetSyncMsg] = useState("");
+  const [sheetLastSyncedAt, setSheetLastSyncedAt] = useState(null);
+  const [sheetLastError, setSheetLastError] = useState(null);
+  const [sheetUrl, setSheetUrl] = useState(FIMBA_CONTRATACIONES_SHEET_URL);
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
+  const [leaveSyncError, setLeaveSyncError] = useState(null);
+  const planillaApiRef = useRef(null);
+  const leaveCallbacksRef = useRef({ onStay: null, onLeaveAfterSync: null });
+
+  const canSyncSheet = Boolean(access.canSeeContrataciones) && !access.readOnly;
 
   const actor = useMemo(
     () =>
@@ -326,6 +441,64 @@ export default function FimbaContratacionesPage() {
       }),
     [user, fimbaUser, isManagement],
   );
+
+  const ofrnAuthPayload = useMemo(() => {
+    if (!user?.id || !user?.mail || !isManagement) return null;
+    const id = Number(user.id);
+    const mail = String(user.mail || "").trim().toLowerCase();
+    if (!Number.isFinite(id) || id <= 0 || !mail) return null;
+    return { id, mail };
+  }, [user, isManagement]);
+
+  const fimbaAuthPayload = useMemo(() => {
+    if (
+      fimbaUser &&
+      fimbaUser.rol_fimba === FIMBA_ROLES.EDITOR_GENERAL &&
+      String(fimbaUser.id_edicion) === String(edicionId)
+    ) {
+      return {
+        id: Number(fimbaUser.id),
+        mail: String(fimbaUser.mail || "").trim().toLowerCase(),
+        id_edicion: Number(fimbaUser.id_edicion),
+      };
+    }
+    return null;
+  }, [fimbaUser, edicionId]);
+
+  const needsSheetSync = unsyncedChanges > 0 || hasDirtyDrafts;
+
+  useEffect(() => {
+    if (!canSyncSheet) {
+      return registerGuard(null);
+    }
+    return registerGuard({
+      get needsSync() {
+        return unsyncedChanges > 0 || hasDirtyDrafts;
+      },
+      requestLeave: ({ onStay, onLeaveAfterSync } = {}) => {
+        leaveCallbacksRef.current = { onStay, onLeaveAfterSync };
+        setLeaveSyncError(null);
+        setLeaveDialogOpen(true);
+      },
+    });
+  }, [canSyncSheet, unsyncedChanges, hasDirtyDrafts, registerGuard]);
+
+  useEffect(() => {
+    if (!canSyncSheet || !needsSheetSync) return undefined;
+    const onBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [canSyncSheet, needsSheetSync]);
+
+  const loadSheetState = useCallback(async () => {
+    const { state } = await getFimbaContratacionesSheetSyncState();
+    if (state?.spreadsheet_url) setSheetUrl(state.spreadsheet_url);
+    if (state?.last_synced_at) setSheetLastSyncedAt(state.last_synced_at);
+    setSheetLastError(state?.last_error || null);
+  }, []);
 
   const reload = async () => {
     setLoading(true);
@@ -351,12 +524,98 @@ export default function FimbaContratacionesPage() {
     setRows(cRes.contrataciones || []);
     setPropuestas(pRes.propuestas || []);
     setLoading(false);
+    loadSheetState();
   };
 
   useEffect(() => {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [edicionId]);
+
+  const runSheetSync = useCallback(async () => {
+    setSheetSyncing(true);
+    setSheetSyncMsg("");
+    setSheetLastError(null);
+    try {
+      // Guardar borradores sucios antes de volcar al Sheet
+      if (planillaApiRef.current?.flushDirty) {
+        const flush = await planillaApiRef.current.flushDirty();
+        if (!flush?.ok) {
+          throw new Error(
+            flush?.error || "Hay filas con errores; corregilas antes de actualizar el Sheet.",
+          );
+        }
+      }
+      const { result, error: syncErr } = await syncFimbaContratacionesSheet({
+        edicionId,
+        ofrnAuth: ofrnAuthPayload,
+        fimbaAuth: fimbaAuthPayload,
+      });
+      if (syncErr) throw syncErr;
+      if (result?.busy) {
+        setSheetSyncMsg("Sync en curso; reintentá en unos segundos.");
+        return { ok: false, busy: true };
+      }
+      setUnsyncedChanges(0);
+      setHasDirtyDrafts(false);
+      if (result?.spreadsheetUrl) setSheetUrl(result.spreadsheetUrl);
+      if (result?.syncedAt) setSheetLastSyncedAt(result.syncedAt);
+      setSheetLastError(null);
+      setSheetSyncMsg(
+        `Sheet actualizado (${result?.rowCount ?? 0} filas).`,
+      );
+      return { ok: true, result };
+    } catch (err) {
+      const msg = err?.message || "Error al sincronizar Sheet";
+      setSheetLastError(msg);
+      setSheetSyncMsg(msg);
+      return { ok: false, error: msg };
+    } finally {
+      setSheetSyncing(false);
+    }
+  }, [edicionId, ofrnAuthPayload, fimbaAuthPayload]);
+
+  const handleLeaveCancel = () => {
+    setLeaveDialogOpen(false);
+    setLeaveSyncError(null);
+    leaveCallbacksRef.current.onStay?.();
+    leaveCallbacksRef.current = { onStay: null, onLeaveAfterSync: null };
+  };
+
+  const handleLeaveAndSync = async () => {
+    setLeaveSyncError(null);
+    const res = await runSheetSync();
+    if (!res.ok) {
+      setLeaveSyncError(res.error || "No se pudo actualizar el Sheet");
+      throw new Error(res.error || "sync failed");
+    }
+    setLeaveDialogOpen(false);
+    const proceed = leaveCallbacksRef.current.onLeaveAfterSync;
+    leaveCallbacksRef.current = { onStay: null, onLeaveAfterSync: null };
+    proceed?.();
+  };
+
+  const markPersistedChange = useCallback(() => {
+    setUnsyncedChanges((n) => n + 1);
+  }, []);
+
+  const lastSyncLabel = useMemo(() => {
+    if (!sheetLastSyncedAt) return "Nunca sincronizado en esta sesión / sin registro";
+    try {
+      return new Date(sheetLastSyncedAt).toLocaleString("es-AR");
+    } catch {
+      return sheetLastSyncedAt;
+    }
+  }, [sheetLastSyncedAt]);
+
+  const unsyncedLabel =
+    unsyncedChanges === 0 && !hasDirtyDrafts
+      ? null
+      : unsyncedChanges === 0 && hasDirtyDrafts
+        ? "Hay ediciones sin guardar"
+        : unsyncedChanges === 1
+          ? "1 cambio sin sincronizar"
+          : `${unsyncedChanges} cambios sin sincronizar`;
 
   if (loading) {
     return (
@@ -390,27 +649,108 @@ export default function FimbaContratacionesPage() {
         to={`/fimba/edicion/${edicionId}`}
         className="fimba-btn fimba-btn-ghost"
         style={{ textDecoration: "none", marginBottom: 12 }}
+        onClick={(e) => {
+          if (!tryNavigate(`/fimba/edicion/${edicionId}`)) e.preventDefault();
+        }}
       >
         <IconArrowLeft size={14} /> {edicion.nombre}
       </Link>
 
-      <div style={{ marginBottom: "1rem" }}>
-        <h1
-          style={{
-            margin: 0,
-            fontSize: "1.5rem",
-            color: "var(--fimba-deep)",
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-          }}
-        >
-          <IconClipboardCheck size={22} aria-hidden /> Contrataciones
-        </h1>
-        <p className="fimba-muted" style={{ margin: "0.35rem 0 0" }}>
-          Expedientes y seguimiento. «Último estado» con presets de color o texto
-          libre; cada cambio queda en historial (fecha y autor).
-        </p>
+      <div
+        style={{
+          marginBottom: "1rem",
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <div style={{ minWidth: 0, flex: "1 1 240px" }}>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: "1.5rem",
+              color: "var(--fimba-deep)",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+            }}
+          >
+            <IconClipboardCheck size={22} aria-hidden /> Contrataciones
+          </h1>
+          <p className="fimba-muted" style={{ margin: "0.35rem 0 0" }}>
+            Expedientes y seguimiento. «Último estado» con presets de color o texto
+            libre; cada cambio queda en historial (fecha y autor).
+          </p>
+        </div>
+
+        {canSyncSheet && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-end",
+              gap: 6,
+              flex: "0 1 auto",
+            }}
+          >
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
+              <a
+                href={sheetUrl || FIMBA_CONTRATACIONES_SHEET_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="fimba-btn fimba-btn-ghost"
+                style={{ textDecoration: "none" }}
+                title="Abrir Google Sheet de respaldo"
+              >
+                <IconExternalLink size={14} /> Sheet
+              </a>
+              <button
+                type="button"
+                className="fimba-btn"
+                disabled={sheetSyncing}
+                onClick={() => runSheetSync()}
+                title="Volcar la planilla al Google Sheet de respaldo"
+                style={{
+                  background: needsSheetSync ? "var(--fimba-pink, #d73289)" : undefined,
+                  color: needsSheetSync ? "#fff" : undefined,
+                }}
+              >
+                {sheetSyncing ? (
+                  <IconLoader size={14} className="animate-spin" />
+                ) : (
+                  <IconCloudUpload size={14} />
+                )}
+                {sheetSyncing ? "Actualizando…" : "Actualizar"}
+              </button>
+            </div>
+            <div
+              className="fimba-muted"
+              style={{ fontSize: "0.75rem", textAlign: "right", maxWidth: 320 }}
+            >
+              {unsyncedLabel && (
+                <div style={{ color: "var(--fimba-pink, #d73289)", fontWeight: 700 }}>
+                  {unsyncedLabel}
+                </div>
+              )}
+              <div>Última sync: {lastSyncLabel}</div>
+              {sheetSyncMsg && (
+                <div
+                  style={{
+                    color: sheetLastError ? "#b91c1c" : "inherit",
+                    marginTop: 2,
+                  }}
+                >
+                  {sheetSyncMsg}
+                </div>
+              )}
+              {sheetLastError && !sheetSyncMsg && (
+                <div style={{ color: "#b91c1c", marginTop: 2 }}>{sheetLastError}</div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -426,6 +766,26 @@ export default function FimbaContratacionesPage() {
         actor={actor}
         onListChange={setRows}
         onError={setError}
+        onPersistedChange={markPersistedChange}
+        onDirtyDraftsChange={setHasDirtyDrafts}
+        apiRef={planillaApiRef}
+      />
+
+      <ConfirmModal
+        isOpen={leaveDialogOpen}
+        title="Cambios sin actualizar en Google Sheets"
+        message={
+          unsyncedLabel
+            ? `${unsyncedLabel}. Para salir hay que volcar la planilla al Sheet de respaldo.`
+            : "Hay cambios pendientes de sincronizar al Google Sheet."
+        }
+        cancelText="No salir"
+        confirmText="Salir y Actualizar"
+        confirmLoading={sheetSyncing}
+        loadingText="Actualizando Sheet…"
+        errorMessage={leaveSyncError}
+        onClose={handleLeaveCancel}
+        onConfirm={handleLeaveAndSync}
       />
     </div>
   );
@@ -438,6 +798,9 @@ function ContratacionesPlanilla({
   actor,
   onListChange,
   onError,
+  onPersistedChange,
+  onDirtyDraftsChange,
+  apiRef,
 }) {
   const [drafts, setDrafts] = useState({});
   const [rowStatus, setRowStatus] = useState({});
@@ -453,6 +816,17 @@ function ContratacionesPlanilla({
   draftsRef.current = drafts;
   const listRef = useRef(rows);
   listRef.current = rows;
+  const onPersistedChangeRef = useRef(onPersistedChange);
+  onPersistedChangeRef.current = onPersistedChange;
+
+  useEffect(() => {
+    const dirty = Object.entries(rowStatus).some(
+      ([key, s]) =>
+        (s === "dirty" || s === "saving") &&
+        (key !== NEW_ROW_KEY || !isEmptyDraft(draftsRef.current[NEW_ROW_KEY])),
+    );
+    onDirtyDraftsChange?.(dirty);
+  }, [rowStatus, onDirtyDraftsChange]);
 
   useEffect(() => {
     setDrafts((prev) => {
@@ -510,14 +884,14 @@ function ContratacionesPlanilla({
   };
 
   const commitRow = async (rowKey, draftOverride = null) => {
-    if (savingRef.current.has(rowKey)) return;
+    if (savingRef.current.has(rowKey)) return { ok: false, busy: true };
 
     const isCreate = rowKey === NEW_ROW_KEY;
     const existing = isCreate
       ? null
       : (listRef.current || []).find((x) => String(x.id) === String(rowKey));
 
-    if (!isCreate && !existing) return;
+    if (!isCreate && !existing) return { ok: false };
 
     const draft =
       draftOverride ||
@@ -531,19 +905,19 @@ function ContratacionesPlanilla({
           ...prev,
           [rowKey]: prev[rowKey] === "error" ? "error" : "idle",
         }));
-        return;
+        return { ok: true, noop: true };
       }
     }
 
     const validated = validateDraft(draft, { isCreate });
     if (validated.empty) {
       setRowStatus((prev) => ({ ...prev, [rowKey]: "idle" }));
-      return;
+      return { ok: true, noop: true };
     }
     if (!validated.ok) {
       setRowStatus((prev) => ({ ...prev, [rowKey]: "error" }));
       setRowErrors((prev) => ({ ...prev, [rowKey]: validated.error }));
-      return;
+      return { ok: false, error: validated.error };
     }
 
     savingRef.current.add(rowKey);
@@ -571,7 +945,7 @@ function ContratacionesPlanilla({
           ...prev,
           [rowKey]: err.message || "Error al crear",
         }));
-        return;
+        return { ok: false, error: err.message || "Error al crear" };
       }
       setDrafts((prev) => {
         const n = { ...prev, [NEW_ROW_KEY]: emptyDraft() };
@@ -592,7 +966,8 @@ function ContratacionesPlanilla({
         listRef.current = next;
         return next;
       });
-      return;
+      onPersistedChangeRef.current?.();
+      return { ok: true };
     }
 
     // Evitar re-loguear estado si no cambió: particionar el patch.
@@ -618,7 +993,7 @@ function ContratacionesPlanilla({
         ...prev,
         [rowKey]: err.message || "Error al guardar",
       }));
-      return;
+      return { ok: false, error: err.message || "Error al guardar" };
     }
 
     const nextDraft = draftFromRow(updated);
@@ -635,7 +1010,37 @@ function ContratacionesPlanilla({
       listRef.current = next;
       return next;
     });
+    onPersistedChangeRef.current?.();
+    return { ok: true };
   };
+
+  const flushDirty = useCallback(async () => {
+    const statusSnapshot = { ...rowStatus };
+    const keys = Object.keys(draftsRef.current || {});
+    for (const key of keys) {
+      const st = statusSnapshot[key];
+      if (st !== "dirty" && st !== "error") continue;
+      if (key === NEW_ROW_KEY && isEmptyDraft(draftsRef.current[key])) continue;
+      const res = await commitRow(key);
+      if (!res?.ok && !res?.noop) {
+        return {
+          ok: false,
+          error: res?.error || "No se pudieron guardar todas las filas",
+        };
+      }
+    }
+    return { ok: true };
+    // commitRow cierra sobre refs; no listar deps volátiles
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowStatus, actor, edicionId, onListChange]);
+
+  useEffect(() => {
+    if (!apiRef) return undefined;
+    apiRef.current = { flushDirty };
+    return () => {
+      if (apiRef.current?.flushDirty === flushDirty) apiRef.current = null;
+    };
+  }, [apiRef, flushDirty]);
 
   const changeAndCommit = (rowKey, field, value, extra = {}) => {
     const existing =
@@ -703,6 +1108,7 @@ function ContratacionesPlanilla({
       listRef.current = next;
       return next;
     });
+    onPersistedChangeRef.current?.();
   };
 
   const openHistory = (r) => {
@@ -947,52 +1353,40 @@ function ContratacionesPlanilla({
             />
           </td>
           <td className="fimba-ctr-td-check">
-            <input
-              type="checkbox"
-              className="fimba-ctr-check fimba-ctr-check-blue"
+            <ContratacionBoolToggle
               checked={asBool(draft.envio_firma_mfm_nota)}
-              onChange={(e) =>
-                changeAndCommit(rowKey, "envio_firma_mfm_nota", e.target.checked)
-              }
+              color="blue"
+              onChange={(v) => changeAndCommit(rowKey, "envio_firma_mfm_nota", v)}
               disabled={disabled}
               title="Envío a la firma de MFM nota"
               aria-label="Envío a la firma de MFM nota"
             />
           </td>
           <td className="fimba-ctr-td-check">
-            <input
-              type="checkbox"
-              className="fimba-ctr-check fimba-ctr-check-green"
+            <ContratacionBoolToggle
               checked={asBool(draft.nota_firmada)}
-              onChange={(e) =>
-                changeAndCommit(rowKey, "nota_firmada", e.target.checked)
-              }
+              color="green"
+              onChange={(v) => changeAndCommit(rowKey, "nota_firmada", v)}
               disabled={disabled}
               title="Nota firmada"
               aria-label="Nota firmada"
             />
           </td>
           <td className="fimba-ctr-td-check">
-            <input
-              type="checkbox"
-              className="fimba-ctr-check fimba-ctr-check-red"
+            <ContratacionBoolToggle
               checked={asBool(draft.falta_documentacion)}
-              onChange={(e) =>
-                changeAndCommit(rowKey, "falta_documentacion", e.target.checked)
-              }
+              color="red"
+              onChange={(v) => changeAndCommit(rowKey, "falta_documentacion", v)}
               disabled={disabled}
               title="Falta recibir documentación"
               aria-label="Falta recibir documentación"
             />
           </td>
           <td className="fimba-ctr-td-check">
-            <input
-              type="checkbox"
-              className="fimba-ctr-check fimba-ctr-check-purple"
+            <ContratacionBoolToggle
               checked={asBool(draft.enviado_adm)}
-              onChange={(e) =>
-                changeAndCommit(rowKey, "enviado_adm", e.target.checked)
-              }
+              color="purple"
+              onChange={(v) => changeAndCommit(rowKey, "enviado_adm", v)}
               disabled={disabled}
               title="Enviado a ADM"
               aria-label="Enviado a ADM"
@@ -1285,6 +1679,7 @@ function ContratacionesPlanilla({
                   }
                 : m,
             );
+            onPersistedChangeRef.current?.();
           }}
         />
       )}
@@ -1765,14 +2160,41 @@ const CTR_STYLES = `
   .fimba-ctr-th-green { color: #16a34a; }
   .fimba-ctr-th-red { color: #dc2626; }
   .fimba-ctr-th-purple { color: #7c3aed; }
-  .fimba-ctr-check {
-    width: 1.05rem;
-    height: 1.05rem;
+  .fimba-ctr-check-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
     cursor: pointer;
-    accent-color: currentColor;
+    line-height: 0;
+    color: inherit;
+    font-size: 0;
+    -webkit-appearance: none;
+    appearance: none;
   }
-  .fimba-ctr-check-blue { accent-color: #2563eb; color: #2563eb; }
-  .fimba-ctr-check-green { accent-color: #16a34a; color: #16a34a; }
-  .fimba-ctr-check-red { accent-color: #dc2626; color: #dc2626; }
-  .fimba-ctr-check-purple { accent-color: #7c3aed; color: #7c3aed; }
+  .fimba-ctr-check-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .fimba-ctr-check-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, currentColor 12%, transparent);
+  }
+  .fimba-ctr-check-btn:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 1px;
+  }
+  .fimba-ctr-check-btn svg {
+    display: block;
+    flex-shrink: 0;
+  }
+  .fimba-ctr-check-blue { color: #2563eb; }
+  .fimba-ctr-check-green { color: #16a34a; }
+  .fimba-ctr-check-red { color: #dc2626; }
+  .fimba-ctr-check-purple { color: #7c3aed; }
 `;

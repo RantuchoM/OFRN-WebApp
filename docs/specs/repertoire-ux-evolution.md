@@ -803,3 +803,24 @@ Set de **16** arreglos sinfónicos de **Bob Marley** en [Para acomodar / Bahiano
 - [x] `ProgramSeating` resuelve config por bloque activo y carga atriles filtrados.
 - [x] PDF multi-sección; Mis Partes / Str labels / reports / roster usan config primaria o resolución por bloque.
 
+### Completado (2026-08-31) — Lockhart: Montevideana + Homenaje a Piazzolla (Para acomodar)
+
+Beatriz Lockhart — dos carpetas en [Para acomodar](https://drive.google.com/open?id=10ap1aEjq3X9bFRB3z4DQ-F0fB7y3JutI) (sin `copiar_carpeta_a_archivo`).
+
+| Obra | Carpeta Drive | Partes | Notas |
+|------|---------------|--------|-------|
+| **Montevideana Nro. 1** (#**3623**) | [folder](https://drive.google.com/drive/folders/1BUABC_jXBeDL-G7Z-IU4twxqEFY-icOi) | **17** | Rename canónico; SCORE + maderas + perc×2 + piano + cuerdas + bandoneón |
+| **Homenaje a Astor Piazzolla** (#**3624**) | [folder](https://drive.google.com/drive/folders/1swxlkCS4aYRbyshXQQrYqmldHdheL2Kj) | **8** | Merge I–III → 1 SCORE (41p), 1 Piano (21p), 1 Bandoneón (19p); cuerdas ya unificadas. Título BD con movimientos en `<div>`: Sureño / El Emigrante / Adiós Maestro (1994) |
+
+| Artefacto | Rol |
+|-----------|-----|
+| `scripts/lib/lockhartCatalog.mjs` | Catálogo + merges |
+| `scripts/lib/merge_pdfs.py` | Concatenar PDFs por movimiento |
+| `scripts/process-lockhart-local.mjs` | Merge + rename local (`--only=montevideana` / `piazzolla`) |
+| `scripts/generate-lockhart-sync.mjs` | Seed desde Drive |
+| `supabase/seed_lockhart_sync.sql` | INSERT obras + particellas + compositor Lockhart |
+
+- [x] PDFs renombrados / merges aplicados en sync local
+- [x] Seed generado y aplicado en BD linked
+- [x] `pdfPartsRenaming`: Clarinete N → Bb N; Percusión I/II; Bandoneón / Band N; SCORE por título obra
+

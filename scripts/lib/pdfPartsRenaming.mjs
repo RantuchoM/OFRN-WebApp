@@ -191,9 +191,17 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bclarinete\s+a\s*2\b|\bcl\s+a\s*2\b/i.test(name)) return "Clarinete A 2";
   if (/\bclarinete\s+a\s*1\b|\bcl\s+a\s*1\b/i.test(name)) return "Clarinete A 1";
   if (/\bclarinete\s+a\b|\bcl\s+a\b/i.test(name)) return "Clarinete A";
-  if (/\bclarinete\s+(en\s+)?sib\s*2\b|\bcl\s*2\b|\bclarinet\s*2\b/i.test(name))
+  if (
+    /\bclarinete\s+(en\s+)?sib\s*2\b|\bclarinete\s+bb\s*2\b|\bclarinete\s*2\b|\bcl\s*2\b|\bclarinet\s*2\b/i.test(
+      name,
+    )
+  )
     return "Clarinete Bb 2";
-  if (/\bclarinete\s+(en\s+)?sib\s*1\b|\bcl\s*1\b|\bclarinet\s*1\b|\bclarinete\s+bb\s*1\b/i.test(name))
+  if (
+    /\bclarinete\s+(en\s+)?sib\s*1\b|\bclarinete\s+bb\s*1\b|\bclarinete\s*1\b|\bcl\s*1\b|\bclarinet\s*1\b/i.test(
+      name,
+    )
+  )
     return "Clarinete Bb 1";
   if (/\bclarinete\s+(en\s+)?sib\b|\bclarinete\s+bb\b|\bclarinet\b|\bclarinete\b/i.test(name))
     return "Clarinete Bb";
@@ -233,10 +241,24 @@ export function normalizeInstrumentLabel(rawName) {
     return "Perc Percusión";
   if (/\bgong\b/i.test(name)) return "Perc Gong";
   if (/\btubular\s+bells\b|\bcampanas\b/i.test(name)) return "Perc Campanas";
-  if (/\bpercussion\b|\bpercusión\b|\bperc\s*\d\b|\bperc\b/i.test(name))
+  if (
+    /\bpercusi[oó]n\s*(?:ii|2)\b|\bpercussion\s*(?:ii|2)\b|\bperc\s*(?:ii|2)\b/i.test(
+      name,
+    )
+  )
+    return "Perc Percusión 2";
+  if (
+    /\bpercusi[oó]n\s*(?:i|1)\b|\bpercussion\s*(?:i|1)\b|\bperc\s*(?:i|1)\b/i.test(
+      name,
+    )
+  )
+    return "Perc Percusión 1";
+  if (/\bpercussion\b|\bpercusión\b|\bpercusi[oó]n\b|\bperc\s*\d\b|\bperc\b/i.test(name))
     return "Perc Percusión";
   if (/\bharp\b|\barpa\s*2\b/i.test(name)) return "Arpa 2";
   if (/\bharp\b|\barpa\s*1\b|\barpa\b/i.test(name)) return "Arpa";
+  if (/\bbandone[oó]n\b|\bbandoneon\b|\bband\s*\d*\b/i.test(name))
+    return "Bandoneón";
   if (/\bviolin\s*ii\b|\bviolín\s*2\b|\bviolins?\s*ii\b|\bviolin\s*2\b/i.test(name))
     return "Violín 2";
   if (/\bviolin\s*i\b|\bviolín\s*1\b|\bviolins?\s*i\b|\bviolin\s*1\b/i.test(name))
@@ -272,9 +294,11 @@ export function normalizeInstrumentLabel(rawName) {
     .replace(/\s+la\s+fuerza\s+del\s+destino\s+obertura\s+verdi$/i, "")
     .replace(/\s+grieg\s+suite\s+\d+\s+completa?$/i, "")
     .replace(/\s+a\s+portrait\s+of\s+frida\s+kahlo\s*-\s*/i, "")
-    .replace(/^\d+\s+/, "")
+    .replace(/^\d+\s*[-–.]?\s*/, "")
     .trim();
   if (!clean) return "Parte";
+  if (/\bmontevideana\b/i.test(clean) || /\bhomenaje\b.*\bpiazz/i.test(clean))
+    return "SCORE";
   return clean.split(/\s+/).slice(0, 4).join(" ");
 }
 

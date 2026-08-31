@@ -13,6 +13,7 @@ import FimbaUsuariosPage from "./FimbaUsuariosPage";
 import FimbaContratacionesPage from "./FimbaContratacionesPage";
 import FimbaRiderPage from "./FimbaRiderPage";
 import FimbaVenuesPage from "./FimbaVenuesPage";
+import { FimbaSheetLeaveGuardProvider } from "./FimbaSheetLeaveGuardContext";
 
 /**
  * Shell pathless: hijos de `edicion/:id` y `artista/:id` usan Outlet implícito
@@ -27,6 +28,7 @@ export default function FimbaStaffApp() {
   return (
     <FimbaStaffGuard>
       <FimbaAccessProvider>
+        <FimbaSheetLeaveGuardProvider>
         <Routes>
           <Route element={<FimbaLayout mode="staff" />}>
             <Route index element={<FimbaHome />} />
@@ -68,6 +70,7 @@ export default function FimbaStaffApp() {
             />
           </Route>
         </Routes>
+        </FimbaSheetLeaveGuardProvider>
       </FimbaAccessProvider>
     </FimbaStaffGuard>
   );

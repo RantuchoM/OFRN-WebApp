@@ -1,0 +1,11 @@
+-- Secret Vault opcional para sync-fimba-contrataciones-sheet.
+-- Si no se crea, el cron usa fallback db_backup_cron_secret / conciertos_sheet_cron_secret.
+-- El valor debe coincidir con el secret de Edge Function FIMBA_CONTRATACIONES_SHEET_CRON_SECRET
+-- (o CONCIERTOS_SHEET_CRON_SECRET si reutilizás el mismo).
+
+-- DELETE FROM vault.secrets WHERE name = 'fimba_contrataciones_sheet_cron_secret';
+-- SELECT vault.create_secret(
+--   'REEMPLAZAR_POR_MISMO_VALOR_QUE_EDGE_SECRET',
+--   'fimba_contrataciones_sheet_cron_secret',
+--   'Header x-fimba-contrataciones-sheet-cron-secret'
+-- );

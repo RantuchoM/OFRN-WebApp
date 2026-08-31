@@ -6311,3 +6311,122 @@ export async function deleteFimbaContratacion(contratacionId) {
     .eq("id", contratacionId);
   return { error: error || null };
 }
+
+/** Sheet canónico FIMBA Contrataciones (backup). */
+export const FIMBA_CONTRATACIONES_SHEET_URL =
+  "https://docs.google.com/spreadsheets/d/1rAd7j4phD6hx3jHujTUHM5KiBZNmfotz11tE3NHFox8/edit#gid=475656054";
+
+/**
+ * Estado del último backup a Google Sheets (fila singleton).
+ */
+export async function getFimbaContratacionesSheetSyncState() {
+  const { data, error } = await supabase
+    .from("fimba_contrataciones_sheet_sync")
+    .select(
+      "spreadsheet_id, spreadsheet_url, sheet_tab, id_edicion, last_synced_at, last_error, last_row_count, syncing_at, pending",
+    )
+    .eq("id", 1)
+    .maybeSingle();
+  if (error) return { state: null, error };
+  return { state: data || null, error: null };
+}
+
+/**
+ * Lee el body JSON de un FunctionsHttpError (supabase-js lo deja en error.context).
+ * @param {unknown} fnError
+ * @returns {Promise<object|string|null>}
+ */
+async function readFimbaEdgeFunctionErrorBody(fnError) {
+  const res = fnError?.context;
+  if (!res || typeof res.json !== "function") return null;
+  try {
+    return await res.json();
+  } catch {
+    try {
+      if (typeof res.text === "function") {
+        const t = await res.text();
+        return t ? String(t) : null;
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+}
+
+function messageFromEdgePayload(parsed, fallback) {
+  if (parsed == null) return fallback;
+  if (typeof parsed === "string" && parsed.trim()) return parsed.trim();
+  if (typeof parsed === "object") {
+    if (parsed.error != null && String(parsed.error).trim()) {
+      return String(parsed.error).trim();
+    }
+    if (parsed.message != null && String(parsed.message).trim()) {
+      return String(parsed.message).trim();
+    }
+  }
+  return fallback;
+}
+
+/**
+ * Dispara backup full-replace de contrataciones → Google Sheet.
+ * Auth: `ofrnAuth` (staff localStorage), `fimbaAuth` (editor_general), o cron secret.
+ *
+ * @param {{
+ *   edicionId: number|string,
+ *   ofrnAuth?: { id: number, mail: string }|null,
+ *   fimbaAuth?: { id: number, mail: string, id_edicion: number }|null,
+ * }} opts
+ */
+export async function syncFimbaContratacionesSheet({
+  edicionId,
+  ofrnAuth = null,
+  fimbaAuth = null,
+} = {}) {
+  if (edicionId == null || edicionId === "") {
+    return {
+      result: null,
+      error: new Error("id de edición requerido"),
+    };
+  }
+  const body = {
+    force: true,
+    edicionId: Number(edicionId),
+  };
+  if (ofrnAuth?.id != null && ofrnAuth?.mail) {
+    body.ofrnAuth = {
+      id: Number(ofrnAuth.id),
+      mail: String(ofrnAuth.mail).trim().toLowerCase(),
+    };
+  }
+  if (fimbaAuth?.id != null && fimbaAuth?.mail) {
+    body.fimbaAuth = {
+      id: Number(fimbaAuth.id),
+      mail: String(fimbaAuth.mail).trim().toLowerCase(),
+      id_edicion: Number(fimbaAuth.id_edicion ?? edicionId),
+    };
+  }
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      "sync-fimba-contrataciones-sheet",
+      { body },
+    );
+    if (error) {
+      const parsed = await readFimbaEdgeFunctionErrorBody(error);
+      const msg = messageFromEdgePayload(
+        parsed,
+        error.message || "Error al invocar sync",
+      );
+      return { result: null, error: new Error(msg) };
+    }
+    if (data?.error) {
+      return { result: null, error: new Error(String(data.error)) };
+    }
+    return { result: data || null, error: null };
+  } catch (e) {
+    return {
+      result: null,
+      error: e instanceof Error ? e : new Error(String(e?.message || e)),
+    };
+  }
+}
