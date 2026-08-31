@@ -3,7 +3,7 @@
 ### Objetivo
 Proporcionar una interfaz administrativa centralizada para gestionar el estado de los venues de todos los conciertos (Event Type 1) del sistema.
 
-> **Nota (2026-08):** La vista operativa principal para el festival FIMBA vive en **`/fimba/edicion/:id/venues`** (`FimbaVenuesPage`, scope = gira de la edición; metadata en `fimba_venue_info`, sin estado de venue). Este módulo en **Gestión → Espacios** sigue siendo el listado **global** OFRN (todas las giras/programas) con **estado de venue**.
+> **Nota (2026-08):** La vista operativa principal para el festival FIMBA vive en **`/fimba/edicion/:id/venues`** (`FimbaVenuesPage`, scope = gira de la edición; metadata en `fimba_venue_info`, sin estado de venue). Este módulo en **Gestión → Espacios** sigue siendo el listado **global** OFRN (todas las giras/programas) con **estado de venue**. **Observaciones aforo** del espectáculo viven en `eventos.observaciones_aforo` (editables en `EventForm` al abrir el concierto desde aquí).
 
 ### Requisitos Funcionales
 - **Acceso Restringido:** Solo visible para usuarios con `rol_sistema` 'admin' o 'editor'.

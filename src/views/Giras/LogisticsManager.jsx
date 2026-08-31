@@ -1160,6 +1160,10 @@ export default function LogisticsManager({
       observaciones_internas: normalizeEventosInternasHtml(
         rest.observaciones_internas,
       ),
+      observaciones_aforo:
+        Number(rest.id_tipo_evento) === 1
+          ? String(rest.observaciones_aforo || "").trim() || null
+          : null,
       id_tipo_evento: rest.id_tipo_evento,
       id_locacion: rest.id_locacion,
       id_gira_transporte: rest.id_gira_transporte ?? null,

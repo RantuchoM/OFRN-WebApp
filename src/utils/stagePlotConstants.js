@@ -154,6 +154,68 @@ export function stagePlotInstrumentFootprintLayout() {
   };
 }
 
+/**
+ * Escalas por eje de un ítem (`scaleX`/`scaleY` o fallback a `scale` uniforme).
+ * @param {{ scale?: number, scaleX?: number, scaleY?: number }|null|undefined} item
+ * @returns {{ scaleX: number, scaleY: number }}
+ */
+export function stagePlotItemAxisScales(item) {
+  const itemScale = item?.scale > 0 ? Number(item.scale) : 1;
+  const sx =
+    Number.isFinite(Number(item?.scaleX)) && Number(item.scaleX) > 0
+      ? Number(item.scaleX)
+      : itemScale;
+  const sy =
+    Number.isFinite(Number(item?.scaleY)) && Number(item.scaleY) > 0
+      ? Number(item.scaleY)
+      : itemScale;
+  return { scaleX: sx, scaleY: sy };
+}
+
+/**
+ * Dimensiones de huella de instrumento en cm (Ancho × Profundo).
+ * Base 50×50 @ scale 1; admite `scaleX`/`scaleY` independientes.
+ * @param {{ scale?: number, scaleX?: number, scaleY?: number }|null|undefined} item
+ * @returns {{ widthCm: number, depthCm: number }}
+ */
+export function stagePlotInstrumentDimensionsCm(item) {
+  const { scaleX, scaleY } = stagePlotItemAxisScales(item);
+  return {
+    widthCm: Math.round(STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM * scaleX),
+    depthCm: Math.round(STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM * scaleY),
+  };
+}
+
+/**
+ * Escalas de ítem desde Ancho/Profundo cm (huella 50×50).
+ * @param {number} widthCm
+ * @param {number} depthCm
+ * @returns {{ scaleX: number, scaleY: number, scale: number }}
+ */
+export function stagePlotInstrumentScalesFromCm(widthCm, depthCm) {
+  const rawSx = Number(widthCm) / STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM;
+  const rawSy = Number(depthCm) / STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM;
+  const scaleX = Math.min(
+    STAGE_PLOT_ITEM_SCALE_MAX,
+    Math.max(
+      STAGE_PLOT_ITEM_SCALE_MIN,
+      Number.isFinite(rawSx) && rawSx > 0 ? rawSx : 1,
+    ),
+  );
+  const scaleY = Math.min(
+    STAGE_PLOT_ITEM_SCALE_MAX,
+    Math.max(
+      STAGE_PLOT_ITEM_SCALE_MIN,
+      Number.isFinite(rawSy) && rawSy > 0 ? rawSy : 1,
+    ),
+  );
+  return {
+    scaleX,
+    scaleY,
+    scale: (scaleX + scaleY) / 2,
+  };
+}
+
 /** Ángulos (rad, 0 = +X): índice 0 = mástil −Y (músico/upstage); 1–2 = par hacia +Y (director). */
 const STAGE_PLOT_ATRIL_LEG_ANGLES_RAD = [
   -Math.PI / 2,

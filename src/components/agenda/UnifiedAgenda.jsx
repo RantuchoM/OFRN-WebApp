@@ -1500,6 +1500,7 @@ export default function UnifiedAgenda({
       id: evt.id,
       descripcion: evt.descripcion || "",
       observaciones_internas: evt.observaciones_internas || "",
+      observaciones_aforo: evt.observaciones_aforo || "",
       fecha: evt.fecha || "",
       hora_inicio: evt.hora_inicio || "",
       hora_fin: evt.hora_fin || "",
@@ -1641,6 +1642,10 @@ export default function UnifiedAgenda({
         observaciones_internas: normalizeEventosInternasHtml(
           editFormData.observaciones_internas,
         ),
+        observaciones_aforo:
+          Number(editFormData.id_tipo_evento) === 1
+            ? String(editFormData.observaciones_aforo || "").trim() || null
+            : null,
         fecha: editFormData.fecha,
         hora_inicio: editFormData.hora_inicio,
         hora_fin: editFormData.hora_fin,
@@ -1753,6 +1758,9 @@ export default function UnifiedAgenda({
         observaciones_internas: normalizeEventosInternasHtml(
           editFormData.observaciones_internas,
         ),
+        observaciones_aforo: isConcierto
+          ? String(editFormData.observaciones_aforo || "").trim() || null
+          : null,
         fecha: editFormData.fecha,
         hora_inicio: editFormData.hora_inicio,
         hora_fin: editFormData.hora_fin || editFormData.hora_inicio,
@@ -1861,6 +1869,7 @@ export default function UnifiedAgenda({
       id: null,
       descripcion: "",
       observaciones_internas: "",
+      observaciones_aforo: "",
       fecha: "",
       hora_inicio: "10:00",
       hora_fin: "12:00",
@@ -1921,6 +1930,9 @@ export default function UnifiedAgenda({
       observaciones_internas: normalizeEventosInternasHtml(
         newFormData.observaciones_internas,
       ),
+      observaciones_aforo: isConcierto
+        ? String(newFormData.observaciones_aforo || "").trim() || null
+        : null,
       fecha: newFormData.fecha,
       hora_inicio: newFormData.hora_inicio,
       hora_fin: newFormData.hora_fin || newFormData.hora_inicio,

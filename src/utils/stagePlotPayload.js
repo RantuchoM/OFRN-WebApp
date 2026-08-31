@@ -629,6 +629,30 @@ function normalizeStagePlotItem(it, idx, opts = {}) {
           : 1,
     };
   }
+  // Instrumentos con huella: conservar scaleX/Y si existen (aspecto no uniforme).
+  if (stagePlotItemHasInstrumentFootprint(type)) {
+    const sx = Number(o.scaleX);
+    const sy = Number(o.scaleY);
+    const hasSx = Number.isFinite(sx) && sx > 0;
+    const hasSy = Number.isFinite(sy) && sy > 0;
+    if (hasSx || hasSy) {
+      return {
+        ...base,
+        scaleX: hasSx
+          ? Math.min(
+              STAGE_PLOT_ITEM_SCALE_MAX,
+              Math.max(STAGE_PLOT_ITEM_SCALE_MIN, sx),
+            )
+          : scale,
+        scaleY: hasSy
+          ? Math.min(
+              STAGE_PLOT_ITEM_SCALE_MAX,
+              Math.max(STAGE_PLOT_ITEM_SCALE_MIN, sy),
+            )
+          : scale,
+      };
+    }
+  }
   return base;
 }
 

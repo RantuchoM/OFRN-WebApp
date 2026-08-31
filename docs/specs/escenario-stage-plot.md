@@ -53,7 +53,7 @@ Toggle en la toolbar del editor (junto a Lienzo / Zoom), solo si `canEdit`. Esta
 
 | Gestos | **Seleccionar** | **Mover** |
 |--------|-----------------|-----------|
-| Clic en ítem (incl. **director**) / formación | Selecciona (Ctrl/⌘/Shift = aditivo en ítems) | Selecciona (igual); luego se puede arrastrar |
+| Clic en ítem (incl. **director**) / formación | Selecciona (Ctrl/⌘/Shift = aditivo: toggle ítem o formación sin borrar el otro lado) | Selecciona (igual); luego se puede arrastrar |
 | Arrastrar ítem / formación **no seleccionado(a)** | Solo selecciona (no mueve hasta el siguiente gesto) | Mueve sin pre-selección |
 | Arrastrar ítem / formación **ya seleccionado(a)** | Mueve **toda** la selección (ítems + formación + tarimas/décor si están en `selectedIds`) con el mismo delta; un paso undo | Igual (multi-move / formación + reanchor) |
 | Arrastrar vacío | Marquee (rectángulo) | **Pan** del viewport (igual que Espacio/central); sin marquee; sin modificador **limpia** selección al iniciar |
@@ -68,6 +68,8 @@ Toggle en la toolbar del editor (junto a Lienzo / Zoom), solo si `canEdit`. Esta
 - `handleSelectItem`: si el ítem **ya** está en `selectedIds` y hay `selectedFormationId`, **no** limpia la formación ni reduce la multi (igual que multi-ítem).
 - `handleSelectFormation`: si la formación **ya** está seleccionada y hay `selectedIds`, **no** vacía los ítems.
 Sin esto, el arrastre grupal nunca veía ambos lados en `dragGroupRef`.
+
+**Deselección aditiva en selección mixta** (Ctrl/⌘/Shift): quitar un ítem de `selectedIds` **no** limpia `selectedFormationId` (ni al revés). Solo el clic **sin** modificador sobre un ítem/formación **no** seleccionado hace replace (selección única y limpia el otro lado). Toggle aditivo sobre la formación ya seleccionada la saca de la selección y deja los ítems.
 
 **Drag de selección mixta** (ítems + formación a la vez, p. ej. tras marquee): `dragGroupRef` incluye orígenes de ítems **y** `formationId`/`formationOrigin`. Da igual si el puntero arrastra un ítem o la formación: el mismo `dx,dy` se aplica a todos los nodos seleccionados (live: nodos ítem + `liveFormationPos` si el leader es ítem). Al soltar, `commitSelectionGroupDrag` hace **un** `commitPayload`: traslada la formación, reancla magnetizados de esa formación (`reanchorItemsToFormations`, conservan `slotId`), y traslada el resto de ítems seleccionados (limpian `slotId` si no pertenecen a esa formación). Sin doble commit (followers / proxy ignorados). Flechas usan `moveMixedSelectionByKeyboard` con la misma semántica.
 
@@ -166,7 +168,7 @@ Migraciones: `20260826162040_stage_plots` → `20260827095903_stage_plots_multi_
 - Editor: switcher multi-lienzo = label **Elegir lienzo** + `SearchableSelect` (lista de plots) + **lápiz** renombrar (`IconPencil`, input inline Enter/blur / Escape) **junto al dropdown** + botón **+ Lienzo**; eliminar (mín. 1), panel **Asociar**, dropdown desktop **Importar / Exportar** (PDF, JPG, Descargar JSON, Importar archivo/otra gira → `StagePlotImportModal`). (No pills horizontales.)
 - Orgánico: `isConfirmedConvocadoForSeatingReports` + filtro por `bloque_ids`.
 - Agenda: botón «Ver escenario» en concierto/ensayo (técnico / editor / management) → `StagePlotViewerModal` (opacidades locales + PDF/JPG).
-- **FIMBA Venues** (`/fimba/edicion/:id/venues`): listado por locación de conciertos (`id_tipo_evento = 1`) de la gira enlazada a la edición. Metadata operativa en `fimba_venue_info` (referente, rider, sillas, agua, observaciones); nombre/dirección desde `locaciones`. Espectáculos: artistas taggeados, grupos OFRN, bloque repertorio. Acciones: **Ver escenario** (`StagePlotViewerModal`); enlace al editor OFRN (Seating → Escenario) solo staff `isManagement`; edición de evento vía `FimbaEventoFormModal` (staff no RO). Link **Agenda** filtrada por locación. **Sin** estado de venue OFRN. Consulta / token `/c`: lectura + Ver escenario.
+- **FIMBA Venues** (`/fimba/edicion/:id/venues`): listado por locación de conciertos (`id_tipo_evento = 1`) de la gira enlazada a la edición. Metadata operativa en `fimba_venue_info` (referente, rider, sillas, agua, observaciones); nombre/dirección/aforo numérico desde `locaciones`. Espectáculos: artistas taggeados, grupos OFRN, bloque repertorio, **observaciones aforo** (`eventos.observaciones_aforo`). Acciones: **Ver escenario** (`StagePlotViewerModal`); enlace al editor OFRN (Seating → Escenario) solo staff `isManagement`; edición de evento vía `FimbaEventoFormModal` (staff no RO). Link **Agenda** filtrada por locación. **Sin** estado de venue OFRN. Consulta / token `/c`: lectura + Ver escenario.
 
 ### Montaje / URLs (sin cambio)
 
@@ -216,6 +218,9 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Formaciones reescaladas al lienzo cm + ítems ~40 cm (defaults ~3–3.6 m; marcador 15 cm, snap 20 cm)
 - [x] Copiar formación / copiar formación con instrumentos (barra + menú contextual; +40 cm; undo)
 - [x] Huella instrumento 50×50 cm + icono contain; atril **opcional** (menú / paleta), no auto
+- [x] Barra inferior: Ancho/Profundo cm editables + candado de proporción (sesión) para instrumento seleccionado; `scaleX`/`scaleY` en payload; Transformer keepRatio según candado
+- [x] Inputs Ancho/Profundo: draft local al foco (`StageInstrumentDimInput`); clamp solo blur/Enter
+- [x] HUD live `W × D cm` al arrastrar asas de resize (HTML overlay junto al AABB; 1 instrumento; hide idle/giro/multi)
 - [x] Orientación default **rotation=0** (sin auto hacia director)
 - [x] Mobiliario orgánico: sillas / banquetas / atriles (`music_stand`) / tarimas por forma (rect|oval) + dims
 - [x] Catálogo `banqueta` + `tarima_rect`/`tarima_oval` (gris oscuro) + atril paleta
@@ -284,9 +289,24 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 ## Huella de instrumento (50×50) — sin atril automático
 
 - Constantes (`stagePlotConstants.js`):
-  - `STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM=50`, `DEPTH_CM=50` (cuadrado)
+  - `STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM=50`, `DEPTH_CM=50` (cuadrado @ scale 1)
   - `STAGE_PLOT_INSTRUMENT_ICON_BOX_CM=50`
+  - Helpers: `stagePlotInstrumentDimensionsCm` / `stagePlotInstrumentScalesFromCm` / `stagePlotItemAxisScales` (Ancho×Profundo cm ↔ `scaleX`/`scaleY`).
   - Helpers de atril (`stagePlotAtril.js` / `stagePlotSatelliteAtrilGeometry`) se conservan para **colocar** atriles manuales (orientación hacia director).
+- **Tamaño en escena**: base 50×50 cm × `scale` (uniforme) o `scaleX`/`scaleY` (independientes). Persistidos en el ítem; normalizer conserva `scaleX`/`scaleY` si existen.
+- **Barra inferior (selección simple de instrumento con huella)**: cluster unificado (mismo chrome que chips de toolbar: `rounded border border-slate-200 bg-slate-50`) con `[IconDimensionWidth] [input] [candado] [IconDimensionHeight] [input] [cm]` (íconos con `title`/`aria-label` Ancho/Profundo; candado `IconLock` / `IconLockOpen`) de proporción. Inputs `w-9` / centrados / `tabular-nums` (3 dígitos; máx. clamp = huella×`SCALE_MAX` = 600 cm).
+  - Inputs (`StageInstrumentDimInput`): draft local string mientras hay foco (`type="text"` + `inputMode="numeric"`); vacío/parcial OK mid-edit; clamp a huella×`SCALE_MIN`..`SCALE_MAX` solo en **blur** / **Enter** (mismo patrón que Lienzo Ancho/Alto; sin live-apply). `stopPropagation` en keydown; atajos globales ya ignoran `INPUT` vía `isEditableKeyboardTarget`.
+  - Candado = estado de sesión UI (`instrumentAspectLocked`, default **bloqueado**); no se guarda en el payload.
+  - Bloqueado: editar Ancho recalcula Profundo (y viceversa) preservando ratio; Transformer `keepRatio` + solo asas de esquina.
+  - Libre: Ancho/Profundo independientes; Transformer sin `keepRatio` + asas de borde (como tarimas).
+  - Multi-selección: sin inputs de dims (igual que etiqueta/canal — solo rotar/escala/%).
+  - Undo/autosave vía `updateSelected` → `patchItems` / `commitPayload` (mismo path que etiqueta).
+  - **HUD live al resize con asas** (`instrumentResizeHud`): overlay HTML sobre el wrap del Stage (`pointer-events-none`, `z-[35]`), solo mientras se arrastra un asa de **resize** del Transformer (no giro `rotater`, no idle).
+    - Condición: **1** ítem seleccionado con huella de instrumento; multi-select / tarimas / otros → sin HUD (tarimas ya tienen labels Konva fuera).
+    - Texto: `{Ancho} × {Profundo} cm` (redondeado; `FOOTPRINT × |node.scaleX/Y|` en vivo, mismo clamp SCALE_MIN/MAX que `transformend`).
+    - Posición: coords de contenedor vía `node.getClientRect()`; preferir **arriba-derecha** del AABB live (`left = box.x + box.width + 8`, `top = box.y`); si no cabe → izquierda; fallback abajo-derecha. Clamp a bordes del canvas (±8 px).
+    - Respeta `keepRatio` del Transformer (candado). Floating toolbar (Copiar/Eliminar) se oculta mientras el HUD está activo para no solaparse.
+    - Al `transformend` / cambio de selección que deja de ser instrumento simple → HUD a null. Barra inferior sigue mostrando dims del payload (commit al soltar).
 - **Atriles automáticos / satélite derivados: eliminados.** Ya no se dibujan atriles al colocar instrumentos ni pares; `collectStagePlotSatelliteAtrils` → `[]`.
 - **Atril opcional (menú contextual clic derecho)** sobre selección:
   - 1 instrumento con huella → **Agregar atril** (ítem `music_stand` a 40 cm hacia el director).

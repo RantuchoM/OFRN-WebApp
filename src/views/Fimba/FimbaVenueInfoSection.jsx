@@ -22,10 +22,16 @@ function statusMeta(status) {
   }
 }
 
+function capacidadToDraft(value) {
+  if (value == null || value === "") return "";
+  return String(value);
+}
+
 function draftFromVenue(locacion, venueInfo) {
   return {
     nombre: locacion?.nombre || "",
     direccion: locacion?.direccion || "",
+    capacidad: capacidadToDraft(locacion?.capacidad),
     referente_nombre: venueInfo?.referente_nombre || "",
     referente_telefono: venueInfo?.referente_telefono || "",
     rider_disponible: venueInfo?.rider_disponible || "",
@@ -50,6 +56,7 @@ function draftsEqual(a, b) {
   return (
     String(a.nombre ?? "") === String(b.nombre ?? "") &&
     String(a.direccion ?? "") === String(b.direccion ?? "") &&
+    String(a.capacidad ?? "") === String(b.capacidad ?? "") &&
     String(a.referente_nombre ?? "") === String(b.referente_nombre ?? "") &&
     String(a.referente_telefono ?? "") === String(b.referente_telefono ?? "") &&
     String(a.rider_disponible ?? "") === String(b.rider_disponible ?? "") &&
@@ -152,12 +159,14 @@ export default function FimbaVenueInfoSection({
     try {
       const locChanged =
         String(current.nombre ?? "") !== String(saved.nombre ?? "") ||
-        String(current.direccion ?? "") !== String(saved.direccion ?? "");
+        String(current.direccion ?? "") !== String(saved.direccion ?? "") ||
+        String(current.capacidad ?? "") !== String(saved.capacidad ?? "");
 
       if (locChanged) {
         const { error: eLoc } = await updateLocacionBasics(locId, {
           nombre: current.nombre,
           direccion: current.direccion,
+          capacidad: current.capacidad,
         });
         if (eLoc) throw eLoc;
       }
@@ -185,7 +194,7 @@ export default function FimbaVenueInfoSection({
     } catch (err) {
       console.error("[FimbaVenueInfoSection] save:", err);
       setSaveStatus("error");
-      toast.error("No se pudo guardar la información del venue.");
+      toast.error(err?.message || "No se pudo guardar la información del venue.");
     } finally {
       savingRef.current = false;
       if (pendingSaveRef.current) {
@@ -241,6 +250,14 @@ export default function FimbaVenueInfoSection({
               <span style={{ fontSize: "0.82rem" }}>{localidad}</span>
             </div>
           )}
+          <ReadOnlyField
+            label="Aforo"
+            value={
+              draft.capacidad
+                ? `${draft.capacidad} personas`
+                : ""
+            }
+          />
           <ReadOnlyField label="Referente" value={draft.referente_nombre} />
           <ReadOnlyField label="Teléfono referente" value={draft.referente_telefono} />
           <ReadOnlyField label="Rider disponible" value={draft.rider_disponible} />
@@ -324,6 +341,22 @@ export default function FimbaVenueInfoSection({
             <span style={{ fontSize: "0.82rem" }}>{localidad}</span>
           </div>
         )}
+        <div className="fimba-field">
+          <label className="fimba-label" htmlFor={`venue-aforo-${locId}`}>
+            Aforo
+          </label>
+          <input
+            id={`venue-aforo-${locId}`}
+            className="fimba-input"
+            type="number"
+            min={0}
+            step={1}
+            inputMode="numeric"
+            value={draft.capacidad}
+            onChange={(e) => handleChange("capacidad", e.target.value)}
+            placeholder="Cantidad de personas"
+          />
+        </div>
         <div className="fimba-field">
           <label className="fimba-label" htmlFor={`venue-ref-${locId}`}>
             Referente

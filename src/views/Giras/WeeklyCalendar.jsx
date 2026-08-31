@@ -289,6 +289,7 @@ export default function WeeklyCalendar({
         id: fullEvt.id,
         descripcion: fullEvt.descripcion || "",
         observaciones_internas: fullEvt.observaciones_internas || "",
+        observaciones_aforo: fullEvt.observaciones_aforo || "",
         fecha: fullEvt.fecha || "",
         hora_inicio: fullEvt.hora_inicio || "",
         hora_fin: fullEvt.hora_fin || "",
@@ -313,6 +314,10 @@ export default function WeeklyCalendar({
         observaciones_internas: normalizeEventosInternasHtml(
           editFormData.observaciones_internas,
         ),
+        observaciones_aforo:
+          Number(editFormData.id_tipo_evento) === 1
+            ? String(editFormData.observaciones_aforo || "").trim() || null
+            : null,
         fecha: editFormData.fecha,
         hora_inicio: editFormData.hora_inicio,
         hora_fin: editFormData.hora_fin.trim() || editFormData.hora_inicio,

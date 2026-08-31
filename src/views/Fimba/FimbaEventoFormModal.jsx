@@ -546,6 +546,9 @@ export default function FimbaEventoFormModal({
   const [observacionesInternas, setObservacionesInternas] = useState(
     () => evento?.observaciones_internas || "",
   );
+  const [observacionesAforo, setObservacionesAforo] = useState(
+    () => evento?.observaciones_aforo || "",
+  );
   const [asientosEquipaje, setAsientosEquipaje] = useState(() =>
     isEdit
       ? Math.max(
@@ -669,6 +672,7 @@ export default function FimbaEventoFormModal({
       observacionesInternas: internasDirtyKey(
         evento?.observaciones_internas || "",
       ),
+      observacionesAforo: String(evento?.observaciones_aforo || "").trim(),
       asientosEquipaje: initEq,
       sinServicio: initSin,
       selectedVehIdsKey: sortedIdsKey(draftVehIds),
@@ -707,6 +711,13 @@ export default function FimbaEventoFormModal({
       canEditObservacionesInternas &&
       internasDirtyKey(observacionesInternas) !==
         (initialForm.observacionesInternas || "")
+    ) {
+      return true;
+    }
+    if (
+      Number(tipoId) === 1 &&
+      String(observacionesAforo || "").trim() !==
+        String(initialForm.observacionesAforo || "").trim()
     ) {
       return true;
     }
@@ -749,6 +760,7 @@ export default function FimbaEventoFormModal({
     vuelo,
     observacionesEquipaje,
     observacionesInternas,
+    observacionesAforo,
     canEditObservacionesInternas,
     equipajeTouched,
     asientosEquipaje,
@@ -1327,6 +1339,10 @@ export default function FimbaEventoFormModal({
       observaciones_internas: canEditObservacionesInternas
         ? normalizeEventosInternasHtml(observacionesInternas)
         : undefined,
+      observaciones_aforo:
+        Number(tipoId) === 1
+          ? String(observacionesAforo || "").trim() || null
+          : undefined,
       sin_servicio: usaTransporte ? sinServicio : true,
       usa_transporte: usaTransporte,
       vehiculos,
@@ -1669,6 +1685,27 @@ export default function FimbaEventoFormModal({
               />
             </div>
           </div>
+
+          {Number(tipoId) === 1 && (
+            <div className="fimba-field">
+              <label className="fimba-label">Observaciones aforo</label>
+              <textarea
+                className="fimba-input"
+                rows={3}
+                value={observacionesAforo}
+                onChange={(e) => setObservacionesAforo(e.target.value)}
+                placeholder="Notas de aforo de este espectáculo…"
+                style={{ resize: "vertical" }}
+              />
+              <p
+                className="fimba-muted"
+                style={{ margin: "0.25rem 0 0", fontSize: "0.72rem" }}
+              >
+                Por concierto (no por sala). Distinto del aforo numérico de la
+                locación.
+              </p>
+            </div>
+          )}
 
           {canEditObservacionesInternas && (
             <div className="fimba-field">

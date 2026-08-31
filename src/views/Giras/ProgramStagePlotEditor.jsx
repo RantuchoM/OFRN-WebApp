@@ -46,6 +46,10 @@ import {
   IconMusic,
   IconPencil,
   IconX,
+  IconLock,
+  IconLockOpen,
+  IconDimensionWidth,
+  IconDimensionHeight,
 } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import StagePlotInstrumentsPanel from "./StagePlotInstrumentsPanel";
@@ -100,7 +104,12 @@ import {
   stagePlotGridMinorPx,
   stagePlotChairSquareSide,
   stagePlotInstrumentFootprintLayout,
+  stagePlotInstrumentDimensionsCm,
+  stagePlotInstrumentScalesFromCm,
+  stagePlotItemAxisScales,
   STAGE_PLOT_CM_TO_PX,
+  STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM,
+  STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM,
   STAGE_PLOT_BG_FILL,
   STAGE_PLOT_BG_STROKE,
   STAGE_PLOT_BG_FILL_NIGHT,
@@ -283,6 +292,12 @@ const FLOATING_TOOLBAR_ABOVE_CLEARANCE_PX = 40;
 const FLOATING_TOOLBAR_BTN_PX = 32;
 const FLOATING_TOOLBAR_PAD_PX = 8; // p-1 × 2
 const FLOATING_TOOLBAR_GAP_PX = 4; // gap-1
+/** Gap / pad del HUD de dims en vivo al redimensionar con asas (HTML overlay). */
+const RESIZE_DIM_HUD_GAP_PX = 8;
+const RESIZE_DIM_HUD_EDGE_PAD_PX = 8;
+/** Estimación del chip `W × D cm` para clamp al canvas. */
+const RESIZE_DIM_HUD_W_PX = 96;
+const RESIZE_DIM_HUD_H_PX = 24;
 /** Arrastre mínimo en pantalla (px) antes de tratar el gesto como marquee (vs clic). */
 const MARQUEE_DRAG_THRESHOLD_SCREEN_PX = 4;
 /** Herramientas del lienzo: selección/marquee vs arrastre de objetos. */
@@ -401,17 +416,11 @@ function getStagePlotItemHalfExtents(item) {
     halfH = (layout.textH * itemScale) / 2;
   } else if (stagePlotItemHasInstrumentFootprint(item.type)) {
     const fp = stagePlotInstrumentFootprintLayout();
-    halfW = (fp.widthPx * itemScale) / 2;
-    halfH = (fp.depthPx * itemScale) / 2;
+    const { scaleX: sx, scaleY: sy } = stagePlotItemAxisScales(item);
+    halfW = (fp.widthPx * sx) / 2;
+    halfH = (fp.depthPx * sy) / 2;
   } else if (stagePlotItemIsTarima(item.type)) {
-    const sx =
-      Number.isFinite(Number(item.scaleX)) && Number(item.scaleX) > 0
-        ? Number(item.scaleX)
-        : itemScale;
-    const sy =
-      Number.isFinite(Number(item.scaleY)) && Number(item.scaleY) > 0
-        ? Number(item.scaleY)
-        : itemScale;
+    const { scaleX: sx, scaleY: sy } = stagePlotItemAxisScales(item);
     halfW = ((cat?.w || 800) * sx) / 2;
     halfH = ((cat?.h || 400) * sy) / 2;
   }
@@ -763,6 +772,87 @@ function StageLienzoDimensionInput({
         className={inputClassName}
       />
     </label>
+  );
+}
+
+/**
+ * Compact Ancho/Profundo cm input for the bottom instrument chrome.
+ * Local string draft while focused; clamp+commit only on blur / Enter
+ * (avoids mid-keystroke snap to SCALE_MIN, e.g. typing "1" of "150").
+ */
+function StageInstrumentDimInput({
+  value,
+  min,
+  max,
+  disabled,
+  onCommit,
+  title,
+  "aria-label": ariaLabel,
+  className,
+}) {
+  const [draft, setDraft] = useState(() => String(Math.round(value)));
+  const draftRef = useRef(draft);
+  const focusedRef = useRef(false);
+  const valueRef = useRef(value);
+  const onCommitRef = useRef(onCommit);
+
+  valueRef.current = value;
+  onCommitRef.current = onCommit;
+
+  useEffect(() => {
+    if (!focusedRef.current) {
+      const next = String(Math.round(value));
+      draftRef.current = next;
+      setDraft(next);
+    }
+  }, [value]);
+
+  const commit = useCallback(() => {
+    const fb = Math.round(valueRef.current);
+    const raw = draftRef.current;
+    let n =
+      raw === "" || raw == null ? fb : Number(String(raw).replace(/\D/g, ""));
+    if (!Number.isFinite(n) || n <= 0) n = fb;
+    n = Math.round(Math.min(max, Math.max(min, n)));
+    const asStr = String(n);
+    draftRef.current = asStr;
+    setDraft(asStr);
+    focusedRef.current = false;
+    if (n !== fb) onCommitRef.current(n);
+  }, [min, max]);
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      autoComplete="off"
+      disabled={disabled}
+      value={draft}
+      title={title}
+      aria-label={ariaLabel}
+      onFocus={(e) => {
+        focusedRef.current = true;
+        e.target.select();
+      }}
+      onChange={(e) => {
+        const next = e.target.value.replace(/\D/g, "");
+        draftRef.current = next;
+        setDraft(next);
+      }}
+      onBlur={() => {
+        commit();
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+          e.currentTarget.blur();
+        }
+      }}
+      className={className}
+    />
   );
 }
 
@@ -1301,6 +1391,9 @@ function buildStagePlotItemTooltipText(item, visual = null) {
   let size = null;
   if (stagePlotItemIsTarima(item.type)) {
     const dims = stagePlotTarimaDimensionsCm(item);
+    size = `Ancho ${dims.widthCm} × Profundo ${dims.depthCm} cm`;
+  } else if (stagePlotItemHasInstrumentFootprint(item.type)) {
+    const dims = stagePlotInstrumentDimensionsCm(item);
     size = `Ancho ${dims.widthCm} × Profundo ${dims.depthCm} cm`;
   } else if (visual?.boundsW != null && visual?.boundsH != null) {
     const itemScale = item.scale > 0 ? item.scale : 1;
@@ -2011,16 +2104,10 @@ const ItemShape = React.memo(function ItemShape({
   const boundsW = footprint ? footprint.widthPx : drawW;
   const boundsH = footprint ? footprint.depthPx : drawH;
   const itemScale = item.scale > 0 ? item.scale : 1;
-  const scaleX = isTarima
-    ? Number.isFinite(Number(item.scaleX)) && Number(item.scaleX) > 0
-      ? Number(item.scaleX)
-      : itemScale
-    : itemScale;
-  const scaleY = isTarima
-    ? Number.isFinite(Number(item.scaleY)) && Number(item.scaleY) > 0
-      ? Number(item.scaleY)
-      : itemScale
-    : itemScale;
+  const axisScales =
+    isTarima || hasFootprint ? stagePlotItemAxisScales(item) : null;
+  const scaleX = axisScales ? axisScales.scaleX : itemScale;
+  const scaleY = axisScales ? axisScales.scaleY : itemScale;
   const showChairSquare =
     chairSquaresOpacity > 0 && stagePlotItemShowsChairSquare(item.type);
   const chairSide = showChairSquare
@@ -2161,8 +2248,8 @@ const ItemShape = React.memo(function ItemShape({
         onMouseEnter?.(item, e, {
           boundsW,
           boundsH,
-          scaleX: isTarima ? scaleX : itemScale,
-          scaleY: isTarima ? scaleY : itemScale,
+          scaleX: isTarima || hasFootprint ? scaleX : itemScale,
+          scaleY: isTarima || hasFootprint ? scaleY : itemScale,
         });
         if (draggable) onWrapCursor?.("move");
       }}
@@ -2186,7 +2273,7 @@ const ItemShape = React.memo(function ItemShape({
       }}
       onTransformEnd={(e) => {
         const node = e.target;
-        if (isTarima) {
+        if (isTarima || hasFootprint) {
           const sx = Math.max(
             SCALE_MIN,
             Math.min(SCALE_MAX, Math.abs(node.scaleX()) || 1),
@@ -2577,6 +2664,14 @@ export default function ProgramStagePlot({
   const [exportModal, setExportModal] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectedFormationId, setSelectedFormationId] = useState(null);
+  /** Candado de proporción Ancho/Profundo (sesión UI; default bloqueado). */
+  const [instrumentAspectLocked, setInstrumentAspectLocked] = useState(true);
+  /**
+   * HUD HTML de Ancho×Profundo mientras se arrastra un asa de resize
+   * (solo 1 instrumento con huella; null si idle / giro / multi).
+   * `{ left, top, label }` en coords del wrap del Stage.
+   */
+  const [instrumentResizeHud, setInstrumentResizeHud] = useState(null);
   const [rightPanel, setRightPanel] = useState("organico"); // channels | organico | inventario
   const [leftPanel, setLeftPanel] = useState("palette"); // palette | instrumentos (UI label: Editor)
   const [inventarioItems, setInventarioItems] = useState([]);
@@ -3389,6 +3484,13 @@ export default function ProgramStagePlot({
   const selected =
     selectedItems.length === 1 ? selectedItems[0] : null;
   const multiSelected = selectedItems.length > 1;
+  const selectedInstrumentDims =
+    selected && stagePlotItemHasInstrumentFootprint(selected.type)
+      ? stagePlotInstrumentDimensionsCm(selected)
+      : null;
+  const singleInstrumentFreeAspect = Boolean(
+    selectedInstrumentDims && !instrumentAspectLocked,
+  );
   const selectedFormation = useMemo(
     () =>
       (payload.formations || []).find((f) => f.id === selectedFormationId) ||
@@ -4629,11 +4731,32 @@ export default function ProgramStagePlot({
     updateSelectedFormation({ x: facing.x });
   };
 
-  const handleSelectFormation = useCallback((id) => {
+  const handleSelectFormation = useCallback((id, e) => {
+    const evt = e?.evt;
+    const additive = !!(
+      evt &&
+      (evt.ctrlKey || evt.metaKey || evt.shiftKey)
+    );
     const alreadySelected =
       selectedFormationIdRef.current != null &&
       String(selectedFormationIdRef.current) === String(id);
     const hadItems = selectedIdsRef.current.length > 0;
+
+    if (additive) {
+      // Toggle formation in/out of mixed selection; never wipe items.
+      if (alreadySelected) {
+        setSelectedFormationId(null);
+        selectedFormationIdRef.current = null;
+      } else {
+        setSelectedFormationId(id);
+        selectedFormationIdRef.current = id;
+      }
+      setItemContextMenu(null);
+      setFormationContextMenu(null);
+      setFormationCopyMenuOpen(false);
+      return;
+    }
+
     // Keep mixed selection on mousedown of the already-selected formation
     // so dragStart can populate dragGroupRef (items + formation).
     setSelectedFormationId(id);
@@ -4963,9 +5086,10 @@ export default function ProgramStagePlot({
     );
     const alreadySelected = selectedIdsRef.current.includes(id);
     const hadFormation = selectedFormationIdRef.current != null;
-    // Preserve mixed selection when mousedown on an already-selected item
-    // (dragStart runs after this and needs selectedFormationId intact).
-    if (!(alreadySelected && hadFormation && !additive)) {
+    // Clear formation only on non-additive replace (click unselected item).
+    // Additive toggle/add and mousedown on an already-selected member of a
+    // mixed selection must keep selectedFormationId (group drag + deselect).
+    if (!additive && !alreadySelected) {
       setSelectedFormationId(null);
       selectedFormationIdRef.current = null;
     }
@@ -5340,6 +5464,12 @@ export default function ProgramStagePlot({
         notes: src.notes,
         rotation: src.rotation || 0,
         scale: src.scale > 0 ? src.scale : 1,
+        ...(Number.isFinite(Number(src.scaleX)) && Number(src.scaleX) > 0
+          ? { scaleX: Number(src.scaleX) }
+          : {}),
+        ...(Number.isFinite(Number(src.scaleY)) && Number(src.scaleY) > 0
+          ? { scaleY: Number(src.scaleY) }
+          : {}),
         includeInChannels: src.includeInChannels,
         slotId: null,
         ...(src.type === "text"
@@ -5382,11 +5512,50 @@ export default function ProgramStagePlot({
   const scaleSelected = (factor) => {
     if (!selectedItems.length || !canEdit) return;
     updateSelectedMany((it) => {
+      const usesAxes =
+        stagePlotItemIsTarima(it.type) ||
+        stagePlotItemHasInstrumentFootprint(it.type);
+      if (usesAxes) {
+        const { scaleX: sx0, scaleY: sy0 } = stagePlotItemAxisScales(it);
+        const sx = Math.max(
+          SCALE_MIN,
+          Math.min(SCALE_MAX, Math.round(sx0 * factor * 100) / 100),
+        );
+        const sy = Math.max(
+          SCALE_MIN,
+          Math.min(SCALE_MAX, Math.round(sy0 * factor * 100) / 100),
+        );
+        return { scaleX: sx, scaleY: sy, scale: (sx + sy) / 2 };
+      }
       const next = Math.round(((it.scale || 1) * factor) * 100) / 100;
       return {
         scale: Math.max(SCALE_MIN, Math.min(SCALE_MAX, next)),
       };
     });
+  };
+
+  const applySelectedInstrumentDims = (axis, committedCm) => {
+    if (!selected || !canEdit) return;
+    if (!stagePlotItemHasInstrumentFootprint(selected.type)) return;
+    const dims = stagePlotInstrumentDimensionsCm(selected);
+    const n = Number(committedCm);
+    if (!Number.isFinite(n) || n <= 0) return;
+    let widthCm = dims.widthCm;
+    let depthCm = dims.depthCm;
+    if (axis === "width") {
+      widthCm = n;
+      if (instrumentAspectLocked) {
+        const ratio = dims.widthCm > 0 ? dims.depthCm / dims.widthCm : 1;
+        depthCm = widthCm * ratio;
+      }
+    } else {
+      depthCm = n;
+      if (instrumentAspectLocked) {
+        const ratio = dims.depthCm > 0 ? dims.widthCm / dims.depthCm : 1;
+        widthCm = depthCm * ratio;
+      }
+    }
+    updateSelected(stagePlotInstrumentScalesFromCm(widthCm, depthCm));
   };
 
   const bringForward = () => {
@@ -6032,6 +6201,88 @@ export default function ProgramStagePlot({
     },
     [commitPayload],
   );
+
+  /**
+   * Live Ancho×Profundo HUD beside the Transformer while dragging resize asas
+   * (single instrument footprint only; hide on rotater / multi / idle).
+   */
+  const handleTransformerTransform = useCallback(() => {
+    const tr = transformerRef.current;
+    if (!tr) {
+      setInstrumentResizeHud(null);
+      return;
+    }
+    const active = typeof tr.getActiveAnchor === "function" ? tr.getActiveAnchor() : "";
+    if (!active || active === "rotater") {
+      setInstrumentResizeHud(null);
+      return;
+    }
+    const nodes = tr.nodes?.() || [];
+    if (nodes.length !== 1) {
+      setInstrumentResizeHud(null);
+      return;
+    }
+    const node = nodes[0];
+    const rawId = node.id?.() ?? node.attrs?.id;
+    const item = (payloadRef.current?.items || []).find(
+      (it) => String(it.id) === String(rawId),
+    );
+    if (!item || !stagePlotItemHasInstrumentFootprint(item.type)) {
+      setInstrumentResizeHud(null);
+      return;
+    }
+    const sx = Math.max(
+      SCALE_MIN,
+      Math.min(SCALE_MAX, Math.abs(node.scaleX()) || 1),
+    );
+    const sy = Math.max(
+      SCALE_MIN,
+      Math.min(SCALE_MAX, Math.abs(node.scaleY()) || 1),
+    );
+    const widthCm = Math.round(STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM * sx);
+    const depthCm = Math.round(STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM * sy);
+    const box = node.getClientRect({ skipStroke: true });
+    const gap = RESIZE_DIM_HUD_GAP_PX;
+    const pad = RESIZE_DIM_HUD_EDGE_PAD_PX;
+    const hudW = RESIZE_DIM_HUD_W_PX;
+    const hudH = RESIZE_DIM_HUD_H_PX;
+    const cw = canvasSize.w;
+    const ch = canvasSize.h;
+    const maxLeft = Math.max(pad, cw - hudW - pad);
+    const maxTop = Math.max(pad, ch - hudH - pad);
+    const clampPos = (left, top) => ({
+      left: Math.max(pad, Math.min(maxLeft, left)),
+      top: Math.max(pad, Math.min(maxTop, top)),
+    });
+    // Prefer top-right of live bbox (outside, not covering center).
+    let pos;
+    const rightLeft = box.x + box.width + gap;
+    if (rightLeft + hudW <= cw - pad) {
+      pos = clampPos(rightLeft, box.y);
+    } else {
+      const leftLeft = box.x - gap - hudW;
+      if (leftLeft >= pad) {
+        pos = clampPos(leftLeft, box.y);
+      } else {
+        // Fallback: bottom-right of bbox.
+        pos = clampPos(box.x + box.width - hudW, box.y + box.height + gap);
+      }
+    }
+    setInstrumentResizeHud({
+      left: pos.left,
+      top: pos.top,
+      label: `${widthCm} × ${depthCm} cm`,
+    });
+  }, [canvasSize.w, canvasSize.h]);
+
+  const clearInstrumentResizeHud = useCallback(() => {
+    setInstrumentResizeHud(null);
+  }, []);
+
+  // Hide HUD if selection is no longer a single footprint instrument.
+  useEffect(() => {
+    if (!selectedInstrumentDims) setInstrumentResizeHud(null);
+  }, [selectedInstrumentDims]);
 
   const floatingToolbarPos = useMemo(() => {
     if (!selectedItems.length) return null;
@@ -6855,7 +7106,10 @@ export default function ProgramStagePlot({
             </p>
             )}
 
-            {selectedItems.length > 0 && canEdit && floatingToolbarPos && (
+            {selectedItems.length > 0 &&
+              canEdit &&
+              floatingToolbarPos &&
+              !instrumentResizeHud && (
               <div
                 className="pointer-events-auto absolute z-[30] flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-lg"
                 style={{
@@ -6931,6 +7185,19 @@ export default function ProgramStagePlot({
                 >
                   <IconTrash size={16} />
                 </button>
+              </div>
+            )}
+
+            {instrumentResizeHud && (
+              <div
+                className="pointer-events-none absolute z-[35] rounded-md border border-indigo-200 bg-white/95 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-indigo-800 shadow-md"
+                style={{
+                  left: instrumentResizeHud.left,
+                  top: instrumentResizeHud.top,
+                }}
+                aria-live="polite"
+              >
+                {instrumentResizeHud.label}
               </div>
             )}
 
@@ -7226,7 +7493,9 @@ export default function ProgramStagePlot({
                   <Transformer
                     ref={transformerRef}
                     rotateEnabled={!selectedFormationId}
-                    keepRatio={!tarimaSelectedOnly}
+                    keepRatio={
+                      !tarimaSelectedOnly && !singleInstrumentFreeAspect
+                    }
                     anchorSize={transformerAnchorSize}
                     anchorCornerRadius={transformerAnchorCornerRadius}
                     anchorStrokeWidth={transformerAnchorStrokeWidth}
@@ -7240,7 +7509,7 @@ export default function ProgramStagePlot({
                     enabledAnchors={
                       selectedFormationId
                         ? []
-                        : tarimaSelectedOnly
+                        : tarimaSelectedOnly || singleInstrumentFreeAspect
                           ? [
                               "top-left",
                               "top-right",
@@ -7262,6 +7531,8 @@ export default function ProgramStagePlot({
                       if (newBox.width < 16 || newBox.height < 16) return oldBox;
                       return newBox;
                     }}
+                    onTransform={handleTransformerTransform}
+                    onTransformEnd={clearInstrumentResizeHud}
                   />
                 )}
                 {/* Selected formation handles above items so peak/side asas stay hittable. */}
@@ -7853,6 +8124,85 @@ export default function ProgramStagePlot({
                     className="w-36 shrink-0 rounded border border-slate-200 px-2 py-1 text-xs"
                     placeholder="Etiqueta"
                   />
+                ) : null}
+                {selectedInstrumentDims ? (
+                  <div className="flex h-7 shrink-0 items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1 text-slate-600">
+                    <span
+                      className="inline-flex text-slate-400"
+                      title="Ancho"
+                      aria-label="Ancho"
+                    >
+                      <IconDimensionWidth size={14} />
+                    </span>
+                    <StageInstrumentDimInput
+                      value={selectedInstrumentDims.widthCm}
+                      min={Math.ceil(
+                        STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM * SCALE_MIN,
+                      )}
+                      max={Math.floor(
+                        STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM * SCALE_MAX,
+                      )}
+                      disabled={!canEdit}
+                      onCommit={(n) =>
+                        applySelectedInstrumentDims("width", n)
+                      }
+                      className="h-6 w-9 rounded border border-slate-200 bg-white px-0.5 py-0 text-center text-xs tabular-nums"
+                      title="Ancho (cm)"
+                      aria-label="Ancho"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInstrumentAspectLocked((locked) => !locked)
+                      }
+                      className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border ${
+                        instrumentAspectLocked
+                          ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                          : "border-slate-200 bg-white text-slate-500 hover:bg-slate-100"
+                      }`}
+                      title={
+                        instrumentAspectLocked
+                          ? "Proporción bloqueada"
+                          : "Proporción libre"
+                      }
+                      aria-pressed={instrumentAspectLocked}
+                      aria-label={
+                        instrumentAspectLocked
+                          ? "Desbloquear proporción"
+                          : "Bloquear proporción"
+                      }
+                    >
+                      {instrumentAspectLocked ? (
+                        <IconLock size={14} />
+                      ) : (
+                        <IconLockOpen size={14} />
+                      )}
+                    </button>
+                    <span
+                      className="inline-flex text-slate-400"
+                      title="Profundo"
+                      aria-label="Profundo"
+                    >
+                      <IconDimensionHeight size={14} />
+                    </span>
+                    <StageInstrumentDimInput
+                      value={selectedInstrumentDims.depthCm}
+                      min={Math.ceil(
+                        STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM * SCALE_MIN,
+                      )}
+                      max={Math.floor(
+                        STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM * SCALE_MAX,
+                      )}
+                      disabled={!canEdit}
+                      onCommit={(n) =>
+                        applySelectedInstrumentDims("depth", n)
+                      }
+                      className="h-6 w-9 rounded border border-slate-200 bg-white px-0.5 py-0 text-center text-xs tabular-nums"
+                      title="Profundo (cm)"
+                      aria-label="Profundo"
+                    />
+                    <span className="pr-0.5 text-[10px] text-slate-400">cm</span>
+                  </div>
                 ) : null}
                 <button
                   type="button"

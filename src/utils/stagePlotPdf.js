@@ -19,6 +19,7 @@ import {
   stagePlotGridMajorPx,
   stagePlotGridMinorPx,
   stagePlotInstrumentFootprintLayout,
+  stagePlotItemAxisScales,
 } from "./stagePlotConstants";
 import { stagePlotTarimaDimensionsCm } from "./stagePlotOrganico";
 import {
@@ -660,14 +661,16 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
 
     if (stagePlotItemHasInstrumentFootprint(item.type)) {
       const fp = stagePlotInstrumentFootprintLayout();
-      const iconBox = fp.iconBoxPx * scale * itemScale;
-      const iconOffY = fp.iconOffsetY * scale * itemScale;
+      const { scaleX: sx, scaleY: sy } = stagePlotItemAxisScales(item);
+      const iconBoxW = fp.iconBoxPx * scale * sx;
+      const iconBoxH = fp.iconBoxPx * scale * sy;
+      const iconOffY = fp.iconOffsetY * scale * sy;
       const rad = (rotation * Math.PI) / 180;
       const iconCx = cx - iconOffY * Math.sin(rad);
       const iconCy = cy + iconOffY * Math.cos(rad);
       const iconImg = await loadStagePlotIconImage(item.type, hex);
       if (iconImg) {
-        drawImageRotated(doc, iconImg, iconCx, iconCy, iconBox, iconBox, rotation);
+        drawImageRotated(doc, iconImg, iconCx, iconCy, iconBoxW, iconBoxH, rotation);
       } else {
         const pathD = getStagePlotSilhouettePath(item.type);
         if (pathD) {
@@ -676,8 +679,8 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
             pathD,
             iconCx,
             iconCy,
-            iconBox,
-            iconBox,
+            iconBoxW,
+            iconBoxH,
             rotation,
             rgb,
           );
@@ -685,10 +688,10 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
           doc.setFillColor(rgb.r, rgb.g, rgb.b);
           doc.setDrawColor(30);
           doc.rect(
-            iconCx - iconBox / 2,
-            iconCy - iconBox / 2,
-            iconBox,
-            iconBox,
+            iconCx - iconBoxW / 2,
+            iconCy - iconBoxH / 2,
+            iconBoxW,
+            iconBoxH,
             "FD",
           );
         }
@@ -846,8 +849,10 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
 
     if (stagePlotItemHasInstrumentFootprint(item.type)) {
       const fp = stagePlotInstrumentFootprintLayout();
-      const iconBox = fp.iconBoxPx * scale * itemScale;
-      const iconOffY = fp.iconOffsetY * scale * itemScale;
+      const { scaleX: sx, scaleY: sy } = stagePlotItemAxisScales(item);
+      const iconBoxW = fp.iconBoxPx * scale * sx;
+      const iconBoxH = fp.iconBoxPx * scale * sy;
+      const iconOffY = fp.iconOffsetY * scale * sy;
       const rad = (rotation * Math.PI) / 180;
       const iconCx = cx - iconOffY * Math.sin(rad);
       const iconCy = cy + iconOffY * Math.cos(rad);
@@ -858,8 +863,8 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
           iconImg,
           iconCx,
           iconCy,
-          iconBox,
-          iconBox,
+          iconBoxW,
+          iconBoxH,
           rotation,
         );
       } else {
@@ -870,8 +875,8 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
             pathD,
             iconCx,
             iconCy,
-            iconBox,
-            iconBox,
+            iconBoxW,
+            iconBoxH,
             rotation,
             rgb,
           );
@@ -882,8 +887,8 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
           ctx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
           ctx.strokeStyle = "#1e293b";
           ctx.lineWidth = 1;
-          ctx.fillRect(-iconBox / 2, -iconBox / 2, iconBox, iconBox);
-          ctx.strokeRect(-iconBox / 2, -iconBox / 2, iconBox, iconBox);
+          ctx.fillRect(-iconBoxW / 2, -iconBoxH / 2, iconBoxW, iconBoxH);
+          ctx.strokeRect(-iconBoxW / 2, -iconBoxH / 2, iconBoxW, iconBoxH);
           ctx.restore();
         }
       }

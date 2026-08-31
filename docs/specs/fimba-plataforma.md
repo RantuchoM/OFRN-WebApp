@@ -18,6 +18,7 @@ FIMBA es una aplicación de festival con skin propia bajo `/fimba/*`, que reutil
 | `eventos.asientos_equipaje` | Asientos de **equipaje** del evento/parada (no headcount de pasajeros). Legacy `# PAX` / `audiencia` se mantiene en sync. |
 | `eventos.observaciones_equipaje` | Notas de equipaje del evento (antes `Obs:` en `descripcion`) |
 | `eventos.observaciones_internas` | HTML rich-text **staff-only** (editores/técnicos OFRN; FIMBA `canEditPropuestaMeta`). Imágenes → bucket `eventos-internas` path `eventos/{id|draft}/…`. **No** en consulta FIMBA, tokens `/a` `/e` `/c`, ni exports públicos. UI: `FimbaRichTextEditor` en `FimbaEventoFormModal` + `EventForm` OFRN. |
+| `eventos.observaciones_aforo` | Texto libre de **aforo del espectáculo** (por concierto `id_tipo_evento = 1`, no por locación). Distinto de `locaciones.capacidad` (número) y de `fimba_venue_info.observaciones` (metadata venue por edición). UI: columna inline en `FimbaVenuesPage` espectáculos + `FimbaEventoFormModal` (concierto) + `EventForm` OFRN. Consulta RO. |
 | `eventos.descripcion` | Campo OFRN compartido. En FIMBA: encode de **Detalle** (HTML rich-text, misma UX contentEditable B/I/U que `EventForm`) + líneas `Destino:` / `Vuelo:`. UI: `FimbaEventDetalleEditor` en `FimbaEventoFormModal`. |
 | `eventos_fimba_propuestas` | Tags artista ↔ evento |
 | `fimba_evento_transportes` | Plazas FIMBA de un **trayecto** sobre una **unidad de flota** (`giras_transportes`) (legacy / asignación modal; residual sintético de boarding) |
@@ -479,6 +480,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Hotelería: **Editar datos** por tarjeta = `FimbaArtistaMetaSection` (autosave) + cupos; `refreshRow` post-save; gate `canEditPropuestaMeta`
 - [x] Ficha artista + token edición: panel **Hotelería / rooming** (`FimbaRoomingPanel`); consulta token RO
 - [x] **Venues** `/fimba/edicion/:id/venues`: conciertos por locación (scope gira edición), metadata operativa por edición (`fimba_venue_info`), stage plot; consulta RO + Ver escenario. Redirect legacy `/espacios` → `/venues`.
+- [x] **Observaciones aforo** (`eventos.observaciones_aforo`): por concierto; inline en Venues + `FimbaEventoFormModal` + `EventForm` OFRN; migración `20260831123130` Local = Remote
 
 ### UI tokens
 
@@ -586,6 +588,8 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | Nombre | `locaciones.nombre` | Editable (catálogo compartido) |
 | Dirección | `locaciones.direccion` | Editable |
 | Localidad | `locaciones` → `localidades` | Solo lectura |
+| Aforo | `locaciones.capacidad` | Cantidad de personas; editable (catálogo compartido); no en `fimba_venue_info` |
+| Observaciones aforo (espectáculo) | `eventos.observaciones_aforo` | Por concierto; editable inline en tabla de espectáculos; RO en consulta |
 | Referente | `fimba_venue_info.referente_nombre` | Por edición + locación |
 | Teléfono referente | `fimba_venue_info.referente_telefono` | |
 | Rider disponible | `fimba_venue_info.rider_disponible` | Texto libre (sí/no/enlace) |
@@ -596,19 +600,19 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | Agenda | link | `/fimba/edicion/:id/agenda?locacion=:id_locacion` |
 
 5. Medidas de escenario en header: `locaciones.escenario_ancho_cm` × `escenario_profundo_cm`.
-6. Por espectáculo: fecha/hora, actividad, bloque repertorio, artistas taggeados, grupos OFRN.
+6. Por espectáculo: fecha/hora, actividad, bloque repertorio, artistas taggeados, grupos OFRN, **observaciones aforo** (`eventos.observaciones_aforo`; autosave inline si `!readOnly`).
 7. Filtros: fecha desde/hasta, locación.
 8. Acciones por espectáculo:
    - **Ver escenario** → `StagePlotViewerModal`.
    - **Editar escenario** (solo staff OFRN `isManagement`) → Giras → Seating → Escenario.
-   - **Editar evento** → `FimbaEventoFormModal` (staff no RO).
+   - **Editar evento** → `FimbaEventoFormModal` (staff no RO; incluye obs. aforo si tipo concierto).
 9. Autosave debounced + semáforo en `FimbaVenueInfoSection` (patrón meta artista).
 10. **Permisos edición venue info:** `!readOnly` — OFRN management, `editor_general` FIMBA; consulta (user/token `/c`) y OFRN con fila `fimba_usuarios.consulta` = solo lectura.
 11. **Sin** estado de venue (`id_estado_venue`, `eventos_venue_log`) en esta vista.
 
-**Servicios:** `listFimbaConcertVenues`, `listFimbaVenueInfo`, `upsertFimbaVenueInfo`, `updateLocacionBasics` en `fimbaService.js`. UI: `FimbaVenuesPage.jsx`, `FimbaVenueInfoSection.jsx`. Helpers: `src/utils/venueDisplayUtils.js`.
+**Servicios:** `listFimbaConcertVenues` (incluye `locaciones.capacidad` + `observaciones_aforo`), `listFimbaVenueInfo`, `upsertFimbaVenueInfo`, `updateLocacionBasics` (nombre / dirección / **capacidad**), `updateEventoObservacionesAforo` en `fimbaService.js`. UI: `FimbaVenuesPage.jsx`, `FimbaVenueInfoSection.jsx`. Helpers: `src/utils/venueDisplayUtils.js`.
 
-**Migración:** `20260827230000_fimba_venue_info.sql` — tabla `fimba_venue_info` (`id_edicion`, `id_locacion` unique).
+**Migraciones:** `20260827230000_fimba_venue_info.sql` — tabla `fimba_venue_info` (`id_edicion`, `id_locacion` unique). `20260831123130_eventos_observaciones_aforo.sql` — `eventos.observaciones_aforo` text (Local = Remote).
 
 ### Contrataciones
 
@@ -685,6 +689,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/utils/eventosInternas.js` | Vacío/sanitize allowlist bucket `eventos-internas` |
 | `src/services/eventosInternasService.js` | Upload imágenes path `eventos/{id|draft}/…` |
 | `supabase/migrations/20260826140000_eventos_observaciones_internas.sql` | Columna + bucket `eventos-internas` (Local = Remote) |
+| `supabase/migrations/20260831123130_eventos_observaciones_aforo.sql` | `eventos.observaciones_aforo` text (Local = Remote) |
 | `src/components/forms/EventForm.jsx` | OFRN: campo Observaciones internas (mismo Quill + bucket) |
 | `src/services/fimbaService.js` | … + `duplicateFimbaEvento` (shell+tags+flota; sin boarding rides) |
 | `src/views/Giras/StopRulesManager.jsx` | Reglas `giras_logistica_rutas`; cierra rides abiertos; lista a bordo + **Bajar todo**/Bajar; confirms z-110 embedded |
@@ -738,6 +743,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | **20260813120000** | `fimba_propuestas_rider` | Local = Remote (deploy linked) |
 | **20260824152341** | `fimba_propuestas_requiere_hotel_comidas` | Local = Remote (deploy linked) |
 | **20260825084834** | `fimba_equipaje_asientos_obs` | Local = Remote (SQL linked + repair applied) |
+| **20260831123130** | `eventos_observaciones_aforo` | Local = Remote (`db push` + `migration list` OK) |
 
 ### Auth usuarios FIMBA — cómo usar
 

@@ -570,6 +570,24 @@ export default function EventForm({
           </label>
         )}
 
+        {Number(formData.id_tipo_evento) === 1 && (
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+              Observaciones aforo
+            </label>
+            <textarea
+              rows={3}
+              className="w-full border border-slate-300 rounded-lg p-2 text-sm resize-y focus:ring-2 focus:ring-indigo-500 outline-none"
+              placeholder="Notas de aforo de este espectáculo…"
+              value={formData.observaciones_aforo || ""}
+              onChange={(e) => handleChange("observaciones_aforo", e.target.value)}
+            />
+            <p className="text-[9px] text-slate-400">
+              Por concierto (no por sala). Distinto del aforo numérico de la locación.
+            </p>
+          </div>
+        )}
+
         {(isEditor || isManagement) && (
           <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
             <label className="flex items-center gap-3 cursor-pointer select-none group">

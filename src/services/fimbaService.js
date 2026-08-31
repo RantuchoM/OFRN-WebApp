@@ -643,6 +643,7 @@ export async function listFimbaConcertVenues(edicionId) {
         hora_inicio,
         hora_fin,
         descripcion,
+        observaciones_aforo,
         id_tipo_evento,
         id_gira,
         id_locacion,
@@ -651,6 +652,7 @@ export async function listFimbaConcertVenues(edicionId) {
           id,
           nombre,
           direccion,
+          capacidad,
           telefono,
           escenario_ancho_cm,
           escenario_profundo_cm,
@@ -700,6 +702,29 @@ export async function listFimbaVenueInfo(edicionId) {
  * @param {number|string} idLocacion
  * @param {object} patch
  */
+/**
+ * Actualiza observaciones de aforo de un concierto (`eventos.observaciones_aforo`).
+ * @param {number|string} eventoId
+ * @param {string|null|undefined} text
+ */
+export async function updateEventoObservacionesAforo(eventoId, text) {
+  if (eventoId == null || eventoId === "") {
+    return { evento: null, error: new Error("id de evento requerido") };
+  }
+  const value = String(text ?? "").trim() || null;
+  const { data, error } = await supabase
+    .from("eventos")
+    .update({
+      observaciones_aforo: value,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", Number(eventoId))
+    .select("id, observaciones_aforo")
+    .single();
+  if (error) return { evento: null, error };
+  return { evento: data, error: null };
+}
+
 export async function upsertFimbaVenueInfo(edicionId, idLocacion, patch) {
   if (edicionId == null || edicionId === "" || idLocacion == null || idLocacion === "") {
     return { venueInfo: null, error: new Error("edición y locación requeridas") };
@@ -724,9 +749,9 @@ export async function upsertFimbaVenueInfo(edicionId, idLocacion, patch) {
 }
 
 /**
- * Actualiza nombre/dirección de locación (catálogo compartido).
+ * Actualiza nombre/dirección/aforo de locación (catálogo compartido).
  * @param {number|string} idLocacion
- * @param {{ nombre?: string, direccion?: string }} patch
+ * @param {{ nombre?: string, direccion?: string, capacidad?: number|string|null }} patch
  */
 export async function updateLocacionBasics(idLocacion, patch) {
   if (idLocacion == null || idLocacion === "") {
@@ -741,6 +766,18 @@ export async function updateLocacionBasics(idLocacion, patch) {
   if (patch.direccion != null) {
     payload.direccion = String(patch.direccion).trim() || null;
   }
+  if (patch.capacidad !== undefined) {
+    const raw = patch.capacidad;
+    if (raw == null || String(raw).trim() === "") {
+      payload.capacidad = null;
+    } else {
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+        return { locacion: null, error: new Error("El aforo debe ser un entero ≥ 0") };
+      }
+      payload.capacidad = n;
+    }
+  }
   if (Object.keys(payload).length === 0) {
     return { locacion: null, error: new Error("Sin cambios") };
   }
@@ -748,7 +785,7 @@ export async function updateLocacionBasics(idLocacion, patch) {
     .from("locaciones")
     .update(payload)
     .eq("id", idLocacion)
-    .select("id, nombre, direccion")
+    .select("id, nombre, direccion, capacidad")
     .single();
   return { locacion: data, error };
 }
@@ -3019,7 +3056,7 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
   const { data: eventosRaw, error: eEvt } = await supabase
     .from("eventos")
     .select(
-      "id, id_gira, id_tipo_evento, id_locacion, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, observaciones_internas, audiencia_ofrn, id_gira_transporte, visible_agenda, is_deleted, tipos_evento ( id, nombre, color, id_categoria, categorias_tipos_eventos ( id, nombre ) ), locaciones ( id, nombre, direccion, localidades ( id, localidad, id_region ) ), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )",
+      "id, id_gira, id_tipo_evento, id_locacion, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, observaciones_internas, observaciones_aforo, audiencia_ofrn, id_gira_transporte, visible_agenda, is_deleted, tipos_evento ( id, nombre, color, id_categoria, categorias_tipos_eventos ( id, nombre ) ), locaciones ( id, nombre, direccion, localidades ( id, localidad, id_region ) ), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )",
     )
     .in("id", eventIds)
     .eq("id_gira", edicion.id_gira)
@@ -4436,6 +4473,11 @@ export async function saveFimbaEvento(payload) {
     );
   }
 
+  if (Object.prototype.hasOwnProperty.call(payload, "observaciones_aforo")) {
+    row.observaciones_aforo =
+      String(payload.observaciones_aforo ?? "").trim() || null;
+  }
+
   // Locación opcional (destino de planilla / parada). null limpia; omitir en payload no toca en edit.
   if (Object.prototype.hasOwnProperty.call(payload, "id_locacion")) {
     const locRaw = payload.id_locacion;
@@ -4463,7 +4505,7 @@ export async function saveFimbaEvento(payload) {
       .update(row)
       .eq("id", Number(payload.id))
       .select(
-        "id, id_gira, id_tipo_evento, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, observaciones_internas, audiencia_ofrn, id_gira_transporte",
+        "id, id_gira, id_tipo_evento, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, observaciones_internas, observaciones_aforo, audiencia_ofrn, id_gira_transporte",
       )
       .single());
   } else {
@@ -4471,7 +4513,7 @@ export async function saveFimbaEvento(payload) {
       .from("eventos")
       .insert(row)
       .select(
-        "id, id_gira, id_tipo_evento, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, observaciones_internas, audiencia_ofrn, id_gira_transporte",
+        "id, id_gira, id_tipo_evento, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, observaciones_internas, observaciones_aforo, audiencia_ofrn, id_gira_transporte",
       )
       .single());
   }
@@ -4625,6 +4667,10 @@ export async function duplicateFimbaEvento(source, opts = {}) {
     observaciones_internas: normalizeEventosInternasHtml(
       source.observaciones_internas,
     ),
+    observaciones_aforo:
+      Number.isFinite(tipoId) && tipoId === 1
+        ? String(source.observaciones_aforo ?? "").trim() || null
+        : undefined,
     sin_servicio: usaTx ? sinServicio : true,
     usa_transporte: usaTx,
     vehiculos: sinServicio || !usaTx ? [] : vehiculos,

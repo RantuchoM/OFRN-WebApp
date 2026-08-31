@@ -2,11 +2,13 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
 import { format, startOfDay } from "date-fns";
+import { toast } from "sonner";
 import {
   IconArrowLeft,
   IconChevronDown,
@@ -26,6 +28,7 @@ import {
   listFimbaFlota,
   listFimbaPropuestas,
   listFimbaVenueInfo,
+  updateEventoObservacionesAforo,
 } from "../../services/fimbaService";
 import { supabase } from "../../services/supabase";
 import { useAuth } from "../../context/AuthContext";
@@ -70,12 +73,100 @@ function FimbaArtistaChips({ artistas }) {
   );
 }
 
+function FimbaVenueAforoCell({
+  eventoId,
+  value,
+  readOnly,
+  onSaved,
+}) {
+  const [draft, setDraft] = useState(() => value || "");
+  const [saving, setSaving] = useState(false);
+  const lastSavedRef = useRef(String(value || "").trim());
+  const timerRef = useRef(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+
+  useEffect(() => {
+    const next = value || "";
+    setDraft(next);
+    lastSavedRef.current = String(next).trim();
+  }, [eventoId, value]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const persist = useCallback(async () => {
+    const trimmed = String(draftRef.current || "").trim();
+    if (trimmed === lastSavedRef.current) return;
+    setSaving(true);
+    const { evento, error } = await updateEventoObservacionesAforo(
+      eventoId,
+      trimmed,
+    );
+    setSaving(false);
+    if (error) {
+      toast.error(error.message || "No se pudo guardar observaciones aforo");
+      return;
+    }
+    lastSavedRef.current = String(evento?.observaciones_aforo || "").trim();
+    onSaved?.(eventoId, evento?.observaciones_aforo || null);
+  }, [eventoId, onSaved]);
+
+  const onChange = (e) => {
+    const next = e.target.value;
+    setDraft(next);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      void persist();
+    }, 600);
+  };
+
+  if (readOnly) {
+    const text = String(value || "").trim();
+    return text ? (
+      <p style={{ margin: 0, fontSize: "0.78rem", whiteSpace: "pre-wrap" }}>
+        {text}
+      </p>
+    ) : (
+      <span className="fimba-muted" style={{ fontSize: "0.72rem", fontStyle: "italic" }}>
+        —
+      </span>
+    );
+  }
+
+  return (
+    <div style={{ minWidth: "10rem", maxWidth: "16rem" }}>
+      <textarea
+        className="fimba-input"
+        rows={2}
+        value={draft}
+        onChange={onChange}
+        onBlur={() => {
+          if (timerRef.current) clearTimeout(timerRef.current);
+          void persist();
+        }}
+        placeholder="Obs. aforo…"
+        style={{ resize: "vertical", fontSize: "0.78rem", width: "100%" }}
+      />
+      {saving && (
+        <span className="fimba-muted" style={{ fontSize: "0.65rem" }}>
+          Guardando…
+        </span>
+      )}
+    </div>
+  );
+}
+
 function FimbaVenueEventRow({
   evt,
   readOnly,
   showStagePlotEditorLink,
   onViewStagePlot,
   onEditEvent,
+  onAforoSaved,
 }) {
   const fechaFormatted = formatVenueEventDate(evt.fecha);
   const hora = evt.hora_inicio ? evt.hora_inicio.slice(0, 5) : "";
@@ -133,6 +224,14 @@ function FimbaVenueEventRow({
         ) : (
           <span className="fimba-muted" style={{ fontSize: "0.72rem" }}>—</span>
         )}
+      </td>
+      <td className="fimba-planilla-wrap">
+        <FimbaVenueAforoCell
+          eventoId={evt.id}
+          value={evt.observaciones_aforo}
+          readOnly={readOnly}
+          onSaved={onAforoSaved}
+        />
       </td>
       <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
         <div style={{ display: "inline-flex", gap: "0.15rem" }}>
@@ -307,6 +406,10 @@ export default function FimbaVenuesPage() {
   }, []);
 
   const handleVenueInfoSaved = useCallback((locId, draft) => {
+    const capacidadParsed =
+      draft.capacidad == null || String(draft.capacidad).trim() === ""
+        ? null
+        : Number(draft.capacidad);
     setEvents((prev) =>
       prev.map((evt) => {
         const loc = evt.locaciones;
@@ -317,6 +420,7 @@ export default function FimbaVenuesPage() {
             ...loc,
             nombre: draft.nombre,
             direccion: draft.direccion,
+            capacidad: Number.isFinite(capacidadParsed) ? capacidadParsed : null,
           },
         };
       }),
@@ -341,6 +445,16 @@ export default function FimbaVenuesPage() {
       return [...prev, patch];
     });
   }, [edicionId]);
+
+  const handleAforoSaved = useCallback((eventoId, observacionesAforo) => {
+    setEvents((prev) =>
+      prev.map((evt) =>
+        evt.id === eventoId
+          ? { ...evt, observaciones_aforo: observacionesAforo }
+          : evt,
+      ),
+    );
+  }, []);
 
   const openEditEvent = useCallback(
     (evt) => {
@@ -540,6 +654,7 @@ export default function FimbaVenuesPage() {
                               <th>Actividad</th>
                               <th>Artistas</th>
                               <th>Grupos OFRN</th>
+                              <th>Obs. aforo</th>
                               <th style={{ textAlign: "right" }}>Acciones</th>
                             </tr>
                           </thead>
@@ -552,6 +667,7 @@ export default function FimbaVenuesPage() {
                                 showStagePlotEditorLink={isManagement}
                                 onViewStagePlot={setStagePlotViewerEvent}
                                 onEditEvent={openEditEvent}
+                                onAforoSaved={handleAforoSaved}
                               />
                             ))}
                           </tbody>

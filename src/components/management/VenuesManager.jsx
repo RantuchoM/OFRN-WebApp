@@ -435,7 +435,7 @@ export function VenuesManager({ supabase }) {
       const { data, error } = await supabase
         .from("eventos")
         .select(
-          "id, descripcion, observaciones_internas, fecha, hora_inicio, hora_fin, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, tecnica, id_estado_venue",
+          "id, descripcion, observaciones_internas, observaciones_aforo, fecha, hora_inicio, hora_fin, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, tecnica, id_estado_venue",
         )
         .eq("id", evt.id)
         .single();
@@ -481,6 +481,10 @@ export function VenuesManager({ supabase }) {
         observaciones_internas: normalizeEventosInternasHtml(
           editFormData.observaciones_internas,
         ),
+        observaciones_aforo:
+          Number(editFormData.id_tipo_evento) === 1
+            ? String(editFormData.observaciones_aforo || "").trim() || null
+            : null,
         fecha: editFormData.fecha,
         hora_inicio: editFormData.hora_inicio,
         hora_fin: editFormData.hora_fin || editFormData.hora_inicio,

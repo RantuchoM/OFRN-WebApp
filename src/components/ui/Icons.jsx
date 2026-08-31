@@ -976,6 +976,44 @@ export const IconLockOpen = ({ size = 24, className = "" }) => (
     <path d="M7 11V7a5 5 0 0 1 9.9-1" />
   </svg>
 );
+/** Dimensión horizontal (Ancho): línea de medida con flechas ↔ */
+export const IconDimensionWidth = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <line x1="5" y1="12" x2="19" y2="12" />
+    <polyline points="8 8 4 12 8 16" />
+    <polyline points="16 8 20 12 16 16" />
+  </svg>
+);
+/** Dimensión vertical (Profundo/Alto): línea de medida con flechas ↕ */
+export const IconDimensionHeight = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <polyline points="8 8 12 4 16 8" />
+    <polyline points="8 16 12 20 16 16" />
+  </svg>
+);
 // Flecha diagonal hacia arriba-izquierda (usada a veces para "volver al padre")
 export const IconArrowUpLeft = ({ size = 24, className = "" }) => (
   <svg
