@@ -13,6 +13,7 @@ import {
   IconX,
   IconAlertTriangle,
   IconPencil,
+  IconMerge,
 } from "../../components/ui/Icons";
 import UniversalExporter from "../../components/ui/UniversalExporter";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
@@ -23,6 +24,49 @@ import {
   formatStagePlotSvgMaxChars,
 } from "../../utils/stagePlotSvgSanitize";
 import { reloadStagePlotInstrumentIcons } from "../../services/stagePlotInstrumentIconsService";
+import { mergeLocaciones } from "../../services/mergeLocaciones";
+import { normalizeForSearch } from "../../utils/sanitize";
+
+const COL_WIDTH_STORAGE_PREFIX = "ofrn:universal-table:col-widths:";
+const DEFAULT_COL_WIDTH_BY_TYPE = {
+  text: 168,
+  select: 148,
+  int8: 112,
+  int: 100,
+  number: 100,
+  float: 108,
+  checkbox: 72,
+  color: 96,
+  date: 128,
+  svg: 80,
+};
+const MIN_COL_WIDTH = 72;
+const ID_COL_WIDTH = 88;
+const ACTIONS_COL_WIDTH = 88;
+
+const defaultWidthForCol = (col) => {
+  if (typeof col.width === "number" && col.width > 0) return col.width;
+  return DEFAULT_COL_WIDTH_BY_TYPE[col.type] || 148;
+};
+
+const loadStoredColWidths = (tableName, columns) => {
+  try {
+    const raw = localStorage.getItem(`${COL_WIDTH_STORAGE_PREFIX}${tableName}`);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const allowed = new Set(columns.map((c) => c.key));
+    const out = {};
+    Object.entries(parsed).forEach(([k, v]) => {
+      if (allowed.has(k) && Number.isFinite(Number(v))) {
+        out[k] = Math.max(MIN_COL_WIDTH, Number(v));
+      }
+    });
+    return out;
+  } catch {
+    return {};
+  }
+};
 
 const toDateInputValue = (v) => {
   if (v == null || v === "") return "";
@@ -632,6 +676,265 @@ const SearchableSelect = ({ value, options, onChange, onBlur, className }) => {
   );
 };
 
+// --- Modal: unificar locaciones duplicadas ---
+const MergeLocationPick = ({
+  label,
+  placeholder,
+  options,
+  value,
+  onChange,
+  colorClass,
+  iconColorClass,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapperRef = useRef(null);
+  const selected = options.find((o) => String(o.id) === String(value));
+
+  useEffect(() => {
+    const onDoc = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  useEffect(() => {
+    if (selected) setQuery(selected.label);
+    else if (!value) setQuery("");
+  }, [selected, value]);
+
+  const filtered = options.filter((item) =>
+    normalizeForSearch(item.label).includes(normalizeForSearch(query)),
+  );
+
+  return (
+    <div className="relative" ref={wrapperRef}>
+      <label className={`text-[10px] font-bold uppercase mb-1 block ${colorClass}`}>
+        {label}
+      </label>
+      <div className="relative">
+        <input
+          type="text"
+          className={`w-full p-2.5 pr-8 border rounded-lg text-sm outline-none focus:ring-2 transition-shadow min-h-[44px] ${
+            isOpen ? "ring-2 ring-violet-400 border-violet-300" : "border-slate-200"
+          }`}
+          placeholder={placeholder}
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setIsOpen(true);
+            if (value) onChange("");
+          }}
+          onFocus={() => setIsOpen(true)}
+        />
+        <div
+          className={`absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none ${iconColorClass}`}
+        >
+          {isOpen ? <IconSearch size={14} /> : <IconChevronDown size={14} />}
+        </div>
+      </div>
+      {isOpen && (
+        <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-52 overflow-y-auto z-[110]">
+          {filtered.length > 0 ? (
+            filtered.map((opt) => (
+              <button
+                type="button"
+                key={opt.id}
+                onClick={() => {
+                  onChange(String(opt.id));
+                  setIsOpen(false);
+                  setQuery(opt.label);
+                }}
+                className="w-full text-left p-2.5 text-sm hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-0 text-slate-700"
+              >
+                <span className="font-semibold">{opt.nombre || opt.label}</span>
+                {opt.localidad ? (
+                  <span className="text-slate-400 text-xs ml-1">· {opt.localidad}</span>
+                ) : null}
+                <span className="text-slate-300 text-[10px] font-mono ml-1">#{opt.id}</span>
+              </button>
+            ))
+          ) : (
+            <div className="p-3 text-xs text-slate-400 text-center italic">
+              Sin coincidencias
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const MergeLocationsModal = ({
+  isOpen,
+  onClose,
+  locations,
+  localidadOptions,
+  supabase,
+  onMergeSuccess,
+}) => {
+  const { confirm, dialog } = useConfirmDialog();
+  const [sourceId, setSourceId] = useState("");
+  const [targetId, setTargetId] = useState("");
+  const [merging, setMerging] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSourceId("");
+      setTargetId("");
+      setMerging(false);
+    }
+  }, [isOpen]);
+
+  const options = useMemo(() => {
+    const locLabel = (id) => {
+      const opt = localidadOptions?.find((o) => String(o.value) === String(id));
+      return opt?.label || "";
+    };
+    return [...locations]
+      .filter((l) => l?.id != null && !String(l.id).startsWith("temp-"))
+      .map((l) => {
+        const localidad = locLabel(l.id_localidad);
+        const nombre = l.nombre || "(sin nombre)";
+        return {
+          id: l.id,
+          nombre,
+          localidad,
+          label: `${nombre}${localidad ? ` · ${localidad}` : ""} (#${l.id})`,
+        };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label, "es"));
+  }, [locations, localidadOptions]);
+
+  if (!isOpen) return null;
+
+  const handleMerge = async () => {
+    if (!sourceId || !targetId) {
+      alert("Seleccioná ambas locaciones.");
+      return;
+    }
+    if (String(sourceId) === String(targetId)) {
+      alert("No podés fusionar una locación consigo misma.");
+      return;
+    }
+
+    if (
+      !(await confirm({
+        title: "Unificar locaciones",
+        message:
+          "ESTA ACCIÓN ES IRREVERSIBLE.\n\nSe eliminará la locación duplicada y todas las referencias (eventos, comidas, plantillas, domicilio laboral, FIMBA venue info, hotel espejo) pasarán a la locación destino.\n\n¿Continuar?",
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
+
+    setMerging(true);
+    try {
+      const result = await mergeLocaciones(supabase, sourceId, targetId);
+      if (!result.ok) {
+        alert("Error al unificar: " + result.error);
+        return;
+      }
+      alert("Unificación completada.\n\n" + result.summary);
+      onMergeSuccess?.();
+      onClose();
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  const modal = (
+    <>
+      {dialog}
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <button
+          type="button"
+          className="absolute inset-0"
+          aria-label="Cerrar"
+          onClick={onClose}
+        />
+        <div className="relative bg-white w-full max-w-md rounded-xl shadow-2xl p-6 border border-slate-200 flex flex-col max-h-[90vh]">
+          <div className="flex justify-between items-center mb-4 shrink-0">
+            <h3 className="font-black text-slate-800 text-lg uppercase flex items-center gap-2">
+              <IconMerge className="text-violet-600" size={20} /> Unificar
+              locaciones
+            </h3>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-400 hover:text-slate-600 p-1"
+            >
+              <IconX size={20} />
+            </button>
+          </div>
+
+          <div className="space-y-4 bg-violet-50 p-4 rounded-xl border border-violet-100 overflow-visible">
+            <p className="text-xs text-violet-900 mb-2 flex gap-2">
+              <IconAlertTriangle size={16} className="shrink-0" />
+              Elegí el duplicado (se borra) y el destino (se conserva). Las keys
+              en eventos, hoteles, plantillas, comidas, domicilio laboral y
+              FIMBA se remapean.
+            </p>
+
+            <MergeLocationPick
+              label="1. Eliminar (duplicado)"
+              placeholder="Buscar duplicado..."
+              options={options.filter((c) => String(c.id) !== String(targetId))}
+              value={sourceId}
+              onChange={setSourceId}
+              colorClass="text-red-600"
+              iconColorClass="text-red-500"
+            />
+
+            <div className="flex justify-center text-slate-300 font-bold text-xs py-1">
+              ↓ SE FUSIONA EN ↓
+            </div>
+
+            <MergeLocationPick
+              label="2. Mantener (correcta)"
+              placeholder="Buscar destino..."
+              options={options.filter((c) => String(c.id) !== String(sourceId))}
+              value={targetId}
+              onChange={setTargetId}
+              colorClass="text-emerald-700"
+              iconColorClass="text-emerald-500"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 mt-6 shrink-0">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded-lg font-bold min-h-[44px]"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleMerge}
+              disabled={merging || !sourceId || !targetId}
+              className="px-4 py-2 text-sm bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 font-bold shadow-sm flex items-center gap-2 min-h-[44px]"
+            >
+              {merging ? (
+                <IconLoader className="animate-spin" size={14} />
+              ) : (
+                <IconCheck size={14} />
+              )}
+              {merging ? "Unificando…" : "Confirmar unificación"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  return createPortal(modal, document.body);
+};
+
 // --- SUB-COMPONENTE: CELDA EDITABLE ---
 const EditableCell = ({ row, col, rowId, onSave, onOpenRowModal }) => {
   const isDraft = String(row.id).startsWith("temp-");
@@ -639,7 +942,54 @@ const EditableCell = ({ row, col, rowId, onSave, onOpenRowModal }) => {
 
   const [value, setValue] = useState(initialValue);
   const [status, setStatus] = useState("idle"); 
+  const [editBox, setEditBox] = useState(null);
   const inputRef = useRef(null);
+
+  const textStr =
+    value === null || value === undefined ? "" : String(value);
+  const isEditingText =
+    status === "editing" &&
+    !["checkbox", "select", "color", "svg"].includes(col.type) &&
+    !(col.key === "id" && !isDraft);
+
+  useEffect(() => {
+    const nextVal = (col.key === 'id' && isDraft) ? (row._manual_id || "") : row[col.key];
+    setValue(nextVal);
+  }, [row, col.key, isDraft]);
+
+  useEffect(() => {
+    if (!isEditingText) {
+      setEditBox(null);
+      return;
+    }
+    const sync = () => {
+      const wrap = inputRef.current?.parentElement;
+      if (!wrap) return;
+      const r = wrap.getBoundingClientRect();
+      const minW = Math.max(r.width, 220);
+      const contentW = Math.min(
+        window.innerWidth - 24,
+        Math.max(minW, textStr.length * 8 + 40),
+      );
+      let left = r.left;
+      if (left + contentW > window.innerWidth - 12) {
+        left = Math.max(12, window.innerWidth - 12 - contentW);
+      }
+      setEditBox({
+        top: r.top,
+        left,
+        width: contentW,
+        height: Math.max(r.height, 40),
+      });
+    };
+    sync();
+    window.addEventListener("scroll", sync, true);
+    window.addEventListener("resize", sync);
+    return () => {
+      window.removeEventListener("scroll", sync, true);
+      window.removeEventListener("resize", sync);
+    };
+  }, [isEditingText, textStr]);
 
   if (col.key === 'id' && !isDraft) {
       return (
@@ -667,11 +1017,6 @@ const EditableCell = ({ row, col, rowId, onSave, onOpenRowModal }) => {
         </div>
       );
   }
-
-  useEffect(() => {
-    const nextVal = (col.key === 'id' && isDraft) ? (row._manual_id || "") : row[col.key];
-    setValue(nextVal);
-  }, [row, col.key, isDraft]);
 
   const handleSave = async (newValue) => {
     const valToSave = newValue !== undefined ? newValue : value;
@@ -791,25 +1136,65 @@ const EditableCell = ({ row, col, rowId, onSave, onOpenRowModal }) => {
     );
   }
 
-  // 4. TEXTO
+  // 4. TEXTO — al editar, el mismo input pasa a fixed y se ensancha
+  const beginTextEdit = () => {
+    const wrap = inputRef.current?.parentElement;
+    if (wrap) {
+      const r = wrap.getBoundingClientRect();
+      const minW = Math.max(r.width, 220);
+      const contentW = Math.min(
+        window.innerWidth - 24,
+        Math.max(minW, textStr.length * 8 + 40),
+      );
+      let left = r.left;
+      if (left + contentW > window.innerWidth - 12) {
+        left = Math.max(12, window.innerWidth - 12 - contentW);
+      }
+      setEditBox({
+        top: r.top,
+        left,
+        width: contentW,
+        height: Math.max(r.height, 40),
+      });
+    }
+    setStatus("editing");
+  };
+
   return (
-    <input
-      ref={inputRef}
-      type="text"
-      value={value === null || value === undefined ? "" : value}
-      onChange={(e) => {
+    <div className="relative w-full h-full min-h-[44px] md:min-h-[2.25rem]">
+      <input
+        ref={inputRef}
+        type="text"
+        value={textStr}
+        onChange={(e) => {
           setValue(e.target.value);
-          if(isDraft) {
-             const targetKey = col.key === 'id' ? '_manual_id' : col.key;
-             onSave(rowId, targetKey, e.target.value); 
+          if (isDraft) {
+            const targetKey = col.key === "id" ? "_manual_id" : col.key;
+            onSave(rowId, targetKey, e.target.value);
           }
-      }}
-      onFocus={() => setStatus("editing")}
-      onBlur={() => handleSave()}
-      onKeyDown={handleKeyDown}
-      className={`w-full h-full min-h-[44px] md:min-h-0 px-2 py-2 md:py-1.5 bg-transparent border-none outline-none text-sm rounded transition-all ${getStatusClass()}`}
-      placeholder={col.placeholder || "Empty"}
-    />
+        }}
+        onFocus={beginTextEdit}
+        onBlur={() => handleSave()}
+        onKeyDown={handleKeyDown}
+        title={textStr || undefined}
+        placeholder={col.placeholder || "Empty"}
+        className={`border-none outline-none text-sm rounded ${
+          isEditingText && editBox
+            ? "fixed z-[120] px-2.5 py-2 shadow-xl ring-2 ring-indigo-500 bg-white text-slate-800"
+            : `w-full h-full min-h-[44px] md:min-h-0 px-2 py-2 md:py-1.5 bg-transparent truncate ${getStatusClass()}`
+        }`}
+        style={
+          isEditingText && editBox
+            ? {
+                top: editBox.top,
+                left: editBox.left,
+                width: editBox.width,
+                minHeight: editBox.height,
+              }
+            : undefined
+        }
+      />
+    </div>
   );
 };
 
@@ -832,6 +1217,75 @@ export default function UniversalTable({
   const [filters, setFilters] = useState({});
   const [isSavingNew, setIsSavingNew] = useState(false);
   const [modalRowId, setModalRowId] = useState(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [columnWidths, setColumnWidths] = useState(() =>
+    loadStoredColWidths(tableName, columns),
+  );
+  const resizeRef = useRef(null);
+
+  const allowMergeLocaciones = tableName === "locaciones";
+  const localidadOptions = useMemo(
+    () => columns.find((c) => c.key === "id_localidad")?.options || [],
+    [columns],
+  );
+
+  useEffect(() => {
+    setColumnWidths(loadStoredColWidths(tableName, columns));
+  }, [tableName, columns]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        `${COL_WIDTH_STORAGE_PREFIX}${tableName}`,
+        JSON.stringify(columnWidths),
+      );
+    } catch {
+      /* ignore quota */
+    }
+  }, [columnWidths, tableName]);
+
+  const getColWidth = (col) =>
+    columnWidths[col.key] ?? defaultWidthForCol(col);
+
+  const startResize = (e, colKey) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = columnWidths[colKey] ?? defaultWidthForCol(
+      columns.find((c) => c.key === colKey) || { type: "text" },
+    );
+    resizeRef.current = { colKey, startX, startW };
+
+    const onMove = (ev) => {
+      if (!resizeRef.current) return;
+      const delta = ev.clientX - resizeRef.current.startX;
+      const next = Math.max(MIN_COL_WIDTH, resizeRef.current.startW + delta);
+      setColumnWidths((prev) => ({
+        ...prev,
+        [resizeRef.current.colKey]: next,
+      }));
+    };
+    const onUp = () => {
+      resizeRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const tablePixelWidth = useMemo(() => {
+    const colsW = columns.reduce(
+      (sum, col) => sum + (columnWidths[col.key] ?? defaultWidthForCol(col)),
+      0,
+    );
+    const hasId = columns.some((c) => c.key === "id");
+    return colsW + (hasId ? 0 : ID_COL_WIDTH) + ACTIONS_COL_WIDTH;
+  }, [columns, columnWidths]);
 
   const getRowId = (row) =>
     (row?.id != null && String(row.id).startsWith("temp-")) ? row.id : (row?.[primaryKey] ?? row?.id);
@@ -1177,7 +1631,19 @@ export default function UniversalTable({
                 </div>
             )}
         </div>
-        <div className="flex items-center justify-end gap-2 shrink-0 w-full sm:w-auto">
+        <div className="flex items-center justify-end gap-2 shrink-0 w-full sm:w-auto flex-wrap">
+          {allowMergeLocaciones && (
+            <button
+              type="button"
+              onClick={() => setMergeOpen(true)}
+              className="flex items-center justify-center gap-1.5 min-h-[44px] md:min-h-0 px-3 py-2 md:py-1.5 bg-violet-50 text-violet-800 border border-violet-200 rounded-lg text-xs font-bold hover:bg-violet-100 transition-all shadow-sm"
+              title="Combinar locaciones duplicadas y remapear referencias"
+            >
+              <IconMerge size={14} className="shrink-0" />
+              <span className="hidden sm:inline">Unificar locaciones</span>
+              <span className="sm:hidden">Unificar</span>
+            </button>
+          )}
           <UniversalExporter
             data={exportData}
             columns={exportColumns}
@@ -1197,33 +1663,52 @@ export default function UniversalTable({
 
       {/* Tabla: scroll horizontal táctil sin romper el layout del dashboard */}
       <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
-        <table className="w-max max-w-full text-left border-collapse table-auto">
+        <table
+          className="text-left border-collapse table-fixed"
+          style={{ width: tablePixelWidth, minWidth: tablePixelWidth }}
+        >
+          <colgroup>
+            {!hasExplicitId && <col style={{ width: ID_COL_WIDTH }} />}
+            {columns.map((col) => (
+              <col key={`col-${col.key}`} style={{ width: getColWidth(col) }} />
+            ))}
+            <col style={{ width: ACTIONS_COL_WIDTH }} />
+          </colgroup>
           <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
             <tr>
               {!hasExplicitId && (
-                  <th className="px-2 py-2 text-xs font-bold text-slate-400 uppercase text-center border-b border-slate-200 w-auto">#</th>
+                  <th className="px-2 py-2 text-xs font-bold text-slate-400 uppercase text-center border-b border-slate-200">#</th>
               )}
               {columns.map((col) => (
                 <th
                   key={col.key}
                   onClick={() => handleHeaderClick(col.key)}
-                  className="px-2 py-2 text-xs font-bold text-slate-600 uppercase border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors select-none group align-bottom"
+                  className="relative px-2 py-2 text-xs font-bold text-slate-600 uppercase border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors select-none group align-bottom"
+                  style={{ width: getColWidth(col) }}
                 >
-                  <div className="flex items-center justify-between gap-1">
-                    <span>{col.label}</span>
-                    <span className={`text-slate-400 ${sortConfig.key === col.key ? "text-indigo-600" : "opacity-0 group-hover:opacity-50"}`}>
+                  <div className="flex items-center justify-between gap-1 pr-2 min-w-0">
+                    <span className="truncate">{col.label}</span>
+                    <span className={`shrink-0 text-slate-400 ${sortConfig.key === col.key ? "text-indigo-600" : "opacity-0 group-hover:opacity-50"}`}>
                       {sortConfig.key === col.key && sortConfig.direction === "desc" ? <IconSortDesc size={14} /> : <IconSortAsc size={14} />}
                     </span>
                   </div>
+                  <span
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={`Redimensionar columna ${col.label}`}
+                    onMouseDown={(e) => startResize(e, col.key)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400/50 active:bg-indigo-500/60 z-20"
+                  />
                 </th>
               ))}
-              <th className="px-2 py-2 text-center border-b border-slate-200 text-xs font-bold text-slate-400 uppercase w-auto">Acciones</th>
+              <th className="px-2 py-2 text-center border-b border-slate-200 text-xs font-bold text-slate-400 uppercase">Acciones</th>
             </tr>
             {/* Filtros */}
             <tr className="bg-white">
                {!hasExplicitId && <th className="p-1 border-b border-slate-100 bg-slate-50/50"></th>}
               {columns.map((col) => (
-                <th key={`filter-${col.key}`} className="p-1 border-b border-slate-100 bg-slate-50/50 align-top">
+                <th key={`filter-${col.key}`} className="p-1 border-b border-slate-100 bg-slate-50/50 align-top overflow-hidden">
                   <div className="relative">
                     <input
                       type="text"
@@ -1254,7 +1739,7 @@ export default function UniversalTable({
                   <tr key={rowId} className={rowClass}>
                     {/* ID Auto-generado visual (solo si no es explícito) */}
                     {!hasExplicitId && (
-                        <td className="px-1 py-1 text-center align-middle">
+                        <td className="px-1 py-1 text-center align-middle overflow-hidden">
                           <div className="flex items-center justify-center gap-0.5 min-w-0">
                             <span className="text-[10px] text-slate-300 font-mono tabular-nums truncate max-w-[5rem]">
                               {isDraft ? (
@@ -1282,7 +1767,8 @@ export default function UniversalTable({
                     {columns.map((col) => (
                       <td
                         key={`${rowId}-${col.key}`}
-                        className="px-1 py-1 align-top min-h-[44px] md:h-10"
+                        className="px-1 py-1 align-top min-h-[44px] md:h-10 overflow-visible relative"
+                        style={{ width: getColWidth(col), maxWidth: getColWidth(col) }}
                       >
                         <EditableCell
                           row={row}
@@ -1294,7 +1780,7 @@ export default function UniversalTable({
                       </td>
                     ))}
                     
-                    <td className="px-2 py-1 text-center align-middle w-auto">
+                    <td className="px-2 py-1 text-center align-middle overflow-hidden">
                       <div className="flex items-center justify-center gap-1">
                           {isDraft ? (
                               <>
@@ -1357,6 +1843,20 @@ export default function UniversalTable({
         getDraftSnapshotFromForm={getDraftSnapshotFromForm}
         isSavingNew={isSavingNew}
       />
+
+      {allowMergeLocaciones && (
+        <MergeLocationsModal
+          isOpen={mergeOpen}
+          onClose={() => setMergeOpen(false)}
+          locations={data}
+          localidadOptions={localidadOptions}
+          supabase={supabase}
+          onMergeSuccess={() => {
+            fetchData();
+            if (onDataChange) onDataChange();
+          }}
+        />
+      )}
     </div>
     </>
   );
