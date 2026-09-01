@@ -65,6 +65,7 @@ import {
 } from "../../../utils/viaticosAnticipo";
 import { parseSupabasePublicStorageUrl } from "../../../utils/supabaseStorage";
 import { buildViaticosLogisticsMap, resolveViaticoRowLogData } from "../../../utils/viaticosLogisticsSchedule";
+import { resolveCheckPatenteOficial } from "../../../utils/transporteOficial";
 import {
   collectMotivoLugarWarningsForExport,
   formatMotivoLugarWarningMessage,
@@ -1474,8 +1475,10 @@ const collectTransportSupportDocs = (personData) => {
         rich.check_aereo = massConfig.check_aereo ?? false;
         rich.check_terrestre = massConfig.check_terrestre ?? false;
         rich.check_otros = massConfig.check_otros ?? false;
-        rich.check_patente_oficial =
-          massConfig.check_patente_oficial ?? p.check_patente_oficial ?? false;
+        rich.check_patente_oficial = resolveCheckPatenteOficial(
+          massConfig.check_patente_oficial ?? p.check_patente_oficial,
+          p.travelData?.es_oficial,
+        );
         rich.patente_oficial =
           patenteOficialFromMass ||
           patenteOficialFromPerson ||
@@ -1722,6 +1725,10 @@ const collectTransportSupportDocs = (personData) => {
           subtotal: effectiveSubtotal,
           totalFinal: totalFinalNorm,
           patente_oficial: patenteOficialFromRow || patenteOficialFromLogistics,
+          check_patente_oficial: resolveCheckPatenteOficial(
+            row.check_patente_oficial,
+            logData?.es_oficial,
+          ),
           documentacion: person.documentacion || row.documentacion,
           docred: person.docred || row.docred,
           link_declaracion:

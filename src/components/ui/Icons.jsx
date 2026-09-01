@@ -1600,6 +1600,27 @@ export const IconCheckCircle = ({ size = 24, className = "" }) => (
     <polyline points="22 4 12 14.01 9 11.01" />
   </svg>
 );
+
+/** Check de verificación estilo Instagram (círculo relleno + tilde). Color vía currentColor. */
+export const IconVerifiedBadge = ({ size = 16, className = "" }) => (
+  <svg
+    className={className}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="12" fill="currentColor" />
+    <path
+      d="M7.2 12.4l3.1 3.1 6.5-6.6"
+      fill="none"
+      stroke="#fff"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 export const IconAtSign = ({ size = 24, className = "" }) => (
   <svg
     className={className}

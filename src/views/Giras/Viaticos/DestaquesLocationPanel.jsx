@@ -22,6 +22,8 @@ import {
     mergeTravelPreferringLocality,
     findBestRouteRule,
 } from "../../../utils/viaticosLogisticsSchedule";
+import { isTransporteOficial, resolveCheckPatenteOficial } from "../../../utils/transporteOficial";
+import TransporteOficialBadge from "../../../components/giras/transport/TransporteOficialBadge";
 import { calculateDaysDiff } from "../../../utils/viaticosDiasComputables";
 import DiasComputablesHelp from "./DiasComputablesHelp";
 import {
@@ -269,14 +271,24 @@ const LiveMassiveValuesForm = ({
     const isFallbackField = (field) =>
         !isGeneral && !hasOwnDestaqueValue(localConfig, field);
 
-    const resolveLogistics = (field) =>
-        isGeneral
+    const resolveLogistics = (field) => {
+        const stored = isGeneral
             ? (localConfig[field] ?? (field.startsWith("check_") ? false : ""))
             : resolveDestaqueLogisticsField(
                   localConfig,
                   destaquesGeneralConfig,
                   field,
               );
+        if (field === "check_patente_oficial") {
+            return resolveCheckPatenteOficial(stored, logisticsInfo?.es_oficial);
+        }
+        if (field === "patente_oficial") {
+            const fromStored = String(stored || "").trim();
+            if (fromStored) return fromStored;
+            return String(logisticsInfo?.patente || "").trim();
+        }
+        return stored;
+    };
 
     const isLogisticsFallback = (field) => isFallbackField(field);
 
@@ -536,12 +548,20 @@ const LiveMassiveValuesForm = ({
                     <label
                         className={`flex items-center gap-1 cursor-pointer font-bold rounded px-1 ${logisticsFallbackClass("check_patente_oficial")} ${isLogisticsFallback("check_patente_oficial") ? "" : "text-slate-600"}`}
                         style={logisticsFallbackStyle("check_patente_oficial")}
-                        title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
+                        title={
+                            logisticsInfo?.es_oficial
+                                ? "Marcado automáticamente: vehículo oficial"
+                                : !isGeneral
+                                  ? "Doble clic para volver al valor general"
+                                  : undefined
+                        }
                     >
                         <input
                             type="checkbox"
                             checked={!!resolveLogistics("check_patente_oficial")}
+                            disabled={!!logisticsInfo?.es_oficial}
                             onChange={(e) =>
+                                !logisticsInfo?.es_oficial &&
                                 handleLogisticsCheckChange(
                                     "check_patente_oficial",
                                     e.target.checked,
@@ -553,6 +573,10 @@ const LiveMassiveValuesForm = ({
                             className="rounded text-indigo-600"
                         />
                         OFICIAL
+                        <TransporteOficialBadge
+                            visible={!!logisticsInfo?.es_oficial}
+                            size={11}
+                        />
                     </label>
                     <InheritFromGeneralButton
                         visible={hasLocalOverride("check_patente_oficial")}
@@ -786,6 +810,14 @@ const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, 
         fechaLlegadaIso: llegadaIso,
         horaLlegadaIso: hInfo?.hora_llegada,
         dias: calculatedDays || locationConfig?.backup_dias_computables || 0,
+        patente:
+            group.headerInfo?.patente ||
+            group.people.find((p) => p.travelData?.patente)?.travelData?.patente ||
+            "",
+        es_oficial: Boolean(
+            group.headerInfo?.es_oficial ||
+                group.people.some((p) => p.travelData?.es_oficial),
+        ),
     };
 
     const countIndividuals = group.people.filter(p => p.hasIndividual).length;
@@ -871,8 +903,12 @@ const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, 
                                 <span>días</span>
                             </div>
 
-                            <div className="text-slate-400 flex items-center gap-1 truncate max-w-[150px]">
+                            <div className="text-slate-400 flex items-center gap-1 truncate max-w-[170px]">
                                 <IconBus size={10} /> {group.headerInfo.transporte}
+                                <TransporteOficialBadge
+                                    visible={!!logisticsInfo.es_oficial}
+                                    size={11}
+                                />
                             </div>
                         </div>
                     ) : (
@@ -1006,7 +1042,9 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
                     hora_llegada: evtLlegada?.hora_inicio ? evtLlegada.hora_inicio.slice(0,5) : null,
                     fecha_llegada: evtLlegada?.fecha ? formatDateVisual(evtLlegada.fecha) : null,
                     fecha_llegada_iso: evtLlegada?.fecha || null,
-                    transporte: `${tNombre}${tDetalle}`.trim() 
+                    transporte: `${tNombre}${tDetalle}`.trim(),
+                    patente: bus?.transportes?.patente || bus?.patente || "",
+                    es_oficial: isTransporteOficial(bus),
                 };
             };
 

@@ -325,6 +325,7 @@ export const calculateLogisticsSummary = (
         nombre: transportMap[tid]?.transportes?.nombre || "Bus",
         detalle: transportMap[tid]?.detalle || "",
         patente: transportMap[tid]?.transportes?.patente || "",
+        es_oficial: transportMap[tid]?.transportes?.es_oficial === true,
         vehicleDocumentation: transportMap[tid]?.transportes?.documentacion || "",
         id_chofer: transportMap[tid]?.id_chofer || null,
         chofer: transportMap[tid]?.chofer || null,
@@ -394,7 +395,7 @@ export function useLogistics(supabase, gira, trigger = 0) {
           supabase
             .from("giras_transportes")
             .select(
-              "*, transportes(nombre, patente, icon, documentacion), chofer:integrantes!giras_transportes_id_chofer_fkey(id, nombre, apellido, dni, link_carnet, link_dni_img)",
+              "*, transportes(nombre, patente, icon, documentacion, es_oficial), chofer:integrantes!giras_transportes_id_chofer_fkey(id, nombre, apellido, dni, link_carnet, link_dni_img)",
             )
             .eq("id_gira", giraId),
           supabase.from("localidades").select("id, localidad, id_region"),

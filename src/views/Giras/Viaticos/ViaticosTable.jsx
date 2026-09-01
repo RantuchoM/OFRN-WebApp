@@ -19,6 +19,8 @@ import {
   resolveLugarComisionAutoForRow,
 } from "../../../utils/viaticosParadasIntegrante";
 import { resolveViaticoRowLogData } from "../../../utils/viaticosLogisticsSchedule";
+import { resolveCheckPatenteOficial } from "../../../utils/transporteOficial";
+import TransporteOficialBadge from "../../../components/giras/transport/TransporteOficialBadge";
 import DiasComputablesHelp from "./DiasComputablesHelp";
 
 // --- HELPERS DE FORMATO ---
@@ -834,6 +836,11 @@ export default function ViaticosTable({
 
                 const transportNameSalida = logData?.transporte_salida;
                 const transportNameLlegada = logData?.transporte_llegada;
+                const esVehiculoOficial = Boolean(logData?.es_oficial);
+                const checkPatenteOficial = resolveCheckPatenteOficial(
+                  row.check_patente_oficial,
+                  esVehiculoOficial,
+                );
 
                 const hasViaticoCustom =
                   row.anticipo_custom != null &&
@@ -1055,8 +1062,14 @@ export default function ViaticosTable({
                           {formatTimeShort(currentHoraSalida)}
                         </span>
                         {transportNameSalida && (
-                          <span className="mt-0.5 text-[8px] bg-white/70 text-slate-500 px-1.5 rounded-full border border-black/5 truncate max-w-[100px]">
-                            {formatTransportName(transportNameSalida)}
+                          <span className="mt-0.5 text-[8px] bg-white/70 text-slate-500 px-1.5 rounded-full border border-black/5 inline-flex items-center gap-0.5 max-w-[110px]">
+                            <span className="truncate">
+                              {formatTransportName(transportNameSalida)}
+                            </span>
+                            <TransporteOficialBadge
+                              visible={esVehiculoOficial}
+                              size={9}
+                            />
                           </span>
                         )}
                         {highlightSalida && (
@@ -1077,8 +1090,14 @@ export default function ViaticosTable({
                           {formatTimeShort(currentHoraLlegada)}
                         </span>
                         {transportNameLlegada && (
-                          <span className="mt-0.5 text-[8px] bg-white/70 text-slate-500 px-1.5 rounded-full border border-black/5 truncate max-w-[100px]">
-                            {formatTransportName(transportNameLlegada)}
+                          <span className="mt-0.5 text-[8px] bg-white/70 text-slate-500 px-1.5 rounded-full border border-black/5 inline-flex items-center gap-0.5 max-w-[110px]">
+                            <span className="truncate">
+                              {formatTransportName(transportNameLlegada)}
+                            </span>
+                            <TransporteOficialBadge
+                              visible={esVehiculoOficial}
+                              size={9}
+                            />
                           </span>
                         )}
                         {highlightLlegada && (
@@ -1229,10 +1248,18 @@ export default function ViaticosTable({
                         </td>
                         <td className="px-2 py-2 border-b border-slate-100">
                           <div className="flex flex-col gap-1 text-[9px]">
-                            <label className="font-bold text-slate-500">
+                            <label
+                              className="font-bold text-slate-500 inline-flex items-center gap-1"
+                              title={
+                                esVehiculoOficial
+                                  ? "Marcado automáticamente: vehículo oficial"
+                                  : undefined
+                              }
+                            >
                               <input
                                 type="checkbox"
-                                checked={row.check_patente_oficial}
+                                checked={checkPatenteOficial}
+                                disabled={esVehiculoOficial}
                                 onChange={(e) =>
                                   onUpdateRow(
                                     row.id,
@@ -1242,9 +1269,17 @@ export default function ViaticosTable({
                                 }
                               />{" "}
                               OFICIAL
+                              <TransporteOficialBadge
+                                visible={esVehiculoOficial}
+                                size={10}
+                              />
                             </label>
-                            <div className="bg-slate-100 px-1 rounded text-center font-mono">
+                            <div className="bg-slate-100 px-1 rounded text-center font-mono inline-flex items-center justify-center gap-0.5">
                               {logData?.patente || "-"}
+                              <TransporteOficialBadge
+                                visible={esVehiculoOficial}
+                                size={10}
+                              />
                             </div>
                           </div>
                         </td>
