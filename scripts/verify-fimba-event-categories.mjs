@@ -1,11 +1,12 @@
 /**
- * Filtro de categoría FIMBA: catálogo + filas; Catering aparece sin eventos.
+ * Filtro de categoría FIMBA: tabla BD + tipos + filas.
  * Run: node scripts/verify-fimba-event-categories.mjs
  */
 
 import {
   categoriesFromTiposEvento,
   mergeFimbaAgendaCategories,
+  normalizeCategoriasTiposEventos,
 } from "../src/utils/fimbaEventCategories.js";
 
 function assert(cond, msg) {
@@ -44,37 +45,65 @@ const catalog = [
 const fromCatalog = categoriesFromTiposEvento(catalog);
 assert(
   fromCatalog.some((c) => c.id === 8 && c.nombre === "Catering"),
-  "catálogo incluye Catering",
+  "catálogo de tipos incluye Catering",
 );
 assert(
   fromCatalog.map((c) => c.nombre).join(",") === "Catering,Comidas,Ensayos",
-  "catálogo ordenado es",
+  "catálogo de tipos ordenado es",
 );
 
 const emptyAgenda = categoriesFromTiposEvento([]);
-assert(emptyAgenda.length === 0, "sin tipos no hay categorías");
+assert(emptyAgenda.length === 0, "sin tipos no hay categorías derivadas");
 
 const reunionOnlyCategory = categoriesFromTiposEvento([
   { id: 99, nombre: "Huérfano", id_categoria: null },
 ]);
 assert(
   reunionOnlyCategory.length === 0,
-  "tipo sin id_categoria no inventa filtro (Reunión vacía)",
+  "tipo sin id_categoria no inventa filtro",
 );
 
-const mergedEmptyAgenda = mergeFimbaAgendaCategories(catalog, []);
+const dbCats = [
+  { id: 9, nombre: "Catering" },
+  { id: 7, nombre: "Reunión" },
+  { id: 4, nombre: "Comidas" },
+];
+const fromDb = normalizeCategoriasTiposEventos(dbCats);
+assert(
+  fromDb.map((c) => c.nombre).join(",") === "Catering,Comidas,Reunión",
+  "tabla categorias_tipos_eventos ordenada es",
+);
+
+const mergedFromDbOnly = mergeFimbaAgendaCategories({
+  dbCategorias: dbCats,
+  catalogTipos: [],
+  rowDerived: [],
+});
+assert(
+  mergedFromDbOnly.some((c) => c.nombre === "Catering") &&
+    mergedFromDbOnly.some((c) => c.nombre === "Reunión"),
+  "filtro planilla lista categorías de BD aunque no haya tipos ni eventos",
+);
+
+const mergedEmptyAgenda = mergeFimbaAgendaCategories({
+  catalogTipos: catalog,
+  rowDerived: [],
+});
 assert(
   mergedEmptyAgenda.some((c) => c.nombre === "Catering"),
-  "filtro planilla muestra Catering aunque la agenda esté vacía",
+  "fallback: catálogo de tipos si aún no llegó la tabla",
 );
 
-const mergedWithRows = mergeFimbaAgendaCategories(catalog, [
-  { id: 6, nombre: "Transporte" },
-]);
+const mergedWithRows = mergeFimbaAgendaCategories({
+  dbCategorias: dbCats,
+  catalogTipos: catalog,
+  rowDerived: [{ id: 6, nombre: "Transporte" }],
+});
 assert(
   mergedWithRows.some((c) => c.nombre === "Transporte") &&
-    mergedWithRows.some((c) => c.nombre === "Catering"),
-  "une catálogo + categorías de filas cargadas",
+    mergedWithRows.some((c) => c.nombre === "Catering") &&
+    mergedWithRows.some((c) => c.nombre === "Reunión"),
+  "une BD + tipos + categorías de filas cargadas",
 );
 
 if (process.exitCode) {

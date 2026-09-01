@@ -1,9 +1,32 @@
 /**
- * Categorías de `tipos_evento` / `categorias_tipos_eventos` para filtros FIMBA.
+ * Categorías de `categorias_tipos_eventos` / `tipos_evento` para filtros FIMBA.
+ * Fuente de verdad = tabla de categorías; tipos y filas de agenda solo rellenan huecos.
  */
 
+function sortCategoriasByNombre(list) {
+  return [...list].sort((a, b) =>
+    a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }),
+  );
+}
+
 /**
- * Categorías derivadas del catálogo de tipos (para filtro UI).
+ * Normaliza filas de `categorias_tipos_eventos` (id + nombre).
+ * @param {Array<{ id?: number|string, nombre?: string|null }>|null|undefined} rows
+ */
+export function normalizeCategoriasTiposEventos(rows) {
+  const map = new Map();
+  for (const c of rows || []) {
+    const id = Number(c?.id);
+    if (!Number.isFinite(id)) continue;
+    if (map.has(id)) continue;
+    const nombre = String(c?.nombre || "").trim();
+    map.set(id, { id, nombre: nombre || `Cat. ${id}` });
+  }
+  return sortCategoriasByNombre([...map.values()]);
+}
+
+/**
+ * Categorías derivadas del catálogo de tipos (fallback si falta la tabla).
  * @param {Array} tipos — filas con id_categoria + nombre de categoría
  */
 export function categoriesFromTiposEvento(tipos) {
@@ -21,23 +44,25 @@ export function categoriesFromTiposEvento(tipos) {
       });
     }
   }
-  return [...map.values()].sort((a, b) =>
-    a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }),
-  );
+  return sortCategoriasByNombre([...map.values()]);
 }
 
 /**
- * Unión catálogo OFRN + categorías ya presentes en filas de agenda.
- * Así una categoría nueva (p.ej. Catering) aparece en el filtro de planilla
- * aunque la edición todavía no tenga eventos de ese tipo.
- * @param {Array} catalogTipos
- * @param {Array<{ id: number, nombre: string }>} [rowDerived]
+ * Unión: categorías de BD + catálogo de tipos + filas de agenda.
+ * Alta en `categorias_tipos_eventos` (Datos) aparece en el filtro aunque
+ * todavía no haya tipo ni eventos (p.ej. Catering / Reunión).
+ *
+ * @param {{ dbCategorias?: Array, catalogTipos?: Array, rowDerived?: Array<{ id: number, nombre: string }> }} [sources]
  */
-export function mergeFimbaAgendaCategories(catalogTipos, rowDerived) {
+export function mergeFimbaAgendaCategories(sources = {}) {
+  const dbCategorias = sources.dbCategorias || [];
+  const catalogTipos = sources.catalogTipos || [];
+  const rowDerived = sources.rowDerived || [];
   const map = new Map();
   for (const c of [
+    ...normalizeCategoriasTiposEventos(dbCategorias),
     ...categoriesFromTiposEvento(catalogTipos),
-    ...(rowDerived || []),
+    ...rowDerived,
   ]) {
     const id = Number(c?.id);
     if (!Number.isFinite(id)) continue;
@@ -45,7 +70,5 @@ export function mergeFimbaAgendaCategories(catalogTipos, rowDerived) {
       map.set(id, { id, nombre: c.nombre || `Cat. ${id}` });
     }
   }
-  return [...map.values()].sort((a, b) =>
-    a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }),
-  );
+  return sortCategoriasByNombre([...map.values()]);
 }

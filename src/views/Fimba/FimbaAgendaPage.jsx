@@ -307,8 +307,9 @@ export default function FimbaAgendaPage() {
   const [propuestas, setPropuestas] = useState([]);
   const [flota, setFlota] = useState([]);
   const [eventos, setEventos] = useState([]);
-  /** Catálogo OFRN (`tipos_evento`) para que el filtro de categoría no dependa de filas cargadas. */
+  /** Catálogo vivo: `categorias_tipos_eventos` + `tipos_evento` (filtro no depende de filas). */
   const [catalogTipos, setCatalogTipos] = useState([]);
+  const [dbCategorias, setDbCategorias] = useState([]);
   const [logisticsSummary, setLogisticsSummary] = useState([]);
   const [propuestaRoutes, setPropuestaRoutes] = useState([]);
   const [filtroArtista, setFiltroArtista] = useState(filterFromQuery || "");
@@ -382,8 +383,9 @@ export default function FimbaAgendaPage() {
   useEffect(() => {
     let cancelled = false;
     listTiposEventoForFimba().then((res) => {
-      if (cancelled || res.error) return;
+      if (cancelled) return;
       setCatalogTipos(res.tipos || []);
+      setDbCategorias(res.categorias || []);
     });
     return () => {
       cancelled = true;
@@ -403,11 +405,12 @@ export default function FimbaAgendaPage() {
 
   const availableCategories = useMemo(
     () =>
-      mergeFimbaAgendaCategories(
+      mergeFimbaAgendaCategories({
+        dbCategorias,
         catalogTipos,
-        categoriasFromAgendaRows(eventos),
-      ),
-    [catalogTipos, eventos],
+        rowDerived: categoriasFromAgendaRows(eventos),
+      }),
+    [dbCategorias, catalogTipos, eventos],
   );
 
   const availableLocaciones = useMemo(
