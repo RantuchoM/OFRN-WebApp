@@ -22,6 +22,10 @@ import {
 } from "../utils/fimbaAgendaSort";
 import { eventTypeIdForCategoria, sortEventsBySchedule } from "../utils/giraTransportUtils";
 import {
+  categoriesFromTiposEvento,
+  normalizeCategoriasTiposEventos,
+} from "../utils/fimbaEventCategories";
+import {
   buildArtistaTrasladoAgendaBlocks,
   buildFimbaRidesForVehicle,
   collectVehicleRideEndpointIds,
@@ -278,26 +282,11 @@ export function normalizeTiposEventoCatalog(rows) {
   }));
 }
 
-/**
- * Categorías derivadas del catálogo de tipos (para filtro UI).
- * @param {Array} tipos — output de normalizeTiposEventoCatalog / listTiposEventoForFimba
- */
-export function categoriesFromTiposEvento(tipos) {
-  const map = new Map();
-  for (const t of tipos || []) {
-    const id = t.id_categoria;
-    if (id == null || !Number.isFinite(Number(id))) continue;
-    if (!map.has(Number(id))) {
-      map.set(Number(id), {
-        id: Number(id),
-        nombre: t.categoria_nombre || t.categorias_tipos_eventos?.nombre || `Cat. ${id}`,
-      });
-    }
-  }
-  return [...map.values()].sort((a, b) =>
-    a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }),
-  );
-}
+export {
+  categoriesFromTiposEvento,
+  mergeFimbaAgendaCategories,
+  normalizeCategoriasTiposEventos,
+} from "../utils/fimbaEventCategories";
 
 /**
  * @param {{ cantidad_planificada?: number, plazas_extra_materiales?: number } | null} propuesta
@@ -2697,18 +2686,32 @@ export function validateEventoTransportPlazasVsLibres(
 }
 
 /**
- * Catálogo compartido de tipos de evento OFRN (`tipos_evento` + categorías).
+ * Catálogo compartido OFRN: `tipos_evento` + `categorias_tipos_eventos`.
  * Mismo select shape que EventForm / UnifiedAgenda / MusicianCalendar.
+ * `categorias` alimenta el filtro FIMBA (alta en Datos impacta sin code).
  */
 export async function listTiposEventoForFimba() {
-  const { data, error } = await supabase
-    .from("tipos_evento")
-    .select(
-      "id, nombre, color, id_categoria, categorias_tipos_eventos ( id, nombre )",
-    )
-    .order("nombre", { ascending: true });
-  if (error) return { tipos: [], error };
-  return { tipos: normalizeTiposEventoCatalog(data), error: null };
+  const [tiposRes, catsRes] = await Promise.all([
+    supabase
+      .from("tipos_evento")
+      .select(
+        "id, nombre, color, id_categoria, categorias_tipos_eventos ( id, nombre )",
+      )
+      .order("nombre", { ascending: true }),
+    supabase
+      .from("categorias_tipos_eventos")
+      .select("id, nombre")
+      .order("nombre", { ascending: true }),
+  ]);
+  const tipos = tiposRes.error
+    ? []
+    : normalizeTiposEventoCatalog(tiposRes.data);
+  const categorias = catsRes.error
+    ? categoriesFromTiposEvento(tipos)
+    : normalizeCategoriasTiposEventos(catsRes.data);
+  // El filtro de categoría es best-effort: si falla la tabla, se deriva de tipos.
+  const error = tiposRes.error || null;
+  return { tipos, categorias, error };
 }
 
 /**

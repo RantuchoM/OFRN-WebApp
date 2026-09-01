@@ -16,6 +16,8 @@ import {
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import {
   categoriesFromTiposEvento,
+  mergeFimbaAgendaCategories,
+  listTiposEventoForFimba,
   deleteFimbaEvento,
   duplicateFimbaEvento,
   FIMBA_DEFAULT_TIPO_EVENTO,
@@ -324,6 +326,9 @@ export default function FimbaAgendaPage() {
   const [giraGrupos, setGiraGrupos] = useState([]);
   const [flota, setFlota] = useState([]);
   const [eventos, setEventos] = useState([]);
+  /** Catálogo vivo: `categorias_tipos_eventos` + `tipos_evento` (filtro no depende de filas). */
+  const [catalogTipos, setCatalogTipos] = useState([]);
+  const [dbCategorias, setDbCategorias] = useState([]);
   const [logisticsSummary, setLogisticsSummary] = useState([]);
   const [propuestaRoutes, setPropuestaRoutes] = useState([]);
   const [selectedPropuestaIds, setSelectedPropuestaIds] = useState(
@@ -436,6 +441,18 @@ export default function FimbaAgendaPage() {
   ]);
 
   useEffect(() => {
+    let cancelled = false;
+    listTiposEventoForFimba().then((res) => {
+      if (cancelled) return;
+      setCatalogTipos(res.tipos || []);
+      setDbCategorias(res.categorias || []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!urlFilters.grupoNames?.length || !giraGrupos.length) return;
     const resolved = resolveGrupoIdsFromNames(
       urlFilters.grupoNames,
@@ -485,8 +502,13 @@ export default function FimbaAgendaPage() {
   }, [entityFilterActive]);
 
   const availableCategories = useMemo(
-    () => categoriasFromAgendaRows(eventos),
-    [eventos],
+    () =>
+      mergeFimbaAgendaCategories({
+        dbCategorias,
+        catalogTipos,
+        rowDerived: categoriasFromAgendaRows(eventos),
+      }),
+    [dbCategorias, catalogTipos, eventos],
   );
 
   const availableLocaciones = useMemo(

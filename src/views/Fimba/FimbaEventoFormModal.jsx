@@ -8,7 +8,7 @@ import {
 } from "../../components/ui/Icons";
 import {
   actividadUsaTransporte,
-  categoriesFromTiposEvento,
+  mergeFimbaAgendaCategories,
   capacidadGiraTransporte,
   computeFimbaCapacity,
   FIMBA_DEFAULT_TIPO_EVENTO,
@@ -527,6 +527,7 @@ export default function FimbaEventoFormModal({
   }, [evento]);
 
   const [tipos, setTipos] = useState([]);
+  const [catalogCategorias, setCatalogCategorias] = useState([]);
   const [tiposLoading, setTiposLoading] = useState(true);
   const [tiposError, setTiposError] = useState(null);
   const [categoriaFiltro, setCategoriaFiltro] = useState("");
@@ -814,13 +815,15 @@ export default function FimbaEventoFormModal({
     let cancelled = false;
     (async () => {
       setTiposLoading(true);
-      const { tipos: list, error: err } = await listTiposEventoForFimba();
+      const { tipos: list, categorias: cats, error: err } = await listTiposEventoForFimba();
       if (cancelled) return;
       if (err) {
         setTiposError(err.message || "No se pudo cargar tipos de evento");
-        setTipos([]);
+        setTipos(list || []);
+        setCatalogCategorias(cats || []);
       } else {
         setTipos(list || []);
+        setCatalogCategorias(cats || []);
         setTiposError(null);
         // Si el default no está en catálogo (id huérfano), mantener valor en select vía opción fallback.
       }
@@ -894,7 +897,14 @@ export default function FimbaEventoFormModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipos, forceTransporte]);
 
-  const categorias = useMemo(() => categoriesFromTiposEvento(tipos), [tipos]);
+  const categorias = useMemo(
+    () =>
+      mergeFimbaAgendaCategories({
+        dbCategorias: catalogCategorias,
+        catalogTipos: tipos,
+      }),
+    [catalogCategorias, tipos],
+  );
 
   const tiposFiltrados = useMemo(() => {
     let list = tipos;
