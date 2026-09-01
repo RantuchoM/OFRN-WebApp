@@ -16,6 +16,8 @@ import {
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import {
   categoriesFromTiposEvento,
+  mergeFimbaAgendaCategories,
+  listTiposEventoForFimba,
   deleteFimbaEvento,
   duplicateFimbaEvento,
   FIMBA_DEFAULT_TIPO_EVENTO,
@@ -305,6 +307,9 @@ export default function FimbaAgendaPage() {
   const [propuestas, setPropuestas] = useState([]);
   const [flota, setFlota] = useState([]);
   const [eventos, setEventos] = useState([]);
+  /** Catálogo vivo: `categorias_tipos_eventos` + `tipos_evento` (filtro no depende de filas). */
+  const [catalogTipos, setCatalogTipos] = useState([]);
+  const [dbCategorias, setDbCategorias] = useState([]);
   const [logisticsSummary, setLogisticsSummary] = useState([]);
   const [propuestaRoutes, setPropuestaRoutes] = useState([]);
   const [filtroArtista, setFiltroArtista] = useState(filterFromQuery || "");
@@ -376,6 +381,18 @@ export default function FimbaAgendaPage() {
   }, [edicionId, filtroArtista]);
 
   useEffect(() => {
+    let cancelled = false;
+    listTiposEventoForFimba().then((res) => {
+      if (cancelled) return;
+      setCatalogTipos(res.tipos || []);
+      setDbCategorias(res.categorias || []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!locacionFromQuery) return;
     const id = Number(locacionFromQuery);
     if (Number.isFinite(id)) setSelectedLocacionIds([id]);
@@ -387,8 +404,13 @@ export default function FimbaAgendaPage() {
   }, [filtroArtista]);
 
   const availableCategories = useMemo(
-    () => categoriasFromAgendaRows(eventos),
-    [eventos],
+    () =>
+      mergeFimbaAgendaCategories({
+        dbCategorias,
+        catalogTipos,
+        rowDerived: categoriasFromAgendaRows(eventos),
+      }),
+    [dbCategorias, catalogTipos, eventos],
   );
 
   const availableLocaciones = useMemo(
