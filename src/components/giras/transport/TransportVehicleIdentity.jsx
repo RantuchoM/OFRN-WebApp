@@ -1,5 +1,7 @@
 import React from "react";
 import { IconClock, IconFileText } from "../../ui/Icons";
+import TransporteOficialBadge from "./TransporteOficialBadge";
+import { isTransporteOficial } from "../../../utils/transporteOficial";
 
 export function TransportCornerButton({ onClick, title, className = "", children }) {
   return (
@@ -53,10 +55,14 @@ export default function TransportVehicleIdentity({
             {patente || "—"}
           </span>
           <span
-            className="inline-flex items-center justify-center min-w-0 flex-1 px-1.5 py-0.5 border-l border-slate-200 bg-slate-100 text-[10px] font-medium text-slate-600 leading-none whitespace-nowrap min-h-[1.125rem] truncate text-center"
+            className="inline-flex items-center justify-center gap-0.5 min-w-0 flex-1 px-1.5 py-0.5 border-l border-slate-200 bg-slate-100 text-[10px] font-medium text-slate-600 leading-none whitespace-nowrap min-h-[1.125rem] truncate text-center"
             title={nombre || "Bus"}
           >
-            {nombre || "Bus"}
+            <span className="truncate min-w-0">{nombre || "Bus"}</span>
+            <TransporteOficialBadge
+              visible={isTransporteOficial(transport)}
+              size={11}
+            />
           </span>
         </div>
         <div

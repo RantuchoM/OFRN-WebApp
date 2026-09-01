@@ -1423,6 +1423,7 @@ CREATE TABLE public.transportes (
   color text DEFAULT '#6366f1'::text,
   patente text,
   icon text DEFAULT 'IconBus'::text,
+  es_oficial boolean NOT NULL DEFAULT false,
   CONSTRAINT transportes_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.user_ui_settings (

@@ -2,6 +2,7 @@ import {
   hasLocalidadViaticosAsignada,
   resolveLocalidadEfectivaViaticos,
 } from "./integranteDomicilioViaticos";
+import { isTransporteOficial } from "./transporteOficial";
 
 const normalizeScope = (value) =>
   String(value || "")
@@ -165,6 +166,7 @@ function buildTravelScheduleFromRules(subidaRule, bajadaRule, transportMap) {
     lugar_salida: evtSalida?.locaciones?.localidades?.localidad || null,
     lugar_llegada: evtLlegada?.locaciones?.localidades?.localidad || null,
     patente: bus?.transportes?.patente || bus?.patente || "",
+    es_oficial: isTransporteOficial(bus),
   };
 }
 
@@ -184,6 +186,7 @@ function mergeLogisticsEntries(entries) {
         transporte_salida: entry.transporte_salida,
         lugar_salida: entry.lugar_salida,
         patente: entry.patente,
+        es_oficial: Boolean(entry.es_oficial),
       };
     }
 
@@ -239,6 +242,7 @@ export function buildPersonalLogisticsFromSummary(summary) {
             lugar: t.subidaData.nombre_localidad || "Origen",
             transporte: nombreFinal,
             patente: t.patente || t.transporteData?.patente || "",
+            es_oficial: isTransporteOficial(t),
           };
         }
       }
@@ -267,6 +271,7 @@ export function buildPersonalLogisticsFromSummary(summary) {
         transporte_salida: minSalida?.transporte,
         lugar_salida: minSalida?.lugar,
         patente: minSalida?.patente,
+        es_oficial: Boolean(minSalida?.es_oficial),
         fecha_llegada: maxLlegada?.fecha,
         hora_llegada: maxLlegada?.hora,
         transporte_llegada: maxLlegada?.transporte,
@@ -303,6 +308,7 @@ function extractLogisticsForLocalidadBoarding(person, locId, locName) {
           transporte_salida: nombreFinal,
           lugar_salida: t.subidaData.nombre_localidad || locName || "Origen",
           patente: t.patente || t.transporteData?.patente || "",
+          es_oficial: isTransporteOficial(t),
         };
       }
     }
@@ -415,6 +421,7 @@ export function mergeTravelPreferringPersonal(personalTravel, localityTravel) {
     lugar_salida: personal.lugar_salida || locality.lugar_salida,
     lugar_llegada: personal.lugar_llegada || locality.lugar_llegada,
     patente: personal.patente || locality.patente,
+    es_oficial: Boolean(personal.es_oficial || locality.es_oficial),
   };
 }
 
@@ -437,6 +444,7 @@ export function mergeTravelPreferringLocality(personalTravel, localityTravel) {
     lugar_salida: locality.lugar_salida || personal.lugar_salida,
     lugar_llegada: locality.lugar_llegada || personal.lugar_llegada,
     patente: locality.patente || personal.patente,
+    es_oficial: Boolean(locality.es_oficial || personal.es_oficial),
   };
 }
 
@@ -479,6 +487,8 @@ export function headerInfoToTravelSchedule(headerInfo) {
     hora_llegada: sliceTime(headerInfo.hora_llegada),
     transporte_salida: headerInfo.transporte || null,
     transporte_llegada: headerInfo.transporte || null,
+    patente: headerInfo.patente || "",
+    es_oficial: Boolean(headerInfo.es_oficial),
   };
 }
 
@@ -574,6 +584,7 @@ export function resolveViaticoRowLogData(row, logisticsMap, options = {}) {
   const endEvt = findEvt(row.id_evento_parada_fin);
 
   let patente = String(base.patente || "").trim();
+  let es_oficial = Boolean(base.es_oficial);
   let transporte_salida = base.transporte_salida ?? null;
   let transporte_llegada = base.transporte_llegada ?? null;
   let lugar_salida = base.lugar_salida ?? null;
@@ -594,6 +605,9 @@ export function resolveViaticoRowLogData(row, logisticsMap, options = {}) {
       if (match?.patente) {
         patente = String(match.patente).trim();
       }
+      if (match) {
+        es_oficial = isTransporteOficial(match);
+      }
     }
   }
 
@@ -613,6 +627,7 @@ export function resolveViaticoRowLogData(row, logisticsMap, options = {}) {
     fecha_llegada: row.fecha_llegada ?? base.fecha_llegada ?? null,
     hora_llegada: row.hora_llegada ?? base.hora_llegada ?? null,
     patente: patente || base.patente || "",
+    es_oficial,
     transporte_salida,
     transporte_llegada,
     lugar_salida,

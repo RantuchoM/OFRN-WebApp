@@ -381,6 +381,12 @@ export default function DataView({ supabase }) {
         { key: "id", label: "ID", type: "number" },
         { key: "nombre", label: "Nombre", type: "text" },
         { key: "patente", label: "Patente", type: "text" },
+        {
+          key: "es_oficial",
+          label: "Oficial",
+          type: "checkbox",
+          defaultValue: false,
+        },
         { key: "documentacion", label: "Documentación", type: "text" },
         {
           key: "icon",

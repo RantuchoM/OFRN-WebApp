@@ -1,5 +1,6 @@
 import React from "react";
 import { IconCheck, IconX } from "../../ui/Icons";
+import TransporteOficialBadge from "./TransporteOficialBadge";
 
 const EDIT_CATEGORIA_OPTIONS = [
   { key: "PASAJEROS", label: "Pasajeros", activeClass: "text-slate-800" },
@@ -26,13 +27,21 @@ export default function TransportEditForm({
           <select
             className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-200 outline-none"
             value={editFormData.id_transporte || defaultTransporteId}
-            onChange={(e) =>
-              setEditFormData({ ...editFormData, id_transporte: e.target.value })
-            }
+            onChange={(e) => {
+              const id = e.target.value;
+              const selected = catalog.find((c) => String(c.id) === String(id));
+              setEditFormData({
+                ...editFormData,
+                id_transporte: id,
+                es_oficial: !!selected?.es_oficial,
+              });
+            }}
           >
             {catalog.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.nombre}
+                {c.es_oficial ? " ★ oficial" : ""}
+                {c.patente ? ` (${c.patente})` : ""}
               </option>
             ))}
           </select>
@@ -105,6 +114,21 @@ export default function TransportEditForm({
           </select>
         </div>
       </div>
+
+      <label className="flex items-center gap-2 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+          checked={!!editFormData.es_oficial}
+          onChange={(e) =>
+            setEditFormData({ ...editFormData, es_oficial: e.target.checked })
+          }
+        />
+        <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-600">
+          Vehículo oficial
+          <TransporteOficialBadge visible={!!editFormData.es_oficial} size={12} />
+        </span>
+      </label>
 
       <div>
         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5 block">

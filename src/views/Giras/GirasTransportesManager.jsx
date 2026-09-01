@@ -550,6 +550,7 @@ export default function GirasTransportesManager({
     costo: "",
     categoria_logistica: "PASAJEROS",
     id_chofer: "",
+    es_oficial: false,
   });
   const [vehicleDocsModal, setVehicleDocsModal] = useState({
     isOpen: false,
@@ -832,7 +833,7 @@ export default function GirasTransportesManager({
       const { data: list } = await supabase
         .from("giras_transportes")
         .select(
-          `id, detalle, costo, capacidad_maxima, id_transporte, id_chofer, categoria_logistica, transportes ( id, nombre, patente, icon, documentacion ), chofer:integrantes!giras_transportes_id_chofer_fkey ( id, nombre, apellido, dni, link_carnet, link_dni_img )`,
+          `id, detalle, costo, capacidad_maxima, id_transporte, id_chofer, categoria_logistica, transportes ( id, nombre, patente, icon, documentacion, es_oficial ), chofer:integrantes!giras_transportes_id_chofer_fkey ( id, nombre, apellido, dni, link_carnet, link_dni_img )`,
         )
         .eq("id_gira", giraId)
         .order("id");
@@ -1819,6 +1820,7 @@ export default function GirasTransportesManager({
       costo: t.costo || "",
       categoria_logistica,
       id_chofer: t.id_chofer ? String(t.id_chofer) : "",
+      es_oficial: t.transportes?.es_oficial === true,
     });
   };
 
@@ -1864,6 +1866,17 @@ export default function GirasTransportesManager({
         .eq("id", editingTransportId);
 
       if (transportError) throw transportError;
+
+      const catalogVehicleId = editFormData.id_transporte
+        ? parseInt(editFormData.id_transporte, 10)
+        : null;
+      if (catalogVehicleId) {
+        const { error: oficialError } = await supabase
+          .from("transportes")
+          .update({ es_oficial: !!editFormData.es_oficial })
+          .eq("id", catalogVehicleId);
+        if (oficialError) throw oficialError;
+      }
 
       const { error: eventsError, count } = await supabase
         .from("eventos")
@@ -2317,7 +2330,9 @@ export default function GirasTransportesManager({
             <option value="">Seleccionar...</option>
             {catalog.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.nombre} {c.patente ? `(${c.patente})` : ""}
+                {c.nombre}
+                {c.es_oficial ? " ★" : ""}
+                {c.patente ? ` (${c.patente})` : ""}
               </option>
             ))}
           </select>
