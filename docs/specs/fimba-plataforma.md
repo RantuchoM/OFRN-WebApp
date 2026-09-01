@@ -218,7 +218,7 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
   - Varios rides (hop off/on) = varios bloques; multi-vehículo el mismo día = filas separadas.
   - `es_ride_segment: true` → **siempre solo lectura** (no edit/delete; se editan en planilla Transportes Subidas/Bajadas). Desactivar con `include_ride_segments: false`.
   - **No** inventa sintético legacy sin `id_propuesta` en ride (solo rutas explícitas). Sin rutas / día sin bus → sin bloques de traslado.
-- Filtro planilla: **Todos / Solo FIMBA / Solo OFRN** (chips; **default Solo FIMBA**). Multi-select de **categoría de tipo** (`id_categoria` / `categorias_tipos_eventos`, dropdown `MultiSelectDropdown`; vacío = todas) alineado a UnifiedAgenda (no chips por `id_tipo_evento`). Multi-select de **locación** (`id_locacion` de filas cargadas; vacío = todas; sin `id_locacion` se ocultan si el filtro está activo). **Búsqueda** debounced 250ms (patrón UnifiedAgenda: pill + clear) sobre actividad, tipo, categoría, locación/ciudad/dirección, destino, vuelo, obs., artistas, grupos y vehículos. Opciones derivadas de filas cargadas. Filtro por artista desactiva merge OFRN puro.
+- Filtro planilla: **Todos / Solo FIMBA / Solo OFRN** (chips; **default Solo FIMBA**). Multi-select de **categoría de tipo** (`id_categoria` / `categorias_tipos_eventos`, dropdown `MultiSelectDropdown`; vacío = todas). Opciones = **unión del catálogo OFRN** (`listTiposEventoForFimba` / `mergeFimbaAgendaCategories`) **+** categorías presentes en filas cargadas: una categoría nueva (p.ej. **Catering**) aparece aunque la edición aún no tenga eventos de ese tipo. Multi-select de **locación** (`id_locacion` de filas cargadas; vacío = todas; sin `id_locacion` se ocultan si el filtro está activo). **Búsqueda** debounced 250ms (patrón UnifiedAgenda: pill + clear) sobre actividad, tipo, categoría, locación/ciudad/dirección, destino, vuelo, obs., artistas, grupos y vehículos. Filtro por artista desactiva merge OFRN puro.
 - **Descargar PDF** (toolbar planilla staff + cabecera agenda artista / consulta): reusa `exportAgendaToPDF` / `buildAgendaPdfExportItems` (mismo pipeline UnifiedAgenda) vía adapter `src/utils/fimbaAgendaPdf.js`. Exporta la **vista filtrada** actual (origen, categoría, locación, búsqueda, artista; en consulta = agenda tagged + ride segments). Skin FIMBA (`IconPrinter` + label). Columna Gira oculta. Descripción PDF = Detalle (`actividad`) + destino/vuelo + tags artistas + vehículos extra (el chip de transporte OFRN solo muestra la 1ª unidad).
 - Trayectos (`solo_traslados` / página Transportes):
   - Incluye **paradas/traslados OFRN** de la gira (`id_gira`) además de trayectos FIMBA.
@@ -235,6 +235,7 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
   - **Transportes — Artistas**: misma fuente que Agenda (`ev.propuestas` / `eventos_fimba_propuestas`); chips coloreados + fallback «Edición» sin tags; `orquesta_label` si aplica. Complementa (no reemplaza) Subidas/Bajadas.
   - **Transportes — Subidas / Bajadas**: vía `resolveStopBoardAlightChips` — chips FIMBA `{nombre} {plazas}` (o `{nombre}… {n}` si largo, `formatBoardChipLabel`) desde `fimba_propuesta_rutas`; chips OFRN por regla (`summarizeOfrnStopRules`, fallback «Orquesta n»); **Reserva del evento** (residual técnico, no removible). **Tránsito/cap** hover = a bordo al salir (`a_bordo`, Orquesta con apellidos si pocos).
 - **Tipos = catálogo OFRN** (`tipos_evento` + `categorias_tipos_eventos`), mismo shape que `EventForm` / UnifiedAgenda. Persistencia: **`eventos.id_tipo_evento`** (FK). Sin tabla ni strings de tipo FIMBA-only.
+- **Catering** (2026-09): categoría `categorias_tipos_eventos.nombre = 'Catering'` (id 9) + tipo `tipos_evento.nombre = 'Catering'` (id 34, color `#ea580c`). **No** es Comidas (`id_categoria = 4`): no entra a logística de viandas / `isMealEvent`. Subtipos extra se agregan en Datos → Tipos de Evento (misma categoría). Una categoría **sin** tipo no aparece en filtros (caso «Reunión»).
 - UI modal: filtro por categoría + select de tipo (nombre + color de catálogo). Planilla: badge con `tipo_nombre` / `tipo_color` y subtítulo de categoría.
 - **Detección transporte** (`actividadUsaTransporte`): categoría id `6` («Transporte») **o** ids OFRN `11/12/28/31/35` (EventForm usa 11/12; logística también 35; catálogo tiene 28/31). Checkbox «Asignar vehículo(s)» permite flota en otros tipos.
 - Defaults: agenda nuevo → `id_tipo_evento = 16` («Nuevo evento»); Transportes / `forceTransporte` → `11`; **`audiencia_ofrn = 'none'`** salvo toggle.
@@ -472,6 +473,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Editor transportes: panel **Vehículos** (alta + editar lápiz: catálogo, detalle, plazas, categoría; nombre catálogo+patente, detalle OFRN sec.) + planilla **Trayectos** (= eventos FIMBA + paradas OFRN; filtros origen/vehículo)
 - [x] Agenda unificada planilla (fecha, horas, tipo, actividad, destino/vuelo, vehículos, PAX, tags)
 - [x] Planilla agenda: badges FIMBA/OFRN + convocatoria + filtro origen (default Solo FIMBA) + multi-select **categoría** y **locación** + búsqueda debounced (tipo/actividad/lugar/personas/vehículos)
+- [x] Categoría **Catering** (`20260901140559_catering_categoria_tipo`): catálogo + tipo; filtro planilla une catálogo OFRN (`mergeFimbaAgendaCategories`) para que figure sin eventos previos. No es Comidas/id 4.
 - [x] Agenda OFRN (`UnifiedAgenda`): toggle staff **con FIMBA** (default OFF); músicos siempre ocultan solo-FIMBA
 - [x] Agenda **Descargar PDF**: reusa UnifiedAgenda (`exportAgendaToPDF`) vía `fimbaAgendaPdf.js`; toolbar planilla + agenda artista/consulta; vista filtrada
 - [x] Planilla agenda **orden contractual**: fecha → hora_inicio → detalle/actividad (`localeCompare` es, `sensitivity: "base"`) → tipo → id. Se **reaplica tras cada filtro** (origen/categoría/locación/búsqueda); limpiar filtros no deja orden residual. Tags de artistas en fila y select Artista: alfabético ES. Merge de bloques Traslado (rides) usa el mismo comparador (no solo fecha+hora).
@@ -549,7 +551,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 4. Tipos Transporte / traslados OFRN abren flota + SIN SERVICIO; otros: sin vehículo salvo «Asignar vehículo(s) al trayecto».
 5. **Audiencia OFRN**: Ninguna | Tutti | Grupos (multi-select real de grupos de la gira). Al guardar con Grupos se escriben `eventos_grupos`.
 6. Editar un ensayo pure-OFRN desde FIMBA (staff) y agregar tags artista / cambiar audiencia — se guarda sin romper FK de transporte OFRN.
-7. Filtrar por artista (oculta pure OFRN; solo tagged). Columna Tipo = nombre/color de `tipos_evento`. Default origen **Solo FIMBA**; dropdown multi-select de **categoría** (`id_categoria`; vacío = todas).
+7. Filtrar por artista (oculta pure OFRN; solo tagged). Columna Tipo = nombre/color de `tipos_evento`. Default origen **Solo FIMBA**; dropdown multi-select de **categoría** (`id_categoria`; vacío = todas; opciones = catálogo OFRN ∪ filas). Incluye **Catering**.
 8. Columna **As. Equipaje**: en filas con transporte muestra personas a bordo al salir (no `asientos_equipaje` del modal); sin transporte → «—». Hover del header explica la métrica.
 
 ### Transportes (vehículos ≠ trayectos)
@@ -692,6 +694,8 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `supabase/migrations/20260811130000_fimba_contrataciones_estado_log.sql` | Log append-only de `ultimo_estado_conocido` (estado + autor + timestamp) |
 | `supabase/migrations/20260811140000_fimba_habitaciones.sql` | `fimba_propuestas_habitaciones` + `fimba_habitaciones_ocupantes` |
 | `src/services/fimbaService.js` | Flota, trayectos, agenda/hotel/rooming, usuarios FIMBA, contrataciones, rider upload `fimba-riders` |
+| `src/utils/fimbaEventCategories.js` | `categoriesFromTiposEvento` / `mergeFimbaAgendaCategories` (filtro planilla) |
+| `supabase/migrations/20260901140559_catering_categoria_tipo.sql` | Seed categoría + tipo Catering |
 | `src/utils/fimbaUserSession.js` | Sesiones `fimba_user` + `fimba_consulta_edicion` + `resolveFimbaAccess` |
 | `src/hooks/useFimbaUserSession.js` | Hook reactivo de sesión FIMBA usuario |
 | `src/hooks/useFimbaConsultaEdicionSession.js` | Hook sesión enlace consulta edición |
@@ -767,6 +771,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | **20260825084834** | `fimba_equipaje_asientos_obs` | Local = Remote (SQL linked + repair applied) |
 | **20260831123130** | `eventos_observaciones_aforo` | Local = Remote (`db push` + `migration list` OK) |
 | **20260831170559** | `fimba_contrataciones_sheet_sync` | Local = Remote (SQL linked + repair applied; cron daily live) |
+| **20260901140559** | `catering_categoria_tipo` | Local = Remote (SQL linked: cat. 9 + tipo 34) |
 
 ### Auth usuarios FIMBA — cómo usar
 
