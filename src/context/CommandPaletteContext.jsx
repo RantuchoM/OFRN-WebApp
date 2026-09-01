@@ -28,6 +28,7 @@ const MANAGEMENT_SECTION_ICONS = {
   asistencia_ensayos: IconUsers,
   conciertos: IconCalendar,
   audiencia: IconUsers,
+  viaticos_seguimiento: IconDollarSign,
 };
 
 function buildManagementPaletteCommands(navigate) {

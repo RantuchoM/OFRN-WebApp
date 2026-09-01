@@ -8,7 +8,7 @@ Informe en **Gestión → Seguimiento viáticos** (`/management/viaticos_seguimi
 
 - Fuente: solo `giras_viaticos_detalle` (no manuales, no destaques, no SCRN).
 - **Solo lectura:** persona/rol/tramo, salida, regreso, programa, monto.
-- **Editable y persistido:** `seguimiento_tipo` (`viatico` | `reintegro`) y `seguimiento_color` (`amarillo` | `verde`).
+- **Editable y persistido:** `seguimiento_tipo` (`viatico` | `reintegro`) y `seguimiento_color` (`amarillo` | `verde` | `celeste` | `rojo`).
 - Filtro por año de `programas.fecha_desde` (default: año calendario actual) + búsqueda por nombre/programa.
 - Filtros por columna (valores únicos con checkboxes) en persona, salida, regreso, programa, monto, tipo y color.
 - Export Excel con las mismas columnas y colores de fila.
@@ -21,7 +21,9 @@ Informe en **Gestión → Seguimiento viáticos** (`/management/viaticos_seguimi
 | Salida | `backup_fecha/hora_salida` (fallback eventos de tramo) + vehículo (`patente_oficial` / particular / otros) |
 | Regreso | Idem llegada |
 | Programa | `formatProgramNomenMes` (`mes_letra \| nomenclador \| zona`) |
-| Monto | `anticipo_custom` → `backup_viatico` → subtotal por vigencias / días |
+| Anticipo | Total anticipado (viático efectivo + gastos), previo a rendición. Ojo 👁 despliega desglose (Viático + Movilidad/Combustible/Alojamiento/Capacit./Mov. Otros/Otros) |
+| Dev/Reint | Si rendido &lt; anticipo → **Dev**; si rendido &gt; anticipo → **Reint** (`calcDevolucionReintegro`) |
+| Rendición | Suma de `rendicion_viaticos` + gastos rendidos. Ojo 👁 muestra los mismos conceptos en modo rendición (apilado naranja/verde/diff si ambos ojos activos) |
 | Tipo | select persistido (`seguimiento_tipo`) |
 | Color | select persistido (`seguimiento_color`); pinta la fila |
 
@@ -30,7 +32,7 @@ Informe en **Gestión → Seguimiento viáticos** (`/management/viaticos_seguimi
 Migración `20260831201720_giras_viaticos_detalle_seguimiento.sql`:
 
 - `seguimiento_tipo text` nullable, check `viatico|reintegro`
-- `seguimiento_color text` nullable, check `amarillo|verde`
+- `seguimiento_color text` nullable, check `amarillo|verde|celeste|rojo`
 
 ## Archivos
 

@@ -753,7 +753,7 @@ CREATE TABLE public.giras_viaticos_detalle (
   ),
   CONSTRAINT giras_viaticos_detalle_seguimiento_color_check CHECK (
     seguimiento_color IS NULL
-    OR seguimiento_color = ANY (ARRAY['amarillo'::text, 'verde'::text])
+    OR seguimiento_color = ANY (ARRAY['amarillo'::text, 'verde'::text, 'celeste'::text, 'rojo'::text])
   )
 );
 CREATE TABLE public.horas_catedra (

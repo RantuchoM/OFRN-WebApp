@@ -3,9 +3,59 @@ import { saveAs } from "file-saver";
 import { formatProgramNomenMes } from "../utils/giraUtils";
 import { calcValorDiarioProporcional } from "../utils/viaticosValorDiarioProporcional";
 import { scheduleFromParadaRange } from "../utils/viaticosParadasIntegrante";
+import { calcDevolucionReintegro } from "../utils/rendicionDiff";
 import { listValorDiarioVigencias } from "./viaticosValorDiarioService";
 
 const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
+
+/** Pares gasto anticipado / rendición (misma lógica que ViaticosTable). */
+export const SEGUIMIENTO_FINANCIAL_COLS = [
+  {
+    label: "Movilidad",
+    exp: "gastos_movilidad",
+    ren: "rendicion_transporte_otros",
+  },
+  {
+    label: "Combustible",
+    exp: "gasto_combustible",
+    ren: "rendicion_gasto_combustible",
+  },
+  {
+    label: "Alojamiento",
+    exp: "gasto_alojamiento",
+    ren: "rendicion_gasto_alojamiento",
+  },
+  { label: "Capacit.", exp: "gastos_capacit", ren: "rendicion_gastos_capacit" },
+  {
+    label: "Mov. Otros",
+    exp: "gastos_movil_otros",
+    ren: "rendicion_gastos_movil_otros",
+  },
+  { label: "Otros", exp: "gasto_otros", ren: "rendicion_gasto_otros" },
+];
+
+function safeMoney(v) {
+  if (v === null || v === undefined || v === "") return 0;
+  const n = typeof v === "number" ? v : parseFloat(String(v).trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+function sumAnticipoGastos(row) {
+  return SEGUIMIENTO_FINANCIAL_COLS.reduce(
+    (acc, p) => acc + safeMoney(row[p.exp]),
+    0,
+  );
+}
+
+function sumRendicionTotal(row) {
+  return (
+    safeMoney(row.rendicion_viaticos) +
+    SEGUIMIENTO_FINANCIAL_COLS.reduce(
+      (acc, p) => acc + safeMoney(row[p.ren]),
+      0,
+    )
+  );
+}
 
 export const SEGUIMIENTO_TIPO_OPTIONS = [
   { value: null, label: "—" },
@@ -17,6 +67,8 @@ export const SEGUIMIENTO_COLOR_OPTIONS = [
   { value: null, label: "Sin marca" },
   { value: "amarillo", label: "Amarillo" },
   { value: "verde", label: "Verde" },
+  { value: "celeste", label: "Celeste" },
+  { value: "rojo", label: "Rojo" },
 ];
 
 function unwrapEmbed(value) {
@@ -160,6 +212,19 @@ export async function fetchViaticosSeguimientoRows(supabase, options = {}) {
         backup_fecha_llegada,
         backup_hora_llegada,
         backup_dias_computables,
+        gastos_movilidad,
+        gasto_combustible,
+        gasto_alojamiento,
+        gastos_capacit,
+        gastos_movil_otros,
+        gasto_otros,
+        rendicion_viaticos,
+        rendicion_transporte_otros,
+        rendicion_gasto_combustible,
+        rendicion_gasto_alojamiento,
+        rendicion_gastos_capacit,
+        rendicion_gastos_movil_otros,
+        rendicion_gasto_otros,
         id_evento_parada_inicio,
         id_evento_parada_fin,
         tramo_orden,
@@ -272,13 +337,27 @@ export async function fetchViaticosSeguimientoRows(supabase, options = {}) {
       hora_llegada: horaLlegada,
     };
     const factor = factorByGira.get(String(row.id_gira)) || 0;
-    const monto = resolveMonto(row, schedule, vigencias, factor);
+    const anticipoViatico = resolveMonto(row, schedule, vigencias, factor);
+    const anticipo = round2(anticipoViatico + sumAnticipoGastos(row));
+    const rendicion = round2(sumRendicionTotal(row));
+    const { dev, reint } = calcDevolucionReintegro(anticipo, rendicion);
     const apellido = persona?.apellido || "";
     const nombre = persona?.nombre || "";
     const rolLabel = String(row.cargo || rolGira || "").trim();
+    const mesLetra = String(programa?.mes_letra || "").trim();
+    const nomenclador = String(programa?.nomenclador || "").trim();
+    const zona = String(programa?.zona || "").trim();
     const programaLabel = formatProgramNomenMes(programa) ||
       String(programa?.nombre_gira || "").trim() ||
       `Gira ${row.id_gira}`;
+    const programaTop = [mesLetra, nomenclador].filter(Boolean).join(" | ");
+    const programaNombre = String(programa?.nombre_gira || "").trim();
+
+    const detail = {};
+    SEGUIMIENTO_FINANCIAL_COLS.forEach((col) => {
+      detail[col.exp] = safeMoney(row[col.exp]);
+      detail[col.ren] = safeMoney(row[col.ren]);
+    });
 
     return {
       id: row.id,
@@ -312,10 +391,21 @@ export async function fetchViaticosSeguimientoRows(supabase, options = {}) {
         vehiculo,
       }),
       programaLabel,
+      programaTop,
+      programaZona: zona,
+      programaNombre,
       programaFechaDesde: programa?.fecha_desde
         ? String(programa.fecha_desde).slice(0, 10)
         : null,
-      monto,
+      anticipoViatico: round2(anticipoViatico),
+      anticipo,
+      rendicion_viaticos: safeMoney(row.rendicion_viaticos),
+      rendicion,
+      devolucion: round2(dev),
+      reintegro: round2(reint),
+      /** Compat: monto = anticipo total */
+      monto: anticipo,
+      ...detail,
       seguimiento_tipo: row.seguimiento_tipo || null,
       seguimiento_color: row.seguimiento_color || null,
     };
@@ -367,6 +457,8 @@ function tipoLabel(value) {
 function colorLabel(value) {
   if (value === "amarillo") return "Amarillo";
   if (value === "verde") return "Verde";
+  if (value === "celeste") return "Celeste";
+  if (value === "rojo") return "Rojo";
   return "";
 }
 
@@ -378,6 +470,14 @@ export function formatMontoArs(value) {
     currency: "ARS",
     minimumFractionDigits: 2,
   }).format(n);
+}
+
+export function formatDevReintLabel(row) {
+  const reint = Number(row?.reintegro) || 0;
+  const dev = Number(row?.devolucion) || 0;
+  if (reint > 0) return `Reint ${formatMontoArs(reint)}`;
+  if (dev > 0) return `Dev ${formatMontoArs(dev)}`;
+  return "—";
 }
 
 /**
@@ -396,7 +496,9 @@ export async function downloadViaticosSeguimientoExcel({
     "Salida",
     "Regreso",
     "Programa",
-    "Monto",
+    "Anticipo",
+    "Dev/Reint",
+    "Rendición",
     "Tipo",
     "Color",
   ]);
@@ -408,7 +510,9 @@ export async function downloadViaticosSeguimientoExcel({
       row.salidaCell,
       row.regresoCell,
       row.programaLabel,
-      Number(row.monto) || 0,
+      Number(row.anticipo) || 0,
+      formatDevReintLabel(row),
+      Number(row.rendicion) || 0,
       tipoLabel(row.seguimiento_tipo),
       colorLabel(row.seguimiento_color),
     ]);
@@ -428,10 +532,27 @@ export async function downloadViaticosSeguimientoExcel({
           fgColor: { argb: "FFA5D6A7" },
         };
       });
+    } else if (row.seguimiento_color === "celeste") {
+      excelRow.eachCell((cell) => {
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FF81D4FA" },
+        };
+      });
+    } else if (row.seguimiento_color === "rojo") {
+      excelRow.eachCell((cell) => {
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFEF9A9A" },
+        };
+      });
     }
   }
 
   ws.getColumn(5).numFmt = '"$"#,##0.00';
+  ws.getColumn(7).numFmt = '"$"#,##0.00';
   ws.columns.forEach((col, idx) => {
     let max = 12;
     col.eachCell({ includeEmpty: true }, (cell) => {

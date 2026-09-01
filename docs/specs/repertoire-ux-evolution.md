@@ -824,3 +824,26 @@ Beatriz Lockhart — dos carpetas en [Para acomodar](https://drive.google.com/op
 - [x] Seed generado y aplicado en BD linked
 - [x] `pdfPartsRenaming`: Clarinete N → Bb N; Percusión I/II; Bandoneón / Band N; SCORE por título obra
 
+### Completado (2026-08-31) — Charbonnier: Concierto para Violoncello y orquesta Nro. 1 (obra 3401)
+
+Carpeta [Para acomodar / Drive](https://drive.google.com/drive/folders/1vFvK6DAgrMKYjd90F7sPlGoz3uR621_m): 3 PDFs de particellas (I Allegro / II Adagietto / III Prestissimo) + SCORE completo.
+
+| Paso | Resultado |
+|------|-----------|
+| Split | 23 instrumentos × movimiento (manifiesto por encabezado; mov II sin Timbal/Piatti) |
+| Merge | I+II+III → **1 PDF por instrumento** (Timbal/Platillo solo I+III) |
+| Canon | **24 PDFs** (`Instrumento - Concierto para Violoncello y orquesta Nro. 1 - Charbonnier, M.pdf`) |
+| BD | UPDATE obra **#3401** + 24 particellas; `Violoncello Solo` con `es_solista`; título con movimientos en `<div>` |
+| Orgánico | `Vc - 2.2.2.2 - 2.2.2.1 - Perc.x2 - Str` |
+
+| Artefacto | Rol |
+|-----------|-----|
+| `scripts/lib/charbonnierCelloCatalog.mjs` | Splits 3 movs + audios |
+| `scripts/process-charbonnier-cello-local.mjs` | Split → merge → SCORE/audio rename |
+| `scripts/generate-charbonnier-cello-sync.mjs` | Seed UPDATE desde Drive |
+| `scripts/rename-charbonnier-cello-audio.mjs` | Reintento rename audios (Drive EBUSY frecuente) |
+| `supabase/seed_charbonnier_cello_sync.sql` | Aplicado linked |
+
+- [x] Particellas canónicas en Drive + seed aplicado
+- [ ] Audios: rename `AUDIO - …` parcial (algunos EBUSY en File Stream; reintentar `node scripts/rename-charbonnier-cello-audio.mjs`)
+
