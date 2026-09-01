@@ -3612,6 +3612,82 @@ export async function listFimbaArtistaTrasladoBlocks(edicionId, idPropuesta) {
 }
 
 /**
+ * Bloques de traslado (suben→bajan) para todas las propuestas de la edición.
+ * Reutiliza agenda/flota/rutas ya cargadas; solo pide paradas faltantes en batch.
+ *
+ * @param {{
+ *   propuestas?: object[],
+ *   propuestaRoutes?: object[],
+ *   eventos?: object[],
+ *   flota?: object[],
+ * }} cache
+ * @returns {Promise<{ blocks: object[], error: Error|null }>}
+ */
+export async function buildAllFimbaAgendaRideBlocks(cache = {}) {
+  const propuestas = cache.propuestas || [];
+  const propuestaRoutes = cache.propuestaRoutes || [];
+  const eventos = cache.eventos || [];
+  const flota = cache.flota || [];
+
+  if (!propuestaRoutes.length || !propuestas.length) {
+    return { blocks: [], error: null };
+  }
+
+  const eventsById = new Map(
+    (eventos || []).map((ev) => [String(ev.id), ev]),
+  );
+  const missingIds = [];
+  for (const r of propuestaRoutes) {
+    if (Math.max(0, Number(r.plazas) || 0) <= 0) continue;
+    for (const id of [r.id_evento_subida, r.id_evento_bajada]) {
+      if (id != null && id !== "" && !eventsById.has(String(id))) {
+        missingIds.push(id);
+      }
+    }
+  }
+
+  const uniqueMissing = [...new Set(missingIds)];
+  if (uniqueMissing.length > 0) {
+    const { data: stopEvents, error: eEv } = await supabase
+      .from("eventos")
+      .select(
+        "id, id_gira, id_tipo_evento, id_locacion, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, observaciones_internas, audiencia_ofrn, id_gira_transporte, is_deleted, tipos_evento ( id, nombre, color, id_categoria, categorias_tipos_eventos ( id, nombre ) ), locaciones ( id, nombre, direccion, localidades ( id, localidad ) )",
+      )
+      .in("id", uniqueMissing)
+      .or("is_deleted.is.null,is_deleted.eq.false");
+    if (eEv) return { blocks: [], error: eEv };
+    for (const ev of stopEvents || []) {
+      const decoded = decodeFimbaTrasladoDescripcion(ev.descripcion, {
+        observaciones_equipaje: ev.observaciones_equipaje,
+      });
+      eventsById.set(String(ev.id), {
+        ...ev,
+        ...decoded,
+        actividad: decoded.actividad || ev.descripcion || null,
+        tipo_nombre: ev.tipos_evento?.nombre || null,
+      });
+    }
+  }
+
+  const vehiculosById = new Map(
+    (flota || []).map((gt) => [String(gt.id), gt]),
+  );
+  const blocks = [];
+  for (const p of propuestas) {
+    blocks.push(
+      ...buildArtistaTrasladoAgendaBlocks({
+        idPropuesta: p.id,
+        propuestaRoutes,
+        eventsById,
+        vehiculosById,
+        labelVehicle: labelGiraTransporte,
+      }),
+    );
+  }
+  return { blocks, error: null };
+}
+
+/**
  * Hard-block: Σ plazas de rutas del artista (excl. fila en edición) + nuevas ≤ para_transporte.
  * @param {number} idPropuesta
  * @param {number} plazas

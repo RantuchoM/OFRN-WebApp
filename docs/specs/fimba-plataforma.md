@@ -219,7 +219,7 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
   - Varios rides (hop off/on) = varios bloques; multi-vehículo el mismo día = filas separadas.
   - `es_ride_segment: true` → **siempre solo lectura** (no edit/delete; se editan en planilla Transportes Subidas/Bajadas). Desactivar con `include_ride_segments: false`.
   - **No** inventa sintético legacy sin `id_propuesta` en ride (solo rutas explícitas). Sin rutas / día sin bus → sin bloques de traslado.
-- Filtro planilla: **Todos / Solo FIMBA / Solo OFRN** (chips; **default Solo FIMBA**; ocultos con filtro artista/grupo). Multi-select con **checkboxes** (`MultiSelectDropdown`) de **categoría de tipo** (`id_categoria` / `categorias_tipos_eventos`; vacío = todas). Opciones = **tabla `categorias_tipos_eventos`** (catálogo vivo de Datos) ∪ tipos OFRN ∪ categorías de filas cargadas (`mergeFimbaAgendaCategories`). Alta nueva en BD (p.ej. **Catering**, **Reunión**) aparece aunque no haya tipo ni eventos. Multi-select de **locación** (`id_locacion` de filas cargadas; vacío = todas; sin `id_locacion` se ocultan si el filtro está activo). Multi-select de **artista** (`fimba_propuestas.id`; vacío = toda la edición). Multi-select de **grupos OFRN** (`giras_grupos.id` de la gira enlazada; opciones con color de grupo). **Búsqueda** debounced 250ms (patrón UnifiedAgenda: pill + clear) sobre actividad, tipo, categoría, locación/ciudad/dirección, destino calculado, vuelo, obs., artistas, grupos y vehículos. Filtros artista + grupos OFRN se combinan con **OR** (unión); activan origen **Todos** automáticamente (incluye convocatoria orquesta). Un solo artista sin grupos conserva carga server-side optimizada (`id_propuesta`) + ride segments.
+- Filtro planilla: **Todos / Solo FIMBA / Solo OFRN** (chips; **default Solo FIMBA**; ocultos con filtro artista/grupo). Multi-select con **checkboxes** (`MultiSelectDropdown`) de **categoría de tipo** (`id_categoria` / `categorias_tipos_eventos`; vacío = todas). Opciones = **tabla `categorias_tipos_eventos`** (catálogo vivo de Datos) ∪ tipos OFRN ∪ categorías de filas cargadas (`mergeFimbaAgendaCategories`). Alta nueva en BD (p.ej. **Catering**, **Reunión**) aparece aunque no haya tipo ni eventos. Multi-select de **locación** (`id_locacion` de filas cargadas; vacío = todas; sin `id_locacion` se ocultan si el filtro está activo). Multi-select de **artista** (`fimba_propuestas.id`; vacío = toda la edición). Multi-select de **grupos OFRN** (`giras_grupos.id` de la gira enlazada; opciones con color de grupo). Triggers acotados al ancho del contenedor (~220px); panel desplegable max 320px con labels truncados (`…`). **Búsqueda** debounced 250ms (patrón UnifiedAgenda: pill + clear) sobre actividad, tipo, categoría, locación/ciudad/dirección, destino calculado, vuelo, obs., artistas, grupos y vehículos. Filtros artista + grupos OFRN se combinan con **OR** (unión); activan origen **Todos** automáticamente (incluye convocatoria orquesta). **Carga:** una sola vez por edición (`listFimbaAgenda` sin filtros + `buildAllFimbaAgendaRideBlocks` precarga rides); todos los filtros (artista, grupo, origen, categoría, locación, búsqueda) aplican **en memoria** sin spinner de página. Solo el mount inicial muestra «Cargando agenda…»; mutaciones (guardar/eliminar) usan soft refresh con «Actualizando…» inline.
 - **Enlaces compartibles (query params)** — `/fimba/edicion/:id/agenda`:
 
 | Param | Tipo | Semántica |
@@ -233,7 +233,7 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
 | `locacion` | CSV numérico | IDs `locaciones` (multi). Ej. `42` o `42,43` |
 | `origen` | `fimba` \| `ofrn` \| `all` | Chips origen; con filtros artista/grupo se fuerza `all` en el enlace |
 
-Helpers: `src/utils/fimbaAgendaUrlParams.js` (`parseFimbaAgendaUrlSearchParams`, `buildFimbaAgendaSharePath`, `buildFimbaAgendaConsultaSharePath`, `eventMatchesAgendaEntityFilter`, `resolveGrupoIdsFromNames`). Carga server: `listFimbaAgenda` acepta `id_propuestas[]` + `id_grupos[]` (unión OR + ride segments por artista). UI: sincroniza query params al cambiar filtros (`replace` en ruta staff `/fimba/edicion/:id/agenda`); botón **Copiar enlace** genera URL pública `/fimba/c/{token_consulta}/agenda?…` (sin login; usa `fimba_ediciones.token_consulta` o sesión consulta activa).
+Helpers: `src/utils/fimbaAgendaUrlParams.js` (`parseFimbaAgendaUrlSearchParams`, `buildFimbaAgendaSharePath`, `buildFimbaAgendaConsultaSharePath`, `eventMatchesAgendaEntityFilter`, `resolveGrupoIdsFromNames`). Carga server: `listFimbaAgenda` acepta `id_propuestas[]` + `id_grupos[]` (API/consulta artista); planilla staff precarga agenda completa + `buildAllFimbaAgendaRideBlocks` y filtra en cliente. UI: sincroniza query params al cambiar filtros (`replace` en ruta staff `/fimba/edicion/:id/agenda`); botón **Copiar enlace** genera URL pública `/fimba/c/{token_consulta}/agenda?…` (sin login; usa `fimba_ediciones.token_consulta` o sesión consulta activa).
 
 **Ejemplo FIMBA 2026 (edición 1):** Alba Carmona (`5`) + Daniel Ruggiero cuarteto (`7`) + grupo OFRN Alba (`3`):
 
@@ -700,7 +700,8 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `/fimba/edicion/:id/artista/:artistaId/hoteleria` | Hotelería filtrada |
 | `/fimba/a/:token` | Consulta token (agenda RO + datos artista + participantes RO + rooming RO) |
 | `/fimba/e/:token` | Edición token (planilla participantes + agenda + rooming acomodo) |
-| `/fimba/c/:token` | Consulta general edición (shell RO; sin Usuarios/Contrataciones) |
+| `/fimba/c/:token` | Consulta general edición (shell RO; sin Usuarios/Contrataciones/Rider) |
+| `/fimba/c/:token/agenda?…` | Entry consulta directo a agenda filtrada (preserva query params) |
 
 ---
 
@@ -730,7 +731,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/hooks/useFimbaConsultaEdicionSession.js` | Hook sesión enlace consulta edición |
 | `src/context/FimbaAccessContext.jsx` | `readOnly` / `canEditPropuestaMeta` / flags de secciones en shell staff |
 | `src/views/Fimba/FimbaLoginPage.jsx` | Form `/fimba/login` |
-| `src/views/Fimba/FimbaEdicionConsultaEntry.jsx` | Entry `/fimba/c/:token` → session + redirect |
+| `src/views/Fimba/FimbaEdicionConsultaEntry.jsx` | Entry `/fimba/c/:token` (+ `/agenda`) → session + redirect con query |
 | `src/utils/fimbaTransportBoarding.js` | Secuencia + en tránsito + chips (`resolveStopBoardAlightChips` / `summarizeOfrnStopRules` / `formatBoardChipLabel`) + tooltip a bordo + opciones bajada |
 | `src/views/Fimba/FimbaStopRulesManager.jsx` | Modal planilla: reglas grupo+cantidad+equipaje; Reserva; **Bajar todo** FIMBA; StopRules OFRN `embedded` (+ Bajar todo orquesta) |
 | `src/views/Fimba/FimbaEventoArtistasBoardingTable.jsx` | Editor transporte: Tag \| Sube \| Baja + `SearchableSelect` alta; sync `fimba_propuesta_rutas` |
@@ -765,7 +766,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/views/Fimba/FimbaArtistaPage.jsx` | Detalle: meta + finanzas (Drive desde contratos) + agenda + rooming + planilla; finanzas si `canSeeContrataciones` |
 | `src/views/Fimba/FimbaConsultaAgenda.jsx` | Agenda por tag artista + ride segments RO; create/edit/delete en tagged |
 | `src/utils/fimbaAgendaUrlParams.js` | Query params compartibles agenda staff (propuestas / grupos OFRN / locación / origen) |
-| `src/views/Fimba/FimbaAgendaPage.jsx` | Planilla agenda (tipo/color catálogo); ride segments al filtrar artista; multi-filtro + Copiar enlace |
+| `src/views/Fimba/FimbaAgendaPage.jsx` | Planilla agenda (tipo/color catálogo); carga única + filtros en memoria; ride segments precargados; multi-filtro + Copiar enlace |
 | `src/utils/fimbaTransportBoarding.js` | Boarding + `buildArtistaTrasladoAgendaBlocks` / merge |
 | `src/views/Fimba/FimbaTransportPage.jsx` | Vehículos + trayectos + columnas boarding / locación |
 | `src/views/Fimba/FimbaHoteleriaPage.jsx` | Hotelería + **Editar datos** (meta compartida + cupos) + hub reportes + exports por tarjeta + comidas |

@@ -34,6 +34,7 @@ export const FIMBA_ROLE_LABELS = {
  * @typedef {object} FimbaConsultaEdicionSession
  * @property {string} token
  * @property {number} id_edicion
+ * @property {boolean} [agenda_only] — true si el entry fue `/fimba/c/:token/agenda` (solo agenda RO)
  * @property {string} [loggedAt]
  */
 
@@ -133,6 +134,7 @@ export function readFimbaConsultaEdicionSession() {
     return {
       token,
       id_edicion,
+      agenda_only: parsed.agenda_only === true,
       loggedAt: parsed.loggedAt ? String(parsed.loggedAt) : undefined,
     };
   } catch {
@@ -141,7 +143,7 @@ export function readFimbaConsultaEdicionSession() {
 }
 
 /**
- * @param {{ token: string, id_edicion: number|string }} payload
+ * @param {{ token: string, id_edicion: number|string, agenda_only?: boolean }} payload
  */
 export function writeFimbaConsultaEdicionSession(payload) {
   if (typeof window === "undefined") return;
@@ -155,6 +157,7 @@ export function writeFimbaConsultaEdicionSession(payload) {
     JSON.stringify({
       token,
       id_edicion,
+      agenda_only: payload?.agenda_only === true,
       loggedAt: new Date().toISOString(),
     }),
   );
@@ -233,12 +236,43 @@ export function fimbaSessionCanAccessPath(pathname, session) {
 }
 
 /**
+ * Rutas permitidas en token consulta «solo agenda» (`/fimba/c/:token/agenda`).
+ * @param {string} pathname
+ * @param {number|string} edicionId
+ */
+export function fimbaConsultaAgendaOnlyPathAllowed(pathname, edicionId) {
+  if (edicionId == null || edicionId === "") return false;
+  const path = String(pathname || "");
+  const normalized =
+    path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
+  if (normalized === "/fimba") return true;
+  return normalized === `/fimba/edicion/${edicionId}/agenda`;
+}
+
+/**
+ * Destino de redirect cuando la sesión es agenda-only y la ruta no lo es.
+ * @param {string} pathname
+ * @param {FimbaConsultaEdicionSession|null|undefined} session
+ * @returns {string|null}
+ */
+export function fimbaConsultaAgendaOnlyRedirectTarget(pathname, session) {
+  if (!session?.agenda_only || !session.id_edicion) return null;
+  if (fimbaConsultaAgendaOnlyPathAllowed(pathname, session.id_edicion)) {
+    return null;
+  }
+  return `/fimba/edicion/${session.id_edicion}/agenda`;
+}
+
+/**
  * Token de consulta de edición: solo lecturas permitidas.
  * @param {string} pathname
  * @param {FimbaConsultaEdicionSession|null|undefined} session
  */
 export function fimbaConsultaTokenCanAccessPath(pathname, session) {
   if (!session?.id_edicion) return false;
+  if (session.agenda_only) {
+    return fimbaConsultaAgendaOnlyPathAllowed(pathname, session.id_edicion);
+  }
   if (!fimbaConsultaPathAllowed(pathname, session.id_edicion)) return false;
   const path = String(pathname || "");
   const normalized =
@@ -286,6 +320,7 @@ export function resolveFimbaAccess({
     return {
       allowed: true,
       readOnly: true,
+      agendaOnly: false,
       canManageUsers: false,
       canSeeUsuarios: false,
       canSeeContrataciones: false,
@@ -299,6 +334,7 @@ export function resolveFimbaAccess({
     return {
       allowed: true,
       readOnly: false,
+      agendaOnly: false,
       canManageUsers: true,
       canSeeUsuarios: true,
       canSeeContrataciones: true,
@@ -320,6 +356,7 @@ export function resolveFimbaAccess({
     return {
       allowed: true,
       readOnly: false,
+      agendaOnly: false,
       canManageUsers: true,
       canSeeUsuarios: true,
       canSeeContrataciones: true,
@@ -333,6 +370,7 @@ export function resolveFimbaAccess({
     return {
       allowed: true,
       readOnly: true,
+      agendaOnly: false,
       canManageUsers: false,
       canSeeUsuarios: false,
       canSeeContrataciones: false,
@@ -352,6 +390,7 @@ export function resolveFimbaAccess({
     return {
       allowed: true,
       readOnly: true,
+      agendaOnly: consultaTokenSession.agenda_only === true,
       canManageUsers: false,
       canSeeUsuarios: false,
       canSeeContrataciones: false,
@@ -364,6 +403,7 @@ export function resolveFimbaAccess({
   return {
     allowed: false,
     readOnly: true,
+    agendaOnly: false,
     canManageUsers: false,
     canSeeUsuarios: false,
     canSeeContrataciones: false,

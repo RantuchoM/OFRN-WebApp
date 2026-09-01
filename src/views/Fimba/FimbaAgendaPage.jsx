@@ -29,7 +29,7 @@ import {
   listFimbaGiraGrupos,
   listFimbaPropuestaRutas,
   listFimbaPropuestas,
-  listFimbaArtistaTrasladoBlocks,
+  buildAllFimbaAgendaRideBlocks,
   loadFimbaTransportLogisticsSummary,
   computeFimbaCapacity,
 } from "../../services/fimbaService";
@@ -328,7 +328,8 @@ export default function FimbaAgendaPage() {
   const [propuestas, setPropuestas] = useState([]);
   const [giraGrupos, setGiraGrupos] = useState([]);
   const [flota, setFlota] = useState([]);
-  const [eventos, setEventos] = useState([]);
+  const [eventosBase, setEventosBase] = useState([]);
+  const [allRideBlocks, setAllRideBlocks] = useState([]);
   /** Catálogo vivo: `categorias_tipos_eventos` + `tipos_evento` (filtro no depende de filas). */
   const [catalogTipos, setCatalogTipos] = useState([]);
   const [dbCategorias, setDbCategorias] = useState([]);
@@ -365,7 +366,8 @@ export default function FimbaAgendaPage() {
   const handleAgendaSearchQueryChange = useCallback((query) => {
     setAgendaSearchQuery(query);
   }, []);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [modal, setModal] = useState(null);
 
@@ -377,53 +379,64 @@ export default function FimbaAgendaPage() {
     entityFilterActive &&
     (selectedPropuestaIds.length > 0 || selectedGrupoIds.length > 0);
 
-  const reload = async () => {
-    setLoading(true);
+  const reload = useCallback(async ({ soft = false } = {}) => {
+    if (soft) setRefreshing(true);
+    else setInitialLoading(true);
     setError(null);
-    const edRes = await getFimbaEdicionById(edicionId);
-    if (edRes.error || !edRes.edicion) {
-      setError(edRes.error?.message || "Edición no encontrada");
-      setEdicion(null);
-      setLoading(false);
-      return;
+    try {
+      const edRes = await getFimbaEdicionById(edicionId);
+      if (edRes.error || !edRes.edicion) {
+        setError(edRes.error?.message || "Edición no encontrada");
+        setEdicion(null);
+        return;
+      }
+      const ed = edRes.edicion;
+      const [propsRes, gruposRes, flotaRes, agendaRes, logRes, rutasRes] =
+        await Promise.all([
+          listFimbaPropuestas(edicionId),
+          listFimbaGiraGrupos(ed.id_gira),
+          listFimbaFlota(ed.id_gira),
+          listFimbaAgenda(edicionId),
+          loadFimbaTransportLogisticsSummary(ed.id_gira),
+          listFimbaPropuestaRutas(edicionId),
+        ]);
+      if (propsRes.error || flotaRes.error || agendaRes.error) {
+        setError(
+          (propsRes.error || flotaRes.error || agendaRes.error).message ||
+            "Error al cargar",
+        );
+      }
+      const props = propsRes.propuestas || [];
+      const fleet = flotaRes.flota || [];
+      const baseEventos = agendaRes.eventos || [];
+      const rutas = rutasRes.error ? [] : rutasRes.rutas || [];
+      const { blocks: rideBlocks, error: rideErr } =
+        await buildAllFimbaAgendaRideBlocks({
+          propuestas: props,
+          propuestaRoutes: rutas,
+          eventos: baseEventos,
+          flota: fleet,
+        });
+      if (rideErr) {
+        console.warn("[FIMBA] Ride segments no precargados:", rideErr);
+      }
+      setEdicion(ed);
+      setPropuestas(props);
+      setGiraGrupos(gruposRes.grupos || []);
+      setFlota(fleet);
+      setEventosBase(baseEventos);
+      setAllRideBlocks(rideBlocks || []);
+      setLogisticsSummary(logRes.error ? [] : logRes.summary || []);
+      setPropuestaRoutes(rutas);
+    } finally {
+      setInitialLoading(false);
+      setRefreshing(false);
     }
-    const ed = edRes.edicion;
-    const agendaOpts = {};
-    if (selectedPropuestaIds.length > 0) {
-      agendaOpts.id_propuestas = selectedPropuestaIds;
-    }
-    if (selectedGrupoIds.length > 0) {
-      agendaOpts.id_grupos = selectedGrupoIds;
-    }
-    const [propsRes, gruposRes, flotaRes, agendaRes, logRes, rutasRes] =
-      await Promise.all([
-        listFimbaPropuestas(edicionId),
-        listFimbaGiraGrupos(ed.id_gira),
-        listFimbaFlota(ed.id_gira),
-        listFimbaAgenda(edicionId, agendaOpts),
-        loadFimbaTransportLogisticsSummary(ed.id_gira),
-        listFimbaPropuestaRutas(edicionId),
-      ]);
-    if (propsRes.error || flotaRes.error || agendaRes.error) {
-      setError(
-        (propsRes.error || flotaRes.error || agendaRes.error).message ||
-          "Error al cargar",
-      );
-    }
-    setEdicion(ed);
-    setPropuestas(propsRes.propuestas || []);
-    setGiraGrupos(gruposRes.grupos || []);
-    setFlota(flotaRes.flota || []);
-    setEventos(agendaRes.eventos || []);
-    setLogisticsSummary(logRes.error ? [] : logRes.summary || []);
-    setPropuestaRoutes(rutasRes.error ? [] : rutasRes.rutas || []);
-    setLoading(false);
-  };
+  }, [edicionId]);
 
   useEffect(() => {
     reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edicionId, selectedPropuestaIds.join(","), selectedGrupoIds.join(",")]);
+  }, [reload]);
 
   useEffect(() => {
     setSelectedPropuestaIds(urlFilters.propuestaIds);
@@ -475,6 +488,18 @@ export default function FimbaAgendaPage() {
   }, [urlFilters.grupoNames.join(","), giraGrupos]);
 
   useEffect(() => {
+    const incoming = parseFimbaAgendaUrlSearchParams(searchParams, {
+      routeArtistaId: artistaId,
+    });
+    const statePending =
+      (incoming.propuestaIds.length > 0 &&
+        selectedPropuestaIds.join(",") !== incoming.propuestaIds.join(",")) ||
+      (incoming.grupoIds.length > 0 &&
+        selectedGrupoIds.join(",") !== incoming.grupoIds.join(",")) ||
+      (incoming.locacionIds.length > 0 &&
+        selectedLocacionIds.join(",") !== incoming.locacionIds.join(","));
+    if (statePending) return;
+
     const path = buildFimbaAgendaSharePath(location.pathname, {
       propuestaIds: selectedPropuestaIds,
       grupoIds: selectedGrupoIds,
@@ -489,6 +514,8 @@ export default function FimbaAgendaPage() {
       });
     }
   }, [
+    artistaId,
+    searchParams,
     selectedPropuestaIds,
     selectedGrupoIds,
     selectedLocacionIds,
@@ -509,14 +536,14 @@ export default function FimbaAgendaPage() {
       mergeFimbaAgendaCategories({
         dbCategorias,
         catalogTipos,
-        rowDerived: categoriasFromAgendaRows(eventos),
+        rowDerived: categoriasFromAgendaRows(eventosBase),
       }),
-    [dbCategorias, catalogTipos, eventos],
+    [dbCategorias, catalogTipos, eventosBase],
   );
 
   const availableLocaciones = useMemo(
-    () => locacionesFromAgendaRows(eventos),
-    [eventos],
+    () => locacionesFromAgendaRows(eventosBase),
+    [eventosBase],
   );
 
   const flotaById = useMemo(() => {
@@ -532,13 +559,13 @@ export default function FimbaAgendaPage() {
     () =>
       buildAllVehicleBoardingSequences({
         vehiculos: flota,
-        eventos,
+        eventos: eventosBase,
         logisticsSummary,
         capacityFn: computeFimbaCapacity,
         eventVehicleIds: giraTransporteIdsFromEvent,
         propuestaRoutes,
       }),
-    [flota, eventos, logisticsSummary, propuestaRoutes],
+    [flota, eventosBase, logisticsSummary, propuestaRoutes],
   );
 
   const categoryOptions = useMemo(
@@ -626,6 +653,20 @@ export default function FimbaAgendaPage() {
     [giraGrupos],
   );
 
+  /**
+   * Agenda base + ride segments de artistas filtrados (merge en memoria).
+   * Sin filtro de artista no se insertan bloques «A bordo».
+   */
+  const eventos = useMemo(() => {
+    if (selectedPropuestaIds.length === 0) return eventosBase;
+    const want = new Set(selectedPropuestaIds.map(Number));
+    const blocks = allRideBlocks.filter((b) =>
+      want.has(Number(b.id_propuesta)),
+    );
+    if (blocks.length === 0) return eventosBase;
+    return mergeAgendaWithTrasladoBlocks(eventosBase, blocks);
+  }, [eventosBase, allRideBlocks, selectedPropuestaIds.join(",")]);
+
   const eventosFiltrados = useMemo(() => {
     let list = eventos;
     if (entityFilterActiveFlag) {
@@ -700,7 +741,7 @@ export default function FimbaAgendaPage() {
       setError(err.message || "No se pudo eliminar");
       return;
     }
-    reload();
+    reload({ soft: true });
   };
 
   const handleDuplicate = async (ev) => {
@@ -720,7 +761,7 @@ export default function FimbaAgendaPage() {
       setError(err?.message || "No se pudo duplicar");
       return;
     }
-    await reload();
+    await reload({ soft: true });
     setModal({ mode: "edit", evento: copy });
   };
 
@@ -845,7 +886,7 @@ export default function FimbaAgendaPage() {
     ? `/fimba/edicion/${edicionId}/artista/${artistaId}`
     : `/fimba/edicion/${edicionId}`;
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="fimba-card fimba-muted" style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <IconLoader size={18} className="animate-spin" /> Cargando agenda…
@@ -926,124 +967,152 @@ export default function FimbaAgendaPage() {
       >
         <h2 style={{ margin: 0, fontSize: "1.05rem", color: "var(--fimba-deep)", display: "flex", alignItems: "center", gap: 6 }}>
           <IconClock size={16} /> Planilla
+          {refreshing && (
+            <span
+              className="fimba-muted"
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: "0.75rem", fontWeight: 500 }}
+              aria-live="polite"
+            >
+              <IconLoader size={12} className="animate-spin" /> Actualizando…
+            </span>
+          )}
         </h2>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <FimbaAgendaSearchField onQueryChange={handleAgendaSearchQueryChange} />
-          {!entityFilterActiveFlag && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              {ORIGEN_FILTERS.map((f) => {
-                const on = filtroOrigen === f.value;
-                return (
-                  <button
-                    key={f.value}
-                    type="button"
-                    className={`fimba-btn fimba-chip${on ? " fimba-chip-on" : ""}`}
-                    onClick={() => setFiltroOrigen(f.value)}
-                    style={{
-                      padding: "0.3rem 0.65rem",
-                      fontSize: "0.78rem",
-                    }}
-                  >
-                    {f.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {availableCategories.length > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 200 }}>
-              <label className="fimba-label" style={{ margin: 0 }}>
-                Categoría
-              </label>
-              <div style={{ minWidth: 200, width: 220 }}>
-                <MultiSelectDropdown
-                  label="Categoría"
-                  placeholder="Todas las categorías"
-                  options={categoryOptions}
-                  value={selectedCategoryIds}
-                  onChange={setSelectedCategoryIds}
-                  compact
-                  summaryMode="names"
-                  summaryMaxNames={2}
-                />
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
+            gap: 8,
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <FimbaAgendaSearchField onQueryChange={handleAgendaSearchQueryChange} />
+            {!entityFilterActiveFlag && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                {ORIGEN_FILTERS.map((f) => {
+                  const on = filtroOrigen === f.value;
+                  return (
+                    <button
+                      key={f.value}
+                      type="button"
+                      className={`fimba-btn fimba-chip${on ? " fimba-chip-on" : ""}`}
+                      onClick={() => setFiltroOrigen(f.value)}
+                      style={{
+                        padding: "0.3rem 0.65rem",
+                        fontSize: "0.78rem",
+                      }}
+                    >
+                      {f.label}
+                    </button>
+                  );
+                })}
               </div>
-            </div>
-          )}
-          {availableLocaciones.length > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 200 }}>
-              <label className="fimba-label" style={{ margin: 0 }}>
-                Locación
-              </label>
-              <div style={{ minWidth: 200, width: 220 }}>
-                <MultiSelectDropdown
-                  label="Locación"
-                  placeholder="Todas las locaciones"
-                  options={locationOptions}
-                  value={selectedLocacionIds}
-                  onChange={setSelectedLocacionIds}
-                  compact
-                  summaryMode="names"
-                  summaryMaxNames={2}
-                />
+            )}
+            {availableCategories.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 200 }}>
+                <label className="fimba-label" style={{ margin: 0 }}>
+                  Categoría
+                </label>
+                <div style={{ minWidth: 200, width: 220 }}>
+                  <MultiSelectDropdown
+                    className="w-full"
+                    label="Categoría"
+                    placeholder="Todas las categorías"
+                    options={categoryOptions}
+                    value={selectedCategoryIds}
+                    onChange={setSelectedCategoryIds}
+                    compact
+                    summaryMode="names"
+                    summaryMaxNames={2}
+                  />
+                </div>
               </div>
-            </div>
-          )}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 200 }}>
-            <label className="fimba-label" style={{ margin: 0 }}>
-              Artista
-            </label>
-            <div style={{ minWidth: 200, width: 220 }}>
-              <MultiSelectDropdown
-                label="Artista"
-                placeholder="Toda la edición"
-                options={propuestasParaFiltro.map((p) => ({
-                  value: p.id,
-                  label: p.nombre,
-                }))}
-                value={selectedPropuestaIds}
-                onChange={setSelectedPropuestaIds}
-                compact
-                summaryMode="names"
-                summaryMaxNames={2}
-              />
+            )}
+            {availableLocaciones.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 200 }}>
+                <label className="fimba-label" style={{ margin: 0 }}>
+                  Locación
+                </label>
+                <div style={{ minWidth: 200, width: 220 }}>
+                  <MultiSelectDropdown
+                    className="w-full"
+                    label="Locación"
+                    placeholder="Todas las locaciones"
+                    options={locationOptions}
+                    value={selectedLocacionIds}
+                    onChange={setSelectedLocacionIds}
+                    compact
+                    summaryMode="names"
+                    summaryMaxNames={2}
+                  />
+                </div>
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 200 }}>
+                <label className="fimba-label" style={{ margin: 0 }}>
+                  Artista
+                </label>
+                <div style={{ minWidth: 200, width: 220 }}>
+                  <MultiSelectDropdown
+                    className="w-full"
+                    label="Artista"
+                    placeholder="Toda la edición"
+                    options={propuestasParaFiltro.map((p) => ({
+                      value: p.id,
+                      label: p.nombre,
+                    }))}
+                    value={selectedPropuestaIds}
+                    onChange={setSelectedPropuestaIds}
+                    compact
+                    summaryMode="names"
+                    summaryMaxNames={2}
+                  />
+                </div>
+              </div>
+              {grupoOptions.length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 200 }}>
+                  <label className="fimba-label" style={{ margin: 0 }}>
+                    Grupos OFRN
+                  </label>
+                  <div style={{ minWidth: 160, width: 180 }}>
+                    <MultiSelectDropdown
+                      className="w-full"
+                      label="Grupos OFRN"
+                      placeholder="Todos"
+                      options={grupoOptions}
+                      value={selectedGrupoIds}
+                      onChange={setSelectedGrupoIds}
+                      compact
+                      summaryMode="names"
+                      summaryMaxNames={2}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-          {grupoOptions.length > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 200 }}>
-              <label className="fimba-label" style={{ margin: 0 }}>
-                Grupos OFRN
-              </label>
-              <div style={{ minWidth: 160, width: 180 }}>
-                <MultiSelectDropdown
-                  label="Grupos OFRN"
-                  placeholder="Todos"
-                  options={grupoOptions}
-                  value={selectedGrupoIds}
-                  onChange={setSelectedGrupoIds}
-                  compact
-                  summaryMode="names"
-                  summaryMaxNames={2}
-                />
-              </div>
-            </div>
-          )}
-          <button
-            type="button"
-            className="fimba-btn fimba-btn-ghost"
-            onClick={handleCopyShareLink}
-            title="Copiar enlace público (consulta, sin login) con los filtros actuales"
-          >
-            <IconCopy size={14} /> Copiar enlace
-          </button>
-          <button
-            type="button"
-            className="fimba-btn fimba-btn-ghost"
-            onClick={handleExportPdf}
-            disabled={loading || eventosFiltrados.length === 0}
-            title="Descargar PDF de la vista filtrada actual"
-          >
-            <IconPrinter size={14} /> Descargar PDF
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-ghost"
+              onClick={handleCopyShareLink}
+              title="Copiar enlace público (consulta, sin login) con los filtros actuales"
+            >
+              <IconCopy size={14} /> Copiar enlace
+            </button>
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-ghost"
+              onClick={handleExportPdf}
+              disabled={refreshing || eventosFiltrados.length === 0}
+              title="Descargar PDF de la vista filtrada actual"
+            >
+              <IconPrinter size={14} /> Descargar PDF
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1058,7 +1127,7 @@ export default function FimbaAgendaPage() {
           {categoryFilterActive ? " con las categorías seleccionadas" : ""}
           {locationFilterActive ? " en las locaciones seleccionadas" : ""}
           {searchFilterActive ? " que coincidan con la búsqueda" : ""}.
-          {eventos.length === 0
+          {eventosBase.length === 0
             ? readOnly
               ? "."
               : " Creá el primero con «Nuevo evento»."
@@ -1430,7 +1499,7 @@ export default function FimbaAgendaPage() {
             onClose={() => setModal(null)}
             onSaved={() => {
               setModal(null);
-              reload();
+              reload({ soft: true });
             }}
           />,
           document.body,

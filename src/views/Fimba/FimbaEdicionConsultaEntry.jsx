@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Navigate, useLocation, useParams } from "react-router-dom";
+import { Navigate, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { IconAlertCircle, IconLoader } from "../../components/ui/Icons";
 import { getFimbaEdicionByTokenConsulta } from "../../services/fimbaService";
 import {
@@ -14,6 +14,7 @@ import FimbaLayout from "./FimbaLayout";
 export default function FimbaEdicionConsultaEntry() {
   const { token } = useParams();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const openAgenda = /\/agenda\/?$/.test(location.pathname);
   const [state, setState] = useState({
     loading: true,
@@ -49,6 +50,7 @@ export default function FimbaEdicionConsultaEntry() {
         writeFimbaConsultaEdicionSession({
           token: t,
           id_edicion: edicion.id,
+          agenda_only: openAgenda,
         });
       } catch (e) {
         setState({
@@ -100,7 +102,10 @@ export default function FimbaEdicionConsultaEntry() {
 
   return (
     <Navigate
-      to={`/fimba/edicion/${state.edicionId}${openAgenda ? "/agenda" : ""}${location.search}`}
+      to={{
+        pathname: `/fimba/edicion/${state.edicionId}${openAgenda ? "/agenda" : ""}`,
+        search: searchParams.toString() ? `?${searchParams.toString()}` : location.search,
+      }}
       replace
     />
   );

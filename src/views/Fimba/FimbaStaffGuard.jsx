@@ -7,6 +7,7 @@ import { useOfrnFimbaUsuarioOverride } from "../../hooks/useOfrnFimbaUsuarioOver
 import {
   FIMBA_ROLES,
   fimbaConsultaPathAllowed,
+  fimbaConsultaAgendaOnlyRedirectTarget,
   fimbaConsultaTokenCanAccessPath,
   fimbaSessionCanAccessPath,
   resolveFimbaAccess,
@@ -17,7 +18,8 @@ import { parseFimbaSectionIds } from "./FimbaSectionToggle";
  * Acceso shell FIMBA:
  * 1) OFRN isManagement → full /fimba, salvo fila `fimba_usuarios` consulta (RO)
  * 2) Sesión localStorage.fimba_user (editor_general o consulta) + match edición
- * 3) Sesión localStorage.fimba_consulta_edicion (enlace /fimba/c/:token) → RO sin Usuarios/Contrataciones/Rider
+ * 3) Sesión localStorage.fimba_consulta_edicion (enlace /fimba/c/:token) → RO;
+ *    entry `/fimba/c/:token/agenda` → solo agenda (redirect fuera de /agenda)
  *
  * Documentado en docs/specs/fimba-plataforma.md
  */
@@ -49,6 +51,22 @@ export default function FimbaStaffGuard({ children }) {
     edicionId: edicionIdFromPath,
   });
 
+  const agendaOnlyRedirect = fimbaConsultaAgendaOnlyRedirectTarget(
+    location.pathname,
+    consultaToken,
+  );
+  if (agendaOnlyRedirect) {
+    return (
+      <Navigate
+        to={{
+          pathname: agendaOnlyRedirect,
+          search: location.search,
+        }}
+        replace
+      />
+    );
+  }
+
   if (access.source === "ofrn" || access.source === "ofrn_fimba_consulta") {
     if (
       access.source === "ofrn_fimba_consulta" &&
@@ -79,6 +97,7 @@ export default function FimbaStaffGuard({ children }) {
     const idEdicion = fimbaUser?.id_edicion || consultaToken?.id_edicion;
     const isConsulta =
       fimbaUser?.rol_fimba === FIMBA_ROLES.CONSULTA || Boolean(consultaToken);
+    const isAgendaOnlyConsulta = Boolean(consultaToken?.agenda_only);
     const wrongEdicion =
       fimbaUser?.rol_fimba === FIMBA_ROLES.EDITOR_GENERAL &&
       !fimbaSessionCanAccessPath(location.pathname, fimbaUser);

@@ -13,6 +13,7 @@ import {
 
 const FimbaAccessContext = createContext({
   readOnly: false,
+  agendaOnly: false,
   canManageUsers: false,
   canSeeUsuarios: false,
   canSeeContrataciones: false,
