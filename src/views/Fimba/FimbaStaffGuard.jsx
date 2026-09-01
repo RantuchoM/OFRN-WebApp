@@ -126,14 +126,22 @@ export default function FimbaStaffGuard({ children }) {
             Sin acceso a esta sección
           </h1>
           <p style={{ margin: 0, color: "#5c5c5c", fontSize: "0.9rem" }}>
-            {isConsulta
+            {isAgendaOnlyConsulta
+              ? "Tu enlace es de consulta de agenda (solo lectura). No incluye otras secciones del festival."
+              : isConsulta
               ? "Tu acceso es de consulta (solo lectura). No incluye Usuarios ni Contrataciones."
               : wrongEdicion
                 ? "Tu usuario FIMBA está ligado a otra edición del festival."
                 : "No tenés permiso para esta ruta FIMBA."}
           </p>
           <a
-            href={idEdicion ? `/fimba/edicion/${idEdicion}` : "/fimba/login"}
+            href={
+              idEdicion
+                ? isAgendaOnlyConsulta
+                  ? `/fimba/edicion/${idEdicion}/agenda`
+                  : `/fimba/edicion/${idEdicion}`
+                : "/fimba/login"
+            }
             style={{
               display: "inline-block",
               marginTop: "1rem",

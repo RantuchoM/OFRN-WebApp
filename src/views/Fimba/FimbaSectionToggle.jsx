@@ -24,6 +24,7 @@ function normalizePath(pathname) {
  * Segment order: Artistas | Agenda | Transportes | Hotelería | Venues | Rider | Contrataciones | Usuarios.
  * All tabs navigate to edición-level routes (never keep /artista/:id).
  * Consulta RO: oculta Contrataciones y Usuarios. Token `/c`: también oculta Rider.
+ * Token `/c/.../agenda` (`agendaOnly`): oculta todo el toggle (solo agenda).
  */
 const SECTIONS = [
   { key: "artistas", label: "Artistas", Icon: IconMusic, segment: null },
@@ -115,12 +116,13 @@ export default function FimbaSectionToggle({
 }) {
   const params = useParams();
   const { pathname } = useLocation();
-  const { canSeeUsuarios, canSeeContrataciones, canSeeRider } = useFimbaAccess();
+  const { canSeeUsuarios, canSeeContrataciones, canSeeRider, agendaOnly } =
+    useFimbaAccess();
   const { tryNavigate } = useFimbaSheetLeaveGuard();
   const fromPath = parseFimbaSectionIds(pathname);
   const edicionId = edicionIdProp ?? params.edicionId ?? fromPath.edicionId;
 
-  if (!edicionId) return null;
+  if (!edicionId || agendaOnly) return null;
 
   const base = `/fimba/edicion/${edicionId}`;
 
