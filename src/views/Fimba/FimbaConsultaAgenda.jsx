@@ -73,11 +73,10 @@ function vehicleLabel(ev, flota) {
 }
 
 /**
- * Agenda del artista filtrada por tags `eventos_fimba_propuestas`.
- * Incluye bloques calculados de traslado (suben→bajan vía `fimba_propuesta_rutas`).
+ * Agenda del artista: eventos tagged + paradas de transporte vía `fimba_propuesta_rutas`.
  * - Consulta token / readOnly: solo lectura.
  * - Superficies editables (`editable`): alta/edición/baja con FimbaEventoFormModal
- *   y propuesta fija (lockPropuesta). Los segmentos de bus son siempre RO.
+ *   y propuesta fija (lockPropuesta).
  */
 export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
   const [eventos, setEventos] = useState([]);
@@ -329,9 +328,9 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
             : "No hay eventos ni traslados asignados a este artista."}
         </div>
       ) : eventosOrdenados.length > 0 ? (
-        <div className="fimba-card" style={{ padding: 0, overflow: "hidden" }}>
-          <div style={{ overflowX: "auto" }}>
-            <table className="fimba-table">
+        <div className="fimba-card fimba-agenda-card">
+          <div className="fimba-agenda-scroll">
+            <table className="fimba-table fimba-agenda-table">
               <thead>
                 <tr>
                   <th style={{ paddingLeft: "1rem" }}>Fecha</th>
@@ -354,43 +353,23 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
               </thead>
               <tbody>
                 {eventosOrdenados.map((ev) => {
-                  const isRide = Boolean(ev.es_ride_segment);
                   const isTx =
-                    isRide ||
                     Boolean(ev.es_traslado) ||
                     (ev.vehiculos || []).length > 0 ||
                     ev.id_gira_transporte != null;
-                  const veh = isRide
-                    ? ev.vehicle_label || vehicleLabel(ev, flota)
-                    : vehicleLabel(ev, flota);
-                  const origen = isRide
-                    ? ev.route_snippet?.split(" → ")?.[0]?.trim() ||
-                      formatAgendaOrigenLabel(ev, { skipDestinoFallback: true })
-                    : formatAgendaOrigenLabel(ev, {
-                        skipDestinoFallback: isTx,
-                      });
-                  const destino = isRide
-                    ? ev.route_snippet?.includes(" → ")
-                      ? ev.route_snippet.split(" → ").slice(1).join(" → ").trim()
-                      : resolveAgendaDestinoLabel(ev, sequencesByVehicle, {
-                          isTransport: true,
-                        })
-                    : resolveAgendaDestinoLabel(ev, sequencesByVehicle, {
-                        isTransport: isTx,
-                      });
+                  const veh = vehicleLabel(ev, flota);
+                  const origen = formatAgendaOrigenLabel(ev, {
+                    skipDestinoFallback: isTx,
+                  });
+                  const destino = resolveAgendaDestinoLabel(ev, sequencesByVehicle, {
+                    isTransport: isTx,
+                  });
                   const vuelo = ev.vuelo || "—";
                   const aboard = isTx
                     ? resolveEventAboardCount(ev, sequencesByVehicle, null)
                     : null;
                   return (
-                    <tr
-                      key={ev.id}
-                      style={
-                        isRide
-                          ? { background: "rgba(0, 177, 235, 0.06)" }
-                          : undefined
-                      }
-                    >
+                    <tr key={ev.id}>
                       <td style={{ paddingLeft: "1rem", whiteSpace: "nowrap" }}>
                         {formatFecha(ev.fecha)}
                       </td>
@@ -424,19 +403,6 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                             }}
                           >
                             {ev.observaciones}
-                          </span>
-                        ) : null}
-                        {isRide ? (
-                          <span
-                            className="fimba-muted"
-                            style={{
-                              display: "block",
-                              fontSize: "0.72rem",
-                              fontWeight: 500,
-                              marginTop: 2,
-                            }}
-                          >
-                            A bordo (planilla transportes)
                           </span>
                         ) : null}
                       </td>
@@ -493,46 +459,36 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {isRide ? (
-                            <span
-                              className="fimba-muted"
-                              style={{ fontSize: "0.72rem", paddingRight: 4 }}
-                              title="Definido en Transportes (suben/bajan)"
+                          <>
+                            <button
+                              type="button"
+                              className="fimba-btn fimba-btn-ghost"
+                              onClick={() =>
+                                setModal({ mode: "edit", evento: ev })
+                              }
+                              title="Editar"
                             >
-                              —
-                            </span>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                className="fimba-btn fimba-btn-ghost"
-                                onClick={() =>
-                                  setModal({ mode: "edit", evento: ev })
-                                }
-                                title="Editar"
-                              >
-                                <IconEdit size={14} />
-                              </button>
-                              <button
-                                type="button"
-                                className="fimba-btn fimba-btn-ghost"
-                                style={{ marginLeft: 4 }}
-                                onClick={() => handleDuplicate(ev)}
-                                title="Duplicar"
-                              >
-                                <IconCopy size={14} />
-                              </button>
-                              <button
-                                type="button"
-                                className="fimba-btn fimba-btn-danger"
-                                style={{ marginLeft: 4 }}
-                                onClick={() => handleDelete(ev)}
-                                title="Eliminar"
-                              >
-                                <IconTrash size={14} />
-                              </button>
-                            </>
-                          )}
+                              <IconEdit size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              className="fimba-btn fimba-btn-ghost"
+                              style={{ marginLeft: 4 }}
+                              onClick={() => handleDuplicate(ev)}
+                              title="Duplicar"
+                            >
+                              <IconCopy size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              className="fimba-btn fimba-btn-danger"
+                              style={{ marginLeft: 4 }}
+                              onClick={() => handleDelete(ev)}
+                              title="Eliminar"
+                            >
+                              <IconTrash size={14} />
+                            </button>
+                          </>
                         </td>
                       )}
                     </tr>

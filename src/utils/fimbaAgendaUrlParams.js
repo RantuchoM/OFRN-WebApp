@@ -1,3 +1,5 @@
+import { isFimbaRideAboardAtStop } from "./fimbaTransportBoarding";
+
 /**
  * Query params compartibles para `/fimba/edicion/:id/agenda`.
  * Filtros de entidad (propuestas / grupos OFRN) se combinan con OR.
@@ -112,14 +114,123 @@ export function isSinglePropuestaOnlyFilter(propuestaIds, grupoIds) {
 }
 
 /**
+ * ¿El evento es relevante para filtro de artista?
+ * — tag `eventos_fimba_propuestas`, o
+ * — parada ↑/↓ / a bordo vía `fimba_propuesta_rutas` (evento real en BD, editable).
+ *
+ * @param {object|null|undefined} ev
+ * @param {number[]} propuestaIds
+ * @param {Array<object>} [propuestaRoutes]
+ * @param {Map|null} [sequencesByVehicle]
+ */
+export function eventMatchesPropuestaRouteFilter(
+  ev,
+  propuestaIds,
+  propuestaRoutes,
+  sequencesByVehicle = null,
+) {
+  const props = (propuestaIds || []).map(Number).filter(Number.isFinite);
+  if (props.length === 0 || !ev?.id) return false;
+
+  const tagged = (ev.propuestas || []).some((p) =>
+    props.includes(Number(p.id)),
+  );
+  if (tagged) return true;
+
+  if (!propuestaRoutes?.length) return false;
+
+  const want = new Set(props);
+  const evId = ev.id;
+
+  for (const r of propuestaRoutes) {
+    const pid = Number(r?.id_propuesta ?? r?.propuesta?.id);
+    if (!want.has(pid)) continue;
+    if (Math.max(0, Number(r.plazas) || 0) <= 0) continue;
+    if (r.id_evento_subida == null || r.id_evento_subida === "") continue;
+
+    if (String(r.id_evento_subida) === String(evId)) return true;
+    if (
+      r.id_evento_bajada != null &&
+      r.id_evento_bajada !== "" &&
+      String(r.id_evento_bajada) === String(evId)
+    ) {
+      return true;
+    }
+
+    const tid = Number(r.id_gira_transporte);
+    if (!Number.isFinite(tid) || !sequencesByVehicle) continue;
+    const seq = sequencesByVehicle.get(tid);
+    const sorted = seq?.sortedEvents || [];
+    if (sorted.length && isFimbaRideAboardAtStop(r, evId, sorted)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * IDs de eventos de agenda para filtro de artista: ↑/↓ y paradas intermedias a bordo.
+ *
+ * @param {number[]} propuestaFilterIds
+ * @param {Array<object>} propuestaRoutes
+ * @param {Map|null} sequencesByVehicle
+ * @returns {number[]}
+ */
+export function collectPropuestaRouteAgendaEventIds(
+  propuestaFilterIds,
+  propuestaRoutes,
+  sequencesByVehicle,
+) {
+  const props = (propuestaFilterIds || []).map(Number).filter(Number.isFinite);
+  if (!props.length || !propuestaRoutes?.length || !sequencesByVehicle) {
+    return [];
+  }
+  const want = new Set(props);
+  /** @type {Set<number>} */
+  const ids = new Set();
+
+  for (const r of propuestaRoutes) {
+    const pid = Number(r?.id_propuesta ?? r?.propuesta?.id);
+    if (!want.has(pid)) continue;
+    if (Math.max(0, Number(r.plazas) || 0) <= 0) continue;
+    if (r.id_evento_subida == null || r.id_evento_subida === "") continue;
+
+    const subida = Number(r.id_evento_subida);
+    if (Number.isFinite(subida)) ids.add(subida);
+    if (r.id_evento_bajada != null && r.id_evento_bajada !== "") {
+      const bajada = Number(r.id_evento_bajada);
+      if (Number.isFinite(bajada)) ids.add(bajada);
+    }
+
+    const tid = Number(r.id_gira_transporte);
+    if (!Number.isFinite(tid)) continue;
+    const sorted = sequencesByVehicle.get(tid)?.sortedEvents || [];
+    for (const stopEv of sorted) {
+      if (stopEv?.id == null) continue;
+      if (isFimbaRideAboardAtStop(r, stopEv.id, sorted)) {
+        ids.add(Number(stopEv.id));
+      }
+    }
+  }
+
+  return [...ids].filter(Number.isFinite);
+}
+
+/**
  * Unión: evento tagged a alguna propuesta y/o con algún grupo OFRN seleccionado.
- * Ride segments: matchean por `id_propuesta`.
+ * Transporte del artista: paradas reales vía `fimba_propuesta_rutas` (sin filas sintéticas).
  *
  * @param {object|null|undefined} ev
  * @param {number[]} propuestaIds
  * @param {number[]} grupoIds
+ * @param {{ propuestaRoutes?: Array<object>, sequencesByVehicle?: Map|null }} [ctx]
  */
-export function eventMatchesAgendaEntityFilter(ev, propuestaIds, grupoIds) {
+export function eventMatchesAgendaEntityFilter(
+  ev,
+  propuestaIds,
+  grupoIds,
+  ctx = {},
+) {
   const props = (propuestaIds || []).map(Number).filter(Number.isFinite);
   const grupos = (grupoIds || []).map(Number).filter(Number.isFinite);
   if (props.length === 0 && grupos.length === 0) return true;
@@ -129,13 +240,12 @@ export function eventMatchesAgendaEntityFilter(ev, propuestaIds, grupoIds) {
   let matchGrupo = false;
 
   if (props.length > 0) {
-    if (ev.es_ride_segment) {
-      matchProp = props.includes(Number(ev.id_propuesta));
-    } else {
-      matchProp = (ev.propuestas || []).some((p) =>
-        props.includes(Number(p.id)),
-      );
-    }
+    matchProp = eventMatchesPropuestaRouteFilter(
+      ev,
+      props,
+      ctx.propuestaRoutes,
+      ctx.sequencesByVehicle,
+    );
   }
 
   if (grupos.length > 0) {

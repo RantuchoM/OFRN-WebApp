@@ -4,12 +4,14 @@ import {
   IconUpload,
   IconDownload,
   IconUsers,
+  IconTrash,
 } from "../../components/ui/Icons";
 import {
   actividadUsaTransporte,
   mergeFimbaAgendaCategories,
   capacidadGiraTransporte,
   computeFimbaCapacity,
+  decodeFimbaTrasladoDescripcion,
   FIMBA_DEFAULT_TIPO_EVENTO,
   FIMBA_TIPO_EVENTO_TRASLADO,
   labelGiraTransporte,
@@ -73,6 +75,23 @@ function initialIdLocacion(evento) {
   if (raw == null || raw === "") return "";
   return String(raw);
 }
+
+/** Solo la línea `Destino:` de descripcion (sin fallback a locación catálogo). */
+function legacyDestinoFromEvento(evento) {
+  if (!evento) return "";
+  const decoded = decodeFimbaTrasladoDescripcion(evento.descripcion, {
+    observaciones_equipaje: evento.observaciones_equipaje,
+  });
+  return decoded.destino || "";
+}
+
+const LEGACY_DESTINO_BOX_STYLE = {
+  marginTop: "0.5rem",
+  padding: "0.65rem 0.75rem",
+  borderRadius: 8,
+  border: "1px solid #e2e8f0",
+  background: "#f1f5f9",
+};
 
 /**
  * Ordena la flota por mejor ajuste a `need` plazas (capacidad total).
@@ -547,7 +566,7 @@ export default function FimbaEventoFormModal({
   const [horaCom, setHoraCom] = useState(sliceTime(evento?.hora_inicio));
   const [horaFin, setHoraFin] = useState(sliceTime(evento?.hora_fin));
   const [actividad, setActividad] = useState(evento?.actividad || "");
-  const [destino, setDestino] = useState(evento?.destino || "");
+  const [destino, setDestino] = useState(() => legacyDestinoFromEvento(evento));
   const [idLocacion, setIdLocacion] = useState(() => initialIdLocacion(evento));
   const [vuelo, setVuelo] = useState(evento?.vuelo || "");
   const [observacionesEquipaje, setObservacionesEquipaje] = useState(
@@ -678,7 +697,7 @@ export default function FimbaEventoFormModal({
       horaCom: sliceTime(evento?.hora_inicio),
       horaFin: sliceTime(evento?.hora_fin),
       actividad: detalleDirtyKey(evento?.actividad || ""),
-      destino: evento?.destino || "",
+      destino: legacyDestinoFromEvento(evento),
       idLocacion: initialIdLocacion(evento),
       vuelo: evento?.vuelo || "",
       observacionesEquipaje:
@@ -713,7 +732,7 @@ export default function FimbaEventoFormModal({
     if (detalleDirtyKey(actividad) !== (initialForm.actividad || "")) {
       return true;
     }
-    if (!usaTransporte && (destino || "") !== (initialForm.destino || "")) return true;
+    if ((destino || "") !== (initialForm.destino || "")) return true;
     if ((idLocacion || "") !== (initialForm.idLocacion || "")) return true;
     if ((vuelo || "") !== (initialForm.vuelo || "")) return true;
     if (
@@ -1071,14 +1090,23 @@ export default function FimbaEventoFormModal({
     return fromEvent !== "—" ? fromEvent : "—";
   }, [idLocacion, locationOptions, evento]);
 
-  const legacyDestinoText = useMemo(() => {
-    if (!usaTransporte) return "";
-    return String(evento?.destino || destino || "").trim();
-  }, [usaTransporte, evento?.destino, destino]);
+  const legacyDestinoText = useMemo(
+    () => String(destino || "").trim(),
+    [destino],
+  );
 
-  const submitQuickCreateDestinoStop = async (e) => {
-    e.preventDefault();
+  const clearLegacyDestino = useCallback(() => {
+    setDestino("");
+  }, []);
+
+  const showLegacyDestinoBox = Boolean(legacyDestinoText);
+
+  const submitQuickCreateDestinoStop = async () => {
     if (!canQuickCreateDestinoStop || quickCreateSaving) return;
+    if (!String(quickCreateHora || "").trim()) {
+      setQuickCreateError("Indicá la hora de la nueva parada");
+      return;
+    }
     setQuickCreateError(null);
     setQuickCreateSaving(true);
 
@@ -1295,7 +1323,7 @@ export default function FimbaEventoFormModal({
   };
 
   const submit = async (e) => {
-    e.preventDefault();
+    e?.preventDefault?.();
     setSaving(true);
     setError(null);
     if (!tipoId) {
@@ -1386,13 +1414,16 @@ export default function FimbaEventoFormModal({
       logisticsSummary: logisticsSummary ?? undefined,
       propuestaRoutes: propuestaRoutes ?? undefined,
     };
-    const { error: err } = await saveFimbaEvento(payload);
+    const { evento: saved, error: err } = await saveFimbaEvento(payload);
     setSaving(false);
     if (err) {
       setError(err.message || "No se pudo guardar");
       return;
     }
-    onSaved?.();
+    onSaved?.({
+      id: saved?.id,
+      mode: isEdit ? "edit" : "create",
+    });
   };
 
   const title = isEdit
@@ -1438,8 +1469,7 @@ export default function FimbaEventoFormModal({
             <IconX size={18} />
           </button>
         </div>
-        <form
-          onSubmit={submit}
+        <div
           onKeyDown={(e) => {
             // Enter en inputs (Sube/Baja, equipaje, etc.) no debe disparar Guardar
             // ni cerrar el modal vía onSaved. Textarea / botón / Detalle rich usan Enter.
@@ -1599,14 +1629,67 @@ export default function FimbaEventoFormModal({
                 destino (siguiente parada) se define abajo.
               </p>
             ) : null}
-            {legacyDestinoText && !idLocacion ? (
-              <p
-                className="fimba-muted"
-                style={{ margin: "0.35rem 0 0", fontSize: "0.72rem", fontStyle: "italic" }}
-              >
-                Legacy — destino en descripción: {legacyDestinoText}. Elegí una
-                locación de catálogo para migrar.
-              </p>
+            {showLegacyDestinoBox ? (
+              <div style={LEGACY_DESTINO_BOX_STYLE}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                    marginBottom: "0.35rem",
+                  }}
+                >
+                  <label className="fimba-label" style={{ margin: 0 }}>
+                    Destino / locación (legacy — migración)
+                  </label>
+                  {!readOnly && legacyDestinoText ? (
+                    <button
+                      type="button"
+                      className="fimba-btn fimba-btn-ghost"
+                      style={{
+                        padding: "0.2rem 0.4rem",
+                        flexShrink: 0,
+                        color: "#94a3b8",
+                      }}
+                      onClick={clearLegacyDestino}
+                      title="Quitar texto legacy"
+                      aria-label="Quitar texto legacy de destino"
+                    >
+                      <IconTrash size={14} />
+                    </button>
+                  ) : null}
+                </div>
+                {readOnly || usaTransporte ? (
+                  <span
+                    className="fimba-input"
+                    style={{
+                      display: "inline-block",
+                      background: "#e2e8f0",
+                      width: "100%",
+                      color: "#475569",
+                    }}
+                  >
+                    {legacyDestinoText || "—"}
+                  </span>
+                ) : (
+                  <input
+                    className="fimba-input"
+                    value={destino}
+                    onChange={(e) => setDestino(e.target.value)}
+                    placeholder="Texto legacy en descripción"
+                    style={{ background: "#fff" }}
+                  />
+                )}
+                <p
+                  className="fimba-muted"
+                  style={{ margin: "0.35rem 0 0", fontSize: "0.72rem" }}
+                >
+                  {usaTransporte
+                    ? "Texto antiguo en descripción. Elegí una locación de catálogo arriba; podés quitarlo con el tachito o al guardar se limpia la línea Destino."
+                    : "Campo en desuso: preferí Locación de catálogo. Conservalo solo para corregir datos viejos."}
+                </p>
+              </div>
             ) : null}
           </div>
           {usaTransporte ? (
@@ -1709,7 +1792,7 @@ export default function FimbaEventoFormModal({
                   ) : null}
                 </div>
               ) : canQuickCreateDestinoStop ? (
-                <form onSubmit={submitQuickCreateDestinoStop}>
+                <div>
                   <div className="fimba-grid-2" style={{ gap: "0.65rem" }}>
                     <div className="fimba-field" style={{ marginBottom: 0 }}>
                       <label className="fimba-label" htmlFor="fimba-quick-destino-hora">
@@ -1749,14 +1832,15 @@ export default function FimbaEventoFormModal({
                     </p>
                   ) : null}
                   <button
-                    type="submit"
+                    type="button"
                     className="fimba-btn fimba-btn-primary"
                     disabled={quickCreateSaving}
                     style={{ fontSize: "0.82rem" }}
+                    onClick={submitQuickCreateDestinoStop}
                   >
                     {quickCreateSaving ? "Guardando…" : "Guardar evento"}
                   </button>
-                </form>
+                </div>
               ) : (
                 <p className="fimba-muted" style={{ margin: 0, fontSize: "0.72rem" }}>
                   {readOnly
@@ -1774,37 +1858,15 @@ export default function FimbaEventoFormModal({
               placeholder="Ej. Check-in hotel / Show noche 1"
             />
           </div>
-          {usaTransporte ? (
-            <div className="fimba-field">
-              <label className="fimba-label">Vuelo / nota (opc.)</label>
-              <input
-                className="fimba-input"
-                value={vuelo}
-                onChange={(e) => setVuelo(e.target.value)}
-                placeholder="AR 1234"
-              />
-            </div>
-          ) : (
-            <div className="fimba-grid-2">
-              <div className="fimba-field">
-                <label className="fimba-label">Destino / locación (opc.)</label>
-                <input
-                  className="fimba-input"
-                  value={destino}
-                  onChange={(e) => setDestino(e.target.value)}
-                />
-              </div>
-              <div className="fimba-field">
-                <label className="fimba-label">Vuelo / nota (opc.)</label>
-                <input
-                  className="fimba-input"
-                  value={vuelo}
-                  onChange={(e) => setVuelo(e.target.value)}
-                  placeholder="AR 1234"
-                />
-              </div>
-            </div>
-          )}
+          <div className="fimba-field">
+            <label className="fimba-label">Vuelo / nota (opc.)</label>
+            <input
+              className="fimba-input"
+              value={vuelo}
+              onChange={(e) => setVuelo(e.target.value)}
+              placeholder="AR 1234"
+            />
+          </div>
           <div className="fimba-grid-2">
             <div className="fimba-field">
               <label className="fimba-label">Asientos Equipaje</label>
@@ -2509,14 +2571,15 @@ export default function FimbaEventoFormModal({
               Cancelar
             </button>
             <button
-              type="submit"
+              type="button"
               className="fimba-btn fimba-btn-primary"
               disabled={saving || tiposLoading || !tipoId}
+              onClick={submit}
             >
               {saving ? "Guardando…" : "Guardar"}
             </button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );

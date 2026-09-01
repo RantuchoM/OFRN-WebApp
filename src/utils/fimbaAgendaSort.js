@@ -39,15 +39,6 @@ function timeKey(t) {
 /** Etiqueta de desempate alfabético en planilla (detalle → tipo). */
 function agendaRowLabel(ev) {
   if (!ev) return "";
-  if (ev.es_ride_segment) {
-    return (
-      stripHtml(ev.actividad) ||
-      ev.route_snippet ||
-      ev.vehicle_label ||
-      ev.tipo_nombre ||
-      ""
-    );
-  }
   return stripHtml(ev.actividad) || ev.tipo_nombre || "";
 }
 

@@ -29,13 +29,11 @@ function buildFimbaPdfDescription(ev) {
   const actividad = String(ev?.actividad || "").trim();
   if (actividad) parts.push(actividad);
 
-  if (!ev?.es_ride_segment) {
-    const destVuelo = [ev?.destino, ev?.vuelo]
-      .map((s) => String(s || "").trim())
-      .filter(Boolean)
-      .join(" · ");
-    if (destVuelo) parts.push(destVuelo);
-  }
+  const destVuelo = [ev?.destino, ev?.vuelo]
+    .map((s) => String(s || "").trim())
+    .filter(Boolean)
+    .join(" · ");
+  if (destVuelo) parts.push(destVuelo);
 
   const artists = (ev?.propuestas || [])
     .map((p) => String(p?.nombre || "").trim())

@@ -28,6 +28,7 @@ const FIMBA_CSS = `
     --fimba-border: #e2e8f0;
   }
   .fimba-root {
+    --fimba-site-header-h: 3.25rem;
     min-height: 100vh;
     background:
       radial-gradient(1200px 500px at 10% -10%, rgba(215, 50, 137, 0.12), transparent 55%),
@@ -160,6 +161,14 @@ const FIMBA_CSS = `
     margin-bottom: 10px;
     min-width: 0;
   }
+  .fimba-agenda-toolbar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
   .fimba-agenda-filters-row {
     display: flex;
     align-items: center;
@@ -207,6 +216,97 @@ const FIMBA_CSS = `
     gap: 10px;
     justify-content: flex-end;
     flex-wrap: wrap;
+  }
+  .fimba-agenda-active-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 10px 14px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(215, 50, 137, 0.28);
+    background: rgba(215, 50, 137, 0.06);
+  }
+  .fimba-agenda-active-filters-main {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    flex: 1 1 240px;
+    min-width: 0;
+  }
+  .fimba-agenda-active-filters-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--fimba-deep, #1e293b);
+    white-space: nowrap;
+  }
+  .fimba-agenda-active-filters-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+  }
+  .fimba-agenda-filter-chip {
+    font-size: 0.72rem;
+    font-weight: 600;
+    background: #fff;
+    border-color: rgba(215, 50, 137, 0.35);
+    color: var(--fimba-deep, #1e293b);
+  }
+  .fimba-agenda-active-filters-count {
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+  .fimba-agenda-active-filters-hint {
+    flex: 1 1 100%;
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+  .fimba-agenda-clear-filters {
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    padding: 0.35rem 0.65rem;
+  }
+  .fimba-agenda-active-filters-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+  .fimba-agenda-copy-link {
+    font-size: 0.78rem;
+    padding: 0.35rem 0.65rem;
+    white-space: nowrap;
+  }
+  /* Agenda planilla: horizontal scroll + sticky column headers on page scroll */
+  .fimba-agenda-card {
+    padding: 0;
+    overflow: visible;
+    min-width: 0;
+  }
+  .fimba-agenda-scroll {
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    max-width: 100%;
+  }
+  .fimba-agenda-table {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .fimba-agenda-table thead th {
+    position: sticky;
+    top: var(--fimba-site-header-h, 3.25rem);
+    z-index: 20;
+    background: var(--fimba-surface, #fff);
+    box-shadow: 0 1px 0 var(--fimba-border, #e2e8f0);
   }
   /* Planilla trayectos: horizontal scroll that actually works */
   .fimba-planilla-card {

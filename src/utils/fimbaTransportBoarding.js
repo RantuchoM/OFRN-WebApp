@@ -225,6 +225,25 @@ export function formatAgendaOrigenLabel(ev, opts = {}) {
 }
 
 /**
+ * Texto legacy `Destino:` persistido en `eventos.descripcion` (sin fallback a
+ * `locaciones.nombre`). Misma regla que `decodeFimbaTrasladoDescripcion`.
+ *
+ * @param {object|null|undefined} ev
+ * @returns {string}
+ */
+export function resolveLegacyDestinoFromDescripcion(ev) {
+  const text = ev?.descripcion;
+  if (!text) return "";
+  for (const raw of String(text).split("\n")) {
+    const line = raw.trimEnd();
+    if (/^Destino:\s*/i.test(line)) {
+      return line.replace(/^Destino:\s*/i, "").trim();
+    }
+  }
+  return "";
+}
+
+/**
  * Destino de planilla Agenda (calculado): next stop del mismo vehículo.
  * No-transporte → "—". Transporte sin next → `TRANSPORT_DESTINO_SIN_SIGUIENTE`.
  *
@@ -2136,8 +2155,10 @@ export function formatRideRouteSnippet(fromEv, toEv) {
 }
 
 /**
- * Bloques de agenda «a bordo» para un artista a partir de `fimba_propuesta_rutas`
- * (y residual sintético vía `buildFimbaRidesForVehicle` si se pasan rides ya filtrados).
+ * Bloques de agenda «a bordo» para un artista a partir de `fimba_propuesta_rutas`.
+ *
+ * @deprecated Agenda ya no inserta filas sintéticas; usar paradas reales +
+ * `eventMatchesPropuestaRouteFilter`. Se conserva por compatibilidad de API.
  *
  * Un ride = un tramo continuo (sube en A → baja en B). Hop off + on = varios bloques.
  * Solo plazas > 0 con `id_propuesta` del artista y `id_evento_subida` resuelto.
