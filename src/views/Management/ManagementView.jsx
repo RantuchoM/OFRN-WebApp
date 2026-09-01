@@ -193,7 +193,7 @@ const SECTION_CONFIG = {
     tabLabel: "Viáticos",
     subtitle: "Planilla consolidada de viáticos individuales",
     description:
-      "Lista todos los viáticos individuales del año con salida, regreso, programa y monto; tipificá Viatico/Reintegro y marcá filas.",
+      "Lista todos los viáticos individuales del año con salida, regreso, programa y monto; marcá filas con color.",
     icon: IconDollarSign,
     cardClasses:
       "border-lime-100 hover:border-lime-300 hover:shadow-md focus-visible:ring-lime-300",

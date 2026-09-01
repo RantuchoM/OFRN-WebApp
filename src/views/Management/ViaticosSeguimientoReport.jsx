@@ -1,14 +1,18 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import {
+  IconCheck,
+  IconChevronDown,
   IconDownload,
   IconExternalLink,
   IconEye,
@@ -18,10 +22,10 @@ import {
   IconRefresh,
   IconSearch,
 } from "../../components/ui/Icons";
+import { getFixedMenuPosition } from "../../utils/fixedMenuPosition";
 import {
   SEGUIMIENTO_COLOR_OPTIONS,
   SEGUIMIENTO_FINANCIAL_COLS,
-  SEGUIMIENTO_TIPO_OPTIONS,
   downloadViaticosSeguimientoExcel,
   fetchViaticosSeguimientoRows,
   formatMontoArs,
@@ -114,6 +118,37 @@ function rowBgClass(color) {
   return "bg-white";
 }
 
+/** Reintegro = rojo; Devolución = celeste (invertidos respecto al diseño inicial). */
+const DEV_TEXT_CLASS = "text-sky-700";
+const REINT_TEXT_CLASS = "text-rose-700";
+
+const COLOR_SWATCH_CLASS = {
+  amarillo: "bg-yellow-300 border-yellow-500",
+  verde: "bg-green-400 border-green-600",
+  celeste: "bg-sky-300 border-sky-500",
+  rojo: "bg-red-400 border-red-600",
+};
+
+const COLOR_TRIGGER_CLASS = {
+  amarillo: "border-yellow-400 bg-yellow-100 text-yellow-950",
+  verde: "border-green-400 bg-green-100 text-green-950",
+  celeste: "border-sky-400 bg-sky-100 text-sky-950",
+  rojo: "border-red-400 bg-red-100 text-red-950",
+};
+
+function ColorSwatch({ color, className = "h-3.5 w-3.5" }) {
+  return (
+    <span
+      aria-hidden
+      className={`inline-block shrink-0 rounded-sm border ${className} ${
+        color && COLOR_SWATCH_CLASS[color]
+          ? COLOR_SWATCH_CLASS[color]
+          : "border-dashed border-slate-300 bg-white"
+      }`}
+    />
+  );
+}
+
 /** "Lunes, 01 de enero" (sin año). */
 function formatFechaLarga(fechaIso) {
   if (!fechaIso) return "";
@@ -185,50 +220,141 @@ function ProgramaCell({ row }) {
   );
 }
 
-function TipoSelect({ value, disabled, onChange }) {
-  const current = value || "";
-  return (
-    <select
-      value={current}
-      disabled={disabled}
-      onChange={(e) => {
-        const next = e.target.value || null;
-        onChange(next);
-      }}
-      className={`w-full min-w-[7.5rem] rounded-full border px-2 py-1 text-center text-[11px] font-bold outline-none transition-colors disabled:opacity-60 ${
-        current === "viatico"
-          ? "border-emerald-300 bg-emerald-100 text-emerald-800"
-          : current === "reintegro"
-            ? "border-amber-300 bg-amber-100 text-amber-900"
-            : "border-slate-200 bg-slate-50 text-slate-500"
-      }`}
-      aria-label="Tipo de seguimiento"
-    >
-      {SEGUIMIENTO_TIPO_OPTIONS.map((opt) => (
-        <option key={String(opt.value)} value={opt.value ?? ""}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
 function ColorSelect({ value, disabled, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState(null);
+  const buttonRef = useRef(null);
+  const menuRef = useRef(null);
+  const current = value || null;
+  const currentLabel =
+    SEGUIMIENTO_COLOR_OPTIONS.find((opt) => (opt.value || null) === current)
+      ?.label || "Sin marca";
+
+  const updateMenuPosition = useCallback(() => {
+    if (!buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    setMenuStyle(
+      getFixedMenuPosition(rect, {
+        width: Math.max(rect.width, 168),
+        estimatedHeight: 220,
+        measuredHeight: menuRef.current?.offsetHeight,
+        gap: 4,
+      }),
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuStyle(null);
+      return undefined;
+    }
+    updateMenuPosition();
+    const frame = requestAnimationFrame(updateMenuPosition);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [open, updateMenuPosition]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (e) => {
+      if (buttonRef.current?.contains(e.target)) return;
+      if (menuRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const pick = (next) => {
+    onChange(next);
+    setOpen(false);
+  };
+
   return (
-    <select
-      value={value || ""}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value || null)}
-      className="w-full min-w-[6.5rem] rounded border border-slate-200 bg-white/80 px-1.5 py-1 text-[11px] font-medium text-slate-700 outline-none disabled:opacity-60"
-      aria-label="Color de fila"
-      title="Marca de color"
-    >
-      {SEGUIMIENTO_COLOR_OPTIONS.map((opt) => (
-        <option key={String(opt.value)} value={opt.value ?? ""}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Color de fila"
+        title="Marca de color"
+        className={`inline-flex w-full min-w-[7.5rem] items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-[11px] font-semibold outline-none transition-colors disabled:opacity-60 ${
+          current && COLOR_TRIGGER_CLASS[current]
+            ? COLOR_TRIGGER_CLASS[current]
+            : "border-slate-200 bg-white/90 text-slate-500"
+        }`}
+      >
+        <ColorSwatch color={current} />
+        <span className="min-w-0 flex-1 truncate">{currentLabel}</span>
+        <IconChevronDown
+          size={12}
+          className={`shrink-0 opacity-70 transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+      {open &&
+        menuStyle &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="listbox"
+            aria-label="Marca de color"
+            style={{
+              top: menuStyle.top,
+              left: menuStyle.left,
+              width: menuStyle.width,
+              maxHeight: menuStyle.maxHeight,
+            }}
+            className="fixed z-[100] space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl"
+          >
+            {SEGUIMIENTO_COLOR_OPTIONS.map((opt) => {
+              const optValue = opt.value || null;
+              const selected = optValue === current;
+              const tint = optValue
+                ? COLOR_TRIGGER_CLASS[optValue]
+                : "border-slate-200 bg-white text-slate-600";
+              return (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => pick(optValue)}
+                  className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-[11px] font-semibold ${tint} ${
+                    selected ? "ring-2 ring-slate-400 ring-offset-1" : ""
+                  }`}
+                >
+                  <ColorSwatch
+                    color={optValue}
+                    className="h-5 w-5 rounded"
+                  />
+                  <span className="min-w-0 flex-1">{opt.label}</span>
+                  {selected ? (
+                    <IconCheck size={12} className="shrink-0 opacity-80" />
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -252,12 +378,6 @@ function legLabel(fecha, hora, evento) {
   const eventName = String(evento || "").trim();
   const rest = [timePart, eventName].filter(Boolean).join(" · ");
   return rest ? `${dateLine} · ${rest}` : dateLine;
-}
-
-function tipoLabel(value) {
-  if (value === "viatico") return "Viatico";
-  if (value === "reintegro") return "Reintegro";
-  return "(sin tipo)";
 }
 
 function colorLabel(value) {
@@ -338,27 +458,16 @@ const COLUMN_DEFS = [
         : "(sin rendición)",
   },
   {
-    key: "tipo",
-    label: "Tipo",
-    getValue: (row) => row.seguimiento_tipo || EMPTY_VALUE,
-    getLabel: (row) => tipoLabel(row.seguimiento_tipo),
-    staticOptions: [
-      { value: EMPTY_VALUE, label: "(sin tipo)" },
-      { value: "viatico", label: "Viatico" },
-      { value: "reintegro", label: "Reintegro" },
-    ],
-  },
-  {
     key: "color",
     label: "Color",
     getValue: (row) => row.seguimiento_color || EMPTY_VALUE,
     getLabel: (row) => colorLabel(row.seguimiento_color),
     staticOptions: [
-      { value: EMPTY_VALUE, label: "(sin marca)" },
-      { value: "amarillo", label: "Amarillo" },
-      { value: "verde", label: "Verde" },
-      { value: "celeste", label: "Celeste" },
-      { value: "rojo", label: "Rojo" },
+      { value: EMPTY_VALUE, label: "(sin marca)", swatch: null },
+      { value: "amarillo", label: "Amarillo", swatch: "amarillo" },
+      { value: "verde", label: "Verde", swatch: "verde" },
+      { value: "celeste", label: "Celeste", swatch: "celeste" },
+      { value: "rojo", label: "Rojo", swatch: "rojo" },
     ],
   },
 ];
@@ -485,8 +594,14 @@ function ColumnValueFilter({ label, options, selected, onChange, compact }) {
                       checked={checked}
                       onChange={() => toggle(opt.value)}
                     />
-                    <span className="min-w-0 flex-1 break-words text-[11px] leading-snug text-slate-700">
-                      {opt.label}
+                    <span className="inline-flex min-w-0 flex-1 items-start gap-1.5 break-words text-[11px] leading-snug text-slate-700">
+                      {"swatch" in opt ? (
+                        <ColorSwatch
+                          color={opt.swatch}
+                          className="mt-0.5 h-3 w-3"
+                        />
+                      ) : null}
+                      <span className="min-w-0 flex-1">{opt.label}</span>
                     </span>
                   </label>
                 );
@@ -576,7 +691,6 @@ export default function ViaticosSeguimientoReport({ supabase }) {
         row.programaLabel,
         row.salidaCell,
         row.regresoCell,
-        row.seguimiento_tipo,
         row.seguimiento_color,
         row.vehiculo,
       ]
@@ -672,12 +786,16 @@ export default function ViaticosSeguimientoReport({ supabase }) {
               : ""}{" "}
             · Ant. {formatMontoArs(totals.anticipo)} · Rend.{" "}
             {formatMontoArs(totals.rendicion)}
-            {totals.devolucion > 0
-              ? ` · Dev ${formatMontoArs(totals.devolucion)}`
-              : ""}
-            {totals.reintegro > 0
-              ? ` · Reint ${formatMontoArs(totals.reintegro)}`
-              : ""}
+            {totals.devolucion > 0 ? (
+              <span className={DEV_TEXT_CLASS}>
+                {` · Dev ${formatMontoArs(totals.devolucion)}`}
+              </span>
+            ) : null}
+            {totals.reintegro > 0 ? (
+              <span className={REINT_TEXT_CLASS}>
+                {` · Reint ${formatMontoArs(totals.reintegro)}`}
+              </span>
+            ) : null}
           </p>
         </div>
 
@@ -894,11 +1012,11 @@ export default function ViaticosSeguimientoReport({ supabase }) {
                         ))}
                       <td className="border border-slate-200 px-2 py-1.5 text-right font-semibold tabular-nums">
                         {(Number(row.reintegro) || 0) > 0 ? (
-                          <span className="text-sky-700">
+                          <span className={REINT_TEXT_CLASS}>
                             Reint {formatMontoArs(row.reintegro)}
                           </span>
                         ) : (Number(row.devolucion) || 0) > 0 ? (
-                          <span className="text-rose-700">
+                          <span className={DEV_TEXT_CLASS}>
                             Dev {formatMontoArs(row.devolucion)}
                           </span>
                         ) : (
@@ -907,15 +1025,6 @@ export default function ViaticosSeguimientoReport({ supabase }) {
                       </td>
                       <td className="border border-slate-200 px-2 py-1.5 text-right font-semibold tabular-nums text-emerald-800">
                         {formatMontoArs(row.rendicion)}
-                      </td>
-                      <td className="border border-slate-200 px-2 py-1.5">
-                        <TipoSelect
-                          value={row.seguimiento_tipo}
-                          disabled={saving}
-                          onChange={(next) =>
-                            patchRow(row.id, { seguimiento_tipo: next })
-                          }
-                        />
                       </td>
                       <td className="border border-slate-200 px-2 py-1.5">
                         <ColorSelect
