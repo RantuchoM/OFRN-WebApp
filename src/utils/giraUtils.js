@@ -959,6 +959,26 @@ export const isPersonVetoedFromTransport = (
     options,
   ) === "excluded";
 
+/**
+ * Reglas de EXCLUSIÓN/veto de un transporte que aplican a la persona
+ * (candidatas a eliminar si se quiere incluirla de nuevo).
+ */
+export const getExclusionAdmissionRulesForPerson = (
+  person,
+  transportId,
+  admissionRules = [],
+  allLocalities = [],
+) => {
+  if (!person || transportId == null) return [];
+  const tid = String(transportId);
+  return (admissionRules || []).filter(
+    (r) =>
+      String(r.id_transporte_fisico) === tid &&
+      isAdmissionExclusionRule(r) &&
+      matchesRule(r, person, allLocalities),
+  );
+};
+
 /* --- CONFIGURACIÓN DE TIPOS DE PROGRAMA --- */
 export const PROGRAM_TYPES = {
   Sinfónico: {

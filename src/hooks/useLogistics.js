@@ -31,6 +31,7 @@ export {
   isPersonAdmittedToTransport,
   isPersonVetoedFromTransport,
   isAdmissionExclusionRule,
+  getExclusionAdmissionRulesForPerson,
 } from "../utils/giraUtils";
 
 export const getPriorityValue = (scope) => {

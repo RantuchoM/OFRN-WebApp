@@ -19,6 +19,7 @@ import {
   isPersonVetoedFromTransport,
   isPersonAdmittedToTransport,
   isAdmissionExclusionRule,
+  getExclusionAdmissionRulesForPerson,
 } from "../../hooks/useLogistics";
 import { toast } from "sonner";
 import SearchableSelect from "../../components/ui/SearchableSelect";
@@ -376,6 +377,7 @@ export default function StopRulesManager({
       };
 
       let anyChange = false;
+      let workingAdmissionRules = [...(transportAdmissionRules || [])];
 
       for (const currentId of selectedIds) {
         // 1) Ya apunta a este evento → noop
@@ -449,38 +451,102 @@ export default function StopRulesManager({
           const personRow = (passengers || []).find(
             (p) => String(p.id) === idStr,
           );
+          const personName = personRow
+            ? `${personRow.apellido || ""}, ${personRow.nombre || ""}`.trim()
+            : `ID ${idStr}`;
+
+          let rulesForAdmission = workingAdmissionRules;
+
+          const vetoed =
+            personRow &&
+            isPersonVetoedFromTransport(
+              personRow,
+              transportId,
+              rulesForAdmission,
+              localities,
+            );
+
+          if (vetoed) {
+            const exclusionRules = getExclusionAdmissionRulesForPerson(
+              personRow,
+              transportId,
+              rulesForAdmission,
+              localities,
+            );
+            const removeVeto = await confirm({
+              title: "Persona excluida del transporte",
+              message:
+                `${personName} fue excluida del transporte.\n\n` +
+                "¿Querés que eliminemos esa exclusión para que pueda ser incluida en este transporte?",
+              confirmText: "Eliminar exclusión",
+              overlayClassName: embedded ? "z-[110]" : "z-[100]",
+            });
+            if (!removeVeto) {
+              continue;
+            }
+
+            const exclusionIds = exclusionRules
+              .map((r) => r.id)
+              .filter(Boolean);
+            if (exclusionIds.length > 0) {
+              const { error: delExclError } = await supabase
+                .from("giras_logistica_admision")
+                .delete()
+                .in("id", exclusionIds);
+              if (delExclError) {
+                console.error(
+                  "Error eliminando exclusión:",
+                  delExclError.message,
+                );
+                toast.error("No se pudo eliminar la exclusión.");
+                continue;
+              }
+              rulesForAdmission = rulesForAdmission.filter(
+                (r) => !exclusionIds.includes(r.id),
+              );
+              workingAdmissionRules = rulesForAdmission;
+              setTransportAdmissionRules(rulesForAdmission);
+              toast.success("Exclusión eliminada.");
+            }
+          }
+
           const alreadyOnBus =
             admittedIds.has(idStr) ||
             (personRow &&
               isPersonAdmittedToTransport(
                 personRow,
                 transportId,
-                transportAdmissionRules,
+                rulesForAdmission,
                 localities,
               ));
           if (!alreadyOnBus) {
-            const { error: admError } = await supabase
-              .from("giras_logistica_admision") // <--- NOMBRE CORRECTO
+            const { data: createdAdm, error: admError } = await supabase
+              .from("giras_logistica_admision")
               .insert([
                 {
-                  id_gira: giraId, // Columna correcta: id_gira
+                  id_gira: giraId,
                   id_transporte_fisico: transportId,
-                  id_integrante: currentId, // Columna correcta: id_integrante
+                  id_integrante: currentId,
                   alcance: "Persona",
                   prioridad: 5,
                   tipo: "INCLUSION",
                 },
-              ]);
+              ])
+              .select("*")
+              .maybeSingle();
 
             if (admError) {
               console.error("Error en auto-inclusión:", admError.message);
             } else {
+              if (createdAdm) {
+                workingAdmissionRules = [...rulesForAdmission, createdAdm];
+                setTransportAdmissionRules(workingAdmissionRules);
+              }
               setAdmittedIds((prev) => {
                 const next = new Set(prev);
                 next.add(idStr);
                 return next;
               });
-              await fetchTransportAdmissionRules();
             }
           }
         }
@@ -567,22 +633,123 @@ export default function StopRulesManager({
         return;
       }
 
-      const lines = pending
+      let workingRules = [...(transportAdmissionRules || [])];
+      const vetoedPersonaPending = [];
+      const needInclusion = [];
+
+      for (const r of pending) {
+        if (r.alcance === "Persona" && r.id_integrante) {
+          const person = (passengers || []).find(
+            (p) => String(p.id) === String(r.id_integrante),
+          );
+          if (
+            person &&
+            isPersonVetoedFromTransport(
+              person,
+              transportId,
+              workingRules,
+              localities,
+            )
+          ) {
+            vetoedPersonaPending.push({ rule: r, person });
+            continue;
+          }
+        }
+        needInclusion.push(r);
+      }
+
+      if (vetoedPersonaPending.length > 0) {
+        const lines = vetoedPersonaPending
+          .map(({ rule }) => `• ${resolveTargetName(rule)}`)
+          .join("\n");
+        const removeVeto = await confirm({
+          title: "Personas excluidas del transporte",
+          message:
+            (vetoedPersonaPending.length === 1
+              ? "Esta persona fue excluida del transporte.\n\n"
+              : "Estas personas fueron excluidas del transporte.\n\n") +
+            `${lines}\n\n` +
+            "¿Querés que eliminemos esa exclusión para que puedan ser incluidas en este transporte?",
+          confirmText:
+            vetoedPersonaPending.length === 1
+              ? "Eliminar exclusión"
+              : "Eliminar exclusiones",
+          overlayClassName: embedded ? "z-[110]" : "z-[100]",
+        });
+        if (!removeVeto) {
+          // Si cancelan el veto, no creamos inclusión inútil encima del veto
+          if (needInclusion.length === 0) return;
+        } else {
+          setLoading(true);
+          const exclusionIds = [];
+          for (const { person } of vetoedPersonaPending) {
+            getExclusionAdmissionRulesForPerson(
+              person,
+              transportId,
+              workingRules,
+              localities,
+            ).forEach((ex) => {
+              if (ex.id != null) exclusionIds.push(ex.id);
+            });
+          }
+          const uniqueIds = [...new Set(exclusionIds)];
+          if (uniqueIds.length > 0) {
+            const { error: delExclError } = await supabase
+              .from("giras_logistica_admision")
+              .delete()
+              .in("id", uniqueIds);
+            if (delExclError) throw delExclError;
+            workingRules = workingRules.filter(
+              (r) => !uniqueIds.includes(r.id),
+            );
+            setTransportAdmissionRules(workingRules);
+            toast.success(
+              uniqueIds.length === 1
+                ? "Exclusión eliminada."
+                : "Exclusiones eliminadas.",
+            );
+          }
+
+          // Tras quitar veto, si aún no quedan admitidos, crear inclusión Persona
+          for (const { rule, person } of vetoedPersonaPending) {
+            const stillAdmitted = isPersonAdmittedToTransport(
+              person,
+              transportId,
+              workingRules,
+              localities,
+            );
+            if (!stillAdmitted) {
+              needInclusion.push(rule);
+            }
+          }
+        }
+      }
+
+      if (needInclusion.length === 0) {
+        onRefresh && onRefresh();
+        return;
+      }
+
+      const lines = needInclusion
         .map((r) => `• ${r.alcance} — ${resolveTargetName(r)}`)
         .join("\n");
 
       const confirmed = await confirm({
         title: "Crear admisiones",
         message:
-          `Se crearán ${pending.length} regla(s) de ADMISIÓN para este transporte:\n\n${lines}\n\n` +
+          `Se crearán ${needInclusion.length} regla(s) de ADMISIÓN para este transporte:\n\n${lines}\n\n` +
           "¿Deseás continuar?",
         confirmText: "Crear",
+        overlayClassName: embedded ? "z-[110]" : "z-[100]",
       });
-      if (!confirmed) return;
+      if (!confirmed) {
+        onRefresh && onRefresh();
+        return;
+      }
 
       setLoading(true);
 
-      const payloads = pending.map((r) => {
+      const payloads = needInclusion.map((r) => {
         const scope = r.alcance;
         return {
           id_gira: giraId,
@@ -605,7 +772,9 @@ export default function StopRulesManager({
 
       setTransportAdmissionRules((prev) => [...prev, ...(created || [])]);
       setRecentlyCreatedAdmissionKeys(
-        new Set(pending.map((r) => routeRuleAdmissionKey(r)).filter(Boolean)),
+        new Set(
+          needInclusion.map((r) => routeRuleAdmissionKey(r)).filter(Boolean),
+        ),
       );
 
       onRefresh && onRefresh();
@@ -613,7 +782,7 @@ export default function StopRulesManager({
       toast.success(
         created?.length === 1
           ? "Se creó 1 regla de admisión."
-          : `Se crearon ${created?.length || pending.length} reglas de admisión.`,
+          : `Se crearon ${created?.length || needInclusion.length} reglas de admisión.`,
       );
     } catch (e) {
       console.error("Error en creación automática de regla de admisión:", e);
@@ -1511,6 +1680,11 @@ export default function StopRulesManager({
                         <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
                       )}
                       <span>
+                        {isAdmissionExclusionRule(adm) ? (
+                          <span className="font-semibold text-rose-700">
+                            Veto{" "}
+                          </span>
+                        ) : null}
                         {adm.alcance}
                         {adm.alcance !== "General"
                           ? ` — ${resolveTargetName(adm)}`
