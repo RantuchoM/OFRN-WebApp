@@ -448,12 +448,6 @@ export async function patchViaticoSeguimiento(
   return data;
 }
 
-function tipoLabel(value) {
-  if (value === "viatico") return "Viatico";
-  if (value === "reintegro") return "Reintegro";
-  return "";
-}
-
 function colorLabel(value) {
   if (value === "amarillo") return "Amarillo";
   if (value === "verde") return "Verde";
@@ -499,7 +493,6 @@ export async function downloadViaticosSeguimientoExcel({
     "Anticipo",
     "Dev/Reint",
     "Rendición",
-    "Tipo",
     "Color",
   ]);
   ws.getRow(1).font = { bold: true };
@@ -513,7 +506,6 @@ export async function downloadViaticosSeguimientoExcel({
       Number(row.anticipo) || 0,
       formatDevReintLabel(row),
       Number(row.rendicion) || 0,
-      tipoLabel(row.seguimiento_tipo),
       colorLabel(row.seguimiento_color),
     ]);
     if (row.seguimiento_color === "amarillo") {
@@ -548,6 +540,12 @@ export async function downloadViaticosSeguimientoExcel({
           fgColor: { argb: "FFEF9A9A" },
         };
       });
+    }
+    const devReintCell = excelRow.getCell(6);
+    if ((Number(row.reintegro) || 0) > 0) {
+      devReintCell.font = { ...(devReintCell.font || {}), color: { argb: "FFBE123C" } };
+    } else if ((Number(row.devolucion) || 0) > 0) {
+      devReintCell.font = { ...(devReintCell.font || {}), color: { argb: "FF0369A1" } };
     }
   }
 
