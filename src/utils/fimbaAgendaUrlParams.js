@@ -148,7 +148,30 @@ export function eventMatchesAgendaEntityFilter(ev, propuestaIds, grupoIds) {
 }
 
 /**
- * @param {string} basePath — p.ej. `/fimba/edicion/1/agenda`
+ * Base path público compartible (consulta edición, sin login).
+ * @param {string} consultaToken — `fimba_ediciones.token_consulta`
+ * @returns {string|null}
+ */
+export function buildFimbaAgendaConsultaShareBasePath(consultaToken) {
+  const t = String(consultaToken || "").trim();
+  if (!t) return null;
+  return `/fimba/c/${t}/agenda`;
+}
+
+/**
+ * Enlace público RO: `/fimba/c/{token}/agenda?propuestas=…&grupos=…`
+ * @param {string} consultaToken
+ * @param {Parameters<typeof buildFimbaAgendaSharePath>[1]} filters
+ * @returns {string|null}
+ */
+export function buildFimbaAgendaConsultaSharePath(consultaToken, filters = {}) {
+  const base = buildFimbaAgendaConsultaShareBasePath(consultaToken);
+  if (!base) return null;
+  return buildFimbaAgendaSharePath(base, filters);
+}
+
+/**
+ * @param {string} basePath — p.ej. `/fimba/edicion/1/agenda` o `/fimba/c/{token}/agenda`
  * @param {{
  *   propuestaIds?: number[],
  *   grupoIds?: number[],

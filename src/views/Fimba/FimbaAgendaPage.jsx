@@ -52,6 +52,7 @@ import {
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
 } from "../../utils/fimbaTransportBoarding";
 import {
+  buildFimbaAgendaConsultaSharePath,
   buildFimbaAgendaSharePath,
   eventMatchesAgendaEntityFilter,
   hasAgendaEntityFilter,
@@ -59,6 +60,7 @@ import {
   resolveGrupoIdsFromNames,
 } from "../../utils/fimbaAgendaUrlParams";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 
@@ -311,6 +313,7 @@ function eventMatchesFimbaAgendaSearch(ev, query, flotaById = null) {
 export default function FimbaAgendaPage() {
   const { edicionId, artistaId } = useParams();
   const { readOnly } = useFimbaAccess();
+  const consultaSession = useFimbaConsultaEdicionSession();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const urlFilters = useMemo(
@@ -817,13 +820,20 @@ export default function FimbaAgendaPage() {
   };
 
   const handleCopyShareLink = async () => {
-    const shareBasePath = `/fimba/edicion/${edicionId}/agenda`;
-    const path = buildFimbaAgendaSharePath(shareBasePath, {
+    const filters = {
       propuestaIds: selectedPropuestaIds,
       grupoIds: selectedGrupoIds,
       locacionIds: selectedLocacionIds,
       origen: entityFilterActiveFlag ? "all" : filtroOrigen,
-    });
+    };
+    const consultaToken =
+      consultaSession?.token || edicion?.token_consulta || null;
+    const publicPath = consultaToken
+      ? buildFimbaAgendaConsultaSharePath(consultaToken, filters)
+      : null;
+    const path =
+      publicPath ||
+      buildFimbaAgendaSharePath(`/fimba/edicion/${edicionId}/agenda`, filters);
     const url = `${window.location.origin}${path}`;
     try {
       await navigator.clipboard.writeText(url);
@@ -1021,7 +1031,7 @@ export default function FimbaAgendaPage() {
             type="button"
             className="fimba-btn fimba-btn-ghost"
             onClick={handleCopyShareLink}
-            title="Copiar enlace con los filtros actuales"
+            title="Copiar enlace público (consulta, sin login) con los filtros actuales"
           >
             <IconCopy size={14} /> Copiar enlace
           </button>
@@ -1049,7 +1059,9 @@ export default function FimbaAgendaPage() {
           {locationFilterActive ? " en las locaciones seleccionadas" : ""}
           {searchFilterActive ? " que coincidan con la búsqueda" : ""}.
           {eventos.length === 0
-            ? " Creá el primero con «Nuevo evento»."
+            ? readOnly
+              ? "."
+              : " Creá el primero con «Nuevo evento»."
             : " Probá otro origen, categoría, locación o búsqueda."}
         </div>
       ) : (
