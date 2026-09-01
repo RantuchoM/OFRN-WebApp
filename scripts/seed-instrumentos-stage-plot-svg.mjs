@@ -76,7 +76,7 @@ ALTER TABLE public.instrumentos
 
 ALTER TABLE public.instrumentos
   ADD CONSTRAINT instrumentos_svg_icon_len_check
-  CHECK (svg_icon IS NULL OR char_length(svg_icon) <= 100000);
+  CHECK (svg_icon IS NULL OR char_length(svg_icon) <= 500000);
 
 ALTER TABLE public.instrumentos
   DROP CONSTRAINT IF EXISTS instrumentos_stage_plot_type_check;

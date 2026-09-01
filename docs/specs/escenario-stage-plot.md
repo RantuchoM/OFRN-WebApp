@@ -1,4 +1,4 @@
-# Stage Plot (Plano de escenario)
+﻿# Stage Plot (Plano de escenario)
 
 ## Escala y dimensiones del lienzo
 
@@ -552,6 +552,7 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - **Admin / editor**: Escenario panel izquierdo **Editor** (familia, tamaño, SVG, clave demoted; **Crear instrumento**) y Datos → Instrumentos (**Clave de ícono (plano)** + Ancho/Profundo insert cm, placeholder **50**; SVG); sanitizado (`stagePlotSvgSanitize.js`).
 - **Insert Escenario**: `defaultStagePlotItemScale(type)` usa `width_cm / 50` para ítems con huella (**50×50 → scale 1**).
 - **Colores**: Uploads conservan fills; sanitize sin rewrite a `currentColor`.
+- [x] **Repo / git**: íconos canónicos solo en `public/stage-plot/icons/`; regenerar seed con `node scripts/seed-instrumentos-stage-plot-svg.mjs` (no commitear `temp_freesvg/` ni `temp_*` — ignorados en `.gitignore`).
 - **Seguridad / tamaño**: sanitizado liviano (sin script/eventos/`use`; Blob→Image). Límite **app-imposed** `STAGE_PLOT_SVG_MAX_CHARS = 500_000` (antes 100k; no es tope de Postgres `text`). Clipart detallado (p. ej. bandoneón ~68k compactado; SVGs más ricos suelen superar 100k) es normal. Antes de guardar se compacta (metadata Inkscape/Adobe, whitespace, precisión decimal). Solo accept SVG (PNG/JPG → error claro). Toasts muestran el máx. formateado (`500.000`).
 
 ## Export PDF / JPG (plano de escenario)
