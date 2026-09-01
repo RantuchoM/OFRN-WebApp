@@ -14,6 +14,8 @@ export default function MultiSelect({
   summaryMode = "count",
   /** Máx. nombres visibles en summaryMode="names" antes de "+k". */
   summaryMaxNames = 3,
+  /** Ancho máx. del panel (px). En compact default 320; null = sin tope. */
+  menuMaxWidth = compact ? 320 : null,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState(null);
@@ -26,7 +28,10 @@ export default function MultiSelect({
     const estimatedHeight = 240;
     const spaceBelow = window.innerHeight - rect.bottom;
     const dropUp = spaceBelow < estimatedHeight && rect.top > estimatedHeight;
-    const width = Math.max(rect.width, 180);
+    let width = Math.max(rect.width, 180);
+    if (menuMaxWidth != null && Number.isFinite(menuMaxWidth)) {
+      width = Math.min(width, menuMaxWidth);
+    }
 
     setMenuStyle({
       position: "fixed",
@@ -139,7 +144,7 @@ export default function MultiSelect({
     createPortal(
       <div
         ref={menuRef}
-        className="multiselect-portal bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto p-1 animate-in fade-in zoom-in-95"
+        className="multiselect-portal bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto overflow-x-hidden p-1 animate-in fade-in zoom-in-95"
         style={menuStyle}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
@@ -182,7 +187,7 @@ export default function MultiSelect({
                   key={opt.value}
                   onClick={() => toggleOption(opt.value)}
                   className={`
-                      flex items-center gap-2 p-2 rounded cursor-pointer text-xs select-none
+                      flex items-center gap-2 p-2 rounded cursor-pointer text-xs select-none min-w-0
                       transition-colors
                       ${
                         isSelected
@@ -230,7 +235,7 @@ export default function MultiSelect({
                       />
                     )}
                   </div>
-                  <span className="truncate">{opt.label}</span>
+                  <span className="flex-1 min-w-0 truncate">{opt.label}</span>
                 </div>
               );
             })}
@@ -242,7 +247,7 @@ export default function MultiSelect({
 
   return (
     <div
-      className={`relative ${compact ? "inline-block" : "w-full"} ${className}`}
+      className={`relative ${compact ? "inline-block w-full max-w-full min-w-0" : "w-full"} ${className}`}
       ref={triggerRef}
     >
       {!compact && label && (
@@ -260,13 +265,13 @@ export default function MultiSelect({
           transition-colors hover:border-indigo-400
           ${
             compact
-              ? "px-3 py-1.5 text-xs font-bold h-[34px]"
-              : "w-full p-2 text-sm"
+              ? "w-full min-w-0 overflow-hidden px-3 py-1.5 text-xs font-bold h-[34px]"
+              : "w-full min-w-0 overflow-hidden p-2 text-sm"
           }
         `}
       >
         {triggerChips ? (
-          <span className="flex items-center gap-1 min-w-0 overflow-hidden">
+          <span className="flex items-center gap-1 min-w-0 flex-1 overflow-hidden">
             {triggerChips.shown.map((opt) => (
               <span
                 key={opt.value}
@@ -294,7 +299,7 @@ export default function MultiSelect({
           </span>
         ) : (
           <span
-            className={`truncate ${
+            className={`flex-1 min-w-0 truncate text-left ${
               value.length > 0
                 ? "text-indigo-700 font-bold"
                 : "text-slate-500 font-medium"
@@ -305,7 +310,7 @@ export default function MultiSelect({
         )}
         <IconChevronDown
           size={14}
-          className={`text-slate-400 ml-2 transition-transform ${
+          className={`text-slate-400 ml-2 shrink-0 transition-transform ${
             isOpen ? "rotate-180" : ""
           }`}
         />

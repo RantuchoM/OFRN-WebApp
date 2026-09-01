@@ -153,6 +153,61 @@ const FIMBA_CSS = `
     min-width: 0;
     max-width: 100%;
   }
+  .fimba-agenda-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 10px;
+    min-width: 0;
+  }
+  .fimba-agenda-filters-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  @media (min-width: 1100px) {
+    .fimba-agenda-filters-row {
+      flex-wrap: nowrap;
+    }
+  }
+  .fimba-agenda-filter-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    min-width: 0;
+  }
+  .fimba-agenda-filter-item .fimba-label {
+    margin: 0;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .fimba-agenda-filter-dropdown {
+    width: 220px;
+    max-width: 320px;
+    min-width: 0;
+    flex: 0 1 220px;
+  }
+  .fimba-agenda-filter-dropdown--grupos {
+    width: 180px;
+    max-width: 280px;
+    flex: 0 1 180px;
+  }
+  .fimba-agenda-origen-chips {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .fimba-agenda-actions-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
   /* Planilla trayectos: horizontal scroll that actually works */
   .fimba-planilla-card {
     padding: 0;
@@ -1013,7 +1068,10 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
 
   const isToken = mode === "token";
   const { edicionId: pathEdicionId } = parseFimbaSectionIds(location.pathname);
-  const showSectionToggle = !isToken && Boolean(paramEdicionId || pathEdicionId);
+  const showSectionToggle =
+    !isToken &&
+    Boolean(paramEdicionId || pathEdicionId) &&
+    !access.agendaOnly;
   const isOfrnStaff = Boolean(user && isManagement);
   const showFimbaSession =
     !isToken && Boolean(fimbaUser) && !isOfrnStaff;
@@ -1043,19 +1101,23 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
     paramEdicionId;
   const brandHref = isToken
     ? location.pathname
-    : (showFimbaSession || showTokenConsultaSession) && brandEdicionId
-      ? `/fimba/edicion/${brandEdicionId}`
-      : "/fimba";
+    : access.agendaOnly && brandEdicionId
+      ? `/fimba/edicion/${brandEdicionId}/agenda`
+      : (showFimbaSession || showTokenConsultaSession) && brandEdicionId
+        ? `/fimba/edicion/${brandEdicionId}`
+        : "/fimba";
 
   const brandSub =
     subtitle ||
     (isToken
       ? "Festival"
-      : access.readOnly && !isOfrnStaff
-        ? "Consulta"
-        : showFimbaSession
-          ? FIMBA_ROLE_LABELS[fimbaUser?.rol_fimba] || "Edición"
-          : "Staff");
+      : access.agendaOnly
+        ? "Agenda · consulta"
+        : access.readOnly && !isOfrnStaff
+          ? "Consulta"
+          : showFimbaSession
+            ? FIMBA_ROLE_LABELS[fimbaUser?.rol_fimba] || "Edición"
+            : "Staff");
 
   return (
     <div className="fimba-root">

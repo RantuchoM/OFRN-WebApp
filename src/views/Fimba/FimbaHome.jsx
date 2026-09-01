@@ -38,10 +38,13 @@ export default function FimbaHome() {
     reload();
   }, [isOfrnStaff, fimbaUser?.id_edicion, consultaToken?.id_edicion]);
 
-  // Usuario FIMBA externo o enlace consulta: ir directo a su edición.
+  // Usuario FIMBA externo o enlace consulta: ir directo a su edición (agenda si entry `/c/.../agenda`).
   const externalEdicionId = fimbaUser?.id_edicion || consultaToken?.id_edicion;
   if (!isOfrnStaff && externalEdicionId) {
-    return <Navigate to={`/fimba/edicion/${externalEdicionId}`} replace />;
+    const dest = consultaToken?.agenda_only
+      ? `/fimba/edicion/${externalEdicionId}/agenda`
+      : `/fimba/edicion/${externalEdicionId}`;
+    return <Navigate to={dest} replace />;
   }
 
   return (
