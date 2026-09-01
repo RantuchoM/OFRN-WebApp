@@ -117,5 +117,8 @@ entrypoint = "./functions/sync-fimba-contrataciones-sheet/index.ts"
 #   = FIMBA_CONTRATACIONES_SHEET_CRON_SECRET (o fallback CONCIERTOS / db_backup)
 # UI: Bearer OFRN management, o body.fimbaAuth (editor_general).
 # Google: G_CLIENT_ID / G_CLIENT_SECRET / G_REFRESH_TOKEN
-# Sheet: FIMBA_CONTRATACIONES_SHEET_ID (default 1rAd7j4phD6hx3jHujTUHM5KiBZNmfotz11tE3NHFox8)
+# Sheet IDs: FIMBA_CONTRATACIONES_SHEET_IDS (comma/JSON; default primary+mirror)
+#   primary 1rAd7j4phD6hx3jHujTUHM5KiBZNmfotz11tE3NHFox8
+#   mirror  1qz7_kj7hO57A5DY8rw5S12bZvd8wilO2hWJeli-SivQ
+# Legacy single: FIMBA_CONTRATACIONES_SHEET_ID
 # Tab: FIMBA_CONTRATACIONES_SHEET_TAB (default Contrataciones)

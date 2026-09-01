@@ -421,7 +421,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] `fimba_contrataciones` + planilla staff `/fimba/edicion/:id/contrataciones` (inline edit + semáforo; migración `20260811110000`)
 - [x] Planilla Contrataciones: columnas compactas expediente / tipo / 4 checks (th+td; headers wrap); tabla min-width 980px; **sin** fecha límite resol. (columna dropped)
 - [x] «Último estado conocido»: presets color UI (Factura presentada/emitida/pedida, Pagado) + texto libre; log append-only `fimba_contrataciones_estado_log` (`20260811130000`); historial modal con fecha + autor
-- [x] Backup GSheet Contrataciones: Edge `sync-fimba-contrataciones-sheet` + cron diario + botón Actualizar + contador cambios + leave guard (`20260831170559`)
+- [x] Backup GSheet Contrataciones: Edge `sync-fimba-contrataciones-sheet` + cron diario + botón Actualizar + contador cambios + leave guard (`20260831170559`); dual-write primary+mirror vía `FIMBA_CONTRATACIONES_SHEET_IDS`
 
 ---
 
@@ -634,16 +634,19 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 7. Botón historial (ícono) por fila en planilla → modal «Ver historial»: estado + timestamp + quién, cronológico (badge solo en modal).
 8. **Documentación Drive** (modal carpeta / ficha artista con Explorar): con permiso de subida, arrastrar archivos desde el Explorador al listado → overlay «Soltá para subir a esta carpeta»; aterrizan en la carpeta del breadcrumb. Viewers no ven overlay. Carpetas OS se omiten; archivos > ~4 MB se rechazan.
 9. **Backup Google Sheets** (webapp → Sheet, no al revés):
-   - Sheet: `1rAd7j4phD6hx3jHujTUHM5KiBZNmfotz11tE3NHFox8` tab **Contrataciones** (gid `475656054`).
-   - Botón **Actualizar** (solo `canSeeContrataciones` + no RO): Edge Function `sync-fimba-contrataciones-sheet` reescribe header + filas.
+   - **Targets** (mismo payload/layout; tab **Contrataciones**):
+     1. Primary: [`1rAd7j4phD6hx3jHujTUHM5KiBZNmfotz11tE3NHFox8`](https://docs.google.com/spreadsheets/d/1rAd7j4phD6hx3jHujTUHM5KiBZNmfotz11tE3NHFox8/edit#gid=475656054) (gid `475656054`) — URL canónica en UI.
+     2. Mirror: [`1qz7_kj7hO57A5DY8rw5S12bZvd8wilO2hWJeli-SivQ`](https://docs.google.com/spreadsheets/d/1qz7_kj7hO57A5DY8rw5S12bZvd8wilO2hWJeli-SivQ/edit#gid=1998379859) (gid `1998379859`).
+   - Lista configurable: secret/env `FIMBA_CONTRATACIONES_SHEET_IDS` (IDs separados por coma o JSON array). Si no está set, usa ambos defaults. Legacy `FIMBA_CONTRATACIONES_SHEET_ID` = un solo target.
+   - Botón **Actualizar** (solo `canSeeContrataciones` + no RO) y cron diario escriben a **todos** los IDs. Fallo parcial: se intenta el resto; respuesta incluye `sheetsSucceeded` / `sheetsFailed` / `primaryOk` / `partial`; `last_error` no oculta fallo del primary.
    - **Auth app (no Google UX):** staff OFRN envía `ofrnAuth` `{id, mail}` validado contra `integrantes` + roles management; editor FIMBA envía `fimbaAuth`; cron usa header secret. Google Sheets/Drive usa **solo** secrets de proyecto `G_CLIENT_ID` / `G_CLIENT_SECRET` / `G_REFRESH_TOKEN` (misma cuenta Archivo que `manage-drive` / `sync-conciertos-sheet` / mails). **No** hay OAuth Google por usuario en el frontend.
    - Contador **«N cambios sin sincronizar»** (altas/edits/bajas/carpeta Drive desde última sync de sesión).
    - Salida bloqueada si hay cambios: ConfirmDialog **No salir** | **Salir y Actualizar** (tabs FIMBA + volver + `beforeunload`). Sin opción «salir sin actualizar».
    - Cron diario `ofrn-fimba-contrataciones-sheet-daily` 11:00 UTC (pg_cron → Edge). Auth cron: Vault `fimba_contrataciones_sheet_cron_secret` o fallback `db_backup` / `conciertos` (mismo valor que `CONCIERTOS_SHEET_CRON_SECRET` en secrets de Edge).
-   - Estado: tabla `fimba_contrataciones_sheet_sync` (última sync / error / filas).
+   - Estado: tabla `fimba_contrataciones_sheet_sync` (última sync / error / filas; URL = primary si OK).
    - **Column mapping** (bloque desde **col B**; col A intacta; configurable `FIMBA_CONTRATACIONES_SHEET_HEADERS` JSON): **B** Número de expediente → `numero_expediente`; **C** Carpeta → `carpeta_documentacion` (**Drive smart chips** vía Sheets API `chipRuns` + `richLinkProperties.uri`; fallback hipervínculo URL si chips fallan; requiere scope Drive en `G_REFRESH_TOKEN`); **D** Nombre → `nombre` ∥ propuesta; **E Monto** → número plano (`number`) + formato Sheets `CURRENCY` patrón `"$"#,##0.00` (separadores según locale del Sheet, tip. es-AR); **F** Tipo de contratación → `tipo_contratacion`; **G–J** 4 flags (`envio_firma_mfm_nota` / `nota_firmada` / `falta_documentacion` / `enviado_adm`) → booleanos JSON `true`/`false` vía `values.update` + `USER_ENTERED` (celdas Sheets **TRUE/FALSE**); UI checkbox vía `setDataValidation` **best-effort** en batch separado (Sheets con columnas tipadas / chip columns rechaza validation — error ES «No se puede realizar esta operación en columnas de tipo» — y **no** aborta la sync; respuesta puede incluir `warning` + `checkboxValidationApplied: false`); **K** Ultimo Estado Conocido → `ultimo_estado_conocido`. Clear/write: `Contrataciones!B1:…` (sin Fecha / sin `fecha_limite_resol`).
    - **Orden de filas en el Sheet:** ascendente por **col D (Nombre)**; `localeCompare` `es`, `sensitivity: "base"`, `numeric: true`; **vacías al final**; desempate Carpeta → nº expediente. (No usa `orden` de DB en el export.)
-   - **Ops:** compartir el Sheet con la cuenta Archivo del refresh token (`G_REFRESH_TOKEN`) como editor. El usuario final **no** inicia sesión en Google. Chips de carpeta: la cuenta Archivo debe poder ver las carpetas (misma cuenta que `manage-drive`).
+   - **Ops:** compartir **ambos** Sheets (primary + mirror, y cualquier ID extra en `FIMBA_CONTRATACIONES_SHEET_IDS`) con la cuenta Archivo del refresh token (`G_REFRESH_TOKEN`) como **editor**. El usuario final **no** inicia sesión en Google. Chips de carpeta: la cuenta Archivo debe poder ver las carpetas (misma cuenta que `manage-drive`).
 
 ---
 

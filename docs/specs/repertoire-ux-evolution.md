@@ -397,6 +397,12 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - [x] **Matcher Drive centralizado** en `src/utils/drivePartMatcher.js`: archivos combinados (`Corno 1y2`, `1 y 2`, `1&2`, `1-2`, `1/2`) expanden a varias particellas con el mismo link; sugerencias IconBulb + «Vincular sugerencias» para placeholders sin enlace en `DriveMatcherModal.jsx`; banner «Agregar faltantes» para crear las particellas detectadas en PDFs que aún no estén cubiertas por la obra. Ver `docs/drive-algo-deep-dive.md`.
 - [x] **Clarinete Bajo (`07b`):** prefijos `Clarinete Bajo` / `bass clar` / `Cl.B` ya no caen en Clarinete (`07`). Corregidas particellas gira 12: obra 3198 (ClB) y 3199 (Corno 2 + link Drive).
 
+### Completado (2026-09-01) — Un bel di vedremo (obra 3199)
+- [x] Completadas particellas faltantes desde set completo local (`Downloads/unbeldi`) → carpeta ARIAS [Puccini, G. - Un bel di vedremo [aria]](https://drive.google.com/drive/folders/1-OtkHGIVh05e4rSFqUMD2jaVPSjW_5mY).
+- [x] Nuevas en Drive + BD: Clarinete 1, Clarinete Bajo (`07b`), Fagot 1/2 (PDF `1y2`), Trompeta 1, Trombón 1/2 (PDF `1y2`), Trombón Bajo. Corno 2 renombrado a canónico.
+- [x] Seed: `supabase/seed_unbeldi_missing_parts.sql`. Instrumentación: `2.3.3.2 - 4.2.4.0 - Perc.x2 - Hp - Str` (29 particellas).
+- Nota: en Downloads queda `Claron.pdf` (Clarín) sin incorporar; no hay instrumento Clarín en catálogo y el set numerado butterfly ya cubre Tp 1–2.
+
 ---
 
 ### Completado (2026-08-10) — DriveMatcherModal móvil

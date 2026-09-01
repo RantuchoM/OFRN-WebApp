@@ -1,6 +1,7 @@
 /**
- * Backup de fimba_contrataciones → Google Sheet (tab "Contrataciones").
+ * Backup de fimba_contrataciones → Google Sheet(s) (tab "Contrataciones").
  * Full replace de datos (preserva/reescribe header). Manual + cron diario.
+ * Escribe el mismo payload a N spreadsheets (lista de IDs).
  * Auth Google: G_CLIENT_ID / G_CLIENT_SECRET / G_REFRESH_TOKEN (cuenta Archivo).
  * Columna Carpeta: Drive smart chips (chipRuns / richLinkProperties); fallback URL.
  * Layout B–K (col A intacta): Nº exp. | Carpeta | Nombre | Monto | Tipo | 4 flags | Estado.
@@ -23,17 +24,62 @@ const CRON_SECRET =
 
 const SYNC_LOCK_MS = 90_000;
 
-/** Sheet FIMBA 2026 — no recrear (enlace compartido). Override: FIMBA_CONTRATACIONES_SHEET_ID */
-const LOCKED_SHEET_ID =
-  Deno.env.get("FIMBA_CONTRATACIONES_SHEET_ID") ||
-  "1rAd7j4phD6hx3jHujTUHM5KiBZNmfotz11tE3NHFox8";
+/** Primary sheet FIMBA 2026 (enlace compartido canónico en UI). */
+const PRIMARY_SHEET_ID = "1rAd7j4phD6hx3jHujTUHM5KiBZNmfotz11tE3NHFox8";
+/** Mirror / segundo backup (Contrataciones FIMBA 2026). */
+const SECONDARY_SHEET_ID = "1qz7_kj7hO57A5DY8rw5S12bZvd8wilO2hWJeli-SivQ";
+
+const DEFAULT_SHEET_IDS = [PRIMARY_SHEET_ID, SECONDARY_SHEET_ID];
+
+/** Known tab gids for stable edit URLs (optional). */
+const SHEET_GID_BY_ID: Record<string, string> = {
+  [PRIMARY_SHEET_ID]: "475656054",
+  [SECONDARY_SHEET_ID]: "1998379859",
+};
 
 const SHEET_TAB =
   Deno.env.get("FIMBA_CONTRATACIONES_SHEET_TAB") || "Contrataciones";
 
-const lockedSheetUrl = (id: string) =>
-  `https://docs.google.com/spreadsheets/d/${id}/edit#gid=475656054`;
+/**
+ * Target spreadsheet IDs (order preserved; first = primary for sync-state URL).
+ * Prefer `FIMBA_CONTRATACIONES_SHEET_IDS` (comma-separated or JSON array).
+ * Else single `FIMBA_CONTRATACIONES_SHEET_ID`, else both defaults.
+ */
+function resolveSheetIds(): string[] {
+  const multi = Deno.env.get("FIMBA_CONTRATACIONES_SHEET_IDS")?.trim();
+  if (multi) {
+    let parsed: string[] = [];
+    if (multi.startsWith("[")) {
+      try {
+        const json = JSON.parse(multi);
+        if (Array.isArray(json)) {
+          parsed = json.map((x) => String(x || "").trim()).filter(Boolean);
+        }
+      } catch {
+        parsed = [];
+      }
+    }
+    if (parsed.length === 0) {
+      parsed = multi
+        .split(/[,;\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+    if (parsed.length > 0) {
+      return [...new Set(parsed)];
+    }
+  }
+  const single = Deno.env.get("FIMBA_CONTRATACIONES_SHEET_ID")?.trim();
+  if (single) return [single];
+  return [...DEFAULT_SHEET_IDS];
+}
 
+const lockedSheetUrl = (id: string) => {
+  const gid = SHEET_GID_BY_ID[id];
+  return gid
+    ? `https://docs.google.com/spreadsheets/d/${id}/edit#gid=${gid}`
+    : `https://docs.google.com/spreadsheets/d/${id}/edit`;
+};
 /**
  * Columnas del tab "Contrataciones" (GSheet legacy + campos webapp).
  * Configurable vía env FIMBA_CONTRATACIONES_SHEET_HEADERS (JSON array) si hace falta.
@@ -809,53 +855,161 @@ Deno.serve(async (req) => {
     const drive = google.drive({ version: "v3", auth: authClient });
     const sheets = google.sheets({ version: "v4", auth: authClient });
 
-    const sheetId = LOCKED_SHEET_ID || state.spreadsheet_id;
-    if (!sheetId) {
-      throw new Error("Falta FIMBA_CONTRATACIONES_SHEET_ID");
+    const targetIds = resolveSheetIds();
+    if (targetIds.length === 0) {
+      throw new Error(
+        "Falta FIMBA_CONTRATACIONES_SHEET_IDS / FIMBA_CONTRATACIONES_SHEET_ID",
+      );
     }
-    const sheetMeta = await ensureSpreadsheet(drive, sheetId);
-    const rewriteResult = await rewriteSheet(
-      sheets,
-      sheetMeta.spreadsheetId,
-      headers,
-      rows,
-    );
 
+    type SheetOk = {
+      ok: true;
+      spreadsheetId: string;
+      spreadsheetUrl: string;
+      chipsWritten: number;
+      chipsFailed: boolean;
+      checkboxValidationApplied: boolean;
+    };
+    type SheetFail = {
+      ok: false;
+      spreadsheetId: string;
+      spreadsheetUrl: string;
+      error: string;
+    };
+    const sheetResults: (SheetOk | SheetFail)[] = [];
+
+    for (const targetId of targetIds) {
+      try {
+        const sheetMeta = await ensureSpreadsheet(drive, targetId);
+        const rewriteResult = await rewriteSheet(
+          sheets,
+          sheetMeta.spreadsheetId,
+          headers,
+          rows,
+        );
+        sheetResults.push({
+          ok: true,
+          spreadsheetId: sheetMeta.spreadsheetId,
+          spreadsheetUrl: sheetMeta.spreadsheetUrl,
+          chipsWritten: rewriteResult.chipsWritten,
+          chipsFailed: rewriteResult.chipsFailed,
+          checkboxValidationApplied: rewriteResult.checkboxValidationApplied,
+        });
+      } catch (sheetErr) {
+        const errMsg = (sheetErr as Error).message || String(sheetErr);
+        console.error(
+          `[sync-fimba-contrataciones-sheet] falló sheet ${targetId}:`,
+          sheetErr,
+        );
+        sheetResults.push({
+          ok: false,
+          spreadsheetId: targetId,
+          spreadsheetUrl: lockedSheetUrl(targetId),
+          error: errMsg,
+        });
+      }
+    }
+
+    const succeeded = sheetResults.filter((r): r is SheetOk => r.ok);
+    const failed = sheetResults.filter((r): r is SheetFail => !r.ok);
+    const primaryId = targetIds[0];
+    const primaryResult = sheetResults.find((r) => r.spreadsheetId === primaryId) ||
+      sheetResults[0];
+    const primaryOk = primaryResult?.ok === true;
+
+    if (succeeded.length === 0) {
+      const msg = failed
+        .map((f) => `${f.spreadsheetId}: ${f.error}`)
+        .join(" | ");
+      throw new Error(
+        msg || "Ningún spreadsheet de contrataciones pudo sincronizarse",
+      );
+    }
+
+    // Sync-state URL = primary if it succeeded; else first success (never hide primary fail).
+    const canonical: SheetOk = primaryOk
+      ? (primaryResult as SheetOk)
+      : succeeded[0];
     const syncedAt = new Date().toISOString();
+    const partialError =
+      failed.length > 0
+        ? failed
+            .map((f) => `${f.spreadsheetId}: ${f.error}`)
+            .join(" | ")
+        : null;
+    const primaryFailNote =
+      !primaryOk && primaryResult && !primaryResult.ok
+        ? `PRIMARY FAILED (${primaryId}): ${primaryResult.error}`
+        : null;
+    const lastError =
+      [primaryFailNote, partialError].filter(Boolean).join(" — ") || null;
+
     await supabase
       .from("fimba_contrataciones_sheet_sync")
       .update({
-        spreadsheet_id: sheetMeta.spreadsheetId,
-        spreadsheet_url: sheetMeta.spreadsheetUrl,
+        spreadsheet_id: canonical.spreadsheetId,
+        spreadsheet_url: canonical.spreadsheetUrl,
         sheet_tab: SHEET_TAB,
         id_edicion: edicionId,
-        pending: false,
+        pending: !primaryOk, // keep pending if primary did not update
         syncing_at: null,
         last_synced_at: syncedAt,
-        last_error: null,
+        last_error: lastError,
         last_row_count: rows.length,
       })
       .eq("id", 1);
 
+    const anyCheckboxSkipped = succeeded.some(
+      (r) => !r.checkboxValidationApplied,
+    );
+    const warnings: string[] = [];
+    if (!primaryOk) {
+      warnings.push(
+        `Sheet primario (${primaryId}) falló; se actualizaron ${succeeded.length} mirror(s).`,
+      );
+    }
+    if (failed.length > 0 && primaryOk) {
+      warnings.push(
+        `${failed.length} sheet(s) fallaron: ${failed
+          .map((f) => f.spreadsheetId)
+          .join(", ")}`,
+      );
+    }
+    if (anyCheckboxSkipped) {
+      warnings.push(
+        "Flags escritos como TRUE/FALSE; no se pudo aplicar UI checkbox en al menos un sheet (columnas tipadas u otro rechazo).",
+      );
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
+        partial: failed.length > 0,
+        primaryOk,
         edicionId,
         rowCount: rows.length,
-        spreadsheetId: sheetMeta.spreadsheetId,
-        spreadsheetUrl: sheetMeta.spreadsheetUrl,
+        spreadsheetId: canonical.spreadsheetId,
+        spreadsheetUrl: canonical.spreadsheetUrl,
         sheetTab: SHEET_TAB,
+        spreadsheetIds: targetIds,
+        sheetsSucceeded: succeeded.map((r) => ({
+          spreadsheetId: r.spreadsheetId,
+          spreadsheetUrl: r.spreadsheetUrl,
+          carpetaChipsWritten: r.chipsWritten,
+          carpetaChipsFailed: r.chipsFailed,
+          checkboxValidationApplied: r.checkboxValidationApplied,
+        })),
+        sheetsFailed: failed.map((r) => ({
+          spreadsheetId: r.spreadsheetId,
+          spreadsheetUrl: r.spreadsheetUrl,
+          error: r.error,
+        })),
         syncedAt,
         via: auth.via,
-        carpetaChipsWritten: rewriteResult.chipsWritten,
-        carpetaChipsFailed: rewriteResult.chipsFailed,
-        checkboxValidationApplied: rewriteResult.checkboxValidationApplied,
-        ...(rewriteResult.checkboxValidationApplied
-          ? {}
-          : {
-              warning:
-                "Flags escritos como TRUE/FALSE; no se pudo aplicar UI checkbox (columnas tipadas u otro rechazo de Sheets).",
-            }),
+        carpetaChipsWritten: canonical.chipsWritten,
+        carpetaChipsFailed: canonical.chipsFailed,
+        checkboxValidationApplied: canonical.checkboxValidationApplied,
+        ...(warnings.length > 0 ? { warning: warnings.join(" ") } : {}),
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
