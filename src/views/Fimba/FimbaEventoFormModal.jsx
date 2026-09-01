@@ -4,7 +4,6 @@ import {
   IconUpload,
   IconDownload,
   IconUsers,
-  IconEdit,
 } from "../../components/ui/Icons";
 import {
   actividadUsaTransporte,
@@ -67,6 +66,12 @@ function sliceTime(t) {
   if (!t) return "";
   const s = String(t).slice(0, 5);
   return s === "—" ? "" : s;
+}
+
+function initialIdLocacion(evento) {
+  const raw = evento?.id_locacion ?? evento?.locaciones?.id ?? null;
+  if (raw == null || raw === "") return "";
+  return String(raw);
 }
 
 /**
@@ -449,8 +454,6 @@ export default function FimbaEventoFormModal({
   onSaved,
   /** Refresh de planilla tras mutar boarding embebido. */
   onBoardingRefresh = null,
-  /** Transportes: abre modal «Elegir destino creando evento» (opts.horaFinFromForm). */
-  onCambiarDestino = null,
   /** Tras crear parada destino inline: abrir editor del evento nuevo. */
   onOpenEventoEdit = null,
 }) {
@@ -545,6 +548,7 @@ export default function FimbaEventoFormModal({
   const [horaFin, setHoraFin] = useState(sliceTime(evento?.hora_fin));
   const [actividad, setActividad] = useState(evento?.actividad || "");
   const [destino, setDestino] = useState(evento?.destino || "");
+  const [idLocacion, setIdLocacion] = useState(() => initialIdLocacion(evento));
   const [vuelo, setVuelo] = useState(evento?.vuelo || "");
   const [observacionesEquipaje, setObservacionesEquipaje] = useState(
     () =>
@@ -675,6 +679,7 @@ export default function FimbaEventoFormModal({
       horaFin: sliceTime(evento?.hora_fin),
       actividad: detalleDirtyKey(evento?.actividad || ""),
       destino: evento?.destino || "",
+      idLocacion: initialIdLocacion(evento),
       vuelo: evento?.vuelo || "",
       observacionesEquipaje:
         evento?.observaciones_equipaje || evento?.observaciones || "",
@@ -709,6 +714,7 @@ export default function FimbaEventoFormModal({
       return true;
     }
     if (!usaTransporte && (destino || "") !== (initialForm.destino || "")) return true;
+    if ((idLocacion || "") !== (initialForm.idLocacion || "")) return true;
     if ((vuelo || "") !== (initialForm.vuelo || "")) return true;
     if (
       String(observacionesEquipaje || "").trim() !==
@@ -766,6 +772,7 @@ export default function FimbaEventoFormModal({
     horaFin,
     actividad,
     destino,
+    idLocacion,
     vuelo,
     observacionesEquipaje,
     observacionesInternas,
@@ -969,60 +976,22 @@ export default function FimbaEventoFormModal({
     evento,
   ]);
 
-  const canOpenDestinoFlow = Boolean(
-    typeof onCambiarDestino === "function" && usaTransporte,
-  );
-  const canCambiarDestinoTransporte = Boolean(
-    canOpenDestinoFlow &&
-      isEdit &&
-      evento?.id != null &&
-      evento.id !== "" &&
-      transportDestinoVehicleId != null &&
-      !sinServicio,
-  );
-
   const destinoActionBlockedReason = useMemo(() => {
-    if (!usaTransporte || !canOpenDestinoFlow) return null;
+    if (!usaTransporte) return null;
     if (!isEdit || evento?.id == null || evento.id === "") {
-      return "Guardá el evento para poder elegir destino.";
+      return "Guardá el evento para crear la siguiente parada.";
     }
     if (sinServicio || transportDestinoVehicleId == null) {
-      return "Asigná un vehículo (desmarcá SIN SERVICIO) para elegir destino.";
+      return "Asigná un vehículo (desmarcá SIN SERVICIO) para crear la siguiente parada.";
     }
     return null;
   }, [
     usaTransporte,
-    canOpenDestinoFlow,
     isEdit,
     evento,
     sinServicio,
     transportDestinoVehicleId,
   ]);
-
-  const openElegirDestino = () => {
-    if (!canCambiarDestinoTransporte || typeof onCambiarDestino !== "function") {
-      return;
-    }
-    const vid = transportDestinoVehicleId;
-    const metrics =
-      transportDestinoMetrics || {
-        primary: { id_gira_transporte: vid },
-        perVehicle: [{ id_gira_transporte: vid }],
-        next_event: null,
-        destino_siguiente: "—",
-      };
-    // Asegurar vehicleId aunque metrics.primary venga vacío (p.ej. sin secuencia).
-    const withVehicle = {
-      ...metrics,
-      primary: metrics.primary?.id_gira_transporte != null
-        ? metrics.primary
-        : { ...(metrics.primary || {}), id_gira_transporte: vid },
-    };
-    onCambiarDestino(evento, withVehicle, {
-      horaFinFromForm: horaFin || null,
-      vehicleId: vid,
-    });
-  };
 
   const transportNextEvent = transportDestinoMetrics?.next_event || null;
 
@@ -1046,9 +1015,9 @@ export default function FimbaEventoFormModal({
   const [quickCreateSaving, setQuickCreateSaving] = useState(false);
   const [quickCreateError, setQuickCreateError] = useState(null);
   const [quickCreateSuccessId, setQuickCreateSuccessId] = useState(null);
-  const [destinoLocationsList, setDestinoLocationsList] = useState([]);
+  const [locationsList, setLocationsList] = useState([]);
 
-  const refreshDestinoLocations = useCallback(async () => {
+  const refreshLocations = useCallback(async () => {
     const { data, error: err } = await supabase
       .from("locaciones")
       .select("id, nombre, direccion, localidades(localidad)")
@@ -1057,7 +1026,7 @@ export default function FimbaEventoFormModal({
       console.error(err);
       return;
     }
-    setDestinoLocationsList(
+    setLocationsList(
       (data || []).map((l) => ({
         id: l.id,
         nombre: l.nombre,
@@ -1068,8 +1037,8 @@ export default function FimbaEventoFormModal({
   }, []);
 
   useEffect(() => {
-    if (usaTransporte && isEdit) refreshDestinoLocations();
-  }, [usaTransporte, isEdit, refreshDestinoLocations]);
+    refreshLocations();
+  }, [refreshLocations]);
 
   useEffect(() => {
     setQuickCreateSuccessId(null);
@@ -1084,14 +1053,28 @@ export default function FimbaEventoFormModal({
     }
   }, [destinoStopSchedule?.hora_inicio, quickCreateSuccessId]);
 
-  const destinoLocationOptions = useMemo(
+  const locationOptions = useMemo(
     () =>
-      destinoLocationsList.map((l) => ({
+      locationsList.map((l) => ({
         id: l.id,
         label: l.ciudad ? `${l.nombre} (${l.ciudad})` : l.nombre,
       })),
-    [destinoLocationsList],
+    [locationsList],
   );
+
+  const locacionDisplayLabel = useMemo(() => {
+    if (idLocacion && locationOptions.length) {
+      const opt = locationOptions.find((o) => String(o.id) === String(idLocacion));
+      if (opt?.label) return opt.label;
+    }
+    const fromEvent = formatEventLocation(evento);
+    return fromEvent !== "—" ? fromEvent : "—";
+  }, [idLocacion, locationOptions, evento]);
+
+  const legacyDestinoText = useMemo(() => {
+    if (!usaTransporte) return "";
+    return String(evento?.destino || destino || "").trim();
+  }, [usaTransporte, evento?.destino, destino]);
 
   const submitQuickCreateDestinoStop = async (e) => {
     e.preventDefault();
@@ -1380,6 +1363,7 @@ export default function FimbaEventoFormModal({
       hora_fin: horaFin || null,
       actividad,
       destino: usaTransporte ? "" : destino,
+      id_locacion: idLocacion || null,
       vuelo,
       asientos_equipaje: Number(asientosEquipaje) || 0,
       observaciones_equipaje: observacionesEquipaje,
@@ -1562,15 +1546,15 @@ export default function FimbaEventoFormModal({
                 onChange={(e) => setHoraCom(e.target.value)}
               />
             </div>
-            <div>
-              <div className="fimba-field">
-                <label className="fimba-label">Hora fin</label>
-                <input
-                  className="fimba-input"
-                  type="time"
-                  value={horaFin}
-                  onChange={(e) => setHoraFin(e.target.value)}
-                />
+            <div className="fimba-field">
+              <label className="fimba-label">Hora fin</label>
+              <input
+                className="fimba-input"
+                type="time"
+                value={horaFin}
+                onChange={(e) => setHoraFin(e.target.value)}
+              />
+              {usaTransporte ? (
                 <p
                   className="fimba-muted"
                   style={{ margin: "0.25rem 0 0", fontSize: "0.72rem" }}
@@ -1578,94 +1562,52 @@ export default function FimbaEventoFormModal({
                   Si queda vacía, en Transportes se muestra (en cyan) la hora com
                   de la siguiente parada del mismo vehículo.
                 </p>
-              </div>
-              {usaTransporte ? (
-                <div className="fimba-field" style={{ marginTop: "0.65rem" }}>
-                  <label className="fimba-label">Destino</label>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <span
-                      className="fimba-input"
-                      style={{
-                        flex: "1 1 10rem",
-                        display: "inline-block",
-                        background: "#f8fafc",
-                        fontStyle:
-                          !isEdit ||
-                          transportDestinoLabel === TRANSPORT_DESTINO_SIN_SIGUIENTE
-                            ? "italic"
-                            : undefined,
-                      }}
-                      title={
-                        isEdit &&
-                        transportDestinoLabel !== TRANSPORT_DESTINO_SIN_SIGUIENTE
-                          ? `Calculado desde la siguiente parada del mismo vehículo: ${transportDestinoLabel}`
-                          : isEdit
-                            ? "Sin siguiente parada en la secuencia del vehículo"
-                            : "Guardá el evento para poder elegir destino"
-                      }
-                    >
-                      {isEdit
-                        ? transportDestinoLabel
-                        : "Guardá el evento para definir destino"}
-                    </span>
-                    {canOpenDestinoFlow ? (
-                      canCambiarDestinoTransporte ? (
-                        <button
-                          type="button"
-                          className="fimba-btn fimba-btn-ghost"
-                          style={{ fontSize: "0.78rem", whiteSpace: "nowrap" }}
-                          title={
-                            transportDestinoLabel === TRANSPORT_DESTINO_SIN_SIGUIENTE
-                              ? "Crear la siguiente parada de este vehículo"
-                              : "Crear parada intermedia (nuevo destino)"
-                          }
-                          onClick={openElegirDestino}
-                        >
-                          <IconEdit size={14} style={{ marginRight: 4 }} />
-                          Elegir destino…
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="fimba-btn fimba-btn-ghost"
-                          style={{
-                            fontSize: "0.78rem",
-                            whiteSpace: "nowrap",
-                            opacity: 0.45,
-                            cursor: "not-allowed",
-                          }}
-                          disabled
-                          title={destinoActionBlockedReason || undefined}
-                          aria-disabled="true"
-                        >
-                          <IconEdit size={14} style={{ marginRight: 4 }} />
-                          Elegir destino…
-                        </button>
-                      )
-                    ) : null}
-                  </div>
-                  <p
-                    className="fimba-muted"
-                    style={{ margin: "0.25rem 0 0", fontSize: "0.72rem" }}
-                  >
-                    {destinoActionBlockedReason
-                      ? destinoActionBlockedReason
-                      : canCambiarDestinoTransporte
-                        ? "Calculado desde la siguiente parada del mismo vehículo. «Elegir destino…» crea un evento con esta Hora Fin como inicio y el lugar elegido como locación de salida."
-                        : isEdit
-                          ? "Calculado desde la siguiente parada del mismo vehículo (definir destino en Transportes)."
-                          : "Para elegir un lugar y crear la siguiente parada, guardá primero este evento."}
-                  </p>
-                </div>
               ) : null}
             </div>
+          </div>
+          <div className="fimba-field">
+            <label className="fimba-label">
+              {usaTransporte ? "Locación (parada actual)" : "Locación"}
+            </label>
+            {readOnly ? (
+              <span
+                className="fimba-input"
+                style={{
+                  display: "inline-block",
+                  background: "#f8fafc",
+                  width: "100%",
+                }}
+              >
+                {locacionDisplayLabel}
+              </span>
+            ) : (
+              <LocationSelectWithCreate
+                supabase={supabase}
+                options={locationOptions}
+                value={idLocacion}
+                onChange={(v) => setIdLocacion(v || "")}
+                onRefresh={refreshLocations}
+                placeholder="Buscar locación…"
+              />
+            )}
+            {usaTransporte ? (
+              <p
+                className="fimba-muted"
+                style={{ margin: "0.25rem 0 0", fontSize: "0.72rem" }}
+              >
+                Origen de esta parada en la planilla (`eventos.id_locacion`). El
+                destino (siguiente parada) se define abajo.
+              </p>
+            ) : null}
+            {legacyDestinoText && !idLocacion ? (
+              <p
+                className="fimba-muted"
+                style={{ margin: "0.35rem 0 0", fontSize: "0.72rem", fontStyle: "italic" }}
+              >
+                Legacy — destino en descripción: {legacyDestinoText}. Elegí una
+                locación de catálogo para migrar.
+              </p>
+            ) : null}
           </div>
           {usaTransporte ? (
             <div
@@ -1786,10 +1728,10 @@ export default function FimbaEventoFormModal({
                       <label className="fimba-label">Locación</label>
                       <LocationSelectWithCreate
                         supabase={supabase}
-                        options={destinoLocationOptions}
+                        options={locationOptions}
                         value={quickCreateLocacion}
                         onChange={(v) => setQuickCreateLocacion(v || "")}
-                        onRefresh={refreshDestinoLocations}
+                        onRefresh={refreshLocations}
                         placeholder="Buscar locación…"
                       />
                     </div>
@@ -1798,9 +1740,8 @@ export default function FimbaEventoFormModal({
                     className="fimba-muted"
                     style={{ margin: "0.35rem 0 0.65rem", fontSize: "0.72rem" }}
                   >
-                    Crear evento rápido: misma regla que «Elegir destino…» (Hora Fin
-                    actual → inicio de la nueva parada; locación → `id_locacion` de
-                    la parada creada).
+                    Crear evento rápido: Hora Fin actual → inicio de la nueva
+                    parada; locación → `id_locacion` de la parada creada.
                   </p>
                   {quickCreateError ? (
                     <p className="fimba-error" style={{ margin: "0 0 0.5rem" }}>

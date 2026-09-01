@@ -3021,11 +3021,6 @@ export default function FimbaTransportPage() {
             }
             // Solo refresca planilla; NO cerrar el modal ni tocar modal.evento
             onBoardingRefresh={handleBoardingRefresh}
-            onCambiarDestino={(evRow, metrics, opts) => {
-              // Cerrar el form para no apilar dos backdrop z-100; DestinoStop queda usable.
-              setModal(null);
-              openDestinoStop(evRow, metrics, opts);
-            }}
             onOpenEventoEdit={handleOpenEventoEdit}
           />,
           document.body,
