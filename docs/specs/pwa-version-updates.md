@@ -8,6 +8,7 @@ Tras un deploy en Vercel, a veces la app se **recargaba sola mid-sesión** (usua
 2. **Bug de UX previo**: `ReloadPrompt` marcaba `entryAutoReloadRef = true` al montar y en **cada** cambio de ruta, y ante `needRefresh` **aplicaba la update sin banner**. Como el flag no caducaba, el **primer** update detectado (poll SW / `version.json` cada ~2 min) forzaba reload mid-trabajo.
 3. **Chunks hasheados**: sesión vieja + navigate a lazy route → `vite:preloadError` (404 del `.js` viejo).
 4. Sin `Cache-Control` explícito en `/version.json` e `/index.html`, CDN/browser podían retrasar la detección.
+5. **Rewrite SPA catch-all en Vercel** (`/(.*) → index.html`): si un chunk hasheado ya no existe, la petición `GET /assets/index-*.js` recibía **HTML** → error de consola *«Expected a JavaScript module script but the server responded with MIME type text/html»* (antes de montar React; `vite:preloadError` no aplica al entry).
 
 ## Comportamiento actual (producto)
 | Contexto | Qué pasa |
@@ -17,6 +18,7 @@ Tras un deploy en Vercel, a veces la app se **recargaba sola mid-sesión** (usua
 | Staff cambia de ruta o pulsa Actualizar **con dirty** | No auto-aplica; confirm si el usuario fuerza Actualizar |
 | `/entradas/*` (público) | Update silenciosa (sin banner) |
 | `vite:preloadError` | Overlay «Hay una versión nueva. Recargando…» + reload (tope anti-bucle) |
+| Entry `/assets/index-*.js` 404/MIME tras deploy | Rewrite Vercel solo si `Accept` incluye `text/html`; SW `navigateFallbackDenylist` incluye `/assets/`; script inline en `index.html` recarga una vez |
 
 Dirty detectado vía:
 - Registro `src/utils/unsavedWork.js` (`markUnsavedWork` / `clearUnsavedWork`)
@@ -44,3 +46,5 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 - [x] Apply en navegación limpia
 - [x] Mensaje en preloadError
 - [x] Headers Vercel para version/index/assets
+- [x] Rewrite SPA condicionado por `Accept: text/html` (no devolver HTML en peticiones de chunks)
+- [x] Recuperación inline si falla el entry script hasheado

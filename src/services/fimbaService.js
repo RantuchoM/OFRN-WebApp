@@ -2931,16 +2931,62 @@ export function giraTransporteIdsFromEvent(ev) {
   return [...ids];
 }
 
+/** Normaliza filtro de propuesta(s) en agenda (single legacy + array multi). */
+function normalizeFimbaAgendaPropuestaFilter(opts = {}) {
+  const ids = [];
+  if (Array.isArray(opts.id_propuestas)) {
+    for (const raw of opts.id_propuestas) {
+      const n = Number(raw);
+      if (Number.isFinite(n)) ids.push(n);
+    }
+  }
+  if (opts.id_propuesta != null && opts.id_propuesta !== "") {
+    const n = Number(opts.id_propuesta);
+    if (Number.isFinite(n) && !ids.includes(n)) ids.push(n);
+  }
+  return ids;
+}
+
+function normalizeFimbaAgendaGrupoFilter(opts = {}) {
+  const ids = [];
+  if (Array.isArray(opts.id_grupos)) {
+    for (const raw of opts.id_grupos) {
+      const n = Number(raw);
+      if (Number.isFinite(n)) ids.push(n);
+    }
+  }
+  return ids;
+}
+
+function eventMatchesFimbaAgendaPropuestaFilter(ev, propuestaFilterIds) {
+  if (!propuestaFilterIds?.length) return true;
+  if (ev?.es_ride_segment && ev?.id_propuesta != null) {
+    return propuestaFilterIds.includes(Number(ev.id_propuesta));
+  }
+  return (ev?.propuestas || []).some((p) =>
+    propuestaFilterIds.includes(Number(p.id)),
+  );
+}
+
+function eventMatchesFimbaAgendaGrupoFilter(ev, grupoFilterIds) {
+  if (!grupoFilterIds?.length) return true;
+  if (!ev?.es_ofrn) return false;
+  return (ev?.grupos || []).some((g) =>
+    grupoFilterIds.includes(Number(g.id)),
+  );
+}
+
 /**
  * Agenda unificada de la edición:
  * 1) Eventos FIMBA: tags `eventos_fimba_propuestas` y/o plazas en `fimba_evento_transportes`
  * 2) Eventos orquesta OFRN de la misma gira (`audiencia_ofrn` tutti/grupos/null)
- *    — se omiten al filtrar por artista; en trayectos (`solo_traslados`) se incluyen
- *      pero solo filas de transporte (tipo / flota FIMBA / `id_gira_transporte`)
+ *    — se omiten al filtrar solo por artista; con `id_grupos` se incluyen (unión con tags)
  *
  * @param {number|string} edicionId
  * @param {{
  *   id_propuesta?: number|string|null,
+ *   id_propuestas?: Array<number|string>,
+ *   id_grupos?: Array<number|string>,
  *   id_tipo_evento?: number|string|null,
  *   solo_traslados?: boolean,
  *   include_ofrn?: boolean,
@@ -2970,6 +3016,10 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
   }
   const propIds = (propuestas || []).map((p) => p.id);
   const propById = Object.fromEntries((propuestas || []).map((p) => [String(p.id), p]));
+  const propuestaFilterIds = normalizeFimbaAgendaPropuestaFilter(opts);
+  const grupoFilterIds = normalizeFimbaAgendaGrupoFilter(opts);
+  const hasPropuestaFilter = propuestaFilterIds.length > 0;
+  const hasGrupoFilter = grupoFilterIds.length > 0;
 
   let tagQuery = supabase
     .from("eventos_fimba_propuestas")
@@ -2980,8 +3030,10 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
     // sin artistas: solo se listarán eventos con asignaciones flota (más abajo)
     tagQuery = tagQuery.eq("id_propuesta", -1);
   }
-  if (opts.id_propuesta != null && opts.id_propuesta !== "") {
-    tagQuery = tagQuery.eq("id_propuesta", Number(opts.id_propuesta));
+  if (propuestaFilterIds.length === 1) {
+    tagQuery = tagQuery.eq("id_propuesta", propuestaFilterIds[0]);
+  } else if (propuestaFilterIds.length > 1) {
+    tagQuery = tagQuery.in("id_propuesta", propuestaFilterIds);
   }
   const { data: tags, error: eTags } = await tagQuery;
   if (eTags) return { eventos: [], error: eTags };
@@ -2992,7 +3044,7 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
   // (sin tag aún = traslados edition-wide). Nunca flota FIMBA propia.
   let flotaEventIds = [];
   let fleetIds = [];
-  if (opts.id_propuesta == null || opts.id_propuesta === "") {
+  if (!hasPropuestaFilter) {
     let flota = opts.flota ?? null;
     if (!flota) {
       const { flota: fleet, error: eFleet } = await listFimbaFlota(edicion.id_gira);
@@ -3015,7 +3067,7 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
   const includeOfrn =
     opts.include_ofrn != null
       ? Boolean(opts.include_ofrn)
-      : opts.id_propuesta == null || opts.id_propuesta === "";
+      : !hasPropuestaFilter || hasGrupoFilter;
 
   let ofrnEventIds = [];
   if (includeOfrn) {
@@ -3082,7 +3134,7 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
 
   // Con filtro por artista, rehidratar todos los tags de los eventos listados
   let tagsFull = tags || [];
-  if (opts.id_propuesta != null && opts.id_propuesta !== "" && eventIds.length > 0) {
+  if (hasPropuestaFilter && eventIds.length > 0) {
     const { data: allTags, error: eAllTags } = await supabase
       .from("eventos_fimba_propuestas")
       .select("id_evento, id_propuesta")
@@ -3197,23 +3249,45 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
     eventos = eventos.filter((ev) => Number(ev.id_tipo_evento) === want);
   }
 
+  if (hasPropuestaFilter || hasGrupoFilter) {
+    eventos = eventos.filter((ev) => {
+      const matchesArtist = eventMatchesFimbaAgendaPropuestaFilter(
+        ev,
+        propuestaFilterIds,
+      );
+      const matchesGrupo = eventMatchesFimbaAgendaGrupoFilter(
+        ev,
+        grupoFilterIds,
+      );
+      if (hasPropuestaFilter && hasGrupoFilter) {
+        return matchesArtist || matchesGrupo;
+      }
+      if (hasPropuestaFilter) return matchesArtist;
+      return matchesGrupo;
+    });
+  }
+
   // Agenda de artista: bloques de traslado suben→bajan (fimba_propuesta_rutas).
   // No aplica a planilla de trayectos (solo_traslados) ni sin filtro de propuesta.
   if (
-    opts.id_propuesta != null &&
-    opts.id_propuesta !== "" &&
+    hasPropuestaFilter &&
     !opts.solo_traslados &&
     opts.include_ride_segments !== false
   ) {
-    const { blocks, error: eRide } = await listFimbaArtistaTrasladoBlocks(
-      edicionId,
-      opts.id_propuesta,
-    );
-    if (eRide) {
-      // No abortar agenda tagged si fallan rides; log y seguir.
-      console.warn("[FIMBA] Traslados artista no cargados:", eRide);
-    } else if (blocks?.length) {
-      eventos = mergeAgendaWithTrasladoBlocks(eventos, blocks);
+    const rideBlocks = [];
+    for (const pid of propuestaFilterIds) {
+      const { blocks, error: eRide } = await listFimbaArtistaTrasladoBlocks(
+        edicionId,
+        pid,
+      );
+      if (eRide) {
+        console.warn("[FIMBA] Traslados artista no cargados:", eRide);
+        continue;
+      }
+      if (blocks?.length) rideBlocks.push(...blocks);
+    }
+    if (rideBlocks.length) {
+      eventos = mergeAgendaWithTrasladoBlocks(eventos, rideBlocks);
     }
   }
 

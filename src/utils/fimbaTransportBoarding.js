@@ -169,7 +169,7 @@ export function movementLabelEs(kind) {
 }
 
 /**
- * Locación visible: nombre locaciones → destino texto → localidad → —.
+ * Locación visible: locacion_nombre / locaciones → destino texto legacy → localidad → —.
  * @param {{
  *   locaciones?: { nombre?: string|null, localidades?: { localidad?: string|null }|null }|null,
  *   destino?: string|null,
@@ -177,16 +177,80 @@ export function movementLabelEs(kind) {
  * }} ev
  */
 export function formatEventLocation(ev) {
-  const locName = String(ev?.locaciones?.nombre || "").trim();
+  const locName = String(
+    ev?.locaciones?.nombre || ev?.locacion_nombre || "",
+  ).trim();
   if (locName) {
-    const city = String(ev?.locaciones?.localidades?.localidad || "").trim();
+    const city = String(
+      ev?.locaciones?.localidades?.localidad || ev?.locacion_ciudad || "",
+    ).trim();
     return city ? `${locName} (${city})` : locName;
   }
   const dest = String(ev?.destino || "").trim();
   if (dest) return dest;
-  const cityOnly = String(ev?.locaciones?.localidades?.localidad || "").trim();
+  const cityOnly = String(
+    ev?.locaciones?.localidades?.localidad || ev?.locacion_ciudad || "",
+  ).trim();
   if (cityOnly) return cityOnly;
   return "—";
+}
+
+/**
+ * Origen en planilla Agenda: locación de catálogo de la parada actual.
+ * En transporte no usa texto legacy `Destino:` de descripcion.
+ *
+ * @param {object|null|undefined} ev
+ * @param {{ skipDestinoFallback?: boolean }} [opts]
+ */
+export function formatAgendaOrigenLabel(ev, opts = {}) {
+  const skipDestino = Boolean(opts.skipDestinoFallback);
+  const locName = String(
+    ev?.locaciones?.nombre || ev?.locacion_nombre || "",
+  ).trim();
+  if (locName) {
+    const city = String(
+      ev?.locaciones?.localidades?.localidad || ev?.locacion_ciudad || "",
+    ).trim();
+    return city ? `${locName} (${city})` : locName;
+  }
+  if (!skipDestino) {
+    const dest = String(ev?.destino || "").trim();
+    if (dest) return dest;
+  }
+  const cityOnly = String(
+    ev?.locaciones?.localidades?.localidad || ev?.locacion_ciudad || "",
+  ).trim();
+  if (cityOnly) return cityOnly;
+  return "—";
+}
+
+/**
+ * Destino de planilla Agenda (calculado): next stop del mismo vehículo.
+ * No-transporte → "—". Transporte sin next → `TRANSPORT_DESTINO_SIN_SIGUIENTE`.
+ *
+ * @param {object|null|undefined} ev
+ * @param {Map|null|undefined} sequencesByVehicle
+ * @param {{ isTransport?: boolean }} [opts]
+ * @returns {string}
+ */
+export function resolveAgendaDestinoLabel(
+  ev,
+  sequencesByVehicle,
+  opts = {},
+) {
+  const isTransport =
+    opts.isTransport != null
+      ? Boolean(opts.isTransport)
+      : isTransportTipoEvent(ev) || Boolean(ev?.es_ride_segment);
+  if (!isTransport || !ev) return "—";
+  const { nextEvent, label } = resolveTransportDestinoFromNextStop(
+    ev,
+    sequencesByVehicle,
+  );
+  if (!nextEvent || label === "—" || !String(label || "").trim()) {
+    return TRANSPORT_DESTINO_SIN_SIGUIENTE;
+  }
+  return label;
 }
 
 /**

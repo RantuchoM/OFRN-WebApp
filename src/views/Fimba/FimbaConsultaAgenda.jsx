@@ -27,7 +27,10 @@ import { sortFimbaAgendaRows } from "../../utils/fimbaAgendaSort";
 import { exportFimbaAgendaToPDF } from "../../utils/fimbaAgendaPdf";
 import {
   buildAllVehicleBoardingSequences,
+  formatAgendaOrigenLabel,
+  resolveAgendaDestinoLabel,
   resolveEventAboardCount,
+  TRANSPORT_DESTINO_SIN_SIGUIENTE,
 } from "../../utils/fimbaTransportBoarding";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
@@ -336,7 +339,9 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                   <th>Hora fin</th>
                   <th>Tipo</th>
                   <th>Detalle</th>
-                  <th>Destino / Vuelo</th>
+                  <th>Origen</th>
+                  <th>Destino</th>
+                  <th>Vuelo</th>
                   <th>Vehículo</th>
                   <th
                     style={{ paddingRight: editable ? undefined : "1rem" }}
@@ -358,11 +363,22 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                   const veh = isRide
                     ? ev.vehicle_label || vehicleLabel(ev, flota)
                     : vehicleLabel(ev, flota);
-                  const dest = isRide
-                    ? ev.route_snippet ||
-                      [ev.destino, ev.vuelo].filter(Boolean).join(" · ") ||
-                      "—"
-                    : [ev.destino, ev.vuelo].filter(Boolean).join(" · ") || "—";
+                  const origen = isRide
+                    ? ev.route_snippet?.split(" → ")?.[0]?.trim() ||
+                      formatAgendaOrigenLabel(ev, { skipDestinoFallback: true })
+                    : formatAgendaOrigenLabel(ev, {
+                        skipDestinoFallback: isTx,
+                      });
+                  const destino = isRide
+                    ? ev.route_snippet?.includes(" → ")
+                      ? ev.route_snippet.split(" → ").slice(1).join(" → ").trim()
+                      : resolveAgendaDestinoLabel(ev, sequencesByVehicle, {
+                          isTransport: true,
+                        })
+                    : resolveAgendaDestinoLabel(ev, sequencesByVehicle, {
+                        isTransport: isTx,
+                      });
+                  const vuelo = ev.vuelo || "—";
                   const aboard = isTx
                     ? resolveEventAboardCount(ev, sequencesByVehicle, null)
                     : null;
@@ -424,8 +440,24 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                           </span>
                         ) : null}
                       </td>
-                      <td className="fimba-muted" style={{ maxWidth: 180 }}>
-                        {dest}
+                      <td className="fimba-muted" style={{ maxWidth: 160 }} title={origen}>
+                        {origen}
+                      </td>
+                      <td
+                        className="fimba-muted"
+                        style={{ maxWidth: 160 }}
+                        title={
+                          isTx && destino !== "—"
+                            ? destino === TRANSPORT_DESTINO_SIN_SIGUIENTE
+                              ? "Sin siguiente parada en la secuencia del vehículo"
+                              : `Siguiente parada del mismo vehículo: ${destino}`
+                            : undefined
+                        }
+                      >
+                        {destino}
+                      </td>
+                      <td className="fimba-muted" style={{ maxWidth: 100 }}>
+                        {vuelo}
                       </td>
                       <td style={{ maxWidth: 200 }}>
                         {veh === "SIN SERVICIO" ? (

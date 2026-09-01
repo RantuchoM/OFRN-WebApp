@@ -119,13 +119,28 @@ export function buildFimbaAgendaPdfSubTitle({
   edicionNombre,
   filtroOrigen,
   filtroArtistaNombre,
+  filtroArtistaNombres,
+  grupoNames,
   categoryNames,
   locationNames,
   searchQuery,
 } = {}) {
   const parts = [];
   if (edicionNombre) parts.push(String(edicionNombre));
-  if (filtroArtistaNombre) parts.push(`Artista: ${filtroArtistaNombre}`);
+  const artistas =
+    filtroArtistaNombres?.length > 0
+      ? filtroArtistaNombres
+      : filtroArtistaNombre
+        ? [filtroArtistaNombre]
+        : [];
+  if (artistas.length === 1) parts.push(`Artista: ${artistas[0]}`);
+  else if (artistas.length > 1) {
+    parts.push(`Artistas: ${artistas.join(", ")}`);
+  }
+  if (grupoNames?.length === 1) parts.push(`Grupo OFRN: ${grupoNames[0]}`);
+  else if (grupoNames?.length > 1) {
+    parts.push(`Grupos OFRN: ${grupoNames.join(", ")}`);
+  }
   if (filtroOrigen === "fimba") parts.push("Solo FIMBA");
   else if (filtroOrigen === "ofrn") parts.push("Solo OFRN");
   if (categoryNames?.length) {

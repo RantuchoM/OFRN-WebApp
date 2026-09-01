@@ -15,8 +15,12 @@ const APP_BUILD_ID =
 
 function appVersionPlugin(buildId) {
   const versionPayload = JSON.stringify({ buildId });
+  const mainChunkRecoveryScript = `<script>(function(){var k="ofrn:main-chunk-reload";window.addEventListener("error",function(ev){var t=ev.target;if(!t||t.tagName!=="SCRIPT"||!t.src||t.src.indexOf("/assets/")===-1)return;try{var n=Number(sessionStorage.getItem(k)||0);if(n>=2)return;sessionStorage.setItem(k,String(n+1))}catch(e){}window.location.reload()},true)})();</script>`;
   return {
     name: "app-version",
+    transformIndexHtml(html) {
+      return html.replace("<div id=\"root\"></div>", `<div id="root"></div>${mainChunkRecoveryScript}`);
+    },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = req.url?.split("?")[0];
@@ -49,7 +53,14 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: false,
-        navigateFallbackDenylist: [/^\/manifest\.webmanifest$/, /^\/version\.json$/],
+        navigateFallbackDenylist: [
+          /^\/manifest\.webmanifest$/,
+          /^\/version\.json$/,
+          /^\/assets\//,
+          /^\/sw\.js$/,
+          /^\/workbox-/,
+          /\.[a-zA-Z0-9]+$/,
+        ],
         // Push + local inicio/salida ensayo + notificationclick
         importScripts: [
           "/sw-push-handlers.js",

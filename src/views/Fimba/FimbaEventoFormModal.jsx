@@ -24,7 +24,17 @@ import {
 } from "../../services/fimbaService";
 import { eventGrupoIdsFromEvent } from "../../services/giraGruposService";
 import { uploadEventoInternasImage } from "../../services/eventosInternasService";
-import { summarizeOfrnStopRules, boardingMetricsForEventRow, TRANSPORT_DESTINO_SIN_SIGUIENTE } from "../../utils/fimbaTransportBoarding";
+import {
+  summarizeOfrnStopRules,
+  boardingMetricsForEventRow,
+  TRANSPORT_DESTINO_SIN_SIGUIENTE,
+  formatEventLocation,
+} from "../../utils/fimbaTransportBoarding";
+import {
+  buildDestinoStopSchedule,
+  createDestinoStopEvent,
+} from "../../utils/fimbaDestinoStopCreate";
+import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import {
   isEventosInternasEmpty,
   normalizeEventosInternasHtml,
@@ -441,9 +451,11 @@ export default function FimbaEventoFormModal({
   onBoardingRefresh = null,
   /** Transportes: abre modal «Elegir destino creando evento» (opts.horaFinFromForm). */
   onCambiarDestino = null,
+  /** Tras crear parada destino inline: abrir editor del evento nuevo. */
+  onOpenEventoEdit = null,
 }) {
   const isEdit = mode === "edit";
-  const { canEditPropuestaMeta } = useFimbaAccess();
+  const { canEditPropuestaMeta, readOnly } = useFimbaAccess();
   const canEditObservacionesInternas = Boolean(canEditPropuestaMeta);
   const lockedPropId =
     lockPropuesta != null && lockPropuesta !== "" ? String(lockPropuesta) : null;
@@ -1002,6 +1014,104 @@ export default function FimbaEventoFormModal({
     });
   };
 
+  const transportNextEvent = transportDestinoMetrics?.next_event || null;
+
+  const destinoStopSchedule = useMemo(() => {
+    if (!usaTransporte || !isEdit || !evento) return null;
+    return buildDestinoStopSchedule(evento, transportNextEvent, horaFin || null);
+  }, [usaTransporte, isEdit, evento, transportNextEvent, horaFin]);
+
+  const canQuickCreateDestinoStop = Boolean(
+    usaTransporte &&
+      isEdit &&
+      !readOnly &&
+      evento?.id != null &&
+      evento.id !== "" &&
+      transportDestinoVehicleId != null &&
+      !sinServicio,
+  );
+
+  const [quickCreateHora, setQuickCreateHora] = useState("");
+  const [quickCreateLocacion, setQuickCreateLocacion] = useState("");
+  const [quickCreateSaving, setQuickCreateSaving] = useState(false);
+  const [quickCreateError, setQuickCreateError] = useState(null);
+  const [quickCreateSuccessId, setQuickCreateSuccessId] = useState(null);
+  const [destinoLocationsList, setDestinoLocationsList] = useState([]);
+
+  const refreshDestinoLocations = useCallback(async () => {
+    const { data, error: err } = await supabase
+      .from("locaciones")
+      .select("id, nombre, direccion, localidades(localidad)")
+      .order("nombre");
+    if (err) {
+      console.error(err);
+      return;
+    }
+    setDestinoLocationsList(
+      (data || []).map((l) => ({
+        id: l.id,
+        nombre: l.nombre,
+        direccion: l.direccion,
+        ciudad: l.localidades?.localidad || "Sin ciudad",
+      })),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (usaTransporte && isEdit) refreshDestinoLocations();
+  }, [usaTransporte, isEdit, refreshDestinoLocations]);
+
+  useEffect(() => {
+    setQuickCreateSuccessId(null);
+    setQuickCreateError(null);
+    setQuickCreateLocacion("");
+  }, [evento?.id]);
+
+  useEffect(() => {
+    if (quickCreateSuccessId) return;
+    if (destinoStopSchedule?.hora_inicio) {
+      setQuickCreateHora(String(destinoStopSchedule.hora_inicio).slice(0, 5));
+    }
+  }, [destinoStopSchedule?.hora_inicio, quickCreateSuccessId]);
+
+  const destinoLocationOptions = useMemo(
+    () =>
+      destinoLocationsList.map((l) => ({
+        id: l.id,
+        label: l.ciudad ? `${l.nombre} (${l.ciudad})` : l.nombre,
+      })),
+    [destinoLocationsList],
+  );
+
+  const submitQuickCreateDestinoStop = async (e) => {
+    e.preventDefault();
+    if (!canQuickCreateDestinoStop || quickCreateSaving) return;
+    setQuickCreateError(null);
+    setQuickCreateSaving(true);
+
+    const { evento: created, error: err } = await createDestinoStopEvent({
+      currentEv: evento,
+      vehicleId: transportDestinoVehicleId,
+      nextEv: transportNextEvent,
+      fecha: destinoStopSchedule?.fecha || fecha || evento?.fecha || "",
+      horaInicio: quickCreateHora,
+      idLocacion: quickCreateLocacion,
+      actividad: "Parada intermedia",
+      idGira: edicion?.id_gira,
+      vehiculos: flota,
+    });
+
+    setQuickCreateSaving(false);
+    if (err) {
+      setQuickCreateError(err.message || "No se pudo crear la parada");
+      return;
+    }
+
+    setQuickCreateSuccessId(created?.id ?? null);
+    setHoraFin(String(quickCreateHora || "").slice(0, 5));
+    onBoardingRefresh?.("eventos");
+  };
+
   const applyTipoChange = (rawId) => {
     const id = Number(rawId);
     setTipoId(id);
@@ -1547,6 +1657,165 @@ export default function FimbaEventoFormModal({
               ) : null}
             </div>
           </div>
+          {usaTransporte ? (
+            <div
+              className="fimba-field"
+              style={{
+                marginTop: "0.35rem",
+                padding: "0.85rem 1rem",
+                borderRadius: 8,
+                border: "1px solid #e2e8f0",
+                background: "#fafbff",
+              }}
+            >
+              <label className="fimba-label" style={{ marginBottom: "0.5rem" }}>
+                Siguiente evento calculado
+              </label>
+              {isEdit ? (
+                transportNextEvent ? (
+                  <div
+                    className="fimba-muted"
+                    style={{ fontSize: "0.82rem", lineHeight: 1.45, marginBottom: "0.65rem" }}
+                  >
+                    <div>
+                      <strong style={{ color: "#334155", fontWeight: 600 }}>
+                        {formatEventLocation(transportNextEvent) !== "—"
+                          ? formatEventLocation(transportNextEvent)
+                          : transportDestinoLabel}
+                      </strong>
+                    </div>
+                    {transportNextEvent.hora_inicio ? (
+                      <div>
+                        Hora com:{" "}
+                        <span style={{ color: "#334155" }}>
+                          {sliceTime(transportNextEvent.hora_inicio)}
+                        </span>
+                      </div>
+                    ) : null}
+                    {String(
+                      transportNextEvent.actividad ||
+                        transportNextEvent.tipo_nombre ||
+                        "",
+                    ).trim() ? (
+                      <div>
+                        Actividad:{" "}
+                        <span style={{ color: "#334155" }}>
+                          {String(
+                            transportNextEvent.actividad ||
+                              transportNextEvent.tipo_nombre ||
+                              "",
+                          ).trim()}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p
+                    className="fimba-muted"
+                    style={{ fontSize: "0.82rem", margin: "0 0 0.65rem", fontStyle: "italic" }}
+                  >
+                    {TRANSPORT_DESTINO_SIN_SIGUIENTE}
+                  </p>
+                )
+              ) : (
+                <p
+                  className="fimba-muted"
+                  style={{ fontSize: "0.82rem", margin: "0 0 0.65rem", fontStyle: "italic" }}
+                >
+                  Guardá el evento para ver la siguiente parada del vehículo.
+                </p>
+              )}
+              <p
+                className="fimba-muted"
+                style={{ fontSize: "0.78rem", margin: "0 0 0.75rem", color: "#64748b" }}
+              >
+                ¿No es aquí donde quieres ir?
+              </p>
+              {quickCreateSuccessId ? (
+                <div
+                  style={{
+                    padding: "0.65rem 0.75rem",
+                    borderRadius: 6,
+                    background: "#ecfdf5",
+                    border: "1px solid #a7f3d0",
+                    fontSize: "0.82rem",
+                  }}
+                >
+                  <p style={{ margin: "0 0 0.5rem", color: "#065f46" }}>
+                    Parada creada correctamente. La Hora Fin de este tramo quedó en{" "}
+                    {sliceTime(quickCreateHora) || "—"}.
+                  </p>
+                  {typeof onOpenEventoEdit === "function" ? (
+                    <button
+                      type="button"
+                      className="fimba-btn fimba-btn-ghost"
+                      style={{ fontSize: "0.78rem", padding: "0.25rem 0.5rem" }}
+                      onClick={() => onOpenEventoEdit(quickCreateSuccessId)}
+                    >
+                      Ir a evento para ver sus detalles
+                    </button>
+                  ) : null}
+                </div>
+              ) : canQuickCreateDestinoStop ? (
+                <form onSubmit={submitQuickCreateDestinoStop}>
+                  <div className="fimba-grid-2" style={{ gap: "0.65rem" }}>
+                    <div className="fimba-field" style={{ marginBottom: 0 }}>
+                      <label className="fimba-label" htmlFor="fimba-quick-destino-hora">
+                        Hora
+                      </label>
+                      <input
+                        id="fimba-quick-destino-hora"
+                        className="fimba-input"
+                        type="time"
+                        value={quickCreateHora}
+                        onChange={(e) => setQuickCreateHora(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="fimba-field" style={{ marginBottom: 0 }}>
+                      <label className="fimba-label">Locación</label>
+                      <LocationSelectWithCreate
+                        supabase={supabase}
+                        options={destinoLocationOptions}
+                        value={quickCreateLocacion}
+                        onChange={(v) => setQuickCreateLocacion(v || "")}
+                        onRefresh={refreshDestinoLocations}
+                        placeholder="Buscar locación…"
+                      />
+                    </div>
+                  </div>
+                  <p
+                    className="fimba-muted"
+                    style={{ margin: "0.35rem 0 0.65rem", fontSize: "0.72rem" }}
+                  >
+                    Crear evento rápido: misma regla que «Elegir destino…» (Hora Fin
+                    actual → inicio de la nueva parada; locación → `id_locacion` de
+                    la parada creada).
+                  </p>
+                  {quickCreateError ? (
+                    <p className="fimba-error" style={{ margin: "0 0 0.5rem" }}>
+                      {quickCreateError}
+                    </p>
+                  ) : null}
+                  <button
+                    type="submit"
+                    className="fimba-btn fimba-btn-primary"
+                    disabled={quickCreateSaving}
+                    style={{ fontSize: "0.82rem" }}
+                  >
+                    {quickCreateSaving ? "Guardando…" : "Guardar evento"}
+                  </button>
+                </form>
+              ) : (
+                <p className="fimba-muted" style={{ margin: 0, fontSize: "0.72rem" }}>
+                  {readOnly
+                    ? "Modo consulta: solo lectura."
+                    : destinoActionBlockedReason ||
+                      "Guardá el evento y asigná un vehículo para crear la parada intermedia."}
+                </p>
+              )}
+            </div>
+          ) : null}
           <div className="fimba-field">
             <FimbaEventDetalleEditor
               value={actividad}

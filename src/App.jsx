@@ -1666,6 +1666,14 @@ export default function App() {
                 }
               />
               <Route
+                path="/fimba/c/:token/agenda"
+                element={
+                  <LazyRoute>
+                    <FimbaEdicionConsultaEntry />
+                  </LazyRoute>
+                }
+              />
+              <Route
                 path="/fimba/*"
                 element={
                   <LazyRoute>

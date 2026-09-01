@@ -44,13 +44,12 @@ import {
   boardingMetricsForEventRow,
   buildAllVehicleBoardingSequences,
   defaultGapFillEventSchedule,
-  defaultIntermediateStopSchedule,
   formatBoardChipLabel,
   formatEventLocation,
-  resolveHoraFinDisplay,
   resolveStopBoardAlightChips,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
 } from "../../utils/fimbaTransportBoarding";
+import { buildDestinoStopSchedule } from "../../utils/fimbaDestinoStopCreate";
 import {
   exportFimbaTransporteTodosExcel,
   exportFimbaTransporteVehiculoExcel,
@@ -809,8 +808,8 @@ export default function FimbaTransportPage() {
     (scope) => {
       if (scope === "ofrn") {
         softRefresh({ logistics: true });
-      } else if (scope === "reserva") {
-        softRefresh({ eventos: true, rutas: true });
+      } else if (scope === "reserva" || scope === "eventos") {
+        softRefresh({ eventos: true, rutas: scope === "reserva" });
       } else {
         softRefreshRutasDebounced();
       }
@@ -1164,18 +1163,15 @@ export default function FimbaTransportPage() {
     if (vehicleId == null || vehicleId === "") return;
 
     const nextEv = metrics?.next_event || null;
-    // Prefer form Hora Fin when opened from event modal; else persisted.
     const evForFin =
       opts.horaFinFromForm !== undefined
         ? { ...ev, hora_fin: opts.horaFinFromForm || null }
         : ev;
-    const finDisp = resolveHoraFinDisplay(evForFin, nextEv);
-    const schedule = finDisp.value
-      ? {
-          fecha: String(ev.fecha || "").slice(0, 10) || null,
-          hora_inicio: finDisp.value,
-        }
-      : defaultIntermediateStopSchedule(ev, nextEv);
+    const schedule = buildDestinoStopSchedule(
+      evForFin,
+      nextEv,
+      opts.horaFinFromForm,
+    );
     setDestinoModal({
       ev: evForFin,
       vehicleId: Number(vehicleId),
@@ -1186,6 +1182,20 @@ export default function FimbaTransportPage() {
       },
     });
   };
+
+  const handleOpenEventoEdit = useCallback(
+    async (eventoId) => {
+      if (eventoId == null || eventoId === "") return;
+      await softRefresh({ eventos: true });
+      const ev = (eventosRef.current || []).find(
+        (x) => String(x.id) === String(eventoId),
+      );
+      if (ev) {
+        setModal({ mode: "edit", evento: ev });
+      }
+    },
+    [softRefresh],
+  );
 
   const toggleEditMode = () => {
     setEditMode((v) => {
@@ -3016,6 +3026,7 @@ export default function FimbaTransportPage() {
               setModal(null);
               openDestinoStop(evRow, metrics, opts);
             }}
+            onOpenEventoEdit={handleOpenEventoEdit}
           />,
           document.body,
         )}

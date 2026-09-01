@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Navigate, useParams } from "react-router-dom";
+import { Navigate, useLocation, useParams } from "react-router-dom";
 import { IconAlertCircle, IconLoader } from "../../components/ui/Icons";
 import { getFimbaEdicionByTokenConsulta } from "../../services/fimbaService";
 import {
@@ -13,6 +13,8 @@ import FimbaLayout from "./FimbaLayout";
  */
 export default function FimbaEdicionConsultaEntry() {
   const { token } = useParams();
+  const location = useLocation();
+  const openAgenda = /\/agenda\/?$/.test(location.pathname);
   const [state, setState] = useState({
     loading: true,
     edicionId: null,
@@ -96,5 +98,10 @@ export default function FimbaEdicionConsultaEntry() {
     );
   }
 
-  return <Navigate to={`/fimba/edicion/${state.edicionId}`} replace />;
+  return (
+    <Navigate
+      to={`/fimba/edicion/${state.edicionId}${openAgenda ? "/agenda" : ""}${location.search}`}
+      replace
+    />
+  );
 }

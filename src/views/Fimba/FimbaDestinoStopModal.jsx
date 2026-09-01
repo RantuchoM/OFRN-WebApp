@@ -2,11 +2,9 @@ import React, { useCallback, useEffect, useState } from "react";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import { supabase } from "../../services/supabase";
 import {
-  decodeFimbaTrasladoDescripcion,
-  patchFimbaEventoPlanilla,
-  saveFimbaEvento,
-} from "../../services/fimbaService";
-import { eventTypeIdForCategoria } from "../../utils/giraTransportUtils";
+  buildDestinoStopSchedule,
+  createDestinoStopEvent,
+} from "../../utils/fimbaDestinoStopCreate";
 
 /**
  * Modal compacto: «Elegir destino creando evento».
@@ -74,98 +72,26 @@ export default function FimbaDestinoStopModal({
   const submit = async (e) => {
     e.preventDefault();
     setError(null);
-    if (vehicleId == null || vehicleId === "") {
-      setError("Esta fila no tiene vehículo asignado");
-      return;
-    }
-    if (!edicion?.id_gira) {
-      setError("Edición sin gira enlazada");
-      return;
-    }
-    if (currentEv?.id == null || currentEv.id === "") {
-      setError("Guardá el evento actual antes de crear el destino");
-      return;
-    }
-    const fecha = schedule.fecha || currentEv?.fecha || "";
-    if (!fecha) {
-      setError("Fecha no disponible para esta parada");
-      return;
-    }
-    const horaVal = String(hora || "").trim().slice(0, 5);
-    if (!horaVal) {
-      setError("Indicá la hora inicio de la nueva parada (Hora Fin del tramo actual)");
-      return;
-    }
-    if (!idLocacion) {
-      setError("Elegí el destino (locación de salida de la nueva parada)");
-      return;
-    }
-    const act = String(detalle || "").trim() || "Parada intermedia";
-
-    const gt =
-      vehiculos.find((g) => Number(g.id) === Number(vehicleId)) || null;
-    const tipoId = eventTypeIdForCategoria(gt?.categoria_logistica);
-
-    // Gap-fill: fin de la nueva parada = inicio del next previo (si había)
-    const nextHoraFin = nextEv?.hora_inicio
-      ? String(nextEv.hora_inicio).slice(0, 5)
-      : null;
-
     setSaving(true);
 
-    const { error: createErr } = await saveFimbaEvento({
-      id_gira: edicion.id_gira,
-      fecha,
-      // Hora Fin del actual → hora_inicio de la parada creada
-      hora_inicio: horaVal,
-      hora_fin: nextHoraFin,
-      actividad: act,
-      // Destino elegido → lugar de salida (id_locacion) de la nueva parada
-      id_locacion: idLocacion || null,
-      observaciones_equipaje: "",
-      asientos_equipaje: 0,
-      sin_servicio: false,
-      usa_transporte: true,
-      vehiculos: [
-        {
-          id_gira_transporte: Number(vehicleId),
-          plazas: 0,
-        },
-      ],
-      id_propuestas: [],
-      id_tipo_evento: tipoId,
-      audiencia_ofrn: "none",
+    const { evento, error: err } = await createDestinoStopEvent({
+      currentEv,
+      vehicleId,
+      nextEv,
+      fecha: schedule.fecha || currentEv?.fecha || "",
+      horaInicio: hora,
+      idLocacion,
+      actividad: detalle,
+      idGira: edicion?.id_gira,
+      vehiculos,
     });
-
-    if (createErr) {
-      setSaving(false);
-      setError(createErr.message || "No se pudo crear la parada");
-      return;
-    }
-
-    // Explicitar tramo: hora_fin del actual = hora_inicio de la parada creada
-    const decoded = decodeFimbaTrasladoDescripcion(currentEv.descripcion, {
-      observaciones_equipaje: currentEv.observaciones_equipaje,
-    });
-    const { error: patchErr } = await patchFimbaEventoPlanilla(currentEv.id, {
-      fecha: currentEv.fecha,
-      hora_inicio: currentEv.hora_inicio,
-      hora_fin: horaVal,
-      actividad: decoded.actividad || currentEv.actividad || "",
-      vuelo: decoded.vuelo || currentEv.vuelo || "",
-      stripDestino: true,
-    });
-    if (patchErr) {
-      setSaving(false);
-      setError(
-        patchErr.message ||
-          "Parada creada, pero no se pudo fijar la hora fin del tramo anterior",
-      );
-      return;
-    }
 
     setSaving(false);
-    onSaved?.();
+    if (err) {
+      setError(err.message || "No se pudo crear la parada");
+      return;
+    }
+    onSaved?.(evento);
   };
 
   const hint = nextEv

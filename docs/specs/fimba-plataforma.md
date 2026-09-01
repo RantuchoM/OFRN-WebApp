@@ -123,8 +123,9 @@ En UI FIMBA (`/transportes`):
 - Locación (parada actual): `locaciones.nombre` (+ ciudad) vía `eventos.id_locacion`. **No** usar texto `Destino:` en `descripcion` para transporte.
 - **Destino (planilla Transportes + modal transporte)**: **calculado**, no persistido en el evento actual. Fuente = siguiente parada del **mismo vehículo** (`giras_transportes.id` / primary de la fila tras filtro de flota). Secuencia = `sortedEvents` de `buildVehicleBoardingSequence` (`sortEventsBySchedule` por fecha+`hora_inicio`; timeline unificado OFRN+FIMBA). Label: `formatEventLocation(next)` → `locaciones` del next; si falta, título `actividad` / `tipo_nombre`; sin next → **`Sin siguiente parada`** (`TRANSPORT_DESTINO_SIN_SIGUIENTE`). Helpers: `resolveTransportDestinoFromNextStop`, `nextEventInVehicleSequence`, `formatNextStopDestino`, `boardingMetricsForEventRow.destino_siguiente`.
 - **UI modal evento transporte (`FimbaEventoFormModal`)**: **Destino** vive **debajo de Hora Fin** (misma columna derecha del grid Com|Fin). Muestra el label calculado (solo lectura) + acción **«Elegir destino…»** siempre que el padre pase `onCambiarDestino` (Transportes). **«Sin siguiente parada» no oculta el botón** — es el caso principal para crear la cola. Requisitos del botón clickable: evento **guardado** (`id`), vehículo asignado en el form (no SIN SERVICIO), no `readOnly`. Si falta guardar o vehículo: se muestra el label de acción en gris + hint inline claro (no se promete el flujo en el caption sin control). Sin `onCambiarDestino` (p.ej. Agenda): no se muestra la acción; hint «definir destino en Transportes». Al abrir: cierra el form modal y pasa `horaFinFromForm` → `hora_inicio` de la parada creada. Vuelo queda solo debajo de Detalle. No-transporte sigue con fila Destino texto | Vuelo.
+- **Siguiente evento calculado (modal transporte)**: sección **entre** el bloque Hora Fin/Destino y **Detalle** (solo `usa_transporte`). Header **Siguiente evento calculado**; resumen read-only del next stop (`boardingMetricsForEventRow.next_event`: locación, hora com, actividad) o **Sin siguiente parada**. Subcopy **¿No es aquí donde quieres ir?** + formulario inline **Crear evento rápido** (Hora + `LocationSelectWithCreate` + **Guardar evento**) cuando evento guardado con vehículo y no `readOnly`; deshabilitado con hint si falta guardar/vehículo (paridad «Elegir destino…»). Tras OK: mensaje de éxito + **Ir a evento para ver sus detalles** (`onOpenEventoEdit` → Transportes reabre modal edit del id creado). Misma persistencia que «Elegir destino…» vía helper compartido `createDestinoStopEvent` (`src/utils/fimbaDestinoStopCreate.js`). Consulta/`readOnly`: resumen visible, sin alta inline.
 - **Persistencia:** `saveFimbaEvento` con `usa_transporte` **no** escribe línea `Destino:` en `eventos.descripcion`. `patchFimbaEventoPlanilla` en Transportes pasa `stripDestino: true` (limpia legacy). La locación de la **nueva** parada va en `id_locacion` del evento creado.
-- **Elegir / cambiar destino creando evento** (IconEdit en columna Destino; botón bajo Hora Fin en modal): abre `FimbaDestinoStopModal` (portal z-100). Campos: **Destino (lugar de salida)** (`LocationSelectWithCreate` → `id_locacion`, obligatorio), **Hora inicio (desde Hora Fin)**, **Detalle**. Al Guardar **siempre crea** fila nueva en la secuencia del mismo vehículo (nunca edita el next existente):
+- **Elegir / cambiar destino creando evento** (IconEdit en columna Destino; botón bajo Hora Fin en modal; **Crear evento rápido** inline en modal): abre `FimbaDestinoStopModal` (portal z-100) **o** formulario inline en `FimbaEventoFormModal`. Lógica compartida: `buildDestinoStopSchedule` + `createDestinoStopEvent` (`src/utils/fimbaDestinoStopCreate.js`). Campos modal: **Destino (lugar de salida)** (`LocationSelectWithCreate` → `id_locacion`, obligatorio), **Hora inicio (desde Hora Fin)**, **Detalle**. Inline: Hora + Locación (+ **Guardar evento**). Al Guardar **siempre crea** fila nueva en la secuencia del mismo vehículo (nunca edita el next existente):
   - **`hora_inicio`** de la parada creada = **Hora Fin del evento actual** (valor del form si se abre desde el modal; si vacía → display cyan = `next.hora_inicio` vía `resolveHoraFinDisplay`; si tampoco → midpoint/+30m con `defaultIntermediateStopSchedule`).
   - **`id_locacion`** de la parada creada = lugar elegido (lugar de salida / locación de esa parada).
   - Con next real → inserta intermedia (la nueva parada pasa a ser el destino calculado de la fila actual). Sin next → crea la cola del vehículo.
@@ -218,8 +219,32 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
   - Varios rides (hop off/on) = varios bloques; multi-vehículo el mismo día = filas separadas.
   - `es_ride_segment: true` → **siempre solo lectura** (no edit/delete; se editan en planilla Transportes Subidas/Bajadas). Desactivar con `include_ride_segments: false`.
   - **No** inventa sintético legacy sin `id_propuesta` en ride (solo rutas explícitas). Sin rutas / día sin bus → sin bloques de traslado.
-- Filtro planilla: **Todos / Solo FIMBA / Solo OFRN** (chips; **default Solo FIMBA**). Multi-select de **categoría de tipo** (`id_categoria` / `categorias_tipos_eventos`, dropdown `MultiSelectDropdown`; vacío = todas) alineado a UnifiedAgenda (no chips por `id_tipo_evento`). Multi-select de **locación** (`id_locacion` de filas cargadas; vacío = todas; sin `id_locacion` se ocultan si el filtro está activo). **Búsqueda** debounced 250ms (patrón UnifiedAgenda: pill + clear) sobre actividad, tipo, categoría, locación/ciudad/dirección, destino, vuelo, obs., artistas, grupos y vehículos. Opciones derivadas de filas cargadas. Filtro por artista desactiva merge OFRN puro.
-- **Descargar PDF** (toolbar planilla staff + cabecera agenda artista / consulta): reusa `exportAgendaToPDF` / `buildAgendaPdfExportItems` (mismo pipeline UnifiedAgenda) vía adapter `src/utils/fimbaAgendaPdf.js`. Exporta la **vista filtrada** actual (origen, categoría, locación, búsqueda, artista; en consulta = agenda tagged + ride segments). Skin FIMBA (`IconPrinter` + label). Columna Gira oculta. Descripción PDF = Detalle (`actividad`) + destino/vuelo + tags artistas + vehículos extra (el chip de transporte OFRN solo muestra la 1ª unidad).
+- Filtro planilla: **Todos / Solo FIMBA / Solo OFRN** (chips; **default Solo FIMBA**). Multi-select de **categoría de tipo** (`id_categoria` / `categorias_tipos_eventos`, dropdown `MultiSelectDropdown`; vacío = todas) alineado a UnifiedAgenda (no chips por `id_tipo_evento`). Multi-select de **locación** (`id_locacion` de filas cargadas; vacío = todas; sin `id_locacion` se ocultan si el filtro está activo). Multi-select de **artista** (`fimba_propuestas.id`; vacío = toda la edición). Multi-select de **grupo OFRN** (`giras_grupos.id` de la gira enlazada). **Búsqueda** debounced 250ms (patrón UnifiedAgenda: pill + clear) sobre actividad, tipo, categoría, locación/ciudad/dirección, destino calculado, vuelo, obs., artistas, grupos y vehículos. Opciones derivadas de filas cargadas / catálogo. Filtros artista + grupo OFRN se combinan con **OR** (unión); activan origen **Todos** automáticamente (incluye convocatoria orquesta). Un solo artista sin grupos conserva carga server-side optimizada (`id_propuesta`) + ride segments.
+- **Enlaces compartibles (query params)** — `/fimba/edicion/:id/agenda`:
+
+| Param | Tipo | Semántica |
+|-------|------|-----------|
+| `propuestas` | CSV numérico | IDs `fimba_propuestas` (multi-select artista). Ej. `5,7` |
+| `artistas` | CSV numérico | Alias de `propuestas` (misma semántica) |
+| `artista` | numérico o CSV | Alias legacy (un id o lista `5,7`) |
+| `grupos` | CSV numérico | IDs `giras_grupos` OFRN. Ej. `3` |
+| `grupo` | id o nombre | Alias: `3` o `Alba` (nombre → id al cargar grupos de la gira) |
+| `ofrn` | id o nombre | Alias de `grupo` |
+| `locacion` | CSV numérico | IDs `locaciones` (multi). Ej. `42` o `42,43` |
+| `origen` | `fimba` \| `ofrn` \| `all` | Chips origen; con filtros artista/grupo se fuerza `all` en el enlace |
+
+Helpers: `src/utils/fimbaAgendaUrlParams.js` (`parseFimbaAgendaUrlSearchParams`, `buildFimbaAgendaSharePath`, `eventMatchesAgendaEntityFilter`, `resolveGrupoIdsFromNames`). Carga server: `listFimbaAgenda` acepta `id_propuestas[]` + `id_grupos[]` (unión OR + ride segments por artista). UI: sincroniza URL al cambiar filtros (`replace`); botón **Copiar enlace** (path canónico `/fimba/edicion/:id/agenda`, no subruta `/artista/:id/agenda`).
+
+**Ejemplo FIMBA 2026 (edición 1):** Alba Carmona (`5`) + Daniel Ruggiero cuarteto (`7`) + grupo OFRN Alba (`3`):
+
+`/fimba/edicion/1/agenda?propuestas=5,7&grupos=3&origen=all`
+
+Equivalentes de lectura: `?artistas=5,7&grupo=Alba` · consulta token edición: `/fimba/c/{token_consulta}/agenda?propuestas=5,7&grupos=3` → sesión RO + misma planilla filtrada.
+- **Columnas planilla Agenda / consulta artista:** **Evento** (badges FIMBA/OFRN; antes «Origen») · Fecha · Com·Fin · Tipo · Detalle · **Origen** · **Destino** · **Vuelo** · Vehículo · As. Equipaje · …
+  - **Origen** = parada actual: `formatAgendaOrigenLabel(ev)` → `locacion_nombre` / `locaciones` (+ ciudad); en transporte **no** usa texto legacy `Destino:` de `descripcion`. Ride segments: origen del tramo (`route_snippet` antes de `→` o locación).
+  - **Destino** = **calculado** (no persistido): misma fuente que Transportes — `resolveAgendaDestinoLabel` → `resolveTransportDestinoFromNextStop` + secuencias `buildAllVehicleBoardingSequences` (ya cargadas para As. Equipaje). Solo filas transporte / ride; resto «—». Sin next stop → **`Sin siguiente parada`** (`TRANSPORT_DESTINO_SIN_SIGUIENTE`).
+  - **Vuelo** = `eventos` decode `Vuelo:` (columna propia; vacío «—»).
+- **Descargar PDF** (toolbar planilla staff + cabecera agenda artista / consulta): reusa `exportAgendaToPDF` / `buildAgendaPdfExportItems` (mismo pipeline UnifiedAgenda) vía adapter `src/utils/fimbaAgendaPdf.js`. Exporta la **vista filtrada** actual (origen, categoría, locación, búsqueda, artista; en consulta = agenda tagged + ride segments). Skin FIMBA (`IconPrinter` + label). Columna Gira oculta. Descripción PDF = Detalle (`actividad`) + origen/destino/vuelo + tags artistas + vehículos extra (el chip de transporte OFRN solo muestra la 1ª unidad). *PDF aún puede usar layout legacy destino/vuelo — pendiente alinear.*
 - Trayectos (`solo_traslados` / página Transportes):
   - Incluye **paradas/traslados OFRN** de la gira (`id_gira`) además de trayectos FIMBA.
   - Criterio fila trayecto (`isFimbaTrasladoEvent`): `actividadUsaTransporte` **o** `eventos.id_gira_transporte` set. Un Concierto con solo `fimba_evento_transportes` **no** entra a la planilla Transportes (no es parada de boarding); si tiene ↑/↓ en `fimba_propuesta_rutas`, entra a la **secuencia de boarding** del vehículo vía `isVehicleBoardingSequenceEvent` (endpoint).
@@ -470,7 +495,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Alimentación: CHECK en `fimba_participantes.tipo_alimentacion` (regular/vegetariano/vegano/celiaco/sin_tacc/otro); free text en **`nota_alimentacion`** (sin migración); UI `AlimentacionInput` (select + input **siempre en fila** al elegir Otros…; `flex-wrap: nowrap` + `width:auto !important` / estilos inline p/ vencer `.fimba-cell-input{width:100%}`; `FimbaAlimentacionStyles` montado en `ParticipantesPlanilla`, no solo en finanzas). **Detalle comidas / Excel / PDF / texto:** solo excepciones (≠ `regular`) + fechas check-in→check-out **efectivas de la persona**.
 - [x] Regenerar / copiar tokens consulta y edición
 - [x] Editor transportes: panel **Vehículos** (alta + editar lápiz: catálogo, detalle, plazas, categoría; nombre catálogo+patente, detalle OFRN sec.) + planilla **Trayectos** (= eventos FIMBA + paradas OFRN; filtros origen/vehículo)
-- [x] Agenda unificada planilla (fecha, horas, tipo, actividad, destino/vuelo, vehículos, PAX, tags)
+- [x] Agenda unificada planilla (fecha, horas, tipo, actividad, origen / destino calculado / vuelo, vehículos, PAX, tags)
 - [x] Planilla agenda: badges FIMBA/OFRN + convocatoria + filtro origen (default Solo FIMBA) + multi-select **categoría** y **locación** + búsqueda debounced (tipo/actividad/lugar/personas/vehículos)
 - [x] Agenda OFRN (`UnifiedAgenda`): toggle staff **con FIMBA** (default OFF); músicos siempre ocultan solo-FIMBA
 - [x] Agenda **Descargar PDF**: reusa UnifiedAgenda (`exportAgendaToPDF`) vía `fimbaAgendaPdf.js`; toolbar planilla + agenda artista/consulta; vista filtrada
@@ -492,10 +517,11 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] `/fimba/c/:token` consulta general edición = shell staff read-only (Artistas/Agenda/Transportes/Hotelería; no Usuarios/Contrataciones/**Rider**)
 - [x] Consulta token: **agenda de read-only** del artista (`listFimbaAgenda(edicion, { id_propuesta })` → tags `eventos_fimba_propuestas` **+** bloques traslado suben→bajan desde `fimba_propuesta_rutas`; sin merge pure-OFRN como staff al filtrar artista)
 - [x] Consulta artista `/fimba/a`: rooming read-only (`FimbaRoomingPanel`)
-- [x] Consulta: columnas planilla lean — fecha, horas, tipo, actividad, destino/vuelo, vehículo(s) si transporte, # PAX; sin create/edit/delete ni filtros origen/categoría
+- [x] Consulta: columnas planilla lean — fecha, horas, tipo, actividad, origen / destino calculado / vuelo, vehículo(s) si transporte, # PAX; sin create/edit/delete ni filtros origen/categoría
 - [x] Consulta: datos básicos artista — check-in/out (+ Early/Late), planificada, hotel si hay; skin FIMBA; errores de carga de agenda en banner
 - [x] Detalle artista staff + token edición: sección **Agenda** editable (`FimbaConsultaAgenda` `editable`) — listado tags propuesta, **Nuevo evento** / editar / eliminar vía `FimbaEventoFormModal` con `lockPropuesta` (tag obligatorio a ese artista); refresh tras save/delete; consulta `/fimba/a` sin cambios (RO)
 - [x] Agenda artista: bloques **Traslado** calculados (board→alight / plazas > 0) mergeados cronológicamente; RO aunque el resto de la agenda sea editable; planilla staff con filtro artista igual
+- [x] Agenda planilla: multi-filtro artistas + grupos OFRN + query params compartibles (`fimbaAgendaUrlParams`) + **Copiar enlace** + carga `listFimbaAgenda({ id_propuestas, id_grupos })`
 
 ### Stub / deferred
 
@@ -550,7 +576,8 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 5. **Audiencia OFRN**: Ninguna | Tutti | Grupos (multi-select real de grupos de la gira). Al guardar con Grupos se escriben `eventos_grupos`.
 6. Editar un ensayo pure-OFRN desde FIMBA (staff) y agregar tags artista / cambiar audiencia — se guarda sin romper FK de transporte OFRN.
 7. Filtrar por artista (oculta pure OFRN; solo tagged). Columna Tipo = nombre/color de `tipos_evento`. Default origen **Solo FIMBA**; dropdown multi-select de **categoría** (`id_categoria`; vacío = todas).
-8. Columna **As. Equipaje**: en filas con transporte muestra personas a bordo al salir (no `asientos_equipaje` del modal); sin transporte → «—». Hover del header explica la métrica.
+8. **Multi-filtro + enlace:** seleccionar Alba Carmona + Daniel Ruggiero cuarteto + grupo OFRN Alba → URL `?propuestas=5,7&grupos=3&origen=all`; **Copiar enlace** y abrir en otra pestaña (o `/fimba/c/{token}/agenda?…`) → misma vista (unión OR: eventos tagged + convocatoria grupo Alba + rides de ambos artistas).
+9. Columna **As. Equipaje**: en filas con transporte muestra personas a bordo al salir (no `asientos_equipaje` del modal); sin transporte → «—». Hover del header explica la métrica.
 
 ### Transportes (vehículos ≠ trayectos)
 
@@ -601,7 +628,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | Agua | `fimba_venue_info.agua` | Texto libre |
 | Observaciones | `fimba_venue_info.observaciones` | |
 | Espectáculos | `eventos` (conciertos en la locación) | Acordeón anidado «Espectáculos» (tabla) |
-| Agenda | link | `/fimba/edicion/:id/agenda?locacion=:id_locacion` |
+| Agenda | link | `/fimba/edicion/:id/agenda?locacion=:id_locacion` · filtros compartibles: `?propuestas=5,7&grupos=3&origen=all` (ver § Agenda) |
 
 5. Medidas de escenario en header: `locaciones.escenario_ancho_cm` × `escenario_profundo_cm`.
 6. Por espectáculo: fecha/hora, actividad, bloque repertorio, artistas taggeados, grupos OFRN, **observaciones aforo** (`eventos.observaciones_aforo`; autosave inline si `!readOnly`).
@@ -730,7 +757,8 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/views/Fimba/FimbaArtistaMetaSection.jsx` | Datos generales / meta (autosave + semáforo); ficha + modal Hotelería |
 | `src/views/Fimba/FimbaArtistaPage.jsx` | Detalle: meta + finanzas (Drive desde contratos) + agenda + rooming + planilla; finanzas si `canSeeContrataciones` |
 | `src/views/Fimba/FimbaConsultaAgenda.jsx` | Agenda por tag artista + ride segments RO; create/edit/delete en tagged |
-| `src/views/Fimba/FimbaAgendaPage.jsx` | Planilla agenda (tipo/color catálogo); ride segments al filtrar artista |
+| `src/utils/fimbaAgendaUrlParams.js` | Query params compartibles agenda staff (propuestas / grupos OFRN / locación / origen) |
+| `src/views/Fimba/FimbaAgendaPage.jsx` | Planilla agenda (tipo/color catálogo); ride segments al filtrar artista; multi-filtro + Copiar enlace |
 | `src/utils/fimbaTransportBoarding.js` | Boarding + `buildArtistaTrasladoAgendaBlocks` / merge |
 | `src/views/Fimba/FimbaTransportPage.jsx` | Vehículos + trayectos + columnas boarding / locación |
 | `src/views/Fimba/FimbaHoteleriaPage.jsx` | Hotelería + **Editar datos** (meta compartida + cupos) + hub reportes + exports por tarjeta + comidas |
