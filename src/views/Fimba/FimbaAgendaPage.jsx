@@ -36,6 +36,12 @@ import {
   sortFimbaPropuestasByNombre,
 } from "../../utils/fimbaAgendaSort";
 import {
+  eventMatchesLocacionFilter,
+  locacionKeyFromQuery,
+  locacionesFromAgendaRows,
+  pruneLocacionFilterKeys,
+} from "../../utils/fimbaAgendaLocacionFilter";
+import {
   buildFimbaAgendaPdfSubTitle,
   exportFimbaAgendaToPDF,
 } from "../../utils/fimbaAgendaPdf";
@@ -214,40 +220,6 @@ function categoriasFromAgendaRows(eventos) {
   return categoriesFromTiposEvento(pseudoTipos);
 }
 
-/** id_locacion numérico de una fila de agenda unificada FIMBA. */
-function eventLocacionId(ev) {
-  const raw = ev?.id_locacion ?? ev?.locaciones?.id ?? null;
-  const id = raw != null ? Number(raw) : NaN;
-  return Number.isFinite(id) ? id : null;
-}
-
-/**
- * Locaciones distintas presentes en filas cargadas (id + nombre [· ciudad]).
- * Solo filas con `id_locacion` (el destino texto libre se cubre por búsqueda).
- */
-function locacionesFromAgendaRows(eventos) {
-  const map = new Map();
-  for (const ev of eventos || []) {
-    const id = eventLocacionId(ev);
-    if (id == null || map.has(id)) continue;
-    const nombre =
-      ev.locacion_nombre ||
-      ev.locaciones?.nombre ||
-      `Locación #${id}`;
-    const ciudad =
-      ev.locacion_ciudad ||
-      ev.locaciones?.localidades?.localidad ||
-      null;
-    map.set(id, {
-      id,
-      nombre: ciudad ? `${nombre} · ${ciudad}` : nombre,
-    });
-  }
-  return [...map.values()].sort((a, b) =>
-    a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }),
-  );
-}
-
 /** Fragmentos buscables de una fila FIMBA (tipo / actividad / lugar / gente / flota). */
 function getFimbaAgendaSearchParts(ev, flotaById = null) {
   if (!ev) return [];
@@ -317,14 +289,13 @@ export default function FimbaAgendaPage() {
    */
   const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
   /**
-   * Multi-select de locaciones (`id_locacion`): vacío = todas; con ids = solo esas.
-   * Filas sin locación quedan ocultas si el filtro está activo.
+   * Multi-select de locaciones: vacío = todas.
+   * Claves = `id_locacion` de catálogo o `d:<destino>` si solo hay texto Destino.
+   * Un id de catálogo también incluye filas cuyo destino coincide con el nombre.
    */
-  const [selectedLocacionIds, setSelectedLocacionIds] = useState(() => {
-    const raw = locacionFromQuery;
-    if (!raw) return [];
-    const id = Number(raw);
-    return Number.isFinite(id) ? [id] : [];
+  const [selectedLocacionKeys, setSelectedLocacionKeys] = useState(() => {
+    const key = locacionKeyFromQuery(locacionFromQuery);
+    return key ? [key] : [];
   });
   /** Query de búsqueda debounced (vía FimbaAgendaSearchField). */
   const [agendaSearchQuery, setAgendaSearchQuery] = useState("");
@@ -376,9 +347,8 @@ export default function FimbaAgendaPage() {
   }, [edicionId, filtroArtista]);
 
   useEffect(() => {
-    if (!locacionFromQuery) return;
-    const id = Number(locacionFromQuery);
-    if (Number.isFinite(id)) setSelectedLocacionIds([id]);
+    const key = locacionKeyFromQuery(locacionFromQuery);
+    if (key) setSelectedLocacionKeys([key]);
   }, [locacionFromQuery]);
 
   // Con filtro por artista no hay orquesta pura; reset origen
@@ -430,7 +400,7 @@ export default function FimbaAgendaPage() {
   const locationOptions = useMemo(
     () =>
       availableLocaciones.map((l) => ({
-        value: l.id,
+        value: l.key,
         label: l.nombre,
       })),
     [availableLocaciones],
@@ -448,12 +418,9 @@ export default function FimbaAgendaPage() {
   }, [availableCategories]);
 
   useEffect(() => {
-    setSelectedLocacionIds((prev) => {
+    setSelectedLocacionKeys((prev) => {
       if (prev.length === 0) return prev;
-      const valid = new Set(availableLocaciones.map((l) => l.id));
-      const next = prev.filter((id) => valid.has(Number(id)));
-      if (next.length === prev.length) return prev;
-      return next;
+      return pruneLocacionFilterKeys(prev, availableLocaciones);
     });
   }, [availableLocaciones]);
 
@@ -462,8 +429,8 @@ export default function FimbaAgendaPage() {
     selectedCategoryIds.length < availableCategories.length;
 
   const locationFilterActive =
-    selectedLocacionIds.length > 0 &&
-    selectedLocacionIds.length < availableLocaciones.length;
+    selectedLocacionKeys.length > 0 &&
+    selectedLocacionKeys.length < availableLocaciones.length;
 
   const searchFilterActive = Boolean(normalizeForSearch(agendaSearchQuery));
 
@@ -490,14 +457,11 @@ export default function FimbaAgendaPage() {
         return want.has(catId);
       });
     }
-    // Locación: length > 0 acota por id_locacion; vacío = sin filtro
-    if (selectedLocacionIds.length > 0) {
-      const want = new Set(selectedLocacionIds.map(Number));
-      list = list.filter((ev) => {
-        const locId = eventLocacionId(ev);
-        if (locId == null) return false;
-        return want.has(locId);
-      });
+    // Locación: length > 0 acota por id_locacion y/o destino texto; vacío = sin filtro
+    if (selectedLocacionKeys.length > 0) {
+      list = list.filter((ev) =>
+        eventMatchesLocacionFilter(ev, selectedLocacionKeys, availableLocaciones),
+      );
     }
     if (searchFilterActive) {
       list = list.filter((ev) =>
@@ -511,7 +475,8 @@ export default function FimbaAgendaPage() {
     eventos,
     filtroOrigen,
     selectedCategoryIds,
-    selectedLocacionIds,
+    selectedLocacionKeys,
+    availableLocaciones,
     agendaSearchQuery,
     searchFilterActive,
     flotaById,
@@ -615,7 +580,7 @@ export default function FimbaAgendaPage() {
       locationFilterActive
         ? availableLocaciones
             .filter((l) =>
-              selectedLocacionIds.some((id) => Number(id) === Number(l.id)),
+              selectedLocacionKeys.some((k) => String(k) === String(l.key)),
             )
             .map((l) => l.nombre)
         : [];
@@ -775,8 +740,8 @@ export default function FimbaAgendaPage() {
                   label="Locación"
                   placeholder="Todas las locaciones"
                   options={locationOptions}
-                  value={selectedLocacionIds}
-                  onChange={setSelectedLocacionIds}
+                  value={selectedLocacionKeys}
+                  onChange={setSelectedLocacionKeys}
                   compact
                   summaryMode="names"
                   summaryMaxNames={2}
