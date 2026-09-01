@@ -8,8 +8,9 @@ import {
 import FimbaLayout from "./FimbaLayout";
 
 /**
- * Entry point enlace consulta general de edición: /fimba/c/:token
+ * Entry point enlace consulta de edición: /fimba/c/:token[/agenda]
  * Valida token, persiste sesión RO en localStorage y redirige al shell.
+ * Si la URL termina en /agenda → agenda_only (solo lectura de agenda).
  */
 export default function FimbaEdicionConsultaEntry() {
   const { token } = useParams();
