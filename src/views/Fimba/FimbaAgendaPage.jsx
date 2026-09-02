@@ -1373,13 +1373,15 @@ export default function FimbaAgendaPage() {
             <span className="fimba-muted fimba-agenda-active-filters-count">
               {eventosFiltrados.length} de {eventos.length} eventos
             </span>
+            {/* Solo FIMBA + sin artista: hint corto inline; oculto con filtro artista */}
+            {!ofrnIncludeActive &&
+              filtroOrigen === "fimba" &&
+              selectedPropuestaIds.length === 0 && (
+                <span className="fimba-muted fimba-agenda-active-filters-hint">
+                  Marcá Tutti o un grupo OFRN para la convocatoria.
+                </span>
+              )}
           </div>
-          {!ofrnIncludeActive && filtroOrigen === "fimba" && (
-            <p className="fimba-muted fimba-agenda-active-filters-hint">
-              La planilla muestra la agenda FIMBA. Marcá Tutti o un grupo OFRN
-              para cargar la convocatoria de orquesta.
-            </p>
-          )}
           <div className="fimba-agenda-active-filters-actions">
             {canCopyConsultaLink && entityFilterActiveFlag && (
               <button

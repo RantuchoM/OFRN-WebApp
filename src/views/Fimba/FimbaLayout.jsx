@@ -220,11 +220,11 @@ const FIMBA_CSS = `
   .fimba-agenda-active-filters {
     display: flex;
     flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 10px 14px;
-    margin-bottom: 12px;
-    padding: 10px 12px;
-    border-radius: 10px;
+    align-items: center;
+    gap: 6px 10px;
+    margin-bottom: 10px;
+    padding: 6px 10px;
+    border-radius: 8px;
     border: 1px solid rgba(215, 50, 137, 0.28);
     background: #fceef6;
     box-shadow: 0 1px 0 rgba(215, 50, 137, 0.18);
@@ -233,12 +233,12 @@ const FIMBA_CSS = `
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 10px;
-    flex: 1 1 240px;
+    gap: 6px 8px;
+    flex: 1 1 auto;
     min-width: 0;
   }
   .fimba-agenda-active-filters-label {
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     font-weight: 700;
     color: var(--fimba-deep, #1e293b);
     white-space: nowrap;
@@ -246,41 +246,47 @@ const FIMBA_CSS = `
   .fimba-agenda-active-filters-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 5px;
     min-width: 0;
   }
   .fimba-agenda-filter-chip {
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     font-weight: 600;
     background: #fff;
     border-color: rgba(215, 50, 137, 0.35);
     color: var(--fimba-deep, #1e293b);
   }
   .fimba-agenda-active-filters-count {
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     white-space: nowrap;
   }
+  /* Inline with chips/actions — never force a full-width second row */
   .fimba-agenda-active-filters-hint {
-    flex: 1 1 100%;
+    flex: 0 1 auto;
     margin: 0;
-    font-size: 0.72rem;
-    line-height: 1.35;
+    font-size: 0.68rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    max-width: 22rem;
   }
   .fimba-agenda-clear-filters {
     flex-shrink: 0;
-    font-size: 0.78rem;
-    padding: 0.35rem 0.65rem;
+    font-size: 0.75rem;
+    padding: 0.28rem 0.55rem;
   }
   .fimba-agenda-active-filters-actions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     flex-shrink: 0;
     margin-left: auto;
   }
   .fimba-agenda-copy-link {
-    font-size: 0.78rem;
-    padding: 0.35rem 0.65rem;
+    font-size: 0.75rem;
+    padding: 0.28rem 0.55rem;
     white-space: nowrap;
   }
   /* Agenda planilla: horizontal scroll; thead sticky top:0 (see comment on th) */
