@@ -2,16 +2,29 @@ import { isFimbaRideAboardAtStop } from "./fimbaTransportBoarding";
 
 /**
  * Query params compartibles para `/fimba/edicion/:id/agenda`.
- * Filtros de entidad (propuestas / grupos OFRN) se combinan con OR.
+ * Artista acota la agenda FIMBA. Grupos OFRN / Tutti **incluyen** convocatoria
+ * orquesta (opt-in; off por defecto). Artista + grupo/tutti se combinan con OR.
  *
  * Canonical (generado por «Copiar enlace»):
  * - `propuestas=5,7` — ids `fimba_propuestas`
  * - `grupos=3` — ids `giras_grupos`
+ * - `tutti=1` — convocatoria Tutti / general histórica
  *
  * Aliases de lectura:
  * - `artista=5` | `artistas=5,7` | `propuesta=5`
  * - `grupo=3` | `grupo=Alba` | `ofrn=Alba` (nombre se resuelve al cargar la gira)
+ * - `grupos=3,tutti` | `grupo=tutti` | `ofrn=tutti` | `tutti=true`
  */
+
+/** Sentinel del multi-select «Grupos OFRN» (no es un `giras_grupos.id`). */
+export const FIMBA_AGENDA_TUTTI_VALUE = "tutti";
+
+/** @param {unknown} v */
+export function isFimbaAgendaTuttiValue(v) {
+  return String(v ?? "")
+    .trim()
+    .toLocaleLowerCase("es") === FIMBA_AGENDA_TUTTI_VALUE;
+}
 
 /** @param {string|null|undefined} raw */
 export function parseCommaSeparatedIds(raw) {
@@ -80,7 +93,9 @@ export function parseFimbaAgendaUrlSearchParams(searchParams, opts = {}) {
   const grupoRaw = searchParams.get("grupo") || searchParams.get("ofrn");
   if (grupoRaw != null && grupoRaw !== "" && !searchParams.get("grupos")) {
     const asNum = Number(String(grupoRaw).trim());
-    if (Number.isFinite(asNum)) {
+    if (isFimbaAgendaTuttiValue(grupoRaw)) {
+      // includeTutti se resuelve abajo; no empujar «tutti» como nombre de grupo
+    } else if (Number.isFinite(asNum)) {
       grupoIds = [...new Set([...grupoIds, asNum])];
     } else {
       grupoNames.push(...parseNameTokens(grupoRaw));
@@ -95,22 +110,90 @@ export function parseFimbaAgendaUrlSearchParams(searchParams, opts = {}) {
       ? origenRaw
       : null;
 
-  return { propuestaIds, grupoIds, grupoNames, locacionIds, origen };
+  const includeTutti = parseFimbaAgendaTuttiFlag(searchParams);
+
+  return {
+    propuestaIds,
+    grupoIds,
+    grupoNames,
+    locacionIds,
+    origen,
+    includeTutti,
+  };
 }
 
-/** @param {number[]} propuestaIds @param {number[]} grupoIds */
-export function hasAgendaEntityFilter(propuestaIds, grupoIds) {
+/**
+ * ¿Hay opt-in de convocatoria OFRN (grupo y/o Tutti)?
+ * @param {number[]} [grupoIds]
+ * @param {boolean} [includeTutti]
+ */
+export function hasOfrnConvocatoriaFilter(grupoIds, includeTutti = false) {
   return (
-    (propuestaIds || []).some((id) => Number.isFinite(Number(id))) ||
+    Boolean(includeTutti) ||
     (grupoIds || []).some((id) => Number.isFinite(Number(id)))
   );
 }
 
-/** @param {number[]} propuestaIds @param {number[]} grupoIds */
-export function isSinglePropuestaOnlyFilter(propuestaIds, grupoIds) {
+/** @param {number[]} propuestaIds @param {number[]} grupoIds @param {boolean} [includeTutti] */
+export function hasAgendaEntityFilter(
+  propuestaIds,
+  grupoIds,
+  includeTutti = false,
+) {
+  return (
+    (propuestaIds || []).some((id) => Number.isFinite(Number(id))) ||
+    hasOfrnConvocatoriaFilter(grupoIds, includeTutti)
+  );
+}
+
+/** @param {number[]} propuestaIds @param {number[]} grupoIds @param {boolean} [includeTutti] */
+export function isSinglePropuestaOnlyFilter(
+  propuestaIds,
+  grupoIds,
+  includeTutti = false,
+) {
   const props = (propuestaIds || []).map(Number).filter(Number.isFinite);
   const grupos = (grupoIds || []).map(Number).filter(Number.isFinite);
-  return props.length === 1 && grupos.length === 0;
+  return props.length === 1 && grupos.length === 0 && !includeTutti;
+}
+
+/**
+ * Convoca Tutti / general histórica (NULL), no `none` ni grupos puntuales.
+ * @param {object|null|undefined} ev
+ */
+export function eventMatchesTuttiAudiencia(ev) {
+  if (!ev) return false;
+  const ao = ev.audiencia_ofrn;
+  if (ao === "none" || ao === "grupos") return false;
+  if (ao === "tutti") return true;
+  if (ao == null || ao === "") {
+    if ((ev.grupos || []).length > 0) return false;
+    return Boolean(ev.es_ofrn);
+  }
+  return false;
+}
+
+/**
+ * Lee `tutti=1` y aliases (`grupos=…,tutti`, `grupo=tutti`, `ofrn=tutti`).
+ * @param {URLSearchParams|{ get: (key: string) => string|null }} searchParams
+ */
+export function parseFimbaAgendaTuttiFlag(searchParams) {
+  const raw = String(searchParams.get("tutti") || "")
+    .trim()
+    .toLowerCase();
+  if (raw === "1" || raw === "true" || raw === "yes" || raw === "tutti") {
+    return true;
+  }
+  const gruposCsv = String(searchParams.get("grupos") || "");
+  if (
+    gruposCsv
+      .split(",")
+      .some((tok) => isFimbaAgendaTuttiValue(tok))
+  ) {
+    return true;
+  }
+  const alias = searchParams.get("grupo") || searchParams.get("ofrn");
+  return isFimbaAgendaTuttiValue(alias);
 }
 
 /**
@@ -217,13 +300,20 @@ export function collectPropuestaRouteAgendaEventIds(
 }
 
 /**
- * Unión: evento tagged a alguna propuesta y/o con algún grupo OFRN seleccionado.
- * Transporte del artista: paradas reales vía `fimba_propuesta_rutas` (sin filas sintéticas).
+ * Visibilidad de fila en planilla:
+ * - Sin artista ni OFRN opt-in: el caller aplica origen (default FIMBA).
+ * - Solo artista: tags / paradas del artista (agenda FIMBA). No incluye Tutti.
+ * - Grupo y/o Tutti: **incluyen** esas convocatorias OFRN (unión con FIMBA /
+ *   artista). No reemplazan la agenda FIMBA.
  *
  * @param {object|null|undefined} ev
  * @param {number[]} propuestaIds
  * @param {number[]} grupoIds
- * @param {{ propuestaRoutes?: Array<object>, sequencesByVehicle?: Map|null }} [ctx]
+ * @param {{
+ *   propuestaRoutes?: Array<object>,
+ *   sequencesByVehicle?: Map|null,
+ *   includeTutti?: boolean,
+ * }} [ctx]
  */
 export function eventMatchesAgendaEntityFilter(
   ev,
@@ -233,28 +323,34 @@ export function eventMatchesAgendaEntityFilter(
 ) {
   const props = (propuestaIds || []).map(Number).filter(Number.isFinite);
   const grupos = (grupoIds || []).map(Number).filter(Number.isFinite);
-  if (props.length === 0 && grupos.length === 0) return true;
+  const includeTutti = Boolean(ctx.includeTutti);
+  const wantsOfrn = includeTutti || grupos.length > 0;
+  if (props.length === 0 && !wantsOfrn) return true;
   if (!ev) return false;
 
-  let matchProp = false;
-  let matchGrupo = false;
+  const matchProp =
+    props.length > 0
+      ? eventMatchesPropuestaRouteFilter(
+          ev,
+          props,
+          ctx.propuestaRoutes,
+          ctx.sequencesByVehicle,
+        )
+      : false;
 
-  if (props.length > 0) {
-    matchProp = eventMatchesPropuestaRouteFilter(
-      ev,
-      props,
-      ctx.propuestaRoutes,
-      ctx.sequencesByVehicle,
-    );
+  let matchOfrn = false;
+  if (includeTutti && eventMatchesTuttiAudiencia(ev)) matchOfrn = true;
+  if (
+    grupos.length > 0 &&
+    (ev.grupos || []).some((g) => grupos.includes(Number(g.id)))
+  ) {
+    matchOfrn = true;
   }
 
-  if (grupos.length > 0) {
-    matchGrupo = (ev.grupos || []).some((g) => grupos.includes(Number(g.id)));
-  }
-
-  if (props.length > 0 && grupos.length > 0) return matchProp || matchGrupo;
+  if (props.length > 0 && wantsOfrn) return matchProp || matchOfrn;
   if (props.length > 0) return matchProp;
-  return matchGrupo;
+  // Solo opt-in OFRN: la agenda FIMBA sigue visible + las convocatorias elegidas.
+  return Boolean(ev.es_fimba) || matchOfrn;
 }
 
 /**
@@ -287,6 +383,7 @@ export function buildFimbaAgendaConsultaSharePath(consultaToken, filters = {}) {
  *   grupoIds?: number[],
  *   locacionIds?: number[],
  *   origen?: string|null,
+ *   includeTutti?: boolean,
  * }} filters
  */
 export function buildFimbaAgendaSharePath(basePath, filters = {}) {
@@ -305,6 +402,10 @@ export function buildFimbaAgendaSharePath(basePath, filters = {}) {
     params.set("grupos", grupos.join(","));
   }
 
+  if (filters.includeTutti) {
+    params.set("tutti", "1");
+  }
+
   const locs = [
     ...new Set((filters.locacionIds || []).map(Number).filter(Number.isFinite)),
   ];
@@ -314,9 +415,11 @@ export function buildFimbaAgendaSharePath(basePath, filters = {}) {
     params.set("locacion", locs.join(","));
   }
 
-  if (hasAgendaEntityFilter(props, grupos)) {
+  // Grupo/Tutti incluyen orquesta → origen unificado. Artista solo no fuerza all.
+  // Default de planilla = FIMBA (se omite el param).
+  if (hasOfrnConvocatoriaFilter(grupos, filters.includeTutti)) {
     params.set("origen", "all");
-  } else if (filters.origen === "fimba" || filters.origen === "ofrn") {
+  } else if (filters.origen === "ofrn" || filters.origen === "all") {
     params.set("origen", filters.origen);
   }
 

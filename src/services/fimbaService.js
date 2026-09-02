@@ -2988,7 +2988,9 @@ function eventMatchesFimbaAgendaGrupoFilter(ev, grupoFilterIds) {
  * Agenda unificada de la edición:
  * 1) Eventos FIMBA: tags `eventos_fimba_propuestas` y/o plazas en `fimba_evento_transportes`
  * 2) Eventos orquesta OFRN de la misma gira (`audiencia_ofrn` tutti/grupos/null)
- *    — se omiten al filtrar solo por artista; con `id_grupos` se incluyen (unión con tags)
+ *    — se omiten al filtrar solo por artista y cuando `include_ofrn` es false
+ *      (planilla staff: off por defecto; se carga al marcar Tutti o un grupo);
+ *      con `id_grupos` se incluyen (unión con tags)
  *
  * @param {number|string} edicionId
  * @param {{

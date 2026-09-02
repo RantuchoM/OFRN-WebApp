@@ -53,10 +53,13 @@ import {
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
 } from "../../utils/fimbaTransportBoarding";
 import {
+  FIMBA_AGENDA_TUTTI_VALUE,
   buildFimbaAgendaConsultaSharePath,
   buildFimbaAgendaSharePath,
   eventMatchesAgendaEntityFilter,
   hasAgendaEntityFilter,
+  hasOfrnConvocatoriaFilter,
+  isFimbaAgendaTuttiValue,
   parseFimbaAgendaUrlSearchParams,
   resolveGrupoIdsFromNames,
 } from "../../utils/fimbaAgendaUrlParams";
@@ -315,8 +318,8 @@ function eventMatchesFimbaAgendaSearch(ev, query, flotaById = null) {
 }
 
 /**
- * Agenda unificada FIMBA: planilla de eventos (traslados + actividades)
- * más convocatoria orquesta OFRN de la misma gira.
+ * Agenda unificada FIMBA: planilla de eventos (traslados + actividades).
+ * La convocatoria orquesta OFRN se carga al marcar Tutti o un grupo (opt-in).
  */
 export default function FimbaAgendaPage() {
   const { edicionId, artistaId } = useParams();
@@ -349,12 +352,19 @@ export default function FimbaAgendaPage() {
   const [selectedGrupoIds, setSelectedGrupoIds] = useState(
     () => urlFilters.grupoIds,
   );
-  /** Default: Todos (planilla unificada). Con filtros de entidad → all. */
+  /** Opt-in convocatoria Tutti (off por defecto). */
+  const [includeTutti, setIncludeTutti] = useState(
+    () => Boolean(urlFilters.includeTutti),
+  );
+  /**
+   * Default: Solo FIMBA. Grupo/Tutti incluyen orquesta → all.
+   * Artista solo no fuerza all (evita volcar toda la convocatoria OFRN).
+   */
   const [filtroOrigen, setFiltroOrigen] = useState(() => {
-    if (hasAgendaEntityFilter(urlFilters.propuestaIds, urlFilters.grupoIds)) {
+    if (hasOfrnConvocatoriaFilter(urlFilters.grupoIds, urlFilters.includeTutti)) {
       return "all";
     }
-    return urlFilters.origen || "all";
+    return urlFilters.origen || "fimba";
   });
   /**
    * Multi-select de categorías (`id_categoria` / categorias_tipos_eventos),
@@ -381,13 +391,23 @@ export default function FimbaAgendaPage() {
   const [modal, setModal] = useState(null);
   const [copyLinkOk, setCopyLinkOk] = useState(false);
 
+  const ofrnIncludeActive = hasOfrnConvocatoriaFilter(
+    selectedGrupoIds,
+    includeTutti,
+  );
   const entityFilterActive = hasAgendaEntityFilter(
     selectedPropuestaIds,
     selectedGrupoIds,
+    includeTutti,
   );
   const entityFilterActiveFlag =
     entityFilterActive &&
-    (selectedPropuestaIds.length > 0 || selectedGrupoIds.length > 0);
+    (selectedPropuestaIds.length > 0 || ofrnIncludeActive);
+  /** Cargar filas orquesta OFRN solo con opt-in (grupo/Tutti) o chip Todos/OFRN. */
+  const fetchOfrnEvents =
+    ofrnIncludeActive || filtroOrigen === "all" || filtroOrigen === "ofrn";
+  const fetchOfrnEventsRef = useRef(fetchOfrnEvents);
+  fetchOfrnEventsRef.current = fetchOfrnEvents;
 
   const reload = useCallback(async ({ soft = false } = {}) => {
     if (soft) setRefreshing(true);
@@ -406,7 +426,9 @@ export default function FimbaAgendaPage() {
           listFimbaPropuestas(edicionId),
           listFimbaGiraGrupos(ed.id_gira),
           listFimbaFlota(ed.id_gira),
-          listFimbaAgenda(edicionId),
+          listFimbaAgenda(edicionId, {
+            include_ofrn: fetchOfrnEventsRef.current,
+          }),
           loadFimbaTransportLogisticsSummary(ed.id_gira),
           listFimbaPropuestaRutas(edicionId),
         ]);
@@ -460,11 +482,13 @@ export default function FimbaAgendaPage() {
         }
         if (eventos) {
           tasks.push(
-            listFimbaAgenda(edicionId).then((res) => ({
-              key: "eventos",
-              data: res.eventos || [],
-              error: res.error,
-            })),
+            listFimbaAgenda(edicionId, { include_ofrn: fetchOfrnEvents }).then(
+              (res) => ({
+                key: "eventos",
+                data: res.eventos || [],
+                error: res.error,
+              }),
+            ),
           );
         }
         const results = await Promise.all(tasks);
@@ -480,7 +504,7 @@ export default function FimbaAgendaPage() {
         setRefreshing(false);
       }
     },
-    [edicionId, edicion?.id_gira],
+    [edicionId, edicion?.id_gira, fetchOfrnEvents],
   );
 
   const upsertAgendaEvento = useCallback(
@@ -534,20 +558,32 @@ export default function FimbaAgendaPage() {
     reload();
   }, [reload]);
 
+  const ofrnSliceReadyRef = useRef(false);
+  useEffect(() => {
+    if (!edicion) return;
+    if (!ofrnSliceReadyRef.current) {
+      ofrnSliceReadyRef.current = true;
+      return;
+    }
+    reloadAgendaSlices({ eventos: true });
+  }, [fetchOfrnEvents, edicion, reloadAgendaSlices]);
+
   useEffect(() => {
     setSelectedPropuestaIds(urlFilters.propuestaIds);
     setSelectedGrupoIds(urlFilters.grupoIds);
+    setIncludeTutti(Boolean(urlFilters.includeTutti));
     setSelectedLocacionIds(urlFilters.locacionIds);
-    if (hasAgendaEntityFilter(urlFilters.propuestaIds, urlFilters.grupoIds)) {
+    if (hasOfrnConvocatoriaFilter(urlFilters.grupoIds, urlFilters.includeTutti)) {
       setFiltroOrigen("all");
     } else {
-      setFiltroOrigen(urlFilters.origen || "all");
+      setFiltroOrigen(urlFilters.origen || "fimba");
     }
   }, [
     urlFilters.propuestaIds.join(","),
     urlFilters.grupoIds.join(","),
     urlFilters.locacionIds.join(","),
     urlFilters.origen,
+    urlFilters.includeTutti,
   ]);
 
   useEffect(() => {
@@ -590,6 +626,7 @@ export default function FimbaAgendaPage() {
         selectedPropuestaIds.join(",") !== incoming.propuestaIds.join(",")) ||
       (incoming.grupoIds.length > 0 &&
         selectedGrupoIds.join(",") !== incoming.grupoIds.join(",")) ||
+      (incoming.includeTutti && !includeTutti) ||
       (incoming.locacionIds.length > 0 &&
         selectedLocacionIds.join(",") !== incoming.locacionIds.join(","));
     if (statePending) return;
@@ -598,7 +635,8 @@ export default function FimbaAgendaPage() {
       propuestaIds: selectedPropuestaIds,
       grupoIds: selectedGrupoIds,
       locacionIds: selectedLocacionIds,
-      origen: entityFilterActiveFlag ? "all" : filtroOrigen,
+      includeTutti,
+      origen: ofrnIncludeActive ? "all" : filtroOrigen,
     });
     const want = path.includes("?") ? path.slice(path.indexOf("?")) : "";
     const have = location.search || "";
@@ -612,18 +650,19 @@ export default function FimbaAgendaPage() {
     searchParams,
     selectedPropuestaIds,
     selectedGrupoIds,
+    includeTutti,
     selectedLocacionIds,
     filtroOrigen,
-    entityFilterActiveFlag,
+    ofrnIncludeActive,
     location.pathname,
     location.search,
     setSearchParams,
   ]);
 
-  // Con filtro por artista/grupo no hay chips de origen útil; forzar all
+  // Grupo/Tutti incluyen orquesta; artista solo no fuerza Todos.
   useEffect(() => {
-    if (entityFilterActive) setFiltroOrigen("all");
-  }, [entityFilterActive]);
+    if (ofrnIncludeActive) setFiltroOrigen("all");
+  }, [ofrnIncludeActive]);
 
   const availableCategories = useMemo(
     () =>
@@ -704,7 +743,9 @@ export default function FimbaAgendaPage() {
   useEffect(() => {
     setSelectedGrupoIds((prev) => {
       if (prev.length === 0) return prev;
-      const valid = new Set((giraGrupos || []).map((g) => Number(g.id)));
+      // No vaciar ids de la URL antes de que llegue el catálogo de la gira.
+      if (!giraGrupos?.length) return prev;
+      const valid = new Set(giraGrupos.map((g) => Number(g.id)));
       const next = prev.filter((id) => valid.has(Number(id)));
       if (next.length === prev.length) return prev;
       return next;
@@ -738,18 +779,43 @@ export default function FimbaAgendaPage() {
   );
 
   const grupoOptions = useMemo(
-    () =>
-      (giraGrupos || []).map((g) => ({
+    () => [
+      {
+        value: FIMBA_AGENDA_TUTTI_VALUE,
+        label: "Tutti",
+        color: "#00B1EB",
+      },
+      ...(giraGrupos || []).map((g) => ({
         value: g.id,
         label: g.nombre,
         color: g.color || null,
       })),
+    ],
     [giraGrupos],
   );
 
+  const selectedGrupoFilterValues = useMemo(
+    () => [
+      ...(includeTutti ? [FIMBA_AGENDA_TUTTI_VALUE] : []),
+      ...selectedGrupoIds,
+    ],
+    [includeTutti, selectedGrupoIds],
+  );
+
+  const handleGrupoFilterChange = useCallback((next) => {
+    const list = Array.isArray(next) ? next : [];
+    setIncludeTutti(list.some((v) => isFimbaAgendaTuttiValue(v)));
+    setSelectedGrupoIds(
+      list
+        .filter((v) => !isFimbaAgendaTuttiValue(v))
+        .map((id) => Number(id))
+        .filter(Number.isFinite),
+    );
+  }, []);
+
   const entityFilterCtx = useMemo(
-    () => ({ propuestaRoutes, sequencesByVehicle }),
-    [propuestaRoutes, sequencesByVehicle],
+    () => ({ propuestaRoutes, sequencesByVehicle, includeTutti }),
+    [propuestaRoutes, sequencesByVehicle, includeTutti],
   );
 
   const eventos = eventosBase;
@@ -766,7 +832,7 @@ export default function FimbaAgendaPage() {
         ),
       );
     }
-    if (filtroOrigen === "fimba") {
+    if (!ofrnIncludeActive && filtroOrigen === "fimba") {
       list = list.filter((ev) => ev.es_fimba);
     } else if (filtroOrigen === "ofrn") {
       list = list.filter((ev) => ev.es_ofrn);
@@ -804,6 +870,7 @@ export default function FimbaAgendaPage() {
     selectedPropuestaIds,
     selectedGrupoIds,
     filtroOrigen,
+    ofrnIncludeActive,
     selectedCategoryIds,
     selectedLocacionIds,
     agendaSearchQuery,
@@ -832,7 +899,7 @@ export default function FimbaAgendaPage() {
   ]);
 
   const origenFilterActive =
-    !entityFilterActiveFlag && filtroOrigen !== "all";
+    !ofrnIncludeActive && filtroOrigen !== "fimba";
 
   const hasNonDefaultFilters =
     origenFilterActive ||
@@ -841,13 +908,18 @@ export default function FimbaAgendaPage() {
     locationFilterActive ||
     selectedPropuestaIds.length > 0 ||
     selectedGrupoIds.length > 0 ||
+    includeTutti ||
     searchFilterActive;
 
   const activeFilterLabels = useMemo(() => {
     const parts = [];
     if (origenFilterActive) {
       parts.push(
-        filtroOrigen === "fimba" ? "Solo FIMBA" : "Solo OFRN",
+        filtroOrigen === "ofrn"
+          ? "Solo OFRN"
+          : filtroOrigen === "all"
+            ? "Todos"
+            : "Solo FIMBA",
       );
     }
     if (selectedPropuestaIds.length > 0) {
@@ -858,12 +930,15 @@ export default function FimbaAgendaPage() {
         .map((p) => p.nombre);
       if (names.length) parts.push(`Artista: ${names.join(", ")}`);
     }
-    if (selectedGrupoIds.length > 0) {
-      const names = (giraGrupos || [])
-        .filter((g) =>
-          selectedGrupoIds.some((id) => String(id) === String(g.id)),
-        )
-        .map((g) => g.nombre);
+    if (includeTutti || selectedGrupoIds.length > 0) {
+      const names = [
+        ...(includeTutti ? ["Tutti"] : []),
+        ...(giraGrupos || [])
+          .filter((g) =>
+            selectedGrupoIds.some((id) => String(id) === String(g.id)),
+          )
+          .map((g) => g.nombre),
+      ];
       if (names.length) parts.push(`Grupo: ${names.join(", ")}`);
     }
     if (categoryFilterActive) {
@@ -891,6 +966,7 @@ export default function FimbaAgendaPage() {
     filtroOrigen,
     selectedPropuestaIds,
     selectedGrupoIds,
+    includeTutti,
     categoryFilterActive,
     locationFilterActive,
     searchFilterActive,
@@ -904,11 +980,12 @@ export default function FimbaAgendaPage() {
   ]);
 
   const handleClearAllFilters = useCallback(() => {
-    setFiltroOrigen("all");
+    setFiltroOrigen("fimba");
     setSelectedCategoryIds([]);
     setSelectedLocacionIds([]);
     setSelectedPropuestaIds([]);
     setSelectedGrupoIds([]);
+    setIncludeTutti(false);
     setAgendaSearchQuery("");
     setSearchResetSignal((n) => n + 1);
   }, []);
@@ -1006,14 +1083,16 @@ export default function FimbaAgendaPage() {
             )
             .map((p) => p.nombre)
         : [];
-    const grupoNames =
-      selectedGrupoIds.length > 0
+    const grupoNames = [
+      ...(includeTutti ? ["Tutti"] : []),
+      ...(selectedGrupoIds.length > 0
         ? (giraGrupos || [])
             .filter((g) =>
               selectedGrupoIds.some((id) => String(id) === String(g.id)),
             )
             .map((g) => g.nombre)
-        : [];
+        : []),
+    ];
     const categoryNames =
       categoryFilterActive
         ? availableCategories
@@ -1032,7 +1111,7 @@ export default function FimbaAgendaPage() {
         : [];
     const subTitle = buildFimbaAgendaPdfSubTitle({
       edicionNombre: edicion?.nombre,
-      filtroOrigen: entityFilterActiveFlag ? "all" : filtroOrigen,
+      filtroOrigen: ofrnIncludeActive ? "all" : filtroOrigen,
       filtroArtistaNombres: artistaNombres,
       grupoNames,
       categoryNames,
@@ -1042,7 +1121,7 @@ export default function FimbaAgendaPage() {
     const title =
       artistaNombres.length === 1
         ? `Agenda FIMBA — ${artistaNombres[0]}`
-        : artistaNombres.length > 1 || grupoNames.length > 0
+        : artistaNombres.length > 1 || grupoNames.length > 0 || includeTutti
           ? `Agenda FIMBA — ${edicion?.nombre || "Edición"} (filtros)`
           : `Agenda FIMBA — ${edicion?.nombre || "Edición"}`;
     exportFimbaAgendaToPDF(eventosFiltrados, {
@@ -1057,7 +1136,8 @@ export default function FimbaAgendaPage() {
       propuestaIds: selectedPropuestaIds,
       grupoIds: selectedGrupoIds,
       locacionIds: selectedLocacionIds,
-      origen: entityFilterActiveFlag ? "all" : filtroOrigen,
+      includeTutti,
+      origen: ofrnIncludeActive ? "all" : filtroOrigen,
     };
     const consultaToken =
       edicion?.token_consulta || null;
@@ -1194,7 +1274,7 @@ export default function FimbaAgendaPage() {
             onQueryChange={handleAgendaSearchQueryChange}
             resetSignal={searchResetSignal}
           />
-          {!entityFilterActiveFlag && (
+          {!ofrnIncludeActive && (
             <div className="fimba-agenda-origen-chips">
               {ORIGEN_FILTERS.map((f) => {
                 const on = filtroOrigen === f.value;
@@ -1270,24 +1350,27 @@ export default function FimbaAgendaPage() {
               />
             </div>
           </div>
-          {grupoOptions.length > 0 && (
-            <div className="fimba-agenda-filter-item">
-              <label className="fimba-label">Grupos OFRN</label>
-              <div className="fimba-agenda-filter-dropdown fimba-agenda-filter-dropdown--grupos">
-                <MultiSelectDropdown
-                  className="w-full"
-                  label="Grupos OFRN"
-                  placeholder="Todos"
-                  options={grupoOptions}
-                  value={selectedGrupoIds}
-                  onChange={setSelectedGrupoIds}
-                  compact
-                  summaryMode="names"
-                  summaryMaxNames={2}
-                />
-              </div>
+          <div className="fimba-agenda-filter-item">
+            <label
+              className="fimba-label"
+              title="Desactivado = solo agenda FIMBA. Tutti o un grupo carga la convocatoria OFRN."
+            >
+              Grupos OFRN
+            </label>
+            <div className="fimba-agenda-filter-dropdown fimba-agenda-filter-dropdown--grupos">
+              <MultiSelectDropdown
+                className="w-full"
+                label="Grupos OFRN"
+                placeholder="Ninguno"
+                options={grupoOptions}
+                value={selectedGrupoFilterValues}
+                onChange={handleGrupoFilterChange}
+                compact
+                summaryMode="names"
+                summaryMaxNames={2}
+              />
             </div>
-          )}
+          </div>
         </div>
       </div>
 
@@ -1306,10 +1389,10 @@ export default function FimbaAgendaPage() {
               {eventosFiltrados.length} de {eventosTrasFiltroEntidad.length} eventos
             </span>
           </div>
-          {origenFilterActive && filtroOrigen === "fimba" && (
+          {!ofrnIncludeActive && filtroOrigen === "fimba" && (
             <p className="fimba-muted fimba-agenda-active-filters-hint">
-              Los traslados y convocatorias solo OFRN no se muestran con «Solo FIMBA».
-              Usá «Todos» para ver la planilla unificada completa.
+              La planilla muestra la agenda FIMBA. Marcá Tutti o un grupo OFRN
+              para cargar la convocatoria de orquesta.
             </p>
           )}
           <div className="fimba-agenda-active-filters-actions">
@@ -1350,7 +1433,7 @@ export default function FimbaAgendaPage() {
             ? readOnly
               ? "."
               : " Creá el primero con «Nuevo evento»."
-            : " Probá otro origen, categoría, locación o búsqueda."}
+            : " Probá Tutti o un grupo OFRN, otro origen, categoría, locación o búsqueda."}
         </div>
       ) : (
         <div className="fimba-card fimba-agenda-card">
