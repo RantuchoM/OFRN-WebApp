@@ -11,8 +11,8 @@ FIMBA es una aplicación de festival con skin propia bajo `/fimba/*`, que reutil
 | Tabla | Rol |
 |-------|-----|
 | `fimba_ediciones` | Edición del festival; **1:1** con `programas` vía `id_gira` |
-| `fimba_propuestas` | UI «Artista»: cupos, colores, tokens, fechas checkin/out, flags `checkin_early` / `checkout_late`, **`requiere_hotel`** / **`requiere_comidas`** (default true; false excluye de reportes/exportaciones), `id_hotel` opcional → `hoteles`, `observaciones_logisticas` (texto libre), **`rider`** (HTML rich-text logístico). Columna **`orden`**: se asigna al crear (legado / metadata); **no** ordena UI staff. **Display** de planillas y pickers = alfabético por `nombre` (`localeCompare` es, `sensitivity: "base"`, desempate `id`) vía `listFimbaPropuestas` / `sortFimbaPropuestasByNombre`. **Sin** carpeta Drive (vive en contrataciones) |
-| `fimba_participantes` | Personas del artista (entidad propia; `id_integrante` opcional bigint). **`genero`**: `femenino` \| `masculino` \| `otro` \| `sin_especificar` (default). Alta/edición acepta aliases (`M`/`F`/`hombre`/`mujer`, etc.) vía `canonicalizeFimbaGenero`. Reportes hotelería mapean a Hombre/Mujer/Sin género — **sin** default a masculino. **`checkin_at` / `checkout_at`** opcionales: override de estadía por persona; `NULL` = hereda el rango del artista (`fimba_propuestas`). Early/Late siguen en la propuesta. |
+| `fimba_propuestas` | UI «Artista»: cupos, colores, tokens, **estadía vía eventos** (`id_evento_checkin` / `id_evento_checkout` → `eventos`, tipos 22/23; espejo `checkin_at` / `checkout_at`), flags `checkin_early` / `checkout_late`, **`requiere_hotel`** / **`requiere_comidas`** (default true; false excluye de reportes/exportaciones), `id_hotel` opcional → `hoteles`, `observaciones_logisticas` (texto libre), **`rider`** (HTML rich-text logístico). Columna **`orden`**: se asigna al crear (legado / metadata); **no** ordena UI staff. **Display** de planillas y pickers = alfabético por `nombre` (`localeCompare` es, `sensitivity: "base"`, desempate `id`) vía `listFimbaPropuestas` / `sortFimbaPropuestasByNombre`. **Sin** carpeta Drive (vive en contrataciones) |
+| `fimba_participantes` | Personas del artista (entidad propia; `id_integrante` opcional bigint). **`genero`**: `femenino` \| `masculino` \| `otro` \| `sin_especificar` (default). Alta/edición acepta aliases (`M`/`F`/`hombre`/`mujer`, etc.) vía `canonicalizeFimbaGenero`. Reportes hotelería mapean a Hombre/Mujer/Sin género — **sin** default a masculino. **Override de estadía** por persona: `id_evento_checkin` / `id_evento_checkout` (+ espejo `checkin_at` / `checkout_at`); `NULL` = hereda el artista. Early/Late siguen en la propuesta. |
 | `fimba_usuarios` | Usuarios por edición: mail + `rol_fimba` (`editor_general` \| `consulta`) + `clave_acceso` / `token_login`. Staff OFRN management no requiere fila (full); fila `consulta` **sí** fuerza RO aunque sea management. |
 | `eventos.audiencia_ofrn` | `none` \| `tutti` \| `grupos` |
 | `eventos.asientos_equipaje` | Asientos de **equipaje** del evento/parada (no headcount de pasajeros). Legacy `# PAX` / `audiencia` se mantiene en sync. |
@@ -150,7 +150,9 @@ para_transporte = tope_personas + plazas_extra_materiales
 
 `plazas_extra_materiales` **solo** afecta transporte (no hotel ni comidas). UI label: **Extra Equip.** (columna/campo; error/help: “extra equip.”). Columna DB sin renombrar.
 
-Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participantes activos; **por confirmar** = max(0, PAX − nominados). Noches de cabecera = check-out − check-in del **artista** (rango del grupo). **Pax-noche / camas-noche** = suma de estadías individuales (`resolveParticipanteStay`: override de `fimba_participantes` o rango del artista; cupos sin nombre usan el rango del grupo). Flags **Early** (`checkin_early`) y **Late** (`checkout_late`) por artista: booleanes `default false` junto a las fechas (OFRN hospedaje usa fecha+hora en `programas_hospedajes`; FIMBA prioriza flags operativos sin horas).
+Hotelería: **PAX planificada** = `cantidad_planificada`; nominados = participantes activos; **por confirmar** = max(0, PAX − nominados). Noches de cabecera = check-out − check-in del **artista** (rango del grupo). **Pax-noche / camas-noche** = suma de estadías individuales (`resolveParticipanteStay`: override de participante o rango del artista; cupos sin nombre usan el rango del grupo).
+
+**Check-in / check-out = eventos (paridad OFRN):** igual que `giras_logistica_reglas.id_evento_checkin|checkout`, FIMBA usa FKs a `eventos` con `tipos_evento` **22 = Check-in** / **23 = Check-Out**. Horas canónicas FIMBA: **14:00** (in) / **10:00** (out); `audiencia_ofrn = none` (no se reutilizan los Check-in/Out OFRN a las 12:00 de logística). Un evento por `(gira, fecha, tipo, hora)` compartido entre artistas del mismo día. `checkin_at` / `checkout_at` quedan como **espejo** de `eventos.fecha` (UI date inputs siguen; `ensureFimbaStayEvent` + `create/updateFimbaPropuesta|Participante` crean/vinculan al guardar). Flags **Early** (`checkin_early`) y **Late** (`checkout_late`) por artista: booleanes `default false` junto a la estadía.
 
 **Cubiertos / comidas por estadía** (`src/utils/fimbaMealsStay.js`): a partir de check-in/out **por persona** (o del artista si la celda está vacía) + Early/Late + PAX planificada.
 - Llegada: cena; almuerzo solo si Early.
@@ -422,6 +424,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Detección transporte alineada a categoría 6 + ids OFRN (11/12/28/31/35)
 - [x] Hotelería: reporte por artista (checkin/out, early/late, noches, nominados, por confirmar) + hotel opcional (`fimba_propuestas.id_hotel`)
 - [x] Estadía por persona: `fimba_participantes.checkin_at` / `checkout_at` (NULL = hereda artista). Planilla + token `/e`; pedido hotel parte grupos; comidas/pax-noche por estadía efectiva. Caso Ruggiero cuarteto (IN 15 vs 16/9).
+- [x] Check-in/out → eventos (paridad OFRN): FKs `id_evento_checkin|checkout` en propuestas/participantes; tipos 22/23 @ 14:00/10:00; backfill edición 1/gira 12; `ensureFimbaStayEvent` al guardar fechas; UI date inputs intactas (espejo).
 - [x] Migración `20260828034520_fimba_participantes_stay` deploy linked
 - [x] Rooming por artista: `fimba_propuestas_habitaciones` + `fimba_habitaciones_ocupantes` (SGL/DBL/TPL/QAD + matrimonial); inventario admin + acomodo token
 - [x] Cupos rooming: feedback live de plazas borrador vs roster activo (faltan / exacto / sobran) antes de «Aplicar cupos»
@@ -713,6 +716,9 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `supabase/migrations/20260810170000_fimba_plataforma_base.sql` | Schema base; `fimba_evento_transportes` → FK `giras_transportes` |
 | `supabase/migrations/20260810180000_fimba_propuestas_id_hotel.sql` | `id_hotel` opcional |
 | `supabase/migrations/20260810190000_fimba_propuestas_checkin_early_checkout_late.sql` | `checkin_early` / `checkout_late` boolean default false |
+| `supabase/migrations/20260902122628_fimba_checkin_checkout_eventos.sql` | FKs `id_evento_checkin|checkout` en propuestas/participantes + backfill gira 12 @ 14:00/10:00 |
+| `supabase/scripts/fimba_checkin_checkout_eventos_gira12.sql` | Doc/verificación backfill estadía→eventos |
+| `src/utils/fimbaStay.js` | `resolveParticipanteStay` / `ensure` constants tipos 22/23 + horas; lee fecha desde evento o espejo |
 | `supabase/migrations/20260811090000_fimba_propuestas_observaciones_logisticas.sql` | `observaciones_logisticas` text |
 | `supabase/migrations/20260811150000_fimba_propuestas_carpeta_documentacion.sql` | (histórica) add en propuestas; supersedida por 20260811160000 |
 | `supabase/migrations/20260811160000_fimba_contrataciones_carpeta_documentacion.sql` | `fimba_contrataciones.carpeta_documentacion`; copy 1.ª por artista; null propuestas usadas; col propuestas DEPRECATED |
@@ -805,6 +811,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | **20260831123130** | `eventos_observaciones_aforo` | Local = Remote (`db push` + `migration list` OK) |
 | **20260831170559** | `fimba_contrataciones_sheet_sync` | Local = Remote (SQL linked + repair applied; cron daily live) |
 | **20260901140559** | `catering_categoria_tipo` | Local = Remote (SQL linked: cat. 9 + tipo 34) |
+| **20260902122628** | `fimba_checkin_checkout_eventos` | Local = Remote (`db push`; 12 eventos + 16×2 prop + 4×2 part) |
 
 ### Auth usuarios FIMBA — cómo usar
 
