@@ -51,6 +51,7 @@ import {
   resolveLegacyDestinoFromDescripcion,
   resolveEventAboardCount,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
+  TRANSPORT_DESTINO_SIN_LOCACION,
 } from "../../utils/fimbaTransportBoarding";
 import {
   FIMBA_AGENDA_TUTTI_VALUE,
@@ -1496,7 +1497,24 @@ export default function FimbaAgendaPage() {
                           ? "OFRN"
                           : "—";
                   return (
-                    <tr key={ev.id} className={rowClass}>
+                    <tr
+                      key={ev.id}
+                      className={rowClass}
+                      onDoubleClick={
+                        readOnly
+                          ? undefined
+                          : (e) => {
+                              if (
+                                e.target.closest(
+                                  "button, a, input, select, textarea, label",
+                                )
+                              ) {
+                                return;
+                              }
+                              setModal({ mode: "edit", evento: ev });
+                            }
+                      }
+                    >
                       <td style={{ paddingLeft: "1rem", whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                           {ev.es_fimba && (
@@ -1577,12 +1595,21 @@ export default function FimbaAgendaPage() {
                       </td>
                       <td
                         className="fimba-muted"
-                        style={{ maxWidth: 140 }}
+                        style={{
+                          maxWidth: 140,
+                          fontStyle:
+                            destino === TRANSPORT_DESTINO_SIN_SIGUIENTE ||
+                            destino === TRANSPORT_DESTINO_SIN_LOCACION
+                              ? "italic"
+                              : undefined,
+                        }}
                         title={
                           isTx && destino !== "—"
                             ? destino === TRANSPORT_DESTINO_SIN_SIGUIENTE
                               ? "Sin siguiente parada en la secuencia del vehículo"
-                              : `Siguiente parada del mismo vehículo: ${destino}`
+                              : destino === TRANSPORT_DESTINO_SIN_LOCACION
+                                ? "La siguiente parada no tiene locación de catálogo"
+                                : `Siguiente parada del mismo vehículo: ${destino}`
                             : undefined
                         }
                       >
@@ -1696,6 +1723,7 @@ export default function FimbaAgendaPage() {
                               type="button"
                               className="fimba-btn fimba-btn-ghost"
                               onClick={() => setModal({ mode: "edit", evento: ev })}
+                              onDoubleClick={(e) => e.stopPropagation()}
                               title="Editar"
                             >
                               <IconEdit size={14} />
@@ -1705,6 +1733,7 @@ export default function FimbaAgendaPage() {
                               className="fimba-btn fimba-btn-ghost"
                               style={{ marginLeft: 4, color: "var(--fimba-cyan, #0e7490)" }}
                               onClick={() => openIntermediateEvent(ev)}
+                              onDoubleClick={(e) => e.stopPropagation()}
                               title={
                                 nextSameDayNeighbor(ev)
                                   ? "Insertar evento intermedio (completa hasta→desde con el siguiente del día)"
@@ -1719,6 +1748,7 @@ export default function FimbaAgendaPage() {
                               className="fimba-btn fimba-btn-ghost"
                               style={{ marginLeft: 4 }}
                               onClick={() => handleDuplicate(ev)}
+                              onDoubleClick={(e) => e.stopPropagation()}
                               title="Duplicar"
                             >
                               <IconCopy size={14} />
@@ -1728,6 +1758,7 @@ export default function FimbaAgendaPage() {
                               className="fimba-btn fimba-btn-danger"
                               style={{ marginLeft: 4 }}
                               onClick={() => handleDelete(ev)}
+                              onDoubleClick={(e) => e.stopPropagation()}
                               title="Eliminar"
                             >
                               <IconTrash size={14} />

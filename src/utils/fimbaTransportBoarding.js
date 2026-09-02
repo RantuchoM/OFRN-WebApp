@@ -221,7 +221,7 @@ export function formatAgendaOrigenLabel(ev, opts = {}) {
     ev?.locaciones?.localidades?.localidad || ev?.locacion_ciudad || "",
   ).trim();
   if (cityOnly) return cityOnly;
-  return "—";
+  return TRANSPORT_DESTINO_SIN_LOCACION;
 }
 
 /**
@@ -291,6 +291,9 @@ export function nextEventInVehicleSequence(seq, eventId) {
 /** Placeholder UI cuando no hay siguiente parada en la secuencia del vehículo. */
 export const TRANSPORT_DESTINO_SIN_SIGUIENTE = "Sin siguiente parada";
 
+/** Placeholder cuando el next stop (o Origen) no tiene `id_locacion` / nombre de catálogo. */
+export const TRANSPORT_DESTINO_SIN_LOCACION = "(Sin locación)";
+
 /**
  * Destino derivado de un evento de transporte = locación del next stop en la
  * secuencia unificada del vehículo (OFRN + FIMBA).
@@ -346,22 +349,25 @@ export function resolveTransportDestinoFromNextStop(
 }
 
 /**
- * Destino de planilla: locación/destino del next stop; si falta, título actividad.
+ * Destino de planilla: locación de catálogo del next stop.
  * Sin next stop → "—" (usar `TRANSPORT_DESTINO_SIN_SIGUIENTE` en UI Transportes).
+ * Con next pero sin locación → `TRANSPORT_DESTINO_SIN_LOCACION` (nunca actividad/tipo).
  *
  * @param {object|null|undefined} nextEv
  */
 export function formatNextStopDestino(nextEv) {
   if (!nextEv) return "—";
-  const loc = formatEventLocation(nextEv);
-  if (loc && loc !== "—") return loc;
-  const title = String(
-    nextEv.actividad ||
-      nextEv.tipo_nombre ||
-      nextEv.tipos_evento?.nombre ||
-      "",
+  const locName = String(
+    nextEv?.locaciones?.nombre || nextEv?.locacion_nombre || "",
   ).trim();
-  return title || "—";
+  if (locName) {
+    const city = String(
+      nextEv?.locaciones?.localidades?.localidad || nextEv?.locacion_ciudad || "",
+    ).trim();
+    return city ? `${locName} (${city})` : locName;
+  }
+  // Sin id_locacion / nombre de catálogo: no usar actividad ni texto legacy.
+  return TRANSPORT_DESTINO_SIN_LOCACION;
 }
 
 /**

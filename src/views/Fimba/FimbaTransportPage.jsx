@@ -48,6 +48,7 @@ import {
   formatEventLocation,
   resolveStopBoardAlightChips,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
+  TRANSPORT_DESTINO_SIN_LOCACION,
 } from "../../utils/fimbaTransportBoarding";
 import { buildDestinoStopSchedule } from "../../utils/fimbaDestinoStopCreate";
 import {
@@ -2390,6 +2391,9 @@ export default function FimbaTransportPage() {
                     >
                       Destino
                     </th>
+                    <th title="Línea Vuelo: en eventos.descripcion (misma fuente que Agenda)">
+                      Vuelo
+                    </th>
                     <th>Vehículo</th>
                     <th
                       title="Artistas taggeados en el evento (misma fuente que Agenda)"
@@ -2518,7 +2522,27 @@ export default function FimbaTransportPage() {
                         ...openOpts,
                       });
                     return (
-                      <tr key={ev.id} className={evRowClass}>
+                      <tr
+                        key={ev.id}
+                        className={evRowClass}
+                        onDoubleClick={
+                          readOnly
+                            ? undefined
+                            : (e) => {
+                                if (
+                                  e.target.closest(
+                                    "button, a, input, select, textarea, label",
+                                  )
+                                ) {
+                                  return;
+                                }
+                                setModal({ mode: "edit", evento: ev });
+                              }
+                        }
+                        title={
+                          readOnly ? undefined : "Doble clic para editar"
+                        }
+                      >
                         {editMode && (
                           <SyncDot
                             status={evStatus}
@@ -2704,49 +2728,13 @@ export default function FimbaTransportPage() {
                         <td
                           className="fimba-muted fimba-planilla-wrap"
                           style={{ fontSize: "0.85rem" }}
-                          title={locacion}
+                          title={
+                            ev.locacion_nombre
+                              ? "Locación de catálogo (editar en el modal del evento)"
+                              : locacion
+                          }
                         >
-                          {editMode ? (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                              <span
-                                style={{ fontSize: "0.85rem" }}
-                                title={
-                                  ev.locacion_nombre
-                                    ? "Locación de catálogo (editar en el modal del evento)"
-                                    : "Sin locación de catálogo"
-                                }
-                              >
-                                {locacion}
-                              </span>
-                              {ev.vuelo || evDraft.vuelo ? (
-                                <input
-                                  className="fimba-cell-input"
-                                  value={evDraft.vuelo}
-                                  disabled={evSaving}
-                                  placeholder="Vuelo"
-                                  title="Vuelo"
-                                  onChange={(e) =>
-                                    setEventField(ev.id, "vuelo", e.target.value)
-                                  }
-                                  onBlur={() => commitEvento(ev.id)}
-                                />
-                              ) : null}
-                            </div>
-                          ) : (
-                            <>
-                              {locacion}
-                              {ev.vuelo ? (
-                                <span
-                                  style={{
-                                    display: "block",
-                                    fontSize: "0.72rem",
-                                  }}
-                                >
-                                  Vuelo {ev.vuelo}
-                                </span>
-                              ) : null}
-                            </>
-                          )}
+                          {locacion}
                         </td>
                         <td
                           style={{
@@ -2768,6 +2756,7 @@ export default function FimbaTransportPage() {
                             }
                             aria-label="Insertar evento intermedio"
                             onClick={() => openIntermediateStop(ev, metrics)}
+                            onDoubleClick={(e) => e.stopPropagation()}
                             style={{
                               minWidth: 28,
                               padding: "0.2rem 0.3rem",
@@ -2782,9 +2771,11 @@ export default function FimbaTransportPage() {
                           className="fimba-muted fimba-planilla-wrap"
                           style={{ fontSize: "0.85rem" }}
                           title={
-                            destinoSiguiente !== TRANSPORT_DESTINO_SIN_SIGUIENTE
-                              ? `Siguiente parada del mismo vehículo: ${destinoSiguiente}`
-                              : "Sin siguiente parada en este vehículo"
+                            destinoSiguiente === TRANSPORT_DESTINO_SIN_SIGUIENTE
+                              ? "Sin siguiente parada en este vehículo"
+                              : destinoSiguiente === TRANSPORT_DESTINO_SIN_LOCACION
+                                ? "La siguiente parada no tiene locación de catálogo"
+                                : `Siguiente parada del mismo vehículo: ${destinoSiguiente}`
                           }
                         >
                           <span
@@ -2800,7 +2791,10 @@ export default function FimbaTransportPage() {
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
                                 fontStyle:
-                                  destinoSiguiente === TRANSPORT_DESTINO_SIN_SIGUIENTE
+                                  destinoSiguiente ===
+                                    TRANSPORT_DESTINO_SIN_SIGUIENTE ||
+                                  destinoSiguiente ===
+                                    TRANSPORT_DESTINO_SIN_LOCACION
                                     ? "italic"
                                     : undefined,
                               }}
@@ -2818,6 +2812,7 @@ export default function FimbaTransportPage() {
                                 }
                                 aria-label="Elegir destino creando evento"
                                 onClick={() => openDestinoStop(ev, metrics)}
+                                onDoubleClick={(e) => e.stopPropagation()}
                                 style={{
                                   minWidth: 24,
                                   padding: "0.15rem 0.25rem",
@@ -2829,6 +2824,33 @@ export default function FimbaTransportPage() {
                               </button>
                             ) : null}
                           </span>
+                        </td>
+                        <td
+                          className="fimba-muted fimba-planilla-wrap"
+                          style={{ fontSize: "0.85rem", maxWidth: "8rem" }}
+                          title={ev.vuelo || evDraft.vuelo || undefined}
+                        >
+                          {editMode ? (
+                            <input
+                              className="fimba-cell-input"
+                              value={evDraft.vuelo}
+                              disabled={evSaving}
+                              placeholder="Vuelo"
+                              title="Vuelo / nota (línea Vuelo: en descripcion)"
+                              onChange={(e) =>
+                                setEventField(ev.id, "vuelo", e.target.value)
+                              }
+                              onBlur={() => commitEvento(ev.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  commitEvento(ev.id);
+                                }
+                              }}
+                            />
+                          ) : (
+                            ev.vuelo || "—"
+                          )}
                         </td>
                         <td className="fimba-planilla-wrap" style={{ maxWidth: "10rem" }}>
                           {canAssignVeh ? (
@@ -2954,6 +2976,7 @@ export default function FimbaTransportPage() {
                                 type="button"
                                 className="fimba-btn fimba-btn-ghost"
                                 onClick={() => setModal({ mode: "edit", evento: ev })}
+                                onDoubleClick={(e) => e.stopPropagation()}
                                 title="Editar"
                               >
                                 <IconEdit size={14} />
@@ -2963,6 +2986,7 @@ export default function FimbaTransportPage() {
                                 className="fimba-btn fimba-btn-ghost"
                                 style={{ marginLeft: 4 }}
                                 onClick={() => handleDuplicate(ev)}
+                                onDoubleClick={(e) => e.stopPropagation()}
                                 title="Duplicar"
                               >
                                 <IconCopy size={14} />
@@ -2972,6 +2996,7 @@ export default function FimbaTransportPage() {
                                 className="fimba-btn fimba-btn-danger"
                                 style={{ marginLeft: 4 }}
                                 onClick={() => handleDelete(ev)}
+                                onDoubleClick={(e) => e.stopPropagation()}
                                 title="Eliminar"
                               >
                                 <IconTrash size={14} />

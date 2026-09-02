@@ -29,7 +29,9 @@ import {
   summarizeOfrnStopRules,
   boardingMetricsForEventRow,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
+  TRANSPORT_DESTINO_SIN_LOCACION,
   formatEventLocation,
+  formatNextStopDestino,
 } from "../../utils/fimbaTransportBoarding";
 import {
   buildDestinoStopSchedule,
@@ -1713,10 +1715,18 @@ export default function FimbaEventoFormModal({
                     style={{ fontSize: "0.82rem", lineHeight: 1.45, marginBottom: "0.65rem" }}
                   >
                     <div>
-                      <strong style={{ color: "#334155", fontWeight: 600 }}>
-                        {formatEventLocation(transportNextEvent) !== "—"
-                          ? formatEventLocation(transportNextEvent)
-                          : transportDestinoLabel}
+                      <strong
+                        style={{
+                          color: "#334155",
+                          fontWeight: 600,
+                          fontStyle:
+                            formatNextStopDestino(transportNextEvent) ===
+                            TRANSPORT_DESTINO_SIN_LOCACION
+                              ? "italic"
+                              : undefined,
+                        }}
+                      >
+                        {formatNextStopDestino(transportNextEvent)}
                       </strong>
                     </div>
                     {transportNextEvent.hora_inicio ? (

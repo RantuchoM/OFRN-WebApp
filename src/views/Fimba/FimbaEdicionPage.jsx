@@ -35,7 +35,13 @@ import {
 } from "../../services/fimbaService";
 import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
 import { matchesFimbaArtistaPersonSearch } from "../../utils/fimbaArtistaSearch";
-import { resolveParticipanteStay, classifyStayOverride, stayOverrideLabel, formatStayEventLabel } from "../../utils/fimbaStay";
+import {
+  resolveParticipanteStay,
+  classifyStayOverride,
+  stayOverrideLabel,
+  formatStayEventLabel,
+  formatStayEventLabelCompact,
+} from "../../utils/fimbaStay";
 import FimbaArtistaPersonSearchField from "./FimbaArtistaPersonSearchField";
 
 /** Columnas editables en modo planilla (orden de Tab / Enter). Color/estado en ficha artista. */
@@ -773,7 +779,12 @@ function FimbaArtistasTable({
   };
 
   return (
-    <div className="fimba-card" style={{ padding: 0, overflow: "auto" }}>
+    <div className="fimba-card fimba-artistas-card">
+      <div
+        className="fimba-artistas-scroll"
+        role="region"
+        aria-label="Planilla de artistas (desplazá horizontalmente para ver todas las columnas)"
+      >
       <table className={`fimba-table fimba-artistas-table${editMode ? " fimba-table-edit" : ""}`}>
         <thead>
           <tr>
@@ -880,6 +891,7 @@ function FimbaArtistasTable({
                           data-fimba-cell={`${rowIdx}-0`}
                           className="fimba-cell-input"
                           value={draft.nombre}
+                          title={draft.nombre || ""}
                           onChange={(e) => setField(p.id, "nombre", e.target.value)}
                           onBlur={() => commitRow(p.id)}
                           onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 0, p.id)}
@@ -889,6 +901,7 @@ function FimbaArtistasTable({
                         <button
                           type="button"
                           className="fimba-artista-name-btn"
+                          title={p.nombre || ""}
                           onClick={(e) => toggleExpand(p.id, e)}
                         >
                           {p.nombre}
@@ -962,8 +975,15 @@ function FimbaArtistasTable({
                         </label>
                       </div>
                     ) : (
-                      <span className="fimba-date-flag-read">
-                        {formatStayEventLabel(p.evento_checkin) ||
+                      <span
+                        className="fimba-date-flag-read"
+                        title={
+                          formatStayEventLabel(p.evento_checkin) ||
+                          formatFecha(p.checkin_at) ||
+                          undefined
+                        }
+                      >
+                        {formatStayEventLabelCompact(p.evento_checkin) ||
                           formatFecha(p.checkin_at)}
                         {asBool(p.checkin_early) && (
                           <span className="fimba-badge fimba-badge-early">Early</span>
@@ -997,8 +1017,15 @@ function FimbaArtistasTable({
                         </label>
                       </div>
                     ) : (
-                      <span className="fimba-date-flag-read">
-                        {formatStayEventLabel(p.evento_checkout) ||
+                      <span
+                        className="fimba-date-flag-read"
+                        title={
+                          formatStayEventLabel(p.evento_checkout) ||
+                          formatFecha(p.checkout_at) ||
+                          undefined
+                        }
+                      >
+                        {formatStayEventLabelCompact(p.evento_checkout) ||
                           formatFecha(p.checkout_at)}
                         {asBool(p.checkout_late) && (
                           <span className="fimba-badge fimba-badge-late">Late</span>
@@ -1167,6 +1194,7 @@ function FimbaArtistasTable({
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

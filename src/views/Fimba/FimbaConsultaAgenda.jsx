@@ -31,6 +31,7 @@ import {
   resolveAgendaDestinoLabel,
   resolveEventAboardCount,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
+  TRANSPORT_DESTINO_SIN_LOCACION,
 } from "../../utils/fimbaTransportBoarding";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
@@ -369,7 +370,23 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                     ? resolveEventAboardCount(ev, sequencesByVehicle, null)
                     : null;
                   return (
-                    <tr key={ev.id}>
+                    <tr
+                      key={ev.id}
+                      onDoubleClick={
+                        editable
+                          ? (e) => {
+                              if (
+                                e.target.closest(
+                                  "button, a, input, select, textarea, label",
+                                )
+                              ) {
+                                return;
+                              }
+                              setModal({ mode: "edit", evento: ev });
+                            }
+                          : undefined
+                      }
+                    >
                       <td style={{ paddingLeft: "1rem", whiteSpace: "nowrap" }}>
                         {formatFecha(ev.fecha)}
                       </td>
@@ -411,12 +428,21 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                       </td>
                       <td
                         className="fimba-muted"
-                        style={{ maxWidth: 160 }}
+                        style={{
+                          maxWidth: 160,
+                          fontStyle:
+                            destino === TRANSPORT_DESTINO_SIN_SIGUIENTE ||
+                            destino === TRANSPORT_DESTINO_SIN_LOCACION
+                              ? "italic"
+                              : undefined,
+                        }}
                         title={
                           isTx && destino !== "—"
                             ? destino === TRANSPORT_DESTINO_SIN_SIGUIENTE
                               ? "Sin siguiente parada en la secuencia del vehículo"
-                              : `Siguiente parada del mismo vehículo: ${destino}`
+                              : destino === TRANSPORT_DESTINO_SIN_LOCACION
+                                ? "La siguiente parada no tiene locación de catálogo"
+                                : `Siguiente parada del mismo vehículo: ${destino}`
                             : undefined
                         }
                       >
@@ -466,6 +492,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                               onClick={() =>
                                 setModal({ mode: "edit", evento: ev })
                               }
+                              onDoubleClick={(e) => e.stopPropagation()}
                               title="Editar"
                             >
                               <IconEdit size={14} />
@@ -475,6 +502,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                               className="fimba-btn fimba-btn-ghost"
                               style={{ marginLeft: 4 }}
                               onClick={() => handleDuplicate(ev)}
+                              onDoubleClick={(e) => e.stopPropagation()}
                               title="Duplicar"
                             >
                               <IconCopy size={14} />
@@ -484,6 +512,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                               className="fimba-btn fimba-btn-danger"
                               style={{ marginLeft: 4 }}
                               onClick={() => handleDelete(ev)}
+                              onDoubleClick={(e) => e.stopPropagation()}
                               title="Eliminar"
                             >
                               <IconTrash size={14} />

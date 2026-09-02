@@ -45,7 +45,9 @@ const FIMBA_CSS = `
     border-bottom: 1px solid var(--fimba-border);
   }
   .fimba-header-inner {
-    max-width: 1100px;
+    width: 90%;
+    max-width: 90vw;
+    box-sizing: border-box;
     margin: 0 auto;
     padding: 0.85rem 1.25rem;
     display: flex;
@@ -130,25 +132,29 @@ const FIMBA_CSS = `
     .fimba-section-toggle-label { display: none; }
     .fimba-section-toggle-item { padding: 0.42rem 0.55rem; }
   }
+  /* Shell content: 90% viewport (floor when zoomed out); no fixed px max-width */
   .fimba-main {
-    max-width: 1100px;
+    width: 90%;
+    max-width: 90vw;
+    box-sizing: border-box;
     margin: 0 auto;
     padding: 1.5rem 1.25rem 3rem;
     /* Allow wide planillas to own their scroll; do not clip children */
     overflow-x: visible;
   }
-  .fimba-main:has(.fimba-agenda-wide),
-  .fimba-main:has(.fimba-hotel-wide),
-  .fimba-main:has(.fimba-edicion-wide),
-  .fimba-main:has(.fimba-venues-wide) {
-    max-width: 1200px;
+  @media (max-width: 640px) {
+    .fimba-header-inner,
+    .fimba-main {
+      width: 100%;
+      max-width: 100%;
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
   }
-  /* Transportes: full-bleed within viewport so the planilla can scroll horizontally */
-  .fimba-main:has(.fimba-transport-wide) {
-    max-width: none;
-    width: 100%;
-    box-sizing: border-box;
-  }
+  .fimba-edicion-wide,
+  .fimba-venues-wide,
+  .fimba-agenda-wide,
+  .fimba-hotel-wide,
   .fimba-transport-wide {
     min-width: 0;
     max-width: 100%;
@@ -1157,10 +1163,25 @@ const FIMBA_CSS = `
   @media (max-width: 640px) {
     .fimba-grid-2 { grid-template-columns: 1fr; }
   }
-  /* Planilla artistas — modo edición + semáforo (tipo MealsManager) */
+  /* Planilla artistas — scroll horizontal (paridad agenda/transportes) */
+  .fimba-artistas-card {
+    padding: 0;
+    overflow: visible;
+    min-width: 0;
+  }
+  .fimba-artistas-scroll {
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    max-width: 100%;
+  }
   .fimba-artistas-table {
-    width: 100%;
+    width: max-content;
+    min-width: 100%;
     table-layout: auto;
+    border-collapse: separate;
+    border-spacing: 0;
   }
   .fimba-artistas-table th,
   .fimba-artistas-table td {
@@ -1175,28 +1196,35 @@ const FIMBA_CSS = `
     padding: 0.35rem 0.25rem;
   }
   .fimba-col-artista {
-    min-width: 9rem;
-    max-width: 14rem;
+    width: 15rem;
+    min-width: 12rem;
+    max-width: 16rem; /* ~256px — nombres largos no empujan Check-out */
+    overflow: hidden;
   }
   .fimba-col-num {
     width: 3.25rem;
     text-align: center;
   }
   .fimba-col-date {
-    width: 7.5rem;
+    min-width: 7.25rem;
   }
   .fimba-col-hotel {
     min-width: 6.5rem;
-    max-width: 10rem;
   }
   .fimba-col-obs {
-    min-width: 8rem;
-    max-width: 14rem;
+    min-width: 10rem;
+    max-width: 16rem;
+    white-space: normal !important;
+  }
+  .fimba-col-obs .fimba-muted {
+    white-space: pre-wrap;
+    word-break: break-word;
   }
   .fimba-cell-obs {
     resize: vertical;
     min-height: 2.4rem;
     line-height: 1.25;
+    white-space: pre-wrap;
   }
   .fimba-col-actions {
     width: 1%;
@@ -1209,10 +1237,15 @@ const FIMBA_CSS = `
     align-items: center;
     gap: 0.4rem;
     min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
   }
   .fimba-artista-cell .fimba-cell-input {
     flex: 1;
     min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .fimba-cell-input {
     width: 100%;
@@ -1269,7 +1302,10 @@ const FIMBA_CSS = `
     pointer-events: none;
   }
   .fimba-artista-name-btn {
-    display: inline;
+    display: block;
+    flex: 1;
+    min-width: 0;
+    max-width: 100%;
     font-weight: 600;
     background: none;
     border: 0;
@@ -1278,9 +1314,9 @@ const FIMBA_CSS = `
     color: inherit;
     font: inherit;
     text-align: left;
-    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .fimba-artista-name-btn:hover {
     color: var(--fimba-deep);

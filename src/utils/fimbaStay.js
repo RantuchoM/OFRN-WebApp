@@ -281,3 +281,18 @@ export function formatStayEventLabel(ev) {
   else if (lugar) parts.push(lugar);
   return parts.length ? parts.join(" · ") : null;
 }
+
+/**
+ * Etiqueta compacta para planillas angostas: fecha · hora (sin detalle/Check-In).
+ * Usar `formatStayEventLabel` en `title` para el texto completo.
+ * @param {object|null|undefined} ev
+ */
+export function formatStayEventLabelCompact(ev) {
+  if (!ev) return null;
+  const fecha = isoDateOrNull(ev.fecha);
+  if (!fecha) return null;
+  const [y, m, d] = fecha.split("-");
+  const fechaTxt = `${d}/${m}/${y}`;
+  const hora = stayEventHoraLabel(ev);
+  return hora ? `${fechaTxt} · ${hora}` : fechaTxt;
+}
