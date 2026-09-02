@@ -9,6 +9,8 @@ export default function ParticellaExportBusyOverlay({
   current = 0,
   total = 0,
   label = "",
+  title = "Exportando particellas…",
+  showWarning = true,
 }) {
   const pct =
     total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
@@ -25,9 +27,7 @@ export default function ParticellaExportBusyOverlay({
         <div className="mb-3 flex items-center gap-2.5">
           <IconLoader className="shrink-0 animate-spin text-indigo-600" size={20} />
           <div className="min-w-0">
-            <p className="text-sm font-bold text-slate-800">
-              Exportando particellas…
-            </p>
+            <p className="text-sm font-bold text-slate-800">{title}</p>
             <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
               {label || "Procesando"}
               {total > 0 ? (
@@ -51,9 +51,11 @@ export default function ParticellaExportBusyOverlay({
           />
         </div>
 
-        <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-center text-[11px] font-semibold leading-snug text-amber-900">
-          No cierres esta pestaña ni este modal hasta que termine.
-        </p>
+        {showWarning ? (
+          <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-center text-[11px] font-semibold leading-snug text-amber-900">
+            No cierres esta pestaña ni este modal hasta que termine.
+          </p>
+        ) : null}
       </div>
     </div>
   );

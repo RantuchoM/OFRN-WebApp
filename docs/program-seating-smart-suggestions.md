@@ -62,9 +62,27 @@ Helpers de normalización:
   - Label: `[IconBulb] Aceptar todas`.
   - Estilo: chip/badge pequeño, `bg-amber-50` con borde ámbar y tipografía `text-[9px]`.
   - Acción:
-    - Itera sobre todas las entradas `suggestions[id_musico]`.
-    - Para cada (id_obra, id_particella_sugerida) llama a `handleAssign("M", id_musico, id_obra, id_particella_sugerida)` en serie.
-    - Al finalizar, elimina completamente `suggestions[id_musico]` para evitar residuos visuales.
+    - Llama a `handleAcceptAllParticellaSuggestions(m)` con el músico como alcance.
+    - Aplica en lote vía `applyBulkParticellaAssignments` (ver sección Rendimiento).
+
+### Botón global “Aceptar todas las sugerencias”
+
+- En la barra superior (escritorio) y menú móvil, si `pendingParticellaSuggestionsCount > 0`.
+- Acción: `handleAcceptAllParticellaSuggestions()` sin alcance (todo el programa activo).
+- Muestra overlay con barra de progreso (`ParticellaExportBusyOverlay`: título «Aplicando sugerencias…», contador `current/total`, fase «Cuerdas» / «Vientos y percusión») mientras `isAcceptingAllSuggestions`.
+
+### Rendimiento (aceptación en lote)
+
+- **Problema anterior:** cada sugerencia llamaba `handleAssign` en serie; cada asignación de músico hacía un `SELECT` de `seating_asignaciones` por obra + varios `INSERT`/`UPDATE`/`DELETE`.
+- **Solución:** `src/utils/seatingBulkAssign.js` → `applyBulkParticellaAssignments`:
+  1. Calcula en memoria el estado final (`assignments` + `musicianAssignments`) desde las sugerencias pendientes.
+  2. **Fase contenedores:** `DELETE` + `INSERT` de asignaciones por contenedor; `await` antes de músicos.
+  3. **Re-lectura** de `seating_asignaciones` del programa antes de la fase músicos.
+  4. **Fase músicos:** reconcilia por obra; permite la misma particella en contenedor y fila de músicos (ej. contrabajo en parte de cello).
+  5. Un solo `setState` local; no hace `fetchInitialData` completo.
+- **Índices únicos** (`20260902120000_seating_asignaciones_assignment_unique.sql`): una particella por celda contenedor/obra; una fila agregada de músicos por particella/obra (`id_musicos_asignados` con varios IDs). Ya no existe `UNIQUE (id_programa, id_particella)` global.
+- La lógica de matching de sugerencias sigue en el cliente (`derivedMusicianSuggestions`, `getContainerSuggestedPart`); no requiere RPC SQL porque el cuello de botella era la red, no el CPU.
+- **RPC SQL opcional futuro:** podría enviar un JSON de asignaciones a una función Postgres en una transacción; útil si hay triggers pesados o límites de concurrencia del cliente.
 
 ### Sugerencias para cuerdas (contenedores)
 

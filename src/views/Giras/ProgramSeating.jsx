@@ -55,6 +55,7 @@ import {
   CreateParticellaModal,
 } from "../../components/seating/SeatingControls";
 import OmitPartsModal from "../../components/seating/OmitPartsModal";
+import ParticellaExportBusyOverlay from "../../components/seating/ParticellaExportBusyOverlay";
 import PartNameLabel from "../../components/seating/PartNameLabel";
 import { toast } from "sonner";
 import { exportSeatingToExcel } from "../../utils/seatingExcelExporter";
@@ -84,6 +85,7 @@ import {
   fetchCuerdasConfigsForProgram,
   resolveCuerdasConfigForBlock,
 } from "../../utils/seatingCuerdasConfig";
+import { applyBulkParticellaAssignments } from "../../utils/seatingBulkAssign";
 import { createPortal } from "react-dom";
 import WorkForm from "../Repertoire/WorkForm";
 import GiraGrupoChips from "../../components/giras/GiraGrupoChips";
@@ -1039,6 +1041,11 @@ export default function ProgramSeating({
   const [isExporting, setIsExporting] = useState(false);
   const [isAcceptingAllSuggestions, setIsAcceptingAllSuggestions] =
     useState(false);
+  const [acceptSuggestionsProgress, setAcceptSuggestionsProgress] = useState({
+    current: 0,
+    total: 0,
+    label: "",
+  });
   const [instrumentList, setInstrumentList] = useState([]);
   const [createModalInfo, setCreateModalInfo] = useState(null);
   const [fetchedBlocks, setFetchedBlocks] = useState([]);
@@ -2588,37 +2595,110 @@ export default function ProgramSeating({
     setCreateModalInfo(null);
   };
 
-  const handleAcceptAllParticellaSuggestions = async () => {
-    if (!isEditor || pendingParticellaSuggestionsCount === 0) return;
-    setIsAcceptingAllSuggestions(true);
-    try {
-      for (const c of seatingContainers) {
-        if (!c.items?.length) continue;
-        for (const obra of obras) {
+  const collectPendingParticellaSuggestions = useCallback(
+    (scope = "all") => {
+      const containerAssigns = [];
+      const musicianAssigns = [];
+
+      const containerList =
+        scope === "all"
+          ? seatingContainers
+          : seatingContainers.filter((c) => Number(c.id) === Number(scope.id));
+
+      containerList.forEach((c) => {
+        if (!c.items?.length) return;
+        displayObras.forEach((obra) => {
           const obraId = obra.obra_id;
-          if (assignments[`C-${c.id}-${obraId}`]) continue;
+          if (assignments[`C-${c.id}-${obraId}`]) return;
           const suggested = getContainerSuggestedPart(c, obraId);
           if (suggested) {
-            // eslint-disable-next-line no-await-in-loop
-            await handleAssign("C", c.id, obraId, suggested.id);
+            containerAssigns.push({
+              containerId: c.id,
+              obraId,
+              particellaId: suggested.id,
+            });
           }
-        }
-      }
-      for (const m of otherMusicians) {
+        });
+      });
+
+      const musicianList =
+        scope === "all"
+          ? otherMusicians
+          : otherMusicians.filter((m) => Number(m.id) === Number(scope.id));
+
+      musicianList.forEach((m) => {
         const suggestions = derivedMusicianSuggestions[m.id] || {};
-        for (const obra of obras) {
+        displayObras.forEach((obra) => {
           const obraId = obra.obra_id;
-          if (getMusicianPartIds(musicianAssignments, `M-${m.id}-${obraId}`).length > 0)
-            continue;
+          if (
+            getMusicianPartIds(musicianAssignments, `M-${m.id}-${obraId}`)
+              .length > 0
+          )
+            return;
           const partId = suggestions[obraId];
           if (partId) {
-            // eslint-disable-next-line no-await-in-loop
-            await handleAssign("M", m.id, obraId, partId);
+            musicianAssigns.push({
+              musicianId: m.id,
+              obraId,
+              particellaId: partId,
+            });
           }
-        }
-      }
+        });
+      });
+
+      return { containerAssigns, musicianAssigns };
+    },
+    [
+      seatingContainers,
+      displayObras,
+      assignments,
+      getContainerSuggestedPart,
+      otherMusicians,
+      derivedMusicianSuggestions,
+      musicianAssignments,
+    ],
+  );
+
+  const handleAcceptAllParticellaSuggestions = async (scopeOrEvent = "all") => {
+    const scope =
+      scopeOrEvent === "all" ||
+      (scopeOrEvent &&
+        typeof scopeOrEvent === "object" &&
+        scopeOrEvent.id != null &&
+        (scopeOrEvent.items || scopeOrEvent.apellido || scopeOrEvent.nombre))
+        ? scopeOrEvent
+        : "all";
+    if (!isEditor) return;
+    const { containerAssigns, musicianAssigns } =
+      collectPendingParticellaSuggestions(scope);
+    if (!containerAssigns.length && !musicianAssigns.length) return;
+
+    setIsAcceptingAllSuggestions(true);
+    setAcceptSuggestionsProgress({
+      current: 0,
+      total: containerAssigns.length + musicianAssigns.length,
+      label: "Preparando…",
+    });
+    try {
+      const next = await applyBulkParticellaAssignments(supabase, program.id, {
+        containerAssigns,
+        musicianAssigns,
+        assignments,
+        musicianAssignments,
+        onProgress: ({ current, total, label }) => {
+          setAcceptSuggestionsProgress({ current, total, label: label || "" });
+        },
+      });
+      setAssignments(next.assignments);
+      setMusicianAssignments(next.musicianAssignments);
+    } catch (err) {
+      console.error(err);
+      toast.error(
+        err?.message || "No se pudieron aplicar las sugerencias de particellas",
+      );
     } finally {
       setIsAcceptingAllSuggestions(false);
+      setAcceptSuggestionsProgress({ current: 0, total: 0, label: "" });
     }
   };
 
@@ -2748,15 +2828,44 @@ export default function ProgramSeating({
       id_contenedor: targetId,
       id_obra: obraId,
     });
-    if (particellaId) {
-      await supabase.from("seating_asignaciones").insert({
-        id_programa: program.id,
-        id_obra: obraId,
-        id_particella: particellaId,
-        id_contenedor: targetId,
-        id_musicos_asignados: null,
-      });
+
+    if (!particellaId) return;
+
+    const { data: existing } = await supabase
+      .from("seating_asignaciones")
+      .select("*")
+      .eq("id_programa", program.id)
+      .eq("id_obra", obraId);
+
+    const staleContainerRow = (existing || []).find(
+      (row) =>
+        row.id_contenedor &&
+        Number(row.id_contenedor) !== Number(targetId) &&
+        String(row.id_particella) === String(particellaId),
+    );
+
+    if (staleContainerRow) {
+      const { error } = await supabase
+        .from("seating_asignaciones")
+        .update({
+          id_contenedor: targetId,
+          id_musicos_asignados: null,
+        })
+        .eq("id", staleContainerRow.id);
+      if (error) {
+        alert(error.message);
+      }
+      return;
     }
+
+    const { error } = await supabase.from("seating_asignaciones").insert({
+      id_programa: program.id,
+      id_obra: obraId,
+      id_particella: particellaId,
+      id_contenedor: targetId,
+      id_musicos_asignados: null,
+    });
+    if (error) alert(error.message);
   };
 
   // Músicos sin ninguna partitura asignada en el programa (solo aplicable en modo edición)
@@ -2834,17 +2943,22 @@ export default function ProgramSeating({
         saving={omitSaving}
       />
 
-      {(loading || rosterLoading || isExporting || isAcceptingAllSuggestions) && (
+      {isAcceptingAllSuggestions && (
+        <ParticellaExportBusyOverlay
+          current={acceptSuggestionsProgress.current}
+          total={acceptSuggestionsProgress.total}
+          label={acceptSuggestionsProgress.label}
+          title="Aplicando sugerencias…"
+          showWarning={false}
+        />
+      )}
+
+      {(loading || rosterLoading || isExporting) && (
         <div className="absolute inset-0 bg-white/80 z-[60] flex flex-col items-center justify-center gap-2">
           <IconLoader className="animate-spin text-indigo-600" size={32} />
           {isExporting && (
             <span className="text-xs font-bold text-slate-600 uppercase tracking-widest animate-pulse">
               Generando Reporte...
-            </span>
-          )}
-          {isAcceptingAllSuggestions && (
-            <span className="text-xs font-bold text-slate-600 uppercase tracking-widest animate-pulse">
-              Aplicando sugerencias...
             </span>
           )}
         </div>
@@ -3156,7 +3270,7 @@ export default function ProgramSeating({
           {!isEscenarioView && isEditor && pendingParticellaSuggestionsCount > 0 && (
             <button
               type="button"
-              onClick={handleAcceptAllParticellaSuggestions}
+              onClick={() => handleAcceptAllParticellaSuggestions()}
               disabled={
                 isAcceptingAllSuggestions || loading || isExporting
               }
@@ -3625,27 +3739,10 @@ export default function ProgramSeating({
                               {hasContainerSuggestions && (
                                 <button
                                   type="button"
-                                  onClick={async () => {
-                                    for (const obra of displayObras) {
-                                      const obraId = obra.obra_id;
-                                      const key = `C-${c.id}-${obraId}`;
-                                      if (assignments[key]) continue;
-                                      const suggested =
-                                        getContainerSuggestedPart(
-                                          c,
-                                          obraId,
-                                        );
-                                      if (suggested) {
-                                        // eslint-disable-next-line no-await-in-loop
-                                        await handleAssign(
-                                          "C",
-                                          c.id,
-                                          obraId,
-                                          suggested.id,
-                                        );
-                                      }
-                                    }
-                                  }}
+                                  onClick={() =>
+                                    handleAcceptAllParticellaSuggestions(c)
+                                  }
+                                  disabled={isAcceptingAllSuggestions}
                                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[9px] font-semibold border border-amber-200 hover:bg-amber-100 self-start"
                                 >
                                   <IconBulb
@@ -3805,20 +3902,10 @@ export default function ProgramSeating({
                               {isEditor && hasSuggestions && (
                                 <button
                                   type="button"
-                                  onClick={async () => {
-                                    const entries = Object.entries(
-                                      musicianSuggestions,
-                                    );
-                                    for (const [obraId, partId] of entries) {
-                                      // obraId viene como string en el objeto
-                                      await handleAssign(
-                                        "M",
-                                        m.id,
-                                        Number(obraId),
-                                        partId,
-                                      );
-                                    }
-                                  }}
+                                  onClick={() =>
+                                    handleAcceptAllParticellaSuggestions(m)
+                                  }
+                                  disabled={isAcceptingAllSuggestions}
                                   className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[9px] font-semibold border border-amber-200 hover:bg-amber-100 self-start"
                                 >
                                   <IconBulb
