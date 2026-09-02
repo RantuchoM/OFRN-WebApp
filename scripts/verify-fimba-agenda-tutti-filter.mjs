@@ -395,6 +395,71 @@ assert(
   "default FIMBA omite query (sin origen)",
 );
 
+function normalizeAgendaFilterIds(value) {
+  if (value == null || value === "") return [];
+  const list = Array.isArray(value) ? value : String(value).split(",");
+  return [
+    ...new Set(list.map((n) => Number(n)).filter(Number.isFinite)),
+  ].sort((a, b) => a - b);
+}
+
+function retainSelectedFilterIds(selectedIds, catalogIds) {
+  const selected = Array.isArray(selectedIds) ? selectedIds : [];
+  if (selected.length === 0) return selected;
+  const catalog = (catalogIds || []).map(Number).filter(Number.isFinite);
+  if (catalog.length === 0) return selected;
+  const valid = new Set(catalog);
+  return selected.filter((id) => valid.has(Number(id)));
+}
+
+function canonicalizeAgendaConsultaFilters(filters = {}) {
+  const propuestaIds = normalizeAgendaFilterIds(filters.propuestaIds);
+  const grupoIds = normalizeAgendaFilterIds(filters.grupoIds);
+  const locacionIds = normalizeAgendaFilterIds(filters.locacionIds);
+  const includeTutti = Boolean(filters.includeTutti);
+  const origen = hasOfrnConvocatoriaFilter(grupoIds, includeTutti)
+    ? "all"
+    : filters.origen === "ofrn" || filters.origen === "all"
+      ? filters.origen
+      : "fimba";
+  return { propuestaIds, grupoIds, locacionIds, includeTutti, origen };
+}
+
+function buildFimbaAgendaConsultaSharePath(shareToken) {
+  const t = String(shareToken || "").trim();
+  return t ? `/fimba/c/${t}/agenda` : null;
+}
+
+assert(
+  retainSelectedFilterIds([5, 7], []).join(",") === "5,7",
+  "catálogo vacío no borra propuestas de la URL",
+);
+assert(
+  retainSelectedFilterIds([5, 7, 99], [5, 7]).join(",") === "5,7",
+  "catálogo listo recorta ids inválidos",
+);
+
+const canon = canonicalizeAgendaConsultaFilters({
+  propuestaIds: [7, 5, 5],
+  grupoIds: [3],
+  origen: "fimba",
+});
+assert(canon.propuestaIds.join(",") === "5,7", "fingerprint ordena propuestas");
+assert(canon.origen === "all", "grupo fuerza origen=all en fingerprint");
+assert(
+  buildFimbaAgendaConsultaSharePath("abc-token") === "/fimba/c/abc-token/agenda",
+  "share único no lleva query",
+);
+
+const legacyShare = buildFimbaAgendaSharePath("/fimba/c/ed-token/agenda", {
+  propuestaIds: [5, 7],
+  grupoIds: [3],
+});
+assert(
+  legacyShare.includes("propuestas=5") && legacyShare.includes("grupos=3"),
+  "legacy edición+query sigue parseable",
+);
+
 if (process.exitCode) {
   console.error("verify-fimba-agenda-tutti-filter FAILED");
   process.exit(1);

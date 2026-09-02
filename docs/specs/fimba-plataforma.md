@@ -10,7 +10,8 @@ FIMBA es una aplicación de festival con skin propia bajo `/fimba/*`, que reutil
 
 | Tabla | Rol |
 |-------|-----|
-| `fimba_ediciones` | Edición del festival; **1:1** con `programas` vía `id_gira` |
+| `fimba_ediciones` | Edición del festival; **1:1** con `programas` vía `id_gira`. `token_consulta` = enlace consulta **general** de la edición (`/fimba/c/:token`). |
+| `fimba_agenda_consultas` | Enlace de **agenda fija**: UUID propio + filtros congelados (propuestas/grupos/locación/origen). `/fimba/c/:token/agenda` sin query. Independiente del token de edición. |
 | `fimba_propuestas` | UI «Artista»: cupos, colores, tokens, **estadía vía eventos** (`id_evento_checkin` / `id_evento_checkout` → `eventos`, tipos 22/23; espejo `checkin_at` / `checkout_at`), flags `checkin_early` / `checkout_late`, **`requiere_hotel`** / **`requiere_comidas`** (default true; false excluye de reportes/exportaciones), `id_hotel` opcional → `hoteles`, `observaciones_logisticas` (texto libre), **`rider`** (HTML rich-text logístico). Columna **`orden`**: se asigna al crear (legado / metadata); **no** ordena UI staff. **Display** de planillas y pickers = alfabético por `nombre` (`localeCompare` es, `sensitivity: "base"`, desempate `id`) vía `listFimbaPropuestas` / `sortFimbaPropuestasByNombre`. **Sin** carpeta Drive (vive en contrataciones) |
 | `fimba_participantes` | Personas del artista (entidad propia; `id_integrante` opcional bigint). **`genero`**: `femenino` \| `masculino` \| `otro` \| `sin_especificar` (default). Alta/edición acepta aliases (`M`/`F`/`hombre`/`mujer`, etc.) vía `canonicalizeFimbaGenero`. Reportes hotelería mapean a Hombre/Mujer/Sin género — **sin** default a masculino. **Override de estadía** por persona: `id_evento_checkin` / `id_evento_checkout` (+ espejo `checkin_at` / `checkout_at`); `NULL` = hereda el artista. Early/Late siguen en la propuesta. |
 | `fimba_usuarios` | Usuarios por edición: mail + `rol_fimba` (`editor_general` \| `consulta`) + `clave_acceso` / `token_login`. Staff OFRN management no requiere fila (full); fila `consulta` **sí** fuerza RO aunque sea management. |
@@ -251,14 +252,15 @@ Puerto de flujos OFRN (ExcelJS + file-saver + jsPDF/autoTable + `window.print`) 
 | `locacion` | CSV numérico | IDs `locaciones` (multi). Ej. `42` o `42,43` |
 | `origen` | `fimba` \| `ofrn` \| `all` | Chips origen; omitido = **Solo FIMBA** (default); con Tutti/grupo se fuerza `all` en el enlace. Artista solo **no** fuerza `all` |
 
-Helpers: `src/utils/fimbaAgendaUrlParams.js` (`parseFimbaAgendaUrlSearchParams`, `buildFimbaAgendaSharePath`, `buildFimbaAgendaConsultaSharePath`, `eventMatchesAgendaEntityFilter`, `eventMatchesTuttiAudiencia`, `eventMatchesPropuestaRouteFilter`, `hasOfrnConvocatoriaFilter`, `resolveGrupoIdsFromNames`). Carga server: `listFimbaAgenda` acepta `id_propuestas[]` + `id_grupos[]` + `include_ofrn` (API/consulta artista; incluye paradas de rutas sin sintéticos; orquesta omitida si `include_ofrn: false`). Planilla staff: carga FIMBA y filtra artista en cliente; orquesta al marcar Tutti/grupo. UI: sincroniza query params al cambiar filtros (`replace` en ruta staff `/fimba/edicion/:id/agenda`); botón **Copiar enlace de consulta** (solo staff `ofrn` / `editor_general`) genera URL pública `/fimba/c/{token_consulta}/agenda?…` (sin login; usa `fimba_ediciones.token_consulta`; helper «Solo agenda · sin login · respeta filtros actuales»).
+Helpers: `src/utils/fimbaAgendaUrlParams.js` (`parseFimbaAgendaUrlSearchParams`, `buildFimbaAgendaSharePath`, `buildFimbaAgendaConsultaSharePath` = token único sin query, `buildFimbaAgendaConsultaLegacySharePath` = token de edición + query, `canonicalizeAgendaConsultaFilters`, `retainSelectedFilterIds`, `eventMatchesAgendaEntityFilter`, `eventMatchesTuttiAudiencia`, `eventMatchesPropuestaRouteFilter`, `hasOfrnConvocatoriaFilter`, `resolveGrupoIdsFromNames`). Carga server: `listFimbaAgenda` acepta `id_propuestas[]` + `id_grupos[]` + `include_ofrn` (API/consulta artista; incluye paradas de rutas sin sintéticos; orquesta omitida si `include_ofrn: false`). Planilla staff: carga FIMBA y filtra artista en cliente; orquesta al marcar Tutti/grupo. UI: sincroniza query params al cambiar filtros (`replace` en ruta staff `/fimba/edicion/:id/agenda`); botón **Copiar enlace de consulta** (solo staff `ofrn` / `editor_general`) **crea o reusa** una fila `fimba_agenda_consultas` (token UUID único + filtros congelados) y copia `/fimba/c/{token}/agenda` **sin query string**. Regenerar `fimba_ediciones.token_consulta` **no** invalida estos enlaces (son independientes). En consulta (`agendaOnly`): filtros de planilla **ocultos**; la vista es fija (sesión `agenda_query_locked`); no hay Limpiar ni chips origen/artista/grupo. Enlaces legacy `/fimba/c/{token_edicion}/agenda?propuestas=…` siguen funcionando: al abrir se congelan en sesión.
 
 **Ejemplo FIMBA 2026 (edición 1):** Alba Carmona (`5`) + Daniel Ruggiero cuarteto (`7`) + grupo OFRN Alba (`3`):
 
 - Staff (requiere login): `/fimba/edicion/1/agenda?propuestas=5,7&grupos=3&tutti=1&origen=all`
-- **Público consulta (sin login):** `/fimba/c/dabafb9c-1deb-4f30-a443-a3968dcfe7f4/agenda?propuestas=5,7&grupos=3&origen=all`
+- **Público consulta (sin login):** `/fimba/c/{uuid-único}/agenda` (token de `fimba_agenda_consultas`, vista fija)
+- Legacy (sigue válido): `/fimba/c/dabafb9c-1deb-4f30-a443-a3968dcfe7f4/agenda?propuestas=5,7&grupos=3&origen=all`
 
-Equivalentes de lectura: `?artistas=5,7&grupo=Alba` · entry `/fimba/c/:token/agenda?…` → `FimbaEdicionConsultaEntry` valida token, persiste `localStorage.fimba_consulta_edicion` con **`agenda_only: true`**, redirige a `/fimba/edicion/:id/agenda?…` en shell RO **solo agenda** (sin nav a otras secciones; rutas fuera de `/agenda` → redirect con query preservada; sin create/edit/delete). Entry `/fimba/c/:token` (sin `/agenda`) → consulta edición completa RO (Artistas, Agenda, Transportes, Hotelería, Venues) como antes.
+Equivalentes de lectura: `?artistas=5,7&grupo=Alba` · entry `/fimba/c/:token/agenda?…` → `FimbaEdicionConsultaEntry` valida token (**primero** `fimba_agenda_consultas`, luego `fimba_ediciones.token_consulta`), persiste `localStorage.fimba_consulta_edicion` con **`agenda_only: true`** y **`agenda_query_locked: true`** (filtros congelados), redirige a `/fimba/edicion/:id/agenda` en shell RO **solo agenda** (sin nav; sin controles de filtro). Token único de agenda: redirect **sin query**. Token de edición + query legacy: query se congela en sesión (cambiar la URL no cambia la vista). Entry `/fimba/c/:token` (sin `/agenda`, token de edición) → consulta edición completa RO (Artistas, Agenda, Transportes, Hotelería, Venues) como antes.
 - **Columnas planilla Agenda / consulta artista:** **Evento** (badges FIMBA/OFRN; antes «Origen») · Fecha · Com·Fin · Tipo · Detalle · **Origen** · **Destino** · **Vuelo** · Vehículo · As. Equipaje · …
   - **Origen** = parada actual: `formatAgendaOrigenLabel(ev, { skipDestinoFallback: true })` → `locacion_nombre` / `locaciones` (+ ciudad); **no** mezcla texto legacy `Destino:` en la línea principal. Sin locación de catálogo → **`(Sin locación)`** (`TRANSPORT_DESTINO_SIN_LOCACION`). Si persiste línea `Destino:` en `descripcion`, tag gris debajo (`resolveLegacyDestinoFromDescripcion`) para identificar y limpiar datos viejos.
   - **Destino** = **calculado** (no persistido): misma fuente que Transportes — `resolveAgendaDestinoLabel` → `resolveTransportDestinoFromNextStop` + secuencias `buildAllVehicleBoardingSequences` (ya cargadas para As. Equipaje). Solo filas transporte; resto «—». Sin next stop → **`Sin siguiente parada`** (`TRANSPORT_DESTINO_SIN_SIGUIENTE`). Next sin locación → **`(Sin locación)`** (nunca actividad/tipo).
@@ -302,7 +304,7 @@ Equivalentes de lectura: `?artistas=5,7&grupo=Alba` · entry `/fimba/c/:token/ag
 | Usuario FIMBA edición | Tabla `fimba_usuarios` (mail + `clave_acceso` + `rol_fimba` + `id_edicion`). Login `/fimba/login` → `localStorage.fimba_user`. **`editor_general`**: full edición; **`consulta`**: shell RO (sin Usuarios/Contrataciones). |
 | Consulta artista `/fimba/a/:token` | UUID `token_consulta` de la **propuesta**; **solo lectura**: datos del artista (check-in/out, planificada, hotel), **agenda** filtrada por tags `eventos_fimba_propuestas`, participantes |
 | Consulta edición `/fimba/c/:token` | UUID `token_consulta` de la **edición** (`fimba_ediciones`); session `localStorage.fimba_consulta_edicion`; shell **solo lectura** de esa edición: Artistas, Agenda, Transportes, Hotelería, Venues; **sin** Usuarios, Contrataciones **ni Rider**; sin create/edit/delete |
-| Consulta agenda `/fimba/c/:token/agenda` | Mismo token; session con **`agenda_only: true`**; shell RO **solo `/agenda`** (sin nav otras secciones; redirect automático fuera de agenda) |
+| Consulta agenda `/fimba/c/:token/agenda` | UUID de **`fimba_agenda_consultas`** (vista fija) **o** `token_consulta` de edición (legacy + query); session con **`agenda_only` + `agenda_query_locked`**; shell RO **solo `/agenda`**; **sin filtros editables** |
 | Edición artista `/fimba/e/:token` | UUID `token_edicion`; planilla Excel de participantes; **agenda editable**; **rooming / acomodo** (sin editar inventarios de cupos) |
 
 #### Usuarios FIMBA por edición (`fimba_usuarios`)
@@ -319,7 +321,7 @@ Equivalentes de lectura: `?artistas=5,7&grupo=Alba` · entry `/fimba/c/:token/ag
 
 **Roles:** `editor_general` = acceso completo a esa edición (artistas, agenda, transportes, hotelería, rider, contrataciones, usuarios). `consulta` = solo lectura en el shell de la edición (mismos tabs operativos + **Rider RO + PDF**, **sin** Usuarios ni Contrataciones; `readOnly` vía `FimbaAccessContext`).
 
-**Enlace consulta general (`fimba_ediciones.token_consulta`):** UUID único NOT NULL default `gen_random_uuid()`. Gestión en `/fimba/edicion/:id/usuarios` (sección «Enlace consulta general edición»: copiar / regenerar). Ruta entry `/fimba/c/:token` → `FimbaEdicionConsultaEntry` → escribe `fimba_consulta_edicion` y redirige a `/fimba/edicion/:id`. Enlace filtrado de agenda: `/fimba/c/:token/agenda?…` o botón staff **Copiar enlace de consulta** en Agenda. Regenerar invalida el token anterior.
+**Enlace consulta general (`fimba_ediciones.token_consulta`):** UUID único NOT NULL default `gen_random_uuid()`. Gestión en `/fimba/edicion/:id/usuarios` (sección «Enlace consulta general edición»: copiar / regenerar). Ruta entry `/fimba/c/:token` → `FimbaEdicionConsultaEntry` → escribe `fimba_consulta_edicion` y redirige a `/fimba/edicion/:id`. **Enlace filtrado de agenda:** tabla `fimba_agenda_consultas` (token UUID propio, filtros congelados; «Copiar enlace de consulta» en Agenda). Regenerar el token de edición **no** invalida los enlaces de agenda. Enlaces viejos con query string siguen abriendo (consulta fija vía sesión).
 
 **Guard (`FimbaStaffGuard`):** (1) OFRN `isManagement` → allow (si hay fila `consulta` para la edición → RO, bloquea `/usuarios` y `/contrataciones`); (2) `fimba_user` editor/consulta con match `id_edicion` (consulta bloquea `/usuarios` y `/contrataciones`); (3) sesión token `fimba_consulta_edicion` igual RO; si **`agenda_only`** → redirect a `/fimba/edicion/:id/agenda` (preserva query) fuera de agenda; (4) sin sesión → `/fimba/login`; (5) OFRN no-management sin sesión FIMBA → mensaje + link login FIMBA.
 
@@ -553,6 +555,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] **Tutti en Grupos OFRN (2026-09-02):** opción Tutti off por defecto; planilla default Solo FIMBA; filtro artista ya no fuerza origen Todos ni incluye convocatoria orquesta; marcar Tutti o un grupo carga `include_ofrn` (unión con agenda FIMBA)
 - [x] **Filtro artista Agenda (2026-09-02):** ride abierto ya no hace match de eventos fuera de la secuencia del vehículo (`isFimbaRideAboardAtStop`); contador banner = `filtrados de base cargada`
 - [x] Enlace público `/fimba/c/:token/agenda`: sesión `agenda_only` + lockdown nav/rutas (solo agenda RO; redirect fuera de `/agenda`)
+- [x] **Token único por consulta de agenda (2026-09-02):** `fimba_agenda_consultas` (UUID + filtros congelados); Copiar enlace no usa el token de edición ni query string; UX consulta sin filtros editables; `retainSelectedFilterIds` no borra `?propuestas=` antes de cargar el catálogo
 
 ### Stub / deferred
 
@@ -607,7 +610,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 5. **Audiencia OFRN**: Ninguna | Tutti | Grupos (multi-select real de grupos de la gira). Al guardar con Grupos se escriben `eventos_grupos`.
 6. Editar un ensayo pure-OFRN desde FIMBA (staff) y agregar tags artista / cambiar audiencia — se guarda sin romper FK de transporte OFRN.
 7. Filtrar por artista (oculta pure OFRN; solo tagged). Columna Tipo = nombre/color de `tipos_evento`. Default origen **Todos**; chip «Solo FIMBA» oculta traslados/convocatoria solo-OFRN (p. ej. transporte desde 12/09 si el primer FIMBA es 17/09). Banner «Filtros activos» + **Limpiar filtros**. Dropdown multi-select de **categoría** (tabla `categorias_tipos_eventos`; vacío = todas). Incluye **Catering**.
-8. **Multi-filtro + enlace:** en dropdowns **Artista** y **Grupos OFRN**, tildar varios (checkboxes) → URL `?propuestas=5,7&grupos=3&origen=all`; **Copiar enlace de consulta** (staff) y abrir en incógnito `/fimba/c/{token}/agenda?…` → misma vista filtrada, **solo agenda** (sin nav Transportes/Hotelería/etc.; URL manual a `/transportes` → redirect a agenda).
+8. **Multi-filtro + enlace:** en dropdowns **Artista** y **Grupos OFRN**, tildar varios (checkboxes) → URL staff `?propuestas=5,7&grupos=3&origen=all`; **Copiar enlace de consulta** (staff) crea token único `/fimba/c/{uuid}/agenda` y abrir en incógnito → misma vista filtrada, **fija** (sin filtros ni nav Transportes/Hotelería). Enlace legacy con query se congela al abrir.
 9. Columna **As. Equipaje**: en filas con transporte muestra personas a bordo al salir (no `asientos_equipaje` del modal); sin transporte → «—». Hover del header explica la métrica.
 
 ### Transportes (vehículos ≠ trayectos)
@@ -764,7 +767,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/hooks/useFimbaConsultaEdicionSession.js` | Hook sesión enlace consulta edición |
 | `src/context/FimbaAccessContext.jsx` | `readOnly` / `canEditPropuestaMeta` / flags de secciones en shell staff |
 | `src/views/Fimba/FimbaLoginPage.jsx` | Form `/fimba/login` |
-| `src/views/Fimba/FimbaEdicionConsultaEntry.jsx` | Entry `/fimba/c/:token` (+ `/agenda`) → session + redirect con query |
+| `src/views/Fimba/FimbaEdicionConsultaEntry.jsx` | Entry `/fimba/c/:token` (+ `/agenda`): token único de agenda o token de edición; session locked |
 | `src/utils/fimbaTransportBoarding.js` | Secuencia + en tránsito + chips (`resolveStopBoardAlightChips` / `summarizeOfrnStopRules` / `formatBoardChipLabel`) + tooltip a bordo + opciones bajada |
 | `src/views/Fimba/FimbaStopRulesManager.jsx` | Modal planilla: reglas grupo+cantidad+equipaje; Reserva; **Bajar todo** FIMBA; StopRules OFRN `embedded` (+ Bajar todo orquesta) |
 | `src/views/Fimba/FimbaEventoArtistasBoardingTable.jsx` | Editor transporte: Tag \| Sube \| Baja + `SearchableSelect` alta; sync `fimba_propuesta_rutas` |
@@ -798,9 +801,10 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/views/Fimba/FimbaArtistaMetaSection.jsx` | Datos generales / meta (autosave + semáforo); ficha + modal Hotelería |
 | `src/views/Fimba/FimbaArtistaPage.jsx` | Detalle: meta + finanzas (Drive desde contratos) + agenda + rooming + planilla; finanzas si `canSeeContrataciones` |
 | `src/views/Fimba/FimbaConsultaAgenda.jsx` | Agenda por tag artista + ride segments RO; create/edit/delete en tagged |
-| `src/utils/fimbaAgendaUrlParams.js` | Query params compartibles agenda staff (propuestas / grupos OFRN / Tutti / locación / origen) |
-| `scripts/verify-fimba-agenda-tutti-filter.mjs` | Aserciones Tutti opt-in + artista no vuelca orquesta |
-| `src/views/Fimba/FimbaAgendaPage.jsx` | Planilla agenda (tipo/color catálogo); carga FIMBA + orquesta on-demand (Tutti/grupo); filtros en memoria; multi-filtro + Copiar enlace |
+| `src/utils/fimbaAgendaUrlParams.js` | Query staff + token único de consulta (`fimba_agenda_consultas`) + `retainSelectedFilterIds` |
+| `scripts/verify-fimba-agenda-tutti-filter.mjs` | Aserciones Tutti opt-in + fingerprint consulta + catálogo vacío no borra URL |
+| `src/views/Fimba/FimbaAgendaPage.jsx` | Planilla agenda; Copiar enlace → token único; `agendaOnly` oculta filtros (consulta fija) |
+| `supabase/migrations/20260902153808_fimba_agenda_consultas.sql` | Tabla `fimba_agenda_consultas` (token UUID + filtros congelados) |
 | `src/utils/fimbaTransportBoarding.js` | Boarding + filtros agenda por rutas (`eventMatchesPropuestaRouteFilter`) |
 | `src/views/Fimba/FimbaTransportPage.jsx` | Vehículos + trayectos + columnas boarding / locación |
 | `src/views/Fimba/FimbaHoteleriaPage.jsx` | Hotelería + **Editar datos** (meta compartida + cupos) + hub reportes + exports por tarjeta + comidas |

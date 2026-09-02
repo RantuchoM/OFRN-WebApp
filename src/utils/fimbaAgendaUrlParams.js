@@ -5,10 +5,13 @@ import { isFimbaRideAboardAtStop } from "./fimbaTransportBoarding";
  * Artista acota la agenda FIMBA. Grupos OFRN / Tutti **incluyen** convocatoria
  * orquesta (opt-in; off por defecto). Artista + grupo/tutti se combinan con OR.
  *
- * Canonical (generado por «Copiar enlace»):
+ * Canonical staff URL (`/fimba/edicion/:id/agenda`):
  * - `propuestas=5,7` — ids `fimba_propuestas`
  * - `grupos=3` — ids `giras_grupos`
  * - `tutti=1` — convocatoria Tutti / general histórica
+ *
+ * Enlace público de consulta: token **único** en `fimba_agenda_consultas`
+ * (`/fimba/c/{uuid}/agenda`, sin query). Legacy: token de edición + query.
  *
  * Aliases de lectura:
  * - `artista=5` | `artistas=5,7` | `propuesta=5`
@@ -37,6 +40,81 @@ export function parseCommaSeparatedIds(raw) {
         .filter(Number.isFinite),
     ),
   ];
+}
+
+/** @param {unknown} value */
+export function normalizeAgendaFilterIds(value) {
+  if (value == null || value === "") return [];
+  const list = Array.isArray(value)
+    ? value
+    : String(value)
+        .split(",")
+        .map((s) => s.trim());
+  return [
+    ...new Set(list.map((n) => Number(n)).filter(Number.isFinite)),
+  ].sort((a, b) => a - b);
+}
+
+/**
+ * Recorta ids al catálogo. Si el catálogo aún no cargó, no vaciar la selección
+ * (evita perder `?propuestas=5,7` en el primer render).
+ * @param {unknown[]} selectedIds
+ * @param {unknown[]} catalogIds
+ */
+export function retainSelectedFilterIds(selectedIds, catalogIds) {
+  const selected = Array.isArray(selectedIds) ? selectedIds : [];
+  if (selected.length === 0) return selected;
+  const catalog = (catalogIds || []).map(Number).filter(Number.isFinite);
+  if (catalog.length === 0) return selected;
+  const valid = new Set(catalog);
+  const next = selected.filter((id) => valid.has(Number(id)));
+  if (
+    next.length === selected.length &&
+    next.every((id, i) => Number(id) === Number(selected[i]))
+  ) {
+    return selected;
+  }
+  return next;
+}
+
+/**
+ * Forma canónica de filtros para token único / fingerprint DB.
+ * @param {{
+ *   propuestaIds?: unknown,
+ *   grupoIds?: unknown,
+ *   locacionIds?: unknown,
+ *   includeTutti?: boolean,
+ *   origen?: string|null,
+ * }} [filters]
+ */
+export function canonicalizeAgendaConsultaFilters(filters = {}) {
+  const propuestaIds = normalizeAgendaFilterIds(filters.propuestaIds);
+  const grupoIds = normalizeAgendaFilterIds(filters.grupoIds);
+  const locacionIds = normalizeAgendaFilterIds(filters.locacionIds);
+  const includeTutti = Boolean(filters.includeTutti);
+  const origen = hasOfrnConvocatoriaFilter(grupoIds, includeTutti)
+    ? "all"
+    : filters.origen === "ofrn" || filters.origen === "all"
+      ? filters.origen
+      : "fimba";
+  return {
+    propuestaIds,
+    grupoIds,
+    locacionIds,
+    includeTutti,
+    origen,
+  };
+}
+
+/** @param {object|null|undefined} row */
+export function filtersFromAgendaConsultaRow(row) {
+  return canonicalizeAgendaConsultaFilters({
+    propuestaIds: row?.propuestas,
+    grupoIds: row?.grupos,
+    locacionIds: row?.locaciones,
+    includeTutti: row?.include_tutti,
+    origen: row?.origen,
+  });
 }
 
 function parseNameTokens(raw) {
@@ -370,13 +448,26 @@ export function buildFimbaAgendaConsultaShareBasePath(consultaToken) {
 }
 
 /**
- * Enlace público RO: `/fimba/c/{token}/agenda?propuestas=…&grupos=…`
- * @param {string} consultaToken
+ * Enlace público RO con token único de consulta (sin query string).
+ * `/fimba/c/{shareToken}/agenda` — filtros viven en `fimba_agenda_consultas`.
+ * @param {string} shareToken — `fimba_agenda_consultas.token`
+ * @returns {string|null}
+ */
+export function buildFimbaAgendaConsultaSharePath(shareToken) {
+  return buildFimbaAgendaConsultaShareBasePath(shareToken);
+}
+
+/**
+ * Legacy: token de edición + query string. Solo lectura de enlaces viejos.
+ * @param {string} edicionConsultaToken — `fimba_ediciones.token_consulta`
  * @param {Parameters<typeof buildFimbaAgendaSharePath>[1]} filters
  * @returns {string|null}
  */
-export function buildFimbaAgendaConsultaSharePath(consultaToken, filters = {}) {
-  const base = buildFimbaAgendaConsultaShareBasePath(consultaToken);
+export function buildFimbaAgendaConsultaLegacySharePath(
+  edicionConsultaToken,
+  filters = {},
+) {
+  const base = buildFimbaAgendaConsultaShareBasePath(edicionConsultaToken);
   if (!base) return null;
   return buildFimbaAgendaSharePath(base, filters);
 }
