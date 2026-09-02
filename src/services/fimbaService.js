@@ -3045,6 +3045,8 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
   }
 
   let eventIds;
+  // Hoisted: used after the fetchByEventIds branch to seed tagsFull (line ~3208).
+  let tags = [];
   if (fetchByEventIds) {
     eventIds = onlyEventIds;
   } else {
@@ -3062,10 +3064,11 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
   } else if (propuestaFilterIds.length > 1) {
     tagQuery = tagQuery.in("id_propuesta", propuestaFilterIds);
   }
-  const { data: tags, error: eTags } = await tagQuery;
+  const { data: tagsData, error: eTags } = await tagQuery;
   if (eTags) return { eventos: [], error: eTags };
+  tags = tagsData || [];
 
-  const taggedEventIds = [...new Set((tags || []).map((t) => t.id_evento))];
+  const taggedEventIds = [...new Set(tags.map((t) => t.id_evento))];
 
   // Eventos con filas de flota FIMBA solo sobre vehículos de esta gira OFRN
   // (sin tag aún = traslados edition-wide). Nunca flota FIMBA propia.
