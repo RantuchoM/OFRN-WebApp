@@ -28,7 +28,6 @@ const FIMBA_CSS = `
     --fimba-border: #e2e8f0;
   }
   .fimba-root {
-    --fimba-site-header-h: 3.25rem;
     min-height: 100vh;
     background:
       radial-gradient(1200px 500px at 10% -10%, rgba(215, 50, 137, 0.12), transparent 55%),
@@ -217,6 +216,7 @@ const FIMBA_CSS = `
     justify-content: flex-end;
     flex-wrap: wrap;
   }
+  /* In document flow (not sticky): avoids fighting thead sticky inside overflow-x */
   .fimba-agenda-active-filters {
     display: flex;
     flex-wrap: wrap;
@@ -226,7 +226,8 @@ const FIMBA_CSS = `
     padding: 10px 12px;
     border-radius: 10px;
     border: 1px solid rgba(215, 50, 137, 0.28);
-    background: rgba(215, 50, 137, 0.06);
+    background: #fceef6;
+    box-shadow: 0 1px 0 rgba(215, 50, 137, 0.18);
   }
   .fimba-agenda-active-filters-main {
     display: flex;
@@ -282,7 +283,7 @@ const FIMBA_CSS = `
     padding: 0.35rem 0.65rem;
     white-space: nowrap;
   }
-  /* Agenda planilla: horizontal scroll + sticky column headers on page scroll */
+  /* Agenda planilla: horizontal scroll; thead sticky top:0 (see comment on th) */
   .fimba-agenda-card {
     padding: 0;
     overflow: visible;
@@ -303,7 +304,13 @@ const FIMBA_CSS = `
   }
   .fimba-agenda-table thead th {
     position: sticky;
-    top: var(--fimba-site-header-h, 3.25rem);
+    /*
+      Sticky scrollport is .fimba-agenda-scroll (overflow-x: auto creates a
+      scroll container). top is relative to THAT box, not the viewport.
+      Non-zero top (e.g. site-header-h) permanently pushes thead into tbody
+      (header sandwiched between row 1 and 2). Keep top: 0.
+    */
+    top: 0;
     z-index: 20;
     background: var(--fimba-surface, #fff);
     box-shadow: 0 1px 0 var(--fimba-border, #e2e8f0);
@@ -847,6 +854,224 @@ const FIMBA_CSS = `
   .fimba-badge-late {
     background: #fef3c7;
     color: #b45309;
+  }
+  .fimba-badge-anticipada {
+    background: #dbeafe;
+    color: #1d4ed8;
+  }
+  .fimba-badge-override {
+    background: #f1f5f9;
+    color: #475569;
+  }
+  .fimba-stay-caption {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.4rem;
+    margin-top: 2px;
+  }
+  .fimba-stay-clear {
+    border: 0;
+    background: none;
+    padding: 0;
+    font: inherit;
+    font-size: 0.62rem;
+    line-height: 1.2;
+    color: var(--fimba-cyan, #0284c7);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .fimba-stay-clear:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .fimba-stay-event-cell {
+    min-width: 7.5rem;
+    max-width: 11rem;
+  }
+  .fimba-stay-event-inherit {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    align-items: flex-start;
+  }
+  .fimba-stay-vincular {
+    border: 1px dashed #cbd5e1;
+    background: #f8fafc;
+    border-radius: 6px;
+    padding: 0.2rem 0.45rem;
+    font-size: 0.62rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: #475569;
+    cursor: pointer;
+  }
+  .fimba-stay-vincular:hover:not(:disabled) {
+    border-color: #0284c7;
+    color: #0284c7;
+  }
+  .fimba-stay-vincular:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .fimba-stay-event-chip {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 0.35rem 0.45rem;
+  }
+  .fimba-stay-event-chip-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .fimba-stay-event-chip-tag {
+    font-size: 0.55rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #c2410c;
+    background: #ffedd5;
+    border-radius: 4px;
+    padding: 0 0.3rem;
+  }
+  .fimba-stay-event-chip-body {
+    border: 0;
+    background: none;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+    width: 100%;
+  }
+  .fimba-stay-event-chip-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.2;
+    word-break: break-word;
+  }
+  .fimba-stay-event-chip-meta {
+    font-size: 0.62rem;
+    color: #64748b;
+    font-style: italic;
+  }
+  .fimba-stay-event-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+  .fimba-stay-event-modal {
+    background: #fff;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 26rem;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+    overflow: hidden;
+  }
+  .fimba-stay-event-modal-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.85rem 1rem;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .fimba-stay-event-modal-head h4 {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #334155;
+  }
+  .fimba-stay-event-modal-body {
+    padding: 1rem;
+  }
+  .fimba-stay-event-list {
+    max-height: 15rem;
+    overflow-y: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    margin-bottom: 0.75rem;
+  }
+  .fimba-stay-event-option {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border: 0;
+    border-bottom: 1px solid #f1f5f9;
+    background: #fff;
+    cursor: pointer;
+    text-align: left;
+  }
+  .fimba-stay-event-option:last-child {
+    border-bottom: 0;
+  }
+  .fimba-stay-event-option:hover:not(:disabled) {
+    background: #f0f9ff;
+  }
+  .fimba-stay-event-option-chip {
+    display: inline-block;
+    font-size: 0.58rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #c2410c;
+    background: #ffedd5;
+    border: 1px solid #fed7aa;
+    border-radius: 4px;
+    padding: 0.1rem 0.35rem;
+    margin-bottom: 0.25rem;
+  }
+  .fimba-stay-event-option-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #0f172a;
+  }
+  .fimba-stay-event-option-meta {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-top: 0.15rem;
+  }
+  .fimba-stay-event-option-icon {
+    color: #0284c7;
+    flex-shrink: 0;
+  }
+  .fimba-stay-event-create-btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .fimba-stay-event-create {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+  .fimba-stay-event-create-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.35rem;
+  }
+  .fimba-stay-event-readonly {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    align-items: flex-start;
   }
   .fimba-flag-check {
     display: inline-flex;

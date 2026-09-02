@@ -28,7 +28,7 @@ import {
 } from "../../services/fimbaService";
 import { compareEsText } from "../../utils/fimbaAgendaSort";
 import { matchesFimbaArtistaPersonSearch } from "../../utils/fimbaArtistaSearch";
-import { resolveParticipanteStay } from "../../utils/fimbaStay";
+import { resolveParticipanteStay, classifyStayOverride, stayDateFromEventOrMirror, formatStayEventLabel } from "../../utils/fimbaStay";
 import {
   exportFimbaComidasExcel,
   exportFimbaHoteleriaExcel,
@@ -568,14 +568,16 @@ export default function FimbaHoteleriaPage() {
                       {r.hotel?.nombre || "Sin hotel asignado"}
                       {" · "}
                       <span className="fimba-date-flag-read">
-                        {formatFecha(r.checkin_at)}
+                        {formatStayEventLabel(r.propuesta?.evento_checkin) ||
+                          formatFecha(r.checkin_at)}
                         {asBool(r.checkin_early) && (
                           <span className="fimba-badge fimba-badge-early">Early</span>
                         )}
                       </span>
                       {" → "}
                       <span className="fimba-date-flag-read">
-                        {formatFecha(r.checkout_at)}
+                        {formatStayEventLabel(r.propuesta?.evento_checkout) ||
+                          formatFecha(r.checkout_at)}
                         {asBool(r.checkout_late) && (
                           <span className="fimba-badge fimba-badge-late">Late</span>
                         )}
@@ -777,6 +779,24 @@ export default function FimbaHoteleriaPage() {
                           {(r.personas || []).map((p) => {
                             const roomInfo = roomForParticipante(r.habitaciones, p.id);
                             const stay = resolveParticipanteStay(p, r);
+                            const groupIn =
+                              stayDateFromEventOrMirror(r, "checkin") ||
+                              String(r.checkin_at || "").slice(0, 10) ||
+                              null;
+                            const groupOut =
+                              stayDateFromEventOrMirror(r, "checkout") ||
+                              String(r.checkout_at || "").slice(0, 10) ||
+                              null;
+                            const inKind = classifyStayOverride(
+                              "checkin",
+                              stay.inherited_checkin ? null : stay.checkin_at,
+                              groupIn,
+                            );
+                            const outKind = classifyStayOverride(
+                              "checkout",
+                              stay.inherited_checkout ? null : stay.checkout_at,
+                              groupOut,
+                            );
                             return (
                               <tr key={p.id}>
                                 <td style={{ paddingLeft: 0, fontWeight: 600 }}>
@@ -786,18 +806,48 @@ export default function FimbaHoteleriaPage() {
                                 <td className="fimba-muted">{roomInfo || "—"}</td>
                                 <td>
                                   <span className="fimba-date-flag-read">
-                                    {formatFecha(stay.checkin_at)}
-                                    {asBool(r.checkin_early) && stay.checkin_at === String(r.checkin_at || "").slice(0, 10) && (
-                                      <span className="fimba-badge fimba-badge-early">Early</span>
+                                    {!stay.inherited_checkin
+                                      ? formatStayEventLabel(p.evento_checkin) ||
+                                        formatFecha(stay.checkin_at)
+                                      : formatFecha(stay.checkin_at)}
+                                    {inKind === "early" && (
+                                      <span className="fimba-badge fimba-badge-anticipada">
+                                        Llegada anticipada
+                                      </span>
                                     )}
+                                    {inKind === "override" && (
+                                      <span className="fimba-badge fimba-badge-override">
+                                        Check-in propio
+                                      </span>
+                                    )}
+                                    {inKind === "inherit" &&
+                                      asBool(r.checkin_early) &&
+                                      stay.checkin_at === groupIn && (
+                                        <span className="fimba-badge fimba-badge-early">Early</span>
+                                      )}
                                   </span>
                                 </td>
                                 <td>
                                   <span className="fimba-date-flag-read">
-                                    {formatFecha(stay.checkout_at)}
-                                    {asBool(r.checkout_late) && stay.checkout_at === String(r.checkout_at || "").slice(0, 10) && (
-                                      <span className="fimba-badge fimba-badge-late">Late</span>
+                                    {!stay.inherited_checkout
+                                      ? formatStayEventLabel(p.evento_checkout) ||
+                                        formatFecha(stay.checkout_at)
+                                      : formatFecha(stay.checkout_at)}
+                                    {outKind === "late" && (
+                                      <span className="fimba-badge fimba-badge-late">
+                                        Salida posterior
+                                      </span>
                                     )}
+                                    {outKind === "override" && (
+                                      <span className="fimba-badge fimba-badge-override">
+                                        Check-out propio
+                                      </span>
+                                    )}
+                                    {outKind === "inherit" &&
+                                      asBool(r.checkout_late) &&
+                                      stay.checkout_at === groupOut && (
+                                        <span className="fimba-badge fimba-badge-late">Late</span>
+                                      )}
                                   </span>
                                 </td>
                                 <td>{stay.noches != null ? stay.noches : "—"}</td>
@@ -827,7 +877,8 @@ export default function FimbaHoteleriaPage() {
                               <td className="fimba-muted">—</td>
                               <td>
                                 <span className="fimba-date-flag-read">
-                                  {formatFecha(r.checkin_at)}
+                                  {formatStayEventLabel(r.propuesta?.evento_checkin) ||
+                                    formatFecha(r.checkin_at)}
                                   {asBool(r.checkin_early) && (
                                     <span className="fimba-badge fimba-badge-early">Early</span>
                                   )}
@@ -835,7 +886,8 @@ export default function FimbaHoteleriaPage() {
                               </td>
                               <td>
                                 <span className="fimba-date-flag-read">
-                                  {formatFecha(r.checkout_at)}
+                                  {formatStayEventLabel(r.propuesta?.evento_checkout) ||
+                                    formatFecha(r.checkout_at)}
                                   {asBool(r.checkout_late) && (
                                     <span className="fimba-badge fimba-badge-late">Late</span>
                                   )}
@@ -891,10 +943,40 @@ export default function FimbaHoteleriaPage() {
         createPortal(
           <HotelMetaEditModal
             row={metaModal.row}
+            idGira={edicion?.id_gira ?? null}
             onClose={() => setMetaModal(null)}
             onMetaSaved={(updated) => {
               const pid = updated?.id ?? metaModal.row?.propuesta?.id;
               if (pid != null) {
+                if (updated && updated.id != null) {
+                  setMetaModal((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          row: {
+                            ...prev.row,
+                            propuesta: {
+                              ...(prev.row?.propuesta || {}),
+                              ...updated,
+                            },
+                            checkin_at:
+                              stayDateFromEventOrMirror(updated, "checkin") ??
+                              updated.checkin_at ??
+                              prev.row?.checkin_at,
+                            checkout_at:
+                              stayDateFromEventOrMirror(updated, "checkout") ??
+                              updated.checkout_at ??
+                              prev.row?.checkout_at,
+                            checkin_early:
+                              updated.checkin_early ?? prev.row?.checkin_early,
+                            checkout_late:
+                              updated.checkout_late ?? prev.row?.checkout_late,
+                            hotel: updated.hoteles ?? prev.row?.hotel,
+                          },
+                        }
+                      : prev,
+                  );
+                }
                 refreshRow(pid);
                 setPropuestas((prev) => {
                   const idx = prev.findIndex((p) => Number(p.id) === Number(pid));
@@ -938,7 +1020,7 @@ function roomForParticipante(habitaciones, participanteId) {
   return null;
 }
 
-function HotelMetaEditModal({ row, onClose, onMetaSaved, onError }) {
+function HotelMetaEditModal({ row, idGira = null, onClose, onMetaSaved, onError }) {
   const prop = row.propuesta;
   const [habitCounts, setHabitCounts] = useState(() => {
     const base = { SGL: 0, DBL: 0, TPL: 0, QAD: 0 };
@@ -1013,6 +1095,7 @@ function HotelMetaEditModal({ row, onClose, onMetaSaved, onError }) {
           showRider={false}
           variant="plain"
           idPrefix={`fimba-hoteleria-meta-${prop.id}`}
+          idGira={idGira}
           onSaved={(next) => onMetaSaved?.(next)}
           onError={onError}
         />

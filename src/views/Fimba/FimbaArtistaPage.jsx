@@ -44,7 +44,7 @@ import {
   updateFimbaContratacion,
   updateFimbaParticipante,
 } from "../../services/fimbaService";
-import { isCommitableStayDate, resolveParticipanteStay } from "../../utils/fimbaStay";
+import { stayDateFromEventOrMirror, isoDateOrNull } from "../../utils/fimbaStay";
 import { DocumentacionDrivePreview } from "./FimbaDocumentacionDrivePreview";
 import { exportFimbaComidasExcel } from "../../utils/fimbaExport";
 import FimbaComidasReportModal from "./FimbaComidasReportModal";
@@ -61,15 +61,18 @@ import {
 } from "./FimbaEstadoConocido";
 import FimbaArtistaMetaSection from "./FimbaArtistaMetaSection";
 import FimbaRoomingPanel from "./FimbaRoomingPanel";
+import FimbaStayEventCell, {
+  FimbaStayEventReadLabel,
+} from "./FimbaStayEventCell";
 
-/** Columnas editables en planilla (orden Tab / Enter). */
+/** Columnas editables en planilla (orden Tab / Enter). Stay = picker de evento. */
 const EDITABLE_COLS = [
   "apellido",
   "nombre",
   "documento",
   "genero",
-  "checkin_at",
-  "checkout_at",
+  "id_evento_checkin",
+  "id_evento_checkout",
   "tipo_alimentacion",
   "nota_alimentacion",
   "activo",
@@ -80,30 +83,43 @@ const NEW_ROW_KEY = "__new__";
 function draftFromParticipante(p) {
   const tipoRaw = p?.tipo_alimentacion || "regular";
   const resolved = resolveFimbaTipoAlimentacion(tipoRaw);
-  // Valor desconocido → modo Otros con el texto original en la nota.
-  if (tipoRaw && !resolved) {
-    return {
-      apellido: p?.apellido || "",
-      nombre: p?.nombre || "",
-      documento: p?.documento || "",
-      genero: p?.genero || FIMBA_GENERO_DEFAULT,
-      checkin_at: p?.checkin_at ? String(p.checkin_at).slice(0, 10) : "",
-      checkout_at: p?.checkout_at ? String(p.checkout_at).slice(0, 10) : "",
-      tipo_alimentacion: FIMBA_ALIMENTACION_OTRO,
-      nota_alimentacion: p?.nota_alimentacion || tipoRaw,
-      activo: p?.activo !== false,
-    };
-  }
-  return {
+  const ownInId =
+    p?.id_evento_checkin != null && p?.id_evento_checkin !== ""
+      ? Number(p.id_evento_checkin)
+      : null;
+  const ownOutId =
+    p?.id_evento_checkout != null && p?.id_evento_checkout !== ""
+      ? Number(p.id_evento_checkout)
+      : null;
+  const checkin = ownInId ? stayDateFromEventOrMirror(p, "checkin") || "" : "";
+  const checkout = ownOutId
+    ? stayDateFromEventOrMirror(p, "checkout") || ""
+    : "";
+  const base = {
     apellido: p?.apellido || "",
     nombre: p?.nombre || "",
     documento: p?.documento || "",
     genero: p?.genero || FIMBA_GENERO_DEFAULT,
-    checkin_at: p?.checkin_at ? String(p.checkin_at).slice(0, 10) : "",
-    checkout_at: p?.checkout_at ? String(p.checkout_at).slice(0, 10) : "",
+    checkin_at: checkin || "",
+    checkout_at: checkout || "",
+    id_evento_checkin: ownInId,
+    id_evento_checkout: ownOutId,
+    evento_checkin: ownInId ? p?.evento_checkin || null : null,
+    evento_checkout: ownOutId ? p?.evento_checkout || null : null,
+    activo: p?.activo !== false,
+  };
+  // Valor desconocido → modo Otros con el texto original en la nota.
+  if (tipoRaw && !resolved) {
+    return {
+      ...base,
+      tipo_alimentacion: FIMBA_ALIMENTACION_OTRO,
+      nota_alimentacion: p?.nota_alimentacion || tipoRaw,
+    };
+  }
+  return {
+    ...base,
     tipo_alimentacion: resolved?.value || "regular",
     nota_alimentacion: p?.nota_alimentacion || "",
-    activo: p?.activo !== false,
   };
 }
 
@@ -114,19 +130,17 @@ function emptyDraft() {
 function draftsEqual(a, b) {
   return EDITABLE_COLS.every((k) => {
     if (k === "activo") return asBool(a?.[k]) === asBool(b?.[k]);
+    if (k === "id_evento_checkin" || k === "id_evento_checkout") {
+      const av = a?.[k] != null && a?.[k] !== "" ? Number(a[k]) : null;
+      const bv = b?.[k] != null && b?.[k] !== "" ? Number(b[k]) : null;
+      return av === bv;
+    }
     return String(a?.[k] ?? "") === String(b?.[k] ?? "");
   });
 }
 
 function asBool(v) {
   return v === true || v === "true" || v === 1 || v === "1";
-}
-
-function formatFecha(f) {
-  if (!f) return "—";
-  const [y, m, d] = String(f).split("-");
-  if (!d) return f;
-  return `${d}/${m}/${y}`;
 }
 
 function labelEstado(value) {
@@ -174,14 +188,22 @@ function validateParticipanteDraft(draft, { isCreate = false } = {}) {
     nota = "";
   }
 
-  const checkin = draft.checkin_at ? String(draft.checkin_at).slice(0, 10) : "";
-  const checkout = draft.checkout_at ? String(draft.checkout_at).slice(0, 10) : "";
-  if (checkin && !isCommitableStayDate(checkin)) {
-    return { ok: false, error: "Check-in inválido" };
-  }
-  if (checkout && !isCommitableStayDate(checkout)) {
-    return { ok: false, error: "Check-out inválido" };
-  }
+  const idIn =
+    draft.id_evento_checkin != null && draft.id_evento_checkin !== ""
+      ? Number(draft.id_evento_checkin)
+      : null;
+  const idOut =
+    draft.id_evento_checkout != null && draft.id_evento_checkout !== ""
+      ? Number(draft.id_evento_checkout)
+      : null;
+  const checkin = idIn
+    ? isoDateOrNull(draft.checkin_at) ||
+      isoDateOrNull(draft.evento_checkin?.fecha)
+    : null;
+  const checkout = idOut
+    ? isoDateOrNull(draft.checkout_at) ||
+      isoDateOrNull(draft.evento_checkout?.fecha)
+    : null;
   if (checkin && checkout && checkout < checkin) {
     return { ok: false, error: "El check-out no puede ser anterior al check-in" };
   }
@@ -196,8 +218,8 @@ function validateParticipanteDraft(draft, { isCreate = false } = {}) {
       tipo_alimentacion: tipo,
       nota_alimentacion: nota || null,
       activo: draft.activo !== false,
-      checkin_at: checkin || null,
-      checkout_at: checkout || null,
+      id_evento_checkin: idIn,
+      id_evento_checkout: idOut,
     },
   };
 }
@@ -477,6 +499,11 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
         hotelNombre={hotelNombre}
         canEdit={canEditPropuestaMeta}
         showRider={showRider}
+        idGira={
+          edicion?.id_gira ??
+          propuesta?.fimba_ediciones?.id_gira ??
+          null
+        }
         onSaved={(next) => setPropuesta((p) => ({ ...(p || {}), ...(next || {}) }))}
         onError={setError}
       />
@@ -655,7 +682,7 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
                 <i className="fimba-sync-dot fimba-sync-error" /> error
               </span>
               {" — "}Enter o blur guarda · Tab navega · fila inferior = alta
-              {" · "}Check-in/out vacíos = fechas del artista
+              {" · "}Check-in/out: vincular evento o heredar del grupo
             </span>
           )}
           </div>
@@ -670,6 +697,11 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
           <ParticipantesPlanilla
             propuestaId={propId}
             propuesta={propuesta}
+            idGira={
+              edicion?.id_gira ??
+              propuesta?.fimba_ediciones?.id_gira ??
+              null
+            }
             participantes={participantes}
             onListChange={setParticipantes}
             onError={setError}
@@ -1146,31 +1178,30 @@ function ParticipantesReadOnlyTable({ participantes, propuesta }) {
           </tr>
         </thead>
         <tbody>
-          {participantes.map((p) => {
-            const stay = resolveParticipanteStay(p, propuesta);
-            return (
-              <tr key={p.id} style={{ opacity: p.activo === false ? 0.5 : 1 }}>
-                <td style={{ paddingLeft: "1rem", fontWeight: 600 }}>{p.apellido}</td>
-                <td>{p.nombre}</td>
-                <td className="fimba-muted">{p.documento || "—"}</td>
-                <td>{labelGenero(p.genero)}</td>
-                <td
-                  className={stay.inherited_checkin ? "fimba-muted" : undefined}
-                  title={stay.inherited_checkin ? "Fecha del artista" : "Fecha propia"}
-                >
-                  {formatFecha(stay.checkin_at)}
-                </td>
-                <td
-                  className={stay.inherited_checkout ? "fimba-muted" : undefined}
-                  title={stay.inherited_checkout ? "Fecha del artista" : "Fecha propia"}
-                >
-                  {formatFecha(stay.checkout_at)}
-                </td>
-                <td>{labelAlimentacion(p.tipo_alimentacion, p.nota_alimentacion)}</td>
-                <td>{p.activo === false ? "No" : "Sí"}</td>
-              </tr>
-            );
-          })}
+          {participantes.map((p) => (
+            <tr key={p.id} style={{ opacity: p.activo === false ? 0.5 : 1 }}>
+              <td style={{ paddingLeft: "1rem", fontWeight: 600 }}>{p.apellido}</td>
+              <td>{p.nombre}</td>
+              <td className="fimba-muted">{p.documento || "—"}</td>
+              <td>{labelGenero(p.genero)}</td>
+              <td>
+                <FimbaStayEventReadLabel
+                  side="checkin"
+                  participante={p}
+                  propuesta={propuesta}
+                />
+              </td>
+              <td>
+                <FimbaStayEventReadLabel
+                  side="checkout"
+                  participante={p}
+                  propuesta={propuesta}
+                />
+              </td>
+              <td>{labelAlimentacion(p.tipo_alimentacion, p.nota_alimentacion)}</td>
+              <td>{p.activo === false ? "No" : "Sí"}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -1181,7 +1212,14 @@ function ParticipantesReadOnlyTable({ participantes, propuesta }) {
  * Planilla Excel de participantes: celdas inline, blur/Enter guarda, semáforo por fila.
  * Fila inferior `__new__` crea en Supabase al completar apellido+nombre.
  */
-function ParticipantesPlanilla({ propuestaId, propuesta, participantes, onListChange, onError }) {
+function ParticipantesPlanilla({
+  propuestaId,
+  propuesta,
+  idGira = null,
+  participantes,
+  onListChange,
+  onError,
+}) {
   const [drafts, setDrafts] = useState({});
   const [rowStatus, setRowStatus] = useState({});
   const [rowErrors, setRowErrors] = useState({});
@@ -1469,14 +1507,64 @@ function ParticipantesPlanilla({ propuestaId, propuesta, participantes, onListCh
   };
 
   const colCount = 10; // sync + 8 data + actions
-  const defaultCheckin = propuesta?.checkin_at
-    ? String(propuesta.checkin_at).slice(0, 10)
-    : "";
-  const defaultCheckout = propuesta?.checkout_at
-    ? String(propuesta.checkout_at).slice(0, 10)
-    : "";
-  const defaultCheckinLabel = defaultCheckin ? formatFecha(defaultCheckin) : "artista";
-  const defaultCheckoutLabel = defaultCheckout ? formatFecha(defaultCheckout) : "artista";
+  const defaultCheckin = stayDateFromEventOrMirror(propuesta, "checkin");
+  const defaultCheckout = stayDateFromEventOrMirror(propuesta, "checkout");
+  const groupEventIn = propuesta?.evento_checkin || null;
+  const groupEventOut = propuesta?.evento_checkout || null;
+
+  const applyStayLink = async (rowKey, side, eventId, eventEmbed = null) => {
+    const isOut = side === "checkout";
+    const fk = isOut ? "id_evento_checkout" : "id_evento_checkin";
+    const embKey = isOut ? "evento_checkout" : "evento_checkin";
+    const dateKey = isOut ? "checkout_at" : "checkin_at";
+    const fecha = eventEmbed
+      ? isoDateOrNull(eventEmbed.fecha)
+      : null;
+
+    if (rowKey === NEW_ROW_KEY) {
+      applyDraftPatch(
+        rowKey,
+        {
+          [fk]: eventId != null && eventId !== "" ? Number(eventId) : null,
+          [embKey]: eventEmbed || null,
+          [dateKey]: fecha || "",
+        },
+        { commit: false },
+      );
+      return;
+    }
+
+    savingRef.current.add(rowKey);
+    setRowStatus((prev) => ({ ...prev, [rowKey]: "saving" }));
+    const { participante: updated, error: err } = await updateFimbaParticipante(
+      rowKey,
+      { [fk]: eventId != null && eventId !== "" ? Number(eventId) : null },
+    );
+    savingRef.current.delete(rowKey);
+    if (err) {
+      setRowStatus((prev) => ({ ...prev, [rowKey]: "error" }));
+      setRowErrors((prev) => ({
+        ...prev,
+        [rowKey]: err.message || "Error al vincular estadía",
+      }));
+      onError?.(err.message || "Error al vincular estadía");
+      throw err;
+    }
+    const nextDraft = draftFromParticipante(updated);
+    setDrafts((prev) => {
+      const n = { ...prev, [rowKey]: nextDraft };
+      draftsRef.current = n;
+      return n;
+    });
+    setRowStatus((prev) => ({ ...prev, [rowKey]: "saved" }));
+    onListChange((list) => {
+      const next = (list || []).map((p) =>
+        String(p.id) === String(updated.id) ? updated : p,
+      );
+      listRef.current = next;
+      return next;
+    });
+  };
 
   const renderRow = (rowKey, rowIdx, draft, { isNew = false } = {}) => {
     const status = rowStatus[rowKey] || "idle";
@@ -1559,60 +1647,38 @@ function ParticipantesPlanilla({ propuestaId, propuesta, participantes, onListCh
             </select>
           </td>
           <td>
-            <input
-              data-fimba-part-cell={`${rowIdx}-4`}
-              className="fimba-cell-input fimba-cell-date"
-              type="date"
-              min="2020-01-01"
-              max="2035-12-31"
-              value={draft.checkin_at || ""}
-              title={
-                draft.checkin_at
-                  ? "Check-in propio"
-                  : `Vacío = check-in del artista (${defaultCheckinLabel})`
-              }
-              onChange={(e) => {
-                const v = e.target.value;
-                if (isCommitableStayDate(v)) changeAndCommit(rowKey, "checkin_at", v);
-                else setField(rowKey, "checkin_at", v);
-              }}
-              onBlur={() => commitRow(rowKey)}
-              onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 4, rowKey)}
+            <FimbaStayEventCell
+              side="checkin"
+              ownEvent={draft.evento_checkin}
+              ownEventId={draft.id_evento_checkin}
+              groupDate={defaultCheckin}
+              groupEvent={groupEventIn}
+              idGira={idGira}
+              idPropuesta={propuestaId}
               disabled={status === "saving"}
+              cellDataAttr={`${rowIdx}-4`}
+              onLink={(eventId, embed) =>
+                applyStayLink(rowKey, "checkin", eventId, embed)
+              }
+              onClear={() => applyStayLink(rowKey, "checkin", null, null)}
             />
-            {!draft.checkin_at && defaultCheckin ? (
-              <div className="fimba-muted fimba-date-inherit">
-                {defaultCheckinLabel}
-              </div>
-            ) : null}
           </td>
           <td>
-            <input
-              data-fimba-part-cell={`${rowIdx}-5`}
-              className="fimba-cell-input fimba-cell-date"
-              type="date"
-              min="2020-01-01"
-              max="2035-12-31"
-              value={draft.checkout_at || ""}
-              title={
-                draft.checkout_at
-                  ? "Check-out propio"
-                  : `Vacío = check-out del artista (${defaultCheckoutLabel})`
-              }
-              onChange={(e) => {
-                const v = e.target.value;
-                if (isCommitableStayDate(v)) changeAndCommit(rowKey, "checkout_at", v);
-                else setField(rowKey, "checkout_at", v);
-              }}
-              onBlur={() => commitRow(rowKey)}
-              onKeyDown={(e) => handleCellKeyDown(e, rowIdx, 5, rowKey)}
+            <FimbaStayEventCell
+              side="checkout"
+              ownEvent={draft.evento_checkout}
+              ownEventId={draft.id_evento_checkout}
+              groupDate={defaultCheckout}
+              groupEvent={groupEventOut}
+              idGira={idGira}
+              idPropuesta={propuestaId}
               disabled={status === "saving"}
+              cellDataAttr={`${rowIdx}-5`}
+              onLink={(eventId, embed) =>
+                applyStayLink(rowKey, "checkout", eventId, embed)
+              }
+              onClear={() => applyStayLink(rowKey, "checkout", null, null)}
             />
-            {!draft.checkout_at && defaultCheckout ? (
-              <div className="fimba-muted fimba-date-inherit">
-                {defaultCheckoutLabel}
-              </div>
-            ) : null}
           </td>
           <td className="fimba-ali-cell">
             <AlimentacionInput
@@ -1680,8 +1746,8 @@ function ParticipantesPlanilla({ propuestaId, propuesta, participantes, onListCh
             <th>Nombre</th>
             <th>Documento</th>
             <th>Género</th>
-            <th title="Vacío = fechas del artista">Check-in</th>
-            <th title="Vacío = fechas del artista">Check-out</th>
+            <th title="Hereda del grupo o vinculá un evento Check-in de agenda">Check-in</th>
+            <th title="Hereda del grupo o vinculá un evento Check-out de agenda">Check-out</th>
             <th className="fimba-ali-cell">Alimentación</th>
             <th style={{ textAlign: "center" }}>Activo</th>
             <th className="fimba-col-actions" />

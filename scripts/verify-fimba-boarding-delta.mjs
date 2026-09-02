@@ -343,6 +343,76 @@ for (const s of seq.stops) {
 assert(6 - 7 === -1 && 4 - 6 === -2, "documenta bug viejo hop Concierto");
 assert(!byId["3986"] && !byId["3987"], "sin filas Concierto fantasma");
 
+// --- isFimbaRideAboardAtStop: ride abierto no marca eventos fuera de secuencia ---
+function isPresentAtStop(upIdx, downIdx, currentIdx) {
+  if (!Number.isFinite(upIdx) || upIdx < 0 || !Number.isFinite(currentIdx) || currentIdx < 0) {
+    return false;
+  }
+  if (upIdx > currentIdx) return false;
+  if (downIdx == null || downIdx < 0 || !Number.isFinite(downIdx)) return true;
+  return downIdx >= currentIdx;
+}
+
+function isOpenFimbaRide(ruta) {
+  if (!ruta) return false;
+  if (Math.max(0, Number(ruta.plazas) || 0) <= 0) return false;
+  if (ruta.id_evento_subida == null || ruta.id_evento_subida === "") return false;
+  if (ruta.id_evento_bajada != null && ruta.id_evento_bajada !== "") return false;
+  return true;
+}
+
+function isFimbaRideAboardAtStop(ruta, currentEventId, sortedEvents) {
+  if (!ruta || Math.max(0, Number(ruta.plazas) || 0) <= 0) return false;
+  if (ruta.id_evento_subida == null || ruta.id_evento_subida === "") return false;
+  const sorted = sortedEvents || [];
+  if (sorted.length && currentEventId != null && currentEventId !== "") {
+    const currentIdx = indexOfEvent(sorted, currentEventId);
+    if (currentIdx < 0) return false;
+    const upIdx = indexOfEvent(sorted, ruta.id_evento_subida);
+    const downIdx =
+      ruta.id_evento_bajada != null && ruta.id_evento_bajada !== ""
+        ? indexOfEvent(sorted, ruta.id_evento_bajada)
+        : null;
+    return isPresentAtStop(upIdx, downIdx, currentIdx);
+  }
+  if (
+    currentEventId != null &&
+    currentEventId !== "" &&
+    ruta.id_evento_bajada != null &&
+    String(ruta.id_evento_bajada) === String(currentEventId)
+  ) {
+    return true;
+  }
+  return isOpenFimbaRide(ruta);
+}
+
+const openRide = {
+  plazas: 4,
+  id_evento_subida: 3946,
+  id_evento_bajada: null,
+};
+const vehicleSorted = [
+  { id: 3946 },
+  { id: 3818 },
+  { id: 3947 },
+];
+assert(
+  isFimbaRideAboardAtStop(openRide, 3946, vehicleSorted),
+  "ride abierto: a bordo en subida",
+);
+assert(
+  isFimbaRideAboardAtStop(openRide, 3818, vehicleSorted),
+  "ride abierto: a bordo en parada intermedia",
+);
+assert(
+  !isFimbaRideAboardAtStop(openRide, 99901, vehicleSorted),
+  "ride abierto: NO marca concierto ajeno fuera de secuencia (regresión filtro artista)",
+);
+assert(
+  isOpenFimbaRide(openRide),
+  "sin bajada = ride abierto",
+);
+
 if (process.exitCode) {
   console.error("\nAlgunas aserciones fallaron.");
 } else {

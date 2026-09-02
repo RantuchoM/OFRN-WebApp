@@ -8,11 +8,26 @@ import {
   updateFimbaPropuesta,
 } from "../../services/fimbaService";
 import FimbaRichTextEditor from "./FimbaRichTextEditor";
+import FimbaStayEventCell from "./FimbaStayEventCell";
 import {
   isFimbaRiderEmpty,
   normalizeFimbaRiderHtml,
   sanitizeFimbaRiderHtml,
 } from "../../utils/fimbaRider";
+import {
+  FIMBA_HORA_CHECKIN,
+  FIMBA_HORA_CHECKOUT,
+  formatStayEventLabel,
+  stayDateFromEventOrMirror,
+} from "../../utils/fimbaStay";
+
+const LEGACY_STAY_BOX_STYLE = {
+  marginTop: "0.65rem",
+  padding: "0.65rem 0.75rem",
+  borderRadius: 8,
+  border: "1px solid #e2e8f0",
+  background: "#f1f5f9",
+};
 
 function asBool(v) {
   return v === true || v === "true" || v === 1 || v === "1";
@@ -51,9 +66,13 @@ function draftFromPropuestaMeta(p) {
     estado: p?.estado || "activa",
     cantidad_planificada: p?.cantidad_planificada ?? 1,
     plazas_extra_materiales: p?.plazas_extra_materiales ?? 0,
-    checkin_at: p?.checkin_at ? String(p.checkin_at).slice(0, 10) : "",
+    checkin_at:
+      stayDateFromEventOrMirror(p, "checkin") ||
+      (p?.checkin_at ? String(p.checkin_at).slice(0, 10) : ""),
     checkin_early: asBool(p?.checkin_early),
-    checkout_at: p?.checkout_at ? String(p.checkout_at).slice(0, 10) : "",
+    checkout_at:
+      stayDateFromEventOrMirror(p, "checkout") ||
+      (p?.checkout_at ? String(p.checkout_at).slice(0, 10) : ""),
     checkout_late: asBool(p?.checkout_late),
     requiere_hotel: p?.requiere_hotel !== false,
     requiere_comidas: p?.requiere_comidas !== false,
@@ -202,6 +221,7 @@ function metaPatchesEqual(a, b) {
  *
  * @param {"card"|"plain"} [variant="card"] — `plain` para embeber en modal (sin caja fimba-card).
  * @param {string} [idPrefix="fimba-artista"] — prefijo de ids de campos (evitar choques en portal).
+ * @param {number|string|null} [idGira] — gira de la edición (picker de estadía).
  */
 export default function FimbaArtistaMetaSection({
   propuesta,
@@ -212,6 +232,7 @@ export default function FimbaArtistaMetaSection({
   onError,
   variant = "card",
   idPrefix = "fimba-artista",
+  idGira = null,
 }) {
   const [draft, setDraft] = useState(() => draftFromPropuestaMeta(propuesta));
   const [hoteles, setHoteles] = useState([]);
@@ -407,6 +428,82 @@ export default function FimbaArtistaMetaSection({
     void commitMeta();
   };
 
+  const resolvedIdGira =
+    idGira != null && idGira !== ""
+      ? Number(idGira)
+      : propuesta?.fimba_ediciones?.id_gira != null
+        ? Number(propuesta.fimba_ediciones.id_gira)
+        : null;
+
+  const syncDraftStayFromPropuesta = (p) => {
+    const nextIn =
+      stayDateFromEventOrMirror(p, "checkin") ||
+      (p?.checkin_at ? String(p.checkin_at).slice(0, 10) : "") ||
+      "";
+    const nextOut =
+      stayDateFromEventOrMirror(p, "checkout") ||
+      (p?.checkout_at ? String(p.checkout_at).slice(0, 10) : "") ||
+      "";
+    const next = {
+      ...draftRef.current,
+      checkin_at: nextIn,
+      checkout_at: nextOut,
+      checkin_early: asBool(p?.checkin_early ?? draftRef.current.checkin_early),
+      checkout_late: asBool(p?.checkout_late ?? draftRef.current.checkout_late),
+    };
+    draftRef.current = next;
+    setDraft(next);
+    // Solo alinear fechas espejo en lastSaved (no marcar otros campos dirty como guardados).
+    if (lastSavedPatchRef.current) {
+      lastSavedPatchRef.current = {
+        ...lastSavedPatchRef.current,
+        checkin_at: nextIn || null,
+        checkout_at: nextOut || null,
+        checkin_early: asBool(p?.checkin_early),
+        checkout_late: asBool(p?.checkout_late),
+      };
+    }
+  };
+
+  const applyStayLink = async (side, eventId) => {
+    if (!canEdit || !propuesta?.id) return;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    setSaveStatus("saving");
+    setFormError(null);
+    const patch =
+      side === "checkout"
+        ? { id_evento_checkout: eventId }
+        : { id_evento_checkin: eventId };
+    const { propuesta: updated, error: err } = await updateFimbaPropuesta(
+      propuesta.id,
+      patch,
+    );
+    if (err) {
+      const msg = err.message || "No se pudo vincular la estadía";
+      setFormError(msg);
+      setSaveStatus("error");
+      onErrorRef.current?.(msg);
+      throw err;
+    }
+    syncDraftStayFromPropuesta(updated);
+    onSavedRef.current?.(updated);
+    // Re-encolar autosave si había otros campos dirty pendientes.
+    const after = draftRef.current;
+    const revalidate = validatePropuestaMetaDraft(after);
+    if (
+      revalidate.ok &&
+      !metaPatchesEqual(revalidate.patch, lastSavedPatchRef.current)
+    ) {
+      setSaveStatus("dirty");
+      scheduleSave(META_DEBOUNCE_MS);
+      return;
+    }
+    setSaveStatus("saved");
+  };
+
   const cap = computeFimbaCapacity({
     cantidad_planificada: canEdit ? draft.cantidad_planificada : propuesta.cantidad_planificada,
     plazas_extra_materiales: canEdit ? draft.plazas_extra_materiales : propuesta.plazas_extra_materiales,
@@ -419,6 +516,13 @@ export default function FimbaArtistaMetaSection({
     ? { marginBottom: 0 }
     : { marginBottom: "1.25rem" };
   const shellClass = isPlain ? undefined : "fimba-card";
+
+  const eventInLabel =
+    formatStayEventLabel(propuesta?.evento_checkin) ||
+    formatFecha(stayDateFromEventOrMirror(propuesta, "checkin"));
+  const eventOutLabel =
+    formatStayEventLabel(propuesta?.evento_checkout) ||
+    formatFecha(stayDateFromEventOrMirror(propuesta, "checkout"));
 
   if (!canEdit) {
     return (
@@ -461,7 +565,7 @@ export default function FimbaArtistaMetaSection({
           <div>
             <div className="fimba-label">Check-in</div>
             <div style={{ fontWeight: 600 }}>
-              {formatFecha(propuesta.checkin_at)}
+              {eventInLabel}
               {asBool(propuesta.checkin_early) && (
                 <span className="fimba-badge" style={{ marginLeft: 6, fontSize: "0.7rem" }}>
                   Early
@@ -472,7 +576,7 @@ export default function FimbaArtistaMetaSection({
           <div>
             <div className="fimba-label">Check-out</div>
             <div style={{ fontWeight: 600 }}>
-              {formatFecha(propuesta.checkout_at)}
+              {eventOutLabel}
               {asBool(propuesta.checkout_late) && (
                 <span className="fimba-badge" style={{ marginLeft: 6, fontSize: "0.7rem" }}>
                   Late
@@ -631,17 +735,19 @@ export default function FimbaArtistaMetaSection({
 
         <div className="fimba-grid-2">
           <div className="fimba-field">
-            <label className="fimba-label" htmlFor={fid("checkin")}>
-              Check-in (opc.)
-            </label>
-            <input
-              id={fid("checkin")}
-              className="fimba-input"
-              type="date"
-              value={draft.checkin_at || ""}
-              onChange={(e) => setField("checkin_at", e.target.value)}
+            <span className="fimba-label">Check-in (grupo)</span>
+            <FimbaStayEventCell
+              side="checkin"
+              variant="group"
+              ownEvent={propuesta?.evento_checkin || null}
+              ownEventId={propuesta?.id_evento_checkin ?? null}
+              idGira={resolvedIdGira}
+              idPropuesta={propuesta?.id}
+              disabled={saveStatus === "saving"}
+              onLink={(eventId) => applyStayLink("checkin", eventId)}
+              onClear={() => applyStayLink("checkin", null)}
             />
-            <label className="fimba-flag-check" style={{ marginTop: 6 }}>
+            <label className="fimba-flag-check" style={{ marginTop: 8 }}>
               <input
                 type="checkbox"
                 checked={asBool(draft.checkin_early)}
@@ -649,22 +755,21 @@ export default function FimbaArtistaMetaSection({
               />
               Early check-in
             </label>
-            <p className="fimba-muted" style={{ fontSize: "0.75rem", margin: "4px 0 0" }}>
-              Rango del grupo. Si alguien llega o se va otro día, cargalo en la planilla de participantes (vacío = estas fechas).
-            </p>
           </div>
           <div className="fimba-field">
-            <label className="fimba-label" htmlFor={fid("checkout")}>
-              Check-out (opc.)
-            </label>
-            <input
-              id={fid("checkout")}
-              className="fimba-input"
-              type="date"
-              value={draft.checkout_at || ""}
-              onChange={(e) => setField("checkout_at", e.target.value)}
+            <span className="fimba-label">Check-out (grupo)</span>
+            <FimbaStayEventCell
+              side="checkout"
+              variant="group"
+              ownEvent={propuesta?.evento_checkout || null}
+              ownEventId={propuesta?.id_evento_checkout ?? null}
+              idGira={resolvedIdGira}
+              idPropuesta={propuesta?.id}
+              disabled={saveStatus === "saving"}
+              onLink={(eventId) => applyStayLink("checkout", eventId)}
+              onClear={() => applyStayLink("checkout", null)}
             />
-            <label className="fimba-flag-check" style={{ marginTop: 6 }}>
+            <label className="fimba-flag-check" style={{ marginTop: 8 }}>
               <input
                 type="checkbox"
                 checked={asBool(draft.checkout_late)}
@@ -672,6 +777,50 @@ export default function FimbaArtistaMetaSection({
               />
               Late check-out
             </label>
+          </div>
+        </div>
+
+        <p className="fimba-muted" style={{ fontSize: "0.75rem", margin: "0 0 0.85rem" }}>
+          Estadía oficial del artista vía eventos de agenda (tipo Check-in {FIMBA_HORA_CHECKIN} /
+          Check-out {FIMBA_HORA_CHECKOUT}). Vincular uno existente o crear uno nuevo. En la
+          planilla de integrantes, cada persona hereda este rango o vincula el suyo («Usar
+          grupo» limpia el override).
+        </p>
+
+        <div style={LEGACY_STAY_BOX_STYLE}>
+          <div className="fimba-label" style={{ marginBottom: 6 }}>
+            Fechas espejo (legacy — migración)
+          </div>
+          <p className="fimba-muted" style={{ fontSize: "0.72rem", margin: "0 0 0.55rem" }}>
+            Solo si necesitás setear la fecha sin pasar por el picker: crea/reusa el evento
+            canónico del día ({FIMBA_HORA_CHECKIN}/{FIMBA_HORA_CHECKOUT}). Preferí vincular o
+            crear desde arriba.
+          </p>
+          <div className="fimba-grid-2">
+            <div className="fimba-field" style={{ marginBottom: 0 }}>
+              <label className="fimba-label" htmlFor={fid("checkin")}>
+                Check-in (fecha)
+              </label>
+              <input
+                id={fid("checkin")}
+                className="fimba-input"
+                type="date"
+                value={draft.checkin_at || ""}
+                onChange={(e) => setField("checkin_at", e.target.value)}
+              />
+            </div>
+            <div className="fimba-field" style={{ marginBottom: 0 }}>
+              <label className="fimba-label" htmlFor={fid("checkout")}>
+                Check-out (fecha)
+              </label>
+              <input
+                id={fid("checkout")}
+                className="fimba-input"
+                type="date"
+                value={draft.checkout_at || ""}
+                onChange={(e) => setField("checkout_at", e.target.value)}
+              />
+            </div>
           </div>
         </div>
 

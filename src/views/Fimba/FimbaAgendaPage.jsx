@@ -879,25 +879,6 @@ export default function FimbaAgendaPage() {
     entityFilterCtx,
   ]);
 
-  /** Filas visibles solo con filtro artista/grupo (sin origen/categoría/locación/búsqueda). */
-  const eventosTrasFiltroEntidad = useMemo(() => {
-    if (!entityFilterActiveFlag) return eventos;
-    return eventos.filter((ev) =>
-      eventMatchesAgendaEntityFilter(
-        ev,
-        selectedPropuestaIds,
-        selectedGrupoIds,
-        entityFilterCtx,
-      ),
-    );
-  }, [
-    eventos,
-    entityFilterActiveFlag,
-    selectedPropuestaIds,
-    selectedGrupoIds,
-    entityFilterCtx,
-  ]);
-
   const origenFilterActive =
     !ofrnIncludeActive && filtroOrigen !== "fimba";
 
@@ -1375,7 +1356,11 @@ export default function FimbaAgendaPage() {
       </div>
 
       {hasNonDefaultFilters && (
-        <div className="fimba-agenda-active-filters" role="status" aria-live="polite">
+        <div
+          className="fimba-agenda-active-filters"
+          role="status"
+          aria-live="polite"
+        >
           <div className="fimba-agenda-active-filters-main">
             <span className="fimba-agenda-active-filters-label">Filtros activos</span>
             <div className="fimba-agenda-active-filters-chips">
@@ -1386,7 +1371,7 @@ export default function FimbaAgendaPage() {
               ))}
             </div>
             <span className="fimba-muted fimba-agenda-active-filters-count">
-              {eventosFiltrados.length} de {eventosTrasFiltroEntidad.length} eventos
+              {eventosFiltrados.length} de {eventos.length} eventos
             </span>
           </div>
           {!ofrnIncludeActive && filtroOrigen === "fimba" && (

@@ -5,6 +5,7 @@
  * igual que OFRN en `giras_logistica_reglas`. `checkin_at` / `checkout_at` son
  * espejo denormalizado de `eventos.fecha`.
  *
+ * Artista: vincular/crear evento (UI primaria) o fechas legacy → ensureFimbaStayEvent.
  * Vacío en el participante = hereda check-in/out del artista.
  * Early/Late siguen siendo flags del artista (no se modelan por persona).
  */
@@ -169,4 +170,114 @@ export function computeStayOccupancy(propuesta, participantes) {
     pax_noches: paxNoches,
     stay_staggered: stayStaggered,
   };
+}
+
+/**
+ * Clasifica override de estadía vs rango del grupo.
+ * @param {'checkin'|'checkout'} side
+ * @param {string|null|undefined} ownDate
+ * @param {string|null|undefined} groupDate
+ * @returns {'inherit'|'early'|'late'|'override'}
+ */
+export function classifyStayOverride(side, ownDate, groupDate) {
+  const own = isoDateOrNull(ownDate);
+  if (!own) return "inherit";
+  const group = isoDateOrNull(groupDate);
+  if (!group || own === group) return "inherit";
+  if (side === "checkin" && own < group) return "early";
+  if (side === "checkout" && own > group) return "late";
+  return "override";
+}
+
+/**
+ * Etiqueta corta para UI (planilla / hotelería / nómina).
+ * @param {'inherit'|'early'|'late'|'override'} kind
+ * @param {'checkin'|'checkout'} side
+ */
+export function stayOverrideLabel(kind, side = "checkin") {
+  if (kind === "inherit") {
+    return side === "checkout"
+      ? "Usa check-out del grupo"
+      : "Usa check-in del grupo";
+  }
+  if (kind === "early") return "Llegada anticipada";
+  if (kind === "late") return "Salida posterior";
+  return side === "checkout" ? "Check-out propio" : "Check-in propio";
+}
+
+/**
+ * Si la fecha del participante coincide con la del grupo, se limpia (hereda).
+ * Evita FKs redundantes al mismo evento del artista.
+ */
+export function normalizeParticipanteStayAgainstGroup(
+  checkinAt,
+  checkoutAt,
+  groupCheckinAt,
+  groupCheckoutAt,
+) {
+  const ownIn = isoDateOrNull(checkinAt);
+  const ownOut = isoDateOrNull(checkoutAt);
+  const gIn = isoDateOrNull(groupCheckinAt);
+  const gOut = isoDateOrNull(groupCheckoutAt);
+  return {
+    checkin_at: ownIn && gIn && ownIn === gIn ? null : ownIn,
+    checkout_at: ownOut && gOut && ownOut === gOut ? null : ownOut,
+  };
+}
+
+/**
+ * Si el evento elegido es el mismo del grupo → hereda (FK null).
+ * @returns {{ id: number|null, fecha: string|null }}
+ */
+export function normalizeParticipanteStayEventAgainstGroup(
+  eventId,
+  eventFecha,
+  groupEventId,
+) {
+  if (eventId == null || eventId === "") {
+    return { id: null, fecha: null };
+  }
+  const eid = Number(eventId);
+  if (!Number.isFinite(eid)) return { id: null, fecha: null };
+  const gid =
+    groupEventId != null && groupEventId !== "" ? Number(groupEventId) : null;
+  if (gid != null && Number.isFinite(gid) && eid === gid) {
+    return { id: null, fecha: null };
+  }
+  return { id: eid, fecha: isoDateOrNull(eventFecha) };
+}
+
+/** Hora HH:MM desde `eventos.hora_inicio`. */
+export function stayEventHoraLabel(ev) {
+  const raw = ev?.hora_inicio;
+  if (!raw) return null;
+  const s = String(raw).slice(0, 5);
+  return s && s !== "—" ? s : null;
+}
+
+/**
+ * Etiqueta UI: fecha · hora · detalle/locación.
+ * @param {object|null|undefined} ev embed evento_checkin|checkout
+ */
+export function formatStayEventLabel(ev) {
+  if (!ev) return null;
+  const fecha = isoDateOrNull(ev.fecha);
+  const fechaTxt = fecha
+    ? (() => {
+        const [y, m, d] = fecha.split("-");
+        return `${d}/${m}/${y}`;
+      })()
+    : null;
+  const hora = stayEventHoraLabel(ev);
+  const lugar =
+    ev.locaciones?.nombre ||
+    ev.locacion?.nombre ||
+    null;
+  const detalle = String(ev.descripcion || "").trim();
+  const parts = [];
+  if (fechaTxt) parts.push(fechaTxt);
+  if (hora) parts.push(`${hora} hs`);
+  if (detalle) parts.push(detalle);
+  else if (lugar) parts.push(lugar);
+  return parts.length ? parts.join(" · ") : null;
 }

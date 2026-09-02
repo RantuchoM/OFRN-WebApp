@@ -223,6 +223,120 @@ assert(
   "grupo: FIMBA permanece (include, no replace)",
 );
 
+// Regresión: ride abierto + secuencia no debe marcar eventos ajenos (Agenda 171/171).
+function indexOfEvent(sorted, eventId) {
+  if (eventId == null || eventId === "") return -1;
+  return (sorted || []).findIndex((e) => String(e.id) === String(eventId));
+}
+function isPresentAtStop(upIdx, downIdx, currentIdx) {
+  if (!Number.isFinite(upIdx) || upIdx < 0 || !Number.isFinite(currentIdx) || currentIdx < 0) {
+    return false;
+  }
+  if (upIdx > currentIdx) return false;
+  if (downIdx == null || downIdx < 0 || !Number.isFinite(downIdx)) return true;
+  return downIdx >= currentIdx;
+}
+function isFimbaRideAboardAtStop(ruta, currentEventId, sortedEvents) {
+  if (!ruta || Math.max(0, Number(ruta.plazas) || 0) <= 0) return false;
+  if (ruta.id_evento_subida == null || ruta.id_evento_subida === "") return false;
+  const sorted = sortedEvents || [];
+  if (sorted.length && currentEventId != null && currentEventId !== "") {
+    const currentIdx = indexOfEvent(sorted, currentEventId);
+    if (currentIdx < 0) return false;
+    const upIdx = indexOfEvent(sorted, ruta.id_evento_subida);
+    const downIdx =
+      ruta.id_evento_bajada != null && ruta.id_evento_bajada !== ""
+        ? indexOfEvent(sorted, ruta.id_evento_bajada)
+        : null;
+    return isPresentAtStop(upIdx, downIdx, currentIdx);
+  }
+  return false;
+}
+function eventMatchesPropuestaRouteFilterFull(
+  ev,
+  propuestaIds,
+  propuestaRoutes,
+  sequencesByVehicle,
+) {
+  const props = (propuestaIds || []).map(Number).filter(Number.isFinite);
+  if (props.length === 0 || !ev?.id) return false;
+  if ((ev.propuestas || []).some((p) => props.includes(Number(p.id)))) return true;
+  if (!propuestaRoutes?.length) return false;
+  const want = new Set(props);
+  for (const r of propuestaRoutes) {
+    const pid = Number(r?.id_propuesta ?? r?.propuesta?.id);
+    if (!want.has(pid)) continue;
+    if (Math.max(0, Number(r.plazas) || 0) <= 0) continue;
+    if (r.id_evento_subida == null || r.id_evento_subida === "") continue;
+    if (String(r.id_evento_subida) === String(ev.id)) return true;
+    if (
+      r.id_evento_bajada != null &&
+      r.id_evento_bajada !== "" &&
+      String(r.id_evento_bajada) === String(ev.id)
+    ) {
+      return true;
+    }
+    const tid = Number(r.id_gira_transporte);
+    if (!Number.isFinite(tid) || !sequencesByVehicle) continue;
+    const sorted = sequencesByVehicle.get(tid)?.sortedEvents || [];
+    if (
+      sorted.length &&
+      sorted.some((e) => String(e?.id) === String(ev.id)) &&
+      isFimbaRideAboardAtStop(r, ev.id, sorted)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const openRoute = {
+  id_propuesta: 7,
+  plazas: 4,
+  id_gira_transporte: 10,
+  id_evento_subida: 100,
+  id_evento_bajada: null,
+};
+const seqMap = new Map([
+  [10, { sortedEvents: [{ id: 100 }, { id: 101 }, { id: 102 }] }],
+]);
+const stopMid = { id: 101, propuestas: [] };
+const foreignConcert = {
+  id: 9001,
+  es_fimba: true,
+  propuestas: [{ id: 99, nombre: "Cecilia Eguiarte" }],
+};
+assert(
+  eventMatchesPropuestaRouteFilterFull(stopMid, [7], [openRoute], seqMap),
+  "artista: parada intermedia a bordo (ride abierto)",
+);
+assert(
+  !eventMatchesPropuestaRouteFilterFull(
+    foreignConcert,
+    [7],
+    [openRoute],
+    seqMap,
+  ),
+  "artista: ride abierto NO incluye concierto ajeno (regresión 171/171)",
+);
+assert(
+  eventMatchesAgendaEntityFilter(
+    { id: 100, propuestas: [{ id: 7 }] },
+    [7],
+    [],
+    {},
+  ),
+  "artista: tag directa sigue matcheando",
+);
+assert(
+  eventMatchesAgendaEntityFilter(fimbaTagged, [5], [3], {}),
+  "artista + grupo: OR — tagged artista",
+);
+assert(
+  eventMatchesAgendaEntityFilter(grupoOfrn, [5], [3], {}),
+  "artista + grupo: OR — grupo OFRN",
+);
+
 assert(!hasOfrnConvocatoriaFilter([], false), "sin opt-in OFRN");
 assert(hasOfrnConvocatoriaFilter([], true), "Tutti es opt-in OFRN");
 assert(hasOfrnConvocatoriaFilter([3], false), "grupo es opt-in OFRN");

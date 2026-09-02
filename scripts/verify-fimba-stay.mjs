@@ -4,9 +4,12 @@
  */
 
 import {
+  classifyStayOverride,
   computeStayOccupancy,
   isoDateOrNull,
+  normalizeParticipanteStayAgainstGroup,
   resolveParticipanteStay,
+  stayOverrideLabel,
 } from "../src/utils/fimbaStay.js";
 import { computeArtistaMealsPlan } from "../src/utils/fimbaMealsStay.js";
 
@@ -55,6 +58,45 @@ const inherited = resolveParticipanteStay(
   propuesta,
 );
 assert(inherited.checkin_at === "2026-09-15" && inherited.inherited_checkin, "vacío hereda artista");
+
+assert(
+  classifyStayOverride("checkin", null, "2026-09-16") === "inherit",
+  "sin fecha propia = usa grupo",
+);
+assert(
+  classifyStayOverride("checkin", "2026-09-15", "2026-09-16") === "early",
+  "fecha anterior = llegada anticipada",
+);
+assert(
+  classifyStayOverride("checkin", "2026-09-16", "2026-09-16") === "inherit",
+  "igual al grupo se trata como hereda",
+);
+assert(
+  classifyStayOverride("checkout", "2026-09-19", "2026-09-18") === "late",
+  "salida posterior",
+);
+assert(
+  stayOverrideLabel("early", "checkin") === "Llegada anticipada",
+  "label llegada anticipada",
+);
+
+const normalized = normalizeParticipanteStayAgainstGroup(
+  "2026-09-16",
+  "2026-09-18",
+  "2026-09-16",
+  "2026-09-18",
+);
+assert(normalized.checkin_at == null && normalized.checkout_at == null, "igual al grupo → limpia FK");
+const earlyNorm = normalizeParticipanteStayAgainstGroup(
+  "2026-09-15",
+  "2026-09-18",
+  "2026-09-16",
+  "2026-09-18",
+);
+assert(
+  earlyNorm.checkin_at === "2026-09-15" && earlyNorm.checkout_at == null,
+  "anticipada conserva in; out igual limpia",
+);
 
 const occ = computeStayOccupancy(propuesta, people);
 assert(occ.stay_staggered === true, "llegadas desfasadas");

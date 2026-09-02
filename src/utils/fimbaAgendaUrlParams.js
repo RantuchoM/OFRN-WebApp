@@ -244,7 +244,12 @@ export function eventMatchesPropuestaRouteFilter(
     if (!Number.isFinite(tid) || !sequencesByVehicle) continue;
     const seq = sequencesByVehicle.get(tid);
     const sorted = seq?.sortedEvents || [];
-    if (sorted.length && isFimbaRideAboardAtStop(r, evId, sorted)) {
+    // Solo paradas del vehículo: rides abiertos no deben marcar conciertos ajenos.
+    if (
+      sorted.length &&
+      sorted.some((e) => String(e?.id) === String(evId)) &&
+      isFimbaRideAboardAtStop(r, evId, sorted)
+    ) {
       return true;
     }
   }

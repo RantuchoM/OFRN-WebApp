@@ -55,6 +55,8 @@ import {
   FIMBA_TIPO_EVENTO_CHECKIN,
   FIMBA_TIPO_EVENTO_CHECKOUT,
   isoDateOrNull,
+  normalizeParticipanteStayAgainstGroup,
+  normalizeParticipanteStayEventAgainstGroup,
   stayDateFromEventOrMirror,
 } from "../utils/fimbaStay";
 import {
@@ -845,7 +847,9 @@ export async function createFimbaEdicion(payload) {
 // ---------------------------------------------------------------------------
 
 const STAY_EVENT_EMBED =
-  "id, fecha, hora_inicio, id_tipo_evento, descripcion";
+  "id, fecha, hora_inicio, id_tipo_evento, descripcion, id_locacion, locaciones ( id, nombre )";
+
+export { STAY_EVENT_EMBED as FIMBA_STAY_EVENT_EMBED };
 
 const PROPUESTA_SELECT =
   `id, id_edicion, nombre, color, orden, cantidad_planificada, plazas_extra_materiales, checkin_at, checkout_at, id_evento_checkin, id_evento_checkout, checkin_early, checkout_late, requiere_hotel, requiere_comidas, id_hotel, observaciones_logisticas, rider, token_consulta, token_edicion, estado, created_at, updated_at, hoteles:id_hotel ( id, nombre ), evento_checkin:id_evento_checkin ( ${STAY_EVENT_EMBED} ), evento_checkout:id_evento_checkout ( ${STAY_EVENT_EMBED} )`;
@@ -902,6 +906,111 @@ export async function ensureFimbaStayEvent(idGira, kind, fechaIso) {
     .single();
   if (insErr) return { id: null, fecha: null, error: insErr };
   return { id: Number(created.id), fecha, error: null };
+}
+
+/**
+ * Lista eventos Check-in (22) o Check-Out (23) de la gira (no borrados).
+ * @param {number|string} idGira
+ * @param {'checkin'|'checkout'} kind
+ */
+export async function listFimbaStayEvents(idGira, kind) {
+  const giraId = Number(idGira);
+  if (!Number.isFinite(giraId)) return { eventos: [], error: null };
+  const isOut = kind === "checkout";
+  const tipoId = isOut ? FIMBA_TIPO_EVENTO_CHECKOUT : FIMBA_TIPO_EVENTO_CHECKIN;
+  const { data, error } = await supabase
+    .from("eventos")
+    .select(STAY_EVENT_EMBED)
+    .eq("id_gira", giraId)
+    .eq("id_tipo_evento", tipoId)
+    .or("is_deleted.eq.false,is_deleted.is.null")
+    .order("fecha", { ascending: true })
+    .order("hora_inicio", { ascending: true })
+    .order("id", { ascending: true });
+  if (error) return { eventos: [], error };
+  return { eventos: data || [], error: null };
+}
+
+/**
+ * Crea evento de estadía (tipo 22/23) con fecha/hora/locación opcionales.
+ * Opcionalmente taguea la propuesta en `eventos_fimba_propuestas`.
+ * @param {{
+ *   id_gira: number|string,
+ *   kind: 'checkin'|'checkout',
+ *   fecha: string,
+ *   hora_inicio?: string,
+ *   id_locacion?: number|string|null,
+ *   descripcion?: string,
+ *   id_propuesta?: number|string|null,
+ * }} payload
+ */
+export async function createFimbaStayEvent(payload) {
+  const giraId = Number(payload?.id_gira);
+  const fecha = isoDateOrNull(payload?.fecha);
+  if (!Number.isFinite(giraId) || !fecha) {
+    return {
+      evento: null,
+      error: new Error("id_gira y fecha son requeridos"),
+    };
+  }
+  const isOut = payload.kind === "checkout";
+  const tipoId = isOut ? FIMBA_TIPO_EVENTO_CHECKOUT : FIMBA_TIPO_EVENTO_CHECKIN;
+  const defaultHora = isOut ? FIMBA_HORA_CHECKOUT : FIMBA_HORA_CHECKIN;
+  let hora = String(payload.hora_inicio || defaultHora).trim();
+  if (/^\d{2}:\d{2}$/.test(hora)) hora = `${hora}:00`;
+  if (!/^\d{2}:\d{2}(:\d{2})?$/.test(hora)) hora = `${defaultHora}:00`;
+  const descripcion =
+    String(payload.descripcion || "").trim() ||
+    (isOut ? "Check-Out" : "Check-In");
+  const idLoc =
+    payload.id_locacion != null && payload.id_locacion !== ""
+      ? Number(payload.id_locacion)
+      : null;
+
+  const { data: created, error: insErr } = await supabase
+    .from("eventos")
+    .insert({
+      id_gira: giraId,
+      id_tipo_evento: tipoId,
+      fecha,
+      hora_inicio: hora.length === 5 ? `${hora}:00` : hora,
+      hora_fin: null,
+      descripcion,
+      id_locacion: Number.isFinite(idLoc) ? idLoc : null,
+      visible_agenda: true,
+      audiencia_ofrn: "none",
+      is_deleted: false,
+    })
+    .select(STAY_EVENT_EMBED)
+    .single();
+  if (insErr) return { evento: null, error: insErr };
+
+  const propId =
+    payload.id_propuesta != null && payload.id_propuesta !== ""
+      ? Number(payload.id_propuesta)
+      : null;
+  if (Number.isFinite(propId) && created?.id != null) {
+    const { error: tagErr } = await supabase
+      .from("eventos_fimba_propuestas")
+      .insert({ id_evento: created.id, id_propuesta: propId });
+    if (tagErr) {
+      // Evento ya creado; el tag es opcional — no fallar el alta.
+      console.warn("createFimbaStayEvent: tag propuesta", tagErr);
+    }
+  }
+  return { evento: created, error: null };
+}
+
+async function fetchStayEventById(eventId) {
+  const id = Number(eventId);
+  if (!Number.isFinite(id)) return { evento: null, error: null };
+  const { data, error } = await supabase
+    .from("eventos")
+    .select(STAY_EVENT_EMBED)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return { evento: null, error };
+  return { evento: data, error: null };
 }
 
 async function resolveGiraIdForEdicion(edicionId) {
@@ -967,6 +1076,95 @@ async function stayPatchFromDates(idGira, checkinAt, checkoutAt, { touchIn, touc
     }
   }
   return { patch, error: null };
+}
+
+/** Fechas efectivas del artista (propuesta) para normalizar overrides de persona. */
+async function resolvePropuestaStayDates(propuestaId) {
+  const id = Number(propuestaId);
+  if (!Number.isFinite(id)) {
+    return { checkin_at: null, checkout_at: null, error: null };
+  }
+  const { data, error } = await supabase
+    .from("fimba_propuestas")
+    .select(
+      `checkin_at, checkout_at, id_evento_checkin, id_evento_checkout, evento_checkin:id_evento_checkin ( ${STAY_EVENT_EMBED} ), evento_checkout:id_evento_checkout ( ${STAY_EVENT_EMBED} )`,
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return { checkin_at: null, checkout_at: null, error };
+  return {
+    checkin_at: stayDateFromEventOrMirror(data, "checkin"),
+    checkout_at: stayDateFromEventOrMirror(data, "checkout"),
+    error: null,
+  };
+}
+
+async function resolvePropuestaStayEventIds(propuestaId) {
+  const id = Number(propuestaId);
+  if (!Number.isFinite(id)) {
+    return {
+      id_evento_checkin: null,
+      id_evento_checkout: null,
+      error: null,
+    };
+  }
+  const { data, error } = await supabase
+    .from("fimba_propuestas")
+    .select("id_evento_checkin, id_evento_checkout")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    return {
+      id_evento_checkin: null,
+      id_evento_checkout: null,
+      error,
+    };
+  }
+  return {
+    id_evento_checkin:
+      data?.id_evento_checkin != null ? Number(data.id_evento_checkin) : null,
+    id_evento_checkout:
+      data?.id_evento_checkout != null ? Number(data.id_evento_checkout) : null,
+    error: null,
+  };
+}
+
+/**
+ * Patch espejo + FK desde un evento existente (o null = heredar / limpiar).
+ * @param {number|string|null|undefined} eventId
+ * @param {'checkin'|'checkout'} kind
+ * @param {number|null} groupEventId
+ */
+async function stayPatchFromEventId(eventId, kind, groupEventId) {
+  const isOut = kind === "checkout";
+  const fk = isOut ? "id_evento_checkout" : "id_evento_checkin";
+  const mirror = isOut ? "checkout_at" : "checkin_at";
+  if (eventId == null || eventId === "") {
+    return { patch: { [fk]: null, [mirror]: null }, error: null };
+  }
+  const { evento, error } = await fetchStayEventById(eventId);
+  if (error) return { patch: {}, error };
+  if (!evento) {
+    return {
+      patch: {},
+      error: new Error("Evento de estadía no encontrado"),
+    };
+  }
+  const normalized = normalizeParticipanteStayEventAgainstGroup(
+    evento.id,
+    evento.fecha,
+    groupEventId,
+  );
+  if (normalized.id == null) {
+    return { patch: { [fk]: null, [mirror]: null }, error: null };
+  }
+  return {
+    patch: {
+      [fk]: normalized.id,
+      [mirror]: normalized.fecha,
+    },
+    error: null,
+  };
 }
 
 /**
@@ -1097,17 +1295,29 @@ export async function updateFimbaPropuesta(propuestaId, patch) {
     if (stay.error) return { propuesta: null, error: stay.error };
     Object.assign(row, stay.patch);
   }
-  if (patch.id_evento_checkin !== undefined && patch.checkin_at === undefined) {
-    row.id_evento_checkin =
-      patch.id_evento_checkin != null && patch.id_evento_checkin !== ""
-        ? Number(patch.id_evento_checkin)
-        : null;
+  // Preferencia: FK explícita (picker) con espejo de fecha del evento.
+  // No normaliza contra "grupo" (la propuesta ES el grupo).
+  const touchEventIn =
+    patch.id_evento_checkin !== undefined && patch.checkin_at === undefined;
+  const touchEventOut =
+    patch.id_evento_checkout !== undefined && patch.checkout_at === undefined;
+  if (touchEventIn) {
+    const linked = await stayPatchFromEventId(
+      patch.id_evento_checkin,
+      "checkin",
+      null,
+    );
+    if (linked.error) return { propuesta: null, error: linked.error };
+    Object.assign(row, linked.patch);
   }
-  if (patch.id_evento_checkout !== undefined && patch.checkout_at === undefined) {
-    row.id_evento_checkout =
-      patch.id_evento_checkout != null && patch.id_evento_checkout !== ""
-        ? Number(patch.id_evento_checkout)
-        : null;
+  if (touchEventOut) {
+    const linked = await stayPatchFromEventId(
+      patch.id_evento_checkout,
+      "checkout",
+      null,
+    );
+    if (linked.error) return { propuesta: null, error: linked.error };
+    Object.assign(row, linked.patch);
   }
   if (patch.checkin_early !== undefined) row.checkin_early = patch.checkin_early === true;
   if (patch.checkout_late !== undefined) row.checkout_late = patch.checkout_late === true;
@@ -1841,13 +2051,12 @@ export async function createFimbaParticipante(payload) {
   );
   if (giraErr) return { participante: null, error: giraErr };
 
-  const stay = await stayPatchFromDates(
-    idGira,
-    payload.checkin_at,
-    payload.checkout_at,
-    { touchIn: true, touchOut: true },
-  );
-  if (stay.error) return { participante: null, error: stay.error };
+  const groupStay = await resolvePropuestaStayDates(payload.id_propuesta);
+  if (groupStay.error) return { participante: null, error: groupStay.error };
+
+  /** Prefer explicit event FKs (picker); else date → ensure. */
+  const hasEventIn = payload.id_evento_checkin !== undefined;
+  const hasEventOut = payload.id_evento_checkout !== undefined;
 
   const row = {
     id_propuesta: Number(payload.id_propuesta),
@@ -1861,11 +2070,50 @@ export async function createFimbaParticipante(payload) {
       : null,
     activo: payload.activo !== false,
     id_integrante: payload.id_integrante != null ? Number(payload.id_integrante) : null,
-    checkin_at: stay.patch.checkin_at ?? null,
-    checkout_at: stay.patch.checkout_at ?? null,
-    id_evento_checkin: stay.patch.id_evento_checkin ?? null,
-    id_evento_checkout: stay.patch.id_evento_checkout ?? null,
+    checkin_at: null,
+    checkout_at: null,
+    id_evento_checkin: null,
+    id_evento_checkout: null,
   };
+
+  if (hasEventIn || hasEventOut) {
+    const groupIds = await resolvePropuestaStayEventIds(payload.id_propuesta);
+    if (groupIds.error) return { participante: null, error: groupIds.error };
+    if (hasEventIn) {
+      const linked = await stayPatchFromEventId(
+        payload.id_evento_checkin,
+        "checkin",
+        groupIds.id_evento_checkin,
+      );
+      if (linked.error) return { participante: null, error: linked.error };
+      Object.assign(row, linked.patch);
+    }
+    if (hasEventOut) {
+      const linked = await stayPatchFromEventId(
+        payload.id_evento_checkout,
+        "checkout",
+        groupIds.id_evento_checkout,
+      );
+      if (linked.error) return { participante: null, error: linked.error };
+      Object.assign(row, linked.patch);
+    }
+  } else {
+    const normalized = normalizeParticipanteStayAgainstGroup(
+      payload.checkin_at,
+      payload.checkout_at,
+      groupStay.checkin_at,
+      groupStay.checkout_at,
+    );
+    const stay = await stayPatchFromDates(
+      idGira,
+      normalized.checkin_at,
+      normalized.checkout_at,
+      { touchIn: true, touchOut: true },
+    );
+    if (stay.error) return { participante: null, error: stay.error };
+    Object.assign(row, stay.patch);
+  }
+
   const { data, error } = await supabase
     .from("fimba_participantes")
     .insert(row)
@@ -1893,8 +2141,16 @@ export async function updateFimbaParticipante(participanteId, patch) {
         ? Number(patch.id_integrante)
         : null;
   }
-  if (patch.checkin_at !== undefined || patch.checkout_at !== undefined) {
+
+  const touchEventIn = patch.id_evento_checkin !== undefined;
+  const touchEventOut = patch.id_evento_checkout !== undefined;
+  const touchDateIn = patch.checkin_at !== undefined && !touchEventIn;
+  const touchDateOut = patch.checkout_at !== undefined && !touchEventOut;
+
+  if (touchEventIn || touchEventOut || touchDateIn || touchDateOut) {
     let idGira = null;
+    let idPropuesta =
+      patch.id_propuesta != null ? Number(patch.id_propuesta) : null;
     if (patch.id_propuesta != null) {
       const res = await resolveGiraIdForPropuesta(patch.id_propuesta);
       if (res.error) return { participante: null, error: res.error };
@@ -1906,21 +2162,58 @@ export async function updateFimbaParticipante(participanteId, patch) {
         .eq("id", participanteId)
         .maybeSingle();
       if (curErr) return { participante: null, error: curErr };
+      idPropuesta =
+        cur?.id_propuesta != null ? Number(cur.id_propuesta) : null;
       const res = await resolveGiraIdForPropuesta(cur?.id_propuesta);
       if (res.error) return { participante: null, error: res.error };
       idGira = res.id_gira;
     }
-    const stay = await stayPatchFromDates(
-      idGira,
-      patch.checkin_at,
-      patch.checkout_at,
-      {
-        touchIn: patch.checkin_at !== undefined,
-        touchOut: patch.checkout_at !== undefined,
-      },
-    );
-    if (stay.error) return { participante: null, error: stay.error };
-    Object.assign(row, stay.patch);
+
+    if (touchEventIn || touchEventOut) {
+      const groupIds = await resolvePropuestaStayEventIds(idPropuesta);
+      if (groupIds.error) return { participante: null, error: groupIds.error };
+      if (touchEventIn) {
+        const linked = await stayPatchFromEventId(
+          patch.id_evento_checkin,
+          "checkin",
+          groupIds.id_evento_checkin,
+        );
+        if (linked.error) return { participante: null, error: linked.error };
+        Object.assign(row, linked.patch);
+      }
+      if (touchEventOut) {
+        const linked = await stayPatchFromEventId(
+          patch.id_evento_checkout,
+          "checkout",
+          groupIds.id_evento_checkout,
+        );
+        if (linked.error) return { participante: null, error: linked.error };
+        Object.assign(row, linked.patch);
+      }
+    }
+
+    if (touchDateIn || touchDateOut) {
+      const groupStay = await resolvePropuestaStayDates(idPropuesta);
+      if (groupStay.error) return { participante: null, error: groupStay.error };
+
+      let nextIn = patch.checkin_at;
+      let nextOut = patch.checkout_at;
+      const normalized = normalizeParticipanteStayAgainstGroup(
+        touchDateIn ? patch.checkin_at : undefined,
+        touchDateOut ? patch.checkout_at : undefined,
+        groupStay.checkin_at,
+        groupStay.checkout_at,
+      );
+      if (touchDateIn) nextIn = normalized.checkin_at;
+      if (touchDateOut) nextOut = normalized.checkout_at;
+
+      const stay = await stayPatchFromDates(idGira, nextIn, nextOut, {
+        touchIn: touchDateIn,
+        touchOut: touchDateOut,
+      });
+      if (stay.error) return { participante: null, error: stay.error };
+      Object.assign(row, stay.patch);
+    }
   }
   const { data, error } = await supabase
     .from("fimba_participantes")
@@ -3195,6 +3488,7 @@ function eventMatchesFimbaAgendaGrupoFilter(ev, grupoFilterIds) {
 /**
  * Agenda unificada de la edición:
  * 1) Eventos FIMBA: tags `eventos_fimba_propuestas` y/o plazas en `fimba_evento_transportes`
+ *    y/o check-in/out vinculados (`fimba_propuestas|participantes.id_evento_checkin|checkout`)
  * 2) Eventos orquesta OFRN de la misma gira (`audiencia_ofrn` tutti/grupos/null)
  *    — se omiten al filtrar solo por artista y cuando `include_ofrn` es false
  *      (planilla staff: off por defecto; se carga al marcar Tutti o un grupo);
@@ -3257,6 +3551,8 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
   let eventIds;
   // Hoisted: used after the fetchByEventIds branch to seed tagsFull (line ~3208).
   let tags = [];
+  /** id_evento → propuestas vía FK estadía (check-in/out); se fusiona con tags. */
+  let stayPropuestasByEvent = {};
   if (fetchByEventIds) {
     eventIds = onlyEventIds;
   } else {
@@ -3379,6 +3675,54 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
     }
   }
 
+  // Check-in / Check-out (tipos 22/23): FKs en propuestas y participantes.
+  // No requieren tag en eventos_fimba_propuestas; la asociación es la fuente de verdad.
+  const stayScopePropIds = hasPropuestaFilter
+    ? propuestaFilterIds
+    : (propuestas || []).map((p) => Number(p.id)).filter(Number.isFinite);
+  const stayEventIds = [];
+  stayPropuestasByEvent = {};
+  const addStayLink = (eventId, prop) => {
+    const eid = Number(eventId);
+    if (!Number.isFinite(eid) || !prop) return;
+    stayEventIds.push(eid);
+    const k = String(eid);
+    if (!stayPropuestasByEvent[k]) stayPropuestasByEvent[k] = [];
+    if (!stayPropuestasByEvent[k].some((x) => Number(x.id) === Number(prop.id))) {
+      stayPropuestasByEvent[k].push(prop);
+    }
+  };
+  for (const p of propuestas || []) {
+    if (
+      stayScopePropIds.length > 0 &&
+      !stayScopePropIds.includes(Number(p.id))
+    ) {
+      continue;
+    }
+    if (p.id_evento_checkin != null) addStayLink(p.id_evento_checkin, p);
+    if (p.id_evento_checkout != null) addStayLink(p.id_evento_checkout, p);
+  }
+  if (stayScopePropIds.length > 0) {
+    const { data: stayParts, error: eStayParts } = await supabase
+      .from("fimba_participantes")
+      .select("id_propuesta, id_evento_checkin, id_evento_checkout")
+      .in("id_propuesta", stayScopePropIds)
+      .or(
+        "id_evento_checkin.not.is.null,id_evento_checkout.not.is.null",
+      );
+    if (eStayParts) return { eventos: [], error: eStayParts };
+    for (const part of stayParts || []) {
+      const prop = propById[String(part.id_propuesta)];
+      if (!prop) continue;
+      if (part.id_evento_checkin != null) {
+        addStayLink(part.id_evento_checkin, prop);
+      }
+      if (part.id_evento_checkout != null) {
+        addStayLink(part.id_evento_checkout, prop);
+      }
+    }
+  }
+
   eventIds = [
     ...new Set([
       ...taggedEventIds,
@@ -3386,6 +3730,7 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
       ...ofrnEventIds,
       ...ofrnStopIds,
       ...routeVehicleEventIds,
+      ...stayEventIds,
     ]),
   ];
   }
@@ -3434,6 +3779,14 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
     if (!tagsByEvent[k]) tagsByEvent[k] = [];
     if (propById[String(t.id_propuesta)]) {
       tagsByEvent[k].push(propById[String(t.id_propuesta)]);
+    }
+  }
+  for (const [eid, props] of Object.entries(stayPropuestasByEvent || {})) {
+    if (!tagsByEvent[eid]) tagsByEvent[eid] = [];
+    for (const prop of props) {
+      if (!tagsByEvent[eid].some((x) => Number(x.id) === Number(prop.id))) {
+        tagsByEvent[eid].push(prop);
+      }
     }
   }
 

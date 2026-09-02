@@ -403,6 +403,12 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - [x] Seed: `supabase/seed_unbeldi_missing_parts.sql`. Instrumentación: `2.3.3.2 - 4.2.4.0 - Perc.x2 - Hp - Str` (29 particellas).
 - Nota: en Downloads queda `Claron.pdf` (Clarín) sin incorporar; no hay instrumento Clarín en catálogo y el set numerado butterfly ya cubre Tp 1–2.
 
+### Completado (2026-09-02) — Un bel di vedremo [recorte Eguiarte]
+- [x] Nueva obra en archivo (variante de 3199): título BD `Un bel di vedremo. <i>'Madama Butterfly'</i> [recorte Eguiarte]`.
+- [x] Carpeta ARIAS [Puccini, G. - Un bel di vedremo [recorte Eguiarte]](https://drive.google.com/open?id=1NGTb2jX5gGZ09qzikVJsD39Pln4q_qFy): 31 PDFs renombrados canónicamente (mapa explícito; el PDF «Fagot I» era Fagot II; eliminado `.lnk` roto).
+- [x] Scripts: `unbeldiEguiarteCatalog.mjs`, `process-unbeldi-eguiarte-local.mjs`, `generate-unbeldi-eguiarte-sync.mjs` → `supabase/seed_unbeldi_eguiarte_sync.sql` (aplicado).
+- [x] Obra **3625**. Instrumentación: `3.3.3.1 - 4.3.4.0 - Perc.x2 - Hp - Str` (30 particellas; SCORE+SCORE 2 fusionados en un slot; **falta Fagot 1**).
+
 ---
 
 ### Completado (2026-08-10) — DriveMatcherModal móvil

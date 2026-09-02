@@ -35,7 +35,7 @@ import {
 } from "../../services/fimbaService";
 import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
 import { matchesFimbaArtistaPersonSearch } from "../../utils/fimbaArtistaSearch";
-import { resolveParticipanteStay } from "../../utils/fimbaStay";
+import { resolveParticipanteStay, classifyStayOverride, stayOverrideLabel, formatStayEventLabel } from "../../utils/fimbaStay";
 import FimbaArtistaPersonSearchField from "./FimbaArtistaPersonSearchField";
 
 /** Columnas editables en modo planilla (orden de Tab / Enter). Color/estado en ficha artista. */
@@ -963,7 +963,8 @@ function FimbaArtistasTable({
                       </div>
                     ) : (
                       <span className="fimba-date-flag-read">
-                        {formatFecha(p.checkin_at)}
+                        {formatStayEventLabel(p.evento_checkin) ||
+                          formatFecha(p.checkin_at)}
                         {asBool(p.checkin_early) && (
                           <span className="fimba-badge fimba-badge-early">Early</span>
                         )}
@@ -997,7 +998,8 @@ function FimbaArtistasTable({
                       </div>
                     ) : (
                       <span className="fimba-date-flag-read">
-                        {formatFecha(p.checkout_at)}
+                        {formatStayEventLabel(p.evento_checkout) ||
+                          formatFecha(p.checkout_at)}
                         {asBool(p.checkout_late) && (
                           <span className="fimba-badge fimba-badge-late">Late</span>
                         )}
@@ -1248,23 +1250,59 @@ function ArtistaNominaPanel({ edicionId, propuesta, cap, cache, onRetry }) {
           <tbody>
             {rows.map((part) => {
               const stay = resolveParticipanteStay(part, propuesta);
+              const groupIn = propuesta
+                ? resolveParticipanteStay({}, propuesta).checkin_at
+                : null;
+              const groupOut = propuesta
+                ? resolveParticipanteStay({}, propuesta).checkout_at
+                : null;
+              const inK = classifyStayOverride(
+                "checkin",
+                stay.inherited_checkin ? null : stay.checkin_at,
+                groupIn,
+              );
+              const outK = classifyStayOverride(
+                "checkout",
+                stay.inherited_checkout ? null : stay.checkout_at,
+                groupOut,
+              );
               return (
               <tr key={part.id} style={{ opacity: part.activo === false ? 0.5 : 1 }}>
                 <td style={{ paddingLeft: "0.75rem", fontWeight: 600 }}>{part.apellido}</td>
                 <td>{part.nombre}</td>
                 <td className="fimba-muted">{part.documento || "—"}</td>
                 <td>{labelGenero(part.genero)}</td>
-                <td
-                  className={stay.inherited_checkin ? "fimba-muted" : undefined}
-                  title={stay.inherited_checkin ? "Fecha del artista" : "Fecha propia"}
-                >
-                  {formatFecha(stay.checkin_at)}
+                <td title={stayOverrideLabel(inK, "checkin")}>
+                  <span className="fimba-date-flag-read">
+                    <span className={inK === "inherit" ? "fimba-muted" : undefined}>
+                      {!stay.inherited_checkin
+                        ? formatStayEventLabel(part.evento_checkin) ||
+                          formatFecha(stay.checkin_at)
+                        : formatFecha(stay.checkin_at)}
+                    </span>
+                    {inK === "early" && (
+                      <span className="fimba-badge fimba-badge-anticipada">Llegada anticipada</span>
+                    )}
+                    {inK === "override" && (
+                      <span className="fimba-badge fimba-badge-override">Check-in propio</span>
+                    )}
+                  </span>
                 </td>
-                <td
-                  className={stay.inherited_checkout ? "fimba-muted" : undefined}
-                  title={stay.inherited_checkout ? "Fecha del artista" : "Fecha propia"}
-                >
-                  {formatFecha(stay.checkout_at)}
+                <td title={stayOverrideLabel(outK, "checkout")}>
+                  <span className="fimba-date-flag-read">
+                    <span className={outK === "inherit" ? "fimba-muted" : undefined}>
+                      {!stay.inherited_checkout
+                        ? formatStayEventLabel(part.evento_checkout) ||
+                          formatFecha(stay.checkout_at)
+                        : formatFecha(stay.checkout_at)}
+                    </span>
+                    {outK === "late" && (
+                      <span className="fimba-badge fimba-badge-late">Salida posterior</span>
+                    )}
+                    {outK === "override" && (
+                      <span className="fimba-badge fimba-badge-override">Check-out propio</span>
+                    )}
+                  </span>
                 </td>
                 <td>{labelAlimentacion(part.tipo_alimentacion, part.nota_alimentacion)}</td>
                 <td>{part.activo === false ? "No" : "Sí"}</td>

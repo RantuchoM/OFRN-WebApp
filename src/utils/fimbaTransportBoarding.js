@@ -564,7 +564,12 @@ export function isOpenFimbaRide(ruta) {
 
 /**
  * ¿El ride está presente en esta parada (subió antes/aquí y no bajó antes)?
+ * Con secuencia: solo si `currentEventId` es una parada del vehículo.
  * Sin secuencia: ride abierto, o bajada ya apuntando a este evento.
+ *
+ * Importante: un ride abierto NO hace match de eventos ajenos a la secuencia
+ * (conciertos/check-ins de otros artistas). Eso rompía el filtro Artista de
+ * Agenda (`eventMatchesPropuestaRouteFilter` → 171/171).
  *
  * @param {object|null} ruta
  * @param {unknown} currentEventId
@@ -577,7 +582,8 @@ export function isFimbaRideAboardAtStop(ruta, currentEventId, sortedEvents) {
   const sorted = sortedEvents || [];
   if (sorted.length && currentEventId != null && currentEventId !== "") {
     const currentIdx = indexOfEvent(sorted, currentEventId);
-    if (currentIdx < 0) return isOpenFimbaRide(ruta);
+    // Evento fuera de la secuencia del vehículo ≠ parada a bordo.
+    if (currentIdx < 0) return false;
     const upIdx = indexOfEvent(sorted, ruta.id_evento_subida);
     const downIdx =
       ruta.id_evento_bajada != null && ruta.id_evento_bajada !== ""
