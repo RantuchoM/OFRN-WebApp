@@ -13,6 +13,8 @@ import FimbaUsuariosPage from "./FimbaUsuariosPage";
 import FimbaContratacionesPage from "./FimbaContratacionesPage";
 import FimbaRiderPage from "./FimbaRiderPage";
 import FimbaVenuesPage from "./FimbaVenuesPage";
+import FimbaBacklinePage from "./FimbaBacklinePage";
+import FimbaEscenarioPage from "./FimbaEscenarioPage";
 import { FimbaSheetLeaveGuardProvider } from "./FimbaSheetLeaveGuardContext";
 
 /**
@@ -30,9 +32,18 @@ export default function FimbaStaffApp() {
       <FimbaAccessProvider>
         <FimbaSheetLeaveGuardProvider>
         <Routes>
+          {/* Escenario standalone: sin chrome FimbaLayout (toggle / sidebar). */}
+          <Route
+            path="edicion/:edicionId/escenario"
+            element={<FimbaEscenarioPage />}
+          />
+          <Route
+            path="edicion/:edicionId/escenario/:plotId"
+            element={<FimbaEscenarioPage />}
+          />
           <Route element={<FimbaLayout mode="staff" />}>
             <Route index element={<FimbaHome />} />
-            {/* Segmentos: Artistas | agenda | transportes | hoteleria | venues | rider | contrataciones | usuarios */}
+            {/* Segmentos: Artistas | agenda | transportes | hoteleria | venues | backline | rider | contrataciones | usuarios */}
             <Route path="edicion/:edicionId" element={<FimbaPathShell />}>
               <Route index element={<FimbaEdicionPage />} />
               <Route path="agenda" element={<FimbaAgendaPage />} />
@@ -40,6 +51,7 @@ export default function FimbaStaffApp() {
               <Route path="hoteleria" element={<FimbaHoteleriaPage />} />
               <Route path="venues" element={<FimbaVenuesPage />} />
               <Route path="espacios" element={<Navigate to="../venues" replace />} />
+              <Route path="backline" element={<FimbaBacklinePage />} />
               <Route path="rider" element={<FimbaRiderPage />} />
               <Route path="contrataciones" element={<FimbaContratacionesPage />} />
               <Route path="usuarios" element={<FimbaUsuariosPage />} />

@@ -174,12 +174,22 @@ body {
 
 /* Área de edición Quill (barra y cuerpo) */
 .rich-text-quill .ql-toolbar {
+  display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   row-gap: 0.25rem;
   border-top-left-radius: 0.5rem;
   border-top-right-radius: 0.5rem;
   border-color: rgb(226 232 240);
   background: rgb(248 250 252);
+}
+.rich-text-quill .ql-toolbar .ql-formats {
+  margin-right: 0.5rem;
+  margin-bottom: 0.1rem;
 }
 .rich-text-quill .ql-container {
   border-bottom-left-radius: 0.5rem;

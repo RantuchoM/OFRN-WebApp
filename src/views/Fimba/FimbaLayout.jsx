@@ -9,6 +9,7 @@ import {
   FIMBA_ROLE_LABELS,
 } from "../../utils/fimbaUserSession";
 import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import { IconLogOut } from "../../components/ui/Icons";
 import FimbaSectionToggle, { parseFimbaSectionIds } from "./FimbaSectionToggle";
@@ -155,7 +156,8 @@ const FIMBA_CSS = `
   .fimba-venues-wide,
   .fimba-agenda-wide,
   .fimba-hotel-wide,
-  .fimba-transport-wide {
+  .fimba-transport-wide,
+  .fimba-backline-wide {
     min-width: 0;
     max-width: 100%;
   }
@@ -711,16 +713,30 @@ const FIMBA_CSS = `
     background: #fff;
     border: 1px solid var(--fimba-border);
     border-radius: 8px;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     /* visible: snow link tooltip is position:absolute inside .ql-container;
        overflow:hidden clipped it when Quill set left < 0 (looked stuck left). */
     overflow: visible;
   }
   .fimba-richtext .ql-toolbar.ql-snow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     border: 0;
     border-bottom: 1px solid var(--fimba-border);
     border-radius: 8px 8px 0 0;
     background: #fdf2f8;
     font-family: inherit;
+  }
+  .fimba-richtext .ql-toolbar.ql-snow .ql-formats {
+    margin-right: 8px;
+    margin-bottom: 2px;
   }
   .fimba-richtext .ql-container.ql-snow {
     border: 0;
@@ -728,6 +744,7 @@ const FIMBA_CSS = `
     font-family: inherit;
     font-size: 0.9rem;
     min-height: 140px;
+    max-width: 100%;
     overflow: visible;
   }
   .fimba-richtext .ql-tooltip {
@@ -736,6 +753,17 @@ const FIMBA_CSS = `
   .fimba-richtext .ql-editor {
     min-height: 140px;
     color: var(--fimba-text);
+  }
+  /* Celdas angostas (Backline Descripción): toolbar compacta + editor más bajo */
+  .fimba-richtext--compact .ql-toolbar.ql-snow {
+    padding: 4px 6px;
+  }
+  .fimba-richtext--compact .ql-toolbar.ql-snow .ql-formats {
+    margin-right: 6px;
+  }
+  .fimba-richtext--compact .ql-container.ql-snow,
+  .fimba-richtext--compact .ql-editor {
+    min-height: 88px;
   }
   .fimba-richtext .ql-editor img,
   .fimba-rider-html img {
@@ -844,7 +872,8 @@ const FIMBA_CSS = `
   /* OFRN orquesta grupos / Tutti: square vs FIMBA artist pills */
   .fimba-badge-ofrn-grupo,
   .fimba-btn.fimba-chip-ofrn,
-  .fimba-planilla-board-chip-ofrn {
+  .fimba-planilla-board-chip-ofrn,
+  .fimba-ofrn-grupo-chips > span {
     border-radius: 2px;
   }
   .fimba-row-ofrn td {
@@ -1270,6 +1299,21 @@ const FIMBA_CSS = `
     min-width: 8.75rem;
     width: 8.75rem;
   }
+  .fimba-planilla-loc-cell {
+    min-width: 11rem;
+    max-width: 16rem;
+  }
+  .fimba-planilla-loc-edit {
+    min-width: 12rem;
+    max-width: 18rem;
+    position: relative;
+    z-index: 5;
+  }
+  .fimba-planilla-loc-edit .fimba-planilla-loc-select {
+    border-radius: 6px;
+    border-color: var(--fimba-border);
+    font-size: 0.82rem;
+  }
   .fimba-date-inherit {
     font-size: 0.65rem;
     line-height: 1.2;
@@ -1433,6 +1477,7 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
   // Default context when Layout is used outside FimbaAccessProvider (token/login)
   const access = useFimbaAccess();
 
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const isToken = mode === "token";
   const { edicionId: pathEdicionId } = parseFimbaSectionIds(location.pathname);
   const showSectionToggle =
@@ -1442,14 +1487,51 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
   const isOfrnStaff = Boolean(user && isManagement);
   const showFimbaSession =
     !isToken && Boolean(fimbaUser) && !isOfrnStaff;
-  const showTokenConsultaSession =
-    !isToken &&
-    !isOfrnStaff &&
-    !fimbaUser &&
-    Boolean(consultaToken) &&
-    access.source === "token_consulta";
+  // Token consulta (source token_consulta o leftover en localStorage con staff OFRN).
+  const showTokenConsultaSession = !isToken && Boolean(consultaToken);
+  const dualOfrnAndConsulta = isOfrnStaff && Boolean(consultaToken);
+  const showSalir =
+    showFimbaSession ||
+    showTokenConsultaSession ||
+    (!isToken && access.source === "token_consulta");
 
-  const handleFimbaLogout = () => {
+  const handleSalirClick = async () => {
+    if (dualOfrnAndConsulta) {
+      const ok = await confirm({
+        title: "Salir de consulta",
+        message:
+          "Se cierra el enlace de consulta. Seguirás en FIMBA como staff OFRN (Rider, Usuarios, Contrataciones).",
+        confirmText: "Salir de consulta",
+        cancelText: "Cancelar",
+      });
+      if (!ok) return;
+      clearFimbaConsultaEdicionSession();
+      navigate("/fimba", { replace: true });
+      return;
+    }
+
+    if (consultaToken || access.source === "token_consulta") {
+      const ok = await confirm({
+        title: "Salir de la consulta",
+        message:
+          "Se cierra la sesión del enlace de consulta. Vas a salir de esta vista de solo lectura.",
+        confirmText: "Salir",
+        cancelText: "Cancelar",
+      });
+      if (!ok) return;
+      clearFimbaConsultaEdicionSession();
+      clearFimbaUserSession();
+      navigate("/", { replace: true });
+      return;
+    }
+
+    const ok = await confirm({
+      title: "Salir de FIMBA",
+      message: "¿Cerrar la sesión FIMBA de esta edición?",
+      confirmText: "Salir",
+      cancelText: "Cancelar",
+    });
+    if (!ok) return;
     clearFimbaUserSession();
     clearFimbaConsultaEdicionSession();
     navigate("/fimba/login", { replace: true });
@@ -1458,7 +1540,9 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
   const sessionLabel = fimbaUser
     ? fimbaUser.nombre || fimbaUser.mail
     : showTokenConsultaSession
-      ? "Consulta (enlace)"
+      ? dualOfrnAndConsulta
+        ? "Consulta (enlace) activa"
+        : "Consulta (enlace)"
       : null;
 
   const brandEdicionId =
@@ -1470,7 +1554,8 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
     ? location.pathname
     : access.agendaOnly && brandEdicionId
       ? `/fimba/edicion/${brandEdicionId}/agenda`
-      : (showFimbaSession || showTokenConsultaSession) && brandEdicionId
+      : (showFimbaSession || (showTokenConsultaSession && !isOfrnStaff)) &&
+          brandEdicionId
         ? `/fimba/edicion/${brandEdicionId}`
         : "/fimba";
 
@@ -1493,6 +1578,7 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
         rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800&family=Rubik:wght@400;600;700&display=swap"
       />
+      {confirmDialog}
       <header className="fimba-header">
         <div className="fimba-header-inner">
           <Link to={brandHref} className="fimba-brand">
@@ -1503,7 +1589,7 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
           </Link>
           <div className="fimba-header-actions">
             {showSectionToggle && <FimbaSectionToggle />}
-            {(showFimbaSession || showTokenConsultaSession) && (
+            {showSalir && (
               <div
                 style={{
                   display: "inline-flex",
@@ -1513,24 +1599,42 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
                   justifyContent: "flex-end",
                 }}
               >
-                <span
-                  className="fimba-muted"
-                  style={{ fontSize: "0.78rem", fontWeight: 600, maxWidth: 180 }}
-                  title={fimbaUser?.mail || "Enlace de consulta"}
-                >
-                  {sessionLabel}
-                </span>
+                {sessionLabel && (
+                  <span
+                    className="fimba-muted"
+                    style={{
+                      fontSize: "0.78rem",
+                      fontWeight: 600,
+                      maxWidth: 200,
+                    }}
+                    title={fimbaUser?.mail || "Enlace de consulta"}
+                  >
+                    {sessionLabel}
+                  </span>
+                )}
                 <button
                   type="button"
                   className="fimba-btn fimba-btn-ghost"
-                  onClick={handleFimbaLogout}
+                  onClick={handleSalirClick}
+                  title={
+                    dualOfrnAndConsulta
+                      ? "Cerrar enlace de consulta y continuar como staff OFRN"
+                      : "Cerrar sesión de consulta / FIMBA"
+                  }
                 >
-                  <IconLogOut size={14} /> Salir
+                  <IconLogOut size={14} />{" "}
+                  {dualOfrnAndConsulta ? "Salir de consulta" : "Salir"}
                 </button>
               </div>
             )}
             {!isToken && isOfrnStaff && (
-              <Link to="/" className="fimba-btn fimba-btn-ghost">
+              <Link
+                to="/"
+                className="fimba-btn fimba-btn-ghost"
+                onClick={() => {
+                  if (consultaToken) clearFimbaConsultaEdicionSession();
+                }}
+              >
                 Volver a OFRN
               </Link>
             )}

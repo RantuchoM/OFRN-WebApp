@@ -52,12 +52,24 @@ export function FimbaEventDetallePreview({
 /**
  * Editor rich-text Detalle (contentEditable + B/I/U), mismo patrón que
  * `EventForm` → `eventos.descripcion`. Skin FIMBA.
+ * `compact` = toolbar/editor más chicos (modales / celdas legacy).
  */
 export default function FimbaEventDetalleEditor({
   value = "",
   onChange,
+  onBlur,
   placeholder = "Ej. Check-in hotel / Show noche 1",
   id = "fimba-event-detalle",
+  label = "Detalle",
+  ariaLabel,
+  helperText = (
+    <>
+      Texto libre con formato (negrita / cursiva / subrayado). Se guarda en{" "}
+      <code style={{ fontSize: "0.68rem" }}>eventos.descripcion</code>{" "}
+      (mismo campo que OFRN).
+    </>
+  ),
+  compact = false,
 }) {
   const editorRef = useRef(null);
 
@@ -76,52 +88,61 @@ export default function FimbaEventDetalleEditor({
     editorRef.current.innerHTML = next;
   }, [value]);
 
+  const toolbar = (
+    <div
+      style={{
+        display: "flex",
+        gap: 2,
+        padding: 2,
+        borderRadius: 6,
+        border: "1px solid #e2e8f0",
+        background: "#f8fafc",
+        flexShrink: 0,
+      }}
+    >
+      {[
+        { cmd: "bold", Icon: IconBold, title: "Negrita" },
+        { cmd: "italic", Icon: IconItalic, title: "Cursiva" },
+        { cmd: "underline", Icon: IconUnderline, title: "Subrayado" },
+      ].map(({ cmd, Icon, title }) => (
+        <button
+          key={cmd}
+          type="button"
+          title={title}
+          aria-label={title}
+          className="fimba-btn fimba-btn-ghost"
+          style={{ padding: compact ? 3 : 4, lineHeight: 0 }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            handleExecCommand(cmd);
+          }}
+        >
+          <Icon size={compact ? 12 : 14} />
+        </button>
+      ))}
+    </div>
+  );
+
   return (
-    <div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-end",
-          marginBottom: 4,
-          gap: 8,
-        }}
-      >
-        <label className="fimba-label" htmlFor={id} style={{ marginBottom: 0 }}>
-          Detalle
-        </label>
+    <div style={compact ? { minWidth: "10rem", maxWidth: "18rem" } : undefined}>
+      {(label || toolbar) && (
         <div
           style={{
             display: "flex",
-            gap: 2,
-            padding: 2,
-            borderRadius: 6,
-            border: "1px solid #e2e8f0",
-            background: "#f8fafc",
+            justifyContent: label ? "space-between" : "flex-end",
+            alignItems: "flex-end",
+            marginBottom: compact ? 2 : 4,
+            gap: 8,
           }}
         >
-          {[
-            { cmd: "bold", Icon: IconBold, title: "Negrita" },
-            { cmd: "italic", Icon: IconItalic, title: "Cursiva" },
-            { cmd: "underline", Icon: IconUnderline, title: "Subrayado" },
-          ].map(({ cmd, Icon, title }) => (
-            <button
-              key={cmd}
-              type="button"
-              title={title}
-              aria-label={title}
-              className="fimba-btn fimba-btn-ghost"
-              style={{ padding: 4, lineHeight: 0 }}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                handleExecCommand(cmd);
-              }}
-            >
-              <Icon size={14} />
-            </button>
-          ))}
+          {label ? (
+            <label className="fimba-label" htmlFor={id} style={{ marginBottom: 0 }}>
+              {label}
+            </label>
+          ) : null}
+          {toolbar}
         </div>
-      </div>
+      )}
       <div
         className="fimba-input"
         style={{
@@ -135,25 +156,28 @@ export default function FimbaEventDetalleEditor({
           id={id}
           role="textbox"
           aria-multiline="true"
-          aria-label="Detalle"
+          aria-label={ariaLabel || (typeof label === "string" ? label : "Detalle")}
           contentEditable
           suppressContentEditableWarning
           data-placeholder={placeholder}
           className="fimba-detalle-editor"
           style={{
-            padding: "0.55rem 0.75rem",
-            minHeight: 80,
-            maxHeight: 150,
+            padding: compact ? "0.4rem 0.5rem" : "0.55rem 0.75rem",
+            minHeight: compact ? 56 : 80,
+            maxHeight: compact ? 120 : 150,
             overflowY: "auto",
             outline: "none",
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
-            fontSize: "0.9rem",
+            fontSize: compact ? "0.78rem" : "0.9rem",
             lineHeight: 1.45,
             background: "#fff",
           }}
           onInput={(e) => {
             onChange?.(e.currentTarget.innerHTML);
+          }}
+          onBlur={() => {
+            onBlur?.(editorRef.current?.innerHTML ?? value ?? "");
           }}
           onFocus={() => {
             if (
@@ -166,14 +190,14 @@ export default function FimbaEventDetalleEditor({
           }}
         />
       </div>
-      <p
-        className="fimba-muted"
-        style={{ margin: "0.25rem 0 0", fontSize: "0.72rem" }}
-      >
-        Texto libre con formato (negrita / cursiva / subrayado). Se guarda en{" "}
-        <code style={{ fontSize: "0.68rem" }}>eventos.descripcion</code>{" "}
-        (mismo campo que OFRN).
-      </p>
+      {helperText ? (
+        <p
+          className="fimba-muted"
+          style={{ margin: "0.25rem 0 0", fontSize: "0.72rem" }}
+        >
+          {helperText}
+        </p>
+      ) : null}
       <style>{`
         .fimba-detalle-editor:empty:before {
           content: attr(data-placeholder);

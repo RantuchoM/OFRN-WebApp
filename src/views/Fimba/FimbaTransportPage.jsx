@@ -57,11 +57,13 @@ import {
 } from "../../utils/fimbaExport";
 import FimbaTransportReportsMenu from "./FimbaTransportReportsMenu";
 import { eventTypeIdForCategoria } from "../../utils/giraTransportUtils";
+import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import FimbaDestinoStopModal from "./FimbaDestinoStopModal";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import FimbaStopRulesManager from "./FimbaStopRulesManager";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { supabase } from "../../services/supabase";
 import { hasHtmlMarkup, stripHtml } from "../../utils/eventDisplayUtils";
 import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
 
@@ -133,7 +135,22 @@ const EVENT_PLANILLA_FIELDS = [
   "actividad",
   "vuelo",
   "observaciones",
+  "id_locacion",
 ];
+
+/** Celdas con edición inline por doble clic (fuera de modo planilla). */
+const INLINE_CELL_FIELDS = new Set([
+  "fecha",
+  "hora",
+  "actividad",
+  "locacion",
+  "vuelo",
+]);
+
+function eventLocacionId(ev) {
+  const raw = ev?.id_locacion ?? ev?.locaciones?.id ?? null;
+  return raw != null && raw !== "" ? String(raw) : "";
+}
 
 function draftFromEvent(ev) {
   const decoded = decodeFimbaTrasladoDescripcion(ev?.descripcion, {
@@ -154,6 +171,7 @@ function draftFromEvent(ev) {
       decoded.observaciones ||
       ev?.observaciones ||
       "",
+    id_locacion: eventLocacionId(ev),
     id_gira_transporte: vehId,
   };
 }
@@ -588,6 +606,12 @@ export default function FimbaTransportPage() {
 
   /** Modo planilla: celdas inline + semáforo (oculto en consulta / token RO). */
   const [editMode, setEditMode] = useState(false);
+  /**
+   * Edición puntual fuera de modo planilla: `{ eventId, field }`
+   * field = fecha | hora | actividad | locacion | vuelo
+   */
+  const [editingCell, setEditingCell] = useState(null);
+  const [locationOptions, setLocationOptions] = useState([]);
   const [eventDrafts, setEventDrafts] = useState({});
   const [eventRowStatus, setEventRowStatus] = useState({});
   const [eventRowErrors, setEventRowErrors] = useState({});
@@ -609,6 +633,42 @@ export default function FimbaTransportPage() {
   const edicionRef = useRef(edicion);
   const rutasRefreshTimerRef = useRef(null);
   edicionRef.current = edicion;
+
+  const refreshLocations = useCallback(async () => {
+    const { data, error: err } = await supabase
+      .from("locaciones")
+      .select("id, nombre, direccion, localidades(localidad)")
+      .order("nombre");
+    if (err) {
+      console.error(err);
+      return;
+    }
+    setLocationOptions(
+      (data || []).map((l) => ({
+        id: l.id,
+        label: l.localidades?.localidad
+          ? `${l.nombre} (${l.localidades.localidad})`
+          : l.nombre,
+        nombre: l.nombre,
+        ciudad: l.localidades?.localidad || null,
+      })),
+    );
+  }, []);
+
+  useEffect(() => {
+    refreshLocations();
+  }, [refreshLocations]);
+
+  useEffect(() => {
+    if (!editingCell) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        setEditingCell(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editingCell]);
 
   /**
    * Carga / refresh quirúrgico.
@@ -1202,8 +1262,40 @@ export default function FimbaTransportPage() {
     setEditMode((v) => {
       const next = !v;
       if (next) setEditingVehiculoId(null);
+      setEditingCell(null);
       return next;
     });
+  };
+
+  const beginCellEdit = (ev, field) => {
+    if (readOnly || !INLINE_CELL_FIELDS.has(field)) return;
+    const key = String(ev.id);
+    setEventDrafts((prev) => {
+      if (prev[key]) return prev;
+      const n = { ...prev, [key]: draftFromEvent(ev) };
+      eventDraftsRef.current = n;
+      return n;
+    });
+    setEditingCell({ eventId: key, field });
+  };
+
+  const endCellEdit = (eventoId, field) => {
+    setEditingCell((cur) => {
+      if (!cur) return null;
+      if (String(cur.eventId) !== String(eventoId)) return cur;
+      if (field && cur.field !== field) return cur;
+      return null;
+    });
+  };
+
+  const isCellEditing = (eventoId, field) => {
+    // Locación usa LocationSelectWithCreate (pesado): solo la celda activa.
+    if (editMode && field !== "locacion") return true;
+    return (
+      editingCell != null &&
+      String(editingCell.eventId) === String(eventoId) &&
+      editingCell.field === field
+    );
   };
 
   const setEventField = (eventoId, field, value) => {
@@ -1277,6 +1369,7 @@ export default function FimbaTransportPage() {
           actividad: draft.actividad,
           vuelo: draft.vuelo,
           observaciones: draft.observaciones,
+          id_locacion: draft.id_locacion,
           stripDestino: true,
         },
       );
@@ -1299,6 +1392,10 @@ export default function FimbaTransportPage() {
         destino: "",
         vuelo: patched.vuelo,
         observaciones: patched.observaciones,
+        id_locacion: patched.id_locacion ?? null,
+        locaciones: patched.locaciones ?? null,
+        locacion_nombre:
+          patched.locacion_nombre || patched.locaciones?.nombre || null,
       };
     }
 
@@ -2254,8 +2351,10 @@ export default function FimbaTransportPage() {
           <strong>Subidas</strong> / <strong>Bajadas</strong>: quién sube/baja en la
           parada (plazas FIMBA + reglas OFRN); clic para asignar, × para quitar.
           {editMode
-            ? " Modo edición: fecha, horas, actividad, obs., locación texto y vehículo FIMBA (una unidad) se guardan solos."
-            : ""}
+            ? " Modo edición: fecha, horas, detalle, vuelo y vehículo FIMBA (una unidad) se guardan solos; locación = clic → buscar/crear."
+            : readOnly
+              ? ""
+              : " Doble clic en fecha, horario, detalle, locación o vuelo para editar en la celda; el lápiz abre el formulario completo."}
         </p>
 
         {vehiculos.length > 0 && (
@@ -2525,22 +2624,10 @@ export default function FimbaTransportPage() {
                       <tr
                         key={ev.id}
                         className={evRowClass}
-                        onDoubleClick={
+                        title={
                           readOnly
                             ? undefined
-                            : (e) => {
-                                if (
-                                  e.target.closest(
-                                    "button, a, input, select, textarea, label",
-                                  )
-                                ) {
-                                  return;
-                                }
-                                setModal({ mode: "edit", evento: ev });
-                              }
-                        }
-                        title={
-                          readOnly ? undefined : "Doble clic para editar"
+                            : "Doble clic en fecha / horario / detalle / locación / vuelo · lápiz = formulario completo"
                         }
                       >
                         {editMode && (
@@ -2572,34 +2659,106 @@ export default function FimbaTransportPage() {
                             )}
                           </div>
                         </td>
-                        <td className="fimba-sticky-fecha">
-                          {editMode ? (
+                        <td
+                          className="fimba-sticky-fecha"
+                          onDoubleClick={
+                            readOnly
+                              ? undefined
+                              : (e) => {
+                                  e.stopPropagation();
+                                  if (!isCellEditing(ev.id, "fecha")) {
+                                    beginCellEdit(ev, "fecha");
+                                  }
+                                }
+                          }
+                          title={
+                            readOnly
+                              ? undefined
+                              : "Doble clic para cambiar la fecha"
+                          }
+                          style={
+                            !readOnly && !isCellEditing(ev.id, "fecha")
+                              ? { cursor: "pointer" }
+                              : undefined
+                          }
+                        >
+                          {isCellEditing(ev.id, "fecha") ? (
                             <input
-                              className="fimba-cell-input"
+                              className="fimba-cell-input fimba-cell-date"
                               type="date"
+                              autoFocus={!editMode}
                               value={evDraft.fecha || ""}
                               disabled={evSaving}
-                              onChange={(e) =>
-                                changeAndCommitEvento(ev.id, "fecha", e.target.value)
-                              }
+                              onChange={(e) => {
+                                changeAndCommitEvento(
+                                  ev.id,
+                                  "fecha",
+                                  e.target.value,
+                                );
+                                if (!editMode) endCellEdit(ev.id, "fecha");
+                              }}
+                              onBlur={() => {
+                                if (!editMode) endCellEdit(ev.id, "fecha");
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  endCellEdit(ev.id, "fecha");
+                                }
+                              }}
                             />
                           ) : (
                             formatFecha(ev.fecha)
                           )}
                         </td>
-                        <td className="fimba-sticky-hora">
-                          {editMode ? (
-                            <div className="fimba-hora-edit">
+                        <td
+                          className="fimba-sticky-hora"
+                          onDoubleClick={
+                            readOnly
+                              ? undefined
+                              : (e) => {
+                                  e.stopPropagation();
+                                  if (!isCellEditing(ev.id, "hora")) {
+                                    beginCellEdit(ev, "hora");
+                                  }
+                                }
+                          }
+                          title={
+                            readOnly
+                              ? undefined
+                              : "Doble clic para editar comienzo / fin"
+                          }
+                          style={
+                            !readOnly && !isCellEditing(ev.id, "hora")
+                              ? { cursor: "pointer" }
+                              : undefined
+                          }
+                        >
+                          {isCellEditing(ev.id, "hora") ? (
+                            <div
+                              className="fimba-hora-edit"
+                              onBlur={(e) => {
+                                if (e.currentTarget.contains(e.relatedTarget)) {
+                                  return;
+                                }
+                                commitEvento(ev.id);
+                                if (!editMode) endCellEdit(ev.id, "hora");
+                              }}
+                            >
                               <input
                                 className="fimba-cell-input"
                                 type="time"
+                                autoFocus={!editMode}
                                 value={evDraft.hora_inicio || ""}
                                 disabled={evSaving}
                                 title="Hora de comienzo"
                                 onChange={(e) =>
-                                  setEventField(ev.id, "hora_inicio", e.target.value)
+                                  setEventField(
+                                    ev.id,
+                                    "hora_inicio",
+                                    e.target.value,
+                                  )
                                 }
-                                onBlur={() => commitEvento(ev.id)}
                               />
                               <input
                                 className="fimba-cell-input"
@@ -2610,7 +2769,6 @@ export default function FimbaTransportPage() {
                                 onChange={(e) =>
                                   setEventField(ev.id, "hora_fin", e.target.value)
                                 }
-                                onBlur={() => commitEvento(ev.id)}
                               />
                             </div>
                           ) : (
@@ -2643,9 +2801,48 @@ export default function FimbaTransportPage() {
                             </>
                           )}
                         </td>
-                        <td className="fimba-planilla-wrap" style={{ fontWeight: 600 }}>
-                          {editMode ? (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <td
+                          className="fimba-planilla-wrap"
+                          onDoubleClick={
+                            readOnly
+                              ? undefined
+                              : (e) => {
+                                  e.stopPropagation();
+                                  if (
+                                    !hasHtmlMarkup(evDraft.actividad) &&
+                                    !isCellEditing(ev.id, "actividad")
+                                  ) {
+                                    beginCellEdit(ev, "actividad");
+                                  }
+                                }
+                          }
+                          title={
+                            readOnly
+                              ? undefined
+                              : hasHtmlMarkup(ev.actividad)
+                                ? "Detalle con formato: editar en el lápiz (formulario)"
+                                : "Doble clic para editar detalle / obs."
+                          }
+                          style={{
+                            fontWeight: 600,
+                            ...(!readOnly &&
+                            !isCellEditing(ev.id, "actividad") &&
+                            !hasHtmlMarkup(ev.actividad)
+                              ? { cursor: "pointer" }
+                              : {}),
+                          }}
+                        >
+                          {isCellEditing(ev.id, "actividad") ? (
+                            <div
+                              style={{ display: "flex", flexDirection: "column", gap: 4 }}
+                              onBlur={(e) => {
+                                if (e.currentTarget.contains(e.relatedTarget)) {
+                                  return;
+                                }
+                                commitEvento(ev.id);
+                                if (!editMode) endCellEdit(ev.id, "actividad");
+                              }}
+                            >
                               {hasHtmlMarkup(evDraft.actividad) ? (
                                 <>
                                   <FimbaEventDetallePreview html={evDraft.actividad} />
@@ -2659,17 +2856,18 @@ export default function FimbaTransportPage() {
                               ) : (
                                 <input
                                   className="fimba-cell-input"
+                                  autoFocus={!editMode}
                                   value={evDraft.actividad}
                                   disabled={evSaving}
                                   placeholder="Detalle"
                                   onChange={(e) =>
                                     setEventField(ev.id, "actividad", e.target.value)
                                   }
-                                  onBlur={() => commitEvento(ev.id)}
                                   onKeyDown={(e) => {
                                     if (e.key === "Enter") {
                                       e.preventDefault();
                                       commitEvento(ev.id);
+                                      if (!editMode) endCellEdit(ev.id, "actividad");
                                     }
                                   }}
                                 />
@@ -2683,11 +2881,11 @@ export default function FimbaTransportPage() {
                                 onChange={(e) =>
                                   setEventField(ev.id, "observaciones", e.target.value)
                                 }
-                                onBlur={() => commitEvento(ev.id)}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
                                     e.preventDefault();
                                     commitEvento(ev.id);
+                                    if (!editMode) endCellEdit(ev.id, "actividad");
                                   }
                                 }}
                               />
@@ -2726,15 +2924,76 @@ export default function FimbaTransportPage() {
                           )}
                         </td>
                         <td
-                          className="fimba-muted fimba-planilla-wrap"
-                          style={{ fontSize: "0.85rem" }}
+                          className="fimba-muted fimba-planilla-wrap fimba-planilla-loc-cell"
+                          style={{
+                            fontSize: "0.85rem",
+                            ...(!readOnly && !isCellEditing(ev.id, "locacion")
+                              ? { cursor: "pointer" }
+                              : {}),
+                          }}
                           title={
-                            ev.locacion_nombre
-                              ? "Locación de catálogo (editar en el modal del evento)"
-                              : locacion
+                            readOnly
+                              ? locacion
+                              : isCellEditing(ev.id, "locacion")
+                                ? "Buscar o crear locación"
+                                : editMode
+                                  ? "Clic para cambiar locación (buscar / crear)"
+                                  : "Doble clic para cambiar locación (buscar / crear)"
+                          }
+                          onClick={
+                            readOnly || !editMode
+                              ? undefined
+                              : (e) => {
+                                  if (isCellEditing(ev.id, "locacion")) return;
+                                  if (
+                                    e.target.closest(
+                                      "button, a, input, select, textarea, label",
+                                    )
+                                  ) {
+                                    return;
+                                  }
+                                  beginCellEdit(ev, "locacion");
+                                }
+                          }
+                          onDoubleClick={
+                            readOnly
+                              ? undefined
+                              : (e) => {
+                                  e.stopPropagation();
+                                  if (!isCellEditing(ev.id, "locacion")) {
+                                    beginCellEdit(ev, "locacion");
+                                  }
+                                }
                           }
                         >
-                          {locacion}
+                          {isCellEditing(ev.id, "locacion") ? (
+                            <div
+                              className="fimba-planilla-loc-edit"
+                              onDoubleClick={(e) => e.stopPropagation()}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <LocationSelectWithCreate
+                                supabase={supabase}
+                                options={locationOptions}
+                                value={evDraft.id_locacion || ""}
+                                onChange={(id) => {
+                                  const next =
+                                    id != null && id !== "" ? String(id) : "";
+                                  changeAndCommitEvento(
+                                    ev.id,
+                                    "id_locacion",
+                                    next,
+                                  );
+                                  endCellEdit(ev.id, "locacion");
+                                }}
+                                onRefresh={refreshLocations}
+                                placeholder="Buscar locación…"
+                                className="fimba-planilla-loc-select"
+                              />
+                            </div>
+                          ) : (
+                            locacion
+                          )}
                         </td>
                         <td
                           style={{
@@ -2769,13 +3028,26 @@ export default function FimbaTransportPage() {
                         </td>
                         <td
                           className="fimba-muted fimba-planilla-wrap"
-                          style={{ fontSize: "0.85rem" }}
+                          style={{
+                            fontSize: "0.85rem",
+                            ...(!readOnly && canAddIntermediate
+                              ? { cursor: "pointer" }
+                              : {}),
+                          }}
                           title={
                             destinoSiguiente === TRANSPORT_DESTINO_SIN_SIGUIENTE
                               ? "Sin siguiente parada en este vehículo"
                               : destinoSiguiente === TRANSPORT_DESTINO_SIN_LOCACION
                                 ? "La siguiente parada no tiene locación de catálogo"
                                 : `Siguiente parada del mismo vehículo: ${destinoSiguiente}`
+                          }
+                          onDoubleClick={
+                            readOnly || !canAddIntermediate
+                              ? undefined
+                              : (e) => {
+                                  e.stopPropagation();
+                                  openDestinoStop(ev, metrics);
+                                }
                           }
                         >
                           <span
@@ -2827,12 +3099,33 @@ export default function FimbaTransportPage() {
                         </td>
                         <td
                           className="fimba-muted fimba-planilla-wrap"
-                          style={{ fontSize: "0.85rem", maxWidth: "8rem" }}
-                          title={ev.vuelo || evDraft.vuelo || undefined}
+                          style={{
+                            fontSize: "0.85rem",
+                            maxWidth: "8rem",
+                            ...(!readOnly && !isCellEditing(ev.id, "vuelo")
+                              ? { cursor: "pointer" }
+                              : {}),
+                          }}
+                          title={
+                            readOnly
+                              ? ev.vuelo || undefined
+                              : "Doble clic para editar vuelo"
+                          }
+                          onDoubleClick={
+                            readOnly
+                              ? undefined
+                              : (e) => {
+                                  e.stopPropagation();
+                                  if (!isCellEditing(ev.id, "vuelo")) {
+                                    beginCellEdit(ev, "vuelo");
+                                  }
+                                }
+                          }
                         >
-                          {editMode ? (
+                          {isCellEditing(ev.id, "vuelo") ? (
                             <input
                               className="fimba-cell-input"
+                              autoFocus={!editMode}
                               value={evDraft.vuelo}
                               disabled={evSaving}
                               placeholder="Vuelo"
@@ -2840,13 +3133,18 @@ export default function FimbaTransportPage() {
                               onChange={(e) =>
                                 setEventField(ev.id, "vuelo", e.target.value)
                               }
-                              onBlur={() => commitEvento(ev.id)}
+                              onBlur={() => {
+                                commitEvento(ev.id);
+                                if (!editMode) endCellEdit(ev.id, "vuelo");
+                              }}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
                                   e.preventDefault();
                                   commitEvento(ev.id);
+                                  if (!editMode) endCellEdit(ev.id, "vuelo");
                                 }
                               }}
+                              onDoubleClick={(e) => e.stopPropagation()}
                             />
                           ) : (
                             ev.vuelo || "—"

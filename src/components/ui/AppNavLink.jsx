@@ -4,7 +4,7 @@ import { buildAppTo } from "../../utils/appNavigation";
 
 /**
  * Link de navegación interna OFRN con href real (rueda / Ctrl+clic → nueva pestaña).
- * Pasá `to` listo o { mode, tab, giraId, view, subTab }.
+ * Pasá `to` listo o { mode, tab, giraId, view, subTab, seatingView, stagePlotId }.
  */
 export default function AppNavLink({
   to = null,
@@ -14,6 +14,7 @@ export default function AppNavLink({
   view = null,
   subTab = null,
   seatingView = null,
+  stagePlotId = null,
   className = "",
   children,
   onClick = null,
@@ -28,6 +29,7 @@ export default function AppNavLink({
       view,
       subTab,
       seatingView,
+      stagePlotId,
     });
 
   return (

@@ -244,6 +244,10 @@ export const FIMBA_TIPO_EVENTO_TRASLADO = 11;
  * Criterio principal para UI de flota; ver también OFRN_TRANSPORT_TIPO_IDS.
  */
 export const OFRN_CATEGORIA_TRANSPORTE_ID = 6;
+/** Categoría `categorias_tipos_eventos.nombre = 'Ensayos'` (tipos ensayo / prueba de sonido / etc.). */
+export const OFRN_CATEGORIA_ENSAYOS_ID = 2;
+/** Tipo Concierto canónico OFRN (`tipos_evento.id = 1`). */
+export const ID_TIPO_CONCIERTO = 1;
 /**
  * Tipos de transporte fuera de cat. 6 o usados por EventForm / agendaHelpers /
  * giraTransportUtils (p.ej. 12 = Traslado logístico bajo «Logística»).
@@ -723,6 +727,274 @@ export async function updateEventoObservacionesAforo(eventoId, text) {
     })
     .eq("id", Number(eventoId))
     .select("id, observaciones_aforo")
+    .single();
+  if (error) return { evento: null, error };
+  return { evento: data, error: null };
+}
+
+/** Select compartido planilla Backline / picker de ensayos. */
+/** Estados de color Backline (planilla). */
+export const FIMBA_BACKLINE_ESTADOS = [
+  {
+    value: "verde",
+    label: "Verde",
+    bg: "#22c55e",
+    border: "#16a34a",
+    fg: "#052e16",
+  },
+  {
+    value: "celeste",
+    label: "Celeste",
+    bg: "#7dd3fc",
+    border: "#0ea5e9",
+    fg: "#0c4a6e",
+  },
+  {
+    value: "amarillo",
+    label: "Amarillo",
+    bg: "#fde047",
+    border: "#ca8a04",
+    fg: "#422006",
+  },
+  {
+    value: "naranja",
+    label: "Naranja",
+    bg: "#fb923c",
+    border: "#ea580c",
+    fg: "#431407",
+  },
+];
+
+const BACKLINE_ESTADO_VALUES = new Set(
+  FIMBA_BACKLINE_ESTADOS.map((e) => e.value),
+);
+
+/**
+ * @param {unknown} raw
+ * @returns {'verde'|'celeste'|'amarillo'|'naranja'|null}
+ */
+export function canonicalizeFimbaBacklineEstado(raw) {
+  if (raw == null || raw === "") return null;
+  const v = String(raw).trim().toLowerCase();
+  return BACKLINE_ESTADO_VALUES.has(v) ? v : null;
+}
+
+export function resolveFimbaBacklineEstado(raw) {
+  const value = canonicalizeFimbaBacklineEstado(raw);
+  if (!value) return null;
+  return FIMBA_BACKLINE_ESTADOS.find((e) => e.value === value) || null;
+}
+
+const FIMBA_BACKLINE_EVENT_SELECT = `
+  id,
+  fecha,
+  hora_inicio,
+  hora_fin,
+  descripcion,
+  backline_descripcion,
+  backline_monto,
+  backline_estado,
+  planta_escenario_url,
+  planta_escenario_nombre,
+  backline_incluido,
+  id_tipo_evento,
+  id_gira,
+  id_locacion,
+  id_repertorio,
+  tipos_evento (
+    id,
+    nombre,
+    color,
+    id_categoria,
+    categorias_tipos_eventos ( id, nombre )
+  ),
+  locaciones (
+    id,
+    nombre,
+    direccion,
+    localidades ( localidad )
+  ),
+  programas ( id, nombre_gira, nomenclador, tipo ),
+  programas_repertorios ( id, nombre ),
+  eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ),
+  eventos_fimba_propuestas (
+    id_propuesta,
+    fimba_propuestas ( id, nombre, color )
+  ),
+  stage_plot_eventos (
+    id_stage_plot,
+    stage_plots ( id, nombre )
+  )
+`;
+
+/**
+ * ¿La fila de Backline es un ensayo agregado manualmente (no concierto)?
+ * Conciertos siempre van; ensayos solo vía `backline_incluido`.
+ * @param {{ id_tipo_evento?: number|string|null }} evt
+ */
+export function isFimbaBacklineEnsayoRow(evt) {
+  return Number(evt?.id_tipo_evento) !== ID_TIPO_CONCIERTO;
+}
+
+/**
+ * Filas de la planilla Backline: conciertos (tipo 1) siempre + eventos con
+ * `backline_incluido` (ensayos agregados a mano). Soft-delete excluido.
+ * @param {number|string} edicionId
+ */
+export async function listFimbaBacklineConcerts(edicionId) {
+  if (edicionId == null || edicionId === "") {
+    return { events: [], error: new Error("id de edición requerido") };
+  }
+  const { edicion, error: eEd } = await getFimbaEdicionById(edicionId);
+  if (eEd) return { events: [], error: eEd };
+  const idGira = edicion?.id_gira;
+  if (idGira == null || idGira === "") {
+    return { events: [], error: new Error("La edición no tiene gira enlazada") };
+  }
+
+  const { data, error } = await supabase
+    .from("eventos")
+    .select(FIMBA_BACKLINE_EVENT_SELECT)
+    .eq("id_gira", idGira)
+    .or(`id_tipo_evento.eq.${ID_TIPO_CONCIERTO},backline_incluido.eq.true`)
+    .or("is_deleted.is.null,is_deleted.eq.false")
+    .order("fecha", { ascending: true })
+    .order("hora_inicio", { ascending: true });
+
+  if (error) return { events: [], error };
+  return { events: data || [], edicion, error: null };
+}
+
+/**
+ * Ensayos de la gira (categoría Ensayos) aún no incluidos en Backline.
+ * @param {number|string} edicionId
+ */
+export async function listFimbaBacklineEnsayosDisponibles(edicionId) {
+  if (edicionId == null || edicionId === "") {
+    return { events: [], error: new Error("id de edición requerido") };
+  }
+  const { edicion, error: eEd } = await getFimbaEdicionById(edicionId);
+  if (eEd) return { events: [], error: eEd };
+  const idGira = edicion?.id_gira;
+  if (idGira == null || idGira === "") {
+    return { events: [], error: new Error("La edición no tiene gira enlazada") };
+  }
+
+  const { data, error } = await supabase
+    .from("eventos")
+    .select(
+      FIMBA_BACKLINE_EVENT_SELECT.replace(
+        "tipos_evento (",
+        "tipos_evento!inner (",
+      ),
+    )
+    .eq("id_gira", idGira)
+    .eq("tipos_evento.id_categoria", OFRN_CATEGORIA_ENSAYOS_ID)
+    .eq("backline_incluido", false)
+    .neq("id_tipo_evento", ID_TIPO_CONCIERTO)
+    .or("is_deleted.is.null,is_deleted.eq.false")
+    .order("fecha", { ascending: true })
+    .order("hora_inicio", { ascending: true });
+
+  if (error) return { events: [], error };
+  // Defensa: solo categoría Ensayos (por si el filtro join no excluye nulls)
+  const events = (data || []).filter((ev) => {
+    const cat = Number(
+      ev?.tipos_evento?.id_categoria ??
+        ev?.tipos_evento?.categorias_tipos_eventos?.id,
+    );
+    return cat === OFRN_CATEGORIA_ENSAYOS_ID;
+  });
+  return { events, edicion, error: null };
+}
+
+/**
+ * Marca / desmarca ensayos en la planilla Backline (`backline_incluido`).
+ * No borra el evento de agenda.
+ * @param {Array<number|string>} eventoIds
+ * @param {boolean} incluido
+ */
+export async function setEventosBacklineIncluido(eventoIds, incluido) {
+  const ids = (eventoIds || [])
+    .map((id) => Number(id))
+    .filter((n) => Number.isFinite(n));
+  if (ids.length === 0) {
+    return { events: [], error: new Error("ids de evento requeridos") };
+  }
+  const { data, error } = await supabase
+    .from("eventos")
+    .update({
+      backline_incluido: !!incluido,
+      updated_at: new Date().toISOString(),
+    })
+    .in("id", ids)
+    .select("id, backline_incluido");
+  if (error) return { events: [], error };
+  return { events: data || [], error: null };
+}
+
+/**
+ * Patch campos Backline de un evento (concierto o ensayo incluido).
+ * @param {number|string} eventoId
+ * @param {{
+ *   backline_descripcion?: string|null,
+ *   backline_monto?: number|string|null,
+ *   planta_escenario_url?: string|null,
+ *   planta_escenario_nombre?: string|null,
+ *   backline_estado?: string|null,
+ *   backline_incluido?: boolean,
+ * }} patch
+ */
+export async function updateEventoBackline(eventoId, patch = {}) {
+  if (eventoId == null || eventoId === "") {
+    return { evento: null, error: new Error("id de evento requerido") };
+  }
+  const body = { updated_at: new Date().toISOString() };
+  if (patch.backline_descripcion !== undefined) {
+    // HTML rich-text (FimbaEventDetalleEditor); vacío visual → null
+    const raw =
+      patch.backline_descripcion == null
+        ? ""
+        : String(patch.backline_descripcion);
+    const plain = raw
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<\/(p|div|li|h[1-6])>/gi, " ")
+      .replace(/<[^>]*>?/gm, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    body.backline_descripcion = plain ? raw : null;
+  }
+  if (patch.backline_monto !== undefined) {
+    body.backline_monto = parseFimbaMonto(patch.backline_monto);
+  }
+  if (patch.planta_escenario_url !== undefined) {
+    const raw = String(patch.planta_escenario_url ?? "").trim();
+    body.planta_escenario_url = raw || null;
+    // Si se limpia la URL y no mandan nombre, limpiar nombre también.
+    if (!raw && patch.planta_escenario_nombre === undefined) {
+      body.planta_escenario_nombre = null;
+    }
+  }
+  if (patch.planta_escenario_nombre !== undefined) {
+    const n = String(patch.planta_escenario_nombre ?? "").trim();
+    body.planta_escenario_nombre = n || null;
+  }
+  if (patch.backline_estado !== undefined) {
+    body.backline_estado = canonicalizeFimbaBacklineEstado(patch.backline_estado);
+  }
+  if (patch.backline_incluido !== undefined) {
+    body.backline_incluido = !!patch.backline_incluido;
+  }
+  if (Object.keys(body).length <= 1) {
+    return { evento: null, error: new Error("Sin cambios") };
+  }
+  const { data, error } = await supabase
+    .from("eventos")
+    .update(body)
+    .eq("id", Number(eventoId))
+    .select(
+      "id, backline_descripcion, backline_monto, planta_escenario_url, planta_escenario_nombre, backline_estado, backline_incluido",
+    )
     .single();
   if (error) return { evento: null, error };
   return { evento: data, error: null };
@@ -1825,6 +2097,174 @@ export async function getFimbaDriveAccessToken() {
   } catch (e) {
     return {
       accessToken: null,
+      error: e instanceof Error ? e : new Error(String(e?.message || e)),
+    };
+  }
+}
+
+/** Cache en memoria: id Drive → nombre de archivo (chips Backline planta). */
+const fimbaDriveFileNameCache = new Map();
+
+const DRIVE_URL_JUNK_SEGMENTS = new Set([
+  "view",
+  "edit",
+  "preview",
+  "open",
+  "u",
+  "file",
+  "d",
+  "folders",
+  "drive",
+  "document",
+  "spreadsheets",
+  "presentation",
+]);
+
+/**
+ * Etiqueta legible sin API: query `name`/`title`, último segmento útil, o genérico.
+ * @param {string|null|undefined} url
+ * @returns {string}
+ */
+export function guessDriveLinkLabel(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return "Planta Drive";
+  try {
+    const u = new URL(raw);
+    // `usp` suele ser tracking; solo name/title.
+    const fromQuery = u.searchParams.get("name") || u.searchParams.get("title");
+    if (fromQuery && String(fromQuery).trim()) {
+      try {
+        return decodeURIComponent(String(fromQuery).trim());
+      } catch {
+        return String(fromQuery).trim();
+      }
+    }
+    const host = u.hostname.replace(/^www\./, "").toLowerCase();
+    const parts = u.pathname.split("/").filter(Boolean);
+    for (let i = parts.length - 1; i >= 0; i -= 1) {
+      const seg = parts[i];
+      if (!seg || DRIVE_URL_JUNK_SEGMENTS.has(seg.toLowerCase())) continue;
+      if (/^[-\w]{20,}$/.test(seg)) continue; // id Drive
+      if (/^\d+$/.test(seg)) continue;
+      try {
+        return decodeURIComponent(seg.replace(/\+/g, " "));
+      } catch {
+        return seg;
+      }
+    }
+    if (host === "docs.google.com") {
+      if (u.pathname.includes("/spreadsheets/")) return "Hoja de cálculo";
+      if (u.pathname.includes("/presentation/")) return "Presentación";
+      if (u.pathname.includes("/document/")) return "Documento";
+      return "Documento Google";
+    }
+    if (host === "drive.google.com") {
+      if (u.pathname.includes("/folders/")) return "Carpeta Drive";
+      return "Planta Drive";
+    }
+    return host || "Enlace externo";
+  } catch {
+    const seg = raw.split(/[/?#]/).filter(Boolean).pop();
+    if (seg && !/^[-\w]{20,}$/.test(seg) && !DRIVE_URL_JUNK_SEGMENTS.has(seg)) {
+      return seg;
+    }
+    return "Planta Drive";
+  }
+}
+
+/**
+ * Etiqueta del chip de planta: nombre persistido, o heurística desde URL.
+ * @param {{ url?: string|null, nombre?: string|null }} opts
+ * @returns {string}
+ */
+export function resolvePlantaEscenarioLabel({ url, nombre } = {}) {
+  const n = String(nombre || "").trim();
+  if (n) return n;
+  return guessDriveLinkLabel(url);
+}
+
+/**
+ * URL de embed/preview para iframe (archivo Drive o Docs). Carpetas → null.
+ * @param {string|null|undefined} url
+ * @returns {string|null}
+ */
+export function buildDriveFilePreviewUrl(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^www\./, "").toLowerCase();
+
+    const docsMatch = u.pathname.match(
+      /\/(document|spreadsheets|presentation)\/d\/([-\w]{25,})/,
+    );
+    if (host === "docs.google.com" && docsMatch) {
+      return `https://docs.google.com/${docsMatch[1]}/d/${docsMatch[2]}/preview`;
+    }
+
+    const fileMatch = u.pathname.match(/\/file\/d\/([-\w]{25,})/);
+    if (host === "drive.google.com" && fileMatch) {
+      return `https://drive.google.com/file/d/${fileMatch[1]}/preview`;
+    }
+
+    if (u.pathname.includes("/folders/")) return null;
+
+    const idParam = u.searchParams.get("id");
+    if (
+      host === "drive.google.com" &&
+      idParam &&
+      /^[-\w]{25,}$/.test(idParam)
+    ) {
+      return `https://drive.google.com/file/d/${idParam}/preview`;
+    }
+
+    const id = extractDriveFolderId(raw);
+    if (host === "drive.google.com" && id) {
+      return `https://drive.google.com/file/d/${id}/preview`;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Nombre de archivo vía Drive API (cuenta Archivo). Cache por id.
+ * @param {string|null|undefined} urlOrId
+ * @returns {Promise<{ name: string|null, error: Error|null }>}
+ */
+export async function fetchFimbaDriveFileName(urlOrId) {
+  const fileId = extractDriveFolderId(urlOrId);
+  if (!fileId) {
+    return { name: null, error: new Error("ID de Drive inválido") };
+  }
+  if (fimbaDriveFileNameCache.has(fileId)) {
+    return { name: fimbaDriveFileNameCache.get(fileId), error: null };
+  }
+  const { accessToken, error: tokenErr } = await getFimbaDriveAccessToken();
+  if (tokenErr || !accessToken) {
+    return { name: null, error: tokenErr || new Error("Sin token") };
+  }
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+        fileId,
+      )}?fields=name&supportsAllDrives=true`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!res.ok) {
+      return {
+        name: null,
+        error: new Error(`Drive respondió ${res.status} al leer el nombre`),
+      };
+    }
+    const json = await res.json();
+    const name = String(json?.name || "").trim() || null;
+    if (name) fimbaDriveFileNameCache.set(fileId, name);
+    return { name, error: null };
+  } catch (e) {
+    return {
+      name: null,
       error: e instanceof Error ? e : new Error(String(e?.message || e)),
     };
   }
@@ -5608,8 +6048,8 @@ export async function saveFimbaTraslado(payload) {
 }
 
 /**
- * Patch liviano de planilla Transportes (modo edición).
- * Solo fecha / horas / descripcion (actividad, vuelo) + obs equipaje.
+ * Patch liviano de planilla Transportes (modo edición / celdas inline).
+ * Fecha / horas / descripcion (actividad, vuelo) + obs equipaje + `id_locacion`.
  * `stripDestino: true` limpia línea `Destino:` legacy (transporte derivado del next stop).
  * No toca flota, tags, grupos, `id_gira_transporte` ni rutas de boarding.
  */
@@ -5651,13 +6091,22 @@ export async function patchFimbaEventoPlanilla(eventoId, patch = {}) {
     row.asientos_equipaje = n || null;
     row.audiencia = n || null;
   }
+  if (Object.prototype.hasOwnProperty.call(patch, "id_locacion")) {
+    const locRaw = patch.id_locacion;
+    if (locRaw == null || locRaw === "") {
+      row.id_locacion = null;
+    } else {
+      const locN = Number(locRaw);
+      row.id_locacion = Number.isFinite(locN) ? locN : null;
+    }
+  }
 
   const { data, error } = await supabase
     .from("eventos")
     .update(row)
     .eq("id", id)
     .select(
-      "id, fecha, hora_inicio, hora_fin, descripcion, asientos_equipaje, observaciones_equipaje, audiencia",
+      "id, fecha, hora_inicio, hora_fin, descripcion, asientos_equipaje, observaciones_equipaje, audiencia, id_locacion, locaciones ( id, nombre, direccion, localidades ( id, localidad ) )",
     )
     .single();
   if (error) return { evento: null, error };
@@ -5665,10 +6114,12 @@ export async function patchFimbaEventoPlanilla(eventoId, patch = {}) {
   const decoded = decodeFimbaTrasladoDescripcion(data.descripcion, {
     observaciones_equipaje: data.observaciones_equipaje,
   });
+  const locNombre = data.locaciones?.nombre || null;
   return {
     evento: {
       ...data,
       ...decoded,
+      locacion_nombre: locNombre,
       asientos_equipaje: Math.max(0, Number(data.asientos_equipaje) || 0),
       pax: Math.max(0, Number(data.asientos_equipaje ?? data.audiencia) || 0),
     },

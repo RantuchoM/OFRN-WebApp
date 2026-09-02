@@ -59,7 +59,9 @@ export function grupoNombreInitials(nombre) {
 
 /**
  * Chips de grupos de convocatoria (mismo estilo que UnifiedAgenda / roster).
+ * Esquinas rectangulares (`border-radius: 2px`), nunca píldora.
  * `compact`: muestra iniciales (tooltip con nombre completo). Default: nombre completo.
+ * En FIMBA (Backline / Venues / Agenda) preferir default (nombre completo).
  */
 export default function GiraGrupoChips({
   grupos = [],
@@ -76,7 +78,7 @@ export default function GiraGrupoChips({
         return (
           <span
             key={`grp-${g.id}`}
-            className={`inline-flex items-center rounded text-[10px] font-black border uppercase w-fit ${
+            className={`inline-flex items-center text-[10px] font-black border uppercase w-fit ${
               compact
                 ? "px-1.5 py-0.5 tracking-wide shrink-0"
                 : "px-2 py-0.5 tracking-tight max-w-full truncate"
@@ -85,6 +87,7 @@ export default function GiraGrupoChips({
               backgroundColor: `${color}18`,
               color: color || "#4338ca",
               borderColor: `${color}44`,
+              borderRadius: 2,
             }}
             title={nombre}
             aria-label={compact && nombre ? nombre : undefined}

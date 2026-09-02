@@ -24,7 +24,7 @@ import EventForm from "../forms/EventForm";
 import StagePlotViewerModal from "../../views/Giras/StagePlotViewerModal";
 import GiraGrupoChips from "../giras/GiraGrupoChips";
 import VenueStatusPin from "../ui/VenueStatusPin";
-import { buildAppTo } from "../../utils/appNavigation";
+import { buildEscenarioEditorTo } from "../../utils/appNavigation";
 import { toast } from "sonner";
 import { format, startOfDay, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -868,12 +868,7 @@ function VenueEventRow({
   const grupos = extractEventGrupos(evt);
   const stagePlotTo =
     evt.id_gira != null
-      ? buildAppTo({
-          mode: "GIRAS",
-          giraId: evt.id_gira,
-          subTab: "seating",
-          seatingView: "escenario",
-        })
+      ? buildEscenarioEditorTo({ giraId: evt.id_gira })
       : null;
 
   return (
@@ -1052,8 +1047,10 @@ function VenueEventRow({
           {stagePlotTo && (
             <Link
               to={stagePlotTo}
+              target="_blank"
+              rel="noopener noreferrer"
               className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors inline-flex"
-              title="Editar escenario en la gira"
+              title="Editar escenario en la gira — pestaña nueva"
             >
               <IconLayout size={14} />
             </Link>

@@ -24,9 +24,12 @@ import StagePlotOpacityControls, {
   opacitiesToStagePatch,
   readStagePlotOpacities,
 } from "./StagePlotOpacityControls";
+import StagePlotLivePreview from "./StagePlotLivePreview";
+import { useStagePlotNarrowViewport } from "./StagePlotMobileEditor";
 
 /**
- * Vista de solo lectura para técnicos: elige lienzo, 4 opacidades Lienzo, PDF/JPG.
+ * Vista de solo lectura para técnicos: elige lienzo, 4 opacidades Lienzo,
+ * preview en vivo + PDF/JPG con las mismas opacidades.
  */
 export default function StagePlotViewerModal({
   open,
@@ -41,6 +44,7 @@ export default function StagePlotViewerModal({
   const [resolveReason, setResolveReason] = useState(null);
   const [payload, setPayload] = useState(() => normalizeStagePlotPayload(null));
   const [exporting, setExporting] = useState(false);
+  const isNarrow = useStagePlotNarrowViewport();
 
   const programId =
     evento?.id_gira ?? gira?.id ?? evento?.programas?.id ?? null;
@@ -137,13 +141,17 @@ export default function StagePlotViewerModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 flex items-center justify-center bg-slate-900/50 p-4"
+      className="fixed inset-0 flex items-center justify-center bg-slate-900/50 p-3 sm:p-4"
       style={{ zIndex: 100 }}
       role="dialog"
       aria-modal="true"
       aria-label="Ver escenario"
     >
-      <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+      <div
+        className={`flex max-h-[94vh] w-full flex-col overflow-hidden rounded-xl bg-white shadow-xl ${
+          isNarrow ? "max-w-lg" : "max-w-5xl"
+        }`}
+      >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 text-base font-bold text-slate-800">
@@ -201,6 +209,16 @@ export default function StagePlotViewerModal({
                 disabled={exporting}
               />
 
+              <StagePlotLivePreview
+                payload={payload}
+                maxStagePx={isNarrow ? 720 : 1100}
+                minHeightClass={
+                  isNarrow
+                    ? "min-h-[200px] h-[38vh]"
+                    : "min-h-[320px] h-[min(52vh,560px)]"
+                }
+              />
+
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
                 <p className="font-semibold text-slate-800">{activeNombre}</p>
                 <p className="mt-1">
@@ -210,8 +228,8 @@ export default function StagePlotViewerModal({
                   {(payload.formations || []).length} formaciones
                 </p>
                 <p className="mt-2 text-[11px] text-slate-500">
-                  Vista de solo lectura. Descargá PDF o JPG con las opacidades
-                  aplicadas (cuadrícula, radial, formaciones y recuadros).
+                  Vista de solo lectura. La preview usa las opacidades de
+                  arriba; PDF/JPG exportan con las mismas.
                 </p>
               </div>
             </>

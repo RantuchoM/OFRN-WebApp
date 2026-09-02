@@ -7,6 +7,7 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { useSearchParams } from "react-router-dom";
 import {
   Stage,
   Layer,
@@ -2639,11 +2640,27 @@ export default function ProgramStagePlot({
   onBack,
   readOnly = false,
   embedded = false,
+  /**
+   * Cuando no es null, reemplaza el gate OFRN (isEditor|isManagement|isAdmin).
+   * Usar desde shell FIMBA standalone para editores externos (`!readOnly`).
+   */
+  canEditOverride = null,
+  /** Prioriza sobre `?stagePlotId=` (ruta `/stage-plots/:plotId` / FIMBA escenario). */
+  initialPlotId = null,
 }) {
   const { isEditor, isManagement, isAdmin, user } = useAuth();
-  const canEdit = !readOnly && (isEditor || isManagement || isAdmin);
+  const ofrnCanEdit = isEditor || isManagement || isAdmin;
+  const canEdit =
+    canEditOverride != null
+      ? Boolean(canEditOverride)
+      : !readOnly && ofrnCanEdit;
   const { confirm, dialog } = useConfirmDialog();
   const { roster } = useGiraRoster(supabase, program);
+  const [searchParams] = useSearchParams();
+  const deepLinkPlotId =
+    initialPlotId != null && initialPlotId !== ""
+      ? String(initialPlotId)
+      : searchParams.get("stagePlotId");
 
   const isForcedDark = useOfrnForcedDarkMode();
   const [loading, setLoading] = useState(true);
@@ -3873,7 +3890,11 @@ export default function ProgramStagePlot({
       skipHistoryRef.current = false;
       return;
     }
-    let active = plots.find((p) => p.id === activePlotIdRef.current) || plots[0];
+    const deepId = deepLinkPlotId != null ? String(deepLinkPlotId) : null;
+    let active =
+      (deepId && plots.find((p) => String(p.id) === deepId)) ||
+      plots.find((p) => p.id === activePlotIdRef.current) ||
+      plots[0];
     if (!active) {
       const created = await createStagePlot(supabase, program.id, {
         nombre: "Lienzo 1",
@@ -3895,7 +3916,7 @@ export default function ProgramStagePlot({
       skipSaveRef.current = false;
       skipHistoryRef.current = false;
     });
-  }, [supabase, program?.id, loadMeta, applyPlotToEditor]);
+  }, [supabase, program?.id, loadMeta, applyPlotToEditor, deepLinkPlotId]);
 
   useEffect(() => {
     load();

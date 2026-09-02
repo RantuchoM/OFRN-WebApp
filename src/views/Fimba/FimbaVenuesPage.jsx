@@ -31,7 +31,6 @@ import {
   updateEventoObservacionesAforo,
 } from "../../services/fimbaService";
 import { supabase } from "../../services/supabase";
-import { useAuth } from "../../context/AuthContext";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import {
   extractEventArtistas,
@@ -41,7 +40,7 @@ import {
   formatVenueStageDims,
   groupEventsByLocacion,
 } from "../../utils/venueDisplayUtils";
-import { buildAppTo } from "../../utils/appNavigation";
+import { buildStandaloneEscenarioTo } from "../../utils/appNavigation";
 import StagePlotViewerModal from "../Giras/StagePlotViewerModal";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
@@ -163,6 +162,7 @@ function FimbaVenueAforoCell({
 
 function FimbaVenueEventRow({
   evt,
+  edicionId,
   readOnly,
   showStagePlotEditorLink,
   onViewStagePlot,
@@ -174,15 +174,12 @@ function FimbaVenueEventRow({
   const artistas = extractEventArtistas(evt);
   const grupos = extractEventGrupos(evt);
   const bloque = evt.programas_repertorios?.nombre || null;
-  const stagePlotTo =
-    showStagePlotEditorLink && evt.id_gira != null
-      ? buildAppTo({
-          mode: "GIRAS",
-          giraId: evt.id_gira,
-          subTab: "seating",
-          seatingView: "escenario",
-        })
-      : null;
+  const stagePlotTo = showStagePlotEditorLink
+    ? buildStandaloneEscenarioTo({
+        plotId: null,
+        edicionId,
+      })
+    : null;
 
   return (
     <tr>
@@ -221,7 +218,10 @@ function FimbaVenueEventRow({
       </td>
       <td>
         {grupos.length > 0 ? (
-          <GiraGrupoChips grupos={grupos} compact />
+          <GiraGrupoChips
+            grupos={grupos}
+            className="fimba-ofrn-grupo-chips"
+          />
         ) : (
           <span className="fimba-muted" style={{ fontSize: "0.72rem" }}>—</span>
         )}
@@ -250,7 +250,7 @@ function FimbaVenueEventRow({
               to={stagePlotTo}
               className="fimba-btn fimba-btn-ghost"
               style={{ padding: "0.3rem 0.45rem", textDecoration: "none" }}
-              title="Editar escenario en la gira OFRN"
+              title="Editar escenario (RiderMaker)"
             >
               <IconLayout size={14} />
             </Link>
@@ -278,8 +278,8 @@ function FimbaVenueEventRow({
 export default function FimbaVenuesPage() {
   const { edicionId } = useParams();
   const { readOnly } = useFimbaAccess();
-  const { isManagement } = useAuth();
   const canEditVenueInfo = !readOnly;
+  const canEditStagePlot = !readOnly;
 
   const [edicion, setEdicion] = useState(null);
   const [events, setEvents] = useState([]);
@@ -747,8 +747,9 @@ export default function FimbaVenuesPage() {
                                   <FimbaVenueEventRow
                                     key={evt.id}
                                     evt={evt}
+                                    edicionId={edicionId}
                                     readOnly={readOnly}
-                                    showStagePlotEditorLink={isManagement}
+                                    showStagePlotEditorLink={canEditStagePlot}
                                     onViewStagePlot={setStagePlotViewerEvent}
                                     onEditEvent={openEditEvent}
                                     onAforoSaved={handleAforoSaved}

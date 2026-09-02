@@ -22,6 +22,30 @@ const FORMATS = [
   "image",
 ];
 
+/** Toolbar completa (rider / observaciones). */
+function buildFullToolbar(canUpload) {
+  return [
+    [{ header: [1, 2, 3, false] }],
+    ["bold", "italic", "underline", "strike"],
+    [{ list: "ordered" }, { list: "bullet" }],
+    [{ indent: "-1" }, { indent: "+1" }],
+    [{ align: [] }],
+    ["link", ...(canUpload ? ["image"] : [])],
+    ["clean"],
+  ];
+}
+
+/** Toolbar corta para celdas angostas (Backline Descripción). */
+function buildCompactToolbar() {
+  return [
+    [{ header: [1, 2, false] }],
+    ["bold", "italic", "underline"],
+    [{ list: "ordered" }, { list: "bullet" }],
+    ["link"],
+    ["clean"],
+  ];
+}
+
 function insertImageAtCursor(quill, url) {
   if (!quill || !url) return;
   const range = quill.getSelection(true);
@@ -70,6 +94,8 @@ export default function FimbaRichTextEditor({
   isEmptyHtml = isFimbaRiderEmpty,
   className = "",
   helperText = "Imagen: botón de la barra, pegar (Ctrl+V) o arrastrar. JPG, PNG, GIF o WebP · máx. 8 MB.",
+  /** `compact` = menos botones + CSS de celda angosta (Backline). */
+  toolbar = "full",
 }) {
   const quillRef = useRef(null);
   const [editorTick, setEditorTick] = useState(0);
@@ -140,29 +166,26 @@ export default function FimbaRichTextEditor({
     input.click();
   };
 
+  const compact = toolbar === "compact";
+
   const modules = useMemo(
     () => ({
       toolbar: readOnly
         ? false
         : {
-            container: [
-              [{ header: [1, 2, 3, false] }],
-              ["bold", "italic", "underline", "strike"],
-              [{ list: "ordered" }, { list: "bullet" }],
-              [{ indent: "-1" }, { indent: "+1" }],
-              [{ align: [] }],
-              ["link", ...(canUpload ? ["image"] : [])],
-              ["clean"],
-            ],
-            handlers: canUpload
-              ? { image: () => imageHandlerRef.current?.() }
-              : {},
+            container: compact
+              ? buildCompactToolbar()
+              : buildFullToolbar(canUpload),
+            handlers:
+              !compact && canUpload
+                ? { image: () => imageHandlerRef.current?.() }
+                : {},
           },
       clipboard: {
         matchVisual: false,
       },
     }),
-    [readOnly, canUpload],
+    [readOnly, canUpload, compact],
   );
 
   useEffect(() => {
@@ -237,8 +260,8 @@ export default function FimbaRichTextEditor({
 
   return (
     <div
-      className={`fimba-richtext rich-text-quill ${className}`.trim()}
-      style={{ position: "relative" }}
+      className={`fimba-richtext rich-text-quill${compact ? " fimba-richtext--compact" : ""}${className ? ` ${className}` : ""}`.trim()}
+      style={{ position: "relative", maxWidth: "100%", minWidth: 0 }}
     >
       <ReactQuill
         ref={(el) => {

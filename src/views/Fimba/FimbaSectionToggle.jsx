@@ -9,6 +9,7 @@ import {
   IconClipboardCheck,
   IconUsers,
   IconMapPin,
+  IconLayers,
 } from "../../components/ui/Icons";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import { useFimbaSheetLeaveGuard } from "./FimbaSheetLeaveGuardContext";
@@ -21,7 +22,7 @@ function normalizePath(pathname) {
 }
 
 /**
- * Segment order: Artistas | Agenda | Transportes | Hotelería | Venues | Rider | Contrataciones | Usuarios.
+ * Segment order: Artistas | Agenda | Transportes | Hotelería | Venues | Backline | Rider | Contrataciones | Usuarios.
  * All tabs navigate to edición-level routes (never keep /artista/:id).
  * Consulta RO: oculta Contrataciones y Usuarios. Token `/c`: también oculta Rider.
  * Token `/c/.../agenda` (`agendaOnly`): oculta todo el toggle (solo agenda).
@@ -46,6 +47,12 @@ const SECTIONS = [
     label: "Venues",
     Icon: IconMapPin,
     segment: "venues",
+  },
+  {
+    key: "backline",
+    label: "Backline",
+    Icon: IconLayers,
+    segment: "backline",
   },
   {
     key: "rider",
@@ -108,7 +115,7 @@ export function isFimbaSectionPath(pathname, edicionId, segment) {
 }
 
 /**
- * Segmented control: Artistas | Agenda | Transportes | Hotelería | Venues | Rider | Contrataciones | Usuarios.
+ * Segmented control: Artistas | Agenda | Transportes | Hotelería | Venues | Backline | Rider | Contrataciones | Usuarios.
  * Always targets `/fimba/edicion/:edicionId/...` — never appends `/artista/:id`.
  */
 export default function FimbaSectionToggle({

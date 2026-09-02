@@ -110,19 +110,24 @@ Hint del canvas cambia según la herramienta activa.
 
 | Archivo | Rol |
 |---------|-----|
-| `src/utils/stagePlotPdf.js` | Export PDF (hoja 1 escenario + dims; canales hoja 2) y JPG (solo escenario + dims) |
+| `src/utils/stagePlotPdf.js` | Export PDF (hoja 1 escenario + dims; canales hoja 2) y JPG (solo escenario + dims); `renderStagePlotToCanvas` compartido con preview técnico |
 | `src/utils/stagePlotConstants.js` | Escala cm↔px, grid, offset director, clamps |
 | `src/utils/stagePlotPayload.js` | Normalización `widthCm`/`heightCm`, `applyStagePlotStagePatch`, `pinStagePlotConductors` |
 | `src/utils/stagePlotGroups.js` | Geometría de alineación / distribución en formaciones |
 | `src/utils/stagePlotViewportGestures.js` | Distingue pan (scroll trackpad / rueda) vs zoom (pinch / Ctrl+rueda) |
 | `src/views/Giras/ProgramStagePlot.jsx` | Re-export → `ProgramStagePlotEditor.jsx` |
-| `src/views/Giras/ProgramStagePlotEditor.jsx` | Editor Konva multi-lienzo, Asociar, dropdown **Importar / Exportar** (PDF/JPG/JSON + modal import); panel izq. **Paleta** (Formaciones en lista vertical + íconos esquemáticos; categorías DB/catálogo + **Instrumentos sin ícono**) \| **Editor**; tarimas Escenario → modal tamaño inicial |
+| `src/views/Giras/ProgramStagePlotEditor.jsx` | Editor Konva multi-lienzo; props `canEditOverride`, `initialPlotId` para shells independientes |
 | `src/views/Giras/StagePlotInstrumentsPanel.jsx` | Panel **Editor**: familia + tamaño + SVG; clave de ícono demoted; **Crear instrumento**; agrupado por familia + **Instrumentos sin ícono** |
+| `src/views/Escenario/StagePlotStandalonePage.jsx` | Shell fullscreen: carga plot+programa mínimos, monta editor sin Giras/Seating |
+| `src/views/Escenario/StagePlotOfrnStandalonePage.jsx` | Guard OFRN → `/stage-plots/:plotId` |
+| `src/views/Fimba/FimbaEscenarioPage.jsx` | Guard FIMBA edición → escenario standalone |
 | `src/utils/stagePlotFormations.js` | Geometría de formaciones; defaults en cm→px |
-| `src/services/stagePlotService.js` | CRUD multi-plot, `stage_plot_eventos`, `resolveStagePlotForEvent` |
+| `src/services/stagePlotService.js` | CRUD multi-plot, `loadStagePlotStandaloneContext`, `createStagePlotForEvent`, `unlinkEventFromStagePlot` |
 | `src/utils/stagePlotTransfer.js` | Export/import JSON (`.ofrn-escenario.json`) |
+| `src/utils/appNavigation.js` | `buildStandaloneEscenarioTo` + legacy `buildEscenarioEditorTo` |
 | `src/views/Giras/StagePlotImportModal.jsx` | Import archivo / otra gira + export JSON |
-| `src/views/Giras/StagePlotViewerModal.jsx` | Vista técnico solo lectura (opacidades + PDF/JPG) |
+| `src/views/Giras/StagePlotViewerModal.jsx` | Vista técnico solo lectura: preview en vivo + opacidades + PDF/JPG |
+| `src/views/Giras/StagePlotLivePreview.jsx` | Preview raster (canvas 2D) del payload; re-render al cambiar opacidades |
 | `src/views/Giras/StagePlotOpacityControls.jsx` | 4 deslizantes de opacidad Lienzo (técnico + export editor) |
 | `src/views/Giras/StagePlotExportOptionsModal.jsx` | Modal previo a PDF/JPG en el editor (overrides solo de descarga) |
 | `src/views/Giras/StagePlotMobileEditor.jsx` | Chrome móvil: hub (elegir lienzo → Exportar PDF/JPG/JSON o Editar), top bar, FAB +, bottom sheet agregar; hook `useStagePlotNarrowViewport` |
@@ -167,12 +172,41 @@ Migraciones: `20260826162040_stage_plots` → `20260827095903_stage_plots_multi_
 
 - Editor: switcher multi-lienzo = label **Elegir lienzo** + `SearchableSelect` (lista de plots) + **lápiz** renombrar (`IconPencil`, input inline Enter/blur / Escape) **junto al dropdown** + botón **+ Lienzo**; eliminar (mín. 1), panel **Asociar**, dropdown desktop **Importar / Exportar** (PDF, JPG, Descargar JSON, Importar archivo/otra gira → `StagePlotImportModal`). (No pills horizontales.)
 - Orgánico: `isConfirmedConvocadoForSeatingReports` + filtro por `bloque_ids`.
-- Agenda: botón «Ver escenario» en concierto/ensayo (técnico / editor / management) → `StagePlotViewerModal` (opacidades locales + PDF/JPG).
+- Agenda: botón «Ver escenario» en concierto/ensayo (técnico / editor / management) → `StagePlotViewerModal` (preview en vivo + opacidades locales + PDF/JPG).
 - **FIMBA Venues** (`/fimba/edicion/:id/venues`): listado por locación de conciertos (`id_tipo_evento = 1`) de la gira enlazada a la edición. Metadata operativa en `fimba_venue_info` (referente, rider, sillas, agua, observaciones); nombre/dirección/aforo numérico desde `locaciones`. Espectáculos: artistas taggeados, grupos OFRN, bloque repertorio, **observaciones aforo** (`eventos.observaciones_aforo`). Acciones: **Ver escenario** (`StagePlotViewerModal`); enlace al editor OFRN (Seating → Escenario) solo staff `isManagement`; edición de evento vía `FimbaEventoFormModal` (staff no RO). Link **Agenda** filtrada por locación. **Sin** estado de venue OFRN. Consulta / token `/c`: lectura + Ver escenario.
+- **FIMBA Backline** (`/fimba/edicion/:id/backline`): planilla una fila por concierto; `backline_descripcion` (HTML) / `backline_monto` / `planta_escenario_url` + `planta_escenario_nombre` (chip + preview modal; menú ⋮ con acciones Drive y RiderMaker: Elegir/Cambiar/Crear/Desvincular / Ver Escenario).
 
-### Montaje / URLs (sin cambio)
+### Montaje / URLs
 
-Sub-tab Escenario en Seating; `seatingView=escenario` / `disposicion`; legacy `subTab=stage_plot` → redirect.
+**Arquitectura (2026-09 — Option A slice):** el editor Konva vive en `ProgramStagePlotEditor` y se monta en **dos shells**:
+
+| Shell | Ruta | Chrome | Auth / canEdit |
+|-------|------|--------|----------------|
+| **Standalone FIMBA** | `/fimba/edicion/:edicionId/escenario/:plotId?` | Sin FimbaLayout (toggle/sidebar). Fullscreen editor. | `FimbaStaffGuard` + `canEditOverride={!readOnly}` (editor_general / OFRN management). Valida `plot.id_programa === edicion.id_gira`. Sin `:plotId` → primer plot de la gira. |
+| **Standalone OFRN** | `/stage-plots/:plotId` | Fullscreen, sin Giras. | Sesión OFRN + `isEditor\|isManagement\|isAdmin`. |
+| **Legacy Giras** | `/?tab=giras&view=REPERTOIRE&…&seatingView=escenario` | Giras → Repertorio → Seating → Escenario | Roles OFRN del seating (`readOnly` prop). |
+
+Loader standalone: `loadStagePlotStandaloneContext(supabase, plotId)` → plot + fila mínima `programas` (sin montar seating/repertorio). Select de programa: `id, nombre_gira, nomenclador, tipo, mes_letra, fecha_desde, fecha_hasta, subtitulo` — **sin** `anio` (esa columna no existe en `programas`; el año va en `fimba_ediciones.anio` o se deriva de `fecha_desde`). Roster orgánico vía `useGiraRoster(program)` (usa `fecha_desde`). `listProgramasWithStagePlots` idem: join sin `anio`.
+
+**Helpers** (`appNavigation.js`):
+
+- `buildStandaloneEscenarioTo({ plotId, edicionId })` — canónico para FIMBA / deep-links con plot.
+- `buildEscenarioEditorTo({ giraId, stagePlotId })` — legacy shell Giras (sigue válido para menú Gira / Gestión sin plotId).
+
+**Entradas FIMBA:** Backline / Venues «Editar» → ruta standalone FIMBA (misma pestaña), **no** `/?tab=giras…`. Visible si `!readOnly` (editores FIMBA + staff OFRN). Consulta / token `/c` → solo «Ver escenario» (`StagePlotViewerModal`).
+
+**Cadena legacy (sigue para menú Gira):**
+
+`GirasView` (`view=REPERTOIRE`) → `ProgramRepertoire` (`subTab=seating`) → `ProgramSeating` (`seatingView=escenario`) → `ProgramStagePlot`.
+
+**Props editor relevantes:** `canEditOverride` (FIMBA), `initialPlotId` (ruta), `onBack`, `embedded`.
+
+**Deuda restante:**
+
+- Gestión Venues OFRN (`VenuesManager`) aún puede usar URL Giras cuando no hay `plotId` resuelto.
+- Orgánico / inventario / import «otra gira» siguen tipados al modelo OFRN (aceptable; RLS anon/authenticated en `stage_plots`).
+- Sin app RiderMaker separada: mismo componente Konva + shells distintos.
+- Option C (modal fullscreen embebido en FIMBA layout) no implementada.
 
 ## Histórico — propuesta «1 plot por bloque» (superseded)
 
@@ -200,7 +234,8 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] `resolveFormationFacingPoint` usa posición del director (o canónica si no hay ítem)
 - [x] Multi-lienzo por gira + `bloque_ids` + `stage_plot_eventos` + resolución técnico
 - [x] Export/import JSON + import desde otra gira
-- [x] «Ver escenario» técnico (agenda + FIMBA Espacios) con 4 opacidades Lienzo + PDF/JPG
+- [x] «Ver escenario» técnico (agenda + FIMBA Espacios / Backline / Venues) con preview en vivo + 4 opacidades Lienzo + PDF/JPG
+- [x] Preview técnico: `StagePlotLivePreview` vía `renderStagePlotToCanvas` (mismas guías/opacidades que export; desktop + móvil)
 - [x] Opacidad Lienzo (cuadrícula / radial / formaciones / recuadros) con deslizantes 0–100% y persistencia `*Opacity` + migración desde boolean legacy
 - [x] Orgánico filtrado por bloques asociados (roster confirmado)
 - [x] Montaje en Seating (sub-tabs Disposición | Escenario)
@@ -249,6 +284,10 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] **Editor móvil** simplificado (fullscreen; mover / + sheet / floating Copiar·Eliminar; pinch + zoom buttons; autosave compartido)
 - [x] **Hub móvil Escenario**: elegir lienzo creado → Exportar (PDF / JPG / JSON + opciones de guía) o Editar (recién ahí abre el editor); sin autoabrir editor
 - [x] Export PDF/JPG: helpers de ícono/silueta restaurados (`drawImageRotated*`, `drawSilhouetteOn*`) — fallaba p. ej. BOB MARLEY (gira 12)
+- [x] FIMBA Backline: modal Elegir/Cambiar Escenario ofrece **Crear uno nuevo** (vacío o duplicar referencia con `createStagePlotForEvent`) y **Desvincular** (`unlinkEventFromStagePlot`) cuando ya hay vínculo
+- [x] Fix URL «Editar escenario»: `view=REPERTOIRE` obligatorio; `buildAppTo` default si hay `subTab`/`seatingView`; helper `buildEscenarioEditorTo`; deep-link `stagePlotId`; abrir en pestaña nueva desde FIMBA/Venues
+- [x] **Standalone Escenario (Option A):** `/fimba/edicion/:id/escenario/:plotId?` + `/stage-plots/:plotId`; loader `loadStagePlotStandaloneContext`; `canEditOverride` para editores FIMBA; Backline/Venues «Editar» → ruta FIMBA (no shell Giras)
+- [x] Fix loader standalone: `programas` **no** tiene `anio` — `loadStagePlotStandaloneContext` / `listProgramasWithStagePlots` usan `fecha_desde` (error `column programas.anio does not exist` al abrir Editar escenario desde Backline)
 
 
 ## Undo / redo (historial)
@@ -517,12 +556,17 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
   - **No** limpia la selección: `onMouseDown` del Stage solo inicia marquee (Seleccionar) o pan+limpia (Mover) con **clic izquierdo** (`button === 0`) en vacío; el botón derecho no deselecciona.
 
 
-## Navegación (2026-08)
+## Navegación (2026-08 / 2026-09)
 
-- **Disposición:** subTab=seating&seatingView=disposicion (default al entrar a Seating)
-- **Escenario:** subTab=seating&seatingView=escenario
-- **Venues (Gestión):** `/management/venues` — Espacios con conciertos; escenario por evento vía modal técnico o editor de gira
-- Deep link legacy subTab=stage_plot → redirect 301-like (replace) a escenario bajo seating
+- **Standalone FIMBA:** `/fimba/edicion/:edicionId/escenario/:plotId?` — sin chrome secciones; `buildStandaloneEscenarioTo`
+- **Standalone OFRN:** `/stage-plots/:plotId` — staff OFRN
+- **Disposición (legacy):** `subTab=seating&seatingView=disposicion` (default al entrar a Seating)
+- **Escenario (legacy Giras):** `view=REPERTOIRE&subTab=seating&seatingView=escenario` (**`view=REPERTOIRE` obligatorio**)
+- **Deep-link lienzo (legacy):** `stagePlotId={id}` (opcional; standalone usa `initialPlotId`)
+- Helper preferido: `buildStandaloneEscenarioTo` — FIMBA Backline / Venues
+- Helper legacy: `buildEscenarioEditorTo` — menú Gira / Gestión sin plot
+- **Venues (Gestión):** `/management/venues` — Espacios con conciertos; escenario por evento vía modal técnico o editor (standalone o Giras)
+- Deep link legacy `subTab=stage_plot` → redirect replace a escenario bajo seating
 - **Lienzo:** botón interno del editor (popover toolbar), no ítem de menú principal
 - **Borrar todo:** botón danger en popover Lienzo → confirmación (`useConfirmDialog` / portal `z-[100]` o `z-[10000]` en pantalla completa) → vacía `items`, `formations`, `groups`, limpia selección; `commitPayload` (undo). Oculto si `readOnly`.
 - **Tamaño default ítems:** al colocar (paleta, drop, orgánico Insertar) `createStagePlotItem` → `defaultStagePlotItemScale(type)`: `scale = clamp( (STAGE_PLOT_ITEM_DEFAULT_SIZE_CM × STAGE_PLOT_CM_TO_PX) / max(drawW, drawH), 0.25…12 )` con bounds de `getStagePlotItemVisualBounds` (silueta o catálogo). Duplicar conserva `scale`. Ítems existentes sin cambios.
@@ -537,11 +581,12 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 ## Pendiente / deuda
 
 - UI en `EventForm` para setear `eventos.id_repertorio` (hoy solo vía fallback; asociación principal es plot→eventos en editor).
-- Preview Konva inline en `StagePlotViewerModal` y en vista Venues (hoy: resumen + export PDF/JPG con opacidades locales).
+- Preview Konva nativo (pan/zoom) en «Ver escenario» — hoy es raster canvas 2D en vivo (`StagePlotLivePreview`); suficiente para opacidades; Konva interactivo sigue siendo deuda.
 - Reordenar lienzos (drag sort_order) en el editor.
 - Editor SVG avanzado (dibujo); hoy: upload en Escenario → **Editor** (panel izquierdo) y Datos → Instrumentos (`svg_icon`), con confirm visual al cambiar.
 - Plots ya migrados (`instrumentFootprintMigrated`): escalas custom del Transformer se conservan. Si un plot se veía enorme **antes** del one-shot, al reabrir/autosave queda a 50×50 cm reales; reescalar a mano solo si se quiere otro tamaño físico.
 - `cat.w`/`cat.h` del catálogo siguen siendo aspect/fallback de paleta; ya no definen el tamaño en escena de instrumentos con huella.
+- **Editor independiente del shell Giras** — **hecho (slice A):** rutas `/fimba/edicion/:edicionId/escenario/:plotId?` + `/stage-plots/:plotId`; FIMBA editores editan sin cuenta OFRN. Deuda: VenuesManager OFRN sin plotId; Option C modal embebido.
 
 ## Iconos SVG en `instrumentos` (2026-08)
 
@@ -557,9 +602,9 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 
 ## Export PDF / JPG (plano de escenario)
 
-- **Archivo**: `src/utils/stagePlotPdf.js` — `exportStagePlotPdf`, `exportStagePlotJpg`. Íconos/siluetas: `drawImageRotated` / `drawImageRotatedOnCanvas` / `drawSilhouetteOnPdf` / `drawSilhouetteOnCanvas` (restauradas: sin ellas el PDF/JPG rompía en lienzos con instrumentos, p. ej. BOB MARLEY gira 12).
+- **Archivo**: `src/utils/stagePlotPdf.js` — `exportStagePlotPdf`, `exportStagePlotJpg`, `renderStagePlotToCanvas` (raster compartido preview + JPG). Íconos/siluetas: `drawImageRotated` / `drawImageRotatedOnCanvas` / `drawSilhouetteOnPdf` / `drawSilhouetteOnCanvas` (restauradas: sin ellas el PDF/JPG rompía en lienzos con instrumentos, p. ej. BOB MARLEY gira 12).
 - **Editor** (`ProgramStagePlotEditor.jsx`): toolbar desktop — dropdown **Importar / Exportar** (no botones PDF/JPG sueltos). Ítems: **Exportar PDF** / **Exportar JPG** (abren `StagePlotExportOptionsModal` con las **mismas 4 opacidades** que el técnico), **Descargar JSON**, **Importar (archivo / otra gira)…** → `StagePlotImportModal`. Los deslizantes del modal de opciones se siembran desde el Lienzo actual pero son **override solo de esa descarga** (`applyStagePlotStagePatch` sobre una copia; **no** persisten ni marcan dirty el payload del editor).
-- **Técnico** (`StagePlotViewerModal`): mismos deslizantes (componente compartido) sobre una copia local del payload; PDF/JPG usan ese payload parchado.
+- **Técnico** (`StagePlotViewerModal`): preview en vivo (`StagePlotLivePreview` → `renderStagePlotToCanvas`, sin chrome de título) + mismos deslizantes (componente compartido) sobre una copia local del payload; al mover opacidades se re-rasteriza (~50 ms debounce); PDF/JPG usan ese payload parchado. Desktop: modal `max-w-5xl` + preview ~52 vh; móvil: preview más bajo pero misma ruta.
 - **Helpers**: `readStagePlotOpacities` / `opacitiesToStagePatch` en `StagePlotOpacityControls.jsx`; `readStagePlotLayerOpacities` / `resolveStagePlotLayerOpacitiesFromPatch` en `stagePlotPayload.js`.
 - **Dimensiones** (ambos formatos): usan `payload.stage.widthCm` / `heightCm` (mismos valores que Lienzo Ancho / Alto). En el export se etiquetan **Ancho** (widthCm) y **Profundo** (heightCm = profundidad del escenario). Texto resumen `Ancho: X cm · Profundo: Y cm` + etiquetas en bordes inferior (ancho) e izquierdo (profundo).
 - **Guías de lienzo** (ambos formatos; misma semántica que Lienzo, 0 = oculto, 1 = opaco):

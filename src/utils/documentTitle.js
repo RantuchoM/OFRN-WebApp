@@ -57,6 +57,7 @@ const REPERTOIRE_SUBTAB_LABELS = {
 
 const MANAGEMENT_SECTION_LABELS = {
   venues: "Espacios",
+  backline: "Backline",
   seating: "Informes Seating",
   instrumentation: "Instrumentación",
   convocatorias: "Convocatorias",
@@ -68,6 +69,7 @@ const MANAGEMENT_SECTION_LABELS = {
 };
 
 const PUBLIC_ROUTE_LABELS = [
+  { prefix: "/stage-plots/", label: "Escenario" },
   { prefix: "/entradas/recordarme", label: "Recordarme" },
   { prefix: "/entradas", label: "Entradas" },
   { prefix: "/viaticos-manual", label: "Manual de viáticos" },

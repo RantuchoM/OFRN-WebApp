@@ -211,27 +211,57 @@ export async function exportStagePlotPdf(gira, payloadRaw, plotNombre) {
 }
 
 /**
- * JPG: raster del escenario únicamente (sin channel list) + dims Ancho/Profundo.
+ * Raster del escenario (guías + ítems) en canvas 2D.
+ * Misma semántica de opacidades que PDF/JPG / Konva Lienzo.
+ *
+ * @param {unknown} payloadRaw
+ * @param {{
+ *   maxStagePx?: number,
+ *   maxScale?: number,
+ *   includeChrome?: boolean,
+ *   gira?: unknown,
+ *   plotNombre?: string,
+ * }} [options]
+ * @returns {Promise<HTMLCanvasElement>}
  */
-export async function exportStagePlotJpg(gira, payloadRaw, plotNombre) {
+export async function renderStagePlotToCanvas(payloadRaw, options = {}) {
   if (typeof document === "undefined") {
-    throw new Error("exportStagePlotJpg requiere DOM");
+    throw new Error("renderStagePlotToCanvas requiere DOM");
   }
-  const payload = normalizeStagePlotPayload(payloadRaw);
-  const { title, plotNombre: nombre } = stagePlotExportTitle(gira, plotNombre);
-  const dimLabel = stagePlotDimensionLabel(payload);
-  const widthCm = Math.round(Number(payload.stage.widthCm) || 0);
-  const depthCm = Math.round(Number(payload.stage.heightCm) || 0);
+  const {
+    maxStagePx = 1600,
+    maxScale = 2,
+    includeChrome = false,
+    gira = null,
+    plotNombre,
+  } = options;
 
+  const payload = normalizeStagePlotPayload(payloadRaw);
   const sw = payload.stage.width || 900;
   const sh = payload.stage.height || 560;
-  const maxStagePx = 1600;
-  const scale = Math.min(maxStagePx / sw, maxStagePx / sh, 2);
+  const scale = Math.min(maxStagePx / sw, maxStagePx / sh, maxScale);
   const stageW = Math.round(sw * scale);
   const stageH = Math.round(sh * scale);
-  const padX = 56;
-  const padTop = nombre ? 72 : 56;
-  const padBottom = 48;
+
+  let padX = 8;
+  let padTop = 8;
+  let padBottom = 8;
+  let title = "";
+  let nombre = "";
+  let dimLabel = "";
+  let widthCm = 0;
+  let depthCm = 0;
+
+  if (includeChrome) {
+    ({ title, plotNombre: nombre } = stagePlotExportTitle(gira, plotNombre));
+    dimLabel = stagePlotDimensionLabel(payload);
+    widthCm = Math.round(Number(payload.stage.widthCm) || 0);
+    depthCm = Math.round(Number(payload.stage.heightCm) || 0);
+    padX = 56;
+    padTop = nombre ? 72 : 56;
+    padBottom = 48;
+  }
+
   const canvasW = padX * 2 + stageW;
   const canvasH = padTop + stageH + padBottom;
 
@@ -239,20 +269,22 @@ export async function exportStagePlotJpg(gira, payloadRaw, plotNombre) {
   canvas.width = canvasW;
   canvas.height = canvasH;
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("No se pudo crear canvas para JPG");
+  if (!ctx) throw new Error("No se pudo crear canvas para el escenario");
 
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvasW, canvasH);
 
-  ctx.fillStyle = "#0f172a";
-  ctx.font = "bold 22px Helvetica, Arial, sans-serif";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "top";
-  ctx.fillText(title, padX, 16, canvasW - padX * 2);
-  if (nombre) {
-    ctx.fillStyle = "#64748b";
-    ctx.font = "16px Helvetica, Arial, sans-serif";
-    ctx.fillText(nombre, padX, 42, canvasW - padX * 2);
+  if (includeChrome) {
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "bold 22px Helvetica, Arial, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(title, padX, 16, canvasW - padX * 2);
+    if (nombre) {
+      ctx.fillStyle = "#64748b";
+      ctx.font = "16px Helvetica, Arial, sans-serif";
+      ctx.fillText(nombre, padX, 42, canvasW - padX * 2);
+    }
   }
 
   const ox = padX;
@@ -264,33 +296,51 @@ export async function exportStagePlotJpg(gira, payloadRaw, plotNombre) {
   ctx.strokeRect(ox, oy, stageW, stageH);
 
   ctx.fillStyle = "#64748b";
-  ctx.font = "12px Helvetica, Arial, sans-serif";
+  ctx.font = `${Math.max(10, Math.round(12 * Math.min(scale, 1)))}px Helvetica, Arial, sans-serif`;
   ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
   ctx.fillText("FONDO", ox + stageW / 2, oy + 14);
   ctx.fillText("PÚBLICO", ox + stageW / 2, oy + stageH - 8);
 
   drawStageGuidesOnCanvas(ctx, payload, ox, oy, scale, sw, sh);
   await drawStageItemsOnCanvas(ctx, payload, ox, oy, scale);
 
-  ctx.fillStyle = "#334155";
-  ctx.font = "bold 13px Helvetica, Arial, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "top";
-  ctx.fillText(`Ancho: ${widthCm} cm`, ox + stageW / 2, oy + stageH + 8);
+  if (includeChrome) {
+    ctx.fillStyle = "#334155";
+    ctx.font = "bold 13px Helvetica, Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(`Ancho: ${widthCm} cm`, ox + stageW / 2, oy + stageH + 8);
 
-  ctx.save();
-  ctx.translate(ox - 10, oy + stageH / 2);
-  ctx.rotate(-Math.PI / 2);
-  ctx.textAlign = "center";
-  ctx.textBaseline = "bottom";
-  ctx.fillText(`Profundo: ${depthCm} cm`, 0, 0);
-  ctx.restore();
+    ctx.save();
+    ctx.translate(ox - 10, oy + stageH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(`Profundo: ${depthCm} cm`, 0, 0);
+    ctx.restore();
 
-  ctx.fillStyle = "#64748b";
-  ctx.font = "12px Helvetica, Arial, sans-serif";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "bottom";
-  ctx.fillText(dimLabel, padX, canvasH - 12);
+    ctx.fillStyle = "#64748b";
+    ctx.font = "12px Helvetica, Arial, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(dimLabel, padX, canvasH - 12);
+  }
+
+  return canvas;
+}
+
+/**
+ * JPG: raster del escenario únicamente (sin channel list) + dims Ancho/Profundo.
+ */
+export async function exportStagePlotJpg(gira, payloadRaw, plotNombre) {
+  const canvas = await renderStagePlotToCanvas(payloadRaw, {
+    maxStagePx: 1600,
+    maxScale: 2,
+    includeChrome: true,
+    gira,
+    plotNombre,
+  });
 
   const safeName = stagePlotExportSafeName(gira);
   const dataUrl = canvas.toDataURL("image/jpeg", 0.92);

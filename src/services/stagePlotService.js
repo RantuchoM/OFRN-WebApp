@@ -2,7 +2,10 @@
  * Persistencia del plano de escenario (N lienzos por programa).
  */
 
-import { createEmptyStagePlotPayload } from "../utils/stagePlotPayload";
+import {
+  cloneStagePlotPayload,
+  createEmptyStagePlotPayload,
+} from "../utils/stagePlotPayload";
 
 const STAGE_PLOT_SELECT =
   "id, id_programa, nombre, payload, sort_order, bloque_ids, created_at, updated_at";
@@ -314,6 +317,222 @@ export async function listStagePlotEventLinks(supabase, plotIds) {
 }
 
 /**
+ * Vincula un evento a un plot sin borrar los demás eventos del plot.
+ * Respeta UNIQUE(id_evento): libera link previo del evento si existía.
+ *
+ * @param {import("@supabase/supabase-js").SupabaseClient} supabase
+ * @param {string} plotId
+ * @param {number|string} eventoId
+ */
+export async function linkEventToStagePlot(supabase, plotId, eventoId) {
+  if (!supabase || !plotId || eventoId == null || eventoId === "") {
+    return { error: new Error("Cliente, plot o evento inválido") };
+  }
+  const eid = Number(eventoId);
+  if (!Number.isFinite(eid) || eid <= 0) {
+    return { error: new Error("id de evento inválido") };
+  }
+
+  const { error: freeErr } = await supabase
+    .from("stage_plot_eventos")
+    .delete()
+    .eq("id_evento", eid);
+  if (freeErr) return { error: freeErr };
+
+  const { error: insErr } = await supabase.from("stage_plot_eventos").insert({
+    id_stage_plot: plotId,
+    id_evento: eid,
+  });
+  return { error: insErr || null };
+}
+
+/**
+ * Quita el vínculo evento ↔ stage_plot (fila en `stage_plot_eventos`).
+ * No borra el lienzo `stage_plots`.
+ *
+ * @param {import("@supabase/supabase-js").SupabaseClient} supabase
+ * @param {number|string} eventoId
+ */
+export async function unlinkEventFromStagePlot(supabase, eventoId) {
+  if (!supabase || eventoId == null || eventoId === "") {
+    return { error: new Error("Cliente o evento inválido") };
+  }
+  const eid = Number(eventoId);
+  if (!Number.isFinite(eid) || eid <= 0) {
+    return { error: new Error("id de evento inválido") };
+  }
+  const { error } = await supabase
+    .from("stage_plot_eventos")
+    .delete()
+    .eq("id_evento", eid);
+  return { error: error || null };
+}
+
+/**
+ * Asegura un lienzo Escenario (RiderMaker) vinculado al evento.
+ * Orden: link directo → vincular plot resuelto (bloque/default) → crear vacío + link.
+ *
+ * @param {import("@supabase/supabase-js").SupabaseClient} supabase
+ * @param {{
+ *   id: number|string,
+ *   id_gira?: number|string|null,
+ *   programas?: { id?: number|string }|null,
+ *   fecha?: string|null,
+ *   descripcion?: string|null,
+ * }} evento
+ * @returns {Promise<{ data: object|null, created: boolean, error: Error|null }>}
+ */
+export async function ensureStagePlotForEvent(supabase, evento) {
+  if (!supabase || !evento?.id) {
+    return {
+      data: null,
+      created: false,
+      error: new Error("Cliente o evento inválido"),
+    };
+  }
+  const resolved = await resolveStagePlotForEvent(supabase, evento);
+  if (resolved.error) {
+    return { data: null, created: false, error: resolved.error };
+  }
+  if (resolved.data && resolved.reason === "event_link") {
+    return { data: resolved.data, created: false, error: null };
+  }
+
+  if (resolved.data?.id) {
+    const { error: linkErr } = await linkEventToStagePlot(
+      supabase,
+      resolved.data.id,
+      evento.id,
+    );
+    if (linkErr) {
+      return { data: resolved.data, created: false, error: linkErr };
+    }
+    return { data: resolved.data, created: false, error: null };
+  }
+
+  const programId =
+    evento.id_gira ?? evento.programas?.id ?? evento.id_programa ?? null;
+  if (programId == null || programId === "") {
+    return {
+      data: null,
+      created: false,
+      error: new Error("El evento no tiene gira/programa"),
+    };
+  }
+
+  const fechaLabel = evento.fecha ? String(evento.fecha) : "";
+  const nombre = fechaLabel
+    ? `Concierto ${fechaLabel}`
+    : `Concierto #${evento.id}`;
+
+  const { data: plot, error: createErr } = await createStagePlot(
+    supabase,
+    programId,
+    { nombre },
+  );
+  if (createErr || !plot?.id) {
+    return {
+      data: null,
+      created: false,
+      error: createErr || new Error("No se pudo crear el escenario"),
+    };
+  }
+
+  const { error: linkErr } = await linkEventToStagePlot(
+    supabase,
+    plot.id,
+    evento.id,
+  );
+  if (linkErr) {
+    return { data: plot, created: true, error: linkErr };
+  }
+  return { data: plot, created: true, error: null };
+}
+
+/**
+ * Crea un lienzo nuevo para el evento y lo vincula (siempre inserta; no reutiliza).
+ * - Sin `sourcePlotId`: payload vacío (`createEmptyStagePlotPayload`).
+ * - Con `sourcePlotId`: duplica payload del plot de referencia (mismo programa).
+ *   No copia `bloque_ids` ni links de eventos del origen.
+ *
+ * @param {import("@supabase/supabase-js").SupabaseClient} supabase
+ * @param {{
+ *   id: number|string,
+ *   id_gira?: number|string|null,
+ *   programas?: { id?: number|string }|null,
+ *   fecha?: string|null,
+ * }} evento
+ * @param {{ sourcePlotId?: string|null, nombre?: string|null }} [opts]
+ * @returns {Promise<{ data: object|null, error: Error|null }>}
+ */
+export async function createStagePlotForEvent(supabase, evento, opts = {}) {
+  if (!supabase || !evento?.id) {
+    return { data: null, error: new Error("Cliente o evento inválido") };
+  }
+  const programId =
+    evento.id_gira ?? evento.programas?.id ?? evento.id_programa ?? null;
+  if (programId == null || programId === "") {
+    return { data: null, error: new Error("El evento no tiene gira/programa") };
+  }
+
+  const fechaLabel = evento.fecha ? String(evento.fecha) : "";
+  const defaultNombre = fechaLabel
+    ? `Concierto ${fechaLabel}`
+    : `Concierto #${evento.id}`;
+
+  let payload = createEmptyStagePlotPayload();
+  let nombre =
+    opts.nombre?.trim() ? opts.nombre.trim() : defaultNombre;
+
+  const sourcePlotId = opts.sourcePlotId || null;
+  if (sourcePlotId) {
+    const { data: source, error: srcErr } = await getStagePlotById(
+      supabase,
+      sourcePlotId,
+    );
+    if (srcErr || !source?.id) {
+      return {
+        data: null,
+        error: srcErr || new Error("No se encontró el escenario de referencia"),
+      };
+    }
+    if (Number(source.id_programa) !== Number(programId)) {
+      return {
+        data: null,
+        error: new Error("El escenario de referencia no pertenece a esta gira"),
+      };
+    }
+    payload = cloneStagePlotPayload(source.payload);
+    if (!opts.nombre?.trim()) {
+      const srcLabel = source.nombre?.trim() || "Lienzo";
+      nombre = `${srcLabel} (copia)`;
+    }
+  }
+
+  const { data: plot, error: createErr } = await createStagePlot(
+    supabase,
+    programId,
+    { nombre, payload, bloque_ids: [] },
+  );
+  if (createErr || !plot?.id) {
+    return {
+      data: null,
+      error: createErr || new Error("No se pudo crear el escenario"),
+    };
+  }
+
+  const { error: linkErr } = await linkEventToStagePlot(
+    supabase,
+    plot.id,
+    evento.id,
+  );
+  if (linkErr) {
+    return { data: plot, error: linkErr };
+  }
+  return { data: plot, error: null };
+}
+
+/**
  * Reemplaza los eventos asociados a un plot.
  * Un evento solo puede pertenecer a un plot (unique id_evento).
  *
@@ -452,7 +671,9 @@ export async function listProgramasWithStagePlots(supabase, opts = {}) {
   }
   const { data, error } = await supabase
     .from("stage_plots")
-    .select("id_programa, programas(id, nombre_gira, nomenclador, mes_letra, anio)")
+    .select(
+      "id_programa, programas(id, nombre_gira, nomenclador, mes_letra, fecha_desde)",
+    )
     .order("updated_at", { ascending: false })
     .limit(Math.min(opts.limit || 200, 500));
   if (error) return { data: [], error };
@@ -472,10 +693,70 @@ export async function listProgramasWithStagePlots(supabase, opts = {}) {
       nombre_gira: row.programas?.nombre_gira || `Gira ${pid}`,
       nomenclador: row.programas?.nomenclador || null,
       mes_letra: row.programas?.mes_letra || null,
-      anio: row.programas?.anio || null,
+      fecha_desde: row.programas?.fecha_desde || null,
     });
   }
   return { data: rows, error: null };
+}
+
+/**
+ * Contexto mínimo para montar el editor Escenario fuera del shell Giras/Seating.
+ * Carga el plot por id + fila `programas` (roster / meta del editor).
+ *
+ * @param {import("@supabase/supabase-js").SupabaseClient} supabase
+ * @param {string|number} plotId
+ * @returns {Promise<{
+ *   plot: object|null,
+ *   program: object|null,
+ *   error: Error|null,
+ * }>}
+ */
+export async function loadStagePlotStandaloneContext(supabase, plotId) {
+  if (!supabase || plotId == null || plotId === "") {
+    return {
+      plot: null,
+      program: null,
+      error: new Error("Cliente o plot inválido"),
+    };
+  }
+  const { data: plot, error: plotErr } = await getStagePlotById(supabase, plotId);
+  if (plotErr) return { plot: null, program: null, error: plotErr };
+  if (!plot?.id) {
+    return {
+      plot: null,
+      program: null,
+      error: new Error("Escenario no encontrado"),
+    };
+  }
+  const programId = plot.id_programa;
+  // `programas` has no `anio` column — year comes from fecha_desde (and FIMBA ediciones.anio).
+  const { data: program, error: progErr } = await supabase
+    .from("programas")
+    .select(
+      "id, nombre_gira, nomenclador, tipo, mes_letra, fecha_desde, fecha_hasta, subtitulo",
+    )
+    .eq("id", programId)
+    .maybeSingle();
+  if (progErr) return { plot, program: null, error: progErr };
+  if (!program?.id) {
+    return {
+      plot,
+      program: null,
+      error: new Error("Programa del escenario no encontrado"),
+    };
+  }
+  return { plot, program, error: null };
+}
+
+/**
+ * Primer plot del programa (o null). Útil para deep-link FIMBA Venues sin vínculo evento.
+ * @param {import("@supabase/supabase-js").SupabaseClient} supabase
+ * @param {number|string} programId
+ */
+export async function getDefaultStagePlotForPrograma(supabase, programId) {
+  const { data, error } = await listStagePlotsByPrograma(supabase, programId);
+  if (error) return { data: null, error };
+  return { data: data?.[0] || null, error: null };
 }
 
 export { normalizeBloqueIds };

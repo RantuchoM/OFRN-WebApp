@@ -135,6 +135,9 @@ const FimbaEdicionConsultaEntry = lazy(() =>
   import("./views/Fimba/FimbaEdicionConsultaEntry"),
 );
 const FimbaLoginPage = lazy(() => import("./views/Fimba/FimbaLoginPage"));
+const StagePlotOfrnStandalonePage = lazy(() =>
+  import("./views/Escenario/StagePlotOfrnStandalonePage"),
+);
 
 const ViewFallback = () => (
   <div className="flex h-full min-h-[200px] items-center justify-center font-bold text-slate-400 animate-pulse">
@@ -1678,6 +1681,14 @@ export default function App() {
                 element={
                   <LazyRoute>
                     <FimbaStaffApp />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="/stage-plots/:plotId"
+                element={
+                  <LazyRoute>
+                    <StagePlotOfrnStandalonePage />
                   </LazyRoute>
                 }
               />

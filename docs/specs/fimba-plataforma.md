@@ -20,6 +20,12 @@ FIMBA es una aplicación de festival con skin propia bajo `/fimba/*`, que reutil
 | `eventos.observaciones_equipaje` | Notas de equipaje del evento (antes `Obs:` en `descripcion`) |
 | `eventos.observaciones_internas` | HTML rich-text **staff-only** (editores/técnicos OFRN; FIMBA `canEditPropuestaMeta`). Imágenes → bucket `eventos-internas` path `eventos/{id|draft}/…`. **No** en consulta FIMBA, tokens `/a` `/e` `/c`, ni exports públicos. UI: `FimbaRichTextEditor` en `FimbaEventoFormModal` + `EventForm` OFRN. |
 | `eventos.observaciones_aforo` | Texto libre de **aforo del espectáculo** (por concierto `id_tipo_evento = 1`, no por locación). Distinto de `locaciones.capacidad` (número) y de `fimba_venue_info.observaciones` (metadata venue por edición). UI: columna inline en `FimbaVenuesPage` espectáculos + `FimbaEventoFormModal` (concierto) + `EventForm` OFRN. Consulta RO. |
+| `eventos.backline_descripcion` | HTML rich-text planilla **Backline** (por concierto o ensayo incluido; Quill FIMBA: listas/links/etc.). Distinto de `eventos.descripcion` (Detalle agenda). |
+| `eventos.backline_monto` | Monto ARS opcional del backline (planilla Backline). |
+| `eventos.backline_estado` | Color de estado Backline: `verde` \| `celeste` \| `amarillo` \| `naranja` \| `NULL`. UI: un círculo (o «—» vacío) + popover de opciones; tinte de fila. |
+| `eventos.planta_escenario_url` | URL externa de planta (p.ej. Google Drive). Complementa vínculo interno `stage_plot_eventos` → RiderMaker (`stage_plots`). |
+| `eventos.planta_escenario_nombre` | Nombre legible del archivo/planta Drive (chip Backline). Se actualiza al guardar/cambiar URL (API Drive o manual); fallback heurístico si NULL. |
+| `eventos.backline_incluido` | Boolean (`NOT NULL DEFAULT false`). **Planilla Backline:** conciertos (`id_tipo_evento = 1`) siempre se listan; ensayos (categoría Ensayos / `id_categoria = 2`) solo si `true`. Quitar ensayo de Backline → `false` (no borra el evento). Conciertos existentes se marcaron `true` al migrar (claridad; la UI no depende del flag para tipo 1). |
 | `eventos.descripcion` | Campo OFRN compartido. En FIMBA: encode de **Detalle** (HTML rich-text, misma UX contentEditable B/I/U que `EventForm`) + líneas `Destino:` / `Vuelo:`. UI: `FimbaEventDetalleEditor` en `FimbaEventoFormModal`. |
 | `eventos_fimba_propuestas` | Tags artista ↔ evento |
 | `fimba_evento_transportes` | **Reserva técnica** anónima de un trayecto sobre una unidad (`giras_transportes`): staff/TBD/holgura. **No** es headcount de artistas (eso va en Sube) |
@@ -54,7 +60,7 @@ transportes  1──*  giras_transportes  1──*  eventos (paradas OFRN, FK id
 - `detalleGiraTransporte(gt)` = `detalle` secundario si aporta algo distinto del nombre.
 - Capacidad en listado de vehículos = **capacidad_maxima** + **pico en tránsito** (plazas a bordo al salir de cada parada, máx. de la secuencia) y libres en pico.
 - **Planilla trayectos (UI):** scroll horizontal en `.fimba-planilla-scroll` (`overflow-x: auto`); tabla `width: max-content` (no se aplasta a 0). Columnas: Origen · Fecha · Com·Fin · Actividad · Locación · + · Destino · **Vuelo** · Vehículo · **Artistas** · **Subidas** · **Bajadas** · Tránsito/cap · acciones. Sticky izq.: Origen + Fecha + Com·Fin. **Vuelo** = línea `Vuelo:` de `eventos.descripcion` (`decodeFimbaTrasladoDescripcion` / `ev.vuelo`; paridad con Agenda). **Artistas** = tags `eventos_fimba_propuestas` (paridad chips con Agenda). Subidas/Bajadas = boarding por parada (`fimba_propuesta_rutas` + reglas OFRN). **Tránsito/cap** = a bordo al salir / capacidad; hover (portal z-110) lista grupos/artistas + Orquesta + Reserva del evento. Shell FIMBA (`.fimba-main` / `.fimba-header-inner`): `width: 90%` + `max-width: 90vw` (sin tope fijo en px; en mobile ≤640px usa 100% + padding).
-- **Modo edición (Transportes):** mismo toggle que Artistas (`Modo edición` / `Salir de modo edición`, `IconPencil`, magenta). Off = vista; on = celdas inline + semáforo por fila (`fimba-sync-*`, sin leyenda). **Consulta / token RO** (`readOnly`): sin toggle. Autosave al blur/Enter (texto) o al cambiar (fecha, selects). Patch liviano `patchFimbaEventoPlanilla` (fecha, horas, actividad, vuelo, obs.; `stripDestino: true` en transporte) — **no** reescribe flota/tags/grupos/`id_gira_transporte` ni `FimbaStopRulesManager`. Vehículo inline solo FIMBA puro con 0–1 unidad (`setFimbaEventoTransportes`, conserva plazas). Destino (columna calculada), Tránsito y alta de paradas siguen en modal; Subidas/Bajadas = chips + modal. Flota: catálogo, nota OFRN, categoría y plazas inline con el mismo semáforo.
+- **Modo edición (Transportes):** mismo toggle que Artistas (`Modo edición` / `Salir de modo edición`, `IconPencil`, magenta). Off = vista; on = celdas inline + semáforo por fila (`fimba-sync-*`, sin leyenda). **Consulta / token RO** (`readOnly`): sin toggle. **Fuera de modo edición:** doble clic en **Fecha** / **Com·Fin** / **Detalle** / **Locación** / **Vuelo** abre edición inline de esa celda (blur/Enter guarda; Escape cancela la celda); el **lápiz** abre `FimbaEventoFormModal` completo (ya no hay doble clic de fila → modal). **Locación** usa `LocationSelectWithCreate` (buscar + crear in situ → `id_locacion`), nunca un `<select>` plano. Autosave al blur/Enter (texto) o al cambiar (fecha, locación, selects). Patch liviano `patchFimbaEventoPlanilla` (fecha, horas, actividad, vuelo, obs., **`id_locacion`**; `stripDestino: true` en transporte) — **no** reescribe flota/tags/grupos/`id_gira_transporte` ni `FimbaStopRulesManager`. Vehículo inline solo FIMBA puro con 0–1 unidad (`setFimbaEventoTransportes`, conserva plazas). **Destino** (columna calculada): no se edita como locación de la fila; doble clic / IconEdit abre flujo «crear siguiente parada» (`FimbaDestinoStopModal`). Tránsito y alta de paradas siguen en modal; Subidas/Bajadas = chips + modal. Flota: catálogo, nota OFRN, categoría y plazas inline con el mismo semáforo.
 
 **Capacidad / en tránsito (criterio OFRN)** se calcula **por unidad** (`giras_transportes`), con paradas ordenadas por fecha+hora. **Regla dura:** un mismo `giras_transportes` = **una sola línea de ocupación** (OFRN + FIMBA juntos; no hay conteos separados por organización).
 
@@ -111,7 +117,7 @@ Helper puro: `src/utils/fimbaTransportBoarding.js`. Carga OFRN: `loadFimbaTransp
 En UI FIMBA (`/transportes`):
 
 1. **Vehículos** — listado de `giras_transportes` de `fimba_ediciones.id_gira` + alta/edición embebida (`addFimbaVehiculo` / `updateFimbaVehiculo`, mismo path que OFRN: catálogo, detalle, plazas, categoría). Columnas: **Vehículo**, **Nota OFRN**, categoría, **Capacidad**, **Pico en tránsito**, **Libres (pico)** + lápiz editar (el lápiz se oculta en **Modo edición**; ahí las celdas son inline).
-2. **Trayectos** — planilla cronológica; columnas de boarding por unidad (filtrar un vehículo para la secuencia completa). **Modo edición** (staff, no RO): fecha / com·fin / actividad+obs / **Vuelo** inline / vehículo FIMBA 0–1; Locación = lectura (modal); semáforo sticky a la izquierda.
+2. **Trayectos** — planilla cronológica; columnas de boarding por unidad (filtrar un vehículo para la secuencia completa). **Modo edición** (staff, no RO): fecha / com·fin / actividad+obs / **Locación** (`LocationSelectWithCreate` → `id_locacion`) / **Vuelo** inline / vehículo FIMBA 0–1; semáforo sticky a la izquierda. Fuera de modo edición: mismo set de celdas vía doble clic; lápiz = modal completo.
 
 - **No** master `fimba_transportes`.
 - Alta también posible en OFRN: gira → Logística → Transporte.
@@ -121,7 +127,7 @@ En UI FIMBA (`/transportes`):
 - **Detalle (modal):** rich-text contentEditable + B/I/U (`FimbaEventDetalleEditor`, mismo patrón que `EventForm` → `eventos.descripcion`). Obligatorio (texto visible). Persistido como parte libre del encode FIMBA junto a `Destino:` / `Vuelo:`. Agenda / consulta / planilla: preview HTML; planilla Modo edición: inline texto plano, o solo lectura si ya tiene markup (editar formato en modal).
 - **Observaciones internas (modal):** solo si `canEditPropuestaMeta` (OFRN management / `editor_general`). Oculto por completo a consulta y tokens. Quill (`FimbaRichTextEditor`) + imágenes (pegar / toolbar / drop) → `eventos-internas`. Persiste con Guardar junto al resto del evento (`saveFimbaEvento`). Mismo campo en OFRN `EventForm` (`canEditEventObservacionesInternas`).
 - **Duplicar evento:** `duplicateFimbaEvento` + botón `IconCopy` (Agenda, Transportes, agenda artista editable). Copia shell: tipo, fecha/horas, detalle (`actividad` + « - Copia»), destino/vuelo, `id_locacion`, equipaje, **observaciones_internas**, tags artistas, flota/plazas, audiencia OFRN/grupos. **No** copia `fimba_propuesta_rutas` ni reglas OFRN de boarding. Tras OK: upsert de la fila nueva (`getFimbaAgendaEvento`) + abre modal editar la copia. Oculto en `readOnly` / ride segments.
-- Locación (parada actual): `locaciones.nombre` (+ ciudad) vía `eventos.id_locacion`. Editable en **`FimbaEventoFormModal`** con `LocationSelectWithCreate` (label **Locación (parada actual)** en transporte; **Locación** en no-transporte). Persiste con Guardar (`saveFimbaEvento.id_locacion`; null limpia). Planilla Transportes: columna Locación = lectura (editar en modal). **No** usar texto `Destino:` en `descripcion` para transporte.
+- Locación (parada actual): `locaciones.nombre` (+ ciudad) vía `eventos.id_locacion`. Editable en **`FimbaEventoFormModal`** y en planilla Transportes (doble clic / modo edición) con `LocationSelectWithCreate` (label **Locación (parada actual)** en transporte; **Locación** en no-transporte). Persiste con Guardar (`saveFimbaEvento.id_locacion`) o `patchFimbaEventoPlanilla` (null limpia). **No** usar texto `Destino:` en `descripcion` para transporte. Filtros Agenda/Backline (multi-select de locaciones existentes) **no** crean locaciones — ahí `MultiSelectDropdown` está bien.
 - **Destino (planilla Transportes + modal transporte)**: **calculado**, no persistido en el evento actual. Fuente = siguiente parada del **mismo vehículo** (`giras_transportes.id` / primary de la fila tras filtro de flota). Secuencia = `sortedEvents` de `buildVehicleBoardingSequence` (`sortEventsBySchedule` por fecha+`hora_inicio`; timeline unificado OFRN+FIMBA). Label: `formatNextStopDestino(next)` → `locaciones` / `locacion_nombre` del next (+ ciudad); **sin** fallback a `actividad` / `tipo_nombre` / texto legacy → **`(Sin locación)`** (`TRANSPORT_DESTINO_SIN_LOCACION`); sin next → **`Sin siguiente parada`** (`TRANSPORT_DESTINO_SIN_SIGUIENTE`). Helpers: `resolveTransportDestinoFromNextStop`, `nextEventInVehicleSequence`, `formatNextStopDestino`, `boardingMetricsForEventRow.destino_siguiente`.
 - **UI modal evento transporte (`FimbaEventoFormModal`)**: layout **Hora com | Hora fin** → **Locación (parada actual)** (`LocationSelectWithCreate`, `id_locacion` del evento en edición) → **caja gris legacy** «Destino / locación (legacy — migración)» (solo si hay texto `Destino:` en `descripcion` al abrir o en el borrador; transporte = lectura + tachito; no-transporte = editable mientras exista legacy; eventos nuevos o tras limpiar/guardar sin línea `Destino:` **no** muestran la caja) con **`IconTrash`** en la fila del título (derecha) para quitar el texto legacy del borrador (`destino` → `""`; oculta la caja; al guardar `saveFimbaEvento` ya no reescribe la línea `Destino:`) → **Siguiente evento calculado** → Detalle → Vuelo. El bloque legacy **Destino (siguiente parada)** bajo Hora Fin + botón **«Elegir destino…»** se **retiró** del modal (redundante con la sección siguiente). Flujo primario «a dónde vamos» = resumen calculado + **Crear evento rápido** (Hora + locación). Texto legacy `Destino:` en `descripcion` se decodifica con `decodeFimbaTrasladoDescripcion` al abrir el modal. Columna Destino en planilla Transportes conserva acción IconEdit → `FimbaDestinoStopModal`. **Doble clic** en cualquier celda de fila (Agenda / Transportes / agenda artista editable) abre el mismo modal de edición que el lápiz; no dispara sobre botones/inputs (`stopPropagation` / `closest`).
 - **Siguiente evento calculado (modal transporte)**: sección **entre** Locación y **Detalle** (solo `usa_transporte`). Header **Siguiente evento calculado**; resumen read-only del next stop (`boardingMetricsForEventRow.next_event`: locación, hora com, actividad) o **Sin siguiente parada**. Subcopy **¿No es aquí donde quieres ir?** + formulario inline **Crear evento rápido** (Hora + `LocationSelectWithCreate` + **Guardar evento**) cuando evento guardado con vehículo y no `readOnly`; deshabilitado con hint si falta guardar/vehículo. Tras OK: mensaje de éxito + **Ir a evento para ver sus detalles** (`onOpenEventoEdit` → Transportes reabre modal edit del id creado). Misma persistencia que planilla Destino vía helper compartido `createDestinoStopEvent` (`src/utils/fimbaDestinoStopCreate.js`). Consulta/`readOnly`: resumen visible, sin alta inline.
@@ -132,7 +138,7 @@ En UI FIMBA (`/transportes`):
   - Con next real → inserta intermedia (la nueva parada pasa a ser el destino calculado de la fila actual). Sin next → crea la cola del vehículo.
   - Tras crear: **`patchFimbaEventoPlanilla`** fija `hora_fin` de la parada **actual** = hora inicio de la parada creada (tramo explícito). La parada nueva recibe `hora_fin` = `hora_inicio` del next previo si había next (gap-fill).
   - Plazas 0, `audiencia_ofrn = none`, sin texto destino en descripcion. Requiere evento actual ya persistido (`id`).
-- **Modo edición planilla:** columna Locación = lectura (catálogo); columna **Vuelo** = inline editable (`patchFimbaEventoPlanilla`); columna Destino = solo lectura calculada + acción (oculta en consulta/`readOnly`). No hay input inline de destino.
+- **Modo edición planilla:** columna **Locación** = `LocationSelectWithCreate` (patch `id_locacion`); columna **Vuelo** = inline editable (`patchFimbaEventoPlanilla`); columna Destino = solo lectura calculada + acción (doble clic / IconEdit → crear siguiente parada; oculta en consulta/`readOnly`). No hay input inline de destino sobre la fila actual.
 - **Columna «+» entre Locación y Destino**: botón *Insertar evento intermedio* (solo si la fila tiene vehículo primary; oculto/`disabled` en `readOnly`). Abre `FimbaEventoFormModal` en **create** prefíillado: mismo `id_gira` (vía edición), mismo `id_gira_transporte` → `fimba_evento_transportes` (plazas 0), `audiencia_ofrn = none`, tipo por `eventTypeIdForCategoria` del bus (11/12/35), actividad «Parada intermedia», locación vacía. **Fecha/horas** vía `defaultGapFillEventSchedule` (completar hueco **hasta→desde**):
   - `hora_inicio` = fin efectivo del evento actual (`hora_fin` guardada, o cian = `hora_inicio` del next stop vía `resolveHoraFinDisplay`).
   - Con next en la secuencia del vehículo: `hora_fin` del draft = `hora_inicio` del next.
@@ -275,7 +281,7 @@ Equivalentes de lectura: `?artistas=5,7&grupo=Alba` · entry `/fimba/c/:token/ag
   - Filtro origen chips (**default Todos**); multi-select **vehículo** por `giras_transportes.id` (vacío = todos; FIMBA vía `fimba_evento_transportes`, OFRN vía `id_gira_transporte`).
 - Visual: badges origen FIMBA / OFRN; filas pure-OFRN muting cyan; columna convocatoria (Tutti / chips de grupo) en Agenda; en Transportes columnas origen + vehículo(s).
 - **Columna «As. Equipaje» (Agenda / consulta artista):** label histórico; valor = **personas a bordo al salir** (`resolveEventAboardCount` / Σ `en_transito` de las unidades del evento; misma fuente que Tránsito/cap). Tooltip aclara que **no** es `eventos.asientos_equipaje`. Filas sin transporte → «—». El campo de equipaje del modal sigue siendo reserva de asientos de material.
-- **Tags OFRN grupos/Tutti vs FIMBA artistas:** chips de convocatoria OFRN (Agenda `fimba-badge-ofrn-grupo`, modal `fimba-chip-ofrn`, planilla Subidas/Bajadas `fimba-planilla-board-chip-ofrn`) usan `border-radius: 2px` (cuadrados); tags de artista FIMBA siguen en píldora (`border-radius: 999px`). Colores magenta FIMBA / cian OFRN se mantienen.
+- **Tags OFRN grupos/Tutti vs FIMBA artistas:** chips de convocatoria OFRN (Agenda `fimba-badge-ofrn-grupo`, modal `fimba-chip-ofrn`, planilla Subidas/Bajadas `fimba-planilla-board-chip-ofrn`, Backline/Venues `GiraGrupoChips` / `.fimba-ofrn-grupo-chips`) usan `border-radius: 2px` (cuadrados, **nunca** píldora) y muestran el **nombre completo** de `giras_grupos.nombre` (no iniciales/`compact`). Tags de artista FIMBA siguen en píldora (`border-radius: 999px`). Colores del grupo / magenta FIMBA / cian OFRN se mantienen.
 - **Insertar evento intermedio (Agenda)**: en acciones de fila (`IconPlus` cian; oculto en `readOnly` / ride segments), abre create modal con gap-fill `defaultGapFillEventSchedule` respecto al **siguiente evento del mismo día** en la planilla filtrada (orden contractual; excluye rides). Prefill: misma `fecha`, `hora_inicio` = fin efectivo del actual, `hora_fin` = `hora_inicio` del next (o vacío si es el último del día). Sin vehículo heredado; usuario completa tipo/actividad/tags.
 - Columna **Artistas** (Agenda y Transportes) / **Subidas·Bajadas** (solo Transportes, boarding):
   - **Agenda** (sin secuencia de bus): chips de propuestas; **`Orquesta {n}`** con `n` = |roster contabilizado de la gira| (grupos ∩ countedIds; sin ausentes). Fallback `eventos.audiencia` si no hay roster.
@@ -323,14 +329,14 @@ Equivalentes de lectura: `?artistas=5,7&grupo=Alba` · entry `/fimba/c/:token/ag
 
 **Enlace consulta general (`fimba_ediciones.token_consulta`):** UUID único NOT NULL default `gen_random_uuid()`. Gestión en `/fimba/edicion/:id/usuarios` (sección «Enlace consulta general edición»: copiar / regenerar). Ruta entry `/fimba/c/:token` → `FimbaEdicionConsultaEntry` → escribe `fimba_consulta_edicion` y redirige a `/fimba/edicion/:id`. **Enlace filtrado de agenda:** tabla `fimba_agenda_consultas` (token UUID propio, filtros congelados; «Copiar enlace de consulta» en Agenda). Regenerar el token de edición **no** invalida los enlaces de agenda. Enlaces viejos con query string siguen abriendo (consulta fija vía sesión).
 
-**Guard (`FimbaStaffGuard`):** (1) OFRN `isManagement` → allow (si hay fila `consulta` para la edición → RO, bloquea `/usuarios` y `/contrataciones`); (2) `fimba_user` editor/consulta con match `id_edicion` (consulta bloquea `/usuarios` y `/contrataciones`); (3) sesión token `fimba_consulta_edicion` igual RO; si **`agenda_only`** → redirect a `/fimba/edicion/:id/agenda` (preserva query) fuera de agenda; (4) sin sesión → `/fimba/login`; (5) OFRN no-management sin sesión FIMBA → mensaje + link login FIMBA.
+**Guard (`FimbaStaffGuard`):** (1) OFRN `isManagement` → allow (si hay fila `consulta` para la edición → RO, bloquea `/usuarios` y `/contrataciones`); (2) `fimba_user` editor/consulta con match `id_edicion` (consulta bloquea `/usuarios` y `/contrataciones`); (3) sesión token `fimba_consulta_edicion` igual RO; si **`agenda_only`** y `source === token_consulta` → redirect a `/fimba/edicion/:id/agenda` (preserva query) fuera de agenda — **no** aplica el redirect si OFRN/fimba_user tienen prioridad sobre un leftover de token; (4) sin sesión → `/fimba/login`; (5) OFRN no-management sin sesión FIMBA → mensaje + link login FIMBA.
 
 **`FimbaAccessContext` / `resolveFimbaAccess`:** prioridad OFRN+`fimba_usuarios.consulta` (override RO) → OFRN management → editor_general → consulta user/token. Override vía `listFimbaUsuariosByMail` + `useOfrnFimbaUsuarioOverride`. Expone `readOnly`, **`agendaOnly`**, `canSeeUsuarios`, `canSeeContrataciones`, **`canEditPropuestaMeta`**, **`canSeeRider`**, `canManageUsers`. Section toggle oculta Usuarios + Contrataciones en RO; oculta **Rider** en token `/fimba/c`; **oculta todo el toggle** si `agendaOnly`.
 
 - **`canEditPropuestaMeta`**: true solo para **OFRN management** y **`editor_general`** (misma base operativa que contrataciones). **false** para `consulta`, token `/fimba/c`, y por default en rutas token (sin provider / source `none`). **No** se infiere de `!readOnly`: los editores de artista `/fimba/e/:token` pueden planilla/agenda/rooming pero **no** meta administrativa de la propuesta (incl. rider).
 - **`canSeeRider`**: true para OFRN management, `editor_general` y **`consulta` (usuario FIMBA)**. **false** para token `/fimba/c` y tokens artista `/a` `/e`. Pestaña + ficha rider = logística interna.
 
-**UI:** `/fimba/login` (brand FIMBA); `/fimba/edicion/:id/usuarios` (alta / desactivar / regenerar clave + enlace consulta edición); header sesión externa con **Salir** (limpia también token consulta); home redirige externos/token a su edición.
+**UI:** `/fimba/login` (brand FIMBA); `/fimba/edicion/:id/usuarios` (alta / desactivar / regenerar clave + enlace consulta edición); header con **Salir** / **Salir de consulta** (`useConfirmDialog` → `ConfirmDialog`): limpia `fimba_consulta_edicion` y/o `fimba_user`; token puro → `/`; dual OFRN+token → `/fimba` staff; usuario FIMBA → `/fimba/login`. Pantalla «Sin acceso» del guard también ofrece Salir con el mismo confirm. Home redirige externos/token a su edición.
 
 **RLS (v1):** igual que la intranet OFRN — tablas accesibles con anon key; seguridad a nivel app + tokens UUID + claves de invitación. Hardening RLS/RPC queda como TODO.
 
@@ -539,6 +545,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] Ficha artista + token edición: panel **Hotelería / rooming** (`FimbaRoomingPanel`); consulta token RO
 - [x] **Venues** `/fimba/edicion/:id/venues`: acordeones anidados (venue → Información / Espectáculos; colapsados al cargar), badge con rango de fechas, indent del cuerpo; metadata operativa (`fimba_venue_info`), stage plot; consulta RO + Ver escenario. Redirect legacy `/espacios` → `/venues`.
 - [x] **Observaciones aforo** (`eventos.observaciones_aforo`): por concierto; inline en Venues + `FimbaEventoFormModal` + `EventForm` OFRN; migración `20260831123130` Local = Remote
+- [x] **Backline** `/fimba/edicion/:id/backline`: planilla = conciertos **siempre** + ensayos `backline_incluido`; columna **Estado** (`backline_estado`); import sheet 2026. Migraciones `20260902164456` + `20260902182459` + `20260902182918` Local = Remote
 
 ### UI tokens
 
@@ -669,7 +676,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 7. Filtros: fecha desde/hasta, locación.
 8. Acciones por espectáculo:
    - **Ver escenario** → `StagePlotViewerModal`.
-   - **Editar escenario** (solo staff OFRN `isManagement`) → Giras → Seating → Escenario.
+   - **Editar escenario** (`!readOnly`: editor_general / OFRN management) → `/fimba/edicion/:id/escenario` (standalone RiderMaker; primer plot de la gira). Consulta → solo Ver.
    - **Editar evento** → `FimbaEventoFormModal` (staff no RO; incluye obs. aforo si tipo concierto).
 9. Autosave debounced + semáforo en `FimbaVenueInfoSection` (patrón meta artista).
 10. **Permisos edición venue info:** `!readOnly` — OFRN management, `editor_general` FIMBA; consulta (user/token `/c`) y OFRN con fila `fimba_usuarios.consulta` = solo lectura.
@@ -678,6 +685,42 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 **Servicios:** `listFimbaConcertVenues` (incluye `locaciones.capacidad` + `observaciones_aforo`), `listFimbaVenueInfo`, `upsertFimbaVenueInfo`, `updateLocacionBasics` (nombre / dirección / **capacidad**), `updateEventoObservacionesAforo` en `fimbaService.js`. UI: `FimbaVenuesPage.jsx`, `FimbaVenueInfoSection.jsx` (`hideTitle` cuando anidado). Helpers: `src/utils/venueDisplayUtils.js` (`formatVenueShowsDateRange` para badge).
 
 **Migraciones:** `20260827230000_fimba_venue_info.sql` — tabla `fimba_venue_info` (`id_edicion`, `id_locacion` unique). `20260831123130_eventos_observaciones_aforo.sql` — `eventos.observaciones_aforo` text (Local = Remote).
+
+### Backline (planilla por concierto + ensayos manuales)
+
+1. Edición → **Backline** (`/fimba/edicion/:id/backline`) — pestaña del toggle (entre Venues y Rider).
+2. **Scope:**
+   - **Conciertos** `eventos.id_tipo_evento = 1` de la gira enlazada (`fimba_ediciones.id_gira`) — **siempre** en la planilla.
+   - **Ensayos** (tipos con `tipos_evento.id_categoria = 2` / categoría **Ensayos**) solo si `eventos.backline_incluido = true` (alta manual).
+   - Locación opcional (muestra «Sin locación»). Soft-delete excluido.
+3. **Agregar ensayos:** botón arriba de la planilla **«Seleccionar ensayo y Agregar»** → modal multi-select de ensayos de la gira aún no incluidos → `setEventosBacklineIncluido(..., true)`.
+4. **Quitar ensayo:** ícono basura en filas no-concierto → confirma → `backline_incluido = false` (el evento de agenda **no** se elimina). Conciertos no se quitan así.
+5. **Columnas** (planilla horizontal, shell 90%):
+
+| UI | Origen | Notas |
+|----|--------|-------|
+| Estado | `eventos.backline_estado` | Un círculo = color actual (o estilo vacío «—»); click abre popover portal z-110 con `verde`/`celeste`/`amarillo`/`naranja` + Sin estado; tinte de fila; autosave; RO = disco |
+| Artista | `eventos_fimba_propuestas` + `eventos_grupos` | Chips FIMBA (píldora) + `GiraGrupoChips` OFRN con **nombre completo** y esquinas rectangulares (no `compact`/iniciales); en ensayos, badge de `tipos_evento.nombre`; preview Detalle agenda debajo |
+| Venue | `locaciones.nombre` (+ localidad) | Lectura |
+| Fecha | `fecha` + `hora_inicio` | Formato largo ES |
+| Descripción | `eventos.backline_descripcion` | Click-to-edit: preview HTML colapsado + `FimbaRichTextEditor` (`toolbar="compact"`) al foco; toolbar wrap dentro de la celda (CSS flex + magenta); listas/links/headers (sin strike/indent/align/imagen); autosave debounce + al cerrar (click fuera / Esc) si `!readOnly` |
+| Planta de Escenario | `eventos.planta_escenario_url` + `planta_escenario_nombre` + `stage_plot_eventos` → `stage_plots` | **Chip Drive** si hay URL (nombre persistido / heurística → preview iframe). Si **no** hay URL pero sí vínculo RiderMaker (`stage_plot_eventos`): chip con `stage_plots.nombre` o «Escenario asignado» (click = Ver escenario). «Sin planta» **solo** sin URL **y** sin plot vinculado. Menú **⋮**: Ver planta, Abrir Drive, Editar URL/nombre (+ «Desde Drive»), Actualizar nombre, Ver/Editar/Elegir/Cambiar/Crear/Desvincular escenario RiderMaker. **Elegir / Cambiar** → modal lista + vincular / crear vacío o duplicar referencia; **Desvincular** → `unlinkEventFromStagePlot`. **Editar** lienzo → `/fimba/edicion/:id/escenario/:plotId` |
+| Monto | `eventos.backline_monto` | ARS es-AR (`parseFimbaMonto` / `formatFimbaMonto`); blur; input **alineado a la izquierda** |
+
+6. Filtros: fecha desde/hasta (default **vacío** = toda la edición; no default=hoy), artista multi, locación multi. Options de locación usan `{ id, label }` (SearchableSelect). Empty multi-array = sin filtro.
+7. **Permisos:** misma edición que Venues (`!readOnly` escribe; consulta / token `/c` RO). **Editar Escenario** (Konva) disponible para `editor_general` y OFRN management vía ruta standalone FIMBA; consulta solo Ver. Agregar/quitar ensayos solo si `!readOnly`.
+8. **RiderMaker:** reusa `stage_plots` / `stage_plot_eventos` / `ProgramStagePlotEditor` en shell `/fimba/edicion/:id/escenario/:plotId` (sin chrome FIMBA ni Giras). `canEditOverride={!readOnly}`.
+
+**Servicios:** `listFimbaBacklineConcerts`, `listFimbaBacklineEnsayosDisponibles`, `setEventosBacklineIncluido`, `updateEventoBackline` (incl. `planta_escenario_nombre`), `resolvePlantaEscenarioLabel` / `guessDriveLinkLabel` / `buildDriveFilePreviewUrl` / `fetchFimbaDriveFileName`, `isFimbaBacklineEnsayoRow`, `FIMBA_BACKLINE_ESTADOS` / `canonicalizeFimbaBacklineEstado` en `fimbaService.js`; stage plot helpers en `stagePlotService.js`. UI: `FimbaBacklinePage.jsx` (`BacklinePlantaCell` chip+⋮+preview, `SelectEnsayosBacklineModal`, `BacklineEstadoCell` círculo + popover).
+
+**Migraciones:**
+- `20260902164456_fimba_eventos_backline.sql` — `backline_descripcion`, `backline_monto`, `planta_escenario_url`
+- `20260902182459_fimba_eventos_backline_incluido.sql` — `backline_incluido boolean NOT NULL DEFAULT false` (+ seed `true` en conciertos)
+- `20260902182918_fimba_eventos_backline_estado.sql` — `backline_estado` CHECK (`verde|celeste|amarillo|naranja`)
+- `20260902184930_fimba_eventos_planta_escenario_nombre.sql` — `planta_escenario_nombre` (chip Drive)
+- Local = Remote
+
+**Import sheet 2026:** `supabase/scripts/import_fimba_backline_sheet_2026.sql` (Compilado Backlines FIMBA 2026 → gira 12; incluye ensayos Hotelera con `backline_incluido`).
 
 ### Contrataciones
 
@@ -722,6 +765,8 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `/fimba/edicion/:id/transportes` | Vehículos + trayectos |
 | `/fimba/edicion/:id/hoteleria` | Hotelería |
 | `/fimba/edicion/:id/venues` | Venues de la edición (metadata + espectáculos + escenario). Legacy `/espacios` → redirect |
+| `/fimba/edicion/:id/backline` | Planilla Backline (conciertos siempre + ensayos con `backline_incluido`) |
+| `/fimba/edicion/:id/escenario/:plotId?` | Editor Escenario standalone (RiderMaker; sin FimbaLayout) |
 | `/fimba/edicion/:id/contrataciones` | Contrataciones / expedientes (`fimba_contrataciones`) |
 | `/fimba/edicion/:id/usuarios` | Usuarios FIMBA de la edición (`fimba_usuarios`) |
 | `/fimba/edicion/:id/artista/:artistaId` | Detalle artista: agenda + rooming + planilla participantes + tokens (+ finanzas solo `canSeeContrataciones`) |
@@ -775,7 +820,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `supabase/scripts/fimba_plazas_to_sube_gira12.sql` | One-shot data: legado plazas→Sube (gira 12); aplicado linked 2026-08-31 |
 | `supabase/scripts/merge_viento_sur_ofrn_fimba_gira12.sql` | One-shot data: merge Atlas→Viento Sur + FIMBA artista→grupo OFRN (gira 12); aplicado linked 2026-09-01 |
 | `src/views/Fimba/FimbaEventDetalleField.jsx` | Editor contentEditable B/I/U (paridad `EventForm`) + preview HTML de Detalle |
-| `src/views/Fimba/FimbaRichTextEditor.jsx` | Quill FIMBA (magenta, ES); imagen paste/picker/drop; upload inyectable (`uploadFile`) o rider; RO = HTML sanitizado |
+| `src/views/Fimba/FimbaRichTextEditor.jsx` | Quill FIMBA (magenta, ES); `toolbar` `full`\|`compact`; imagen paste/picker/drop; upload inyectable (`uploadFile`) o rider; RO = HTML sanitizado; toolbar CSS wrap (`display:flex` + `flex-wrap`) |
 | `src/utils/eventosInternas.js` | Vacío/sanitize allowlist bucket `eventos-internas` |
 | `src/services/eventosInternasService.js` | Upload imágenes path `eventos/{id|draft}/…` |
 | `supabase/migrations/20260826140000_eventos_observaciones_internas.sql` | Columna + bucket `eventos-internas` (Local = Remote) |
@@ -785,7 +830,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/views/Giras/StopRulesManager.jsx` | Reglas `giras_logistica_rutas`; cierra rides abiertos; lista a bordo + **Bajar todo**/Bajar; confirms z-110 embedded |
 | `src/services/fimbaService.js` | Rutas FIMBA + `alightAllFimbaAboardAtStop` + `alightAllOfrnAboardAtStop` / `alightOfrnPeopleAtStop` |
 | `src/views/Fimba/FimbaLayout.jsx` | Skin + header sticky + toggle + sesión/logout FIMBA; scroll planillas agenda/trayectos/artistas |
-| `src/views/Fimba/FimbaSectionToggle.jsx` | Segmented control; oculta Contrataciones/Usuarios en consulta; Rider si `canSeeRider` |
+| `src/views/Fimba/FimbaSectionToggle.jsx` | Segmented control; Backline entre Venues y Rider; oculta Contrataciones/Usuarios en consulta; Rider si `canSeeRider` |
 | `src/views/Fimba/FimbaRiderPage.jsx` | Pestaña Rider: acordeón + autosave + Imprimir/PDF (texto o imágenes) |
 | `src/utils/fimbaRider.js` | Vacío = sin texto ni imágenes; sanitize `<img>` allowlist bucket |
 | `supabase/migrations/20260813130000_fimba_riders_storage.sql` | Bucket `fimba-riders` público + policies |
@@ -809,8 +854,15 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/views/Fimba/FimbaTransportPage.jsx` | Vehículos + trayectos + columnas boarding / locación |
 | `src/views/Fimba/FimbaHoteleriaPage.jsx` | Hotelería + **Editar datos** (meta compartida + cupos) + hub reportes + exports por tarjeta + comidas |
 | `src/views/Fimba/FimbaVenuesPage.jsx` | Venues: metadata operativa + espectáculos + stage plot (scope edición) |
+| `src/views/Fimba/FimbaBacklinePage.jsx` | Backline: chip planta Drive (`planta_escenario_nombre`) + preview; menú ⋮ Drive/RiderMaker; ensayos `backline_incluido` |
+| `src/views/Fimba/FimbaEscenarioPage.jsx` | Shell Escenario FIMBA (`canEditOverride`) |
 | `src/views/Fimba/FimbaVenueInfoSection.jsx` | Card editable venue info (autosave + semáforo) |
 | `supabase/migrations/20260827230000_fimba_venue_info.sql` | Tabla `fimba_venue_info` |
+| `supabase/migrations/20260902164456_fimba_eventos_backline.sql` | Columnas backline en `eventos` |
+| `supabase/migrations/20260902182459_fimba_eventos_backline_incluido.sql` | `backline_incluido` |
+| `supabase/migrations/20260902182918_fimba_eventos_backline_estado.sql` | `backline_estado` color enum |
+| `supabase/scripts/import_fimba_backline_sheet_2026.sql` | Import Compilado Backlines sheet → gira 12 |
+| `supabase/migrations/20260902182459_fimba_eventos_backline_incluido.sql` | `eventos.backline_incluido` (ensayos en planilla) |
 | `src/utils/venueDisplayUtils.js` | Helpers venues (agrupación, fechas, badge rango) |
 | `src/views/Fimba/FimbaHoteleriaReports.jsx` | Hub OFRN + vistas print/Excel pedido hotel |
 | `src/views/Fimba/FimbaComidasReportModal.jsx` | Comidas: texto / PDF / Excel |
@@ -840,6 +892,9 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | **20260824152341** | `fimba_propuestas_requiere_hotel_comidas` | Local = Remote (deploy linked) |
 | **20260825084834** | `fimba_equipaje_asientos_obs` | Local = Remote (SQL linked + repair applied) |
 | **20260831123130** | `eventos_observaciones_aforo` | Local = Remote (`db push` + `migration list` OK) |
+| **20260902164456** | `fimba_eventos_backline` | Local = Remote (`db push`; cols backline en `eventos`) |
+| **20260902182459** | `fimba_eventos_backline_incluido` | Local = Remote (`db push`; `backline_incluido`) |
+| **20260902182918** | `fimba_eventos_backline_estado` | Local = Remote (`backline_estado` CHECK) |
 | **20260831170559** | `fimba_contrataciones_sheet_sync` | Local = Remote (SQL linked + repair applied; cron daily live) |
 | **20260901140559** | `catering_categoria_tipo` | Local = Remote (SQL linked: cat. 9 + tipo 34) |
 | **20260902122628** | `fimba_checkin_checkout_eventos` | Local = Remote (`db push`; 12 eventos + 16×2 prop + 4×2 part) |
@@ -859,7 +914,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
    - En **Usuarios**: sección «Enlace consulta general edición» → copiar `/fimba/c/<token>`.
    - Abrir en incógnito: shell RO de esa edición (Artistas, Agenda, Transportes, Hotelería, Venues; **sin Rider**).
    - **Regenerar** invalida el enlace anterior (`fimba_ediciones.token_consulta`).
-4. **Logout FIMBA**: botón **Salir** en el header (sesión usuario y/o token consulta).
+4. **Logout FIMBA**: botón **Salir** / **Salir de consulta** en el header (y en pantalla bloqueada del guard) con `useConfirmDialog`; limpia sesión usuario y/o token consulta según el caso.
 5. Staff OFRN sigue entrando por login intranet (`isManagement`) sin registro en `fimba_usuarios`, salvo override `consulta` (mail en `fimba_usuarios` → RO).
 6. **Seed staff OFRN FIMBA 2026** (`supabase/seed/fimba_edicion_1_usuarios_ofrn.sql`, aplicado linked 2026-08-26): Charbonnier / Vidondo / Fraile / Milanesi → `editor_general`; Claudio Rossi → `consulta`. Clave = `integrantes.clave_acceso` (misma que intranet; también sirve en `/fimba/login`).
 
