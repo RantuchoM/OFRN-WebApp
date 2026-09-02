@@ -25,7 +25,11 @@ import {
   categoriesFromTiposEvento,
   normalizeCategoriasTiposEventos,
 } from "../utils/fimbaEventCategories";
-import { eventMatchesPropuestaRouteFilter } from "../utils/fimbaAgendaUrlParams";
+import {
+  canonicalizeAgendaConsultaFilters,
+  eventMatchesPropuestaRouteFilter,
+  filtersFromAgendaConsultaRow,
+} from "../utils/fimbaAgendaUrlParams";
 import {
   buildAllVehicleBoardingSequences,
   buildArtistaTrasladoAgendaBlocks,
@@ -805,6 +809,96 @@ export async function getFimbaEdicionByTokenConsulta(token) {
     .maybeSingle();
   if (error) return { edicion: null, error };
   return { edicion: data, error: null };
+}
+
+const AGENDA_CONSULTA_SELECT =
+  "id, id_edicion, token, propuestas, grupos, locaciones, include_tutti, origen, created_at, updated_at";
+
+function agendaConsultaFingerprintEq(row, filters) {
+  const a = filtersFromAgendaConsultaRow(row);
+  return (
+    a.propuestaIds.join(",") === filters.propuestaIds.join(",") &&
+    a.grupoIds.join(",") === filters.grupoIds.join(",") &&
+    a.locacionIds.join(",") === filters.locacionIds.join(",") &&
+    a.includeTutti === filters.includeTutti &&
+    a.origen === filters.origen
+  );
+}
+
+/**
+ * Token único de consulta de agenda (`fimba_agenda_consultas`).
+ * @param {string} token
+ */
+export async function getFimbaAgendaConsultaByToken(token) {
+  const t = String(token || "").trim();
+  if (!t) {
+    return { consulta: null, error: new Error("token requerido") };
+  }
+  const { data, error } = await supabase
+    .from("fimba_agenda_consultas")
+    .select(AGENDA_CONSULTA_SELECT)
+    .eq("token", t)
+    .maybeSingle();
+  if (error) return { consulta: null, error };
+  return { consulta: data, error: null };
+}
+
+/**
+ * Reusa el token de la misma huella de filtros, o crea uno nuevo.
+ * @param {number|string} edicionId
+ * @param {{
+ *   propuestaIds?: unknown,
+ *   grupoIds?: unknown,
+ *   locacionIds?: unknown,
+ *   includeTutti?: boolean,
+ *   origen?: string|null,
+ * }} filters
+ */
+export async function upsertFimbaAgendaConsulta(edicionId, filters = {}) {
+  const id = Number(edicionId);
+  if (!Number.isFinite(id)) {
+    return { consulta: null, error: new Error("id de edición requerido") };
+  }
+  const canon = canonicalizeAgendaConsultaFilters(filters);
+  const { data: existingRows, error: findErr } = await supabase
+    .from("fimba_agenda_consultas")
+    .select(AGENDA_CONSULTA_SELECT)
+    .eq("id_edicion", id)
+    .eq("include_tutti", canon.includeTutti)
+    .eq("origen", canon.origen);
+  if (findErr) return { consulta: null, error: findErr };
+  const match = (existingRows || []).find((row) =>
+    agendaConsultaFingerprintEq(row, canon),
+  );
+  if (match) return { consulta: match, error: null };
+
+  const { data, error } = await supabase
+    .from("fimba_agenda_consultas")
+    .insert({
+      id_edicion: id,
+      propuestas: canon.propuestaIds,
+      grupos: canon.grupoIds,
+      locaciones: canon.locacionIds,
+      include_tutti: canon.includeTutti,
+      origen: canon.origen,
+    })
+    .select(AGENDA_CONSULTA_SELECT)
+    .single();
+  if (error?.code === "23505") {
+    const { data: retryRows, error: retryErr } = await supabase
+      .from("fimba_agenda_consultas")
+      .select(AGENDA_CONSULTA_SELECT)
+      .eq("id_edicion", id)
+      .eq("include_tutti", canon.includeTutti)
+      .eq("origen", canon.origen);
+    if (retryErr) return { consulta: null, error: retryErr };
+    const retry = (retryRows || []).find((row) =>
+      agendaConsultaFingerprintEq(row, canon),
+    );
+    if (retry) return { consulta: retry, error: null };
+  }
+  if (error) return { consulta: null, error };
+  return { consulta: data, error: null };
 }
 
 /**

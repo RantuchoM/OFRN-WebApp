@@ -32,6 +32,7 @@ import {
   listFimbaPropuestas,
   loadFimbaTransportLogisticsSummary,
   computeFimbaCapacity,
+  upsertFimbaAgendaConsulta,
 } from "../../services/fimbaService";
 import { normalizeForSearch } from "../../utils/sanitize";
 import { stripHtml } from "../../utils/eventDisplayUtils";
@@ -55,16 +56,20 @@ import {
 } from "../../utils/fimbaTransportBoarding";
 import {
   FIMBA_AGENDA_TUTTI_VALUE,
+  buildFimbaAgendaConsultaLegacySharePath,
   buildFimbaAgendaConsultaSharePath,
   buildFimbaAgendaSharePath,
+  canonicalizeAgendaConsultaFilters,
   eventMatchesAgendaEntityFilter,
   hasAgendaEntityFilter,
   hasOfrnConvocatoriaFilter,
   isFimbaAgendaTuttiValue,
   parseFimbaAgendaUrlSearchParams,
+  retainSelectedFilterIds,
   resolveGrupoIdsFromNames,
 } from "../../utils/fimbaAgendaUrlParams";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 
@@ -325,6 +330,8 @@ function eventMatchesFimbaAgendaSearch(ev, query, flotaById = null) {
 export default function FimbaAgendaPage() {
   const { edicionId, artistaId } = useParams();
   const { readOnly, agendaOnly, source } = useFimbaAccess();
+  const consultaSession = useFimbaConsultaEdicionSession();
+  const queryLocked = Boolean(agendaOnly);
   const canCopyConsultaLink =
     source === "ofrn" || source === "fimba_editor";
   const [searchParams, setSearchParams] = useSearchParams();
@@ -336,6 +343,37 @@ export default function FimbaAgendaPage() {
       }),
     [searchParams, artistaId],
   );
+  const lockedFilters = useMemo(() => {
+    if (!queryLocked) return null;
+    if (
+      consultaSession?.agenda_query_locked ||
+      consultaSession?.consulta_kind === "agenda_share"
+    ) {
+      return canonicalizeAgendaConsultaFilters({
+        propuestaIds: consultaSession.propuestaIds,
+        grupoIds: consultaSession.grupoIds,
+        locacionIds: consultaSession.locacionIds,
+        includeTutti: consultaSession.includeTutti,
+        origen: consultaSession.origen,
+      });
+    }
+    return canonicalizeAgendaConsultaFilters({
+      propuestaIds: urlFilters.propuestaIds,
+      grupoIds: urlFilters.grupoIds,
+      locacionIds: urlFilters.locacionIds,
+      includeTutti: urlFilters.includeTutti,
+      origen: urlFilters.origen,
+    });
+  }, [
+    queryLocked,
+    consultaSession,
+    urlFilters.propuestaIds.join(","),
+    urlFilters.grupoIds.join(","),
+    urlFilters.locacionIds.join(","),
+    urlFilters.includeTutti,
+    urlFilters.origen,
+  ]);
+  const seedFilters = lockedFilters || urlFilters;
 
   const [edicion, setEdicion] = useState(null);
   const [propuestas, setPropuestas] = useState([]);
@@ -348,24 +386,24 @@ export default function FimbaAgendaPage() {
   const [logisticsSummary, setLogisticsSummary] = useState([]);
   const [propuestaRoutes, setPropuestaRoutes] = useState([]);
   const [selectedPropuestaIds, setSelectedPropuestaIds] = useState(
-    () => urlFilters.propuestaIds,
+    () => seedFilters.propuestaIds,
   );
   const [selectedGrupoIds, setSelectedGrupoIds] = useState(
-    () => urlFilters.grupoIds,
+    () => seedFilters.grupoIds,
   );
   /** Opt-in convocatoria Tutti (off por defecto). */
   const [includeTutti, setIncludeTutti] = useState(
-    () => Boolean(urlFilters.includeTutti),
+    () => Boolean(seedFilters.includeTutti),
   );
   /**
    * Default: Solo FIMBA. Grupo/Tutti incluyen orquesta → all.
    * Artista solo no fuerza all (evita volcar toda la convocatoria OFRN).
    */
   const [filtroOrigen, setFiltroOrigen] = useState(() => {
-    if (hasOfrnConvocatoriaFilter(urlFilters.grupoIds, urlFilters.includeTutti)) {
+    if (hasOfrnConvocatoriaFilter(seedFilters.grupoIds, seedFilters.includeTutti)) {
       return "all";
     }
-    return urlFilters.origen || "fimba";
+    return seedFilters.origen || "fimba";
   });
   /**
    * Multi-select de categorías (`id_categoria` / categorias_tipos_eventos),
@@ -378,7 +416,7 @@ export default function FimbaAgendaPage() {
    * Filas sin locación quedan ocultas si el filtro está activo.
    */
   const [selectedLocacionIds, setSelectedLocacionIds] = useState(
-    () => urlFilters.locacionIds,
+    () => seedFilters.locacionIds,
   );
   /** Query de búsqueda debounced (vía FimbaAgendaSearchField). */
   const [agendaSearchQuery, setAgendaSearchQuery] = useState("");
@@ -570,16 +608,24 @@ export default function FimbaAgendaPage() {
   }, [fetchOfrnEvents, edicion, reloadAgendaSlices]);
 
   useEffect(() => {
-    setSelectedPropuestaIds(urlFilters.propuestaIds);
-    setSelectedGrupoIds(urlFilters.grupoIds);
-    setIncludeTutti(Boolean(urlFilters.includeTutti));
-    setSelectedLocacionIds(urlFilters.locacionIds);
-    if (hasOfrnConvocatoriaFilter(urlFilters.grupoIds, urlFilters.includeTutti)) {
+    const seed = lockedFilters || urlFilters;
+    setSelectedPropuestaIds(seed.propuestaIds);
+    setSelectedGrupoIds(seed.grupoIds);
+    setIncludeTutti(Boolean(seed.includeTutti));
+    setSelectedLocacionIds(seed.locacionIds);
+    if (hasOfrnConvocatoriaFilter(seed.grupoIds, seed.includeTutti)) {
       setFiltroOrigen("all");
     } else {
-      setFiltroOrigen(urlFilters.origen || "fimba");
+      setFiltroOrigen(seed.origen || "fimba");
+    }
+    if (queryLocked) {
+      setSelectedCategoryIds([]);
+      setAgendaSearchQuery("");
+      setSearchResetSignal((n) => n + 1);
     }
   }, [
+    queryLocked,
+    lockedFilters,
     urlFilters.propuestaIds.join(","),
     urlFilters.grupoIds.join(","),
     urlFilters.locacionIds.join(","),
@@ -619,6 +665,7 @@ export default function FimbaAgendaPage() {
   }, [urlFilters.grupoNames.join(","), giraGrupos]);
 
   useEffect(() => {
+    if (queryLocked) return;
     const incoming = parseFimbaAgendaUrlSearchParams(searchParams, {
       routeArtistaId: artistaId,
     });
@@ -647,6 +694,7 @@ export default function FimbaAgendaPage() {
       });
     }
   }, [
+    queryLocked,
     artistaId,
     searchParams,
     selectedPropuestaIds,
@@ -720,48 +768,45 @@ export default function FimbaAgendaPage() {
     [availableLocaciones],
   );
 
-  // Quitar de la selección ids que ya no existen en la agenda cargada
   useEffect(() => {
-    setSelectedCategoryIds((prev) => {
-      if (prev.length === 0) return prev;
-      const valid = new Set(availableCategories.map((c) => c.id));
-      const next = prev.filter((id) => valid.has(Number(id)));
-      if (next.length === prev.length) return prev;
-      return next;
-    });
-  }, [availableCategories]);
+    if (queryLocked) return;
+    setSelectedCategoryIds((prev) =>
+      retainSelectedFilterIds(
+        prev,
+        availableCategories.map((c) => c.id),
+      ),
+    );
+  }, [queryLocked, availableCategories]);
 
   useEffect(() => {
-    setSelectedLocacionIds((prev) => {
-      if (prev.length === 0) return prev;
-      const valid = new Set(availableLocaciones.map((l) => l.id));
-      const next = prev.filter((id) => valid.has(Number(id)));
-      if (next.length === prev.length) return prev;
-      return next;
-    });
-  }, [availableLocaciones]);
+    if (queryLocked) return;
+    setSelectedLocacionIds((prev) =>
+      retainSelectedFilterIds(
+        prev,
+        availableLocaciones.map((l) => l.id),
+      ),
+    );
+  }, [queryLocked, availableLocaciones]);
 
   useEffect(() => {
-    setSelectedGrupoIds((prev) => {
-      if (prev.length === 0) return prev;
-      // No vaciar ids de la URL antes de que llegue el catálogo de la gira.
-      if (!giraGrupos?.length) return prev;
-      const valid = new Set(giraGrupos.map((g) => Number(g.id)));
-      const next = prev.filter((id) => valid.has(Number(id)));
-      if (next.length === prev.length) return prev;
-      return next;
-    });
-  }, [giraGrupos]);
+    if (queryLocked) return;
+    setSelectedGrupoIds((prev) =>
+      retainSelectedFilterIds(
+        prev,
+        (giraGrupos || []).map((g) => g.id),
+      ),
+    );
+  }, [queryLocked, giraGrupos]);
 
   useEffect(() => {
-    setSelectedPropuestaIds((prev) => {
-      if (prev.length === 0) return prev;
-      const valid = new Set((propuestas || []).map((p) => Number(p.id)));
-      const next = prev.filter((id) => valid.has(Number(id)));
-      if (next.length === prev.length) return prev;
-      return next;
-    });
-  }, [propuestas]);
+    if (queryLocked) return;
+    setSelectedPropuestaIds((prev) =>
+      retainSelectedFilterIds(
+        prev,
+        (propuestas || []).map((p) => p.id),
+      ),
+    );
+  }, [queryLocked, propuestas]);
 
   const categoryFilterActive =
     selectedCategoryIds.length > 0 &&
@@ -962,6 +1007,7 @@ export default function FimbaAgendaPage() {
   ]);
 
   const handleClearAllFilters = useCallback(() => {
+    if (queryLocked) return;
     setFiltroOrigen("fimba");
     setSelectedCategoryIds([]);
     setSelectedLocacionIds([]);
@@ -970,7 +1016,7 @@ export default function FimbaAgendaPage() {
     setIncludeTutti(false);
     setAgendaSearchQuery("");
     setSearchResetSignal((n) => n + 1);
-  }, []);
+  }, [queryLocked]);
 
   const handleDelete = async (ev) => {
     const label = stripHtml(ev.actividad) || ev.tipo_nombre || "evento";
@@ -1114,20 +1160,29 @@ export default function FimbaAgendaPage() {
   };
 
   const handleCopyShareLink = async () => {
-    const filters = {
+    const filters = canonicalizeAgendaConsultaFilters({
       propuestaIds: selectedPropuestaIds,
       grupoIds: selectedGrupoIds,
       locacionIds: selectedLocacionIds,
       includeTutti,
       origen: ofrnIncludeActive ? "all" : filtroOrigen,
-    };
-    const consultaToken =
-      edicion?.token_consulta || null;
-    const publicPath = consultaToken
-      ? buildFimbaAgendaConsultaSharePath(consultaToken, filters)
+    });
+    const { consulta, error: shareErr } = await upsertFimbaAgendaConsulta(
+      edicionId,
+      filters,
+    );
+    const uniquePath = consulta?.token
+      ? buildFimbaAgendaConsultaSharePath(consulta.token)
       : null;
+    const legacyPath = edicion?.token_consulta
+      ? buildFimbaAgendaConsultaLegacySharePath(edicion.token_consulta, filters)
+      : null;
+    const publicPath = uniquePath || legacyPath;
     if (!publicPath) {
-      window.alert("No hay token de consulta para esta edición.");
+      window.alert(
+        shareErr?.message ||
+          "No se pudo generar el enlace de consulta.",
+      );
       return;
     }
     const url = `${window.location.origin}${publicPath}`;
@@ -1136,7 +1191,7 @@ export default function FimbaAgendaPage() {
       setCopyLinkOk(true);
       window.setTimeout(() => setCopyLinkOk(false), 2500);
     } catch {
-      window.prompt("Copiá este enlace de consulta (solo lectura, solo agenda):", url);
+      window.prompt("Copiá este enlace de consulta (vista fija, solo agenda):", url);
     }
   };
   const backHref = artistaId
@@ -1189,7 +1244,9 @@ export default function FimbaAgendaPage() {
             Agenda
           </h1>
           <p className="fimba-muted" style={{ margin: "0.35rem 0 0" }}>
-            Planilla unificada · FIMBA + orquesta OFRN (misma gira)
+            {queryLocked
+              ? "Consulta fija · la vista no se puede cambiar desde este enlace"
+              : "Planilla unificada · FIMBA + orquesta OFRN (misma gira)"}
           </p>
         </div>
         {!readOnly && (
@@ -1234,7 +1291,7 @@ export default function FimbaAgendaPage() {
                 type="button"
                 className="fimba-btn fimba-btn-ghost"
                 onClick={handleCopyShareLink}
-                title="Enlace público solo lectura: abre la agenda filtrada sin login"
+                title="Enlace público con token único: agenda filtrada fija, sin login"
               >
                 <IconCopy size={14} />{" "}
                 {copyLinkOk ? "Enlace copiado" : "Copiar enlace de consulta"}
@@ -1251,6 +1308,7 @@ export default function FimbaAgendaPage() {
             </button>
           </div>
         </div>
+        {!queryLocked && (
         <div className="fimba-agenda-filters-row">
           <FimbaAgendaSearchField
             onQueryChange={handleAgendaSearchQueryChange}
@@ -1354,16 +1412,19 @@ export default function FimbaAgendaPage() {
             </div>
           </div>
         </div>
+        )}
       </div>
 
-      {hasNonDefaultFilters && (
+      {(hasNonDefaultFilters || queryLocked) && (
         <div
           className="fimba-agenda-active-filters"
           role="status"
           aria-live="polite"
         >
           <div className="fimba-agenda-active-filters-main">
-            <span className="fimba-agenda-active-filters-label">Filtros activos</span>
+            <span className="fimba-agenda-active-filters-label">
+              {queryLocked ? "Consulta fija" : "Filtros activos"}
+            </span>
             <div className="fimba-agenda-active-filters-chips">
               {activeFilterLabels.map((label) => (
                 <span key={label} className="fimba-badge fimba-agenda-filter-chip">
@@ -1372,10 +1433,12 @@ export default function FimbaAgendaPage() {
               ))}
             </div>
             <span className="fimba-muted fimba-agenda-active-filters-count">
-              {eventosFiltrados.length} de {eventos.length} eventos
+              {queryLocked
+                ? `${eventosFiltrados.length} eventos`
+                : `${eventosFiltrados.length} de ${eventos.length} eventos`}
             </span>
-            {/* Solo FIMBA + sin artista: hint corto inline; oculto con filtro artista */}
-            {!ofrnIncludeActive &&
+            {!queryLocked &&
+              !ofrnIncludeActive &&
               filtroOrigen === "fimba" &&
               selectedPropuestaIds.length === 0 && (
                 <span className="fimba-muted fimba-agenda-active-filters-hint">
@@ -1383,13 +1446,14 @@ export default function FimbaAgendaPage() {
                 </span>
               )}
           </div>
+          {!queryLocked && (
           <div className="fimba-agenda-active-filters-actions">
             {canCopyConsultaLink && entityFilterActiveFlag && (
               <button
                 type="button"
                 className="fimba-btn fimba-btn-ghost fimba-agenda-copy-link"
                 onClick={handleCopyShareLink}
-                title="Enlace público solo lectura con artistas/grupos filtrados (sin login)"
+                title="Enlace público con token único: misma vista fija, sin login"
               >
                 <IconCopy size={14} />{" "}
                 {copyLinkOk ? "Enlace copiado" : "Copiar enlace de consulta"}
@@ -1403,6 +1467,7 @@ export default function FimbaAgendaPage() {
               <IconX size={14} /> Limpiar filtros
             </button>
           </div>
+          )}
         </div>
       )}
 
@@ -1421,7 +1486,9 @@ export default function FimbaAgendaPage() {
             ? readOnly
               ? "."
               : " Creá el primero con «Nuevo evento»."
-            : " Probá Tutti o un grupo OFRN, otro origen, categoría, locación o búsqueda."}
+            : queryLocked
+              ? ""
+              : " Probá Tutti o un grupo OFRN, otro origen, categoría, locación o búsqueda."}
         </div>
       ) : (
         <div className="fimba-card fimba-agenda-card">

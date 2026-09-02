@@ -35,8 +35,22 @@ export const FIMBA_ROLE_LABELS = {
  * @property {string} token
  * @property {number} id_edicion
  * @property {boolean} [agenda_only] — true si el entry fue `/fimba/c/:token/agenda` (solo agenda RO)
+ * @property {boolean} [agenda_query_locked] — consulta fija: no se cambian filtros
+ * @property {'edicion'|'agenda_share'} [consulta_kind]
+ * @property {number[]} [propuestaIds]
+ * @property {number[]} [grupoIds]
+ * @property {number[]} [locacionIds]
+ * @property {boolean} [includeTutti]
+ * @property {'fimba'|'ofrn'|'all'|null} [origen]
  * @property {string} [loggedAt]
  */
+
+function readIdList(value) {
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(value.map((n) => Number(n)).filter(Number.isFinite)),
+  ];
+}
 
 function notifyUser() {
   if (typeof window === "undefined") return;
@@ -131,10 +145,24 @@ export function readFimbaConsultaEdicionSession() {
     const id_edicion = Number(parsed.id_edicion);
     const token = String(parsed.token || "").trim();
     if (!Number.isFinite(id_edicion) || !token) return null;
+    const origenRaw = String(parsed.origen || "").toLowerCase();
+    const origen =
+      origenRaw === "fimba" || origenRaw === "ofrn" || origenRaw === "all"
+        ? origenRaw
+        : null;
+    const consultaKind =
+      parsed.consulta_kind === "agenda_share" ? "agenda_share" : "edicion";
     return {
       token,
       id_edicion,
       agenda_only: parsed.agenda_only === true,
+      agenda_query_locked: parsed.agenda_query_locked === true,
+      consulta_kind: consultaKind,
+      propuestaIds: readIdList(parsed.propuestaIds),
+      grupoIds: readIdList(parsed.grupoIds),
+      locacionIds: readIdList(parsed.locacionIds),
+      includeTutti: parsed.includeTutti === true,
+      origen,
       loggedAt: parsed.loggedAt ? String(parsed.loggedAt) : undefined,
     };
   } catch {
@@ -143,7 +171,7 @@ export function readFimbaConsultaEdicionSession() {
 }
 
 /**
- * @param {{ token: string, id_edicion: number|string, agenda_only?: boolean }} payload
+ * @param {FimbaConsultaEdicionSession|object} payload
  */
 export function writeFimbaConsultaEdicionSession(payload) {
   if (typeof window === "undefined") return;
@@ -152,12 +180,25 @@ export function writeFimbaConsultaEdicionSession(payload) {
   if (!Number.isFinite(id_edicion) || !token) {
     throw new Error("Sesión de consulta de edición inválida");
   }
+  const origenRaw = String(payload?.origen || "").toLowerCase();
+  const origen =
+    origenRaw === "fimba" || origenRaw === "ofrn" || origenRaw === "all"
+      ? origenRaw
+      : null;
   localStorage.setItem(
     FIMBA_CONSULTA_EDICION_KEY,
     JSON.stringify({
       token,
       id_edicion,
       agenda_only: payload?.agenda_only === true,
+      agenda_query_locked: payload?.agenda_query_locked === true,
+      consulta_kind:
+        payload?.consulta_kind === "agenda_share" ? "agenda_share" : "edicion",
+      propuestaIds: readIdList(payload?.propuestaIds),
+      grupoIds: readIdList(payload?.grupoIds),
+      locacionIds: readIdList(payload?.locacionIds),
+      includeTutti: payload?.includeTutti === true,
+      origen,
       loggedAt: new Date().toISOString(),
     }),
   );
