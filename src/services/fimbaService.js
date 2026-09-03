@@ -3931,19 +3931,11 @@ export function classifyFimbaEventOrigen(ev) {
 }
 
 /**
- * Grupos de convocatoria de la gira (sin miembros — UI de audiencia).
+ * Grupos de convocatoria de la gira (incluye `giras_grupos_integrantes` para headcount).
  * @param {number|string} idGira
  */
 export async function listFimbaGiraGrupos(idGira) {
-  if (idGira == null || idGira === "") return { grupos: [], error: null };
-  const { data, error } = await supabase
-    .from("giras_grupos")
-    .select("id, id_gira, nombre, color, orden")
-    .eq("id_gira", Number(idGira))
-    .order("orden", { ascending: true })
-    .order("nombre", { ascending: true });
-  if (error) return { grupos: [], error };
-  return { grupos: data || [], error: null };
+  return fetchGiraGrupos(supabase, idGira);
 }
 
 /**

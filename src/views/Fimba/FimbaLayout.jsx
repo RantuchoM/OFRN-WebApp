@@ -888,6 +888,34 @@ const FIMBA_CSS = `
   .fimba-row-ambos td:first-child {
     box-shadow: inset 3px 0 0 var(--fimba-deep);
   }
+  .fimba-row-contexto td {
+    background: rgba(100, 116, 139, 0.06);
+  }
+  .fimba-row-contexto td:first-child {
+    box-shadow: inset 3px 0 0 #64748b;
+  }
+  .fimba-planilla-table .fimba-row-contexto .fimba-sticky-origen,
+  .fimba-planilla-table .fimba-row-contexto .fimba-sticky-fecha,
+  .fimba-planilla-table .fimba-row-contexto .fimba-sticky-hora {
+    background: #f1f5f9;
+  }
+  .fimba-badge-contexto {
+    background: #e2e8f0;
+    color: #334155;
+    font-weight: 700;
+  }
+  .fimba-row-highlight td {
+    animation: fimba-row-flash 6s ease-out;
+  }
+  @keyframes fimba-row-flash {
+    0%,
+    15% {
+      background: rgba(148, 33, 109, 0.14);
+    }
+    100% {
+      background: transparent;
+    }
+  }
   .fimba-badge-early {
     background: #e0f2fe;
     color: #0369a1;
@@ -1191,6 +1219,32 @@ const FIMBA_CSS = `
   }
   @media (max-width: 640px) {
     .fimba-grid-2 { grid-template-columns: 1fr; }
+  }
+  /* Programar transporte: locación | fecha | hora por tramo */
+  .fimba-prog-trip-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 8.75rem 6.75rem;
+    gap: 0.65rem 0.75rem;
+    align-items: end;
+  }
+  .fimba-prog-trip-row .fimba-field {
+    margin-bottom: 0;
+    min-width: 0;
+  }
+  .fimba-prog-trip-row .fimba-prog-fecha,
+  .fimba-prog-trip-row .fimba-prog-hora {
+    max-width: 100%;
+  }
+  .fimba-prog-trip-row .fimba-input {
+    width: 100%;
+  }
+  @media (max-width: 560px) {
+    .fimba-prog-trip-row {
+      grid-template-columns: 1fr 1fr;
+    }
+    .fimba-prog-trip-row .fimba-prog-loc {
+      grid-column: 1 / -1;
+    }
   }
   /* Planilla artistas — scroll horizontal (paridad agenda/transportes) */
   .fimba-artistas-card {

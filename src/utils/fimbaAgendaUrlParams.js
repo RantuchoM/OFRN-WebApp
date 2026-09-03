@@ -437,6 +437,61 @@ export function eventMatchesAgendaEntityFilter(
 }
 
 /**
+ * id_categoria OFRN de una fila de agenda unificada.
+ * @param {object|null|undefined} ev
+ * @returns {number|null}
+ */
+export function eventAgendaCategoriaId(ev) {
+  const raw =
+    ev?.tipo_id_categoria ??
+    ev?.tipos_evento?.id_categoria ??
+    ev?.tipos_evento?.categorias_tipos_eventos?.id ??
+    null;
+  const id = raw != null ? Number(raw) : NaN;
+  return Number.isFinite(id) ? id : null;
+}
+
+/**
+ * ¿El evento no-transporte encaja en «Ver otros eventos» (Transportes)?
+ * - Categorías: vacío = todas; con ids = solo esas (`id_categoria`).
+ * - Tags: vacío = sin acotar por gente; con artistas y/o grupos = unión
+ *   (tags `propuestas` ∪ `grupos` del evento). No usa rutas de boarding.
+ *
+ * @param {object|null|undefined} ev
+ * @param {{
+ *   categoryIds?: Array<number|string>,
+ *   propuestaIds?: Array<number|string>,
+ *   grupoIds?: Array<number|string>,
+ * }} [filters]
+ */
+export function eventMatchesOtrosEventosContext(ev, filters = {}) {
+  if (!ev) return false;
+  const cats = [...new Set((filters.categoryIds || []).map(Number).filter(Number.isFinite))];
+  const props = [
+    ...new Set((filters.propuestaIds || []).map(Number).filter(Number.isFinite)),
+  ];
+  const grupos = [
+    ...new Set((filters.grupoIds || []).map(Number).filter(Number.isFinite)),
+  ];
+  if (cats.length === 0 && props.length === 0 && grupos.length === 0) {
+    return false;
+  }
+  if (cats.length > 0) {
+    const catId = eventAgendaCategoriaId(ev);
+    // Sin categoría conocida: no ocultar (paridad Agenda / UnifiedAgenda)
+    if (catId != null && !cats.includes(catId)) return false;
+  }
+  if (props.length === 0 && grupos.length === 0) return true;
+  const matchProp =
+    props.length > 0 &&
+    (ev.propuestas || []).some((p) => props.includes(Number(p.id)));
+  const matchGrupo =
+    grupos.length > 0 &&
+    (ev.grupos || []).some((g) => grupos.includes(Number(g.id)));
+  return Boolean(matchProp || matchGrupo);
+}
+
+/**
  * Base path público compartible (consulta edición, sin login).
  * @param {string} consultaToken — `fimba_ediciones.token_consulta`
  * @returns {string|null}

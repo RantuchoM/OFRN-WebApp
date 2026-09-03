@@ -15,7 +15,10 @@ import {
   IconPencil,
   IconUpload,
   IconDownload,
+  IconEye,
+  IconCalendarPlus,
 } from "../../components/ui/Icons";
+import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import {
   addFimbaVehiculo,
   capacidadGiraTransporte,
@@ -27,14 +30,20 @@ import {
   duplicateFimbaEvento,
   getFimbaEdicionById,
   giraTransporteIdsFromEvent,
+  isFimbaTrasladoEvent,
   labelGiraTransporte,
+  listFimbaAgenda,
   listFimbaFlota,
+  listFimbaGiraGrupos,
   listFimbaParticipantesForPropuestas,
   listFimbaPropuestas,
   listFimbaPropuestaRutas,
   listFimbaTraslados,
   listOfrnTransportesCatalog,
+  listTiposEventoForFimba,
   loadFimbaTransportLogisticsSummary,
+  mergeFimbaAgendaCategories,
+  OFRN_CATEGORIA_TRANSPORTE_ID,
   ofrnGiraTransporteUrl,
   patchFimbaEventoPlanilla,
   setFimbaEventoTransportes,
@@ -43,29 +52,36 @@ import {
 import {
   boardingMetricsForEventRow,
   buildAllVehicleBoardingSequences,
-  defaultGapFillEventSchedule,
+  defaultIntermediateStopSchedule,
   formatBoardChipLabel,
   formatEventLocation,
   resolveStopBoardAlightChips,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
   TRANSPORT_DESTINO_SIN_LOCACION,
 } from "../../utils/fimbaTransportBoarding";
-import { buildDestinoStopSchedule } from "../../utils/fimbaDestinoStopCreate";
+import {
+  buildDestinoStopSchedule,
+  createDestinoStopEvent,
+} from "../../utils/fimbaDestinoStopCreate";
+import { eventMatchesOtrosEventosContext } from "../../utils/fimbaAgendaUrlParams";
+import {
+  sortFimbaAgendaRows,
+  sortFimbaPropuestasByNombre,
+} from "../../utils/fimbaAgendaSort";
 import {
   exportFimbaTransporteTodosExcel,
   exportFimbaTransporteVehiculoExcel,
 } from "../../utils/fimbaExport";
 import FimbaTransportReportsMenu from "./FimbaTransportReportsMenu";
-import { eventTypeIdForCategoria } from "../../utils/giraTransportUtils";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import FimbaDestinoStopModal from "./FimbaDestinoStopModal";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
+import FimbaProgramarTransporteModal from "./FimbaProgramarTransporteModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import FimbaStopRulesManager from "./FimbaStopRulesManager";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import { supabase } from "../../services/supabase";
 import { hasHtmlMarkup, stripHtml } from "../../utils/eventDisplayUtils";
-import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
 
 /** Índice id_propuesta → participantes activos (batch, sin hotelería). */
 function participantesMapFromBatch(byPropuesta) {
@@ -569,6 +585,21 @@ export default function FimbaTransportPage() {
    * (FIMBA: `fimba_evento_transportes`; OFRN: `eventos.id_gira_transporte`).
    */
   const [selectedVehiculoIds, setSelectedVehiculoIds] = useState([]);
+  /** Panel «Ver otros eventos» (contexto agenda no-transporte). */
+  const [showOtrosEventos, setShowOtrosEventos] = useState(false);
+  const [otrosCategoryIds, setOtrosCategoryIds] = useState([]);
+  const [otrosPropuestaIds, setOtrosPropuestaIds] = useState([]);
+  const [otrosGrupoIds, setOtrosGrupoIds] = useState([]);
+  const [contextEventos, setContextEventos] = useState([]);
+  const [giraGrupos, setGiraGrupos] = useState([]);
+  const [dbCategorias, setDbCategorias] = useState([]);
+  const [catalogTipos, setCatalogTipos] = useState([]);
+  const [showProgramar, setShowProgramar] = useState(false);
+  /** Resalta filas recién creadas (Programar / +). */
+  const [highlightEventIds, setHighlightEventIds] = useState([]);
+  /** id de la fila origen mientras «+» crea la parada intermedia (null = idle). */
+  const [creatingIntermediateFromId, setCreatingIntermediateFromId] =
+    useState(null);
   /** Spinner full-page solo en la primera carga de la edición. */
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -749,6 +780,16 @@ export default function FimbaTransportPage() {
         if (doCatalog && !catRes.error) setCatalog(catRes.catalog || []);
         else if (doCatalog && catRes.error) {
           setError(catRes.error.message || "Error al cargar catálogo");
+        }
+        // Grupos OFRN + categorías (Ver otros eventos / Programar)
+        const [gruposRes, tiposRes] = await Promise.all([
+          listFimbaGiraGrupos(ed.id_gira),
+          listTiposEventoForFimba(),
+        ]);
+        if (!gruposRes.error) setGiraGrupos(gruposRes.grupos || []);
+        if (!tiposRes.error) {
+          setCatalogTipos(tiposRes.tipos || []);
+          setDbCategorias(tiposRes.categorias || []);
         }
       } else if (doCatalog) {
         const catRes = await listOfrnTransportesCatalog();
@@ -986,6 +1027,64 @@ export default function FimbaTransportPage() {
     );
   };
 
+  const otrosEventosActive =
+    otrosCategoryIds.length > 0 ||
+    otrosPropuestaIds.length > 0 ||
+    otrosGrupoIds.length > 0;
+
+  /** Carga agenda no-transporte cuando «Ver otros eventos» tiene filtros. */
+  useEffect(() => {
+    if (!otrosEventosActive || !edicionId) {
+      setContextEventos([]);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      const needOfrn =
+        otrosGrupoIds.length > 0 || filtroOrigen === "all" || filtroOrigen === "ofrn";
+      const { eventos: agenda, error: err } = await listFimbaAgenda(edicionId, {
+        include_ofrn: needOfrn,
+        edicion: edicionRef.current,
+        propuestas: propuestasRef.current,
+        flota: vehiculosRef.current,
+      });
+      if (cancelled) return;
+      if (err) {
+        console.error(err);
+        setContextEventos([]);
+        return;
+      }
+      setContextEventos((agenda || []).filter((ev) => !isFimbaTrasladoEvent(ev)));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    otrosEventosActive,
+    edicionId,
+    otrosGrupoIds.length,
+    filtroOrigen,
+    // Re-sync when trayectos refresh (same edition)
+    eventos,
+  ]);
+
+  useEffect(() => {
+    if (highlightEventIds.length === 0) return undefined;
+    const t = setTimeout(() => setHighlightEventIds([]), 6000);
+    return () => clearTimeout(t);
+  }, [highlightEventIds]);
+
+  const otrosCategoryOptions = useMemo(() => {
+    const merged = mergeFimbaAgendaCategories({
+      dbCategorias,
+      catalogTipos,
+      rowDerived: [],
+    });
+    return merged
+      .filter((c) => Number(c.id) !== OFRN_CATEGORIA_TRANSPORTE_ID)
+      .map((c) => ({ value: c.id, label: c.nombre }));
+  }, [dbCategorias, catalogTipos]);
+
   const eventosFiltrados = useMemo(() => {
     let list = eventos;
     if (filtroOrigen === "fimba") {
@@ -999,8 +1098,40 @@ export default function FimbaTransportPage() {
         giraTransporteIdsFromEvent(ev).some((id) => want.has(Number(id))),
       );
     }
-    return list;
-  }, [eventos, filtroOrigen, selectedVehiculoIds]);
+
+    let context = [];
+    if (otrosEventosActive) {
+      const transportIds = new Set(
+        (eventos || []).map((e) => Number(e.id)).filter(Number.isFinite),
+      );
+      context = (contextEventos || [])
+        .filter((ev) => !transportIds.has(Number(ev.id)))
+        .filter((ev) =>
+          eventMatchesOtrosEventosContext(ev, {
+            categoryIds: otrosCategoryIds,
+            propuestaIds: otrosPropuestaIds,
+            grupoIds: otrosGrupoIds,
+          }),
+        )
+        .filter((ev) => {
+          if (filtroOrigen === "fimba") return ev.es_fimba;
+          if (filtroOrigen === "ofrn") return ev.es_ofrn;
+          return true;
+        })
+        .map((ev) => ({ ...ev, es_contexto_agenda: true }));
+    }
+
+    return sortFimbaAgendaRows([...list, ...context]);
+  }, [
+    eventos,
+    filtroOrigen,
+    selectedVehiculoIds,
+    otrosEventosActive,
+    contextEventos,
+    otrosCategoryIds,
+    otrosPropuestaIds,
+    otrosGrupoIds,
+  ]);
 
   /**
    * Secuencias subida/bajada por unidad (planilla completa de trayectos de la edición,
@@ -1159,52 +1290,61 @@ export default function FimbaTransportPage() {
   };
 
   /**
-   * Abre modal create pre-filled para insertar evento intermedio en la
-   * secuencia del vehículo (completa hueco hasta→desde entre esta y el next).
+   * «+»: crea parada intermedia en la secuencia del vehículo (hueco midpoint)
+   * y abre edición inline de locación de inmediato.
    */
-  const openIntermediateStop = (ev, metrics) => {
+  const openIntermediateStop = async (ev, metrics) => {
+    if (readOnly || creatingIntermediateFromId != null) return;
     const vehicleId =
       metrics?.primary?.id_gira_transporte ??
       metrics?.perVehicle?.[0]?.id_gira_transporte ??
       giraTransporteIdsFromEvent(ev)[0] ??
       null;
     if (vehicleId == null || vehicleId === "") return;
+    if (!edicion?.id_gira) {
+      setError("Edición sin gira enlazada");
+      return;
+    }
 
     const nextEv = metrics?.next_event || null;
-    const { fecha, hora_inicio, hora_fin } = defaultGapFillEventSchedule(
-      ev,
-      nextEv,
-    );
-    const gt =
-      vehiculos.find((g) => Number(g.id) === Number(vehicleId)) || null;
-    const tipoId = eventTypeIdForCategoria(gt?.categoria_logistica);
-
-    setModal({
-      mode: "create",
-      defaultTipoId: tipoId,
-      preselectPropuesta: null,
-      evento: {
-        // Draft create: gap-fill hasta→desde, mismo bus
-        fecha: fecha || ev.fecha || "",
-        hora_inicio: hora_inicio || null,
-        hora_fin: hora_fin || null,
+    const sched = defaultIntermediateStopSchedule(ev, nextEv);
+    setCreatingIntermediateFromId(String(ev.id));
+    setError(null);
+    try {
+      const { evento: created, error: err } = await createDestinoStopEvent({
+        currentEv: ev,
+        vehicleId: Number(vehicleId),
+        nextEv,
+        fecha: sched.fecha || ev.fecha || "",
+        horaInicio: sched.hora_inicio || "",
+        idLocacion: null,
+        allowEmptyLocacion: true,
         actividad: "Parada intermedia",
-        destino: "",
-        observaciones_equipaje: "",
-        asientos_equipaje: 0,
-        audiencia_ofrn: "none",
-        id_tipo_evento: tipoId,
-        sin_servicio: false,
-        id_gira_transporte: Number(vehicleId),
-        vehiculos: [
-          {
-            id_gira_transporte: Number(vehicleId),
-            plazas: 0,
-            giras_transportes: gt || undefined,
-          },
-        ],
-      },
-    });
+        idGira: edicion.id_gira,
+        vehiculos,
+      });
+      if (err || !created?.id) {
+        setError(err?.message || "No se pudo crear la parada intermedia");
+        return;
+      }
+      await softRefresh({ eventos: true, rutas: true });
+      const refreshed =
+        (eventosRef.current || []).find(
+          (x) => String(x.id) === String(created.id),
+        ) || created;
+      setHighlightEventIds([refreshed.id]);
+      // Inline edit locación (mismo patrón que beginCellEdit; definido más abajo)
+      const key = String(refreshed.id);
+      setEventDrafts((prev) => {
+        if (prev[key]) return prev;
+        const n = { ...prev, [key]: draftFromEvent(refreshed) };
+        eventDraftsRef.current = n;
+        return n;
+      });
+      setEditingCell({ eventId: key, field: "locacion" });
+    } finally {
+      setCreatingIntermediateFromId(null);
+    }
   };
 
   /**
@@ -1267,6 +1407,8 @@ export default function FimbaTransportPage() {
 
   const beginCellEdit = (ev, field) => {
     if (readOnly || !INLINE_CELL_FIELDS.has(field)) return;
+    // Filas de «Ver otros eventos» solo se editan vía modal (lápiz).
+    if (ev?.es_contexto_agenda) return;
     const key = String(ev.id);
     setEventDrafts((prev) => {
       if (prev[key]) return prev;
@@ -1288,6 +1430,11 @@ export default function FimbaTransportPage() {
 
   const isCellEditing = (eventoId, field) => {
     // Locación usa LocationSelectWithCreate (pesado): solo la celda activa.
+    // Contexto agenda: nunca inline (solo modal).
+    const inTransportList = (eventosRef.current || []).some(
+      (e) => String(e.id) === String(eventoId),
+    );
+    if (!inTransportList) return false;
     if (editMode && field !== "locacion") return true;
     return (
       editingCell != null &&
@@ -2295,6 +2442,27 @@ export default function FimbaTransportPage() {
             <IconClock size={16} /> Trayectos
           </h2>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {!readOnly && (
+              <button
+                type="button"
+                className="fimba-btn"
+                onClick={() => setShowProgramar(true)}
+                title="Programar un viaje: salida + llegada + vehículo óptimo"
+                style={{
+                  padding: "0.35rem 0.7rem",
+                  fontSize: "0.78rem",
+                  fontWeight: 700,
+                  background: "var(--fimba-deep)",
+                  color: "#fff",
+                  borderColor: "var(--fimba-deep)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <IconCalendarPlus size={14} /> Programar transporte
+              </button>
+            )}
             {!filtroArtista && (
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                 {ORIGEN_FILTERS.map((f) => {
@@ -2334,8 +2502,116 @@ export default function FimbaTransportPage() {
                 ))}
               </select>
             </div>
+            <button
+              type="button"
+              className={`fimba-btn fimba-chip${
+                showOtrosEventos || otrosEventosActive ? " fimba-chip-on" : ""
+              }`}
+              onClick={() => setShowOtrosEventos((v) => !v)}
+              title="Intercalar conciertos, ensayos u otros eventos de agenda"
+              style={{
+                padding: "0.3rem 0.65rem",
+                fontSize: "0.78rem",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              <IconEye size={13} /> Ver otros eventos
+              {otrosEventosActive ? ` (${otrosCategoryIds.length + otrosPropuestaIds.length + otrosGrupoIds.length})` : ""}
+            </button>
           </div>
         </div>
+        {(showOtrosEventos || otrosEventosActive) && (
+          <div
+            className="fimba-otros-eventos-panel"
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 12,
+              alignItems: "flex-end",
+              marginBottom: 12,
+              padding: "0.65rem 0.75rem",
+              background: "rgba(148, 33, 109, 0.04)",
+              border: "1px solid var(--fimba-border)",
+              borderRadius: 8,
+            }}
+          >
+            <div style={{ minWidth: 180, maxWidth: 240, flex: "1 1 180px" }}>
+              <label className="fimba-label">Categoría</label>
+              <MultiSelectDropdown
+                className="w-full"
+                label="Categoría"
+                placeholder="Conciertos, ensayos…"
+                options={otrosCategoryOptions}
+                value={otrosCategoryIds}
+                onChange={setOtrosCategoryIds}
+                compact
+                summaryMode="names"
+                summaryMaxNames={2}
+              />
+            </div>
+            <div style={{ minWidth: 180, maxWidth: 240, flex: "1 1 180px" }}>
+              <label className="fimba-label">Artistas FIMBA</label>
+              <MultiSelectDropdown
+                className="w-full"
+                label="Artistas"
+                placeholder="Ninguno"
+                options={sortFimbaPropuestasByNombre(propuestas).map((p) => ({
+                  value: p.id,
+                  label: p.nombre,
+                }))}
+                value={otrosPropuestaIds}
+                onChange={setOtrosPropuestaIds}
+                compact
+                summaryMode="names"
+                summaryMaxNames={2}
+              />
+            </div>
+            <div style={{ minWidth: 160, maxWidth: 220, flex: "1 1 160px" }}>
+              <label className="fimba-label">Grupos OFRN</label>
+              <MultiSelectDropdown
+                className="w-full"
+                label="Grupos OFRN"
+                placeholder="Ninguno"
+                options={(giraGrupos || []).map((g) => ({
+                  value: g.id,
+                  label: g.nombre,
+                }))}
+                value={otrosGrupoIds}
+                onChange={setOtrosGrupoIds}
+                compact
+                summaryMode="names"
+                summaryMaxNames={2}
+              />
+            </div>
+            {otrosEventosActive && (
+              <button
+                type="button"
+                className="fimba-btn fimba-btn-ghost"
+                onClick={() => {
+                  setOtrosCategoryIds([]);
+                  setOtrosPropuestaIds([]);
+                  setOtrosGrupoIds([]);
+                }}
+                style={{ padding: "0.3rem 0.55rem", fontSize: "0.75rem" }}
+              >
+                <IconX size={12} /> Limpiar
+              </button>
+            )}
+            <p
+              className="fimba-muted"
+              style={{
+                margin: 0,
+                flex: "1 1 100%",
+                fontSize: "0.72rem",
+              }}
+            >
+              Los eventos de agenda (no transporte) que coincidan se intercalan
+              por fecha/hora. Filas de contexto no tienen Subidas/Bajadas.
+            </p>
+          </div>
+        )}
         <p className="fimba-muted" style={{ margin: "0 0 0.75rem", fontSize: "0.82rem" }}>
           Cada fila es un trayecto o parada ordenado por fecha/hora. Subida/bajada y
           tránsito/cap siguen el criterio OFRN (reglas de ruta +{" "}
@@ -2516,12 +2792,15 @@ export default function FimbaTransportPage() {
                 </thead>
                 <tbody>
                   {eventosFiltrados.map((ev) => {
+                    const isContext = Boolean(ev.es_contexto_agenda);
                     const ofrnVeh =
                       vehiculos.find(
                         (g) => Number(g.id) === Number(ev.id_gira_transporte),
                       ) || null;
                     const vehLabel =
-                      (ev.vehiculos || []).length > 0
+                      isContext
+                        ? "—"
+                        : (ev.vehiculos || []).length > 0
                         ? (ev.vehiculos || [])
                             .map((r) => {
                               const label = labelGiraTransporte(r.giras_transportes);
@@ -2535,18 +2814,33 @@ export default function FimbaTransportPage() {
                           : ev.es_ofrn && !ev.es_fimba
                             ? "—"
                             : "SIN SERVICIO";
-                    const metrics = boardingMetricsForEventRow(
-                      ev,
-                      sequencesByVehicle,
-                      preferVehicleIdsForMetrics,
-                    );
+                    const metrics = isContext
+                      ? {
+                          primary: null,
+                          perVehicle: [],
+                          location: formatEventLocation(ev),
+                          destino_siguiente: null,
+                          hora_fin_display: {
+                            value: ev.hora_fin
+                              ? String(ev.hora_fin).slice(0, 5)
+                              : null,
+                            isCalculated: false,
+                          },
+                          next_event: null,
+                        }
+                      : boardingMetricsForEventRow(
+                          ev,
+                          sequencesByVehicle,
+                          preferVehicleIdsForMetrics,
+                        );
                     const stop = metrics.primary?.stop || null;
                     const multiVeh =
                       (metrics.perVehicle || []).filter((p) => p.stop).length > 1;
                     const locacion = metrics.location || formatEventLocation(ev);
-                    const destinoSiguiente =
-                      metrics.destino_siguiente != null &&
-                      metrics.destino_siguiente !== "—"
+                    const destinoSiguiente = isContext
+                      ? "—"
+                      : metrics.destino_siguiente != null &&
+                          metrics.destino_siguiente !== "—"
                         ? metrics.destino_siguiente
                         : TRANSPORT_DESTINO_SIN_SIGUIENTE;
                     const horaFinDisp = metrics.hora_fin_display || {
@@ -2558,13 +2852,16 @@ export default function FimbaTransportPage() {
                     const libres = stop?.libres;
                     const overbook = Boolean(stop?.overbook);
                     const rowClass =
-                      ev.origen === "ofrn"
+                      isContext
+                        ? "fimba-row-contexto"
+                        : ev.origen === "ofrn"
                         ? "fimba-row-ofrn"
                         : ev.origen === "ambos"
                           ? "fimba-row-ambos"
                           : "";
                     const canEditStops =
                       !readOnly &&
+                      !isContext &&
                       (giraTransporteIdsFromEvent(ev).length > 0 ||
                         vehiculos.length > 0);
                     const primaryVehicleId =
@@ -2572,7 +2869,9 @@ export default function FimbaTransportPage() {
                       metrics.perVehicle?.[0]?.id_gira_transporte ??
                       giraTransporteIdsFromEvent(ev)[0] ??
                       null;
-                    const upsBoard = resolveStopBoardAlightChips({
+                    const upsBoard = isContext
+                      ? { chips: [], total: 0 }
+                      : resolveStopBoardAlightChips({
                       eventId: ev.id,
                       idGiraTransporte: primaryVehicleId,
                       type: "up",
@@ -2584,7 +2883,9 @@ export default function FimbaTransportPage() {
                       ofrnLocalities,
                       ofrnRegions,
                     });
-                    const downsBoard = resolveStopBoardAlightChips({
+                    const downsBoard = isContext
+                      ? { chips: [], total: 0 }
+                      : resolveStopBoardAlightChips({
                       eventId: ev.id,
                       idGiraTransporte: primaryVehicleId,
                       type: "down",
@@ -2596,8 +2897,13 @@ export default function FimbaTransportPage() {
                       ofrnLocalities,
                       ofrnRegions,
                     });
+                    const isCreatingIntermediateHere =
+                      creatingIntermediateFromId != null &&
+                      creatingIntermediateFromId === String(ev.id);
                     const canAddIntermediate =
                       !readOnly &&
+                      !isContext &&
+                      creatingIntermediateFromId == null &&
                       primaryVehicleId != null &&
                       primaryVehicleId !== "";
                     const nextEvForRow = metrics?.next_event || null;
@@ -2608,8 +2914,16 @@ export default function FimbaTransportPage() {
                     const evDraft = eventDrafts[evKey] || draftFromEvent(ev);
                     const evStatus = eventRowStatus[evKey] || "idle";
                     const evSaving = evStatus === "saving";
-                    const canAssignVeh = editMode && canInlineAssignVehicle(ev);
-                    const evRowClass = [rowClass, editMode ? rowStatusClass(evStatus) : ""]
+                    const canAssignVeh =
+                      editMode && !isContext && canInlineAssignVehicle(ev);
+                    const isHighlighted = highlightEventIds.some(
+                      (id) => String(id) === String(ev.id),
+                    );
+                    const evRowClass = [
+                      rowClass,
+                      editMode ? rowStatusClass(evStatus) : "",
+                      isHighlighted ? "fimba-row-highlight" : "",
+                    ]
                       .filter(Boolean)
                       .join(" ");
                     const openBoard = (type, openOpts = {}) =>
@@ -2622,7 +2936,9 @@ export default function FimbaTransportPage() {
                         key={ev.id}
                         className={evRowClass}
                         title={
-                          readOnly
+                          isContext
+                            ? "Evento de agenda (contexto). Sin subidas/bajadas de transporte."
+                            : readOnly
                             ? undefined
                             : "Doble clic en fecha / horario / detalle / locación / vuelo · lápiz = formulario completo"
                         }
@@ -2636,6 +2952,13 @@ export default function FimbaTransportPage() {
                         )}
                         <td className="fimba-sticky-origen">
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                            {isContext && (
+                              <span className="fimba-badge fimba-badge-contexto">
+                                {ev.tipo_nombre ||
+                                  ev.categoria_nombre ||
+                                  "Agenda"}
+                              </span>
+                            )}
                             {ev.es_fimba && (
                               <span className="fimba-badge fimba-badge-fimba">
                                 FIMBA
@@ -2646,7 +2969,7 @@ export default function FimbaTransportPage() {
                                 OFRN
                               </span>
                             )}
-                            {!ev.es_fimba && !ev.es_ofrn && (
+                            {!isContext && !ev.es_fimba && !ev.es_ofrn && (
                               <span
                                 className="fimba-muted"
                                 style={{ fontSize: "0.75rem" }}
@@ -3004,25 +3327,43 @@ export default function FimbaTransportPage() {
                           <button
                             type="button"
                             className="fimba-btn fimba-btn-ghost"
-                            disabled={!canAddIntermediate}
-                            title={
-                              canAddIntermediate
-                                ? nextEvHasRealStop
-                                  ? "Insertar evento intermedio (hasta→desde entre esta parada y la siguiente)"
-                                  : "Insertar evento después de esta parada (desde = hora fin)"
-                                : "Asigná un vehículo a esta fila para insertar un evento intermedio"
+                            disabled={
+                              !canAddIntermediate && !isCreatingIntermediateHere
                             }
-                            aria-label="Insertar evento intermedio"
+                            title={
+                              isCreatingIntermediateHere
+                                ? "Creando parada intermedia…"
+                                : canAddIntermediate
+                                  ? nextEvHasRealStop
+                                    ? "Insertar evento intermedio (hasta→desde entre esta parada y la siguiente)"
+                                    : "Insertar evento después de esta parada (desde = hora fin)"
+                                  : creatingIntermediateFromId != null
+                                    ? "Creando otra parada…"
+                                    : "Asigná un vehículo a esta fila para insertar un evento intermedio"
+                            }
+                            aria-label={
+                              isCreatingIntermediateHere
+                                ? "Creando parada intermedia"
+                                : "Insertar evento intermedio"
+                            }
+                            aria-busy={isCreatingIntermediateHere}
                             onClick={() => openIntermediateStop(ev, metrics)}
                             onDoubleClick={(e) => e.stopPropagation()}
                             style={{
                               minWidth: 28,
                               padding: "0.2rem 0.3rem",
-                              opacity: canAddIntermediate ? 1 : 0.35,
+                              opacity:
+                                canAddIntermediate || isCreatingIntermediateHere
+                                  ? 1
+                                  : 0.35,
                               color: "var(--fimba-cyan, #0e7490)",
                             }}
                           >
-                            <IconPlus size={14} />
+                            {isCreatingIntermediateHere ? (
+                              <IconLoader size={14} className="animate-spin" />
+                            ) : (
+                              <IconPlus size={14} />
+                            )}
                           </button>
                         </td>
                         <td
@@ -3215,79 +3556,107 @@ export default function FimbaTransportPage() {
                           </div>
                         </td>
                         <td className="fimba-planilla-board">
-                          <PlanillaBoardCell
-                            direction="up"
-                            chips={upsBoard.chips}
-                            total={upsBoard.total}
-                            canEdit={canEditStops}
-                            removing={
-                              removingBoardKey != null &&
-                              removingBoardKey.startsWith("up-")
-                            }
-                            onOpen={(opts) => openBoard("up", opts)}
-                            onRemoveChip={(chip) =>
-                              handleRemoveBoardChip(chip, "up")
-                            }
-                          />
-                          {multiVeh ? (
-                            <span
-                              className="fimba-muted"
-                              style={{
-                                display: "block",
-                                fontSize: "0.68rem",
-                                marginTop: 2,
-                              }}
-                              title="Hay varios vehículos: se muestra el primero del filtro/fila"
-                            >
-                              multi-veh.
+                          {isContext ? (
+                            <span className="fimba-muted" style={{ fontSize: "0.8rem" }}>
+                              —
                             </span>
-                          ) : null}
+                          ) : (
+                            <>
+                              <PlanillaBoardCell
+                                direction="up"
+                                chips={upsBoard.chips}
+                                total={upsBoard.total}
+                                canEdit={canEditStops}
+                                removing={
+                                  removingBoardKey != null &&
+                                  removingBoardKey.startsWith("up-")
+                                }
+                                onOpen={(opts) => openBoard("up", opts)}
+                                onRemoveChip={(chip) =>
+                                  handleRemoveBoardChip(chip, "up")
+                                }
+                              />
+                              {multiVeh ? (
+                                <span
+                                  className="fimba-muted"
+                                  style={{
+                                    display: "block",
+                                    fontSize: "0.68rem",
+                                    marginTop: 2,
+                                  }}
+                                  title="Hay varios vehículos: se muestra el primero del filtro/fila"
+                                >
+                                  multi-veh.
+                                </span>
+                              ) : null}
+                            </>
+                          )}
                         </td>
                         <td className="fimba-planilla-board">
-                          <PlanillaBoardCell
-                            direction="down"
-                            chips={downsBoard.chips}
-                            total={downsBoard.total}
-                            canEdit={canEditStops}
-                            removing={
-                              removingBoardKey != null &&
-                              removingBoardKey.startsWith("down-")
-                            }
-                            onOpen={(opts) => openBoard("down", opts)}
-                            onRemoveChip={(chip) =>
-                              handleRemoveBoardChip(chip, "down")
-                            }
-                          />
+                          {isContext ? (
+                            <span className="fimba-muted" style={{ fontSize: "0.8rem" }}>
+                              —
+                            </span>
+                          ) : (
+                            <PlanillaBoardCell
+                              direction="down"
+                              chips={downsBoard.chips}
+                              total={downsBoard.total}
+                              canEdit={canEditStops}
+                              removing={
+                                removingBoardKey != null &&
+                                removingBoardKey.startsWith("down-")
+                              }
+                              onOpen={(opts) => openBoard("down", opts)}
+                              onRemoveChip={(chip) =>
+                                handleRemoveBoardChip(chip, "down")
+                              }
+                            />
+                          )}
                         </td>
-                        <PlanillaTransitoCell
-                          enTransito={enTransito}
-                          cap={cap}
-                          libres={libres}
-                          overbook={overbook}
-                          aBordo={aBordo}
-                        />
+                        {isContext ? (
+                          <td className="fimba-muted" style={{ fontSize: "0.85rem" }}>
+                            —
+                          </td>
+                        ) : (
+                          <PlanillaTransitoCell
+                            enTransito={enTransito}
+                            cap={cap}
+                            libres={libres}
+                            overbook={overbook}
+                            aBordo={aBordo}
+                          />
+                        )}
                         <td className="fimba-planilla-actions">
                           {!readOnly && (
                             <>
                               <button
                                 type="button"
                                 className="fimba-btn fimba-btn-ghost"
-                                onClick={() => setModal({ mode: "edit", evento: ev })}
+                                onClick={() =>
+                                  setModal({
+                                    mode: "edit",
+                                    evento: ev,
+                                    forceTransporte: !isContext,
+                                  })
+                                }
                                 onDoubleClick={(e) => e.stopPropagation()}
                                 title="Editar"
                               >
                                 <IconEdit size={14} />
                               </button>
-                              <button
-                                type="button"
-                                className="fimba-btn fimba-btn-ghost"
-                                style={{ marginLeft: 4 }}
-                                onClick={() => handleDuplicate(ev)}
-                                onDoubleClick={(e) => e.stopPropagation()}
-                                title="Duplicar"
-                              >
-                                <IconCopy size={14} />
-                              </button>
+                              {!isContext && (
+                                <button
+                                  type="button"
+                                  className="fimba-btn fimba-btn-ghost"
+                                  style={{ marginLeft: 4 }}
+                                  onClick={() => handleDuplicate(ev)}
+                                  onDoubleClick={(e) => e.stopPropagation()}
+                                  title="Duplicar"
+                                >
+                                  <IconCopy size={14} />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 className="fimba-btn fimba-btn-danger"
@@ -3321,7 +3690,7 @@ export default function FimbaTransportPage() {
             propuestas={propuestas}
             preselectPropuesta={modal.preselectPropuesta}
             defaultTipoId={modal.defaultTipoId}
-            forceTransporte
+            forceTransporte={modal.forceTransporte !== false}
             logisticsSummary={logisticsSummary}
             propuestaRoutes={propuestaRoutes}
             ofrnPassengers={ofrnPassengers}
@@ -3359,6 +3728,42 @@ export default function FimbaTransportPage() {
             onSaved={() => {
               setDestinoModal(null);
               softRefresh({ eventos: true });
+            }}
+          />,
+          document.body,
+        )}
+
+      {showProgramar &&
+        edicion &&
+        createPortal(
+          <FimbaProgramarTransporteModal
+            edicion={edicion}
+            vehiculos={vehiculos}
+            propuestas={propuestas}
+            giraGrupos={giraGrupos}
+            sequencesByVehicle={sequencesByVehicle}
+            locationOptions={locationOptions}
+            onRefreshLocations={refreshLocations}
+            onClose={() => setShowProgramar(false)}
+            onSaved={async ({ desde, hasta }) => {
+              setShowProgramar(false);
+              await softRefresh({ eventos: true, rutas: true, logistics: true });
+              const ids = [desde?.id, hasta?.id].filter((id) => id != null);
+              setHighlightEventIds(ids);
+              if (desde?.id) {
+                const row =
+                  (eventosRef.current || []).find(
+                    (x) => String(x.id) === String(desde.id),
+                  ) || desde;
+                const key = String(row.id);
+                setEventDrafts((prev) => {
+                  if (prev[key]) return prev;
+                  const n = { ...prev, [key]: draftFromEvent(row) };
+                  eventDraftsRef.current = n;
+                  return n;
+                });
+                setEditingCell({ eventId: key, field: "actividad" });
+              }
             }}
           />,
           document.body,

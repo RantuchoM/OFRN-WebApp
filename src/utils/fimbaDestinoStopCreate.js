@@ -51,13 +51,17 @@ export function buildDestinoStopSchedule(currentEv, nextEv, horaFinFromForm) {
  * no se guarda `hora_fin` huérfana en el evento anterior).
  * Misma regla que `FimbaDestinoStopModal` / «Elegir destino…».
  *
+ * Con `allowEmptyLocacion: true` (botón «+» planilla) se permite crear sin
+ * `id_locacion` para editar locación/detalle en línea de inmediato.
+ *
  * @param {{
  *   currentEv: object,
  *   vehicleId: number|string,
  *   nextEv?: object|null,
  *   fecha: string,
  *   horaInicio: string,
- *   idLocacion: unknown,
+ *   idLocacion?: unknown,
+ *   allowEmptyLocacion?: boolean,
  *   actividad?: string,
  *   idGira: number|string,
  *   vehiculos?: Array<object>,
@@ -70,7 +74,8 @@ export async function createDestinoStopEvent({
   nextEv = null,
   fecha,
   horaInicio,
-  idLocacion,
+  idLocacion = null,
+  allowEmptyLocacion = false,
   actividad = "Parada intermedia",
   idGira,
   vehiculos = [],
@@ -98,7 +103,7 @@ export async function createDestinoStopEvent({
       error: new Error("Indicá la hora inicio de la nueva parada (Hora Fin del tramo actual)"),
     };
   }
-  if (!idLocacion) {
+  if (!idLocacion && !allowEmptyLocacion) {
     return {
       evento: null,
       error: new Error("Elegí el destino (locación de salida de la nueva parada)"),
