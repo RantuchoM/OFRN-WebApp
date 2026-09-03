@@ -52,6 +52,7 @@ ADD COLUMN IF NOT EXISTS backup_viatico NUMERIC(12,2) DEFAULT NULL;
 2. **ViaticosManager.jsx**
    - Estado **`useHistoricalCalc`** y **`setUseHistoricalCalc`** pasados a ViaticosTable como `useHistoricalCalc` y `onUseHistoricalCalcChange`.
    - En **handleSendMassiveEmails**, al armar `detalleCompleto`, el `monto_viatico` y `subtotal_viatico` se calculan con la misma lógica efectiva: si `useHistoricalCalc` usan `backup_viatico` o `backup_dias_computables × valorDiarioCalc`; si no, `row.subtotal`.
+   - El payload del mail `viaticos_simple` envía `gira: giraData.nombre_gira` (campo real de `programas`; no `nombre`). Así el asunto (`Viáticos OFRN | …`) y el cuerpo nombran la gira correcta.
    - En la exportación a Drive (actualización de backup en BD), se añade **`backup_viatico: row.subtotal`** al `update` de `giras_viaticos_detalle` para que futuros cálculos históricos usen el monto guardado.
 
 3. **Base de datos**

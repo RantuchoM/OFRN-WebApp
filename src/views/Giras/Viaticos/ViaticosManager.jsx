@@ -610,7 +610,7 @@ export default function ViaticosManager({ supabase, giraId }) {
         body: {
           action: "create_viaticos_folder",
           giraId: parseInt(giraId),
-          nombreSet: giraData?.nombre || "Gira",
+          nombreSet: giraData?.nombre_gira || "Gira",
         },
       });
       if (error) throw error;
@@ -954,7 +954,7 @@ const collectTransportSupportDocs = (personData) => {
   ) => {
     const now = new Date().toISOString();
     const dateStr = new Date().toLocaleDateString("es-AR").replace(/\//g, "-");
-    const giraName = giraData?.nombre || "Gira";
+    const giraName = giraData?.nombre_gira || "Gira";
 
     setExportStatus("Iniciando...");
     setExportDetail("Actualizando registros en BD...");
@@ -1861,7 +1861,7 @@ const collectTransportSupportDocs = (personData) => {
             templateId: "viaticos_simple",
             email: email,
             nombre: person.nombre || "Integrante",
-            gira: giraData?.nombre || "Gira OFRN",
+            gira: giraData?.nombre_gira || "Gira OFRN",
             detalle: detalleCompleto,
           },
         });
