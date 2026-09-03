@@ -1211,7 +1211,13 @@ async function syncProgramRepertoireShortcuts(supabase: any, drive: any, prog: a
         await supabase.from("programas_repertorios").update({ google_drive_folder_id: rId }).eq("id", rep.id);
       }
     }
-    const driveContent = await drive.files.list({ q: `'${rId}' in parents and trashed = false`, fields: "files(id, name)" });
+    // Incluir shortcutDetails: targetId es inmutable en Drive; si link_drive cambió hay que recrear.
+    const driveContent = await drive.files.list({
+      q: `'${rId}' in parents and trashed = false`,
+      fields: "files(id, name, mimeType, shortcutDetails)",
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
     const existingDriveFiles = driveContent.data.files || [];
     const validShortcutsInDb = new Set<string>();
     const obrasSorted = (rep.repertorio_obras || []).sort((a: any, b: any) => (a.orden || 0) - (b.orden || 0));
@@ -1232,7 +1238,8 @@ async function syncProgramRepertoireShortcuts(supabase: any, drive: any, prog: a
       let shortcutExists = false;
       if (currentShortcutId) {
         const found = existingDriveFiles.find((f: any) => f.id === currentShortcutId);
-        if (found) {
+        const currentTarget = found?.shortcutDetails?.targetId || null;
+        if (found && currentTarget === targetId) {
           try {
             await drive.files.update({ fileId: currentShortcutId, requestBody: { name: sName } });
             shortcutExists = true;
@@ -1240,6 +1247,12 @@ async function syncProgramRepertoireShortcuts(supabase: any, drive: any, prog: a
           } catch (e) {
             shortcutExists = false;
           }
+        } else if (found && currentTarget && currentTarget !== targetId) {
+          // Target desactualizado (p.ej. Spatocco → Archivo): borrar y recrear.
+          try {
+            await drive.files.delete({ fileId: currentShortcutId });
+          } catch (e) { /* orphan cleanup below */ }
+          shortcutExists = false;
         }
       }
       if (!shortcutExists) {
@@ -3210,7 +3223,7 @@ serve(async (req) => {
       try {
         const res = await drive.files.list({
           q: `'${folderId}' in parents and trashed = false`,
-          fields: "files(id, name, webViewLink, mimeType)",
+          fields: "files(id, name, webViewLink, mimeType, shortcutDetails)",
           pageSize: 100,
           orderBy: "name",
           supportsAllDrives: true,

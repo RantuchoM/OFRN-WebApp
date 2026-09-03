@@ -859,3 +859,60 @@ Carpeta [Para acomodar / Drive](https://drive.google.com/drive/folders/1vFvK6DAg
 - [x] Particellas canónicas en Drive + seed aplicado
 - [ ] Audios: rename `AUDIO - …` parcial (algunos EBUSY en File Stream; reintentar `node scripts/rename-charbonnier-cello-audio.mjs`)
 
+
+---
+
+### Completado (2026-09-03) — Spatocco: 3 arreglos de Piazzolla para OFRN
+
+Origen arreglista: [Arreglos Popi Spatocco](https://drive.google.com/drive/folders/1srUOi_8mV-l0jZrFUNne6qx2JzFmv2yJ).
+Obras: **Chiquilín de Bachín**, **La Arenosa**, **Sus ojos se cerraron** (arr. Spatocco, comp. Piazzolla).
+Gira 12 / bloque **Alba Carmona** (id_repertorio=149).
+
+**Estado BD:**
+- Compositor Piazzolla: ya existe (id=264).
+- Obras: **3626** / **3627** / **3628**.
+- `link_drive` = carpetas **Archivo OFRN** (`copiar_carpeta_a_archivo` → `ARCHIVO_OBRAS_FOLDER_ID`); particellas apuntan a los PDFs de esa copia (no al origen Spatocco ni a Para acomodar).
+
+| Artefacto | Rol |
+|-----------|-----|
+| `scripts/lib/spatoccoCatalog.mjs` | `sourceDriveFolderId` (origen) + `driveFolderId` (Archivo). Combinado Glockenspiel/Drum Set → Perc Glockenspiel + Perc Batería. |
+| `scripts/process-spatocco-local.mjs` | Staging en Para acomodar: rename canónico + split del combinado. |
+| `scripts/generate-spatocco-sync.mjs` | Seed desde Archivo; `--copy` re-ejecuta `copiar_carpeta_a_archivo`. |
+| `supabase/seed_spatocco_sync.sql` | UPDATE `link_drive` Archivo + particellas backup — **aplicado linked** (2026-09-03) |
+
+**Archivo (oficial / `link_drive`):** padre [Archivo obras](https://drive.google.com/drive/folders/10JQJW7YX7UNmWciqgJ-EiqaldM_e0Tvi)
+
+| Obra | Archivo folder | Partes |
+|------|----------------|--------|
+| **3626** Chiquilín de Bachín | [16SIQQGrWBA1romVpwwUqfAvxZfb6tAZJ](https://drive.google.com/drive/folders/16SIQQGrWBA1romVpwwUqfAvxZfb6tAZJ) | **12** (Voz solista) · `voz - 1.0.0.0 - 0.1.0.0 - Perc.x3 - Str + Bandoneón, Guitarra` |
+| **3627** La Arenosa | [1d62ohtPW8h9zGzKQw3w8A4nAbNXmwm4l](https://drive.google.com/drive/folders/1d62ohtPW8h9zGzKQw3w8A4nAbNXmwm4l) | **10** (Voz solista) · `voz - 1.0.0.0 - 0.1.0.0 - Perc - Str + Bandoneón, Guitarra` |
+| **3628** Sus ojos se cerraron | [1foFCLsF2kHKAH2okWQ0mFt4qjE7b7dZE](https://drive.google.com/drive/folders/1foFCLsF2kHKAH2okWQ0mFt4qjE7b7dZE) | **9** (sin Voz) · `1.0.0.0 - 0.1.0.0 - Perc - Str + Bandoneón, Guitarra` |
+
+**Staging local (Para acomodar — no es `link_drive`):**
+- `H:\Mi unidad\Archivo General OFRN\Para acomodar\Piazzolla, A. - Chiquilín de Bachín (arr. Spatocco)`
+- `H:\Mi unidad\Archivo General OFRN\Para acomodar\Piazzolla, A. - La Arenosa (arr. Spatocco)`
+- `H:\Mi unidad\Archivo General OFRN\Para acomodar\Piazzolla, A. - Sus ojos se cerraron (arr. Spatocco)`
+
+**Origen Spatocco (pre-copia, `sourceDriveFolderId`):**
+- Chiquilín → `1Oj7_9zqhsD21WIU96cHEw9vfHpMZVo01`
+- La Arenosa → `1FZShxSuESaGGLk9b8vWuU6X42rgWo8yy`
+- Sus ojos → `1M7e2g1rNSdQYD0K__BQE--8rDmz_eIcD`
+
+- [x] PDFs inspeccionados (pypdf): música en p.1, sin crop de portada
+- [x] Carpetas canónicas locales + rename PDF/audio
+- [x] Rename remoto en carpetas origen
+- [x] Copia al Archivo (`copiar_carpeta_a_archivo`) + `link_drive` / particellas re-asociadas a PDFs backup
+- [x] Seed regenerado y aplicado en linked
+- [x] **Shortcuts del bloque Alba Carmona regenerados** (2026-09-03): los accesos directos en Drive seguían apuntando a carpetas origen Spatocco (`1Oj7_…`, `1FZSh…`, `1M7e2g…`) porque `sync_repertoire_shortcuts` solo renombraba shortcuts existentes (el `targetId` de un shortcut de Drive es inmutable). Fix operativo: `NULL` en `repertorio_obras.google_drive_shortcut_id` (ids 601–603) + `sync_repertoire_shortcuts` programa 12. Fix preventivo en `manage-drive`: si el target del shortcut ≠ `extractFileId(obra.link_drive)`, se borra y se recrea. `list_folder_files` ahora incluye `shortcutDetails`.
+
+**Bloque Drive Alba Carmona:** [1s_TSmcRbv6aGC9FClkvgkmVeCluq6xaE](https://drive.google.com/drive/folders/1s_TSmcRbv6aGC9FClkvgkmVeCluq6xaE) (programa 12 / `Sinf 11/26`)
+
+| Obra | Shortcut viejo (eliminado) | Shortcut nuevo | Target Archivo |
+|------|----------------------------|----------------|----------------|
+| 3626 Chiquilín | `1gwbdj1WakEpUZf1zX5Kw522Zfn-n7EAu` | `1iBu0jvwFseqVoT9oEPpiD_5Go_thPr5O` | `16SIQQGrWBA1romVpwwUqfAvxZfb6tAZJ` |
+| 3627 La Arenosa | `1t7inwCv4u57-kbFN3AIupO0EXvwHi8JG` | `1ABzyB4swrVuJ5dARssKNQQgBpM3wMqzL` | `1d62ohtPW8h9zGzKQw3w8A4nAbNXmwm4l` |
+| 3628 Sus ojos | `1TtaWB6XqVyDzKZ0s8tHvZLYKNTAtn4Jb` | `1KaCYOcKtzsL6wdvabX3VCNfIyEw_NOc_` | `1foFCLsF2kHKAH2okWQ0mFt4qjE7b7dZE` |
+
+**Verificar en Drive UI:** abrir la carpeta del bloque → cada acceso directo numerado → debe abrir la carpeta Archivo (no Spatocco / Para acomodar). En detalle del shortcut, el destino debe coincidir con `obras.link_drive`.
+
+**Nota:** en origen Chiquilín queda `Perc Batería 2` (combinado, 403 al borrar); la copia Archivo también lo incluye y el seed lo asocia como `Perc Batería 2` para `unique_part_per_work`. La carpeta Archivo puede tardar en aparecer en File Stream local bajo `H:\…\Archivo General OFRN`; la fuente de verdad es el folder Drive del Archivo.

@@ -87,7 +87,7 @@ function BacklineDescripcionPreview({ html, empty = "—", mutedEmpty = true }) 
   }
   return (
     <div
-      className="fimba-rider-html"
+      className="fimba-rider-html fimba-backline-desc-html"
       style={{ fontSize: "0.78rem", lineHeight: 1.4 }}
       dangerouslySetInnerHTML={{ __html: sanitizeFimbaRiderHtml(html) }}
     />
@@ -235,7 +235,7 @@ function BacklineDescripcionCell({ eventoId, value, readOnly, onSaved }) {
 
   if (readOnly) {
     return (
-      <div style={{ minWidth: "9rem", maxWidth: "16rem" }}>
+      <div className="fimba-backline-desc-inner">
         <BacklineDescripcionPreview html={value} />
       </div>
     );
@@ -246,7 +246,7 @@ function BacklineDescripcionCell({ eventoId, value, readOnly, onSaved }) {
       <div
         role="button"
         tabIndex={0}
-        className="fimba-cell-input"
+        className="fimba-cell-input fimba-backline-desc-inner"
         onClick={() => setEditing(true)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -258,13 +258,9 @@ function BacklineDescripcionCell({ eventoId, value, readOnly, onSaved }) {
         aria-label="Editar descripción backline"
         style={{
           display: "block",
-          width: "100%",
-          minWidth: "10rem",
-          maxWidth: "18rem",
           minHeight: 40,
           textAlign: "left",
           cursor: "text",
-          whiteSpace: "normal",
           height: "auto",
           padding: "0.4rem 0.5rem",
         }}
@@ -281,10 +277,8 @@ function BacklineDescripcionCell({ eventoId, value, readOnly, onSaved }) {
   return (
     <div
       ref={cellRef}
+      className="fimba-backline-desc-inner fimba-backline-desc-editing"
       style={{
-        minWidth: "14rem",
-        maxWidth: "22rem",
-        width: "100%",
         position: "relative",
         boxSizing: "border-box",
       }}
@@ -1867,7 +1861,7 @@ function BacklineRow({
           </div>
         )}
       </td>
-      <td>
+      <td className="fimba-planilla-wrap fimba-backline-desc-cell">
         <BacklineDescripcionCell
           eventoId={evt.id}
           value={evt.backline_descripcion}
@@ -2549,7 +2543,7 @@ export default function FimbaBacklinePage() {
                   <th>Artista</th>
                   <th>Venue</th>
                   <th>Fecha</th>
-                  <th>Descripción</th>
+                  <th className="fimba-backline-desc-cell">Descripción</th>
                   <th>Planta de Escenario</th>
                   <th style={{ textAlign: "left" }}>Monto</th>
                   {!readOnly && <th aria-label="Acciones" />}

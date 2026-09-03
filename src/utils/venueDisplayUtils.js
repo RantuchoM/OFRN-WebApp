@@ -50,12 +50,17 @@ export function formatVenueShowsDateRange(events) {
 }
 
 export function extractEventGrupos(evt) {
-  return (evt.eventos_grupos || [])
+  if (!evt) return [];
+  const nested = (evt.eventos_grupos || [])
     .map((eg) => eg.giras_grupos)
     .filter(Boolean);
+  if (nested.length > 0) return nested;
+  // Planilla FIMBA agenda ya aplana a `grupos`
+  return Array.isArray(evt.grupos) ? evt.grupos.filter(Boolean) : [];
 }
 
 export function extractEventArtistas(evt) {
+  if (!evt) return [];
   return (evt.eventos_fimba_propuestas || [])
     .map((row) => row.fimba_propuestas)
     .filter(Boolean)

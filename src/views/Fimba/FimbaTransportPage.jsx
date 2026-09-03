@@ -17,6 +17,7 @@ import {
   IconDownload,
   IconEye,
   IconCalendarPlus,
+  IconPause,
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import {
@@ -55,6 +56,8 @@ import {
   defaultIntermediateStopSchedule,
   formatBoardChipLabel,
   formatEventLocation,
+  isVehiclePauseBetweenStops,
+  previousAssignedStopInVehicleSequence,
   resolveStopBoardAlightChips,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
   TRANSPORT_DESTINO_SIN_LOCACION,
@@ -62,6 +65,7 @@ import {
 import {
   buildDestinoStopSchedule,
   createDestinoStopEvent,
+  offsetEventDateTime,
 } from "../../utils/fimbaDestinoStopCreate";
 import { eventMatchesOtrosEventosContext } from "../../utils/fimbaAgendaUrlParams";
 import {
@@ -77,6 +81,7 @@ import LocationSelectWithCreate from "../../components/forms/LocationSelectWithC
 import FimbaDestinoStopModal from "./FimbaDestinoStopModal";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import FimbaProgramarTransporteModal from "./FimbaProgramarTransporteModal";
+import FimbaRecorridoIntermedioModal from "./FimbaRecorridoIntermedioModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import FimbaStopRulesManager from "./FimbaStopRulesManager";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
@@ -611,6 +616,11 @@ export default function FimbaTransportPage() {
    * { ev, vehicleId, nextEv, schedule: { fecha, hora_inicio } }
    */
   const [destinoModal, setDestinoModal] = useState(null);
+  /**
+   * Modal recorrido ida-vuelta durante pausa.
+   * { prevEv, nextEv, vehicleId, idPropuestasTags }
+   */
+  const [recorridoModal, setRecorridoModal] = useState(null);
   /** Panel subidas/bajadas (FIMBA cantidades + OFRN StopRules). */
   const [stopRulesModal, setStopRulesModal] = useState(null); // null | { event, type, transportId, initialTab? }
   const [removingBoardKey, setRemovingBoardKey] = useState(null);
@@ -1306,7 +1316,7 @@ export default function FimbaTransportPage() {
       return;
     }
 
-    const nextEv = metrics?.next_event || null;
+    const nextEv = metrics?.next_event_raw || metrics?.next_event || null;
     const sched = defaultIntermediateStopSchedule(ev, nextEv);
     setCreatingIntermediateFromId(String(ev.id));
     setError(null);
@@ -1322,6 +1332,7 @@ export default function FimbaTransportPage() {
         actividad: "Parada intermedia",
         idGira: edicion.id_gira,
         vehiculos,
+        idPropuestasTags: filtroArtista ? [filtroArtista] : [],
       });
       if (err || !created?.id) {
         setError(err?.message || "No se pudo crear la parada intermedia");
@@ -1348,6 +1359,88 @@ export default function FimbaTransportPage() {
   };
 
   /**
+   * «+» en divisor de pausa: crea parada intermedia a ±1 h del ancla
+   * (top = 1 h después del prev; bottom = 1 h antes del next).
+   */
+  const createPauseOffsetStop = async ({
+    actionKey,
+    prevEv,
+    nextEv,
+    vehicleId,
+    deltaMinutes,
+  }) => {
+    if (readOnly || creatingIntermediateFromId != null) return;
+    if (!prevEv?.id || vehicleId == null || vehicleId === "") return;
+    if (!edicion?.id_gira) {
+      setError("Edición sin gira enlazada");
+      return;
+    }
+
+    const anchorEv = deltaMinutes >= 0 ? prevEv : nextEv;
+    if (!anchorEv) {
+      setError("No hay evento ancla para la pausa");
+      return;
+    }
+    const sched = offsetEventDateTime(
+      anchorEv.fecha,
+      anchorEv.hora_inicio,
+      deltaMinutes,
+    );
+    if (!sched.hora_inicio) {
+      setError("No se pudo calcular la hora de la nueva parada");
+      return;
+    }
+
+    setCreatingIntermediateFromId(actionKey);
+    setError(null);
+    try {
+      const { evento: created, error: err } = await createDestinoStopEvent({
+        currentEv: prevEv,
+        vehicleId: Number(vehicleId),
+        nextEv: nextEv || null,
+        fecha: sched.fecha || prevEv.fecha || "",
+        horaInicio: sched.hora_inicio,
+        idLocacion: null,
+        allowEmptyLocacion: true,
+        actividad: "Parada intermedia",
+        idGira: edicion.id_gira,
+        vehiculos,
+        idPropuestasTags: filtroArtista ? [filtroArtista] : [],
+      });
+      if (err || !created?.id) {
+        setError(err?.message || "No se pudo crear la parada intermedia");
+        return;
+      }
+      await softRefresh({ eventos: true, rutas: true });
+      const refreshed =
+        (eventosRef.current || []).find(
+          (x) => String(x.id) === String(created.id),
+        ) || created;
+      setHighlightEventIds([refreshed.id]);
+      const key = String(refreshed.id);
+      setEventDrafts((prev) => {
+        if (prev[key]) return prev;
+        const n = { ...prev, [key]: draftFromEvent(refreshed) };
+        eventDraftsRef.current = n;
+        return n;
+      });
+      setEditingCell({ eventId: key, field: "locacion" });
+    } finally {
+      setCreatingIntermediateFromId(null);
+    }
+  };
+
+  const openRecorridoIntermedio = ({ prevEv, nextEv, vehicleId }) => {
+    if (readOnly || !prevEv?.id || vehicleId == null || vehicleId === "") return;
+    setRecorridoModal({
+      prevEv,
+      nextEv: nextEv || null,
+      vehicleId: Number(vehicleId),
+      idPropuestasTags: filtroArtista ? [filtroArtista] : [],
+    });
+  };
+
+  /**
    * Destino → crea la parada siguiente (intermedia si hay next; cola si no).
    * Prefill: hora com del next asignado, o form, o midpoint/+30m.
    * No se guarda hora_fin en el evento actual.
@@ -1361,7 +1454,7 @@ export default function FimbaTransportPage() {
       null;
     if (vehicleId == null || vehicleId === "") return;
 
-    const nextEv = metrics?.next_event || null;
+    const nextEv = metrics?.next_event_raw || metrics?.next_event || null;
     const evForFin =
       opts.horaFinFromForm !== undefined
         ? { ...ev, hora_fin: opts.horaFinFromForm || null }
@@ -2906,7 +2999,58 @@ export default function FimbaTransportPage() {
                       creatingIntermediateFromId == null &&
                       primaryVehicleId != null &&
                       primaryVehicleId !== "";
-                    const nextEvForRow = metrics?.next_event || null;
+                    const nextEvForRow =
+                      metrics?.next_event_raw || metrics?.next_event || null;
+                    const pauseAfterRow = Boolean(metrics?.pause_after);
+                    const pausePrevEv =
+                      !isContext &&
+                      (() => {
+                        const vid = Number(primaryVehicleId);
+                        if (!Number.isFinite(vid)) return null;
+                        const seq = sequencesByVehicle.get(vid);
+                        return previousAssignedStopInVehicleSequence(
+                          seq,
+                          ev.id,
+                          vid,
+                        );
+                      })();
+                    const pauseBeforeRow =
+                      Boolean(pausePrevEv) &&
+                      (() => {
+                        const vid = Number(primaryVehicleId);
+                        if (!Number.isFinite(vid)) return false;
+                        // 1) Direct location key match (same locación → vehicle staying put)
+                        if (isVehiclePauseBetweenStops(pausePrevEv, ev)) {
+                          return true;
+                        }
+                        // 2) Fallback: compute pause_after for prevEv via boardingMetrics.
+                        //    Keeps the divider aligned with the same "next assigned stop"
+                        //    logic used by destino/hora fin, even if sortedEvents contains
+                        //    hidden endpoint rows between the two visible stops.
+                        const prevMetrics = boardingMetricsForEventRow(
+                          pausePrevEv,
+                          sequencesByVehicle,
+                          [vid],
+                        );
+                        return Boolean(prevMetrics?.pause_after);
+                      })();
+                    const pauseActionKeyTop = pausePrevEv
+                      ? `pause-top:${pausePrevEv.id}`
+                      : null;
+                    const pauseActionKeyBottom = `pause-bottom:${ev.id}`;
+                    const isCreatingPauseTop =
+                      creatingIntermediateFromId != null &&
+                      creatingIntermediateFromId === pauseActionKeyTop;
+                    const isCreatingPauseBottom =
+                      creatingIntermediateFromId != null &&
+                      creatingIntermediateFromId === pauseActionKeyBottom;
+                    const canPauseCreate =
+                      !readOnly &&
+                      pauseBeforeRow &&
+                      pausePrevEv &&
+                      primaryVehicleId != null &&
+                      primaryVehicleId !== "" &&
+                      creatingIntermediateFromId == null;
                     const nextEvHasRealStop = Boolean(nextEvForRow);
                     const horaCom = sliceTime(ev.hora_inicio);
                     const aBordo = stop?.a_bordo || null;
@@ -2932,8 +3076,134 @@ export default function FimbaTransportPage() {
                         ...openOpts,
                       });
                     return (
+                      <React.Fragment key={ev.id}>
+                        {pauseBeforeRow && (
+                          <tr className="fimba-pause-divider-row">
+                            <td colSpan={100}>
+                              <button
+                                type="button"
+                                className="fimba-btn fimba-btn-ghost fimba-pause-divider-add fimba-pause-divider-add--top"
+                                disabled={
+                                  !canPauseCreate && !isCreatingPauseTop
+                                }
+                                title="Crear parada después de esta"
+                                aria-label="Crear parada después de esta"
+                                aria-busy={isCreatingPauseTop}
+                                onClick={() =>
+                                  createPauseOffsetStop({
+                                    actionKey: pauseActionKeyTop,
+                                    prevEv: pausePrevEv,
+                                    nextEv: ev,
+                                    vehicleId: primaryVehicleId,
+                                    deltaMinutes: 60,
+                                  })
+                                }
+                                style={{
+                                  opacity:
+                                    canPauseCreate || isCreatingPauseTop
+                                      ? 1
+                                      : 0.35,
+                                }}
+                              >
+                                {isCreatingPauseTop ? (
+                                  <IconLoader
+                                    size={11}
+                                    className="animate-spin"
+                                  />
+                                ) : (
+                                  <IconPlus size={11} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                className="fimba-btn fimba-btn-ghost fimba-pause-divider-add fimba-pause-divider-add--bottom"
+                                disabled={
+                                  !canPauseCreate && !isCreatingPauseBottom
+                                }
+                                title="Crear parada después de esta"
+                                aria-label="Crear parada después de esta (antes del siguiente)"
+                                aria-busy={isCreatingPauseBottom}
+                                onClick={() =>
+                                  createPauseOffsetStop({
+                                    actionKey: pauseActionKeyBottom,
+                                    prevEv: pausePrevEv,
+                                    nextEv: ev,
+                                    vehicleId: primaryVehicleId,
+                                    deltaMinutes: -60,
+                                  })
+                                }
+                                style={{
+                                  opacity:
+                                    canPauseCreate || isCreatingPauseBottom
+                                      ? 1
+                                      : 0.35,
+                                }}
+                              >
+                                {isCreatingPauseBottom ? (
+                                  <IconLoader
+                                    size={11}
+                                    className="animate-spin"
+                                  />
+                                ) : (
+                                  <IconPlus size={11} />
+                                )}
+                              </button>
+                              <div className="fimba-pause-divider-inner">
+                                <div
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    flexWrap: "wrap",
+                                    gap: "0.45rem 0.75rem",
+                                    color: "#0e7490",
+                                    fontSize: "0.78rem",
+                                    fontWeight: 600,
+                                    letterSpacing: "0.02em",
+                                    opacity: 0.9,
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "0.4rem",
+                                    }}
+                                  >
+                                    <IconPause size={13} />
+                                    Pausa · vehículo libre
+                                  </span>
+                                  {!readOnly ? (
+                                    <button
+                                      type="button"
+                                      className="fimba-btn fimba-btn-ghost"
+                                      disabled={!canPauseCreate}
+                                      onClick={() =>
+                                        openRecorridoIntermedio({
+                                          prevEv: pausePrevEv,
+                                          nextEv: ev,
+                                          vehicleId: primaryVehicleId,
+                                        })
+                                      }
+                                      style={{
+                                        padding: "0.1rem 0.35rem",
+                                        fontSize: "0.75rem",
+                                        fontWeight: 600,
+                                        color: "#0e7490",
+                                        textDecoration: "underline",
+                                        textUnderlineOffset: 2,
+                                        opacity: canPauseCreate ? 1 : 0.4,
+                                      }}
+                                    >
+                                      Crear recorrido intermedio
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
                       <tr
-                        key={ev.id}
                         className={evRowClass}
                         title={
                           isContext
@@ -3118,7 +3388,16 @@ export default function FimbaTransportPage() {
                                   {horaFinDisp.value}
                                 </span>
                               ) : (
-                                <span className="fimba-muted">—</span>
+                                <span
+                                  className="fimba-muted"
+                                  title={
+                                    pauseAfterRow
+                                      ? "Pausa: la siguiente parada del mismo vehículo repite la locación"
+                                      : undefined
+                                  }
+                                >
+                                  —
+                                </span>
                               )}
                             </>
                           )}
@@ -3435,6 +3714,19 @@ export default function FimbaTransportPage() {
                                 <IconEdit size={13} />
                               </button>
                             ) : null}
+                            {pauseAfterRow ? (
+                              <span
+                                className="fimba-badge"
+                                style={{
+                                  background: "rgba(14,116,144,0.10)",
+                                  color: "#0e7490",
+                                  fontSize: "0.68rem",
+                                }}
+                                title="Pausa: mismo vehículo, siguiente evento consecutivo en la misma locación"
+                              >
+                                Pausa
+                              </span>
+                            ) : null}
                           </span>
                         </td>
                         <td
@@ -3671,6 +3963,7 @@ export default function FimbaTransportPage() {
                           )}
                         </td>
                       </tr>
+                      </React.Fragment>
                     );
                   })}
                 </tbody>
@@ -3728,6 +4021,26 @@ export default function FimbaTransportPage() {
             onSaved={() => {
               setDestinoModal(null);
               softRefresh({ eventos: true });
+            }}
+          />,
+          document.body,
+        )}
+
+      {recorridoModal &&
+        edicion &&
+        createPortal(
+          <FimbaRecorridoIntermedioModal
+            context={recorridoModal}
+            edicion={edicion}
+            vehiculos={vehiculos}
+            locationOptions={locationOptions}
+            onRefreshLocations={refreshLocations}
+            onClose={() => setRecorridoModal(null)}
+            onSaved={async (eventos) => {
+              setRecorridoModal(null);
+              await softRefresh({ eventos: true, rutas: true });
+              const ids = (eventos || []).map((e) => e.id).filter(Boolean);
+              if (ids.length) setHighlightEventIds(ids);
             }}
           />,
           document.body,

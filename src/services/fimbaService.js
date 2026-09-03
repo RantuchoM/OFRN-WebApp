@@ -850,6 +850,17 @@ export function isFimbaBacklineEnsayoRow(evt) {
 }
 
 /**
+ * ¿El evento figura en la planilla Backline?
+ * Conciertos (tipo 1) siempre; otros solo con `backline_incluido`.
+ * @param {{ id_tipo_evento?: number|string|null, backline_incluido?: boolean|null }} evt
+ */
+export function isFimbaBacklinePlanillaEvent(evt) {
+  if (!evt) return false;
+  if (Number(evt.id_tipo_evento) === ID_TIPO_CONCIERTO) return true;
+  return Boolean(evt.backline_incluido);
+}
+
+/**
  * Filas de la planilla Backline: conciertos (tipo 1) siempre + eventos con
  * `backline_incluido` (ensayos agregados a mano). Soft-delete excluido.
  * @param {number|string} edicionId
@@ -4278,7 +4289,7 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
   const { data: eventosRaw, error: eEvt } = await supabase
     .from("eventos")
     .select(
-      "id, id_gira, id_tipo_evento, id_locacion, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, observaciones_internas, observaciones_aforo, audiencia_ofrn, id_gira_transporte, visible_agenda, is_deleted, tipos_evento ( id, nombre, color, id_categoria, categorias_tipos_eventos ( id, nombre ) ), locaciones ( id, nombre, direccion, localidades ( id, localidad, id_region ) ), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )",
+      "id, id_gira, id_tipo_evento, id_locacion, fecha, hora_inicio, hora_fin, descripcion, audiencia, asientos_equipaje, observaciones_equipaje, observaciones_internas, observaciones_aforo, audiencia_ofrn, id_gira_transporte, visible_agenda, is_deleted, backline_descripcion, backline_monto, backline_estado, planta_escenario_url, planta_escenario_nombre, backline_incluido, tipos_evento ( id, nombre, color, id_categoria, categorias_tipos_eventos ( id, nombre ) ), locaciones ( id, nombre, direccion, localidades ( id, localidad, id_region ) ), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), stage_plot_eventos ( id_stage_plot, stage_plots ( id, nombre ) )",
     )
     .in("id", eventIds)
     .eq("id_gira", edicion.id_gira)

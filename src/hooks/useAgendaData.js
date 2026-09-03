@@ -19,13 +19,16 @@ const ID_TIPO_ENSAYO_ENSAMBLE = 13;
 
 const EVENT_SELECT = `
     id, fecha, hora_inicio, hora_fin, tecnica, descripcion, observaciones_internas, observaciones_aforo, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, id_repertorio, visible_agenda, audiencia_ofrn, updated_at, is_deleted, deleted_at, id_estado_venue, es_didactico,
+    backline_descripcion, backline_monto, backline_estado, planta_escenario_url, planta_escenario_nombre, backline_incluido,
     giras_transportes ( id, detalle, transportes ( nombre, color, icon ) ),
     tipos_evento ( id, nombre, color, categorias_tipos_eventos (id, nombre) ),
     locaciones ( id, nombre, direccion, link_mapa, localidades (localidad) ),
     programas ( id, nombre_gira, nomenclador, google_drive_folder_id, mes_letra, fecha_desde, fecha_hasta, tipo, zona, estado, fecha_confirmacion_limite, giras_fuentes(tipo, valor_id, valor_texto), giras_integrantes(id_integrante, estado, rol) ),
     eventos_programas_asociados ( programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador, estado, tipo ) ),
     eventos_ensambles ( id_ensamble, ensambles ( id, ensamble ) ),
-    eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )
+    eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ),
+    stage_plot_eventos ( id_stage_plot, stage_plots ( id, nombre ) ),
+    eventos_fimba_propuestas ( id_propuesta, fimba_propuestas ( id, nombre, color, rider ) )
   `;
 
 function normalizeEstadoGira(str) {

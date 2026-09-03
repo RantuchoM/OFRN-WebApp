@@ -43,6 +43,8 @@ import {
   IconTag,
   IconSearch,
   IconLayout,
+  IconLayers,
+  IconFileText,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -60,6 +62,12 @@ import SearchableSelect from "../ui/SearchableSelect";
 import MultiSelectDropdown from "../ui/MultiSelectDropdown";
 import EventGruposAssignModal from "./EventGruposAssignModal";
 import StagePlotViewerModal from "../../views/Giras/StagePlotViewerModal";
+import FimbaBacklineConsultaModal from "../../views/Fimba/FimbaBacklineConsultaModal";
+import FimbaRiderConsultaModal from "../../views/Fimba/FimbaRiderConsultaModal";
+import {
+  shouldShowAgendaBacklineIcon,
+  shouldShowAgendaRiderIcon,
+} from "../../utils/fimbaAgendaConsulta";
 import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
 import { calculateLogisticsSummary } from "../../hooks/useLogistics";
 import { useClickOutside } from "../../hooks/useClickOutside";
@@ -499,6 +507,8 @@ export default function UnifiedAgenda({
     useState(true);
   const [gruposAssignTarget, setGruposAssignTarget] = useState(null);
   const [stagePlotViewerEvent, setStagePlotViewerEvent] = useState(null);
+  const [backlineConsultaEvento, setBacklineConsultaEvento] = useState(null);
+  const [riderConsultaEvento, setRiderConsultaEvento] = useState(null);
   // Query usada para filtrar/resaltar (debounced vía AgendaSearchField).
   const [agendaSearchQuery, setAgendaSearchQuery] = useState("");
   const handleAgendaSearchQueryChange = useCallback((query) => {
@@ -627,6 +637,8 @@ export default function UnifiedAgenda({
   const isAdmin = isAdminFlag || userRoles.includes("admin");
   const isGlobalEditor = userRoles.some((role) => editorRoles.includes(role));
   const canEdit = isGlobalEditor || coordinatedEnsembles.size > 0;
+  /** Backline / Rider consulta en agenda: editores y admins (isEditor incluye admin/curador). */
+  const canSeeAgendaLogisticaConsulta = Boolean(isEditor);
   /** Filtro / Tag de grupos: solo editores y admins, y solo si la gira ya tiene grupos. */
   const canManageGiraGrupos =
     !!giraId && (isEditor || isAdmin) && giraGrupos.length > 0;
@@ -3388,6 +3400,40 @@ export default function UnifiedAgenda({
                                           </button>
                                         )}
                                       <DriveSmartButton evt={evt} />
+                                      {shouldShowAgendaBacklineIcon(
+                                        evt,
+                                        canSeeAgendaLogisticaConsulta,
+                                      ) && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setBacklineConsultaEvento(evt);
+                                          }}
+                                          className="p-1.5 text-slate-400 hover:text-fuchsia-700 rounded hover:bg-fuchsia-50"
+                                          title="Ver Backline"
+                                          aria-label="Ver Backline"
+                                        >
+                                          <IconLayers size={16} />
+                                        </button>
+                                      )}
+                                      {shouldShowAgendaRiderIcon(
+                                        evt,
+                                        canSeeAgendaLogisticaConsulta,
+                                      ) && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setRiderConsultaEvento(evt);
+                                          }}
+                                          className="p-1.5 text-slate-400 hover:text-fuchsia-700 rounded hover:bg-fuchsia-50"
+                                          title="Ver Rider"
+                                          aria-label="Ver Rider"
+                                        >
+                                          <IconFileText size={16} />
+                                        </button>
+                                      )}
                                       {(isConcertEvent ||
                                         Number(evt.id_tipo_evento) === 13) &&
                                         (evt.id_gira || evt.programas?.id) &&
@@ -3872,6 +3918,40 @@ export default function UnifiedAgenda({
                                       <div className="flex flex-col items-end gap-1 mt-auto">
                                         <div className="flex gap-1">
                                           <DriveSmartButton evt={evt} />
+                                          {shouldShowAgendaBacklineIcon(
+                                            evt,
+                                            canSeeAgendaLogisticaConsulta,
+                                          ) && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setBacklineConsultaEvento(evt);
+                                              }}
+                                              className="p-1.5 text-slate-400 hover:text-fuchsia-700 rounded hover:bg-fuchsia-50"
+                                              title="Ver Backline"
+                                              aria-label="Ver Backline"
+                                            >
+                                              <IconLayers size={16} />
+                                            </button>
+                                          )}
+                                          {shouldShowAgendaRiderIcon(
+                                            evt,
+                                            canSeeAgendaLogisticaConsulta,
+                                          ) && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setRiderConsultaEvento(evt);
+                                              }}
+                                              className="p-1.5 text-slate-400 hover:text-fuchsia-700 rounded hover:bg-fuchsia-50"
+                                              title="Ver Rider"
+                                              aria-label="Ver Rider"
+                                            >
+                                              <IconFileText size={16} />
+                                            </button>
+                                          )}
                                           {(isConcertEvent ||
                                             Number(evt.id_tipo_evento) ===
                                               13) &&
@@ -4007,6 +4087,17 @@ export default function UnifiedAgenda({
         supabase={supabase}
         evento={stagePlotViewerEvent}
         gira={stagePlotViewerEvent?.programas || mainProgram}
+      />
+      <FimbaBacklineConsultaModal
+        open={!!backlineConsultaEvento}
+        evento={backlineConsultaEvento}
+        onClose={() => setBacklineConsultaEvento(null)}
+        supabaseClient={supabase}
+      />
+      <FimbaRiderConsultaModal
+        open={!!riderConsultaEvento}
+        evento={riderConsultaEvento}
+        onClose={() => setRiderConsultaEvento(null)}
       />
       <ConfirmDialog
         isOpen={isHideRecentChangesOpen}

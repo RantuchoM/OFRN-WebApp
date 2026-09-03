@@ -206,8 +206,9 @@ export default function FimbaStopRulesManager({
         idGiraTransporte: vehicleId || null,
         eventId: event?.id,
         sortedEvents,
+        currentEvent: event ?? null,
       }),
-    [propuestas, allRutas, vehicleId, event?.id, sortedEvents],
+    [propuestas, allRutas, vehicleId, event?.id, sortedEvents, event],
   );
 
   const bajadaByPropuesta = useMemo(() => {

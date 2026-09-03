@@ -357,6 +357,44 @@ const FIMBA_CSS = `
     white-space: normal;
     max-width: 11rem;
   }
+  /* Backline Descripción: bounded col so Drive URLs don't bleed over Planta/Monto */
+  .fimba-planilla-table th.fimba-backline-desc-cell,
+  .fimba-planilla-table td.fimba-backline-desc-cell {
+    white-space: normal;
+    min-width: 10rem;
+    max-width: 18rem;
+    width: 16rem;
+    overflow: hidden;
+    vertical-align: top;
+  }
+  .fimba-backline-desc-cell .fimba-backline-desc-inner {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+    white-space: normal;
+  }
+  .fimba-backline-desc-cell .fimba-backline-desc-editing {
+    overflow: visible; /* Quill link tooltip */
+  }
+  .fimba-backline-desc-cell .fimba-backline-desc-html,
+  .fimba-backline-desc-cell .fimba-backline-desc-html a,
+  .fimba-backline-desc-cell .fimba-backline-desc-html p,
+  .fimba-backline-desc-cell .ql-editor,
+  .fimba-backline-desc-cell .ql-editor a,
+  .fimba-backline-desc-cell .ql-editor p {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .fimba-backline-desc-cell .fimba-richtext,
+  .fimba-backline-desc-cell .fimba-richtext .ql-toolbar.ql-snow,
+  .fimba-backline-desc-cell .fimba-richtext .ql-container.ql-snow {
+    max-width: 100%;
+    min-width: 0;
+  }
   .fimba-planilla-table .fimba-planilla-board-th-up {
     color: #166534;
     background: #f0fdf4 !important;
@@ -625,6 +663,44 @@ const FIMBA_CSS = `
     text-align: right;
     padding-right: 0.75rem !important;
     white-space: nowrap;
+  }
+  /* Pause divider: "+" sit on top/bottom-left dashed border vertices */
+  .fimba-pause-divider-row > td {
+    position: relative;
+    overflow: visible;
+    padding: 0.35rem 0.5rem 0.35rem 1.1rem;
+    background: rgba(14, 116, 144, 0.06);
+    border-top: 2px dashed rgba(14, 116, 144, 0.35);
+    border-bottom: 2px dashed rgba(14, 116, 144, 0.35);
+    user-select: none;
+  }
+  .fimba-pause-divider-inner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+  }
+  .fimba-pause-divider-add {
+    position: absolute;
+    left: 0;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    min-height: 22px;
+    padding: 0;
+    line-height: 1;
+    color: #0e7490;
+    border-radius: 999px;
+  }
+  .fimba-pause-divider-add--top {
+    top: 0;
+    transform: translate(-50%, -50%);
+  }
+  .fimba-pause-divider-add--bottom {
+    bottom: 0;
+    transform: translate(-50%, 50%);
   }
   .fimba-card {
     background: var(--fimba-surface);

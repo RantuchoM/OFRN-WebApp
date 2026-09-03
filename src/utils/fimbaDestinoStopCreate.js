@@ -9,6 +9,42 @@ import {
   resolveHoraFinDisplay,
 } from "./fimbaTransportBoarding";
 
+const pad2 = (n) => String(n).padStart(2, "0");
+
+/**
+ * Suma/resta minutos a un par fecha+hora (rollover de día incluido).
+ *
+ * @param {string|null|undefined} fecha — YYYY-MM-DD
+ * @param {string|null|undefined} hora — HH:MM
+ * @param {number} deltaMinutes
+ * @returns {{ fecha: string|null, hora_inicio: string|null }}
+ */
+export function offsetEventDateTime(fecha, hora, deltaMinutes) {
+  const f = String(fecha || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) {
+    return {
+      fecha: f || null,
+      hora_inicio: hora ? String(hora).slice(0, 5) : null,
+    };
+  }
+  const [y, m, d] = f.split("-").map(Number);
+  const hm = String(hora || "00:00").slice(0, 5);
+  const [hh, mm] = hm.split(":").map((x) => Number(x));
+  const h = Number.isFinite(hh) ? hh : 0;
+  const min = Number.isFinite(mm) ? mm : 0;
+  const ms =
+    new Date(y, m - 1, d, h, min, 0, 0).getTime() +
+    Number(deltaMinutes || 0) * 60 * 1000;
+  if (!Number.isFinite(ms)) {
+    return { fecha: f, hora_inicio: hm };
+  }
+  const dt = new Date(ms);
+  return {
+    fecha: `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`,
+    hora_inicio: `${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`,
+  };
+}
+
 /**
  * Prefill fecha/hora_inicio para crear parada destino (intermedia o cola).
  * Hora del formulario (si hay) = hora_inicio de la nueva parada.
@@ -65,6 +101,7 @@ export function buildDestinoStopSchedule(currentEv, nextEv, horaFinFromForm) {
  *   actividad?: string,
  *   idGira: number|string,
  *   vehiculos?: Array<object>,
+ *   idPropuestasTags?: Array<number|string>,
  * }} params
  * @returns {Promise<{ evento: object|null, error: Error|null }>}
  */
@@ -79,6 +116,7 @@ export async function createDestinoStopEvent({
   actividad = "Parada intermedia",
   idGira,
   vehiculos = [],
+  idPropuestasTags = [],
 }) {
   if (vehicleId == null || vehicleId === "") {
     return { evento: null, error: new Error("Esta fila no tiene vehículo asignado") };
@@ -135,7 +173,7 @@ export async function createDestinoStopEvent({
         plazas: 0,
       },
     ],
-    id_propuestas: [],
+    id_propuestas: (idPropuestasTags || []).map(Number).filter((n) => Number.isFinite(n) && n > 0),
     id_tipo_evento: tipoId,
     audiencia_ofrn: "none",
   });
@@ -170,4 +208,114 @@ export async function createDestinoStopEvent({
   }
 
   return { evento, error: null };
+}
+
+/**
+ * Locación de catálogo de un evento (parada).
+ * @param {object|null|undefined} ev
+ * @returns {number|string|null}
+ */
+export function eventLocacionId(ev) {
+  const raw = ev?.id_locacion ?? ev?.locaciones?.id ?? null;
+  if (raw == null || raw === "") return null;
+  return raw;
+}
+
+/**
+ * Crea las 3 paradas de un recorrido intermedio durante una pausa:
+ * salida (locación actual) → waypoint → retorno (locación actual).
+ * Encadena `createDestinoStopEvent` entre `prevEv` y `nextEv`.
+ *
+ * @param {{
+ *   prevEv: object,
+ *   nextEv: object|null,
+ *   vehicleId: number|string,
+ *   idGira: number|string,
+ *   vehiculos?: Array<object>,
+ *   idPropuestasTags?: Array<number|string>,
+ *   fecha: string,
+ *   horaSalida: string,
+ *   horaWaypoint: string,
+ *   horaRetorno: string,
+ *   idLocacionActual: unknown,
+ *   idLocacionWaypoint: unknown,
+ * }} params
+ * @returns {Promise<{ eventos: object[], error: Error|null }>}
+ */
+export async function createRecorridoIntermedioStops({
+  prevEv,
+  nextEv = null,
+  vehicleId,
+  idGira,
+  vehiculos = [],
+  idPropuestasTags = [],
+  fecha,
+  horaSalida,
+  horaWaypoint,
+  horaRetorno,
+  idLocacionActual,
+  idLocacionWaypoint,
+}) {
+  const common = {
+    vehicleId,
+    nextEv,
+    idGira,
+    vehiculos,
+    idPropuestasTags,
+  };
+
+  const { evento: salida, error: e1 } = await createDestinoStopEvent({
+    ...common,
+    currentEv: prevEv,
+    fecha,
+    horaInicio: horaSalida,
+    idLocacion: idLocacionActual,
+    actividad: "Salida recorrido intermedio",
+  });
+  if (e1 || !salida?.id) {
+    return {
+      eventos: [],
+      error: e1 || new Error("No se pudo crear la parada de salida"),
+    };
+  }
+
+  const { evento: waypoint, error: e2 } = await createDestinoStopEvent({
+    ...common,
+    currentEv: salida,
+    fecha,
+    horaInicio: horaWaypoint,
+    idLocacion: idLocacionWaypoint,
+    actividad: "Parada intermedia",
+  });
+  if (e2 || !waypoint?.id) {
+    return {
+      eventos: [salida],
+      error:
+        e2 ||
+        new Error(
+          "Salida creada, pero no se pudo crear la parada intermedia",
+        ),
+    };
+  }
+
+  const { evento: retorno, error: e3 } = await createDestinoStopEvent({
+    ...common,
+    currentEv: waypoint,
+    fecha,
+    horaInicio: horaRetorno,
+    idLocacion: idLocacionActual,
+    actividad: "Retorno recorrido intermedio",
+  });
+  if (e3 || !retorno?.id) {
+    return {
+      eventos: [salida, waypoint],
+      error:
+        e3 ||
+        new Error(
+          "Salida e intermedia creadas, pero falló el retorno",
+        ),
+    };
+  }
+
+  return { eventos: [salida, waypoint, retorno], error: null };
 }

@@ -339,11 +339,72 @@ export function nextAssignedStopInVehicleSequence(
   return null;
 }
 
+/**
+ * Parada asignada anterior a esta unidad dentro de la secuencia unificada.
+ * Omite endpoints intermedios que viven en otra camioneta.
+ *
+ * @param {{ sortedEvents?: Array<object> }|null|undefined} seq
+ * @param {unknown} eventId
+ * @param {number|string|null|undefined} idGiraTransporte
+ * @returns {object|null}
+ */
+export function previousAssignedStopInVehicleSequence(
+  seq,
+  eventId,
+  idGiraTransporte,
+) {
+  const sorted = seq?.sortedEvents;
+  if (!sorted?.length) return null;
+  const idx = indexOfEvent(sorted, eventId);
+  if (idx < 0) return null;
+  const tid = Number(idGiraTransporte);
+  if (!Number.isFinite(tid)) {
+    return idx > 0 ? sorted[idx - 1] || null : null;
+  }
+  for (let i = idx - 1; i >= 0; i--) {
+    if (eventAssignedToGiraTransporte(sorted[i], tid)) return sorted[i];
+  }
+  return null;
+}
+
 /** Placeholder UI cuando no hay siguiente parada en la secuencia del vehículo. */
 export const TRANSPORT_DESTINO_SIN_SIGUIENTE = "Sin siguiente parada";
 
 /** Placeholder cuando el next stop (o Origen) no tiene `id_locacion` / nombre de catálogo. */
 export const TRANSPORT_DESTINO_SIN_LOCACION = "(Sin locación)";
+
+function normalizedStopLocationKey(ev) {
+  if (!ev) return "";
+  const idLoc = ev.id_locacion ?? ev.locaciones?.id ?? null;
+  if (idLoc != null && idLoc !== "") return `id:${idLoc}`;
+  const nombre = String(
+    ev?.locaciones?.nombre || ev?.locacion_nombre || "",
+  ).trim();
+  const ciudad = String(
+    ev?.locaciones?.localidades?.localidad || ev?.locacion_ciudad || "",
+  ).trim();
+  const label = [nombre, ciudad]
+    .filter(Boolean)
+    .join("|")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return label ? `label:${label}` : "";
+}
+
+/**
+ * Pausa = dos eventos consecutivos del mismo vehículo con la misma locación.
+ * En ese caso no se muestra un "hasta / destino" calculado para el evento actual.
+ *
+ * @param {object|null|undefined} currentEv
+ * @param {object|null|undefined} nextEv
+ * @returns {boolean}
+ */
+export function isVehiclePauseBetweenStops(currentEv, nextEv) {
+  const currentKey = normalizedStopLocationKey(currentEv);
+  const nextKey = normalizedStopLocationKey(nextEv);
+  return Boolean(currentKey && nextKey && currentKey === nextKey);
+}
 
 /**
  * Destino derivado de un evento de transporte = locación del next stop en la
@@ -385,7 +446,10 @@ export function resolveTransportDestinoFromNextStop(
   } else if (sequenceOrMetrics?.sortedEvents) {
     seq = sequenceOrMetrics;
   } else if (sequenceOrMetrics?.next_event !== undefined) {
-    const nextEvent = sequenceOrMetrics.next_event || null;
+    const nextEvent =
+      sequenceOrMetrics.next_event ||
+      sequenceOrMetrics.next_event_raw ||
+      null;
     return {
       nextEvent,
       label: formatNextStopDestino(nextEvent),
@@ -706,7 +770,38 @@ export function buildFimbaBajadaArtistOptions(opts = {}) {
       ? Number(opts.idGiraTransporte)
       : null;
   const eventId = opts.eventId;
-  const sorted = opts.sortedEvents || [];
+  const rawSorted = opts.sortedEvents || [];
+
+  // If the target event is not in the vehicle's sorted sequence (e.g. it was
+  // created with a non-transport tipo_evento), inject it at its chronological
+  // position so currentIdx ≥ 0 and aboard-check works correctly.
+  // This happens when a "Deja en aeropuerto" / custom stop was saved with a
+  // non-transport tipo but IS assigned to the vehicle via fimba_evento_transportes.
+  let sorted = rawSorted;
+  if (
+    eventId != null &&
+    eventId !== "" &&
+    rawSorted.length > 0 &&
+    indexOfEvent(rawSorted, eventId) < 0 &&
+    opts.currentEvent != null
+  ) {
+    // Insert the event at its chronological position
+    const ev = opts.currentEvent;
+    const evKey = `${ev.fecha || ""}${ev.hora_inicio || ""}`;
+    const insertAt = rawSorted.findIndex(
+      (e) => `${e.fecha || ""}${e.hora_inicio || ""}` >= evKey,
+    );
+    if (insertAt < 0) {
+      sorted = [...rawSorted, ev];
+    } else {
+      sorted = [
+        ...rawSorted.slice(0, insertAt),
+        ev,
+        ...rawSorted.slice(insertAt),
+      ];
+    }
+  }
+
   const currentIdx =
     sorted.length && eventId != null && eventId !== ""
       ? indexOfEvent(sorted, eventId)
@@ -1830,11 +1925,13 @@ export function boardingMetricsForEventRow(
 
   // Destino / hora fin: siguiente parada **asignada** a esta unidad (no
   // endpoints de ride que viven en otro vehículo).
-  const next_event = nextAssignedStopInVehicleSequence(
+  const next_event_raw = nextAssignedStopInVehicleSequence(
     primary?.seq,
     ev.id,
     primary?.id_gira_transporte,
   );
+  const pause_after = isVehiclePauseBetweenStops(ev, next_event_raw);
+  const next_event = pause_after ? null : next_event_raw;
   const destino_siguiente = formatNextStopDestino(next_event);
   const hora_fin_display = resolveHoraFinDisplay(ev, next_event);
 
@@ -1845,6 +1942,8 @@ export function boardingMetricsForEventRow(
     orquesta_en_lugar,
     artistas_en_lugar,
     next_event,
+    next_event_raw,
+    pause_after,
     destino_siguiente,
     hora_fin_display,
   };

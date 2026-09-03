@@ -28,6 +28,7 @@ import { uploadEventoInternasImage } from "../../services/eventosInternasService
 import {
   summarizeOfrnStopRules,
   boardingMetricsForEventRow,
+  isVehiclePauseBetweenStops,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
   TRANSPORT_DESTINO_SIN_LOCACION,
   formatEventLocation,
@@ -1019,7 +1020,15 @@ export default function FimbaEventoFormModal({
     transportDestinoVehicleId,
   ]);
 
-  const transportNextEvent = transportDestinoMetrics?.next_event || null;
+  const transportNextEvent =
+    transportDestinoMetrics?.next_event_raw ||
+    transportDestinoMetrics?.next_event ||
+    null;
+  const transportPauseAfter = Boolean(
+    usaTransporte &&
+      isEdit &&
+      isVehiclePauseBetweenStops(evento, transportNextEvent),
+  );
 
   const destinoStopSchedule = useMemo(() => {
     if (!usaTransporte || !isEdit || !evento) return null;
@@ -1232,7 +1241,9 @@ export default function FimbaEventoFormModal({
         fecha,
         hora_inicio: horaCom || null,
         hora_fin: usaTransporte
-          ? sliceTime(transportNextEvent?.hora_inicio) || null
+          ? transportPauseAfter
+            ? null
+            : sliceTime(transportNextEvent?.hora_inicio) || null
           : horaFin || null,
       };
       const { byId } = await listVehiclesAvailability(
@@ -1248,7 +1259,37 @@ export default function FimbaEventoFormModal({
         },
       );
       if (cancelled) return;
-      setMetrics(byId || {});
+      if (transportPauseAfter) {
+        const pauseVehicleIds = new Set(
+          [
+            transportDestinoVehicleId,
+            ...(evento?.vehiculos || []).map((r) =>
+              Number(r?.id_gira_transporte),
+            ),
+            evento?.id_gira_transporte != null
+              ? Number(evento.id_gira_transporte)
+              : null,
+          ].filter(Number.isFinite),
+        );
+        const patched = { ...(byId || {}) };
+        pauseVehicleIds.forEach((tid) => {
+          const sid = String(tid);
+          const current = patched[sid];
+          if (!current) return;
+          patched[sid] = {
+            ...current,
+            ocupadas_ofrn: 0,
+            asignadas_fimba: 0,
+            libres: current.capacidad,
+            ofrn_eventos: 0,
+            note:
+              "Pausa: el siguiente evento del mismo vehículo repite la locación, así que esta franja cuenta como 100% libre.",
+          };
+        });
+        setMetrics(patched);
+      } else {
+        setMetrics(byId || {});
+      }
       setMetricsLoading(false);
     }, 280);
     return () => {
@@ -1262,6 +1303,10 @@ export default function FimbaEventoFormModal({
     horaCom,
     horaFin,
     transportNextEvent?.hora_inicio,
+    transportPauseAfter,
+    transportDestinoVehicleId,
+    evento?.vehiculos,
+    evento?.id_gira_transporte,
     flota,
     edicion.id_gira,
     isEdit,

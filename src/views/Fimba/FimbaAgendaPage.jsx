@@ -12,6 +12,8 @@ import {
   IconSearch,
   IconX,
   IconPrinter,
+  IconLayers,
+  IconFileText,
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import {
@@ -70,8 +72,14 @@ import {
 } from "../../utils/fimbaAgendaUrlParams";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
+import {
+  shouldShowAgendaBacklineIcon,
+  shouldShowAgendaRiderIcon,
+} from "../../utils/fimbaAgendaConsulta";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
+import FimbaBacklineConsultaModal from "./FimbaBacklineConsultaModal";
+import FimbaRiderConsultaModal from "./FimbaRiderConsultaModal";
 
 const FIMBA_AGENDA_SEARCH_DEBOUNCE_MS = 250;
 
@@ -329,11 +337,16 @@ function eventMatchesFimbaAgendaSearch(ev, query, flotaById = null) {
  */
 export default function FimbaAgendaPage() {
   const { edicionId, artistaId } = useParams();
-  const { readOnly, agendaOnly, source } = useFimbaAccess();
+  const { readOnly, agendaOnly, source, canSeeContrataciones } =
+    useFimbaAccess();
   const consultaSession = useFimbaConsultaEdicionSession();
   const queryLocked = Boolean(agendaOnly);
   const canCopyConsultaLink =
     source === "ofrn" || source === "fimba_editor";
+  /** Misma base que Contrataciones: OFRN management / editor_general (no consulta ni tokens). */
+  const canSeeAgendaLogisticaConsulta = Boolean(canSeeContrataciones);
+  const [backlineConsultaEvento, setBacklineConsultaEvento] = useState(null);
+  const [riderConsultaEvento, setRiderConsultaEvento] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const urlFilters = useMemo(
@@ -1784,11 +1797,43 @@ export default function FimbaAgendaPage() {
                         </div>
                       </td>
                       <td style={{ textAlign: "right", paddingRight: "0.75rem", whiteSpace: "nowrap" }}>
+                        {shouldShowAgendaBacklineIcon(
+                          ev,
+                          canSeeAgendaLogisticaConsulta,
+                        ) && (
+                          <button
+                            type="button"
+                            className="fimba-btn fimba-btn-ghost"
+                            onClick={() => setBacklineConsultaEvento(ev)}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                            title="Ver Backline"
+                            aria-label="Ver Backline"
+                          >
+                            <IconLayers size={14} />
+                          </button>
+                        )}
+                        {shouldShowAgendaRiderIcon(
+                          ev,
+                          canSeeAgendaLogisticaConsulta,
+                        ) && (
+                          <button
+                            type="button"
+                            className="fimba-btn fimba-btn-ghost"
+                            style={{ marginLeft: 4 }}
+                            onClick={() => setRiderConsultaEvento(ev)}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                            title="Ver Rider"
+                            aria-label="Ver Rider"
+                          >
+                            <IconFileText size={14} />
+                          </button>
+                        )}
                         {!readOnly && (
                           <>
                             <button
                               type="button"
                               className="fimba-btn fimba-btn-ghost"
+                              style={{ marginLeft: 4 }}
                               onClick={() => setModal({ mode: "edit", evento: ev })}
                               onDoubleClick={(e) => e.stopPropagation()}
                               title="Editar"
@@ -1869,6 +1914,17 @@ export default function FimbaAgendaPage() {
           />,
           document.body,
         )}
+
+      <FimbaBacklineConsultaModal
+        open={!!backlineConsultaEvento}
+        evento={backlineConsultaEvento}
+        onClose={() => setBacklineConsultaEvento(null)}
+      />
+      <FimbaRiderConsultaModal
+        open={!!riderConsultaEvento}
+        evento={riderConsultaEvento}
+        onClose={() => setRiderConsultaEvento(null)}
+      />
     </div>
   );
 }

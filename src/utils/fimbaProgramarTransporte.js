@@ -11,7 +11,10 @@ import {
   upsertFimbaPropuestaRutaStop,
 } from "../services/fimbaService";
 import { eventTypeIdForCategoria } from "./giraTransportUtils";
-import { formatEventLocation } from "./fimbaTransportBoarding";
+import {
+  formatEventLocation,
+  isVehiclePauseBetweenStops,
+} from "./fimbaTransportBoarding";
 
 function tripDateTimeMs(fecha, hora) {
   const f = String(fecha || "").slice(0, 10);
@@ -187,6 +190,14 @@ export function rankVehiclesForProgrammedTrip(opts = {}) {
           origenMs > salidaMs
         ));
 
+    // Pausa: el hueco entre origen y siguiente es una pausa de vehículo
+    // (misma locación), lo que significa que el vehículo está 100% libre
+    // en ese intervalo (sin pasajeros en tránsito).
+    const isPauseGap =
+      gapCovers && origen && siguiente
+        ? isVehiclePauseBetweenStops(origen, siguiente)
+        : false;
+
     // Solape duro: hay un stop estrictamente dentro del viaje
     let hasInteriorStop = false;
     for (const ev of sorted) {
@@ -197,12 +208,19 @@ export function rankVehiclesForProgrammedTrip(opts = {}) {
       }
     }
 
+    // Durante una pausa el vehículo no tiene pasajeros: capacidad libre = total.
+    const libresEfectivos =
+      isPauseGap && capN != null ? capN : libresEstimados;
+
     let score = 0;
     const reasons = [];
 
     if (sorted.length === 0) {
       score += 700;
       reasons.push("Agenda libre");
+    } else if (isPauseGap && !hasInteriorStop) {
+      score += 1100;
+      reasons.push("Pausa: vehículo libre en esta locación");
     } else if (gapCovers && !hasInteriorStop) {
       score += 1000;
       reasons.push("Hueco cubre el viaje");
@@ -214,10 +232,10 @@ export function rankVehiclesForProgrammedTrip(opts = {}) {
       reasons.push("Solapa con la agenda");
     }
 
-    if (libresEstimados != null) {
-      if (libresEstimados >= need) {
+    if (libresEfectivos != null) {
+      if (libresEfectivos >= need) {
         score += 200;
-        reasons.push(`Cap. libre ${libresEstimados}`);
+        reasons.push(`Cap. libre ${libresEfectivos}`);
       } else {
         score -= 300;
         reasons.push(`Cap. insuficiente (${libresEstimados})`);
@@ -250,7 +268,8 @@ export function rankVehiclesForProgrammedTrip(opts = {}) {
       label: labelGiraTransporte(gt),
       score,
       capacity: capN,
-      libresEstimados,
+      libresEstimados: libresEfectivos,
+      isPauseGap,
       gapCovers: gapCovers && !hasInteriorStop,
       origen,
       siguiente,
