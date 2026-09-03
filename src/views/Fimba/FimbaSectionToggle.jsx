@@ -114,6 +114,75 @@ export function isFimbaSectionPath(pathname, edicionId, segment) {
   return path === `/fimba/edicion/${ed}/${segment}`;
 }
 
+const LANDSCAPE_SEGMENTS = new Set([
+  "agenda",
+  "transportes",
+  "backline",
+  "venues",
+  "contrataciones",
+]);
+
+/**
+ * Tab title + print page size for FimbaLayout @media print.
+ * Planilla-heavy tabs use landscape; Escenario is outside this layout.
+ */
+export function resolveFimbaPrintMeta(pathname) {
+  const path = normalizePath(pathname);
+  if (path === "/fimba/login" || path.startsWith("/fimba/login/")) {
+    return { title: "Acceso", landscape: false, hidePrint: true };
+  }
+  if (path === "/fimba") {
+    return { title: "Ediciones", landscape: false, hidePrint: false };
+  }
+  if (path.startsWith("/fimba/c/") && path.endsWith("/agenda")) {
+    return { title: "Agenda", landscape: true, hidePrint: false };
+  }
+  if (/^\/fimba\/[ae]\//.test(path)) {
+    return { title: "Artista", landscape: false, hidePrint: false };
+  }
+
+  const { edicionId, artistaId } = parseFimbaSectionIds(path);
+  if (!edicionId) {
+    return { title: "FIMBA", landscape: false, hidePrint: false };
+  }
+
+  if (artistaId) {
+    if (path.endsWith("/agenda")) {
+      return { title: "Agenda", landscape: true, hidePrint: false };
+    }
+    if (path.endsWith("/transportes")) {
+      return { title: "Transportes", landscape: true, hidePrint: false };
+    }
+    if (path.endsWith("/hoteleria")) {
+      return { title: "Hotelería", landscape: false, hidePrint: false };
+    }
+    return { title: "Artista", landscape: false, hidePrint: false };
+  }
+
+  if (isFimbaArtistasPath(path, edicionId)) {
+    return { title: "Artistas", landscape: true, hidePrint: false };
+  }
+
+  for (const seg of LANDSCAPE_SEGMENTS) {
+    if (isFimbaSectionPath(path, edicionId, seg)) {
+      const label = SECTIONS.find((s) => s.segment === seg)?.label || seg;
+      return { title: label, landscape: true, hidePrint: false };
+    }
+  }
+
+  if (isFimbaSectionPath(path, edicionId, "hoteleria")) {
+    return { title: "Hotelería", landscape: false, hidePrint: false };
+  }
+  if (isFimbaSectionPath(path, edicionId, "rider")) {
+    return { title: "Rider", landscape: false, hidePrint: false };
+  }
+  if (isFimbaSectionPath(path, edicionId, "usuarios")) {
+    return { title: "Usuarios", landscape: false, hidePrint: false };
+  }
+
+  return { title: "FIMBA", landscape: false, hidePrint: false };
+}
+
 /**
  * Segmented control: Artistas | Agenda | Transportes | Hotelería | Venues | Backline | Rider | Contrataciones | Usuarios.
  * Always targets `/fimba/edicion/:edicionId/...` — never appends `/artista/:id`.

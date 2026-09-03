@@ -2534,7 +2534,7 @@ export default function FimbaTransportPage() {
           >
             <IconClock size={16} /> Trayectos
           </h2>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div className="fimba-no-print" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             {!readOnly && (
               <button
                 type="button"
@@ -2725,6 +2725,7 @@ export default function FimbaTransportPage() {
 
         {vehiculos.length > 0 && (
           <div
+            className="fimba-no-print"
             style={{
               display: "flex",
               alignItems: "center",
@@ -2844,6 +2845,7 @@ export default function FimbaTransportPage() {
                     <th>Detalle</th>
                     <th>Locación</th>
                     <th
+                      className="fimba-planilla-insert-col"
                       title="Insertar evento intermedio (completa hasta→desde entre esta parada y la siguiente)"
                       style={{ width: 36, textAlign: "center", padding: "0.4rem 0.15rem" }}
                     >
@@ -3597,6 +3599,7 @@ export default function FimbaTransportPage() {
                           )}
                         </td>
                         <td
+                          className="fimba-planilla-insert-col"
                           style={{
                             textAlign: "center",
                             padding: "0.25rem 0.15rem",

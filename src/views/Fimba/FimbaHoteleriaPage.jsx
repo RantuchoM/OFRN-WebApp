@@ -506,6 +506,7 @@ export default function FimbaHoteleriaPage() {
       )}
 
       <div
+        className="fimba-no-print"
         style={{
           display: "flex",
           flexWrap: "wrap",

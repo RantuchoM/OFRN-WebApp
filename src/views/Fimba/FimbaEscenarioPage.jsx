@@ -72,12 +72,33 @@ export default function FimbaEscenarioPage() {
   }
 
   return (
-    <StagePlotStandalonePage
-      plotId={plotId || null}
-      programId={edicion.id_gira}
-      canEdit={!readOnly}
-      backTo={backTo}
-      backLabel="Volver a Backline"
-    />
+    <>
+      <style>{`
+        .fimba-escenario-print-note { display: none; }
+        @media print {
+          .fimba-escenario-print-note {
+            display: block;
+            margin: 0 0 12px;
+            padding: 10px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #334155;
+          }
+        }
+      `}</style>
+      <p className="fimba-escenario-print-note">
+        El lienzo de escenario (RiderMaker) no se captura bien con Imprimir /
+        Guardar como PDF. Volvé a Backline e imprimí la planilla, o usá una
+        captura del visor.
+      </p>
+      <StagePlotStandalonePage
+        plotId={plotId || null}
+        programId={edicion.id_gira}
+        canEdit={!readOnly}
+        backTo={backTo}
+        backLabel="Volver a Backline"
+      />
+    </>
   );
 }

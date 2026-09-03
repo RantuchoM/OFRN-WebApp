@@ -313,6 +313,7 @@ export default function FimbaEdicionPage() {
       ) : (
         <>
           <div
+            className="fimba-no-print"
             style={{
               display: "flex",
               flexWrap: "wrap",

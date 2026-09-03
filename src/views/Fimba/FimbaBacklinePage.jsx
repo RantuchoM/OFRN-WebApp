@@ -2460,7 +2460,7 @@ export default function FimbaBacklinePage() {
         </div>
       )}
 
-      <div className="fimba-card" style={{ marginBottom: "1rem" }}>
+      <div className="fimba-card fimba-no-print" style={{ marginBottom: "1rem" }}>
         <div
           className="fimba-grid-2"
           style={{

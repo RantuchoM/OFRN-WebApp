@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { useAuth } from "../../context/AuthContext";
@@ -11,8 +11,12 @@ import {
 import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
-import { IconLogOut } from "../../components/ui/Icons";
-import FimbaSectionToggle, { parseFimbaSectionIds } from "./FimbaSectionToggle";
+import { IconLogOut, IconPrinter } from "../../components/ui/Icons";
+import { getFimbaEdicionById } from "../../services/fimbaService";
+import FimbaSectionToggle, {
+  parseFimbaSectionIds,
+  resolveFimbaPrintMeta,
+} from "./FimbaSectionToggle";
 
 const FIMBA_CSS = `
   /* Tokens on root + portaled modals (createPortal → document.body leaves .fimba-root) */
@@ -664,7 +668,17 @@ const FIMBA_CSS = `
     padding-right: 0.75rem !important;
     white-space: nowrap;
   }
-  /* Pause divider: "+" sit on top/bottom-left dashed border vertices */
+  /*
+    Pause divider: "+" on top/bottom-left dashed border vertices.
+    Do NOT use translateX(-50%) with left:0 — .fimba-planilla-scroll
+    (overflow-x: auto) clips anything past the left scrollport edge.
+    Inset left by half button width so the full control stays inside
+    while still sitting on the corner; raise stacking above OFRN/sticky rows.
+  */
+  .fimba-pause-divider-row {
+    position: relative;
+    z-index: 7;
+  }
   .fimba-pause-divider-row > td {
     position: relative;
     overflow: visible;
@@ -682,8 +696,8 @@ const FIMBA_CSS = `
   }
   .fimba-pause-divider-add {
     position: absolute;
-    left: 0;
-    z-index: 2;
+    left: 11px; /* half of min-width 22px — flush left edge, fully inside scrollport */
+    z-index: 8;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -693,14 +707,16 @@ const FIMBA_CSS = `
     line-height: 1;
     color: #0e7490;
     border-radius: 999px;
+    background: #ffffff;
+    box-shadow: 0 0 0 1px rgba(14, 116, 144, 0.25);
   }
   .fimba-pause-divider-add--top {
     top: 0;
-    transform: translate(-50%, -50%);
+    transform: translateY(-50%);
   }
   .fimba-pause-divider-add--bottom {
     bottom: 0;
-    transform: translate(-50%, 50%);
+    transform: translateY(50%);
   }
   .fimba-card {
     background: var(--fimba-surface);
@@ -1590,6 +1606,139 @@ const FIMBA_CSS = `
     0%, 100% { opacity: 1; }
     50% { opacity: 0.45; }
   }
+
+  .fimba-print-banner {
+    display: none;
+  }
+  .fimba-print-btn {
+    flex-shrink: 0;
+  }
+
+  @media print {
+    @page {
+      margin: 10mm;
+    }
+    html, body {
+      height: auto !important;
+      overflow: visible !important;
+      background: #fff !important;
+    }
+    .fimba-root,
+    .fimba-root * {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .fimba-root {
+      min-height: 0;
+      background: #fff !important;
+    }
+    .fimba-print-banner {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin: 0 0 0.65rem;
+      padding: 0 0 0.45rem;
+      border-bottom: 1.5px solid #94216d;
+      font-size: 0.78rem;
+      color: #222;
+    }
+    .fimba-print-banner-title {
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      color: #94216d;
+    }
+    .fimba-print-banner-meta {
+      color: #5c5c5c;
+      font-weight: 600;
+    }
+    .fimba-no-print,
+    .fimba-print-btn,
+    .fimba-header-actions,
+    .fimba-section-toggle,
+    .fimba-col-actions,
+    .fimba-planilla-actions,
+    .fimba-planilla-insert-col,
+    .fimba-planilla-board-add,
+    .fimba-planilla-board-chip-x,
+    .fimba-pause-divider-add,
+    .fimba-expand-btn,
+    .fimba-sync-col,
+    .fimba-sticky-sync,
+    .fimba-agenda-filters-row,
+    .fimba-agenda-actions-row,
+    .fimba-agenda-clear-filters,
+    .fimba-agenda-copy-link,
+    .fimba-agenda-active-filters-actions,
+    .ql-toolbar,
+    .fimba-modal-backdrop,
+    .fimba-stay-event-modal-backdrop,
+    .fimba-transito-tooltip,
+    [data-sonner-toaster] {
+      display: none !important;
+    }
+    .fimba-root button.fimba-btn,
+    .fimba-root a.fimba-btn,
+    .fimba-brand-sub {
+      display: none !important;
+    }
+    .fimba-header {
+      position: static;
+      backdrop-filter: none;
+      background: #fff;
+      border-bottom: none;
+    }
+    .fimba-header-inner,
+    .fimba-main {
+      width: 100%;
+      max-width: none;
+      padding: 0;
+      margin: 0;
+    }
+    .fimba-header-inner {
+      display: block;
+    }
+    .fimba-agenda-scroll,
+    .fimba-planilla-scroll,
+    .fimba-artistas-scroll {
+      overflow: visible !important;
+      max-width: none !important;
+    }
+    .fimba-agenda-table,
+    .fimba-planilla-table,
+    .fimba-artistas-table,
+    .fimba-table {
+      width: 100% !important;
+      min-width: 0 !important;
+    }
+    .fimba-planilla-table th,
+    .fimba-planilla-table td,
+    .fimba-artistas-table th,
+    .fimba-artistas-table td {
+      white-space: normal;
+    }
+    .fimba-agenda-table thead th,
+    .fimba-planilla-table thead th,
+    .fimba-planilla-table .fimba-sticky-origen,
+    .fimba-planilla-table .fimba-sticky-fecha,
+    .fimba-planilla-table .fimba-sticky-hora {
+      position: static !important;
+      left: auto !important;
+      box-shadow: none;
+    }
+    .fimba-table tr,
+    .fimba-agenda-table tr,
+    .fimba-planilla-table tr,
+    .fimba-artistas-table tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .fimba-card {
+      break-inside: avoid;
+      box-shadow: none;
+    }
+  }
 `;
 
 export default function FimbaLayout({ mode = "staff", subtitle, children }) {
@@ -1701,9 +1850,43 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
             ? FIMBA_ROLE_LABELS[fimbaUser?.rol_fimba] || "Edición"
             : "Staff");
 
+  const printMeta = useMemo(
+    () => resolveFimbaPrintMeta(location.pathname),
+    [location.pathname],
+  );
+  const [edicionNombre, setEdicionNombre] = useState("");
+
+  useEffect(() => {
+    if (!brandEdicionId) {
+      setEdicionNombre("");
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      const { edicion } = await getFimbaEdicionById(brandEdicionId);
+      if (!cancelled) setEdicionNombre(edicion?.nombre || "");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [brandEdicionId]);
+
+  const printEditionLabel =
+    edicionNombre || subtitle || (brandEdicionId ? `Edición ${brandEdicionId}` : "FIMBA");
+  const printDateLabel = new Date().toLocaleString("es-AR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+
   return (
-    <div className="fimba-root">
+    <div
+      className="fimba-root"
+      data-fimba-print={printMeta.landscape ? "landscape" : "portrait"}
+    >
       <style>{FIMBA_CSS}</style>
+      {printMeta.landscape && (
+        <style>{`@media print { @page { size: landscape; margin: 10mm; } }`}</style>
+      )}
       <link
         rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800&family=Rubik:wght@400;600;700&display=swap"
@@ -1717,7 +1900,25 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
             </span>
             <span className="fimba-brand-sub">{brandSub}</span>
           </Link>
+          <div className="fimba-print-banner" aria-hidden="true">
+            <span className="fimba-print-banner-title">
+              FIMBA · {printEditionLabel} · {printMeta.title}
+            </span>
+            <span className="fimba-print-banner-meta">
+              Impreso {printDateLabel}
+            </span>
+          </div>
           <div className="fimba-header-actions">
+            {!printMeta.hidePrint && (
+              <button
+                type="button"
+                className="fimba-btn fimba-btn-ghost fimba-print-btn"
+                onClick={() => window.print()}
+                title="Abre el diálogo de impresión del sistema. Elegí Guardar como PDF para exportar."
+              >
+                <IconPrinter size={14} /> Imprimir / PDF
+              </button>
+            )}
             {showSectionToggle && <FimbaSectionToggle />}
             {showSalir && (
               <div

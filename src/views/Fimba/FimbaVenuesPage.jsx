@@ -514,7 +514,7 @@ export default function FimbaVenuesPage() {
 
       {error && <div className="fimba-error" style={{ marginBottom: "1rem" }}>{error}</div>}
 
-      <div className="fimba-card" style={{ marginBottom: "1rem" }}>
+      <div className="fimba-card fimba-no-print" style={{ marginBottom: "1rem" }}>
         <div className="fimba-grid-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
           <DateInput label="Fecha desde" value={dateFrom} onChange={setDateFrom} />
           <DateInput label="Fecha hasta" value={dateTo} onChange={setDateTo} />
