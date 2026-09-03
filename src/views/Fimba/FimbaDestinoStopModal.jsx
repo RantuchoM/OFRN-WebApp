@@ -11,7 +11,8 @@ import {
  * Crea la parada siguiente (intermedia si ya hay next; cola si no) con:
  * - hora_inicio = Hora Fin del tramo actual (prefill desde context.schedule)
  * - id_locacion = lugar elegido (lugar de salida de la nueva parada)
- * Y fija `hora_fin` en la parada actual = esa misma hora (tramo explícito).
+ * Y no persiste `hora_fin` en la parada actual (el tramo termina en la hora
+ * com de la parada creada, derivada).
  */
 export default function FimbaDestinoStopModal({
   context,

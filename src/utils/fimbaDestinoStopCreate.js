@@ -11,7 +11,9 @@ import {
 
 /**
  * Prefill fecha/hora_inicio para crear parada destino (intermedia o cola).
- * Hora Fin del actual (form o persistida; si vacía, cyan next / midpoint / +30m).
+ * Hora del formulario (si hay) = hora_inicio de la nueva parada.
+ * Si no: hora com del next asignado (`resolveHoraFinDisplay`); si tampoco,
+ * midpoint / +30m. Ya no se usa `hora_fin` persistida del evento actual.
  *
  * @param {object|null|undefined} currentEv
  * @param {object|null|undefined} nextEv
@@ -19,11 +21,17 @@ import {
  * @returns {{ fecha: string|null, hora_inicio: string|null }}
  */
 export function buildDestinoStopSchedule(currentEv, nextEv, horaFinFromForm) {
-  const evForFin =
-    horaFinFromForm !== undefined
-      ? { ...currentEv, hora_fin: horaFinFromForm || null }
-      : currentEv;
-  const finDisp = resolveHoraFinDisplay(evForFin, nextEv);
+  const formVal =
+    horaFinFromForm != null && String(horaFinFromForm).trim() !== ""
+      ? String(horaFinFromForm).trim().slice(0, 5)
+      : null;
+  if (formVal) {
+    return {
+      fecha: String(currentEv?.fecha || "").slice(0, 10) || null,
+      hora_inicio: formVal,
+    };
+  }
+  const finDisp = resolveHoraFinDisplay(currentEv, nextEv);
   if (finDisp.value) {
     return {
       fecha: String(currentEv?.fecha || "").slice(0, 10) || null,
@@ -38,7 +46,9 @@ export function buildDestinoStopSchedule(currentEv, nextEv, horaFinFromForm) {
 }
 
 /**
- * Crea parada destino en la secuencia del vehículo y fija hora_fin en la actual.
+ * Crea parada destino en la secuencia del vehículo.
+ * El tramo actual termina en la hora com de esta parada nueva (derivado,
+ * no se guarda `hora_fin` huérfana en el evento anterior).
  * Misma regla que `FimbaDestinoStopModal` / «Elegir destino…».
  *
  * @param {{
@@ -138,7 +148,7 @@ export async function createDestinoStopEvent({
   const { error: patchErr } = await patchFimbaEventoPlanilla(currentEv.id, {
     fecha: currentEv.fecha,
     hora_inicio: currentEv.hora_inicio,
-    hora_fin: horaVal,
+    hora_fin: null,
     actividad: decoded.actividad || currentEv.actividad || "",
     vuelo: decoded.vuelo || currentEv.vuelo || "",
     stripDestino: true,
@@ -149,7 +159,7 @@ export async function createDestinoStopEvent({
       evento,
       error: new Error(
         patchErr.message ||
-          "Parada creada, pero no se pudo fijar la hora fin del tramo anterior",
+          "Parada creada, pero no se pudo limpiar la hora fin del tramo anterior",
       ),
     };
   }

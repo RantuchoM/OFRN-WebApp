@@ -67,6 +67,7 @@ function StopCell({
   propuesta,
   vehicleId,
   eventId,
+  sortedEvents = [],
   allRutas,
   vehicleLibres,
   bajadaOpt,
@@ -91,6 +92,8 @@ function StopCell({
     if (!propuesta) return 1;
     const usage = computeArtistaTransporteUsage(propuesta, allRutas, {
       excludeRutaIds: ruta?.id ? [ruta.id] : [],
+      eventId,
+      sortedEvents,
     });
     const n = defaultArtistaAssignPlazas({
       remaining: usage.remaining,
@@ -513,6 +516,8 @@ export default function FimbaEventoArtistasBoardingTable({
       const existing = rutaFor(propId, "up");
       const usage = computeArtistaTransporteUsage(p, allRutas, {
         excludeRutaIds: existing?.id ? [existing.id] : [],
+        eventId: event?.id,
+        sortedEvents,
       });
       const check = validateArtistaTransporteAssign(
         p,
@@ -538,6 +543,7 @@ export default function FimbaEventoArtistasBoardingTable({
       observaciones_equipaje: payload.observaciones_equipaje,
       skipCapAssert: true,
       propuesta: p || null,
+      sortedEvents,
     };
     let res = await upsertFimbaPropuestaRutaStop(upsertPayload);
     if (res.conflict) {
@@ -888,6 +894,7 @@ export default function FimbaEventoArtistasBoardingTable({
                             propuesta={p}
                             vehicleId={vehicleId}
                             eventId={event?.id}
+                            sortedEvents={sortedEvents}
                             allRutas={allRutas}
                             vehicleLibres={vehicleLibres}
                             disabled={!canEditBoarding}
@@ -906,6 +913,7 @@ export default function FimbaEventoArtistasBoardingTable({
                             propuesta={p}
                             vehicleId={vehicleId}
                             eventId={event?.id}
+                            sortedEvents={sortedEvents}
                             allRutas={allRutas}
                             vehicleLibres={vehicleLibres}
                             bajadaOpt={bajadaOpt}

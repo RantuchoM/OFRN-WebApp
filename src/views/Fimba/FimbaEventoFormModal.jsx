@@ -730,7 +730,12 @@ export default function FimbaEventoFormModal({
     if (Number(tipoId) !== Number(initialForm.tipoId)) return true;
     if ((fecha || "") !== (initialForm.fecha || "")) return true;
     if ((horaCom || "") !== (initialForm.horaCom || "")) return true;
-    if ((horaFin || "") !== (initialForm.horaFin || "")) return true;
+    if (
+      !usaTransporte &&
+      (horaFin || "") !== (initialForm.horaFin || "")
+    ) {
+      return true;
+    }
     if (detalleDirtyKey(actividad) !== (initialForm.actividad || "")) {
       return true;
     }
@@ -1226,7 +1231,9 @@ export default function FimbaEventoFormModal({
       const window = {
         fecha,
         hora_inicio: horaCom || null,
-        hora_fin: horaFin || null,
+        hora_fin: usaTransporte
+          ? sliceTime(transportNextEvent?.hora_inicio) || null
+          : horaFin || null,
       };
       const { byId } = await listVehiclesAvailability(
         edicion.id_gira,
@@ -1254,6 +1261,7 @@ export default function FimbaEventoFormModal({
     fecha,
     horaCom,
     horaFin,
+    transportNextEvent?.hora_inicio,
     flota,
     edicion.id_gira,
     isEdit,
@@ -1390,7 +1398,7 @@ export default function FimbaEventoFormModal({
       id_gira: edicion.id_gira,
       fecha,
       hora_inicio: horaCom || null,
-      hora_fin: horaFin || null,
+      hora_fin: usaTransporte ? null : horaFin || null,
       actividad,
       destino: usaTransporte ? "" : destino,
       id_locacion: idLocacion || null,
@@ -1580,21 +1588,39 @@ export default function FimbaEventoFormModal({
             </div>
             <div className="fimba-field">
               <label className="fimba-label">Hora fin</label>
-              <input
-                className="fimba-input"
-                type="time"
-                value={horaFin}
-                onChange={(e) => setHoraFin(e.target.value)}
-              />
               {usaTransporte ? (
-                <p
-                  className="fimba-muted"
-                  style={{ margin: "0.25rem 0 0", fontSize: "0.72rem" }}
-                >
-                  Si queda vacía, en Transportes se muestra (en cyan) la hora com
-                  de la siguiente parada del mismo vehículo.
-                </p>
-              ) : null}
+                <>
+                  <input
+                    className="fimba-input"
+                    type="time"
+                    value={sliceTime(transportNextEvent?.hora_inicio) || ""}
+                    disabled
+                    readOnly
+                    title="Hora com del siguiente evento de este vehículo"
+                  />
+                  <p
+                    className="fimba-muted"
+                    style={{
+                      margin: "0.25rem 0 0",
+                      fontSize: "0.72rem",
+                      fontStyle: sliceTime(transportNextEvent?.hora_inicio)
+                        ? "italic"
+                        : undefined,
+                    }}
+                  >
+                    {sliceTime(transportNextEvent?.hora_inicio)
+                      ? "Derivada del siguiente evento de este vehículo (cian en la planilla)."
+                      : "Sin siguiente evento con hora en este vehículo — no se inventa un fin."}
+                  </p>
+                </>
+              ) : (
+                <input
+                  className="fimba-input"
+                  type="time"
+                  value={horaFin}
+                  onChange={(e) => setHoraFin(e.target.value)}
+                />
+              )}
             </div>
           </div>
           <div className="fimba-field">

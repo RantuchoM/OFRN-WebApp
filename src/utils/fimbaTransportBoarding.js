@@ -288,6 +288,57 @@ export function nextEventInVehicleSequence(seq, eventId) {
   return sorted[idx + 1] || null;
 }
 
+/**
+ * ¿El evento está asignado a esta unidad (flota FIMBA u OFRN)?
+ * No alcanza ser solo endpoint de una ruta ↑/↓ de otro vehículo.
+ *
+ * @param {object|null|undefined} ev
+ * @param {number|string} idGiraTransporte
+ */
+export function eventAssignedToGiraTransporte(ev, idGiraTransporte) {
+  const tid = Number(idGiraTransporte);
+  if (!Number.isFinite(tid) || !ev) return false;
+  if (
+    ev.id_gira_transporte != null &&
+    ev.id_gira_transporte !== "" &&
+    Number(ev.id_gira_transporte) === tid
+  ) {
+    return true;
+  }
+  for (const r of ev.vehiculos || []) {
+    if (Number(r?.id_gira_transporte) === tid) return true;
+  }
+  return false;
+}
+
+/**
+ * Siguiente parada **asignada a esta unidad** (planilla / agenda del vehículo).
+ * Omite endpoints de ride que viven en otra camioneta (no inventan hora fin
+ * ni destino de este tramo).
+ *
+ * @param {{ sortedEvents?: Array<object> }|null|undefined} seq
+ * @param {unknown} eventId
+ * @param {number|string|null|undefined} idGiraTransporte
+ */
+export function nextAssignedStopInVehicleSequence(
+  seq,
+  eventId,
+  idGiraTransporte,
+) {
+  const sorted = seq?.sortedEvents;
+  if (!sorted?.length) return null;
+  const idx = indexOfEvent(sorted, eventId);
+  if (idx < 0) return null;
+  const tid = Number(idGiraTransporte);
+  if (!Number.isFinite(tid)) {
+    return sorted[idx + 1] || null;
+  }
+  for (let i = idx + 1; i < sorted.length; i++) {
+    if (eventAssignedToGiraTransporte(sorted[i], tid)) return sorted[i];
+  }
+  return null;
+}
+
 /** Placeholder UI cuando no hay siguiente parada en la secuencia del vehículo. */
 export const TRANSPORT_DESTINO_SIN_SIGUIENTE = "Sin siguiente parada";
 
@@ -341,7 +392,24 @@ export function resolveTransportDestinoFromNextStop(
     };
   }
 
-  const nextEvent = nextEventInVehicleSequence(seq, event.id);
+  let tid = vehicleId != null && vehicleId !== "" ? Number(vehicleId) : NaN;
+  if (!Number.isFinite(tid) && seq?.sortedEvents) {
+    for (const r of event?.vehiculos || []) {
+      const n = Number(r?.id_gira_transporte);
+      if (Number.isFinite(n)) {
+        tid = n;
+        break;
+      }
+    }
+    if (
+      !Number.isFinite(tid) &&
+      event?.id_gira_transporte != null &&
+      event.id_gira_transporte !== ""
+    ) {
+      tid = Number(event.id_gira_transporte);
+    }
+  }
+  const nextEvent = nextAssignedStopInVehicleSequence(seq, event.id, tid);
   return {
     nextEvent,
     label: formatNextStopDestino(nextEvent),
@@ -371,23 +439,24 @@ export function formatNextStopDestino(nextEv) {
 }
 
 /**
- * Hora fin planilla: valor guardado `hora_fin`, o si vacío la `hora_inicio` (hora com)
- * del siguiente evento del mismo vehículo.
+ * Hora fin del tramo = hora com del **siguiente evento asignado** a la unidad.
+ * No se usa `eventos.hora_fin` guardada (huérfana / desconectada de la agenda).
+ * Sin next con hora → no inventar un valor (UI muestra "—").
  *
  * @param {object|null|undefined} ev
- * @param {object|null|undefined} nextEv
- * @returns {{ value: string|null, isCalculated: boolean }}
+ * @param {object|null|undefined} nextEv — next asignado a este vehículo
+ * @returns {{ value: string|null, isCalculated: boolean, source: 'next_event'|'missing' }}
  */
-export function resolveHoraFinDisplay(ev, nextEv) {
-  const raw = ev?.hora_fin;
-  if (raw != null && String(raw).trim() !== "") {
-    return { value: String(raw).slice(0, 5), isCalculated: false };
-  }
+export function resolveHoraFinDisplay(_ev, nextEv) {
   const nextCom = nextEv?.hora_inicio;
   if (nextCom != null && String(nextCom).trim() !== "") {
-    return { value: String(nextCom).slice(0, 5), isCalculated: true };
+    return {
+      value: String(nextCom).slice(0, 5),
+      isCalculated: true,
+      source: "next_event",
+    };
   }
-  return { value: null, isCalculated: false };
+  return { value: null, isCalculated: false, source: "missing" };
 }
 
 /**
@@ -456,9 +525,9 @@ export function defaultIntermediateStopSchedule(currentEv, nextEv) {
  * Prefill for «Insertar evento» / completar hueco hasta→desde between two
  * chronological neighbors (Agenda same-day list or Transportes vehicle sequence).
  *
- * - `hora_inicio` = effective fin of previous (`hora_fin` stored, else cyan
- *   calculated next-stop `hora_inicio` via `resolveHoraFinDisplay`).
- * - `hora_fin` = next's `hora_inicio` when inserting between; null if only after.
+ * - `hora_inicio` = fin del tramo previo = `hora_inicio` del next asignado
+ *   (`resolveHoraFinDisplay`). Ya no se usa `hora_fin` persistida huérfana.
+ * - `hora_fin` del draft = `hora_inicio` del next al insertar entre; null si es cola.
  * - No usable fin and no next → same +30m fallback as midpoint helper.
  * - Overnight / degenerate (calculated fin equals next start): still prefill
  *   those times; user can adjust in the create modal. Fecha stays on previous
@@ -1759,8 +1828,13 @@ export function boardingMetricsForEventRow(
     }
   }
 
-  // Destino / hora fin: siguiente parada cronológica del vehículo primary
-  const next_event = nextEventInVehicleSequence(primary?.seq, ev.id);
+  // Destino / hora fin: siguiente parada **asignada** a esta unidad (no
+  // endpoints de ride que viven en otro vehículo).
+  const next_event = nextAssignedStopInVehicleSequence(
+    primary?.seq,
+    ev.id,
+    primary?.id_gira_transporte,
+  );
   const destino_siguiente = formatNextStopDestino(next_event);
   const hora_fin_display = resolveHoraFinDisplay(ev, next_event);
 

@@ -237,8 +237,12 @@ export default function FimbaStopRulesManager({
     const excludeRutaIds = existingRutaForSelection?.id
       ? [existingRutaForSelection.id]
       : [];
-    return computeArtistaTransporteUsage(p, allRutas, { excludeRutaIds });
-  }, [propuestaId, propuestas, allRutas, existingRutaForSelection]);
+    return computeArtistaTransporteUsage(p, allRutas, {
+      excludeRutaIds,
+      eventId: event?.id,
+      sortedEvents,
+    });
+  }, [propuestaId, propuestas, allRutas, existingRutaForSelection, event?.id, sortedEvents]);
 
   const explicitPlazasAtStop = useMemo(
     () =>
@@ -277,6 +281,8 @@ export default function FimbaStopRulesManager({
       ) || null;
     const usage = computeArtistaTransporteUsage(p, allRutas, {
       excludeRutaIds: existing?.id ? [existing.id] : [],
+      eventId: event?.id,
+      sortedEvents,
     });
     const n = defaultArtistaAssignPlazas({
       remaining: usage.remaining,
@@ -315,7 +321,7 @@ export default function FimbaStopRulesManager({
     if (!propuestaId || !isOpen) return;
     setPlazas(String(defaultPlazasForPropuesta(propuestaId)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vehicleId, allRutas, vehicleLibres]);
+  }, [vehicleId, allRutas, vehicleLibres, sortedEvents, event?.id]);
 
   const luggagePayloadFromForm = () => ({
     asientos_equipaje: Math.max(0, Number(asientosEquipaje) || 0),
@@ -336,6 +342,8 @@ export default function FimbaStopRulesManager({
       if (full) {
         const usage = computeArtistaTransporteUsage(full, allRutas, {
           excludeRutaIds: [ruta.id],
+          eventId: event?.id,
+          sortedEvents,
         });
         const check = validateArtistaTransporteAssign(full, usage.used, n);
         if (!check.ok) {
@@ -356,6 +364,7 @@ export default function FimbaStopRulesManager({
       replaceConflict: true,
       asientos_equipaje: Math.max(0, Number(ruta.asientos_equipaje) || 0),
       observaciones_equipaje: ruta.observaciones_equipaje ?? null,
+      sortedEvents,
     });
     if (res.error) {
       setError(res.error.message || "No se pudo actualizar la regla");
@@ -385,6 +394,7 @@ export default function FimbaStopRulesManager({
         patch.observaciones_equipaje !== undefined
           ? patch.observaciones_equipaje
           : ruta.observaciones_equipaje ?? null,
+      sortedEvents,
     });
     if (res.error) {
       setError(res.error.message || "No se pudo actualizar equipaje");
@@ -444,6 +454,7 @@ export default function FimbaStopRulesManager({
       type,
       id_evento: event.id,
       replaceConflict: false,
+      sortedEvents,
       ...luggage,
     });
     if (res.conflict) {
@@ -458,6 +469,7 @@ export default function FimbaStopRulesManager({
           type,
           id_evento: event.id,
           replaceConflict: true,
+          sortedEvents,
           ...luggage,
         });
       } else {
@@ -638,7 +650,6 @@ export default function FimbaStopRulesManager({
                       <IconLoader size={16} className="animate-spin" /> Cargando…
                     </div>
                   ) : rutas.length === 0 &&
-                    !canEditReserva &&
                     residualUp <= 0 &&
                     residualAlight <= 0 &&
                     reservaNum <= 0 ? (
@@ -661,7 +672,11 @@ export default function FimbaStopRulesManager({
                         const usage = computeArtistaTransporteUsage(
                           full,
                           allRutas,
-                          {},
+                          {
+                            excludeRutaIds: [r.id],
+                            eventId: event?.id,
+                            sortedEvents,
+                          },
                         );
                         const sync = ruleSync[r.id];
                         return (
@@ -789,8 +804,7 @@ export default function FimbaStopRulesManager({
                       })}
 
                       {/* Reserva técnica / residual visible */}
-                      {(canEditReserva ||
-                        residualUp > 0 ||
+                      {(residualUp > 0 ||
                         residualAlight > 0 ||
                         reservaNum > 0) && (
                         <li className="px-3 py-2 flex justify-between items-start gap-2 bg-amber-50/60">
@@ -878,7 +892,10 @@ export default function FimbaStopRulesManager({
                               const usage = computeArtistaTransporteUsage(
                                 p,
                                 allRutas,
-                                {},
+                                {
+                                  eventId: event?.id,
+                                  sortedEvents,
+                                },
                               );
                               return (
                                 <option key={p.id} value={p.id}>
@@ -1002,6 +1019,33 @@ export default function FimbaStopRulesManager({
                       también guarda la regla.
                     </p>
                   )}
+                  {canEditReserva && reservaNum <= 0 ? (
+                    <div className="flex items-center gap-2 pt-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
+                        Reserva técnica
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        className="w-14 text-xs border rounded px-1.5 py-1 text-center outline-none focus:border-pink-500 bg-white"
+                        value={reservaPlazas}
+                        disabled={saving}
+                        onChange={(e) => {
+                          setReservaPlazas(e.target.value);
+                          setReservaSync("dirty");
+                        }}
+                        onBlur={handleSaveReserva}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.currentTarget.blur();
+                        }}
+                        aria-label="Reserva técnica del evento"
+                        title="Cupo anónimo (staff/TBD). 0 = no ocupa asientos. Artistas nombrados van en Sube."
+                      />
+                      <span className="text-[10px] text-slate-400">
+                        (opcional, no bloquea Sube)
+                      </span>
+                    </div>
+                  ) : null}
                   <button
                     type="button"
                     onClick={handleAdd}

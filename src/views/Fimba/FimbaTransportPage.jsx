@@ -131,7 +131,6 @@ function SyncDot({ status, error, sticky = false }) {
 const EVENT_PLANILLA_FIELDS = [
   "fecha",
   "hora_inicio",
-  "hora_fin",
   "actividad",
   "vuelo",
   "observaciones",
@@ -1210,9 +1209,8 @@ export default function FimbaTransportPage() {
 
   /**
    * Destino → crea la parada siguiente (intermedia si hay next; cola si no).
-   * Regla: Hora Fin del actual (= form override o persistida; si vacía, cyan /
-   * next.hora_inicio vía resolveHoraFinDisplay; si tampoco, midpoint/+30m)
-   * pasa a ser hora_inicio de la parada creada. Locación elegida → id_locacion.
+   * Prefill: hora com del next asignado, o form, o midpoint/+30m.
+   * No se guarda hora_fin en el evento actual.
    */
   const openDestinoStop = (ev, metrics, opts = {}) => {
     const vehicleId =
@@ -1365,7 +1363,6 @@ export default function FimbaTransportPage() {
         {
           fecha: draft.fecha,
           hora_inicio: draft.hora_inicio,
-          hora_fin: draft.hora_fin,
           actividad: draft.actividad,
           vuelo: draft.vuelo,
           observaciones: draft.observaciones,
@@ -2471,7 +2468,7 @@ export default function FimbaTransportPage() {
                     <th className="fimba-sticky-fecha">Fecha</th>
                     <th
                       className="fimba-sticky-hora"
-                      title="Hora de comienzo · hora de fin (calculada en itálico si no está guardada)"
+                      title="Hora de comienzo · hora de fin = hora com del siguiente evento de este vehículo (cian itálico). Sin siguiente con hora → —"
                     >
                       Com · Fin
                     </th>
@@ -2553,7 +2550,7 @@ export default function FimbaTransportPage() {
                         ? metrics.destino_siguiente
                         : TRANSPORT_DESTINO_SIN_SIGUIENTE;
                     const horaFinDisp = metrics.hora_fin_display || {
-                      value: ev.hora_fin ? String(ev.hora_fin).slice(0, 5) : null,
+                      value: null,
                       isCalculated: false,
                     };
                     const enTransito = stop?.en_transito;
@@ -2726,7 +2723,7 @@ export default function FimbaTransportPage() {
                           title={
                             readOnly
                               ? undefined
-                              : "Doble clic para editar comienzo / fin"
+                              : "Doble clic para editar hora de comienzo (la fin es la del siguiente evento)"
                           }
                           style={
                             !readOnly && !isCellEditing(ev.id, "hora")
@@ -2763,12 +2760,14 @@ export default function FimbaTransportPage() {
                               <input
                                 className="fimba-cell-input"
                                 type="time"
-                                value={evDraft.hora_fin || ""}
-                                disabled={evSaving}
-                                title="Hora fin (vacío = calculada desde la siguiente parada)"
-                                onChange={(e) =>
-                                  setEventField(ev.id, "hora_fin", e.target.value)
+                                value={horaFinDisp.value || ""}
+                                disabled
+                                title={
+                                  horaFinDisp.isCalculated
+                                    ? "Hora com del siguiente evento de este vehículo (no se guarda en este evento)"
+                                    : "Sin siguiente evento con hora en este vehículo"
                                 }
+                                readOnly
                               />
                             </div>
                           ) : (
@@ -2781,8 +2780,8 @@ export default function FimbaTransportPage() {
                                 <span
                                   title={
                                     horaFinDisp.isCalculated
-                                      ? "Calculada: hora com de la siguiente parada del mismo vehículo (sin hora fin guardada)"
-                                      : "Hora fin guardada en el evento"
+                                      ? "Hora com del siguiente evento asignado a este vehículo"
+                                      : "Sin siguiente evento con hora en la agenda de este vehículo"
                                   }
                                   style={
                                     horaFinDisp.isCalculated
