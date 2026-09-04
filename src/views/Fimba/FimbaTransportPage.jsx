@@ -289,14 +289,14 @@ function PlanillaBoardCell({
             return (
               <span
                 key={chip.key}
-                className={`fimba-planilla-board-chip${chip.kind === "ofrn" ? " fimba-planilla-board-chip-ofrn" : ""}`}
+                className={`fimba-planilla-board-chip${chip.kind === "ofrn" ? " fimba-planilla-board-chip-ofrn" : ""}${chip.es_chofer ? " fimba-planilla-board-chip-chofer" : ""}`}
                 title={
                   chip.title ||
                   (chip.kind === "ofrn"
                     ? "Orquesta OFRN — clic para reglas de ruta"
                     : chip.kind === "synthetic"
                       ? `${chip.label}: ${chip.plazas} plaza${chip.plazas === 1 ? "" : "s"} (reserva técnica anónima)`
-                      : `${chip.label}: ${chip.plazas} plaza${chip.plazas === 1 ? "" : "s"}`)
+                      : `${chip.label}: ${chip.plazas} plaza${chip.plazas === 1 ? "" : "s"}${chip.es_chofer ? " · Chofer (sin cupo)" : ""}`)
                 }
                 onClick={
                   canEdit && (chip.kind === "ofrn" || chip.kind === "synthetic")
@@ -330,6 +330,11 @@ function PlanillaBoardCell({
                 <span className="fimba-planilla-board-chip-label">
                   {formatBoardChipLabel(chip.label, chip.plazas)}
                 </span>
+                {chip.es_chofer ? (
+                  <span className="fimba-planilla-board-chip-chofer-tag">
+                    Chofer
+                  </span>
+                ) : null}
                 {canEdit && chip.removable ? (
                   <button
                     type="button"
@@ -605,6 +610,8 @@ export default function FimbaTransportPage() {
   /** id de la fila origen mientras «+» crea la parada intermedia (null = idle). */
   const [creatingIntermediateFromId, setCreatingIntermediateFromId] =
     useState(null);
+  /** id del evento mientras se elimina la fila (gray/pulse). */
+  const [deletingEventId, setDeletingEventId] = useState(null);
   /** Spinner full-page solo en la primera carga de la edición. */
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -1255,6 +1262,7 @@ export default function FimbaTransportPage() {
       : null;
 
   const handleDelete = async (ev) => {
+    if (deletingEventId != null) return;
     const label = stripHtml(ev.actividad) || ev.tipo_nombre || "trayecto";
     const ofrnNote =
       ev.es_ofrn && !ev.es_fimba
@@ -1267,12 +1275,18 @@ export default function FimbaTransportPage() {
     ) {
       return;
     }
-    const { error: err } = await deleteFimbaTraslado(ev.id);
-    if (err) {
-      setError(err.message || "No se pudo eliminar");
-      return;
+    setDeletingEventId(String(ev.id));
+    setError(null);
+    try {
+      const { error: err } = await deleteFimbaTraslado(ev.id);
+      if (err) {
+        setError(err.message || "No se pudo eliminar");
+        return;
+      }
+      await softRefresh({ eventos: true, rutas: true });
+    } finally {
+      setDeletingEventId(null);
     }
-    softRefresh({ eventos: true, rutas: true });
   };
 
   const handleDuplicate = async (ev) => {
@@ -3065,10 +3079,14 @@ export default function FimbaTransportPage() {
                     const isHighlighted = highlightEventIds.some(
                       (id) => String(id) === String(ev.id),
                     );
+                    const isDeletingRow =
+                      deletingEventId != null &&
+                      deletingEventId === String(ev.id);
                     const evRowClass = [
                       rowClass,
                       editMode ? rowStatusClass(evStatus) : "",
                       isHighlighted ? "fimba-row-highlight" : "",
+                      isDeletingRow ? "fimba-row-deleting" : "",
                     ]
                       .filter(Boolean)
                       .join(" ");
@@ -3958,9 +3976,22 @@ export default function FimbaTransportPage() {
                                 style={{ marginLeft: 4 }}
                                 onClick={() => handleDelete(ev)}
                                 onDoubleClick={(e) => e.stopPropagation()}
-                                title="Eliminar"
+                                disabled={
+                                  deletingEventId != null ||
+                                  creatingIntermediateFromId != null
+                                }
+                                aria-busy={isDeletingRow}
+                                title={
+                                  isDeletingRow
+                                    ? "Eliminando…"
+                                    : "Eliminar"
+                                }
                               >
-                                <IconTrash size={14} />
+                                {isDeletingRow ? (
+                                  <IconLoader size={14} className="animate-spin" />
+                                ) : (
+                                  <IconTrash size={14} />
+                                )}
                               </button>
                             </>
                           )}

@@ -4642,7 +4642,7 @@ export async function loadFimbaTransportLogisticsSummary(giraId) {
 // ---------------------------------------------------------------------------
 
 const FIMBA_PROPUESTA_RUTA_SELECT =
-  "id, id_propuesta, id_gira_transporte, plazas, asientos_equipaje, observaciones_equipaje, id_evento_subida, id_evento_bajada, created_at, updated_at, propuesta:id_propuesta ( id, nombre, color, cantidad_planificada, plazas_extra_materiales )";
+  "id, id_propuesta, id_gira_transporte, plazas, es_chofer, asientos_equipaje, observaciones_equipaje, id_evento_subida, id_evento_bajada, created_at, updated_at, propuesta:id_propuesta ( id, nombre, color, cantidad_planificada, plazas_extra_materiales )";
 
 /**
  * Lista rutas de artista (cantidad) de la edición: las que tocan flota de la gira.
@@ -4988,6 +4988,7 @@ async function assertPropuestaRutaWithinTransportCap(
  *   replaceConflict?: boolean,
  *   asientos_equipaje?: number|null,
  *   observaciones_equipaje?: string|null,
+ *   es_chofer?: boolean,
  *   skipCapAssert?: boolean,
  *   propuesta?: object|null,
  *   sortedEvents?: Array<{ id?: unknown }>|null,
@@ -5009,6 +5010,8 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     payload,
     "observaciones_equipaje",
   );
+  const hasEsChofer = Object.prototype.hasOwnProperty.call(payload, "es_chofer");
+  const esChofer = hasEsChofer ? Boolean(payload.es_chofer) : undefined;
   const asientosEquipaje = hasEquipajeSeats
     ? Math.max(0, Number(payload.asientos_equipaje) || 0)
     : null;
@@ -5021,6 +5024,7 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
   if (hasEquipajeObs) {
     luggagePatch.observaciones_equipaje = observacionesEquipaje;
   }
+  const choferPatch = hasEsChofer ? { es_chofer: esChofer } : {};
 
   if (!Number.isFinite(idPropuesta) || !Number.isFinite(idGt) || !Number.isFinite(idEvento)) {
     return { ruta: null, error: new Error("propuesta, vehículo y evento son requeridos") };
@@ -5048,8 +5052,10 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     sortedEvents: timeline,
   };
 
-  const assertCap = async (excludeId) => {
+  const assertCap = async (excludeId, rowEsChofer) => {
     if (skipCapAssert || type !== "up") return { error: null };
+    const asChofer = hasEsChofer ? Boolean(esChofer) : Boolean(rowEsChofer);
+    if (asChofer) return { error: null };
     return assertPropuestaRutaWithinTransportCap(
       idPropuesta,
       plazas,
@@ -5062,13 +5068,14 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     (r) => r[field] != null && String(r[field]) === String(idEvento),
   );
   if (same) {
-    const capCheck = await assertCap(same.id);
+    const capCheck = await assertCap(same.id, same.es_chofer);
     if (capCheck.error) return { ruta: null, error: capCheck.error };
     const { data, error } = await supabase
       .from("fimba_propuesta_rutas")
       .update({
         plazas,
         ...luggagePatch,
+        ...choferPatch,
         updated_at: new Date().toISOString(),
       })
       .eq("id", same.id)
@@ -5095,6 +5102,7 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
           id_evento_bajada: idEvento,
           plazas,
           ...luggagePatch,
+          ...choferPatch,
           updated_at: new Date().toISOString(),
         })
         .eq("id", openRide.id)
@@ -5123,7 +5131,7 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
         ),
       };
     }
-    const capCheck = await assertCap(openRide.id);
+    const capCheck = await assertCap(openRide.id, openRide.es_chofer);
     if (capCheck.error) return { ruta: null, error: capCheck.error };
     const { data, error } = await supabase
       .from("fimba_propuesta_rutas")
@@ -5131,6 +5139,7 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
         id_evento_subida: idEvento,
         plazas,
         ...luggagePatch,
+        ...choferPatch,
         updated_at: new Date().toISOString(),
       })
       .eq("id", openRide.id)
@@ -5159,7 +5168,7 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     return downIdx >= curIdx;
   })();
   if (bajadaOnly && bajadaOnlyUsable) {
-    const capCheck = await assertCap(bajadaOnly.id);
+    const capCheck = await assertCap(bajadaOnly.id, bajadaOnly.es_chofer);
     if (capCheck.error) return { ruta: null, error: capCheck.error };
     const { data, error } = await supabase
       .from("fimba_propuesta_rutas")
@@ -5167,6 +5176,7 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
         id_evento_subida: idEvento,
         plazas,
         ...luggagePatch,
+        ...choferPatch,
         updated_at: new Date().toISOString(),
       })
       .eq("id", bajadaOnly.id)
@@ -5176,13 +5186,14 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     return { ruta: data, error: null, completed: true };
   }
 
-  const capCheck = await assertCap(null);
+  const capCheck = await assertCap(null, esChofer);
   if (capCheck.error) return { ruta: null, error: capCheck.error };
 
   const insertRow = {
     id_propuesta: idPropuesta,
     id_gira_transporte: idGt,
     plazas,
+    es_chofer: hasEsChofer ? Boolean(esChofer) : false,
     asientos_equipaje: hasEquipajeSeats ? asientosEquipaje : 0,
     observaciones_equipaje: hasEquipajeObs ? observacionesEquipaje : null,
     id_evento_subida: idEvento,

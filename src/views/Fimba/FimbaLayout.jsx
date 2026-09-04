@@ -1008,6 +1008,40 @@ const FIMBA_CSS = `
       background: transparent;
     }
   }
+  /* Pending delete: gray + subtle pulse until async finishes */
+  .fimba-row-deleting,
+  li.fimba-row-deleting {
+    opacity: 0.55;
+    filter: grayscale(0.35);
+    pointer-events: none;
+    animation: fimba-row-deleting-pulse 1.1s ease-in-out infinite;
+  }
+  .fimba-planilla-table tr.fimba-row-deleting td {
+    opacity: 0.55;
+    filter: grayscale(0.35);
+    animation: fimba-row-deleting-pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes fimba-row-deleting-pulse {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 0.7;
+    }
+  }
+  .fimba-planilla-board-chip-chofer {
+    border-style: dashed;
+    background: #f1f5f9;
+  }
+  .fimba-planilla-board-chip-chofer .fimba-planilla-board-chip-chofer-tag {
+    font-size: 0.58rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #475569;
+    margin-left: 0.15rem;
+  }
   .fimba-badge-early {
     background: #e0f2fe;
     color: #0369a1;

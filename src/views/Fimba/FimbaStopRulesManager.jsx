@@ -35,6 +35,7 @@ import {
   FIMBA_RESERVA_EVENTO_LABEL,
   formatEventLocation,
   isTransportTipoEvent,
+  listFimbaAboardAtStop,
 } from "../../utils/fimbaTransportBoarding";
 import StopRulesManager from "../Giras/StopRulesManager";
 import { supabase } from "../../services/supabase";
@@ -76,12 +77,17 @@ export default function FimbaStopRulesManager({
   const [plazas, setPlazas] = useState("");
   const [asientosEquipaje, setAsientosEquipaje] = useState("");
   const [obsEquipaje, setObsEquipaje] = useState("");
+  const [esChofer, setEsChofer] = useState(false);
   const [vehicleId, setVehicleId] = useState(
     transportId != null ? String(transportId) : "",
   );
   const [saving, setSaving] = useState(false);
   /** id → 'saving'|'saved'|'error' para semáforo de cantidad en regla. */
   const [ruleSync, setRuleSync] = useState({});
+  /** id de regla en borrado (gray/pulse hasta finish). */
+  const [deletingRutaId, setDeletingRutaId] = useState(null);
+  /** id_propuesta en quick-bajada desde lista A bordo. */
+  const [quickAlightBusyId, setQuickAlightBusyId] = useState(null);
   /** Plazas técnicas del evento×vehículo (`fimba_evento_transportes`). */
   const [reservaPlazas, setReservaPlazas] = useState("");
   const [reservaSync, setReservaSync] = useState("idle");
@@ -219,6 +225,36 @@ export default function FimbaStopRulesManager({
     return map;
   }, [bajadaOptions]);
 
+  const aboardFimba = useMemo(() => {
+    if (!isBajada || !event?.id || !vehicleId) return [];
+    return listFimbaAboardAtStop({
+      propuestas,
+      rutas: allRutas,
+      idGiraTransporte: vehicleId,
+      eventId: event.id,
+      sortedEvents,
+      currentEvent: event ?? null,
+    });
+  }, [
+    isBajada,
+    event,
+    vehicleId,
+    propuestas,
+    allRutas,
+    sortedEvents,
+  ]);
+
+  const aboardFimbaOpen = useMemo(
+    () => aboardFimba.filter((r) => r.openRide && !r.alreadyAlightingHere),
+    [aboardFimba],
+  );
+
+  const aboardFimbaCapacitySeats = useMemo(
+    () =>
+      aboardFimba.reduce((s, r) => s + (Number(r.capacityPlazas) || 0), 0),
+    [aboardFimba],
+  );
+
   /** Si ya hay definición en esta parada+vehículo del artista, se edita esa fila. */
   const existingRutaForSelection = useMemo(() => {
     if (!propuestaId || !vehicleId) return null;
@@ -311,10 +347,12 @@ export default function FimbaStopRulesManager({
           : "",
       );
       setObsEquipaje(existing?.observaciones_equipaje || "");
+      setEsChofer(Boolean(existing?.es_chofer));
     } else {
       setPlazas("");
       setAsientosEquipaje("");
       setObsEquipaje("");
+      setEsChofer(false);
     }
   };
 
@@ -456,6 +494,7 @@ export default function FimbaStopRulesManager({
       id_evento: event.id,
       replaceConflict: false,
       sortedEvents,
+      es_chofer: !isBajada ? Boolean(esChofer) : undefined,
       ...luggage,
     });
     if (res.conflict) {
@@ -471,6 +510,7 @@ export default function FimbaStopRulesManager({
           id_evento: event.id,
           replaceConflict: true,
           sortedEvents,
+          es_chofer: !isBajada ? Boolean(esChofer) : undefined,
           ...luggage,
         });
       } else {
@@ -487,6 +527,7 @@ export default function FimbaStopRulesManager({
     setPlazas("");
     setAsientosEquipaje("");
     setObsEquipaje("");
+    setEsChofer(false);
     await reloadRutas();
     await reloadReserva();
     onRefresh?.("rutas");
@@ -494,16 +535,54 @@ export default function FimbaStopRulesManager({
 
   const handleDelete = async (ruta) => {
     if (!window.confirm("¿Quitar esta regla de parada?")) return;
-    setSaving(true);
-    const { error: err } = await clearFimbaPropuestaRutaStop(ruta.id, type);
-    setSaving(false);
-    if (err) {
-      setError(err.message || "No se pudo eliminar");
-      return;
+    setDeletingRutaId(ruta.id);
+    setError(null);
+    try {
+      const { error: err } = await clearFimbaPropuestaRutaStop(ruta.id, type);
+      if (err) {
+        setError(err.message || "No se pudo eliminar");
+        return;
+      }
+      await reloadRutas();
+      await reloadReserva();
+      onRefresh?.("rutas");
+    } finally {
+      setDeletingRutaId(null);
     }
-    await reloadRutas();
-    await reloadReserva();
-    onRefresh?.("rutas");
+  };
+
+  const handleQuickAlight = async (row) => {
+    if (!vehicleId || !event?.id || !row?.id_propuesta) return;
+    if (!row.openRide || row.alreadyAlightingHere) return;
+    setQuickAlightBusyId(String(row.id_propuesta));
+    setError(null);
+    try {
+      const n = Math.max(1, Number(row.plazasAboard) || 1);
+      const res = await upsertFimbaPropuestaRutaStop({
+        id_propuesta: row.id_propuesta,
+        id_gira_transporte: vehicleId,
+        plazas: n,
+        type: "down",
+        id_evento: event.id,
+        replaceConflict: true,
+        sortedEvents,
+        es_chofer: Boolean(row.es_chofer || row.ruta?.es_chofer),
+        asientos_equipaje: Math.max(
+          0,
+          Number(row.ruta?.asientos_equipaje) || 0,
+        ),
+        observaciones_equipaje: row.ruta?.observaciones_equipaje ?? null,
+      });
+      if (res.error) {
+        setError(res.error.message || "No se pudo bajar");
+        return;
+      }
+      await reloadRutas();
+      await reloadReserva();
+      onRefresh?.("rutas");
+    } finally {
+      setQuickAlightBusyId(null);
+    }
   };
 
   const handleBajarTodo = async () => {
@@ -597,28 +676,94 @@ export default function FimbaStopRulesManager({
             {tab === "artistas" && (
               <>
                 {isBajada && (
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={handleBajarTodo}
-                      disabled={
-                        bajarTodoBusy ||
-                        saving ||
-                        loading ||
-                        !vehicleId ||
-                        (bajadaOptions.every((o) => !o.aboard) &&
-                          residualAlight <= 0)
-                      }
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold text-white bg-rose-700 hover:bg-rose-800 disabled:opacity-50 shadow-sm"
-                      title="Cierra todos los rides FIMBA abiertos a bordo en esta parada"
-                    >
-                      {bajarTodoBusy ? (
-                        <IconLoader size={14} className="animate-spin" />
-                      ) : (
-                        <IconArrowDown size={14} />
-                      )}
-                      Bajar todo
-                    </button>
+                  <div className="rounded-lg border border-rose-200 bg-rose-50/60 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div>
+                        <h4 className="text-xs font-bold text-rose-800 uppercase tracking-wider m-0 flex items-center gap-1.5">
+                          <IconUsers size={14} /> A bordo
+                        </h4>
+                        <p className="text-[11px] text-rose-700/80 m-0 mt-0.5">
+                          {aboardFimba.length === 0
+                            ? "Nadie a bordo de este vehículo en esta parada."
+                            : `${aboardFimba.length} grupo${aboardFimba.length === 1 ? "" : "s"} · ${aboardFimbaCapacitySeats} plaza${aboardFimbaCapacitySeats === 1 ? "" : "s"} a cupo` +
+                              (aboardFimba.some((r) => r.es_chofer)
+                                ? " (choferes no suman cupo)"
+                                : "")}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleBajarTodo}
+                        disabled={
+                          bajarTodoBusy ||
+                          saving ||
+                          loading ||
+                          deletingRutaId != null ||
+                          !vehicleId ||
+                          (aboardFimbaOpen.length === 0 &&
+                            residualAlight <= 0)
+                        }
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold text-white bg-rose-700 hover:bg-rose-800 disabled:opacity-50 shadow-sm"
+                        title="Cierra todos los rides FIMBA abiertos a bordo en esta parada"
+                      >
+                        {bajarTodoBusy ? (
+                          <IconLoader size={14} className="animate-spin" />
+                        ) : (
+                          <IconArrowDown size={14} />
+                        )}
+                        Bajar todo
+                      </button>
+                    </div>
+                    {aboardFimba.length > 0 && (
+                      <ul className="max-h-44 overflow-y-auto divide-y divide-rose-100 bg-white/80 rounded border border-rose-100 m-0 p-0 list-none">
+                        {aboardFimba.map((row) => (
+                          <li
+                            key={String(row.id_propuesta)}
+                            className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs"
+                          >
+                            <span className="text-slate-700 truncate min-w-0">
+                              {row.label}
+                              <span className="text-slate-400 ml-1">
+                                · {row.plazasAboard} plaza
+                                {row.plazasAboard === 1 ? "" : "s"}
+                              </span>
+                              {row.es_chofer ? (
+                                <span className="ml-1 inline-flex items-center px-1 py-0 rounded text-[9px] font-bold uppercase tracking-wide text-slate-600 bg-slate-200">
+                                  Chofer
+                                </span>
+                              ) : null}
+                              {row.alreadyAlightingHere ? (
+                                <span className="ml-1 text-[10px] font-semibold text-rose-600">
+                                  (ya baja aquí)
+                                </span>
+                              ) : null}
+                            </span>
+                            {row.openRide && !row.alreadyAlightingHere ? (
+                              <button
+                                type="button"
+                                disabled={
+                                  quickAlightBusyId ===
+                                    String(row.id_propuesta) ||
+                                  loading ||
+                                  bajarTodoBusy
+                                }
+                                onClick={() => handleQuickAlight(row)}
+                                className="shrink-0 px-2 py-0.5 rounded text-[10px] font-bold text-rose-700 bg-rose-100 hover:bg-rose-200 disabled:opacity-50"
+                              >
+                                {quickAlightBusyId ===
+                                String(row.id_propuesta)
+                                  ? "…"
+                                  : "Bajar"}
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 shrink-0">
+                                OK
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 )}
 
@@ -680,21 +825,48 @@ export default function FimbaStopRulesManager({
                           },
                         );
                         const sync = ruleSync[r.id];
+                        const isDeleting = deletingRutaId === r.id;
+                        const rowBusy =
+                          saving ||
+                          isDeleting ||
+                          deletingRutaId != null;
                         return (
                           <li
                             key={r.id}
-                            className="px-3 py-2 flex flex-col gap-1.5 bg-white hover:bg-slate-50"
+                            className={`px-3 py-2 flex flex-col gap-1.5 bg-white hover:bg-slate-50${
+                              isDeleting ? " fimba-row-deleting" : ""
+                            }`}
+                            aria-busy={isDeleting}
                           >
                             <div className="flex justify-between items-center gap-2">
                               <div className="min-w-0 flex-1">
-                                <div className="text-xs font-semibold text-slate-700 truncate">
-                                  {name}
+                                <div className="text-xs font-semibold text-slate-700 truncate flex items-center gap-1.5">
+                                  <span className="truncate">{name}</span>
+                                  {r.es_chofer ? (
+                                    <span
+                                      className="shrink-0 inline-flex items-center px-1 py-0 rounded text-[9px] font-bold uppercase tracking-wide text-slate-600 bg-slate-200"
+                                      title="No consume cupo del vehículo"
+                                    >
+                                      Chofer
+                                    </span>
+                                  ) : null}
+                                  {isDeleting ? (
+                                    <IconLoader
+                                      size={12}
+                                      className="animate-spin text-slate-400 shrink-0"
+                                    />
+                                  ) : null}
                                 </div>
                                 <div className="text-[10px] text-slate-400">
                                   {type === "up" ? "Sube" : "Baja"}
                                   {r.id_evento_subida && r.id_evento_bajada
                                     ? " · trayecto completo"
                                     : " · extremo pendiente"}
+                                  {r.es_chofer ? (
+                                    <span className="ml-1">
+                                      · sin cupo
+                                    </span>
+                                  ) : null}
                                   {isBajada ? (
                                     <span className="ml-1">
                                       · libera plazas del ride
@@ -719,7 +891,7 @@ export default function FimbaStopRulesManager({
                                   className="w-14 text-xs border rounded px-1.5 py-1 text-center outline-none focus:border-pink-500 bg-white"
                                   defaultValue={r.plazas}
                                   key={`${r.id}-${r.plazas}`}
-                                  disabled={saving}
+                                  disabled={rowBusy}
                                   onBlur={(e) => {
                                     const next = Math.max(
                                       0,
@@ -738,8 +910,8 @@ export default function FimbaStopRulesManager({
                                 <button
                                   type="button"
                                   onClick={() => handleDelete(r)}
-                                  disabled={saving}
-                                  className="text-slate-300 hover:text-red-500 p-1"
+                                  disabled={rowBusy}
+                                  className="text-slate-300 hover:text-red-500 p-1 disabled:opacity-40"
                                   title="Quitar regla"
                                 >
                                   <IconTrash size={14} />
@@ -756,7 +928,7 @@ export default function FimbaStopRulesManager({
                                 className="w-14 text-[11px] border rounded px-1.5 py-0.5 text-center outline-none focus:border-pink-500 bg-white"
                                 defaultValue={r.asientos_equipaje || 0}
                                 key={`${r.id}-eq-${r.asientos_equipaje}`}
-                                disabled={saving}
+                                disabled={rowBusy}
                                 onBlur={(e) => {
                                   const next = Math.max(
                                     0,
@@ -782,7 +954,7 @@ export default function FimbaStopRulesManager({
                                 className="flex-1 min-w-[8rem] text-[11px] border rounded px-1.5 py-0.5 outline-none focus:border-pink-500 bg-white"
                                 defaultValue={r.observaciones_equipaje || ""}
                                 key={`${r.id}-obs-${r.observaciones_equipaje || ""}`}
-                                disabled={saving}
+                                disabled={rowBusy}
                                 placeholder="Obs. equipaje"
                                 onBlur={(e) => {
                                   const next = e.target.value.trim();
@@ -961,6 +1133,23 @@ export default function FimbaStopRulesManager({
                       />
                     </div>
                   </div>
+                  {!isBajada && (
+                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-pink-700 focus:ring-pink-500"
+                        checked={esChofer}
+                        onChange={(e) => setEsChofer(e.target.checked)}
+                      />
+                      <span>
+                        <span className="font-semibold">Es chofer</span>
+                        <span className="text-slate-500">
+                          {" "}
+                          — figura a bordo pero no consume cupo del vehículo
+                        </span>
+                      </span>
+                    </label>
+                  )}
                   {isBajada ? (
                     propuestaId && bajadaByPropuesta.get(String(propuestaId)) ? (
                       <p

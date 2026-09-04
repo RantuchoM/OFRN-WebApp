@@ -11,7 +11,7 @@ import { formatEventLocation } from "../../utils/fimbaTransportBoarding";
 /**
  * Modal: planificar un recorrido ida-vuelta durante una pausa de vehículo.
  * 3 filas: locación actual (salida) → waypoint → retorno a locación actual.
- * Fechas fijas al día del último evento antes de la pausa; horas vacías a completar.
+ * Fechas editables (default = día del último evento antes de la pausa); horas vacías a completar.
  */
 export default function FimbaRecorridoIntermedioModal({
   context,
@@ -27,13 +27,16 @@ export default function FimbaRecorridoIntermedioModal({
   const vehicleId = context?.vehicleId;
   const idPropuestasTags = context?.idPropuestasTags || [];
 
-  const fechaBase =
+  const fechaSugerida =
     String(prevEv?.fecha || "").slice(0, 10) ||
     String(nextEv?.fecha || "").slice(0, 10) ||
     "";
   const idLocActual = eventLocacionId(prevEv);
   const locActualLabel = formatEventLocation(prevEv) || "(Sin locación)";
 
+  const [fechaSalida, setFechaSalida] = useState(fechaSugerida);
+  const [fechaWaypoint, setFechaWaypoint] = useState(fechaSugerida);
+  const [fechaRetorno, setFechaRetorno] = useState(fechaSugerida);
   const [horaSalida, setHoraSalida] = useState("");
   const [horaWaypoint, setHoraWaypoint] = useState("");
   const [horaRetorno, setHoraRetorno] = useState("");
@@ -64,8 +67,8 @@ export default function FimbaRecorridoIntermedioModal({
       setError("Completá las tres horas del recorrido");
       return;
     }
-    if (!fechaBase) {
-      setError("Fecha no disponible para el recorrido");
+    if (!fechaSalida || !fechaWaypoint || !fechaRetorno) {
+      setError("Completá las tres fechas del recorrido");
       return;
     }
     if (vehicleId == null || vehicleId === "") {
@@ -81,16 +84,18 @@ export default function FimbaRecorridoIntermedioModal({
       return;
     }
 
-    const toMs = (hora) => {
-      const [y, m, d] = fechaBase.split("-").map(Number);
+    const toMs = (fecha, hora) => {
+      const [y, m, d] = String(fecha).split("-").map(Number);
       const [hh, mm] = String(hora).slice(0, 5).split(":").map(Number);
       return new Date(y, m - 1, d, hh || 0, mm || 0, 0, 0).getTime();
     };
-    const t1 = toMs(horaSalida);
-    const t2 = toMs(horaWaypoint);
-    const t3 = toMs(horaRetorno);
+    const t1 = toMs(fechaSalida, horaSalida);
+    const t2 = toMs(fechaWaypoint, horaWaypoint);
+    const t3 = toMs(fechaRetorno, horaRetorno);
     if (!(t1 < t2 && t2 < t3)) {
-      setError("Las horas deben ir en orden: salida < intermedia < retorno");
+      setError(
+        "Fecha y hora deben ir en orden: salida < intermedia < retorno",
+      );
       return;
     }
 
@@ -103,7 +108,9 @@ export default function FimbaRecorridoIntermedioModal({
         idGira: edicion.id_gira,
         vehiculos,
         idPropuestasTags,
-        fecha: fechaBase,
+        fechaSalida,
+        fechaWaypoint,
+        fechaRetorno,
         horaSalida,
         horaWaypoint,
         horaRetorno,
@@ -148,17 +155,6 @@ export default function FimbaRecorridoIntermedioModal({
     </div>
   );
 
-  const fechaLocked = (
-    <input
-      className="fimba-input"
-      type="date"
-      value={fechaBase}
-      readOnly
-      disabled
-      title="Misma fecha del último evento antes de la pausa"
-    />
-  );
-
   return (
     <div className="fimba-modal-backdrop" onClick={onClose} role="presentation">
       <div
@@ -201,14 +197,16 @@ export default function FimbaRecorridoIntermedioModal({
           style={{ margin: "0 0 0.85rem", fontSize: "0.8rem" }}
         >
           Salí de la locación actual, pasá por un punto intermedio y volvé.
-          Fechas fijas al día de la pausa; completá las horas y el waypoint.
+          Fechas sugeridas al día de la pausa (editables); completá las horas y
+          el waypoint.
         </p>
 
         <form onSubmit={submit}>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "minmax(0, 1.6fr) minmax(7rem, 0.7fr) minmax(5.5rem, 0.55fr)",
+              gridTemplateColumns:
+                "minmax(0, 1.6fr) minmax(7rem, 0.7fr) minmax(5.5rem, 0.55fr)",
               gap: "0.5rem 0.65rem",
               alignItems: "end",
             }}
@@ -228,7 +226,15 @@ export default function FimbaRecorridoIntermedioModal({
               {locLocked}
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
-              {fechaLocked}
+              <input
+                className="fimba-input"
+                type="date"
+                value={fechaSalida}
+                onChange={(e) => setFechaSalida(e.target.value)}
+                required
+                aria-label="Fecha de salida"
+                disabled={saving}
+              />
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
               <input
@@ -254,7 +260,16 @@ export default function FimbaRecorridoIntermedioModal({
               />
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
-              {fechaLocked}
+              <input
+                className="fimba-input"
+                type="date"
+                value={fechaWaypoint}
+                min={fechaSalida || undefined}
+                onChange={(e) => setFechaWaypoint(e.target.value)}
+                required
+                aria-label="Fecha en waypoint"
+                disabled={saving}
+              />
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
               <input
@@ -273,7 +288,16 @@ export default function FimbaRecorridoIntermedioModal({
               {locLocked}
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
-              {fechaLocked}
+              <input
+                className="fimba-input"
+                type="date"
+                value={fechaRetorno}
+                min={fechaWaypoint || fechaSalida || undefined}
+                onChange={(e) => setFechaRetorno(e.target.value)}
+                required
+                aria-label="Fecha de retorno"
+                disabled={saving}
+              />
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
               <input
@@ -293,7 +317,7 @@ export default function FimbaRecorridoIntermedioModal({
             style={{ margin: "0.65rem 0 0", fontSize: "0.72rem" }}
           >
             Pausado en {locActualLabel}
-            {fechaBase ? ` · ${formatFechaLabel(fechaBase)}` : ""}
+            {fechaSugerida ? ` · ${formatFechaLabel(fechaSugerida)}` : ""}
             {nextEv?.hora_inicio
               ? ` · siguiente evento ${String(nextEv.hora_inicio).slice(0, 5)}`
               : ""}

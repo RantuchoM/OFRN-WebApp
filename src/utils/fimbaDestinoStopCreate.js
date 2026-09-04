@@ -225,6 +225,7 @@ export function eventLocacionId(ev) {
  * Crea las 3 paradas de un recorrido intermedio durante una pausa:
  * salida (locación actual) → waypoint → retorno (locación actual).
  * Encadena `createDestinoStopEvent` entre `prevEv` y `nextEv`.
+ * Cada parada acepta su propia fecha (default sugerido en UI = día del prev).
  *
  * @param {{
  *   prevEv: object,
@@ -233,7 +234,9 @@ export function eventLocacionId(ev) {
  *   idGira: number|string,
  *   vehiculos?: Array<object>,
  *   idPropuestasTags?: Array<number|string>,
- *   fecha: string,
+ *   fechaSalida: string,
+ *   fechaWaypoint: string,
+ *   fechaRetorno: string,
  *   horaSalida: string,
  *   horaWaypoint: string,
  *   horaRetorno: string,
@@ -249,7 +252,9 @@ export async function createRecorridoIntermedioStops({
   idGira,
   vehiculos = [],
   idPropuestasTags = [],
-  fecha,
+  fechaSalida,
+  fechaWaypoint,
+  fechaRetorno,
   horaSalida,
   horaWaypoint,
   horaRetorno,
@@ -267,7 +272,7 @@ export async function createRecorridoIntermedioStops({
   const { evento: salida, error: e1 } = await createDestinoStopEvent({
     ...common,
     currentEv: prevEv,
-    fecha,
+    fecha: fechaSalida,
     horaInicio: horaSalida,
     idLocacion: idLocacionActual,
     actividad: "Salida recorrido intermedio",
@@ -282,7 +287,7 @@ export async function createRecorridoIntermedioStops({
   const { evento: waypoint, error: e2 } = await createDestinoStopEvent({
     ...common,
     currentEv: salida,
-    fecha,
+    fecha: fechaWaypoint,
     horaInicio: horaWaypoint,
     idLocacion: idLocacionWaypoint,
     actividad: "Parada intermedia",
@@ -301,7 +306,7 @@ export async function createRecorridoIntermedioStops({
   const { evento: retorno, error: e3 } = await createDestinoStopEvent({
     ...common,
     currentEv: waypoint,
-    fecha,
+    fecha: fechaRetorno,
     horaInicio: horaRetorno,
     idLocacion: idLocacionActual,
     actividad: "Retorno recorrido intermedio",

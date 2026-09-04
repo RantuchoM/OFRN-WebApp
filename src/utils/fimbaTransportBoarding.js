@@ -663,6 +663,28 @@ export function resolveFimbaSeatsForVehicle(ev, idGiraTransporte, _capacityFn) {
  * @param {number|string} idGiraTransporte
  * @returns {Array<{ key: string, subidaId: unknown|null, bajadaId: unknown|null, seats: number, source: 'fimba_ruta', id_propuesta: unknown|null, nombre?: string, color?: string }>}
  */
+/**
+ * ¿El ride/regla está marcado como chofer (no consume cupo)?
+ * @param {{ es_chofer?: boolean }|null|undefined} rutaOrRide
+ */
+export function isFimbaChoferRide(rutaOrRide) {
+  return Boolean(rutaOrRide?.es_chofer);
+}
+
+/**
+ * Plazas que cuentan hacia capacidad / en_transito / libres.
+ * Chofer figura a bordo con `seats` de display pero `capacitySeats === 0`.
+ * @param {{ seats?: number, capacitySeats?: number, es_chofer?: boolean }|null|undefined} ride
+ */
+export function rideCapacitySeats(ride) {
+  if (!ride) return 0;
+  if (ride.capacitySeats != null && Number.isFinite(Number(ride.capacitySeats))) {
+    return Math.max(0, Number(ride.capacitySeats) || 0);
+  }
+  if (isFimbaChoferRide(ride)) return 0;
+  return Math.max(0, Number(ride.seats) || 0);
+}
+
 export function buildFimbaExplicitRides(routes, idGiraTransporte) {
   const want = Number(idGiraTransporte);
   if (!Number.isFinite(want)) return [];
@@ -673,15 +695,19 @@ export function buildFimbaExplicitRides(routes, idGiraTransporte) {
     if (seats <= 0) continue;
     if (r.id_evento_subida == null && r.id_evento_bajada == null) continue;
     const prop = r.propuesta || r.fimba_propuestas || null;
+    const esChofer = isFimbaChoferRide(r);
     rides.push({
       key: `fimba-ruta-${r.id ?? `${r.id_propuesta}-${r.id_evento_subida}-${r.id_evento_bajada}`}`,
       subidaId: r.id_evento_subida ?? null,
       bajadaId: r.id_evento_bajada ?? null,
       seats,
+      capacitySeats: esChofer ? 0 : seats,
+      es_chofer: esChofer,
       source: "fimba_ruta",
       id_propuesta: r.id_propuesta ?? prop?.id ?? null,
       nombre: prop?.nombre || r.nombre || null,
       color: prop?.color || r.color || null,
+      rutaId: r.id ?? null,
     });
   }
   return rides;
@@ -841,6 +867,7 @@ export function buildFimbaBajadaArtistOptions(opts = {}) {
         aboard: true,
         plazasAboard,
         ruta,
+        es_chofer: isFimbaChoferRide(ruta),
         reason: null,
       };
     }
@@ -871,9 +898,65 @@ export function buildFimbaBajadaArtistOptions(opts = {}) {
       aboard: false,
       plazasAboard: 0,
       ruta: null,
+      es_chofer: false,
       reason,
     };
   });
+}
+
+/**
+ * Unidades FIMBA a bordo en esta parada (para lista «A bordo» + Bajar rápido).
+ * Incluye choferes (label + plazas display); capacityPlazas = 0 si es_chofer.
+ *
+ * @param {Parameters<typeof buildFimbaBajadaArtistOptions>[0]} opts
+ * @returns {Array<{
+ *   id_propuesta: unknown,
+ *   propuesta: object,
+ *   label: string,
+ *   plazasAboard: number,
+ *   capacityPlazas: number,
+ *   es_chofer: boolean,
+ *   ruta: object|null,
+ *   openRide: boolean,
+ *   alreadyAlightingHere: boolean,
+ * }>}
+ */
+export function listFimbaAboardAtStop(opts = {}) {
+  const eventId = opts.eventId;
+  return buildFimbaBajadaArtistOptions(opts)
+    .filter((o) => o.aboard)
+    .map((o) => {
+      const ruta = o.ruta || null;
+      const alreadyAlightingHere = Boolean(
+        ruta &&
+          eventId != null &&
+          eventId !== "" &&
+          ruta.id_evento_bajada != null &&
+          String(ruta.id_evento_bajada) === String(eventId),
+      );
+      const openRide = Boolean(ruta && isOpenFimbaRide(ruta));
+      const esChofer = Boolean(o.es_chofer || isFimbaChoferRide(ruta));
+      return {
+        id_propuesta: o.id_propuesta,
+        propuesta: o.propuesta,
+        label:
+          String(o.propuesta?.nombre || "").trim() ||
+          `Artista #${o.id_propuesta}`,
+        plazasAboard: Math.max(0, Number(o.plazasAboard) || 0),
+        capacityPlazas: esChofer
+          ? 0
+          : Math.max(0, Number(o.plazasAboard) || 0),
+        es_chofer: esChofer,
+        ruta,
+        openRide,
+        alreadyAlightingHere,
+      };
+    })
+    .sort((a, b) =>
+      String(a.label).localeCompare(String(b.label), "es", {
+        sensitivity: "base",
+      }),
+    );
 }
 
 /**
@@ -988,7 +1071,7 @@ export function sumRidesOccupyingWindow(
           normalizeScheduleEvent(lookup(r.bajadaId));
 
     if (rideOverlapsScheduleWindow(upEv, downEv, window)) {
-      total += Math.max(0, Number(r.seats) || 0);
+      total += rideCapacitySeats(r);
     }
   }
   return total;
@@ -1475,7 +1558,7 @@ export function resolveAboardAfterStopBreakdown(opts = {}) {
     });
   }
 
-  /** @type {Map<string, { key: string, kind: 'fimba', label: string, plazas: number, color: string|null }>} */
+  /** @type {Map<string, { key: string, kind: 'fimba', label: string, plazas: number, color: string|null, es_chofer?: boolean }>} */
   const byArtist = new Map();
   let reservaSeats = 0;
   for (const r of fimbaRides || []) {
@@ -1484,12 +1567,12 @@ export function resolveAboardAfterStopBreakdown(opts = {}) {
     if (seats <= 0) continue;
     // Residual técnico (source `fimba` de buildFimbaSyntheticRides): siempre reserva.
     if (r.source === "fimba" || r.source === "synthetic") {
-      reservaSeats += seats;
+      reservaSeats += rideCapacitySeats(r);
       continue;
     }
     const pid = r.id_propuesta;
     if (pid == null || pid === "") {
-      reservaSeats += seats;
+      reservaSeats += rideCapacitySeats(r);
       continue;
     }
     const id = String(pid);
@@ -1499,21 +1582,29 @@ export function resolveAboardAfterStopBreakdown(opts = {}) {
       r.nombre ||
       fromList?.nombre ||
       `Artista #${id}`;
+    const esChofer = isFimbaChoferRide(r);
     const cur = byArtist.get(id) || {
       key: `fimba-${id}`,
       kind: "fimba",
       label: String(nombre).trim() || `Artista #${id}`,
       plazas: 0,
       color: r.color || fromList?.color || null,
+      es_chofer: false,
     };
     cur.plazas += seats;
+    if (esChofer) cur.es_chofer = true;
     if (!cur.color && (r.color || fromList?.color)) {
       cur.color = r.color || fromList?.color || null;
     }
     byArtist.set(id, cur);
   }
   for (const row of byArtist.values()) {
-    if (row.plazas > 0) lines.push(row);
+    if (row.plazas > 0) {
+      if (row.es_chofer && !/\bChofer\b/i.test(row.label)) {
+        row.label = `${row.label} · Chofer`;
+      }
+      lines.push(row);
+    }
   }
   if (reservaSeats > 0) {
     lines.push({
@@ -1614,16 +1705,16 @@ export function buildVehicleBoardingSequence(opts = {}) {
   const stops = sorted.map((evt, currentIdx) => {
     const boardOfrn = ofrnRides
       .filter((r) => r.subidaId != null && String(r.subidaId) === String(evt.id))
-      .reduce((s, r) => s + (Number(r.seats) || 0), 0);
+      .reduce((s, r) => s + rideCapacitySeats(r), 0);
     const alightOfrn = ofrnRides
       .filter((r) => r.bajadaId != null && String(r.bajadaId) === String(evt.id))
-      .reduce((s, r) => s + (Number(r.seats) || 0), 0);
+      .reduce((s, r) => s + rideCapacitySeats(r), 0);
     const boardFimba = fimbaRides
       .filter((r) => r.subidaId != null && String(r.subidaId) === String(evt.id))
-      .reduce((s, r) => s + (Number(r.seats) || 0), 0);
+      .reduce((s, r) => s + rideCapacitySeats(r), 0);
     const alightFimba = fimbaRides
       .filter((r) => r.bajadaId != null && String(r.bajadaId) === String(evt.id))
-      .reduce((s, r) => s + (Number(r.seats) || 0), 0);
+      .reduce((s, r) => s + rideCapacitySeats(r), 0);
 
     const boardSeats = boardOfrn + boardFimba;
     const alightSeats = alightOfrn + alightFimba;
@@ -1640,7 +1731,7 @@ export function buildVehicleBoardingSequence(opts = {}) {
           ? indexOfEvent(sorted, r.bajadaId)
           : null;
       if (isOnBoardAfterStop(upIdx, downIdx, currentIdx)) {
-        const seats = Number(r.seats) || 0;
+        const seats = rideCapacitySeats(r);
         enTransito += seats;
         if (r.source === "ofrn") enTransitoOfrn += seats;
         else enTransitoFimba += seats;
@@ -2237,6 +2328,7 @@ export function resolveStopBoardAlightChips(opts = {}) {
       rutaId: r.id,
       id_propuesta: r.id_propuesta,
       removable: true,
+      es_chofer: isFimbaChoferRide(r),
     });
     fimbaExplicit += plazas;
   }
