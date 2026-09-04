@@ -123,6 +123,7 @@ function drawLocacionLocalidadCell(doc, data) {
   doc.setFont("helvetica", "normal");
 }
 
+/** Informes de transporte: siempre nombre/apellido legales (no preferencia de seating). */
 function buildPassengerExportRows(passengers) {
   return (passengers || []).map((p) => {
     const birthDate = p.fecha_nac ? new Date(p.fecha_nac) : new Date();

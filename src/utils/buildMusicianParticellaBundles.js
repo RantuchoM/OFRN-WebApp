@@ -1,4 +1,5 @@
 import { isRegionalConvocatoriaEnsamble } from "./convocatoriaEnsambleViews";
+import { seatingApellidoNombre } from "./integranteDisplayName";
 import { filterMembershipRowsForProgramDate } from "./ensembleMembership";
 
 const isStringInstrumentId = (id) =>
@@ -16,9 +17,9 @@ export function getMusicianPartIds(musicianAssignments, key) {
 
 export function musicianDisplayName(m) {
   return (
+    seatingApellidoNombre(m) ||
     m.apellido_nombre ||
     m.nombre_completo ||
-    [m.apellido, m.nombre].filter(Boolean).join(", ") ||
     [m.nombre, m.apellido].filter(Boolean).join(" ") ||
     m.display_name ||
     m.name ||

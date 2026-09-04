@@ -653,6 +653,39 @@
           </html>
         `;
       },
+      // 10. Cambio de alimentación (autogestión del músico)
+      cambio_alimentacion: (nombre: string, _gira: string, d: any) => {
+        const display = nombre || [d?.nombre, d?.apellido].filter(Boolean).join(" ") || "Integrante";
+        const anterior = d?.alimentacion_anterior || "(sin dato)";
+        const nueva = d?.alimentacion_nueva || "(sin dato)";
+        const mail = d?.mail ? String(d.mail) : "";
+        const id = d?.id != null ? String(d.id) : "";
+        return `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; font-size: 14px; }
+              .box { border-left: 4px solid #d97706; background-color: #fffbeb; padding: 15px; margin: 20px 0; border-radius: 4px; }
+              .diet { font-weight: bold; color: #111; }
+            </style>
+          </head>
+          <body>
+            <p>Hola producción,</p>
+            <p>Un integrante actualizó su tipo de alimentación desde Mi Perfil.</p>
+            <div class="box">
+              <h3 style="margin-top:0; color:#111;">${display}</h3>
+              ${id ? `<p style="margin:0 0 8px 0; color:#555; font-size:13px;">ID: ${id}${mail ? ` · ${mail}` : ""}</p>` : ""}
+              <ul style="list-style-type: none; padding-left: 0; margin: 0;">
+                <li>• Anterior: <span class="diet">${anterior}</span></li>
+                <li>• Nueva: <span class="diet">${nueva}</span></li>
+              </ul>
+            </div>
+            <p style="color: #666; font-size: 12px;">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+          </body>
+          </html>
+        `;
+      },
     };
 
     // --- HANDLER PRINCIPAL ---
@@ -731,6 +764,8 @@
             else subject = `Convocatoria OFRN | ${nombreGira}`;
           } else if (tid === "scrn_transporte_evento") {
             subject = detalle?.titulo ? `[SCRN] ${detalle.titulo}` : "Aviso Transporte SCRN";
+          } else if (tid === "cambio_alimentacion") {
+            subject = `Cambio de alimentación | ${nombreParaTemplate || "Integrante"}`;
           }
 
           const transporter = nodemailer.createTransport({

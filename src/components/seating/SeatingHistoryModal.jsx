@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { IconHistory, IconX, IconLoader, IconPlus } from "../ui/Icons";
 import { seatingItemMatrixPosition } from "../../services/giraService";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 
 export default function SeatingHistoryModal({ isOpen, onClose, roster, supabase }) {
   const [historyData, setHistoryData] = useState({});
@@ -183,7 +184,7 @@ export default function SeatingHistoryModal({ isOpen, onClose, roster, supabase 
                   className={idx % 2 === 0 ? "bg-white hover:bg-indigo-50/30" : "bg-slate-50/30 hover:bg-indigo-50/30"}
                 >
                   <td className="p-2 border-r border-slate-200 font-medium text-slate-700 sticky left-0 bg-inherit truncate">
-                    {musician.apellido}, {musician.nombre}
+                    {seatingApellidoNombre(musician)}
                   </td>
                   {/* Celda vacía bajo el botón de carga */}
                   <td className="bg-slate-50/50 border-r border-slate-100"></td>

@@ -20,6 +20,7 @@ import {
   PARTICELLA_SETS_ROOT_URL,
 } from "../../utils/driveFolders";
 import { isConfirmedConvocadoForSeatingReports } from "../../utils/seatingRosterGate";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 import ParticellaByMusicianExport from "./ParticellaByMusicianExport";
 import ParticellaExportBusyOverlay from "./ParticellaExportBusyOverlay";
 
@@ -61,9 +62,9 @@ function getMusicianPartIds(musicianAssignments, key) {
 
 function musicianDisplayName(m) {
   return (
+    seatingApellidoNombre(m) ||
     m.apellido_nombre ||
     m.nombre_completo ||
-    [m.apellido, m.nombre].filter(Boolean).join(", ") ||
     [m.nombre, m.apellido].filter(Boolean).join(" ") ||
     m.display_name ||
     m.name ||

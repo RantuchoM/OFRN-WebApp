@@ -1,4 +1,5 @@
 import { countsTowardInstrumentationConvoked } from "./instrumentation";
+import { seatingApellidoNombre } from "./integranteDisplayName";
 import {
   fetchCuerdasConfigsForProgram,
   sortCuerdasConfigs,
@@ -238,10 +239,7 @@ export function buildSandboxStringsContainerLabels(
     )
     .filter((m) => !hasLabel(Number(m.id)))
     .sort((a, b) =>
-      `${a.apellido || ""}, ${a.nombre || ""}`.localeCompare(
-        `${b.apellido || ""}, ${b.nombre || ""}`,
-        "es",
-      ),
+      seatingApellidoNombre(a).localeCompare(seatingApellidoNombre(b), "es"),
     );
 
   for (const m of unassigned) {

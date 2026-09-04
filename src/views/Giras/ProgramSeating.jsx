@@ -86,6 +86,12 @@ import {
   resolveCuerdasConfigForBlock,
 } from "../../utils/seatingCuerdasConfig";
 import { applyBulkParticellaAssignments } from "../../utils/seatingBulkAssign";
+import {
+  SEATING_INTEGRANTES_EMBED,
+  mapRosterForSeating,
+  mapSeatingItemsWithDisplayNames,
+  seatingApellidoNombre,
+} from "../../utils/integranteDisplayName";
 import { createPortal } from "react-dom";
 import WorkForm from "../Repertoire/WorkForm";
 import GiraGrupoChips from "../../components/giras/GiraGrupoChips";
@@ -984,9 +990,13 @@ export default function ProgramSeating({
   readOnly = false,
 }) {
   const { isAdmin, isEditor, user } = useAuth();
-  const { roster: rawRoster, loading: rosterLoading } = useGiraRoster(
+  const { roster: legalRoster, loading: rosterLoading } = useGiraRoster(
     supabase,
     program,
+  );
+  const rawRoster = useMemo(
+    () => mapRosterForSeating(legalRoster),
+    [legalRoster],
   );
 
   const normalizedRoles = (() => {
@@ -2287,7 +2297,7 @@ export default function ProgramSeating({
     if (conts) {
       const { data: items } = await supabase
         .from("seating_contenedores_items")
-        .select("*, integrantes(nombre, apellido, instrumentos(instrumento))")
+        .select(`*, integrantes(${SEATING_INTEGRANTES_EMBED})`)
         .in(
           "id_contenedor",
           conts.map((c) => c.id),
@@ -2297,7 +2307,9 @@ export default function ProgramSeating({
         .order("id", { ascending: true });
 
       const rosterKeys = confirmedSeatingRosterKeySet(rawRoster);
-      const dedupedItems = dedupeSeatingStringItems(items || [], conts);
+      const dedupedItems = mapSeatingItemsWithDisplayNames(
+        dedupeSeatingStringItems(items || [], conts),
+      );
 
       setContainers(
         conts.map((c) => {
@@ -2353,7 +2365,7 @@ export default function ProgramSeating({
             const sorted = sortSeatingItems(c.items || []);
             const item = sorted[i];
             if (!item?.integrantes) return "";
-            return `${item.integrantes.apellido}, ${item.integrantes.nombre || ""}.`;
+            return `${seatingApellidoNombre(item.integrantes)}.`;
           }),
         );
       }
@@ -2392,7 +2404,7 @@ export default function ProgramSeating({
         ],
       ];
       const tableBody = otherMusicians.map((m) => {
-        const row = [`${m.apellido}, ${m.nombre}`];
+        const row = [seatingApellidoNombre(m)];
         obras.forEach((o) => {
           const partIds = getMusicianPartIds(
             musicianAssignments,

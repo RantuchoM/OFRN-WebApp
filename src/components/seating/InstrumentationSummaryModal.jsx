@@ -10,6 +10,7 @@ import {
   maxInstrumentationColumnMap,
   computeInstrumentationRequiredConsolidated,
 } from "../../utils/instrumentation";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 
 const INSTRUMENT_COLUMNS = [
   { id: "Fl", label: "Fl", key: "fl" },
@@ -167,7 +168,7 @@ function InstrumentationSummaryModalInner({
 
     confirmed.forEach((m) => {
       if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
-      const name = `${m.apellido || ""}, ${m.nombre || ""}`.trim();
+      const name = seatingApellidoNombre(m);
       if (!name) return;
 
       const idInstr = String(m.id_instr || "");

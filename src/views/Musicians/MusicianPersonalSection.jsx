@@ -11,16 +11,7 @@ import EnsembleMembershipEditor from "../../components/musicians/EnsembleMembers
 import LocalitySelectWithCreate from "../../components/forms/LocalitySelectWithCreate";
 import { useMusicianFormContext } from "./MusicianFormContext";
 import { toIsoDateString } from "../../utils/ensembleMembership";
-
-const DIET_OPTIONS = [
-  "General",
-  "Celíaca",
-  "Diabética",
-  "Vegetariana",
-  "Vegana",
-  "Sin Sal",
-  "Sin Lactosa",
-];
+import { DIET_OPTIONS } from "../../utils/dietOptions";
 
 export default function MusicianPersonalSection() {
   const {
@@ -178,6 +169,39 @@ export default function MusicianPersonalSection() {
               {errors.nombre && (
                 <span className="text-red-500 text-[10px]">{errors.nombre.message}</span>
               )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <label className={labelClass}>Apellido de preferencia</label>
+              <input
+                type="text"
+                className={getInputStatusClass("apellido_preferencia")}
+                value={formData.apellido_preferencia || ""}
+                onChange={(e) =>
+                  updateField("apellido_preferencia", e.target.value)
+                }
+                placeholder={formData.apellido || "Apellido legal"}
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                Seating e informes de seating. Transporte usa el apellido legal.
+              </p>
+            </div>
+            <div>
+              <label className={labelClass}>Nombre de preferencia</label>
+              <input
+                type="text"
+                className={getInputStatusClass("nombre_preferencia")}
+                value={formData.nombre_preferencia || ""}
+                onChange={(e) =>
+                  updateField("nombre_preferencia", e.target.value)
+                }
+                placeholder={formData.nombre || "Nombre legal"}
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                Seating e informes de seating. Transporte usa el nombre legal.
+              </p>
             </div>
           </div>
 

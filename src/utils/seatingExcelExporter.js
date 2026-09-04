@@ -12,6 +12,10 @@ import {
   buildSeatingPartSortOptions,
   sortWindMusiciansForSeating,
 } from "./seatingWindOrder";
+import {
+  mapRosterForSeating,
+  seatingApellidoNombre,
+} from "./integranteDisplayName";
 
 const isStringInstrument = (id) =>
   ["01", "02", "03", "04"].includes(String(id ?? "").trim());
@@ -61,6 +65,7 @@ export const exportSeatingToExcel = async (
   musicianAssignments = {},
 ) => {
   try {
+    roster = mapRosterForSeating(roster);
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Seating", {
       views: [{ state: "frozen", ySplit: 3 }],
@@ -164,7 +169,8 @@ export const exportSeatingToExcel = async (
           const sorted = sortSeatingItems(itemsConfirmedOnly(c.items));
           const item = sorted[i];
           if (!item?.integrantes) return "";
-          return `${item.integrantes.apellido}, ${item.integrantes.nombre || ""}.`;
+          const label = seatingApellidoNombre(item.integrantes);
+          return label ? `${label}.` : "";
         });
         const row = sheet.addRow(rowValues);
         const isEven = i % 2 === 0;
@@ -293,7 +299,7 @@ export const exportSeatingToExcel = async (
 
       otherMusicians.forEach((m, index) => {
         const rowValues = [
-          `${m.apellido || ""}, ${m.nombre || ""}`,
+          seatingApellidoNombre(m),
           ...obrasList.map((o) => {
             const key = `M-${m.id}-${o.obra_id}`;
             const partIds = Array.isArray(musicianAssignments?.[key])

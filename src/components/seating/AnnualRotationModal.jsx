@@ -2,6 +2,10 @@ import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { IconHistory, IconX, IconLoader, IconFilter, IconPrinter } from "../ui/Icons";
 import SearchableSelect from "../ui/SearchableSelect";
+import {
+  seatingApellidoInicial,
+  seatingApellidoNombre,
+} from "../../utils/integranteDisplayName";
 
 const ModalPortal = ({ children }) => {
   return createPortal(
@@ -256,8 +260,8 @@ export default function AnnualRotationModal({ isOpen, onClose, currentProgram, r
                   {/* COLUMNAS DINÁMICAS (MÚSICOS) */}
                   {musicianColumns.map(m => (
                     <th key={m.id} className="p-2 min-w-[100px] bg-slate-50 border-b border-r border-slate-200 font-bold text-center">
-                      <div className="truncate" title={`${m.apellido}, ${m.nombre}`}>
-                        {m.apellido}, {m.nombre.charAt(0)}.
+                      <div className="truncate" title={seatingApellidoNombre(m)}>
+                        {seatingApellidoInicial(m)}
                       </div>
                     </th>
                   ))}

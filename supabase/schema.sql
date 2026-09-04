@@ -827,6 +827,8 @@ CREATE TABLE public.integrantes (
   dni text,
   mail text,
   alimentacion text,
+  nombre_preferencia text,
+  apellido_preferencia text,
   nacionalidad text,
   cuil text,
   fecha_nac date,

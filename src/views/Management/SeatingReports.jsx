@@ -17,6 +17,11 @@ import { generateSeatingPdf } from "../../utils/seatingPdfExporter";
 import { exportSeatingToExcel } from "../../utils/seatingExcelExporter";
 import { fetchRosterForGira } from "../../hooks/useGiraRoster";
 import {
+  SEATING_INTEGRANTES_EMBED_MIN,
+  mapRosterForSeating,
+  seatingApellidoNombre,
+} from "../../utils/integranteDisplayName";
+import {
   fetchMusicianSeatingContainerLabels,
   formatStringsCompositionLabel,
 } from "../../utils/seatingStringsComposition";
@@ -44,6 +49,11 @@ import { saveAs } from "file-saver";
 const AnnualRotationModal = React.lazy(
   () => import("../../components/seating/AnnualRotationModal"),
 );
+
+async function fetchSeatingRosterForReports(supabase, program, options) {
+  const result = await fetchRosterForGira(supabase, program, options);
+  return { ...result, roster: mapRosterForSeating(result.roster) };
+}
 
 function programSeatingUrl(programId) {
   if (typeof window === "undefined") return "#";
@@ -126,7 +136,7 @@ export default function SeatingReports({ supabase }) {
             rows.map(async (p) => {
               try {
                 const [rosterPack, containerLabels] = await Promise.all([
-                  fetchRosterForGira(supabase, p),
+                  fetchSeatingRosterForReports(supabase, p),
                   fetchMusicianSeatingContainerLabels(supabase, p.id),
                 ]);
                 return [
@@ -206,10 +216,10 @@ export default function SeatingReports({ supabase }) {
     try {
       const { data, error } = await supabase
         .from("integrantes")
-        .select("id, nombre, apellido, id_instr")
+        .select(`id, ${SEATING_INTEGRANTES_EMBED_MIN}, id_instr`)
         .in("id_instr", ["01", "02", "03", "04"]);
       if (error) throw error;
-      setHistoryRoster(data || []);
+      setHistoryRoster(mapRosterForSeating(data || []));
     } catch (err) {
       console.error("Error cargando roster global de cuerdas:", err);
       alert("Error al cargar el historial global de seating.");
@@ -327,7 +337,7 @@ export default function SeatingReports({ supabase }) {
       setPreviewStringsLoading(true);
       setPreviewStringsError(null);
       try {
-        const { roster } = await fetchRosterForGira(supabase, previewProgram);
+        const { roster } = await fetchSeatingRosterForReports(supabase, previewProgram);
         const localRepertorio = await fetchLocalRepertorio(previewProgram.id);
         const { containers } = await buildSeatingStateForProgram(
           previewProgram,
@@ -383,7 +393,7 @@ export default function SeatingReports({ supabase }) {
       for (const program of selectedPrograms) {
         // localRepertorio + roster por programa
         const localRepertorio = await fetchLocalRepertorio(program.id);
-        const { roster } = await fetchRosterForGira(supabase, program);
+        const { roster } = await fetchSeatingRosterForReports(supabase, program);
         // Reutilizamos el exportador existente (descarga un PDF por programa)
         // eslint-disable-next-line no-await-in-loop
         await generateSeatingPdf(supabase, program, localRepertorio, roster);
@@ -412,7 +422,7 @@ export default function SeatingReports({ supabase }) {
         if (index > 0) doc.addPage();
 
         const localRepertorio = await fetchLocalRepertorio(program.id);
-        const { roster } = await fetchRosterForGira(supabase, program);
+        const { roster } = await fetchSeatingRosterForReports(supabase, program);
         const { assignments, musicianAssignments, containers, particellas } =
           await buildSeatingStateForProgram(
             program,
@@ -529,7 +539,7 @@ export default function SeatingReports({ supabase }) {
         ];
 
         const tableBody = otherMusicians.map((m) => {
-          const row = [`${m.apellido || ""}, ${m.nombre || ""}`];
+          const row = [seatingApellidoNombre(m)];
           obrasList.forEach((o) => {
             const key = `M-${m.id}-${o.obra_id}`;
             const partIds = musicianAssignments[key] || [];
@@ -598,7 +608,7 @@ export default function SeatingReports({ supabase }) {
         const sheet = workbook.addWorksheet(sheetName || "Gira");
 
         const localRepertorio = await fetchLocalRepertorio(program.id);
-        const { roster } = await fetchRosterForGira(supabase, program);
+        const { roster } = await fetchSeatingRosterForReports(supabase, program);
         const { assignments, musicianAssignments, containers, particellas } =
           await buildSeatingStateForProgram(
             program,
@@ -730,7 +740,7 @@ export default function SeatingReports({ supabase }) {
 
           otherMusicians.forEach((m) => {
             const rowValues = [
-              `${m.apellido || ""}, ${m.nombre || ""}`,
+              seatingApellidoNombre(m),
               ...obrasList.map((o) => {
                 const key = `M-${m.id}-${o.obra_id}`;
                 const partIds = musicianAssignments[key] || [];
@@ -778,7 +788,7 @@ export default function SeatingReports({ supabase }) {
     try {
       for (const program of selectedPrograms) {
         const localRepertorio = await fetchLocalRepertorio(program.id);
-        const { roster } = await fetchRosterForGira(supabase, program);
+        const { roster } = await fetchSeatingRosterForReports(supabase, program);
         const { assignments, musicianAssignments, containers, particellas } =
           await buildSeatingStateForProgram(
             program,
@@ -1094,7 +1104,7 @@ export default function SeatingReports({ supabase }) {
                             const integ = item?.integrantes;
                             const cell =
                               integ &&
-                              `${integ.apellido || ""}, ${integ.nombre || ""}`.trim();
+                              seatingApellidoNombre(integ);
                             return (
                               <td
                                 key={`${c.id}-${rowIdx}`}

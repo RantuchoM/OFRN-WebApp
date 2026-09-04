@@ -26,6 +26,8 @@ function getDefaultValues(musician = {}) {
     condicion: "Estable",
     genero: "-",
     alimentacion: "",
+    nombre_preferencia: "",
+    apellido_preferencia: "",
     nacionalidad: "Argentina",
     fecha_nac: "",
     fecha_alta: "",
@@ -817,6 +819,10 @@ export function useMusicianForm(musician, supabase, onSave) {
           cuil: cuilRaw || null,
           fecha_nac: formValues.fecha_nac || null,
           alimentacion: (formValues.alimentacion || "").trim() || null,
+          nombre_preferencia:
+            (formValues.nombre_preferencia || "").trim() || null,
+          apellido_preferencia:
+            (formValues.apellido_preferencia || "").trim() || null,
           id_localidad: formValues.id_localidad || null,
           id_loc_viaticos: formValues.id_loc_viaticos || null,
           id_domicilio_laboral: formValues.id_domicilio_laboral || null,

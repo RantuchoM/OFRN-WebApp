@@ -13,6 +13,10 @@ import {
 } from "./seatingPdfStringsTableHooks";
 import { sortWindMusiciansForSeating } from "./seatingWindOrder";
 import { fetchCuerdasDispositionGroups } from "./seatingCuerdasConfig";
+import {
+  mapRosterForSeating,
+  seatingApellidoNombre,
+} from "./integranteDisplayName";
 
 // Identifica si un instrumento es cuerda (códigos tal cual en BD; sin forzar "1"→"01")
 const isStringInstrument = (id) =>
@@ -55,7 +59,8 @@ const appendDispositionTable = (doc, containers, validItems, startY, title) => {
         );
         const item = groupItems[i];
         if (!item?.integrantes) return "";
-        return `${item.integrantes.apellido}, ${item.integrantes.nombre}.` || "";
+        const label = seatingApellidoNombre(item.integrantes);
+        return label ? `${label}.` : "";
       }),
     );
   }
@@ -81,6 +86,7 @@ const appendDispositionTable = (doc, containers, validItems, startY, title) => {
  */
 export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster) => {
   try {
+    roster = mapRosterForSeating(roster);
     // 1. CARGA DE DATOS DE SEATING (Contenedores y Asignaciones)
     const workIds = localRepertorio
       .flatMap(r => r.repertorio_obras?.map(o => o.obras.id))
@@ -186,7 +192,7 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
     const tableHeaders = [["Músico", ...obrasList.map(o => `${truncate(cleanHTML(o.composer), 10)}\n${truncate(cleanHTML(o.title), 12)}`)]];
 
     const tableBody = otherMusicians.map((m) => {
-      const row = [`${m.apellido}, ${m.nombre}`];
+      const row = [seatingApellidoNombre(m)];
       obrasList.forEach((o) => {
         // Buscar asignación
         const mid = integranteKey(m.id_integrante ?? m.id);

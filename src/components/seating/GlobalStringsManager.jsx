@@ -32,6 +32,12 @@ import {
   shiftSeatingLine,
 } from "../../services/giraService";
 import { getDuplicateSeatingStringItemIds } from "../../utils/seatingStringItemsDedupe";
+import {
+  SEATING_INTEGRANTES_EMBED,
+  SEATING_INTEGRANTES_EMBED_MIN,
+  applySeatingNamesOnItem,
+  seatingApellidoNombre,
+} from "../../utils/integranteDisplayName";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { useUndoStack } from "../../hooks/useUndoStack";
 import {
@@ -136,7 +142,7 @@ const ImportSeatingModal = ({
         const { data: items } = await supabase
           .from("seating_contenedores_items")
           .select(
-            "id, id_contenedor, id_musico, orden, atril_num, lado, integrantes(apellido, nombre)",
+            `id, id_contenedor, id_musico, orden, atril_num, lado, integrantes(${SEATING_INTEGRANTES_EMBED_MIN})`,
           )
           .in("id_contenedor", contIds);
 
@@ -158,12 +164,10 @@ const ImportSeatingModal = ({
         contenedores: (grouped[p.id] || [])
           .sort((a, b) => (a.orden || 0) - (b.orden || 0))
           .map((c) => {
-            const raw = itemsByContainer[c.id] || [];
+            const raw = (itemsByContainer[c.id] || []).map(applySeatingNamesOnItem);
             const people = sortSeatingItems(raw).filter((row) => row.integrantes);
             const peopleNames = people
-              .map((row) =>
-                `${row.integrantes.apellido || ""} ${row.integrantes.nombre || ""}`.trim(),
-              )
+              .map((row) => seatingApellidoNombre(row.integrantes))
               .filter(Boolean);
             return {
               ...c,
@@ -1270,7 +1274,7 @@ export default function GlobalStringsManager({
         lado,
         orden,
       })
-      .select("*, integrantes(nombre, apellido, instrumentos(instrumento))")
+      .select(`*, integrantes(${SEATING_INTEGRANTES_EMBED})`)
       .single();
     if (!newItem) return;
 

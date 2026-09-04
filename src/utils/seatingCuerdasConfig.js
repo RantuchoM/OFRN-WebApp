@@ -1,4 +1,8 @@
 import { dedupeSeatingStringItems } from "./seatingStringItemsDedupe";
+import {
+  SEATING_INTEGRANTES_EMBED,
+  mapSeatingItemsWithDisplayNames,
+} from "./integranteDisplayName";
 
 /**
  * Configs de cuerdas por programa: resolución por bloque (como stage plots).
@@ -292,7 +296,7 @@ export const fetchCuerdasDispositionGroups = async (supabase, programId) => {
 
   const { data: items } = await supabase
     .from("seating_contenedores_items")
-    .select("*, integrantes(nombre, apellido, instrumentos(instrumento))")
+    .select(`*, integrantes(${SEATING_INTEGRANTES_EMBED})`)
     .in(
       "id_contenedor",
       allConts.map((c) => c.id),
@@ -301,7 +305,9 @@ export const fetchCuerdasDispositionGroups = async (supabase, programId) => {
     .order("lado", { ascending: true, nullsFirst: true })
     .order("id", { ascending: true });
 
-  const deduped = dedupeSeatingStringItems(items || [], allConts);
+  const deduped = mapSeatingItemsWithDisplayNames(
+    dedupeSeatingStringItems(items || [], allConts),
+  );
 
   const groups = configs.map((config) => {
     const contsForConfig = allConts.filter(

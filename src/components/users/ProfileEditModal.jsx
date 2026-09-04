@@ -17,10 +17,13 @@
     IconClipboard,
     IconAlertTriangle,
     IconEdit, // Asegúrate de importar este ícono
-    IconPalette // Agregamos ícono de paleta si lo tienes, si no usa IconEdit
+    IconPalette, // Agregamos ícono de paleta si lo tienes, si no usa IconEdit
+    IconUtensils,
   } from "../ui/Icons";
   import SearchableSelect from "../ui/SearchableSelect";
   import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+  import { DIET_OPTIONS } from "../../utils/dietOptions";
+  import { notifyAlimentacionChange } from "../../services/alimentacionChangeNotify";
 
   // --- CONSTANTES DE ESTILO ---
   const labelClass =
@@ -123,6 +126,9 @@
       link_cbu_img: "",
       link_cuil: "",
       last_verified_at: null,
+      alimentacion: "General",
+      nombre_preferencia: "",
+      apellido_preferencia: "",
     });
 
     const [previewUrl, setPreviewUrl] = useState(null);
@@ -174,6 +180,9 @@
           link_cbu_img: userData.link_cbu_img || "",
           link_cuil: userData.link_cuil || "",
           last_verified_at: userData.last_verified_at || null,
+          alimentacion: userData.alimentacion || "General",
+          nombre_preferencia: userData.nombre_preferencia || "",
+          apellido_preferencia: userData.apellido_preferencia || "",
         };
         setFormData(baseData);
         setInitialData(baseData);
@@ -305,19 +314,42 @@
       const now = new Date().toISOString();
       try {
         // Al guardar, el ThemeController (que escucha la DB) actualizará el color automáticamente
+        const payload = {
+          ...formData,
+          nombre_preferencia: (formData.nombre_preferencia || "").trim() || null,
+          apellido_preferencia: (formData.apellido_preferencia || "").trim() || null,
+          alimentacion: (formData.alimentacion || "").trim() || null,
+          last_modified_at: now,
+          last_verified_at: now,
+        };
         const { error } = await supabase
           .from("integrantes")
-          .update({ ...formData, last_modified_at: now, last_verified_at: now })
+          .update(payload)
           .eq("id", user.id);
         if (error) throw error;
         if (formData.avatar_color) {
           window.dispatchEvent(new CustomEvent('theme-changed', { detail: formData.avatar_color }));
         }
+        let mailWarning = "";
+        try {
+          await notifyAlimentacionChange(supabase, {
+            id: user.id,
+            nombre: user.nombre,
+            apellido: user.apellido,
+            mail: formData.mail,
+            anterior: initialData?.alimentacion,
+            nueva: formData.alimentacion,
+          });
+        } catch (mailErr) {
+          console.warn("notifyAlimentacionChange:", mailErr);
+          mailWarning =
+            "\n\nEl aviso de alimentación a producción no se pudo enviar. Avisá a producción si el cambio es urgente.";
+        }
         setIsDirty(false);
         if (onUpdate) onUpdate();
         onClose();
         // No necesitamos location.reload(), el sistema es reactivo
-        alert("✅ Verificado y Guardado");
+        alert(`✅ Verificado y Guardado${mailWarning}`);
       } catch (error) {
         alert("Error al guardar");
       } finally {
@@ -607,6 +639,73 @@
                 </div>
 
                 {/* Resto de Inputs (Sin cambios mayores) */}
+                <div className="space-y-4 p-4 bg-indigo-50/40 rounded-[1.5rem] border border-indigo-100">
+                  <div className="flex items-center gap-2 text-slate-800">
+                    <IconUser size={16} className="text-indigo-500" />
+                    <h4 className="text-[10px] font-black uppercase tracking-widest">
+                      Nombre de preferencia
+                    </h4>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-snug -mt-2">
+                    Se usa en seating e informes de seating. El transporte sigue
+                    mostrando tu nombre legal ({user.nombre} {user.apellido}).
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className={labelClass}>Nombre de preferencia</label>
+                      <input
+                        type="text"
+                        value={formData.nombre_preferencia}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            nombre_preferencia: e.target.value,
+                          })
+                        }
+                        placeholder={user.nombre || "Nombre"}
+                        className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className={labelClass}>Apellido de preferencia</label>
+                      <input
+                        type="text"
+                        value={formData.apellido_preferencia}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            apellido_preferencia: e.target.value,
+                          })
+                        }
+                        placeholder={user.apellido || "Apellido"}
+                        className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className={labelClass}>
+                    <IconUtensils size={12} /> Tipo de alimentación
+                  </label>
+                  <select
+                    value={formData.alimentacion || "General"}
+                    onChange={(e) =>
+                      setFormData({ ...formData, alimentacion: e.target.value })
+                    }
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
+                  >
+                    {DIET_OPTIONS.map((opcion) => (
+                      <option key={opcion} value={opcion}>
+                        {opcion}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-400 ml-1">
+                    Si lo cambiás, producción recibe un aviso por mail.
+                  </p>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className={labelClass}>
