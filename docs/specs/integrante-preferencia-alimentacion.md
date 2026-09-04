@@ -23,14 +23,16 @@ Tabla: `public.integrantes`
 Cada campo de preferencia se aplica por separado: se puede cambiar solo el nombre, solo el apellido, o ambos.
 
 ## UI
-### Mi Perfil (`ProfileEditModal`)
-- Select de alimentación (`DIET_OPTIONS`).
-- Inputs «Nombre de preferencia» y «Apellido de preferencia».
-- Al guardar, si cambió `alimentacion`, se invoca `notifyAlimentacionChange`. El guardado no se revierte si el mail falla.
+### Mi Perfil (`ProfileEditModal`) — flujo del músico
+- Se abre desde el avatar / nombre en el header (`App.jsx` → `setProfileModalOpen`).
+- Select de alimentación (`DIET_OPTIONS`) + nombre/apellido de preferencia.
+- **Único lugar que dispara el mail:** al guardar, si cambió `alimentacion`, se invoca `notifyAlimentacionChange` → `produccion.ofrn@gmail.com`.
+- El guardado no se revierte si el mail falla.
 
-### Ficha de músico (admin)
-- Los mismos campos de preferencia debajo del nombre/apellido legal.
-- Autosave existente (`updateField` → `saveFieldToDb`).
+### Ficha de músico admin (`MusicianForm` / `MusicianPersonalSection`)
+- Mismos campos (preferencia + alimentación) para que administración pueda cargarlos.
+- Autosave (`updateField` → `saveFieldToDb`).
+- **No** llama a `notifyAlimentacionChange`. Un cambio de dieta desde acá no avisa a producción.
 
 ## Seating
 Helper: `src/utils/integranteDisplayName.js`

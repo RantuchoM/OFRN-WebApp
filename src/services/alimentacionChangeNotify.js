@@ -3,8 +3,9 @@ import { dietsDiffer, normalizeDiet } from "../utils/dietOptions";
 export const PRODUCCION_ALIMENTACION_EMAIL = "produccion.ofrn@gmail.com";
 
 /**
- * Avisa a producción cuando un integrante cambia su tipo de alimentación.
- * No lanza si el valor no cambió.
+ * Aviso a producción al cambiar alimentación.
+ * Invocar SOLO desde Mi Perfil (`ProfileEditModal`).
+ * MusicianForm (ficha admin) no debe llamar esto.
  */
 export async function notifyAlimentacionChange(supabase, payload = {}) {
   const anterior = normalizeDiet(payload.anterior);

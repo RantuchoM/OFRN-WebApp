@@ -280,6 +280,10 @@ export default function MusicianPersonalSection() {
                   </option>
                 ))}
               </select>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Edición interna. El aviso a producción solo se envía si el
+                músico lo cambia en Mi Perfil.
+              </p>
             </div>
           </div>
 
