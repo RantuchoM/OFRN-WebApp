@@ -1,6 +1,6 @@
 import { dietsDiffer, normalizeDiet } from "../utils/dietOptions";
 
-export const PRODUCCION_ALIMENTACION_EMAIL = "produccion.ofrn@gmail.com";
+export const PRODUCCION_ALIMENTACION_EMAIL = "filarmonica.scrn@gmail.com";
 
 /**
  * Aviso a producción al cambiar alimentación.

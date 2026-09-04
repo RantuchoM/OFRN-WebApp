@@ -6,7 +6,7 @@ Permitir que cada músico edite su tipo de alimentación desde **Mi Perfil** y q
 ## Estado
 - [x] Columnas `integrantes.nombre_preferencia` y `integrantes.apellido_preferencia`.
 - [x] Modal `ProfileEditModal`: alimentación + nombre/apellido de preferencia.
-- [x] Mail a `produccion.ofrn@gmail.com` al cambiar alimentación (`mails_produccion` / `cambio_alimentacion`).
+- [x] Mail a `filarmonica.scrn@gmail.com` al cambiar alimentación (`notify-alimentacion-change`).
 - [x] Ficha admin (`MusicianPersonalSection`) con los mismos campos de preferencia.
 - [x] Seating e informes de seating usan preferencia (fallback al legal).
 - [x] Informes de transporte siguen usando `nombre` / `apellido` legales.
@@ -26,7 +26,7 @@ Cada campo de preferencia se aplica por separado: se puede cambiar solo el nombr
 ### Mi Perfil (`ProfileEditModal`) — flujo del músico
 - Se abre desde el avatar / nombre en el header (`App.jsx` → `setProfileModalOpen`).
 - Select de alimentación (`DIET_OPTIONS`) + nombre/apellido de preferencia.
-- **Único lugar que dispara el mail:** al guardar, si cambió `alimentacion`, se invoca `notifyAlimentacionChange` → `produccion.ofrn@gmail.com`.
+- **Único lugar que dispara el mail:** al guardar, si cambió `alimentacion`, se invoca `notifyAlimentacionChange` → `filarmonica.scrn@gmail.com`.
 - El guardado no se revierte si el mail falla.
 
 ### Ficha de músico admin (`MusicianForm` / `MusicianPersonalSection`)
@@ -44,6 +44,6 @@ Helper: `src/utils/integranteDisplayName.js`
 ## Mail
 Edge Function `notify-alimentacion-change` (también hay template `cambio_alimentacion` en `mails_produccion` por si se reutiliza el hub).
 
-- Destino: `produccion.ofrn@gmail.com`
+- Destino: `filarmonica.scrn@gmail.com`
 - Asunto: `Cambio de alimentación | Nombre Apellido`
 - Cuerpo: integrante, id, mail, dieta anterior y nueva.

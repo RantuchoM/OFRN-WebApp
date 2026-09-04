@@ -3,7 +3,7 @@ import nodemailer from "npm:nodemailer@6.9.7";
 
 const GMAIL_USER = Deno.env.get("GMAIL_USER");
 const GMAIL_PASS = Deno.env.get("GMAIL_PASS");
-const TO_EMAIL = "produccion.ofrn@gmail.com";
+const TO_EMAIL = "filarmonica.scrn@gmail.com";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
