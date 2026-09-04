@@ -1,10 +1,12 @@
 import React, { useMemo, useState } from "react";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import {
+  IconDownload,
   IconLoader,
   IconMapPin,
   IconPlus,
   IconTag,
+  IconUpload,
   IconX,
 } from "../../components/ui/Icons";
 import { computeFimbaCapacity } from "../../services/fimbaService";
@@ -53,7 +55,8 @@ function boardFromUi(ui) {
 }
 
 /**
- * Celda compacta: select artista/grupo + plazas (mismo patrón que Programar transporte).
+ * Celda compacta: select artista/grupo + plazas.
+ * Colores = planilla Transportes (`.fimba-planilla-board-*`: verde ↑ / rosa ↓).
  */
 function BoardingCompactCell({
   value,
@@ -62,13 +65,40 @@ function BoardingCompactCell({
   disabled,
   ariaLabel,
   hint,
+  direction,
 }) {
+  const isUp = direction === "up";
+  const hasPeople = Boolean(value?.key);
+  const Icon = isUp ? IconUpload : IconDownload;
+  const emptyLabel = isUp ? "Asignar subida" : "Asignar bajada";
+  const tone = isUp
+    ? {
+        border: hasPeople ? "#86efac" : "#e2e8f0",
+        bg: hasPeople ? "rgba(220, 252, 231, 0.45)" : "#fff",
+        head: "#166534",
+      }
+    : {
+        border: hasPeople ? "#fda4af" : "#e2e8f0",
+        bg: hasPeople ? "rgba(255, 228, 230, 0.45)" : "#fff",
+        head: "#9f1239",
+      };
+
   return (
     <div
-      className="fimba-field"
-      style={{ margin: 0, display: "flex", flexDirection: "column", gap: 4 }}
+      className="fimba-field fimba-planilla-board-cell"
+      style={{
+        margin: 0,
+        borderColor: tone.border,
+        background: tone.bg,
+      }}
       title={hint || undefined}
     >
+      <div
+        className="fimba-planilla-board-head"
+        style={{ color: tone.head }}
+      >
+        <Icon size={11} />
+      </div>
       <select
         className="fimba-select"
         value={value?.key || ""}
@@ -86,9 +116,14 @@ function BoardingCompactCell({
             cantidad: String(opt?.headcount || value?.cantidad || 1),
           });
         }}
-        style={{ fontSize: "0.78rem", minHeight: 32, padding: "0.2rem 0.35rem" }}
+        style={{
+          fontSize: "0.78rem",
+          minHeight: 32,
+          padding: "0.2rem 0.35rem",
+          color: hasPeople ? undefined : tone.head,
+        }}
       >
-        <option value="">—</option>
+        <option value="">{emptyLabel}</option>
         {passengerOptions.some((o) => o.kind === "propuesta") && (
           <optgroup label="Artistas FIMBA">
             {passengerOptions
@@ -413,6 +448,13 @@ export default function FimbaRecorridoIntermedioModal({
   );
 
   const labelStyle = { margin: 0, fontSize: "0.72rem" };
+  const boardThStyle = {
+    ...labelStyle,
+    padding: "0.28rem 0.4rem",
+    borderRadius: 8,
+    textAlign: "center",
+    fontWeight: 800,
+  };
 
   return (
     <div className="fimba-modal-backdrop" onClick={onClose} role="presentation">
@@ -482,15 +524,15 @@ export default function FimbaRecorridoIntermedioModal({
               Hora
             </span>
             <span
-              className="fimba-label"
-              style={labelStyle}
+              className="fimba-label fimba-planilla-board-th-up"
+              style={boardThStyle}
               title="Sugerido en Salida (ida) y Llegada (vuelta)"
             >
               Subida
             </span>
             <span
-              className="fimba-label"
-              style={labelStyle}
+              className="fimba-label fimba-planilla-board-th-down"
+              style={boardThStyle}
               title="Sugerido en Llegada (ida) y Retorno (vuelta)"
             >
               Bajada
@@ -539,6 +581,7 @@ export default function FimbaRecorridoIntermedioModal({
               onChange={setSubidaSalida}
               passengerOptions={passengerOptions}
               disabled={saving}
+              direction="up"
               ariaLabel="Subida en salida"
               hint="Ida típica: subir aquí"
             />
@@ -547,6 +590,7 @@ export default function FimbaRecorridoIntermedioModal({
               onChange={setBajadaSalida}
               passengerOptions={passengerOptions}
               disabled={saving}
+              direction="down"
               ariaLabel="Bajada en salida"
             />
 
@@ -601,6 +645,7 @@ export default function FimbaRecorridoIntermedioModal({
               onChange={setSubidaWaypoint}
               passengerOptions={passengerOptions}
               disabled={saving}
+              direction="up"
               ariaLabel="Subida en llegada"
               hint="Vuelta típica: subir aquí"
             />
@@ -609,6 +654,7 @@ export default function FimbaRecorridoIntermedioModal({
               onChange={setBajadaWaypoint}
               passengerOptions={passengerOptions}
               disabled={saving}
+              direction="down"
               ariaLabel="Bajada en llegada"
               hint="Ida típica: bajar aquí"
             />
@@ -657,6 +703,7 @@ export default function FimbaRecorridoIntermedioModal({
               onChange={setSubidaRetorno}
               passengerOptions={passengerOptions}
               disabled={saving}
+              direction="up"
               ariaLabel="Subida en retorno"
             />
             <BoardingCompactCell
@@ -664,6 +711,7 @@ export default function FimbaRecorridoIntermedioModal({
               onChange={setBajadaRetorno}
               passengerOptions={passengerOptions}
               disabled={saving}
+              direction="down"
               ariaLabel="Bajada en retorno"
               hint="Vuelta típica: bajar aquí"
             />

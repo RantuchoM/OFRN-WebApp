@@ -1388,6 +1388,8 @@ function resolveRideEndpointEvent(eventId, embed, eventById) {
  *   whenLabel: string,
  *   pairEventId: unknown|null,
  *   pairIsTransport: boolean|null,
+ *   rutaId: unknown|null,
+ *   integranteId: unknown|null,
  * }>}
  */
 export function listOffTrayectoRideEndpoints(opts = {}) {
@@ -1473,6 +1475,8 @@ export function listOffTrayectoRideEndpoints(opts = {}) {
         whenLabel: formatOffTrayectoEndpointWhen(upEv, tipoById),
         pairEventId: downEv?.id ?? r.id_evento_bajada ?? null,
         pairIsTransport: downEv ? isTransportTipoEvent(downEv) : null,
+        rutaId: r.id ?? null,
+        integranteId: null,
       });
     }
     if (downEv) {
@@ -1489,6 +1493,8 @@ export function listOffTrayectoRideEndpoints(opts = {}) {
         whenLabel: formatOffTrayectoEndpointWhen(downEv, tipoById),
         pairEventId: upEv?.id ?? r.id_evento_subida ?? null,
         pairIsTransport: upEv ? isTransportTipoEvent(upEv) : null,
+        rutaId: r.id ?? null,
+        integranteId: null,
       });
     }
   }
@@ -1528,6 +1534,8 @@ export function listOffTrayectoRideEndpoints(opts = {}) {
         whenLabel: formatOffTrayectoEndpointWhen(upEv, tipoById),
         pairEventId: downEv?.id ?? r.bajadaId ?? null,
         pairIsTransport: downEv ? isTransportTipoEvent(downEv) : null,
+        rutaId: null,
+        integranteId: r.id ?? null,
       });
     }
     if (downEv) {
@@ -1544,6 +1552,8 @@ export function listOffTrayectoRideEndpoints(opts = {}) {
         whenLabel: formatOffTrayectoEndpointWhen(downEv, tipoById),
         pairEventId: upEv?.id ?? r.subidaId ?? null,
         pairIsTransport: upEv ? isTransportTipoEvent(upEv) : null,
+        rutaId: null,
+        integranteId: r.id ?? null,
       });
     }
   }

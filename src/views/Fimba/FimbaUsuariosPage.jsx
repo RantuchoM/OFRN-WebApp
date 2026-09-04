@@ -22,7 +22,7 @@ import {
   updateFimbaUsuario,
 } from "../../services/fimbaService";
 import { generateFimbaTempPassword } from "../../utils/fimbaUserSession";
-import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 
 const ROLE_LABEL = Object.fromEntries(
   FIMBA_USUARIO_ROLES.map((r) => [r.value, r.label]),

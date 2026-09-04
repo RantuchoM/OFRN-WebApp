@@ -10,13 +10,14 @@ import {
 } from "../../utils/fimbaUserSession";
 import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
-import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import { IconLogOut, IconMoon, IconPrinter, IconSun } from "../../components/ui/Icons";
 import { getFimbaEdicionById } from "../../services/fimbaService";
-import FimbaSectionToggle, {
+import FimbaSectionToggle from "./FimbaSectionToggle";
+import {
   parseFimbaSectionIds,
   resolveFimbaPrintMeta,
-} from "./FimbaSectionToggle";
+} from "../../utils/fimbaPaths";
 
 const FIMBA_CSS = `
   /* Tokens on root + portaled modals (createPortal → document.body leaves .fimba-root) */
@@ -419,11 +420,12 @@ const FIMBA_CSS = `
     max-width: 100%;
     min-width: 0;
   }
-  .fimba-planilla-table .fimba-planilla-board-th-up {
+  /* Subida (verde) / Bajada (rosa): planilla th + modales (recorrido intermedio, etc.) */
+  .fimba-planilla-board-th-up {
     color: #166534;
     background: #f0fdf4 !important;
   }
-  .fimba-planilla-table .fimba-planilla-board-th-down {
+  .fimba-planilla-board-th-down {
     color: #9f1239;
     background: #fff1f2 !important;
   }

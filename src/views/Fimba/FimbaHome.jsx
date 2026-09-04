@@ -8,7 +8,7 @@ import {
   searchProgramasForFimba,
 } from "../../services/fimbaService";
 import { useAuth } from "../../context/AuthContext";
-import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import { useFimbaUserSession } from "../../hooks/useFimbaUserSession";
 import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
 

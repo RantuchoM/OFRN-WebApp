@@ -18,7 +18,7 @@ import {
   IconUtensils,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
-import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import { useFimbaUserSession } from "../../hooks/useFimbaUserSession";
 import {
   FIMBA_GENEROS,

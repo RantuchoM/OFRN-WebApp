@@ -95,7 +95,7 @@ import FimbaProgramarTransporteModal from "./FimbaProgramarTransporteModal";
 import FimbaRecorridoIntermedioModal from "./FimbaRecorridoIntermedioModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import FimbaStopRulesManager from "./FimbaStopRulesManager";
-import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import { supabase } from "../../services/supabase";
 import { hasHtmlMarkup, stripHtml } from "../../utils/eventDisplayUtils";
 import { formatFechaLargaEs, formatWeekdayFullLocal } from "../../utils/dates";
@@ -891,6 +891,7 @@ export default function FimbaTransportPage() {
   /** Panel auditoría: ↑/↓ en Conciertos/Ensayos/etc. (no filas de trayecto). */
   const [showOffTrayectoPanel, setShowOffTrayectoPanel] = useState(false);
   const [openingOffTrayectoId, setOpeningOffTrayectoId] = useState(null);
+  const [clearingOffTrayectoKey, setClearingOffTrayectoKey] = useState(null);
   const [otrosCategoryIds, setOtrosCategoryIds] = useState([]);
   const [otrosPropuestaIds, setOtrosPropuestaIds] = useState([]);
   const [otrosGrupoIds, setOtrosGrupoIds] = useState([]);
@@ -1063,6 +1064,7 @@ export default function FimbaTransportPage() {
       // —— Primera carga / full: edicion + propuestas + catálogo en paralelo ——
       let ed = edicionRef.current;
       let props = propuestasRef.current || [];
+      let needGruposTipos = false;
       if (fetchAll || !ed || !props.length) {
         const [edRes, propsRes, catRes] = await Promise.all([
           getFimbaEdicionById(edicionId),
@@ -1088,16 +1090,7 @@ export default function FimbaTransportPage() {
         else if (doCatalog && catRes.error) {
           setError(catRes.error.message || "Error al cargar catálogo");
         }
-        // Grupos OFRN + categorías (Ver otros eventos / Programar)
-        const [gruposRes, tiposRes] = await Promise.all([
-          listFimbaGiraGrupos(ed.id_gira),
-          listTiposEventoForFimba(),
-        ]);
-        if (!gruposRes.error) setGiraGrupos(gruposRes.grupos || []);
-        if (!tiposRes.error) {
-          setCatalogTipos(tiposRes.tipos || []);
-          setDbCategorias(tiposRes.categorias || []);
-        }
+        needGruposTipos = true;
       } else if (doCatalog) {
         const catRes = await listOfrnTransportesCatalog();
         if (!catRes.error) setCatalog(catRes.catalog || []);
@@ -1107,7 +1100,8 @@ export default function FimbaTransportPage() {
       const propIds = (props || []).map((p) => p.id);
       let fleet = vehiculosRef.current || [];
 
-      // Flota primero si hace falta (trayectos la reutilizan; no espera a logistics).
+      // Flota antes de trayectos: `listFimbaTraslados` con `flota: []` no re-fetcha
+      // (?? trata [] como definido) y omitiría eventos solo asignados a vehículos.
       if (doFlota) {
         const flotaRes = await listFimbaFlota(giraId);
         if (flotaRes.error) {
@@ -1119,8 +1113,21 @@ export default function FimbaTransportPage() {
         }
       }
 
+      // Primera pintura: no bloquear spinner en logistics OFRN (pesado).
+      // Soft refresh de solo logistics sí espera el resultado.
+      const deferLogistics =
+        isFirst && doLogistics && (doEventos || doRutas || doFlota);
+
       const tasks = [];
-      if (doLogistics) {
+      if (needGruposTipos) {
+        tasks.push(
+          listFimbaGiraGrupos(giraId).then((res) => ({ key: "grupos", res })),
+        );
+        tasks.push(
+          listTiposEventoForFimba().then((res) => ({ key: "tipos", res })),
+        );
+      }
+      if (doLogistics && !deferLogistics) {
         tasks.push(
           loadFimbaTransportLogisticsSummary(giraId).then((res) => ({
             key: "logistics",
@@ -1151,6 +1158,11 @@ export default function FimbaTransportPage() {
       let firstErr = null;
       for (const { key, res } of settled) {
         if (res?.error && !firstErr) firstErr = res.error;
+        if (key === "grupos" && !res.error) setGiraGrupos(res.grupos || []);
+        if (key === "tipos" && !res.error) {
+          setCatalogTipos(res.tipos || []);
+          setDbCategorias(res.categorias || []);
+        }
         if (key === "logistics" && !res.error) {
           setLogisticsSummary(res.summary || []);
           setOfrnPassengers(res.passengers || res.summary || []);
@@ -1172,7 +1184,18 @@ export default function FimbaTransportPage() {
       hasLoadedOnce.current = true;
       setInitialLoading(false);
 
-      // CNRT / hoja de ruta: no bloquea planilla ni spinner.
+      // Logistics OFRN + CNRT: no bloquean planilla ni spinner.
+      if (deferLogistics) {
+        loadFimbaTransportLogisticsSummary(giraId).then((res) => {
+          if (res?.error) return;
+          setLogisticsSummary(res.summary || []);
+          setOfrnPassengers(res.passengers || res.summary || []);
+          setOfrnAdmissionRules(res.admissionRules || []);
+          setOfrnRegions(res.regions || []);
+          setOfrnLocalities(res.localities || []);
+          setOfrnRouteRules(res.routeRules || []);
+        });
+      }
       if (doParticipantes) {
         listFimbaParticipantesForPropuestas(propIds).then((res) => {
           if (!res.error) {
@@ -1975,43 +1998,85 @@ export default function FimbaTransportPage() {
     [softRefresh],
   );
 
-  /** Abre evento de ↑/↓ fuera de planilla (Concierto, etc.) vía agenda. */
+  /**
+   * Abre el gestor de Subidas/Bajadas en el extremo fuera de trayecto
+   * (Concierto, Ensayo, …). No abre el form de actividad: ahí no hay UI de boarding.
+   */
   const handleOpenOffTrayectoEvent = useCallback(
-    async (eventoId) => {
+    async (row) => {
+      const eventoId = row?.eventId ?? row;
       if (eventoId == null || eventoId === "" || !edicionId) return;
       const key = String(eventoId);
+      const end = row?.end === "up" ? "up" : "down";
+      const transportId =
+        row?.id_gira_transporte != null && row?.id_gira_transporte !== ""
+          ? Number(row.id_gira_transporte)
+          : null;
       setOpeningOffTrayectoId(key);
       try {
-        const local =
-          (eventosRef.current || []).find((x) => String(x.id) === key) ||
-          (contextEventos || []).find((x) => String(x.id) === key);
-        if (local) {
-          setModal({
-            mode: "edit",
-            evento: local,
-            forceTransporte: false,
-          });
-          return;
+        let event =
+          row?.event && String(row.event.id) === key ? row.event : null;
+        if (!event) {
+          event =
+            (eventosRef.current || []).find((x) => String(x.id) === key) ||
+            (contextEventos || []).find((x) => String(x.id) === key) ||
+            null;
         }
-        const { evento, error: err } = await getFimbaAgendaEvento(
-          edicionId,
-          eventoId,
-          { include_ofrn: true },
-        );
-        if (err || !evento) {
-          setError(err?.message || "No se pudo abrir el evento");
-          return;
+        if (!event) {
+          const { evento, error: err } = await getFimbaAgendaEvento(
+            edicionId,
+            eventoId,
+            { include_ofrn: true },
+          );
+          if (err || !evento) {
+            setError(err?.message || "No se pudo abrir el evento");
+            return;
+          }
+          event = evento;
         }
-        setModal({
-          mode: "edit",
-          evento,
-          forceTransporte: false,
+        setStopRulesModal({
+          event,
+          type: end,
+          transportId: Number.isFinite(transportId) ? transportId : null,
+          initialTab: row?.kind === "ofrn" ? "orquesta" : "artistas",
         });
       } finally {
         setOpeningOffTrayectoId(null);
       }
     },
     [edicionId, contextEventos],
+  );
+
+  /** Quita ↑/↓ FIMBA del extremo fuera de trayecto (una acción). */
+  const handleClearOffTrayectoEndpoint = useCallback(
+    async (row) => {
+      if (row?.kind !== "fimba" || row?.rutaId == null) return;
+      const endLabel = row.end === "up" ? "subida" : "bajada";
+      if (
+        !window.confirm(
+          `¿Quitar la ${endLabel} de «${row.label}» en este evento?\n\n` +
+            `Si el ride tiene el otro extremo, queda abierto; si no, se elimina la ruta.`,
+        )
+      ) {
+        return;
+      }
+      setClearingOffTrayectoKey(row.key);
+      setError(null);
+      try {
+        const { error: err } = await clearFimbaPropuestaRutaStop(
+          row.rutaId,
+          row.end === "up" ? "up" : "down",
+        );
+        if (err) {
+          setError(err.message || "No se pudo quitar la asignación");
+          return;
+        }
+        await softRefresh({ rutas: true });
+      } finally {
+        setClearingOffTrayectoKey(null);
+      }
+    },
+    [softRefresh],
   );
 
   const toggleEditMode = () => {
@@ -3328,8 +3393,11 @@ export default function FimbaTransportPage() {
                   }}
                 >
                   Extremos ↑/↓ en eventos que no son filas de planilla (Concierto,
-                  Ensayo, etc.). Cuentan en la secuencia del vehículo; abrí el
-                  evento para auditar o mover la parada.
+                  Ensayo, etc.). Cuentan en la secuencia del vehículo.{" "}
+                  <strong>Corregir</strong> abre Subidas/Bajadas de esa parada;{" "}
+                  <strong>Quitar</strong> (FIMBA) saca el extremo de este evento.
+                  Para mover: quitá acá y asigná la bajada en la parada de
+                  trayecto correcta.
                 </p>
                 <ul
                   style={{
@@ -3358,6 +3426,13 @@ export default function FimbaTransportPage() {
                     const opening =
                       openingOffTrayectoId != null &&
                       String(openingOffTrayectoId) === String(row.eventId);
+                    const clearing =
+                      clearingOffTrayectoKey != null &&
+                      clearingOffTrayectoKey === row.key;
+                    const canClearFimba =
+                      row.kind === "fimba" && row.rutaId != null && !readOnly;
+                    const clearLabel =
+                      row.end === "up" ? "Quitar subida" : "Quitar bajada";
                     return (
                       <li
                         key={row.key}
@@ -3394,28 +3469,71 @@ export default function FimbaTransportPage() {
                         <span style={{ color: "#92400e", fontWeight: 600 }}>
                           {[fecha, row.whenLabel].filter(Boolean).join(" · ")}
                         </span>
-                        <button
-                          type="button"
-                          className="fimba-btn fimba-btn-ghost"
-                          disabled={opening}
-                          onClick={() => handleOpenOffTrayectoEvent(row.eventId)}
+                        <span
                           style={{
                             marginLeft: "auto",
-                            padding: "0.2rem 0.45rem",
-                            fontSize: "0.7rem",
                             display: "inline-flex",
+                            flexWrap: "wrap",
                             alignItems: "center",
                             gap: 4,
                           }}
-                          title="Abrir evento"
                         >
-                          {opening ? (
-                            <IconLoader size={12} className="animate-spin" />
-                          ) : (
-                            <IconExternalLink size={12} />
-                          )}
-                          Abrir
-                        </button>
+                          {canClearFimba ? (
+                            <button
+                              type="button"
+                              className="fimba-btn fimba-btn-ghost"
+                              disabled={clearing || opening}
+                              onClick={() =>
+                                handleClearOffTrayectoEndpoint(row)
+                              }
+                              style={{
+                                padding: "0.2rem 0.45rem",
+                                fontSize: "0.7rem",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                                color: "#9f1239",
+                              }}
+                              title={clearLabel}
+                            >
+                              {clearing ? (
+                                <IconLoader
+                                  size={12}
+                                  className="animate-spin"
+                                />
+                              ) : (
+                                <IconTrash size={12} />
+                              )}
+                              {clearLabel}
+                            </button>
+                          ) : null}
+                          {!readOnly ? (
+                            <button
+                              type="button"
+                              className="fimba-btn fimba-btn-ghost"
+                              disabled={opening || clearing}
+                              onClick={() => handleOpenOffTrayectoEvent(row)}
+                              style={{
+                                padding: "0.2rem 0.45rem",
+                                fontSize: "0.7rem",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                              }}
+                              title="Abrir Subidas/Bajadas de este extremo"
+                            >
+                              {opening ? (
+                                <IconLoader
+                                  size={12}
+                                  className="animate-spin"
+                                />
+                              ) : (
+                                <IconExternalLink size={12} />
+                              )}
+                              Corregir
+                            </button>
+                          ) : null}
+                        </span>
                       </li>
                     );
                   })}
@@ -3526,8 +3644,9 @@ export default function FimbaTransportPage() {
           <strong>Subidas</strong> / <strong>Bajadas</strong>: quién sube/baja en la
           parada (plazas FIMBA + reglas OFRN); clic para asignar, × para quitar.
           Si un extremo está en Concierto/Ensayo/etc., el banner ámbar{" "}
-          <em>Subidas/bajadas fuera de trayecto</em> lista esos rides (y el chip
-          muestra ↓/↑ tipo).
+          <em>Subidas/bajadas fuera de trayecto</em> lista esos rides:{" "}
+          <strong>Quitar bajada/subida</strong> (FIMBA) o{" "}
+          <strong>Corregir</strong> (abre Subidas/Bajadas en ese extremo).
           {editMode
             ? " Modo edición: fecha, horas, detalle, vuelo y vehículo FIMBA (una unidad) se guardan solos; locación = clic → buscar/crear."
             : readOnly

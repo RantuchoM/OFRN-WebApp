@@ -8,7 +8,7 @@ import {
   IconLoader,
   IconPrinter,
 } from "../../components/ui/Icons";
-import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import {
   getFimbaEdicionById,
   listFimbaPropuestas,

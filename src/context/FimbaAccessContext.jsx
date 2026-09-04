@@ -1,33 +1,17 @@
-import React, { createContext, useContext, useMemo } from "react";
+import React, { useMemo } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { useFimbaUserSession } from "../hooks/useFimbaUserSession";
 import { useFimbaConsultaEdicionSession } from "../hooks/useFimbaConsultaEdicionSession";
 import { useOfrnFimbaUsuarioOverride } from "../hooks/useOfrnFimbaUsuarioOverride";
-import {
-  parseFimbaSectionIds,
-} from "../views/Fimba/FimbaSectionToggle";
-import {
-  resolveFimbaAccess,
-} from "../utils/fimbaUserSession";
-
-const FimbaAccessContext = createContext({
-  readOnly: false,
-  agendaOnly: false,
-  canManageUsers: false,
-  canSeeUsuarios: false,
-  canSeeContrataciones: false,
-  canEditPropuestaMeta: false,
-  canSeeRider: false,
-  allowed: true,
-  source: "none",
-  edicionId: null,
-  overrideLoading: false,
-});
+import { parseFimbaSectionIds } from "../utils/fimbaPaths";
+import { resolveFimbaAccess } from "../utils/fimbaUserSession";
+import { FimbaAccessContext } from "./fimbaAccessContextBase";
 
 /**
  * Acceso efectivo FIMBA en shell staff: OFRN management | editor | consulta (user/token).
  * Si el mail OFRN tiene `fimba_usuarios.consulta` para la edición, fuerza RO.
+ * Hook: `src/hooks/useFimbaAccess.js`.
  */
 export function FimbaAccessProvider({ children }) {
   const { user, isManagement, isGuest } = useAuth();
@@ -36,8 +20,7 @@ export function FimbaAccessProvider({ children }) {
   const params = useParams();
   const location = useLocation();
   const fromPath = parseFimbaSectionIds(location.pathname);
-  const edicionId =
-    params.edicionId ?? fromPath.edicionId ?? null;
+  const edicionId = params.edicionId ?? fromPath.edicionId ?? null;
 
   const ofrnManagement = Boolean(user && !isGuest && isManagement);
   const { ofrnFimbaUsuario, loading: overrideLoading } =
@@ -70,8 +53,4 @@ export function FimbaAccessProvider({ children }) {
       {children}
     </FimbaAccessContext.Provider>
   );
-}
-
-export function useFimbaAccess() {
-  return useContext(FimbaAccessContext);
 }

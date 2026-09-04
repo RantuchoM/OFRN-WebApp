@@ -35,7 +35,7 @@ import {
   exportFimbaRoomingExcel,
 } from "../../utils/fimbaExport";
 import { printFimbaRooming } from "../../utils/fimbaReports";
-import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import FimbaArtistaMetaSection from "./FimbaArtistaMetaSection";
 import FimbaArtistaPersonSearchField from "./FimbaArtistaPersonSearchField";
 import FimbaHoteleriaReports, {

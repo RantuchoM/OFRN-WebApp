@@ -31,7 +31,7 @@ import {
   updateEventoObservacionesAforo,
 } from "../../services/fimbaService";
 import { supabase } from "../../services/supabase";
-import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import {
   extractEventArtistas,
   extractEventGrupos,

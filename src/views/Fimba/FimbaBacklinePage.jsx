@@ -50,7 +50,7 @@ import {
   unlinkEventFromStagePlot,
 } from "../../services/stagePlotService";
 import { supabase } from "../../services/supabase";
-import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import {
   extractEventArtistas,

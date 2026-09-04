@@ -15,7 +15,7 @@ import {
   fimbaSessionCanAccessPath,
   resolveFimbaAccess,
 } from "../../utils/fimbaUserSession";
-import { parseFimbaSectionIds } from "./FimbaSectionToggle";
+import { parseFimbaSectionIds } from "../../utils/fimbaPaths";
 
 /**
  * Acceso shell FIMBA:

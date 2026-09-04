@@ -34,6 +34,7 @@ import {
   buildFimbaBajadaArtistOptions,
   FIMBA_RESERVA_EVENTO_LABEL,
   formatEventLocation,
+  isOffTrayectoRideEndpoint,
   isTransportTipoEvent,
   listFimbaAboardAtStop,
 } from "../../utils/fimbaTransportBoarding";
@@ -681,6 +682,7 @@ export default function FimbaStopRulesManager({
 
   const location = formatEventLocation(event);
   const hora = event.hora_inicio ? String(event.hora_inicio).slice(0, 5) : "—";
+  const offTrayectoEndpoint = isOffTrayectoRideEndpoint(event);
 
   const syncDot = (status) => {
     if (status === "saving") {
@@ -702,6 +704,24 @@ export default function FimbaStopRulesManager({
                 {error}
               </div>
             )}
+
+            {offTrayectoEndpoint ? (
+              <div
+                className="text-xs rounded px-2.5 py-2 border"
+                style={{
+                  borderColor: "#f59e0b",
+                  background: "rgba(245, 158, 11, 0.1)",
+                  color: "#92400e",
+                }}
+              >
+                <strong>Parada fuera de planilla de trayectos.</strong> Este
+                evento ({event.tipo_nombre || "Concierto/Ensayo/…"}) no es una
+                fila de Transportes, pero la {isBajada ? "bajada" : "subida"}{" "}
+                cuenta en la secuencia. Para corregir: usá el ícono basura de la
+                regla abajo (quita este extremo) o reasigná la{" "}
+                {isBajada ? "bajada" : "subida"} a una parada Traslado.
+              </div>
+            ) : null}
 
             {tab === "artistas" && (
               <>

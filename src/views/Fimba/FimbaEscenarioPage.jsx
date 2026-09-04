@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { IconLoader } from "../../components/ui/Icons";
-import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import { getFimbaEdicionById } from "../../services/fimbaService";
 import StagePlotStandalonePage from "../Escenario/StagePlotStandalonePage";
 

@@ -46,7 +46,7 @@ import {
   sanitizeEventosInternasHtml,
 } from "../../utils/eventosInternas";
 import { supabase } from "../../services/supabase";
-import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import StopRulesManager from "../Giras/StopRulesManager";
 import FimbaEventDetalleEditor, {
   isFimbaDetalleEmpty,

@@ -81,7 +81,7 @@ import {
   agendaRowEditFieldsEqual,
   draftFromEvent,
 } from "../../utils/fimbaPlanillaRowEdit";
-import { useFimbaAccess } from "../../context/FimbaAccessContext";
+import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
 import {
   shouldShowAgendaBacklineIcon,
@@ -481,6 +481,8 @@ export default function FimbaAgendaPage() {
   eventDraftsRef.current = eventDrafts;
   const eventosRef = useRef(eventosBase);
   eventosRef.current = eventosBase;
+  /** Invalida respuestas stale si reload se re-dispara (HMR / remount / soft). */
+  const reloadGenRef = useRef(0);
 
   const ofrnIncludeActive = hasOfrnConvocatoriaFilter(
     selectedGrupoIds,
@@ -504,25 +506,26 @@ export default function FimbaAgendaPage() {
     if (soft) setRefreshing(true);
     else setInitialLoading(true);
     setError(null);
+    const loadGen = (reloadGenRef.current += 1);
     try {
       const edRes = await getFimbaEdicionById(edicionId);
+      if (loadGen !== reloadGenRef.current) return;
       if (edRes.error || !edRes.edicion) {
         setError(edRes.error?.message || "Edición no encontrada");
         setEdicion(null);
         return;
       }
       const ed = edRes.edicion;
-      const [propsRes, gruposRes, flotaRes, agendaRes, logRes, rutasRes] =
-        await Promise.all([
-          listFimbaPropuestas(edicionId),
-          listFimbaGiraGrupos(ed.id_gira),
-          listFimbaFlota(ed.id_gira),
-          listFimbaAgenda(edicionId, {
-            include_ofrn: fetchOfrnEventsRef.current,
-          }),
-          loadFimbaTransportLogisticsSummary(ed.id_gira),
-          listFimbaPropuestaRutas(edicionId),
-        ]);
+      // Bloqueante: planilla visible sin esperar logistics OFRN (roster+rutas+fleet+…).
+      const [propsRes, gruposRes, flotaRes, agendaRes] = await Promise.all([
+        listFimbaPropuestas(edicionId),
+        listFimbaGiraGrupos(ed.id_gira),
+        listFimbaFlota(ed.id_gira),
+        listFimbaAgenda(edicionId, {
+          include_ofrn: fetchOfrnEventsRef.current,
+        }),
+      ]);
+      if (loadGen !== reloadGenRef.current) return;
       if (propsRes.error || flotaRes.error || agendaRes.error) {
         setError(
           (propsRes.error || flotaRes.error || agendaRes.error).message ||
@@ -532,17 +535,25 @@ export default function FimbaAgendaPage() {
       const props = propsRes.propuestas || [];
       const fleet = flotaRes.flota || [];
       const baseEventos = agendaRes.eventos || [];
-      const rutas = rutasRes.error ? [] : rutasRes.rutas || [];
       setEdicion(ed);
       setPropuestas(props);
       setGiraGrupos(gruposRes.grupos || []);
       setFlota(fleet);
       setEventosBase(baseEventos);
-      setLogisticsSummary(logRes.error ? [] : logRes.summary || []);
-      setPropuestaRoutes(rutas);
+      // Destino / As.Equipaje / boarding: soft fill en background (no spinner).
+      void Promise.all([
+        loadFimbaTransportLogisticsSummary(ed.id_gira),
+        listFimbaPropuestaRutas(edicionId),
+      ]).then(([logRes, rutasRes]) => {
+        if (loadGen !== reloadGenRef.current) return;
+        setLogisticsSummary(logRes.error ? [] : logRes.summary || []);
+        setPropuestaRoutes(rutasRes.error ? [] : rutasRes.rutas || []);
+      });
     } finally {
-      setInitialLoading(false);
-      setRefreshing(false);
+      if (loadGen === reloadGenRef.current) {
+        setInitialLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [edicionId]);
 
