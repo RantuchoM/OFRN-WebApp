@@ -452,13 +452,14 @@ export default function FimbaEventoArtistasBoardingTable({
       idGiraTransporte: vehicleId || null,
       eventId: event?.id,
       sortedEvents,
+      currentEvent: event ?? null,
     });
     const map = new Map();
     for (const opt of opts) {
       map.set(String(opt.id_propuesta), opt);
     }
     return map;
-  }, [propuestas, allRutas, vehicleId, event?.id, sortedEvents]);
+  }, [propuestas, allRutas, vehicleId, event?.id, sortedEvents, event]);
 
   const taggedPropuestas = useMemo(() => {
     const ids = (selectedPropIds || []).map(String);

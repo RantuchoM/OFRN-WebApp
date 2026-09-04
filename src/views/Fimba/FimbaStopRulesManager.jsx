@@ -245,7 +245,7 @@ export default function FimbaStopRulesManager({
   ]);
 
   const aboardFimbaOpen = useMemo(
-    () => aboardFimba.filter((r) => r.openRide && !r.alreadyAlightingHere),
+    () => aboardFimba.filter((r) => r.canAlightHere),
     [aboardFimba],
   );
 
@@ -403,6 +403,7 @@ export default function FimbaStopRulesManager({
       replaceConflict: true,
       asientos_equipaje: Math.max(0, Number(ruta.asientos_equipaje) || 0),
       observaciones_equipaje: ruta.observaciones_equipaje ?? null,
+      es_chofer: Boolean(ruta.es_chofer),
       sortedEvents,
     });
     if (res.error) {
@@ -433,10 +434,39 @@ export default function FimbaStopRulesManager({
         patch.observaciones_equipaje !== undefined
           ? patch.observaciones_equipaje
           : ruta.observaciones_equipaje ?? null,
+      es_chofer: Boolean(ruta.es_chofer),
       sortedEvents,
     });
     if (res.error) {
       setError(res.error.message || "No se pudo actualizar equipaje");
+      setRuleSync((s) => ({ ...s, [ruta.id]: "error" }));
+      return;
+    }
+    setRuleSync((s) => ({ ...s, [ruta.id]: "saved" }));
+    await reloadRutas();
+    onRefresh?.("rutas");
+  };
+
+  const persistRutaChofer = async (ruta, nextChofer) => {
+    if (isBajada) return;
+    const next = Boolean(nextChofer);
+    if (Boolean(ruta.es_chofer) === next) return;
+    setRuleSync((s) => ({ ...s, [ruta.id]: "saving" }));
+    setError(null);
+    const res = await upsertFimbaPropuestaRutaStop({
+      id_propuesta: ruta.id_propuesta,
+      id_gira_transporte: ruta.id_gira_transporte || vehicleId,
+      plazas: Math.max(0, Number(ruta.plazas) || 0),
+      type: "up",
+      id_evento: event.id,
+      replaceConflict: true,
+      asientos_equipaje: Math.max(0, Number(ruta.asientos_equipaje) || 0),
+      observaciones_equipaje: ruta.observaciones_equipaje ?? null,
+      es_chofer: next,
+      sortedEvents,
+    });
+    if (res.error) {
+      setError(res.error.message || "No se pudo actualizar chofer");
       setRuleSync((s) => ({ ...s, [ruta.id]: "error" }));
       return;
     }
@@ -553,7 +583,7 @@ export default function FimbaStopRulesManager({
 
   const handleQuickAlight = async (row) => {
     if (!vehicleId || !event?.id || !row?.id_propuesta) return;
-    if (!row.openRide || row.alreadyAlightingHere) return;
+    if (!row.canAlightHere) return;
     setQuickAlightBusyId(String(row.id_propuesta));
     setError(null);
     try {
@@ -736,9 +766,13 @@ export default function FimbaStopRulesManager({
                                 <span className="ml-1 text-[10px] font-semibold text-rose-600">
                                   (ya baja aquí)
                                 </span>
+                              ) : !row.openRide ? (
+                                <span className="ml-1 text-[10px] font-semibold text-amber-700">
+                                  (baja más adelante)
+                                </span>
                               ) : null}
                             </span>
-                            {row.openRide && !row.alreadyAlightingHere ? (
+                            {row.canAlightHere ? (
                               <button
                                 type="button"
                                 disabled={
@@ -919,6 +953,28 @@ export default function FimbaStopRulesManager({
                               </div>
                             </div>
                             <div className="flex flex-wrap items-center gap-2 pl-0.5">
+                              {!isBajada ? (
+                                <label className="inline-flex items-center gap-1.5 text-[10px] text-slate-600 cursor-pointer select-none mr-1">
+                                  <input
+                                    type="checkbox"
+                                    className="rounded border-slate-300 text-pink-700 focus:ring-pink-500"
+                                    checked={Boolean(r.es_chofer)}
+                                    disabled={rowBusy}
+                                    onChange={(e) =>
+                                      persistRutaChofer(r, e.target.checked)
+                                    }
+                                  />
+                                  <span>
+                                    <span className="font-semibold">
+                                      Es chofer
+                                    </span>
+                                    <span className="text-slate-400">
+                                      {" "}
+                                      en esta subida
+                                    </span>
+                                  </span>
+                                </label>
+                              ) : null}
                               <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
                                 As. equipaje
                               </label>
@@ -1145,7 +1201,8 @@ export default function FimbaStopRulesManager({
                         <span className="font-semibold">Es chofer</span>
                         <span className="text-slate-500">
                           {" "}
-                          — figura a bordo pero no consume cupo del vehículo
+                          — en esta subida/trayecto (no consume cupo; no es un
+                          rol permanente del artista)
                         </span>
                       </span>
                     </label>

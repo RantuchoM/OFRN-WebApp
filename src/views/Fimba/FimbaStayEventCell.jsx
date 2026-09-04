@@ -7,8 +7,6 @@ import {
   IconLoader,
   IconX,
 } from "../../components/ui/Icons";
-import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
-import { supabase } from "../../services/supabase";
 import {
   createFimbaStayEvent,
   listFimbaStayEvents,
@@ -75,12 +73,10 @@ export default function FimbaStayEventCell({
   const [loadingList, setLoadingList] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState(null);
-  const [locOptions, setLocOptions] = useState([]);
   const [createForm, setCreateForm] = useState({
     fecha: "",
     hora_inicio: defaultHora,
     descripcion: labelDefault,
-    id_locacion: "",
   });
 
   const linked = ownEventId != null && ownEventId !== "";
@@ -129,16 +125,6 @@ export default function FimbaStayEventCell({
       if (err) setError(err.message || "No se pudieron cargar eventos");
       setEvents(eventos || []);
       setLoadingList(false);
-      const { data: locs } = await supabase
-        .from("locaciones")
-        .select("id, nombre")
-        .order("nombre")
-        .limit(500);
-      if (!cancelled) {
-        setLocOptions(
-          (locs || []).map((l) => ({ id: l.id, label: l.nombre || `#${l.id}` })),
-        );
-      }
     })();
     return () => {
       cancelled = true;
@@ -158,8 +144,6 @@ export default function FimbaStayEventCell({
       hora_inicio: stayEventHoraLabel(ownEvent) || defaultHora,
       descripcion:
         String(ownEvent?.descripcion || "").trim() || labelDefault,
-      id_locacion:
-        ownEvent?.id_locacion != null ? String(ownEvent.id_locacion) : "",
     });
     setOpen(true);
   };
@@ -210,7 +194,6 @@ export default function FimbaStayEventCell({
         fecha,
         hora_inicio: createForm.hora_inicio || defaultHora,
         descripcion: createForm.descripcion || labelDefault,
-        id_locacion: createForm.id_locacion || null,
         id_propuesta: idPropuesta,
       });
       if (err) throw err;
@@ -505,35 +488,9 @@ export default function FimbaStayEventCell({
                         placeholder={labelDefault}
                       />
                     </label>
-                    <label className="fimba-label">
-                      Locación
-                      <LocationSelectWithCreate
-                        supabase={supabase}
-                        value={createForm.id_locacion}
-                        onChange={(id) =>
-                          setCreateForm((f) => ({
-                            ...f,
-                            id_locacion: id != null ? String(id) : "",
-                          }))
-                        }
-                        options={locOptions}
-                        onRefresh={async () => {
-                          const { data: locs } = await supabase
-                            .from("locaciones")
-                            .select("id, nombre")
-                            .order("nombre")
-                            .limit(500);
-                          setLocOptions(
-                            (locs || []).map((l) => ({
-                              id: l.id,
-                              label: l.nombre || `#${l.id}`,
-                            })),
-                          );
-                        }
-                        }
-                        placeholder="Opcional"
-                      />
-                    </label>
+                    <p className="fimba-muted" style={{ margin: "0.25rem 0 0", fontSize: "0.75rem" }}>
+                      Locación = hotel del artista (Artistas / datos generales).
+                    </p>
                     <div className="fimba-stay-event-create-actions">
                       <button
                         type="button"

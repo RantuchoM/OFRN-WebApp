@@ -7,12 +7,14 @@ import {
   IconLoader,
   IconTrash,
   IconCheck,
+  IconX,
   IconAlertTriangle,
   IconHistory,
   IconDrive,
   IconFolder,
   IconCloudUpload,
   IconExternalLink,
+  IconMoreVertical,
 } from "../../components/ui/Icons";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import { useAuth } from "../../context/AuthContext";
@@ -53,6 +55,7 @@ const BOOL_FIELDS = [
   "enviado_adm",
 ];
 
+/** Campos patchables en edición de fila (doble clic → tilde). Carpeta Drive = modal. */
 const EDITABLE_FIELDS = [
   "numero_expediente",
   "id_propuesta",
@@ -153,6 +156,152 @@ function ContratacionBoolToggle({
     >
       <CtrCheckIcon checked={checked} />
     </button>
+  );
+}
+
+/** Kebab: historial + eliminar (Drive queda como acción primaria visible). */
+function ContratacionRowMenu({
+  disabled,
+  readOnly,
+  onHistory,
+  onDelete,
+}) {
+  const [open, setOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState(null);
+  const btnRef = useRef(null);
+
+  useEffect(() => {
+    if (!open || !btnRef.current) {
+      setMenuStyle(null);
+      return undefined;
+    }
+    const place = () => {
+      const r = btnRef.current.getBoundingClientRect();
+      const width = 200;
+      const left = Math.min(
+        Math.max(8, r.right - width),
+        window.innerWidth - width - 8,
+      );
+      const openUp = r.bottom + 160 > window.innerHeight && r.top > 160;
+      setMenuStyle({
+        position: "fixed",
+        top: openUp ? undefined : r.bottom + 4,
+        bottom: openUp ? window.innerHeight - r.top + 4 : undefined,
+        left,
+        width,
+        zIndex: 110,
+      });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onPointer = (e) => {
+      if (btnRef.current?.contains(e.target)) return;
+      const menu = document.getElementById("fimba-ctr-row-menu");
+      if (menu?.contains(e.target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointer);
+    };
+  }, [open]);
+
+  const itemStyle = {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    width: "100%",
+    padding: "0.45rem 0.65rem",
+    border: 0,
+    background: "transparent",
+    textAlign: "left",
+    fontSize: "0.82rem",
+    cursor: "pointer",
+    color: "inherit",
+  };
+
+  const menu =
+    open &&
+    menuStyle &&
+    createPortal(
+      <div
+        id="fimba-ctr-row-menu"
+        className="fimba-dropdown-menu"
+        role="menu"
+        style={{
+          ...menuStyle,
+          background: "var(--fimba-surface, #fff)",
+          border: "1px solid var(--fimba-border, #e2e8f0)",
+          borderRadius: 10,
+          boxShadow: "0 10px 28px rgba(15, 23, 42, 0.14)",
+          padding: "0.3rem 0",
+        }}
+      >
+        <button
+          type="button"
+          role="menuitem"
+          style={itemStyle}
+          onClick={() => {
+            setOpen(false);
+            onHistory?.();
+          }}
+        >
+          <IconHistory size={14} /> Historial de estados
+        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            role="menuitem"
+            style={{ ...itemStyle, color: "#b91c1c" }}
+            disabled={disabled}
+            onClick={() => {
+              setOpen(false);
+              onDelete?.();
+            }}
+          >
+            <IconTrash size={14} /> Eliminar
+          </button>
+        )}
+      </div>,
+      document.body,
+    );
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        className="fimba-btn fimba-btn-ghost"
+        style={{ padding: "0.28rem 0.3rem" }}
+        aria-label="Más acciones"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        disabled={disabled}
+        title="Más acciones"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        <IconMoreVertical size={14} />
+      </button>
+      {menu}
+    </>
   );
 }
 
@@ -276,6 +425,7 @@ const ES_COLLATOR = new Intl.Collator("es", {
 const SORT_TYPES = {
   orden: "number",
   numero_expediente: "text",
+  id_propuesta: "text",
   nombre: "text",
   monto: "number",
   tipo_contratacion: "text",
@@ -292,23 +442,25 @@ function sortValEmpty(type, v) {
   return v == null || String(v).trim() === "";
 }
 
+function resolveArtistaLabel(draft, row, propuestasById) {
+  if (draft?.id_propuesta == null || String(draft.id_propuesta) === "") return "";
+  return (
+    propuestasById.get(String(draft.id_propuesta))?.nombre ||
+    row?.fimba_propuestas?.nombre ||
+    ""
+  );
+}
+
 function getRowSortValue(key, draft, row, propuestasById) {
   switch (key) {
     case "orden":
       return Number(row?.orden) || Number(row?.id) || 0;
     case "numero_expediente":
       return String(draft?.numero_expediente || "").trim();
-    case "nombre": {
-      const free = String(draft?.nombre || "").trim();
-      let artist = "";
-      if (draft?.id_propuesta != null && String(draft.id_propuesta) !== "") {
-        artist =
-          propuestasById.get(String(draft.id_propuesta))?.nombre ||
-          row?.fimba_propuestas?.nombre ||
-          "";
-      }
-      return [free, artist].filter(Boolean).join(" ").trim();
-    }
+    case "id_propuesta":
+      return resolveArtistaLabel(draft, row, propuestasById).trim();
+    case "nombre":
+      return String(draft?.nombre || "").trim();
     case "monto":
       return parseFimbaMonto(draft?.monto);
     case "tipo_contratacion":
@@ -344,13 +496,7 @@ function compareSortValues(type, a, b, dir) {
 
 function rowNombreSearchHaystack(draft, row, propuestasById) {
   const free = String(draft?.nombre || "").trim();
-  let artist = "";
-  if (draft?.id_propuesta != null && String(draft.id_propuesta) !== "") {
-    artist =
-      propuestasById.get(String(draft.id_propuesta))?.nombre ||
-      row?.fimba_propuestas?.nombre ||
-      "";
-  }
+  const artist = resolveArtistaLabel(draft, row, propuestasById);
   return `${free} ${artist}`.trim().toLowerCase();
 }
 
@@ -757,6 +903,7 @@ export default function FimbaContratacionesPage() {
         rows={rows}
         propuestas={propuestas}
         actor={actor}
+        readOnly={Boolean(access.readOnly)}
         onListChange={setRows}
         onError={setError}
         onPersistedChange={markPersistedChange}
@@ -789,15 +936,18 @@ function ContratacionesPlanilla({
   rows,
   propuestas,
   actor,
+  readOnly = false,
   onListChange,
   onError,
   onPersistedChange,
   onDirtyDraftsChange,
   apiRef,
 }) {
-  const [drafts, setDrafts] = useState({});
+  const [drafts, setDrafts] = useState(() => ({ [NEW_ROW_KEY]: emptyDraft() }));
   const [rowStatus, setRowStatus] = useState({});
   const [rowErrors, setRowErrors] = useState({});
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [rowEditFocusField, setRowEditFocusField] = useState(null);
   const [historyModal, setHistoryModal] = useState(null);
   const [driveModal, setDriveModal] = useState(null);
   const [montoFocusKey, setMontoFocusKey] = useState(null);
@@ -809,6 +959,8 @@ function ContratacionesPlanilla({
   draftsRef.current = drafts;
   const listRef = useRef(rows);
   listRef.current = rows;
+  const editingRowIdRef = useRef(editingRowId);
+  editingRowIdRef.current = editingRowId;
   const onPersistedChangeRef = useRef(onPersistedChange);
   onPersistedChangeRef.current = onPersistedChange;
 
@@ -822,16 +974,11 @@ function ContratacionesPlanilla({
   }, [rowStatus, onDirtyDraftsChange]);
 
   useEffect(() => {
-    setDrafts((prev) => {
-      const next = { [NEW_ROW_KEY]: prev[NEW_ROW_KEY] ?? emptyDraft() };
-      for (const r of rows || []) {
-        const k = String(r.id);
-        next[k] = prev[k] ?? draftFromRow(r);
-      }
-      draftsRef.current = next;
-      return next;
-    });
-  }, [rows]);
+    if (readOnly && editingRowId != null) {
+      setEditingRowId(null);
+      setRowEditFocusField(null);
+    }
+  }, [readOnly, editingRowId]);
 
   useEffect(() => {
     const ids = Object.entries(rowStatus)
@@ -850,7 +997,13 @@ function ContratacionesPlanilla({
     return () => clearTimeout(t);
   }, [rowStatus]);
 
-  const setField = (rowKey, field, value) => {
+  const isRowEditing = useCallback(
+    (rowKey) =>
+      editingRowId != null && String(editingRowId) === String(rowKey),
+    [editingRowId],
+  );
+
+  const setField = (rowKey, field, value, extra = {}) => {
     setDrafts((prev) => {
       const base =
         prev[rowKey] ||
@@ -860,7 +1013,13 @@ function ContratacionesPlanilla({
               (listRef.current || []).find((x) => String(x.id) === String(rowKey)) ||
                 {},
             ));
-      const nextDraft = { ...base, [field]: value };
+      let nextDraft = { ...base, [field]: value, ...extra };
+      if (field === "id_propuesta" && value) {
+        const prop = (propuestas || []).find((p) => String(p.id) === String(value));
+        if (prop && !String(base.nombre || "").trim()) {
+          nextDraft = { ...nextDraft, nombre: prop.nombre || "" };
+        }
+      }
       draftsRef.current = { ...prev, [rowKey]: nextDraft };
       return draftsRef.current;
     });
@@ -989,9 +1148,9 @@ function ContratacionesPlanilla({
       return { ok: false, error: err.message || "Error al guardar" };
     }
 
-    const nextDraft = draftFromRow(updated);
     setDrafts((prev) => {
-      const n = { ...prev, [rowKey]: nextDraft };
+      const n = { ...prev };
+      delete n[rowKey];
       draftsRef.current = n;
       return n;
     });
@@ -1007,11 +1166,112 @@ function ContratacionesPlanilla({
     return { ok: true };
   };
 
+  const cancelRowEdit = useCallback(
+    (rowKey) => {
+      const key = String(rowKey ?? editingRowIdRef.current ?? "");
+      if (!key || key === NEW_ROW_KEY) {
+        if (key === NEW_ROW_KEY) {
+          setDrafts((prev) => {
+            const n = { ...prev, [NEW_ROW_KEY]: emptyDraft() };
+            draftsRef.current = n;
+            return n;
+          });
+          setRowStatus((prev) => ({ ...prev, [NEW_ROW_KEY]: "idle" }));
+          setRowErrors((prev) => {
+            if (!prev[NEW_ROW_KEY]) return prev;
+            const n = { ...prev };
+            delete n[NEW_ROW_KEY];
+            return n;
+          });
+        }
+        setEditingRowId(null);
+        setRowEditFocusField(null);
+        setMontoFocusKey((k) => (k === NEW_ROW_KEY ? null : k));
+        return;
+      }
+      setDrafts((prev) => {
+        if (!prev[key]) return prev;
+        const n = { ...prev };
+        delete n[key];
+        draftsRef.current = n;
+        return n;
+      });
+      setRowStatus((prev) => ({ ...prev, [key]: "idle" }));
+      setRowErrors((prev) => {
+        if (!prev[key]) return prev;
+        const n = { ...prev };
+        delete n[key];
+        return n;
+      });
+      setMontoFocusKey((k) => (k === key ? null : k));
+      setEditingRowId(null);
+      setRowEditFocusField(null);
+    },
+    [],
+  );
+
+  const beginRowEdit = useCallback(
+    (row, focusField = null) => {
+      if (readOnly || !row?.id) return;
+      const key = String(row.id);
+      if (editingRowId != null && editingRowId !== key) {
+        cancelRowEdit(editingRowId);
+      }
+      setDrafts((prev) => {
+        const n = { ...prev, [key]: draftFromRow(row) };
+        draftsRef.current = n;
+        return n;
+      });
+      setRowStatus((prev) => ({ ...prev, [key]: "idle" }));
+      setEditingRowId(key);
+      setRowEditFocusField(focusField || "numero_expediente");
+    },
+    [readOnly, editingRowId, cancelRowEdit],
+  );
+
+  const confirmRowEdit = useCallback(
+    async (rowKey) => {
+      const res = await commitRow(rowKey);
+      if (res?.ok) {
+        if (rowKey !== NEW_ROW_KEY) {
+          if (res.noop) {
+            setDrafts((prev) => {
+              if (!prev[rowKey]) return prev;
+              const n = { ...prev };
+              delete n[rowKey];
+              draftsRef.current = n;
+              return n;
+            });
+          }
+          setEditingRowId(null);
+          setRowEditFocusField(null);
+          setMontoFocusKey((k) => (k === String(rowKey) ? null : k));
+        }
+      }
+      return res;
+    },
+    // commitRow cierra sobre refs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  useEffect(() => {
+    if (editingRowId == null) return undefined;
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      cancelRowEdit(editingRowId);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editingRowId, cancelRowEdit]);
+
   const flushDirty = useCallback(async () => {
     const statusSnapshot = { ...rowStatus };
-    const keys = Object.keys(draftsRef.current || {});
+    const keys = new Set(Object.keys(draftsRef.current || {}));
+    if (editingRowIdRef.current) keys.add(String(editingRowIdRef.current));
+    keys.add(NEW_ROW_KEY);
     for (const key of keys) {
-      const st = statusSnapshot[key];
+      const st = statusSnapshot[key] || rowStatus[key];
       if (st !== "dirty" && st !== "error") continue;
       if (key === NEW_ROW_KEY && isEmptyDraft(draftsRef.current[key])) continue;
       const res = await commitRow(key);
@@ -1021,9 +1281,12 @@ function ContratacionesPlanilla({
           error: res?.error || "No se pudieron guardar todas las filas",
         };
       }
+      if (res?.ok && key !== NEW_ROW_KEY && editingRowIdRef.current === key) {
+        setEditingRowId(null);
+        setRowEditFocusField(null);
+      }
     }
     return { ok: true };
-    // commitRow cierra sobre refs; no listar deps volátiles
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowStatus, actor, edicionId, onListChange]);
 
@@ -1034,38 +1297,6 @@ function ContratacionesPlanilla({
       if (apiRef.current?.flushDirty === flushDirty) apiRef.current = null;
     };
   }, [apiRef, flushDirty]);
-
-  const changeAndCommit = (rowKey, field, value, extra = {}) => {
-    const existing =
-      rowKey === NEW_ROW_KEY
-        ? null
-        : (listRef.current || []).find((x) => String(x.id) === String(rowKey));
-    const base =
-      draftsRef.current[rowKey] ||
-      (existing ? draftFromRow(existing) : emptyDraft());
-    let nextDraft = { ...base, [field]: value, ...extra };
-
-    if (field === "id_propuesta" && value) {
-      const prop = (propuestas || []).find((p) => String(p.id) === String(value));
-      if (prop && !String(base.nombre || "").trim()) {
-        nextDraft = { ...nextDraft, nombre: prop.nombre || "" };
-      }
-    }
-
-    setDrafts((prev) => {
-      const n = { ...prev, [rowKey]: nextDraft };
-      draftsRef.current = n;
-      return n;
-    });
-    setRowStatus((prev) => ({ ...prev, [rowKey]: "dirty" }));
-    setRowErrors((prev) => {
-      if (!prev[rowKey]) return prev;
-      const n = { ...prev };
-      delete n[rowKey];
-      return n;
-    });
-    commitRow(rowKey, nextDraft);
-  };
 
   const handleDelete = async (r) => {
     const label =
@@ -1080,6 +1311,10 @@ function ContratacionesPlanilla({
       return;
     }
     const k = String(r.id);
+    if (editingRowIdRef.current === k) {
+      setEditingRowId(null);
+      setRowEditFocusField(null);
+    }
     setDrafts((prev) => {
       const n = { ...prev };
       delete n[k];
@@ -1128,43 +1363,30 @@ function ContratacionesPlanilla({
   };
 
   const handleCellKeyDown = (e, rowKey) => {
-    if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") {
+    if (e.key === "Enter") {
+      if (e.target.tagName === "TEXTAREA") {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          confirmRowEdit(rowKey);
+        }
+        return;
+      }
       e.preventDefault();
-      commitRow(rowKey);
+      confirmRowEdit(rowKey);
       return;
     }
     if (e.key === "Escape") {
       e.preventDefault();
       if (rowKey === NEW_ROW_KEY) {
-        setDrafts((prev) => {
-          const n = { ...prev, [NEW_ROW_KEY]: emptyDraft() };
-          draftsRef.current = n;
-          return n;
-        });
+        cancelRowEdit(NEW_ROW_KEY);
       } else {
-        const r = (listRef.current || []).find(
-          (x) => String(x.id) === String(rowKey),
-        );
-        if (r) {
-          setDrafts((prev) => {
-            const n = { ...prev, [rowKey]: draftFromRow(r) };
-            draftsRef.current = n;
-            return n;
-          });
-        }
+        cancelRowEdit(rowKey);
       }
-      setRowStatus((prev) => ({ ...prev, [rowKey]: "idle" }));
-      setRowErrors((prev) => {
-        const n = { ...prev };
-        delete n[rowKey];
-        return n;
-      });
-      e.target.blur();
     }
   };
 
   const list = rows || [];
-  const colCount = 13;
+  const colCount = 13; // sync · # · exp · artista · nombre · monto · tipo · 4 checks · estado · acciones
   const newDraft = drafts[NEW_ROW_KEY] || emptyDraft();
 
   const propuestasById = useMemo(() => {
@@ -1174,6 +1396,17 @@ function ContratacionesPlanilla({
     }
     return m;
   }, [propuestas]);
+
+  const resolveDisplayDraft = useCallback(
+    (r) => {
+      const rowKey = String(r.id);
+      if (drafts[rowKey] && (isRowEditing(rowKey) || rowStatus[rowKey] === "saving")) {
+        return drafts[rowKey];
+      }
+      return draftFromRow(r);
+    },
+    [drafts, isRowEditing, rowStatus],
+  );
 
   const handleSort = (col) => {
     if (sortKey === col) {
@@ -1191,16 +1424,18 @@ function ContratacionesPlanilla({
       .toLowerCase();
     if (q) {
       items = items.filter((r) => {
-        const rowKey = String(r.id);
-        const draft = drafts[rowKey] || draftFromRow(r);
+        const draft = resolveDisplayDraft(r);
         return rowNombreSearchHaystack(draft, r, propuestasById).includes(q);
       });
     }
     if (sortKey && SORT_TYPES[sortKey]) {
       const type = SORT_TYPES[sortKey];
+      // While a row is in edit mode, sort from last committed row data so
+      // typing in the active sort column does not reorder until confirm/cancel.
+      const freezeSort = editingRowId != null;
       items.sort((ra, rb) => {
-        const da = drafts[String(ra.id)] || draftFromRow(ra);
-        const db = drafts[String(rb.id)] || draftFromRow(rb);
+        const da = freezeSort ? draftFromRow(ra) : resolveDisplayDraft(ra);
+        const db = freezeSort ? draftFromRow(rb) : resolveDisplayDraft(rb);
         const va = getRowSortValue(sortKey, da, ra, propuestasById);
         const vb = getRowSortValue(sortKey, db, rb, propuestasById);
         const c = compareSortValues(type, va, vb, sortDir);
@@ -1211,23 +1446,31 @@ function ContratacionesPlanilla({
       });
     }
     return items;
-  }, [list, drafts, nombreQuery, sortKey, sortDir, propuestasById]);
+  }, [
+    list,
+    nombreQuery,
+    sortKey,
+    sortDir,
+    propuestasById,
+    resolveDisplayDraft,
+    editingRowId,
+  ]);
 
   const totalMonto = useMemo(() => {
     let sum = 0;
     for (const r of displayList) {
-      const rowKey = String(r.id);
-      const draft = drafts[rowKey] || draftFromRow(r);
+      const draft = resolveDisplayDraft(r);
       const n = parseFimbaMonto(draft.monto);
       if (n != null) sum += n;
     }
     return sum;
-  }, [displayList, drafts]);
+  }, [displayList, resolveDisplayDraft]);
 
-  const renderRow = (rowKey, rowIdx, draft, { isNew = false } = {}) => {
+  const renderRow = (rowKey, rowIdx, draft, { isNew = false, rowEntity = null } = {}) => {
     const status = rowStatus[rowKey] || "idle";
     const meta = statusMeta(status);
-    const rowCls =
+    const rowEditing = isNew || isRowEditing(rowKey);
+    const rowCls = [
       status === "saving"
         ? "fimba-row-saving"
         : status === "saved"
@@ -1236,13 +1479,49 @@ function ContratacionesPlanilla({
             ? "fimba-row-dirty"
             : status === "error"
               ? "fimba-row-error"
-              : "";
+              : "",
+      rowEditing && !isNew ? "fimba-ctr-row-editing" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     const displayNum = isNew ? "·" : rowIdx + 1;
     const disabled = status === "saving";
+    const artistLabel = resolveArtistaLabel(draft, rowEntity, propuestasById);
+    const nombreText = String(draft.nombre || "").trim();
 
     return (
       <React.Fragment key={rowKey}>
-        <tr className={rowCls}>
+        <tr
+          className={rowCls}
+          onDoubleClick={
+            readOnly || isNew
+              ? undefined
+              : (e) => {
+                  if (
+                    e.target.closest(
+                      "button, a, input, select, textarea, label, .fimba-ctr-actions",
+                    )
+                  ) {
+                    return;
+                  }
+                  if (rowEntity) beginRowEdit(rowEntity);
+                }
+          }
+          title={
+            readOnly
+              ? undefined
+              : isNew
+                ? "Fila nueva · tilde crea · Esc limpia"
+                : rowEditing
+                  ? "Editando fila · tilde confirma · Esc / X cancela"
+                  : "Doble clic en la fila para editar · carpeta = Documentación Drive"
+          }
+          style={
+            rowEditing && !isNew
+              ? { background: "rgba(148,33,109,0.06)" }
+              : undefined
+          }
+        >
           <td className={`fimba-sync-col ${meta.cls}`} title={rowErrors[rowKey] || meta.title}>
             <span className={`fimba-sync-dot ${meta.cls}`} aria-hidden />
             {status === "saving" && (
@@ -1257,26 +1536,33 @@ function ContratacionesPlanilla({
             {displayNum}
           </td>
           <td className="fimba-ctr-exp">
-            <input
-              className="fimba-cell-input"
-              placeholder={isNew ? "Nº exp…" : undefined}
-              value={draft.numero_expediente}
-              onChange={(e) => setField(rowKey, "numero_expediente", e.target.value)}
-              onBlur={() => commitRow(rowKey)}
-              onKeyDown={(e) => handleCellKeyDown(e, rowKey)}
-              disabled={disabled}
-            />
+            {rowEditing ? (
+              <input
+                className="fimba-cell-input"
+                placeholder={isNew ? "Nº exp…" : undefined}
+                value={draft.numero_expediente}
+                autoFocus={rowEditFocusField === "numero_expediente"}
+                onChange={(e) => setField(rowKey, "numero_expediente", e.target.value)}
+                onKeyDown={(e) => handleCellKeyDown(e, rowKey)}
+                onDoubleClick={(e) => e.stopPropagation()}
+                disabled={disabled}
+              />
+            ) : (
+              <span className={draft.numero_expediente ? undefined : "fimba-muted"}>
+                {draft.numero_expediente || "—"}
+              </span>
+            )}
           </td>
-          <td className="fimba-ctr-nombre">
-            <div className="fimba-ctr-nombre-stack">
+          <td className="fimba-ctr-artista">
+            {rowEditing ? (
               <select
                 className={`fimba-cell-input fimba-ctr-artista-select${
                   !draft.id_propuesta ? " fimba-ctr-artista-empty" : ""
                 }`}
                 value={draft.id_propuesta || ""}
-                onChange={(e) =>
-                  changeAndCommit(rowKey, "id_propuesta", e.target.value)
-                }
+                autoFocus={rowEditFocusField === "id_propuesta"}
+                onChange={(e) => setField(rowKey, "id_propuesta", e.target.value)}
+                onDoubleClick={(e) => e.stopPropagation()}
                 disabled={disabled}
                 title="Vincular a artista (opcional)"
                 aria-label="Artista"
@@ -1288,56 +1574,95 @@ function ContratacionesPlanilla({
                   </option>
                 ))}
               </select>
-              <input
-                className="fimba-cell-input fimba-ctr-nombre-input"
+            ) : artistLabel ? (
+              <span className="fimba-ctr-artista-ro" title={artistLabel}>
+                {artistLabel}
+              </span>
+            ) : (
+              <span className="fimba-muted fimba-ctr-artista-ro">Sin artista</span>
+            )}
+          </td>
+          <td className="fimba-ctr-nombre">
+            {rowEditing ? (
+              <textarea
+                className="fimba-cell-input fimba-ctr-nombre-textarea"
                 placeholder={isNew ? "Nombre o proveedor…" : "Nombre…"}
                 value={draft.nombre}
+                autoFocus={rowEditFocusField === "nombre"}
+                rows={2}
                 onChange={(e) => setField(rowKey, "nombre", e.target.value)}
-                onBlur={() => commitRow(rowKey)}
                 onKeyDown={(e) => handleCellKeyDown(e, rowKey)}
+                onDoubleClick={(e) => e.stopPropagation()}
                 disabled={disabled}
+                aria-label="Nombre"
               />
-            </div>
+            ) : (
+              <span
+                className={
+                  nombreText
+                    ? "fimba-ctr-nombre-ro-text"
+                    : "fimba-muted fimba-ctr-nombre-ro-text"
+                }
+                title={nombreText || undefined}
+              >
+                {nombreText || "—"}
+              </span>
+            )}
           </td>
           <td>
-            <input
-              className="fimba-cell-input fimba-ctr-monto"
-              inputMode="decimal"
-              placeholder={isNew ? "Monto" : undefined}
-              value={
-                montoFocusKey === rowKey
-                  ? draft.monto
-                  : formatMontoCurrency(draft.monto) || draft.monto || ""
-              }
-              onFocus={() => setMontoFocusKey(rowKey)}
-              onChange={(e) => setField(rowKey, "monto", e.target.value)}
-              onBlur={() => {
-                setMontoFocusKey((k) => (k === rowKey ? null : k));
-                commitRow(rowKey);
-              }}
-              onKeyDown={(e) => handleCellKeyDown(e, rowKey)}
-              disabled={disabled}
-              title={formatMontoCurrency(draft.monto) || "Monto opcional"}
-              aria-label="Monto"
-            />
+            {rowEditing ? (
+              <input
+                className="fimba-cell-input fimba-ctr-monto"
+                inputMode="decimal"
+                placeholder={isNew ? "Monto" : undefined}
+                value={
+                  montoFocusKey === rowKey
+                    ? draft.monto
+                    : formatMontoCurrency(draft.monto) || draft.monto || ""
+                }
+                autoFocus={rowEditFocusField === "monto"}
+                onFocus={() => setMontoFocusKey(rowKey)}
+                onChange={(e) => setField(rowKey, "monto", e.target.value)}
+                onBlur={() => {
+                  setMontoFocusKey((k) => (k === rowKey ? null : k));
+                }}
+                onKeyDown={(e) => handleCellKeyDown(e, rowKey)}
+                onDoubleClick={(e) => e.stopPropagation()}
+                disabled={disabled}
+                title={formatMontoCurrency(draft.monto) || "Monto opcional"}
+                aria-label="Monto"
+              />
+            ) : (
+              <span
+                className={`fimba-ctr-monto-ro${draft.monto ? "" : " fimba-muted"}`}
+              >
+                {formatMontoCurrency(draft.monto) || "—"}
+              </span>
+            )}
           </td>
           <td className="fimba-ctr-tipo">
-            <input
-              className="fimba-cell-input"
-              value={draft.tipo_contratacion}
-              onChange={(e) => setField(rowKey, "tipo_contratacion", e.target.value)}
-              onBlur={() => commitRow(rowKey)}
-              onKeyDown={(e) => handleCellKeyDown(e, rowKey)}
-              disabled={disabled}
-              placeholder={FIMBA_TIPO_CONTRATACION_DEFAULT}
-            />
+            {rowEditing ? (
+              <input
+                className="fimba-cell-input"
+                value={draft.tipo_contratacion}
+                onChange={(e) => setField(rowKey, "tipo_contratacion", e.target.value)}
+                onKeyDown={(e) => handleCellKeyDown(e, rowKey)}
+                onDoubleClick={(e) => e.stopPropagation()}
+                disabled={disabled}
+                placeholder={FIMBA_TIPO_CONTRATACION_DEFAULT}
+              />
+            ) : (
+              <span className={draft.tipo_contratacion ? undefined : "fimba-muted"}>
+                {draft.tipo_contratacion || "—"}
+              </span>
+            )}
           </td>
           <td className="fimba-ctr-td-check">
             <ContratacionBoolToggle
               checked={asBool(draft.envio_firma_mfm_nota)}
               color="blue"
-              onChange={(v) => changeAndCommit(rowKey, "envio_firma_mfm_nota", v)}
-              disabled={disabled}
+              onChange={(v) => setField(rowKey, "envio_firma_mfm_nota", v)}
+              disabled={disabled || !rowEditing}
               title="Envío a la firma de MFM nota"
               aria-label="Envío a la firma de MFM nota"
             />
@@ -1346,8 +1671,8 @@ function ContratacionesPlanilla({
             <ContratacionBoolToggle
               checked={asBool(draft.nota_firmada)}
               color="green"
-              onChange={(v) => changeAndCommit(rowKey, "nota_firmada", v)}
-              disabled={disabled}
+              onChange={(v) => setField(rowKey, "nota_firmada", v)}
+              disabled={disabled || !rowEditing}
               title="Nota firmada"
               aria-label="Nota firmada"
             />
@@ -1356,8 +1681,8 @@ function ContratacionesPlanilla({
             <ContratacionBoolToggle
               checked={asBool(draft.falta_documentacion)}
               color="red"
-              onChange={(v) => changeAndCommit(rowKey, "falta_documentacion", v)}
-              disabled={disabled}
+              onChange={(v) => setField(rowKey, "falta_documentacion", v)}
+              disabled={disabled || !rowEditing}
               title="Falta recibir documentación"
               aria-label="Falta recibir documentación"
             />
@@ -1366,78 +1691,116 @@ function ContratacionesPlanilla({
             <ContratacionBoolToggle
               checked={asBool(draft.enviado_adm)}
               color="purple"
-              onChange={(v) => changeAndCommit(rowKey, "enviado_adm", v)}
-              disabled={disabled}
+              onChange={(v) => setField(rowKey, "enviado_adm", v)}
+              disabled={disabled || !rowEditing}
               title="Enviado a ADM"
               aria-label="Enviado a ADM"
             />
           </td>
           <td className="fimba-ctr-estado-cell">
-            <EstadoConocidoInput
-              value={draft.ultimo_estado_conocido}
-              onChange={(v) => setField(rowKey, "ultimo_estado_conocido", v)}
-              onCommit={() => commitRow(rowKey)}
-              onKeyDown={(e) => handleCellKeyDown(e, rowKey)}
-              disabled={disabled}
-              placeholder={isNew ? "Estado…" : undefined}
-            />
+            {rowEditing ? (
+              <div onDoubleClick={(e) => e.stopPropagation()}>
+                <EstadoConocidoInput
+                  value={draft.ultimo_estado_conocido}
+                  onChange={(v) => setField(rowKey, "ultimo_estado_conocido", v)}
+                  onKeyDown={(e) => handleCellKeyDown(e, rowKey)}
+                  disabled={disabled}
+                  placeholder={isNew ? "Estado…" : undefined}
+                />
+              </div>
+            ) : (
+              <EstadoConocidoBadge estado={draft.ultimo_estado_conocido} />
+            )}
           </td>
-          <td style={{ textAlign: "right", paddingRight: "0.5rem", whiteSpace: "nowrap" }}>
-            {!isNew && (() => {
-              const rowEntity = list.find((x) => String(x.id) === String(rowKey));
-              const hasDrive = Boolean(
-                String(rowEntity?.carpeta_documentacion || "").trim(),
-              );
-              return (
+          <td className="fimba-ctr-actions fimba-col-actions">
+            {!readOnly && rowEditing ? (
               <>
                 <button
                   type="button"
                   className="fimba-btn fimba-btn-ghost"
-                  onClick={() => {
-                    if (rowEntity) openDrive(rowEntity);
-                  }}
-                  title={
-                    hasDrive
-                      ? "Documentación Drive"
-                      : "Configurar carpeta Drive"
-                  }
+                  onClick={() => confirmRowEdit(rowKey)}
+                  onDoubleClick={(e) => e.stopPropagation()}
                   disabled={disabled}
-                  style={{
-                    marginRight: 4,
-                    padding: "0.35rem 0.5rem",
-                    color: hasDrive
-                      ? "var(--fimba-cyan, #00b1eb)"
-                      : undefined,
-                  }}
+                  title={
+                    rowErrors[rowKey]
+                      ? rowErrors[rowKey]
+                      : isNew
+                        ? "Crear contratación"
+                        : "Confirmar cambios"
+                  }
+                  aria-label={
+                    isNew ? "Crear contratación" : "Confirmar cambios de la fila"
+                  }
+                  style={{ color: "#166534" }}
                 >
-                  <IconFolder size={14} />
+                  {disabled ? (
+                    <IconLoader size={14} className="animate-spin" />
+                  ) : (
+                    <IconCheck size={14} />
+                  )}
                 </button>
                 <button
                   type="button"
                   className="fimba-btn fimba-btn-ghost"
-                  onClick={() => {
-                    if (rowEntity) openHistory(rowEntity);
-                  }}
-                  title="Ver historial de estados"
+                  style={{ marginLeft: 2 }}
+                  onClick={() => cancelRowEdit(rowKey)}
+                  onDoubleClick={(e) => e.stopPropagation()}
                   disabled={disabled}
-                  style={{ marginRight: 4, padding: "0.35rem 0.5rem" }}
+                  title={isNew ? "Limpiar fila (Esc)" : "Cancelar (Esc)"}
+                  aria-label={
+                    isNew ? "Limpiar fila nueva" : "Cancelar edición de la fila"
+                  }
                 >
-                  <IconHistory size={14} />
-                </button>
-                <button
-                  type="button"
-                  className="fimba-btn fimba-btn-danger"
-                  onClick={() => {
-                    if (rowEntity) handleDelete(rowEntity);
-                  }}
-                  title="Eliminar"
-                  disabled={disabled}
-                >
-                  <IconTrash size={14} />
+                  <IconX size={14} />
                 </button>
               </>
-              );
-            })()}
+            ) : (
+              !isNew &&
+              (() => {
+                const entity =
+                  rowEntity ||
+                  list.find((x) => String(x.id) === String(rowKey));
+                const hasDrive = Boolean(
+                  String(entity?.carpeta_documentacion || "").trim(),
+                );
+                return (
+                  <div className="fimba-ctr-actions-inner">
+                    <button
+                      type="button"
+                      className="fimba-btn fimba-btn-ghost"
+                      onClick={() => {
+                        if (entity) openDrive(entity);
+                      }}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      title={
+                        hasDrive
+                          ? "Documentación Drive"
+                          : "Configurar carpeta Drive"
+                      }
+                      disabled={disabled || readOnly}
+                      style={{
+                        padding: "0.28rem 0.35rem",
+                        color: hasDrive
+                          ? "var(--fimba-cyan, #00b1eb)"
+                          : undefined,
+                      }}
+                    >
+                      <IconFolder size={14} />
+                    </button>
+                    <ContratacionRowMenu
+                      disabled={disabled}
+                      readOnly={readOnly}
+                      onHistory={() => {
+                        if (entity) openHistory(entity);
+                      }}
+                      onDelete={() => {
+                        if (entity) handleDelete(entity);
+                      }}
+                    />
+                  </div>
+                );
+              })()
+            )}
           </td>
         </tr>
         {rowErrors[rowKey] && (
@@ -1452,7 +1815,7 @@ function ContratacionesPlanilla({
   };
 
   return (
-    <div className="fimba-card fimba-ctr-card" style={{ padding: 0, overflow: "auto" }}>
+    <div className="fimba-card fimba-ctr-card">
       <style>{CTR_STYLES}</style>
       <FimbaEstadoConocidoStyles />
       <div className="fimba-ctr-total-bar" aria-live="polite">
@@ -1478,6 +1841,7 @@ function ContratacionesPlanilla({
               })()}
         </span>
       </div>
+      <div className="fimba-ctr-scroll">
       <table className="fimba-table fimba-table-edit fimba-ctr-table">
         <thead>
           <tr>
@@ -1500,7 +1864,17 @@ function ContratacionesPlanilla({
               className="fimba-ctr-exp fimba-ctr-th-compact"
               title="Nº de expediente"
             >
-              Nº expediente
+              Nº exp.
+            </SortableTh>
+            <SortableTh
+              colKey="id_propuesta"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+              className="fimba-ctr-th-artista"
+              title="Artista vinculado (propuesta)"
+            >
+              Artista
             </SortableTh>
             <SortableTh
               colKey="nombre"
@@ -1529,6 +1903,7 @@ function ContratacionesPlanilla({
               sortKey={sortKey}
               sortDir={sortDir}
               onSort={handleSort}
+              className="fimba-ctr-th-monto"
             >
               Monto
             </SortableTh>
@@ -1540,7 +1915,7 @@ function ContratacionesPlanilla({
               className="fimba-ctr-tipo fimba-ctr-th-compact"
               title="Tipo de contratación"
             >
-              Tipo contrat.
+              Tipo
             </SortableTh>
             <SortableTh
               colKey="envio_firma_mfm_nota"
@@ -1550,7 +1925,7 @@ function ContratacionesPlanilla({
               className="fimba-ctr-th-check fimba-ctr-th-blue"
               title="Envío a la firma de MFM nota"
             >
-              Envío firma MFM
+              Firma
             </SortableTh>
             <SortableTh
               colKey="nota_firmada"
@@ -1560,7 +1935,7 @@ function ContratacionesPlanilla({
               className="fimba-ctr-th-check fimba-ctr-th-green"
               title="Nota firmada"
             >
-              Nota firmada
+              Firmada
             </SortableTh>
             <SortableTh
               colKey="falta_documentacion"
@@ -1570,7 +1945,7 @@ function ContratacionesPlanilla({
               className="fimba-ctr-th-check fimba-ctr-th-red"
               title="Falta recibir documentación"
             >
-              Falta doc.
+              Doc.
             </SortableTh>
             <SortableTh
               colKey="enviado_adm"
@@ -1580,36 +1955,39 @@ function ContratacionesPlanilla({
               className="fimba-ctr-th-check fimba-ctr-th-purple"
               title="Enviado a ADM"
             >
-              Enviado ADM
+              ADM
             </SortableTh>
             <SortableTh
               colKey="ultimo_estado_conocido"
               sortKey={sortKey}
               sortDir={sortDir}
               onSort={handleSort}
+              className="fimba-ctr-th-estado"
               title="Preset coloreado o texto libre; cada cambio se registra en historial"
             >
-              Último estado conocido
+              Último estado
             </SortableTh>
-            <th className="fimba-col-actions" />
+            <th className="fimba-col-actions fimba-ctr-actions" />
           </tr>
         </thead>
         <tbody>
           {displayList.map((r, rowIdx) => {
             const rowKey = String(r.id);
-            const draft = drafts[rowKey] || draftFromRow(r);
-            return renderRow(rowKey, rowIdx, draft);
+            const draft = resolveDisplayDraft(r);
+            return renderRow(rowKey, rowIdx, draft, { rowEntity: r });
           })}
-          {renderRow(NEW_ROW_KEY, displayList.length, newDraft, { isNew: true })}
+          {!readOnly &&
+            renderRow(NEW_ROW_KEY, displayList.length, newDraft, { isNew: true })}
         </tbody>
       </table>
-      {list.length === 0 && (
+      </div>
+      {!readOnly && list.length === 0 && (
         <div
           className="fimba-muted"
           style={{ padding: "0.5rem 1rem 0.85rem", fontSize: "0.8rem" }}
         >
-          Completá la fila vacía (expediente, nombre o flags) para dar de alta la
-          primera contratación.
+          Completá la fila vacía y confirmá con la tilde (o Enter) para dar de alta
+          la primera contratación.
         </div>
       )}
       {list.length > 0 && displayList.length === 0 && (
@@ -1618,6 +1996,15 @@ function ContratacionesPlanilla({
           style={{ padding: "0.5rem 1rem 0.85rem", fontSize: "0.8rem" }}
         >
           Ninguna fila coincide con «{nombreQuery.trim()}».
+        </div>
+      )}
+      {!readOnly && list.length > 0 && (
+        <div
+          className="fimba-muted"
+          style={{ padding: "0.35rem 1rem 0.75rem", fontSize: "0.75rem" }}
+        >
+          Doble clic en una fila para editar · tilde confirma · Esc / X cancela ·
+          carpeta = Drive · ⋮ = historial / eliminar
         </div>
       )}
       {historyModal && (
@@ -1923,9 +2310,19 @@ function EstadoHistorialModal({ contratacionId, label, onClose }) {
 }
 
 const CTR_STYLES = `
+  .fimba-ctr-card {
+    padding: 0;
+    overflow: hidden;
+  }
+  .fimba-ctr-scroll {
+    overflow-x: auto;
+    overflow-y: visible;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
   .fimba-ctr-table {
-    min-width: 980px;
     width: max-content;
+    min-width: max(100%, 960px);
   }
   .fimba-ctr-table th {
     font-size: 0.72rem;
@@ -1940,16 +2337,16 @@ const CTR_STYLES = `
     font-size: 0.8rem;
   }
   .fimba-ctr-exp {
-    width: 6.5rem;
-    min-width: 6.5rem;
-    max-width: 7.25rem;
+    width: 5.5rem;
+    min-width: 5.5rem;
+    max-width: 6.25rem;
     padding-left: 0.2rem !important;
     padding-right: 0.2rem !important;
   }
   .fimba-ctr-tipo {
-    width: 5.75rem;
-    min-width: 5.75rem;
-    max-width: 6.5rem;
+    width: 4.75rem;
+    min-width: 4.75rem;
+    max-width: 5.5rem;
     padding-left: 0.2rem !important;
     padding-right: 0.2rem !important;
   }
@@ -1989,21 +2386,66 @@ const CTR_STYLES = `
   .fimba-ctr-th-check .fimba-ctr-th-label {
     text-align: center;
   }
-  .fimba-ctr-nombre {
-    min-width: 14rem;
+  .fimba-ctr-artista {
+    min-width: 7.5rem;
+    max-width: 11rem;
   }
-  .fimba-ctr-nombre-stack {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 4px;
-    min-width: 13rem;
+  .fimba-ctr-th-artista {
+    min-width: 7.5rem;
+    max-width: 11rem;
+  }
+  .fimba-ctr-nombre {
+    min-width: 10rem;
+    max-width: 18rem;
+  }
+  .fimba-ctr-artista-ro {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #334155;
+    max-width: 11rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .fimba-ctr-nombre-ro-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: normal;
+    word-break: break-word;
+    font-size: 0.82rem;
+    line-height: 1.25;
+    max-width: 18rem;
+  }
+  .fimba-ctr-th-monto {
+    min-width: 6.5rem;
+  }
+  .fimba-ctr-monto-ro {
+    display: block;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .fimba-ctr-th-estado,
+  .fimba-ctr-estado-cell {
+    min-width: 8.5rem;
+    max-width: 12rem;
+  }
+  .fimba-ctr-estado-cell {
+    overflow: hidden;
+  }
+  .fimba-ctr-row-editing td {
+    vertical-align: middle;
   }
   .fimba-ctr-artista-select {
-    flex: 0 1 46%;
-    min-width: 5.5rem;
-    max-width: 9.5rem;
-    font-size: 0.72rem !important;
+    width: 100%;
+    min-width: 7rem;
+    max-width: 11rem;
+    font-size: 0.78rem !important;
   }
   .fimba-ctr-artista-select.fimba-ctr-artista-empty {
     color: #94a3b8;
@@ -2014,12 +2456,21 @@ const CTR_STYLES = `
   .fimba-ctr-artista-select option {
     color: #0f172a;
   }
-  .fimba-ctr-nombre-input {
-    flex: 1 1 auto;
-    min-width: 5rem;
+  .fimba-ctr-nombre-textarea {
+    width: 100%;
+    min-width: 9.5rem;
+    max-width: 18rem;
+    min-height: 2.4rem;
+    max-height: 4.5rem;
+    overflow-y: auto;
+    resize: vertical;
+    line-height: 1.3;
+    white-space: pre-wrap;
+    font: inherit;
+    font-size: 0.82rem !important;
   }
   .fimba-ctr-monto {
-    width: 7.5rem;
+    width: 6.75rem;
     text-align: right;
     font-variant-numeric: tabular-nums;
   }
@@ -2065,7 +2516,7 @@ const CTR_STYLES = `
     width: 100%;
   }
   .fimba-ctr-th-nombre {
-    min-width: 14rem;
+    min-width: 10rem;
   }
   .fimba-ctr-th-sort-btn {
     appearance: none;
@@ -2111,16 +2562,16 @@ const CTR_STYLES = `
   }
   .fimba-ctr-th-check,
   .fimba-ctr-td-check {
-    width: 3.6rem;
-    min-width: 3.6rem;
-    max-width: 3.6rem;
-    padding-left: 0.12rem !important;
-    padding-right: 0.12rem !important;
+    width: 2.5rem;
+    min-width: 2.5rem;
+    max-width: 2.5rem;
+    padding-left: 0.08rem !important;
+    padding-right: 0.08rem !important;
     text-align: center;
   }
   .fimba-ctr-th-check {
-    font-size: 0.64rem !important;
-    letter-spacing: 0.02em;
+    font-size: 0.62rem !important;
+    letter-spacing: 0.01em;
   }
   .fimba-ctr-th-blue { color: #2563eb; }
   .fimba-ctr-th-green { color: #16a34a; }
@@ -2163,4 +2614,41 @@ const CTR_STYLES = `
   .fimba-ctr-check-green { color: #16a34a; }
   .fimba-ctr-check-red { color: #dc2626; }
   .fimba-ctr-check-purple { color: #7c3aed; }
+  .fimba-ctr-actions,
+  .fimba-ctr-table .fimba-col-actions {
+    position: sticky;
+    right: 0;
+    z-index: 6;
+    width: 1%;
+    min-width: 4.25rem;
+    text-align: right;
+    padding-left: 0.35rem !important;
+    padding-right: 0.45rem !important;
+    white-space: nowrap;
+    background: #fff;
+    box-shadow: -6px 0 10px -8px rgba(15, 23, 42, 0.28);
+  }
+  .fimba-ctr-table thead .fimba-ctr-actions,
+  .fimba-ctr-table thead .fimba-col-actions {
+    z-index: 26;
+    background: #fff;
+  }
+  .fimba-ctr-table tbody tr.fimba-row-dirty > .fimba-ctr-actions {
+    background: #fef9eb;
+  }
+  .fimba-ctr-table tbody tr.fimba-row-saving > .fimba-ctr-actions {
+    background: #fef6e8;
+  }
+  .fimba-ctr-table tbody tr.fimba-row-saved > .fimba-ctr-actions {
+    background: #edfaf5;
+  }
+  .fimba-ctr-table tbody tr.fimba-row-error > .fimba-ctr-actions {
+    background: #fef2f2;
+  }
+  .fimba-ctr-actions-inner {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0;
+  }
 `;

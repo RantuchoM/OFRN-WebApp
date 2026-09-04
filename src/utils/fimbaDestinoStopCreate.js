@@ -2,6 +2,8 @@ import {
   decodeFimbaTrasladoDescripcion,
   patchFimbaEventoPlanilla,
   saveFimbaEvento,
+  upsertFimbaEventoTransportePlazas,
+  upsertFimbaPropuestaRutaStop,
 } from "../services/fimbaService";
 import { eventTypeIdForCategoria } from "./giraTransportUtils";
 import {
@@ -10,6 +12,59 @@ import {
 } from "./fimbaTransportBoarding";
 
 const pad2 = (n) => String(n).padStart(2, "0");
+
+/**
+ * Tags a heredar al crear parada desde «+» / pausa / recorrido intermedio.
+ * Prioridad: tags de la fila fuente (propuestas FIMBA + grupos OFRN / Tutti).
+ * Si la fila no tiene propuestas, usa `fallbackPropuestaId` (filtro artista global).
+ *
+ * @param {object|null|undefined} sourceEv
+ * @param {{ fallbackPropuestaId?: number|string|null }} [opts]
+ * @returns {{
+ *   idPropuestasTags: number[],
+ *   idGruposTags: number[],
+ *   audienciaOfrn: 'none'|'tutti'|'grupos',
+ * }}
+ */
+export function inheritStopTagsFromEvent(sourceEv, opts = {}) {
+  const idPropuestasTags = [
+    ...new Set(
+      (sourceEv?.propuestas || [])
+        .map((p) => Number(p?.id ?? p))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  ];
+  const idGruposTags = [
+    ...new Set(
+      (sourceEv?.grupos || [])
+        .map((g) => Number(g?.id ?? g))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  ];
+
+  let audienciaOfrn = "none";
+  const ao = sourceEv?.audiencia_ofrn;
+  if (idGruposTags.length > 0) {
+    audienciaOfrn = "grupos";
+  } else if (ao === "tutti") {
+    audienciaOfrn = "tutti";
+  }
+
+  if (
+    idPropuestasTags.length === 0 &&
+    opts.fallbackPropuestaId != null &&
+    opts.fallbackPropuestaId !== ""
+  ) {
+    const fb = Number(opts.fallbackPropuestaId);
+    if (Number.isFinite(fb) && fb > 0) idPropuestasTags.push(fb);
+  }
+
+  return {
+    idPropuestasTags,
+    idGruposTags: audienciaOfrn === "grupos" ? idGruposTags : [],
+    audienciaOfrn,
+  };
+}
 
 /**
  * Suma/resta minutos a un par fecha+hora (rollover de día incluido).
@@ -102,6 +157,8 @@ export function buildDestinoStopSchedule(currentEv, nextEv, horaFinFromForm) {
  *   idGira: number|string,
  *   vehiculos?: Array<object>,
  *   idPropuestasTags?: Array<number|string>,
+ *   idGruposTags?: Array<number|string>,
+ *   audienciaOfrn?: 'none'|'tutti'|'grupos',
  * }} params
  * @returns {Promise<{ evento: object|null, error: Error|null }>}
  */
@@ -117,6 +174,8 @@ export async function createDestinoStopEvent({
   idGira,
   vehiculos = [],
   idPropuestasTags = [],
+  idGruposTags = [],
+  audienciaOfrn = "none",
 }) {
   if (vehicleId == null || vehicleId === "") {
     return { evento: null, error: new Error("Esta fila no tiene vehículo asignado") };
@@ -156,6 +215,8 @@ export async function createDestinoStopEvent({
     ? String(nextEv.hora_inicio).slice(0, 5)
     : null;
 
+  // plazas: 0 → no cupo; saltar listVehiclesAvailability (cuello de botella
+  // del «+» intermedio). La UI ya eligió vehículo de la secuencia.
   const { evento, error: createErr } = await saveFimbaEvento({
     id_gira: Number(idGira),
     fecha: fechaVal,
@@ -167,15 +228,23 @@ export async function createDestinoStopEvent({
     asientos_equipaje: 0,
     sin_servicio: false,
     usa_transporte: true,
+    clientValidated: true,
     vehiculos: [
       {
         id_gira_transporte: Number(vehicleId),
         plazas: 0,
       },
     ],
-    id_propuestas: (idPropuestasTags || []).map(Number).filter((n) => Number.isFinite(n) && n > 0),
+    id_propuestas: (idPropuestasTags || [])
+      .map(Number)
+      .filter((n) => Number.isFinite(n) && n > 0),
+    id_grupos: (idGruposTags || [])
+      .map(Number)
+      .filter((n) => Number.isFinite(n) && n > 0),
     id_tipo_evento: tipoId,
-    audiencia_ofrn: "none",
+    audiencia_ofrn: ["none", "tutti", "grupos"].includes(audienciaOfrn)
+      ? audienciaOfrn
+      : "none",
   });
 
   if (createErr) {
@@ -222,10 +291,120 @@ export function eventLocacionId(ev) {
 }
 
 /**
+ * Normaliza un payload de boarding compacto (subida o bajada).
+ * @param {unknown} raw
+ * @returns {{ kind: 'propuesta'|'grupo', id: number, cantidad: number }|null}
+ */
+export function normalizeBoardingPassenger(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const kind = raw.kind === "grupo" ? "grupo" : "propuesta";
+  const id = Number(raw.id);
+  const cantidad = Math.max(1, Number(raw.cantidad) || 1);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  return { kind, id, cantidad };
+}
+
+/**
+ * Aplica subida/bajada en una parada recién creada.
+ * - Artista FIMBA (`propuesta`): `fimba_propuesta_rutas` ↑/↓.
+ * - Grupo OFRN (`grupo`): reserva técnica `fimba_evento_transportes.plazas`
+ *   solo en **subida** (mismo modelo que «Programar transporte»; no hay
+ *   bajada de grupo+N en rutas FIMBA).
+ *
+ * @param {{
+ *   evento: object,
+ *   vehicleId: number|string,
+ *   subida?: unknown,
+ *   bajada?: unknown,
+ *   sortedEvents?: Array<object>|null,
+ * }} params
+ * @returns {Promise<{ error: Error|null }>}
+ */
+export async function applyStopBoardingAtCreate({
+  evento,
+  vehicleId,
+  subida = null,
+  bajada = null,
+  sortedEvents = null,
+}) {
+  if (!evento?.id || vehicleId == null || vehicleId === "") {
+    return { error: null };
+  }
+  const idGt = Number(vehicleId);
+  const timeline = Array.isArray(sortedEvents) ? sortedEvents : null;
+  const up = normalizeBoardingPassenger(subida);
+  const down = normalizeBoardingPassenger(bajada);
+
+  if (up) {
+    if (up.kind === "propuesta") {
+      const res = await upsertFimbaPropuestaRutaStop({
+        id_propuesta: up.id,
+        id_gira_transporte: idGt,
+        id_evento: evento.id,
+        type: "up",
+        plazas: up.cantidad,
+        skipCapAssert: true,
+        sortedEvents: timeline,
+      });
+      if (res.error) {
+        return {
+          error: new Error(
+            res.error.message || "No se pudo crear la subida FIMBA",
+          ),
+        };
+      }
+    } else {
+      const res = await upsertFimbaEventoTransportePlazas(
+        evento.id,
+        idGt,
+        up.cantidad,
+      );
+      if (res.error) {
+        return {
+          error: new Error(
+            res.error.message ||
+              "No se pudo fijar la reserva técnica OFRN (subida)",
+          ),
+        };
+      }
+    }
+  }
+
+  if (down) {
+    if (down.kind === "propuesta") {
+      const res = await upsertFimbaPropuestaRutaStop({
+        id_propuesta: down.id,
+        id_gira_transporte: idGt,
+        id_evento: evento.id,
+        type: "down",
+        plazas: down.cantidad,
+        skipCapAssert: true,
+        sortedEvents: timeline,
+      });
+      if (res.error) {
+        return {
+          error: new Error(
+            res.error.message || "No se pudo crear la bajada FIMBA",
+          ),
+        };
+      }
+    }
+    // grupo OFRN: sin bajada explícita por plazas (refinar en Subidas/Orquesta)
+  }
+
+  return { error: null };
+}
+
+/**
  * Crea las 3 paradas de un recorrido intermedio durante una pausa:
  * salida (locación actual) → waypoint → retorno (locación actual).
  * Encadena `createDestinoStopEvent` entre `prevEv` y `nextEv`.
- * Cada parada acepta su propia fecha (default sugerido en UI = día del prev).
+ * Cada parada acepta su propia fecha (default sugerido en UI = día del prev)
+ * y detalle/actividad editable. Tags compartidos + boarding opcional por fila.
+ *
+ * Semántica boarding sugerida (ida-vuelta, flexible en UI):
+ * - Ida: ↑ Salida · ↓ Llegada (waypoint)
+ * - Vuelta: ↑ Llegada · ↓ Retorno
  *
  * @param {{
  *   prevEv: object,
@@ -234,6 +413,11 @@ export function eventLocacionId(ev) {
  *   idGira: number|string,
  *   vehiculos?: Array<object>,
  *   idPropuestasTags?: Array<number|string>,
+ *   idGruposTags?: Array<number|string>,
+ *   audienciaOfrn?: 'none'|'tutti'|'grupos',
+ *   detalleSalida?: string,
+ *   detalleWaypoint?: string,
+ *   detalleRetorno?: string,
  *   fechaSalida: string,
  *   fechaWaypoint: string,
  *   fechaRetorno: string,
@@ -242,6 +426,9 @@ export function eventLocacionId(ev) {
  *   horaRetorno: string,
  *   idLocacionActual: unknown,
  *   idLocacionWaypoint: unknown,
+ *   boardingSalida?: { subida?: unknown, bajada?: unknown }|null,
+ *   boardingWaypoint?: { subida?: unknown, bajada?: unknown }|null,
+ *   boardingRetorno?: { subida?: unknown, bajada?: unknown }|null,
  * }} params
  * @returns {Promise<{ eventos: object[], error: Error|null }>}
  */
@@ -252,6 +439,11 @@ export async function createRecorridoIntermedioStops({
   idGira,
   vehiculos = [],
   idPropuestasTags = [],
+  idGruposTags = [],
+  audienciaOfrn = "none",
+  detalleSalida = "Salida",
+  detalleWaypoint = "Llegada",
+  detalleRetorno = "Retorno",
   fechaSalida,
   fechaWaypoint,
   fechaRetorno,
@@ -260,6 +452,9 @@ export async function createRecorridoIntermedioStops({
   horaRetorno,
   idLocacionActual,
   idLocacionWaypoint,
+  boardingSalida = null,
+  boardingWaypoint = null,
+  boardingRetorno = null,
 }) {
   const common = {
     vehicleId,
@@ -267,7 +462,13 @@ export async function createRecorridoIntermedioStops({
     idGira,
     vehiculos,
     idPropuestasTags,
+    idGruposTags,
+    audienciaOfrn,
   };
+
+  const actSalida = String(detalleSalida || "").trim() || "Salida";
+  const actWaypoint = String(detalleWaypoint || "").trim() || "Llegada";
+  const actRetorno = String(detalleRetorno || "").trim() || "Retorno";
 
   const { evento: salida, error: e1 } = await createDestinoStopEvent({
     ...common,
@@ -275,7 +476,7 @@ export async function createRecorridoIntermedioStops({
     fecha: fechaSalida,
     horaInicio: horaSalida,
     idLocacion: idLocacionActual,
-    actividad: "Salida recorrido intermedio",
+    actividad: actSalida,
   });
   if (e1 || !salida?.id) {
     return {
@@ -290,7 +491,7 @@ export async function createRecorridoIntermedioStops({
     fecha: fechaWaypoint,
     horaInicio: horaWaypoint,
     idLocacion: idLocacionWaypoint,
-    actividad: "Parada intermedia",
+    actividad: actWaypoint,
   });
   if (e2 || !waypoint?.id) {
     return {
@@ -309,7 +510,7 @@ export async function createRecorridoIntermedioStops({
     fecha: fechaRetorno,
     horaInicio: horaRetorno,
     idLocacion: idLocacionActual,
-    actividad: "Retorno recorrido intermedio",
+    actividad: actRetorno,
   });
   if (e3 || !retorno?.id) {
     return {
@@ -322,5 +523,32 @@ export async function createRecorridoIntermedioStops({
     };
   }
 
-  return { eventos: [salida, waypoint, retorno], error: null };
+  const created = [salida, waypoint, retorno];
+  const boardings = [
+    boardingSalida,
+    boardingWaypoint,
+    boardingRetorno,
+  ];
+
+  for (let i = 0; i < created.length; i += 1) {
+    const board = boardings[i];
+    if (!board) continue;
+    const { error: boardErr } = await applyStopBoardingAtCreate({
+      evento: created[i],
+      vehicleId,
+      subida: board.subida,
+      bajada: board.bajada,
+      sortedEvents: created,
+    });
+    if (boardErr) {
+      return {
+        eventos: created,
+        error: new Error(
+          `Paradas creadas, pero falló el boarding en «${created[i].actividad || `parada ${i + 1}`}»: ${boardErr.message}`,
+        ),
+      };
+    }
+  }
+
+  return { eventos: created, error: null };
 }

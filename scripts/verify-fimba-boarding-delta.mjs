@@ -413,6 +413,135 @@ assert(
   "sin bajada = ride abierto",
 );
 
+// --- Regresión Guillo / parada intermedia: bajada en Concierto fuera de planilla ---
+function collectMissingRideEndpointEvents(eventos, propuestaRoutes, ofrnRides) {
+  const known = new Set(
+    (eventos || [])
+      .map((e) => (e?.id != null && e.id !== "" ? String(e.id) : ""))
+      .filter(Boolean),
+  );
+  const out = [];
+  const add = (ev) => {
+    if (!ev || ev.id == null || ev.id === "") return;
+    const id = String(ev.id);
+    if (known.has(id)) return;
+    known.add(id);
+    out.push({
+      id: ev.id,
+      fecha: ev.fecha ?? null,
+      hora_inicio: ev.hora_inicio ?? null,
+      hora_fin: ev.hora_fin ?? null,
+      id_tipo_evento: ev.id_tipo_evento ?? null,
+      es_ride_endpoint: true,
+    });
+  };
+  for (const r of propuestaRoutes || []) {
+    add(r?.evento_subida);
+    add(r?.evento_bajada);
+  }
+  for (const r of ofrnRides || []) {
+    add(r?.subidaData);
+    add(r?.bajadaData);
+  }
+  return out;
+}
+
+const closedAtConcert = {
+  plazas: 4,
+  id_evento_subida: 3950,
+  id_evento_bajada: 3984,
+  evento_bajada: {
+    id: 3984,
+    fecha: "2026-09-19",
+    hora_inicio: "19:00:00",
+    id_tipo_evento: 1,
+  },
+};
+const planillaOnly = [
+  { id: 3950, fecha: "2026-09-19", hora_inicio: "01:30:00", id_tipo_evento: 11 },
+  { id: 4412, fecha: "2026-09-19", hora_inicio: "12:45:00", id_tipo_evento: 11 },
+  { id: 3951, fecha: "2026-09-20", hora_inicio: null, id_tipo_evento: 11 },
+];
+assert(
+  isFimbaRideAboardAtStop(closedAtConcert, 4412, planillaOnly),
+  "sin Concierto en secuencia: downIdx=-1 → aún 'presente' (legacy)",
+);
+const stubs = collectMissingRideEndpointEvents(
+  planillaOnly,
+  [{ id_gira_transporte: 226, ...closedAtConcert }],
+  [],
+);
+assert(stubs.some((e) => String(e.id) === "3984"), "stub Concierto desde embed");
+const withEndpoint = [...planillaOnly, ...stubs].sort((a, b) =>
+  `${a.fecha || ""}${a.hora_inicio || ""}`.localeCompare(
+    `${b.fecha || ""}${b.hora_inicio || ""}`,
+  ),
+);
+assert(
+  isFimbaRideAboardAtStop(closedAtConcert, 4412, withEndpoint),
+  "con Concierto en secuencia: a bordo en parada 12:45",
+);
+assert(
+  !isFimbaRideAboardAtStop(closedAtConcert, 3951, withEndpoint),
+  "con Concierto en secuencia: ya no a bordo al día siguiente",
+);
+assert(
+  !isOpenFimbaRide(closedAtConcert),
+  "ride con bajada Concierto no es openRide (UI antes mostraba OK)",
+);
+
+// --- Auditoría ↑/↓ fuera de trayecto (planilla Transportes) ---
+function isOffTrayectoRideEndpoint(ev) {
+  if (!ev || ev.id == null || ev.id === "") return false;
+  const rawTipo = ev.id_tipo_evento;
+  const hasTipo =
+    rawTipo != null && rawTipo !== "" && Number.isFinite(Number(rawTipo));
+  if (!hasTipo) return false;
+  return !isTransportTipoEvent(ev);
+}
+
+function listOffTrayectoRideEndpointsLite(propuestaRoutes) {
+  const rows = [];
+  for (const r of propuestaRoutes || []) {
+    for (const [end, embed, id] of [
+      ["up", r.evento_subida, r.id_evento_subida],
+      ["down", r.evento_bajada, r.id_evento_bajada],
+    ]) {
+      const ev = embed || (id != null ? { id, id_tipo_evento: null } : null);
+      if (!ev || !isOffTrayectoRideEndpoint(ev)) continue;
+      rows.push({ end, eventId: ev.id, tipo: ev.id_tipo_evento });
+    }
+  }
+  return rows;
+}
+
+const auditRows = listOffTrayectoRideEndpointsLite([
+  { id_gira_transporte: 226, ...closedAtConcert },
+]);
+assert(
+  auditRows.length === 1 &&
+    auditRows[0].end === "down" &&
+    String(auditRows[0].eventId) === "3984",
+  "auditoría: bajada en Concierto (tipo 1) aparece fuera de trayecto",
+);
+assert(
+  listOffTrayectoRideEndpointsLite([
+    {
+      id_evento_subida: 3950,
+      id_evento_bajada: 4412,
+      evento_subida: {
+        id: 3950,
+        id_tipo_evento: 11,
+      },
+      evento_bajada: {
+        id: 4412,
+        id_tipo_evento: 11,
+      },
+    },
+  ]).length === 0,
+  "auditoría: ride trayecto↔trayecto no figura",
+);
+
 if (process.exitCode) {
   console.error("\nAlgunas aserciones fallaron.");
 } else {

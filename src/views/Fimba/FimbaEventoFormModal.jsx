@@ -37,6 +37,7 @@ import {
 import {
   buildDestinoStopSchedule,
   createDestinoStopEvent,
+  inheritStopTagsFromEvent,
 } from "../../utils/fimbaDestinoStopCreate";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import {
@@ -478,6 +479,8 @@ export default function FimbaEventoFormModal({
   onBoardingRefresh = null,
   /** Tras crear parada destino inline: abrir editor del evento nuevo. */
   onOpenEventoEdit = null,
+  /** Al abrir desde celda Artistas: scroll a tags artistas / audiencia OFRN. */
+  focusTags = false,
 }) {
   const isEdit = mode === "edit";
   const { canEditPropuestaMeta, readOnly } = useFimbaAccess();
@@ -492,6 +495,7 @@ export default function FimbaEventoFormModal({
         : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
     }`,
   );
+  const tagsSectionRef = useRef(null);
   const internasStorageKey =
     isEdit && evento?.id != null && evento.id !== ""
       ? evento.id
@@ -1126,6 +1130,7 @@ export default function FimbaEventoFormModal({
     setQuickCreateError(null);
     setQuickCreateSaving(true);
 
+    const tags = inheritStopTagsFromEvent(evento);
     const { evento: created, error: err } = await createDestinoStopEvent({
       currentEv: evento,
       vehicleId: transportDestinoVehicleId,
@@ -1136,6 +1141,7 @@ export default function FimbaEventoFormModal({
       actividad: "Parada intermedia",
       idGira: edicion?.id_gira,
       vehiculos: flota,
+      ...tags,
     });
 
     setQuickCreateSaving(false);
@@ -1225,6 +1231,17 @@ export default function FimbaEventoFormModal({
     selectedVehIds.length > 0 &&
     totalPlazasAsignadas === 0 &&
     !hasNamedSubeOnEvent;
+
+  useEffect(() => {
+    if (!focusTags) return undefined;
+    const t = setTimeout(() => {
+      tagsSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
+    return () => clearTimeout(t);
+  }, [focusTags]);
 
   // Libres de toda la flota en la ventana (OFRN a bordo + FIMBA a bordo).
   // Debounce horas: no disparar availability en cada tecla.
@@ -2019,6 +2036,7 @@ export default function FimbaEventoFormModal({
             </div>
           )}
 
+          <div ref={tagsSectionRef} id="fimba-evento-tags">
           {usaTransporte ? (
             <>
             <FimbaEventoArtistasBoardingTable
@@ -2216,6 +2234,7 @@ export default function FimbaEventoFormModal({
               {audienciaOfrn === "grupos" &&
                 "Persistido en eventos.audiencia_ofrn=grupos + filas eventos_grupos."}
             </p>
+          </div>
           </div>
 
           {!forceTransporte && (

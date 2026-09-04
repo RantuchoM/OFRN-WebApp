@@ -157,8 +157,10 @@ export default function StopRulesManager({
   // Formulario nueva regla
   const [newScope, setNewScope] = useState("General");
   const [targetIds, setTargetIds] = useState([]);
+  const [esChofer, setEsChofer] = useState(false);
   const [bajarTodoBusy, setBajarTodoBusy] = useState(false);
   const [quickAlightBusyId, setQuickAlightBusyId] = useState(null);
+  const [choferBusyId, setChoferBusyId] = useState(null);
 
   const title = type === "up" ? "Gestionar Subidas" : "Gestionar Bajadas";
   const colorClass = type === "up" ? "text-emerald-700" : "text-rose-700";
@@ -398,12 +400,21 @@ export default function StopRulesManager({
             (r[fieldToUpdate] == null || r[fieldToUpdate] === ""),
         );
         if (openRide) {
+          const openPatch = { [fieldToUpdate]: event.id };
+          if (
+            type === "up" &&
+            newScope === "Persona" &&
+            Boolean(esChofer) !== Boolean(openRide.es_chofer)
+          ) {
+            openPatch.es_chofer = Boolean(esChofer);
+          }
           const { error: updateErr } = await supabase
             .from("giras_logistica_rutas")
-            .update({ [fieldToUpdate]: event.id })
+            .update(openPatch)
             .eq("id", openRide.id);
           if (updateErr) throw updateErr;
           openRide[fieldToUpdate] = event.id;
+          if (openPatch.es_chofer != null) openRide.es_chofer = openPatch.es_chofer;
           anyChange = true;
           continue;
         }
@@ -569,6 +580,8 @@ export default function StopRulesManager({
           id_localidad: newScope === "Localidad" ? currentId : null,
           id_integrante: newScope === "Persona" ? currentId : null,
           target_ids: newScope === "Categoria" && currentId ? [currentId] : [],
+          es_chofer:
+            type === "up" && newScope === "Persona" ? Boolean(esChofer) : false,
         };
 
         const { data: inserted, error } = await supabase
@@ -583,6 +596,7 @@ export default function StopRulesManager({
 
       if (anyChange) {
         setTargetIds([]);
+        setEsChofer(false);
         await fetchRules();
         onRefresh && onRefresh();
       }
@@ -612,6 +626,31 @@ export default function StopRulesManager({
       onRefresh && onRefresh();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleToggleChofer = async (rule, nextValue) => {
+    if (!rule?.id || rule.alcance !== "Persona") return;
+    const next = Boolean(nextValue);
+    if (Boolean(rule.es_chofer) === next) return;
+    setChoferBusyId(rule.id);
+    try {
+      const { error } = await supabase
+        .from("giras_logistica_rutas")
+        .update({ es_chofer: next })
+        .eq("id", rule.id);
+      if (error) throw error;
+      setExistingRules((prev) =>
+        (prev || []).map((r) =>
+          String(r.id) === String(rule.id) ? { ...r, es_chofer: next } : r,
+        ),
+      );
+      onRefresh && onRefresh();
+    } catch (err) {
+      console.error(err);
+      toast.error("No se pudo actualizar el flag de chofer");
+    } finally {
+      setChoferBusyId(null);
     }
   };
 
@@ -1290,6 +1329,11 @@ export default function StopRulesManager({
                         <span className="text-slate-400 ml-1">
                           · {row.seats} asiento{row.seats === 1 ? "" : "s"}
                         </span>
+                        {row.es_chofer ? (
+                          <span className="ml-1 inline-flex items-center px-1 py-0 rounded text-[9px] font-bold uppercase tracking-wide text-slate-600 bg-slate-200">
+                            Chofer
+                          </span>
+                        ) : null}
                         {row.alreadyAlightingHere ? (
                           <span className="ml-1 text-[10px] font-semibold text-rose-600">
                             (ya baja aquí)
@@ -1414,11 +1458,21 @@ export default function StopRulesManager({
                               }}
                             >
                               <div className="flex flex-col min-w-0">
-                                <span className="text-xs font-semibold text-slate-700 truncate">
-                                  {resolveTargetName(rule)}
+                                <span className="text-xs font-semibold text-slate-700 truncate flex items-center gap-1.5">
+                                  <span className="truncate">
+                                    {resolveTargetName(rule)}
+                                  </span>
                                   {personInstAbrev ? (
-                                    <span className="ml-1 font-bold text-indigo-600">
+                                    <span className="ml-0 font-bold text-indigo-600 shrink-0">
                                       +{personInstAbrev}
+                                    </span>
+                                  ) : null}
+                                  {rule.es_chofer ? (
+                                    <span
+                                      className="shrink-0 inline-flex items-center px-1 py-0 rounded text-[9px] font-bold uppercase tracking-wide text-slate-600 bg-slate-200"
+                                      title="Esta subida/trayecto: a bordo sin consumir cupo (no es un rol permanente de la persona)"
+                                    >
+                                      Chofer
                                     </span>
                                   ) : null}
                                 </span>
@@ -1429,6 +1483,37 @@ export default function StopRulesManager({
                                       {admissionCoverage.viaLabel}
                                     </span>
                                   )}
+                                {isPersonaRule && type === "up" ? (
+                                  <label
+                                    className="mt-1 inline-flex items-center gap-1.5 text-[10px] text-slate-600 cursor-pointer select-none w-fit"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-500"
+                                      checked={Boolean(rule.es_chofer)}
+                                      disabled={
+                                        loading ||
+                                        choferBusyId === rule.id
+                                      }
+                                      onChange={(e) =>
+                                        handleToggleChofer(
+                                          rule,
+                                          e.target.checked,
+                                        )
+                                      }
+                                    />
+                                    <span>
+                                      <span className="font-semibold">
+                                        Es chofer
+                                      </span>
+                                      <span className="text-slate-400">
+                                        {" "}
+                                        en esta subida
+                                      </span>
+                                    </span>
+                                  </label>
+                                ) : null}
                               </div>
                               <div className="flex items-center gap-2">
                                 {admissionReady &&
@@ -1709,8 +1794,10 @@ export default function StopRulesManager({
                   className="w-full text-xs border rounded p-2 outline-none focus:border-indigo-500"
                   value={newScope}
                   onChange={(e) => {
-                    setNewScope(e.target.value);
+                    const next = e.target.value;
+                    setNewScope(next);
                     setTargetIds([]);
+                    if (next !== "Persona") setEsChofer(false);
                   }}
                 >
                   <option value="General">General</option>
@@ -1772,6 +1859,24 @@ export default function StopRulesManager({
                 )}
               </div>
             </div>
+            {type === "up" && newScope === "Persona" ? (
+              <label className="mb-3 flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-500"
+                  checked={esChofer}
+                  onChange={(e) => setEsChofer(e.target.checked)}
+                />
+                <span>
+                  <span className="font-semibold">Es chofer</span>
+                  <span className="text-slate-500">
+                    {" "}
+                    — en esta subida/trayecto (no consume cupo; no es un rol
+                    permanente de la persona)
+                  </span>
+                </span>
+              </label>
+            ) : null}
             <button
               onClick={handleAddRule}
               disabled={loading}

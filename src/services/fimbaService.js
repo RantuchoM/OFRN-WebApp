@@ -1242,7 +1242,349 @@ const STAY_EVENT_EMBED =
 export { STAY_EVENT_EMBED as FIMBA_STAY_EVENT_EMBED };
 
 const PROPUESTA_SELECT =
-  `id, id_edicion, nombre, color, orden, cantidad_planificada, plazas_extra_materiales, checkin_at, checkout_at, id_evento_checkin, id_evento_checkout, checkin_early, checkout_late, requiere_hotel, requiere_comidas, id_hotel, observaciones_logisticas, rider, token_consulta, token_edicion, estado, created_at, updated_at, hoteles:id_hotel ( id, nombre ), evento_checkin:id_evento_checkin ( ${STAY_EVENT_EMBED} ), evento_checkout:id_evento_checkout ( ${STAY_EVENT_EMBED} )`;
+  `id, id_edicion, nombre, color, orden, cantidad_planificada, plazas_extra_materiales, checkin_at, checkout_at, id_evento_checkin, id_evento_checkout, checkin_early, checkout_late, requiere_hotel, requiere_comidas, id_hotel, observaciones_logisticas, rider, token_consulta, token_edicion, estado, created_at, updated_at, hoteles:id_hotel ( id, nombre, id_locacion ), evento_checkin:id_evento_checkin ( ${STAY_EVENT_EMBED} ), evento_checkout:id_evento_checkout ( ${STAY_EVENT_EMBED} )`;
+
+/** Quita línea legacy `Destino:` de `eventos.descripcion` (locación vive en `id_locacion`). */
+function stripDestinoLinesFromDescripcion(text) {
+  const lines = String(text || "")
+    .split("\n")
+    .filter((line) => !/^Destino:\s*/i.test(String(line).trim()));
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+async function resolveHotelLocacionId(idHotel) {
+  const hid = Number(idHotel);
+  if (!Number.isFinite(hid)) return { id_locacion: null, error: null };
+  const { data, error } = await supabase
+    .from("hoteles")
+    .select("id_locacion")
+    .eq("id", hid)
+    .maybeSingle();
+  if (error) return { id_locacion: null, error };
+  const loc =
+    data?.id_locacion != null && data.id_locacion !== ""
+      ? Number(data.id_locacion)
+      : null;
+  return {
+    id_locacion: Number.isFinite(loc) ? loc : null,
+    error: null,
+  };
+}
+
+/**
+ * Find-or-create evento estadía con `id_locacion` (misma fecha/hora/tipo).
+ * Usado al bifurcar eventos compartidos entre hoteles distintos.
+ */
+async function ensureFimbaStayEventAtLocacion(idGira, kind, fechaIso, idLocacion) {
+  const giraId = Number(idGira);
+  const fecha = isoDateOrNull(fechaIso);
+  const locId = Number(idLocacion);
+  if (!Number.isFinite(giraId) || !fecha || !Number.isFinite(locId)) {
+    return { id: null, fecha: null, error: null };
+  }
+  const isOut = kind === "checkout";
+  const tipoId = isOut ? FIMBA_TIPO_EVENTO_CHECKOUT : FIMBA_TIPO_EVENTO_CHECKIN;
+  const hora = isOut ? FIMBA_HORA_CHECKOUT : FIMBA_HORA_CHECKIN;
+  const descripcion = isOut ? "Check-Out" : "Check-In";
+
+  const { data: existing, error: findErr } = await supabase
+    .from("eventos")
+    .select("id, fecha")
+    .eq("id_gira", giraId)
+    .eq("id_tipo_evento", tipoId)
+    .eq("fecha", fecha)
+    .eq("hora_inicio", hora)
+    .eq("id_locacion", locId)
+    .or("is_deleted.eq.false,is_deleted.is.null")
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (findErr) return { id: null, fecha: null, error: findErr };
+  if (existing?.id != null) {
+    return { id: Number(existing.id), fecha, error: null };
+  }
+
+  const { data: created, error: insErr } = await supabase
+    .from("eventos")
+    .insert({
+      id_gira: giraId,
+      id_tipo_evento: tipoId,
+      fecha,
+      hora_inicio: hora,
+      hora_fin: null,
+      descripcion,
+      id_locacion: locId,
+      visible_agenda: true,
+      audiencia_ofrn: "none",
+      is_deleted: false,
+    })
+    .select("id, fecha")
+    .single();
+  if (insErr) return { id: null, fecha: null, error: insErr };
+  return { id: Number(created.id), fecha, error: null };
+}
+
+/**
+ * Alinea `eventos.id_locacion` de check-in/out del artista (y overrides de su
+ * nómina) con `hoteles.id_locacion` del hotel de la propuesta.
+ *
+ * Si el evento es compartido con otros artistas de hotel distinto → bifurca
+ * (nuevo evento misma fecha/hora/tipo + locación del hotel) y reasigna FKs
+ * de esta propuesta / sus participantes.
+ *
+ * @returns {Promise<{
+ *   updated: number,
+ *   forked: number,
+ *   id_evento_checkin: number|null,
+ *   id_evento_checkout: number|null,
+ *   error: Error|null,
+ * }>}
+ */
+export async function syncFimbaStayEventsLocacionFromHotel(propuestaId) {
+  const pid = Number(propuestaId);
+  const empty = {
+    updated: 0,
+    forked: 0,
+    id_evento_checkin: null,
+    id_evento_checkout: null,
+    error: null,
+  };
+  if (!Number.isFinite(pid)) return empty;
+
+  const { data: prop, error: propErr } = await supabase
+    .from("fimba_propuestas")
+    .select(
+      "id, id_hotel, id_evento_checkin, id_evento_checkout, id_edicion, fimba_ediciones:id_edicion ( id_gira )",
+    )
+    .eq("id", pid)
+    .maybeSingle();
+  if (propErr) return { ...empty, error: propErr };
+  if (!prop) return empty;
+
+  const hotelRes = await resolveHotelLocacionId(prop.id_hotel);
+  if (hotelRes.error) return { ...empty, error: hotelRes.error };
+  const targetLoc = hotelRes.id_locacion;
+  if (targetLoc == null) {
+    return {
+      ...empty,
+      id_evento_checkin:
+        prop.id_evento_checkin != null ? Number(prop.id_evento_checkin) : null,
+      id_evento_checkout:
+        prop.id_evento_checkout != null ? Number(prop.id_evento_checkout) : null,
+    };
+  }
+
+  const idGira =
+    prop.fimba_ediciones?.id_gira != null
+      ? Number(prop.fimba_ediciones.id_gira)
+      : null;
+
+  const { data: parts, error: partsErr } = await supabase
+    .from("fimba_participantes")
+    .select("id, id_evento_checkin, id_evento_checkout")
+    .eq("id_propuesta", pid);
+  if (partsErr) return { ...empty, error: partsErr };
+
+  const eventIds = new Set();
+  if (prop.id_evento_checkin != null) eventIds.add(Number(prop.id_evento_checkin));
+  if (prop.id_evento_checkout != null) {
+    eventIds.add(Number(prop.id_evento_checkout));
+  }
+  for (const p of parts || []) {
+    if (p.id_evento_checkin != null) eventIds.add(Number(p.id_evento_checkin));
+    if (p.id_evento_checkout != null) eventIds.add(Number(p.id_evento_checkout));
+  }
+
+  let updated = 0;
+  let forked = 0;
+  let nextCheckin =
+    prop.id_evento_checkin != null ? Number(prop.id_evento_checkin) : null;
+  let nextCheckout =
+    prop.id_evento_checkout != null ? Number(prop.id_evento_checkout) : null;
+  const remap = new Map();
+
+  for (const eventId of eventIds) {
+    if (!Number.isFinite(eventId)) continue;
+    const { data: ev, error: evErr } = await supabase
+      .from("eventos")
+      .select(
+        "id, id_gira, id_tipo_evento, fecha, hora_inicio, descripcion, id_locacion",
+      )
+      .eq("id", eventId)
+      .maybeSingle();
+    if (evErr) return { ...empty, error: evErr };
+    if (!ev) continue;
+
+    const curLoc =
+      ev.id_locacion != null && ev.id_locacion !== ""
+        ? Number(ev.id_locacion)
+        : null;
+    if (curLoc === targetLoc) continue;
+
+    const { data: otherProps, error: opErr } = await supabase
+      .from("fimba_propuestas")
+      .select("id, id_hotel")
+      .neq("id", pid)
+      .or(
+        `id_evento_checkin.eq.${eventId},id_evento_checkout.eq.${eventId}`,
+      );
+    if (opErr) return { ...empty, error: opErr };
+
+    const { data: otherParts, error: opatErr } = await supabase
+      .from("fimba_participantes")
+      .select("id, id_propuesta")
+      .neq("id_propuesta", pid)
+      .or(
+        `id_evento_checkin.eq.${eventId},id_evento_checkout.eq.${eventId}`,
+      );
+    if (opatErr) return { ...empty, error: opatErr };
+
+    const otherPropIds = new Set(
+      (otherProps || []).map((r) => Number(r.id)),
+    );
+    for (const op of otherParts || []) {
+      if (op.id_propuesta != null) otherPropIds.add(Number(op.id_propuesta));
+    }
+
+    let hasConflict = false;
+    if (otherPropIds.size > 0) {
+      const ids = [...otherPropIds];
+      const { data: hotelRows, error: hrErr } = await supabase
+        .from("fimba_propuestas")
+        .select("id, id_hotel, hoteles:id_hotel ( id_locacion )")
+        .in("id", ids);
+      if (hrErr) return { ...empty, error: hrErr };
+      for (const row of hotelRows || []) {
+        const ol =
+          row.hoteles?.id_locacion != null
+            ? Number(row.hoteles.id_locacion)
+            : null;
+        if (ol != null && ol !== targetLoc) {
+          hasConflict = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasConflict) {
+      const nextDesc = stripDestinoLinesFromDescripcion(ev.descripcion);
+      const patch = {
+        id_locacion: targetLoc,
+        updated_at: new Date().toISOString(),
+      };
+      if (nextDesc !== String(ev.descripcion || "").trim()) {
+        patch.descripcion = nextDesc || ev.descripcion;
+      }
+      const { error: upErr } = await supabase
+        .from("eventos")
+        .update(patch)
+        .eq("id", eventId);
+      if (upErr) return { ...empty, error: upErr };
+      updated += 1;
+      continue;
+    }
+
+    const giraForFork = Number.isFinite(idGira)
+      ? idGira
+      : ev.id_gira != null
+        ? Number(ev.id_gira)
+        : null;
+    const kind =
+      Number(ev.id_tipo_evento) === FIMBA_TIPO_EVENTO_CHECKOUT
+        ? "checkout"
+        : "checkin";
+    const ens = await ensureFimbaStayEventAtLocacion(
+      giraForFork,
+      kind,
+      ev.fecha,
+      targetLoc,
+    );
+    if (ens.error) return { ...empty, error: ens.error };
+    if (ens.id == null) continue;
+
+    const newId = ens.id;
+    if (newId === eventId) {
+      // Ya existía con esta locación (carrera rara): nada que remapear.
+      continue;
+    }
+    remap.set(eventId, newId);
+    forked += 1;
+  }
+
+  if (remap.size === 0) {
+    return {
+      updated,
+      forked,
+      id_evento_checkin: nextCheckin,
+      id_evento_checkout: nextCheckout,
+      error: null,
+    };
+  }
+
+  const propPatch = { updated_at: new Date().toISOString() };
+  if (nextCheckin != null && remap.has(nextCheckin)) {
+    nextCheckin = remap.get(nextCheckin);
+    propPatch.id_evento_checkin = nextCheckin;
+  }
+  if (nextCheckout != null && remap.has(nextCheckout)) {
+    nextCheckout = remap.get(nextCheckout);
+    propPatch.id_evento_checkout = nextCheckout;
+  }
+  if (
+    propPatch.id_evento_checkin !== undefined ||
+    propPatch.id_evento_checkout !== undefined
+  ) {
+    const { error: ppErr } = await supabase
+      .from("fimba_propuestas")
+      .update(propPatch)
+      .eq("id", pid);
+    if (ppErr) return { ...empty, error: ppErr };
+  }
+
+  for (const part of parts || []) {
+    const partPatch = { updated_at: new Date().toISOString() };
+    let touch = false;
+    const cin =
+      part.id_evento_checkin != null ? Number(part.id_evento_checkin) : null;
+    const cout =
+      part.id_evento_checkout != null ? Number(part.id_evento_checkout) : null;
+    if (cin != null && remap.has(cin)) {
+      partPatch.id_evento_checkin = remap.get(cin);
+      touch = true;
+    }
+    if (cout != null && remap.has(cout)) {
+      partPatch.id_evento_checkout = remap.get(cout);
+      touch = true;
+    }
+    if (!touch) continue;
+    const { error: partUpErr } = await supabase
+      .from("fimba_participantes")
+      .update(partPatch)
+      .eq("id", part.id);
+    if (partUpErr) return { ...empty, error: partUpErr };
+  }
+
+  for (const [oldId, newId] of remap) {
+    const { error: tagErr } = await supabase
+      .from("eventos_fimba_propuestas")
+      .upsert(
+        { id_evento: newId, id_propuesta: pid },
+        { onConflict: "id_evento,id_propuesta" },
+      );
+    if (tagErr) {
+      console.warn("syncFimbaStayEventsLocacionFromHotel: tag", tagErr);
+    }
+    void oldId;
+  }
+
+  return {
+    updated,
+    forked,
+    id_evento_checkin: nextCheckin,
+    id_evento_checkout: nextCheckout,
+    error: null,
+  };
+}
 
 /**
  * Find-or-create evento Check-in (22 @ 14:00) / Check-Out (23 @ 10:00) en la gira.
@@ -1352,10 +1694,28 @@ export async function createFimbaStayEvent(payload) {
   const descripcion =
     String(payload.descripcion || "").trim() ||
     (isOut ? "Check-Out" : "Check-In");
-  const idLoc =
+  let idLoc =
     payload.id_locacion != null && payload.id_locacion !== ""
       ? Number(payload.id_locacion)
       : null;
+  const propId =
+    payload.id_propuesta != null && payload.id_propuesta !== ""
+      ? Number(payload.id_propuesta)
+      : null;
+  // Locación canónica = hotel del artista (no picker libre en UI de estadía).
+  if (!Number.isFinite(idLoc) && Number.isFinite(propId)) {
+    const { data: propHotel, error: phErr } = await supabase
+      .from("fimba_propuestas")
+      .select("id_hotel")
+      .eq("id", propId)
+      .maybeSingle();
+    if (phErr) return { evento: null, error: phErr };
+    if (propHotel?.id_hotel != null) {
+      const hotelLoc = await resolveHotelLocacionId(propHotel.id_hotel);
+      if (hotelLoc.error) return { evento: null, error: hotelLoc.error };
+      if (hotelLoc.id_locacion != null) idLoc = hotelLoc.id_locacion;
+    }
+  }
 
   const { data: created, error: insErr } = await supabase
     .from("eventos")
@@ -1375,10 +1735,6 @@ export async function createFimbaStayEvent(payload) {
     .single();
   if (insErr) return { evento: null, error: insErr };
 
-  const propId =
-    payload.id_propuesta != null && payload.id_propuesta !== ""
-      ? Number(payload.id_propuesta)
-      : null;
   if (Number.isFinite(propId) && created?.id != null) {
     const { error: tagErr } = await supabase
       .from("eventos_fimba_propuestas")
@@ -1653,7 +2009,18 @@ export async function createFimbaPropuesta(payload) {
     .insert(row)
     .select(PROPUESTA_SELECT)
     .single();
-  return { propuesta: data, error };
+  if (error || !data?.id) return { propuesta: data, error };
+  if (
+    data.id_hotel != null &&
+    (data.id_evento_checkin != null || data.id_evento_checkout != null)
+  ) {
+    const sync = await syncFimbaStayEventsLocacionFromHotel(data.id);
+    if (sync.error) {
+      console.warn("createFimbaPropuesta: sync stay locacion", sync.error);
+    }
+    return getFimbaPropuestaById(data.id);
+  }
+  return { propuesta: data, error: null };
 }
 
 export async function updateFimbaPropuesta(propuestaId, patch) {
@@ -1731,13 +2098,28 @@ export async function updateFimbaPropuesta(propuestaId, patch) {
   }
   if (patch.estado != null) row.estado = patch.estado;
 
+  const shouldSyncStayLoc =
+    patch.id_hotel !== undefined ||
+    patch.id_evento_checkin !== undefined ||
+    patch.id_evento_checkout !== undefined ||
+    patch.checkin_at !== undefined ||
+    patch.checkout_at !== undefined;
+
   const { data, error } = await supabase
     .from("fimba_propuestas")
     .update(row)
     .eq("id", propuestaId)
     .select(PROPUESTA_SELECT)
     .single();
-  return { propuesta: data, error };
+  if (error || !data?.id || !shouldSyncStayLoc) {
+    return { propuesta: data, error };
+  }
+  const sync = await syncFimbaStayEventsLocacionFromHotel(data.id);
+  if (sync.error) {
+    console.warn("updateFimbaPropuesta: sync stay locacion", sync.error);
+    return { propuesta: data, error: null };
+  }
+  return getFimbaPropuestaById(data.id);
 }
 
 /** Máx. bytes cliente + bucket `fimba-riders`. */
@@ -2677,6 +3059,23 @@ export async function createFimbaParticipante(payload) {
     .insert(row)
     .select(PARTICIPANTE_SELECT)
     .single();
+  if (
+    !error &&
+    data?.id_propuesta != null &&
+    (data.id_evento_checkin != null || data.id_evento_checkout != null)
+  ) {
+    const sync = await syncFimbaStayEventsLocacionFromHotel(data.id_propuesta);
+    if (sync.error) {
+      console.warn("createFimbaParticipante: sync stay locacion", sync.error);
+    } else if (sync.forked > 0) {
+      const { data: refreshed } = await supabase
+        .from("fimba_participantes")
+        .select(PARTICIPANTE_SELECT)
+        .eq("id", data.id)
+        .maybeSingle();
+      if (refreshed) return { participante: refreshed, error: null };
+    }
+  }
   return { participante: data, error };
 }
 
@@ -2773,12 +3172,28 @@ export async function updateFimbaParticipante(participanteId, patch) {
       Object.assign(row, stay.patch);
     }
   }
+  const shouldSyncStayLoc =
+    touchEventIn || touchEventOut || touchDateIn || touchDateOut;
+
   const { data, error } = await supabase
     .from("fimba_participantes")
     .update(row)
     .eq("id", participanteId)
     .select(PARTICIPANTE_SELECT)
     .single();
+  if (!error && shouldSyncStayLoc && data?.id_propuesta != null) {
+    const sync = await syncFimbaStayEventsLocacionFromHotel(data.id_propuesta);
+    if (sync.error) {
+      console.warn("updateFimbaParticipante: sync stay locacion", sync.error);
+    } else if (sync.forked > 0) {
+      const { data: refreshed } = await supabase
+        .from("fimba_participantes")
+        .select(PARTICIPANTE_SELECT)
+        .eq("id", participanteId)
+        .maybeSingle();
+      if (refreshed) return { participante: refreshed, error: null };
+    }
+  }
   return { participante: data, error };
 }
 
@@ -3516,10 +3931,7 @@ export async function listVehiclesAvailability(
       // No bloquea: seguimos con sintéticos de evento
       propuestaRoutes = [];
     } else {
-      propuestaRoutes = (rutas || []).map((r) => ({
-        ...r,
-        propuesta: r.propuesta || null,
-      }));
+      propuestaRoutes = (rutas || []).map(mapFimbaPropuestaRutaRow);
     }
   }
   propuestaRoutes = propuestaRoutes || [];
@@ -4641,8 +5053,37 @@ export async function loadFimbaTransportLogisticsSummary(giraId) {
 // Rutas FIMBA por artista (subida/bajada con cantidad) — fimba_propuesta_rutas
 // ---------------------------------------------------------------------------
 
+/** Embeds de extremos: `eventos.descripcion` (Detalle FIMBA encode), no columna `actividad`. */
 const FIMBA_PROPUESTA_RUTA_SELECT =
-  "id, id_propuesta, id_gira_transporte, plazas, es_chofer, asientos_equipaje, observaciones_equipaje, id_evento_subida, id_evento_bajada, created_at, updated_at, propuesta:id_propuesta ( id, nombre, color, cantidad_planificada, plazas_extra_materiales )";
+  "id, id_propuesta, id_gira_transporte, plazas, es_chofer, asientos_equipaje, observaciones_equipaje, id_evento_subida, id_evento_bajada, created_at, updated_at, evento_subida:id_evento_subida ( id, fecha, hora_inicio, hora_fin, id_tipo_evento, descripcion, tipos_evento ( id, nombre, id_categoria, categorias_tipos_eventos ( id, nombre ) ) ), evento_bajada:id_evento_bajada ( id, fecha, hora_inicio, hora_fin, id_tipo_evento, descripcion, tipos_evento ( id, nombre, id_categoria, categorias_tipos_eventos ( id, nombre ) ) ), propuesta:id_propuesta ( id, nombre, color, cantidad_planificada, plazas_extra_materiales )";
+
+/**
+ * Stub de extremo ↑/↓: decode Detalle → `actividad` (paridad listFimbaArtistaTrasladoBlocks).
+ * @param {object|null|undefined} ev
+ */
+function normalizeFimbaRutaEndpointEmbed(ev) {
+  if (!ev || typeof ev !== "object") return ev ?? null;
+  const decoded = decodeFimbaTrasladoDescripcion(ev.descripcion);
+  return {
+    ...ev,
+    ...decoded,
+    actividad: decoded.actividad || ev.descripcion || null,
+    tipo_nombre: ev.tipos_evento?.nombre || null,
+  };
+}
+
+/**
+ * @param {object} r
+ */
+function mapFimbaPropuestaRutaRow(r) {
+  if (!r || typeof r !== "object") return r;
+  return {
+    ...r,
+    evento_subida: normalizeFimbaRutaEndpointEmbed(r.evento_subida),
+    evento_bajada: normalizeFimbaRutaEndpointEmbed(r.evento_bajada),
+    propuesta: r.propuesta || null,
+  };
+}
 
 /**
  * Lista rutas de artista (cantidad) de la edición: las que tocan flota de la gira.
@@ -4721,10 +5162,7 @@ export async function listFimbaPropuestaRutas(edicionId, opts = {}) {
   const { data, error } = await q.order("id", { ascending: true });
   if (error) return { rutas: [], error };
   return {
-    rutas: (data || []).map((r) => ({
-      ...r,
-      propuesta: r.propuesta || null,
-    })),
+    rutas: (data || []).map(mapFimbaPropuestaRutaRow),
     error: null,
   };
 }
@@ -4975,9 +5413,10 @@ async function assertPropuestaRutaWithinTransportCap(
  * Conflicto solo si ya hay un ride **a bordo en esta parada** (no un ride
  * abierto de un tramo posterior).
  *
- * Bajada: cierra el ride abierto (set `id_evento_bajada`). No crea un ride
- * nuevo ni consume tope: libera ocupación del bus y del artista. Sin subida
- * abierta → error (no está a bordo).
+ * Bajada: cierra el ride abierto (set `id_evento_bajada`) o **adelanta** la
+ * bajada de un ride cerrado que aún está a bordo en esta parada (bajada
+ * posterior, p.ej. Concierto fuera de la planilla). No crea un ride nuevo ni
+ * consume tope. Sin ride presente aquí → error (no está a bordo).
  *
  * @param {{
  *   id_propuesta: number|string,
@@ -5082,11 +5521,16 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
       .select(FIMBA_PROPUESTA_RUTA_SELECT)
       .single();
     if (error) return { ruta: null, error };
-    return { ruta: data, error: null };
+    return { ruta: mapFimbaPropuestaRutaRow(data), error: null };
   }
 
   const openRides = list.filter((r) => isOpenFimbaRide(r));
   const occupyingOpen = openRides.filter((r) =>
+    isFimbaRideAboardAtStop(r, idEvento, timeline),
+  );
+  // Presentes en esta parada aunque ya tengan bajada posterior (p.ej. Concierto
+  // endpoint fuera de planilla trayectos): permiten adelantar la bajada aquí.
+  const occupyingPresent = list.filter((r) =>
     isFimbaRideAboardAtStop(r, idEvento, timeline),
   );
 
@@ -5094,8 +5538,20 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     const openRide = occupyingOpen.length
       ? occupyingOpen[occupyingOpen.length - 1]
       : null;
-    if (openRide) {
-      // Cerrar el ride: plazas del ride (editable) + liberar ocupación.
+    const movableClosedList = occupyingPresent.filter(
+      (r) =>
+        !isOpenFimbaRide(r) &&
+        r.id_evento_bajada != null &&
+        r.id_evento_bajada !== "" &&
+        String(r.id_evento_bajada) !== String(idEvento),
+    );
+    const movableClosed =
+      !openRide && movableClosedList.length
+        ? movableClosedList[movableClosedList.length - 1]
+        : null;
+    const targetRide = openRide || movableClosed || null;
+    if (targetRide) {
+      // Cerrar ride abierto o adelantar bajada ya fijada más adelante.
       const { data, error } = await supabase
         .from("fimba_propuesta_rutas")
         .update({
@@ -5105,11 +5561,16 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
           ...choferPatch,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", openRide.id)
+        .eq("id", targetRide.id)
         .select(FIMBA_PROPUESTA_RUTA_SELECT)
         .single();
       if (error) return { ruta: null, error };
-      return { ruta: data, error: null, completed: true };
+      return {
+        ruta: mapFimbaPropuestaRutaRow(data),
+        error: null,
+        completed: true,
+        movedBajada: Boolean(movableClosed),
+      };
     }
     return {
       ruta: null,
@@ -5146,7 +5607,7 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
       .select(FIMBA_PROPUESTA_RUTA_SELECT)
       .single();
     if (error) return { ruta: null, error };
-    return { ruta: data, error: null, replaced: true };
+    return { ruta: mapFimbaPropuestaRutaRow(data), error: null, replaced: true };
   }
 
   // Completar fila huérfana (solo bajada, sin subida) si esa bajada es
@@ -5183,7 +5644,7 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
       .select(FIMBA_PROPUESTA_RUTA_SELECT)
       .single();
     if (error) return { ruta: null, error };
-    return { ruta: data, error: null, completed: true };
+    return { ruta: mapFimbaPropuestaRutaRow(data), error: null, completed: true };
   }
 
   const capCheck = await assertCap(null, esChofer);
@@ -5207,13 +5668,13 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     .select(FIMBA_PROPUESTA_RUTA_SELECT)
     .single();
   if (error) return { ruta: null, error };
-  return { ruta: data, error: null };
+  return { ruta: mapFimbaPropuestaRutaRow(data), error: null };
 }
 
 /**
- * «Bajar todo»: cierra todos los rides FIMBA abiertos a bordo de este vehículo
- * en esta parada (artistas + plazas de sus rides). La reserva técnica residual
- * se aligera sola en el modelo sintético (hop → siguiente parada).
+ * «Bajar todo»: cierra rides FIMBA abiertos a bordo y adelanta bajadas
+ * posteriores de rides aún presentes en este vehículo/parada. La reserva
+ * técnica residual se aligera sola en el modelo sintético (hop → siguiente).
  * OFRN: usar `alightAllOfrnAboardAtStop` (pestaña Orquesta / StopRules).
  *
  * @param {{
@@ -5245,11 +5706,11 @@ export async function alightAllFimbaAboardAtStop(opts = {}) {
   const sorted = opts.sortedEvents || [];
   const targets = (rutas || []).filter((r) => {
     if (Number(r.id_gira_transporte) !== idGt) return false;
-    if (!isOpenFimbaRide(r)) {
-      // Ya bajó en este evento: nada que hacer
-      return false;
-    }
-    return isFimbaRideAboardAtStop(r, idEvento, sorted);
+    if (!isFimbaRideAboardAtStop(r, idEvento, sorted)) return false;
+    // Abierto, o cerrado con bajada posterior (se puede adelantar aquí).
+    if (isOpenFimbaRide(r)) return true;
+    if (r.id_evento_bajada == null || r.id_evento_bajada === "") return false;
+    return String(r.id_evento_bajada) !== String(idEvento);
   });
 
   const closed = [];
@@ -5475,7 +5936,7 @@ export async function clearFimbaPropuestaRutaStop(rutaId, type) {
     .eq("id", id)
     .select(FIMBA_PROPUESTA_RUTA_SELECT)
     .single();
-  return { error, deleted: false, ruta: data || null };
+  return { error, deleted: false, ruta: data ? mapFimbaPropuestaRutaRow(data) : null };
 }
 
 /**
@@ -6211,6 +6672,361 @@ export async function patchFimbaEventoPlanilla(eventoId, patch = {}) {
   };
 }
 
+/**
+ * ¿El fin del evento se deriva del siguiente (transporte / flota)?
+ * En ese caso el bulk de horarios solo mueve `hora_inicio` (+ fecha si rola día).
+ */
+export function eventUsesDerivedHoraFin(ev) {
+  if (!ev) return false;
+  if (ev.es_traslado) return true;
+  if (actividadUsaTransporte(ev.id_tipo_evento, ev.tipos_evento)) return true;
+  if ((ev.vehiculos || []).length > 0) return true;
+  if (ev.id_gira_transporte != null && ev.id_gira_transporte !== "") return true;
+  return false;
+}
+
+function pad2Time(n) {
+  return String(n).padStart(2, "0");
+}
+
+/** Desplaza fecha+hora por minutos (misma semántica que `offsetEventDateTime`). */
+function offsetFechaHora(fecha, hora, deltaMinutes) {
+  const f = String(fecha || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) {
+    return {
+      fecha: f || null,
+      hora_inicio: hora ? String(hora).slice(0, 5) : null,
+    };
+  }
+  const [y, m, d] = f.split("-").map(Number);
+  const hm = String(hora || "00:00").slice(0, 5);
+  const [hh, mm] = hm.split(":").map((x) => Number(x));
+  const h = Number.isFinite(hh) ? hh : 0;
+  const min = Number.isFinite(mm) ? mm : 0;
+  const ms =
+    new Date(y, m - 1, d, h, min, 0, 0).getTime() +
+    Number(deltaMinutes || 0) * 60 * 1000;
+  if (!Number.isFinite(ms)) {
+    return { fecha: f, hora_inicio: hm };
+  }
+  const dt = new Date(ms);
+  return {
+    fecha: `${dt.getFullYear()}-${pad2Time(dt.getMonth() + 1)}-${pad2Time(dt.getDate())}`,
+    hora_inicio: `${pad2Time(dt.getHours())}:${pad2Time(dt.getMinutes())}`,
+  };
+}
+
+function eventStartSortKey(ev) {
+  const fecha = String(ev?.fecha || "").slice(0, 10);
+  const hora = String(ev?.hora_inicio || "00:00:00").slice(0, 8);
+  const id = Number(ev?.id) || 0;
+  return `${fecha}T${hora.padEnd(8, "0")}|${String(id).padStart(12, "0")}`;
+}
+
+/**
+ * Instantáneo local de inicio (fecha + hora) → ms, o null.
+ */
+function eventStartMs(ev) {
+  const f = String(ev?.fecha || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return null;
+  const hm = String(ev?.hora_inicio || "00:00").slice(0, 5);
+  const [hh, mm] = hm.split(":").map((x) => Number(x));
+  const [y, m, d] = f.split("-").map(Number);
+  const h = Number.isFinite(hh) ? hh : 0;
+  const min = Number.isFinite(mm) ? mm : 0;
+  const ms = new Date(y, m - 1, d, h, min, 0, 0).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Desplaza fecha/hora de eventos seleccionados.
+ *
+ * - `mode: "absolute"`: el más temprano pasa a `newFecha`+`newHoraInicio`;
+ *   el resto conserva offsets relativos (incluye rollover de día).
+ * - `mode: "delta"`: todos se mueven `deltaMinutes` (± horas/minutos).
+ *
+ * Transporte / fin derivado: solo actualiza `hora_inicio` (+ fecha).
+ * Agenda con `hora_fin` persistida: también desplaza el fin.
+ *
+ * @param {Array<object>} events
+ * @param {{
+ *   mode: 'absolute'|'delta',
+ *   newFecha?: string,
+ *   newHoraInicio?: string,
+ *   deltaMinutes?: number,
+ * }} opts
+ * @returns {Promise<{ updated: number, skipped: number, error: Error|null }>}
+ */
+export async function bulkShiftFimbaEventosSchedule(events, opts = {}) {
+  const list = (events || []).filter((ev) => ev?.id != null);
+  if (list.length === 0) {
+    return { updated: 0, skipped: 0, error: null };
+  }
+
+  const mode = opts.mode === "absolute" ? "absolute" : "delta";
+  let deltaMinutes = 0;
+
+  if (mode === "absolute") {
+    const sorted = [...list].sort((a, b) =>
+      eventStartSortKey(a).localeCompare(eventStartSortKey(b)),
+    );
+    const earliest = sorted[0];
+    const fromMs = eventStartMs(earliest);
+    const newFecha =
+      String(opts.newFecha || earliest.fecha || "").slice(0, 10) || null;
+    const newHora = String(opts.newHoraInicio || "").trim().slice(0, 5);
+    if (!newFecha || !newHora || fromMs == null) {
+      return {
+        updated: 0,
+        skipped: 0,
+        error: new Error("Indicá la nueva hora de inicio del primer evento"),
+      };
+    }
+    const toMs = eventStartMs({ fecha: newFecha, hora_inicio: newHora });
+    if (toMs == null) {
+      return {
+        updated: 0,
+        skipped: 0,
+        error: new Error("Fecha/hora de ancla inválidas"),
+      };
+    }
+    deltaMinutes = Math.round((toMs - fromMs) / 60000);
+  } else {
+    deltaMinutes = Number(opts.deltaMinutes) || 0;
+  }
+
+  if (deltaMinutes === 0) {
+    return { updated: 0, skipped: list.length, error: null };
+  }
+
+  const updates = [];
+  for (const ev of list) {
+    const start = offsetFechaHora(ev.fecha, ev.hora_inicio, deltaMinutes);
+    if (!start.fecha || !start.hora_inicio) continue;
+    const row = {
+      id: Number(ev.id),
+      fecha: start.fecha,
+      hora_inicio: normalizeTime(start.hora_inicio),
+      updated_at: new Date().toISOString(),
+    };
+    if (!eventUsesDerivedHoraFin(ev) && ev.hora_fin) {
+      const fin = offsetFechaHora(ev.fecha, ev.hora_fin, deltaMinutes);
+      row.hora_fin = normalizeTime(fin.hora_inicio);
+    }
+    updates.push(row);
+  }
+
+  if (updates.length === 0) {
+    return { updated: 0, skipped: list.length, error: null };
+  }
+
+  const settled = await Promise.all(
+    updates.map((row) => {
+      const { id, ...patch } = row;
+      return supabase
+        .from("eventos")
+        .update(patch)
+        .eq("id", id)
+        .then(({ error }) => ({ id, error }));
+    }),
+  );
+  const firstErr = settled.find((r) => r.error)?.error || null;
+  const updated = settled.filter((r) => !r.error).length;
+  return {
+    updated,
+    skipped: list.length - updated,
+    error: firstErr,
+  };
+}
+
+/**
+ * Agrega y/o quita tags artista (propuestas) y grupos OFRN en lote.
+ * Al agregar grupos fuerza `audiencia_ofrn='grupos'`. Si tras quitar no quedan
+ * grupos y la audiencia era `grupos`, vuelve a `none`.
+ *
+ * @param {Array<object>} events — filas con id + propuestas/grupos/audiencia_ofrn
+ * @param {{
+ *   addPropuestaIds?: Array<number|string>,
+ *   removePropuestaIds?: Array<number|string>,
+ *   addGrupoIds?: Array<number|string>,
+ *   removeGrupoIds?: Array<number|string>,
+ * }} opts
+ */
+export async function bulkPatchFimbaEventosTags(events, opts = {}) {
+  const list = (events || []).filter((ev) => ev?.id != null);
+  const addProp = [
+    ...new Set((opts.addPropuestaIds || []).map(Number).filter(Number.isFinite)),
+  ];
+  const remProp = [
+    ...new Set(
+      (opts.removePropuestaIds || []).map(Number).filter(Number.isFinite),
+    ),
+  ];
+  const addGrupos = [
+    ...new Set((opts.addGrupoIds || []).map(Number).filter(Number.isFinite)),
+  ];
+  const remGrupos = [
+    ...new Set((opts.removeGrupoIds || []).map(Number).filter(Number.isFinite)),
+  ];
+
+  if (
+    list.length === 0 ||
+    (addProp.length === 0 &&
+      remProp.length === 0 &&
+      addGrupos.length === 0 &&
+      remGrupos.length === 0)
+  ) {
+    return { updated: 0, skipped: 0, error: null };
+  }
+
+  let updated = 0;
+  let firstError = null;
+
+  for (const ev of list) {
+    const eid = Number(ev.id);
+    if (!Number.isFinite(eid)) continue;
+    let ok = true;
+
+    if (addProp.length || remProp.length) {
+      const current = [
+        ...new Set(
+          (ev.propuestas || [])
+            .map((p) => Number(p.id ?? p))
+            .filter(Number.isFinite),
+        ),
+      ];
+      const remSet = new Set(remProp);
+      const next = current.filter((id) => !remSet.has(id));
+      for (const id of addProp) {
+        if (!next.includes(id)) next.push(id);
+      }
+      const changed =
+        next.length !== current.length ||
+        next.some((id) => !current.includes(id));
+      if (changed) {
+        const { error } = await setEventoFimbaPropuestas(eid, next);
+        if (error) {
+          firstError = firstError || error;
+          ok = false;
+        }
+      }
+    }
+
+    if (ok && (addGrupos.length || remGrupos.length)) {
+      const currentGrupos = [
+        ...new Set(
+          [
+            ...(ev.grupos || []).map((g) => Number(g.id ?? g)),
+            ...(ev.eventos_grupos || []).map((eg) =>
+              Number(eg.id_grupo ?? eg.giras_grupos?.id),
+            ),
+          ].filter(Number.isFinite),
+        ),
+      ];
+      const remGSet = new Set(remGrupos);
+      const nextG = currentGrupos.filter((id) => !remGSet.has(id));
+      for (const id of addGrupos) {
+        if (!nextG.includes(id)) nextG.push(id);
+      }
+      const gruposChanged =
+        nextG.length !== currentGrupos.length ||
+        nextG.some((id) => !currentGrupos.includes(id));
+
+      let nextAo = ev.audiencia_ofrn || "none";
+      if (nextG.length > 0) {
+        nextAo = "grupos";
+      } else if (nextAo === "grupos") {
+        nextAo = "none";
+      }
+
+      if (gruposChanged) {
+        const { error } = await setEventoGrupos(supabase, eid, nextG);
+        if (error) {
+          firstError = firstError || error;
+          ok = false;
+        }
+      }
+      if (ok && nextAo !== (ev.audiencia_ofrn || "none")) {
+        const { error } = await supabase
+          .from("eventos")
+          .update({
+            audiencia_ofrn: nextAo,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", eid);
+        if (error) {
+          firstError = firstError || error;
+          ok = false;
+        }
+      }
+    }
+
+    if (ok) updated += 1;
+  }
+
+  return {
+    updated,
+    skipped: list.length - updated,
+    error: firstError,
+  };
+}
+
+/**
+ * Reasigna la flota FIMBA (`fimba_evento_transportes`) de varios eventos a
+ * un mismo vehículo. Conserva plazas técnicas de la 1ª unidad previa.
+ * Omite paradas pure-OFRN (solo `id_gira_transporte`) y filas de contexto.
+ *
+ * @param {Array<object>} events
+ * @param {number|string|null} idGiraTransporte — null/"" = SIN SERVICIO
+ */
+export async function bulkReassignFimbaEventosVehiculo(
+  events,
+  idGiraTransporte,
+) {
+  const list = (events || []).filter((ev) => ev?.id != null);
+  const nextId =
+    idGiraTransporte == null || idGiraTransporte === ""
+      ? null
+      : Number(idGiraTransporte);
+  if (nextId != null && !Number.isFinite(nextId)) {
+    return {
+      updated: 0,
+      skipped: list.length,
+      error: new Error("Vehículo inválido"),
+    };
+  }
+
+  let updated = 0;
+  let skipped = 0;
+  let firstError = null;
+
+  for (const ev of list) {
+    if (ev.es_contexto_agenda) {
+      skipped += 1;
+      continue;
+    }
+    // No reescribir paradas OFRN de flota (FK single-vehicle de la gira).
+    if (ev.es_ofrn && !ev.es_fimba) {
+      skipped += 1;
+      continue;
+    }
+    const prevPlazas = Math.max(0, Number(ev.vehiculos?.[0]?.plazas) || 0);
+    const assignments =
+      nextId != null
+        ? [{ id_gira_transporte: nextId, plazas: prevPlazas }]
+        : [];
+    const { error } = await setFimbaEventoTransportes(ev.id, assignments);
+    if (error) {
+      firstError = firstError || error;
+      skipped += 1;
+      continue;
+    }
+    updated += 1;
+  }
+
+  return { updated, skipped, error: firstError };
+}
+
 export async function deleteFimbaEvento(eventoId) {
   if (eventoId == null) return { error: new Error("id de evento requerido") };
   // CASCADE borra fimba_evento_transportes y eventos_fimba_propuestas
@@ -6232,7 +7048,7 @@ export async function deleteFimbaTraslado(eventoId) {
 export async function listHotelesCatalog(limit = 400) {
   const { data, error } = await supabase
     .from("hoteles")
-    .select("id, nombre, localidades(localidad)")
+    .select("id, nombre, id_locacion, localidades(localidad)")
     .order("nombre", { ascending: true })
     .limit(limit);
   if (error) return { hoteles: [], error };

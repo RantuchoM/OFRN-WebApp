@@ -919,6 +919,7 @@ export function buildFimbaBajadaArtistOptions(opts = {}) {
  *   ruta: object|null,
  *   openRide: boolean,
  *   alreadyAlightingHere: boolean,
+ *   canAlightHere: boolean,
  * }>}
  */
 export function listFimbaAboardAtStop(opts = {}) {
@@ -935,6 +936,8 @@ export function listFimbaAboardAtStop(opts = {}) {
           String(ruta.id_evento_bajada) === String(eventId),
       );
       const openRide = Boolean(ruta && isOpenFimbaRide(ruta));
+      // A bordo aquí y aún no baja en esta parada → se puede bajar / adelantar.
+      const canAlightHere = !alreadyAlightingHere;
       const esChofer = Boolean(o.es_chofer || isFimbaChoferRide(ruta));
       return {
         id_propuesta: o.id_propuesta,
@@ -950,6 +953,7 @@ export function listFimbaAboardAtStop(opts = {}) {
         ruta,
         openRide,
         alreadyAlightingHere,
+        canAlightHere,
       };
     })
     .sort((a, b) =>
@@ -1191,6 +1195,372 @@ export function collectVehicleRideEndpointIds(
 }
 
 /**
+ * Stubs de eventos ↑/↓ referenciados por rides pero ausentes del pool de
+ * planilla trayectos (p.ej. Concierto con `id_evento_bajada`). Sin ellos
+ * `indexOfEvent(bajada)` = −1 y el ride se trata como abierto forever →
+ * sobre cupo + bajada no accionable.
+ *
+ * @param {Array<object>|null|undefined} eventos
+ * @param {Array<object>|null|undefined} propuestaRoutes
+ * @param {Array<object>|null|undefined} ofrnRides
+ * @returns {Array<object>}
+ */
+export function collectMissingRideEndpointEvents(
+  eventos,
+  propuestaRoutes,
+  ofrnRides,
+) {
+  const known = new Set(
+    (eventos || [])
+      .map((e) => (e?.id != null && e.id !== "" ? String(e.id) : ""))
+      .filter(Boolean),
+  );
+  /** @type {Array<object>} */
+  const out = [];
+  const add = (ev) => {
+    if (!ev || ev.id == null || ev.id === "") return;
+    const id = String(ev.id);
+    if (known.has(id)) return;
+    known.add(id);
+    const tipoNombre =
+      ev.tipo_nombre ||
+      ev.tipos_evento?.nombre ||
+      null;
+    const catNombre =
+      ev.categoria_nombre ||
+      ev.tipos_evento?.categorias_tipos_eventos?.nombre ||
+      null;
+    out.push({
+      id: ev.id,
+      fecha: ev.fecha ?? null,
+      hora_inicio: ev.hora_inicio ?? null,
+      hora_fin: ev.hora_fin ?? null,
+      id_tipo_evento: ev.id_tipo_evento ?? null,
+      actividad: ev.actividad ?? null,
+      tipo_nombre: tipoNombre,
+      categoria_nombre: catNombre,
+      tipo_id_categoria:
+        ev.tipo_id_categoria ??
+        ev.tipos_evento?.id_categoria ??
+        ev.tipos_evento?.categorias_tipos_eventos?.id ??
+        null,
+      tipos_evento: ev.tipos_evento ?? null,
+      es_ride_endpoint: true,
+    });
+  };
+  for (const r of propuestaRoutes || []) {
+    add(r?.evento_subida);
+    add(r?.evento_bajada);
+  }
+  for (const r of ofrnRides || []) {
+    add(r?.subidaData);
+    add(r?.bajadaData);
+  }
+  return out;
+}
+
+/**
+ * Label corto de tipo de evento (Concierto, Ensayo, …) para auditoría ↑/↓.
+ * @param {object|null|undefined} ev
+ * @param {Map<string, { nombre?: string }>|Record<string, { nombre?: string }>|null} [tipoById]
+ */
+export function resolveEventTipoLabel(ev, tipoById = null) {
+  if (!ev) return "Evento";
+  const direct =
+    ev.tipo_nombre ||
+    ev.tipos_evento?.nombre ||
+    ev.categoria_nombre ||
+    ev.tipos_evento?.categorias_tipos_eventos?.nombre ||
+    null;
+  if (direct) return String(direct).trim() || "Evento";
+  const tid = ev.id_tipo_evento;
+  if (tid != null && tid !== "" && tipoById) {
+    const key = String(tid);
+    const row =
+      tipoById instanceof Map ? tipoById.get(key) : tipoById[key];
+    if (row?.nombre) return String(row.nombre).trim() || "Evento";
+  }
+  if (tid != null && tid !== "") return `Tipo ${tid}`;
+  return "Evento";
+}
+
+/**
+ * «Concierto 19:00» / «Ensayo» para hint de extremo fuera de trayecto.
+ * @param {object|null|undefined} ev
+ * @param {Map|Record|null} [tipoById]
+ */
+export function formatOffTrayectoEndpointWhen(ev, tipoById = null) {
+  const tipo = resolveEventTipoLabel(ev, tipoById);
+  const hora = ev?.hora_inicio ? String(ev.hora_inicio).slice(0, 5) : "";
+  return hora ? `${tipo} ${hora}` : tipo;
+}
+
+/**
+ * Hint de chip: «Baja en Concierto 19:00» / «Sube en Ensayo 10:00».
+ * @param {'up'|'down'} pairEnd — extremo del par (no el de la celda actual)
+ * @param {object|null|undefined} pairEv
+ * @param {Map|Record|null} [tipoById]
+ */
+export function formatOffTrayectoPairHint(pairEnd, pairEv, tipoById = null) {
+  const when = formatOffTrayectoEndpointWhen(pairEv, tipoById);
+  return pairEnd === "down" ? `Baja en ${when}` : `Sube en ${when}`;
+}
+
+/**
+ * ¿El evento es un extremo ↑/↓ fuera de filas de trayecto (no tipo transporte)?
+ * Requiere señal de tipo/categoría; sin ella no audita (evita falsos positivos).
+ * @param {object|null|undefined} ev
+ */
+export function isOffTrayectoRideEndpoint(ev) {
+  if (!ev || ev.id == null || ev.id === "") return false;
+  const rawTipo = ev.id_tipo_evento;
+  const hasTipo = rawTipo != null && rawTipo !== "" && Number.isFinite(Number(rawTipo));
+  const catId = Number(
+    ev.tipo_id_categoria ??
+      ev.tipos_evento?.id_categoria ??
+      ev.tipos_evento?.categorias_tipos_eventos?.id,
+  );
+  const hasCat = Number.isFinite(catId);
+  const catNombre = String(
+    ev.categoria_nombre ||
+      ev.tipos_evento?.categorias_tipos_eventos?.nombre ||
+      "",
+  )
+    .trim()
+    .toLowerCase();
+  if (!hasTipo && !hasCat && !catNombre) return false;
+  return !isTransportTipoEvent(ev);
+}
+
+/**
+ * Resuelve stub de evento ↑/↓ desde embed + lookup.
+ * @param {unknown} eventId
+ * @param {object|null|undefined} embed
+ * @param {Map<string, object>|null|undefined} eventById
+ */
+function resolveRideEndpointEvent(eventId, embed, eventById) {
+  if (eventId == null || eventId === "") return null;
+  const key = String(eventId);
+  const fromMap =
+    eventById instanceof Map ? eventById.get(key) : eventById?.[key];
+  if (embed && fromMap) {
+    return {
+      ...fromMap,
+      ...embed,
+      id: embed.id ?? fromMap.id ?? eventId,
+      tipo_nombre:
+        embed.tipo_nombre ||
+        embed.tipos_evento?.nombre ||
+        fromMap.tipo_nombre ||
+        fromMap.tipos_evento?.nombre ||
+        null,
+    };
+  }
+  if (embed) return { ...embed, id: embed.id ?? eventId };
+  if (fromMap) return fromMap;
+  return null;
+}
+
+/**
+ * Rides FIMBA + OFRN cuya subida o bajada cae en un evento **no** tipo
+ * transporte (Concierto, Ensayo, hotel, …). Esos extremos no son filas de
+ * planilla trayectos pero sí afectan la secuencia (`collectMissingRideEndpointEvents`).
+ *
+ * @param {{
+ *   propuestaRoutes?: Array<object>,
+ *   ofrnRides?: Array<object>,
+ *   logisticsSummary?: Array<object>,
+ *   vehiculos?: Array<{ id: unknown }>,
+ *   eventById?: Map<string, object>|null,
+ *   tipoById?: Map<string, { nombre?: string }>|Record<string, { nombre?: string }>|null,
+ *   vehicleIds?: Array<number|string>|Set<number>|null,
+ * }} [opts]
+ * @returns {Array<{
+ *   key: string,
+ *   kind: 'fimba'|'ofrn',
+ *   label: string,
+ *   plazas: number,
+ *   color?: string|null,
+ *   id_gira_transporte: unknown|null,
+ *   end: 'up'|'down',
+ *   eventId: unknown,
+ *   event: object,
+ *   whenLabel: string,
+ *   pairEventId: unknown|null,
+ *   pairIsTransport: boolean|null,
+ * }>}
+ */
+export function listOffTrayectoRideEndpoints(opts = {}) {
+  const {
+    propuestaRoutes = [],
+    ofrnRides: ofrnRidesIn = null,
+    logisticsSummary = null,
+    vehiculos = [],
+    eventById = null,
+    tipoById = null,
+    vehicleIds = null,
+  } = opts;
+
+  const want =
+    vehicleIds == null
+      ? null
+      : new Set(
+          [...(vehicleIds instanceof Set ? vehicleIds : vehicleIds)]
+            .map(Number)
+            .filter((n) => Number.isFinite(n)),
+        );
+
+  /** @type {Array<object>} */
+  let ofrnRides = ofrnRidesIn;
+  if (!Array.isArray(ofrnRides)) {
+    ofrnRides = [];
+    const fleet =
+      want && want.size > 0
+        ? (vehiculos || []).filter((gt) => want.has(Number(gt.id)))
+        : vehiculos || [];
+    const ids =
+      fleet.length > 0
+        ? fleet.map((gt) => gt.id)
+        : want && want.size > 0
+          ? [...want]
+          : [];
+    for (const tid of ids) {
+      for (const r of extractOfrnRidesForVehicle(logisticsSummary, tid)) {
+        ofrnRides.push({ ...r, id_gira_transporte: tid });
+      }
+    }
+  }
+
+  /** @type {Array<object>} */
+  const rows = [];
+
+  const push = (row) => {
+    if (!row?.event || !isOffTrayectoRideEndpoint(row.event)) return;
+    rows.push(row);
+  };
+
+  for (const r of propuestaRoutes || []) {
+    const tid = r?.id_gira_transporte ?? null;
+    if (want && want.size > 0 && !want.has(Number(tid))) continue;
+    const nombre =
+      r?.propuesta?.nombre ||
+      `Artista #${r?.id_propuesta ?? "?"}`;
+    const plazas = Math.max(0, Number(r?.plazas) || 0);
+    if (plazas <= 0) continue;
+
+    const upEv = resolveRideEndpointEvent(
+      r.id_evento_subida,
+      r.evento_subida,
+      eventById,
+    );
+    const downEv = resolveRideEndpointEvent(
+      r.id_evento_bajada,
+      r.evento_bajada,
+      eventById,
+    );
+
+    if (upEv) {
+      push({
+        key: `fimba-${r.id}-up`,
+        kind: "fimba",
+        label: String(nombre).trim() || `Artista #${r.id_propuesta}`,
+        plazas,
+        color: r?.propuesta?.color || null,
+        id_gira_transporte: tid,
+        end: "up",
+        eventId: upEv.id,
+        event: upEv,
+        whenLabel: formatOffTrayectoEndpointWhen(upEv, tipoById),
+        pairEventId: downEv?.id ?? r.id_evento_bajada ?? null,
+        pairIsTransport: downEv ? isTransportTipoEvent(downEv) : null,
+      });
+    }
+    if (downEv) {
+      push({
+        key: `fimba-${r.id}-down`,
+        kind: "fimba",
+        label: String(nombre).trim() || `Artista #${r.id_propuesta}`,
+        plazas,
+        color: r?.propuesta?.color || null,
+        id_gira_transporte: tid,
+        end: "down",
+        eventId: downEv.id,
+        event: downEv,
+        whenLabel: formatOffTrayectoEndpointWhen(downEv, tipoById),
+        pairEventId: upEv?.id ?? r.id_evento_subida ?? null,
+        pairIsTransport: upEv ? isTransportTipoEvent(upEv) : null,
+      });
+    }
+  }
+
+  for (const r of ofrnRides || []) {
+    const tid = r?.id_gira_transporte ?? null;
+    if (want && want.size > 0 && tid != null && !want.has(Number(tid))) {
+      continue;
+    }
+    const label =
+      [r?.apellido, r?.nombre].filter(Boolean).join(", ") ||
+      `Integrante #${r?.id ?? "?"}`;
+    const plazas = Math.max(0, Number(r?.seats) || 0);
+
+    const upEv = resolveRideEndpointEvent(
+      r.subidaId,
+      r.subidaData,
+      eventById,
+    );
+    const downEv = resolveRideEndpointEvent(
+      r.bajadaId,
+      r.bajadaData,
+      eventById,
+    );
+
+    if (upEv) {
+      push({
+        key: `ofrn-${r.id}-${tid}-up`,
+        kind: "ofrn",
+        label,
+        plazas,
+        color: null,
+        id_gira_transporte: tid,
+        end: "up",
+        eventId: upEv.id,
+        event: upEv,
+        whenLabel: formatOffTrayectoEndpointWhen(upEv, tipoById),
+        pairEventId: downEv?.id ?? r.bajadaId ?? null,
+        pairIsTransport: downEv ? isTransportTipoEvent(downEv) : null,
+      });
+    }
+    if (downEv) {
+      push({
+        key: `ofrn-${r.id}-${tid}-down`,
+        kind: "ofrn",
+        label,
+        plazas,
+        color: null,
+        id_gira_transporte: tid,
+        end: "down",
+        eventId: downEv.id,
+        event: downEv,
+        whenLabel: formatOffTrayectoEndpointWhen(downEv, tipoById),
+        pairEventId: upEv?.id ?? r.subidaId ?? null,
+        pairIsTransport: upEv ? isTransportTipoEvent(upEv) : null,
+      });
+    }
+  }
+
+  rows.sort((a, b) => {
+    const fa = `${a.event?.fecha || ""}${a.event?.hora_inicio || ""}`;
+    const fb = `${b.event?.fecha || ""}${b.event?.hora_inicio || ""}`;
+    const c = fa.localeCompare(fb);
+    if (c !== 0) return c;
+    return String(a.label).localeCompare(String(b.label), "es", {
+      sensitivity: "base",
+    });
+  });
+  return rows;
+}
+
+/**
  * ¿Entra el evento a la secuencia unificada de boarding de la unidad?
  * Misma flota física → mismas paradas OFRN + FIMBA en un solo timeline.
  *
@@ -1285,9 +1655,13 @@ export function extractOfrnRidesForVehicle(summary, idGiraTransporte) {
       (t) => String(t.id) === want,
     );
     if (!tr) continue;
+    const seats = ofrnSeatWeight(p);
+    const esChofer = isFimbaChoferRide(tr);
     rides.push({
       id: p.id,
-      seats: ofrnSeatWeight(p),
+      seats,
+      capacitySeats: esChofer ? 0 : seats,
+      es_chofer: esChofer,
       subidaId: tr.subidaId ?? null,
       bajadaId: tr.bajadaId ?? null,
       subidaData: tr.subidaData || null,
@@ -1485,6 +1859,7 @@ export function listOfrnPeopleAboardAtStop(opts = {}) {
       id: p.id,
       person: p,
       seats: ofrnSeatWeight(p),
+      es_chofer: isFimbaChoferRide(tr),
       subidaId: tr.subidaId ?? null,
       bajadaId: tr.bajadaId ?? null,
       alreadyAlightingHere,
@@ -1540,7 +1915,13 @@ export function resolveAboardAfterStopBreakdown(opts = {}) {
     if (!rideIsAboardAfterStop(r, sortedEvents, currentIdx)) continue;
     ofrnSeats += Math.max(0, Number(r.seats) || 0);
     const ap = String(r.apellido || "").trim();
-    if (ap) ofrnSurnames.push(ap);
+    if (ap) {
+      ofrnSurnames.push(
+        isFimbaChoferRide(r) && !/\bChofer\b/i.test(ap)
+          ? `${ap} (Chofer)`
+          : ap,
+      );
+    }
   }
   if (ofrnSeats > 0) {
     let ofrnLabel = "Orquesta";
@@ -1874,13 +2255,26 @@ export function buildAllVehicleBoardingSequences(opts = {}) {
     // OFRN rides primero: sus endpoints entran a la secuencia aunque el evento
     // no tenga fila FIMBA (y marcan Conciertos solo si son ↑/↓ reales).
     const ofrnRides = extractOfrnRidesForVehicle(logisticsSummary, tid);
+    const routesForVehicle = (propuestaRoutes || []).filter(
+      (r) => Number(r?.id_gira_transporte) === tid,
+    );
     const endpointIds = collectVehicleRideEndpointIds(
       propuestaRoutes,
       ofrnRides,
       tid,
     );
+    // Planilla trayectos omite Conciertos/etc.; merge stubs desde embeds de
+    // rutas para que ↑/↓ fuera de planilla cierren el ride en la secuencia.
+    const eventPool = [
+      ...(eventos || []),
+      ...collectMissingRideEndpointEvents(
+        eventos,
+        routesForVehicle,
+        ofrnRides,
+      ),
+    ];
     const vehicleEvents = sortEventsBySchedule(
-      (eventos || []).filter((ev) =>
+      eventPool.filter((ev) =>
         isVehicleBoardingSequenceEvent(ev, tid, idFn, endpointIds),
       ),
     );
@@ -1941,11 +2335,16 @@ export function resolveEventAboardCount(
  * @param {object} ev
  * @param {Map<number, ReturnType<typeof buildVehicleBoardingSequence>>} sequencesByVehicle
  * @param {number[]|null} preferVehicleIds — p.ej. filtro activo
+ * @param {{ enablePause?: boolean }|null} [options]
+ *   `enablePause` (default true): si false, no trata same-loc consecutive stops
+ *   como pausa (no blankea Destino / Hora fin; `pause_after` queda false).
+ *   Planilla Transportes lo apaga cuando el filtro de vehículos no es exactamente 1.
  */
 export function boardingMetricsForEventRow(
   ev,
   sequencesByVehicle,
   preferVehicleIds = null,
+  options = null,
 ) {
   const allIds = [];
   for (const r of ev?.vehiculos || []) {
@@ -1965,6 +2364,8 @@ export function boardingMetricsForEventRow(
     if (filtered.length) target = filtered;
   }
 
+  const enablePause = options?.enablePause !== false;
+
   if (target.length === 0) {
     const next_event = null;
     return {
@@ -1974,6 +2375,8 @@ export function boardingMetricsForEventRow(
       orquesta_en_lugar: 0,
       artistas_en_lugar: new Map(),
       next_event,
+      next_event_raw: null,
+      pause_after: false,
       destino_siguiente: formatNextStopDestino(next_event),
       hora_fin_display: resolveHoraFinDisplay(ev, next_event),
     };
@@ -2021,7 +2424,8 @@ export function boardingMetricsForEventRow(
     ev.id,
     primary?.id_gira_transporte,
   );
-  const pause_after = isVehiclePauseBetweenStops(ev, next_event_raw);
+  const pause_after =
+    enablePause && isVehiclePauseBetweenStops(ev, next_event_raw);
   const next_event = pause_after ? null : next_event_raw;
   const destino_siguiente = formatNextStopDestino(next_event);
   const hora_fin_display = resolveHoraFinDisplay(ev, next_event);
@@ -2232,6 +2636,23 @@ export function summarizeOfrnStopRules(opts = {}) {
       return scopeNorm === normalize(winningScope);
     });
     const plazas = matched.reduce((s, p) => s + ofrnSeatWeight(p), 0);
+    const pairEmbed =
+      type === "up" ? r.evento_bajada : r.evento_subida;
+    const pairId =
+      type === "up" ? r.id_evento_bajada : r.id_evento_subida;
+    const pairEv =
+      pairEmbed ||
+      (pairId != null && pairId !== "" ? { id: pairId } : null);
+    let pairOffTrayecto = null;
+    if (pairEv && isOffTrayectoRideEndpoint(pairEv)) {
+      const pairEnd = type === "up" ? "down" : "up";
+      const tipoShort = resolveEventTipoLabel(pairEv);
+      pairOffTrayecto = {
+        eventId: pairEv.id ?? pairId,
+        hint: formatOffTrayectoPairHint(pairEnd, pairEv),
+        short: `${pairEnd === "down" ? "↓" : "↑"} ${tipoShort}`,
+      };
+    }
     return {
       key: `ofrn-rule-${r.id}`,
       ruleId: r.id,
@@ -2239,6 +2660,8 @@ export function summarizeOfrnStopRules(opts = {}) {
       plazas,
       count: matched.length,
       alcance: r.alcance || "",
+      es_chofer: Boolean(r.es_chofer),
+      pairOffTrayecto,
     };
   });
 }
@@ -2261,6 +2684,8 @@ export function summarizeOfrnStopRules(opts = {}) {
  *   ofrnPassengers?: Array<object>,
  *   ofrnLocalities?: Array<object>,
  *   ofrnRegions?: Array<object>,
+ *   eventById?: Map<string, object>|null,
+ *   tipoById?: Map<string, { nombre?: string }>|Record<string, { nombre?: string }>|null,
  * }} opts
  * @returns {{
  *   chips: Array<{
@@ -2272,6 +2697,7 @@ export function summarizeOfrnStopRules(opts = {}) {
  *     rutaId?: unknown,
  *     id_propuesta?: unknown,
  *     removable: boolean,
+ *     pairOffTrayecto?: { eventId: unknown, hint: string, short: string }|null,
  *   }>,
  *   total: number,
  * }}
@@ -2288,6 +2714,8 @@ export function resolveStopBoardAlightChips(opts = {}) {
     ofrnPassengers = [],
     ofrnLocalities = [],
     ofrnRegions = [],
+    eventById = null,
+    tipoById = null,
   } = opts;
   const chips = [];
   if (eventId == null || eventId === "") {
@@ -2295,6 +2723,10 @@ export function resolveStopBoardAlightChips(opts = {}) {
   }
 
   const eventField = type === "down" ? "id_evento_bajada" : "id_evento_subida";
+  const pairIdField =
+    type === "down" ? "id_evento_subida" : "id_evento_bajada";
+  const pairEmbedField =
+    type === "down" ? "evento_subida" : "evento_bajada";
   let fimbaExplicit = 0;
 
   for (const r of propuestaRoutes || []) {
@@ -2319,6 +2751,22 @@ export function resolveStopBoardAlightChips(opts = {}) {
       fromJoin.nombre || fromList.nombre || `Artista #${r.id_propuesta}`;
     const color = fromJoin.color || fromList.color || null;
 
+    const pairEv = resolveRideEndpointEvent(
+      r?.[pairIdField],
+      r?.[pairEmbedField],
+      eventById,
+    );
+    let pairOffTrayecto = null;
+    if (pairEv && isOffTrayectoRideEndpoint(pairEv)) {
+      const pairEnd = type === "up" ? "down" : "up";
+      const tipoShort = resolveEventTipoLabel(pairEv, tipoById);
+      pairOffTrayecto = {
+        eventId: pairEv.id,
+        hint: formatOffTrayectoPairHint(pairEnd, pairEv, tipoById),
+        short: `${pairEnd === "down" ? "↓" : "↑"} ${tipoShort}`,
+      };
+    }
+
     chips.push({
       key: `ruta-${r.id}`,
       kind: "fimba",
@@ -2329,6 +2777,7 @@ export function resolveStopBoardAlightChips(opts = {}) {
       id_propuesta: r.id_propuesta,
       removable: true,
       es_chofer: isFimbaChoferRide(r),
+      pairOffTrayecto,
     });
     fimbaExplicit += plazas;
   }
@@ -2350,6 +2799,7 @@ export function resolveStopBoardAlightChips(opts = {}) {
 
   if (ofrnRuleRows.length > 0) {
     for (const row of ofrnRuleRows) {
+      const ofrnTitle = `Orquesta OFRN · ${row.alcance || "regla"} — clic para gestionar subir/bajar`;
       chips.push({
         key: row.key,
         kind: "ofrn",
@@ -2357,7 +2807,11 @@ export function resolveStopBoardAlightChips(opts = {}) {
         plazas: row.plazas,
         color: null,
         removable: false,
-        title: `Orquesta OFRN · ${row.alcance || "regla"} — clic para gestionar subir/bajar`,
+        es_chofer: Boolean(row.es_chofer),
+        pairOffTrayecto: row.pairOffTrayecto || null,
+        title: row.pairOffTrayecto?.hint
+          ? `${ofrnTitle} · ${row.pairOffTrayecto.hint}`
+          : ofrnTitle,
       });
     }
   } else if (ofrnSeats > 0) {

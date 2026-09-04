@@ -114,73 +114,58 @@ export function isFimbaSectionPath(pathname, edicionId, segment) {
   return path === `/fimba/edicion/${ed}/${segment}`;
 }
 
-const LANDSCAPE_SEGMENTS = new Set([
-  "agenda",
-  "transportes",
-  "backline",
-  "venues",
-  "contrataciones",
-]);
-
 /**
- * Tab title + print page size for FimbaLayout @media print.
- * Planilla-heavy tabs use landscape; Escenario is outside this layout.
+ * Tab title + print visibility for FimbaLayout @media print.
+ * Orientation is user-chosen in the browser print dialog (no @page size).
+ * Escenario is outside this layout.
  */
 export function resolveFimbaPrintMeta(pathname) {
   const path = normalizePath(pathname);
   if (path === "/fimba/login" || path.startsWith("/fimba/login/")) {
-    return { title: "Acceso", landscape: false, hidePrint: true };
+    return { title: "Acceso", hidePrint: true };
   }
   if (path === "/fimba") {
-    return { title: "Ediciones", landscape: false, hidePrint: false };
+    return { title: "Ediciones", hidePrint: false };
   }
   if (path.startsWith("/fimba/c/") && path.endsWith("/agenda")) {
-    return { title: "Agenda", landscape: true, hidePrint: false };
+    return { title: "Agenda", hidePrint: false };
   }
   if (/^\/fimba\/[ae]\//.test(path)) {
-    return { title: "Artista", landscape: false, hidePrint: false };
+    return { title: "Artista", hidePrint: false };
   }
 
   const { edicionId, artistaId } = parseFimbaSectionIds(path);
   if (!edicionId) {
-    return { title: "FIMBA", landscape: false, hidePrint: false };
+    return { title: "FIMBA", hidePrint: false };
   }
 
   if (artistaId) {
     if (path.endsWith("/agenda")) {
-      return { title: "Agenda", landscape: true, hidePrint: false };
+      return { title: "Agenda", hidePrint: false };
     }
     if (path.endsWith("/transportes")) {
-      return { title: "Transportes", landscape: true, hidePrint: false };
+      return { title: "Transportes", hidePrint: false };
     }
     if (path.endsWith("/hoteleria")) {
-      return { title: "Hotelería", landscape: false, hidePrint: false };
+      return { title: "Hotelería", hidePrint: false };
     }
-    return { title: "Artista", landscape: false, hidePrint: false };
+    return { title: "Artista", hidePrint: false };
   }
 
   if (isFimbaArtistasPath(path, edicionId)) {
-    return { title: "Artistas", landscape: true, hidePrint: false };
+    return { title: "Artistas", hidePrint: false };
   }
 
-  for (const seg of LANDSCAPE_SEGMENTS) {
-    if (isFimbaSectionPath(path, edicionId, seg)) {
-      const label = SECTIONS.find((s) => s.segment === seg)?.label || seg;
-      return { title: label, landscape: true, hidePrint: false };
+  for (const section of SECTIONS) {
+    if (
+      section.segment &&
+      isFimbaSectionPath(path, edicionId, section.segment)
+    ) {
+      return { title: section.label, hidePrint: false };
     }
   }
 
-  if (isFimbaSectionPath(path, edicionId, "hoteleria")) {
-    return { title: "Hotelería", landscape: false, hidePrint: false };
-  }
-  if (isFimbaSectionPath(path, edicionId, "rider")) {
-    return { title: "Rider", landscape: false, hidePrint: false };
-  }
-  if (isFimbaSectionPath(path, edicionId, "usuarios")) {
-    return { title: "Usuarios", landscape: false, hidePrint: false };
-  }
-
-  return { title: "FIMBA", landscape: false, hidePrint: false };
+  return { title: "FIMBA", hidePrint: false };
 }
 
 /**

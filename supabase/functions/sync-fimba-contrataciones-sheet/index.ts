@@ -5,8 +5,14 @@
  * Auth Google: G_CLIENT_ID / G_CLIENT_SECRET / G_REFRESH_TOKEN (cuenta Archivo).
  * Columna Carpeta: Drive smart chips (chipRuns / richLinkProperties); fallback URL.
  * Layout B–K (col A intacta): Nº exp. | Carpeta | Nombre | Monto | Tipo | 4 flags | Estado.
- * Monto (E): número + CURRENCY ARS. Flags (G–J): TRUE/FALSE nativos;
- * checkbox UI vía setDataValidation best-effort (omitido si columnas tipadas).
+ * Monto (E): número + CURRENCY ARS. Flags (G–J): TRUE/FALSE nativos + UI checkbox.
+ *
+ * Checkbox strategy (2026-09-04 fix v3): Sheets Tables reject sheet-level
+ * setDataValidation on ANY typed column (BOOLEAN/TEXT/…). Checkboxes for G–J
+ * require Table columnType BOOLEAN covering all data rows. Prior expand failed
+ * with banding conflict ("colores de fondo alternos…"); fix clears orphan
+ * bandedRanges + bg on the expansion zone, then updateTable range + BOOLEAN.
+ * Fallback: setDataValidation only on rows beyond the Table end if expand fails.
  */
 import { createClient } from "npm:@supabase/supabase-js@2.49.1";
 import { google } from "npm:googleapis@126.0.1";
@@ -381,6 +387,412 @@ async function ensureSpreadsheet(
   };
 }
 
+/** Minimal Table shape from spreadsheets.get (googleapis types may lag). */
+type SheetTable = {
+  tableId?: string | null;
+  name?: string | null;
+  range?: {
+    sheetId?: number | null;
+    startRowIndex?: number | null;
+    endRowIndex?: number | null;
+    startColumnIndex?: number | null;
+    endColumnIndex?: number | null;
+  } | null;
+  rowsProperties?: { footerColorStyle?: unknown } | null;
+  columnProperties?: Array<{
+    columnIndex?: number | null;
+    columnName?: string | null;
+    columnType?: string | null;
+  }> | null;
+};
+
+type TableCheckboxPrep = {
+  expanded: boolean;
+  typesRelaxed: boolean;
+  tableCount: number;
+  /** Exclusive end row of the farthest overlapping table after prep (0 = none). */
+  tableEndRowExclusive: number;
+  errors: string[];
+};
+
+function tablesOverlappingFlagCols(
+  tables: SheetTable[] | undefined | null,
+  sheetId: number,
+): SheetTable[] {
+  const boolStartSheet = sheetCol(BOOL_COL_START);
+  const boolEndSheet = sheetCol(BOOL_COL_END);
+  return (tables || []).filter((t) => {
+    if (!t?.tableId || !t.range) return false;
+    if (t.range.sheetId != null && Number(t.range.sheetId) !== Number(sheetId)) {
+      return false;
+    }
+    const tStart = t.range.startColumnIndex ?? 0;
+    const tEnd = t.range.endColumnIndex ?? 0;
+    return tEnd > boolStartSheet && tStart < boolEndSheet;
+  });
+}
+
+/**
+ * Sheets Tables keep a fixed row range + column types. values.update can write past
+ * that range; checkbox UI for typed Table columns comes ONLY from columnType BOOLEAN
+ * (sheet-level setDataValidation is rejected on ANY typed Table column — incl. TEXT).
+ *
+ * Prior fix failed because updateTable expand hit:
+ * "No se pueden añadir colores de fondo alternos a un intervalo que ya los tiene"
+ * (orphan bandedRanges on rows beyond the table). Clearing those + bg, then expanding
+ * + forcing G–J to BOOLEAN, restores checkboxes for all data rows.
+ *
+ * Fallback if expand fails: setDataValidation BOOLEAN only on rows beyond table end.
+ */
+async function prepareTablesForCheckboxValidation(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  sheetId: number,
+  tables: SheetTable[] | undefined | null,
+  dataEndRow: number,
+  bandedRanges?: Array<{
+    bandedRangeId?: number | null;
+    range?: {
+      sheetId?: number | null;
+      startRowIndex?: number | null;
+      endRowIndex?: number | null;
+      startColumnIndex?: number | null;
+      endColumnIndex?: number | null;
+    } | null;
+  }> | null,
+): Promise<TableCheckboxPrep> {
+  const boolStartSheet = sheetCol(BOOL_COL_START);
+  const boolEndSheet = sheetCol(BOOL_COL_END);
+  const candidates = tablesOverlappingFlagCols(tables, sheetId);
+  const errors: string[] = [];
+
+  if (candidates.length === 0) {
+    console.log(
+      "[sync-fimba-contrataciones-sheet] no Sheets Table overlapping G–J; checkbox via dataValidation only",
+    );
+    return {
+      expanded: false,
+      typesRelaxed: false,
+      tableCount: 0,
+      tableEndRowExclusive: 0,
+      errors,
+    };
+  }
+
+  let maxTableEnd = 0;
+  for (const t of candidates) {
+    maxTableEnd = Math.max(maxTableEnd, t.range?.endRowIndex ?? 0);
+  }
+
+  const buildColumnProperties = (table: SheetTable) => {
+    const range = table.range!;
+    const tStart = range.startColumnIndex ?? 0;
+    const tEnd = range.endColumnIndex ?? 0;
+    const byIndex = new Map<
+      number,
+      { columnIndex: number; columnName?: string; columnType?: string }
+    >();
+    for (const cp of table.columnProperties || []) {
+      if (cp?.columnIndex == null) continue;
+      byIndex.set(Number(cp.columnIndex), {
+        columnIndex: Number(cp.columnIndex),
+        ...(cp.columnName != null ? { columnName: String(cp.columnName) } : {}),
+        ...(cp.columnType != null ? { columnType: String(cp.columnType) } : {}),
+      });
+    }
+    // BOOLEAN = Table-native checkboxes for every row in the table range.
+    // (TEXT also blocks setDataValidation — no benefit; checkboxes need BOOLEAN.)
+    for (let sheetC = boolStartSheet; sheetC < boolEndSheet; sheetC++) {
+      if (sheetC < tStart || sheetC >= tEnd) continue;
+      const rel = sheetC - tStart;
+      const prev = byIndex.get(rel) || { columnIndex: rel };
+      byIndex.set(rel, { ...prev, columnType: "BOOLEAN" });
+    }
+    return [...byIndex.values()].sort((a, b) => a.columnIndex - b.columnIndex);
+  };
+
+  const targetEndFor = (table: SheetTable) => {
+    const range = table.range!;
+    const hasFooter = Boolean(table.rowsProperties?.footerColorStyle);
+    return Math.max(
+      dataEndRow + (hasFooter ? 1 : 0),
+      (range.startRowIndex ?? 0) + 2,
+      range.endRowIndex ?? 0,
+    );
+  };
+
+  let typesRelaxed = false;
+  // Step 1: ensure G–J are BOOLEAN (Table checkbox UI) without touching range yet.
+  try {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: candidates.map((table) => ({
+          updateTable: {
+            table: {
+              tableId: table.tableId,
+              columnProperties: buildColumnProperties(table),
+            },
+            fields: "columnProperties",
+          },
+        })),
+      },
+    });
+    typesRelaxed = true;
+    console.log(
+      "[sync-fimba-contrataciones-sheet] updateTable columnProperties BOOLEAN ok",
+      JSON.stringify({ tableCount: candidates.length }),
+    );
+  } catch (e) {
+    const msg = (e as Error)?.message || String(e);
+    errors.push(`updateTable columnProperties: ${msg}`);
+    console.warn(
+      "[sync-fimba-contrataciones-sheet] updateTable columnProperties BOOLEAN falló",
+      e,
+    );
+  }
+
+  // Step 2: remove non-table banded ranges that overlap the expansion zone.
+  const expandEnds = candidates.map((t) => targetEndFor(t));
+  const maxExpandEnd = Math.max(maxTableEnd, ...expandEnds);
+  const bandingToDelete = (bandedRanges || []).filter((b) => {
+    if (b?.bandedRangeId == null || !b.range) return false;
+    if (b.range.sheetId != null && Number(b.range.sheetId) !== Number(sheetId)) {
+      return false;
+    }
+    const bStart = b.range.startRowIndex ?? 0;
+    const bEnd = b.range.endRowIndex ?? 0;
+    // Overlaps rows we're about to pull into the table (beyond current table end).
+    return bEnd > maxTableEnd && bStart < maxExpandEnd;
+  });
+  if (bandingToDelete.length > 0) {
+    try {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: bandingToDelete.map((b) => ({
+            deleteBanding: { bandedRangeId: Number(b.bandedRangeId) },
+          })),
+        },
+      });
+      console.log(
+        "[sync-fimba-contrataciones-sheet] deleteBanding pre-expand",
+        JSON.stringify({
+          deleted: bandingToDelete.map((b) => b.bandedRangeId),
+        }),
+      );
+    } catch (e) {
+      const msg = (e as Error)?.message || String(e);
+      errors.push(`deleteBanding: ${msg}`);
+      console.warn(
+        "[sync-fimba-contrataciones-sheet] deleteBanding pre-expand falló",
+        e,
+      );
+    }
+  }
+
+  // Step 2b: clear background on expansion rows (orphan alternating colors).
+  if (maxExpandEnd > maxTableEnd) {
+    try {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              repeatCell: {
+                range: {
+                  sheetId,
+                  startRowIndex: maxTableEnd,
+                  endRowIndex: maxExpandEnd,
+                  startColumnIndex: 0,
+                  endColumnIndex: 11,
+                },
+                cell: {
+                  userEnteredFormat: {
+                    backgroundColorStyle: {
+                      rgbColor: { red: 1, green: 1, blue: 1 },
+                    },
+                  },
+                },
+                fields: "userEnteredFormat.backgroundColorStyle",
+              },
+            },
+          ],
+        },
+      });
+    } catch (e) {
+      console.warn(
+        "[sync-fimba-contrataciones-sheet] clear bg on expand rows omitido",
+        e,
+      );
+    }
+  }
+
+  // Step 3: expand table range.
+  try {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: candidates.map((table) => {
+          const range = table.range!;
+          const targetEndRow = targetEndFor(table);
+          maxTableEnd = Math.max(maxTableEnd, targetEndRow);
+          return {
+            updateTable: {
+              table: {
+                tableId: table.tableId,
+                range: {
+                  sheetId,
+                  startRowIndex: range.startRowIndex ?? 0,
+                  endRowIndex: targetEndRow,
+                  startColumnIndex: range.startColumnIndex ?? 0,
+                  endColumnIndex: range.endColumnIndex ?? 0,
+                },
+              },
+              fields: "range",
+            },
+          };
+        }),
+      },
+    });
+    console.log(
+      "[sync-fimba-contrataciones-sheet] updateTable range expand ok",
+      JSON.stringify({
+        tableCount: candidates.length,
+        dataEndRow,
+        tableEndRowExclusive: maxTableEnd,
+      }),
+    );
+    return {
+      expanded: true,
+      typesRelaxed,
+      tableCount: candidates.length,
+      tableEndRowExclusive: maxTableEnd,
+      errors,
+    };
+  } catch (e) {
+    const msg = (e as Error)?.message || String(e);
+    errors.push(`updateTable range: ${msg}`);
+    console.warn(
+      "[sync-fimba-contrataciones-sheet] updateTable range expand falló",
+      e,
+    );
+    return {
+      expanded: false,
+      typesRelaxed,
+      tableCount: candidates.length,
+      tableEndRowExclusive: maxTableEnd,
+      errors,
+    };
+  }
+}
+
+/** Checkbox dataValidation for a row span (start inclusive, end exclusive). */
+function checkboxValidationRequest(
+  sheetId: number,
+  startRowIndex: number,
+  endRowIndex: number,
+  startColumnIndex: number,
+  endColumnIndex: number,
+) {
+  return {
+    setDataValidation: {
+      range: {
+        sheetId,
+        startRowIndex,
+        endRowIndex,
+        startColumnIndex,
+        endColumnIndex,
+      },
+      rule: {
+        condition: { type: "BOOLEAN" },
+        showCustomUi: true,
+        strict: true,
+      },
+    },
+  };
+}
+
+/**
+ * Apply checkbox UI on G–J after values write. Clears prior rules first.
+ * Full range preferred; if Tables still reject, apply only beyond tableEndRowExclusive.
+ */
+async function applyFlagCheckboxValidation(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  sheetId: number,
+  dataEndRow: number,
+  tableEndRowExclusive: number,
+): Promise<{ applied: boolean; mode: "full" | "beyond_table" | "none"; error?: string }> {
+  const boolStartSheet = sheetCol(BOOL_COL_START);
+  const boolEndSheet = sheetCol(BOOL_COL_END);
+  if (dataEndRow <= 1) {
+    return { applied: true, mode: "full" };
+  }
+
+  const clearAndSet = (startRow: number, endRow: number) => [
+    {
+      setDataValidation: {
+        range: {
+          sheetId,
+          startRowIndex: startRow,
+          endRowIndex: endRow,
+          startColumnIndex: boolStartSheet,
+          endColumnIndex: boolEndSheet,
+        },
+        // rule omitted / null clears existing validation
+      },
+    },
+    checkboxValidationRequest(
+      sheetId,
+      startRow,
+      endRow,
+      boolStartSheet,
+      boolEndSheet,
+    ),
+  ];
+
+  try {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: clearAndSet(1, dataEndRow) },
+    });
+    console.log(
+      "[sync-fimba-contrataciones-sheet] setDataValidation checkbox G–J full",
+      JSON.stringify({ startRow: 1, endRow: dataEndRow }),
+    );
+    return { applied: true, mode: "full" };
+  } catch (e) {
+    const msg = (e as Error)?.message || String(e);
+    console.warn(
+      "[sync-fimba-contrataciones-sheet] setDataValidation full G–J rechazado; intento filas fuera de Table",
+      e,
+    );
+    const beyondStart = Math.max(1, tableEndRowExclusive || 1);
+    if (beyondStart >= dataEndRow) {
+      return { applied: false, mode: "none", error: msg };
+    }
+    try {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: { requests: clearAndSet(beyondStart, dataEndRow) },
+      });
+      console.log(
+        "[sync-fimba-contrataciones-sheet] setDataValidation checkbox G–J beyond table",
+        JSON.stringify({ startRow: beyondStart, endRow: dataEndRow }),
+      );
+      return { applied: true, mode: "beyond_table", error: msg };
+    } catch (e2) {
+      const msg2 = (e2 as Error)?.message || String(e2);
+      console.warn(
+        "[sync-fimba-contrataciones-sheet] setDataValidation beyond-table también falló",
+        e2,
+      );
+      return { applied: false, mode: "none", error: `${msg} | beyond: ${msg2}` };
+    }
+  }
+}
+
 async function applyCarpetaDriveChips(
   sheets: ReturnType<typeof google.sheets>,
   spreadsheetId: string,
@@ -451,11 +863,14 @@ async function rewriteSheet(
   chipsWritten: number;
   chipsFailed: boolean;
   checkboxValidationApplied: boolean;
+  tableCheckboxExpanded: boolean;
+  checkboxValidationMode: "full" | "beyond_table" | "none";
 }> {
   const ss = await sheets.spreadsheets.get({ spreadsheetId });
-  let sheetId =
-    ss.data.sheets?.find((s) => s.properties?.title === SHEET_TAB)?.properties
-      ?.sheetId ?? null;
+  let sheetMeta = ss.data.sheets?.find(
+    (s) => s.properties?.title === SHEET_TAB,
+  );
+  let sheetId = sheetMeta?.properties?.sheetId ?? null;
 
   if (sheetId == null) {
     const add = await sheets.spreadsheets.batchUpdate({
@@ -465,6 +880,7 @@ async function rewriteSheet(
       },
     });
     sheetId = add.data.replies?.[0]?.addSheet?.properties?.sheetId ?? 0;
+    sheetMeta = undefined;
   }
 
   const carpetaCol = carpetaColumnIndex(headers);
@@ -529,14 +945,10 @@ async function rewriteSheet(
     }
   }
 
-  // Congelar header + moneda en E (crítico). Checkboxes G–J son best-effort:
-  // Sheets con "tipos de columna" / chip columns rechazan setDataValidation
-  // ("No se puede realizar esta operación en columnas de tipo").
-  // Los booleanos TRUE/FALSE ya se escribieron arriba; la sync no debe fallar.
+  // Congelar header + moneda en E. Checkboxes G–J: prep Tables (expand + TEXT)
+  // then setDataValidation (Tables tipadas BOOLEAN rechazan validation).
   const dataEndRow = Math.max(rows.length + 1, 2);
   const montoSheetCol = sheetCol(MONTO_COL);
-  const boolStartSheet = sheetCol(BOOL_COL_START);
-  const boolEndSheet = sheetCol(BOOL_COL_END);
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
@@ -574,40 +986,144 @@ async function rewriteSheet(
     },
   });
 
-  let checkboxValidationApplied = false;
+  // Re-fetch tables + banding after values.write (initial get can be stale).
+  let sheetTables = (sheetMeta as { tables?: SheetTable[] } | undefined)?.tables;
+  let sheetBanding:
+    | Array<{
+        bandedRangeId?: number | null;
+        range?: {
+          sheetId?: number | null;
+          startRowIndex?: number | null;
+          endRowIndex?: number | null;
+          startColumnIndex?: number | null;
+          endColumnIndex?: number | null;
+        } | null;
+      }>
+    | undefined;
   try {
-    await sheets.spreadsheets.batchUpdate({
+    const ssTables = await sheets.spreadsheets.get({
       spreadsheetId,
-      requestBody: {
-        requests: [
-          {
-            setDataValidation: {
-              range: {
-                sheetId,
-                startRowIndex: 1,
-                endRowIndex: dataEndRow,
-                startColumnIndex: boolStartSheet,
-                endColumnIndex: boolEndSheet,
-              },
-              rule: {
-                condition: { type: "BOOLEAN" },
-                showCustomUi: true,
-                strict: true,
-              },
-            },
-          },
-        ],
-      },
+      // Include columnProperties so we can rewrite BOOLEAN → TEXT.
+      fields:
+        "sheets(properties(sheetId,title),tables(tableId,name,range,rowsProperties,columnProperties),bandedRanges)",
     });
-    checkboxValidationApplied = true;
+    const tabFresh = ssTables.data.sheets?.find(
+      (s) =>
+        s.properties?.title === SHEET_TAB ||
+        Number(s.properties?.sheetId) === Number(sheetId),
+    );
+    const freshTables = (tabFresh as { tables?: SheetTable[] } | undefined)
+      ?.tables;
+    sheetBanding = (
+      tabFresh as { bandedRanges?: typeof sheetBanding } | undefined
+    )?.bandedRanges;
+    console.log(
+      "[sync-fimba-contrataciones-sheet] tables metadata",
+      JSON.stringify({
+        spreadsheetId,
+        sheetId,
+        tableCount: freshTables?.length ?? sheetTables?.length ?? 0,
+        bandingCount: sheetBanding?.length ?? 0,
+        tables: (freshTables || sheetTables || []).map((t) => ({
+          tableId: t.tableId,
+          name: t.name,
+          range: t.range,
+          flagColTypes: (t.columnProperties || [])
+            .filter((cp) => {
+              const abs =
+                (t.range?.startColumnIndex ?? 0) + Number(cp.columnIndex ?? -1);
+              return (
+                abs >= sheetCol(BOOL_COL_START) && abs < sheetCol(BOOL_COL_END)
+              );
+            })
+            .map((cp) => ({
+              columnIndex: cp.columnIndex,
+              columnType: cp.columnType,
+            })),
+        })),
+      }),
+    );
+    if (freshTables && freshTables.length > 0) {
+      sheetTables = freshTables;
+    }
   } catch (e) {
     console.warn(
-      "[sync-fimba-contrataciones-sheet] setDataValidation checkbox omitido (columnas tipadas u otro rechazo); se dejan TRUE/FALSE",
+      "[sync-fimba-contrataciones-sheet] re-fetch tables omitido; se usa metadata inicial",
       e,
     );
   }
 
-  return { ...chipResult, checkboxValidationApplied };
+  const preTableEnd = Math.max(
+    0,
+    ...tablesOverlappingFlagCols(sheetTables, sheetId).map(
+      (t) => t.range?.endRowIndex ?? 0,
+    ),
+  );
+  const tableResult = await prepareTablesForCheckboxValidation(
+    sheets,
+    spreadsheetId,
+    sheetId,
+    sheetTables,
+    dataEndRow,
+    sheetBanding,
+  );
+
+  // setDataValidation never works on typed Table columns. Only attempt it for
+  // rows still outside the table (expand failed or partial).
+  const needsBeyondValidation =
+    !tableResult.expanded ||
+    tableResult.tableEndRowExclusive < dataEndRow;
+  const validation = needsBeyondValidation
+    ? await applyFlagCheckboxValidation(
+        sheets,
+        spreadsheetId,
+        sheetId,
+        dataEndRow,
+        tableResult.expanded
+          ? tableResult.tableEndRowExclusive
+          : preTableEnd,
+      )
+    : { applied: false, mode: "none" as const };
+
+  // Table BOOLEAN over the full data range IS the checkbox UI.
+  const checkboxOk =
+    validation.applied ||
+    (tableResult.expanded &&
+      tableResult.tableEndRowExclusive >= dataEndRow &&
+      tableResult.typesRelaxed) ||
+    (tableResult.expanded && tableResult.tableEndRowExclusive >= dataEndRow);
+
+  if (!checkboxOk) {
+    console.warn(
+      "[sync-fimba-contrataciones-sheet] checkbox UI no aplicada",
+      JSON.stringify({
+        tableResult,
+        validation,
+        dataEndRow,
+        preTableEnd,
+      }),
+    );
+  } else if (!validation.applied && tableResult.expanded) {
+    console.log(
+      "[sync-fimba-contrataciones-sheet] checkbox UI via Table BOOLEAN expand",
+      JSON.stringify({
+        tableEndRowExclusive: tableResult.tableEndRowExclusive,
+        dataEndRow,
+        typesRelaxed: tableResult.typesRelaxed,
+      }),
+    );
+  }
+
+  return {
+    ...chipResult,
+    checkboxValidationApplied: checkboxOk,
+    tableCheckboxExpanded: tableResult.expanded,
+    checkboxValidationMode: validation.applied
+      ? validation.mode
+      : tableResult.expanded && tableResult.tableEndRowExclusive >= dataEndRow
+        ? "full"
+        : "none",
+  };
 }
 
 type AuthOk = { ok: true; via: "cron" | "ofrn" | "ofrn_session" | "fimba_editor" };
@@ -869,6 +1385,8 @@ Deno.serve(async (req) => {
       chipsWritten: number;
       chipsFailed: boolean;
       checkboxValidationApplied: boolean;
+      tableCheckboxExpanded: boolean;
+      checkboxValidationMode: "full" | "beyond_table" | "none";
     };
     type SheetFail = {
       ok: false;
@@ -894,6 +1412,8 @@ Deno.serve(async (req) => {
           chipsWritten: rewriteResult.chipsWritten,
           chipsFailed: rewriteResult.chipsFailed,
           checkboxValidationApplied: rewriteResult.checkboxValidationApplied,
+          tableCheckboxExpanded: rewriteResult.tableCheckboxExpanded,
+          checkboxValidationMode: rewriteResult.checkboxValidationMode,
         });
       } catch (sheetErr) {
         const errMsg = (sheetErr as Error).message || String(sheetErr);
@@ -977,7 +1497,7 @@ Deno.serve(async (req) => {
     }
     if (anyCheckboxSkipped) {
       warnings.push(
-        "Flags escritos como TRUE/FALSE; no se pudo aplicar UI checkbox en al menos un sheet (columnas tipadas u otro rechazo).",
+        "Flags escritos como TRUE/FALSE; no se pudo aplicar UI checkbox en al menos un sheet (Table tipada sin relajar a TEXT u otro rechazo).",
       );
     }
 
@@ -998,6 +1518,8 @@ Deno.serve(async (req) => {
           carpetaChipsWritten: r.chipsWritten,
           carpetaChipsFailed: r.chipsFailed,
           checkboxValidationApplied: r.checkboxValidationApplied,
+          tableCheckboxExpanded: r.tableCheckboxExpanded,
+          checkboxValidationMode: r.checkboxValidationMode,
         })),
         sheetsFailed: failed.map((r) => ({
           spreadsheetId: r.spreadsheetId,
@@ -1009,6 +1531,8 @@ Deno.serve(async (req) => {
         carpetaChipsWritten: canonical.chipsWritten,
         carpetaChipsFailed: canonical.chipsFailed,
         checkboxValidationApplied: canonical.checkboxValidationApplied,
+        tableCheckboxExpanded: canonical.tableCheckboxExpanded,
+        checkboxValidationMode: canonical.checkboxValidationMode,
         ...(warnings.length > 0 ? { warning: warnings.join(" ") } : {}),
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },

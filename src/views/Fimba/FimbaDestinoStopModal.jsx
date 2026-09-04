@@ -4,6 +4,7 @@ import { supabase } from "../../services/supabase";
 import {
   buildDestinoStopSchedule,
   createDestinoStopEvent,
+  inheritStopTagsFromEvent,
 } from "../../utils/fimbaDestinoStopCreate";
 
 /**
@@ -75,6 +76,7 @@ export default function FimbaDestinoStopModal({
     setError(null);
     setSaving(true);
 
+    const tags = inheritStopTagsFromEvent(currentEv);
     const { evento, error: err } = await createDestinoStopEvent({
       currentEv,
       vehicleId,
@@ -85,6 +87,7 @@ export default function FimbaDestinoStopModal({
       actividad: detalle,
       idGira: edicion?.id_gira,
       vehiculos,
+      ...tags,
     });
 
     setSaving(false);

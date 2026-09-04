@@ -258,3 +258,77 @@ export function formatWeekdayLongLocal(dateStr) {
   if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat("es-AR", { weekday: "long" }).format(date).toLowerCase();
 }
+
+/**
+ * Fecha larga en español (es-AR): weekday + día + mes + año.
+ * Ej.: "Domingo, 20 de septiembre de 2026"
+ * @param {string} dateStr - Fecha en formato "yyyy-MM-dd" (o ISO con hora)
+ */
+export function formatFechaLargaEs(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") return "";
+  const iso = dateStr.slice(0, 10);
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const date = new Date(y, m - 1, d);
+  if (Number.isNaN(date.getTime())) return "";
+  const raw = new Intl.DateTimeFormat("es-AR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+  if (!raw) return "";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+/** Abreviaturas ES (dom…sáb); índice = Date#getDay() (0 = domingo). */
+export const WEEKDAY_SHORT_ES = [
+  "dom",
+  "lun",
+  "mar",
+  "mié",
+  "jue",
+  "vie",
+  "sáb",
+];
+
+/** Nombres completos ES; índice = Date#getDay() (0 = domingo). */
+export const WEEKDAY_FULL_ES = [
+  "Domingo",
+  "Lunes",
+  "Martes",
+  "Miércoles",
+  "Jueves",
+  "Viernes",
+  "Sábado",
+];
+
+function weekdayIndexFromLocalDateStr(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") return -1;
+  const iso = dateStr.slice(0, 10);
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return -1;
+  const date = new Date(y, m - 1, d);
+  if (Number.isNaN(date.getTime())) return -1;
+  return date.getDay();
+}
+
+/**
+ * Día de la semana abreviado en español (ej. "vie", "sáb").
+ * @param {string} dateStr - Fecha en formato "yyyy-MM-dd" (o ISO con hora)
+ */
+export function formatWeekdayShortLocal(dateStr) {
+  const day = weekdayIndexFromLocalDateStr(dateStr);
+  if (day < 0) return "";
+  return WEEKDAY_SHORT_ES[day] || "";
+}
+
+/**
+ * Día de la semana completo en español (ej. "Viernes", "Sábado").
+ * @param {string} dateStr - Fecha en formato "yyyy-MM-dd" (o ISO con hora)
+ */
+export function formatWeekdayFullLocal(dateStr) {
+  const day = weekdayIndexFromLocalDateStr(dateStr);
+  if (day < 0) return "";
+  return WEEKDAY_FULL_ES[day] || "";
+}

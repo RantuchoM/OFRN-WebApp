@@ -11,7 +11,7 @@ import {
 import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
-import { IconLogOut, IconPrinter } from "../../components/ui/Icons";
+import { IconLogOut, IconMoon, IconPrinter, IconSun } from "../../components/ui/Icons";
 import { getFimbaEdicionById } from "../../services/fimbaService";
 import FimbaSectionToggle, {
   parseFimbaSectionIds,
@@ -31,6 +31,26 @@ const FIMBA_CSS = `
     --fimba-surface: #ffffff;
     --fimba-bg: #f6f8fb;
     --fimba-border: #e2e8f0;
+  }
+  /*
+   * Night mode: FIMBA shares OFRN global theme (ThemeController → html.dark +
+   * invert filter in index.css). Keep light tokens here — dark equivalents under
+   * html.dark would double-invert. Print resets filter in index.css @media print.
+   */
+  html.dark .fimba-swatch {
+    /* Restore authored artist/event colors after global invert */
+    filter: invert(1) hue-rotate(180deg) saturate(1.1) contrast(1.05);
+  }
+  .fimba-theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.25rem;
+    padding-left: 0.55rem;
+    padding-right: 0.55rem;
+  }
+  .fimba-theme-toggle svg {
+    flex-shrink: 0;
   }
   .fimba-root {
     min-height: 100vh;
@@ -514,6 +534,8 @@ const FIMBA_CSS = `
     align-items: center;
     gap: 0.15rem;
     max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
     padding: 0.1rem 0.35rem;
     border-radius: 999px;
     border: 1px solid #e2e8f0;
@@ -524,9 +546,14 @@ const FIMBA_CSS = `
   .fimba-planilla-board-chip.fimba-planilla-board-chip-ofrn {
     border-radius: 2px;
   }
-  /* Truncación de nombre + «… n» en JS (formatBoardChipLabel); no backticks here: FIMBA_CSS is a template literal. */
+  /* Truncación primaria en JS (formatBoardChipLabel); CSS ellipsis = red de seguridad al zoom / celda angosta. */
   .fimba-planilla-board-chip-label {
+    display: block;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1 1 0%;
     max-width: 11rem;
   }
   .fimba-planilla-board-chip-x {
@@ -562,30 +589,47 @@ const FIMBA_CSS = `
     z-index: 5;
     background: #fff;
   }
-  /* Sticky context while scrolling right: Origen | Fecha | Com·Fin */
+  /* Sticky context while scrolling right: Origen | Fecha | Com·Fin (compact) */
+  .fimba-planilla-table .fimba-bulk-check-col {
+    width: 1.75rem;
+    min-width: 1.75rem;
+    max-width: 1.75rem;
+    padding-left: 0.15rem !important;
+    padding-right: 0.05rem !important;
+  }
   .fimba-planilla-table .fimba-sticky-origen {
     position: sticky;
     left: 0;
     z-index: 3;
-    min-width: 6.75rem;
-    width: 6.75rem;
-    padding-left: 1rem !important;
+    min-width: 4.25rem;
+    width: 4.25rem;
+    padding-left: 0.35rem !important;
+    padding-right: 0.2rem !important;
     background: #fff;
+  }
+  .fimba-planilla-table .fimba-sticky-origen .fimba-badge {
+    padding: 0.1rem 0.4rem;
+    font-size: 0.68rem;
   }
   .fimba-planilla-table .fimba-sticky-fecha {
     position: sticky;
-    left: 6.75rem;
+    left: 4.25rem;
     z-index: 3;
-    min-width: 5.25rem;
-    width: 5.25rem;
+    min-width: 4.5rem;
+    width: 4.5rem;
+    padding-left: 0.2rem !important;
+    padding-right: 0.2rem !important;
     background: #fff;
+    text-align: center;
   }
   .fimba-planilla-table .fimba-sticky-hora {
     position: sticky;
-    left: 12rem;
+    left: 8.75rem;
     z-index: 3;
-    min-width: 5.5rem;
-    width: 5.5rem;
+    min-width: 5rem;
+    width: 5rem;
+    padding-left: 0.2rem !important;
+    padding-right: 0.25rem !important;
     background: #fff;
     box-shadow: 3px 0 6px -3px rgba(15, 23, 42, 0.12);
   }
@@ -610,24 +654,24 @@ const FIMBA_CSS = `
     position: sticky;
     left: 0;
     z-index: 4;
-    width: 2rem;
-    min-width: 2rem;
-    padding-left: 0.45rem !important;
-    padding-right: 0.15rem !important;
+    width: 1.5rem;
+    min-width: 1.5rem;
+    padding-left: 0.3rem !important;
+    padding-right: 0.1rem !important;
     background: #fff;
   }
   .fimba-planilla-table.fimba-table-edit .fimba-sticky-origen {
-    left: 2rem;
+    left: 1.5rem;
   }
   .fimba-planilla-table.fimba-table-edit .fimba-sticky-fecha {
-    left: 8.75rem;
-    min-width: 8.25rem;
-    width: 8.25rem;
+    left: 5.75rem;
+    min-width: 7.5rem;
+    width: 7.5rem;
   }
   .fimba-planilla-table.fimba-table-edit .fimba-sticky-hora {
-    left: 17rem;
-    min-width: 7.25rem;
-    width: 7.25rem;
+    left: 13.25rem;
+    min-width: 6.5rem;
+    width: 6.5rem;
   }
   .fimba-planilla-table.fimba-table-edit thead .fimba-sticky-sync,
   .fimba-planilla-table.fimba-table-edit thead .fimba-sticky-origen,
@@ -652,7 +696,7 @@ const FIMBA_CSS = `
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
-    min-width: 6.5rem;
+    min-width: 5.5rem;
   }
   .fimba-hora-edit .fimba-cell-input {
     min-width: 0;
@@ -665,8 +709,48 @@ const FIMBA_CSS = `
   }
   .fimba-planilla-table .fimba-planilla-actions {
     text-align: right;
-    padding-right: 0.75rem !important;
+    min-width: 2.35rem;
+    padding-left: 0.1rem !important;
+    padding-right: 0.35rem !important;
     white-space: nowrap;
+  }
+  .fimba-planilla-table .fimba-planilla-destino {
+    max-width: 7.5rem;
+    width: 7.5rem;
+    white-space: nowrap;
+    vertical-align: middle;
+    overflow: hidden;
+    padding-left: 0.25rem !important;
+    padding-right: 0.25rem !important;
+  }
+  /*
+    Destino ellipsis must survive browser zoom: block flex + width:100% (not
+    inline-flex shrink-to-fit) and flex-basis 0% so subpixel rem rounding still
+    triggers text-overflow instead of clipping without "…".
+  */
+  .fimba-planilla-destino-inner {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+  .fimba-planilla-destino-text {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1 1 0%;
+    max-width: 100%;
+  }
+  .fimba-planilla-row-menu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
   }
   /*
     Pause divider: "+" on top/bottom-left dashed border vertices.
@@ -717,6 +801,32 @@ const FIMBA_CSS = `
   .fimba-pause-divider-add--bottom {
     bottom: 0;
     transform: translateY(50%);
+  }
+  /*
+    Day separator: amber strip + full Spanish date label between calendar days.
+    Distinct from pause divider (cyan dashed + "Pausa · vehículo libre").
+  */
+  .fimba-day-divider-row > td {
+    padding: 0.28rem 0.75rem;
+    background: rgba(180, 83, 9, 0.1);
+    border: none;
+    border-top: 2px solid rgba(180, 83, 9, 0.48);
+    border-bottom: 1px solid rgba(180, 83, 9, 0.22);
+    vertical-align: middle;
+  }
+  .fimba-day-divider-inner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.35rem;
+  }
+  .fimba-day-divider-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #92400e;
+    line-height: 1.2;
+    white-space: nowrap;
   }
   .fimba-card {
     background: var(--fimba-surface);
@@ -787,6 +897,57 @@ const FIMBA_CSS = `
     background: #7a1b5a;
     border-color: #7a1b5a;
     color: #ffffff;
+  }
+  /* Vehicle filter chips: body = exclusive; +/− = multi-select add/remove */
+  .fimba-veh-filter-chip {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--fimba-border, #e2e8f0);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--fimba-muted, #64748b);
+    opacity: 0.7;
+    overflow: hidden;
+  }
+  .fimba-veh-filter-chip--todos {
+    background: rgba(0, 177, 235, 0.12);
+    color: var(--fimba-deep, #94216d);
+    border-color: var(--fimba-cyan, #00b1eb);
+    opacity: 1;
+  }
+  .fimba-veh-filter-chip--on {
+    background: rgba(0, 177, 235, 0.12);
+    color: var(--fimba-deep, #94216d);
+    border-color: var(--fimba-cyan, #00b1eb);
+    opacity: 1;
+  }
+  .fimba-veh-filter-chip__label,
+  .fimba-veh-filter-chip__mod {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1.2;
+    padding: 0.28rem 0.5rem;
+  }
+  .fimba-veh-filter-chip__label:hover,
+  .fimba-veh-filter-chip__mod:hover {
+    background: rgba(0, 177, 235, 0.1);
+  }
+  .fimba-veh-filter-chip__mod {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.28rem 0.35rem;
+    border-left: 1px solid currentColor;
+    opacity: 0.85;
+  }
+  .fimba-veh-filter-chip__mod:hover {
+    opacity: 1;
   }
   .fimba-input, .fimba-select, .fimba-textarea {
     width: 100%;
@@ -968,6 +1129,11 @@ const FIMBA_CSS = `
   .fimba-ofrn-grupo-chips > span {
     border-radius: 2px;
   }
+  .fimba-artistas-tags-cell--editable:hover {
+    outline: 1px dashed rgba(14, 116, 144, 0.35);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
   .fimba-row-ofrn td {
     background: rgba(0, 177, 235, 0.04);
   }
@@ -1041,6 +1207,19 @@ const FIMBA_CSS = `
     letter-spacing: 0.04em;
     color: #475569;
     margin-left: 0.15rem;
+  }
+  .fimba-planilla-board-chip-off-trayecto {
+    font-size: 0.58rem;
+    font-weight: 800;
+    color: #92400e;
+    background: #fef3c7;
+    border-radius: 3px;
+    padding: 0.05rem 0.25rem;
+    max-width: 7.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 1;
   }
   .fimba-badge-early {
     background: #e0f2fe;
@@ -1476,8 +1655,41 @@ const FIMBA_CSS = `
     text-align: right;
   }
   .fimba-cell-date {
-    min-width: 8.75rem;
-    width: 8.75rem;
+    min-width: 7.25rem;
+    width: 7.25rem;
+  }
+  .fimba-planilla-table .fimba-cell-date {
+    min-width: 7rem;
+    width: 7rem;
+  }
+  /*
+   * FECHA: solo DD/MM/YYYY en flujo (misma baseline que hora).
+   * Weekday completo absoluto encima (overhang); no aplica al input date en edición.
+   */
+  .fimba-fecha-stack {
+    position: relative;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.15;
+    text-align: center;
+  }
+  .fimba-fecha-weekday {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 0.2rem);
+    transform: translateX(-50%);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    color: #94a3b8; /* slate-400 */
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .fimba-fecha-value {
+    white-space: nowrap;
   }
   .fimba-planilla-loc-cell {
     min-width: 11rem;
@@ -1657,14 +1869,35 @@ const FIMBA_CSS = `
       overflow: visible !important;
       background: #fff !important;
     }
+    /* Defensive: global index.css used to hide body > * (#root) for Giras portals */
+    #root:has(.fimba-root) {
+      display: block !important;
+      visibility: visible !important;
+      height: auto !important;
+      overflow: visible !important;
+    }
     .fimba-root,
     .fimba-root * {
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
     .fimba-root {
+      display: block !important;
+      visibility: visible !important;
       min-height: 0;
+      height: auto !important;
+      overflow: visible !important;
       background: #fff !important;
+    }
+    .fimba-header {
+      display: block !important;
+      visibility: visible !important;
+    }
+    .fimba-main {
+      display: block !important;
+      visibility: visible !important;
+      height: auto !important;
+      overflow: visible !important;
     }
     .fimba-print-banner {
       display: flex;
@@ -1689,6 +1922,7 @@ const FIMBA_CSS = `
     }
     .fimba-no-print,
     .fimba-print-btn,
+    .fimba-theme-toggle,
     .fimba-header-actions,
     .fimba-section-toggle,
     .fimba-col-actions,
@@ -1705,6 +1939,8 @@ const FIMBA_CSS = `
     .fimba-agenda-clear-filters,
     .fimba-agenda-copy-link,
     .fimba-agenda-active-filters-actions,
+    .fimba-bulk-toolbar,
+    .fimba-bulk-check-col,
     .ql-toolbar,
     .fimba-modal-backdrop,
     .fimba-stay-event-modal-backdrop,
@@ -1737,6 +1973,8 @@ const FIMBA_CSS = `
     .fimba-planilla-scroll,
     .fimba-artistas-scroll {
       overflow: visible !important;
+      height: auto !important;
+      max-height: none !important;
       max-width: none !important;
     }
     .fimba-agenda-table,
@@ -1761,6 +1999,7 @@ const FIMBA_CSS = `
       left: auto !important;
       box-shadow: none;
     }
+    /* Rows only — never wrap whole planilla cards (pushes table to page 2). */
     .fimba-table tr,
     .fimba-agenda-table tr,
     .fimba-planilla-table tr,
@@ -1768,8 +2007,13 @@ const FIMBA_CSS = `
       break-inside: avoid;
       page-break-inside: avoid;
     }
-    .fimba-card {
-      break-inside: avoid;
+    .fimba-card,
+    .fimba-agenda-card,
+    .fimba-planilla-card,
+    .fimba-artistas-card,
+    .fimba-ctr-card {
+      break-inside: auto;
+      page-break-inside: auto;
       box-shadow: none;
     }
   }
@@ -1889,6 +2133,30 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
     [location.pathname],
   );
   const [edicionNombre, setEdicionNombre] = useState("");
+  // Same preference as OFRN sidebar (ThemeController + localStorage theme_mode)
+  const [isDarkMode, setIsDarkMode] = useState(
+    () => localStorage.getItem("theme_mode") === "dark",
+  );
+
+  useEffect(() => {
+    const onThemeChanged = (event) => {
+      const detail = event.detail;
+      if (typeof detail === "object" && detail !== null && detail.darkMode !== undefined) {
+        setIsDarkMode(Boolean(detail.darkMode));
+      }
+    };
+    window.addEventListener("theme-changed", onThemeChanged);
+    return () => window.removeEventListener("theme-changed", onThemeChanged);
+  }, []);
+
+  const toggleDarkMode = () => {
+    const newMode = !isDarkMode;
+    setIsDarkMode(newMode);
+    window.dispatchEvent(
+      new CustomEvent("theme-changed", { detail: { darkMode: newMode } }),
+    );
+    localStorage.setItem("theme_mode", newMode ? "dark" : "light");
+  };
 
   useEffect(() => {
     if (!brandEdicionId) {
@@ -1913,14 +2181,8 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
   });
 
   return (
-    <div
-      className="fimba-root"
-      data-fimba-print={printMeta.landscape ? "landscape" : "portrait"}
-    >
+    <div className="fimba-root">
       <style>{FIMBA_CSS}</style>
-      {printMeta.landscape && (
-        <style>{`@media print { @page { size: landscape; margin: 10mm; } }`}</style>
-      )}
       <link
         rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800&family=Rubik:wght@400;600;700&display=swap"
@@ -1943,6 +2205,16 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
             </span>
           </div>
           <div className="fimba-header-actions">
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-ghost fimba-theme-toggle"
+              onClick={toggleDarkMode}
+              title={isDarkMode ? "Modo claro" : "Modo nocturno"}
+              aria-label={isDarkMode ? "Cambiar a modo claro" : "Cambiar a modo nocturno"}
+              aria-pressed={isDarkMode}
+            >
+              {isDarkMode ? <IconMoon size={14} /> : <IconSun size={14} />}
+            </button>
             {!printMeta.hidePrint && (
               <button
                 type="button"

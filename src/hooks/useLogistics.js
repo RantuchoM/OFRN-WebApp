@@ -276,7 +276,13 @@ export const calculateLogisticsSummary = (
           ["persona", "integrante"].includes(normalize(r.alcance)) &&
           r.id_evento_bajada,
       );
-      let sub = { prio: -1, data: null, scope: null, rawId: null },
+      let sub = {
+          prio: -1,
+          data: null,
+          scope: null,
+          rawId: null,
+          es_chofer: false,
+        },
         baj = { prio: -1, data: null, scope: null, rawId: null };
       let maxPrio = 0;
 
@@ -307,6 +313,7 @@ export const calculateLogisticsSummary = (
             data: resolveRouteEvent(r.evento_subida, r.id_evento_subida),
             scope,
             rawId: r.id_evento_subida,
+            es_chofer: Boolean(r.es_chofer),
           };
         }
         if (r.id_evento_bajada && allowBajada && p >= baj.prio) {
@@ -336,6 +343,7 @@ export const calculateLogisticsSummary = (
         bajadaData: enrichEvent(baj.data),
         subidaScope: sub.scope,
         bajadaScope: baj.scope,
+        es_chofer: Boolean(sub.es_chofer),
         priority: maxPrio,
       });
     });

@@ -36,6 +36,7 @@ import {
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import { stripHtml } from "../../utils/eventDisplayUtils";
+import { formatWeekdayFullLocal } from "../../utils/dates";
 
 function sliceTime(t) {
   if (!t) return "—";
@@ -47,6 +48,17 @@ function formatFecha(f) {
   const [y, m, d] = String(f).split("-");
   if (!d) return f;
   return `${d}/${m}/${y}`;
+}
+
+function FechaCellLabel({ fecha }) {
+  if (!fecha) return "—";
+  const weekday = formatWeekdayFullLocal(fecha);
+  return (
+    <div className="fimba-fecha-stack">
+      {weekday ? <span className="fimba-fecha-weekday">{weekday}</span> : null}
+      <span className="fimba-fecha-value">{formatFecha(fecha)}</span>
+    </div>
+  );
 }
 
 function vehicleLabel(ev, flota) {
@@ -388,7 +400,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                       }
                     >
                       <td style={{ paddingLeft: "1rem", whiteSpace: "nowrap" }}>
-                        {formatFecha(ev.fecha)}
+                        <FechaCellLabel fecha={ev.fecha} />
                       </td>
                       <td>{sliceTime(ev.hora_inicio)}</td>
                       <td>{sliceTime(ev.hora_fin)}</td>

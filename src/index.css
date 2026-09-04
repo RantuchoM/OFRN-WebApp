@@ -432,36 +432,48 @@ html.dark .shadow-xl {
     filter: none !important; /* Desactiva modo oscuro */
   }
 
-  /* 2. Ocultar ABSOLUTAMENTE TODO por defecto */
-  body > * {
+  /*
+   * Giras modal print (portals fijos en body, p.ej. AnnualRotationModal):
+   * ocultar todo excepto el portal. NO aplicar cuando el shell FIMBA está
+   * montado — FIMBA imprime #root in-place (window.print + @media en FimbaLayout).
+   * Sin esta excepción, body > * { display:none } deja el PDF en blanco.
+   */
+  body:not(:has(.fimba-root)) > * {
     display: none !important;
   }
-
-  /* 3. Mostrar UNICAMENTE el modal y sus ancestros */
-  /* Nota: Si usas Portals, esto puede variar, pero para el modal fijo: */
-  body > div[class*="fixed"] {
+  body:not(:has(.fimba-root)) > div[class*="fixed"] {
     display: block !important;
-    position: relative !important; /* Cambia de fixed a relative para fluir en páginas */
+    position: relative !important;
     width: 100% !important;
     height: auto !important;
     overflow: visible !important;
     z-index: auto !important;
   }
 
-  /* 4. Ocultar elementos de la UI dentro del modal */
-  .print\:hidden,
-  button,
-  header,
-  aside {
+  /* FIMBA: mostrar la app; ocultar siblings de body (widgets / portales sueltos) */
+  body:has(.fimba-root) > #root {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  body:has(.fimba-root) > *:not(#root) {
     display: none !important;
   }
 
-  /* 5. Forzar el contenedor del reporte a ocupar todo el ancho */
+  /* Chrome de modales Giras; no tocar header FIMBA (banner de impresión) */
+  .print\:hidden {
+    display: none !important;
+  }
+  body:not(:has(.fimba-root)) button,
+  body:not(:has(.fimba-root)) header,
+  body:not(:has(.fimba-root)) aside {
+    display: none !important;
+  }
+
   .print\:block {
     display: block !important;
   }
-  
-  /* Asegurar que el fondo del reporte sea blanco y sin sombras */
+
   .bg-slate-100, .shadow-2xl {
     background: white !important;
     box-shadow: none !important;

@@ -609,6 +609,7 @@ CREATE TABLE public.giras_logistica_rutas (
   id_evento_subida bigint,
   id_evento_bajada bigint,
   prioridad integer DEFAULT 1,
+  es_chofer boolean NOT NULL DEFAULT false,
   CONSTRAINT giras_logistica_rutas_pkey PRIMARY KEY (id),
   CONSTRAINT giras_logistica_rutas_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
   CONSTRAINT giras_logistica_rutas_id_transporte_fisico_fkey FOREIGN KEY (id_transporte_fisico) REFERENCES public.giras_transportes(id),

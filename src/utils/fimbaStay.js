@@ -6,6 +6,8 @@
  * espejo denormalizado de `eventos.fecha`.
  *
  * Artista: vincular/crear evento (UI primaria) o fechas legacy → ensureFimbaStayEvent.
+ * Locación del evento = hotel del artista (`hoteles.id_locacion` vía
+ * `syncFimbaStayEventsLocacionFromHotel`); no picker libre en `FimbaStayEventCell`.
  * Vacío en el participante = hereda check-in/out del artista.
  * Early/Late siguen siendo flags del artista (no se modelan por persona).
  */

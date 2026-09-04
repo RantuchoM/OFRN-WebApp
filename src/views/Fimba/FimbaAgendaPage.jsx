@@ -11,17 +11,21 @@ import {
   IconClock,
   IconSearch,
   IconX,
+  IconCheck,
   IconPrinter,
   IconLayers,
   IconFileText,
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
+import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
+import FimbaEventArtistasTagsCell from "./FimbaEventArtistasTagsCell";
 import {
   categoriesFromTiposEvento,
   mergeFimbaAgendaCategories,
   listTiposEventoForFimba,
   deleteFimbaEvento,
   duplicateFimbaEvento,
+  eventUsesDerivedHoraFin,
   FIMBA_DEFAULT_TIPO_EVENTO,
   getFimbaAgendaEvento,
   getFimbaEdicionById,
@@ -34,10 +38,13 @@ import {
   listFimbaPropuestas,
   loadFimbaTransportLogisticsSummary,
   computeFimbaCapacity,
+  patchFimbaEventoPlanilla,
   upsertFimbaAgendaConsulta,
 } from "../../services/fimbaService";
+import { supabase } from "../../services/supabase";
 import { normalizeForSearch } from "../../utils/sanitize";
-import { stripHtml } from "../../utils/eventDisplayUtils";
+import { hasHtmlMarkup, stripHtml } from "../../utils/eventDisplayUtils";
+import { formatFechaLargaEs, formatWeekdayFullLocal } from "../../utils/dates";
 import {
   sortFimbaAgendaRows,
   sortFimbaPropuestasByNombre,
@@ -70,6 +77,10 @@ import {
   retainSelectedFilterIds,
   resolveGrupoIdsFromNames,
 } from "../../utils/fimbaAgendaUrlParams";
+import {
+  agendaRowEditFieldsEqual,
+  draftFromEvent,
+} from "../../utils/fimbaPlanillaRowEdit";
 import { useFimbaAccess } from "../../context/FimbaAccessContext";
 import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
 import {
@@ -77,6 +88,7 @@ import {
   shouldShowAgendaRiderIcon,
 } from "../../utils/fimbaAgendaConsulta";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
+import FimbaBulkEditModal from "./FimbaBulkEditModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import FimbaBacklineConsultaModal from "./FimbaBacklineConsultaModal";
 import FimbaRiderConsultaModal from "./FimbaRiderConsultaModal";
@@ -220,6 +232,18 @@ function formatFecha(f) {
   const [y, m, d] = String(f).split("-");
   if (!d) return f;
   return `${d}/${m}/${y}`;
+}
+
+/** Vista: weekday completo (Lunes) overhang arriba + DD/MM/YYYY alineado con hora. */
+function FechaCellLabel({ fecha }) {
+  if (!fecha) return "—";
+  const weekday = formatWeekdayFullLocal(fecha);
+  return (
+    <div className="fimba-fecha-stack">
+      {weekday ? <span className="fimba-fecha-weekday">{weekday}</span> : null}
+      <span className="fimba-fecha-value">{formatFecha(fecha)}</span>
+    </div>
+  );
 }
 
 const ORIGEN_FILTERS = [
@@ -442,6 +466,21 @@ export default function FimbaAgendaPage() {
   const [error, setError] = useState(null);
   const [modal, setModal] = useState(null);
   const [copyLinkOk, setCopyLinkOk] = useState(false);
+  /** Multi-select de filas visibles (ids) para «Editar en lote». */
+  const [selectedEventIds, setSelectedEventIds] = useState(() => new Set());
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  /** Edición de fila completa (doble clic) — paridad Transportes fuera de modo planilla. */
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [rowEditFocusField, setRowEditFocusField] = useState(null);
+  const [eventDrafts, setEventDrafts] = useState({});
+  const [eventRowStatus, setEventRowStatus] = useState({});
+  const [eventRowErrors, setEventRowErrors] = useState({});
+  const [locacionCatalogOptions, setLocacionCatalogOptions] = useState([]);
+  const savingEventRef = useRef(new Set());
+  const eventDraftsRef = useRef(eventDrafts);
+  eventDraftsRef.current = eventDrafts;
+  const eventosRef = useRef(eventosBase);
+  eventosRef.current = eventosBase;
 
   const ofrnIncludeActive = hasOfrnConvocatoriaFilter(
     selectedGrupoIds,
@@ -604,6 +643,241 @@ export default function FimbaAgendaPage() {
       }
     },
     [reloadAgendaSlices],
+  );
+
+  const refreshLocacionCatalog = useCallback(async () => {
+    const { data, error: err } = await supabase
+      .from("locaciones")
+      .select("id, nombre, direccion, localidades(localidad)")
+      .order("nombre");
+    if (err) {
+      console.error(err);
+      return;
+    }
+    setLocacionCatalogOptions(
+      (data || []).map((l) => ({
+        id: l.id,
+        label: l.localidades?.localidad
+          ? `${l.nombre} (${l.localidades.localidad})`
+          : l.nombre,
+        nombre: l.nombre,
+        ciudad: l.localidades?.localidad || null,
+      })),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!readOnly) refreshLocacionCatalog();
+  }, [readOnly, refreshLocacionCatalog]);
+
+  useEffect(() => {
+    if (readOnly && editingRowId != null) {
+      setEditingRowId(null);
+      setRowEditFocusField(null);
+    }
+  }, [readOnly, editingRowId]);
+
+  const cancelRowEdit = useCallback((eventoId) => {
+    const key = String(eventoId ?? editingRowId ?? "");
+    if (!key) {
+      setEditingRowId(null);
+      setRowEditFocusField(null);
+      return;
+    }
+    const ev = (eventosRef.current || []).find((x) => String(x.id) === key);
+    if (ev) {
+      setEventDrafts((prev) => {
+        const n = { ...prev, [key]: draftFromEvent(ev) };
+        eventDraftsRef.current = n;
+        return n;
+      });
+    } else {
+      setEventDrafts((prev) => {
+        if (!prev[key]) return prev;
+        const n = { ...prev };
+        delete n[key];
+        eventDraftsRef.current = n;
+        return n;
+      });
+    }
+    setEventRowStatus((prev) => ({ ...prev, [key]: "idle" }));
+    setEventRowErrors((prev) => {
+      if (!prev[key]) return prev;
+      const n = { ...prev };
+      delete n[key];
+      return n;
+    });
+    setEditingRowId(null);
+    setRowEditFocusField(null);
+  }, [editingRowId]);
+
+  useEffect(() => {
+    if (editingRowId == null) return undefined;
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      cancelRowEdit(editingRowId);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editingRowId, cancelRowEdit]);
+
+  const beginRowEdit = useCallback(
+    (ev, focusField = null) => {
+      if (readOnly || !ev?.id) return;
+      const key = String(ev.id);
+      if (editingRowId != null && editingRowId !== key) {
+        cancelRowEdit(editingRowId);
+      }
+      setEventDrafts((prev) => {
+        const n = { ...prev, [key]: draftFromEvent(ev) };
+        eventDraftsRef.current = n;
+        return n;
+      });
+      setEventRowStatus((prev) => ({ ...prev, [key]: "idle" }));
+      setEditingRowId(key);
+      setRowEditFocusField(focusField || "fecha");
+    },
+    [readOnly, editingRowId, cancelRowEdit],
+  );
+
+  const isRowEditing = useCallback(
+    (eventoId) =>
+      editingRowId != null && String(editingRowId) === String(eventoId),
+    [editingRowId],
+  );
+
+  const setEventField = useCallback((eventoId, field, value) => {
+    const key = String(eventoId);
+    setEventDrafts((prev) => {
+      const ev = (eventosRef.current || []).find((x) => String(x.id) === key);
+      const nextDraft = {
+        ...(prev[key] || draftFromEvent(ev || {})),
+        [field]: value,
+      };
+      const n = { ...prev, [key]: nextDraft };
+      eventDraftsRef.current = n;
+      return n;
+    });
+    setEventRowStatus((prev) => ({
+      ...prev,
+      [key]: prev[key] === "saving" ? "saving" : "dirty",
+    }));
+    setEventRowErrors((prev) => {
+      if (!prev[key]) return prev;
+      const n = { ...prev };
+      delete n[key];
+      return n;
+    });
+  }, []);
+
+  const commitEvento = useCallback(async (eventoId) => {
+    const key = String(eventoId);
+    if (savingEventRef.current.has(key)) return false;
+    const ev = (eventosRef.current || []).find((x) => String(x.id) === key);
+    if (!ev) return false;
+
+    const draft = eventDraftsRef.current[key] || draftFromEvent(ev);
+    const baseline = draftFromEvent(ev);
+    if (agendaRowEditFieldsEqual(draft, baseline)) {
+      setEventRowStatus((prev) => ({
+        ...prev,
+        [key]: prev[key] === "error" ? "error" : "idle",
+      }));
+      return true;
+    }
+
+    if (!String(draft.fecha || "").trim()) {
+      setEventRowStatus((prev) => ({ ...prev, [key]: "error" }));
+      setEventRowErrors((prev) => ({ ...prev, [key]: "Fecha requerida" }));
+      return false;
+    }
+
+    savingEventRef.current.add(key);
+    setEventRowStatus((prev) => ({ ...prev, [key]: "saving" }));
+    setEventRowErrors((prev) => {
+      const n = { ...prev };
+      delete n[key];
+      return n;
+    });
+
+    const derivedFin = eventUsesDerivedHoraFin(ev);
+    const patch = {
+      fecha: draft.fecha,
+      hora_inicio: draft.hora_inicio,
+      actividad: draft.actividad,
+      vuelo: draft.vuelo,
+      observaciones: draft.observaciones,
+      id_locacion: draft.id_locacion,
+      destino: draft.destino,
+      stripDestino: false,
+    };
+    if (!derivedFin) {
+      patch.hora_fin = draft.hora_fin;
+    }
+
+    const { evento: patched, error: err } = await patchFimbaEventoPlanilla(
+      ev.id,
+      patch,
+    );
+    if (err) {
+      savingEventRef.current.delete(key);
+      setEventRowStatus((prev) => ({ ...prev, [key]: "error" }));
+      setEventRowErrors((prev) => ({
+        ...prev,
+        [key]: err.message || "Error al guardar",
+      }));
+      return false;
+    }
+
+    const merged = {
+      ...ev,
+      fecha: patched.fecha,
+      hora_inicio: patched.hora_inicio,
+      hora_fin: patched.hora_fin,
+      descripcion: patched.descripcion,
+      actividad: patched.actividad,
+      destino: patched.destino ?? draft.destino ?? "",
+      vuelo: patched.vuelo,
+      observaciones: patched.observaciones,
+      observaciones_equipaje:
+        patched.observaciones_equipaje ?? patched.observaciones ?? null,
+      id_locacion: patched.id_locacion ?? null,
+      locaciones: patched.locaciones ?? null,
+      locacion_nombre:
+        patched.locacion_nombre || patched.locaciones?.nombre || null,
+      locacion_ciudad:
+        patched.locaciones?.localidades?.localidad ||
+        ev.locacion_ciudad ||
+        null,
+    };
+
+    savingEventRef.current.delete(key);
+    const nextDraft = draftFromEvent(merged);
+    setEventDrafts((prev) => {
+      const n = { ...prev, [key]: nextDraft };
+      eventDraftsRef.current = n;
+      return n;
+    });
+    setEventRowStatus((prev) => ({ ...prev, [key]: "saved" }));
+    setEventosBase((prev) => {
+      const next = (prev || []).map((row) =>
+        String(row.id) === key ? merged : row,
+      );
+      eventosRef.current = next;
+      return next;
+    });
+    return true;
+  }, []);
+
+  const confirmRowEdit = useCallback(
+    async (eventoId) => {
+      const ok = await commitEvento(eventoId);
+      if (ok) {
+        setEditingRowId(null);
+        setRowEditFocusField(null);
+      }
+    },
+    [commitEvento],
   );
 
   useEffect(() => {
@@ -937,6 +1211,63 @@ export default function FimbaAgendaPage() {
     flotaById,
     entityFilterCtx,
   ]);
+
+  const visibleEventIds = useMemo(
+    () => eventosFiltrados.map((ev) => String(ev.id)),
+    [eventosFiltrados],
+  );
+
+  // Descartar ids que ya no están en la vista filtrada.
+  useEffect(() => {
+    setSelectedEventIds((prev) => {
+      if (!prev.size) return prev;
+      const visible = new Set(visibleEventIds);
+      let changed = false;
+      const next = new Set();
+      for (const id of prev) {
+        if (visible.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [visibleEventIds]);
+
+  const allVisibleSelected =
+    visibleEventIds.length > 0 &&
+    visibleEventIds.every((id) => selectedEventIds.has(id));
+  const someVisibleSelected =
+    visibleEventIds.some((id) => selectedEventIds.has(id)) &&
+    !allVisibleSelected;
+
+  const selectedEvents = useMemo(
+    () =>
+      eventosFiltrados.filter((ev) => selectedEventIds.has(String(ev.id))),
+    [eventosFiltrados, selectedEventIds],
+  );
+
+  const toggleSelectEvent = useCallback((eventoId) => {
+    const key = String(eventoId);
+    setSelectedEventIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAllVisible = useCallback(() => {
+    setSelectedEventIds((prev) => {
+      const allOn =
+        visibleEventIds.length > 0 &&
+        visibleEventIds.every((id) => prev.has(id));
+      if (allOn) return new Set();
+      return new Set(visibleEventIds);
+    });
+  }, [visibleEventIds]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedEventIds(new Set());
+  }, []);
 
   const origenFilterActive =
     !ofrnIncludeActive && filtroOrigen !== "fimba";
@@ -1321,6 +1652,50 @@ export default function FimbaAgendaPage() {
             </button>
           </div>
         </div>
+        {!readOnly && selectedEventIds.size > 0 && (
+          <div
+            className="fimba-bulk-toolbar fimba-no-print"
+            role="status"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+              marginTop: 8,
+              padding: "0.45rem 0.65rem",
+              background: "rgba(215, 50, 137, 0.08)",
+              border: "1px solid rgba(215, 50, 137, 0.28)",
+              borderRadius: 8,
+            }}
+          >
+            <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--fimba-deep)" }}>
+              {selectedEventIds.size} seleccionado
+              {selectedEventIds.size === 1 ? "" : "s"}
+            </span>
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-primary"
+              onClick={() => setBulkEditOpen(true)}
+              style={{
+                padding: "0.3rem 0.65rem",
+                fontSize: "0.78rem",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <IconEdit size={14} /> Editar en lote
+            </button>
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-ghost"
+              onClick={clearSelection}
+              style={{ padding: "0.3rem 0.55rem", fontSize: "0.75rem" }}
+            >
+              <IconX size={12} /> Limpiar selección
+            </button>
+          </div>
+        )}
         {!queryLocked && (
         <div className="fimba-agenda-filters-row">
           <FimbaAgendaSearchField
@@ -1509,7 +1884,31 @@ export default function FimbaAgendaPage() {
             <table className="fimba-table fimba-agenda-table">
               <thead>
                 <tr>
-                  <th style={{ paddingLeft: "1rem" }}>Evento</th>
+                  {!readOnly && (
+                    <th
+                      className="fimba-bulk-check-col"
+                      style={{
+                        width: 36,
+                        paddingLeft: "0.65rem",
+                        paddingRight: "0.25rem",
+                        textAlign: "center",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = someVisibleSelected;
+                        }}
+                        onChange={toggleSelectAllVisible}
+                        title="Seleccionar todos los visibles"
+                        aria-label="Seleccionar todos los eventos visibles"
+                      />
+                    </th>
+                  )}
+                  <th style={{ paddingLeft: readOnly ? "1rem" : "0.5rem" }}>
+                    Evento
+                  </th>
                   <th>Fecha</th>
                   <th>Hora com</th>
                   <th>Hora fin</th>
@@ -1530,7 +1929,13 @@ export default function FimbaAgendaPage() {
                 </tr>
               </thead>
               <tbody>
-                {eventosFiltrados.map((ev) => {
+                {eventosFiltrados.map((ev, idx) => {
+                  const dayKey = String(ev.fecha || "").slice(0, 10);
+                  const prevDayKey =
+                    idx > 0
+                      ? String(eventosFiltrados[idx - 1]?.fecha || "").slice(0, 10)
+                      : "";
+                  const showDayDivider = idx > 0 && dayKey !== prevDayKey;
                   const isTx =
                     Boolean(ev.es_traslado) ||
                     (ev.vehiculos || []).length > 0 ||
@@ -1562,6 +1967,12 @@ export default function FimbaAgendaPage() {
                     isTransport: isTx,
                   });
                   const vuelo = ev.vuelo || "—";
+                  const rowEditing = isRowEditing(ev.id);
+                  const evKey = String(ev.id);
+                  const evDraft = eventDrafts[evKey] || draftFromEvent(ev);
+                  const evStatus = eventRowStatus[evKey] || "idle";
+                  const evSaving = evStatus === "saving";
+                  const derivedHoraFin = eventUsesDerivedHoraFin(ev);
                   const rowClass =
                     ev.origen === "ofrn"
                       ? "fimba-row-ofrn"
@@ -1577,8 +1988,19 @@ export default function FimbaAgendaPage() {
                           ? "OFRN"
                           : "—";
                   return (
+                    <React.Fragment key={ev.id}>
+                      {showDayDivider && (
+                        <tr className="fimba-day-divider-row">
+                          <td colSpan={100}>
+                            <div className="fimba-day-divider-inner">
+                              <span className="fimba-day-divider-label">
+                                {formatFechaLargaEs(dayKey)}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                     <tr
-                      key={ev.id}
                       className={rowClass}
                       onDoubleClick={
                         readOnly
@@ -1586,16 +2008,48 @@ export default function FimbaAgendaPage() {
                           : (e) => {
                               if (
                                 e.target.closest(
-                                  "button, a, input, select, textarea, label",
+                                  "button, a, input, select, textarea, label, .fimba-bulk-check-col, .fimba-agenda-actions",
                                 )
                               ) {
                                 return;
                               }
-                              setModal({ mode: "edit", evento: ev });
+                              beginRowEdit(ev);
                             }
                       }
+                      title={
+                        readOnly
+                          ? undefined
+                          : rowEditing
+                            ? "Editando fila · tilde confirma · Esc / X cancela"
+                            : "Doble clic en la fila para editar · lápiz = formulario completo"
+                      }
+                      style={
+                        rowEditing
+                          ? { background: "rgba(148,33,109,0.06)" }
+                          : undefined
+                      }
                     >
-                      <td style={{ paddingLeft: "1rem", whiteSpace: "nowrap" }}>
+                      {!readOnly && (
+                        <td
+                          className="fimba-bulk-check-col"
+                          style={{
+                            paddingLeft: "0.65rem",
+                            paddingRight: "0.25rem",
+                            textAlign: "center",
+                            verticalAlign: "middle",
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedEventIds.has(String(ev.id))}
+                            onChange={() => toggleSelectEvent(ev.id)}
+                            aria-label={`Seleccionar evento ${ev.id}`}
+                          />
+                        </td>
+                      )}
+                      <td style={{ paddingLeft: readOnly ? "1rem" : "0.5rem", whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                           {ev.es_fimba && (
                             <span className="fimba-badge fimba-badge-fimba">FIMBA</span>
@@ -1610,9 +2064,80 @@ export default function FimbaAgendaPage() {
                           )}
                         </div>
                       </td>
-                      <td style={{ whiteSpace: "nowrap" }}>{formatFecha(ev.fecha)}</td>
-                      <td>{sliceTime(ev.hora_inicio)}</td>
-                      <td>{sliceTime(ev.hora_fin)}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {rowEditing ? (
+                          <input
+                            className="fimba-cell-input fimba-cell-date"
+                            type="date"
+                            autoFocus={rowEditFocusField === "fecha"}
+                            value={evDraft.fecha || ""}
+                            disabled={evSaving}
+                            onChange={(e) =>
+                              setEventField(ev.id, "fecha", e.target.value)
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                confirmRowEdit(ev.id);
+                              }
+                            }}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          <FechaCellLabel fecha={ev.fecha} />
+                        )}
+                      </td>
+                      <td>
+                        {rowEditing ? (
+                          <input
+                            className="fimba-cell-input"
+                            type="time"
+                            autoFocus={rowEditFocusField === "hora"}
+                            value={evDraft.hora_inicio || ""}
+                            disabled={evSaving}
+                            title="Hora de comienzo"
+                            onChange={(e) =>
+                              setEventField(ev.id, "hora_inicio", e.target.value)
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                confirmRowEdit(ev.id);
+                              }
+                            }}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          sliceTime(ev.hora_inicio)
+                        )}
+                      </td>
+                      <td>
+                        {rowEditing ? (
+                          <input
+                            className="fimba-cell-input"
+                            type="time"
+                            value={evDraft.hora_fin || ""}
+                            disabled={evSaving || derivedHoraFin}
+                            title={
+                              derivedHoraFin
+                                ? "Hora fin derivada del siguiente evento de transporte (editar en modal / Transportes)"
+                                : "Hora de fin"
+                            }
+                            onChange={(e) =>
+                              setEventField(ev.id, "hora_fin", e.target.value)
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                confirmRowEdit(ev.id);
+                              }
+                            }}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          sliceTime(ev.hora_fin)
+                        )}
+                      </td>
                       <td>
                         <span
                           className="fimba-badge"
@@ -1643,35 +2168,113 @@ export default function FimbaAgendaPage() {
                         )}
                       </td>
                       <td style={{ fontWeight: 600, maxWidth: 180 }}>
-                        <FimbaEventDetallePreview html={ev.actividad} />
-                        {ev.observaciones ? (
-                          <span className="fimba-muted" style={{ display: "block", fontSize: "0.75rem", fontWeight: 400 }}>
-                            {ev.observaciones}
-                          </span>
-                        ) : null}
+                        {rowEditing ? (
+                          <div
+                            style={{ display: "flex", flexDirection: "column", gap: 4 }}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                          >
+                            {hasHtmlMarkup(evDraft.actividad) ? (
+                              <>
+                                <FimbaEventDetallePreview html={evDraft.actividad} />
+                                <span
+                                  className="fimba-muted"
+                                  style={{ fontSize: "0.68rem", fontWeight: 400 }}
+                                >
+                                  Con formato: editar en el modal del evento
+                                </span>
+                              </>
+                            ) : (
+                              <input
+                                className="fimba-cell-input"
+                                autoFocus={rowEditFocusField === "actividad"}
+                                value={evDraft.actividad}
+                                disabled={evSaving}
+                                placeholder="Detalle"
+                                onChange={(e) =>
+                                  setEventField(ev.id, "actividad", e.target.value)
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    confirmRowEdit(ev.id);
+                                  }
+                                }}
+                              />
+                            )}
+                            <input
+                              className="fimba-cell-input"
+                              value={evDraft.observaciones}
+                              disabled={evSaving}
+                              placeholder="Obs. equipaje"
+                              title="Observaciones Equipaje"
+                              onChange={(e) =>
+                                setEventField(ev.id, "observaciones", e.target.value)
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  confirmRowEdit(ev.id);
+                                }
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <>
+                            <FimbaEventDetallePreview html={ev.actividad} />
+                            {ev.observaciones ? (
+                              <span className="fimba-muted" style={{ display: "block", fontSize: "0.75rem", fontWeight: 400 }}>
+                                {ev.observaciones}
+                              </span>
+                            ) : null}
+                          </>
+                        )}
                       </td>
                       <td className="fimba-muted" style={{ maxWidth: 140 }}>
-                        <div title={origen}>{origen}</div>
-                        {legacyDestinoOrigen ? (
-                          <span
-                            style={{
-                              display: "inline-block",
-                              marginTop: 4,
-                              padding: "2px 6px",
-                              borderRadius: 4,
-                              fontSize: "0.68rem",
-                              background: "#e2e8f0",
-                              color: "#64748b",
-                              maxWidth: "100%",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                            title={`Legacy — Destino: ${legacyDestinoOrigen}`}
+                        {rowEditing ? (
+                          <div
+                            className="fimba-planilla-loc-edit"
+                            onDoubleClick={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            {legacyDestinoOrigen}
-                          </span>
-                        ) : null}
+                            <LocationSelectWithCreate
+                              supabase={supabase}
+                              options={locacionCatalogOptions}
+                              value={evDraft.id_locacion || ""}
+                              onChange={(id) => {
+                                const next =
+                                  id != null && id !== "" ? String(id) : "";
+                                setEventField(ev.id, "id_locacion", next);
+                              }}
+                              onRefresh={refreshLocacionCatalog}
+                              placeholder="Buscar locación…"
+                              className="fimba-planilla-loc-select"
+                            />
+                          </div>
+                        ) : (
+                          <>
+                            <div title={origen}>{origen}</div>
+                            {legacyDestinoOrigen ? (
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  marginTop: 4,
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  fontSize: "0.68rem",
+                                  background: "#e2e8f0",
+                                  color: "#64748b",
+                                  maxWidth: "100%",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                                title={`Legacy — Destino: ${legacyDestinoOrigen}`}
+                              >
+                                {legacyDestinoOrigen}
+                              </span>
+                            ) : null}
+                          </>
+                        )}
                       </td>
                       <td
                         className="fimba-muted"
@@ -1696,7 +2299,28 @@ export default function FimbaAgendaPage() {
                         {destino}
                       </td>
                       <td className="fimba-muted" style={{ maxWidth: 100 }}>
-                        {vuelo}
+                        {rowEditing ? (
+                          <input
+                            className="fimba-cell-input"
+                            autoFocus={rowEditFocusField === "vuelo"}
+                            value={evDraft.vuelo}
+                            disabled={evSaving}
+                            placeholder="Vuelo"
+                            title="Vuelo / nota (línea Vuelo: en descripcion)"
+                            onChange={(e) =>
+                              setEventField(ev.id, "vuelo", e.target.value)
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                confirmRowEdit(ev.id);
+                              }
+                            }}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          vuelo
+                        )}
                       </td>
                       <td style={{ maxWidth: 220 }}>
                         {vehLabel === "SIN SERVICIO" ? (
@@ -1765,126 +2389,165 @@ export default function FimbaAgendaPage() {
                         )}
                       </td>
                       <td>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                          {sortFimbaPropuestasByNombre(ev.propuestas || []).map((p) => (
-                            <span
-                              key={p.id}
-                              className="fimba-badge"
-                              style={{
-                                background: p.color ? `${p.color}22` : undefined,
-                                color: p.color || undefined,
-                              }}
-                            >
-                              {p.nombre}
-                            </span>
-                          ))}
-                          {ev.orquesta_label ? (
-                            <span
-                              className="fimba-muted"
-                              style={{ fontSize: "0.8rem" }}
-                            >
-                              {ev.orquesta_label}
-                            </span>
-                          ) : null}
-                          {(ev.propuestas || []).length === 0 && !ev.orquesta_label ? (
-                            <span
-                              className="fimba-muted"
-                              style={{ fontSize: "0.8rem" }}
-                            >
-                              Edición
-                            </span>
-                          ) : null}
-                        </div>
+                        <FimbaEventArtistasTagsCell
+                          ev={ev}
+                          canEdit={!readOnly}
+                          propuestas={propuestas}
+                          giraGrupos={giraGrupos}
+                          edicion={edicion}
+                          onSaved={async (id) => {
+                            if (id != null) await upsertAgendaEvento(id);
+                            else await reloadAgendaSlices({ eventos: true });
+                          }}
+                        />
                       </td>
-                      <td style={{ textAlign: "right", paddingRight: "0.75rem", whiteSpace: "nowrap" }}>
-                        {shouldShowAgendaBacklineIcon(
-                          ev,
-                          canSeeAgendaLogisticaConsulta,
-                        ) && (
-                          <button
-                            type="button"
-                            className="fimba-btn fimba-btn-ghost"
-                            onClick={() => setBacklineConsultaEvento(ev)}
-                            onDoubleClick={(e) => e.stopPropagation()}
-                            title="Ver Backline"
-                            aria-label="Ver Backline"
-                          >
-                            <IconLayers size={14} />
-                          </button>
-                        )}
-                        {shouldShowAgendaRiderIcon(
-                          ev,
-                          canSeeAgendaLogisticaConsulta,
-                        ) && (
-                          <button
-                            type="button"
-                            className="fimba-btn fimba-btn-ghost"
-                            style={{ marginLeft: 4 }}
-                            onClick={() => setRiderConsultaEvento(ev)}
-                            onDoubleClick={(e) => e.stopPropagation()}
-                            title="Ver Rider"
-                            aria-label="Ver Rider"
-                          >
-                            <IconFileText size={14} />
-                          </button>
-                        )}
-                        {!readOnly && (
+                      <td
+                        className="fimba-agenda-actions"
+                        style={{ textAlign: "right", paddingRight: "0.75rem", whiteSpace: "nowrap" }}
+                      >
+                        {!readOnly && rowEditing ? (
                           <>
                             <button
                               type="button"
                               className="fimba-btn fimba-btn-ghost"
-                              style={{ marginLeft: 4 }}
-                              onClick={() => setModal({ mode: "edit", evento: ev })}
+                              onClick={() => confirmRowEdit(ev.id)}
                               onDoubleClick={(e) => e.stopPropagation()}
-                              title="Editar"
-                            >
-                              <IconEdit size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              className="fimba-btn fimba-btn-ghost"
-                              style={{ marginLeft: 4, color: "var(--fimba-cyan, #0e7490)" }}
-                              onClick={() => openIntermediateEvent(ev)}
-                              onDoubleClick={(e) => e.stopPropagation()}
+                              disabled={evSaving}
                               title={
-                                nextSameDayNeighbor(ev)
-                                  ? "Insertar evento intermedio (completa hasta→desde con el siguiente del día)"
-                                  : "Insertar evento después de este (desde = hora fin)"
+                                eventRowErrors[evKey]
+                                  ? eventRowErrors[evKey]
+                                  : "Confirmar cambios"
                               }
-                              aria-label="Insertar evento intermedio"
+                              aria-label="Confirmar cambios de la fila"
+                              style={{ color: "#166534" }}
                             >
-                              <IconPlus size={14} />
+                              {evSaving ? (
+                                <IconLoader size={14} className="animate-spin" />
+                              ) : (
+                                <IconCheck size={14} />
+                              )}
                             </button>
                             <button
                               type="button"
                               className="fimba-btn fimba-btn-ghost"
                               style={{ marginLeft: 4 }}
-                              onClick={() => handleDuplicate(ev)}
+                              onClick={() => cancelRowEdit(ev.id)}
                               onDoubleClick={(e) => e.stopPropagation()}
-                              title="Duplicar"
+                              disabled={evSaving}
+                              title="Cancelar (Esc)"
+                              aria-label="Cancelar edición de la fila"
                             >
-                              <IconCopy size={14} />
+                              <IconX size={14} />
                             </button>
-                            <button
-                              type="button"
-                              className="fimba-btn fimba-btn-danger"
-                              style={{ marginLeft: 4 }}
-                              onClick={() => handleDelete(ev)}
-                              onDoubleClick={(e) => e.stopPropagation()}
-                              title="Eliminar"
-                            >
-                              <IconTrash size={14} />
-                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {shouldShowAgendaBacklineIcon(
+                              ev,
+                              canSeeAgendaLogisticaConsulta,
+                            ) && (
+                              <button
+                                type="button"
+                                className="fimba-btn fimba-btn-ghost"
+                                onClick={() => setBacklineConsultaEvento(ev)}
+                                onDoubleClick={(e) => e.stopPropagation()}
+                                title="Ver Backline"
+                                aria-label="Ver Backline"
+                              >
+                                <IconLayers size={14} />
+                              </button>
+                            )}
+                            {shouldShowAgendaRiderIcon(
+                              ev,
+                              canSeeAgendaLogisticaConsulta,
+                            ) && (
+                              <button
+                                type="button"
+                                className="fimba-btn fimba-btn-ghost"
+                                style={{ marginLeft: 4 }}
+                                onClick={() => setRiderConsultaEvento(ev)}
+                                onDoubleClick={(e) => e.stopPropagation()}
+                                title="Ver Rider"
+                                aria-label="Ver Rider"
+                              >
+                                <IconFileText size={14} />
+                              </button>
+                            )}
+                            {!readOnly && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="fimba-btn fimba-btn-ghost"
+                                  style={{ marginLeft: 4 }}
+                                  onClick={() => setModal({ mode: "edit", evento: ev })}
+                                  onDoubleClick={(e) => e.stopPropagation()}
+                                  title="Editar"
+                                >
+                                  <IconEdit size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="fimba-btn fimba-btn-ghost"
+                                  style={{ marginLeft: 4, color: "var(--fimba-cyan, #0e7490)" }}
+                                  onClick={() => openIntermediateEvent(ev)}
+                                  onDoubleClick={(e) => e.stopPropagation()}
+                                  title={
+                                    nextSameDayNeighbor(ev)
+                                      ? "Insertar evento intermedio (completa hasta→desde con el siguiente del día)"
+                                      : "Insertar evento después de este (desde = hora fin)"
+                                  }
+                                  aria-label="Insertar evento intermedio"
+                                >
+                                  <IconPlus size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="fimba-btn fimba-btn-ghost"
+                                  style={{ marginLeft: 4 }}
+                                  onClick={() => handleDuplicate(ev)}
+                                  onDoubleClick={(e) => e.stopPropagation()}
+                                  title="Duplicar"
+                                >
+                                  <IconCopy size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="fimba-btn fimba-btn-danger"
+                                  style={{ marginLeft: 4 }}
+                                  onClick={() => handleDelete(ev)}
+                                  onDoubleClick={(e) => e.stopPropagation()}
+                                  title="Eliminar"
+                                >
+                                  <IconTrash size={14} />
+                                </button>
+                              </>
+                            )}
                           </>
                         )}
                       </td>
                     </tr>
+                    </React.Fragment>
                   );
                 })}
               </tbody>
             </table>
           </div>
         </div>
+      )}
+
+      {!readOnly && bulkEditOpen && (
+        <FimbaBulkEditModal
+          variant="agenda"
+          events={selectedEvents}
+          propuestas={propuestas}
+          giraGrupos={giraGrupos}
+          onClose={() => setBulkEditOpen(false)}
+          onApplied={async () => {
+            setBulkEditOpen(false);
+            clearSelection();
+            await reloadAgendaSlices({ eventos: true });
+          }}
+        />
       )}
 
       {!readOnly && modal &&
@@ -1898,6 +2561,7 @@ export default function FimbaAgendaPage() {
             preselectPropuesta={modal.preselectPropuesta}
             defaultTipoId={FIMBA_DEFAULT_TIPO_EVENTO}
             forceTransporte={false}
+            focusTags={Boolean(modal.focusTags)}
             logisticsSummary={logisticsSummary}
             propuestaRoutes={propuestaRoutes}
             sequencesByVehicle={sequencesByVehicle}
