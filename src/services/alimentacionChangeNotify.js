@@ -17,13 +17,10 @@ export async function notifyAlimentacionChange(supabase, payload = {}) {
   const apellido = String(payload.apellido || "").trim();
   const display = [nombre, apellido].filter(Boolean).join(" ") || "Integrante";
 
-  const { error } = await supabase.functions.invoke("mails_produccion", {
-    body: {
-      action: "enviar_mail",
-      templateId: "cambio_alimentacion",
-      email: PRODUCCION_ALIMENTACION_EMAIL,
-      nombre: display,
-      detalle: {
+  const { error } = await supabase.functions.invoke(
+    "notify-alimentacion-change",
+    {
+      body: {
         nombre,
         apellido,
         id: payload.id ?? null,
@@ -32,7 +29,7 @@ export async function notifyAlimentacionChange(supabase, payload = {}) {
         alimentacion_nueva: nueva || "(sin dato)",
       },
     },
-  });
+  );
 
   if (error) throw error;
   return { ok: true, skipped: false };

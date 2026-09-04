@@ -40,7 +40,7 @@ Helper: `src/utils/integranteDisplayName.js`
 - Transporte **no** pasa por ese mapper.
 
 ## Mail
-Edge Function `mails_produccion`, template `cambio_alimentacion`.
+Edge Function `notify-alimentacion-change` (también hay template `cambio_alimentacion` en `mails_produccion` por si se reutiliza el hub).
 
 - Destino: `produccion.ofrn@gmail.com`
 - Asunto: `Cambio de alimentación | Nombre Apellido`

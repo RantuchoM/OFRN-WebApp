@@ -122,3 +122,8 @@ entrypoint = "./functions/sync-fimba-contrataciones-sheet/index.ts"
 #   mirror  1qz7_kj7hO57A5DY8rw5S12bZvd8wilO2hWJeli-SivQ
 # Legacy single: FIMBA_CONTRATACIONES_SHEET_ID
 # Tab: FIMBA_CONTRATACIONES_SHEET_TAB (default Contrataciones)
+
+[functions.notify-alimentacion-change]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/notify-alimentacion-change/index.ts"
