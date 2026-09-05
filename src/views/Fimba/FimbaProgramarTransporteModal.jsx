@@ -175,6 +175,7 @@ export default function FimbaProgramarTransporteModal({
         cantidad: Math.max(1, Number(cantidad) || 1),
         label: selectedPassenger.name,
       },
+      giraGrupos,
     });
     setSaving(false);
     if (err) {
@@ -387,8 +388,9 @@ export default function FimbaProgramarTransporteModal({
                   className="fimba-muted"
                   style={{ fontSize: "0.7rem", display: "block", marginTop: 4 }}
                 >
-                  Grupo OFRN: se guarda como reserva técnica; refiná Subidas/Bajadas
-                  Orquesta si hace falta.
+                  Grupo OFRN: sube/baja a los miembros vía regla Orquesta
+                  (alcance Grupo). La cantidad es referencia; las plazas reales
+                  salen del roster del grupo.
                 </span>
               ) : null}
             </div>

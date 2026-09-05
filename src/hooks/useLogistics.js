@@ -15,6 +15,10 @@ import {
   resolveLocalidadResidencia,
 } from "../utils/integranteDomicilioViaticos";
 import { fetchGiraSegmentosBundle } from "../services/giraSegmentosService";
+import {
+  enrichRosterWithGrupoIds,
+  fetchGiraGrupos,
+} from "../services/giraGruposService";
 import { resolvePersonIsLocal } from "../utils/giraTramos";
 
 // --- 1. RE-EXPORTS PARA COMPATIBILIDAD ---
@@ -37,7 +41,7 @@ export {
 export const getPriorityValue = (scope) => {
   const s = normalize(scope);
   if (s === "persona" || s === "p") return 5;
-  if (s === "categoria" || s === "instrumento") return 4;
+  if (s === "categoria" || s === "instrumento" || s === "grupo") return 4;
   if (s === "localidad" || s === "l") return 3;
   if (s === "region" || s === "r") return 2;
   return 1;
@@ -63,15 +67,17 @@ export const calculateLogisticsSummary = (
 
   // --- HELPERS INTERNOS ---
   const getSourceCode = (r) => {
-    if ((r.target_ids || []).length > 0) return "P";
-    if ((r.target_categories || []).length > 0) return "C";
-    if ((r.target_localities || []).length > 0) return "L";
-    if ((r.target_regions || []).length > 0) return "R";
     const s = normalize(r.alcance);
     if (s === "persona") return "P";
+    if (s === "grupo") return "U"; // grupo de convocatoria (giras_grupos)
     if (s === "categoria" || s === "instrumento") return "C";
     if (s === "localidad") return "L";
     if (s === "region") return "R";
+    if ((r.target_categories || []).length > 0) return "C";
+    if ((r.target_localities || []).length > 0) return "L";
+    if ((r.target_regions || []).length > 0) return "R";
+    // target_ids legacy = persona (no Grupo/Categoria)
+    if ((r.target_ids || []).length > 0) return "P";
     return "G";
   };
 
@@ -377,6 +383,7 @@ export function useLogistics(supabase, gira, trigger = 0) {
     events: [],
     segments: [],
     cortesCount: 0,
+    giraGrupos: [],
   });
   const [loading, setLoading] = useState(true);
   const giraId = gira?.id;
@@ -385,7 +392,7 @@ export function useLogistics(supabase, gira, trigger = 0) {
     if (!giraId) return;
     setLoading(true);
     try {
-      const [l, a, r, t, locs, regs, sedes, vDet, dCfg, evs, roomsData, segmentBundle] =
+      const [l, a, r, t, locs, regs, sedes, vDet, dCfg, evs, roomsData, segmentBundle, gruposPack] =
         await Promise.all([
           supabase
             .from("giras_logistica_reglas")
@@ -437,6 +444,10 @@ export function useLogistics(supabase, gira, trigger = 0) {
           fetchGiraSegmentosBundle(supabase, giraId, gira).catch(() => ({
             segments: [],
             cortesCount: 0,
+          })),
+          fetchGiraGrupos(supabase, giraId).catch(() => ({
+            grupos: [],
+            error: null,
           })),
         ]);
 
@@ -497,6 +508,7 @@ export function useLogistics(supabase, gira, trigger = 0) {
         mealsMeta: { events: mealEvents, responses: mealResps },
         segments: segmentBundle?.segments ?? [],
         cortesCount: segmentBundle?.cortesCount ?? 0,
+        giraGrupos: gruposPack?.grupos || [],
       });
     } catch (e) {
       console.error("useLogistics Error:", e);
@@ -548,8 +560,12 @@ export function useLogistics(supabase, gira, trigger = 0) {
     });
 
     // Pasamos db.rooms (antes iba []) para que se calculen las habitaciones asignadas
-    const res = calculateLogisticsSummary(
+    const rosterWithGrupos = enrichRosterWithGrupoIds(
       rosterEnriquecido,
+      db.giraGrupos,
+    );
+    const res = calculateLogisticsSummary(
+      rosterWithGrupos,
       db.log,
       db.adm,
       db.route,

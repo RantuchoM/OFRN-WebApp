@@ -51,6 +51,7 @@ export default function FimbaStopRulesManager({
   giraId,
   vehiculos = [],
   propuestas = [],
+  giraGrupos = [],
   passengers = [],
   admissionRules = [],
   regions = [],
@@ -1403,6 +1404,7 @@ export default function FimbaStopRulesManager({
                     passengers={passengers}
                     admissionRules={admissionRules}
                     sortedEvents={sortedEvents}
+                    giraGrupos={giraGrupos}
                     onRefresh={() => {
                       onRefresh?.("ofrn");
                     }}

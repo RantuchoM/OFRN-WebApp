@@ -5,7 +5,6 @@ import {
   IconArrowLeft,
   IconPlus,
   IconEdit,
-  IconTrash,
   IconCopy,
   IconLoader,
   IconClock,
@@ -13,8 +12,6 @@ import {
   IconX,
   IconCheck,
   IconPrinter,
-  IconLayers,
-  IconFileText,
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
@@ -43,7 +40,8 @@ import {
 } from "../../services/fimbaService";
 import { supabase } from "../../services/supabase";
 import { normalizeForSearch } from "../../utils/sanitize";
-import { hasHtmlMarkup, stripHtml } from "../../utils/eventDisplayUtils";
+import { stripHtml } from "../../utils/eventDisplayUtils";
+import { fimbaTipoRowTintStyle } from "../../utils/fimbaEventCategories";
 import { formatFechaLargaEs, formatWeekdayFullLocal } from "../../utils/dates";
 import {
   sortFimbaAgendaRows,
@@ -92,6 +90,12 @@ import FimbaBulkEditModal from "./FimbaBulkEditModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import FimbaBacklineConsultaModal from "./FimbaBacklineConsultaModal";
 import FimbaRiderConsultaModal from "./FimbaRiderConsultaModal";
+import FimbaAgendaEventCard, {
+  FimbaAgendaCardMenu,
+  FimbaAgendaDayDividerMobile,
+} from "./FimbaAgendaEventCard";
+import { buildAgendaCardMenuItems } from "./fimbaAgendaCardMenuItems";
+import FimbaRichTextEditor from "./FimbaRichTextEditor";
 
 const FIMBA_AGENDA_SEARCH_DEBOUNCE_MS = 250;
 
@@ -1891,6 +1895,158 @@ export default function FimbaAgendaPage() {
         </div>
       ) : (
         <div className="fimba-card fimba-agenda-card">
+          <div className="fimba-agenda-mobile">
+            {eventosFiltrados.map((ev, idx) => {
+              const dayKey = String(ev.fecha || "").slice(0, 10);
+              const prevDayKey =
+                idx > 0
+                  ? String(eventosFiltrados[idx - 1]?.fecha || "").slice(0, 10)
+                  : "";
+              const showDayDivider =
+                idx === 0 || (dayKey && dayKey !== prevDayKey);
+              const isTx =
+                Boolean(ev.es_traslado) ||
+                (ev.vehiculos || []).length > 0 ||
+                ev.id_gira_transporte != null;
+              const ofrnVeh =
+                flota.find((g) => Number(g.id) === Number(ev.id_gira_transporte)) ||
+                null;
+              const vehLabel =
+                (ev.vehiculos || []).length > 0
+                  ? (ev.vehiculos || [])
+                      .map((r) => {
+                        const label = labelGiraTransporte(r.giras_transportes);
+                        const pl = Math.max(0, Number(r.plazas) || 0);
+                        return `${label} (${pl})`;
+                      })
+                      .join(", ") || "—"
+                  : ofrnVeh
+                    ? labelGiraTransporte(ofrnVeh)
+                    : !isTx
+                      ? "—"
+                      : ev.es_ofrn && !ev.es_fimba
+                        ? "—"
+                        : "SIN SERVICIO";
+              const origen = formatAgendaOrigenLabel(ev, {
+                skipDestinoFallback: true,
+              });
+              const destino = resolveAgendaDestinoLabel(ev, sequencesByVehicle, {
+                isTransport: isTx,
+              });
+              const vuelo = ev.vuelo || "—";
+              const aboard = isTx
+                ? resolveEventAboardCount(ev, sequencesByVehicle, null)
+                : null;
+              const aoLabel =
+                ev.audiencia_ofrn === "grupos" || (ev.grupos || []).length > 0
+                  ? "Grupos"
+                  : ev.audiencia_ofrn === "tutti" ||
+                      (ev.es_ofrn && !ev.audiencia_ofrn)
+                    ? "Tutti"
+                    : ev.es_ofrn
+                      ? "OFRN"
+                      : "—";
+              const openEdit = () => setModal({ mode: "edit", evento: ev });
+              const menuItems = buildAgendaCardMenuItems({
+                canEdit: !readOnly,
+                // Lápiz visible en la card; kebab = secundarias
+                onDuplicate: () => handleDuplicate(ev),
+                onDelete: () => handleDelete(ev),
+                onInsertIntermediate: () => openIntermediateEvent(ev),
+                onBackline: shouldShowAgendaBacklineIcon(
+                  ev,
+                  canSeeAgendaLogisticaConsulta,
+                )
+                  ? () => setBacklineConsultaEvento(ev)
+                  : null,
+                onRider: shouldShowAgendaRiderIcon(
+                  ev,
+                  canSeeAgendaLogisticaConsulta,
+                )
+                  ? () => setRiderConsultaEvento(ev)
+                  : null,
+              });
+              return (
+                <React.Fragment key={`m-${ev.id}`}>
+                  {showDayDivider ? (
+                    <FimbaAgendaDayDividerMobile
+                      fecha={dayKey}
+                      first={idx === 0}
+                    />
+                  ) : null}
+                  <FimbaAgendaEventCard
+                    ev={ev}
+                    origenLabel={origen}
+                    destinoLabel={destino}
+                    vueloLabel={vuelo}
+                    vehicleLabel={vehLabel}
+                    aboardCount={aboard}
+                    showAboard={isTx}
+                    readOnly={readOnly}
+                    selectChecked={
+                      readOnly
+                        ? null
+                        : selectedEventIds.has(String(ev.id))
+                    }
+                    onSelectChange={
+                      readOnly
+                        ? null
+                        : () => toggleSelectEvent(ev.id)
+                    }
+                    onActivate={readOnly ? null : openEdit}
+                    onEdit={readOnly ? null : openEdit}
+                    menuItems={menuItems}
+                    ofrnNode={
+                      ev.es_ofrn ? (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          {(ev.grupos || []).length > 0 ? (
+                            (ev.grupos || []).map((g) => (
+                              <span
+                                key={g.id}
+                                className="fimba-badge fimba-badge-ofrn-grupo"
+                                style={{
+                                  background: g.color ? `${g.color}22` : "#e0f2fe",
+                                  color: g.color || "#0369a1",
+                                  border: `1px solid ${g.color || "#7dd3fc"}44`,
+                                }}
+                              >
+                                {g.nombre}
+                              </span>
+                            ))
+                          ) : (
+                            <span
+                              className="fimba-badge fimba-badge-ofrn-grupo"
+                              style={{
+                                background: "#e0f2fe",
+                                color: "#0369a1",
+                                border: "1px solid #7dd3fc44",
+                              }}
+                            >
+                              {aoLabel}
+                            </span>
+                          )}
+                        </div>
+                      ) : null
+                    }
+                    artistasNode={
+                      <FimbaEventArtistasTagsCell
+                        ev={ev}
+                        canEdit={!readOnly}
+                        propuestas={propuestas}
+                        giraGrupos={giraGrupos}
+                        edicion={edicion}
+                        onSaved={async (id) => {
+                          if (id != null) await upsertAgendaEvento(id);
+                          else await reloadAgendaSlices({ eventos: true });
+                        }}
+                      />
+                    }
+                  />
+                </React.Fragment>
+              );
+            })}
+          </div>
+          <div className="fimba-agenda-desktop">
           <div className="fimba-agenda-scroll">
             <table className="fimba-table fimba-agenda-table">
               <thead>
@@ -1924,7 +2080,7 @@ export default function FimbaAgendaPage() {
                   <th>Hora com</th>
                   <th>Hora fin</th>
                   <th>Tipo</th>
-                  <th>Detalle</th>
+                  <th className="fimba-detalle-cell">Detalle</th>
                   <th>Origen</th>
                   <th>Destino</th>
                   <th>Vuelo</th>
@@ -1936,7 +2092,7 @@ export default function FimbaAgendaPage() {
                   </th>
                   <th>OFRN</th>
                   <th>Artistas</th>
-                  <th />
+                  <th className="fimba-agenda-actions" />
                 </tr>
               </thead>
               <tbody>
@@ -1990,6 +2146,7 @@ export default function FimbaAgendaPage() {
                       : ev.origen === "ambos"
                         ? "fimba-row-ambos"
                         : "";
+                  const tipoTint = fimbaTipoRowTintStyle(ev.tipo_color);
                   const aoLabel =
                     ev.audiencia_ofrn === "grupos" || (ev.grupos || []).length > 0
                       ? "Grupos"
@@ -2012,14 +2169,14 @@ export default function FimbaAgendaPage() {
                         </tr>
                       )}
                     <tr
-                      className={rowClass}
+                      className={`${rowClass}${tipoTint && !rowEditing ? " fimba-has-tipo-tint" : ""}`.trim()}
                       onDoubleClick={
                         readOnly
                           ? undefined
                           : (e) => {
                               if (
                                 e.target.closest(
-                                  "button, a, input, select, textarea, label, .fimba-bulk-check-col, .fimba-agenda-actions",
+                                  "button, a, input, select, textarea, label, .fimba-bulk-check-col, .fimba-agenda-actions, .fimba-planilla-row-menu, .fimba-agenda-card-menu, .fimba-richtext, .ql-toolbar, .ql-editor",
                                 )
                               ) {
                                 return;
@@ -2037,7 +2194,7 @@ export default function FimbaAgendaPage() {
                       style={
                         rowEditing
                           ? { background: "rgba(148,33,109,0.06)" }
-                          : undefined
+                          : tipoTint
                       }
                     >
                       {!readOnly && (
@@ -2178,40 +2335,24 @@ export default function FimbaAgendaPage() {
                           </span>
                         )}
                       </td>
-                      <td style={{ fontWeight: 600, maxWidth: 180 }}>
+                      <td
+                        className={`fimba-detalle-cell${rowEditing ? " fimba-detalle-cell--editing" : ""}`}
+                      >
                         {rowEditing ? (
                           <div
                             style={{ display: "flex", flexDirection: "column", gap: 4 }}
                             onDoubleClick={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            {hasHtmlMarkup(evDraft.actividad) ? (
-                              <>
-                                <FimbaEventDetallePreview html={evDraft.actividad} />
-                                <span
-                                  className="fimba-muted"
-                                  style={{ fontSize: "0.68rem", fontWeight: 400 }}
-                                >
-                                  Con formato: editar en el modal del evento
-                                </span>
-                              </>
-                            ) : (
-                              <input
-                                className="fimba-cell-input"
-                                autoFocus={rowEditFocusField === "actividad"}
-                                value={evDraft.actividad}
-                                disabled={evSaving}
-                                placeholder="Detalle"
-                                onChange={(e) =>
-                                  setEventField(ev.id, "actividad", e.target.value)
-                                }
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    confirmRowEdit(ev.id);
-                                  }
-                                }}
-                              />
-                            )}
+                            <FimbaRichTextEditor
+                              value={evDraft.actividad || ""}
+                              placeholder="Detalle"
+                              helperText={null}
+                              toolbar="compact"
+                              onChange={(html) =>
+                                setEventField(ev.id, "actividad", html)
+                              }
+                            />
                             <input
                               className="fimba-cell-input"
                               value={evDraft.observaciones}
@@ -2231,7 +2372,7 @@ export default function FimbaAgendaPage() {
                           </div>
                         ) : (
                           <>
-                            <FimbaEventDetallePreview html={ev.actividad} />
+                            <FimbaEventDetallePreview html={ev.actividad} clamp />
                             {ev.observaciones ? (
                               <span className="fimba-muted" style={{ display: "block", fontSize: "0.75rem", fontWeight: 400 }}>
                                 {ev.observaciones}
@@ -2412,10 +2553,7 @@ export default function FimbaAgendaPage() {
                           }}
                         />
                       </td>
-                      <td
-                        className="fimba-agenda-actions"
-                        style={{ textAlign: "right", paddingRight: "0.75rem", whiteSpace: "nowrap" }}
-                      >
+                      <td className="fimba-agenda-actions">
                         {!readOnly && rowEditing ? (
                           <>
                             <button
@@ -2452,88 +2590,29 @@ export default function FimbaAgendaPage() {
                             </button>
                           </>
                         ) : (
-                          <>
-                            {shouldShowAgendaBacklineIcon(
-                              ev,
-                              canSeeAgendaLogisticaConsulta,
-                            ) && (
-                              <button
-                                type="button"
-                                className="fimba-btn fimba-btn-ghost"
-                                onClick={() => setBacklineConsultaEvento(ev)}
-                                onDoubleClick={(e) => e.stopPropagation()}
-                                title="Ver Backline"
-                                aria-label="Ver Backline"
-                              >
-                                <IconLayers size={14} />
-                              </button>
-                            )}
-                            {shouldShowAgendaRiderIcon(
-                              ev,
-                              canSeeAgendaLogisticaConsulta,
-                            ) && (
-                              <button
-                                type="button"
-                                className="fimba-btn fimba-btn-ghost"
-                                style={{ marginLeft: 4 }}
-                                onClick={() => setRiderConsultaEvento(ev)}
-                                onDoubleClick={(e) => e.stopPropagation()}
-                                title="Ver Rider"
-                                aria-label="Ver Rider"
-                              >
-                                <IconFileText size={14} />
-                              </button>
-                            )}
-                            {!readOnly && (
-                              <>
-                                <button
-                                  type="button"
-                                  className="fimba-btn fimba-btn-ghost"
-                                  style={{ marginLeft: 4 }}
-                                  onClick={() => setModal({ mode: "edit", evento: ev })}
-                                  onDoubleClick={(e) => e.stopPropagation()}
-                                  title="Editar"
-                                >
-                                  <IconEdit size={14} />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="fimba-btn fimba-btn-ghost"
-                                  style={{ marginLeft: 4, color: "var(--fimba-cyan, #0e7490)" }}
-                                  onClick={() => openIntermediateEvent(ev)}
-                                  onDoubleClick={(e) => e.stopPropagation()}
-                                  title={
-                                    nextSameDayNeighbor(ev)
-                                      ? "Insertar evento intermedio (completa hasta→desde con el siguiente del día)"
-                                      : "Insertar evento después de este (desde = hora fin)"
-                                  }
-                                  aria-label="Insertar evento intermedio"
-                                >
-                                  <IconPlus size={14} />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="fimba-btn fimba-btn-ghost"
-                                  style={{ marginLeft: 4 }}
-                                  onClick={() => handleDuplicate(ev)}
-                                  onDoubleClick={(e) => e.stopPropagation()}
-                                  title="Duplicar"
-                                >
-                                  <IconCopy size={14} />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="fimba-btn fimba-btn-danger"
-                                  style={{ marginLeft: 4 }}
-                                  onClick={() => handleDelete(ev)}
-                                  onDoubleClick={(e) => e.stopPropagation()}
-                                  title="Eliminar"
-                                >
-                                  <IconTrash size={14} />
-                                </button>
-                              </>
-                            )}
-                          </>
+                          <FimbaAgendaCardMenu
+                            items={buildAgendaCardMenuItems({
+                              canEdit: !readOnly,
+                              onEdit: () =>
+                                setModal({ mode: "edit", evento: ev }),
+                              onInsertIntermediate: () =>
+                                openIntermediateEvent(ev),
+                              onDuplicate: () => handleDuplicate(ev),
+                              onDelete: () => handleDelete(ev),
+                              onBackline: shouldShowAgendaBacklineIcon(
+                                ev,
+                                canSeeAgendaLogisticaConsulta,
+                              )
+                                ? () => setBacklineConsultaEvento(ev)
+                                : null,
+                              onRider: shouldShowAgendaRiderIcon(
+                                ev,
+                                canSeeAgendaLogisticaConsulta,
+                              )
+                                ? () => setRiderConsultaEvento(ev)
+                                : null,
+                            })}
+                          />
                         )}
                       </td>
                     </tr>
@@ -2542,6 +2621,7 @@ export default function FimbaAgendaPage() {
                 })}
               </tbody>
             </table>
+          </div>
           </div>
         </div>
       )}

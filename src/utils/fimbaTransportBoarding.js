@@ -2547,7 +2547,8 @@ export function resolveStopArtistasLabels(ev, metrics, capacityFn) {
  * }} ctx
  */
 export function resolveOfrnRouteRuleLabel(rule, ctx = {}) {
-  const { passengers = [], localities = [], regions = [] } = ctx;
+  const { passengers = [], localities = [], regions = [], giraGrupos = [] } =
+    ctx;
   const scope = rule?.alcance;
   if (scope === "General") return "Todos";
   if (scope === "Persona") {
@@ -2577,6 +2578,12 @@ export function resolveOfrnRouteRuleLabel(rule, ctx = {}) {
     if (!raw) return "Categoría";
     const key = String(raw).toUpperCase();
     return OFRN_CATEGORIA_CHIP_LABELS[key] || String(raw);
+  }
+  if (scope === "Grupo") {
+    const raw = rule.target_ids?.[0];
+    if (!raw) return "Grupo";
+    const g = (giraGrupos || []).find((x) => String(x.id) === String(raw));
+    return g?.nombre || `Grupo #${raw}`;
   }
   return scope ? String(scope) : "Regla";
 }
@@ -2613,6 +2620,7 @@ export function summarizeOfrnStopRules(opts = {}) {
     passengers = [],
     localities = [],
     regions = [],
+    giraGrupos = [],
   } = opts;
   if (eventId == null || eventId === "" || transportId == null || transportId === "") {
     return [];
@@ -2625,7 +2633,7 @@ export function summarizeOfrnStopRules(opts = {}) {
     return false;
   });
 
-  const labelCtx = { passengers, localities, regions };
+  const labelCtx = { passengers, localities, regions, giraGrupos };
 
   return relevant.map((r) => {
     const scopeNorm = normalize(r.alcance);
@@ -2724,6 +2732,7 @@ export function resolveStopBoardAlightChips(opts = {}) {
     ofrnPassengers = [],
     ofrnLocalities = [],
     ofrnRegions = [],
+    giraGrupos = [],
     eventById = null,
     tipoById = null,
   } = opts;
@@ -2805,6 +2814,7 @@ export function resolveStopBoardAlightChips(opts = {}) {
     passengers: ofrnPassengers,
     localities: ofrnLocalities,
     regions: ofrnRegions,
+    giraGrupos,
   });
 
   if (ofrnRuleRows.length > 0) {

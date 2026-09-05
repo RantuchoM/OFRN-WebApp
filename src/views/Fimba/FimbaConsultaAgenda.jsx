@@ -36,7 +36,12 @@ import {
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import { stripHtml } from "../../utils/eventDisplayUtils";
+import { fimbaTipoRowTintStyle } from "../../utils/fimbaEventCategories";
 import { formatWeekdayFullLocal } from "../../utils/dates";
+import FimbaAgendaEventCard, {
+  FimbaAgendaDayDividerMobile,
+} from "./FimbaAgendaEventCard";
+import { buildAgendaCardMenuItems } from "./fimbaAgendaCardMenuItems";
 
 function sliceTime(t) {
   if (!t) return "—";
@@ -342,6 +347,63 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
         </div>
       ) : eventosOrdenados.length > 0 ? (
         <div className="fimba-card fimba-agenda-card">
+          <div className="fimba-agenda-mobile">
+            {eventosOrdenados.map((ev, idx) => {
+              const dayKey = String(ev.fecha || "").slice(0, 10);
+              const prevDayKey =
+                idx > 0
+                  ? String(eventosOrdenados[idx - 1]?.fecha || "").slice(0, 10)
+                  : "";
+              const showDayDivider =
+                idx === 0 || (dayKey && dayKey !== prevDayKey);
+              const isTx =
+                Boolean(ev.es_traslado) ||
+                (ev.vehiculos || []).length > 0 ||
+                ev.id_gira_transporte != null;
+              const veh = vehicleLabel(ev, flota);
+              const origen = formatAgendaOrigenLabel(ev, {
+                skipDestinoFallback: isTx,
+              });
+              const destino = resolveAgendaDestinoLabel(ev, sequencesByVehicle, {
+                isTransport: isTx,
+              });
+              const vuelo = ev.vuelo || "—";
+              const aboard = isTx
+                ? resolveEventAboardCount(ev, sequencesByVehicle, null)
+                : null;
+              const openEdit = () => setModal({ mode: "edit", evento: ev });
+              const menuItems = buildAgendaCardMenuItems({
+                canEdit: editable,
+                onDuplicate: () => handleDuplicate(ev),
+                onDelete: () => handleDelete(ev),
+              });
+              return (
+                <React.Fragment key={`m-${ev.id}`}>
+                  {showDayDivider ? (
+                    <FimbaAgendaDayDividerMobile
+                      fecha={dayKey}
+                      first={idx === 0}
+                    />
+                  ) : null}
+                  <FimbaAgendaEventCard
+                    ev={ev}
+                    origenLabel={origen}
+                    destinoLabel={destino}
+                    vueloLabel={vuelo}
+                    vehicleLabel={veh}
+                    aboardCount={aboard}
+                    showAboard={isTx}
+                    showOrigenBadges={Boolean(ev.es_fimba || ev.es_ofrn)}
+                    readOnly={!editable}
+                    onActivate={editable ? openEdit : null}
+                    onEdit={editable ? openEdit : null}
+                    menuItems={menuItems}
+                  />
+                </React.Fragment>
+              );
+            })}
+          </div>
+          <div className="fimba-agenda-desktop">
           <div className="fimba-agenda-scroll">
             <table className="fimba-table fimba-agenda-table">
               <thead>
@@ -350,7 +412,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                   <th>Hora com</th>
                   <th>Hora fin</th>
                   <th>Tipo</th>
-                  <th>Detalle</th>
+                  <th className="fimba-detalle-cell">Detalle</th>
                   <th>Origen</th>
                   <th>Destino</th>
                   <th>Vuelo</th>
@@ -381,9 +443,12 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                   const aboard = isTx
                     ? resolveEventAboardCount(ev, sequencesByVehicle, null)
                     : null;
+                  const tipoTint = fimbaTipoRowTintStyle(ev.tipo_color);
                   return (
                     <tr
                       key={ev.id}
+                      className={tipoTint ? "fimba-has-tipo-tint" : undefined}
+                      style={tipoTint}
                       onDoubleClick={
                         editable
                           ? (e) => {
@@ -420,8 +485,8 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                           {ev.tipo_nombre || "—"}
                         </span>
                       </td>
-                      <td style={{ fontWeight: 600, maxWidth: 220 }}>
-                        <FimbaEventDetallePreview html={ev.actividad} />
+                      <td className="fimba-detalle-cell" style={{ fontWeight: 600 }}>
+                        <FimbaEventDetallePreview html={ev.actividad} clamp />
                         {ev.observaciones ? (
                           <span
                             className="fimba-muted"
@@ -537,6 +602,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                 })}
               </tbody>
             </table>
+          </div>
           </div>
         </div>
       ) : null}

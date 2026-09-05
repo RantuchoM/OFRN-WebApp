@@ -4074,6 +4074,7 @@ export default function GirasTransportesManager({
           localities={localitiesList}
           passengers={passengerList}
           admissionRules={admissionRules}
+          giraGrupos={giraGrupos}
           onRefresh={refresh}
         />
       )}

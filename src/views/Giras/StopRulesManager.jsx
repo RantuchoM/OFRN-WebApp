@@ -35,6 +35,10 @@ import {
   alightAllOfrnAboardAtStop,
   alightOfrnPeopleAtStop,
 } from "../../services/fimbaService";
+import {
+  fetchGiraGrupos,
+  integranteIdsInGrupos,
+} from "../../services/giraGruposService";
 
 /** Opciones de categoría logística (valor guardado en reglas = `id`). */
 const CATEGORIA_LOGISTICA_OPTIONS = [
@@ -57,6 +61,8 @@ const getScopeLabel = (scope) => {
       return "Por Localidad";
     case "Categoria":
       return "Por Categoría";
+    case "Grupo":
+      return "Por Grupo";
     case "Persona":
       return "Individual";
     default:
@@ -145,6 +151,8 @@ export default function StopRulesManager({
   embedded = false,
   /** Secuencia del vehículo (para «a bordo» / Bajar todo). */
   sortedEvents = [],
+  /** Grupos de convocatoria `giras_grupos` (si no se pasan, se cargan por giraId). */
+  giraGrupos: giraGruposProp = null,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const [existingRules, setExistingRules] = useState([]);
@@ -161,6 +169,9 @@ export default function StopRulesManager({
   const [bajarTodoBusy, setBajarTodoBusy] = useState(false);
   const [quickAlightBusyId, setQuickAlightBusyId] = useState(null);
   const [choferBusyId, setChoferBusyId] = useState(null);
+  const [giraGrupos, setGiraGrupos] = useState(() =>
+    Array.isArray(giraGruposProp) ? giraGruposProp : [],
+  );
 
   const title = type === "up" ? "Gestionar Subidas" : "Gestionar Bajadas";
   const colorClass = type === "up" ? "text-emerald-700" : "text-rose-700";
@@ -175,6 +186,21 @@ export default function StopRulesManager({
       setRecentlyCreatedAdmissionKeys(new Set());
     }
   }, [isOpen, transportId, event?.id]);
+
+  useEffect(() => {
+    if (Array.isArray(giraGruposProp)) {
+      setGiraGrupos(giraGruposProp);
+      return;
+    }
+    if (!isOpen || !giraId || !supabase) return;
+    let cancelled = false;
+    fetchGiraGrupos(supabase, giraId).then(({ grupos }) => {
+      if (!cancelled) setGiraGrupos(grupos || []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, giraId, supabase, giraGruposProp]);
 
   useEffect(() => {
     if (isOpen && transportId) fetchAdmissions();
@@ -375,6 +401,8 @@ export default function StopRulesManager({
           return String(r.id_integrante) === String(currentId);
         if (newScope === "Categoria")
           return String((r.target_ids || [])[0]) === String(currentId);
+        if (newScope === "Grupo")
+          return String((r.target_ids || [])[0]) === String(currentId);
         return false;
       };
 
@@ -390,6 +418,65 @@ export default function StopRulesManager({
             String(r[fieldToUpdate]) === String(event.id),
         );
         if (alreadyHere) continue;
+
+        // Grupo: incluir miembros en admisión del bus (también al cerrar ride abierto)
+        if (newScope === "Grupo" && currentId) {
+          const memberIds = integranteIdsInGrupos(giraGrupos, [currentId]);
+          let rulesForAdmission = workingAdmissionRules;
+          for (const mid of memberIds) {
+            const idStr = String(mid);
+            const personRow = (passengers || []).find(
+              (p) => String(p.id) === idStr,
+            );
+            if (
+              personRow &&
+              isPersonVetoedFromTransport(
+                personRow,
+                transportId,
+                rulesForAdmission,
+                localities,
+              )
+            ) {
+              continue;
+            }
+            const alreadyOnBus =
+              admittedIds.has(idStr) ||
+              (personRow &&
+                isPersonAdmittedToTransport(
+                  personRow,
+                  transportId,
+                  rulesForAdmission,
+                  localities,
+                ));
+            if (alreadyOnBus) continue;
+            const { data: createdAdm, error: admError } = await supabase
+              .from("giras_logistica_admision")
+              .insert([
+                {
+                  id_gira: giraId,
+                  id_transporte_fisico: transportId,
+                  id_integrante: Number(mid),
+                  alcance: "Persona",
+                  prioridad: 5,
+                  tipo: "INCLUSION",
+                },
+              ])
+              .select("*")
+              .maybeSingle();
+            if (admError) {
+              console.error("Error en auto-inclusión de grupo:", admError.message);
+            } else if (createdAdm) {
+              rulesForAdmission = [...rulesForAdmission, createdAdm];
+              workingAdmissionRules = rulesForAdmission;
+              setTransportAdmissionRules(workingAdmissionRules);
+              setAdmittedIds((prev) => {
+                const next = new Set(prev);
+                next.add(idStr);
+                return next;
+              });
+            }
+          }
+        }
 
         // 2) Ride abierto / huérfano: mismo alcance+objetivo, este extremo vacío
         //    → UPDATE (cierra el ride). Evita insertar bajada-only que a veces
@@ -566,7 +653,7 @@ export default function StopRulesManager({
         let priority = 1;
         if (newScope === "Region") priority = 2;
         if (newScope === "Localidad") priority = 3;
-        if (newScope === "Categoria") priority = 4;
+        if (newScope === "Categoria" || newScope === "Grupo") priority = 4;
         if (newScope === "Persona") priority = 5;
 
         const payload = {
@@ -579,7 +666,10 @@ export default function StopRulesManager({
           id_region: newScope === "Region" ? currentId : null,
           id_localidad: newScope === "Localidad" ? currentId : null,
           id_integrante: newScope === "Persona" ? currentId : null,
-          target_ids: newScope === "Categoria" && currentId ? [currentId] : [],
+          target_ids:
+            (newScope === "Categoria" || newScope === "Grupo") && currentId
+              ? [String(currentId)]
+              : [],
           es_chofer:
             type === "up" && newScope === "Persona" ? Boolean(esChofer) : false,
         };
@@ -864,6 +954,13 @@ export default function StopRulesManager({
       return opt ? opt.label : raw;
     }
 
+    if (rule.alcance === "Grupo") {
+      const raw = rule.target_ids?.[0];
+      if (!raw) return "Grupo";
+      const g = (giraGrupos || []).find((x) => String(x.id) === String(raw));
+      return g?.nombre || `Grupo #${raw}`;
+    }
+
     return "-";
   };
 
@@ -873,6 +970,7 @@ export default function StopRulesManager({
       case "Persona":
         return 5;
       case "Categoria":
+      case "Grupo":
         return 4;
       case "Localidad":
         return 3;
@@ -946,6 +1044,15 @@ export default function StopRulesManager({
         return (
           normalize(getCategoriaLogistica(p)) ===
           normalize(rule.target_ids[0])
+        );
+      }
+
+      if (rule.alcance === "Grupo" && (rule.target_ids || []).length > 0) {
+        const want = new Set((rule.target_ids || []).map(String));
+        const fromPerson = (p.grupo_ids || []).map(String);
+        if (fromPerson.some((gid) => want.has(gid))) return true;
+        return integranteIdsInGrupos(giraGrupos, [...want]).includes(
+          String(p.id),
         );
       }
 
@@ -1042,7 +1149,7 @@ export default function StopRulesManager({
     });
 
     return groups;
-  }, [existingRules, regions, localities, passengers]);
+  }, [existingRules, regions, localities, passengers, giraGrupos]);
 
   const regionOptions = useMemo(
     () =>
@@ -1063,6 +1170,18 @@ export default function StopRulesManager({
   );
 
   const categoryOptions = useMemo(() => CATEGORIA_LOGISTICA_OPTIONS, []);
+
+  const grupoOptions = useMemo(
+    () =>
+      (giraGrupos || []).map((g) => {
+        const n = (g.giras_grupos_integrantes || []).length;
+        return {
+          id: String(g.id),
+          label: n > 0 ? `${g.nombre} (${n})` : g.nombre || `Grupo #${g.id}`,
+        };
+      }),
+    [giraGrupos],
+  );
 
   const personOptions = useMemo(() => {
     const list = (passengers || []).slice();
@@ -1804,6 +1923,7 @@ export default function StopRulesManager({
                   <option value="Region">Región</option>
                   <option value="Localidad">Localidad</option>
                   <option value="Categoria">Categoría</option>
+                  <option value="Grupo">Grupo</option>
                   <option value="Persona">Persona</option>
                 </select>
               </div>
@@ -1839,6 +1959,21 @@ export default function StopRulesManager({
                     placeholder="Seleccionar categorías..."
                     isMulti
                   />
+                ) : newScope === "Grupo" ? (
+                  giraGrupos.length === 0 ? (
+                    <div className="text-xs text-amber-700 italic p-2 bg-amber-50 border border-amber-200 rounded">
+                      No hay grupos de convocatoria en esta gira. Creálos en
+                      Roster → Grupos.
+                    </div>
+                  ) : (
+                    <SearchableSelect
+                      options={grupoOptions}
+                      value={targetIds}
+                      onChange={setTargetIds}
+                      placeholder="Seleccionar grupos..."
+                      isMulti
+                    />
+                  )
                 ) : (
                   <div
                     className={`w-full text-xs rounded ${

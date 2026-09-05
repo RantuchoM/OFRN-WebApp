@@ -11,6 +11,8 @@ import {
   fetchGiraGrupos,
   setEventoGrupos,
   eventGrupoIdsFromEvent,
+  enrichRosterWithGrupoIds,
+  integranteIdsInGrupos,
 } from "./giraGruposService";
 import { resolveGiraRosterForMatrix } from "./giraService";
 import { fetchRosterForGira } from "../hooks/useGiraRoster";
@@ -4962,6 +4964,7 @@ export async function loadFimbaTransportLogisticsSummary(giraId) {
       regionsRes,
       eventsRes,
       segmentBundle,
+      gruposPack,
     ] = await Promise.all([
       fetchRosterForGira(supabase, gira),
       supabase.from("giras_logistica_admision").select("*").eq("id_gira", id),
@@ -4990,6 +4993,7 @@ export async function loadFimbaTransportLogisticsSummary(giraId) {
         segments: [],
         cortesCount: 0,
       })),
+      fetchGiraGrupos(supabase, id).catch(() => ({ grupos: [], error: null })),
     ]);
 
     const emptyPack = (error) => ({
@@ -4999,6 +5003,7 @@ export async function loadFimbaTransportLogisticsSummary(giraId) {
       localities: [],
       regions: [],
       routeRules: [],
+      giraGrupos: [],
       error,
     });
 
@@ -5009,8 +5014,9 @@ export async function loadFimbaTransportLogisticsSummary(giraId) {
     if (eventsRes.error) return emptyPack(eventsRes.error);
 
     // Sin ausentes (mismo filtro maestro de logística OFRN)
-    const roster = (rosterPack?.roster || []).filter(
-      (p) => p?.estado_gira !== "ausente",
+    const roster = enrichRosterWithGrupoIds(
+      (rosterPack?.roster || []).filter((p) => p?.estado_gira !== "ausente"),
+      gruposPack?.grupos || [],
     );
 
     const summary = calculateLogisticsSummary(
@@ -5033,6 +5039,7 @@ export async function loadFimbaTransportLogisticsSummary(giraId) {
       regions: regionsRes.error ? [] : regionsRes.data || [],
       /** Reglas `giras_logistica_rutas` (chips Subidas/Bajadas Orquesta en planilla). */
       routeRules: routeRes.data || [],
+      giraGrupos: gruposPack?.grupos || [],
       error: null,
     };
   } catch (err) {
@@ -5044,9 +5051,142 @@ export async function loadFimbaTransportLogisticsSummary(giraId) {
       localities: [],
       regions: [],
       routeRules: [],
+      giraGrupos: [],
       error: err instanceof Error ? err : new Error(String(err?.message || err)),
     };
   }
+}
+
+/**
+ * Subida/bajada OFRN por **grupo** (`giras_grupos`) en `giras_logistica_rutas`.
+ * Alcance `Grupo`, `target_ids = [id_grupo]` (text[]). Misma semántica que
+ * StopRulesManager: UPDATE de ride abierto o INSERT. Opcionalmente incluye
+ * a los miembros en admisión Persona del vehículo.
+ *
+ * @param {{
+ *   id_gira: number|string,
+ *   id_transporte_fisico: number|string,
+ *   id_grupo: number|string,
+ *   id_evento: number|string,
+ *   type: 'up'|'down',
+ *   ensureAdmission?: boolean,
+ *   giraGrupos?: Array<object>,
+ * }} payload
+ * @returns {Promise<{ data: object|null, error: Error|null }>}
+ */
+export async function upsertOfrnGrupoRutaStop(payload) {
+  const idGira = Number(payload?.id_gira);
+  const idGt = Number(payload?.id_transporte_fisico);
+  const idGrupo = Number(payload?.id_grupo);
+  const idEvento = Number(payload?.id_evento);
+  const type = payload?.type === "down" ? "down" : "up";
+  const field = type === "up" ? "id_evento_subida" : "id_evento_bajada";
+  const grupoKey = String(idGrupo);
+
+  if (
+    !Number.isFinite(idGira) ||
+    !Number.isFinite(idGt) ||
+    !Number.isFinite(idGrupo) ||
+    !Number.isFinite(idEvento)
+  ) {
+    return {
+      data: null,
+      error: new Error("Datos incompletos para regla de grupo OFRN"),
+    };
+  }
+
+  const { data: existingAll, error: fetchErr } = await supabase
+    .from("giras_logistica_rutas")
+    .select("*")
+    .eq("id_gira", idGira)
+    .eq("id_transporte_fisico", idGt)
+    .eq("alcance", "Grupo");
+  if (fetchErr) return { data: null, error: fetchErr };
+
+  const sameGrupo = (r) =>
+    String((r.target_ids || [])[0] ?? "") === grupoKey;
+
+  const alreadyHere = (existingAll || []).find(
+    (r) =>
+      sameGrupo(r) &&
+      r[field] != null &&
+      String(r[field]) === String(idEvento),
+  );
+  if (alreadyHere) {
+    return { data: alreadyHere, error: null };
+  }
+
+  const openRide = (existingAll || []).find(
+    (r) => sameGrupo(r) && (r[field] == null || r[field] === ""),
+  );
+
+  let row = null;
+  if (openRide) {
+    const { data, error } = await supabase
+      .from("giras_logistica_rutas")
+      .update({ [field]: idEvento })
+      .eq("id", openRide.id)
+      .select("*")
+      .maybeSingle();
+    if (error) return { data: null, error };
+    row = data;
+  } else {
+    const { data, error } = await supabase
+      .from("giras_logistica_rutas")
+      .insert([
+        {
+          id_gira: idGira,
+          id_transporte_fisico: idGt,
+          alcance: "Grupo",
+          prioridad: 4,
+          id_evento_subida: type === "up" ? idEvento : null,
+          id_evento_bajada: type === "down" ? idEvento : null,
+          id_region: null,
+          id_localidad: null,
+          id_integrante: null,
+          target_ids: [grupoKey],
+          es_chofer: false,
+        },
+      ])
+      .select("*")
+      .maybeSingle();
+    if (error) return { data: null, error };
+    row = data;
+  }
+
+  if (payload?.ensureAdmission !== false && Array.isArray(payload?.giraGrupos)) {
+    const memberIds = integranteIdsInGrupos(payload.giraGrupos, [idGrupo]);
+    if (memberIds.length > 0) {
+      const { data: admRows } = await supabase
+        .from("giras_logistica_admision")
+        .select("id_integrante")
+        .eq("id_gira", idGira)
+        .eq("id_transporte_fisico", idGt)
+        .in(
+          "id_integrante",
+          memberIds.map((id) => Number(id)).filter((n) => Number.isFinite(n)),
+        );
+      const already = new Set(
+        (admRows || []).map((r) => String(r.id_integrante)),
+      );
+      const toInsert = memberIds
+        .filter((id) => !already.has(String(id)))
+        .map((id) => ({
+          id_gira: idGira,
+          id_transporte_fisico: idGt,
+          id_integrante: Number(id),
+          alcance: "Persona",
+          prioridad: 5,
+          tipo: "INCLUSION",
+        }))
+        .filter((r) => Number.isFinite(r.id_integrante));
+      if (toInsert.length > 0) {
+        await supabase.from("giras_logistica_admision").insert(toInsert);
+      }
+    }
+  }
+
+  return { data: row, error: null };
 }
 
 // ---------------------------------------------------------------------------

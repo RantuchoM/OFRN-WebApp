@@ -668,6 +668,43 @@ const categoryMatches = (
   return false;
 };
 
+/**
+ * IDs de `giras_grupos` a los que pertenece la persona.
+ * Fuente: `person.grupo_ids` (enriquecido en logistics) o `options.integranteGrupoIds`.
+ * @param {object} person
+ * @param {{ integranteGrupoIds?: Map<string, string[]> } } [options]
+ * @returns {string[]}
+ */
+export const resolvePersonGrupoIds = (person, options = {}) => {
+  if (!person) return [];
+  if (Array.isArray(person.grupo_ids) && person.grupo_ids.length > 0) {
+    return person.grupo_ids.map(String);
+  }
+  if (Array.isArray(person.gira_grupo_ids) && person.gira_grupo_ids.length > 0) {
+    return person.gira_grupo_ids.map(String);
+  }
+  const map = options.integranteGrupoIds;
+  if (map instanceof Map) {
+    const id = String(person.id ?? person.id_integrante ?? "");
+    const ids = map.get(id);
+    if (Array.isArray(ids)) return ids.map(String);
+  }
+  return [];
+};
+
+/** ¿La persona pertenece a algún grupo listado en `rule.target_ids`? */
+export const personMatchesGrupoRule = (rule, person, options = {}) => {
+  if (!rule || !person) return false;
+  const ruleGids = (rule.target_ids || [])
+    .map(String)
+    .filter((id) => id !== "");
+  if (ruleGids.length === 0) return false;
+  const pGids = resolvePersonGrupoIds(person, options);
+  if (pGids.length === 0) return false;
+  const set = new Set(ruleGids);
+  return pGids.some((gid) => set.has(gid));
+};
+
 /** Fuerza del match para ordenar reglas. Si estado_gira === 'ausente', siempre 0. */
 export const getMatchStrength = (
   rule,
@@ -684,18 +721,20 @@ export const getMatchStrength = (
   const pId = String(person.id ?? person.id_integrante);
   const { pLoc, pReg } = resolvePersonTerritoryIds(person, rule, allLocalities);
   const pCat = getCategoriaLogistica(person);
+  const scopeNorm = normalize(rule.alcance);
 
   // target_ids en alcance Persona = id integrante; en Categoria = nombre de categoría
-  // logística (SOLISTAS, …). No confundir ambos.
+  // logística (SOLISTAS, …); en Grupo = id de giras_grupos. No confundir.
   if (
-    normalize(rule.alcance) === "persona" &&
+    scopeNorm === "persona" &&
     ((rule.target_ids || []).map(String).includes(pId) ||
       String(rule.id_integrante) === pId)
   )
     return 5;
   if (
-    normalize(rule.alcance) !== "categoria" &&
-    normalize(rule.alcance) !== "instrumento" &&
+    scopeNorm !== "categoria" &&
+    scopeNorm !== "instrumento" &&
+    scopeNorm !== "grupo" &&
     (rule.target_ids || []).map(String).includes(pId)
   )
     return 5;
@@ -706,10 +745,7 @@ export const getMatchStrength = (
     )
   )
     return 4;
-  if (
-    normalize(rule.alcance) === "categoria" ||
-    normalize(rule.alcance) === "instrumento"
-  ) {
+  if (scopeNorm === "categoria" || scopeNorm === "instrumento") {
     if (
       rule.instrumento_familia &&
       normalize(rule.instrumento_familia) ===
@@ -726,6 +762,11 @@ export const getMatchStrength = (
       )
     )
       return 4;
+  }
+
+  // Grupo OFRN (`giras_grupos`): misma fuerza que Categoría (nivel 4).
+  if (scopeNorm === "grupo") {
+    return personMatchesGrupoRule(rule, person, options) ? 4 : 0;
   }
 
   if ((rule.target_localities || []).map(String).includes(pLoc)) return 3;
@@ -861,6 +902,7 @@ export const matchesRule = (
   } else if (
     scope !== "categoria" &&
     scope !== "instrumento" &&
+    scope !== "grupo" &&
     (rule.target_ids || []).map(String).includes(pId)
   ) {
     return true;
@@ -878,6 +920,9 @@ export const matchesRule = (
   if (scope === "general") return true;
   if (scope === "region" && String(rule.id_region) === pReg) return true;
   if (scope === "localidad" && String(rule.id_localidad) === pLoc) return true;
+  if (scope === "grupo") {
+    return personMatchesGrupoRule(rule, person, options);
+  }
   if (scope === "categoria" || scope === "instrumento") {
     if (
       rule.instrumento_familia &&

@@ -48,9 +48,7 @@ import {
 import { supabase } from "../../services/supabase";
 import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import StopRulesManager from "../Giras/StopRulesManager";
-import FimbaEventDetalleEditor, {
-  isFimbaDetalleEmpty,
-} from "./FimbaEventDetalleField";
+import { isFimbaDetalleEmpty } from "./FimbaEventDetalleField";
 import FimbaEventoArtistasBoardingTable from "./FimbaEventoArtistasBoardingTable";
 import FimbaRichTextEditor from "./FimbaRichTextEditor";
 import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
@@ -183,6 +181,7 @@ function FimbaEventoOfrnBoardingSection({
   ofrnRegions = [],
   ofrnLocalities = [],
   ofrnRouteRules = [],
+  giraGrupos = [],
   sequencesByVehicle = null,
   ofrnBoardPanel,
   setOfrnBoardPanel,
@@ -225,6 +224,7 @@ function FimbaEventoOfrnBoardingSection({
         passengers: ofrnPassengers,
         localities: ofrnLocalities,
         regions: ofrnRegions,
+        giraGrupos,
       }),
     [
       evento?.id,
@@ -234,6 +234,7 @@ function FimbaEventoOfrnBoardingSection({
       ofrnPassengers,
       ofrnLocalities,
       ofrnRegions,
+      giraGrupos,
     ],
   );
 
@@ -247,6 +248,7 @@ function FimbaEventoOfrnBoardingSection({
         passengers: ofrnPassengers,
         localities: ofrnLocalities,
         regions: ofrnRegions,
+        giraGrupos,
       }),
     [
       evento?.id,
@@ -256,6 +258,7 @@ function FimbaEventoOfrnBoardingSection({
       ofrnPassengers,
       ofrnLocalities,
       ofrnRegions,
+      giraGrupos,
     ],
   );
 
@@ -430,6 +433,7 @@ function FimbaEventoOfrnBoardingSection({
             localities={ofrnLocalities}
             passengers={ofrnPassengers}
             admissionRules={ofrnAdmissionRules}
+            giraGrupos={giraGrupos}
             sortedEvents={
               (sequencesByVehicle?.get?.(Number(ofrnBoardVehicleId)) ||
                 sequencesByVehicle?.get?.(String(ofrnBoardVehicleId)))
@@ -1950,11 +1954,22 @@ export default function FimbaEventoFormModal({
             </div>
           ) : null}
           <div className="fimba-field">
-            <FimbaEventDetalleEditor
+            <label className="fimba-label">Detalle</label>
+            <FimbaRichTextEditor
               value={actividad}
               onChange={setActividad}
               placeholder="Ej. Check-in hotel / Show noche 1"
+              toolbar="compact"
+              helperText={null}
             />
+            <p
+              className="fimba-muted"
+              style={{ margin: "0.25rem 0 0", fontSize: "0.72rem" }}
+            >
+              Texto enriquecido (listas, negrita, links). Se guarda en{" "}
+              <code style={{ fontSize: "0.68rem" }}>eventos.descripcion</code>{" "}
+              (mismo campo que OFRN).
+            </p>
           </div>
           <div className="fimba-field">
             <label className="fimba-label">Vuelo / nota (opc.)</label>
@@ -2067,6 +2082,7 @@ export default function FimbaEventoFormModal({
                 ofrnRegions={ofrnRegions}
                 ofrnLocalities={ofrnLocalities}
                 ofrnRouteRules={ofrnRouteRules}
+                giraGrupos={giraGrupos}
                 sequencesByVehicle={sequencesByVehicle}
                 ofrnBoardPanel={ofrnBoardPanel}
                 setOfrnBoardPanel={setOfrnBoardPanel}

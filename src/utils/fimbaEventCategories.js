@@ -3,6 +3,25 @@
  * Fuente de verdad = tabla de categorías; tipos y filas de agenda solo rellenan huecos.
  */
 
+/**
+ * Alpha hex (~8%) for Agenda row/card wash from `tipos_evento.color`.
+ * Tipo chips use `22` (~13%); row tint stays lighter so text/chips stay readable.
+ * Works with FIMBA light tokens + html.dark invert (same as chip `${color}22`).
+ */
+export const FIMBA_TIPO_ROW_TINT_ALPHA = "14";
+
+/**
+ * Very light background wash matching the tipo/categoría chip color.
+ * @param {string|null|undefined} tipoColor — `ev.tipo_color` / `tipos_evento.color`
+ * @returns {{ background: string } | undefined}
+ */
+export function fimbaTipoRowTintStyle(tipoColor) {
+  const c = tipoColor != null ? String(tipoColor).trim() : "";
+  if (!c) return undefined;
+  // `background` (not backgroundColor) so inline overrides origen card washes
+  return { background: `${c}${FIMBA_TIPO_ROW_TINT_ALPHA}` };
+}
+
 function sortCategoriasByNombre(list) {
   return [...list].sort((a, b) =>
     a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }),

@@ -12,38 +12,41 @@ tryUnlockScreenOrientation()
 window.addEventListener('load', tryUnlockScreenOrientation, { once: true })
 
 // Recupera cuando un chunk hashado ya no existe tras deploy (con tope anti-bucle).
+// En DEV el HMR puede invalidar módulos; no forzar hard reload.
 const PRELOAD_RELOAD_KEY = 'ofrn:preload-reload'
-window.addEventListener('vite:preloadError', (event) => {
-  event.preventDefault()
-  try {
-    const count = Number(sessionStorage.getItem(PRELOAD_RELOAD_KEY) || 0)
-    if (count >= 2) {
-      sessionStorage.removeItem(PRELOAD_RELOAD_KEY)
-      console.warn('[PWA] Preload error repetido; no se recarga de nuevo.')
-      return
+if (!import.meta.env.DEV) {
+  window.addEventListener('vite:preloadError', (event) => {
+    event.preventDefault()
+    try {
+      const count = Number(sessionStorage.getItem(PRELOAD_RELOAD_KEY) || 0)
+      if (count >= 2) {
+        sessionStorage.removeItem(PRELOAD_RELOAD_KEY)
+        console.warn('[PWA] Preload error repetido; no se recarga de nuevo.')
+        return
+      }
+      sessionStorage.setItem(PRELOAD_RELOAD_KEY, String(count + 1))
+    } catch {
+      /* ignore */
     }
-    sessionStorage.setItem(PRELOAD_RELOAD_KEY, String(count + 1))
-  } catch {
-    /* ignore */
-  }
-  // Mensaje breve antes del reload forzado (chunks viejos tras deploy).
-  try {
-    let el = document.getElementById('ofrn-preload-reload-msg')
-    if (!el) {
-      el = document.createElement('div')
-      el.id = 'ofrn-preload-reload-msg'
-      el.setAttribute('role', 'status')
-      el.style.cssText =
-        'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.45);padding:1.5rem;font-family:system-ui,sans-serif'
-      el.innerHTML =
-        '<div style="background:#fff;border:2px solid #4f46e5;border-radius:1rem;padding:1.5rem 1.75rem;max-width:20rem;text-align:center;font-size:.875rem;font-weight:700;color:#1e293b;line-height:1.35">Hay una versión nueva. Recargando para continuar…</div>'
-      document.body?.appendChild(el)
+    // Mensaje breve antes del reload forzado (chunks viejos tras deploy).
+    try {
+      let el = document.getElementById('ofrn-preload-reload-msg')
+      if (!el) {
+        el = document.createElement('div')
+        el.id = 'ofrn-preload-reload-msg'
+        el.setAttribute('role', 'status')
+        el.style.cssText =
+          'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.45);padding:1.5rem;font-family:system-ui,sans-serif'
+        el.innerHTML =
+          '<div style="background:#fff;border:2px solid #4f46e5;border-radius:1rem;padding:1.5rem 1.75rem;max-width:20rem;text-align:center;font-size:.875rem;font-weight:700;color:#1e293b;line-height:1.35">Hay una versión nueva. Recargando para continuar…</div>'
+        document.body?.appendChild(el)
+      }
+    } catch {
+      /* ignore */
     }
-  } catch {
-    /* ignore */
-  }
-  window.location.reload()
-})
+    window.location.reload()
+  })
+}
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <BrowserRouter>

@@ -78,6 +78,70 @@ export function getEffectiveGrupoIdsForIntegrante(grupos, integranteId, isAusent
   return set;
 }
 
+/**
+ * Mapa integranteId (string) → ids de grupo (string[]) para matching de
+ * reglas `giras_logistica_rutas` con alcance Grupo.
+ * @param {Array} grupos
+ * @returns {Map<string, string[]>}
+ */
+export function buildIntegranteGrupoIdsMap(grupos) {
+  const map = new Map();
+  for (const g of grupos || []) {
+    const gid = String(g?.id ?? "");
+    if (!gid) continue;
+    for (const row of g.giras_grupos_integrantes || []) {
+      if (row?.id_integrante == null || row.id_integrante === "") continue;
+      const id = String(row.id_integrante);
+      if (!map.has(id)) map.set(id, []);
+      map.get(id).push(gid);
+    }
+  }
+  return map;
+}
+
+/**
+ * Adjunta `grupo_ids: string[]` a cada fila del roster (para matchesRule).
+ * @param {Array<object>} roster
+ * @param {Array} giraGrupos
+ * @returns {Array<object>}
+ */
+export function enrichRosterWithGrupoIds(roster, giraGrupos) {
+  if (!Array.isArray(roster) || roster.length === 0) return roster || [];
+  const map = buildIntegranteGrupoIdsMap(giraGrupos);
+  if (map.size === 0) {
+    return roster.map((p) =>
+      Array.isArray(p?.grupo_ids) ? p : { ...p, grupo_ids: [] },
+    );
+  }
+  return roster.map((p) => {
+    const id = String(p?.id ?? p?.id_integrante ?? "");
+    return { ...p, grupo_ids: map.get(id) || [] };
+  });
+}
+
+/**
+ * IDs de integrantes (string) miembros de los grupos indicados.
+ * @param {Array} giraGrupos
+ * @param {Array<number|string>} grupoIds
+ * @returns {string[]}
+ */
+export function integranteIdsInGrupos(giraGrupos, grupoIds) {
+  const want = new Set(
+    (grupoIds || []).map(String).filter((id) => id !== ""),
+  );
+  if (want.size === 0) return [];
+  const out = new Set();
+  for (const g of giraGrupos || []) {
+    if (!want.has(String(g?.id))) continue;
+    for (const row of g.giras_grupos_integrantes || []) {
+      if (row?.id_integrante != null && row.id_integrante !== "") {
+        out.add(String(row.id_integrante));
+      }
+    }
+  }
+  return [...out];
+}
+
 export async function createGiraGrupo(supabase, { idGira, nombre, color, orden = 0 }) {
   const { data, error } = await supabase
     .from("giras_grupos")

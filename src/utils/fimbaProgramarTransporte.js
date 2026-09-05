@@ -1,14 +1,15 @@
 /**
  * «Programar transporte»: ranking de vehículos + creación de par de paradas
- * (desde / hasta) con boarding FIMBA o tag OFRN + reserva.
+ * (desde / hasta) con boarding FIMBA o regla OFRN de grupo.
  */
 
 import {
   capacidadGiraTransporte,
   labelGiraTransporte,
   saveFimbaEvento,
-  setFimbaEventoTransportes,
   upsertFimbaPropuestaRutaStop,
+  upsertOfrnGrupoRutaStop,
+  listFimbaGiraGrupos,
 } from "../services/fimbaService";
 import { eventTypeIdForCategoria } from "./giraTransportUtils";
 import {
@@ -290,8 +291,8 @@ export function rankVehiclesForProgrammedTrip(opts = {}) {
  *
  * - Artista FIMBA: `fimba_propuesta_rutas` ↑ en desde, ↓ en hasta (cantidad).
  * - Grupo OFRN: tag `audiencia_ofrn=grupos` + `eventos_grupos` en ambas;
- *   reserva técnica (`plazas`) = cantidad en la asignación del vehículo
- *   (el modelo OFRN no tiene «grupo + N plazas» como FIMBA; se refina en Subidas).
+ *   regla `giras_logistica_rutas` alcance **Grupo** (↑ desde / ↓ hasta) —
+ *   sube/baja a todos los miembros del grupo (no reserva técnica anónima).
  *
  * @param {{
  *   idGira: number|string,
@@ -309,6 +310,7 @@ export function rankVehiclesForProgrammedTrip(opts = {}) {
  *     cantidad: number,
  *     label?: string,
  *   },
+ *   giraGrupos?: Array<object>,
  * }} params
  */
 export async function createProgrammedTransportJourney(params) {
@@ -323,6 +325,7 @@ export async function createProgrammedTransportJourney(params) {
     horaLlegada,
     idLocLlegada,
     passenger,
+    giraGrupos: giraGruposParam,
   } = params;
 
   if (!idGira) {
@@ -388,7 +391,7 @@ export async function createProgrammedTransportJourney(params) {
   const commonVeh = [
     {
       id_gira_transporte: Number(vehicleId),
-      plazas: kind === "grupo" ? cantidad : 0,
+      plazas: 0,
     },
   ];
   const commonBase = {
@@ -492,16 +495,44 @@ export async function createProgrammedTransportJourney(params) {
       };
     }
   } else {
-    // Asegurar reserva en desde (save ya la puso; reafirma por si hubo merge).
-    const { error: ePlazas } = await setFimbaEventoTransportes(desde.id, [
-      { id_gira_transporte: Number(vehicleId), plazas: cantidad },
-    ]);
-    if (ePlazas) {
+    let giraGrupos = Array.isArray(giraGruposParam) ? giraGruposParam : null;
+    if (!giraGrupos) {
+      const { grupos } = await listFimbaGiraGrupos(idGira);
+      giraGrupos = grupos || [];
+    }
+    const up = await upsertOfrnGrupoRutaStop({
+      id_gira: idGira,
+      id_transporte_fisico: Number(vehicleId),
+      id_grupo: paxId,
+      id_evento: desde.id,
+      type: "up",
+      giraGrupos,
+      ensureAdmission: true,
+    });
+    if (up.error) {
       return {
         desde,
         hasta,
         error: new Error(
-          `Paradas creadas; no se pudo fijar reserva técnica: ${ePlazas.message}`,
+          `Paradas creadas, pero falló la subida del grupo: ${up.error.message}`,
+        ),
+      };
+    }
+    const down = await upsertOfrnGrupoRutaStop({
+      id_gira: idGira,
+      id_transporte_fisico: Number(vehicleId),
+      id_grupo: paxId,
+      id_evento: hasta.id,
+      type: "down",
+      giraGrupos,
+      ensureAdmission: true,
+    });
+    if (down.error) {
+      return {
+        desde,
+        hasta,
+        error: new Error(
+          `Paradas + subida OK, pero falló la bajada del grupo: ${down.error.message}`,
         ),
       };
     }

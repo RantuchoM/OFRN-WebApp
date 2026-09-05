@@ -2,11 +2,15 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import {
   IconArrowLeft,
+  IconCheck,
   IconChevronDown,
   IconChevronRight,
+  IconEdit,
   IconFileText,
   IconLoader,
   IconPrinter,
+  IconSearch,
+  IconX,
 } from "../../components/ui/Icons";
 import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import {
@@ -17,8 +21,10 @@ import {
 import {
   isFimbaRiderEmpty,
   normalizeFimbaRiderHtml,
+  sanitizeFimbaRiderHtml,
 } from "../../utils/fimbaRider";
 import { printFimbaRiders } from "../../utils/fimbaReports";
+import { normalizeForSearch } from "../../utils/sanitize";
 import FimbaRichTextEditor from "./FimbaRichTextEditor";
 
 const DEBOUNCE_MS = 500;
@@ -46,7 +52,8 @@ function riderKey(id) {
 
 /**
  * Pestaña Rider: consolida riders de todos los artistas de la edición.
- * Edición: `canEditPropuestaMeta`. Consulta FIMBA: RO + PDF. Token `/c` y tokens artista: sin tab.
+ * Vista: HTML sanitizado. Edición: lápiz (`IconEdit`) → Quill + autosave (`canEditPropuestaMeta`).
+ * Consulta FIMBA: RO + PDF. Token `/c` y tokens artista: sin tab.
  */
 export default function FimbaRiderPage() {
   const { edicionId } = useParams();
@@ -57,10 +64,13 @@ export default function FimbaRiderPage() {
   const [propuestas, setPropuestas] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [open, setOpen] = useState({});
+  /** Por artista: true = Quill; false/ausente = preview sanitizado. */
+  const [editing, setEditing] = useState({});
   const [status, setStatus] = useState({});
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
@@ -107,6 +117,7 @@ export default function FimbaRiderPage() {
       setPropuestas(rows);
       setDrafts(nextDrafts);
       setOpen(nextOpen);
+      setEditing({});
       savedRef.current = nextSaved;
       setStatus({});
       setErrors({});
@@ -228,10 +239,29 @@ export default function FimbaRiderPage() {
     setOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const startEdit = (key) => {
+    if (!canEdit) return;
+    setOpen((prev) => ({ ...prev, [key]: true }));
+    setEditing((prev) => ({ ...prev, [key]: true }));
+  };
+
+  const stopEdit = (key, propuestaId) => {
+    flushSave(key, propuestaId);
+    setEditing((prev) => ({ ...prev, [key]: false }));
+  };
+
   const withRiderCount = useMemo(
     () => propuestas.filter((p) => !isFimbaRiderEmpty(drafts[riderKey(p.id)] ?? p.rider)).length,
     [propuestas, drafts],
   );
+
+  const filteredPropuestas = useMemo(() => {
+    const q = normalizeForSearch(searchQuery);
+    if (!q) return propuestas;
+    return propuestas.filter((p) => normalizeForSearch(p.nombre).includes(q));
+  }, [propuestas, searchQuery]);
+
+  const searchActive = Boolean(normalizeForSearch(searchQuery));
 
   const handlePrint = () => {
     const rows = propuestas.map((p) => ({
@@ -324,10 +354,83 @@ export default function FimbaRiderPage() {
       {!propuestas.length ? (
         <div className="fimba-card fimba-muted">No hay artistas en esta edición.</div>
       ) : (
+        <>
+          <div
+            style={{
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              marginBottom: 12,
+              maxWidth: "22rem",
+              border: `1px solid ${searchActive ? "var(--fimba-accent, #d73289)" : "var(--fimba-border, #e2e8f0)"}`,
+              borderRadius: 999,
+              background: "var(--fimba-surface, #fff)",
+              boxShadow: searchActive
+                ? "0 0 0 1px rgba(215, 50, 137, 0.22)"
+                : "0 1px 2px rgba(15, 23, 42, 0.04)",
+            }}
+          >
+            <span
+              className="fimba-muted"
+              style={{
+                position: "absolute",
+                left: 10,
+                pointerEvents: "none",
+                display: "flex",
+                alignItems: "center",
+              }}
+              aria-hidden
+            >
+              <IconSearch size={14} />
+            </span>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar artista…"
+              title="Filtrar por nombre de artista o grupo"
+              aria-label="Buscar artista"
+              className="fimba-input"
+              style={{
+                width: "100%",
+                border: 0,
+                borderRadius: 999,
+                background: "transparent",
+                padding: "0.45rem 2rem 0.45rem 2rem",
+                fontSize: "0.82rem",
+                fontWeight: 500,
+                outline: "none",
+                boxShadow: "none",
+              }}
+            />
+            {searchActive && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="fimba-btn fimba-btn-ghost"
+                title="Limpiar búsqueda"
+                aria-label="Limpiar búsqueda"
+                style={{
+                  position: "absolute",
+                  right: 4,
+                  padding: 4,
+                  minWidth: 0,
+                  borderRadius: 999,
+                }}
+              >
+                <IconX size={12} />
+              </button>
+            )}
+          </div>
+
+          {!filteredPropuestas.length ? (
+            <div className="fimba-card fimba-muted">Ningún artista coincide con la búsqueda.</div>
+          ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {propuestas.map((p) => {
+          {filteredPropuestas.map((p) => {
             const k = riderKey(p.id);
             const isOpen = Boolean(open[k]);
+            const isEditing = Boolean(canEdit && editing[k]);
             const html = drafts[k] ?? p.rider ?? "";
             const empty = isFimbaRiderEmpty(html);
             const st = status[k] || "idle";
@@ -336,65 +439,123 @@ export default function FimbaRiderPage() {
 
             return (
               <section key={k} className="fimba-card" style={{ margin: 0, padding: 0, overflow: "visible" }}>
-                <button
-                  type="button"
-                  onClick={() => toggleOpen(k)}
-                  aria-expanded={isOpen}
+                <div
                   style={{
                     width: "100%",
                     display: "flex",
                     alignItems: "center",
                     gap: 10,
                     padding: "0.85rem 1rem",
-                    background: "transparent",
-                    border: 0,
-                    cursor: "pointer",
-                    textAlign: "left",
-                    font: "inherit",
-                    color: "inherit",
                   }}
                 >
-                  {isOpen ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
-                  <span
-                    className="fimba-swatch"
+                  <button
+                    type="button"
+                    onClick={() => toggleOpen(k)}
+                    aria-expanded={isOpen}
                     style={{
-                      width: 12,
-                      height: 12,
-                      background: p.color || "var(--fimba-accent)",
-                      flexShrink: 0,
+                      flex: 1,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      minWidth: 0,
+                      padding: 0,
+                      background: "transparent",
+                      border: 0,
+                      cursor: "pointer",
+                      textAlign: "left",
+                      font: "inherit",
+                      color: "inherit",
                     }}
-                  />
-                  <span style={{ fontWeight: 700, color: "var(--fimba-deep)", flex: 1 }}>
-                    {p.nombre || "Artista"}
-                  </span>
-                  {empty && (
-                    <span className="fimba-muted" style={{ fontSize: "0.75rem", fontWeight: 600 }}>
-                      Vacío
-                    </span>
-                  )}
-                  {canEdit && (
+                  >
+                    {isOpen ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
                     <span
-                      className={`fimba-sync-legend ${sync.cls}`}
-                      title={errMsg || sync.title}
-                      aria-label={errMsg || sync.title}
-                      role="status"
-                      onClick={(e) => e.stopPropagation()}
+                      className="fimba-swatch"
+                      style={{
+                        width: 12,
+                        height: 12,
+                        background: p.color || "var(--fimba-accent)",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontWeight: 700,
+                        color: "var(--fimba-deep)",
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
                     >
-                      <i className={`fimba-sync-dot ${sync.cls}`} />
+                      {p.nombre || "Artista"}
                     </span>
+                    {empty && (
+                      <span className="fimba-muted" style={{ fontSize: "0.75rem", fontWeight: 600 }}>
+                        Vacío
+                      </span>
+                    )}
+                  </button>
+                  {canEdit && (
+                    <>
+                      <span
+                        className={`fimba-sync-legend ${sync.cls}`}
+                        title={errMsg || sync.title}
+                        aria-label={errMsg || sync.title}
+                        role="status"
+                      >
+                        <i className={`fimba-sync-dot ${sync.cls}`} />
+                      </span>
+                      {isEditing ? (
+                        <button
+                          type="button"
+                          className="fimba-btn fimba-btn-ghost"
+                          onClick={() => stopEdit(k, p.id)}
+                          title="Listo"
+                          aria-label="Listo"
+                          style={{ padding: 6, minWidth: 0 }}
+                        >
+                          <IconCheck size={14} />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="fimba-btn fimba-btn-ghost"
+                          onClick={() => startEdit(k)}
+                          title="Editar rider"
+                          aria-label="Editar rider"
+                          style={{ padding: 6, minWidth: 0 }}
+                        >
+                          <IconEdit size={14} />
+                        </button>
+                      )}
+                    </>
                   )}
-                </button>
+                </div>
                 {isOpen && (
                   <div style={{ padding: "0 1rem 1rem" }}>
-                    <FimbaRichTextEditor
-                      value={html}
-                      readOnly={!canEdit}
-                      onChange={(next) => setRider(k, p.id, next)}
-                      onBlur={() => flushSave(k, p.id)}
-                      placeholder="Escenario, backline, catering, accesos, horarios…"
-                      edicionId={edicionId}
-                      propuestaId={p.id}
-                    />
+                    {isEditing ? (
+                      <FimbaRichTextEditor
+                        value={html}
+                        onChange={(next) => setRider(k, p.id, next)}
+                        onBlur={() => flushSave(k, p.id)}
+                        placeholder="Escenario, backline, catering, accesos, horarios…"
+                        edicionId={edicionId}
+                        propuestaId={p.id}
+                      />
+                    ) : empty ? (
+                      <div className="fimba-muted" style={{ fontSize: "0.88rem", fontStyle: "italic" }}>
+                        {canEdit ? "Sin rider — usá el lápiz para cargar." : "Sin rider"}
+                      </div>
+                    ) : (
+                      <div
+                        className="fimba-rider-html"
+                        style={{ fontSize: "0.88rem", lineHeight: 1.5 }}
+                        dangerouslySetInnerHTML={{
+                          __html: sanitizeFimbaRiderHtml(html),
+                        }}
+                      />
+                    )}
                     {errMsg && (
                       <div className="fimba-error" style={{ marginTop: 8, marginBottom: 0 }}>
                         {errMsg}
@@ -406,6 +567,8 @@ export default function FimbaRiderPage() {
             );
           })}
         </div>
+          )}
+        </>
       )}
     </div>
   );

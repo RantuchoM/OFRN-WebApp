@@ -3806,7 +3806,7 @@ export default function FimbaTransportPage() {
                     >
                       Com · Fin
                     </th>
-                    <th>Detalle</th>
+                    <th className="fimba-detalle-cell">Detalle</th>
                     <th>Locación</th>
                     <th
                       className="fimba-planilla-insert-col"
@@ -3953,6 +3953,7 @@ export default function FimbaTransportPage() {
                       ofrnPassengers,
                       ofrnLocalities,
                       ofrnRegions,
+                      giraGrupos,
                       eventById: eventByIdForBoarding,
                       tipoById,
                     });
@@ -3969,6 +3970,7 @@ export default function FimbaTransportPage() {
                       ofrnPassengers,
                       ofrnLocalities,
                       ofrnRegions,
+                      giraGrupos,
                       eventById: eventByIdForBoarding,
                       tipoById,
                     });
@@ -4448,7 +4450,7 @@ export default function FimbaTransportPage() {
                           )}
                         </td>
                         <td
-                          className="fimba-planilla-wrap"
+                          className="fimba-planilla-wrap fimba-detalle-cell"
                           title={
                             readOnly
                               ? undefined
@@ -4541,6 +4543,7 @@ export default function FimbaTransportPage() {
                               <FimbaEventDetallePreview
                                 html={ev.actividad}
                                 empty={ev.tipo_nombre || "—"}
+                                clamp
                               />
                               {ev.observaciones ? (
                                 <span
@@ -5142,6 +5145,7 @@ export default function FimbaTransportPage() {
           giraId={edicion.id_gira}
           vehiculos={vehiculos}
           propuestas={propuestas}
+          giraGrupos={giraGrupos}
           passengers={ofrnPassengers}
           admissionRules={ofrnAdmissionRules}
           regions={ofrnRegions}

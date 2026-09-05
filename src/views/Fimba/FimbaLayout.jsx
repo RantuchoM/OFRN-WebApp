@@ -354,6 +354,239 @@ const FIMBA_CSS = `
     background: var(--fimba-surface, #fff);
     box-shadow: 0 1px 0 var(--fimba-border, #e2e8f0);
   }
+  /* Detalle (Agenda + planillas): un poco más ancha; clamp de altura en lectura */
+  .fimba-agenda-table th.fimba-detalle-cell,
+  .fimba-agenda-table td.fimba-detalle-cell,
+  .fimba-planilla-table th.fimba-detalle-cell,
+  .fimba-planilla-table td.fimba-detalle-cell {
+    white-space: normal;
+    min-width: 14rem;
+    max-width: 22rem;
+    width: 18rem;
+    vertical-align: top;
+    font-weight: 600;
+  }
+  .fimba-detalle-cell .fimba-detalle-preview,
+  .fimba-detalle-cell .fimba-detalle-preview--clamp {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .fimba-detalle-preview--clamp {
+    max-height: 4.75rem; /* ~3–4 líneas */
+    overflow: hidden;
+  }
+  .fimba-detalle-cell--editing {
+    overflow: visible;
+    max-width: 26rem;
+    width: 20rem;
+  }
+  .fimba-detalle-cell--editing .fimba-richtext,
+  .fimba-detalle-cell--editing .fimba-richtext .ql-toolbar.ql-snow,
+  .fimba-detalle-cell--editing .fimba-richtext .ql-container.ql-snow {
+    max-width: 100%;
+    min-width: 0;
+  }
+  .fimba-detalle-cell--editing .fimba-richtext--compact .ql-container.ql-snow,
+  .fimba-detalle-cell--editing .fimba-richtext--compact .ql-editor {
+    min-height: 72px;
+    max-height: 9rem;
+    overflow-y: auto;
+  }
+  .fimba-agenda-table .fimba-agenda-actions {
+    text-align: right;
+    min-width: 2.35rem;
+    padding-left: 0.15rem !important;
+    padding-right: 0.5rem !important;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  /*
+    Agenda mobile cards (< 768px): hide planilla table, show card stack.
+    Desktop (≥ 768px): keep planilla; hide cards. Print always uses table.
+  */
+  .fimba-agenda-mobile {
+    display: none;
+    flex-direction: column;
+    gap: 0.65rem;
+    padding: 0.75rem;
+  }
+  .fimba-agenda-desktop {
+    display: block;
+  }
+  .fimba-agenda-mobile-day {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0.35rem 0 0.15rem;
+    padding: 0.35rem 0.65rem;
+    border-radius: 8px;
+    background: rgba(180, 83, 9, 0.1);
+    border-top: 2px solid rgba(180, 83, 9, 0.48);
+    border-bottom: 1px solid rgba(180, 83, 9, 0.22);
+  }
+  .fimba-agenda-mobile-day--first {
+    margin-top: 0;
+  }
+  .fimba-agenda-event-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    padding: 0.75rem 0.8rem;
+    border-radius: 12px;
+    border: 1px solid var(--fimba-border, #e2e8f0);
+    background: var(--fimba-surface, #fff);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    min-width: 0;
+  }
+  .fimba-agenda-event-card[role="button"] {
+    cursor: pointer;
+  }
+  .fimba-agenda-event-card[role="button"]:focus-visible {
+    outline: 2px solid rgba(148, 33, 109, 0.45);
+    outline-offset: 2px;
+  }
+  .fimba-agenda-event-card--ofrn {
+    box-shadow: inset 3px 0 0 var(--fimba-cyan, #00b1eb);
+    background: rgba(0, 177, 235, 0.04);
+  }
+  .fimba-agenda-event-card--ambos {
+    box-shadow: inset 3px 0 0 var(--fimba-deep, #94216d);
+    background: rgba(215, 50, 137, 0.03);
+  }
+  /* Let <tr> tipo wash show through (origen tones paint td otherwise) */
+  .fimba-agenda-table tbody tr.fimba-has-tipo-tint td {
+    background: transparent;
+  }
+  .fimba-agenda-event-card-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+  .fimba-agenda-event-card-check {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding-top: 0.15rem;
+  }
+  .fimba-agenda-event-card-when {
+    display: flex;
+    align-items: center;
+    gap: 0.28rem;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: 0.88rem;
+    color: var(--fimba-deep, #94216d);
+    white-space: nowrap;
+  }
+  .fimba-agenda-event-card-when-icon {
+    color: var(--fimba-muted, #64748b);
+    flex-shrink: 0;
+  }
+  .fimba-agenda-event-card-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    flex: 1 1 auto;
+    min-width: 0;
+    align-items: center;
+  }
+  .fimba-agenda-event-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+  .fimba-agenda-event-card-detalle {
+    font-weight: 600;
+    font-size: 0.92rem;
+    line-height: 1.35;
+    min-width: 0;
+    max-height: 4.05em;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    word-break: break-word;
+  }
+  .fimba-agenda-event-card-detalle .fimba-detalle-preview {
+    display: contents;
+  }
+  .fimba-agenda-event-card-obs {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--fimba-muted, #64748b);
+  }
+  .fimba-agenda-event-card-cat {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.68rem;
+    font-weight: 500;
+  }
+  .fimba-agenda-event-card-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+  .fimba-agenda-event-card-meta-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.3rem;
+    font-size: 0.78rem;
+    color: var(--fimba-muted, #64748b);
+    line-height: 1.3;
+    min-width: 0;
+  }
+  .fimba-agenda-event-card-meta-item > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .fimba-agenda-event-card-meta-item--warn {
+    color: #92400e;
+    font-weight: 600;
+  }
+  .fimba-agenda-event-card-tags {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 0;
+    padding-top: 0.15rem;
+    border-top: 1px dashed var(--fimba-border, #e2e8f0);
+  }
+  @media (max-width: 767px) {
+    .fimba-agenda-desktop {
+      display: none !important;
+    }
+    .fimba-agenda-mobile {
+      display: flex;
+    }
+    .fimba-agenda-card:has(.fimba-agenda-mobile) {
+      padding: 0;
+    }
+  }
+  @media print {
+    .fimba-agenda-mobile {
+      display: none !important;
+    }
+    .fimba-agenda-desktop {
+      display: block !important;
+    }
+  }
   /* Planilla trayectos: horizontal scroll that actually works */
   .fimba-planilla-card {
     padding: 0;
@@ -380,7 +613,10 @@ const FIMBA_CSS = `
   }
   .fimba-planilla-table .fimba-planilla-wrap {
     white-space: normal;
-    max-width: 11rem;
+    max-width: 14rem;
+  }
+  .fimba-planilla-table td.fimba-planilla-wrap.fimba-detalle-cell {
+    max-width: 22rem;
   }
   /* Backline Descripción: bounded col so Drive URLs don't bleed over Planta/Monto */
   .fimba-planilla-table th.fimba-backline-desc-cell,

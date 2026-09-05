@@ -40,6 +40,12 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 - Assets en `/assets/*` son immutable; no hace falta busting manual.
 - Tras cambiar iconos/manifest PWA en Android, el usuario puede necesitar reinstalar el acceso directo (ver `pwa-android-icons.md`).
 
+## Dev local (`npm run dev`)
+- `ReloadPrompt` **no corre** en DEV (`import.meta.env.DEV`): el poll de `/version.json` + auto-reload al navegar era un falso positivo cuando Vite reiniciaba con un `APP_BUILD_ID` nuevo (`Date.now()`).
+- `APP_BUILD_ID` en `vite` serve es estable (`local-dev`); en `vite build` sigue siendo único por build.
+- `vite:preloadError` hard-reload y el script inline de recovery del entry **solo aplican fuera de DEV**.
+- Remounts “tipo restart” por HMR: ver Fast Refresh (no mezclar helpers no-componente en el mismo `.jsx` que UI); `AuthProvider` hidrata sesión desde `localStorage` sin desmontar el árbol.
+
 ## Estado
 - [x] Sin auto-reload mid-sesión en staff
 - [x] Banner ES + respeto dirty FIMBA
@@ -48,3 +54,4 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 - [x] Headers Vercel para version/index/assets
 - [x] Rewrite SPA condicionado por `Accept: text/html` (no devolver HTML en peticiones de chunks)
 - [x] Recuperación inline si falla el entry script hasheado
+- [x] DEV: sin ReloadPrompt / preload hard-reload; build id estable en serve

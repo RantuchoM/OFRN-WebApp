@@ -8,6 +8,7 @@ import {
   hasHtmlMarkup,
   stripHtml,
 } from "../../utils/eventDisplayUtils";
+import { sanitizeFimbaRiderHtml } from "../../utils/fimbaRider";
 
 /** True si el HTML de detalle no tiene texto visible (p. ej. `<br>`, `<div><br></div>`). */
 export function isFimbaDetalleEmpty(html) {
@@ -17,12 +18,14 @@ export function isFimbaDetalleEmpty(html) {
 /**
  * Vista lectura de `eventos.descripcion` (parte actividad / Detalle FIMBA).
  * Misma columna OFRN que EventForm / EventQuickView.
+ * `clamp` = max-height en planilla + `title` con texto completo si hay contenido.
  */
 export function FimbaEventDetallePreview({
   html,
   empty = "—",
   className = "",
   style,
+  clamp = false,
 }) {
   const raw = html == null ? "" : String(html);
   const plain = stripHtml(raw);
@@ -33,17 +36,24 @@ export function FimbaEventDetallePreview({
       </span>
     );
   }
+  const title = clamp ? plain : undefined;
   if (hasHtmlMarkup(raw)) {
+    const safe = sanitizeFimbaRiderHtml(raw);
     return (
       <span
-        className={`fimba-detalle-preview ${className}`.trim()}
+        className={`fimba-detalle-preview${clamp ? " fimba-detalle-preview--clamp" : ""}${className ? ` ${className}` : ""}`.trim()}
         style={style}
-        dangerouslySetInnerHTML={{ __html: raw }}
+        title={title}
+        dangerouslySetInnerHTML={{ __html: safe }}
       />
     );
   }
   return (
-    <span className={className} style={style}>
+    <span
+      className={`${clamp ? "fimba-detalle-preview--clamp" : ""}${className ? ` ${className}` : ""}`.trim() || undefined}
+      style={style}
+      title={title}
+    >
       {plain}
     </span>
   );
@@ -52,6 +62,8 @@ export function FimbaEventDetallePreview({
 /**
  * Editor rich-text Detalle (contentEditable + B/I/U), mismo patrón que
  * `EventForm` → `eventos.descripcion`. Skin FIMBA.
+ * Preferir `FimbaRichTextEditor` (Quill) en Agenda row-edit / modal cuando se quiera
+ * listas/links; este editor queda para celdas legacy compactas.
  * `compact` = toolbar/editor más chicos (modales / celdas legacy).
  */
 export default function FimbaEventDetalleEditor({

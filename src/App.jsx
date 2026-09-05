@@ -18,7 +18,8 @@ import {
 } from "react-router-dom";
 import AppNavLink from "./components/ui/AppNavLink";
 import { MODE_TO_TAB } from "./utils/appNavigation";
-import { AuthProvider, useAuth, getRolesDisplay } from "./context/AuthContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import { getRolesDisplay } from "./utils/authRolesDisplay";
 import { supabase } from "./services/supabase";
 import ReloadPrompt from "./components/ui/ReloadPrompt";
 import PwaOrientationHint from "./components/ui/PwaOrientationHint";

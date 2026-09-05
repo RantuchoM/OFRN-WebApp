@@ -103,6 +103,17 @@ function UpdateAvailableBanner({ onUpdate, onDismiss, subtitle }) {
   );
 }
 
+function ReloadPrompt() {
+  // En `vite` local, Vite ya maneja HMR. Poll de version.json + auto-reload
+  // es solo para deploys: con APP_BUILD_ID aleatorio por restart de Vite
+  // disparaba "Nueva versión" / hard reload al cambiar de ruta.
+  if (import.meta.env.DEV) {
+    return null;
+  }
+
+  return <ReloadPromptProd />;
+}
+
 /**
  * Actualizaciones de deploy (Vercel + PWA):
  * - Staff: nunca fuerza reload mid-sesión; banner «Nueva versión / Actualizar».
@@ -111,7 +122,7 @@ function UpdateAvailableBanner({ onUpdate, onDismiss, subtitle }) {
  * - /entradas: sigue en modo silencioso (público).
  * - version.json: detecta build nuevo aunque el SW tarde en needRefresh.
  */
-function ReloadPrompt() {
+function ReloadPromptProd() {
   const { pathname } = useLocation();
   const entradasSilentUpdate = isEntradasPublicRoute(pathname);
   const swRegistrationRef = useRef(null);

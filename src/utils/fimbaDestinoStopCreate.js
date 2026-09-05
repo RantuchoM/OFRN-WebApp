@@ -2,8 +2,9 @@ import {
   decodeFimbaTrasladoDescripcion,
   patchFimbaEventoPlanilla,
   saveFimbaEvento,
-  upsertFimbaEventoTransportePlazas,
   upsertFimbaPropuestaRutaStop,
+  upsertOfrnGrupoRutaStop,
+  listFimbaGiraGrupos,
 } from "../services/fimbaService";
 import { eventTypeIdForCategoria } from "./giraTransportUtils";
 import {
@@ -307,9 +308,8 @@ export function normalizeBoardingPassenger(raw) {
 /**
  * Aplica subida/bajada en una parada recién creada.
  * - Artista FIMBA (`propuesta`): `fimba_propuesta_rutas` ↑/↓.
- * - Grupo OFRN (`grupo`): reserva técnica `fimba_evento_transportes.plazas`
- *   solo en **subida** (mismo modelo que «Programar transporte»; no hay
- *   bajada de grupo+N en rutas FIMBA).
+ * - Grupo OFRN (`grupo`): regla `giras_logistica_rutas` alcance **Grupo** ↑/↓
+ *   (miembros del `giras_grupos`; paridad Orquesta → Subidas/Bajadas).
  *
  * @param {{
  *   evento: object,
@@ -317,6 +317,7 @@ export function normalizeBoardingPassenger(raw) {
  *   subida?: unknown,
  *   bajada?: unknown,
  *   sortedEvents?: Array<object>|null,
+ *   giraGrupos?: Array<object>|null,
  * }} params
  * @returns {Promise<{ error: Error|null }>}
  */
@@ -326,14 +327,24 @@ export async function applyStopBoardingAtCreate({
   subida = null,
   bajada = null,
   sortedEvents = null,
+  giraGrupos: giraGruposParam = null,
 }) {
   if (!evento?.id || vehicleId == null || vehicleId === "") {
     return { error: null };
   }
   const idGt = Number(vehicleId);
+  const idGira = Number(evento.id_gira);
   const timeline = Array.isArray(sortedEvents) ? sortedEvents : null;
   const up = normalizeBoardingPassenger(subida);
   const down = normalizeBoardingPassenger(bajada);
+
+  let giraGrupos = Array.isArray(giraGruposParam) ? giraGruposParam : null;
+  const needsGrupos =
+    (up?.kind === "grupo" || down?.kind === "grupo") && !giraGrupos;
+  if (needsGrupos && Number.isFinite(idGira)) {
+    const { grupos } = await listFimbaGiraGrupos(idGira);
+    giraGrupos = grupos || [];
+  }
 
   if (up) {
     if (up.kind === "propuesta") {
@@ -354,16 +365,26 @@ export async function applyStopBoardingAtCreate({
         };
       }
     } else {
-      const res = await upsertFimbaEventoTransportePlazas(
-        evento.id,
-        idGt,
-        up.cantidad,
-      );
+      if (!Number.isFinite(idGira)) {
+        return {
+          error: new Error(
+            "Falta id_gira del evento para la subida de grupo OFRN",
+          ),
+        };
+      }
+      const res = await upsertOfrnGrupoRutaStop({
+        id_gira: idGira,
+        id_transporte_fisico: idGt,
+        id_grupo: up.id,
+        id_evento: evento.id,
+        type: "up",
+        giraGrupos: giraGrupos || [],
+        ensureAdmission: true,
+      });
       if (res.error) {
         return {
           error: new Error(
-            res.error.message ||
-              "No se pudo fijar la reserva técnica OFRN (subida)",
+            res.error.message || "No se pudo crear la subida del grupo OFRN",
           ),
         };
       }
@@ -388,8 +409,31 @@ export async function applyStopBoardingAtCreate({
           ),
         };
       }
+    } else {
+      if (!Number.isFinite(idGira)) {
+        return {
+          error: new Error(
+            "Falta id_gira del evento para la bajada de grupo OFRN",
+          ),
+        };
+      }
+      const res = await upsertOfrnGrupoRutaStop({
+        id_gira: idGira,
+        id_transporte_fisico: idGt,
+        id_grupo: down.id,
+        id_evento: evento.id,
+        type: "down",
+        giraGrupos: giraGrupos || [],
+        ensureAdmission: true,
+      });
+      if (res.error) {
+        return {
+          error: new Error(
+            res.error.message || "No se pudo crear la bajada del grupo OFRN",
+          ),
+        };
+      }
     }
-    // grupo OFRN: sin bajada explícita por plazas (refinar en Subidas/Orquesta)
   }
 
   return { error: null };
@@ -429,6 +473,7 @@ export async function applyStopBoardingAtCreate({
  *   boardingSalida?: { subida?: unknown, bajada?: unknown }|null,
  *   boardingWaypoint?: { subida?: unknown, bajada?: unknown }|null,
  *   boardingRetorno?: { subida?: unknown, bajada?: unknown }|null,
+ *   giraGrupos?: Array<object>|null,
  * }} params
  * @returns {Promise<{ eventos: object[], error: Error|null }>}
  */
@@ -455,6 +500,7 @@ export async function createRecorridoIntermedioStops({
   boardingSalida = null,
   boardingWaypoint = null,
   boardingRetorno = null,
+  giraGrupos = null,
 }) {
   const common = {
     vehicleId,
@@ -539,6 +585,7 @@ export async function createRecorridoIntermedioStops({
       subida: board.subida,
       bajada: board.bajada,
       sortedEvents: created,
+      giraGrupos,
     });
     if (boardErr) {
       return {

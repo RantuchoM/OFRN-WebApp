@@ -407,6 +407,7 @@ export default function FimbaRecorridoIntermedioModal({
           subida: boardFromUi(subidaRetorno),
           bajada: boardFromUi(bajadaRetorno),
         },
+        giraGrupos,
       });
       if (err) {
         setError(err.message || "No se pudo crear el recorrido intermedio");
@@ -805,7 +806,7 @@ export default function FimbaRecorridoIntermedioModal({
               : ""}
             {" · "}
             Boarding tip: ↑ salida / ↓ llegada (ida); ↑ llegada / ↓ retorno (vuelta).
-            Grupo OFRN = reserva técnica en la parada de subida.
+            Grupo OFRN = regla Orquesta (alcance Grupo) ↑/↓.
           </p>
 
           {error ? (

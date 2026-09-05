@@ -45,12 +45,33 @@ function reconcileRoleFilter(realId, freshRoles, currentFilter) {
   return next;
 }
 
+/** Hidrata sesión desde localStorage de forma síncrona (evita blank en remount HMR). */
+function readCachedSession() {
+  try {
+    const raw = localStorage.getItem("app_user");
+    if (!raw) return { user: null, roleFilter: null };
+    const parsed = JSON.parse(raw);
+    const realId = parsed?.id;
+    const roleFilter = realId ? loadRoleFilterFromStorage(realId) : null;
+    return { user: parsed, roleFilter };
+  } catch {
+    try {
+      localStorage.removeItem("app_user");
+    } catch {
+      /* ignore */
+    }
+    return { user: null, roleFilter: null };
+  }
+}
+
 export function AuthProvider({ children }) {
-  const [realUser, setRealUser] = useState(null);
+  const [boot] = useState(readCachedSession);
+  const [realUser, setRealUser] = useState(boot.user);
   const [impersonatedUser, setImpersonatedUser] = useState(null);
   // Lista de roles seleccionados explícitamente (filtro). Si está vacía o null, se usan todos los roles reales.
-  const [roleFilter, setRoleFilter] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [roleFilter, setRoleFilter] = useState(boot.roleFilter);
+  // Con sesión en caché no bloqueamos el árbol; igual refrescamos en background.
+  const [loading, setLoading] = useState(!boot.user);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,7 +79,11 @@ export function AuthProvider({ children }) {
     const initSession = async () => {
       const storedUser = localStorage.getItem("app_user");
       if (!storedUser) {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setRealUser(null);
+          setRoleFilter(null);
+          setLoading(false);
+        }
         return;
       }
 
@@ -67,7 +92,11 @@ export function AuthProvider({ children }) {
         parsed = JSON.parse(storedUser);
       } catch {
         localStorage.removeItem("app_user");
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setRealUser(null);
+          setRoleFilter(null);
+          setLoading(false);
+        }
         return;
       }
 
@@ -87,7 +116,10 @@ export function AuthProvider({ children }) {
         return;
       }
 
-      if (!cancelled) setRealUser(parsed);
+      if (!cancelled) {
+        setRealUser(parsed);
+        setLoading(false);
+      }
 
       try {
         const { data, error } = await supabase
@@ -264,16 +296,8 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={value}>
-      {!loading && children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
   );
 }
 
 export const useAuth = () => useContext(AuthContext);
-
-/** Formatea rol_sistema para mostrar (soporta string legacy o text[]) */
-export function getRolesDisplay(rolSistema) {
-  if (rolSistema == null) return "";
-  return Array.isArray(rolSistema) ? rolSistema.join(", ") : String(rolSistema);
-}

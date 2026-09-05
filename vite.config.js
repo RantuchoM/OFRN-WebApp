@@ -7,40 +7,47 @@ import path from "path";
 const __dirname = path.resolve();
 
 /** Identificador de build embebido en el cliente y servido en /version.json para detectar despliegues nuevos. */
-const APP_BUILD_ID =
-  process.env.VERCEL_GIT_COMMIT_SHA ||
-  process.env.CF_PAGES_COMMIT_SHA ||
-  process.env.VITE_APP_BUILD_ID ||
-  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+export default defineConfig(({ command }) => {
+  const APP_BUILD_ID =
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.CF_PAGES_COMMIT_SHA ||
+    process.env.VITE_APP_BUILD_ID ||
+    // `vite` (serve): estable — evita falsos «Nueva versión» si el cliente sobrevive un restart.
+    // `vite build`: único por build.
+    (command === "serve"
+      ? "local-dev"
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
 
-function appVersionPlugin(buildId) {
-  const versionPayload = JSON.stringify({ buildId });
-  const mainChunkRecoveryScript = `<script>(function(){var k="ofrn:main-chunk-reload";window.addEventListener("error",function(ev){var t=ev.target;if(!t||t.tagName!=="SCRIPT"||!t.src||t.src.indexOf("/assets/")===-1)return;try{var n=Number(sessionStorage.getItem(k)||0);if(n>=2)return;sessionStorage.setItem(k,String(n+1))}catch(e){}window.location.reload()},true)})();</script>`;
+  function appVersionPlugin(buildId) {
+    const versionPayload = JSON.stringify({ buildId });
+    const mainChunkRecoveryScript = `<script>(function(){var k="ofrn:main-chunk-reload";window.addEventListener("error",function(ev){var t=ev.target;if(!t||t.tagName!=="SCRIPT"||!t.src||t.src.indexOf("/assets/")===-1)return;try{var n=Number(sessionStorage.getItem(k)||0);if(n>=2)return;sessionStorage.setItem(k,String(n+1))}catch(e){}window.location.reload()},true)})();</script>`;
+    return {
+      name: "app-version",
+      transformIndexHtml(html) {
+        // Solo en build: en DEV el HMR puede fallar temporalmente un script.
+        if (command === "serve") return html;
+        return html.replace("<div id=\"root\"></div>", `<div id="root"></div>${mainChunkRecoveryScript}`);
+      },
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          const url = req.url?.split("?")[0];
+          if (url !== "/version.json") return next();
+          res.setHeader("Content-Type", "application/json");
+          res.setHeader("Cache-Control", "no-store");
+          res.end(versionPayload);
+        });
+      },
+      generateBundle() {
+        this.emitFile({
+          type: "asset",
+          fileName: "version.json",
+          source: versionPayload,
+        });
+      },
+    };
+  }
+
   return {
-    name: "app-version",
-    transformIndexHtml(html) {
-      return html.replace("<div id=\"root\"></div>", `<div id="root"></div>${mainChunkRecoveryScript}`);
-    },
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const url = req.url?.split("?")[0];
-        if (url !== "/version.json") return next();
-        res.setHeader("Content-Type", "application/json");
-        res.setHeader("Cache-Control", "no-store");
-        res.end(versionPayload);
-      });
-    },
-    generateBundle() {
-      this.emitFile({
-        type: "asset",
-        fileName: "version.json",
-        source: versionPayload,
-      });
-    },
-  };
-}
-
-export default defineConfig({
   plugins: [
     react(),
     appVersionPlugin(APP_BUILD_ID),
@@ -156,4 +163,5 @@ export default defineConfig({
       },
     },
   },
+};
 });
