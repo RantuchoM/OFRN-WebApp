@@ -13,6 +13,7 @@ export default function ConfirmModal({
   errorMessage = null,
   confirmText = "Confirmar",
   cancelText = "Cancelar",
+  hideCancel = false,
   confirmClassName = "px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98]",
   overlayClassName = "z-[100]",
   confirmLoading = false,
@@ -96,14 +97,16 @@ export default function ConfirmModal({
               {secondaryAction.label}
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
-          >
-            {cancelText}
-          </button>
+          {!hideCancel ? (
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {cancelText}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={handleConfirm}

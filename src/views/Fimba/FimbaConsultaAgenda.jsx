@@ -9,8 +9,11 @@ import {
   IconPrinter,
   IconTrash,
 } from "../../components/ui/Icons";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import {
+  buildFimbaEventDeleteMessage,
   deleteFimbaEvento,
+  findBoardingLinksForEvent,
   duplicateFimbaEvento,
   FIMBA_DEFAULT_TIPO_EVENTO,
   getFimbaEdicionById,
@@ -97,6 +100,7 @@ function vehicleLabel(ev, flota) {
  *   y propuesta fija (lockPropuesta).
  */
 export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const [eventos, setEventos] = useState([]);
   const [flota, setFlota] = useState([]);
   const [edicion, setEdicion] = useState(null);
@@ -224,12 +228,31 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
   const handleDelete = async (ev) => {
     const label =
       stripHtml(ev.actividad) || ev.tipo_nombre || "evento";
-    if (
-      !window.confirm(`¿Eliminar «${label}» del ${formatFecha(ev.fecha)}?`)
-    ) {
+    const { links, error: linksErr } = await findBoardingLinksForEvent(ev.id);
+    if (linksErr) {
+      setError(linksErr.message || "No se pudieron revisar las subidas/bajadas");
       return;
     }
-    const { error: err } = await deleteFimbaEvento(ev.id);
+    const hasBoarding = (links?.total || 0) > 0;
+    const ok = await confirm({
+      title: hasBoarding
+        ? "Eliminar evento y subidas/bajadas"
+        : "Eliminar evento",
+      message: buildFimbaEventDeleteMessage({
+        label,
+        fechaLabel: formatFecha(ev.fecha),
+        links,
+      }),
+      destructive: true,
+      confirmText: hasBoarding
+        ? "Eliminar y quitar ↑/↓"
+        : "Eliminar",
+    });
+    if (!ok) return;
+    const { error: err } = await deleteFimbaEvento(ev.id, {
+      clearBoarding: hasBoarding,
+      links,
+    });
     if (err) {
       setError(err.message || "No se pudo eliminar");
       return;
@@ -251,9 +274,11 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
   const handleDuplicate = async (ev) => {
     const label = stripHtml(ev.actividad) || ev.tipo_nombre || "evento";
     if (
-      !window.confirm(
-        `¿Duplicar «${label}» del ${formatFecha(ev.fecha)}?\n\nSe copia tipo, horarios, detalle, locación, equipaje, tags y flota. No se copian subidas/bajadas de artistas.`,
-      )
+      !(await confirm({
+        title: "Duplicar evento",
+        message: `¿Duplicar «${label}» del ${formatFecha(ev.fecha)}?\n\nSe copia tipo, horarios, detalle, locación, equipaje, tags y flota. No se copian subidas/bajadas de artistas.`,
+        confirmText: "Duplicar",
+      }))
     ) {
       return;
     }
@@ -500,8 +525,10 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                           </span>
                         ) : null}
                       </td>
-                      <td className="fimba-muted" style={{ maxWidth: 160 }} title={origen}>
-                        {origen}
+                      <td className="fimba-muted" style={{ maxWidth: 160 }}>
+                        <div className="fimba-agenda-loc-text" title={origen}>
+                          {origen}
+                        </div>
                       </td>
                       <td
                         className="fimba-muted"
@@ -636,6 +663,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
           />,
           document.body,
         )}
+      {confirmDialog}
     </section>
   );
 }

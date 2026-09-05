@@ -34,11 +34,31 @@ import {
 import {
   alightAllOfrnAboardAtStop,
   alightOfrnPeopleAtStop,
+  upsertOfrnGrupoRutaStop,
 } from "../../services/fimbaService";
 import {
   fetchGiraGrupos,
   integranteIdsInGrupos,
 } from "../../services/giraGruposService";
+
+/** Etiqueta corta de parada para el picker de bajada espejo (Grupo ↑ → ↓). */
+function formatStopOptionLabel(ev) {
+  if (!ev) return "—";
+  const f = String(ev.fecha || "").slice(0, 10);
+  let datePart = "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(f)) {
+    const [, m, d] = f.split("-");
+    datePart = `${d}/${m}`;
+  }
+  const h = ev.hora_inicio ? String(ev.hora_inicio).slice(0, 5) : "";
+  const loc =
+    ev.locaciones?.nombre ||
+    ev.locacion_nombre ||
+    ev.actividad ||
+    ev.descripcion ||
+    (ev.id != null ? `#${ev.id}` : "Parada");
+  return [datePart, h, loc].filter(Boolean).join(" · ");
+}
 
 /** Opciones de categoría logística (valor guardado en reglas = `id`). */
 const CATEGORIA_LOGISTICA_OPTIONS = [
@@ -166,6 +186,12 @@ export default function StopRulesManager({
   const [newScope, setNewScope] = useState("General");
   const [targetIds, setTargetIds] = useState([]);
   const [esChofer, setEsChofer] = useState(false);
+  /** Al asignar Grupo ↑: también cerrar ride con ↓ en otra parada del vehículo. */
+  const [alsoMirrorBajada, setAlsoMirrorBajada] = useState(false);
+  const [mirrorBajadaEventId, setMirrorBajadaEventId] = useState("");
+  /** Por regla Grupo ↑ abierta: parada elegida para «Crear bajada». */
+  const [rowMirrorEventByRuleId, setRowMirrorEventByRuleId] = useState({});
+  const [mirrorBusyKey, setMirrorBusyKey] = useState(null);
   const [bajarTodoBusy, setBajarTodoBusy] = useState(false);
   const [quickAlightBusyId, setQuickAlightBusyId] = useState(null);
   const [choferBusyId, setChoferBusyId] = useState(null);
@@ -184,6 +210,10 @@ export default function StopRulesManager({
       fetchAdmissions();
     } else if (!isOpen) {
       setRecentlyCreatedAdmissionKeys(new Set());
+      setAlsoMirrorBajada(false);
+      setMirrorBajadaEventId("");
+      setRowMirrorEventByRuleId({});
+      setMirrorBusyKey(null);
     }
   }, [isOpen, transportId, event?.id]);
 
@@ -366,9 +396,114 @@ export default function StopRulesManager({
     }
   };
 
+  /** Paradas posteriores (u otras) del vehículo para espejar Grupo ↑ → ↓. */
+  const bajadaCandidateStops = useMemo(() => {
+    const list = Array.isArray(sortedEvents) ? sortedEvents : [];
+    if (!event?.id || list.length === 0) return [];
+    const idx = list.findIndex((e) => String(e.id) === String(event.id));
+    const after = idx >= 0 ? list.slice(idx + 1) : list;
+    return after.filter((e) => String(e.id) !== String(event.id));
+  }, [sortedEvents, event?.id]);
+
+  useEffect(() => {
+    if (!alsoMirrorBajada) return;
+    if (mirrorBajadaEventId) {
+      const stillValid = bajadaCandidateStops.some(
+        (e) => String(e.id) === String(mirrorBajadaEventId),
+      );
+      if (stillValid) return;
+    }
+    if (bajadaCandidateStops[0]?.id != null) {
+      setMirrorBajadaEventId(String(bajadaCandidateStops[0].id));
+    } else {
+      setMirrorBajadaEventId("");
+    }
+  }, [alsoMirrorBajada, bajadaCandidateStops, mirrorBajadaEventId]);
+
+  const resolveStopLabel = (eventId) => {
+    if (eventId == null || eventId === "") return null;
+    const fromSeq = (sortedEvents || []).find(
+      (e) => String(e.id) === String(eventId),
+    );
+    if (fromSeq) return formatStopOptionLabel(fromSeq);
+    return `Evento #${eventId}`;
+  };
+
+  /**
+   * Crea/actualiza la ↓ Grupo espejo (mismo vehículo + grupo) sin duplicar
+   * si ya existe en esa parada. Reusa auto-admisión de miembros (ausentes
+   * no matchean vía grupo_ids en roster).
+   */
+  const mirrorGrupoBajadaForIds = async (grupoIds, bajadaEventId) => {
+    const ids = Array.from(
+      new Set((grupoIds || []).map(String).filter(Boolean)),
+    );
+    const destId = Number(bajadaEventId);
+    if (!ids.length || !Number.isFinite(destId)) {
+      return { mirrored: 0, error: null };
+    }
+    let mirrored = 0;
+    for (const gid of ids) {
+      const res = await upsertOfrnGrupoRutaStop({
+        id_gira: giraId,
+        id_transporte_fisico: transportId,
+        id_grupo: Number(gid),
+        id_evento: destId,
+        type: "down",
+        ensureAdmission: true,
+        giraGrupos,
+      });
+      if (res.error) return { mirrored, error: res.error };
+      mirrored += 1;
+    }
+    return { mirrored, error: null };
+  };
+
+  const handleMirrorGrupoBajada = async (rule) => {
+    if (!rule || rule.alcance !== "Grupo") return;
+    const grupoId = (rule.target_ids || [])[0];
+    if (!grupoId) {
+      toast.error("La regla de grupo no tiene objetivo.");
+      return;
+    }
+    if (rule.id_evento_bajada != null && rule.id_evento_bajada !== "") {
+      toast.info(
+        `Ya tiene bajada en ${resolveStopLabel(rule.id_evento_bajada)}.`,
+      );
+      return;
+    }
+    const picked =
+      rowMirrorEventByRuleId[rule.id] ||
+      (bajadaCandidateStops[0] != null
+        ? String(bajadaCandidateStops[0].id)
+        : "");
+    if (!picked) {
+      toast.info(
+        "No hay paradas posteriores en la secuencia de este vehículo para asignar la bajada.",
+      );
+      return;
+    }
+    const busyKey = `rule:${rule.id}`;
+    setMirrorBusyKey(busyKey);
+    try {
+      const res = await mirrorGrupoBajadaForIds([grupoId], picked);
+      if (res.error) {
+        toast.error(res.error.message || "No se pudo crear la bajada del grupo");
+        return;
+      }
+      await fetchRules();
+      onRefresh && onRefresh();
+      toast.success(
+        `Bajada del grupo asignada en ${resolveStopLabel(picked)}.`,
+      );
+    } finally {
+      setMirrorBusyKey(null);
+    }
+  };
+
   const handleAddRule = async () => {
     if (newScope !== "General" && (!targetIds || targetIds.length === 0)) {
-      alert("Seleccioná al menos un objetivo.");
+      toast.message("Seleccioná al menos un objetivo.");
       return;
     }
 
@@ -687,12 +822,43 @@ export default function StopRulesManager({
       if (anyChange) {
         setTargetIds([]);
         setEsChofer(false);
+      }
+
+      const shouldMirrorBajada =
+        type === "up" &&
+        newScope === "Grupo" &&
+        alsoMirrorBajada &&
+        mirrorBajadaEventId;
+
+      if (shouldMirrorBajada) {
+        const mirrorRes = await mirrorGrupoBajadaForIds(
+          selectedIds.filter(Boolean),
+          mirrorBajadaEventId,
+        );
+        if (mirrorRes.error) {
+          toast.error(
+            mirrorRes.error.message ||
+              (anyChange
+                ? "Subida creada, pero no se pudo asignar la bajada espejo."
+                : "No se pudo asignar la bajada espejo."),
+          );
+        } else if (mirrorRes.mirrored > 0) {
+          toast.success(
+            mirrorRes.mirrored === 1
+              ? `También se asignó bajada en ${resolveStopLabel(mirrorBajadaEventId)}.`
+              : `También se asignaron ${mirrorRes.mirrored} bajadas de grupo en ${resolveStopLabel(mirrorBajadaEventId)}.`,
+          );
+          setAlsoMirrorBajada(false);
+        }
+      }
+
+      if (anyChange || shouldMirrorBajada) {
         await fetchRules();
         onRefresh && onRefresh();
       }
     } catch (err) {
       console.error(err);
-      alert("Error al procesar la regla.");
+      toast.error("Error al procesar la regla.");
     } finally {
       setLoading(false);
     }
@@ -1525,6 +1691,24 @@ export default function StopRulesManager({
                     <div className="divide-y divide-slate-100">
                       {group.rules.map((rule) => {
                         const isPersonaRule = rule.alcance === "Persona";
+                        const isGrupoRule = rule.alcance === "Grupo";
+                        const grupoNeedsBajadaMirror =
+                          type === "up" &&
+                          isGrupoRule &&
+                          (rule.id_evento_bajada == null ||
+                            rule.id_evento_bajada === "");
+                        const grupoBajadaLabel =
+                          type === "up" &&
+                          isGrupoRule &&
+                          rule.id_evento_bajada != null &&
+                          rule.id_evento_bajada !== ""
+                            ? resolveStopLabel(rule.id_evento_bajada)
+                            : null;
+                        const rowMirrorValue =
+                          rowMirrorEventByRuleId[rule.id] ||
+                          (bajadaCandidateStops[0] != null
+                            ? String(bajadaCandidateStops[0].id)
+                            : "");
                         const affectedPeople = getAffectedPeople(rule);
                         const inferredPeople = getInferredPeople(rule);
                         const isExpanded = expandedRuleId === rule.id;
@@ -1632,6 +1816,74 @@ export default function StopRulesManager({
                                       </span>
                                     </span>
                                   </label>
+                                ) : null}
+                                {grupoBajadaLabel ? (
+                                  <span className="mt-0.5 text-[10px] text-rose-600 truncate">
+                                    Baja en {grupoBajadaLabel}
+                                  </span>
+                                ) : null}
+                                {grupoNeedsBajadaMirror ? (
+                                  <div
+                                    className="mt-1.5 flex flex-wrap items-center gap-1.5"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {bajadaCandidateStops.length === 0 ? (
+                                      <span className="text-[10px] text-amber-700">
+                                        Sin paradas posteriores para espejar
+                                        bajada.
+                                      </span>
+                                    ) : (
+                                      <>
+                                        <select
+                                          className="text-[10px] border border-rose-200 rounded px-1.5 py-1 bg-white text-slate-700 max-w-[11rem]"
+                                          value={rowMirrorValue}
+                                          disabled={
+                                            loading ||
+                                            mirrorBusyKey === `rule:${rule.id}`
+                                          }
+                                          onChange={(e) =>
+                                            setRowMirrorEventByRuleId(
+                                              (prev) => ({
+                                                ...prev,
+                                                [rule.id]: e.target.value,
+                                              }),
+                                            )
+                                          }
+                                          title="Parada donde crear la misma regla de grupo en bajada"
+                                        >
+                                          {bajadaCandidateStops.map((ev) => (
+                                            <option key={ev.id} value={ev.id}>
+                                              {formatStopOptionLabel(ev)}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleMirrorGrupoBajada(rule)
+                                          }
+                                          disabled={
+                                            loading ||
+                                            !rowMirrorValue ||
+                                            mirrorBusyKey === `rule:${rule.id}`
+                                          }
+                                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
+                                          title="Crear la misma regla de grupo en bajada (si aún no existe)"
+                                        >
+                                          {mirrorBusyKey ===
+                                          `rule:${rule.id}` ? (
+                                            <IconLoader
+                                              size={11}
+                                              className="animate-spin"
+                                            />
+                                          ) : (
+                                            <IconArrowDown size={11} />
+                                          )}
+                                          Crear bajada
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
                                 ) : null}
                               </div>
                               <div className="flex items-center gap-2">
@@ -1917,6 +2169,9 @@ export default function StopRulesManager({
                     setNewScope(next);
                     setTargetIds([]);
                     if (next !== "Persona") setEsChofer(false);
+                    if (next !== "Grupo") {
+                      setAlsoMirrorBajada(false);
+                    }
                   }}
                 >
                   <option value="General">General</option>
@@ -2011,6 +2266,46 @@ export default function StopRulesManager({
                   </span>
                 </span>
               </label>
+            ) : null}
+            {type === "up" && newScope === "Grupo" ? (
+              <div className="mb-3 space-y-1.5">
+                <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                    checked={alsoMirrorBajada}
+                    disabled={bajadaCandidateStops.length === 0}
+                    onChange={(e) => setAlsoMirrorBajada(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-semibold">
+                      También asignar bajada en…
+                    </span>
+                    <span className="text-slate-500">
+                      {" "}
+                      misma regla de grupo (↓) en otra parada del vehículo
+                    </span>
+                  </span>
+                </label>
+                {alsoMirrorBajada && bajadaCandidateStops.length > 0 ? (
+                  <select
+                    className="w-full text-xs border border-rose-200 rounded p-2 outline-none focus:border-rose-500 bg-white"
+                    value={mirrorBajadaEventId}
+                    onChange={(e) => setMirrorBajadaEventId(e.target.value)}
+                  >
+                    {bajadaCandidateStops.map((ev) => (
+                      <option key={ev.id} value={ev.id}>
+                        {formatStopOptionLabel(ev)}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                {bajadaCandidateStops.length === 0 ? (
+                  <p className="text-[10px] text-amber-700 m-0 pl-6">
+                    No hay paradas posteriores en la secuencia de este vehículo.
+                  </p>
+                ) : null}
+              </div>
             ) : null}
             <button
               onClick={handleAddRule}

@@ -25,7 +25,7 @@ Dirty detectado vía:
 - DOM: `.fimba-row-dirty`, `.fimba-sync-pending`, `[data-unsaved-work="true"]`
 - `FimbaEventoFormModal` registra token mientras `isDirty`
 
-Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (focus / visibility / 2 min) + `registration.update()`.
+Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (focus / visibility / **15 min solo si la pestaña está visible**) + `registration.update()`. No se usa cache-buster (`?_=Date.now()`) ni `cache: no-store`: el browser respeta `Cache-Control: public, max-age=60` de `/version.json` para no generar un Edge Request en cada navegación. Tras un deploy, el aviso puede tardar hasta ~15 min en idle, o aparecer al foco / al cambiar de ruta (con hasta 60 s de cache del browser).
 
 ## Archivos clave
 - `src/components/ui/ReloadPrompt.jsx`
@@ -38,6 +38,7 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 - Preferir deploys cuando el staff no esté en picos de edición masiva; igual ya no se fuerza mid-form.
 - Un dismiss del banner no cancela el SW waiting: al navegar limpio o al volver a detectar build, puede reaparecer / aplicarse.
 - Assets en `/assets/*` son immutable; no hace falta busting manual.
+- `/version.json` tiene `max-age=60` (no `no-store`) para recortar Edge Requests; el poll idle es 15 min y no corre con la pestaña oculta.
 - Tras cambiar iconos/manifest PWA en Android, el usuario puede necesitar reinstalar el acceso directo (ver `pwa-android-icons.md`).
 
 ## Dev local (`npm run dev`)
@@ -55,3 +56,4 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 - [x] Rewrite SPA condicionado por `Accept: text/html` (no devolver HTML en peticiones de chunks)
 - [x] Recuperación inline si falla el entry script hasheado
 - [x] DEV: sin ReloadPrompt / preload hard-reload; build id estable en serve
+- [x] Poll de versión menos agresivo (15 min + skip hidden + cache 60 s) para bajar Edge Requests de Hobby/Pro

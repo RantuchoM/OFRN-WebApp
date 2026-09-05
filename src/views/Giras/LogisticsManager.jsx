@@ -41,6 +41,7 @@ import {
 } from "../../utils/giraUtils";
 import { toInstantKey } from "../../utils/giraTramos";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import { toast } from "sonner";
 import {
   MEAL_TYPE_ID_TO_SERVICE,
   getMealServiceStyle,
@@ -1222,7 +1223,7 @@ export default function LogisticsManager({
           delete n[statusKey];
           return n;
         });
-      alert("Error: " + error.message);
+      toast.error("Error: " + error.message);
     }
   };
 

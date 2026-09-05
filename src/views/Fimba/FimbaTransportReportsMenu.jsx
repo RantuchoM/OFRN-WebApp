@@ -17,6 +17,7 @@ import {
 } from "../../utils/fimbaReports";
 import { exportFimbaTransporteVehiculoExcel } from "../../utils/fimbaExport";
 import { labelGiraTransporte } from "../../services/fimbaService";
+import { toast } from "sonner";
 
 const MENU_MIN_WIDTH = 220;
 const MENU_ESTIMATED_HEIGHT = 280;
@@ -119,7 +120,7 @@ export default function FimbaTransportReportsMenu({
       });
     } catch (err) {
       console.error(err);
-      alert(err?.message || "Error al exportar Excel");
+      toast.error(err?.message || "Error al exportar Excel");
     } finally {
       setBusy(false);
     }
@@ -162,7 +163,7 @@ export default function FimbaTransportReportsMenu({
       setModal(null);
     } catch (err) {
       console.error(err);
-      alert(err?.message || "Error al exportar");
+      toast.error(err?.message || "Error al exportar");
     } finally {
       setBusy(false);
     }

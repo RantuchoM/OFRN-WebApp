@@ -1,4 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -25,13 +32,22 @@ import {
   IconMoreVertical,
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import { useFimbaFilterPending } from "../../hooks/useFimbaFilterPending";
+import FimbaBulkSelectionBar from "./FimbaBulkSelectionBar";
+import FimbaFilterApplyingOverlay from "./FimbaFilterApplyingOverlay";
 import {
   addFimbaVehiculo,
   capacidadGiraTransporte,
+  buildFimbaBulkEventDeleteMessage,
+  buildFimbaEventDeleteMessage,
   clearFimbaPropuestaRutaStop,
   computeFimbaCapacity,
   decodeFimbaTrasladoDescripcion,
   deleteFimbaTraslado,
+  deleteFimbaEventosBulk,
+  findBoardingLinksForEvent,
+  findBoardingLinksForEvents,
   detalleGiraTransporte,
   duplicateFimbaEvento,
   getFimbaAgendaEvento,
@@ -76,7 +92,10 @@ import {
   inheritStopTagsFromEvent,
   offsetEventDateTime,
 } from "../../utils/fimbaDestinoStopCreate";
-import { eventMatchesOtrosEventosContext } from "../../utils/fimbaAgendaUrlParams";
+import {
+  eventMatchesOtrosEventosContext,
+  eventMatchesPropuestaRouteFilter,
+} from "../../utils/fimbaAgendaUrlParams";
 import {
   sortFimbaAgendaRows,
   sortFimbaPropuestasByNombre,
@@ -859,6 +878,7 @@ const ORIGEN_FILTERS = [
 export default function FimbaTransportPage() {
   const { edicionId, artistaId } = useParams();
   const { readOnly } = useFimbaAccess();
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const [searchParams] = useSearchParams();
   const filterFromQuery = searchParams.get("artista") || artistaId || null;
 
@@ -916,6 +936,7 @@ export default function FimbaTransportPage() {
   /** Multi-select de filas visibles para «Editar en lote». */
   const [selectedEventIds, setSelectedEventIds] = useState(() => new Set());
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   /**
    * Modal compacto Destino → crea parada siguiente (intermedia si hay next).
    * { ev, vehicleId, nextEv, schedule: { fecha, hora_inicio } }
@@ -1049,7 +1070,7 @@ export default function FimbaTransportPage() {
         wantParticipantes ||
         wantCatalog ||
         all;
-      // Sin slices explícitos = carga completa (filtro artista / mount).
+      // Sin slices explícitos = carga completa (mount / hard refresh).
       const fetchAll = isFirst || all || !hasExplicitSlices;
       const doEventos = fetchAll || wantEventos;
       const doRutas = fetchAll || wantRutas;
@@ -1144,9 +1165,10 @@ export default function FimbaTransportPage() {
         );
       }
       if (doEventos) {
+        // Carga completa de la edición; filtro Artista es client-side
+        // (paridad Agenda — evita refetch logistics/rutas al cambiar select).
         tasks.push(
           listFimbaTraslados(edicionId, {
-            id_propuesta: filtroArtista || null,
             edicion: ed,
             propuestas: props,
             flota: fleet,
@@ -1206,7 +1228,7 @@ export default function FimbaTransportPage() {
         });
       }
     },
-    [edicionId, filtroArtista],
+    [edicionId],
   );
 
   /** Alias soft: no blankea la planilla. */
@@ -1432,22 +1454,78 @@ export default function FimbaTransportPage() {
       .map((c) => ({ value: c.id, label: c.nombre }));
   }, [dbCategorias, catalogTipos]);
 
+  /**
+   * Secuencias subida/bajada por unidad (planilla completa de trayectos de la edición,
+   * no el subconjunto filtrado: el orden y el en tránsito necesitan toda la secuencia).
+   */
+  const sequencesByVehicle = useMemo(
+    () =>
+      buildAllVehicleBoardingSequences({
+        vehiculos,
+        eventos,
+        logisticsSummary,
+        capacityFn: computeFimbaCapacity,
+        eventVehicleIds: giraTransporteIdsFromEvent,
+        propuestaRoutes,
+      }),
+    [vehiculos, eventos, logisticsSummary, propuestaRoutes],
+  );
+
+  /**
+   * Controles actualizan al instante; planilla / boarding usan valores diferidos
+   * (filtro artista client-side + chips vehículo + origen + «otros»).
+   */
+  const deferredFiltroArtista = useDeferredValue(filtroArtista);
+  const deferredFiltroOrigen = useDeferredValue(filtroOrigen);
+  const deferredVehiculoIds = useDeferredValue(selectedVehiculoIds);
+  const deferredOtrosCategoryIds = useDeferredValue(otrosCategoryIds);
+  const deferredOtrosPropuestaIds = useDeferredValue(otrosPropuestaIds);
+  const deferredOtrosGrupoIds = useDeferredValue(otrosGrupoIds);
+
+  const deferredOtrosActive =
+    deferredOtrosCategoryIds.length > 0 ||
+    deferredOtrosPropuestaIds.length > 0 ||
+    deferredOtrosGrupoIds.length > 0;
+
+  const filterDeriveStale =
+    deferredFiltroArtista !== filtroArtista ||
+    deferredFiltroOrigen !== filtroOrigen ||
+    deferredVehiculoIds !== selectedVehiculoIds ||
+    deferredOtrosCategoryIds !== otrosCategoryIds ||
+    deferredOtrosPropuestaIds !== otrosPropuestaIds ||
+    deferredOtrosGrupoIds !== otrosGrupoIds;
+
+  const showFilterPending = useFimbaFilterPending(filterDeriveStale);
+
   const eventosFiltrados = useMemo(() => {
     let list = eventos;
-    if (filtroOrigen === "fimba") {
+    if (deferredFiltroArtista) {
+      const propIds = [Number(deferredFiltroArtista)].filter(Number.isFinite);
+      if (propIds.length > 0) {
+        list = list.filter((ev) =>
+          eventMatchesPropuestaRouteFilter(
+            ev,
+            propIds,
+            propuestaRoutes,
+            sequencesByVehicle,
+          ),
+        );
+      }
+    }
+    if (deferredFiltroOrigen === "fimba") {
       list = list.filter((ev) => ev.es_fimba);
-    } else if (filtroOrigen === "ofrn") {
+    } else if (deferredFiltroOrigen === "ofrn") {
       list = list.filter((ev) => ev.es_ofrn);
     }
-    if (selectedVehiculoIds.length > 0) {
-      const want = new Set(selectedVehiculoIds.map(Number));
+    if (deferredVehiculoIds.length > 0) {
+      const want = new Set(deferredVehiculoIds.map(Number));
       list = list.filter((ev) =>
         giraTransporteIdsFromEvent(ev).some((id) => want.has(Number(id))),
       );
     }
 
     let context = [];
-    if (otrosEventosActive) {
+    if (deferredOtrosActive) {
       const transportIds = new Set(
         (eventos || []).map((e) => Number(e.id)).filter(Number.isFinite),
       );
@@ -1455,14 +1533,14 @@ export default function FimbaTransportPage() {
         .filter((ev) => !transportIds.has(Number(ev.id)))
         .filter((ev) =>
           eventMatchesOtrosEventosContext(ev, {
-            categoryIds: otrosCategoryIds,
-            propuestaIds: otrosPropuestaIds,
-            grupoIds: otrosGrupoIds,
+            categoryIds: deferredOtrosCategoryIds,
+            propuestaIds: deferredOtrosPropuestaIds,
+            grupoIds: deferredOtrosGrupoIds,
           }),
         )
         .filter((ev) => {
-          if (filtroOrigen === "fimba") return ev.es_fimba;
-          if (filtroOrigen === "ofrn") return ev.es_ofrn;
+          if (deferredFiltroOrigen === "fimba") return ev.es_fimba;
+          if (deferredFiltroOrigen === "ofrn") return ev.es_ofrn;
           return true;
         })
         .map((ev) => ({ ...ev, es_contexto_agenda: true }));
@@ -1471,13 +1549,16 @@ export default function FimbaTransportPage() {
     return sortFimbaAgendaRows([...list, ...context]);
   }, [
     eventos,
-    filtroOrigen,
-    selectedVehiculoIds,
-    otrosEventosActive,
+    deferredFiltroArtista,
+    propuestaRoutes,
+    sequencesByVehicle,
+    deferredFiltroOrigen,
+    deferredVehiculoIds,
+    deferredOtrosActive,
     contextEventos,
-    otrosCategoryIds,
-    otrosPropuestaIds,
-    otrosGrupoIds,
+    deferredOtrosCategoryIds,
+    deferredOtrosPropuestaIds,
+    deferredOtrosGrupoIds,
   ]);
 
   const visibleEventIds = useMemo(
@@ -1536,22 +1617,51 @@ export default function FimbaTransportPage() {
     setSelectedEventIds(new Set());
   }, []);
 
-  /**
-   * Secuencias subida/bajada por unidad (planilla completa de trayectos de la edición,
-   * no el subconjunto filtrado: el orden y el en tránsito necesitan toda la secuencia).
-   */
-  const sequencesByVehicle = useMemo(
-    () =>
-      buildAllVehicleBoardingSequences({
-        vehiculos,
-        eventos,
-        logisticsSummary,
-        capacityFn: computeFimbaCapacity,
-        eventVehicleIds: giraTransporteIdsFromEvent,
-        propuestaRoutes,
+  const handleBulkDelete = async () => {
+    if (bulkDeleting || selectedEvents.length === 0) return;
+    const ids = selectedEvents.map((ev) => ev.id);
+    const { byEventId, totals, error: linksErr } =
+      await findBoardingLinksForEvents(ids);
+    if (linksErr) {
+      setError(
+        linksErr.message || "No se pudieron revisar las subidas/bajadas",
+      );
+      return;
+    }
+    const hasBoarding = (totals?.total || 0) > 0;
+    const ok = await confirm({
+      title: hasBoarding
+        ? "Eliminar eventos y subidas/bajadas"
+        : "Eliminar eventos",
+      message: buildFimbaBulkEventDeleteMessage({
+        count: ids.length,
+        totals,
       }),
-    [vehiculos, eventos, logisticsSummary, propuestaRoutes],
-  );
+      destructive: true,
+      confirmText: hasBoarding
+        ? "Eliminar y quitar ↑/↓"
+        : "Eliminar",
+    });
+    if (!ok) return;
+
+    setBulkDeleting(true);
+    setError(null);
+    try {
+      const { error: err } = await deleteFimbaEventosBulk(ids, {
+        clearBoarding: hasBoarding,
+        byEventId,
+      });
+      if (err) {
+        setError(err.message || "No se pudo eliminar la selección");
+        await softRefresh({ eventos: true, rutas: true });
+        return;
+      }
+      clearSelection();
+      await softRefresh({ eventos: true, rutas: true });
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   /** Mapa id integrante OFRN → datos para export de abordaje. */
   const ofrnPassengerById = useMemo(() => {
@@ -1629,7 +1739,16 @@ export default function FimbaTransportPage() {
 
   const handleRemoveBoardChip = async (chip, type) => {
     if (!chip?.removable || chip.rutaId == null) return;
-    if (!window.confirm("¿Quitar esta definición de parada?")) return;
+    if (
+      !(await confirm({
+        title: "Quitar parada",
+        message: "¿Quitar esta definición de parada?",
+        confirmText: "Quitar",
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
     const key = `${type}-${chip.rutaId}`;
     setRemovingBoardKey(key);
     const { error: err } = await clearFimbaPropuestaRutaStop(chip.rutaId, type);
@@ -1642,13 +1761,13 @@ export default function FimbaTransportPage() {
   };
 
   const preferVehicleIdsForMetrics =
-    selectedVehiculoIds.length > 0 &&
-    selectedVehiculoIds.length < vehiculos.length
-      ? selectedVehiculoIds
+    deferredVehiculoIds.length > 0 &&
+    deferredVehiculoIds.length < vehiculos.length
+      ? deferredVehiculoIds
       : null;
 
   /** Pausas (divisor + blank Destino/Hora fin) solo con exactamente 1 vehículo filtrado. */
-  const showVehiclePauses = selectedVehiculoIds.length === 1;
+  const showVehiclePauses = deferredVehiculoIds.length === 1;
 
   const tipoById = useMemo(() => {
     const map = new Map();
@@ -1706,19 +1825,40 @@ export default function FimbaTransportPage() {
     const label = stripHtml(ev.actividad) || ev.tipo_nombre || "trayecto";
     const ofrnNote =
       ev.es_ofrn && !ev.es_fimba
-        ? "\n\nEs una parada/traslado de orquesta OFRN: se eliminará de la agenda de la gira."
+        ? "Es una parada/traslado de orquesta OFRN: se eliminará de la agenda de la gira."
         : "";
-    if (
-      !window.confirm(
-        `¿Eliminar «${label}» del ${formatFecha(ev.fecha)}?${ofrnNote}`,
-      )
-    ) {
+
+    const { links, error: linksErr } = await findBoardingLinksForEvent(ev.id);
+    if (linksErr) {
+      setError(linksErr.message || "No se pudieron revisar las subidas/bajadas");
       return;
     }
+
+    const hasBoarding = (links?.total || 0) > 0;
+    const ok = await confirm({
+      title: hasBoarding
+        ? "Eliminar evento y subidas/bajadas"
+        : "Eliminar trayecto",
+      message: buildFimbaEventDeleteMessage({
+        label,
+        fechaLabel: formatFecha(ev.fecha),
+        ofrnNote,
+        links,
+      }),
+      destructive: true,
+      confirmText: hasBoarding
+        ? "Eliminar y quitar ↑/↓"
+        : "Eliminar",
+    });
+    if (!ok) return;
+
     setDeletingEventId(String(ev.id));
     setError(null);
     try {
-      const { error: err } = await deleteFimbaTraslado(ev.id);
+      const { error: err } = await deleteFimbaTraslado(ev.id, {
+        clearBoarding: hasBoarding,
+        links,
+      });
       if (err) {
         setError(err.message || "No se pudo eliminar");
         return;
@@ -1732,9 +1872,11 @@ export default function FimbaTransportPage() {
   const handleDuplicate = async (ev) => {
     const label = stripHtml(ev.actividad) || ev.tipo_nombre || "trayecto";
     if (
-      !window.confirm(
-        `¿Duplicar «${label}» del ${formatFecha(ev.fecha)}?\n\nSe copia tipo, horarios, detalle, locación, equipaje, tags y flota. No se copian subidas/bajadas de artistas.`,
-      )
+      !(await confirm({
+        title: "Duplicar trayecto",
+        message: `¿Duplicar «${label}» del ${formatFecha(ev.fecha)}?\n\nSe copia tipo, horarios, detalle, locación, equipaje, tags y flota. No se copian subidas/bajadas de artistas.`,
+        confirmText: "Duplicar",
+      }))
     ) {
       return;
     }
@@ -2053,10 +2195,14 @@ export default function FimbaTransportPage() {
       if (row?.kind !== "fimba" || row?.rutaId == null) return;
       const endLabel = row.end === "up" ? "subida" : "bajada";
       if (
-        !window.confirm(
-          `¿Quitar la ${endLabel} de «${row.label}» en este evento?\n\n` +
+        !(await confirm({
+          title: `Quitar ${endLabel}`,
+          message:
+            `¿Quitar la ${endLabel} de «${row.label}» en este evento?\n\n` +
             `Si el ride tiene el otro extremo, queda abierto; si no, se elimina la ruta.`,
-        )
+          confirmText: "Quitar",
+          destructive: true,
+        }))
       ) {
         return;
       }
@@ -2076,7 +2222,7 @@ export default function FimbaTransportPage() {
         setClearingOffTrayectoKey(null);
       }
     },
-    [softRefresh],
+    [softRefresh, confirm],
   );
 
   const toggleEditMode = () => {
@@ -3257,13 +3403,15 @@ export default function FimbaTransportPage() {
               </div>
             )}
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <label className="fimba-label" style={{ margin: 0 }}>
+              <label className="fimba-label" style={{ margin: 0 }} htmlFor="fimba-transport-filtro-artista">
                 Artista
               </label>
               <select
+                id="fimba-transport-filtro-artista"
                 className="fimba-select"
                 style={{ width: "auto", minWidth: 180 }}
                 value={filtroArtista || ""}
+                aria-busy={showFilterPending || undefined}
                 onChange={(e) => setFiltroArtista(e.target.value)}
               >
                 <option value="">Toda la edición</option>
@@ -3273,6 +3421,23 @@ export default function FimbaTransportPage() {
                   </option>
                 ))}
               </select>
+              {showFilterPending && (
+                <span
+                  className="fimba-muted fimba-filter-pending-inline"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: "0.78rem",
+                    fontWeight: 600,
+                    color: "var(--fimba-deep)",
+                  }}
+                  aria-live="polite"
+                >
+                  <IconLoader size={14} />
+                  Aplicando filtro…
+                </span>
+              )}
             </div>
             <button
               type="button"
@@ -3294,50 +3459,6 @@ export default function FimbaTransportPage() {
             </button>
           </div>
         </div>
-        {!readOnly && selectedEventIds.size > 0 && (
-          <div
-            className="fimba-bulk-toolbar fimba-no-print"
-            role="status"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              flexWrap: "wrap",
-              marginBottom: 10,
-              padding: "0.45rem 0.65rem",
-              background: "rgba(215, 50, 137, 0.08)",
-              border: "1px solid rgba(215, 50, 137, 0.28)",
-              borderRadius: 8,
-            }}
-          >
-            <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--fimba-deep)" }}>
-              {selectedEventIds.size} seleccionado
-              {selectedEventIds.size === 1 ? "" : "s"}
-            </span>
-            <button
-              type="button"
-              className="fimba-btn fimba-btn-primary"
-              onClick={() => setBulkEditOpen(true)}
-              style={{
-                padding: "0.3rem 0.65rem",
-                fontSize: "0.78rem",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              <IconEdit size={14} /> Editar en lote
-            </button>
-            <button
-              type="button"
-              className="fimba-btn fimba-btn-ghost"
-              onClick={clearSelection}
-              style={{ padding: "0.3rem 0.55rem", fontSize: "0.75rem" }}
-            >
-              <IconX size={12} /> Limpiar selección
-            </button>
-          </div>
-        )}
         {offTrayectoEndpoints.length > 0 && (
           <div
             className="fimba-off-trayecto-panel fimba-no-print"
@@ -3656,7 +3777,8 @@ export default function FimbaTransportPage() {
 
         {vehiculos.length > 0 && (
           <div
-            className="fimba-no-print fimba-veh-filter"
+            className={`fimba-no-print fimba-veh-filter${showFilterPending ? " fimba-filters-busy" : ""}`}
+            aria-busy={showFilterPending || undefined}
             style={{
               display: "flex",
               alignItems: "center",
@@ -3753,7 +3875,11 @@ export default function FimbaTransportPage() {
         )}
 
         {eventosFiltrados.length === 0 ? (
-          <div className="fimba-card fimba-muted">
+          <div
+            className="fimba-card fimba-muted fimba-filter-pending-host"
+            aria-busy={showFilterPending || undefined}
+          >
+            <FimbaFilterApplyingOverlay show={showFilterPending} />
             No hay trayectos
             {filtroArtista ? " para este artista" : ""}
             {filtroOrigen === "fimba" ? " (origen FIMBA)" : ""}
@@ -3767,7 +3893,11 @@ export default function FimbaTransportPage() {
               : " Probá otro origen o vehículo."}
           </div>
         ) : (
-          <div className="fimba-card fimba-planilla-card">
+          <div
+            className="fimba-card fimba-planilla-card fimba-filter-pending-host"
+            aria-busy={showFilterPending || undefined}
+          >
+            <FimbaFilterApplyingOverlay show={showFilterPending} />
             <div className="fimba-planilla-scroll" role="region" aria-label="Planilla de trayectos (desplazá horizontalmente para ver todas las columnas)">
               <table
                 className={`fimba-table fimba-planilla-table${editMode ? " fimba-table-edit" : ""}`}
@@ -4999,6 +5129,16 @@ export default function FimbaTransportPage() {
         )}
       </section>
 
+      {!readOnly && (
+        <FimbaBulkSelectionBar
+          count={selectedEventIds.size}
+          onEdit={() => setBulkEditOpen(true)}
+          onDelete={handleBulkDelete}
+          onClear={clearSelection}
+          deleting={bulkDeleting}
+        />
+      )}
+
       {!readOnly && bulkEditOpen && (
         <FimbaBulkEditModal
           variant="transportes"
@@ -5154,6 +5294,7 @@ export default function FimbaTransportPage() {
           onRefresh={handleBoardingRefresh}
         />
       )}
+      {confirmDialog}
     </div>
   );
 }

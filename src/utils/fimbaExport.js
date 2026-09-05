@@ -4,6 +4,7 @@
  */
 
 import { saveAs } from "file-saver";
+import { toast } from "sonner";
 import {
   FIMBA_TIPOS_ALIMENTACION,
   labelFimbaAlimentacion,
@@ -660,7 +661,7 @@ function buildFimbaComidasPorDiaRows(hoteleriaRows) {
 export async function exportFimbaHoteleriaExcel(opts = {}) {
   const { edicionNombre = "Edicion", rows = [], fileName } = opts;
   if (!rows.length) {
-    alert("No hay datos de hotelería para exportar.");
+    toast.message("No hay datos de hotelería para exportar.");
     return false;
   }
   const habitaciones = buildFimbaRoomingHabitacionRows(rows);
@@ -685,13 +686,13 @@ export async function exportFimbaHoteleriaExcel(opts = {}) {
 export async function exportFimbaRoomingExcel(opts = {}) {
   const { edicionNombre = "Edicion", artistaNombre, rows = [], fileName } = opts;
   if (!rows.length) {
-    alert("No hay rooming para exportar.");
+    toast.message("No hay rooming para exportar.");
     return false;
   }
   const habitaciones = buildFimbaRoomingHabitacionRows(rows);
   const rooming = buildFimbaRoomingRows(rows);
   if (!habitaciones.length && !rooming.length) {
-    alert("No hay rooming para exportar.");
+    toast.message("No hay rooming para exportar.");
     return false;
   }
   const name =
@@ -712,7 +713,7 @@ export async function exportFimbaComidasExcel(opts = {}) {
   const { resumen, detalle } = buildFimbaComidasExportData(rows);
   const { diaRows, artistaDia } = buildFimbaComidasPorDiaRows(rows);
   if (!detalle.length && !diaRows.length && !(resumen || []).length) {
-    alert("No hay datos de comidas para exportar.");
+    toast.message("No hay datos de comidas para exportar.");
     return false;
   }
   const name =
@@ -897,7 +898,7 @@ export async function exportFimbaTransporteVehiculoExcel(opts = {}) {
   const pax = buildFimbaTransportePaxRows(sequence, passengerById);
   const seq = buildFimbaTransporteSecuenciaRows(sequence);
   if (!pax.length && !seq.length) {
-    alert(`No hay paradas ni pasajeros para exportar en ${label}.`);
+    toast.message(`No hay paradas ni pasajeros para exportar en ${label}.`);
     return false;
   }
   const name =
@@ -929,7 +930,7 @@ export async function exportFimbaTransporteTodosExcel(opts = {}) {
     fileName,
   } = opts;
   if (!vehiculos.length) {
-    alert("No hay vehículos para exportar.");
+    toast.message("No hay vehículos para exportar.");
     return false;
   }
 

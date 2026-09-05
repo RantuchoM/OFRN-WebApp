@@ -335,6 +335,41 @@ const FIMBA_CSS = `
     overscroll-behavior-x: contain;
     max-width: 100%;
   }
+  /* Filter apply feedback (Agenda / Transportes): non-blocking overlay */
+  .fimba-filter-pending-host {
+    position: relative;
+  }
+  .fimba-filter-applying {
+    position: absolute;
+    inset: 0;
+    z-index: 28;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 3.25rem;
+    background: rgba(255, 255, 255, 0.48);
+    pointer-events: none;
+  }
+  .fimba-filter-applying-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    background: var(--fimba-surface, #fff);
+    border: 1px solid var(--fimba-border, #e2e8f0);
+    box-shadow: 0 4px 14px rgba(148, 33, 109, 0.12);
+    color: var(--fimba-deep, #94216d);
+    font-size: 0.78rem;
+    font-weight: 650;
+    letter-spacing: 0.01em;
+  }
+  .fimba-filters-busy {
+    opacity: 0.92;
+  }
+  .fimba-filter-pending-inline {
+    color: var(--fimba-deep, #94216d);
+  }
   .fimba-agenda-table {
     width: max-content;
     min-width: 100%;
@@ -400,11 +435,50 @@ const FIMBA_CSS = `
   }
   .fimba-agenda-table .fimba-agenda-actions {
     text-align: right;
-    min-width: 2.35rem;
-    padding-left: 0.15rem !important;
-    padding-right: 0.5rem !important;
+    position: sticky;
+    right: 0;
+    z-index: 4;
+    min-width: 2.75rem;
+    width: 2.75rem;
+    box-sizing: border-box;
+    padding-left: 0.2rem !important;
+    padding-right: 0.45rem !important;
     white-space: nowrap;
     vertical-align: middle;
+    overflow: visible;
+    background: var(--fimba-surface, #fff);
+    box-shadow: -6px 0 10px -8px rgba(15, 23, 42, 0.16);
+  }
+  .fimba-agenda-table thead th.fimba-agenda-actions {
+    z-index: 22; /* above other sticky thead (z-20) */
+    background: var(--fimba-surface, #fff);
+  }
+  .fimba-agenda-table .fimba-row-ofrn .fimba-agenda-actions {
+    background: #f3fafd;
+  }
+  .fimba-agenda-table .fimba-row-ambos .fimba-agenda-actions {
+    background: #fdf7fb;
+  }
+  /* Agenda Destino: same zoom-stable truncate stack as Transportes planilla */
+  .fimba-agenda-table td.fimba-agenda-destino {
+    max-width: 7.5rem;
+    width: 7.5rem;
+    min-width: 0;
+    white-space: nowrap;
+    vertical-align: middle;
+    overflow: visible; /* ellipsis lives on .fimba-planilla-destino-text */
+    box-sizing: border-box;
+  }
+  /* Agenda Locación: cap wrap height; full name via native title tooltip */
+  .fimba-agenda-loc-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    min-width: 0;
   }
   /*
     Agenda mobile cards (< 768px): hide planilla table, show card stack.
@@ -600,6 +674,26 @@ const FIMBA_CSS = `
     overscroll-behavior-x: contain;
     max-width: 100%;
   }
+  /* Filtro Artista (Transportes): overlay local mientras recompute diferido */
+  .fimba-planilla-filter-busy-host {
+    min-height: 3.5rem;
+  }
+  .fimba-planilla-filter-busy {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: color-mix(in srgb, #fff 72%, var(--fimba-cream, #faf7f2));
+    color: var(--fimba-deep);
+    font-size: 0.85rem;
+    font-weight: 700;
+    border-radius: inherit;
+    pointer-events: all;
+    cursor: wait;
+  }
   .fimba-planilla-table {
     width: max-content;
     min-width: 100%;
@@ -773,7 +867,8 @@ const FIMBA_CSS = `
     gap: 0.15rem;
     max-width: 100%;
     min-width: 0;
-    overflow: hidden;
+    /* Clip via label ellipsis only — chip overflow:hidden clips "…" at zoom */
+    overflow: visible;
     padding: 0.1rem 0.35rem;
     border-radius: 999px;
     border: 1px solid #e2e8f0;
@@ -793,6 +888,11 @@ const FIMBA_CSS = `
     min-width: 0;
     flex: 1 1 0%;
     max-width: 11rem;
+    padding-right: 1px; /* hairline so "…" isn't subpixel-clipped */
+  }
+  .fimba-planilla-board-chip-chofer-tag,
+  .fimba-planilla-board-chip-off-trayecto {
+    flex-shrink: 0;
   }
   .fimba-planilla-board-chip-x {
     display: inline-flex;
@@ -835,6 +935,65 @@ const FIMBA_CSS = `
     padding-left: 0.15rem !important;
     padding-right: 0.05rem !important;
   }
+
+  /* Floating bulk selection bar (Agenda / Transportes) — bottom-left */
+  .fimba-bulk-selection-bar {
+    position: fixed;
+    left: max(0.75rem, env(safe-area-inset-left, 0px));
+    bottom: max(0.85rem, env(safe-area-inset-bottom, 0px));
+    z-index: 80;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem 0.75rem;
+    max-width: min(26rem, calc(100vw - 1.5rem));
+    padding: 0.55rem 0.7rem;
+    border-radius: 12px;
+    background: var(--fimba-surface, #fff);
+    color: var(--fimba-text, #222);
+    border: 1px solid rgba(215, 50, 137, 0.35);
+    box-shadow:
+      0 8px 28px rgba(15, 23, 42, 0.14),
+      0 0 0 1px rgba(215, 50, 137, 0.08);
+  }
+  .fimba-bulk-selection-count {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--fimba-deep, #94216d);
+    white-space: nowrap;
+  }
+  .fimba-bulk-selection-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .fimba-bulk-selection-btn {
+    padding: 0.32rem 0.65rem !important;
+    font-size: 0.78rem !important;
+    display: inline-flex !important;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .fimba-bulk-selection-btn-danger {
+    background: #be123c !important;
+    color: #fff !important;
+    border: none !important;
+  }
+  .fimba-bulk-selection-btn-danger:hover:not(:disabled) {
+    background: #9f1239 !important;
+  }
+  .fimba-bulk-selection-btn-danger:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+  .fimba-bulk-selection-clear {
+    padding: 0.32rem 0.4rem !important;
+    min-width: 2rem;
+    justify-content: center;
+  }
+
   .fimba-planilla-table .fimba-sticky-origen {
     position: sticky;
     left: 0;
@@ -947,17 +1106,50 @@ const FIMBA_CSS = `
   }
   .fimba-planilla-table .fimba-planilla-actions {
     text-align: right;
-    min-width: 2.35rem;
-    padding-left: 0.1rem !important;
-    padding-right: 0.35rem !important;
+    position: sticky;
+    right: 0;
+    z-index: 4;
+    min-width: 2.75rem;
+    width: 2.75rem;
+    box-sizing: border-box;
+    padding-left: 0.2rem !important;
+    padding-right: 0.45rem !important;
     white-space: nowrap;
+    overflow: visible;
+    background: #fff;
+    box-shadow: -6px 0 10px -8px rgba(15, 23, 42, 0.16);
+  }
+  .fimba-planilla-table thead th.fimba-planilla-actions {
+    z-index: 6;
+    background: #fff;
+  }
+  .fimba-planilla-table .fimba-row-ofrn .fimba-planilla-actions {
+    background: #f3fafd;
+  }
+  .fimba-planilla-table .fimba-row-ambos .fimba-planilla-actions {
+    background: #fdf7fb;
+  }
+  .fimba-planilla-table .fimba-row-contexto .fimba-planilla-actions {
+    background: #f1f5f9;
+  }
+  /* Row-edit ✓/X needs more than kebab width; grow without collapsing at zoom */
+  .fimba-planilla-table td.fimba-planilla-actions:has(.fimba-btn + .fimba-btn),
+  .fimba-agenda-table td.fimba-agenda-actions:has(.fimba-btn + .fimba-btn) {
+    width: auto;
+    min-width: 4.5rem;
   }
   .fimba-planilla-table .fimba-planilla-destino {
     max-width: 7.5rem;
     width: 7.5rem;
+    min-width: 0;
     white-space: nowrap;
     vertical-align: middle;
-    overflow: hidden;
+    /*
+      overflow:hidden on the td double-clips the ellipsis glyph under browser
+      zoom (subpixel rem). Clip only on the inner/text truncators below.
+    */
+    overflow: visible;
+    box-sizing: border-box;
     padding-left: 0.25rem !important;
     padding-right: 0.25rem !important;
   }
@@ -976,6 +1168,10 @@ const FIMBA_CSS = `
     overflow: hidden;
     box-sizing: border-box;
   }
+  .fimba-planilla-destino-inner > .fimba-btn,
+  .fimba-planilla-destino-inner > .fimba-badge {
+    flex-shrink: 0;
+  }
   .fimba-planilla-destino-text {
     display: block;
     overflow: hidden;
@@ -984,11 +1180,15 @@ const FIMBA_CSS = `
     min-width: 0;
     flex: 1 1 0%;
     max-width: 100%;
+    padding-right: 1px; /* hairline so "…" isn't subpixel-clipped */
   }
-  .fimba-planilla-row-menu {
+  .fimba-planilla-row-menu,
+  .fimba-agenda-card-menu {
     display: inline-flex;
     align-items: center;
     justify-content: flex-end;
+    flex-shrink: 0;
+    min-width: 1.75rem;
   }
   /*
     Pause divider: "+" on top/bottom-left dashed border vertices.
@@ -1457,7 +1657,8 @@ const FIMBA_CSS = `
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex-shrink: 1;
+    flex-shrink: 0;
+    min-width: 0;
   }
   .fimba-badge-early {
     background: #e0f2fe;
@@ -1977,13 +2178,13 @@ const FIMBA_CSS = `
   }
   .fimba-artista-name-btn {
     display: block;
-    flex: 1;
+    flex: 1 1 0%;
     min-width: 0;
     max-width: 100%;
     font-weight: 600;
     background: none;
     border: 0;
-    padding: 0;
+    padding: 0 1px 0 0; /* hairline so "…" isn't subpixel-clipped */
     cursor: pointer;
     color: inherit;
     font: inherit;
@@ -2178,6 +2379,7 @@ const FIMBA_CSS = `
     .fimba-agenda-copy-link,
     .fimba-agenda-active-filters-actions,
     .fimba-bulk-toolbar,
+    .fimba-bulk-selection-bar,
     .fimba-bulk-check-col,
     .ql-toolbar,
     .fimba-modal-backdrop,
@@ -2232,9 +2434,12 @@ const FIMBA_CSS = `
     .fimba-planilla-table thead th,
     .fimba-planilla-table .fimba-sticky-origen,
     .fimba-planilla-table .fimba-sticky-fecha,
-    .fimba-planilla-table .fimba-sticky-hora {
+    .fimba-planilla-table .fimba-sticky-hora,
+    .fimba-planilla-table .fimba-planilla-actions,
+    .fimba-agenda-table .fimba-agenda-actions {
       position: static !important;
       left: auto !important;
+      right: auto !important;
       box-shadow: none;
     }
     /* Rows only — never wrap whole planilla cards (pushes table to page 2). */

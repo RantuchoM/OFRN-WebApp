@@ -64,6 +64,7 @@ import FimbaRoomingPanel from "./FimbaRoomingPanel";
 import FimbaStayEventCell, {
   FimbaStayEventReadLabel,
 } from "./FimbaStayEventCell";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 /** Columnas editables en planilla (orden Tab / Enter). Stay = picker de evento. */
 const EDITABLE_COLS = [
@@ -250,6 +251,7 @@ function statusMeta(status) {
 export default function FimbaArtistaPage({ readOnly = false, propuestaOverride = null, modeLabel }) {
   const { edicionId, artistaId } = useParams();
   const access = useFimbaAccess();
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const effectiveReadOnly = Boolean(readOnly || access.readOnly);
   /** Solo editor_general / OFRN management — nunca consulta ni tokens (canSeeContrataciones). */
   const canSeeFinanzas = Boolean(access.canSeeContrataciones);
@@ -399,13 +401,17 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
 
   const regen = async (which) => {
     if (
-      !window.confirm(
-        which.consulta && which.edicion
-          ? "¿Regenerar ambos enlaces? Los anteriores dejarán de funcionar."
-          : which.consulta
-            ? "¿Regenerar enlace de consulta?"
-            : "¿Regenerar enlace de edición?",
-      )
+      !(await confirm({
+        title: "Regenerar enlace",
+        message:
+          which.consulta && which.edicion
+            ? "¿Regenerar ambos enlaces? Los anteriores dejarán de funcionar."
+            : which.consulta
+              ? "¿Regenerar enlace de consulta?"
+              : "¿Regenerar enlace de edición?",
+        confirmText: "Regenerar",
+        destructive: true,
+      }))
     ) {
       return;
     }
@@ -721,6 +727,7 @@ export default function FimbaArtistaPage({ readOnly = false, propuestaOverride =
         hoteleriaRows={artistaHoteleriaRows}
         edicionNombre={`${edicionLabel} · ${propuesta?.nombre || ""}`}
       />
+      {confirmDialog}
     </div>
   );
 }
@@ -1220,6 +1227,7 @@ function ParticipantesPlanilla({
   onListChange,
   onError,
 }) {
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const [drafts, setDrafts] = useState({});
   const [rowStatus, setRowStatus] = useState({});
   const [rowErrors, setRowErrors] = useState({});
@@ -1431,7 +1439,16 @@ function ParticipantesPlanilla({
   };
 
   const handleDelete = async (p) => {
-    if (!window.confirm(`¿Eliminar a ${p.apellido}, ${p.nombre}?`)) return;
+    if (
+      !(await confirm({
+        title: "Eliminar participante",
+        message: `¿Eliminar a ${p.apellido}, ${p.nombre}?`,
+        confirmText: "Eliminar",
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
     const { error: err } = await deleteFimbaParticipante(p.id);
     if (err) {
       onError?.(err.message || "No se pudo eliminar");
@@ -1767,6 +1784,7 @@ function ParticipantesPlanilla({
           Escribí apellido y nombre en la fila vacía para dar de alta el primer participante.
         </div>
       )}
+      {confirmDialog}
     </div>
   );
 }

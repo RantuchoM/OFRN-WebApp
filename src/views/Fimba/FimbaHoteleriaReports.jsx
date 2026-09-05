@@ -27,6 +27,7 @@ import { exportFimbaRoomingExcel } from "../../utils/fimbaExport";
 import {
   INITIAL_ORDER_BEDS_PER_ROOM_OPTIONS,
 } from "../../utils/roomingInitialOrder";
+import { toast } from "sonner";
 
 function formatFechaUi(f) {
   if (!f) return "—";
@@ -92,7 +93,7 @@ export default function FimbaHoteleriaReports({
   const handleCopy = async (text) => {
     const payload = String(text || "").trim();
     if (!payload) {
-      alert("No hay texto para copiar.");
+      toast.message("No hay texto para copiar.");
       return;
     }
     try {
@@ -100,7 +101,7 @@ export default function FimbaHoteleriaReports({
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      alert("No se pudo copiar al portapapeles.");
+      toast.error("No se pudo copiar al portapapeles.");
     }
   };
 

@@ -25,6 +25,7 @@ import {
 } from "../../services/fimbaService";
 import { buildFimbaBajadaArtistOptions } from "../../utils/fimbaTransportBoarding";
 import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 function syncDot(status) {
   if (status === "saving") {
@@ -326,6 +327,7 @@ export default function FimbaEventoArtistasBoardingTable({
   canEditBoarding = false,
   onBoardingRefresh = null,
 }) {
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const vehiculos = useMemo(
     () =>
       (flota || []).filter((v) =>
@@ -548,9 +550,13 @@ export default function FimbaEventoArtistasBoardingTable({
     };
     let res = await upsertFimbaPropuestaRutaStop(upsertPayload);
     if (res.conflict) {
-      const ok = window.confirm(
-        `${res.error?.message || "Conflicto"}.\n\n¿Reemplazar la parada anterior?`,
-      );
+      const ok = await confirm({
+        title: "Conflicto de parada",
+        message: `${res.error?.message || "Conflicto"}.\n\n¿Reemplazar la parada anterior?`,
+        confirmText: "Reemplazar",
+        destructive: true,
+        overlayClassName: "z-[110]",
+      });
       if (!ok) {
         setCellSync((s) => ({ ...s, [key]: "idle" }));
         return;
@@ -573,7 +579,17 @@ export default function FimbaEventoArtistasBoardingTable({
   const clearStop = async (propId, type) => {
     const ruta = rutaFor(propId, type);
     if (!ruta) return;
-    if (!window.confirm("¿Quitar esta regla de parada?")) return;
+    if (
+      !(await confirm({
+        title: "Quitar regla",
+        message: "¿Quitar esta regla de parada?",
+        confirmText: "Quitar",
+        destructive: true,
+        overlayClassName: "z-[110]",
+      }))
+    ) {
+      return;
+    }
     const key = syncKey(propId, type);
     setCellSync((s) => ({ ...s, [key]: "saving" }));
     const clearRes = await clearFimbaPropuestaRutaStop(ruta.id, type);
@@ -663,9 +679,14 @@ export default function FimbaEventoArtistasBoardingTable({
     }
 
     if (hasRules) {
-      const ok = window.confirm(
-        "Este artista tiene reglas Sube/Baja en este evento.\n\n¿Quitar el tag y limpiar esas reglas?",
-      );
+      const ok = await confirm({
+        title: "Quitar tag y reglas",
+        message:
+          "Este artista tiene reglas Sube/Baja en este evento.\n\n¿Quitar el tag y limpiar esas reglas?",
+        confirmText: "Quitar tag",
+        destructive: true,
+        overlayClassName: "z-[110]",
+      });
       if (!ok) return;
       const { error: err } = await clearAllRulesForPropAtEvent(propId);
       if (err) {
@@ -694,11 +715,16 @@ export default function FimbaEventoArtistasBoardingTable({
       setError("No hay artistas a bordo en este vehículo.");
       return;
     }
-    const ok = window.confirm(
-      `¿Bajar todo lo a bordo de este vehículo en esta parada?\n\n` +
+    const ok = await confirm({
+      title: "Bajar todo",
+      message:
+        `¿Bajar todo lo a bordo de este vehículo en esta parada?\n\n` +
         `Se cerrarán ${aboardCount} ride(s) FIMBA abiertos.\n` +
         `Orquesta OFRN: Gestionar bajadas → pestaña Orquesta → Bajar todo.`,
-    );
+      confirmText: "Bajar todo",
+      destructive: true,
+      overlayClassName: "z-[110]",
+    });
     if (!ok) return;
     setBajarTodoBusy(true);
     setError(null);
@@ -979,6 +1005,7 @@ export default function FimbaEventoArtistasBoardingTable({
           )}
         </>
       )}
+      {confirmDialog}
     </div>
   );
 }

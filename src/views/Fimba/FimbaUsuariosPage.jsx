@@ -23,6 +23,7 @@ import {
 } from "../../services/fimbaService";
 import { generateFimbaTempPassword } from "../../utils/fimbaUserSession";
 import { useFimbaAccess } from "../../hooks/useFimbaAccess";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 const ROLE_LABEL = Object.fromEntries(
   FIMBA_USUARIO_ROLES.map((r) => [r.value, r.label]),
@@ -45,6 +46,7 @@ function emptyForm() {
 export default function FimbaUsuariosPage() {
   const { edicionId } = useParams();
   const { canManageUsers, canSeeUsuarios } = useFimbaAccess();
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const [edicion, setEdicion] = useState(null);
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -94,9 +96,13 @@ export default function FimbaUsuariosPage() {
 
   const regenConsulta = async () => {
     if (
-      !window.confirm(
-        "¿Regenerar el enlace de consulta general? El enlace anterior dejará de funcionar.",
-      )
+      !(await confirm({
+        title: "Regenerar enlace",
+        message:
+          "¿Regenerar el enlace de consulta general? El enlace anterior dejará de funcionar.",
+        confirmText: "Regenerar",
+        destructive: true,
+      }))
     ) {
       return;
     }
@@ -558,6 +564,7 @@ export default function FimbaUsuariosPage() {
           </div>,
           document.body,
         )}
+      {confirmDialog}
     </div>
   );
 }

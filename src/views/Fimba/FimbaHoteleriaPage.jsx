@@ -28,6 +28,7 @@ import {
 } from "../../services/fimbaService";
 import { compareEsText } from "../../utils/fimbaAgendaSort";
 import { matchesFimbaArtistaPersonSearch } from "../../utils/fimbaArtistaSearch";
+import { toast } from "sonner";
 import { resolveParticipanteStay, classifyStayOverride, stayDateFromEventOrMirror, formatStayEventLabel } from "../../utils/fimbaStay";
 import {
   exportFimbaComidasExcel,
@@ -93,7 +94,7 @@ export default function FimbaHoteleriaPage() {
 
   const openArtistaHotelReports = (row) => {
     if (row?.requiere_hotel === false) {
-      alert("Este artista no requiere hotelería (excluido de reportes).");
+      toast.message("Este artista no requiere hotelería (excluido de reportes).");
       return;
     }
     const nombre = row?.propuesta?.nombre || "Artista";
@@ -116,7 +117,7 @@ export default function FimbaHoteleriaPage() {
       data = filterHoteleriaRowsForHotel(data);
     }
     if (!data.length) {
-      alert("No hay datos para exportar (revisá toggles de hotelería/comidas).");
+      toast.message("No hay datos para exportar (revisá toggles de hotelería/comidas).");
       return;
     }
     setExporting(kind);
@@ -153,7 +154,7 @@ export default function FimbaHoteleriaPage() {
 
   const printArtistaRooming = (row) => {
     if (row?.requiere_hotel === false) {
-      alert("Este artista no requiere hotelería (excluido de rooming).");
+      toast.message("Este artista no requiere hotelería (excluido de rooming).");
       return;
     }
     const nombre = row?.propuesta?.nombre || "Artista";
@@ -312,7 +313,7 @@ export default function FimbaHoteleriaPage() {
     try {
       await navigator.clipboard.writeText(lines.join("\n"));
       setError(null);
-      alert("Tabla copiada al portapapeles (TSV, pegable en Excel).");
+      toast.success("Tabla copiada al portapapeles (TSV, pegable en Excel).");
     } catch {
       setError("No se pudo copiar al portapapeles.");
     }

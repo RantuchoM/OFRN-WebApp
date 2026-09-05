@@ -7167,15 +7167,371 @@ export async function bulkReassignFimbaEventosVehiculo(
   return { updated, skipped, error: firstError };
 }
 
-export async function deleteFimbaEvento(eventoId) {
+/**
+ * Rutas ↑/↓ (FIMBA + Orquesta) que usan este evento como extremo.
+ * @param {number|string} eventoId
+ * @returns {Promise<{
+ *   links: {
+ *     fimbaUp: number,
+ *     fimbaDown: number,
+ *     ofrnUp: number,
+ *     ofrnDown: number,
+ *     fimbaTotal: number,
+ *     ofrnTotal: number,
+ *     total: number,
+ *     fimbaRows: Array<object>,
+ *     ofrnRows: Array<object>,
+ *   },
+ *   error: Error|null,
+ * }>}
+ */
+export async function findBoardingLinksForEvent(eventoId) {
+  const id = Number(eventoId);
+  const empty = {
+    fimbaUp: 0,
+    fimbaDown: 0,
+    ofrnUp: 0,
+    ofrnDown: 0,
+    fimbaTotal: 0,
+    ofrnTotal: 0,
+    total: 0,
+    fimbaRows: [],
+    ofrnRows: [],
+  };
+  if (!Number.isFinite(id)) {
+    return { links: empty, error: new Error("id de evento requerido") };
+  }
+
+  const [fimbaRes, ofrnRes] = await Promise.all([
+    supabase
+      .from("fimba_propuesta_rutas")
+      .select(
+        "id, plazas, id_propuesta, id_gira_transporte, id_evento_subida, id_evento_bajada",
+      )
+      .or(`id_evento_subida.eq.${id},id_evento_bajada.eq.${id}`),
+    supabase
+      .from("giras_logistica_rutas")
+      .select(
+        "id, alcance, id_integrante, target_ids, id_evento_subida, id_evento_bajada",
+      )
+      .or(`id_evento_subida.eq.${id},id_evento_bajada.eq.${id}`),
+  ]);
+  if (fimbaRes.error) return { links: empty, error: fimbaRes.error };
+  if (ofrnRes.error) return { links: empty, error: ofrnRes.error };
+
+  const eid = String(id);
+  let fimbaUp = 0;
+  let fimbaDown = 0;
+  for (const r of fimbaRes.data || []) {
+    if (String(r.id_evento_subida) === eid) fimbaUp += 1;
+    if (String(r.id_evento_bajada) === eid) fimbaDown += 1;
+  }
+  let ofrnUp = 0;
+  let ofrnDown = 0;
+  for (const r of ofrnRes.data || []) {
+    if (String(r.id_evento_subida) === eid) ofrnUp += 1;
+    if (String(r.id_evento_bajada) === eid) ofrnDown += 1;
+  }
+
+  const fimbaTotal = fimbaUp + fimbaDown;
+  const ofrnTotal = ofrnUp + ofrnDown;
+  return {
+    links: {
+      fimbaUp,
+      fimbaDown,
+      ofrnUp,
+      ofrnDown,
+      fimbaTotal,
+      ofrnTotal,
+      total: fimbaTotal + ofrnTotal,
+      fimbaRows: fimbaRes.data || [],
+      ofrnRows: ofrnRes.data || [],
+    },
+    error: null,
+  };
+}
+
+/**
+ * Texto de confirmación al borrar un evento con ↑/↓ programadas.
+ * @param {{
+ *   label?: string,
+ *   fechaLabel?: string,
+ *   ofrnNote?: string,
+ *   links?: {
+ *     total?: number,
+ *     fimbaUp?: number,
+ *     fimbaDown?: number,
+ *     ofrnUp?: number,
+ *     ofrnDown?: number,
+ *     fimbaTotal?: number,
+ *     ofrnTotal?: number,
+ *   }|null,
+ * }} opts
+ */
+export function buildFimbaEventDeleteMessage(opts = {}) {
+  const label = opts.label || "evento";
+  const fecha = opts.fechaLabel ? ` del ${opts.fechaLabel}` : "";
+  const ofrnNote = opts.ofrnNote ? `\n\n${opts.ofrnNote}` : "";
+  const links = opts.links || null;
+  if (!links || !links.total) {
+    return `¿Eliminar «${label}»${fecha}?${ofrnNote}`;
+  }
+
+  const parts = [];
+  if (links.fimbaUp) parts.push(`${links.fimbaUp} subida(s) FIMBA`);
+  if (links.fimbaDown) parts.push(`${links.fimbaDown} bajada(s) FIMBA`);
+  if (links.ofrnUp) parts.push(`${links.ofrnUp} subida(s) Orquesta`);
+  if (links.ofrnDown) parts.push(`${links.ofrnDown} bajada(s) Orquesta`);
+  const detail = parts.length ? parts.join(", ") : `${links.total} regla(s)`;
+
+  return (
+    `¿Eliminar «${label}»${fecha}?\n\n` +
+    `Este evento tiene paradas programadas: ${detail}.\n` +
+    `Si continuás, se eliminará el evento y se quitarán esas subidas/bajadas ` +
+    `(no quedarán reglas huérfanas).${ofrnNote}`
+  );
+}
+
+/**
+ * Agrega vínculos ↑/↓ de varios eventos (para confirm de borrado en lote).
+ * @param {Array<number|string>} eventoIds
+ */
+export async function findBoardingLinksForEvents(eventoIds) {
+  const ids = [
+    ...new Set(
+      (eventoIds || [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id)),
+    ),
+  ];
+  const emptyTotals = {
+    fimbaUp: 0,
+    fimbaDown: 0,
+    ofrnUp: 0,
+    ofrnDown: 0,
+    fimbaTotal: 0,
+    ofrnTotal: 0,
+    total: 0,
+    eventsWithBoarding: 0,
+  };
+  if (ids.length === 0) {
+    return { byEventId: new Map(), totals: emptyTotals, error: null };
+  }
+
+  const results = await Promise.all(
+    ids.map(async (id) => {
+      const { links, error } = await findBoardingLinksForEvent(id);
+      return { id, links, error };
+    }),
+  );
+  const firstErr = results.find((r) => r.error)?.error || null;
+  if (firstErr) {
+    return { byEventId: new Map(), totals: emptyTotals, error: firstErr };
+  }
+
+  const byEventId = new Map();
+  const totals = { ...emptyTotals };
+  for (const r of results) {
+    byEventId.set(String(r.id), r.links);
+    if ((r.links?.total || 0) > 0) totals.eventsWithBoarding += 1;
+    totals.fimbaUp += r.links.fimbaUp || 0;
+    totals.fimbaDown += r.links.fimbaDown || 0;
+    totals.ofrnUp += r.links.ofrnUp || 0;
+    totals.ofrnDown += r.links.ofrnDown || 0;
+  }
+  totals.fimbaTotal = totals.fimbaUp + totals.fimbaDown;
+  totals.ofrnTotal = totals.ofrnUp + totals.ofrnDown;
+  totals.total = totals.fimbaTotal + totals.ofrnTotal;
+  return { byEventId, totals, error: null };
+}
+
+/**
+ * @param {{ count?: number, totals?: object|null }} opts
+ */
+export function buildFimbaBulkEventDeleteMessage(opts = {}) {
+  const count = Math.max(0, Number(opts.count) || 0);
+  const totals = opts.totals || null;
+  const nLabel = `${count} evento${count === 1 ? "" : "s"}`;
+  if (!totals || !totals.total) {
+    return `¿Eliminar ${nLabel} seleccionado${count === 1 ? "" : "s"}?`;
+  }
+
+  const parts = [];
+  if (totals.fimbaUp) parts.push(`${totals.fimbaUp} subida(s) FIMBA`);
+  if (totals.fimbaDown) parts.push(`${totals.fimbaDown} bajada(s) FIMBA`);
+  if (totals.ofrnUp) parts.push(`${totals.ofrnUp} subida(s) Orquesta`);
+  if (totals.ofrnDown) parts.push(`${totals.ofrnDown} bajada(s) Orquesta`);
+  const detail = parts.length ? parts.join(", ") : `${totals.total} regla(s)`;
+  const withBoard = totals.eventsWithBoarding || 0;
+
+  return (
+    `¿Eliminar ${nLabel} seleccionado${count === 1 ? "" : "s"}?\n\n` +
+    `${withBoard} de ellos tienen paradas programadas: ${detail}.\n` +
+    `Si continuás, se eliminarán los eventos y se quitarán esas subidas/bajadas ` +
+    `(no quedarán reglas huérfanas).`
+  );
+}
+
+/**
+ * Borra varios eventos en serie; opcionalmente limpia ↑/↓ por evento.
+ * @param {Array<number|string>} eventoIds
+ * @param {{
+ *   clearBoarding?: boolean,
+ *   byEventId?: Map<string, object>|null,
+ * }} [opts]
+ */
+export async function deleteFimbaEventosBulk(eventoIds, opts = {}) {
+  const ids = [
+    ...new Set(
+      (eventoIds || [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id)),
+    ),
+  ];
+  let deleted = 0;
+  for (const id of ids) {
+    const links = opts.byEventId?.get(String(id)) || null;
+    const clearBoarding =
+      opts.clearBoarding === true ||
+      (links != null && (links.total || 0) > 0);
+    const { error } = await deleteFimbaEvento(id, {
+      clearBoarding,
+      links,
+    });
+    if (error) return { error, deleted };
+    deleted += 1;
+  }
+  return { error: null, deleted };
+}
+
+/**
+ * Quita extremos ↑/↓ FIMBA + OFRN que apuntan al evento (antes de borrarlo).
+ * FIMBA: clear extremo (borra la fila si queda sin el otro extremo; si se
+ * quita la subida de un ride completo, borra la fila entera para no dejar
+ * bajada huérfana). OFRN: desvincula o borra la regla si ambos extremos
+ * quedan vacíos. También limpia `giras_logistica_reglas_transportes`.
+ *
+ * @param {number|string} eventoId
+ * @param {{ links?: object|null }} [opts] — si ya se llamó findBoardingLinksForEvent
+ */
+export async function clearBoardingLinksForEvent(eventoId, opts = {}) {
+  const id = Number(eventoId);
+  if (!Number.isFinite(id)) {
+    return { error: new Error("id de evento requerido"), cleared: 0 };
+  }
+
+  let links = opts.links || null;
+  if (!links) {
+    const found = await findBoardingLinksForEvent(id);
+    if (found.error) return { error: found.error, cleared: 0 };
+    links = found.links;
+  }
+
+  let cleared = 0;
+  const eid = String(id);
+
+  for (const row of links.fimbaRows || []) {
+    const isUp = String(row.id_evento_subida) === eid;
+    const isDown = String(row.id_evento_bajada) === eid;
+    if (isUp && isDown) {
+      const { error } = await deleteFimbaPropuestaRuta(row.id);
+      if (error) return { error, cleared };
+      cleared += 1;
+      continue;
+    }
+    if (isUp) {
+      // Quitar subida: no dejar bajada sola (huérfana).
+      const { error } = await deleteFimbaPropuestaRuta(row.id);
+      if (error) return { error, cleared };
+      cleared += 1;
+      continue;
+    }
+    if (isDown) {
+      const { error } = await clearFimbaPropuestaRutaStop(row.id, "down");
+      if (error) return { error, cleared };
+      cleared += 1;
+    }
+  }
+
+  for (const row of links.ofrnRows || []) {
+    const isUp = String(row.id_evento_subida) === eid;
+    const isDown = String(row.id_evento_bajada) === eid;
+    const nextUp = isUp ? null : row.id_evento_subida ?? null;
+    const nextDown = isDown ? null : row.id_evento_bajada ?? null;
+    if (nextUp == null && nextDown == null) {
+      const { error } = await supabase
+        .from("giras_logistica_rutas")
+        .delete()
+        .eq("id", row.id);
+      if (error) return { error, cleared };
+      cleared += 1;
+      continue;
+    }
+    if (isUp && nextDown != null) {
+      // Misma regla FIMBA: no dejar bajada OFRN sin subida.
+      const { error } = await supabase
+        .from("giras_logistica_rutas")
+        .delete()
+        .eq("id", row.id);
+      if (error) return { error, cleared };
+      cleared += 1;
+      continue;
+    }
+    const { error } = await supabase
+      .from("giras_logistica_rutas")
+      .update({
+        id_evento_subida: nextUp,
+        id_evento_bajada: nextDown,
+      })
+      .eq("id", row.id);
+    if (error) return { error, cleared };
+    cleared += 1;
+  }
+
+  // Paridad OFRN Trayectos: desvincular reglas de admisión transporte.
+  const [admUp, admDown] = await Promise.all([
+    supabase
+      .from("giras_logistica_reglas_transportes")
+      .update({ id_evento_subida: null })
+      .eq("id_evento_subida", id),
+    supabase
+      .from("giras_logistica_reglas_transportes")
+      .update({ id_evento_bajada: null })
+      .eq("id_evento_bajada", id),
+  ]);
+  if (admUp.error) return { error: admUp.error, cleared };
+  if (admDown.error) return { error: admDown.error, cleared };
+
+  return { error: null, cleared };
+}
+
+/**
+ * @param {number|string} eventoId
+ * @param {{ clearBoarding?: boolean, links?: object|null }} [opts]
+ *   clearBoarding: quita ↑/↓ FIMBA+OFRN antes del DELETE (evita huérfanos /
+ *   bloqueo FK de `giras_logistica_rutas`).
+ */
+export async function deleteFimbaEvento(eventoId, opts = {}) {
   if (eventoId == null) return { error: new Error("id de evento requerido") };
-  // CASCADE borra fimba_evento_transportes y eventos_fimba_propuestas
-  const { error } = await supabase.from("eventos").delete().eq("id", Number(eventoId));
+  const id = Number(eventoId);
+  if (!Number.isFinite(id)) return { error: new Error("id de evento requerido") };
+
+  if (opts.clearBoarding) {
+    const { error: clearErr } = await clearBoardingLinksForEvent(id, {
+      links: opts.links || null,
+    });
+    if (clearErr) return { error: clearErr };
+  }
+
+  // CASCADE borra fimba_evento_transportes y eventos_fimba_propuestas.
+  // fimba_propuesta_rutas: ON DELETE SET NULL (limpiar antes con clearBoarding).
+  // giras_logistica_rutas: FK restrict — requiere clearBoarding si hay vínculos.
+  const { error } = await supabase.from("eventos").delete().eq("id", id);
   return { error };
 }
 
-export async function deleteFimbaTraslado(eventoId) {
-  return deleteFimbaEvento(eventoId);
+export async function deleteFimbaTraslado(eventoId, opts = {}) {
+  return deleteFimbaEvento(eventoId, opts);
 }
 
 // ---------------------------------------------------------------------------

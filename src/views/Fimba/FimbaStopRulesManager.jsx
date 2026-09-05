@@ -40,6 +40,7 @@ import {
 } from "../../utils/fimbaTransportBoarding";
 import StopRulesManager from "../Giras/StopRulesManager";
 import { supabase } from "../../services/supabase";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 export default function FimbaStopRulesManager({
   isOpen,
@@ -67,6 +68,7 @@ export default function FimbaStopRulesManager({
   /** Sin portal/backdrop: embeber en el editor de evento. */
   embedded = false,
 }) {
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const [tab, setTab] = useState(
     initialTab === "orquesta" ? "orquesta" : "artistas",
   ); // artistas | orquesta
@@ -530,9 +532,13 @@ export default function FimbaStopRulesManager({
       ...luggage,
     });
     if (res.conflict) {
-      const ok = window.confirm(
-        `${res.error?.message || "Conflicto"}.\n\n¿Reemplazar la parada anterior?`,
-      );
+      const ok = await confirm({
+        title: "Conflicto de parada",
+        message: `${res.error?.message || "Conflicto"}.\n\n¿Reemplazar la parada anterior?`,
+        confirmText: "Reemplazar",
+        destructive: true,
+        overlayClassName: "z-[110]",
+      });
       if (ok) {
         res = await upsertFimbaPropuestaRutaStop({
           id_propuesta: propuestaId,
@@ -566,7 +572,17 @@ export default function FimbaStopRulesManager({
   };
 
   const handleDelete = async (ruta) => {
-    if (!window.confirm("¿Quitar esta regla de parada?")) return;
+    if (
+      !(await confirm({
+        title: "Quitar regla",
+        message: "¿Quitar esta regla de parada?",
+        confirmText: "Quitar",
+        destructive: true,
+        overlayClassName: "z-[110]",
+      }))
+    ) {
+      return;
+    }
     setDeletingRutaId(ruta.id);
     setError(null);
     try {
@@ -624,14 +640,19 @@ export default function FimbaStopRulesManager({
       setError("No hay artistas a bordo ni residual técnico bajando aquí.");
       return;
     }
-    const ok = window.confirm(
-      `¿Bajar todo lo que está a bordo de este vehículo en esta parada?\n\n` +
+    const ok = await confirm({
+      title: "Bajar todo",
+      message:
+        `¿Bajar todo lo que está a bordo de este vehículo en esta parada?\n\n` +
         `Se cerrarán ${aboardCount} ride(s) FIMBA abiertos` +
         (residualAlight > 0
           ? ` (la reserva residual ${residualAlight} ya figura bajando aquí).`
           : ".") +
         `\nOrquesta OFRN: usá la pestaña Orquesta → Bajar todo.`,
-    );
+      confirmText: "Bajar todo",
+      destructive: true,
+      overlayClassName: "z-[110]",
+    });
     if (!ok) return;
     setBajarTodoBusy(true);
     setError(null);
@@ -1462,6 +1483,7 @@ export default function FimbaStopRulesManager({
         </div>
         {tabsBar}
         <div className="p-3">{panelInner}</div>
+        {confirmDialog}
       </div>
     );
   }
@@ -1505,6 +1527,7 @@ export default function FimbaStopRulesManager({
           {panelInner}
         </div>
       </div>
+      {confirmDialog}
     </>
   );
 

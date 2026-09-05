@@ -11,6 +11,7 @@ import {
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { matchesRule } from "../../hooks/useLogistics";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import { toast } from "sonner";
 
 const SCOPES = [
   { val: "General", label: "General (Todos)", prio: 1 },
@@ -243,7 +244,7 @@ export default function TransportAdmissionModal({
 
   const handleAddRule = async () => {
     if (newScope !== "General" && !targetId)
-      return alert("Selecciona un valor.");
+      return toast.message("Selecciona un valor.");
     setLoading(true);
     try {
       const payload = {
@@ -265,7 +266,7 @@ export default function TransportAdmissionModal({
       fetchInitialData();
       onUpdate && onUpdate();
     } catch (err) {
-      alert("Error al crear regla");
+      toast.error("Error al crear regla");
     } finally {
       setLoading(false);
     }

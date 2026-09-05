@@ -43,6 +43,7 @@ import {
   formatStayEventLabelCompact,
 } from "../../utils/fimbaStay";
 import FimbaArtistaPersonSearchField from "./FimbaArtistaPersonSearchField";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 /** Columnas editables en modo planilla (orden de Tab / Enter). Color/estado en ficha artista. */
 const EDITABLE_COLS = [
@@ -170,6 +171,7 @@ export default function FimbaEdicionPage() {
   const { edicionId } = useParams();
   const { isManagement } = useAuth();
   const { readOnly, canManageUsers, canSeeUsuarios } = useFimbaAccess();
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const isOfrnStaff = Boolean(isManagement);
   const [edicion, setEdicion] = useState(null);
   const [propuestas, setPropuestas] = useState([]);
@@ -205,7 +207,16 @@ export default function FimbaEdicionPage() {
   }, [edicionId]);
 
   const handleDelete = async (p) => {
-    if (!window.confirm(`¿Eliminar artista «${p.nombre}» y sus participantes?`)) return;
+    if (
+      !(await confirm({
+        title: "Eliminar artista",
+        message: `¿Eliminar artista «${p.nombre}» y sus participantes?`,
+        confirmText: "Eliminar",
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
     const { error: err } = await deleteFimbaPropuesta(p.id);
     if (err) {
       setError(err.message || "No se pudo eliminar");
@@ -390,6 +401,7 @@ export default function FimbaEdicionPage() {
           />,
           document.body,
         )}
+      {confirmDialog}
     </div>
   );
 }

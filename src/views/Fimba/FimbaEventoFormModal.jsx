@@ -47,6 +47,7 @@ import {
 } from "../../utils/eventosInternas";
 import { supabase } from "../../services/supabase";
 import { useFimbaAccess } from "../../hooks/useFimbaAccess";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import StopRulesManager from "../Giras/StopRulesManager";
 import { isFimbaDetalleEmpty } from "./FimbaEventDetalleField";
 import FimbaEventoArtistasBoardingTable from "./FimbaEventoArtistasBoardingTable";
@@ -488,6 +489,7 @@ export default function FimbaEventoFormModal({
 }) {
   const isEdit = mode === "edit";
   const { canEditPropuestaMeta, readOnly } = useFimbaAccess();
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const canEditObservacionesInternas = Boolean(canEditPropuestaMeta);
   const lockedPropId =
     lockPropuesta != null && lockPropuesta !== "" ? String(lockPropuesta) : null;
@@ -824,15 +826,19 @@ export default function FimbaEventoFormModal({
     selectedGrupoIds,
   ]);
 
-  const requestClose = useCallback(() => {
+  const requestClose = useCallback(async () => {
     if (isDirty) {
-      const ok = window.confirm(
-        "Hay cambios sin guardar. ¿Descartar cambios?",
-      );
+      const ok = await confirm({
+        title: "Descartar cambios",
+        message: "Hay cambios sin guardar. ¿Descartar cambios?",
+        confirmText: "Descartar",
+        destructive: true,
+        overlayClassName: "z-[110]",
+      });
       if (!ok) return;
     }
     onClose?.();
-  }, [isDirty, onClose]);
+  }, [isDirty, onClose, confirm]);
 
   /** Evita que un deploy PWA recargue mientras hay edición dirty en el modal. */
   useEffect(() => {
@@ -2697,6 +2703,7 @@ export default function FimbaEventoFormModal({
           </div>
         </div>
       </div>
+      {confirmDialog}
     </div>
   );
 }

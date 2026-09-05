@@ -15,6 +15,7 @@ import {
 } from "../../utils/fimbaReports";
 import { exportFimbaComidasExcel } from "../../utils/fimbaExport";
 import FimbaMealsStayPanel from "./FimbaMealsStayPanel";
+import { toast } from "sonner";
 
 /**
  * Reporte de comidas FIMBA: resumen regímenes + detalle.
@@ -47,7 +48,7 @@ export default function FimbaComidasReportModal({
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      alert("No se pudo copiar al portapapeles.");
+      toast.error("No se pudo copiar al portapapeles.");
     }
   };
 

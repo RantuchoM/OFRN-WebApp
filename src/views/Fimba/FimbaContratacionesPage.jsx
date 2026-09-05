@@ -17,6 +17,7 @@ import {
   IconMoreVertical,
 } from "../../components/ui/Icons";
 import ConfirmModal from "../../components/ui/ConfirmModal";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { useAuth } from "../../context/AuthContext";
 import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import { useFimbaUserSession } from "../../hooks/useFimbaUserSession";
@@ -943,6 +944,7 @@ function ContratacionesPlanilla({
   onDirtyDraftsChange,
   apiRef,
 }) {
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const [drafts, setDrafts] = useState(() => ({ [NEW_ROW_KEY]: emptyDraft() }));
   const [rowStatus, setRowStatus] = useState({});
   const [rowErrors, setRowErrors] = useState({});
@@ -1304,7 +1306,16 @@ function ContratacionesPlanilla({
       r.fimba_propuestas?.nombre ||
       r.numero_expediente ||
       `#${r.id}`;
-    if (!window.confirm(`¿Eliminar contratación «${label}»?`)) return;
+    if (
+      !(await confirm({
+        title: "Eliminar contratación",
+        message: `¿Eliminar contratación «${label}»?`,
+        confirmText: "Eliminar",
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
     const { error: err } = await deleteFimbaContratacion(r.id);
     if (err) {
       onError?.(err.message || "No se pudo eliminar");
@@ -2041,6 +2052,7 @@ function ContratacionesPlanilla({
           }}
         />
       )}
+      {confirmDialog}
     </div>
   );
 }

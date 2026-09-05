@@ -239,7 +239,7 @@ export default function GirasTransportesManager({
       selectedEventIds.size > 0 ? selectedEventIds.has(e.id) : true,
     );
 
-    if (eventsToMove.length === 0) return alert("No hay eventos seleccionados");
+    if (eventsToMove.length === 0) return toast.message("No hay eventos seleccionados");
 
     setLoading(true);
     try {
@@ -280,7 +280,7 @@ export default function GirasTransportesManager({
       refresh();
     } catch (error) {
       console.error(error);
-      alert("Error al mover los horarios");
+      toast.error("Error al mover los horarios");
     } finally {
       setLoading(false);
     }
@@ -1163,14 +1163,14 @@ export default function GirasTransportesManager({
       setItineraryModal({ isOpen: false, transportId: null });
     } catch (e) {
       console.error(e);
-      alert("Error al insertar itinerario: " + e.message);
+      toast.error("Error al insertar itinerario: " + e.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleAddTransport = async () => {
-    if (!newTransp.id_transporte) return alert("Selecciona tipo");
+    if (!newTransp.id_transporte) return toast.message("Selecciona tipo");
     await supabase.from("giras_transportes").insert([
       {
         id_gira: giraId,
@@ -1206,7 +1206,7 @@ export default function GirasTransportesManager({
   const handleExportCombinedStops = async () => {
     const selectedIds = combinedStopsModal.selectedTransportIds || [];
     if (selectedIds.length < 2) {
-      alert("Selecciona al menos 2 transportes.");
+      toast.message("Selecciona al menos 2 transportes.");
       return;
     }
 
@@ -1217,7 +1217,7 @@ export default function GirasTransportesManager({
     });
 
     if (rows.length === 0) {
-      alert("No hay paradas para exportar.");
+      toast.message("No hay paradas para exportar.");
       return;
     }
 
@@ -1264,7 +1264,7 @@ export default function GirasTransportesManager({
 
   const handleSaveEvent = async (transportId) => {
     if (!newEvent.fecha || !newEvent.hora || !newEvent.id_locacion)
-      return alert("Fecha, hora y lugar obligatorios");
+      return toast.message("Fecha, hora y lugar obligatorios");
 
     setLoading(true);
     try {
@@ -1307,7 +1307,7 @@ export default function GirasTransportesManager({
       await fetchData();
       refresh();
     } catch (e) {
-      alert("Error al guardar");
+      toast.error("Error al guardar");
     } finally {
       setLoading(false);
     }
@@ -1500,7 +1500,7 @@ export default function GirasTransportesManager({
 
       if (error) {
         console.error("Error al borrar evento", { eventId, error });
-        alert(
+        toast.error(
           "No se pudo borrar la parada. Puede haber vínculos en otras tablas.\n\nDetalle técnico: " +
             (error.message || JSON.stringify(error)),
         );
@@ -1512,7 +1512,7 @@ export default function GirasTransportesManager({
       refresh();
     } catch (err) {
       console.error("Excepción al borrar evento", { eventId, err });
-      alert(
+      toast.error(
         "Ocurrió un error inesperado al borrar la parada:\n\n" +
           (err.message || JSON.stringify(err)),
       );
@@ -1554,7 +1554,7 @@ export default function GirasTransportesManager({
       await refresh();
     } catch (err) {
       console.error(err);
-      alert("Error al guardar.");
+      toast.error("Error al guardar.");
       throw err;
     }
   };
@@ -1583,7 +1583,7 @@ export default function GirasTransportesManager({
       await refresh();
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar regla.");
+      toast.error("Error al eliminar regla.");
     }
   };
 
@@ -1623,7 +1623,7 @@ export default function GirasTransportesManager({
     const startIndex = sortedEvts.findIndex((e) => String(e.id) === String(startId));
     const endIndex = sortedEvts.findIndex((e) => String(e.id) === String(endId));
     if (startIndex === -1 || endIndex === -1 || startIndex >= endIndex) {
-      alert("Rango inválido");
+      toast.message("Rango inválido");
       return;
     }
 
@@ -4075,6 +4075,9 @@ export default function GirasTransportesManager({
           passengers={passengerList}
           admissionRules={admissionRules}
           giraGrupos={giraGrupos}
+          sortedEvents={sortEventsBySchedule(
+            transportEvents[rulesModal.transportId] || [],
+          )}
           onRefresh={refresh}
         />
       )}

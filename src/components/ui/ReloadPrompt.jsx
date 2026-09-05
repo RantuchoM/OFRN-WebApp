@@ -9,8 +9,9 @@ export function isEntradasPublicRoute(pathname = "") {
   return String(pathname || "").startsWith("/entradas");
 }
 
-const VERSION_POLL_MS = 2 * 60 * 1000;
-const ENTRADAS_SW_POLL_MS = 5 * 60 * 1000;
+/** Idle poll: 15 min, and only while the tab is visible. Focus / visibility / navegación siguen chequeando al toque. */
+const VERSION_POLL_MS = 15 * 60 * 1000;
+const ENTRADAS_SW_POLL_MS = 15 * 60 * 1000;
 const RESTART_MESSAGE_MS = 400;
 /** iOS PWA a veces no dispara `controlling`; recarga única de respaldo. */
 const RELOAD_FALLBACK_MS = 2500;
@@ -53,9 +54,15 @@ function clearReloadGuards() {
   }
 }
 
+function isDocumentVisible() {
+  return typeof document === "undefined" || document.visibilityState === "visible";
+}
+
 async function fetchRemoteBuildId() {
   try {
-    const res = await fetch(`/version.json?_=${Date.now()}`, { cache: "no-store" });
+    // Sin cache-buster ni no-store: el browser puede respetar max-age de /version.json
+    // y no generar un Edge Request en Vercel en cada navegación/foco.
+    const res = await fetch("/version.json");
     if (!res.ok) return null;
     const data = await res.json();
     return data?.buildId ?? null;
@@ -120,7 +127,7 @@ function ReloadPrompt() {
  * - Al cambiar de ruta sin trabajo dirty: aplica la SW waiting (navegación limpia).
  * - Si hay dirty (FIMBA planilla/modal, data-unsaved-work): solo banner.
  * - /entradas: sigue en modo silencioso (público).
- * - version.json: detecta build nuevo aunque el SW tarde en needRefresh.
+ * - version.json: poll 15 min (pestaña visible) + check en foco/navegación; cache browser 60 s.
  */
 function ReloadPromptProd() {
   const { pathname } = useLocation();
@@ -273,7 +280,10 @@ function ReloadPromptProd() {
     if (!LOCAL_BUILD_ID) return undefined;
 
     void checkForNewVersion();
-    const intervalId = window.setInterval(checkForNewVersion, VERSION_POLL_MS);
+    const intervalId = window.setInterval(() => {
+      if (!isDocumentVisible()) return;
+      void checkForNewVersion();
+    }, VERSION_POLL_MS);
 
     const onVisible = () => {
       if (document.visibilityState === "visible") void checkForNewVersion();
@@ -318,7 +328,10 @@ function ReloadPromptProd() {
     if (!entradasSilentUpdate) return undefined;
 
     const poll = () => swRegistrationRef.current?.update();
-    const intervalId = window.setInterval(poll, ENTRADAS_SW_POLL_MS);
+    const intervalId = window.setInterval(() => {
+      if (!isDocumentVisible()) return;
+      poll();
+    }, ENTRADAS_SW_POLL_MS);
 
     const onVisible = () => {
       if (document.visibilityState === "visible") poll();
