@@ -32,13 +32,16 @@ import GirasTransportesManager from "./GirasTransportesManager";
 import RoomingManager from "./RoomingManager";
 import ViaticosManager from "./Viaticos/ViaticosManager";
 import GiraTramosEditModal from "./GiraTramosEditModal";
+import { createDefaultMealFilters } from "../../utils/mealLogistics";
+
+const EMPTY_HOSPEDAJE_EXCLUIDOS = Object.freeze([]);
 
 export default function LogisticsDashboard({
   supabase,
   gira,
   onBack,
   onDataChange,
-  hospedajeExcluidosIds = [],
+  hospedajeExcluidosIds = EMPTY_HOSPEDAJE_EXCLUIDOS,
   giraGrupos = [],
   filterGrupoIds = [],
   includeGeneralEvents = true,
@@ -47,6 +50,8 @@ export default function LogisticsDashboard({
   const [isMealsMenuOpen, setIsMealsMenuOpen] = useState(false);
   const [activeTramoIdx, setActiveTramoIdx] = useState(0);
   const [showTramosModal, setShowTramosModal] = useState(false);
+  /** Filtros compartidos Manager ↔ Asistencia ↔ Reporte (exports usan el set filtrado). */
+  const [mealFilters, setMealFilters] = useState(() => createDefaultMealFilters());
 
   // Pestaña activa desde URL
   const activeTab = searchParams.get("subTab") || "coverage";
@@ -448,6 +453,8 @@ export default function LogisticsDashboard({
               giraGrupos={giraGrupos}
               filterGrupoIds={filterGrupoIds}
               includeGeneralEvents={includeGeneralEvents}
+              mealFilters={mealFilters}
+              onMealFiltersChange={setMealFilters}
             />
           )}
           {activeTab === "attendance" && (
@@ -457,6 +464,9 @@ export default function LogisticsDashboard({
               roster={summary}
               onDataChange={onDataChange}
               hospedajeExcluidosIds={hospedajeExcluidosIds}
+              giraGrupos={giraGrupos}
+              mealFilters={mealFilters}
+              onMealFiltersChange={setMealFilters}
             />
           )}
           {activeTab === "report" && (
@@ -466,6 +476,9 @@ export default function LogisticsDashboard({
               roster={summary}
               onDataChange={onDataChange}
               hospedajeExcluidosIds={hospedajeExcluidosIds}
+              giraGrupos={giraGrupos}
+              mealFilters={mealFilters}
+              onMealFiltersChange={setMealFilters}
             />
           )}
 

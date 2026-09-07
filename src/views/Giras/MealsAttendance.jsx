@@ -21,10 +21,24 @@ import {
   mealServicioFromEvent,
   mealDisplayLabelFromEvent,
   getMealServiceStyle,
-  isMealEvent,
+  isMealRelatedEvent,
+  CATERING_SERVICE,
+  filterMealManagerRows,
+  createDefaultMealFilters,
+  isDefaultMealFilters,
+  DEFAULT_MEAL_SERVICE_FILTER,
+  MEAL_FILTER_NO_LOC,
+  MEAL_FILTER_NO_ARTIST,
+  mealRowGrupoIds,
+  mealRowHasOfrnAudience,
+  isOrchestraMealRow,
+  findCoincidingGrupoMealRows,
 } from "../../utils/mealLogistics";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import { buildIntegranteGruposMap } from "../../services/giraGruposService";
+
+const EMPTY_HOSPEDAJE_EXCLUIDOS = Object.freeze([]);
 
 // Condiciones estándar (estas pueden seguir fijas si no tienes tabla de condiciones)
 const CONDICIONES_OPTIONS = [
@@ -39,10 +53,14 @@ export default function MealsAttendance({
   supabase,
   gira,
   roster: enrichedRoster,
-  hospedajeExcluidosIds = [],
+  hospedajeExcluidosIds = EMPTY_HOSPEDAJE_EXCLUIDOS,
+  mealFilters = null,
+  onMealFiltersChange = null,
+  giraGrupos = [],
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const [loading, setLoading] = useState(false);
+  /** Fuente completa de eventos meal; filtros solo ocultan columnas. */
   const [events, setEvents] = useState([]);
   const [attendanceMap, setAttendanceMap] = useState({});
   const [searchTerm, setSearchTerm] = useState("");
@@ -64,13 +82,52 @@ export default function MealsAttendance({
   const [selectedRoles, setSelectedRoles] = useState([]);
   const [selectedConditions, setSelectedConditions] = useState([]);
   const [sendingMails, setSendingMails] = useState(false);
+  const filtersControlled =
+    mealFilters != null && typeof onMealFiltersChange === "function";
+  const [localMealFilters, setLocalMealFilters] = useState(() =>
+    createDefaultMealFilters(),
+  );
+  const activeMealFilters = filtersControlled ? mealFilters : localMealFilters;
+  const patchMealFilters = (patchOrFn) => {
+    const apply = (prev) => {
+      const base = prev || createDefaultMealFilters();
+      const patch =
+        typeof patchOrFn === "function" ? patchOrFn(base) : patchOrFn;
+      return { ...base, ...patch };
+    };
+    if (filtersControlled) onMealFiltersChange(apply(mealFilters));
+    else setLocalMealFilters((prev) => apply(prev));
+  };
+  const mealKindFilter = activeMealFilters.mealKindFilter || "all";
+  const setMealKindFilter = (v) => patchMealFilters({ mealKindFilter: v });
+  const filterLocacionIds = activeMealFilters.locacionIds || [];
+  const setFilterLocacionIds = (v) => patchMealFilters({ locacionIds: v });
+  const filterArtistaIds = activeMealFilters.artistaIds || [];
+  const setFilterArtistaIds = (v) => patchMealFilters({ artistaIds: v });
+  const serviceFilter = useMemo(
+    () => new Set(activeMealFilters.serviceFilter || DEFAULT_MEAL_SERVICE_FILTER),
+    [activeMealFilters.serviceFilter],
+  );
+  const setServiceFilter = (updater) => {
+    patchMealFilters((prev) => {
+      const cur = new Set(prev.serviceFilter || DEFAULT_MEAL_SERVICE_FILTER);
+      const next = typeof updater === "function" ? updater(cur) : updater;
+      return { serviceFilter: [...next] };
+    });
+  };
   const { segments } = useGiraSegmentos(supabase, gira, {
     enabled: Boolean(gira?.id),
   });
 
-  const checkEligibility = useCallback(
+  const integranteGruposMap = useMemo(
+    () => buildIntegranteGruposMap(giraGrupos, enrichedRoster || []),
+    [giraGrupos, enrichedRoster],
+  );
+
+  const checkEligibilityRaw = useCallback(
     (evt, person) => {
       if (!evt || !person) return false;
+      if (!mealRowHasOfrnAudience(evt)) return false;
       return isPersonEligibleForMealSlot(
         person,
         {
@@ -78,11 +135,29 @@ export default function MealsAttendance({
           servicio: mealServicioFromEvent(evt),
           convocados: evt.convocados || [],
           hora: evt.hora_inicio,
+          grupoIds: mealRowGrupoIds(evt),
         },
-        { hospedajeExcluidosIds, segments },
+        { hospedajeExcluidosIds, segments, integranteGruposMap },
       );
     },
-    [hospedajeExcluidosIds, segments],
+    [hospedajeExcluidosIds, segments, integranteGruposMap],
+  );
+
+  /**
+   * Elegibilidad post-deducción: en comidas generales (sin grupo), restar
+   * quienes comen en un evento de grupo del mismo turno (fecha|servicio).
+   */
+  const checkEligibility = useCallback(
+    (evt, person) => {
+      if (!checkEligibilityRaw(evt, person)) return false;
+      if (!isOrchestraMealRow(evt)) return true;
+      const coinciding = findCoincidingGrupoMealRows(evt, events);
+      for (const gRow of coinciding) {
+        if (checkEligibilityRaw(gRow, person)) return false;
+      }
+      return true;
+    },
+    [checkEligibilityRaw, events],
   );
 
   useEffect(() => {
@@ -126,13 +201,20 @@ export default function MealsAttendance({
     try {
       const { data: evts } = await supabase
         .from("eventos")
-        .select(`*, tipos_evento (nombre, id_categoria)`)
+        .select(
+          `*, tipos_evento (nombre, id_categoria), locaciones (id, nombre), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), eventos_fimba_propuestas ( id_propuesta, fimba_propuestas ( id, nombre ) )`,
+        )
         .eq("id_gira", gira.id)
         .eq("is_deleted", false)
         .order("fecha", { ascending: true })
         .order("hora_inicio", { ascending: true });
 
-      const mealEvents = (evts || []).filter(isMealEvent);
+      const mealEvents = (evts || []).filter(isMealRelatedEvent).map((m) => {
+        const propuestas = (m.eventos_fimba_propuestas || [])
+          .map((link) => link.fimba_propuestas)
+          .filter(Boolean);
+        return { ...m, propuestas };
+      });
 
       if (mealEvents.length > 0) {
         const { data: att } = await supabase
@@ -182,6 +264,79 @@ export default function MealsAttendance({
     }
   };
 
+  const NO_LOC_FILTER = MEAL_FILTER_NO_LOC;
+  const NO_ARTIST_FILTER = MEAL_FILTER_NO_ARTIST;
+
+  const locationFilterOptions = useMemo(() => {
+    const map = new Map();
+    let hasNone = false;
+    for (const evt of events) {
+      const id = evt.id_locacion ?? evt.locaciones?.id;
+      if (id == null || id === "") {
+        hasNone = true;
+        continue;
+      }
+      const key = String(id);
+      if (map.has(key)) continue;
+      map.set(key, {
+        value: key,
+        label: evt.locaciones?.nombre || `Locación ${key}`,
+      });
+    }
+    const opts = Array.from(map.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, "es"),
+    );
+    if (hasNone) opts.push({ value: NO_LOC_FILTER, label: "Sin locación" });
+    return opts;
+  }, [events]);
+
+  const artistFilterOptions = useMemo(() => {
+    const map = new Map();
+    let hasNone = false;
+    for (const evt of events) {
+      const props = evt.propuestas || [];
+      if (!props.length) {
+        hasNone = true;
+        continue;
+      }
+      for (const p of props) {
+        if (!p?.id) continue;
+        const key = String(p.id);
+        if (map.has(key)) continue;
+        map.set(key, { value: key, label: p.nombre || `Artista ${p.id}` });
+      }
+    }
+    const opts = Array.from(map.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, "es", { sensitivity: "base" }),
+    );
+    if (hasNone) opts.push({ value: NO_ARTIST_FILTER, label: "Sin artistas" });
+    return opts;
+  }, [events]);
+
+  /** Vista filtrada — nunca se escribe sobre `events`. */
+  const filteredEvents = useMemo(
+    () =>
+      filterMealManagerRows(events, {
+        mealKindFilter,
+        serviceFilter,
+        locacionIds: filterLocacionIds,
+        artistaIds: filterArtistaIds,
+      }),
+    [
+      events,
+      serviceFilter,
+      mealKindFilter,
+      filterLocacionIds,
+      filterArtistaIds,
+    ],
+  );
+
+  const clearEventFilters = () => {
+    patchMealFilters(createDefaultMealFilters());
+  };
+
+  const hasActiveEventFilters = !isDefaultMealFilters(activeMealFilters);
+
   // --- FILTRO DE ROSTER (Memoizado) ---
   const sortedRoster = useMemo(() => {
     if (!enrichedRoster) return [];
@@ -217,12 +372,12 @@ export default function MealsAttendance({
       );
     }
 
-    // 5. Filtro por Estado de Respuesta (Completitud)
+    // 5. Filtro por Estado de Respuesta (Completitud) — sobre eventos filtrados
     if (filterResponse !== "ALL") {
       data = data.filter((person) => {
         let req = 0,
           ans = 0;
-        events.forEach((evt) => {
+        filteredEvents.forEach((evt) => {
           if (checkEligibility(evt, person)) {
             req++;
             if (attendanceMap[`${evt.id}-${person.id}`]?.estado) ans++;
@@ -249,7 +404,7 @@ export default function MealsAttendance({
     searchTerm,
     sortConfig,
     filterResponse,
-    events,
+    filteredEvents,
     attendanceMap,
     selectedRoles,
     selectedConditions,
@@ -258,12 +413,12 @@ export default function MealsAttendance({
 
   const eventsByDate = useMemo(() => {
     const groups = {};
-    events.forEach((e) => {
+    filteredEvents.forEach((e) => {
       if (!groups[e.fecha]) groups[e.fecha] = [];
       groups[e.fecha].push(e);
     });
     return groups;
-  }, [events]);
+  }, [filteredEvents]);
 
   const handleAttendanceChange = async (eventId, memberId, currentStatus) => {
     let newStatus =
@@ -477,7 +632,104 @@ export default function MealsAttendance({
 
           {/* FILTROS Y ACCIONES */}
           <div className="flex flex-col items-end gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                {[
+                  { id: "all", label: "Todos" },
+                  { id: "comidas", label: "Comidas" },
+                  { id: "catering", label: "Catering" },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setMealKindFilter(opt.id)}
+                    className={`px-2 py-0.5 rounded-full border text-[10px] uppercase ${
+                      mealKindFilter === opt.id
+                        ? opt.id === "catering"
+                          ? "bg-orange-600 text-white border-orange-600"
+                          : "bg-indigo-600 text-white border-indigo-600"
+                        : "bg-slate-50 text-slate-500 border-slate-300"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-0.5 bg-white border border-slate-200 rounded-lg p-0.5 h-[34px]">
+                {["Desayuno", "Almuerzo", "Merienda", "Cena", CATERING_SERVICE].map(
+                  (svc) => {
+                    const active = serviceFilter.has(svc);
+                    const short =
+                      svc === CATERING_SERVICE
+                        ? "Cat"
+                        : svc === "Desayuno"
+                          ? "D"
+                          : svc === "Almuerzo"
+                            ? "A"
+                            : svc === "Merienda"
+                              ? "M"
+                              : "C";
+                    return (
+                      <button
+                        key={svc}
+                        type="button"
+                        title={svc}
+                        onClick={() =>
+                          setServiceFilter((prev) => {
+                            const next = new Set(prev);
+                            next.has(svc) ? next.delete(svc) : next.add(svc);
+                            return next;
+                          })
+                        }
+                        className={`px-2 h-full text-xs font-bold rounded-md ${
+                          active
+                            ? svc === CATERING_SERVICE
+                              ? "bg-orange-600 text-white"
+                              : "bg-indigo-600 text-white"
+                            : "text-slate-500 hover:bg-slate-100"
+                        }`}
+                      >
+                        {short}
+                      </button>
+                    );
+                  },
+                )}
+              </div>
+              <div className="w-36 relative z-50">
+                <MultiSelectDropdown
+                  compact
+                  summaryMode="names"
+                  summaryMaxNames={1}
+                  label="Locación"
+                  placeholder="Locación…"
+                  options={locationFilterOptions}
+                  value={filterLocacionIds}
+                  onChange={setFilterLocacionIds}
+                />
+              </div>
+              {artistFilterOptions.length > 0 && (
+                <div className="w-36 relative z-50">
+                  <MultiSelectDropdown
+                    compact
+                    summaryMode="names"
+                    summaryMaxNames={1}
+                    label="Artista"
+                    placeholder="Artista…"
+                    options={artistFilterOptions}
+                    value={filterArtistaIds}
+                    onChange={setFilterArtistaIds}
+                  />
+                </div>
+              )}
+              {hasActiveEventFilters && (
+                <button
+                  type="button"
+                  onClick={clearEventFilters}
+                  className="text-[11px] font-bold text-slate-500 hover:text-indigo-600 underline"
+                >
+                  Limpiar
+                </button>
+              )}
               <div className="w-40 relative z-50">
                 {/* USAMOS EL ESTADO DE ROLES DINÁMICO */}
                 <MultiSelectDropdown
@@ -570,7 +822,7 @@ export default function MealsAttendance({
                 <th className="sticky left-0 z-50 bg-slate-50 border-r border-b border-slate-300 p-2 text-[9px] font-bold text-slate-400 uppercase shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                   Dieta / Instrumento
                 </th>
-                {events.map((evt) => {
+                {filteredEvents.map((evt) => {
                   const serviceLabel = mealDisplayLabelFromEvent(evt);
                   const servicio = mealServicioFromEvent(evt);
                   const style = getMealServiceStyle(servicio);
@@ -622,7 +874,7 @@ export default function MealsAttendance({
                       </span>
                     </div>
                   </td>
-                  {events.map((evt) => {
+                  {filteredEvents.map((evt) => {
                     const isEligible = checkEligibility(evt, person);
                     const key = `${evt.id}-${person.id}`;
                     const status = attendanceMap[key]?.estado;

@@ -18,10 +18,16 @@ import {
   IconUnderline,
   IconSearch,
   IconPlus,
+  IconAlertTriangle,
 } from "../../components/ui/Icons";
 import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
-import { ROLES_PRODUCCION, normalize } from "../../utils/giraUtils";
+import {
+  ROLES_PRODUCCION,
+  normalize,
+  ROSTER_CATEGORIES,
+  isNobodyConvocados,
+} from "../../utils/giraUtils";
 import { resolveLocalidadResidencia } from "../../utils/integranteDomicilioViaticos";
 import {
   isPersonEligibleForMealSlot,
@@ -31,8 +37,29 @@ import {
   mealServicioFromEvent,
   mealBaseFromTypeName,
   CANONICAL_MEAL_TYPE_IDS,
+  CATERING_SERVICE,
   fetchMealEventTypes,
-  isMealEvent,
+  fetchMealRelatedEventTypes,
+  isMealRelatedEvent,
+  isCateringEvent,
+  isOrchestraMealRow,
+  findCoincidingGrupoMealRows,
+  deductGrupoMembersFromOrchestraEligible,
+  fimbaArtistMealPax,
+  isFimbaArtistOnlyMealEvent,
+  findMealTurnoOverInclusions,
+  formatComensalesBadgeLabel,
+  mealTurnoKey,
+  mealRowGrupoIds,
+  mealRowHasOfrnAudience,
+  isMealPaxAffectingField,
+  filterMealManagerRows,
+  sortMealManagerGrid,
+  createDefaultMealFilters,
+  isDefaultMealFilters,
+  MEAL_FILTER_NO_LOC,
+  MEAL_FILTER_NO_ARTIST,
+  DEFAULT_MEAL_SERVICE_FILTER,
 } from "../../utils/mealLogistics";
 import MealTypesEditorModal from "../../components/logistics/MealTypesEditorModal";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
@@ -50,15 +77,74 @@ import {
   setEventoGrupos,
 } from "../../services/giraGruposService";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
+import FimbaEventArtistasTagsCell from "../Fimba/FimbaEventArtistasTagsCell";
+import { grupoNombreInitials } from "../../components/giras/GiraGrupoChips";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { toast } from "sonner"; 
+import { formatFechaLargaEs } from "../../utils/dates";
+import { toast } from "sonner";
+
+/** Embed `eventos_grupos` alineado a `selectedGrupos` (deducción orquesta↔grupo en vivo). */
+const buildEventosGruposEmbed = (selectedGrupos, giraGrupos) =>
+  (selectedGrupos || []).map((gid) => {
+    const id = Number(gid);
+    const g = (giraGrupos || []).find((x) => Number(x.id) === id);
+    return {
+      id_grupo: id,
+      giras_grupos: g
+        ? { id: g.id, nombre: g.nombre, color: g.color }
+        : { id },
+    };
+  });
+
+/**
+ * Tras un cambio que afecta pax/elegibilidad, rematerializa filas del mismo turno
+ * (`fecha|servicio`) y del turno anterior si fecha/servicio mutó — así badges de
+ * comensales, −N deducción y avisos de sobre-inclusión se recalculan para hermanas.
+ */
+const rematerializeTurnoSiblings = (rows, editedIdx, prevRow, nextRow) => {
+  const turnos = new Set();
+  const prevKey = mealTurnoKey(prevRow);
+  const nextKey = mealTurnoKey(nextRow);
+  if (prevKey) turnos.add(prevKey);
+  if (nextKey) turnos.add(nextKey);
+  if (turnos.size === 0) return rows;
+  return rows.map((r, i) => {
+    if (i === editedIdx) return nextRow;
+    const k = mealTurnoKey(r);
+    if (k && turnos.has(k)) return { ...r };
+    return r;
+  });
+};
+
+/** Filas visibles + separadores de día (solo FIMBA; nunca antes de la 1.ª fila). */
+const buildGridRenderItems = (rows, fimbaMode) => {
+  if (!fimbaMode) return rows.map((row) => ({ type: "row", row, key: row.id }));
+  const items = [];
+  let prevFecha = null;
+  for (const row of rows) {
+    if (prevFecha != null && row.fecha && row.fecha !== prevFecha) {
+      items.push({
+        type: "day-divider",
+        fecha: row.fecha,
+        key: `day-${row.fecha}`,
+      });
+    }
+    items.push({ type: "row", row, key: row.id });
+    prevFecha = row.fecha;
+  }
+  return items;
+};
+
+const mealRowNeedsConvocadosAlert = (row) =>
+  !row?.isTemp &&
+  !(row.propuestas || []).length &&
+  !mealRowHasOfrnAudience(row);
 
 // --- CONSTANTES ---
 const SERVICE_IDS = CANONICAL_MEAL_TYPE_IDS;
 const SERVICIOS = ["Desayuno", "Almuerzo", "Merienda", "Cena"];
 const SERVICE_VALS = { Desayuno: 0, Almuerzo: 1, Merienda: 2, Cena: 3 };
-const DEFAULT_SERVICE_FILTER = new Set(["Almuerzo", "Merienda", "Cena"]);
 
 const typeNombreById = (mealTypes, id) =>
   mealTypes?.find((t) => Number(t.id) === Number(id))?.nombre || null;
@@ -118,6 +204,7 @@ const GROUP_DEFS = [
 ];
 
 const getGroupLabelShort = (id, catalogs) => {
+  if (id === ROSTER_CATEGORIES.NONE || id === "GRP:NONE") return "Nadie";
   if (id === "GRP:TUTTI") return "Tutti";
   if (id === "GRP:NO_LOCALES") return "Solo alojados";
   if (id === "GRP:LOCALES") return "Locales";
@@ -185,11 +272,140 @@ const buildComensalesDetail = (people = []) => {
   return { dietSummary, byLocalidad, total: people.length };
 };
 
-function ComensalesDetailModal({ row, people, catalogs, onClose }) {
+function MealTurnoOverInclusionModal({
+  overInclusions,
+  gridById,
+  onClose,
+}) {
+  const { people, artists } = overInclusions || {};
+  const hasPeople = (people || []).length > 0;
+  const hasArtists = (artists || []).length > 0;
+
+  const eventLabel = (eventId) => {
+    const row = gridById.get(String(eventId));
+    if (!row) return `Evento ${eventId}`;
+    const fecha = row.fecha
+      ? format(parseISO(row.fecha), "EEE dd/MM", { locale: es })
+      : "";
+    return [fecha, row.tipo_nombre || row.servicio, row.hora_inicio]
+      .filter(Boolean)
+      .join(" · ");
+  };
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 print:hidden"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="w-full max-w-lg max-h-[85vh] bg-white rounded-xl shadow-2xl border border-slate-200 flex flex-col animate-in zoom-in-95 fade-in duration-150"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="turno-over-modal-title"
+      >
+        <div className="px-4 py-3 border-b border-slate-200 flex items-start justify-between gap-3 shrink-0">
+          <div className="min-w-0">
+            <h3
+              id="turno-over-modal-title"
+              className="text-sm font-bold text-slate-800 flex items-center gap-2"
+            >
+              <IconAlertTriangle size={16} className="text-amber-600 shrink-0" />
+              Mismo turno en varias comidas
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Turno = misma fecha + servicio (sin locación). Conteo post-deducción
+              orquesta↔grupo.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 text-slate-400 hover:text-slate-700 rounded"
+            title="Cerrar"
+          >
+            <IconX size={18} />
+          </button>
+        </div>
+        <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
+          {hasPeople && (
+            <section>
+              <h4 className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-2">
+                Integrantes OFRN ({people.length})
+              </h4>
+              <ul className="space-y-2">
+                {people.map((entry) => {
+                  const p = entry.person || {};
+                  const name = `${p.apellido || ""}, ${p.nombre || ""}`.trim();
+                  return (
+                    <li
+                      key={`p-${entry.id}-${entry.turnoKey}`}
+                      className="text-xs border border-slate-100 rounded-lg px-2.5 py-2 bg-slate-50/80"
+                    >
+                      <div className="font-semibold text-slate-800">{name || `#${entry.id}`}</div>
+                      <ul className="mt-1 text-[10px] text-slate-500 list-disc list-inside">
+                        {entry.eventIds.map((eid) => (
+                          <li key={eid}>{eventLabel(eid)}</li>
+                        ))}
+                      </ul>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+          {hasArtists && (
+            <section>
+              <h4 className="text-[10px] font-bold uppercase tracking-wide text-fuchsia-600 mb-2">
+                Artistas FIMBA ({artists.length})
+              </h4>
+              <ul className="space-y-2">
+                {artists.map((entry) => (
+                  <li
+                    key={`a-${entry.id}-${entry.turnoKey}`}
+                    className="text-xs border border-fuchsia-100 rounded-lg px-2.5 py-2 bg-fuchsia-50/40"
+                  >
+                    <div className="font-semibold text-fuchsia-900">{entry.nombre}</div>
+                    <ul className="mt-1 text-[10px] text-fuchsia-700/80 list-disc list-inside">
+                      {entry.eventIds.map((eid) => (
+                        <li key={eid}>{eventLabel(eid)}</li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {!hasPeople && !hasArtists && (
+            <p className="text-xs text-slate-400 italic">Sin sobre-inclusión detectada.</p>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function ComensalesDetailModal({
+  row,
+  people,
+  deducted = [],
+  artistTags = [],
+  artistPax = 0,
+  catalogs,
+  onClose,
+}) {
   const detail = useMemo(() => buildComensalesDetail(people), [people]);
+  const deductedDetail = useMemo(
+    () => buildComensalesDetail(deducted),
+    [deducted],
+  );
   const convLabels = (row?.convocados || [])
     .map((id) => getGroupLabelShort(id, catalogs))
     .filter(Boolean);
+  const totalShown = detail.total + artistPax;
 
   if (typeof document === "undefined") return null;
 
@@ -218,8 +434,16 @@ function ComensalesDetailModal({ row, people, catalogs, onClose }) {
               <IconUsers size={16} className="text-emerald-600 shrink-0" />
               Comensales
               <span className="text-[11px] font-black bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full">
-                {detail.total}
+                {totalShown}
               </span>
+              {deducted.length > 0 && (
+                <span
+                  className="text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded-full"
+                  title="Restados por comida de grupo coincidente"
+                >
+                  −{deducted.length} grupo
+                </span>
+              )}
             </h3>
             <p className="text-[11px] text-slate-500 mt-0.5 truncate">
               {[fechaLabel, row?.tipo_nombre || row?.servicio, row?.hora_inicio]
@@ -242,7 +466,7 @@ function ComensalesDetailModal({ row, people, catalogs, onClose }) {
           <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-2">
             Cantidades por tipo
           </div>
-          {detail.dietSummary.length === 0 ? (
+          {detail.dietSummary.length === 0 && artistPax === 0 ? (
             <p className="text-xs text-slate-400 italic">Sin comensales</p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
@@ -257,9 +481,61 @@ function ComensalesDetailModal({ row, people, catalogs, onClose }) {
                   </span>
                 </span>
               ))}
+              {artistPax > 0 && (
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-fuchsia-50 text-fuchsia-800 border border-fuchsia-200 rounded-full px-2.5 py-1">
+                  <span className="font-medium">Artistas FIMBA</span>
+                  <span className="tabular-nums font-black">{artistPax}</span>
+                </span>
+              )}
             </div>
           )}
         </div>
+
+        {artistTags.length > 0 && (
+          <div className="px-4 py-2 border-b border-slate-100 shrink-0">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-fuchsia-600 mb-1.5">
+              Artistas tagueados
+            </div>
+            <ul className="space-y-1">
+              {artistTags.map((p) => (
+                <li
+                  key={p.id}
+                  className="flex items-center justify-between gap-2 text-xs"
+                >
+                  <span className="font-medium text-slate-800 truncate">
+                    {p.nombre || `Artista ${p.id}`}
+                  </span>
+                  <span className="tabular-nums font-bold text-fuchsia-700 shrink-0">
+                    {Math.max(0, Number(p.cantidad_planificada) || 0)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {deducted.length > 0 && (
+          <div className="px-4 py-2 border-b border-amber-100 bg-amber-50/40 shrink-0">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-amber-700 mb-1">
+              Descontados (comen en grupo · misma comida/lugar)
+            </div>
+            <p className="text-[11px] text-amber-800 mb-1">
+              {deductedDetail.total} persona
+              {deductedDetail.total === 1 ? "" : "s"} restada
+              {deductedDetail.total === 1 ? "" : "s"} del conteo orquesta.
+            </p>
+            <ul className="max-h-28 overflow-y-auto divide-y divide-amber-100/80">
+              {deducted.map((p) => (
+                <li
+                  key={`ded-${p.id}`}
+                  className="py-1 text-[11px] text-amber-900/90 truncate"
+                >
+                  {p.apellido}, {p.nombre}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto min-h-0 px-4 py-2">
           {detail.byLocalidad.length === 0 ? (
@@ -316,6 +592,7 @@ function ComensalesDetailModal({ row, people, catalogs, onClose }) {
   );
 }
 
+
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const stripHtmlToPlain = (html) => {
@@ -331,7 +608,15 @@ const stripHtmlToPlain = (html) => {
 };
 
 const getKnownGroupLabels = (catalogs) => {
-  const fixed = ["Tutti", "Solo alojados", "Locales", "Prod.", "Sol.", "Dir."];
+  const fixed = [
+    "Nadie",
+    "Tutti",
+    "Solo alojados",
+    "Locales",
+    "Prod.",
+    "Sol.",
+    "Dir.",
+  ];
   const aliases = ["No Locales", "No locales"];
   const locs = (catalogs?.localidades || [])
     .map((l) => l.localidad)
@@ -395,9 +680,9 @@ const splitFlexiblePlus = (text) =>
     .filter(Boolean);
 
 const buildConvocadosLabelsOnly = (convocados, catalogs) => {
-  const labels = (convocados || []).map((id) =>
-    getGroupLabelShort(id, catalogs),
-  );
+  const labels = (convocados || [])
+    .filter((id) => id !== ROSTER_CATEGORIES.NONE && id !== "GRP:NONE")
+    .map((id) => getGroupLabelShort(id, catalogs));
   if (labels.length === 0) return null;
   return labels.join(" + ");
 };
@@ -406,16 +691,59 @@ const buildConvocadosLabelsOnly = (convocados, catalogs) => {
 const serviceLabelOf = (servicio, detalle) =>
   formatMealServiceLabel(servicio, detalle);
 
-/** Bloque vinculado a convocados: "Almuerzo Solo alojados + Prod." (null si no hay grupos). */
+/**
+ * Bloque auto de convocados: "Almuerzo Solo alojados + Prod."
+ * Nadie (GRP:NONE) → solo el servicio ("Cena"), sin la palabra "Nadie".
+ * Sin convocados → null (caller usa "… Gira").
+ */
 const buildConvocadosAutoPart = (serviceLabel, convocados, catalogs) => {
+  if (isNobodyConvocados(convocados)) return serviceLabel;
   const labelsOnly = buildConvocadosLabelsOnly(convocados, catalogs);
   if (!labelsOnly) return null;
   return `${serviceLabel} ${labelsOnly}`;
 };
 
-const buildMealDescription = (serviceLabel, convocados, catalogs) =>
-  buildConvocadosAutoPart(serviceLabel, convocados, catalogs) ||
-  `${serviceLabel} Gira`;
+/** Sufijo de siglas FIMBA: " - RT" / " - CPN / CA". */
+const buildArtistInitialsSuffix = (propuestas = []) => {
+  const siglas = [];
+  const seen = new Set();
+  for (const p of propuestas || []) {
+    if (!p || p.requiere_comidas === false) continue;
+    const sigla = grupoNombreInitials(p.nombre || "");
+    if (!sigla || seen.has(sigla)) continue;
+    seen.add(sigla);
+    siglas.push(sigla);
+  }
+  if (!siglas.length) return "";
+  return ` - ${siglas.join(" / ")}`;
+};
+
+const ARTIST_INITIALS_SUFFIX_RE =
+  /\s+-\s+[A-ZÁÉÍÓÚÜÑ0-9]+(?:\s*\/\s*[A-ZÁÉÍÓÚÜÑ0-9]+)*\s*$/iu;
+
+const stripArtistInitialsSuffix = (plain) =>
+  String(plain || "")
+    .replace(ARTIST_INITIALS_SUFFIX_RE, "")
+    .replace(/\s+$/, "");
+
+const withArtistInitialsSuffix = (plainOrHtml, propuestas) => {
+  const plain = stripHtmlToPlain(plainOrHtml);
+  const base = stripArtistInitialsSuffix(plain);
+  const suffix = buildArtistInitialsSuffix(propuestas);
+  return `${base}${suffix}`.trim();
+};
+
+const buildMealDescription = (
+  serviceLabel,
+  convocados,
+  catalogs,
+  propuestas = [],
+) => {
+  const base =
+    buildConvocadosAutoPart(serviceLabel, convocados, catalogs) ||
+    `${serviceLabel} Gira`;
+  return withArtistInitialsSuffix(base, propuestas);
+};
 
 const isAllKnownLabelParts = (parts, catalogs) => {
   if (parts.length === 0) return false;
@@ -522,23 +850,51 @@ const findConvocadosAutoSegment = (
 
   const tryExact = (candidate, kind) => {
     if (!candidate) return null;
+    // Exact whole string
+    if (plainText === candidate) {
+      return { start: 0, end: plainText.length, text: candidate, kind };
+    }
     const idx = plainText.indexOf(candidate);
     if (idx === -1) return null;
+    const end = idx + candidate.length;
+    // Evitar que "Cena" gane dentro de "Cena Nadie" / "Cena Tutti".
+    const next = plainText[end];
+    if (next && /[\p{L}\p{N}]/u.test(next)) return null;
+    if (next === " " || next === "\u00a0") {
+      const rest = plainText.slice(end + 1);
+      // Si lo que sigue parece tramo auto de convocados, preferir match más largo.
+      const firstTok = rest.split(/\s+/)[0];
+      if (
+        firstTok &&
+        (firstTok === "Nadie" ||
+          firstTok === "Gira" ||
+          getKnownGroupLabels(catalogs).includes(firstTok) ||
+          firstTok === "Tutti")
+      ) {
+        return null;
+      }
+    }
     return {
       start: idx,
-      end: idx + candidate.length,
+      end,
       text: candidate,
       kind,
     };
   };
 
-  let found =
-    tryExact(
-      buildConvocadosAutoPart(serviceLabel, convocados, catalogs),
-      "full",
-    ) || tryExact(`${serviceLabel} Gira`, "full");
+  // Más largo primero: "Cena Nadie" antes que "Cena".
+  const exactCandidates = [
+    buildConvocadosAutoPart(serviceLabel, convocados, catalogs),
+    `${serviceLabel} Nadie`,
+    `${serviceLabel} Gira`,
+  ]
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
 
-  if (found) return found;
+  for (const candidate of exactCandidates) {
+    const found = tryExact(candidate, "full");
+    if (found) return found;
+  }
 
   const servicioRe = escapeRegex(serviceLabel);
   const re = new RegExp(`\\b${servicioRe}\\s+[^\\n|–—;]+`, "gi");
@@ -621,9 +977,11 @@ const applySegmentReplacement = (
 
 /**
  * Reemplaza o agrega el tramo de convocados; conserva aclaraciones de producción.
+ * Nadie → sin la palabra "Nadie". Artistas FIMBA → sufijo " - SIGLA [/ SIGLA…]".
  * Ej: "Pausa y merienda" + Tutti → "Pausa y merienda Tutti"
  * Ej: "Merienda a bordo No Locales+Prod." sin Prod. → "Merienda a bordo Solo alojados"
  * @param {string} serviceLabel etiqueta completa ("Merienda a bordo" o "Almuerzo")
+ * @param {Array} [propuestas] tags FIMBA para siglas
  */
 const mergeMealDescriptionWithConvocados = (
   existingHtml,
@@ -631,8 +989,10 @@ const mergeMealDescriptionWithConvocados = (
   convocados,
   catalogs,
   convocadosForLookup = convocados,
+  propuestas = [],
 ) => {
-  const plain = stripHtmlToPlain(existingHtml);
+  const plainRaw = stripHtmlToPlain(existingHtml);
+  const plain = stripArtistInitialsSuffix(plainRaw);
   const newLabelsOnly = buildConvocadosLabelsOnly(convocados, catalogs);
   const newAuto = buildConvocadosAutoPart(serviceLabel, convocados, catalogs);
   const segment = findConvocadosSegment(
@@ -642,28 +1002,33 @@ const mergeMealDescriptionWithConvocados = (
     convocadosForLookup,
   );
 
+  let merged;
   if (!segment) {
-    if (!plain && newAuto) return newAuto;
-    if (!plain) return `${serviceLabel} Gira`;
-    if (newLabelsOnly) return `${plain} ${newLabelsOnly}`;
-    return existingHtml || plain;
+    if (!plain && newAuto) merged = newAuto;
+    else if (!plain) merged = `${serviceLabel} Gira`;
+    else if (newLabelsOnly) merged = `${plain} ${newLabelsOnly}`;
+    else if (isNobodyConvocados(convocados)) {
+      // Sin segmento detectable: no conservar "… Nadie" residual.
+      merged = newAuto || serviceLabel;
+    } else merged = existingHtml || plain;
+  } else {
+    const hasCustomPrefix = segment.start > 0;
+    const useLabelsOnly =
+      segment.kind === "suffix" || (segment.kind === "full" && hasCustomPrefix);
+    const replacement = useLabelsOnly
+      ? newLabelsOnly || ""
+      : newAuto || newLabelsOnly || (isNobodyConvocados(convocados) ? serviceLabel : "");
+
+    merged = applySegmentReplacement(
+      plain,
+      plain === plainRaw ? existingHtml : plain,
+      segment,
+      replacement,
+    );
+    if (!merged) merged = `${serviceLabel} Gira`;
   }
 
-  const hasCustomPrefix = segment.start > 0;
-  const useLabelsOnly =
-    segment.kind === "suffix" || (segment.kind === "full" && hasCustomPrefix);
-  const replacement = useLabelsOnly
-    ? newLabelsOnly || ""
-    : newAuto || newLabelsOnly || "";
-
-  let merged = applySegmentReplacement(
-    plain,
-    existingHtml,
-    segment,
-    replacement,
-  );
-  if (!merged) merged = `${serviceLabel} Gira`;
-  return merged;
+  return withArtistInitialsSuffix(merged, propuestas);
 };
 
 // --- COMPONENTE: INSPECTOR DE GRUPOS SUPERIOR ---
@@ -728,6 +1093,7 @@ const GridLocationSelect = ({
   disabled,
   isDirty,
   placeholder = "- Lugar -",
+  compact = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -755,14 +1121,17 @@ const GridLocationSelect = ({
     <div className="relative w-full" ref={containerRef}>
       <div
         onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`w-full text-xs border rounded p-1 truncate min-h-[26px] cursor-pointer hover:border-indigo-400 transition-all ${
+        title={selectedOption?.label || undefined}
+        className={`w-full text-xs border rounded truncate cursor-pointer hover:border-indigo-400 transition-all ${
+          compact ? "p-0.5 min-h-[24px] max-w-[7.5rem]" : "p-1 min-h-[26px]"
+        } ${
           isOpen ? "border-indigo-500 ring-1 ring-indigo-200" : "border-slate-300"
         } ${isDirty ? "bg-amber-50 border-amber-300" : "bg-white"}`}
       >
         {selectedOption ? (
-          <span className="text-slate-700">{selectedOption.label}</span>
+          <span className="text-slate-700 block truncate">{selectedOption.label}</span>
         ) : (
-          <span className="text-slate-400 italic">{placeholder}</span>
+          <span className="text-slate-400 italic block truncate">{placeholder}</span>
         )}
       </div>
       {isOpen && (
@@ -811,6 +1180,7 @@ const CONV_TABS = [
 ];
 
 const CATEGORY_OPTIONS = [
+  { id: ROSTER_CATEGORIES.NONE, label: "Nadie (orquesta no come)" },
   { id: "GRP:TUTTI", label: "Tutti" },
   { id: "GRP:NO_LOCALES", label: "Solo alojados" },
   { id: "GRP:LOCALES", label: "Locales" },
@@ -929,9 +1299,15 @@ const MultiGroupSelect = ({
 
   const toggleOption = (id) => {
     let created = [...(value || [])];
-    if (id === "GRP:TUTTI") created = ["GRP:TUTTI"];
+    if (id === ROSTER_CATEGORIES.NONE) created = [ROSTER_CATEGORIES.NONE];
+    else if (id === "GRP:TUTTI") created = ["GRP:TUTTI"];
     else {
-      if (created.includes("GRP:TUTTI")) created = [];
+      if (
+        created.includes("GRP:TUTTI") ||
+        created.includes(ROSTER_CATEGORIES.NONE)
+      ) {
+        created = [];
+      }
       if (created.includes(id)) created = created.filter((x) => x !== id);
       else created.push(id);
     }
@@ -994,18 +1370,30 @@ const MultiGroupSelect = ({
             {showAlert ? (compact ? "⚠️" : "⚠️ Definir...") : compact ? "…" : "Seleccionar..."}
           </span>
         )}
-        {value.map((id) => (
-          <span
-            key={id}
-            className={`${compact ? "text-[8px] px-0.5" : "text-[9px] px-1"} rounded border font-bold ${
-              darkMode
-                ? "bg-indigo-900 text-indigo-100 border-indigo-700"
-                : "bg-indigo-50 text-indigo-700 border-indigo-100"
-            }`}
-          >
-            {getGroupLabelShort(id, catalogs)}
-          </span>
-        ))}
+        {value.map((id) => {
+          const isNone = id === ROSTER_CATEGORIES.NONE || id === "GRP:NONE";
+          return (
+            <span
+              key={id}
+              className={`${compact ? "text-[8px] px-0.5" : "text-[9px] px-1"} rounded border font-bold ${
+                darkMode
+                  ? isNone
+                    ? "bg-slate-800 text-slate-200 border-slate-600"
+                    : "bg-indigo-900 text-indigo-100 border-indigo-700"
+                  : isNone
+                    ? "bg-slate-100 text-slate-600 border-slate-300"
+                    : "bg-indigo-50 text-indigo-700 border-indigo-100"
+              }`}
+              title={
+                isNone
+                  ? "Orquesta OFRN no come; artistas FIMBA se cuentan aparte"
+                  : undefined
+              }
+            >
+              {getGroupLabelShort(id, catalogs)}
+            </span>
+          );
+        })}
       </div>
       {isOpen && (
         <div
@@ -1102,64 +1490,76 @@ const MultiGroupSelect = ({
   );
 };
 
-// --- PANEL DE EDICIÓN MASIVA ---
+// --- PANEL DE EDICIÓN MASIVA (barra flotante, portal → body) ---
 const BulkEditPanel = ({ selectedCount, onApply, onCancel, catalogs }) => {
   const [values, setValues] = useState({
     hora_inicio: "",
     id_locacion: "",
     convocados: [],
   });
-  return (
-    <div className="bg-indigo-700 border-b border-indigo-800 p-3 flex items-center justify-between text-white shadow-xl sticky top-0 z-30">
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <span className="bg-white text-indigo-700 text-xs font-black px-2 py-1 rounded-full">
-            {selectedCount}
-          </span>
-          <span className="text-xs font-black uppercase tracking-widest">
-            Edición Masiva
-          </span>
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      className="fixed z-[100] left-1/2 -translate-x-1/2 bottom-4 md:bottom-6 print:hidden max-w-[calc(100vw-1.5rem)]"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="bg-indigo-700 border border-indigo-800 rounded-xl shadow-2xl px-3 py-2.5 flex flex-wrap items-center justify-between gap-3 text-white">
+        <div className="flex flex-wrap items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="bg-white text-indigo-700 text-xs font-black px-2 py-1 rounded-full">
+              {selectedCount}
+            </span>
+            <span className="text-xs font-black uppercase tracking-widest">
+              Edición masiva
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="w-24">
+              <TimeInput
+                value={values.hora_inicio}
+                onChange={(v) => setValues({ ...values, hora_inicio: v })}
+                className="!bg-white !text-slate-900 h-8 text-xs border-none"
+              />
+            </div>
+            <div className="w-44 sm:w-48">
+              <GridLocationSelect
+                value={values.id_locacion}
+                onChange={(v) => setValues({ ...values, id_locacion: v })}
+                options={catalogs.locaciones}
+              />
+            </div>
+            <div className="w-52 sm:w-56">
+              <MultiGroupSelect
+                value={values.convocados}
+                onChange={(v) => setValues({ ...values, convocados: v })}
+                catalogs={catalogs}
+                darkMode={false}
+              />
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-24">
-            <TimeInput
-              value={values.hora_inicio}
-              onChange={(v) => setValues({ ...values, hora_inicio: v })}
-              className="!bg-white !text-slate-900 h-8 text-xs border-none"
-            />
-          </div>
-          <div className="w-48">
-            <GridLocationSelect
-              value={values.id_locacion}
-              onChange={(v) => setValues({ ...values, id_locacion: v })}
-              options={catalogs.locaciones}
-            />
-          </div>
-          <div className="w-56">
-            <MultiGroupSelect
-              value={values.convocados}
-              onChange={(v) => setValues({ ...values, convocados: v })}
-              catalogs={catalogs}
-              darkMode={false}
-            />
-          </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => onApply(values)}
+            className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black px-3 py-1.5 rounded-lg shadow-md active:scale-95 transition-all flex items-center gap-1"
+          >
+            <IconCheck size={14} strokeWidth={3} /> Aplicar
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="p-1.5 rounded-lg text-indigo-200 hover:text-white hover:bg-indigo-600/80"
+            title="Limpiar selección"
+            aria-label="Limpiar selección"
+          >
+            <IconX size={16} />
+          </button>
         </div>
       </div>
-      <div className="flex gap-2">
-        <button
-          onClick={onCancel}
-          className="text-indigo-200 hover:text-white text-xs font-bold px-3 py-1.5"
-        >
-          Cancelar
-        </button>
-        <button
-          onClick={() => onApply(values)}
-          className="bg-emerald-300 hover:bg-emerald-800 text-white text-xs font-black px-4 py-1.5 rounded shadow-md active:scale-95 transition-all flex items-center gap-1"
-        >
-          <IconCheck size={14} strokeWidth={3} /> Aplicar
-        </button>
-      </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 
@@ -1171,9 +1571,22 @@ export default function MealsManager({
   giraGrupos = [],
   filterGrupoIds = [],
   includeGeneralEvents = true,
+  /** Modo FIMBA: tags artistas + pax aditivo + skin/nav del festival. */
+  fimbaMode = false,
+  propuestas = [],
+  edicion = null,
+  readOnly = false,
+  onFimbaTagsSaved = null,
+  /**
+   * Filtros compartidos (LogisticsDashboard → Asistencia/Reporte).
+   * Si se pasan, el Manager es controlado; si no, estado local (FIMBA Comidas).
+   */
+  mealFilters = null,
+  onMealFiltersChange = null,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const [loading, setLoading] = useState(false);
+  /** Fuente completa en memoria. Los filtros NUNCA escriben acá (solo hide en vista). */
   const [grid, setGrid] = useState([]);
   const [catalogs, setCatalogs] = useState({
     locaciones: [],
@@ -1183,13 +1596,45 @@ export default function MealsManager({
     familias: [],
   });
   const [savingRows, setSavingRows] = useState(new Set());
+  const [deletingRows, setDeletingRows] = useState(new Set());
   const [justSavedRows, setJustSavedRows] = useState(new Set()); // Para el destello verde
   const [comensalesDetailRow, setComensalesDetailRow] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
-  // Filtros por tipo de servicio (D/A/M/C)
-  const [serviceFilter, setServiceFilter] = useState(
-    new Set(DEFAULT_SERVICE_FILTER),
+  const [localMealFilters, setLocalMealFilters] = useState(() =>
+    createDefaultMealFilters(),
   );
+  const filtersControlled = mealFilters != null && typeof onMealFiltersChange === "function";
+  const activeMealFilters = filtersControlled ? mealFilters : localMealFilters;
+  const patchMealFilters = (patchOrFn) => {
+    const apply = (prev) => {
+      const base = prev || createDefaultMealFilters();
+      const patch =
+        typeof patchOrFn === "function" ? patchOrFn(base) : patchOrFn;
+      return { ...base, ...patch };
+    };
+    if (filtersControlled) {
+      onMealFiltersChange(apply(mealFilters));
+    } else {
+      setLocalMealFilters((prev) => apply(prev));
+    }
+  };
+  const mealKindFilter = activeMealFilters.mealKindFilter || "all";
+  const serviceFilter = useMemo(
+    () => new Set(activeMealFilters.serviceFilter || DEFAULT_MEAL_SERVICE_FILTER),
+    [activeMealFilters.serviceFilter],
+  );
+  const filterLocacionIds = activeMealFilters.locacionIds || [];
+  const filterArtistaIds = activeMealFilters.artistaIds || [];
+  const setMealKindFilter = (v) => patchMealFilters({ mealKindFilter: v });
+  const setFilterLocacionIds = (v) => patchMealFilters({ locacionIds: v });
+  const setFilterArtistaIds = (v) => patchMealFilters({ artistaIds: v });
+  const setServiceFilter = (updater) => {
+    patchMealFilters((prev) => {
+      const cur = new Set(prev.serviceFilter || DEFAULT_MEAL_SERVICE_FILTER);
+      const next = typeof updater === "function" ? updater(cur) : updater;
+      return { serviceFilter: [...next] };
+    });
+  };
   const [mealTypes, setMealTypes] = useState([]);
   const [mealTypesEditorOpen, setMealTypesEditorOpen] = useState(false);
   const [resettingNames, setResettingNames] = useState(false);
@@ -1313,11 +1758,11 @@ export default function MealsManager({
         ],
       }));
       try {
-        const types = await fetchMealEventTypes(supabase);
+        const types = await fetchMealRelatedEventTypes(supabase);
         setMealTypes(types);
       } catch (err) {
         console.error(err);
-        toast.error("No se pudieron cargar los tipos de comida");
+        toast.error("No se pudieron cargar los tipos de comida / catering");
       }
       await refreshGridData();
     } catch (e) {
@@ -1328,16 +1773,27 @@ export default function MealsManager({
   };
 
   const refreshGridData = async () => {
+    // Siempre embeber tags FIMBA: en OFRN identifican comidas compartidas
+    // (badge ×N / chips RO). Filas solo-artista se excluyen abajo si !fimbaMode.
+    const selectCols = `*, tipos_evento ( id, nombre, color, id_categoria, categorias_tipos_eventos ( id, nombre ) ), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), eventos_fimba_propuestas ( id_propuesta, fimba_propuestas ( id, nombre, color, cantidad_planificada, requiere_comidas, estado ) )`;
     const { data: meals } = await supabase
       .from("eventos")
-      .select(
-        "*, tipos_evento ( id, nombre, color, id_categoria ), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )",
-      )
+      .select(selectCols)
       .eq("id_gira", gira.id)
       .eq("is_deleted", false)
       .order("fecha", { ascending: true })
       .order("hora_inicio", { ascending: true });
-    const mealOnly = (meals || []).filter(isMealEvent);
+    const mealOnly = (meals || [])
+      .filter(isMealRelatedEvent)
+      // OFRN Manager: ocultar comidas solo-artista FIMBA (paridad agenda «sin FIMBA»).
+      // FIMBA Comidas (`fimbaMode`) las conserva para taggear / pax.
+      .filter((m) => fimbaMode || !isFimbaArtistOnlyMealEvent(m))
+      .map((m) => {
+        const props = (m.eventos_fimba_propuestas || [])
+          .map((link) => link.fimba_propuestas)
+          .filter(Boolean);
+        return { ...m, propuestas: props };
+      });
     const { data: rules } = await supabase
       .from("giras_logistica_reglas")
       .select("*")
@@ -1403,6 +1859,12 @@ export default function MealsManager({
         };
       })
       .filter(Boolean);
+    const cateringMeals = normalizedMeals.filter(
+      (m) => m.servicio === CATERING_SERVICE || isCateringEvent(m),
+    );
+    const slotMeals = normalizedMeals.filter(
+      (m) => m.servicio !== CATERING_SERVICE && !isCateringEvent(m),
+    );
     const toIntKey = (d, s) => {
       const fecha = toDateKey(d);
       if (!fecha || SERVICE_VALS[s] == null) return null;
@@ -1426,7 +1888,7 @@ export default function MealsManager({
         if (k != null) maxKey = Math.max(maxKey, k);
       }
     });
-    normalizedMeals.forEach((m) => {
+    slotMeals.forEach((m) => {
       const k = toIntKey(m.fecha, m.servicio);
       if (k == null) return;
       if (k < minKey) minKey = k;
@@ -1441,48 +1903,58 @@ export default function MealsManager({
         maxKey = toIntKey(to, "Cena");
       }
     }
-    if (minKey === Infinity || maxKey === -Infinity || minKey == null || maxKey == null) {
-      setGrid([]);
-      return;
-    }
     const newGrid = [];
-    const minStr = String(minKey);
-    let curDate = new Date(
-      parseInt(minStr.substring(0, 4), 10),
-      parseInt(minStr.substring(4, 6), 10) - 1,
-      parseInt(minStr.substring(6, 8), 10),
-    );
-    const maxStr = String(maxKey);
-    const endDate = new Date(
-      parseInt(maxStr.substring(0, 4), 10),
-      parseInt(maxStr.substring(4, 6), 10) - 1,
-      parseInt(maxStr.substring(6, 8), 10),
-    );
-    while (curDate <= endDate) {
-      const dStr = formatLocalYmd(curDate);
-      SERVICIOS.forEach((svc) => {
-        const k = toIntKey(dStr, svc);
-        if (k == null || k < minKey || k > maxKey) return;
-        const existing = normalizedMeals
-          .filter((m) => m.fecha === dStr && m.servicio === svc)
-          .sort((a, b) => {
-            const ha = a.hora_inicio || "";
-            const hb = b.hora_inicio || "";
-            if (ha !== hb) return ha.localeCompare(hb);
-            return Number(a.id) - Number(b.id);
-          });
-        if (existing.length === 0) {
-          // Solo vacante si aún no hay comida de ese servicio ese día.
-          newGrid.push(makeTempMealRow(dStr, svc));
-        } else {
-          existing.forEach((m) => {
-            newGrid.push({ ...m, isTemp: false, dirty: false });
-          });
-        }
-      });
-      curDate.setDate(curDate.getDate() + 1);
+    if (minKey !== Infinity && maxKey !== -Infinity && minKey != null && maxKey != null) {
+      const minStr = String(minKey);
+      let curDate = new Date(
+        parseInt(minStr.substring(0, 4), 10),
+        parseInt(minStr.substring(4, 6), 10) - 1,
+        parseInt(minStr.substring(6, 8), 10),
+      );
+      const maxStr = String(maxKey);
+      const endDate = new Date(
+        parseInt(maxStr.substring(0, 4), 10),
+        parseInt(maxStr.substring(4, 6), 10) - 1,
+        parseInt(maxStr.substring(6, 8), 10),
+      );
+      while (curDate <= endDate) {
+        const dStr = formatLocalYmd(curDate);
+        SERVICIOS.forEach((svc) => {
+          const k = toIntKey(dStr, svc);
+          if (k == null || k < minKey || k > maxKey) return;
+          const existing = slotMeals
+            .filter((m) => m.fecha === dStr && m.servicio === svc)
+            .sort((a, b) => {
+              const ha = a.hora_inicio || "";
+              const hb = b.hora_inicio || "";
+              if (ha !== hb) return ha.localeCompare(hb);
+              return Number(a.id) - Number(b.id);
+            });
+          if (existing.length === 0) {
+            // Solo vacante si aún no hay comida de ese servicio ese día.
+            newGrid.push(makeTempMealRow(dStr, svc));
+          } else {
+            existing.forEach((m) => {
+              newGrid.push({ ...m, isTemp: false, dirty: false });
+            });
+          }
+        });
+        curDate.setDate(curDate.getDate() + 1);
+      }
     }
-    setGrid(newGrid);
+    // Catering: sin vacantes; se listan los eventos reales (misma gira).
+    // Importante: no dejarlos al final del array — se reordenan con el sort global.
+    cateringMeals.forEach((m) => {
+      newGrid.push({
+        ...m,
+        servicio: CATERING_SERVICE,
+        isTemp: false,
+        dirty: false,
+      });
+    });
+    // Merge D/A/M/C (walk) + Catering → orden cronológico estable
+    // (fecha → servicio → hora → id).
+    setGrid(sortMealManagerGrid(newGrid));
   };
 
   /** Agrega otra fila del mismo día/servicio (p. ej. 2.º almuerzo para otro grupo). */
@@ -1491,7 +1963,7 @@ export default function MealsManager({
     const newRow = makeTempMealRow(row.fecha, row.servicio);
     setGrid((prev) => {
       const idx = prev.findIndex((r) => r.id === row.id);
-      if (idx === -1) return [...prev, newRow];
+      if (idx === -1) return sortMealManagerGrid([...prev, newRow]);
       let insertAt = idx + 1;
       while (
         insertAt < prev.length &&
@@ -1502,30 +1974,131 @@ export default function MealsManager({
       }
       const copy = [...prev];
       copy.splice(insertAt, 0, newRow);
-      return copy;
+      return sortMealManagerGrid(copy);
     });
   };
 
-  const getEligiblePeople = (row) => {
-    if (!row.convocados || row.convocados.length === 0) return [];
-    return roster.filter((p) =>
-      isPersonEligibleForMealSlot(
-        p,
-        {
-          fecha: row.fecha,
-          servicio: row.servicio,
-          convocados: row.convocados,
-          hora: row.hora_inicio,
-          grupoIds: row.selectedGrupos || eventGrupoIdsFromEvent(row),
-        },
-        {
-          hospedajeExcluidosIds,
-          segments,
-          integranteGruposMap,
-        },
-      ),
-    );
-  };
+  const getEligiblePeopleRaw = useCallback(
+    (row) => {
+      // Sin audiencia OFRN (GRP:NONE, o convocados∅ + grupos∅) → solo artistas FIMBA.
+      // Grupos sin convocados sí cuentan (eje vacío = no filtra; AND con grupos).
+      if (!mealRowHasOfrnAudience(row)) return [];
+      return (roster || []).filter((p) =>
+        isPersonEligibleForMealSlot(
+          p,
+          {
+            fecha: row.fecha,
+            servicio: row.servicio,
+            convocados: row.convocados || [],
+            hora: row.hora_inicio,
+            grupoIds: mealRowGrupoIds(row),
+          },
+          {
+            hospedajeExcluidosIds,
+            segments,
+            integranteGruposMap,
+          },
+        ),
+      );
+    },
+    [roster, hospedajeExcluidosIds, segments, integranteGruposMap],
+  );
+
+  /**
+   * Elegibles OFRN + deducción orquesta↔grupo (mismo turno: fecha|servicio).
+   * Grupo tiene prioridad aunque la locación difiera. Artistas FIMBA aditivos.
+   */
+  const getEligibleBreakdown = useCallback(
+    (row) => {
+      const raw = getEligiblePeopleRaw(row);
+      if (!row || row.isTemp || !isOrchestraMealRow(row)) {
+        return { people: raw, deducted: [], deductedCount: 0 };
+      }
+      const coinciding = findCoincidingGrupoMealRows(row, grid);
+      if (!coinciding.length) {
+        return { people: raw, deducted: [], deductedCount: 0 };
+      }
+      return deductGrupoMembersFromOrchestraEligible(
+        raw,
+        coinciding,
+        getEligiblePeopleRaw,
+      );
+    },
+    [getEligiblePeopleRaw, grid],
+  );
+
+  const getEligiblePeople = useCallback(
+    (row) => getEligibleBreakdown(row).people,
+    [getEligibleBreakdown],
+  );
+
+  const getComensalesTotal = useCallback(
+    (row) => {
+      const ofrn = getEligiblePeople(row).length;
+      const artists = fimbaArtistMealPax(row?.propuestas || []);
+      return ofrn + artists;
+    },
+    [getEligiblePeople],
+  );
+
+  /**
+   * Sobre-inclusión: misma persona OFRN (o mismo tag FIMBA) en ≥2 comidas
+   * del mismo turno (fecha|servicio), post-deducción orquesta↔grupo.
+   */
+  const turnoOverInclusions = useMemo(
+    () => findMealTurnoOverInclusions(grid, getEligiblePeople),
+    [grid, getEligiblePeople],
+  );
+  const [overInclusionOpen, setOverInclusionOpen] = useState(false);
+
+  const gridById = useMemo(() => {
+    const map = new Map();
+    for (const row of grid) {
+      if (!row?.isTemp && row?.id != null) map.set(String(row.id), row);
+    }
+    return map;
+  }, [grid]);
+
+  const rowHasTurnoOverInclusion = useCallback(
+    (row) => {
+      if (!row || row.isTemp) return false;
+      const bucket = turnoOverInclusions.byEventId.get(String(row.id));
+      return Boolean(
+        bucket && (bucket.personIds.size > 0 || bucket.artistIds.size > 0),
+      );
+    },
+    [turnoOverInclusions],
+  );
+
+  const liveComensalesDetailRow = useMemo(() => {
+    if (!comensalesDetailRow) return null;
+    return gridById.get(String(comensalesDetailRow.id)) || comensalesDetailRow;
+  }, [comensalesDetailRow, gridById]);
+
+  const hasAnyFimbaTags = useMemo(
+    () =>
+      fimbaMode ||
+      grid.some((r) => !r.isTemp && (r.propuestas || []).length > 0),
+    [grid, fimbaMode],
+  );
+
+  const mealTableColCount =
+    11 + (hasGiraGrupos ? 1 : 0) + (hasAnyFimbaTags ? 1 : 0);
+
+  /** Tinte muy suave por servicio (solo FIMBA); hex del estilo de comida. */
+  const fimbaMealRowTintStyle = useCallback(
+    (servicio) => {
+      if (!fimbaMode) return undefined;
+      const hex = getMealServiceStyle(servicio)?.print?.border || "#94a3b8";
+      const h = String(hex).replace("#", "");
+      if (h.length !== 6) return { backgroundColor: "rgba(148,163,184,0.08)" };
+      const r = parseInt(h.slice(0, 2), 16);
+      const g = parseInt(h.slice(2, 4), 16);
+      const b = parseInt(h.slice(4, 6), 16);
+      return { backgroundColor: `rgba(${r},${g},${b},0.08)` };
+    },
+    [fimbaMode],
+  );
 
   const normalizeTimeHHMM = (value) => {
     const raw = String(value || "").trim();
@@ -1539,8 +2112,10 @@ export default function MealsManager({
     return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
   };
 
-  const handleGridChange = (idx, field, val) => {
+  const handleGridChange = (rowId, field, val) => {
     setGrid((prev) => {
+      const idx = prev.findIndex((r) => r.id === rowId);
+      if (idx < 0) return prev;
       const copy = [...prev];
       const normalizedVal =
         field === "hora_inicio" || field === "hora_fin"
@@ -1574,6 +2149,7 @@ export default function MealsManager({
             tipoNombre || base,
             row.convocados,
             catalogs,
+            row.propuestas,
           );
         } else {
           row.descripcion = rewriteMealDescriptionServiceLabel(
@@ -1594,15 +2170,33 @@ export default function MealsManager({
           val,
           catalogs,
           prevConvocados,
+          row.propuestas,
         );
+      } else if (field === "selectedGrupos") {
+        const grupos = Array.isArray(normalizedVal) ? normalizedVal.map(Number) : [];
+        row.selectedGrupos = grupos;
+        row.eventos_grupos = buildEventosGruposEmbed(grupos, giraGrupos);
       }
 
       copy[idx] = row;
+      const nextGrid = isMealPaxAffectingField(field)
+        ? rematerializeTurnoSiblings(copy, idx, prevRow, row)
+        : copy;
+
       if (debounceRef.current[row.id]) clearTimeout(debounceRef.current[row.id]);
       if (row.hora_inicio && row.fecha) {
         debounceRef.current[row.id] = setTimeout(() => saveRow(row), 1000);
       }
-      return copy;
+      // Reordenar si mutó posición cronológica (hora / tipo→servicio).
+      if (
+        field === "hora_inicio" ||
+        field === "hora_fin" ||
+        field === "id_tipo_evento" ||
+        field === "fecha"
+      ) {
+        return sortMealManagerGrid(nextGrid);
+      }
+      return nextGrid;
     });
   };
 
@@ -1632,6 +2226,7 @@ export default function MealsManager({
             changes.convocados,
             catalogs,
             r.convocados,
+            r.propuestas,
           );
         }
 
@@ -1652,40 +2247,58 @@ export default function MealsManager({
   const handleResetAllMealNames = async () => {
     const rowsToUpdate = grid.filter((r) => !r.isTemp && r.fecha && r.hora_inicio);
     if (rowsToUpdate.length === 0) {
-      toast.info("No hay comidas guardadas para restablecer.");
+      toast.info("No hay comidas guardadas para renombrar.");
       return;
     }
     const ok = await confirm({
-      title: "Actualizar comidas",
-      message: `¿Actualizar el tramo de convocados en ${rowsToUpdate.length} comida(s)? Se conservan aclaraciones de producción (ej. "a bordo", "pausa y merienda").`,
-      confirmText: "Actualizar",
+      title: "Renombrar comidas",
+      message: `¿Renombrar ${rowsToUpdate.length} comida(s)? Se actualiza el tramo auto (servicio + convocados + siglas de artistas FIMBA). Se conservan aclaraciones de producción (ej. "a bordo", "pausa y merienda").`,
+      confirmText: "Renombrar",
     });
     if (!ok) return;
 
     setResettingNames(true);
     try {
-      await Promise.all(
-        rowsToUpdate.map((row) => {
-          const descripcion = mergeMealDescriptionWithConvocados(
-            row.descripcion,
-            row.tipo_nombre ||
-              serviceLabelOf(row.servicio, row.servicio_detalle) ||
-              row.servicio,
-            row.convocados,
-            catalogs,
-            row.convocados,
-          );
-          return supabase
-            .from("eventos")
-            .update({ descripcion })
-            .eq("id", row.id);
+      const updates = rowsToUpdate.map((row) => {
+        const serviceLabel =
+          row.tipo_nombre ||
+          serviceLabelOf(row.servicio, row.servicio_detalle) ||
+          row.servicio;
+        // Lee propuestas/tags en memoria de la fila (no solo convocados).
+        const descripcion = mergeMealDescriptionWithConvocados(
+          row.descripcion,
+          serviceLabel,
+          row.convocados,
+          catalogs,
+          row.convocados,
+          row.propuestas || [],
+        );
+        return { id: row.id, descripcion };
+      });
+
+      const results = await Promise.all(
+        updates.map(({ id, descripcion }) =>
+          supabase.from("eventos").update({ descripcion }).eq("id", id),
+        ),
+      );
+      const firstError = results.find((r) => r.error)?.error;
+      if (firstError) throw firstError;
+
+      setGrid((prev) =>
+        prev.map((r) => {
+          const u = updates.find((x) => x.id === r.id);
+          return u ? { ...r, descripcion: u.descripcion, dirty: false } : r;
         }),
       );
-      toast.success(`Nombres restablecidos (${rowsToUpdate.length} eventos).`);
-      await refreshGridData();
+
+      toast.success(`Renombradas ${updates.length} comida(s).`);
     } catch (e) {
       console.error(e);
-      toast.error("No se pudieron restablecer los nombres.");
+      toast.error(
+        e?.message
+          ? `No se pudieron renombrar: ${e.message}`
+          : "No se pudieron renombrar los nombres.",
+      );
     } finally {
       setResettingNames(false);
     }
@@ -1726,8 +2339,8 @@ export default function MealsManager({
     };
 
     try {
-      const selectMeal =
-        "*, tipos_evento ( id, nombre, color, id_categoria )";
+      // Embeber tags FIMBA para no perder chips al guardar convocados/hora/etc.
+      const selectMeal = `*, tipos_evento ( id, nombre, color, id_categoria ), eventos_fimba_propuestas ( id_propuesta, fimba_propuestas ( id, nombre, color, cantidad_planificada, requiere_comidas, estado ) )`;
       const { data } = row.isTemp
         ? await supabase
             .from("eventos")
@@ -1753,55 +2366,69 @@ export default function MealsManager({
         }
       }
 
-      const eventos_grupos = (row.selectedGrupos || []).map((gid) => {
-        const g = (giraGrupos || []).find((x) => Number(x.id) === Number(gid));
-        return {
-          id_grupo: Number(gid),
-          giras_grupos: g
-            ? { id: g.id, nombre: g.nombre, color: g.color }
-            : { id: Number(gid) },
-        };
-      });
-
-      setGrid((prev) =>
-        prev.map((r) =>
-          r.id === row.id
-            ? {
-                ...data,
-                tipos_evento: data.tipos_evento || {
-                  id: data.id_tipo_evento,
-                  nombre:
-                    typeNombreById(mealTypes, data.id_tipo_evento) ||
-                    row.tipo_nombre,
-                },
-                servicio: mealServicioFromEvent({
-                  ...data,
-                  tipos_evento: data.tipos_evento || {
-                    nombre:
-                      typeNombreById(mealTypes, data.id_tipo_evento) ||
-                      row.tipo_nombre,
-                  },
-                }),
-                tipo_nombre:
-                  data.tipos_evento?.nombre ||
-                  typeNombreById(mealTypes, data.id_tipo_evento) ||
-                  row.tipo_nombre,
-                id_tipo_evento: data.id_tipo_evento,
-                selectedGrupos: row.selectedGrupos || [],
-                eventos_grupos,
-                isTemp: false,
-                dirty: false,
-              }
-            : r,
-        ),
+      const eventos_grupos = buildEventosGruposEmbed(
+        row.selectedGrupos || [],
+        giraGrupos,
       );
 
+      const propuestasFromSelect = (data?.eventos_fimba_propuestas || [])
+        .map((link) => link.fimba_propuestas)
+        .filter(Boolean);
+      // Preferir embed fresco; si falla el join, conservar tags locales (no borrar artistas).
+      const preservedPropuestas =
+        propuestasFromSelect.length > 0
+          ? propuestasFromSelect
+          : row.propuestas || [];
+
+      const patched = {
+        ...data,
+        tipos_evento: data.tipos_evento || {
+          id: data.id_tipo_evento,
+          nombre:
+            typeNombreById(mealTypes, data.id_tipo_evento) ||
+            row.tipo_nombre,
+        },
+        servicio: mealServicioFromEvent({
+          ...data,
+          tipos_evento: data.tipos_evento || {
+            nombre:
+              typeNombreById(mealTypes, data.id_tipo_evento) ||
+              row.tipo_nombre,
+          },
+        }),
+        tipo_nombre:
+          data.tipos_evento?.nombre ||
+          typeNombreById(mealTypes, data.id_tipo_evento) ||
+          row.tipo_nombre,
+        id_tipo_evento: data.id_tipo_evento,
+        selectedGrupos: row.selectedGrupos || [],
+        eventos_grupos,
+        propuestas: preservedPropuestas,
+        isTemp: false,
+        dirty: false,
+      };
+
+      setGrid((prev) => {
+        const oldIdx = prev.findIndex((r) => r.id === row.id);
+        const prevRow = oldIdx >= 0 ? prev[oldIdx] : row;
+        const next = prev.map((r) => (r.id === row.id ? patched : r));
+        const editedIdx = next.findIndex((r) => r.id === patched.id);
+        if (editedIdx < 0) return next;
+        // Recalcular derivados del turno (deducción / sobre-inclusión) para hermanas.
+        return rematerializeTurnoSiblings(
+          next,
+          editedIdx,
+          prevRow,
+          next[editedIdx],
+        );
+      });
+
       // --- DESTELLO VERDE ---
-      setJustSavedRows((prev) => new Set(prev).add(row.id));
+      setJustSavedRows((prev) => new Set(prev).add(patched.id));
       setTimeout(() => {
         setJustSavedRows((prev) => {
           const n = new Set(prev);
-          n.delete(row.id);
+          n.delete(patched.id);
           return n;
         });
       }, 1500); // 1.5 segundos de destello
@@ -1837,9 +2464,42 @@ export default function MealsManager({
       }))
     )
       return;
-    setSavingRows((prev) => new Set(prev).add(row.id));
-    await supabase.from("eventos").delete().eq("id", row.id);
-    refreshGridData();
+
+    const rowId = row.id;
+    setDeletingRows((prev) => new Set(prev).add(rowId));
+    try {
+      const { error } = await supabase
+        .from("eventos")
+        .delete()
+        .eq("id", rowId);
+      if (error) throw error;
+
+      // Quitar de la grilla de inmediato (sin esperar refresh completo).
+      setGrid((prev) => prev.filter((r) => r.id !== rowId));
+      setSelectedRows((prev) => {
+        if (!prev.has(rowId)) return prev;
+        const n = new Set(prev);
+        n.delete(rowId);
+        return n;
+      });
+      if (comensalesDetailRow?.id === rowId) setComensalesDetailRow(null);
+
+      // Reconstruir vacantes del día/servicio en background (no bloquea el spinner).
+      refreshGridData().catch((e) => console.error(e));
+    } catch (e) {
+      console.error(e);
+      toast.error(
+        e?.message
+          ? `No se pudo borrar: ${e.message}`
+          : "No se pudo borrar el evento",
+      );
+    } finally {
+      setDeletingRows((prev) => {
+        const n = new Set(prev);
+        n.delete(rowId);
+        return n;
+      });
+    }
   };
 
   const [editingDescId, setEditingDescId] = useState(null);
@@ -1850,10 +2510,92 @@ export default function MealsManager({
   const [mobileGroupsOpen, setMobileGroupsOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
-  const filteredGrid = useMemo(() => {
-    if (serviceFilter.size === 0) return [];
-    return grid.filter((r) => serviceFilter.has(r.servicio));
-  }, [grid, serviceFilter]);
+  const NO_LOC_FILTER = MEAL_FILTER_NO_LOC;
+  const NO_ARTIST_FILTER = MEAL_FILTER_NO_ARTIST;
+
+  const locationFilterOptions = useMemo(() => {
+    const map = new Map();
+    let hasNone = false;
+    for (const r of grid) {
+      if (r.isTemp) continue;
+      const id = r.id_locacion;
+      if (id == null || id === "") {
+        hasNone = true;
+        continue;
+      }
+      const key = String(id);
+      if (map.has(key)) continue;
+      const cat = catalogs.locaciones.find((l) => String(l.id) === key);
+      map.set(key, {
+        value: key,
+        label: cat?.label || `Locación ${key}`,
+      });
+    }
+    const opts = Array.from(map.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, "es"),
+    );
+    if (hasNone) {
+      opts.push({ value: NO_LOC_FILTER, label: "Sin locación" });
+    }
+    return opts;
+  }, [grid, catalogs.locaciones]);
+
+  const artistFilterOptions = useMemo(() => {
+    const map = new Map();
+    let hasNone = false;
+    const seedFrom = (list) => {
+      for (const p of list || []) {
+        if (!p?.id) continue;
+        const key = String(p.id);
+        if (map.has(key)) continue;
+        map.set(key, {
+          value: key,
+          label: p.nombre || `Artista ${p.id}`,
+        });
+      }
+    };
+    seedFrom(propuestas);
+    for (const r of grid) {
+      if (r.isTemp) continue;
+      const props = r.propuestas || [];
+      if (!props.length) {
+        hasNone = true;
+        continue;
+      }
+      seedFrom(props);
+    }
+    const opts = Array.from(map.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, "es", { sensitivity: "base" }),
+    );
+    if (hasNone) {
+      opts.push({ value: NO_ARTIST_FILTER, label: "Sin artistas" });
+    }
+    return opts;
+  }, [grid, propuestas]);
+
+  /**
+   * Vista filtrada derivada — nunca se escribe de vuelta a `grid`.
+   * Fuente = grid completo; filtros solo ocultan; re-sort por si mutaciones
+   * locales (hora/fecha/hermanas) desalinearían el orden del walk+catering.
+   */
+  const filteredGrid = useMemo(
+    () =>
+      sortMealManagerGrid(
+        filterMealManagerRows(grid, {
+          mealKindFilter,
+          serviceFilter,
+          locacionIds: filterLocacionIds,
+          artistaIds: filterArtistaIds,
+        }),
+      ),
+    [
+      grid,
+      serviceFilter,
+      mealKindFilter,
+      filterLocacionIds,
+      filterArtistaIds,
+    ],
+  );
 
   const visibleGrid = useMemo(() => {
     let rows =
@@ -1899,6 +2641,17 @@ export default function MealsManager({
     includeGeneralEvents,
   ]);
 
+  const hasActiveExtraFilters = !isDefaultMealFilters(activeMealFilters);
+
+  const clearMealFilters = () => {
+    patchMealFilters(createDefaultMealFilters());
+  };
+
+  const gridRenderItems = useMemo(
+    () => buildGridRenderItems(visibleGrid, fimbaMode),
+    [visibleGrid, fimbaMode],
+  );
+
   const realEventIds = useMemo(() => grid.filter((r) => !r.isTemp).map((r) => r.id), [grid]);
 
   const toggleServiceFilter = (svc) => {
@@ -1933,28 +2686,28 @@ export default function MealsManager({
     });
   };
 
-  const handleDescBlur = (row, idx) => {
+  const handleDescBlur = (row) => {
     setToolbarPos((prev) => ({ ...prev, visible: false }));
     const newHtml = editorRef.current?.innerHTML ?? editingDescValue;
     if (newHtml !== (row.descripcion || "")) {
-      handleGridChange(idx, "descripcion", newHtml);
+      handleGridChange(row.id, "descripcion", newHtml);
     }
     setEditingDescId(null);
   };
 
-  const handleDescKeyDown = (e, row, idx) => {
+  const handleDescKeyDown = (e, row) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       // Forzamos blur + guardado
       e.currentTarget.blur();
-      handleDescBlur(row, idx);
+      handleDescBlur(row);
     }
   };
   const isMasterChecked = selectedRows.size === grid.length && grid.length > 0;
   const isOnlyRealSelected = selectedRows.size === realEventIds.length && realEventIds.every((id) => selectedRows.has(id)) && realEventIds.length > 0;
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 overflow-hidden">
+    <div className="flex flex-col h-full min-h-0 bg-slate-50 overflow-hidden">
       {dialog}
       <div className="bg-white p-3 md:p-4 border-b border-slate-200 shadow-sm flex justify-between items-center shrink-0 z-40 relative overflow-visible">
         <div className="flex items-center min-w-0 overflow-visible">
@@ -1971,10 +2724,44 @@ export default function MealsManager({
           </div>
         </div>
         <div className="hidden md:flex items-center gap-3 flex-wrap justify-end min-w-0">
-          {/* Filtros rápidos por tipo de servicio: D/A/M/C */}
+          {/* Clase: Comidas / Catering / Ambos */}
+          <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 shrink-0">
+            <span className="mr-1 uppercase">Tipo:</span>
+            {[
+              { id: "all", label: "Todos" },
+              { id: "comidas", label: "Comidas" },
+              { id: "catering", label: "Catering" },
+            ].map((opt) => {
+              const isActive = mealKindFilter === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setMealKindFilter(opt.id)}
+                  className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wide transition-colors ${
+                    isActive
+                      ? opt.id === "catering"
+                        ? "bg-orange-600 text-white border-orange-600 shadow-sm"
+                        : "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                      : "bg-slate-50 text-slate-500 border-slate-300 hover:bg-slate-100"
+                  }`}
+                  title={
+                    opt.id === "all"
+                      ? "Comidas y catering"
+                      : opt.id === "comidas"
+                        ? "Solo categoría Comidas (D/A/M/C)"
+                        : "Solo categoría Catering"
+                  }
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          {/* Filtros rápidos por tipo de servicio: D/A/M/C + Catering */}
           <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 shrink-0">
             <span className="mr-1 uppercase">Servicios:</span>
-            {SERVICIOS.map((svc) => {
+            {[...SERVICIOS, CATERING_SERVICE].map((svc) => {
               const isActive = serviceFilter.has(svc);
               const short =
                 svc === "Desayuno"
@@ -1983,7 +2770,9 @@ export default function MealsManager({
                   ? "A"
                   : svc === "Merienda"
                   ? "M"
-                  : "C";
+                  : svc === "Cena"
+                  ? "C"
+                  : "Cat";
               return (
                 <button
                   key={svc}
@@ -1991,7 +2780,9 @@ export default function MealsManager({
                   onClick={() => toggleServiceFilter(svc)}
                   className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wide transition-colors ${
                     isActive
-                      ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                      ? svc === CATERING_SERVICE
+                        ? "bg-orange-600 text-white border-orange-600 shadow-sm"
+                        : "bg-indigo-600 text-white border-indigo-600 shadow-sm"
                       : "bg-slate-50 text-slate-500 border-slate-300 hover:bg-slate-100"
                   }`}
                   title={svc}
@@ -2001,6 +2792,52 @@ export default function MealsManager({
               );
             })}
           </div>
+          <div
+            className={`inline-flex items-stretch rounded-lg border overflow-visible h-[28px] shadow-sm bg-white shrink-0 ${
+              filterLocacionIds.length > 0 || filterArtistaIds.length > 0
+                ? "border-indigo-400"
+                : "border-slate-200"
+            }`}
+            title="Filtros de locación y artistas FIMBA"
+          >
+            <div className="w-[7.25rem]">
+              <MultiSelectDropdown
+                compact
+                summaryMode="names"
+                summaryMaxNames={1}
+                label="Locación"
+                placeholder="Locación…"
+                options={locationFilterOptions}
+                value={filterLocacionIds}
+                onChange={setFilterLocacionIds}
+                className="w-full [&_button]:w-full [&_button]:h-[26px] [&_button]:border-0 [&_button]:rounded-none [&_button]:bg-transparent [&_button]:shadow-none [&_button]:hover:border-transparent [&_button]:px-2 [&_button]:text-[10px]"
+              />
+            </div>
+            {(fimbaMode || artistFilterOptions.some((o) => o.value !== NO_ARTIST_FILTER)) && (
+              <div className="w-[7.25rem] border-l border-slate-200">
+                <MultiSelectDropdown
+                  compact
+                  summaryMode="names"
+                  summaryMaxNames={1}
+                  label="Artista"
+                  placeholder="Artista…"
+                  options={artistFilterOptions}
+                  value={filterArtistaIds}
+                  onChange={setFilterArtistaIds}
+                  className="w-full [&_button]:w-full [&_button]:h-[26px] [&_button]:border-0 [&_button]:rounded-none [&_button]:bg-transparent [&_button]:shadow-none [&_button]:hover:border-transparent [&_button]:px-2 [&_button]:text-[10px]"
+                />
+              </div>
+            )}
+          </div>
+          {hasActiveExtraFilters && (
+            <button
+              type="button"
+              onClick={clearMealFilters}
+              className="text-[10px] font-bold text-slate-500 hover:text-indigo-600 underline-offset-2 hover:underline shrink-0"
+            >
+              Limpiar filtros
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setMealTypesEditorOpen(true)}
@@ -2014,12 +2851,12 @@ export default function MealsManager({
             onClick={handleResetAllMealNames}
             disabled={resettingNames || loading}
             className="text-[10px] font-bold px-2.5 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50 flex items-center gap-1 shrink-0"
-            title="Actualizar solo el tramo de convocados; conserva aclaraciones de producción"
+            title="Renombrar: servicio + convocados (sin «Nadie») + siglas de artistas FIMBA; conserva aclaraciones de producción"
           >
             {resettingNames && (
               <IconLoader className="animate-spin" size={12} />
             )}
-            Restablecer nombres
+            Renombrar
           </button>
           <FoodMatrix roster={roster} />
           {loading && <IconLoader className="animate-spin text-orange-500" />}
@@ -2037,11 +2874,12 @@ export default function MealsManager({
             onClick={handleResetAllMealNames}
             disabled={resettingNames || loading}
             className="text-[10px] font-bold px-2 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 disabled:opacity-50 flex items-center gap-1"
+            title="Renombrar comidas (convocados + siglas artistas)"
           >
             {resettingNames && (
               <IconLoader className="animate-spin" size={12} />
             )}
-            Restablecer nombres
+            Renombrar
           </button>
           <button
             type="button"
@@ -2079,35 +2917,98 @@ export default function MealsManager({
           )}
 
           {mobileFiltersOpen && (
-            <div className="absolute right-0 top-[calc(100%+6px)] z-40 bg-white border border-slate-200 rounded-lg shadow-xl p-2 w-44">
-              <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Servicios</div>
-              <div className="flex items-center gap-1">
-                {SERVICIOS.map((svc) => {
-                  const isActive = serviceFilter.has(svc);
-                  const short =
-                    svc === "Desayuno"
-                      ? "D"
-                      : svc === "Almuerzo"
-                      ? "A"
-                      : svc === "Merienda"
-                      ? "M"
-                      : "C";
-                  return (
+            <div className="absolute right-0 top-[calc(100%+6px)] z-40 bg-white border border-slate-200 rounded-lg shadow-xl p-2 w-56 space-y-2">
+              <div>
+                <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Tipo</div>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {[
+                    { id: "all", label: "Todos" },
+                    { id: "comidas", label: "Comidas" },
+                    { id: "catering", label: "Catering" },
+                  ].map((opt) => (
                     <button
-                      key={`mf-${svc}`}
+                      key={`mk-${opt.id}`}
                       type="button"
-                      onClick={() => toggleServiceFilter(svc)}
+                      onClick={() => setMealKindFilter(opt.id)}
                       className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${
-                        isActive
+                        mealKindFilter === opt.id
                           ? "bg-indigo-600 text-white border-indigo-600"
                           : "bg-slate-50 text-slate-500 border-slate-300"
                       }`}
                     >
-                      {short}
+                      {opt.label}
                     </button>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
+              <div>
+                <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Servicios</div>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {[...SERVICIOS, CATERING_SERVICE].map((svc) => {
+                    const isActive = serviceFilter.has(svc);
+                    const short =
+                      svc === "Desayuno"
+                        ? "D"
+                        : svc === "Almuerzo"
+                        ? "A"
+                        : svc === "Merienda"
+                        ? "M"
+                        : svc === "Cena"
+                        ? "C"
+                        : "Cat";
+                    return (
+                      <button
+                        key={`mf-${svc}`}
+                        type="button"
+                        onClick={() => toggleServiceFilter(svc)}
+                        className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${
+                          isActive
+                            ? svc === CATERING_SERVICE
+                              ? "bg-orange-600 text-white border-orange-600"
+                              : "bg-indigo-600 text-white border-indigo-600"
+                            : "bg-slate-50 text-slate-500 border-slate-300"
+                        }`}
+                      >
+                        {short}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <MultiSelectDropdown
+                  compact
+                  summaryMode="names"
+                  summaryMaxNames={1}
+                  label="Locación"
+                  placeholder="Locación…"
+                  options={locationFilterOptions}
+                  value={filterLocacionIds}
+                  onChange={setFilterLocacionIds}
+                />
+                {(fimbaMode ||
+                  artistFilterOptions.some((o) => o.value !== NO_ARTIST_FILTER)) && (
+                  <MultiSelectDropdown
+                    compact
+                    summaryMode="names"
+                    summaryMaxNames={1}
+                    label="Artista"
+                    placeholder="Artista…"
+                    options={artistFilterOptions}
+                    value={filterArtistaIds}
+                    onChange={setFilterArtistaIds}
+                  />
+                )}
+              </div>
+              {hasActiveExtraFilters && (
+                <button
+                  type="button"
+                  onClick={clearMealFilters}
+                  className="text-[10px] font-bold text-indigo-600 w-full text-left"
+                >
+                  Limpiar filtros
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -2161,6 +3062,40 @@ export default function MealsManager({
 
       {selectedRows.size > 0 && <BulkEditPanel selectedCount={selectedRows.size} onCancel={() => setSelectedRows(new Set())} onApply={handleBulkApply} catalogs={catalogs} />}
 
+      {(turnoOverInclusions.personCount > 0 ||
+        turnoOverInclusions.artistCount > 0) && (
+        <div className="mx-2 md:mx-4 mt-2 mb-0 shrink-0 flex items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          <div className="flex items-center gap-2 min-w-0">
+            <IconAlertTriangle size={16} className="text-amber-600 shrink-0" />
+            <span className="font-medium">
+              {turnoOverInclusions.personCount > 0 && (
+                <>
+                  {turnoOverInclusions.personCount} integrante
+                  {turnoOverInclusions.personCount === 1 ? "" : "s"} OFRN
+                </>
+              )}
+              {turnoOverInclusions.personCount > 0 &&
+                turnoOverInclusions.artistCount > 0 &&
+                " · "}
+              {turnoOverInclusions.artistCount > 0 && (
+                <>
+                  {turnoOverInclusions.artistCount} artista
+                  {turnoOverInclusions.artistCount === 1 ? "" : "s"} FIMBA
+                </>
+              )}{" "}
+              en más de una comida del mismo turno (fecha + servicio).
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOverInclusionOpen(true)}
+            className="shrink-0 text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded border border-amber-400 bg-white text-amber-900 hover:bg-amber-100"
+          >
+            Ver detalle
+          </button>
+        </div>
+      )}
+
       {/* Barra de herramientas flotante para descripción (rich text) */}
       {toolbarPos.visible && (
         <div
@@ -2203,85 +3138,152 @@ export default function MealsManager({
         </div>
       )}
 
-      <div className="flex-1 p-2 md:p-4 overflow-hidden">
-        <div className="bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden flex flex-col relative h-full">
-          <div className="hidden md:block h-full overflow-auto">
+      <div className="flex-1 min-h-0 p-2 md:p-4 overflow-hidden">
+        {/* overflow visible on card: sticky thead fails under overflow-hidden ancestors */}
+        <div className="bg-white border border-slate-300 rounded-lg shadow-sm flex flex-col relative h-full min-h-0">
+          <div className="hidden md:block flex-1 min-h-0 overflow-auto">
           <table className="w-full text-left text-sm min-w-[1320px] border-separate border-spacing-0">
-            <thead className="bg-slate-100 text-slate-500 uppercase font-bold text-[10px] sticky top-0 z-20 shadow-sm">
+            {/* sticky on th (not thead): Chrome ignores sticky on thead/tr */}
+            <thead className="bg-slate-100 text-slate-500 uppercase font-bold text-[10px]">
               <tr>
-                <th className="w-1 border-b border-slate-200"></th>
-                <th className="px-2 py-3 w-10 text-center border-b border-slate-200">
+                <th className="w-1 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]"></th>
+                <th className="px-2 py-3 w-10 text-center border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">
                   <div onClick={() => isMasterChecked ? setSelectedRows(new Set()) : isOnlyRealSelected ? setSelectedRows(new Set(grid.map((r) => r.id))) : setSelectedRows(new Set(realEventIds))} className={`w-4 h-4 mx-auto rounded border flex items-center justify-center cursor-pointer transition-colors ${isMasterChecked || isOnlyRealSelected ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-300"}`}>
                     {isMasterChecked ? <IconCheck size={10} strokeWidth={4} /> : isOnlyRealSelected ? <div className="w-2 h-0.5 bg-white"></div> : null}
                   </div>
                 </th>
-                <th className="px-3 py-3 w-28 border-r border-b border-slate-200">Día</th>
-                <th className="px-3 py-3 w-40 border-b border-slate-200">Servicio</th>
-                <th className="px-3 py-3 w-20 border-b border-slate-200">Horario</th>
-                <th className="px-3 py-3 w-44 border-b border-slate-200">Lugar</th>
-                <th className="px-3 py-3 w-64 border-b border-slate-200">Descripción</th>
-                <th className="px-1 py-3 w-28 max-w-28 border-b border-slate-200">Convocados</th>
+                <th className="px-3 py-3 w-28 border-r border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">Día</th>
+                <th className="px-3 py-3 w-40 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">Servicio</th>
+                <th className="px-3 py-3 w-20 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">Horario</th>
+                <th className={`px-2 py-3 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0] ${fimbaMode ? "w-28 max-w-[7.5rem]" : "w-44"}`}>Lugar</th>
+                <th className="px-3 py-3 w-64 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">Descripción</th>
+                <th className="px-1 py-3 w-28 max-w-28 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">
+                  {fimbaMode ? (
+                    <span className="block normal-case leading-tight">
+                      <span className="block">Convocados</span>
+                      <span className="block font-semibold text-slate-400">OFRN</span>
+                    </span>
+                  ) : (
+                    "Convocados"
+                  )}
+                </th>
                 {hasGiraGrupos && (
-                  <th className="px-1 py-3 w-36 max-w-36 border-b border-slate-200">Grupos</th>
+                  <th className="px-1 py-3 w-36 max-w-36 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">
+                    {fimbaMode ? (
+                      <span className="block normal-case leading-tight">
+                        <span className="block">Grupos</span>
+                        <span className="block font-semibold text-slate-400">OFRN</span>
+                      </span>
+                    ) : (
+                      "Grupos"
+                    )}
+                  </th>
                 )}
-                <th className="px-3 py-3 w-24 text-center border-b border-slate-200">Comensales</th>
-                <th className="px-3 py-3 w-12 text-center border-b border-slate-200">Téc</th>
-                <th className="px-3 py-3 w-10 sticky right-0 bg-slate-100 border-b border-slate-200"></th>
+                {hasAnyFimbaTags && (
+                  <th className="px-1 py-3 w-40 max-w-44 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">
+                    {fimbaMode ? "Artistas FIMBA" : "Artistas FIMBA"}
+                  </th>
+                )}
+                <th className="px-3 py-3 w-24 text-center border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">Comensales</th>
+                <th className="px-3 py-3 w-12 text-center border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">Téc</th>
+                <th className="px-3 py-3 w-10 sticky top-0 right-0 z-30 bg-slate-100 border-b border-slate-200 shadow-[0_1px_0_0_#e2e8f0]"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {visibleGrid.length === 0 && (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={mealTableColCount}
                     className="px-4 py-8 text-center text-sm text-slate-400 italic"
                   >
                     No hay comidas en este tramo con los filtros actuales.
                   </td>
                 </tr>
               )}
-              {visibleGrid.map((row) => {
-                const idx = grid.findIndex((r) => r.id === row.id);
-                const eligible = getEligiblePeople(row);
-        const isSelected = selectedRows.has(row.id);
+              {gridRenderItems.map((item) => {
+                if (item.type === "day-divider") {
+                  return (
+                    <tr key={item.key} className="fimba-day-divider-row">
+                      <td colSpan={mealTableColCount}>
+                        <div className="fimba-day-divider-inner">
+                          <span className="fimba-day-divider-label">
+                            {formatFechaLargaEs(item.fecha)}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+
+                const row = item.row;
+                const breakdown = getEligibleBreakdown(row);
+                const eligible = breakdown.people;
+                const deductedCount = breakdown.deductedCount || 0;
+                const artistPax = fimbaArtistMealPax(row.propuestas || []);
+                const comensalesLabel = formatComensalesBadgeLabel(
+                  eligible.length,
+                  artistPax,
+                );
+                const comensalesHasPeople = eligible.length > 0 || artistPax > 0;
+                const hasTurnoOver = rowHasTurnoOverInclusion(row);
+                const isSelected = selectedRows.has(row.id);
                 const isSaving = savingRows.has(row.id);
+                const isDeleting = deletingRows.has(row.id);
                 const isJustSaved = justSavedRows.has(row.id);
                 const isDirty = row.dirty;
                 const isTemp = row.isTemp;
 
         // --- LÓGICA DE COLORES POR ESTADO ---
-        // Amarillo: procesando / pendiente de guardado
-        // Verde: guardado OK (destello breve)
-        // Rojo: error al guardar (se refleja vía toast; opcionalmente podríamos marcar la fila)
-        const statusIndicatorClass = isSaving
-          ? "bg-amber-400 animate-pulse" // procesando
+        const statusIndicatorClass = isDeleting
+          ? "bg-slate-400 animate-pulse"
+          : isSaving
+          ? "bg-amber-400 animate-pulse"
           : isJustSaved
-            ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]" // guardado OK
+            ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"
             : isDirty
-              ? "bg-amber-300" // modificado pero aún no guardado
+              ? "bg-amber-300"
               : isTemp
                 ? "bg-slate-300"
                 : "bg-emerald-400 opacity-90";
 
         const rowBgClass = isSelected
           ? "bg-indigo-50"
+          : isDeleting
+            ? "bg-slate-200/90"
           : isSaving
-            ? "bg-amber-50" // procesando
+            ? "bg-amber-50"
             : isJustSaved
-              ? "bg-emerald-100" // guardado OK
+              ? "bg-emerald-100"
               : isDirty
-                ? "bg-amber-50/60" // editado localmente
+                ? "bg-amber-50/60"
                 : isTemp
                   ? "bg-slate-50/80 grayscale opacity-60 italic"
                   : "hover:bg-indigo-50/30";
 
+                const fimbaTintStyle =
+                  fimbaMode &&
+                  !isSelected &&
+                  !isDeleting &&
+                  !isSaving &&
+                  !isJustSaved &&
+                  !isDirty &&
+                  !isTemp
+                    ? fimbaMealRowTintStyle(row.servicio)
+                    : undefined;
+
                 return (
-                  <tr key={row.id} className={`${rowBgClass} group transition-all duration-700 ease-in-out`}>
+                  <tr
+                    key={row.id}
+                    className={`${rowBgClass} group transition-all duration-700 ease-in-out`}
+                    style={fimbaTintStyle}
+                  >
                     <td className={`w-1 p-0 transition-all duration-300 ${statusIndicatorClass}`} title={isDirty ? "Pendiente de guardado" : "Sincronizado"}></td>
                     <td className="px-2 py-1 text-center">
                       <input type="checkbox" checked={isSelected} onChange={() => { const n = new Set(selectedRows); n.has(row.id) ? n.delete(row.id) : n.add(row.id); setSelectedRows(n); }} className="rounded text-indigo-600 focus:ring-0" />
                     </td>
-                    <td className="px-3 py-3 font-bold border-r border-slate-200 text-slate-700">{format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}</td>
+                    <td className="px-3 py-3 font-bold border-r border-slate-200 text-slate-700">
+                      <span>{format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}</span>
+                    </td>
                     <td className="px-2 py-1">
                       <div className="flex flex-col gap-1 min-w-[10rem]">
                         <div className="flex items-center gap-1">
@@ -2290,7 +3292,7 @@ export default function MealsManager({
                             disabled={isSaving}
                             onChange={(e) =>
                               handleGridChange(
-                                idx,
+                                row.id,
                                 "id_tipo_evento",
                                 e.target.value,
                               )
@@ -2301,12 +3303,24 @@ export default function MealsManager({
                             title="Tipo de evento real (agrupa por primera palabra en D/A/M/C)"
                           >
                             {(mealTypes.length
-                              ? mealTypes.filter(
-                                  (t) =>
-                                    !t.servicio ||
-                                    t.servicio === row.servicio ||
-                                    Number(t.id) === Number(row.id_tipo_evento),
-                                )
+                              ? mealTypes.filter((t) => {
+                                  const rowIsCatering =
+                                    row.servicio === CATERING_SERVICE ||
+                                    isCateringEvent(row);
+                                  if (rowIsCatering) {
+                                    return (
+                                      t.is_catering ||
+                                      t.servicio === CATERING_SERVICE ||
+                                      Number(t.id) === Number(row.id_tipo_evento)
+                                    );
+                                  }
+                                  return (
+                                    (!t.is_catering &&
+                                      (!t.servicio ||
+                                        t.servicio === row.servicio)) ||
+                                    Number(t.id) === Number(row.id_tipo_evento)
+                                  );
+                                })
                               : []
                             ).map((t) => (
                               <option key={t.id} value={t.id}>
@@ -2337,10 +3351,17 @@ export default function MealsManager({
                       </div>
                     </td>
                     <td className="px-1">
-                      <TimeInput value={row.hora_inicio || ""} onChange={(v) => handleGridChange(idx, "hora_inicio", v)} disabled={isSaving} isDirty={isDirty} />
+                      <TimeInput value={row.hora_inicio || ""} onChange={(v) => handleGridChange(row.id, "hora_inicio", v)} disabled={isSaving} isDirty={isDirty} />
                     </td>
-                    <td className="px-1 relative">
-                      <GridLocationSelect value={row.id_locacion || ""} onChange={(v) => handleGridChange(idx, "id_locacion", v)} options={catalogs.locaciones} disabled={isSaving} isDirty={isDirty} />
+                    <td className={`px-1 ${fimbaMode ? "w-28 max-w-[7.5rem]" : ""} relative`}>
+                      <GridLocationSelect
+                        value={row.id_locacion || ""}
+                        onChange={(v) => handleGridChange(row.id, "id_locacion", v)}
+                        options={catalogs.locaciones}
+                        disabled={isSaving}
+                        isDirty={isDirty}
+                        compact={fimbaMode}
+                      />
                     </td>
                     <td className="px-1">
                       <div
@@ -2348,8 +3369,8 @@ export default function MealsManager({
                         contentEditable={!isSaving}
                         suppressContentEditableWarning
                         onFocus={(e) => handleDescFocus(e, row)}
-                        onBlur={() => handleDescBlur(row, idx)}
-                        onKeyDown={(e) => handleDescKeyDown(e, row, idx)}
+                        onBlur={() => handleDescBlur(row)}
+                        onKeyDown={(e) => handleDescKeyDown(e, row)}
                         onPaste={handleDescPaste}
                         dangerouslySetInnerHTML={{ __html: row.descripcion || "" }}
                         className={`w-full text-xs border rounded p-1 outline-none transition-all min-h-[28px] ${
@@ -2361,7 +3382,7 @@ export default function MealsManager({
                       />
                     </td>
                     <td className="px-1 w-28 max-w-28">
-                      <MultiGroupSelect value={row.convocados} onChange={(v) => handleGridChange(idx, "convocados", v)} catalogs={catalogs} disabled={isSaving} isDirty={isDirty} showAlert={!isTemp && (!row.convocados || row.convocados.length === 0)} compact />
+                      <MultiGroupSelect value={row.convocados} onChange={(v) => handleGridChange(row.id, "convocados", v)} catalogs={catalogs} disabled={isSaving} isDirty={isDirty} showAlert={mealRowNeedsConvocadosAlert(row)} compact />
                     </td>
                     {hasGiraGrupos && (
                       <td className="px-1 w-36 max-w-36">
@@ -2374,37 +3395,196 @@ export default function MealsManager({
                           options={giraGrupoOptions}
                           value={(row.selectedGrupos || []).map(Number)}
                           onChange={(arr) =>
-                            handleGridChange(idx, "selectedGrupos", arr.map(Number))
+                            handleGridChange(row.id, "selectedGrupos", arr.map(Number))
                           }
                           className={`w-full ${isDirty ? "[&_button]:border-amber-300" : ""}`}
                         />
                       </td>
                     )}
-                    <td className="px-3 text-center">
-                      <button
-                        type="button"
-                        disabled={eligible.length === 0}
-                        onClick={() =>
-                          eligible.length > 0 && setComensalesDetailRow(row)
-                        }
-                        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-black transition-all ${
-                          eligible.length > 0
-                            ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                            : "bg-slate-100 text-slate-400 cursor-default"
-                        }`}
-                        title={
-                          eligible.length > 0
-                            ? "Ver comensales"
-                            : "Sin comensales"
-                        }
+                    {hasAnyFimbaTags && (
+                      <td
+                        className="px-1 w-40 max-w-44"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <IconUsers size={12} /> {eligible.length}
-                      </button>
+                        {row.isTemp ? (
+                          <span className="text-[10px] text-slate-400 italic">
+                            Guardá para etiquetar
+                          </span>
+                        ) : fimbaMode ? (
+                          <FimbaEventArtistasTagsCell
+                            ev={row}
+                            canEdit={!readOnly}
+                            propuestas={propuestas}
+                            giraGrupos={giraGrupos}
+                            edicion={edicion}
+                            onSaved={async (eventoId, tags) => {
+                              const idGrupos = (tags?.id_grupos || [])
+                                .map(Number)
+                                .filter(Number.isFinite);
+                              const propIdSet = new Set(
+                                (tags?.id_propuestas || []).map(Number),
+                              );
+                              const fromCatalog = (propuestas || []).filter(
+                                (p) => propIdSet.has(Number(p.id)),
+                              );
+                              let nextPropuestas = [];
+                              setGrid((prev) => {
+                                const oldIdx = prev.findIndex(
+                                  (r) => String(r.id) === String(eventoId),
+                                );
+                                if (oldIdx < 0) return prev;
+                                const prevRow = prev[oldIdx];
+                                const keptLocal = (prevRow.propuestas || []).filter(
+                                  (p) => propIdSet.has(Number(p.id)),
+                                );
+                                const byId = new Map();
+                                for (const p of [...keptLocal, ...fromCatalog]) {
+                                  if (p?.id != null) byId.set(Number(p.id), p);
+                                }
+                                nextPropuestas = Array.from(byId.values());
+                                const label =
+                                  prevRow.tipo_nombre ||
+                                  serviceLabelOf(
+                                    prevRow.servicio,
+                                    prevRow.servicio_detalle,
+                                  ) ||
+                                  prevRow.servicio;
+                                const descripcion =
+                                  mergeMealDescriptionWithConvocados(
+                                    prevRow.descripcion,
+                                    label,
+                                    prevRow.convocados,
+                                    catalogs,
+                                    prevRow.convocados,
+                                    nextPropuestas,
+                                  );
+                                const patched = {
+                                  ...prevRow,
+                                  selectedGrupos: idGrupos,
+                                  eventos_grupos: buildEventosGruposEmbed(
+                                    idGrupos,
+                                    giraGrupos,
+                                  ),
+                                  propuestas: nextPropuestas,
+                                  descripcion,
+                                  audiencia_ofrn:
+                                    tags?.audiencia_ofrn ?? prevRow.audiencia_ofrn,
+                                  dirty: false,
+                                };
+                                const next = prev.map((r, i) =>
+                                  i === oldIdx ? patched : r,
+                                );
+                                return rematerializeTurnoSiblings(
+                                  next,
+                                  oldIdx,
+                                  prevRow,
+                                  patched,
+                                );
+                              });
+                              // Persistir título con siglas (tags ya guardados por el picker).
+                              if (eventoId != null && nextPropuestas) {
+                                const live = grid.find(
+                                  (r) => String(r.id) === String(eventoId),
+                                );
+                                // Prefer description just computed via setState — refetch from nextPropuestas
+                                const label =
+                                  live?.tipo_nombre ||
+                                  serviceLabelOf(
+                                    live?.servicio,
+                                    live?.servicio_detalle,
+                                  ) ||
+                                  live?.servicio;
+                                const descripcion =
+                                  mergeMealDescriptionWithConvocados(
+                                    live?.descripcion || "",
+                                    label,
+                                    live?.convocados || [],
+                                    catalogs,
+                                    live?.convocados || [],
+                                    nextPropuestas,
+                                  );
+                                supabase
+                                  .from("eventos")
+                                  .update({ descripcion })
+                                  .eq("id", eventoId)
+                                  .then(({ error }) => {
+                                    if (error) {
+                                      console.error(error);
+                                      toast.error(
+                                        "Artistas guardados; no se pudo actualizar el nombre",
+                                      );
+                                    }
+                                  });
+                              }
+                              onFimbaTagsSaved?.(eventoId);
+                            }}
+                          />
+                        ) : (row.propuestas || []).length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {(row.propuestas || []).map((p) => (
+                              <span
+                                key={p.id}
+                                className="text-[10px] font-bold px-1.5 py-0.5 rounded border truncate max-w-[9rem]"
+                                style={{
+                                  background: `${p.color || "#a21caf"}22`,
+                                  borderColor: `${p.color || "#a21caf"}55`,
+                                  color: "#701a75",
+                                }}
+                                title={`${p.nombre} · ${Math.max(0, Number(p.cantidad_planificada) || 0)} pax`}
+                              >
+                                {p.nombre}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-300">—</span>
+                        )}
+                      </td>
+                    )}
+                    <td className="px-3 text-center">
+                      <div className="inline-flex items-center gap-1">
+                        {hasTurnoOver && (
+                          <button
+                            type="button"
+                            onClick={() => setOverInclusionOpen(true)}
+                            className="p-0.5 rounded text-amber-600 hover:bg-amber-50"
+                            title="Integrante o artista en más de una comida del mismo turno"
+                          >
+                            <IconAlertTriangle size={14} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          disabled={!comensalesHasPeople}
+                          onClick={() =>
+                            comensalesHasPeople && setComensalesDetailRow(row)
+                          }
+                          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-black transition-all ${
+                            comensalesHasPeople
+                              ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                              : "bg-slate-100 text-slate-400 cursor-default"
+                          }`}
+                          title={
+                            comensalesHasPeople
+                              ? deductedCount > 0
+                                ? `Ver comensales (−${deductedCount} en grupo coincidente)`
+                                : "Ver comensales"
+                              : "Sin comensales"
+                          }
+                        >
+                          <IconUsers size={12} /> {comensalesLabel}
+                          {deductedCount > 0 && (
+                            <span className="text-[9px] font-bold text-amber-700">
+                              −{deductedCount}
+                            </span>
+                          )}
+                        </button>
+                      </div>
                     </td>
                     <td className="px-3 text-center">
-                      <button onClick={() => handleGridChange(idx, "tecnica", !row.tecnica)} className={`transition-colors p-1 rounded-full hover:bg-slate-100 ${row.tecnica ? "text-indigo-600 bg-indigo-50" : "text-slate-300"}`}>{row.tecnica ? <IconEyeOff size={18} /> : <IconEye size={18} />}</button>
+                      <button onClick={() => handleGridChange(row.id, "tecnica", !row.tecnica)} className={`transition-colors p-1 rounded-full hover:bg-slate-100 ${row.tecnica ? "text-indigo-600 bg-indigo-50" : "text-slate-300"}`}>{row.tecnica ? <IconEyeOff size={18} /> : <IconEye size={18} />}</button>
                     </td>
-                    <td className="px-2 text-center sticky right-0 bg-white shadow-[-4px_0_10_px_-4px_rgba(0,0,0,0.1)] group-hover:bg-slate-50">{isSaving ? <IconLoader className="animate-spin text-indigo-500 mx-auto" size={14} /> : (
+                    <td className={`px-2 text-center sticky right-0 shadow-[-4px_0_10_px_-4px_rgba(0,0,0,0.1)] ${isDeleting ? "bg-slate-200/90" : "bg-white group-hover:bg-slate-50"}`}>{isDeleting || isSaving ? <IconLoader className={`animate-spin mx-auto ${isDeleting ? "text-slate-500" : "text-indigo-500"}`} size={14} /> : (
                       <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                         <button
                           type="button"
@@ -2432,14 +3612,46 @@ export default function MealsManager({
                 No hay comidas en este tramo con los filtros actuales.
               </div>
             )}
-            {visibleGrid.map((row) => {
-              const eligible = getEligiblePeople(row);
+            {gridRenderItems.map((item) => {
+              if (item.type === "day-divider") {
+                return (
+                  <div
+                    key={item.key}
+                    className="fimba-day-divider-inner rounded border border-amber-300/40 bg-amber-50/80 py-1.5 my-1"
+                  >
+                    <span className="fimba-day-divider-label block text-center">
+                      {formatFechaLargaEs(item.fecha)}
+                    </span>
+                  </div>
+                );
+              }
+
+              const row = item.row;
+              const breakdown = getEligibleBreakdown(row);
+              const eligible = breakdown.people;
+              const deductedCount = breakdown.deductedCount || 0;
+              const artistPax = fimbaArtistMealPax(row.propuestas || []);
+              const comensalesLabel = formatComensalesBadgeLabel(
+                eligible.length,
+                artistPax,
+              );
+              const comensalesHasPeople = eligible.length > 0 || artistPax > 0;
+              const hasTurnoOver = rowHasTurnoOverInclusion(row);
               const isDirty = row.dirty;
               const tone = getMealServiceStyle(row.servicio);
+              const artistNames = (row.propuestas || [])
+                .map((p) => p.nombre)
+                .filter(Boolean)
+                .join(", ");
+              const fimbaTintStyle =
+                fimbaMode && !isDirty
+                  ? fimbaMealRowTintStyle(row.servicio)
+                  : undefined;
 
               return (
                 <div
                   key={`mobile-${row.id}`}
+                  style={fimbaTintStyle}
                   className={`border rounded-md px-2 py-1.5 text-[11px] leading-tight ${
                     isDirty ? "border-amber-300 bg-amber-50/50" : tone.card
                   }`}
@@ -2450,6 +3662,13 @@ export default function MealsManager({
                       <span className="text-slate-400 font-normal">
                         {row.hora_inicio || "-"}
                       </span>
+                      {hasTurnoOver && (
+                        <IconAlertTriangle
+                          size={12}
+                          className="text-amber-600 shrink-0"
+                          title="Mismo turno en varias comidas"
+                        />
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5">
                       <span
@@ -2498,17 +3717,29 @@ export default function MealsManager({
                             .map((id) => getGroupLabelShort(id, catalogs))
                             .join(", ")
                         : "-"}
+                      {artistNames ? (
+                        <span className="text-fuchsia-700">
+                          {" "}
+                          · FIMBA: {artistNames}
+                        </span>
+                      ) : null}
                     </div>
                     <button
                       type="button"
                       onClick={() =>
-                        eligible.length > 0 && setComensalesDetailRow(row)
+                        comensalesHasPeople && setComensalesDetailRow(row)
                       }
-                      disabled={eligible.length === 0}
+                      disabled={!comensalesHasPeople}
                       className="shrink-0 text-[10px] px-2 py-1 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold disabled:opacity-50"
+                      title={
+                        deductedCount > 0
+                          ? `−${deductedCount} en grupo coincidente`
+                          : undefined
+                      }
                     >
                       <IconUsers size={11} className="inline mr-1" />
-                      {eligible.length}
+                      {comensalesLabel}
+                      {deductedCount > 0 ? ` −${deductedCount}` : ""}
                     </button>
                   </div>
 
@@ -2519,10 +3750,23 @@ export default function MealsManager({
         </div>
       </div>
 
-      {comensalesDetailRow && (
+      {overInclusionOpen && (
+        <MealTurnoOverInclusionModal
+          overInclusions={turnoOverInclusions}
+          gridById={gridById}
+          onClose={() => setOverInclusionOpen(false)}
+        />
+      )}
+
+      {liveComensalesDetailRow && (
         <ComensalesDetailModal
-          row={comensalesDetailRow}
-          people={getEligiblePeople(comensalesDetailRow)}
+          row={liveComensalesDetailRow}
+          people={getEligibleBreakdown(liveComensalesDetailRow).people}
+          deducted={getEligibleBreakdown(liveComensalesDetailRow).deducted}
+          artistTags={(liveComensalesDetailRow.propuestas || []).filter(
+            (p) => p && p.requiere_comidas !== false,
+          )}
+          artistPax={fimbaArtistMealPax(liveComensalesDetailRow.propuestas || [])}
           catalogs={catalogs}
           onClose={() => setComensalesDetailRow(null)}
         />
@@ -2540,15 +3784,28 @@ export default function MealsManager({
               setMobileEditingRow(null);
               return;
             }
+            const prevRow = grid[idx];
             const normalizedDraft = {
               ...draft,
               hora_inicio: normalizeTimeHHMM(draft.hora_inicio),
               hora_fin: normalizeTimeHHMM(draft.hora_fin),
             };
-            const updated = { ...grid[idx], ...normalizedDraft, dirty: true };
-            setGrid((prev) =>
-              prev.map((r) => (r.id === updated.id ? updated : r)),
-            );
+            const updated = { ...prevRow, ...normalizedDraft, dirty: true };
+            setGrid((prev) => {
+              const next = prev.map((r) =>
+                r.id === updated.id ? updated : r,
+              );
+              const editedIdx = next.findIndex((r) => r.id === updated.id);
+              if (editedIdx < 0) return next;
+              return sortMealManagerGrid(
+                rematerializeTurnoSiblings(
+                  next,
+                  editedIdx,
+                  prevRow,
+                  updated,
+                ),
+              );
+            });
             if (updated.hora_inicio && updated.fecha) {
               saveRow(updated);
             }

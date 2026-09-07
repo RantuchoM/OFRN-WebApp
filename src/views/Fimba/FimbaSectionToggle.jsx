@@ -5,6 +5,7 @@ import {
   IconCalendar,
   IconBus,
   IconBed,
+  IconUtensils,
   IconFileText,
   IconClipboardCheck,
   IconUsers,
@@ -20,7 +21,7 @@ import {
 import { useFimbaSheetLeaveGuard } from "./FimbaSheetLeaveGuardContext";
 
 /**
- * Segment order: Artistas | Agenda | Transportes | Hotelería | Venues | Backline | Rider | Contrataciones | Usuarios.
+ * Segment order: Artistas | Agenda | Transportes | Hotelería | Comidas | Venues | Backline | Rider | Contrataciones | Usuarios.
  * All tabs navigate to edición-level routes (never keep /artista/:id).
  * Consulta RO: oculta Contrataciones y Usuarios. Token `/c`: también oculta Rider.
  * Token `/c/.../agenda` (`agendaOnly`): oculta todo el toggle (solo agenda).
@@ -42,6 +43,12 @@ const SECTIONS = [
     label: "Hotelería",
     Icon: IconBed,
     segment: "hoteleria",
+  },
+  {
+    key: "comidas",
+    label: "Comidas",
+    Icon: IconUtensils,
+    segment: "comidas",
   },
   {
     key: "venues",
@@ -79,7 +86,7 @@ const SECTIONS = [
 ];
 
 /**
- * Segmented control: Artistas | Agenda | Transportes | Hotelería | Venues | Backline | Rider | Contrataciones | Usuarios.
+ * Segmented control: Artistas | Agenda | Transportes | Hotelería | Comidas | Venues | Backline | Rider | Contrataciones | Usuarios.
  * Always targets `/fimba/edicion/:edicionId/...` — never appends `/artista/:id`.
  */
 export default function FimbaSectionToggle({

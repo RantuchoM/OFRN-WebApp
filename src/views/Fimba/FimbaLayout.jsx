@@ -24,6 +24,8 @@ const FIMBA_CSS = `
   .fimba-root,
   .fimba-modal-backdrop {
     --fimba-accent: #d73289;
+    /* Alias used by Tailwind bg-[var(--fimba-magenta)] chips/buttons (MealsReport, etc.) */
+    --fimba-magenta: #d73289;
     --fimba-deep: #94216D;
     --fimba-cyan: #00b1eb;
     --fimba-cyan-2: #2AC4EA;

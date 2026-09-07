@@ -542,10 +542,10 @@ CREATE TABLE public.giras_logistica_reglas (
   id_evento_comida_fin integer,
   CONSTRAINT giras_logistica_reglas_pkey PRIMARY KEY (id),
   CONSTRAINT giras_logistica_reglas_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
-  CONSTRAINT giras_logistica_reglas_id_evento_checkin_fkey FOREIGN KEY (id_evento_checkin) REFERENCES public.eventos(id),
-  CONSTRAINT giras_logistica_reglas_id_evento_checkout_fkey FOREIGN KEY (id_evento_checkout) REFERENCES public.eventos(id),
-  CONSTRAINT giras_logistica_reglas_id_evento_comida_inicio_fkey FOREIGN KEY (id_evento_comida_inicio) REFERENCES public.eventos(id),
-  CONSTRAINT giras_logistica_reglas_id_evento_comida_fin_fkey FOREIGN KEY (id_evento_comida_fin) REFERENCES public.eventos(id)
+  CONSTRAINT giras_logistica_reglas_id_evento_checkin_fkey FOREIGN KEY (id_evento_checkin) REFERENCES public.eventos(id) ON DELETE SET NULL,
+  CONSTRAINT giras_logistica_reglas_id_evento_checkout_fkey FOREIGN KEY (id_evento_checkout) REFERENCES public.eventos(id) ON DELETE SET NULL,
+  CONSTRAINT giras_logistica_reglas_id_evento_comida_inicio_fkey FOREIGN KEY (id_evento_comida_inicio) REFERENCES public.eventos(id) ON DELETE SET NULL,
+  CONSTRAINT giras_logistica_reglas_id_evento_comida_fin_fkey FOREIGN KEY (id_evento_comida_fin) REFERENCES public.eventos(id) ON DELETE SET NULL
 );
 CREATE TABLE public.giras_logistica_reglas_backup_2026_01_21 (
   id bigint,
@@ -589,8 +589,8 @@ CREATE TABLE public.giras_logistica_reglas_transportes (
   solo_logistica boolean DEFAULT false,
   CONSTRAINT giras_logistica_reglas_transportes_pkey PRIMARY KEY (id),
   CONSTRAINT giras_logistica_reglas_transportes_id_gira_transporte_fkey FOREIGN KEY (id_gira_transporte) REFERENCES public.giras_transportes(id),
-  CONSTRAINT giras_logistica_reglas_transportes_id_evento_subida_fkey FOREIGN KEY (id_evento_subida) REFERENCES public.eventos(id),
-  CONSTRAINT giras_logistica_reglas_transportes_id_evento_bajada_fkey FOREIGN KEY (id_evento_bajada) REFERENCES public.eventos(id),
+  CONSTRAINT giras_logistica_reglas_transportes_id_evento_subida_fkey FOREIGN KEY (id_evento_subida) REFERENCES public.eventos(id) ON DELETE SET NULL,
+  CONSTRAINT giras_logistica_reglas_transportes_id_evento_bajada_fkey FOREIGN KEY (id_evento_bajada) REFERENCES public.eventos(id) ON DELETE SET NULL,
   CONSTRAINT giras_logistica_reglas_transportes_id_integrante_fkey FOREIGN KEY (id_integrante) REFERENCES public.integrantes(id),
   CONSTRAINT giras_logistica_reglas_transportes_id_region_fkey FOREIGN KEY (id_region) REFERENCES public.regiones(id),
   CONSTRAINT giras_logistica_reglas_transportes_id_localidad_fkey FOREIGN KEY (id_localidad) REFERENCES public.localidades(id)

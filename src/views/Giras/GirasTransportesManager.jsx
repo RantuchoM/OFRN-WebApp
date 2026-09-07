@@ -3954,6 +3954,7 @@ export default function GirasTransportesManager({
           localities={localitiesList}
           supabase={supabase}
           giraId={giraId}
+          giraGrupos={giraGrupos}
           onUpdate={refresh}
         />
       )}

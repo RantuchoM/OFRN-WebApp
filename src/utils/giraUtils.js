@@ -123,8 +123,12 @@ export const resolvePersonTerritoryIds = (person, rule, allLocalities = []) => {
 
 /* --- ÚNICA FUENTE DE VERDAD: CATEGORÍAS Y ROLES (GRP) --- */
 
-/** Categorías estándar para convocatoria y roster. No inventar nuevos. */
+/**
+ * Categorías estándar para convocatoria y roster.
+ * `NONE` = nadie de orquesta OFRN (exclusivo, como Tutti); pax FIMBA aparte.
+ */
 export const ROSTER_CATEGORIES = {
+  NONE: "GRP:NONE",
   TUTTI: "GRP:TUTTI",
   SOLISTAS: "GRP:SOLISTAS",
   DIRECTORES: "GRP:DIRECTORES",
@@ -133,6 +137,11 @@ export const ROSTER_CATEGORIES = {
   LOCALES: "GRP:LOCALES",
   NO_LOCALES: "GRP:NO_LOCALES",
 };
+
+/** ¿Convocados OFRN = «nadie come» (sentinel exclusivo)? */
+export const isNobodyConvocados = (convocadosList) =>
+  Array.isArray(convocadosList) &&
+  convocadosList.some((tag) => String(tag) === ROSTER_CATEGORIES.NONE);
 
 /** Roles de la tabla `roles` que pertenecen al grupo Producción (convocatoria GRP:PRODUCCION). */
 export const ROLES_PRODUCCION = [
@@ -431,6 +440,8 @@ function personIsLocalForConvocado(person, opts) {
 export const isUserConvoked = (convocadosList, person, opts = {}) => {
   if (!convocadosList || convocadosList.length === 0) return false;
   if (!person) return false;
+  // Sentinel «nadie»: ningún integrante OFRN (artistas FIMBA se cuentan aparte).
+  if (isNobodyConvocados(convocadosList)) return false;
 
   // Bebé en cuna (rooming): no consume → nunca convocado a comidas / eventos por tags.
   if (person.en_cuna === true || person.ocupa_cama === false) return false;

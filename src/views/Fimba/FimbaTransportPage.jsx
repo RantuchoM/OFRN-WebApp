@@ -30,6 +30,7 @@ import {
   IconAlertTriangle,
   IconExternalLink,
   IconMoreVertical,
+  IconRepeat,
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
@@ -82,12 +83,14 @@ import {
   isVehiclePauseBetweenStops,
   listOffTrayectoRideEndpoints,
   previousAssignedStopInVehicleSequence,
+  nextAssignedStopInVehicleSequence,
   resolveStopBoardAlightChips,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
   TRANSPORT_DESTINO_SIN_LOCACION,
 } from "../../utils/fimbaTransportBoarding";
 import {
   buildDestinoStopSchedule,
+  buildMovimientosIntermediosDefaults,
   createDestinoStopEvent,
   inheritStopTagsFromEvent,
   offsetEventDateTime,
@@ -192,16 +195,19 @@ function SyncDot({ status, error, sticky = false }) {
   );
 }
 
-const PLANILLA_ROW_MENU_WIDTH = 180;
-const PLANILLA_ROW_MENU_EST_HEIGHT = 140;
+const PLANILLA_ROW_MENU_WIDTH = 260;
+const PLANILLA_ROW_MENU_EST_HEIGHT = 190;
 
-/** Kebab ⋮ → Editar / Duplicar / Eliminar (portal z-110). Confirm ✓/X stays outside. */
+/** Kebab ⋮ → Editar / Duplicar / Movimientos / Eliminar (portal z-110). Confirm ✓/X stays outside. */
 function PlanillaRowActionsMenu({
   canDuplicate = true,
+  canMovimientos = false,
+  movimientosDisabledReason = null,
   deleting = false,
   disabled = false,
   onEdit,
   onDuplicate,
+  onMovimientos,
   onDelete,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -338,6 +344,26 @@ function PlanillaRowActionsMenu({
               >
                 <IconCopy size={14} className="shrink-0" />
                 Duplicar
+              </button>
+            ) : null}
+            {canMovimientos ? (
+              <button
+                type="button"
+                role="menuitem"
+                style={{
+                  ...itemStyle,
+                  opacity: movimientosDisabledReason ? 0.45 : 1,
+                  cursor: movimientosDisabledReason ? "not-allowed" : "pointer",
+                }}
+                title={movimientosDisabledReason || undefined}
+                disabled={Boolean(movimientosDisabledReason)}
+                onClick={() => {
+                  if (movimientosDisabledReason) return;
+                  run(onMovimientos);
+                }}
+              >
+                <IconRepeat size={14} className="shrink-0" />
+                Crear movimientos intermedios
               </button>
             ) : null}
             <div
@@ -2084,9 +2110,40 @@ export default function FimbaTransportPage() {
       fallbackPropuestaId: filtroArtista,
     });
     setRecorridoModal({
+      variant: "pause",
       prevEv,
       nextEv: nextEv || null,
       vehicleId: Number(vehicleId),
+      ...tags,
+    });
+  };
+
+  /**
+   * Kebab «Crear movimientos intermedios»: ida desde locación anterior
+   * (−30′) + retorno (+30′ tras fin), reutiliza FimbaRecorridoIntermedioModal.
+   */
+  const openMovimientosIntermedios = ({
+    anchorEv,
+    prevEv,
+    nextEv,
+    vehicleId,
+    horaFinHint,
+    horaFinFecha,
+    warnIntervening = false,
+  }) => {
+    if (readOnly || !anchorEv?.id || vehicleId == null || vehicleId === "") return;
+    const tags = inheritStopTagsFromEvent(anchorEv, {
+      fallbackPropuestaId: filtroArtista,
+    });
+    setRecorridoModal({
+      variant: "aroundEvent",
+      anchorEv,
+      prevEv: prevEv || null,
+      nextEv: nextEv || null,
+      vehicleId: Number(vehicleId),
+      horaFinHint: horaFinHint || null,
+      horaFinFecha: horaFinFecha || null,
+      warnIntervening: Boolean(warnIntervening),
       ...tags,
     });
   };
@@ -4130,6 +4187,76 @@ export default function FimbaTransportPage() {
                           vid,
                         );
                       })();
+                    const prevStopForVehicle = (() => {
+                      if (isContext) return null;
+                      const vid = Number(primaryVehicleId);
+                      if (!Number.isFinite(vid)) return null;
+                      const seq = sequencesByVehicle.get(vid);
+                      return previousAssignedStopInVehicleSequence(
+                        seq,
+                        ev.id,
+                        vid,
+                      );
+                    })();
+                    const nextStopForVehicle = (() => {
+                      if (isContext) return null;
+                      const vid = Number(primaryVehicleId);
+                      if (!Number.isFinite(vid)) return null;
+                      const seq = sequencesByVehicle.get(vid);
+                      return nextAssignedStopInVehicleSequence(
+                        seq,
+                        ev.id,
+                        vid,
+                      );
+                    })();
+                    const movimientosDefaults = !isContext
+                      ? buildMovimientosIntermediosDefaults(
+                          ev,
+                          prevStopForVehicle,
+                          {
+                            horaFinHint:
+                              metrics?.hora_fin_display?.value || null,
+                            horaFinFecha: nextStopForVehicle?.fecha
+                              ? String(nextStopForVehicle.fecha).slice(0, 10)
+                              : null,
+                          },
+                        )
+                      : { ok: false, reason: "no_prev" };
+                    const movimientosDisabledReason = (() => {
+                      if (!movimientosDefaults || movimientosDefaults.ok) {
+                        return null;
+                      }
+                      const map = {
+                        no_prev:
+                          "Sin parada anterior en este vehículo",
+                        no_prev_loc:
+                          "La parada anterior no tiene locación",
+                        no_anchor_loc:
+                          "Este evento no tiene locación de catálogo",
+                        same_loc:
+                          "Misma locación que la anterior (usá recorrido intermedio en la pausa)",
+                      };
+                      return (
+                        map[movimientosDefaults.reason] ||
+                        "No se pueden crear movimientos"
+                      );
+                    })();
+                    const warnInterveningMovimientos = (() => {
+                      if (!prevStopForVehicle?.id || !primaryVehicleId) {
+                        return false;
+                      }
+                      const vid = Number(primaryVehicleId);
+                      const seq = sequencesByVehicle.get(vid);
+                      const immediateNext = nextAssignedStopInVehicleSequence(
+                        seq,
+                        prevStopForVehicle.id,
+                        vid,
+                      );
+                      return (
+                        immediateNext != null &&
+                        String(immediateNext.id) !== String(ev.id)
+                      );
+                    })();
                     const pauseBeforeRow =
                       showVehiclePauses &&
                       Boolean(pausePrevEv) &&
@@ -5101,6 +5228,14 @@ export default function FimbaTransportPage() {
                           ) : !readOnly ? (
                             <PlanillaRowActionsMenu
                               canDuplicate={!isContext}
+                              canMovimientos={
+                                !isContext &&
+                                primaryVehicleId != null &&
+                                primaryVehicleId !== ""
+                              }
+                              movimientosDisabledReason={
+                                movimientosDisabledReason
+                              }
                               deleting={isDeletingRow}
                               disabled={
                                 deletingEventId != null ||
@@ -5114,6 +5249,26 @@ export default function FimbaTransportPage() {
                                 })
                               }
                               onDuplicate={() => handleDuplicate(ev)}
+                              onMovimientos={() =>
+                                openMovimientosIntermedios({
+                                  anchorEv: ev,
+                                  prevEv: prevStopForVehicle,
+                                  nextEv:
+                                    nextStopForVehicle ||
+                                    metrics?.next_event_raw ||
+                                    null,
+                                  vehicleId: primaryVehicleId,
+                                  horaFinHint:
+                                    metrics?.hora_fin_display?.value || null,
+                                  horaFinFecha: nextStopForVehicle?.fecha
+                                    ? String(nextStopForVehicle.fecha).slice(
+                                        0,
+                                        10,
+                                      )
+                                    : null,
+                                  warnIntervening: warnInterveningMovimientos,
+                                })
+                              }
                               onDelete={() => handleDelete(ev)}
                             />
                           ) : null}

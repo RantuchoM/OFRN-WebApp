@@ -9,6 +9,7 @@ import FimbaArtistaPage from "./FimbaArtistaPage";
 import FimbaTransportPage from "./FimbaTransportPage";
 import FimbaAgendaPage from "./FimbaAgendaPage";
 import FimbaHoteleriaPage from "./FimbaHoteleriaPage";
+import FimbaComidasPage from "./FimbaComidasPage";
 import FimbaUsuariosPage from "./FimbaUsuariosPage";
 import FimbaContratacionesPage from "./FimbaContratacionesPage";
 import FimbaRiderPage from "./FimbaRiderPage";
@@ -43,12 +44,13 @@ export default function FimbaStaffApp() {
           />
           <Route element={<FimbaLayout mode="staff" />}>
             <Route index element={<FimbaHome />} />
-            {/* Segmentos: Artistas | agenda | transportes | hoteleria | venues | backline | rider | contrataciones | usuarios */}
+            {/* Segmentos: Artistas | agenda | transportes | hoteleria | comidas | venues | backline | rider | contrataciones | usuarios */}
             <Route path="edicion/:edicionId" element={<FimbaPathShell />}>
               <Route index element={<FimbaEdicionPage />} />
               <Route path="agenda" element={<FimbaAgendaPage />} />
               <Route path="transportes" element={<FimbaTransportPage />} />
               <Route path="hoteleria" element={<FimbaHoteleriaPage />} />
+              <Route path="comidas" element={<FimbaComidasPage />} />
               <Route path="venues" element={<FimbaVenuesPage />} />
               <Route path="espacios" element={<Navigate to="../venues" replace />} />
               <Route path="backline" element={<FimbaBacklinePage />} />
@@ -60,6 +62,7 @@ export default function FimbaStaffApp() {
                 <Route path="agenda" element={<FimbaAgendaPage />} />
                 <Route path="transportes" element={<FimbaTransportPage />} />
                 <Route path="hoteleria" element={<FimbaHoteleriaPage />} />
+                <Route path="comidas" element={<FimbaComidasPage />} />
               </Route>
             </Route>
             {/* Sin redirect a /fimba: un 404 no debe parecer «home ediciones». */}

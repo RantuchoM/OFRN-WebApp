@@ -12,12 +12,22 @@ import {
 import { computeFimbaCapacity } from "../../services/fimbaService";
 import { supabase } from "../../services/supabase";
 import {
+  buildMovimientosIntermediosDefaults,
+  createMovimientosIntermediosAroundEvent,
   createRecorridoIntermedioStops,
   eventLocacionId,
   normalizeBoardingPassenger,
 } from "../../utils/fimbaDestinoStopCreate";
 import { formatEventLocation } from "../../utils/fimbaTransportBoarding";
 import FimbaEventArtistasTagsPicker from "./FimbaEventArtistasTagsPicker";
+
+const MOVIMIENTOS_REASON_MSG = {
+  no_prev: "No hay parada anterior asignada a este vehículo.",
+  no_prev_loc: "La parada anterior no tiene locación de catálogo.",
+  no_anchor_loc: "Este evento no tiene locación de catálogo.",
+  same_loc:
+    "La parada anterior está en la misma locación (pausa). Usá «Crear recorrido intermedio» en el divisor de pausa.",
+};
 
 /** Headcount artista = cantidad_planificada; grupo OFRN = |integrantes|. */
 function resolvePassengerHeadcount(kind, entity) {
@@ -172,9 +182,13 @@ function BoardingCompactCell({
 }
 
 /**
- * Modal: planificar un recorrido ida-vuelta durante una pausa de vehículo.
+ * Modal compartido:
+ * - `pause` (default): recorrido ida-vuelta durante pausa (3 paradas nuevas).
+ * - `aroundEvent`: movimientos intermedios alrededor de un evento existente
+ *   (crea salida + retorno; el medio ya existe).
+ *
  * Columnas: Detalle | Locación | Fecha | Hora | Subida | Bajada
- * + tags artistas/grupos compartidos para las 3 paradas.
+ * + tags artistas/grupos compartidos.
  *
  * Boarding sugerido (flexible por fila):
  * - Ida: ↑ Salida · ↓ Llegada
@@ -191,26 +205,66 @@ export default function FimbaRecorridoIntermedioModal({
   onClose,
   onSaved,
 }) {
+  const variant =
+    context?.variant === "aroundEvent" ? "aroundEvent" : "pause";
+  const isAround = variant === "aroundEvent";
   const prevEv = context?.prevEv || null;
   const nextEv = context?.nextEv || null;
+  const anchorEv = isAround ? context?.anchorEv || null : null;
   const vehicleId = context?.vehicleId;
   const fechaSugerida =
     String(prevEv?.fecha || "").slice(0, 10) ||
-    String(nextEv?.fecha || "").slice(0, 10) ||
+    String(anchorEv?.fecha || nextEv?.fecha || "").slice(0, 10) ||
     "";
   const idLocActual = eventLocacionId(prevEv);
   const locActualLabel = formatEventLocation(prevEv) || "(Sin locación)";
+  const aroundDefaults = isAround
+    ? buildMovimientosIntermediosDefaults(anchorEv, prevEv, {
+        horaFinHint: context?.horaFinHint || null,
+        horaFinFecha: context?.horaFinFecha || null,
+      })
+    : null;
+  const aroundBlockedReason =
+    isAround && aroundDefaults && aroundDefaults.ok === false
+      ? aroundDefaults.reason
+      : null;
 
-  const [detalleSalida, setDetalleSalida] = useState("Salida");
-  const [detalleWaypoint, setDetalleWaypoint] = useState("Llegada");
-  const [detalleRetorno, setDetalleRetorno] = useState("Retorno");
-  const [fechaSalida, setFechaSalida] = useState(fechaSugerida);
-  const [fechaWaypoint, setFechaWaypoint] = useState(fechaSugerida);
-  const [fechaRetorno, setFechaRetorno] = useState(fechaSugerida);
-  const [horaSalida, setHoraSalida] = useState("");
-  const [horaWaypoint, setHoraWaypoint] = useState("");
-  const [horaRetorno, setHoraRetorno] = useState("");
-  const [idLocWaypoint, setIdLocWaypoint] = useState("");
+  const [detalleSalida, setDetalleSalida] = useState(
+    () => aroundDefaults?.detalleSalida || "Salida",
+  );
+  const [detalleWaypoint, setDetalleWaypoint] = useState(
+    () => aroundDefaults?.detalleWaypoint || "Llegada",
+  );
+  const [detalleRetorno, setDetalleRetorno] = useState(
+    () => aroundDefaults?.detalleRetorno || "Retorno",
+  );
+  const [fechaSalida, setFechaSalida] = useState(
+    () => aroundDefaults?.fechaSalida || fechaSugerida,
+  );
+  const [fechaWaypoint, setFechaWaypoint] = useState(
+    () => aroundDefaults?.fechaWaypoint || fechaSugerida,
+  );
+  const [fechaRetorno, setFechaRetorno] = useState(
+    () => aroundDefaults?.fechaRetorno || fechaSugerida,
+  );
+  const [horaSalida, setHoraSalida] = useState(
+    () => aroundDefaults?.horaSalida || "",
+  );
+  const [horaWaypoint, setHoraWaypoint] = useState(
+    () => aroundDefaults?.horaWaypoint || "",
+  );
+  const [horaRetorno, setHoraRetorno] = useState(
+    () => aroundDefaults?.horaRetorno || "",
+  );
+  const [idLocSalida, setIdLocSalida] = useState(
+    () => aroundDefaults?.idLocSalida || "",
+  );
+  const [idLocWaypoint, setIdLocWaypoint] = useState(
+    () => aroundDefaults?.idLocWaypoint || "",
+  );
+  const [idLocRetorno, setIdLocRetorno] = useState(
+    () => aroundDefaults?.idLocRetorno || "",
+  );
   const [subidaSalida, setSubidaSalida] = useState(emptyBoard);
   const [bajadaSalida, setBajadaSalida] = useState(emptyBoard);
   const [subidaWaypoint, setSubidaWaypoint] = useState(emptyBoard);
@@ -228,7 +282,13 @@ export default function FimbaRecorridoIntermedioModal({
   );
   const [tagsPickerOpen, setTagsPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(
+    () =>
+      (aroundBlockedReason && MOVIMIENTOS_REASON_MSG[aroundBlockedReason]) ||
+      (context?.warnIntervening
+        ? "Ya hay paradas entre la anterior y este evento; revisá horarios para no duplicar."
+        : null),
+  );
 
   const passengerOptions = useMemo(() => {
     const props = (propuestas || []).map((p) => {
@@ -269,7 +329,9 @@ export default function FimbaRecorridoIntermedioModal({
       .map((g) => ({ id: g.id, nombre: g.nombre, color: g.color }));
     return {
       id: null,
-      actividad: "Recorrido intermedio (borrador)",
+      actividad: isAround
+        ? "Movimientos intermedios (borrador)"
+        : "Recorrido intermedio (borrador)",
       propuestas: propObjs,
       grupos: grupoObjs,
       audiencia_ofrn: audienciaOfrn,
@@ -280,6 +342,7 @@ export default function FimbaRecorridoIntermedioModal({
     audienciaOfrn,
     propuestas,
     giraGrupos,
+    isAround,
   ]);
 
   const tagChips = useMemo(() => {
@@ -324,6 +387,109 @@ export default function FimbaRecorridoIntermedioModal({
   const submit = async (e) => {
     e.preventDefault();
     setError(null);
+
+    if (isAround && aroundBlockedReason) {
+      setError(MOVIMIENTOS_REASON_MSG[aroundBlockedReason] || "No se puede crear");
+      return;
+    }
+
+    if (isAround) {
+      if (!idLocSalida) {
+        setError("Elegí la locación de salida (anterior)");
+        return;
+      }
+      if (!idLocRetorno) {
+        setError("Elegí la locación de retorno");
+        return;
+      }
+      if (!horaSalida || !horaRetorno) {
+        setError("Completá las horas de salida y retorno");
+        return;
+      }
+      if (!fechaSalida || !fechaRetorno) {
+        setError("Completá las fechas de salida y retorno");
+        return;
+      }
+      if (vehicleId == null || vehicleId === "") {
+        setError("Esta fila no tiene vehículo asignado");
+        return;
+      }
+      if (!edicion?.id_gira) {
+        setError("Edición sin gira enlazada");
+        return;
+      }
+      if (!prevEv?.id || !anchorEv?.id) {
+        setError("Falta el evento previo o el evento ancla");
+        return;
+      }
+      if (!String(detalleSalida || "").trim() || !String(detalleRetorno || "").trim()) {
+        setError("Completá el detalle de salida y retorno");
+        return;
+      }
+
+      const toMs = (fecha, hora) => {
+        const [y, m, d] = String(fecha).split("-").map(Number);
+        const [hh, mm] = String(hora).slice(0, 5).split(":").map(Number);
+        return new Date(y, m - 1, d, hh || 0, mm || 0, 0, 0).getTime();
+      };
+      const t1 = toMs(fechaSalida, horaSalida);
+      const t2 = toMs(
+        fechaWaypoint || String(anchorEv.fecha || "").slice(0, 10),
+        horaWaypoint || String(anchorEv.hora_inicio || "").slice(0, 5),
+      );
+      const t3 = toMs(fechaRetorno, horaRetorno);
+      if (!(t1 < t2 && t2 < t3)) {
+        setError(
+          "Fecha y hora deben ir en orden: salida < este evento < retorno",
+        );
+        return;
+      }
+
+      setSaving(true);
+      try {
+        const { eventos, error: err } = await createMovimientosIntermediosAroundEvent({
+          anchorEv,
+          prevEv,
+          nextEv,
+          vehicleId: Number(vehicleId),
+          idGira: edicion.id_gira,
+          vehiculos,
+          idPropuestasTags,
+          idGruposTags: audienciaOfrn === "grupos" ? idGruposTags : [],
+          audienciaOfrn,
+          detalleSalida,
+          detalleRetorno,
+          fechaSalida,
+          fechaRetorno,
+          horaSalida,
+          horaRetorno,
+          idLocacionSalida: idLocSalida,
+          idLocacionRetorno: idLocRetorno,
+          boardingSalida: {
+            subida: boardFromUi(subidaSalida),
+            bajada: boardFromUi(bajadaSalida),
+          },
+          boardingAnchor: {
+            subida: boardFromUi(subidaWaypoint),
+            bajada: boardFromUi(bajadaWaypoint),
+          },
+          boardingRetorno: {
+            subida: boardFromUi(subidaRetorno),
+            bajada: boardFromUi(bajadaRetorno),
+          },
+          giraGrupos,
+        });
+        if (err) {
+          setError(err.message || "No se pudieron crear los movimientos");
+          if (eventos?.length) onSaved?.(eventos, { partial: true });
+          return;
+        }
+        onSaved?.(eventos);
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
 
     if (!idLocActual) {
       setError("La locación actual de la pausa no está definida");
@@ -432,7 +598,11 @@ export default function FimbaRecorridoIntermedioModal({
         minHeight: 36,
         cursor: "default",
       }}
-      title={locActualLabel}
+      title={
+        isAround
+          ? formatEventLocation(anchorEv) || locActualLabel
+          : locActualLabel
+      }
     >
       <IconMapPin size={14} style={{ flexShrink: 0, color: "#0e7490" }} />
       <span
@@ -443,7 +613,9 @@ export default function FimbaRecorridoIntermedioModal({
           fontSize: "0.85rem",
         }}
       >
-        {locActualLabel}
+        {isAround
+          ? formatEventLocation(anchorEv) || "(Sin locación)"
+          : locActualLabel}
       </span>
     </div>
   );
@@ -480,7 +652,9 @@ export default function FimbaRecorridoIntermedioModal({
             id="fimba-recorrido-intermedio-title"
             style={{ margin: 0, fontSize: "1.05rem" }}
           >
-            Crear recorrido intermedio
+            {isAround
+              ? "Crear movimientos intermedios"
+              : "Crear recorrido intermedio"}
           </h2>
           <button
             type="button"
@@ -498,8 +672,19 @@ export default function FimbaRecorridoIntermedioModal({
           className="fimba-muted"
           style={{ margin: "0 0 0.85rem", fontSize: "0.8rem" }}
         >
-          Salí de la locación actual, pasá por un punto intermedio y volvé.
-          Completá detalle, horas, tags y (opcional) subida/bajada por parada.
+          {isAround ? (
+            <>
+              Salí de la locación anterior (~30′ antes), este evento queda en el
+              medio (ya existe) y volvé (~30′ después del fin). Locaciones y
+              horarios de salida/retorno son editables.
+            </>
+          ) : (
+            <>
+              Salí de la locación actual, pasá por un punto intermedio y volvé.
+              Completá detalle, horas, tags y (opcional) subida/bajada por
+              parada.
+            </>
+          )}
         </p>
 
         <form onSubmit={submit}>
@@ -553,7 +738,24 @@ export default function FimbaRecorridoIntermedioModal({
               />
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
-              {locLocked}
+              {isAround ? (
+                <LocationSelectWithCreate
+                  supabase={supabase}
+                  options={locationOptions}
+                  value={idLocSalida}
+                  onChange={(v) => {
+                    const next = v || "";
+                    setIdLocSalida(next);
+                    setIdLocRetorno((prev) =>
+                      !prev || prev === idLocSalida ? next : prev,
+                    );
+                  }}
+                  onRefresh={onRefreshLocations}
+                  placeholder="Locación anterior…"
+                />
+              ) : (
+                locLocked
+              )}
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
               <input
@@ -563,7 +765,7 @@ export default function FimbaRecorridoIntermedioModal({
                 onChange={(e) => setFechaSalida(e.target.value)}
                 required
                 aria-label="Fecha de salida"
-                disabled={saving}
+                disabled={saving || Boolean(aroundBlockedReason)}
               />
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
@@ -574,7 +776,7 @@ export default function FimbaRecorridoIntermedioModal({
                 onChange={(e) => setHoraSalida(e.target.value)}
                 required
                 aria-label="Hora de salida"
-                disabled={saving}
+                disabled={saving || Boolean(aroundBlockedReason)}
               />
             </div>
             <BoardingCompactCell
@@ -595,28 +797,33 @@ export default function FimbaRecorridoIntermedioModal({
               ariaLabel="Bajada en salida"
             />
 
-            {/* Row 2 — waypoint / llegada */}
+            {/* Row 2 — waypoint / llegada (aroundEvent = evento ancla existente) */}
             <div className="fimba-field" style={{ margin: 0 }}>
               <input
                 className="fimba-input"
                 type="text"
                 value={detalleWaypoint}
                 onChange={(e) => setDetalleWaypoint(e.target.value)}
-                required
-                aria-label="Detalle llegada"
-                disabled={saving}
+                required={!isAround}
+                aria-label={isAround ? "Detalle de este evento" : "Detalle llegada"}
+                disabled={saving || isAround}
                 placeholder="Llegada"
+                title={isAround ? "Evento existente (no se crea de nuevo)" : undefined}
               />
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
-              <LocationSelectWithCreate
-                supabase={supabase}
-                options={locationOptions}
-                value={idLocWaypoint}
-                onChange={(v) => setIdLocWaypoint(v || "")}
-                onRefresh={onRefreshLocations}
-                placeholder="Waypoint…"
-              />
+              {isAround ? (
+                locLocked
+              ) : (
+                <LocationSelectWithCreate
+                  supabase={supabase}
+                  options={locationOptions}
+                  value={idLocWaypoint}
+                  onChange={(v) => setIdLocWaypoint(v || "")}
+                  onRefresh={onRefreshLocations}
+                  placeholder="Waypoint…"
+                />
+              )}
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
               <input
@@ -625,9 +832,9 @@ export default function FimbaRecorridoIntermedioModal({
                 value={fechaWaypoint}
                 min={fechaSalida || undefined}
                 onChange={(e) => setFechaWaypoint(e.target.value)}
-                required
-                aria-label="Fecha en waypoint"
-                disabled={saving}
+                required={!isAround}
+                aria-label={isAround ? "Fecha de este evento" : "Fecha en waypoint"}
+                disabled={saving || isAround}
               />
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
@@ -636,9 +843,9 @@ export default function FimbaRecorridoIntermedioModal({
                 type="time"
                 value={horaWaypoint}
                 onChange={(e) => setHoraWaypoint(e.target.value)}
-                required
-                aria-label="Hora en waypoint"
-                disabled={saving}
+                required={!isAround}
+                aria-label={isAround ? "Hora de este evento" : "Hora en waypoint"}
+                disabled={saving || isAround}
               />
             </div>
             <BoardingCompactCell
@@ -674,7 +881,18 @@ export default function FimbaRecorridoIntermedioModal({
               />
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
-              {locLocked}
+              {isAround ? (
+                <LocationSelectWithCreate
+                  supabase={supabase}
+                  options={locationOptions}
+                  value={idLocRetorno}
+                  onChange={(v) => setIdLocRetorno(v || "")}
+                  onRefresh={onRefreshLocations}
+                  placeholder="Locación de retorno…"
+                />
+              ) : (
+                locLocked
+              )}
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
               <input
@@ -685,7 +903,7 @@ export default function FimbaRecorridoIntermedioModal({
                 onChange={(e) => setFechaRetorno(e.target.value)}
                 required
                 aria-label="Fecha de retorno"
-                disabled={saving}
+                disabled={saving || Boolean(aroundBlockedReason)}
               />
             </div>
             <div className="fimba-field" style={{ margin: 0 }}>
@@ -696,7 +914,7 @@ export default function FimbaRecorridoIntermedioModal({
                 onChange={(e) => setHoraRetorno(e.target.value)}
                 required
                 aria-label="Hora de retorno"
-                disabled={saving}
+                disabled={saving || Boolean(aroundBlockedReason)}
               />
             </div>
             <BoardingCompactCell
@@ -743,7 +961,9 @@ export default function FimbaRecorridoIntermedioModal({
                 <IconTag size={13} style={{ color: "var(--fimba-accent)" }} />
                 Tags artistas / grupos
                 <span className="fimba-muted" style={{ fontWeight: 400, fontSize: "0.72rem" }}>
-                  (compartidos · 3 paradas)
+                  {isAround
+                    ? "(compartidos · salida + retorno)"
+                    : "(compartidos · 3 paradas)"}
                 </span>
               </label>
               <button
@@ -799,14 +1019,29 @@ export default function FimbaRecorridoIntermedioModal({
             className="fimba-muted"
             style={{ margin: "0.65rem 0 0", fontSize: "0.72rem" }}
           >
-            Pausado en {locActualLabel}
-            {fechaSugerida ? ` · ${formatFechaLabel(fechaSugerida)}` : ""}
-            {nextEv?.hora_inicio
-              ? ` · siguiente evento ${String(nextEv.hora_inicio).slice(0, 5)}`
-              : ""}
-            {" · "}
-            Boarding tip: ↑ salida / ↓ llegada (ida); ↑ llegada / ↓ retorno (vuelta).
-            Grupo OFRN = regla Orquesta (alcance Grupo) ↑/↓.
+            {isAround ? (
+              <>
+                Ancla: {formatEventLocation(anchorEv) || "—"}
+                {fechaWaypoint ? ` · ${formatFechaLabel(fechaWaypoint)}` : ""}
+                {horaWaypoint ? ` ${horaWaypoint}` : ""}
+                {nextEv?.hora_inicio
+                  ? ` · siguiente ${String(nextEv.hora_inicio).slice(0, 5)}`
+                  : ""}
+                {" · "}
+                Se crean solo salida y retorno (este evento no se duplica).
+              </>
+            ) : (
+              <>
+                Pausado en {locActualLabel}
+                {fechaSugerida ? ` · ${formatFechaLabel(fechaSugerida)}` : ""}
+                {nextEv?.hora_inicio
+                  ? ` · siguiente evento ${String(nextEv.hora_inicio).slice(0, 5)}`
+                  : ""}
+                {" · "}
+                Boarding tip: ↑ salida / ↓ llegada (ida); ↑ llegada / ↓ retorno
+                (vuelta). Grupo OFRN = regla Orquesta (alcance Grupo) ↑/↓.
+              </>
+            )}
           </p>
 
           {error ? (
@@ -834,7 +1069,7 @@ export default function FimbaRecorridoIntermedioModal({
             <button
               type="submit"
               className="fimba-btn fimba-btn-primary"
-              disabled={saving}
+              disabled={saving || Boolean(aroundBlockedReason)}
               style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
             >
               {saving ? (
@@ -842,6 +1077,8 @@ export default function FimbaRecorridoIntermedioModal({
                   <IconLoader size={14} className="animate-spin" />
                   Creando…
                 </>
+              ) : isAround ? (
+                "Crear movimientos"
               ) : (
                 "Crear recorrido"
               )}

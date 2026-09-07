@@ -21,6 +21,9 @@ import {
 } from "../services/giraGruposService";
 import { resolvePersonIsLocal } from "../utils/giraTramos";
 
+/** Stable empty — `summary || []` as a new `[]` each render breaks roster-dependent effects. */
+const EMPTY_SUMMARY = Object.freeze([]);
+
 // --- 1. RE-EXPORTS PARA COMPATIBILIDAD ---
 /** Incluye categoría EXTERNOS (ver `getCategoriaLogistica` en `giraUtils.js`). */
 export {
@@ -592,7 +595,7 @@ export function useLogistics(supabase, gira, trigger = 0) {
   }, [refreshRoster, fetchAll]);
 
   return {
-    summary: summary || [],
+    summary: summary || EMPTY_SUMMARY,
     roster: baseRoster,
     rooms: db.rooms, // Restaurado para el Dashboard
     logisticsRules: db.log,

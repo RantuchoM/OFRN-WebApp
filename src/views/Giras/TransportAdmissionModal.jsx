@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   IconX,
   IconTrash,
@@ -11,6 +12,10 @@ import {
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { matchesRule } from "../../hooks/useLogistics";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import {
+  fetchGiraGrupos,
+  enrichRosterWithGrupoIds,
+} from "../../services/giraGruposService";
 import { toast } from "sonner";
 
 const SCOPES = [
@@ -18,6 +23,7 @@ const SCOPES = [
   { val: "Region", label: "Por Región", prio: 2 },
   { val: "Localidad", label: "Por Localidad", prio: 3 },
   { val: "Categoria", label: "Por Categoría / Rol", prio: 4 },
+  { val: "Grupo", label: "Por Grupo", prio: 4 },
   { val: "Persona", label: "Individual", prio: 5 },
 ];
 
@@ -39,6 +45,7 @@ export default function TransportAdmissionModal({
   supabase,
   giraId,
   onUpdate,
+  giraGrupos: giraGruposProp = null,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const [rules, setRules] = useState([]);
@@ -48,13 +55,37 @@ export default function TransportAdmissionModal({
   const [newScope, setNewScope] = useState("General");
   const [newType, setNewType] = useState("INCLUSION");
   const [targetId, setTargetId] = useState("");
+  const [targetIds, setTargetIds] = useState([]);
   const [expandedRuleId, setExpandedRuleId] = useState(null);
+  const [giraGrupos, setGiraGrupos] = useState(() =>
+    Array.isArray(giraGruposProp) ? giraGruposProp : [],
+  );
+
+  useEffect(() => {
+    if (Array.isArray(giraGruposProp)) {
+      setGiraGrupos(giraGruposProp);
+      return;
+    }
+    if (!isOpen || !supabase || giraId == null || giraId === "") return;
+    let cancelled = false;
+    fetchGiraGrupos(supabase, giraId).then(({ grupos }) => {
+      if (!cancelled) setGiraGrupos(grupos || []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, giraId, supabase, giraGruposProp]);
 
   useEffect(() => {
     if (isOpen && transporte) {
       fetchInitialData();
     }
   }, [isOpen, transporte]);
+
+  const rosterWithGrupos = useMemo(
+    () => enrichRosterWithGrupoIds(roster || [], giraGrupos),
+    [roster, giraGrupos],
+  );
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -80,14 +111,14 @@ export default function TransportAdmissionModal({
 
   const relevantLocalities = useMemo(() => {
     const rosterLocIds = new Set(
-      roster
+      rosterWithGrupos
         .map((p) =>
           String(p.id_localidad_residencia || p.id_localidad || ""),
         )
         .filter((id) => id && id !== "null"),
     );
     return localities.filter((l) => rosterLocIds.has(String(l.id)));
-  }, [localities, roster]);
+  }, [localities, rosterWithGrupos]);
 
   const getAssignmentInfo = (entity, entityType) => {
     const transportIds = [
@@ -156,9 +187,39 @@ export default function TransportAdmissionModal({
     return null;
   };
 
+  const grupoOptions = useMemo(
+    () =>
+      (giraGrupos || []).map((g) => {
+        const n = (g.giras_grupos_integrantes || []).length;
+        const otherRule = allTourRules.find(
+          (r) =>
+            r.alcance === "Grupo" &&
+            (r.target_ids || []).map(String).includes(String(g.id)) &&
+            (r.tipo === "INCLUSION" || !r.tipo),
+        );
+        const isCurrent =
+          otherRule &&
+          String(otherRule.id_transporte_fisico) === String(transporte.id);
+
+        return {
+          id: String(g.id),
+          label: n > 0 ? `${g.nombre} (${n})` : g.nombre || `Grupo #${g.id}`,
+          subLabel: otherRule
+            ? `${isCurrent ? "✅" : "⚠️"} Regla en ${
+                isCurrent
+                  ? "este bus"
+                  : otherRule.giras_transportes?.detalle || "otro bus"
+              }`
+            : "Grupo OFRN",
+          variant: otherRule ? (isCurrent ? "success" : "warning") : "default",
+        };
+      }),
+    [giraGrupos, allTourRules, transporte?.id],
+  );
+
   const dynamicOptions = useMemo(() => {
     if (newScope === "Persona") {
-      return roster.map((p) => {
+      return rosterWithGrupos.map((p) => {
         const assign = getAssignmentInfo(p, "persona");
         const isProd =
           p.rol_sistema?.toUpperCase() === "PRODUCCION" ||
@@ -234,7 +295,7 @@ export default function TransportAdmissionModal({
     return [];
   }, [
     newScope,
-    roster,
+    rosterWithGrupos,
     relevantLocalities,
     regions,
     allTourRules,
@@ -242,27 +303,58 @@ export default function TransportAdmissionModal({
     localities,
   ]);
 
+  const canAddRule =
+    newScope === "General"
+      ? true
+      : newScope === "Grupo"
+        ? targetIds.length > 0
+        : Boolean(targetId);
+
   const handleAddRule = async () => {
-    if (newScope !== "General" && !targetId)
-      return toast.message("Selecciona un valor.");
+    if (!canAddRule) return toast.message("Selecciona un valor.");
     setLoading(true);
     try {
-      const payload = {
-        id_gira: giraId,
-        id_transporte_fisico: transporte.id,
-        alcance: newScope,
-        tipo: newType,
-        prioridad: SCOPES.find((s) => s.val === newScope)?.prio || 1,
-        id_integrante: newScope === "Persona" ? targetId : null,
-        id_region: newScope === "Region" ? targetId : null,
-        id_localidad: newScope === "Localidad" ? targetId : null,
-        target_ids: newScope === "Categoria" ? [targetId] : [],
-      };
-      const { error } = await supabase
-        .from("giras_logistica_admision")
-        .insert([payload]);
-      if (error) throw error;
-      setTargetId("");
+      const prioridad = SCOPES.find((s) => s.val === newScope)?.prio || 1;
+
+      if (newScope === "Grupo") {
+        const selected = Array.from(new Set(targetIds.map(String))).filter(
+          Boolean,
+        );
+        const payloads = selected.map((gid) => ({
+          id_gira: giraId,
+          id_transporte_fisico: transporte.id,
+          alcance: "Grupo",
+          tipo: newType,
+          prioridad,
+          id_integrante: null,
+          id_region: null,
+          id_localidad: null,
+          target_ids: [gid],
+        }));
+        const { error } = await supabase
+          .from("giras_logistica_admision")
+          .insert(payloads);
+        if (error) throw error;
+        setTargetIds([]);
+      } else {
+        const payload = {
+          id_gira: giraId,
+          id_transporte_fisico: transporte.id,
+          alcance: newScope,
+          tipo: newType,
+          prioridad,
+          id_integrante: newScope === "Persona" ? targetId : null,
+          id_region: newScope === "Region" ? targetId : null,
+          id_localidad: newScope === "Localidad" ? targetId : null,
+          target_ids: newScope === "Categoria" ? [targetId] : [],
+        };
+        const { error } = await supabase
+          .from("giras_logistica_admision")
+          .insert([payload]);
+        if (error) throw error;
+        setTargetId("");
+      }
+
       fetchInitialData();
       onUpdate && onUpdate();
     } catch (err) {
@@ -311,8 +403,20 @@ export default function TransportAdmissionModal({
       return cat;
     }
 
+    if (rule.alcance === "Grupo") {
+      const ids = (rule.target_ids || []).map(String).filter(Boolean);
+      if (ids.length === 0) return "Grupo";
+      const names = ids.map((gid) => {
+        const g = (giraGrupos || []).find((x) => String(x.id) === gid);
+        return g?.nombre || `Grupo #${gid}`;
+      });
+      return names.join(", ");
+    }
+
     if (rule.alcance === "Persona") {
-      const p = roster.find((m) => String(m.id) === String(rule.id_integrante));
+      const p = rosterWithGrupos.find(
+        (m) => String(m.id) === String(rule.id_integrante),
+      );
       return p
         ? `${p.apellido}, ${p.nombre}`
         : `Músico ID: ${rule.id_integrante}`;
@@ -354,15 +458,20 @@ export default function TransportAdmissionModal({
     });
 
     return groups;
-  }, [rules, regions, localities, roster]);
+  }, [rules, regions, localities, rosterWithGrupos, giraGrupos]);
 
   const rulePeopleMap = useMemo(() => {
     const map = {};
-    if (!rules || rules.length === 0 || !roster || roster.length === 0) {
+    if (
+      !rules ||
+      rules.length === 0 ||
+      !rosterWithGrupos ||
+      rosterWithGrupos.length === 0
+    ) {
       return map;
     }
 
-    roster.forEach((person) => {
+    rosterWithGrupos.forEach((person) => {
       const applicable = rules.filter((rule) =>
         matchesRule(rule, person, localities),
       );
@@ -373,8 +482,9 @@ export default function TransportAdmissionModal({
 
       if (topRule.tipo === "EXCLUSION") return;
 
-      const status =
-        (person.estado || person.estado_gira || "").toString().toUpperCase();
+      const status = (person.estado || person.estado_gira || "")
+        .toString()
+        .toUpperCase();
       if (["AUSENTE", "NO VIAJA", "NO_VIAJA"].includes(status)) return;
 
       if (!map[topRule.id]) map[topRule.id] = [];
@@ -390,12 +500,12 @@ export default function TransportAdmissionModal({
     });
 
     return map;
-  }, [rules, roster, localities]);
+  }, [rules, rosterWithGrupos, localities]);
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 backdrop-blur-sm">
+  return createPortal(
+    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
       {dialog}
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[95vh] animate-in zoom-in-95 duration-300 border border-white/20 overflow-hidden">
         <div className="p-6 border-b flex justify-between items-center bg-slate-50/80">
@@ -434,6 +544,7 @@ export default function TransportAdmissionModal({
                   onChange={(e) => {
                     setNewScope(e.target.value);
                     setTargetId("");
+                    setTargetIds([]);
                   }}
                 >
                   {SCOPES.map((s) => (
@@ -472,6 +583,21 @@ export default function TransportAdmissionModal({
                     <div className="text-sm text-slate-400 font-medium p-3 bg-white border border-slate-200 rounded-xl italic">
                       Todo el padrón de la gira.
                     </div>
+                  ) : newScope === "Grupo" ? (
+                    giraGrupos.length === 0 ? (
+                      <div className="text-sm text-amber-700 font-medium p-3 bg-amber-50 border border-amber-200 rounded-xl italic">
+                        No hay grupos de convocatoria en esta gira. Creálos en
+                        Roster → Grupos.
+                      </div>
+                    ) : (
+                      <SearchableSelect
+                        options={grupoOptions}
+                        value={targetIds}
+                        onChange={setTargetIds}
+                        placeholder="Seleccionar grupos..."
+                        isMulti
+                      />
+                    )
                   ) : (
                     <SearchableSelect
                       options={dynamicOptions}
@@ -483,7 +609,7 @@ export default function TransportAdmissionModal({
                 </div>
                 <button
                   onClick={handleAddRule}
-                  disabled={loading || (newScope !== "General" && !targetId)}
+                  disabled={loading || !canAddRule}
                   className="bg-slate-900 text-white px-6 rounded-xl hover:bg-black disabled:opacity-20 transition-all font-black text-xs uppercase tracking-widest flex items-center gap-2 shrink-0"
                 >
                   <IconPlus size={18} /> AGREGAR
@@ -617,11 +743,14 @@ export default function TransportAdmissionModal({
               sistema ahora detecta si un músico está incluido por localidad
               pero <strong className="text-white">vetado</strong>{" "}
               individualmente. El check verde ✅ indica que ya está en este bus
-              (directa o geográficamente).
+              (directa o geográficamente). Alcance{" "}
+              <strong className="text-white">Grupo</strong> admite por
+              membresía en grupos OFRN de la gira (prioridad 4).
             </p>
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

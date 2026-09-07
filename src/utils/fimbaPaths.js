@@ -54,6 +54,7 @@ const PRINT_SECTION_LABELS = [
   { segment: "agenda", label: "Agenda" },
   { segment: "transportes", label: "Transportes" },
   { segment: "hoteleria", label: "Hotelería" },
+  { segment: "comidas", label: "Comidas" },
   { segment: "venues", label: "Venues" },
   { segment: "backline", label: "Backline" },
   { segment: "rider", label: "Rider" },
@@ -95,6 +96,9 @@ export function resolveFimbaPrintMeta(pathname) {
     }
     if (path.endsWith("/hoteleria")) {
       return { title: "Hotelería", hidePrint: false };
+    }
+    if (path.endsWith("/comidas")) {
+      return { title: "Comidas", hidePrint: false };
     }
     return { title: "Artista", hidePrint: false };
   }

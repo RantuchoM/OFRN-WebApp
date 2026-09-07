@@ -440,6 +440,252 @@ export async function applyStopBoardingAtCreate({
 }
 
 /**
+ * Defaults para «Crear movimientos intermedios» desde una fila de planilla:
+ * salir de la locación anterior (~30' antes del inicio), el evento ancla en el
+ * medio (ya existe), y volver a la anterior (~30' después del fin).
+ *
+ * `horaFinHint` = fin calculado de planilla (`resolveHoraFinDisplay`) o
+ * `hora_fin` persistida; si falta, asume duración 60' desde el inicio.
+ *
+ * @param {object} anchorEv — evento de la fila (destino / actividad)
+ * @param {object|null|undefined} prevEv — parada anterior del mismo vehículo
+ * @param {{
+ *   horaFinHint?: string|null,
+ *   horaFinFecha?: string|null,
+ * }} [opts]
+ * @returns {{
+ *   ok: boolean,
+ *   reason?: 'no_prev'|'no_prev_loc'|'no_anchor_loc'|'same_loc',
+ *   idLocSalida: string,
+ *   idLocWaypoint: string,
+ *   idLocRetorno: string,
+ *   fechaSalida: string,
+ *   horaSalida: string,
+ *   fechaWaypoint: string,
+ *   horaWaypoint: string,
+ *   fechaRetorno: string,
+ *   horaRetorno: string,
+ *   detalleSalida: string,
+ *   detalleWaypoint: string,
+ *   detalleRetorno: string,
+ * }|null}
+ */
+export function buildMovimientosIntermediosDefaults(anchorEv, prevEv, opts = {}) {
+  if (!prevEv?.id) {
+    return { ok: false, reason: "no_prev" };
+  }
+  const idLocSalida = eventLocacionId(prevEv);
+  const idLocWaypoint = eventLocacionId(anchorEv);
+  if (idLocSalida == null || idLocSalida === "") {
+    return { ok: false, reason: "no_prev_loc" };
+  }
+  if (idLocWaypoint == null || idLocWaypoint === "") {
+    return { ok: false, reason: "no_anchor_loc" };
+  }
+  if (String(idLocSalida) === String(idLocWaypoint)) {
+    return { ok: false, reason: "same_loc" };
+  }
+
+  const startFecha = String(anchorEv?.fecha || "").slice(0, 10);
+  const startHora = anchorEv?.hora_inicio
+    ? String(anchorEv.hora_inicio).slice(0, 5)
+    : null;
+  if (!startFecha || !startHora) {
+    return { ok: false, reason: "no_anchor_loc" };
+  }
+
+  const before = offsetEventDateTime(startFecha, startHora, -30);
+
+  let finFecha =
+    String(opts.horaFinFecha || "").slice(0, 10) || startFecha;
+  let finHora =
+    opts.horaFinHint != null && String(opts.horaFinHint).trim() !== ""
+      ? String(opts.horaFinHint).trim().slice(0, 5)
+      : anchorEv?.hora_fin
+        ? String(anchorEv.hora_fin).slice(0, 5)
+        : null;
+  if (!finHora) {
+    const assumed = offsetEventDateTime(startFecha, startHora, 60);
+    finFecha = assumed.fecha || startFecha;
+    finHora = assumed.hora_inicio;
+  }
+
+  const after = offsetEventDateTime(finFecha, finHora, 30);
+  const act = String(anchorEv?.actividad || "").trim();
+
+  return {
+    ok: true,
+    idLocSalida: String(idLocSalida),
+    idLocWaypoint: String(idLocWaypoint),
+    idLocRetorno: String(idLocSalida),
+    fechaSalida: before.fecha || startFecha,
+    horaSalida: before.hora_inicio || startHora,
+    fechaWaypoint: startFecha,
+    horaWaypoint: startHora,
+    fechaRetorno: after.fecha || finFecha,
+    horaRetorno: after.hora_inicio || finHora,
+    detalleSalida: "Salida",
+    detalleWaypoint: act || "Llegada",
+    detalleRetorno: "Retorno",
+  };
+}
+
+/**
+ * Crea ida + vuelta alrededor de un evento ancla ya existente:
+ * 1) parada en locación anterior (hora sugerida = inicio − 30′)
+ * 2) parada de retorno en locación anterior (hora sugerida = fin + 30′)
+ * No duplica el evento del medio. Boarding opcional en salida / ancla / retorno.
+ *
+ * @param {{
+ *   anchorEv: object,
+ *   prevEv: object,
+ *   nextEv?: object|null,
+ *   vehicleId: number|string,
+ *   idGira: number|string,
+ *   vehiculos?: Array<object>,
+ *   idPropuestasTags?: Array<number|string>,
+ *   idGruposTags?: Array<number|string>,
+ *   audienciaOfrn?: 'none'|'tutti'|'grupos',
+ *   detalleSalida?: string,
+ *   detalleRetorno?: string,
+ *   fechaSalida: string,
+ *   fechaRetorno: string,
+ *   horaSalida: string,
+ *   horaRetorno: string,
+ *   idLocacionSalida: unknown,
+ *   idLocacionRetorno: unknown,
+ *   boardingSalida?: { subida?: unknown, bajada?: unknown }|null,
+ *   boardingAnchor?: { subida?: unknown, bajada?: unknown }|null,
+ *   boardingRetorno?: { subida?: unknown, bajada?: unknown }|null,
+ *   giraGrupos?: Array<object>|null,
+ * }} params
+ * @returns {Promise<{ eventos: object[], error: Error|null }>}
+ */
+export async function createMovimientosIntermediosAroundEvent({
+  anchorEv,
+  prevEv,
+  nextEv = null,
+  vehicleId,
+  idGira,
+  vehiculos = [],
+  idPropuestasTags = [],
+  idGruposTags = [],
+  audienciaOfrn = "none",
+  detalleSalida = "Salida",
+  detalleRetorno = "Retorno",
+  fechaSalida,
+  fechaRetorno,
+  horaSalida,
+  horaRetorno,
+  idLocacionSalida,
+  idLocacionRetorno,
+  boardingSalida = null,
+  boardingAnchor = null,
+  boardingRetorno = null,
+  giraGrupos = null,
+}) {
+  if (!prevEv?.id) {
+    return {
+      eventos: [],
+      error: new Error("No hay parada anterior en este vehículo"),
+    };
+  }
+  if (!anchorEv?.id) {
+    return {
+      eventos: [],
+      error: new Error("No se encontró el evento ancla"),
+    };
+  }
+  if (!idLocacionSalida) {
+    return {
+      eventos: [],
+      error: new Error("Elegí la locación de salida (anterior)"),
+    };
+  }
+  if (!idLocacionRetorno) {
+    return {
+      eventos: [],
+      error: new Error("Elegí la locación de retorno"),
+    };
+  }
+
+  const common = {
+    vehicleId,
+    idGira,
+    vehiculos,
+    idPropuestasTags,
+    idGruposTags,
+    audienciaOfrn,
+  };
+
+  const actSalida = String(detalleSalida || "").trim() || "Salida";
+  const actRetorno = String(detalleRetorno || "").trim() || "Retorno";
+
+  const { evento: salida, error: e1 } = await createDestinoStopEvent({
+    ...common,
+    currentEv: prevEv,
+    nextEv: anchorEv,
+    fecha: fechaSalida,
+    horaInicio: horaSalida,
+    idLocacion: idLocacionSalida,
+    actividad: actSalida,
+  });
+  if (e1 || !salida?.id) {
+    return {
+      eventos: [],
+      error: e1 || new Error("No se pudo crear la parada de salida"),
+    };
+  }
+
+  const { evento: retorno, error: e2 } = await createDestinoStopEvent({
+    ...common,
+    currentEv: anchorEv,
+    nextEv: nextEv || null,
+    fecha: fechaRetorno,
+    horaInicio: horaRetorno,
+    idLocacion: idLocacionRetorno,
+    actividad: actRetorno,
+  });
+  if (e2 || !retorno?.id) {
+    return {
+      eventos: [salida],
+      error:
+        e2 ||
+        new Error("Salida creada, pero no se pudo crear la parada de retorno"),
+    };
+  }
+
+  const created = [salida, retorno];
+  const boardTargets = [
+    { evento: salida, board: boardingSalida },
+    { evento: anchorEv, board: boardingAnchor },
+    { evento: retorno, board: boardingRetorno },
+  ];
+
+  for (const { evento, board } of boardTargets) {
+    if (!board || !evento?.id) continue;
+    const { error: boardErr } = await applyStopBoardingAtCreate({
+      evento,
+      vehicleId,
+      subida: board.subida,
+      bajada: board.bajada,
+      sortedEvents: [salida, anchorEv, retorno],
+      giraGrupos,
+    });
+    if (boardErr) {
+      return {
+        eventos: created,
+        error: new Error(
+          `Paradas creadas, pero falló el boarding en «${evento.actividad || "parada"}»: ${boardErr.message}`,
+        ),
+      };
+    }
+  }
+
+  return { eventos: created, error: null };
+}
+
+/**
  * Crea las 3 paradas de un recorrido intermedio durante una pausa:
  * salida (locación actual) → waypoint → retorno (locación actual).
  * Encadena `createDestinoStopEvent` entre `prevEv` y `nextEv`.

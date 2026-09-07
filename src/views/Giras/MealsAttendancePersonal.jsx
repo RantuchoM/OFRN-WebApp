@@ -25,7 +25,7 @@ import {
   mealDisplayLabelFromEvent,
   mealServicioFromEvent,
   getMealServiceStyle,
-  isMealEvent,
+  isMealRelatedEvent,
 } from "../../utils/mealLogistics";
 
 export default function MealsAttendancePersonal({ supabase, gira, userId }) {
@@ -104,7 +104,7 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
 
       if (eventError) throw eventError;
 
-      const mealEvents = (events || []).filter(isMealEvent);
+      const mealEvents = (events || []).filter(isMealRelatedEvent);
 
       const hospIds = (hospRows || []).map((h) => h.id);
       let rooms = [];

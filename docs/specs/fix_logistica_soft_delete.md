@@ -25,6 +25,12 @@ Se deben filtrar los eventos de la tabla `eventos` (eventos de gira) para exclui
   - La vista "Mis Comidas" del músico (`MealsAttendancePersonal`).
   - Los listados de eventos de gira usados por logística cuando se trate de eventos de comida.
 
+### Borrado hard de eventos vs reglas de logística (completado)
+- [x] Agenda usa soft-delete (`is_deleted` / `deleted_at`); borrado definitivo y `MealsManager.deleteRow` hacen `DELETE` hard.
+- [x] FKs opcionales `giras_logistica_reglas.id_evento_{checkin,checkout,comida_inicio,comida_fin}` y `giras_logistica_reglas_transportes.id_evento_{subida,bajada}` → `eventos(id)` con **ON DELETE SET NULL** (migración `20260907182003_giras_logistica_reglas_eventos_on_delete_set_null`), alineado a viáticos/FIMBA.
+- [x] Así, borrar un evento referenciado como ventana de comida (u otra punta opcional) no viola FK; la regla queda con ese puntero en NULL. UX MealsManager (spinner → fila gris/sale de grilla) sin cambios de UI.
+- [x] Paths de transporte (`GirasTransportesManager` / `deleteGiraTransporteCascade`) que ya nullean FKs antes del DELETE siguen válidos (redundantes con SET NULL).
+
 ### Tipos de comida reales (id_tipo_evento + agrupación D/A/M/C)
 - [x] Los subtipos son filas en `tipos_evento` con `id_categoria = 4` (no solo texto en descripción).
 - [x] Agrupación a Desayuno/Almuerzo/Merienda/Cena por la **primera palabra** del `nombre` (`mealBaseFromTypeName`).
@@ -39,9 +45,10 @@ Se deben filtrar los eventos de la tabla `eventos` (eventos de gira) para exclui
 - [x] Variante reporte: texto negro sobre fondo saturado; variante UI: texto coloreado sobre fondo suave.
 
 ### Filtros de exportación en Reporte de Comidas (completado)
-- [x] `MealsReport`: multi-select de **localidad** (ciudad de la locación), **locación** (venue) y de **tags de convocados** del evento (Tutti, Solo alojados, Locales, Prod., etc. y tags LOC:/ENS: presentes).
-- [x] Vacío en cada selector = sin filtro en ese eje; se combinan con el toggle de tipo de servicio (D/A/M/C). Default: A/M/C activos (Desayuno destildado); «Incluir Pendientes» activo.
-- [x] La tabla, totales, «Texto pedido» y PDF (`handlePrintExport`) respetan la vista filtrada; el PDF imprime el resumen de filtros activos.
+- [x] `MealsReport`: multi-select de **localidad** (ciudad de la locación), **locación** (venue), **tags de convocados**, **artista** FIMBA y chips **Todos|Comidas|Catering** (+ Cat en servicios). Selected Todos/Comidas en `fimbaMode`: fill sólido `#d73289` + `text-white` (no `var(--fimba-magenta)` inválido → blanco sobre blanco); Catering sigue `bg-orange-600`.
+- [x] Vacío en cada selector = sin filtro en ese eje; se combinan con el toggle de tipo de servicio (D/A/M/C/Cat). Default: A/M/C+Cat activos (Desayuno destildado); «Incluir Pendientes» activo.
+- [x] La tabla, totales, «Texto pedido» y PDF (`handlePrintExport`) respetan la vista filtrada e incluyen desglose por **tipos de alimentación**; el PDF imprime el resumen de filtros activos. **Limpiar** resetea todos los ejes.
 - [x] Etiquetas `LOC:` / `ENS:` resueltas a nombre (roster + `localidades` / `ensambles` en BD); no más `Ens. 12` / `Loc. 3`.
-- [x] `MealsManager`: comensales abre modal (click) con cantidades por dieta y listado agrupado por localidad de residencia; reemplaza el tooltip hover.
+- [x] `MealsManager`: comensales abre modal (click) con cantidades por dieta y listado agrupado por localidad de residencia; reemplaza el tooltip hover. Filtros Locación/Artista/Catering en matriz.
+- [x] `MealsAttendance`: columnas de eventos respetan Locación/Artista/Catering/servicios (misma semántica).
 
