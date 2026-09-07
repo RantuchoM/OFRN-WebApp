@@ -417,6 +417,79 @@ const FIMBA_CSS = `
     max-height: 4.75rem; /* ~3–4 líneas */
     overflow: hidden;
   }
+  .fimba-detalle-preview--clamp[tabindex] {
+    cursor: help;
+    outline: none;
+  }
+  .fimba-detalle-preview--clamp[tabindex]:focus-visible {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--fimba-deep, #94216d) 35%, transparent);
+    border-radius: 4px;
+  }
+  .fimba-detalle-preview b,
+  .fimba-detalle-preview strong,
+  .fimba-detalle-tooltip-body b,
+  .fimba-detalle-tooltip-body strong {
+    font-weight: 700;
+  }
+  .fimba-detalle-preview i,
+  .fimba-detalle-preview em,
+  .fimba-detalle-tooltip-body i,
+  .fimba-detalle-tooltip-body em {
+    font-style: italic;
+  }
+  .fimba-detalle-preview u,
+  .fimba-detalle-tooltip-body u {
+    text-decoration: underline;
+  }
+  .fimba-detalle-preview p,
+  .fimba-detalle-tooltip-body p {
+    margin: 0 0 0.35em;
+  }
+  .fimba-detalle-preview p:last-child,
+  .fimba-detalle-tooltip-body p:last-child {
+    margin-bottom: 0;
+  }
+  .fimba-detalle-preview ul,
+  .fimba-detalle-preview ol,
+  .fimba-detalle-tooltip-body ul,
+  .fimba-detalle-tooltip-body ol {
+    margin: 0.2em 0 0.35em;
+    padding-left: 1.25em;
+  }
+  .fimba-detalle-preview a {
+    color: var(--fimba-deep, #94216d);
+    text-decoration: underline;
+  }
+  .fimba-detalle-tooltip-body a {
+    color: #93c5fd;
+    text-decoration: underline;
+  }
+  .fimba-detalle-tooltip {
+    position: fixed;
+    z-index: 110;
+    min-width: 12rem;
+    max-width: min(28rem, calc(100vw - 1.5rem));
+    max-height: min(50vh, 22rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 0.55rem 0.75rem;
+    border-radius: 10px;
+    background: #1e293b;
+    color: #f8fafc;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.35);
+    pointer-events: none;
+    font-size: 0.78rem;
+    font-weight: 500;
+    line-height: 1.45;
+  }
+  .fimba-detalle-tooltip-body {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .fimba-detalle-tooltip-body--plain {
+    white-space: pre-wrap;
+  }
   .fimba-detalle-cell--editing {
     overflow: visible;
     max-width: 26rem;
@@ -2441,6 +2514,7 @@ const FIMBA_CSS = `
     .fimba-modal-backdrop,
     .fimba-stay-event-modal-backdrop,
     .fimba-transito-tooltip,
+    .fimba-detalle-tooltip,
     [data-sonner-toaster] {
       display: none !important;
     }

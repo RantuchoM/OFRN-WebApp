@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   IconBold,
   IconItalic,
@@ -15,10 +16,32 @@ export function isFimbaDetalleEmpty(html) {
   return !stripHtml(html);
 }
 
+function detalleTooltipPosition(rect) {
+  const estH = 220;
+  const preferBelow = rect.bottom + 8;
+  const placeAbove =
+    preferBelow + estH > window.innerHeight && rect.top > estH;
+  const left = Math.min(
+    Math.max(rect.left + rect.width / 2, 12),
+    window.innerWidth - 12,
+  );
+  return {
+    top: placeAbove ? Math.max(8, rect.top - 8) : preferBelow,
+    left,
+    placeAbove,
+  };
+}
+
+/** Solo un tooltip Detalle abierto a la vez (módulo). */
+let activeDetalleTooltipHide = null;
+
 /**
  * Vista lectura de `eventos.descripcion` (parte actividad / Detalle FIMBA).
  * Misma columna OFRN que EventForm / EventQuickView.
- * `clamp` = max-height en planilla + `title` con texto completo si hay contenido.
+ * `clamp` = max-height en planilla; tooltip portal (HTML sanitizado) solo si el
+ * texto está truncado (`scrollHeight`/`scrollWidth` > client*).
+ * Al scroll (capture) / Escape / blur / mouseleave se cierra — no se reposiciona
+ * (evita tooltips stuck al scroll de `.fimba-agenda-scroll` sin mouseleave).
  */
 export function FimbaEventDetallePreview({
   html,
@@ -27,8 +50,102 @@ export function FimbaEventDetallePreview({
   style,
   clamp = false,
 }) {
+  const triggerRef = useRef(null);
+  const [tooltip, setTooltip] = useState(null);
+  const [truncated, setTruncated] = useState(false);
+  // Identidad estable para el registro global (un solo tooltip abierto).
+  const hideRef = useRef(null);
+  if (!hideRef.current) {
+    hideRef.current = () => {
+      setTooltip(null);
+      if (activeDetalleTooltipHide === hideRef.current) {
+        activeDetalleTooltipHide = null;
+      }
+    };
+  }
+  const hideTooltip = hideRef.current;
+
   const raw = html == null ? "" : String(html);
   const plain = stripHtml(raw);
+  const isHtml = hasHtmlMarkup(raw);
+  const safeHtml = isHtml ? sanitizeFimbaRiderHtml(raw) : null;
+
+  const showTooltip = () => {
+    if (!clamp || !truncated || !plain || !triggerRef.current) return;
+    if (activeDetalleTooltipHide && activeDetalleTooltipHide !== hideTooltip) {
+      activeDetalleTooltipHide();
+    }
+    activeDetalleTooltipHide = hideTooltip;
+    setTooltip(
+      detalleTooltipPosition(triggerRef.current.getBoundingClientRect()),
+    );
+  };
+
+  // Medir overflow real del clamp (resize / cambio de contenido).
+  useEffect(() => {
+    if (!clamp || !plain) {
+      setTruncated(false);
+      return undefined;
+    }
+    const el = triggerRef.current;
+    if (!el) {
+      setTruncated(false);
+      return undefined;
+    }
+    const measure = () => {
+      // 1px de holgura por subpíxeles / zoom.
+      const next =
+        el.scrollHeight > el.clientHeight + 1 ||
+        el.scrollWidth > el.clientWidth + 1;
+      setTruncated((prev) => (prev === next ? prev : next));
+    };
+    measure();
+    const raf = requestAnimationFrame(measure);
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(measure)
+        : null;
+    ro?.observe(el);
+    window.addEventListener("resize", measure);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [clamp, plain, raw]);
+
+  // Si deja de estar truncado, cerrar tooltip abierto.
+  useEffect(() => {
+    if (!truncated) hideTooltip();
+  }, [truncated, hideTooltip]);
+
+  // Cerrar al scroll anidado (agenda) / window, resize y Escape.
+  useEffect(() => {
+    if (!tooltip) return undefined;
+    const close = hideTooltip;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [tooltip, hideTooltip]);
+
+  // Liberar slot global si el trigger se desmonta con tooltip abierto.
+  useEffect(
+    () => () => {
+      if (activeDetalleTooltipHide === hideRef.current) {
+        activeDetalleTooltipHide = null;
+      }
+    },
+    [],
+  );
+
   if (!plain) {
     return (
       <span className={className} style={style}>
@@ -36,26 +153,77 @@ export function FimbaEventDetallePreview({
       </span>
     );
   }
-  const title = clamp ? plain : undefined;
-  if (hasHtmlMarkup(raw)) {
-    const safe = sanitizeFimbaRiderHtml(raw);
-    return (
-      <span
-        className={`fimba-detalle-preview${clamp ? " fimba-detalle-preview--clamp" : ""}${className ? ` ${className}` : ""}`.trim()}
-        style={style}
-        title={title}
-        dangerouslySetInnerHTML={{ __html: safe }}
-      />
-    );
-  }
-  return (
+
+  const previewClass = [
+    isHtml ? "fimba-detalle-preview" : null,
+    clamp ? "fimba-detalle-preview--clamp" : null,
+    className || null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const tooltipInteractive = clamp && truncated;
+  const previewProps = {
+    ref: triggerRef,
+    className: previewClass || undefined,
+    style,
+    ...(tooltipInteractive
+      ? {
+          onMouseEnter: showTooltip,
+          onMouseLeave: hideTooltip,
+          onFocus: showTooltip,
+          onBlur: hideTooltip,
+          tabIndex: 0,
+          "aria-label": plain,
+        }
+      : {}),
+  };
+
+  const previewNode = isHtml ? (
     <span
-      className={`${clamp ? "fimba-detalle-preview--clamp" : ""}${className ? ` ${className}` : ""}`.trim() || undefined}
-      style={style}
-      title={title}
-    >
-      {plain}
-    </span>
+      {...previewProps}
+      dangerouslySetInnerHTML={{ __html: safeHtml }}
+    />
+  ) : (
+    <span {...previewProps}>{raw}</span>
+  );
+
+  const tooltipNode =
+    clamp && tooltip && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            className={`fimba-detalle-tooltip${
+              tooltip.placeAbove ? " fimba-detalle-tooltip--above" : ""
+            }`}
+            style={{
+              top: tooltip.top,
+              left: tooltip.left,
+              transform: tooltip.placeAbove
+                ? "translate(-50%, -100%)"
+                : "translate(-50%, 0)",
+            }}
+            role="tooltip"
+          >
+            {isHtml ? (
+              <div
+                className="fimba-detalle-tooltip-body fimba-detalle-preview"
+                dangerouslySetInnerHTML={{ __html: safeHtml }}
+              />
+            ) : (
+              <div className="fimba-detalle-tooltip-body fimba-detalle-tooltip-body--plain">
+                {raw}
+              </div>
+            )}
+          </div>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <>
+      {previewNode}
+      {tooltipNode}
+    </>
   );
 }
 
@@ -216,11 +384,6 @@ export default function FimbaEventDetalleEditor({
           color: #94a3b8;
           pointer-events: none;
         }
-        .fimba-detalle-preview b,
-        .fimba-detalle-preview strong { font-weight: 700; }
-        .fimba-detalle-preview i,
-        .fimba-detalle-preview em { font-style: italic; }
-        .fimba-detalle-preview u { text-decoration: underline; }
       `}</style>
     </div>
   );

@@ -508,6 +508,11 @@ export default function FimbaAgendaPage() {
   eventosRef.current = eventosBase;
   /** Invalida respuestas stale si reload se re-dispara (HMR / remount / soft). */
   const reloadGenRef = useRef(0);
+  /**
+   * Tras aplicar URL → estado (back/forward / deep-link), saltar un ciclo de
+   * estado → URL para no reescribir params con el state todavía stale.
+   */
+  const skipUrlSyncRef = useRef(false);
 
   const ofrnIncludeActive = hasOfrnConvocatoriaFilter(
     selectedGrupoIds,
@@ -932,6 +937,7 @@ export default function FimbaAgendaPage() {
 
   useEffect(() => {
     const seed = lockedFilters || urlFilters;
+    skipUrlSyncRef.current = true;
     setSelectedPropuestaIds(seed.propuestaIds);
     setSelectedGrupoIds(seed.grupoIds);
     setIncludeTutti(Boolean(seed.includeTutti));
@@ -989,18 +995,10 @@ export default function FimbaAgendaPage() {
 
   useEffect(() => {
     if (queryLocked) return;
-    const incoming = parseFimbaAgendaUrlSearchParams(searchParams, {
-      routeArtistaId: artistaId,
-    });
-    const statePending =
-      (incoming.propuestaIds.length > 0 &&
-        selectedPropuestaIds.join(",") !== incoming.propuestaIds.join(",")) ||
-      (incoming.grupoIds.length > 0 &&
-        selectedGrupoIds.join(",") !== incoming.grupoIds.join(",")) ||
-      (incoming.includeTutti && !includeTutti) ||
-      (incoming.locacionIds.length > 0 &&
-        selectedLocacionIds.join(",") !== incoming.locacionIds.join(","));
-    if (statePending) return;
+    if (skipUrlSyncRef.current) {
+      skipUrlSyncRef.current = false;
+      return;
+    }
 
     const path = buildFimbaAgendaSharePath(location.pathname, {
       propuestaIds: selectedPropuestaIds,
@@ -1018,8 +1016,6 @@ export default function FimbaAgendaPage() {
     }
   }, [
     queryLocked,
-    artistaId,
-    searchParams,
     selectedPropuestaIds,
     selectedGrupoIds,
     includeTutti,
@@ -1498,7 +1494,10 @@ export default function FimbaAgendaPage() {
     setIncludeTutti(false);
     setAgendaSearchQuery("");
     setSearchResetSignal((n) => n + 1);
-  }, [queryLocked]);
+    // Quitar query de filtros ya; el sync estado→URL también lo haría, pero
+    // sin esto un refresh con `?propuestas=…` reaplicaba el filtro.
+    setSearchParams(new URLSearchParams(), { replace: true });
+  }, [queryLocked, setSearchParams]);
 
   const handleDelete = async (ev) => {
     const label = stripHtml(ev.actividad) || ev.tipo_nombre || "evento";
