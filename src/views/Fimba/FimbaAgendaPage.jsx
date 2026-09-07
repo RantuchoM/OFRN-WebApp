@@ -2293,7 +2293,7 @@ export default function FimbaAgendaPage() {
                         </tr>
                       )}
                     <tr
-                      className={`${rowClass}${tipoTint && !rowEditing ? " fimba-has-tipo-tint" : ""}`.trim()}
+                      className={`${rowClass}${tipoTint && !rowEditing ? " fimba-has-tipo-tint" : ""}${rowEditing ? " fimba-agenda-row--editing" : ""}`.trim()}
                       onDoubleClick={
                         readOnly
                           ? undefined
@@ -2315,11 +2315,7 @@ export default function FimbaAgendaPage() {
                             ? "Editando fila · tilde confirma · Esc / X cancela"
                             : "Doble clic en la fila para editar · lápiz = formulario completo"
                       }
-                      style={
-                        rowEditing
-                          ? { background: "rgba(148,33,109,0.06)" }
-                          : tipoTint
-                      }
+                      style={rowEditing ? undefined : tipoTint}
                     >
                       {!readOnly && (
                         <td

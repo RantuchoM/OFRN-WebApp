@@ -13,6 +13,7 @@ import {
   buildInitialOrderTextSummary,
   buildInitialOrderPassengerDetailSections,
   getSuggestedRoomsLabel,
+  listHotelCopyTargets,
   showSuggestedRooms,
 } from "../../utils/roomingInitialOrder";
 
@@ -66,6 +67,13 @@ function formatDayGenderCounts(countM, countF) {
   if (parts.length === 0) return "0";
   return parts.join(", ");
 }
+function orderBlocksForSection(section) {
+  if (section?.splitByHotel && section.hotelBlocks?.length) {
+    return section.hotelBlocks;
+  }
+  return [section];
+}
+
 function sumSectionTotals(sections) {
   return sections.reduce(
     (acc, section) => ({
@@ -165,6 +173,236 @@ function SectionSummaryBox({ title, totals, className = "", bedsPerRoom = 2 }) {
   );
 }
 
+function PassengerDetailTable({ passengers = [], emptyLabel = "Sin pasajeros en este tramo." }) {
+  const dayGroups = groupPassengersByCheckInDay(passengers);
+  let rowNum = 0;
+  return (
+    <table className="w-full border-collapse text-[11px] text-slate-700 mb-4">
+      <thead>
+        <tr>
+          <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-8 uppercase text-[10px]">
+            #
+          </th>
+          <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-left uppercase text-[10px]">
+            Apellido y Nombre
+          </th>
+          <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-12 uppercase text-[10px]">
+            Sexo
+          </th>
+          <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-[70px] uppercase text-[10px]">
+            DNI
+          </th>
+          <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-[70px] uppercase text-[10px]">
+            F. Nac
+          </th>
+          <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-[90px] uppercase text-[10px]">
+            Check In
+          </th>
+          <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-[90px] uppercase text-[10px]">
+            Check Out
+          </th>
+          <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-14 uppercase text-[10px]">
+            Noches
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {dayGroups.length === 0 ? (
+          <tr>
+            <td
+              colSpan={8}
+              className="border border-slate-300 px-3 py-4 text-center text-slate-400 italic"
+            >
+              {emptyLabel}
+            </td>
+          </tr>
+        ) : (
+          dayGroups.flatMap((group) => {
+            const sep = (
+              <tr key={`day-${group.dayKey}`} className="checkin-day-sep">
+                <td
+                  colSpan={8}
+                  className="border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-bold text-slate-800 text-[11px] border-t-2 border-t-slate-500"
+                >
+                  Ingreso {group.dayLabel}
+                  <span className="font-semibold text-slate-500 ml-2">
+                    ({formatDayGenderCounts(group.countM, group.countF)})
+                  </span>
+                </td>
+              </tr>
+            );
+            const rows = group.passengers.map((p) => {
+              rowNum += 1;
+              const n = rowNum;
+              const nights =
+                p.nights != null
+                  ? p.nights
+                  : p.dateIn && p.dateOut
+                    ? Math.max(
+                        0,
+                        Math.round(
+                          (p.dateOut - p.dateIn) / (1000 * 60 * 60 * 24),
+                        ),
+                      )
+                    : "-";
+              return (
+                <tr key={`${p.id}-${n}`}>
+                  <td className="border border-slate-300 px-2 py-1.5 text-center align-middle">
+                    {n}
+                  </td>
+                  <td className="border border-slate-300 px-2 py-1.5 align-middle">
+                    <b>{p.apellido}</b>, {p.nombre}
+                    {p.en_cuna ? " (Cuna)" : ""}
+                  </td>
+                  <td className="border border-slate-300 px-2 py-1.5 text-center align-middle">
+                    {p.genero || "-"}
+                  </td>
+                  <td className="border border-slate-300 px-2 py-1.5 date-col text-center align-middle font-mono text-[11px]">
+                    {p.dni || "-"}
+                  </td>
+                  <td className="border border-slate-300 px-2 py-1.5 date-col text-center align-middle font-mono text-[11px]">
+                    {formatDetailDob(p.fecha_nac)}
+                  </td>
+                  <td className="border border-slate-300 px-2 py-1.5 date-col text-center align-middle font-mono text-[11px]">
+                    {formatDetailDate(p.dateIn)}{" "}
+                    <span className="text-muted text-slate-400 text-[10px]">
+                      {formatDetailTime(p.dateIn)}
+                    </span>
+                  </td>
+                  <td className="border border-slate-300 px-2 py-1.5 date-col text-center align-middle font-mono text-[11px]">
+                    {formatDetailDate(p.dateOut)}{" "}
+                    <span className="text-muted text-slate-400 text-[10px]">
+                      {formatDetailTime(p.dateOut)}
+                    </span>
+                  </td>
+                  <td className="border border-slate-300 px-2 py-1.5 text-center align-middle font-bold text-slate-800">
+                    {nights}
+                  </td>
+                </tr>
+              );
+            });
+            return [sep, ...rows];
+          })
+        )}
+      </tbody>
+    </table>
+  );
+}
+
+function OrderDatesTable({
+  block,
+  showRoomsColumn,
+  emptyLabel = "No hay requerimientos en este tramo.",
+}) {
+  const rows = block.computedRows || [];
+  const hasRows = rows.length > 0;
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th style={{ width: "20%" }}>Fecha In / Out</th>
+          <th style={{ width: "6%" }}>Noches</th>
+          <th style={{ width: "7%" }}>Total Pax</th>
+          <th className="bg-std text-std" style={{ width: "7%" }}>
+            Pax Bás
+          </th>
+          <th className="bg-std text-std" style={{ width: "8%" }}>
+            Camas Bás
+          </th>
+          <th className="bg-plus text-plus" style={{ width: "7%" }}>
+            Pax Sup
+          </th>
+          <th className="bg-plus text-plus" style={{ width: "8%" }}>
+            Camas Sup
+          </th>
+          <th style={{ width: "9%" }}>Total Camas</th>
+          <th style={{ width: "8%" }}>Cunas</th>
+          {showRoomsColumn && (
+            <th style={{ width: "10%" }}>Habs Sugeridas</th>
+          )}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, idx) => {
+          const {
+            group,
+            stdPax,
+            plusPax,
+            totalRowPax,
+            stdNights,
+            plusNights,
+            totalRowNights,
+            suggestedRooms,
+            cunaCount,
+            cunas,
+          } = row;
+          const cunaTitle = (cunas || []).map(formatCunaDetail).join(" · ");
+          return (
+            <tr key={idx}>
+              <td className="date-col">{group.rangeLabel}</td>
+              <td className="highlight">{group.nights}</td>
+              <td>{totalRowPax}</td>
+              <td className="bg-std">{stdPax > 0 ? stdPax : "-"}</td>
+              <td className="bg-std font-bold">
+                {stdNights > 0 ? stdNights : "-"}
+              </td>
+              <td className="bg-plus">{plusPax > 0 ? plusPax : "-"}</td>
+              <td className="bg-plus font-bold text-plus">
+                {plusNights > 0 ? plusNights : "-"}
+              </td>
+              <td className="text-total">{totalRowNights}</td>
+              <td
+                className={cunaCount > 0 ? "font-bold text-emerald-700" : ""}
+                title={cunaTitle || undefined}
+              >
+                {cunaCount > 0 ? cunaCount : "-"}
+                {cunaCount > 0 && (
+                  <div className="text-[9px] font-normal text-emerald-800/80 leading-tight mt-0.5">
+                    {(cunas || []).map(formatCunaDetail).join(", ")}
+                  </div>
+                )}
+              </td>
+              {showRoomsColumn && <td>{suggestedRooms}</td>}
+            </tr>
+          );
+        })}
+        {!hasRows && (
+          <tr>
+            <td
+              colSpan={showRoomsColumn ? 10 : 9}
+              style={{ textAlign: "center", color: "#94a3b8", padding: "20px" }}
+            >
+              {emptyLabel}
+            </td>
+          </tr>
+        )}
+      </tbody>
+      {hasRows && (
+        <tfoot>
+          <tr className="total-row">
+            <td style={{ textAlign: "right" }}>TOTALES</td>
+            <td></td>
+            <td>{block.totalPax}</td>
+            <td className="bg-std">{block.totalStdPax}</td>
+            <td className="bg-std">{block.grandTotalStdNights}</td>
+            <td className="bg-plus">{block.totalPlusPax}</td>
+            <td className="bg-plus">{block.grandTotalPlusNights}</td>
+            <td className="text-total">{block.totalBedNights}</td>
+            <td
+              className={
+                block.totalCunas > 0 ? "font-bold text-emerald-700" : ""
+              }
+            >
+              {block.totalCunas > 0 ? block.totalCunas : "-"}
+            </td>
+            {showRoomsColumn && <td>{block.totalSuggestedRooms}</td>}
+          </tr>
+        </tfoot>
+      )}
+    </table>
+  );
+}
+
 const InitialOrderReportModal = ({
   roster,
   logisticsMap,
@@ -188,7 +426,7 @@ const InitialOrderReportModal = ({
     const [showDetailModal, setShowDetailModal] = useState(
       initialView === "detail",
     );
-    const [copied, setCopied] = useState(false);
+    const [copiedKey, setCopiedKey] = useState(null);
     const showRoomsColumn = showSuggestedRooms(bedsPerRoom);
 
     const handlePrint = () => {
@@ -212,6 +450,7 @@ const InitialOrderReportModal = ({
                         h2 { font-size: 11px; margin: 0 0 8px; color: #64748b; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
                         h3 { font-size: 10px; margin: 6px 0 3px; color: #475569; font-weight: bold; text-transform: uppercase; }
                         .tramo-title { font-size: 10px; font-weight: bold; color: #312e81; border-bottom: 1px solid #c7d2fe; padding-bottom: 2px; margin: 8px 0 4px; }
+                        .hotel-title { font-size: 11px; font-weight: bold; color: #0f766e; border-bottom: 1px solid #99f6e4; padding-bottom: 2px; margin: 10px 0 6px; }
                         .print-note { display: none; }
 
                         .summary-box {
@@ -254,7 +493,9 @@ const InitialOrderReportModal = ({
                         .text-plus { color: #b45309; font-weight: bold; }
                         .text-total { color: #4f46e5; font-weight: bold; }
                         .section-tramo-block { page-break-inside: avoid; break-inside: avoid; margin-top: 4px; }
+                        .hotel-block { margin-top: 8px; }
                         .per-tramo-summary { display: none !important; }
+                        .per-hotel-summary { display: flex !important; }
                         .grand-summary-footer { display: none !important; }
                         .print-only-top-summary { display: block !important; margin-bottom: 8px; }
                         .desglose-heading { display: none; }
@@ -329,6 +570,7 @@ const InitialOrderReportModal = ({
                         h1 { font-size: 18px; color: #1e1b4b; border-bottom: 2px solid #1e1b4b; padding-bottom: 5px; margin-bottom: 8px; }
                         h2 { font-size: 12px; margin: 0 0 12px; color: #64748b; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
                         h3 { font-size: 12px; color: #312e81; margin: 18px 0 8px; border-bottom: 1px solid #c7d2fe; padding-bottom: 4px; page-break-after: avoid; }
+                        h4 { font-size: 12px; color: #0f766e; margin: 14px 0 8px; border-bottom: 1px solid #99f6e4; padding-bottom: 4px; page-break-after: avoid; }
                         table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 11px; }
                         th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: center; vertical-align: middle; }
                         th { background-color: #e2e8f0; font-weight: 700; color: #334155; text-transform: uppercase; font-size: 10px; }
@@ -448,6 +690,11 @@ const InitialOrderReportModal = ({
 
     /** Varios tramos visibles → layout multi; uno solo → como pedido clásico. */
     const showMultiLayout = visibleSections.length > 1;
+    const anyHotelSplit = visibleSections.some((s) => s.splitByHotel);
+    const hotelCopyTargets = useMemo(
+      () => listHotelCopyTargets(visibleSections),
+      [visibleSections],
+    );
 
     const displayTotals = useMemo(() => {
       if (visibleSections.length === 1) return visibleSections[0];
@@ -459,16 +706,27 @@ const InitialOrderReportModal = ({
       [visibleSections],
     );
 
+    const showTopAggregate =
+      !showMultiLayout && !anyHotelSplit && visibleSections.length > 0;
+    const showGrandFooter = showMultiLayout || anyHotelSplit;
+
     const textSummary = useMemo(
       () => buildInitialOrderTextSummary(visibleSections, { bedsPerRoom }),
       [visibleSections, bedsPerRoom],
     );
 
-    const handleCopyTextSummary = async () => {
+    const handleCopyTextSummary = async (hotelKey = null) => {
       try {
-        await navigator.clipboard.writeText(textSummary);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
+        const text = hotelKey
+          ? buildInitialOrderTextSummary(visibleSections, {
+              bedsPerRoom,
+              hotelKey,
+            })
+          : textSummary;
+        if (!text) return;
+        await navigator.clipboard.writeText(text);
+        setCopiedKey(hotelKey || "all");
+        setTimeout(() => setCopiedKey(null), 1500);
       } catch (error) {
         console.error("No se pudo copiar el pedido de hotelería:", error);
       }
@@ -517,20 +775,26 @@ const InitialOrderReportModal = ({
                     <h1 style={{margin:0}}>Pedido de Plazas</h1>
                     {programName && <h2>{programName}</h2>}
 
-                    {showMultiLayout && (
+                    {showGrandFooter && (
                       <div
                         className="print-only-top-summary"
                         style={{ display: "none" }}
                       >
                         <SectionSummaryBox
-                          title={`Total general (${visibleSections.length} tramos)`}
+                          title={
+                            showMultiLayout && anyHotelSplit
+                              ? `Total general (${visibleSections.length} tramos)`
+                              : showMultiLayout
+                                ? `Total general (${visibleSections.length} tramos)`
+                                : `Total general (${hotelCopyTargets.length || visibleSections.length} hoteles)`
+                          }
                           totals={grandTotals}
                           bedsPerRoom={bedsPerRoom}
                         />
                       </div>
                     )}
 
-                    {!showMultiLayout && visibleSections.length > 0 && (
+                    {showTopAggregate && (
                       <SectionSummaryBox totals={displayTotals} bedsPerRoom={bedsPerRoom} />
                     )}
 
@@ -540,7 +804,10 @@ const InitialOrderReportModal = ({
                       </p>
                     )}
 
-                    {visibleSections.map((section, visIdx) => (
+                    {visibleSections.map((section, visIdx) => {
+                      const hotelBlocks = orderBlocksForSection(section);
+                      const splitHotels = Boolean(section.splitByHotel);
+                      return (
                       <div
                         key={section.segmentId ?? section.title ?? visIdx}
                         className={`section-tramo-block${visIdx > 0 ? " mt-8" : ""}`}
@@ -550,7 +817,7 @@ const InitialOrderReportModal = ({
                             {section.title}
                           </div>
                         )}
-                        {showMultiLayout && section.sortedGroups.length > 0 && (
+                        {showMultiLayout && !splitHotels && section.sortedGroups.length > 0 && (
                           <SectionSummaryBox
                             className="per-tramo-summary"
                             title={`Resumen · ${section.title ?? "Gira"}`}
@@ -563,90 +830,47 @@ const InitialOrderReportModal = ({
                           * Referencia: (Pax × Noches) = Total Camas Noche. Las cunas no se facturan como noche; se informan para preparación del hotel.
                         </p>
 
-                        <table>
-                          <thead>
-                            <tr>
-                              <th style={{width: '20%'}}>Fecha In / Out</th>
-                              <th style={{width: '6%'}}>Noches</th>
-                              <th style={{width: '7%'}}>Total Pax</th>
-                              <th className="bg-std text-std" style={{width: '7%'}}>Pax Bás</th>
-                              <th className="bg-std text-std" style={{width: '8%'}}>Camas Bás</th>
-                              <th className="bg-plus text-plus" style={{width: '7%'}}>Pax Sup</th>
-                              <th className="bg-plus text-plus" style={{width: '8%'}}>Camas Sup</th>
-                              <th style={{width: '9%'}}>Total Camas</th>
-                              <th style={{width: '8%'}}>Cunas</th>
-                              {showRoomsColumn && (
-                                <th style={{width: '10%'}}>Habs Sugeridas</th>
-                              )}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {section.computedRows.map((row, idx) => {
-                              const { group, stdPax, plusPax, totalRowPax, stdNights, plusNights, totalRowNights, suggestedRooms, cunaCount, cunas } = row;
-                              const cunaTitle = (cunas || [])
-                                .map(formatCunaDetail)
-                                .join(" · ");
-                              return (
-                                <tr key={idx}>
-                                  <td className="date-col">{group.rangeLabel}</td>
-                                  <td className="highlight">{group.nights}</td>
-                                  <td>{totalRowPax}</td>
-                                  <td className="bg-std">{stdPax > 0 ? stdPax : '-'}</td>
-                                  <td className="bg-std font-bold">{stdNights > 0 ? stdNights : '-'}</td>
-                                  <td className="bg-plus">{plusPax > 0 ? plusPax : '-'}</td>
-                                  <td className="bg-plus font-bold text-plus">{plusNights > 0 ? plusNights : '-'}</td>
-                                  <td className="text-total">{totalRowNights}</td>
-                                  <td
-                                    className={cunaCount > 0 ? "font-bold text-emerald-700" : ""}
-                                    title={cunaTitle || undefined}
-                                  >
-                                    {cunaCount > 0 ? cunaCount : "-"}
-                                    {cunaCount > 0 && (
-                                      <div className="text-[9px] font-normal text-emerald-800/80 leading-tight mt-0.5">
-                                        {(cunas || []).map(formatCunaDetail).join(", ")}
-                                      </div>
-                                    )}
-                                  </td>
-                                  {showRoomsColumn && <td>{suggestedRooms}</td>}
-                                </tr>
-                              );
-                            })}
-                            {section.sortedGroups.length === 0 && (
-                              <tr>
-                                <td colSpan={showRoomsColumn ? 10 : 9} style={{textAlign:'center', color: '#94a3b8', padding: '20px'}}>
-                                  No hay requerimientos en este tramo.
-                                </td>
-                              </tr>
+                        {hotelBlocks.map((block, blockIdx) => (
+                          <div
+                            key={block.hotelKey ?? block.bookingId ?? blockIdx}
+                            className={`hotel-block${blockIdx > 0 ? " mt-6" : ""}`}
+                          >
+                            {block.hotelName && (
+                              <div className="hotel-title mb-3 text-sm font-bold text-teal-800 border-b border-teal-200 pb-1">
+                                {block.hotelName}
+                              </div>
                             )}
-                          </tbody>
-                          {section.sortedGroups.length > 0 && (
-                            <tfoot>
-                              <tr className="total-row">
-                                <td style={{textAlign:'right'}}>TOTALES</td>
-                                <td></td>
-                                <td>{section.totalPax}</td>
-                                <td className="bg-std">{section.totalStdPax}</td>
-                                <td className="bg-std">{section.grandTotalStdNights}</td>
-                                <td className="bg-plus">{section.totalPlusPax}</td>
-                                <td className="bg-plus">{section.grandTotalPlusNights}</td>
-                                <td className="text-total">{section.totalBedNights}</td>
-                                <td className={section.totalCunas > 0 ? "font-bold text-emerald-700" : ""}>
-                                  {section.totalCunas > 0 ? section.totalCunas : "-"}
-                                </td>
-                                {showRoomsColumn && (
-                                  <td>{section.totalSuggestedRooms}</td>
-                                )}
-                              </tr>
-                            </tfoot>
-                          )}
-                        </table>
+                            {splitHotels && (block.sortedGroups?.length > 0 || block.computedRows?.length > 0) && (
+                              <SectionSummaryBox
+                                className="per-hotel-summary"
+                                title={`Resumen · ${block.hotelName ?? "Hotel"}`}
+                                totals={block}
+                                bedsPerRoom={bedsPerRoom}
+                              />
+                            )}
+                            <OrderDatesTable
+                              block={block}
+                              showRoomsColumn={showRoomsColumn}
+                              emptyLabel={
+                                splitHotels
+                                  ? "No hay requerimientos en este hotel."
+                                  : "No hay requerimientos en este tramo."
+                              }
+                            />
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                      );
+                    })}
 
-                    {showMultiLayout && (
+                    {showGrandFooter && (
                       <div className="grand-summary-footer mt-8 pt-6 border-t border-slate-200">
                         <SectionSummaryBox
-                          title={`Total general (${visibleSections.length} tramos)`}
+                          title={
+                            showMultiLayout
+                              ? `Total general (${visibleSections.length} tramos)`
+                              : `Total general (${hotelCopyTargets.length || visibleSections.length} hoteles)`
+                          }
                           totals={grandTotals}
                           bedsPerRoom={bedsPerRoom}
                         />
@@ -666,9 +890,16 @@ const InitialOrderReportModal = ({
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-slate-800">
-                      Texto para enviar a hotelería
-                    </h3>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800">
+                        Texto para enviar a hotelería
+                      </h3>
+                      {hotelCopyTargets.length > 1 && (
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Pedido partido por hotel. Podés copiar cada hotel por separado.
+                        </p>
+                      )}
+                    </div>
                     <button
                       type="button"
                       onClick={() => setShowTextModal(false)}
@@ -685,7 +916,7 @@ const InitialOrderReportModal = ({
                       className="w-full min-h-[360px] border border-slate-300 rounded-lg p-3 text-sm font-mono text-slate-700 resize-y bg-slate-50"
                     />
                   </div>
-                  <div className="px-4 py-3 border-t border-slate-200 flex justify-end gap-2">
+                  <div className="px-4 py-3 border-t border-slate-200 flex flex-wrap justify-end gap-2">
                     <button
                       type="button"
                       onClick={() => setShowTextModal(false)}
@@ -693,18 +924,51 @@ const InitialOrderReportModal = ({
                     >
                       Cerrar
                     </button>
+                    {hotelCopyTargets.map((target) => {
+                      const copiedHere = copiedKey === target.hotelKey;
+                      return (
+                        <button
+                          key={target.hotelKey}
+                          type="button"
+                          onClick={() => handleCopyTextSummary(target.hotelKey)}
+                          className={`px-3 py-1.5 rounded text-xs font-bold text-white flex items-center gap-1 max-w-[16rem] ${
+                            copiedHere
+                              ? "bg-emerald-600"
+                              : "bg-teal-700 hover:bg-teal-800"
+                          }`}
+                          title={`Copiar solo ${target.hotelName}`}
+                        >
+                          {copiedHere ? (
+                            <IconCheck size={14} />
+                          ) : (
+                            <IconCopy size={14} />
+                          )}
+                          <span className="truncate">
+                            {copiedHere ? "Copiado" : `Copiar ${target.hotelName}`}
+                          </span>
+                        </button>
+                      );
+                    })}
                     <button
                       type="button"
-                      onClick={handleCopyTextSummary}
+                      onClick={() => handleCopyTextSummary()}
                       disabled={!textSummary}
                       className={`px-3 py-1.5 rounded text-xs font-bold text-white flex items-center gap-1 disabled:opacity-50 ${
-                        copied
+                        copiedKey === "all"
                           ? "bg-emerald-600"
                           : "bg-indigo-600 hover:bg-indigo-700"
                       }`}
                     >
-                      {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
-                      {copied ? "Copiado" : "Copiar texto"}
+                      {copiedKey === "all" ? (
+                        <IconCheck size={14} />
+                      ) : (
+                        <IconCopy size={14} />
+                      )}
+                      {copiedKey === "all"
+                        ? "Copiado"
+                        : hotelCopyTargets.length > 1
+                          ? "Copiar todo"
+                          : "Copiar texto"}
                     </button>
                   </div>
                 </div>
@@ -755,7 +1019,12 @@ const InitialOrderReportModal = ({
                         {programName}
                       </h2>
                     )}
-                    {visibleDetailSections.map((section, sectionIdx) => (
+                    {visibleDetailSections.map((section, sectionIdx) => {
+                      const detailBlocks =
+                        section.splitByHotel && section.hotelBlocks?.length
+                          ? section.hotelBlocks
+                          : [{ hotelName: null, passengers: section.passengers }];
+                      return (
                       <div
                         key={section.segmentId ?? section.title ?? sectionIdx}
                         className={sectionIdx > 0 ? "page-break mt-6" : ""}
@@ -765,128 +1034,32 @@ const InitialOrderReportModal = ({
                             {section.title}
                           </h3>
                         )}
-                        <table className="w-full border-collapse text-[11px] text-slate-700 mb-4">
-                          <thead>
-                            <tr>
-                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-8 uppercase text-[10px]">
-                                #
-                              </th>
-                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-left uppercase text-[10px]">
-                                Apellido y Nombre
-                              </th>
-                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-12 uppercase text-[10px]">
-                                Sexo
-                              </th>
-                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-[70px] uppercase text-[10px]">
-                                DNI
-                              </th>
-                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-[70px] uppercase text-[10px]">
-                                F. Nac
-                              </th>
-                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-[90px] uppercase text-[10px]">
-                                Check In
-                              </th>
-                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-[90px] uppercase text-[10px]">
-                                Check Out
-                              </th>
-                              <th className="border border-slate-300 bg-slate-200 px-2 py-1.5 text-center w-14 uppercase text-[10px]">
-                                Noches
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(() => {
-                              const dayGroups = groupPassengersByCheckInDay(
-                                section.passengers || [],
-                              );
-                              let rowNum = 0;
-                              if (dayGroups.length === 0) {
-                                return (
-                                  <tr>
-                                    <td
-                                      colSpan={8}
-                                      className="border border-slate-300 px-3 py-4 text-center text-slate-400 italic"
-                                    >
-                                      Sin pasajeros en este tramo.
-                                    </td>
-                                  </tr>
-                                );
+                        {detailBlocks.map((block, blockIdx) => (
+                          <div
+                            key={block.hotelKey ?? block.hotelName ?? blockIdx}
+                            className={blockIdx > 0 ? "mt-5" : ""}
+                          >
+                            {block.hotelName && (
+                              <h4 className="text-sm font-bold text-teal-800 border-b border-teal-200 pb-1 mb-3">
+                                {block.hotelName}
+                                <span className="font-semibold text-slate-500 ml-2">
+                                  ({block.passengers?.length || 0})
+                                </span>
+                              </h4>
+                            )}
+                            <PassengerDetailTable
+                              passengers={block.passengers}
+                              emptyLabel={
+                                section.splitByHotel
+                                  ? "Sin pasajeros en este hotel."
+                                  : "Sin pasajeros en este tramo."
                               }
-                              return dayGroups.flatMap((group) => {
-                                const sep = (
-                                  <tr
-                                    key={`day-${group.dayKey}`}
-                                    className="checkin-day-sep"
-                                  >
-                                    <td
-                                      colSpan={8}
-                                      className="border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-bold text-slate-800 text-[11px] border-t-2 border-t-slate-500"
-                                    >
-                                      Ingreso {group.dayLabel}
-                                      <span className="font-semibold text-slate-500 ml-2">
-                                        ({formatDayGenderCounts(group.countM, group.countF)})
-                                      </span>
-                                    </td>
-                                  </tr>
-                                );
-                                const rows = group.passengers.map((p) => {
-                                  rowNum += 1;
-                                  const n = rowNum;
-                                  const nights =
-                                    p.nights != null
-                                      ? p.nights
-                                      : p.dateIn && p.dateOut
-                                        ? Math.max(
-                                            0,
-                                            Math.round(
-                                              (p.dateOut - p.dateIn) /
-                                                (1000 * 60 * 60 * 24),
-                                            ),
-                                          )
-                                        : "-";
-                                  return (
-                                    <tr key={`${p.id}-${n}`}>
-                                      <td className="border border-slate-300 px-2 py-1.5 text-center align-middle">
-                                        {n}
-                                      </td>
-                                      <td className="border border-slate-300 px-2 py-1.5 align-middle">
-                                        <b>{p.apellido}</b>, {p.nombre}
-                                        {p.en_cuna ? " (Cuna)" : ""}
-                                      </td>
-                                      <td className="border border-slate-300 px-2 py-1.5 text-center align-middle">
-                                        {p.genero || "-"}
-                                      </td>
-                                      <td className="border border-slate-300 px-2 py-1.5 date-col text-center align-middle font-mono text-[11px]">
-                                        {p.dni || "-"}
-                                      </td>
-                                      <td className="border border-slate-300 px-2 py-1.5 date-col text-center align-middle font-mono text-[11px]">
-                                        {formatDetailDob(p.fecha_nac)}
-                                      </td>
-                                      <td className="border border-slate-300 px-2 py-1.5 date-col text-center align-middle font-mono text-[11px]">
-                                        {formatDetailDate(p.dateIn)}{" "}
-                                        <span className="text-muted text-slate-400 text-[10px]">
-                                          {formatDetailTime(p.dateIn)}
-                                        </span>
-                                      </td>
-                                      <td className="border border-slate-300 px-2 py-1.5 date-col text-center align-middle font-mono text-[11px]">
-                                        {formatDetailDate(p.dateOut)}{" "}
-                                        <span className="text-muted text-slate-400 text-[10px]">
-                                          {formatDetailTime(p.dateOut)}
-                                        </span>
-                                      </td>
-                                      <td className="border border-slate-300 px-2 py-1.5 text-center align-middle font-bold text-slate-800">
-                                        {nights}
-                                      </td>
-                                    </tr>
-                                  );
-                                });
-                                return [sep, ...rows];
-                              });
-                            })()}
-                          </tbody>
-                        </table>
+                            />
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>

@@ -355,6 +355,131 @@ export function findPersonBookingInSegment(
   return null;
 }
 
+export const UNASSIGNED_HOTEL_KEY = "unassigned";
+
+export function hotelLabelFromBooking(booking) {
+  const name = booking?.hoteles?.nombre?.trim() || "Hotel";
+  const loc =
+    booking?.hoteles?.localidades?.localidad ||
+    booking?.hoteles?.localidad ||
+    null;
+  const locLabel = loc ? String(loc).trim() : "";
+  if (
+    locLabel &&
+    !name.toLowerCase().includes(locLabel.toLowerCase())
+  ) {
+    return `${name} (${locLabel})`;
+  }
+  return name;
+}
+
+function listSegmentBookings(bookings, segmentBookingIds) {
+  return (bookings || []).filter(
+    (b) => !segmentBookingIds || segmentBookingIds.has(b.id),
+  );
+}
+
+function buildAssignedBookingByPerson(rooms, bookings, segmentBookingIds) {
+  const bookingById = new Map((bookings || []).map((b) => [b.id, b]));
+  const segmentRooms = getSegmentRooms(rooms, segmentBookingIds);
+  const assignedBookingByPerson = new Map();
+  segmentRooms.forEach((room) => {
+    const booking = bookingById.get(room.id_hospedaje) ?? null;
+    getAllRoomPersonIds(room).forEach((personId) => {
+      if (!assignedBookingByPerson.has(personId)) {
+        assignedBookingByPerson.set(personId, booking);
+      }
+    });
+  });
+  return { assignedBookingByPerson, segmentRooms, bookingById };
+}
+
+function hotelKeyForBooking(booking) {
+  if (booking?.id_hotel != null) return `hotel:${booking.id_hotel}`;
+  if (booking?.id != null) return `booking:${booking.id}`;
+  return UNASSIGNED_HOTEL_KEY;
+}
+
+function personMatchesHotelFilter(
+  personId,
+  assignedBookingByPerson,
+  hotelFilter,
+) {
+  if (!hotelFilter) return true;
+  const booking = assignedBookingByPerson.get(Number(personId));
+  if (hotelFilter.type === "unassigned") {
+    return !booking || booking.id == null;
+  }
+  if (hotelFilter.type === "booking") {
+    return (
+      booking != null && Number(booking.id) === Number(hotelFilter.bookingId)
+    );
+  }
+  return true;
+}
+
+/**
+ * Parte el pedido por hotel cuando hay 2+ hospedajes en el tramo y al menos
+ * una persona ya asignada a una habitación.
+ */
+export function listPedidoHotelBuckets({
+  bookings = [],
+  rooms = [],
+  segmentBookingIds = null,
+}) {
+  const segmentBookings = listSegmentBookings(bookings, segmentBookingIds);
+  const { assignedBookingByPerson } = buildAssignedBookingByPerson(
+    rooms,
+    bookings,
+    segmentBookingIds,
+  );
+  const assignedBookingIds = new Set();
+  assignedBookingByPerson.forEach((booking) => {
+    if (booking?.id != null) assignedBookingIds.add(booking.id);
+  });
+
+  const split = segmentBookings.length >= 2 && assignedBookingIds.size >= 1;
+  if (!split) {
+    return {
+      split: false,
+      buckets: [
+        {
+          hotelKey: null,
+          hotelId: null,
+          hotelName: null,
+          bookingId: null,
+          hotelFilter: null,
+        },
+      ],
+    };
+  }
+
+  const buckets = segmentBookings
+    .filter((b) => assignedBookingIds.has(b.id))
+    .map((b) => ({
+      hotelKey: hotelKeyForBooking(b),
+      hotelId: b.id_hotel ?? null,
+      hotelName: hotelLabelFromBooking(b),
+      bookingId: b.id,
+      hotelFilter: { type: "booking", bookingId: b.id },
+    }))
+    .sort((a, b) =>
+      String(a.hotelName).localeCompare(String(b.hotelName), "es", {
+        sensitivity: "base",
+      }),
+    );
+
+  buckets.push({
+    hotelKey: UNASSIGNED_HOTEL_KEY,
+    hotelId: null,
+    hotelName: "Sin asignar",
+    bookingId: null,
+    hotelFilter: { type: "unassigned" },
+  });
+
+  return { split: true, buckets };
+}
+
 export function makeAdjustmentKey(segmentId, rangeLabel) {
   if (segmentId == null) return rangeLabel;
   return `${segmentId}::${rangeLabel}`;
@@ -698,11 +823,12 @@ export function buildInitialDateGroups({
   defaultSegmentId = null,
   tramoIndice = null,
   excludedPersonIds = null,
+  /** { type: 'booking', bookingId } | { type: 'unassigned' } | null */
+  hotelFilter = null,
 }) {
   const rosterById = new Map(
     (roster || []).map((p) => [Number(p.id), p]),
   );
-  const bookingById = new Map((bookings || []).map((b) => [b.id, b]));
   const resolvedIndice =
     tramoIndice != null
       ? Number(tramoIndice)
@@ -717,11 +843,20 @@ export function buildInitialDateGroups({
     resolvedIndice,
   );
 
+  const { assignedBookingByPerson, segmentRooms } =
+    buildAssignedBookingByPerson(rooms, bookings, segmentBookingIds);
+
   const getPlusRoomForPerson = (personId) => {
     if (!rooms?.length) return null;
     return (
       rooms.find((r) => {
         if (segmentBookingIds && !segmentBookingIds.has(r.id_hospedaje)) {
+          return false;
+        }
+        if (
+          hotelFilter?.type === "booking" &&
+          Number(r.id_hospedaje) !== Number(hotelFilter.bookingId)
+        ) {
           return false;
         }
         if (r.tipo !== "Plus") return false;
@@ -735,23 +870,20 @@ export function buildInitialDateGroups({
   const formatT = (d) =>
     d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
 
-  const segmentRooms = getSegmentRooms(rooms, segmentBookingIds);
-  const assignedBookingByPerson = new Map();
-
-  segmentRooms.forEach((room) => {
-    const booking = bookingById.get(room.id_hospedaje);
-    getAllRoomPersonIds(room).forEach((personId) => {
-      if (!assignedBookingByPerson.has(personId)) {
-        assignedBookingByPerson.set(personId, booking);
-      }
-    });
-  });
-
   roster.forEach((person) => {
     const personId = Number(person.id);
     const est = normalize(person.estado_gira || person.estado);
     if (est === "ausente" || est === "baja") return;
     if (excludedPersonIds?.has(personId)) return;
+    if (
+      !personMatchesHotelFilter(
+        personId,
+        assignedBookingByPerson,
+        hotelFilter,
+      )
+    ) {
+      return;
+    }
 
     const enriched = resolvePersonForPedido(
       personId,
@@ -814,6 +946,89 @@ export function buildInitialDateGroups({
   };
 }
 
+function computeRowsFromDateGroups(
+  sortedGroups,
+  segmentId,
+  adjustmentsByRange,
+  bedsPerRoom,
+  applyAdjustments,
+) {
+  return (sortedGroups || []).map((group) => {
+    const adj = applyAdjustments
+      ? getAdjustmentForRange(adjustmentsByRange, segmentId, group.rangeLabel)
+      : DEFAULT_ADJ;
+    const extraStdM = adj.std_m || 0;
+    const extraStdF = adj.std_f || 0;
+    const extraPlusM = adj.plus_m || 0;
+    const extraPlusF = adj.plus_f || 0;
+    const extraStd = extraStdM + extraStdF;
+    const extraPlus = extraPlusM + extraPlusF;
+    const stdPax = group.baseStd + extraStd;
+    // Ajustes manuales Plus no tienen flag matrimonial → se tratan como single.
+    const plusSinglePax = (group.basePlusSingle || 0) + extraPlus;
+    const plusMatriPax = group.basePlusMatri || 0;
+    const plusPax = plusSinglePax + plusMatriPax;
+    const totalRowPax = stdPax + plusPax;
+    const stdNights = stdPax * group.nights;
+    const plusNights = plusPax * group.nights;
+    const totalRowNights = totalRowPax * group.nights;
+    const totalF = group.baseF + extraStdF + extraPlusF;
+    const totalM = group.baseM + extraStdM + extraPlusM;
+    const suggestedRooms = computeSuggestedRooms(totalF, totalM, bedsPerRoom);
+    const cunas = Array.isArray(group.cunas) ? group.cunas : [];
+    const cunaCount = cunas.length;
+
+    return {
+      group,
+      stdPax,
+      plusPax,
+      plusSinglePax,
+      plusMatriPax,
+      stdM: (group.baseStdM || 0) + extraStdM,
+      stdF: (group.baseStdF || 0) + extraStdF,
+      plusSingleM: (group.basePlusSingleM || 0) + extraPlusM,
+      plusSingleF: (group.basePlusSingleF || 0) + extraPlusF,
+      plusMatriM: group.basePlusMatriM || 0,
+      plusMatriF: group.basePlusMatriF || 0,
+      totalM,
+      totalF,
+      totalRowPax,
+      stdNights,
+      plusNights,
+      totalRowNights,
+      suggestedRooms,
+      cunas,
+      cunaCount,
+    };
+  });
+}
+
+function summarizeOrderBlock(computedRows, extra = {}) {
+  const rows = computedRows || [];
+  const allCunas = rows.flatMap((row) => row.cunas || []);
+  return {
+    ...extra,
+    sortedGroups: rows.map((row) => row.group),
+    computedRows: rows,
+    cunas: allCunas,
+    totalCunas: allCunas.length,
+    totalPax: rows.reduce((acc, row) => acc + row.totalRowPax, 0),
+    totalBedNights: rows.reduce((acc, row) => acc + row.totalRowNights, 0),
+    grandTotalStdNights: rows.reduce((acc, row) => acc + row.stdNights, 0),
+    grandTotalPlusNights: rows.reduce((acc, row) => acc + row.plusNights, 0),
+    totalStdPax: rows.reduce((acc, row) => acc + row.stdPax, 0),
+    totalPlusPax: rows.reduce((acc, row) => acc + row.plusPax, 0),
+    totalSuggestedRooms: rows.reduce(
+      (acc, row) => acc + row.suggestedRooms,
+      0,
+    ),
+  };
+}
+
+function orderBlockHasDemand(block) {
+  return (block?.totalPax || 0) > 0 || (block?.totalCunas || 0) > 0;
+}
+
 export function buildInitialOrderSections({
   roster,
   logisticsMap,
@@ -849,101 +1064,65 @@ export function buildInitialOrderSections({
           defaultSegmentId,
         )
       : null;
-    const { sortedGroups } = buildInitialDateGroups({
-      roster,
-      logisticsMap,
-      segments,
-      segmentRow: segRow,
-      segmentRows,
-      rooms,
+    const { split, buckets } = listPedidoHotelBuckets({
       bookings,
+      rooms,
       segmentBookingIds: bookingIds,
-      defaultSegmentId,
-      tramoIndice,
-      excludedPersonIds: excludedIds,
     });
+    const segmentId = segRow?.id ?? null;
+    const title = segRow && hasTramos ? formatTramoLabel(idx) : null;
 
-    const computedRows = sortedGroups.map((group) => {
-      const adj = getAdjustmentForRange(
+    const hotelBlocks = [];
+    buckets.forEach((bucket) => {
+      const applyAdjustments =
+        !split || bucket.hotelKey === UNASSIGNED_HOTEL_KEY;
+      const { sortedGroups } = buildInitialDateGroups({
+        roster,
+        logisticsMap,
+        segments,
+        segmentRow: segRow,
+        segmentRows,
+        rooms,
+        bookings,
+        segmentBookingIds: bookingIds,
+        defaultSegmentId,
+        tramoIndice,
+        excludedPersonIds: excludedIds,
+        hotelFilter: bucket.hotelFilter,
+      });
+      const computedRows = computeRowsFromDateGroups(
+        sortedGroups,
+        segmentId,
         adjustmentsByRange,
-        segRow?.id ?? null,
-        group.rangeLabel,
+        bedsPerRoom,
+        applyAdjustments,
       );
-      const extraStdM = adj.std_m || 0;
-      const extraStdF = adj.std_f || 0;
-      const extraPlusM = adj.plus_m || 0;
-      const extraPlusF = adj.plus_f || 0;
-      const extraStd = extraStdM + extraStdF;
-      const extraPlus = extraPlusM + extraPlusF;
-      const stdPax = group.baseStd + extraStd;
-      // Ajustes manuales Plus no tienen flag matrimonial → se tratan como single.
-      const plusSinglePax = (group.basePlusSingle || 0) + extraPlus;
-      const plusMatriPax = group.basePlusMatri || 0;
-      const plusPax = plusSinglePax + plusMatriPax;
-      const totalRowPax = stdPax + plusPax;
-      const stdNights = stdPax * group.nights;
-      const plusNights = plusPax * group.nights;
-      const totalRowNights = totalRowPax * group.nights;
-      const totalF = group.baseF + extraStdF + extraPlusF;
-      const totalM = group.baseM + extraStdM + extraPlusM;
-      const suggestedRooms = computeSuggestedRooms(totalF, totalM, bedsPerRoom);
-      const cunas = Array.isArray(group.cunas) ? group.cunas : [];
-      const cunaCount = cunas.length;
-
-      return {
-        group,
-        stdPax,
-        plusPax,
-        plusSinglePax,
-        plusMatriPax,
-        stdM: (group.baseStdM || 0) + extraStdM,
-        stdF: (group.baseStdF || 0) + extraStdF,
-        // Ajustes Plus sin flag → single.
-        plusSingleM: (group.basePlusSingleM || 0) + extraPlusM,
-        plusSingleF: (group.basePlusSingleF || 0) + extraPlusF,
-        plusMatriM: group.basePlusMatriM || 0,
-        plusMatriF: group.basePlusMatriF || 0,
-        totalM,
-        totalF,
-        totalRowPax,
-        stdNights,
-        plusNights,
-        totalRowNights,
-        suggestedRooms,
-        cunas,
-        cunaCount,
-      };
+      const block = summarizeOrderBlock(computedRows, {
+        hotelKey: bucket.hotelKey,
+        hotelId: bucket.hotelId,
+        hotelName: bucket.hotelName,
+        bookingId: bucket.bookingId,
+      });
+      if (
+        split &&
+        bucket.hotelKey === UNASSIGNED_HOTEL_KEY &&
+        !orderBlockHasDemand(block)
+      ) {
+        return;
+      }
+      hotelBlocks.push(block);
     });
 
-    const allCunas = computedRows.flatMap((row) => row.cunas);
-
-    return {
-      segmentId: segRow?.id ?? null,
-      title: segRow && hasTramos ? formatTramoLabel(idx) : null,
-      sortedGroups,
-      computedRows,
-      cunas: allCunas,
-      totalCunas: allCunas.length,
-      totalPax: computedRows.reduce((acc, row) => acc + row.totalRowPax, 0),
-      totalBedNights: computedRows.reduce(
-        (acc, row) => acc + row.totalRowNights,
-        0,
-      ),
-      grandTotalStdNights: computedRows.reduce(
-        (acc, row) => acc + row.stdNights,
-        0,
-      ),
-      grandTotalPlusNights: computedRows.reduce(
-        (acc, row) => acc + row.plusNights,
-        0,
-      ),
-      totalStdPax: computedRows.reduce((acc, row) => acc + row.stdPax, 0),
-      totalPlusPax: computedRows.reduce((acc, row) => acc + row.plusPax, 0),
-      totalSuggestedRooms: computedRows.reduce(
-        (acc, row) => acc + row.suggestedRooms,
-        0,
-      ),
-    };
+    const merged = summarizeOrderBlock(
+      hotelBlocks.flatMap((block) => block.computedRows),
+      {
+        segmentId,
+        title,
+        splitByHotel: split,
+        hotelBlocks,
+      },
+    );
+    return merged;
   };
 
   if (!hasTramos) {
@@ -985,7 +1164,6 @@ export function buildInitialOrderPassengerDetailSections({
         : null;
   const hasTramos = cortesCount > 0 && segmentRows.length > 0;
   const rosterById = new Map((roster || []).map((p) => [Number(p.id), p]));
-  const bookingById = new Map((bookings || []).map((b) => [b.id, b]));
 
   const buildSection = (segRow, idx) => {
     const tramoIndice = Number(
@@ -1008,15 +1186,12 @@ export function buildInitialOrderPassengerDetailSections({
       segmentRows,
       tramoIndice,
     );
-    const segmentRooms = getSegmentRooms(rooms, bookingIds);
-    const assignedBookingByPerson = new Map();
-    segmentRooms.forEach((room) => {
-      const booking = bookingById.get(room.id_hospedaje);
-      getAllRoomPersonIds(room).forEach((personId) => {
-        if (!assignedBookingByPerson.has(personId)) {
-          assignedBookingByPerson.set(personId, booking);
-        }
-      });
+    const { assignedBookingByPerson, segmentRooms } =
+      buildAssignedBookingByPerson(rooms, bookings, bookingIds);
+    const { split, buckets } = listPedidoHotelBuckets({
+      bookings,
+      rooms,
+      segmentBookingIds: bookingIds,
     });
 
     const passengers = [];
@@ -1086,6 +1261,15 @@ export function buildInitialOrderPassengerDetailSections({
         totalNights,
       );
 
+      const hotelKey = assignedBooking
+        ? hotelKeyForBooking(assignedBooking)
+        : UNASSIGNED_HOTEL_KEY;
+      const hotelName = assignedBooking
+        ? hotelLabelFromBooking(assignedBooking)
+        : split
+          ? "Sin asignar"
+          : null;
+
       passengers.push({
         id: enriched.id,
         apellido: enriched.apellido || "",
@@ -1097,14 +1281,32 @@ export function buildInitialOrderPassengerDetailSections({
         dateOut: lastClip.clippedOut,
         nights: eligibleNights.length,
         en_cuna: isPersonInCunaForPedido(personId, segmentRooms, enriched),
+        hotelKey,
+        hotelName,
       });
     });
 
     passengers.sort(comparePassengersByCheckIn);
 
+    const hotelBlocks = split
+      ? buckets
+          .map((bucket) => ({
+            hotelKey: bucket.hotelKey,
+            hotelName: bucket.hotelName,
+            passengers: passengers.filter((p) =>
+              bucket.hotelKey === UNASSIGNED_HOTEL_KEY
+                ? p.hotelKey === UNASSIGNED_HOTEL_KEY
+                : p.hotelKey === bucket.hotelKey,
+            ),
+          }))
+          .filter((block) => block.passengers.length > 0)
+      : [];
+
     return {
       segmentId: segRow?.id ?? null,
       title: segRow && hasTramos ? formatTramoLabel(idx) : null,
+      splitByHotel: split,
+      hotelBlocks,
       passengers,
     };
   };
@@ -1270,101 +1472,204 @@ function appendTextSummaryBlock(lines, totals, { title, bedsPerRoom } = {}) {
   }
 }
 
+function appendOrderRowsToText(lines, computedRows) {
+  const superiorSingleLabel = "habitación superior (single)";
+  const superiorMatriLabel = "habitación superior (matrimonial)";
+
+  (computedRows || []).forEach((row) => {
+    const {
+      stdPax,
+      plusPax,
+      plusSinglePax,
+      plusMatriPax,
+      stdM,
+      stdF,
+      plusSingleM,
+      plusSingleF,
+      plusMatriM,
+      plusMatriF,
+      totalM,
+      totalF,
+      group,
+      cunas,
+    } = row;
+    const datePart = formatStayRangeText(group?.checkIn, group?.checkOut);
+    const rowCunas = Array.isArray(cunas)
+      ? cunas
+      : Array.isArray(group?.cunas)
+        ? group.cunas
+        : [];
+
+    const singlePax =
+      plusSinglePax != null
+        ? plusSinglePax
+        : Math.max(0, (plusPax || 0) - (plusMatriPax || 0));
+    const matriPax = plusMatriPax || 0;
+
+    const hasGenderSplit =
+      stdM != null ||
+      stdF != null ||
+      plusSingleM != null ||
+      plusSingleF != null ||
+      totalM != null ||
+      totalF != null;
+
+    if (datePart && hasGenderSplit) {
+      pushGenderedOrderLines(lines, stdM || 0, stdF || 0, "", datePart);
+      pushGenderedOrderLines(
+        lines,
+        plusSingleM || 0,
+        plusSingleF || 0,
+        superiorSingleLabel,
+        datePart,
+      );
+      pushGenderedOrderLines(
+        lines,
+        plusMatriM || 0,
+        plusMatriF || 0,
+        superiorMatriLabel,
+        datePart,
+      );
+    } else if (datePart) {
+      if (stdPax > 0) {
+        lines.push(`${stdPax} ${pasajeroLabel(stdPax)}. ${datePart}`);
+      }
+      if (singlePax > 0) {
+        lines.push(
+          `${singlePax} ${pasajeroLabel(singlePax)} ${superiorSingleLabel}. ${datePart}`,
+        );
+      }
+      if (matriPax > 0) {
+        lines.push(
+          `${matriPax} ${pasajeroLabel(matriPax)} ${superiorMatriLabel}. ${datePart}`,
+        );
+      }
+    }
+
+    rowCunas.forEach((cuna) => {
+      lines.push(formatCunaOrderLine(cuna));
+    });
+  });
+}
+
+function sectionOrderBlocks(section) {
+  if (
+    section?.splitByHotel &&
+    Array.isArray(section.hotelBlocks) &&
+    section.hotelBlocks.length
+  ) {
+    return section.hotelBlocks;
+  }
+  return [
+    {
+      hotelKey: null,
+      hotelName: null,
+      computedRows: section?.computedRows || [],
+      totalPax: section?.totalPax,
+      totalCunas: section?.totalCunas,
+      totalStdPax: section?.totalStdPax,
+      totalPlusPax: section?.totalPlusPax,
+      totalBedNights: section?.totalBedNights,
+      grandTotalStdNights: section?.grandTotalStdNights,
+      grandTotalPlusNights: section?.grandTotalPlusNights,
+      totalSuggestedRooms: section?.totalSuggestedRooms,
+    },
+  ];
+}
+
+export function listHotelCopyTargets(sections = []) {
+  const map = new Map();
+  for (const section of sections) {
+    if (!section?.splitByHotel) continue;
+    for (const block of section.hotelBlocks || []) {
+      if (!block.hotelKey || !block.hotelName) continue;
+      if (!orderBlockHasDemand(block)) continue;
+      if (!map.has(block.hotelKey)) {
+        map.set(block.hotelKey, {
+          hotelKey: block.hotelKey,
+          hotelName: block.hotelName,
+        });
+      }
+    }
+  }
+  return [...map.values()];
+}
+
+function filterSectionsByHotelKey(sections, hotelKey) {
+  if (!hotelKey) return sections;
+  return (sections || [])
+    .map((section) => {
+      const blocks = (section.hotelBlocks || []).filter(
+        (block) => block.hotelKey === hotelKey,
+      );
+      if (!blocks.length) return null;
+      return summarizeOrderBlock(
+        blocks.flatMap((block) => block.computedRows || []),
+        {
+          segmentId: section.segmentId,
+          title: section.title,
+          splitByHotel: true,
+          hotelBlocks: blocks,
+        },
+      );
+    })
+    .filter(Boolean);
+}
+
 /**
  * Texto plano para enviar a hotelería (mismo criterio de filas que el pedido tabular).
  * Ej: "7 hombres, 1 mujer. Check-in: jueves, 18/6 - check-out: sábado, 20/6"
  * Cunas: "1 cuna. Check-in DD/MM HH:MM - Check-out DD/MM HH:MM — Apellido, Nombre"
+ * Con varios hoteles y gente asignada, el texto se parte por hotel.
  */
 export function buildInitialOrderTextSummary(
   sections = [],
-  { bedsPerRoom = DEFAULT_BEDS_PER_ROOM } = {},
+  { bedsPerRoom = DEFAULT_BEDS_PER_ROOM, hotelKey = null } = {},
 ) {
+  const scoped = filterSectionsByHotelKey(sections, hotelKey);
   const lines = [];
-  const showTramoHeaders = sections.length > 1;
-  const superiorSingleLabel = "habitación superior (single)";
-  const superiorMatriLabel = "habitación superior (matrimonial)";
+  const showTramoHeaders = scoped.length > 1;
+  const uniqueHotelKeys = new Set();
+  scoped.forEach((section) => {
+    sectionOrderBlocks(section).forEach((block) => {
+      if (block.hotelKey) uniqueHotelKeys.add(block.hotelKey);
+    });
+  });
+  const hotelCount = uniqueHotelKeys.size;
+  const showHotelHeaders = scoped.some(
+    (section) =>
+      section.splitByHotel &&
+      (section.hotelBlocks || []).some((block) => block.hotelName),
+  );
 
-  sections.forEach((section, sectionIdx) => {
+  scoped.forEach((section, sectionIdx) => {
     if (showTramoHeaders && section.title) {
       if (lines.length > 0) lines.push("");
       lines.push(section.title);
     }
 
-    (section.computedRows || []).forEach((row) => {
-      const {
-        stdPax,
-        plusPax,
-        plusSinglePax,
-        plusMatriPax,
-        stdM,
-        stdF,
-        plusSingleM,
-        plusSingleF,
-        plusMatriM,
-        plusMatriF,
-        totalM,
-        totalF,
-        group,
-        cunas,
-      } = row;
-      const datePart = formatStayRangeText(group?.checkIn, group?.checkOut);
-      const rowCunas = Array.isArray(cunas)
-        ? cunas
-        : Array.isArray(group?.cunas)
-          ? group.cunas
-          : [];
-
-      // Compat: filas viejas sin desglose single/matri → todo Plus como single.
-      const singlePax =
-        plusSinglePax != null
-          ? plusSinglePax
-          : Math.max(0, (plusPax || 0) - (plusMatriPax || 0));
-      const matriPax = plusMatriPax || 0;
-
-      const hasGenderSplit =
-        stdM != null ||
-        stdF != null ||
-        plusSingleM != null ||
-        plusSingleF != null ||
-        totalM != null ||
-        totalF != null;
-
-      if (datePart && hasGenderSplit) {
-        pushGenderedOrderLines(lines, stdM || 0, stdF || 0, "", datePart);
-        pushGenderedOrderLines(
-          lines,
-          plusSingleM || 0,
-          plusSingleF || 0,
-          superiorSingleLabel,
-          datePart,
-        );
-        pushGenderedOrderLines(
-          lines,
-          plusMatriM || 0,
-          plusMatriF || 0,
-          superiorMatriLabel,
-          datePart,
-        );
-      } else if (datePart) {
-        // Fallback legacy sin contadores por sexo.
-        if (stdPax > 0) {
-          lines.push(`${stdPax} ${pasajeroLabel(stdPax)}. ${datePart}`);
-        }
-        if (singlePax > 0) {
-          lines.push(
-            `${singlePax} ${pasajeroLabel(singlePax)} ${superiorSingleLabel}. ${datePart}`,
-          );
-        }
-        if (matriPax > 0) {
-          lines.push(
-            `${matriPax} ${pasajeroLabel(matriPax)} ${superiorMatriLabel}. ${datePart}`,
-          );
-        }
+    const blocks = sectionOrderBlocks(section);
+    blocks.forEach((block, blockIdx) => {
+      if (block.hotelName) {
+        if (lines.length > 0) lines.push("");
+        lines.push(block.hotelName);
+      } else if (blockIdx > 0 && lines.length > 0) {
+        lines.push("");
       }
 
-      rowCunas.forEach((cuna) => {
-        lines.push(formatCunaOrderLine(cuna));
-      });
+      appendOrderRowsToText(lines, block.computedRows);
+
+      if (block.hotelName && orderBlockHasDemand(block)) {
+        const gender = sumGenderFromRows(block.computedRows);
+        appendTextSummaryBlock(
+          lines,
+          { ...block, ...gender },
+          {
+            title: `Resumen · ${block.hotelName}`,
+            bedsPerRoom,
+          },
+        );
+      }
     });
 
     if (
@@ -1385,21 +1690,32 @@ export function buildInitialOrderTextSummary(
     if (
       showTramoHeaders &&
       section.title &&
-      sectionIdx < sections.length - 1 &&
+      sectionIdx < scoped.length - 1 &&
       (section.computedRows || []).length > 0
     ) {
       lines.push("");
     }
   });
 
-  const grandTotals = sumSectionsForText(sections);
-  if (grandTotals.totalPax > 0 || grandTotals.totalCunas > 0) {
-    appendTextSummaryBlock(lines, grandTotals, {
-      title: showTramoHeaders
-        ? `Total general (${sections.length} tramos)`
-        : "Resumen",
-      bedsPerRoom,
-    });
+  const grandTotals = sumSectionsForText(scoped);
+  const showGrand =
+    grandTotals.totalPax > 0 || grandTotals.totalCunas > 0;
+  if (showGrand) {
+    let title = "Resumen";
+    if (showTramoHeaders && showHotelHeaders) {
+      title = `Total general (${scoped.length} tramos, ${hotelCount} hoteles)`;
+    } else if (showTramoHeaders) {
+      title = `Total general (${scoped.length} tramos)`;
+    } else if (showHotelHeaders && hotelCount > 1) {
+      title = `Total general (${hotelCount} hoteles)`;
+    } else if (showHotelHeaders) {
+      title = null;
+    }
+    if (title) {
+      appendTextSummaryBlock(lines, grandTotals, { title, bedsPerRoom });
+    } else if (!showHotelHeaders) {
+      appendTextSummaryBlock(lines, grandTotals, { title: "Resumen", bedsPerRoom });
+    }
   }
 
   return lines.join("\n").trim();

@@ -21,7 +21,7 @@ const OPTIONS = [
     id: "texto",
     title: "Texto pedido",
     description:
-      "Texto listo para copiar y enviar a hotelería, con desglose por sexo.",
+      "Texto listo para copiar y enviar a hotelería. Si hay varios hoteles con gente asignada, se parte por hotel.",
     icon: IconClipboard,
     accent: "emerald",
   },

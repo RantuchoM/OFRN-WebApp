@@ -32,6 +32,7 @@ const FIMBA_CSS = `
     --fimba-surface: #ffffff;
     --fimba-bg: #f6f8fb;
     --fimba-border: #e2e8f0;
+    --fimba-gold: #d4af37;
   }
   /*
    * Night mode: FIMBA shares OFRN global theme (ThemeController → html.dark +
@@ -427,6 +428,29 @@ const FIMBA_CSS = `
     max-width: 100%;
     min-width: 0;
   }
+  /*
+    Agenda row-edit: Quill toolbar floats above the editor (out of flow) so the
+    table row keeps Detalle/Tipo height. Scoped to detalle cell — modal/Backline
+    keep in-flow toolbar. z-35 < modals (100) / kebabs (110).
+  */
+  .fimba-detalle-cell--editing .fimba-richtext {
+    position: relative;
+    overflow: visible;
+  }
+  .fimba-detalle-cell--editing .fimba-richtext .ql-toolbar.ql-snow {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 4px);
+    z-index: 35;
+    width: max-content;
+    max-width: min(22rem, calc(100vw - 2rem));
+    border: 1px solid var(--fimba-border, #e2e8f0);
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(148, 33, 109, 0.16);
+  }
+  .fimba-detalle-cell--editing .fimba-richtext .ql-container.ql-snow {
+    border-radius: 8px;
+  }
   .fimba-detalle-cell--editing .fimba-richtext--compact .ql-container.ql-snow,
   .fimba-detalle-cell--editing .fimba-richtext--compact .ql-editor {
     min-height: 72px;
@@ -458,6 +482,38 @@ const FIMBA_CSS = `
   }
   .fimba-agenda-table .fimba-row-ambos .fimba-agenda-actions {
     background: #fdf7fb;
+  }
+  /* Agenda inline row-edit: magenta wash + gold frame (per-td inset; layout-safe) */
+  .fimba-agenda-table tbody tr.fimba-agenda-row--editing {
+    position: relative;
+    z-index: 5;
+    background: rgba(148, 33, 109, 0.06);
+  }
+  .fimba-agenda-table tbody tr.fimba-agenda-row--editing > td {
+    overflow: visible;
+    background: transparent;
+    box-shadow:
+      inset 0 2px 0 0 var(--fimba-gold, #d4af37),
+      inset 0 -2px 0 0 var(--fimba-gold, #d4af37);
+  }
+  .fimba-agenda-table tbody tr.fimba-agenda-row--editing > td:first-child {
+    box-shadow:
+      inset 2px 0 0 0 var(--fimba-gold, #d4af37),
+      inset 0 2px 0 0 var(--fimba-gold, #d4af37),
+      inset 0 -2px 0 0 var(--fimba-gold, #d4af37);
+  }
+  .fimba-agenda-table tbody tr.fimba-agenda-row--editing > td:last-child,
+  .fimba-agenda-table tbody tr.fimba-agenda-row--editing .fimba-agenda-actions {
+    background: rgba(148, 33, 109, 0.06);
+    box-shadow:
+      inset -2px 0 0 0 var(--fimba-gold, #d4af37),
+      inset 0 2px 0 0 var(--fimba-gold, #d4af37),
+      inset 0 -2px 0 0 var(--fimba-gold, #d4af37),
+      -6px 0 10px -8px rgba(15, 23, 42, 0.16);
+  }
+  .fimba-agenda-table tbody tr.fimba-agenda-row--editing.fimba-row-ofrn .fimba-agenda-actions,
+  .fimba-agenda-table tbody tr.fimba-agenda-row--editing.fimba-row-ambos .fimba-agenda-actions {
+    background: rgba(148, 33, 109, 0.06);
   }
   /* Agenda Destino: same zoom-stable truncate stack as Transportes planilla */
   .fimba-agenda-table td.fimba-agenda-destino {
