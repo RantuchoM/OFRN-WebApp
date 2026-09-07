@@ -1064,6 +1064,98 @@ export function formatComensalesBadgeLabel(ofrnCount, artistPax) {
 }
 
 /**
+ * Columnas de Control de Asistencia: una por turno (`mealTurnoKey` =
+ * fecha|servicio), agrupando N eventos concurrentes del mismo servicio.
+ *
+ * @param {Array} events — eventos meal ya filtrados (vista)
+ * @returns {Array<{
+ *   turnoKey: string,
+ *   fecha: string,
+ *   servicio: string,
+ *   events: object[],
+ *   hora_inicio: string|null,
+ *   multiEvent: boolean,
+ * }>}
+ */
+export function buildMealAttendanceTurnColumns(events = []) {
+  /** @type {Map<string, { turnoKey: string, fecha: string, servicio: string, events: object[] }>} */
+  const byTurno = new Map();
+  for (const evt of events || []) {
+    if (!evt) continue;
+    const servicio = evt.servicio || mealServicioFromEvent(evt) || "";
+    const fecha = String(evt.fecha || "").slice(0, 10);
+    const key = mealTurnoKey(evt) || (fecha && servicio ? `${fecha}|${servicio}` : null);
+    if (!key) continue;
+    if (!byTurno.has(key)) {
+      byTurno.set(key, {
+        turnoKey: key,
+        fecha,
+        servicio,
+        events: [],
+      });
+    }
+    byTurno.get(key).events.push(evt);
+  }
+
+  const cols = Array.from(byTurno.values());
+  for (const col of cols) {
+    col.events.sort(compareMealManagerRows);
+    const horas = [
+      ...new Set(
+        col.events
+          .map((e) => String(e?.hora_inicio || "").trim().slice(0, 5))
+          .filter(Boolean),
+      ),
+    ];
+    col.hora_inicio = horas.length === 1 ? horas[0] : null;
+    col.multiEvent = col.events.length > 1;
+  }
+  cols.sort((a, b) =>
+    compareMealManagerRows(a.events[0] || a, b.events[0] || b),
+  );
+  return cols;
+}
+
+/**
+ * Evento del turno donde la persona realmente come (post-deducción /
+ * elegibilidad). Preferencia: comida de grupo → primer evento por orden
+ * estable (`compareMealManagerRows`).
+ *
+ * @param {object[]} turnoEvents
+ * @param {object} person
+ * @param {(evt: object, person: object) => boolean} isEligibleFn
+ * @returns {object|null}
+ */
+export function resolveAttendanceEventForPerson(
+  turnoEvents,
+  person,
+  isEligibleFn,
+) {
+  const eligible = (turnoEvents || []).filter(
+    (e) => typeof isEligibleFn === "function" && isEligibleFn(e, person),
+  );
+  if (eligible.length === 0) return null;
+  if (eligible.length === 1) return eligible[0];
+  const grupo = eligible.filter(isGrupoMealRow);
+  const pool = grupo.length > 0 ? grupo : eligible;
+  return [...pool].sort(compareMealManagerRows)[0] || null;
+}
+
+/**
+ * Estado de asistencia a mostrar en una celda de turno.
+ * Si hay varios registros (sobre-inclusión residual), prioriza P > A > vacío.
+ *
+ * @param {Array<'P'|'A'|null|undefined|string>} statuses
+ * @returns {'P'|'A'|null}
+ */
+export function mergeAttendanceStatuses(statuses = []) {
+  const list = (statuses || []).filter(Boolean);
+  if (list.includes("P")) return "P";
+  if (list.includes("A")) return "A";
+  return null;
+}
+
+/**
  * Comidas de grupo que coinciden en el mismo turno (`mealTurnoKey` =
  * fecha|servicio) con un evento orquesta/general — aunque la locación difiera.
  * El grupo tiene prioridad; la orquesta resta esos comensales.

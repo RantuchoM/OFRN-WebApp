@@ -33,6 +33,9 @@ import {
   mealRowHasOfrnAudience,
   isOrchestraMealRow,
   findCoincidingGrupoMealRows,
+  buildMealAttendanceTurnColumns,
+  resolveAttendanceEventForPerson,
+  mergeAttendanceStatuses,
 } from "../../utils/mealLogistics";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
@@ -331,6 +334,12 @@ export default function MealsAttendance({
     ],
   );
 
+  /** Una columna por turno fecha|servicio (colapsa eventos concurrentes). */
+  const attendanceColumns = useMemo(
+    () => buildMealAttendanceTurnColumns(filteredEvents),
+    [filteredEvents],
+  );
+
   const clearEventFilters = () => {
     patchMealFilters(createDefaultMealFilters());
   };
@@ -372,16 +381,20 @@ export default function MealsAttendance({
       );
     }
 
-    // 5. Filtro por Estado de Respuesta (Completitud) — sobre eventos filtrados
+    // 5. Filtro por Estado de Respuesta — una celda por turno (fecha|servicio)
     if (filterResponse !== "ALL") {
       data = data.filter((person) => {
         let req = 0,
           ans = 0;
-        filteredEvents.forEach((evt) => {
-          if (checkEligibility(evt, person)) {
-            req++;
-            if (attendanceMap[`${evt.id}-${person.id}`]?.estado) ans++;
-          }
+        attendanceColumns.forEach((col) => {
+          const evt = resolveAttendanceEventForPerson(
+            col.events,
+            person,
+            checkEligibility,
+          );
+          if (!evt) return;
+          req++;
+          if (attendanceMap[`${evt.id}-${person.id}`]?.estado) ans++;
         });
         if (req === 0) return false;
         if (filterResponse === "COMPLETE") return ans === req;
@@ -404,28 +417,50 @@ export default function MealsAttendance({
     searchTerm,
     sortConfig,
     filterResponse,
-    filteredEvents,
+    attendanceColumns,
     attendanceMap,
     selectedRoles,
     selectedConditions,
     checkEligibility,
   ]);
 
-  const eventsByDate = useMemo(() => {
+  /** Agrupa columnas de turno por fecha para el header sticky. */
+  const turnosByDate = useMemo(() => {
     const groups = {};
-    filteredEvents.forEach((e) => {
-      if (!groups[e.fecha]) groups[e.fecha] = [];
-      groups[e.fecha].push(e);
+    attendanceColumns.forEach((col) => {
+      if (!groups[col.fecha]) groups[col.fecha] = [];
+      groups[col.fecha].push(col);
     });
     return groups;
-  }, [filteredEvents]);
+  }, [attendanceColumns]);
 
-  const handleAttendanceChange = async (eventId, memberId, currentStatus) => {
+  /**
+   * Persiste asistencia en el evento concreto del turno donde come la persona.
+   * Limpia filas residuales en eventos hermanos del mismo turno para no
+   * duplicar estado al colapsar columnas.
+   */
+  const handleAttendanceChange = async (
+    eventId,
+    memberId,
+    currentStatus,
+    siblingEventIds = [],
+  ) => {
     let newStatus =
       currentStatus === "P" ? "A" : currentStatus === "A" ? null : "P";
     const key = `${eventId}-${memberId}`;
+    const siblingIds = siblingEventIds.filter(
+      (id) => String(id) !== String(eventId),
+    );
     setUpdatingCell(key);
     try {
+      if (siblingIds.length > 0) {
+        await supabase
+          .from("eventos_asistencia")
+          .delete()
+          .in("id_evento", siblingIds)
+          .eq("id_integrante", memberId);
+      }
+
       if (newStatus === null) {
         await supabase
           .from("eventos_asistencia")
@@ -434,6 +469,7 @@ export default function MealsAttendance({
         setAttendanceMap((prev) => {
           const c = { ...prev };
           delete c[key];
+          for (const eid of siblingIds) delete c[`${eid}-${memberId}`];
           return c;
         });
       } else {
@@ -445,10 +481,14 @@ export default function MealsAttendance({
           )
           .select()
           .single();
-        setAttendanceMap((prev) => ({
-          ...prev,
-          [key]: { estado: data.estado, id: data.id },
-        }));
+        setAttendanceMap((prev) => {
+          const next = {
+            ...prev,
+            [key]: { estado: data.estado, id: data.id },
+          };
+          for (const eid of siblingIds) delete next[`${eid}-${memberId}`];
+          return next;
+        });
       }
     } catch (e) {
       toast.error("Error al actualizar asistencia");
@@ -797,7 +837,7 @@ export default function MealsAttendance({
         </div>
       </div>
 
-      {/* TABLA DE ASISTENCIA */}
+      {/* TABLA DE ASISTENCIA — columnas = turno (fecha|servicio) */}
       <div className="flex-1 overflow-auto p-4">
         <div className="bg-white border border-slate-300 rounded-lg shadow-sm">
           <table className="w-full text-left border-separate border-spacing-0 text-sm table-fixed min-w-[800px]">
@@ -806,12 +846,12 @@ export default function MealsAttendance({
                 <th className="sticky left-0 top-0 z-50 bg-slate-100 border-r border-b border-slate-300 w-[250px] p-2 text-[10px] text-slate-500 uppercase font-bold shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                   Integrante
                 </th>
-                {Object.keys(eventsByDate)
+                {Object.keys(turnosByDate)
                   .sort()
                   .map((date) => (
                     <th
                       key={date}
-                      colSpan={eventsByDate[date].length}
+                      colSpan={turnosByDate[date].length}
                       className="text-center border-r border-b border-slate-300 px-2 py-1 bg-slate-200 text-[10px] font-bold text-slate-600 uppercase"
                     >
                       {format(parseISO(date), "EEE d MMM", { locale: es })}
@@ -822,35 +862,53 @@ export default function MealsAttendance({
                 <th className="sticky left-0 z-50 bg-slate-50 border-r border-b border-slate-300 p-2 text-[9px] font-bold text-slate-400 uppercase shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                   Dieta / Instrumento
                 </th>
-                {filteredEvents.map((evt) => {
-                  const serviceLabel = mealDisplayLabelFromEvent(evt);
-                  const servicio = mealServicioFromEvent(evt);
-                  const style = getMealServiceStyle(servicio);
+                {attendanceColumns.map((col) => {
+                  const sample = col.events[0];
+                  const serviceLabel = sample
+                    ? mealDisplayLabelFromEvent(sample)
+                    : col.servicio;
+                  const style = getMealServiceStyle(col.servicio);
+                  const titleParts = col.events.map((evt) => {
+                    const label = mealDisplayLabelFromEvent(evt);
+                    const hora = evt.hora_inicio
+                      ? String(evt.hora_inicio).slice(0, 5)
+                      : "";
+                    return hora ? `${label} · ${hora}` : label;
+                  });
                   return (
                     <th
-                      key={evt.id}
+                      key={col.turnoKey}
                       className="border-r border-b border-slate-200 p-1 text-center bg-white w-[56px]"
-                      title={`${serviceLabel}${
-                        evt.hora_inicio
-                          ? ` · ${String(evt.hora_inicio).slice(0, 5)}`
-                          : ""
-                      }`}
+                      title={titleParts.join("\n")}
                     >
-                      <span className="block text-[8px] text-slate-400 font-mono">
-                        {evt.hora_inicio?.slice(0, 5)}
-                      </span>
+                      {col.hora_inicio ? (
+                        <span className="block text-[8px] text-slate-400 font-mono">
+                          {col.hora_inicio}
+                        </span>
+                      ) : col.multiEvent ? (
+                        <span className="block text-[8px] text-slate-300 font-mono">
+                          ···
+                        </span>
+                      ) : (
+                        <span className="block text-[8px] text-transparent font-mono">
+                          —
+                        </span>
+                      )}
                       <span
                         className={`inline-flex min-w-5 h-5 px-0.5 items-center justify-center rounded-full text-[9px] font-bold border ${style.tag}`}
                       >
-                        {servicio?.charAt(0) || "?"}
+                        {col.servicio?.charAt(0) || "?"}
                       </span>
-                      {serviceLabel !== servicio && (
+                      {serviceLabel !== col.servicio && !col.multiEvent && (
                         <span
                           className="block text-[7px] leading-tight text-slate-500 font-semibold truncate max-w-[52px] mx-auto"
                           title={serviceLabel}
                         >
                           {serviceLabel
-                            .replace(new RegExp(`^${servicio}\\s*`, "i"), "")
+                            .replace(
+                              new RegExp(`^${col.servicio}\\s*`, "i"),
+                              "",
+                            )
                             .trim()}
                         </span>
                       )}
@@ -874,15 +932,17 @@ export default function MealsAttendance({
                       </span>
                     </div>
                   </td>
-                  {filteredEvents.map((evt) => {
-                    const isEligible = checkEligibility(evt, person);
-                    const key = `${evt.id}-${person.id}`;
-                    const status = attendanceMap[key]?.estado;
+                  {attendanceColumns.map((col) => {
+                    const resolved = resolveAttendanceEventForPerson(
+                      col.events,
+                      person,
+                      checkEligibility,
+                    );
 
-                    if (!isEligible) {
+                    if (!resolved) {
                       return (
                         <td
-                          key={evt.id}
+                          key={col.turnoKey}
                           className="bg-slate-50/50 border-r border-slate-100 text-center"
                         >
                           <span className="w-1 h-1 rounded-full bg-slate-200 inline-block"></span>
@@ -890,12 +950,24 @@ export default function MealsAttendance({
                       );
                     }
 
+                    const cellKey = `${resolved.id}-${person.id}`;
+                    const eligibleStatuses = col.events
+                      .filter((evt) => checkEligibility(evt, person))
+                      .map(
+                        (evt) =>
+                          attendanceMap[`${evt.id}-${person.id}`]?.estado,
+                      );
+                    const status =
+                      mergeAttendanceStatuses(eligibleStatuses) ||
+                      attendanceMap[cellKey]?.estado ||
+                      null;
+
                     return (
                       <td
-                        key={evt.id}
+                        key={col.turnoKey}
                         className="p-1 border-r border-slate-100 text-center relative"
                       >
-                        {updatingCell === key && (
+                        {updatingCell === cellKey && (
                           <IconLoader
                             className="absolute inset-0 m-auto animate-spin text-indigo-400"
                             size={12}
@@ -903,7 +975,12 @@ export default function MealsAttendance({
                         )}
                         <button
                           onClick={() =>
-                            handleAttendanceChange(evt.id, person.id, status)
+                            handleAttendanceChange(
+                              resolved.id,
+                              person.id,
+                              status,
+                              col.events.map((e) => e.id),
+                            )
                           }
                           className={`w-7 h-7 rounded-md flex items-center justify-center mx-auto border-2 transition-all ${status === "P" ? "bg-emerald-100 border-emerald-400 text-emerald-700" : status === "A" ? "bg-red-50 border-red-200 text-red-400" : "bg-white border-slate-200 text-slate-200 hover:border-slate-300"}`}
                         >
