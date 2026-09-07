@@ -6,9 +6,11 @@ import {
   getAdjustmentForRange,
   getSuggestedRoomsLabel,
   INITIAL_ORDER_BEDS_PER_ROOM_OPTIONS,
+  listPedidoHotelBuckets,
   makeAdjustmentKey,
   resolveSegmentBookingIds,
   showSuggestedRooms,
+  UNASSIGNED_HOTEL_KEY,
 } from "../../utils/roomingInitialOrder";
 import {
   formatTramoLabel,
@@ -18,19 +20,28 @@ import {
 } from "../../utils/giraTramos";
 import { normalize } from "../../utils/giraUtils";
 
-function computeSectionTotals(section, adjustments, bedsPerRoom) {
+function adjustmentBlocksForSection(section) {
+  if (section?.splitByHotel && section.hotelBlocks?.length) {
+    return section.hotelBlocks;
+  }
+  return [section];
+}
+
+function computeBlockTotals(block, adjustments, segmentId, bedsPerRoom, hotelKey) {
   let basePax = 0;
   let totalPax = 0;
   let totalBeds = 0;
   let suggestedRooms = 0;
   let totalCunas = 0;
 
-  section.sortedKeys.forEach((rangeKey) => {
-    const g = section.groups[rangeKey];
+  (block.sortedKeys || []).forEach((rangeKey) => {
+    const g = block.groups[rangeKey];
+    if (!g) return;
     const adj = getAdjustmentForRange(
       adjustments,
-      section.segmentId,
+      segmentId,
       rangeKey,
+      hotelKey,
     );
     const totalF = g.baseF + (adj.std_f || 0) + (adj.plus_f || 0);
     const totalM = g.baseM + (adj.std_m || 0) + (adj.plus_m || 0);
@@ -43,6 +54,35 @@ function computeSectionTotals(section, adjustments, bedsPerRoom) {
   });
 
   return { basePax, totalPax, totalBeds, suggestedRooms, totalCunas };
+}
+
+function computeSectionTotals(section, adjustments, bedsPerRoom) {
+  const blocks = adjustmentBlocksForSection(section);
+  return blocks.reduce(
+    (acc, block) => {
+      const t = computeBlockTotals(
+        block,
+        adjustments,
+        section.segmentId,
+        bedsPerRoom,
+        section.splitByHotel ? block.hotelKey : null,
+      );
+      return {
+        basePax: acc.basePax + t.basePax,
+        totalPax: acc.totalPax + t.totalPax,
+        totalBeds: acc.totalBeds + t.totalBeds,
+        suggestedRooms: acc.suggestedRooms + t.suggestedRooms,
+        totalCunas: acc.totalCunas + t.totalCunas,
+      };
+    },
+    {
+      basePax: 0,
+      totalPax: 0,
+      totalBeds: 0,
+      suggestedRooms: 0,
+      totalCunas: 0,
+    },
+  );
 }
 
 function SectionSummaryBox({ title, totals, bedsPerRoom }) {
@@ -167,19 +207,42 @@ const RoomingInitialAdjustmentModal = ({
           tramoIndice,
         );
       }).length;
-      const { groups, sortedKeys } = buildInitialDateGroups({
-        roster,
-        logisticsMap,
-        segments,
-        segmentRow: segRow,
-        segmentRows,
-        rooms,
+      const { split, buckets } = listPedidoHotelBuckets({
         bookings,
+        rooms,
         segmentBookingIds: bookingIds,
-        defaultSegmentId,
-        tramoIndice,
-        excludedPersonIds: excludedSet,
       });
+      const hotelBlocks = buckets
+        .map((bucket) => {
+          const { groups, sortedKeys } = buildInitialDateGroups({
+            roster,
+            logisticsMap,
+            segments,
+            segmentRow: segRow,
+            segmentRows,
+            rooms,
+            bookings,
+            segmentBookingIds: bookingIds,
+            defaultSegmentId,
+            tramoIndice,
+            excludedPersonIds: excludedSet,
+            hotelFilter: bucket.hotelFilter,
+          });
+          return {
+            hotelKey: bucket.hotelKey,
+            hotelName: bucket.hotelName,
+            groups,
+            sortedKeys,
+          };
+        })
+        .filter((block) => {
+          if (!split) return true;
+          if (block.hotelKey === UNASSIGNED_HOTEL_KEY) {
+            return block.sortedKeys.length > 0;
+          }
+          return block.sortedKeys.length > 0;
+        });
+      const mergedKeys = hotelBlocks.flatMap((block) => block.sortedKeys);
       const baseTitle = segRow && hasTramos ? formatTramoLabel(idx) : null;
       const locLabel =
         locNames.length > 0
@@ -194,8 +257,10 @@ const RoomingInitialAdjustmentModal = ({
         title: baseTitle
           ? `${baseTitle} · ${locLabel}${localsNote}`
           : null,
-        groups,
-        sortedKeys,
+        splitByHotel: split,
+        hotelBlocks,
+        groups: split ? {} : hotelBlocks[0]?.groups || {},
+        sortedKeys: split ? mergedKeys : hotelBlocks[0]?.sortedKeys || [],
         localsCount,
       };
     };
@@ -216,12 +281,17 @@ const RoomingInitialAdjustmentModal = ({
     excludedPersonIds,
   ]);
 
-  const handleChange = (segmentId, rangeKey, field, rawValue) => {
+  const handleChange = (segmentId, rangeKey, field, rawValue, hotelKey = null) => {
     const num = Number(rawValue);
     const safe = Number.isNaN(num) || num < 0 ? 0 : Math.floor(num);
-    const key = makeAdjustmentKey(segmentId, rangeKey);
+    const key = makeAdjustmentKey(segmentId, rangeKey, hotelKey);
     setAdjustments((prev) => {
-      const prevRange = getAdjustmentForRange(prev, segmentId, rangeKey);
+      const prevRange = getAdjustmentForRange(
+        prev,
+        segmentId,
+        rangeKey,
+        hotelKey,
+      );
       return {
         ...prev,
         [key]: {
@@ -306,17 +376,32 @@ const RoomingInitialAdjustmentModal = ({
     [visibleSectionEntries],
   );
 
-  const hasAnyRange = visibleSectionEntries.some(
-    ({ section }) => section.sortedKeys.length > 0,
+  const hasAnyRange = visibleSectionEntries.some(({ section }) =>
+    adjustmentBlocksForSection(section).some(
+      (block) => (block.sortedKeys || []).length > 0,
+    ),
+  );
+
+  const anyHotelSplit = visibleSectionEntries.some(
+    ({ section }) => section.splitByHotel,
+  );
+  const hotelBlockCount = visibleSectionEntries.reduce(
+    (acc, { section }) =>
+      acc +
+      (section.splitByHotel
+        ? (section.hotelBlocks || []).length
+        : 0),
+    0,
   );
 
   const showRoomsColumn = showSuggestedRooms(bedsPerRoom);
 
-  const renderTable = (section) => {
-    if (section.sortedKeys.length === 0) {
+  const renderTable = (section, block, hotelKey = null) => {
+    if ((block.sortedKeys || []).length === 0) {
       return (
         <p className="text-xs text-slate-400 italic py-3">
-          No hay rangos de alojamiento en este tramo.
+          No hay rangos de alojamiento en este
+          {hotelKey ? " hotel" : " tramo"}.
         </p>
       );
     }
@@ -369,12 +454,13 @@ const RoomingInitialAdjustmentModal = ({
           </tr>
         </thead>
         <tbody>
-          {section.sortedKeys.map((rangeKey) => {
-            const g = section.groups[rangeKey];
+          {block.sortedKeys.map((rangeKey) => {
+            const g = block.groups[rangeKey];
             const adj = getAdjustmentForRange(
               adjustments,
               section.segmentId,
               rangeKey,
+              hotelKey,
             );
             const totalF = g.baseF + (adj.std_f || 0) + (adj.plus_f || 0);
             const totalM = g.baseM + (adj.std_m || 0) + (adj.plus_m || 0);
@@ -393,7 +479,7 @@ const RoomingInitialAdjustmentModal = ({
               .join(" · ");
 
             return (
-              <tr key={`${section.segmentId}-${rangeKey}`}>
+              <tr key={`${section.segmentId}-${hotelKey || "all"}-${rangeKey}`}>
                 <td className="border border-slate-200 px-2 py-1 font-mono text-[11px]">
                   {g.rangeLabel}
                 </td>
@@ -427,6 +513,7 @@ const RoomingInitialAdjustmentModal = ({
                         rangeKey,
                         "std_f",
                         e.target.value,
+                        hotelKey,
                       )
                     }
                   />
@@ -443,6 +530,7 @@ const RoomingInitialAdjustmentModal = ({
                         rangeKey,
                         "std_m",
                         e.target.value,
+                        hotelKey,
                       )
                     }
                   />
@@ -459,6 +547,7 @@ const RoomingInitialAdjustmentModal = ({
                         rangeKey,
                         "plus_f",
                         e.target.value,
+                        hotelKey,
                       )
                     }
                   />
@@ -475,6 +564,7 @@ const RoomingInitialAdjustmentModal = ({
                         rangeKey,
                         "plus_m",
                         e.target.value,
+                        hotelKey,
                       )
                     }
                   />
@@ -594,8 +684,12 @@ const RoomingInitialAdjustmentModal = ({
           <p className="text-[11px] text-slate-500 mb-3">
             Agregá pax adicionales (STD / PLUS, Mujeres / Varones) por rango de
             Check-In / Check-Out
-            {cortesCount > 0 ? ", en cada tramo de la gira" : ""}. No se
-            modifican los integrantes, solo el pedido final.
+            {anyHotelSplit
+              ? ", en cada hotel"
+              : cortesCount > 0
+                ? ", en cada tramo de la gira"
+                : ""}
+            . No se modifican los integrantes, solo el pedido final.
           </p>
 
           {!hasAnyRange ? (
@@ -604,14 +698,17 @@ const RoomingInitialAdjustmentModal = ({
             </div>
           ) : (
             <>
-              {!showMultiLayout && visibleSectionEntries[0] && (
+              {!showMultiLayout && !anyHotelSplit && visibleSectionEntries[0] && (
                 <SectionSummaryBox
                   totals={visibleSectionEntries[0].totals}
                   bedsPerRoom={bedsPerRoom}
                 />
               )}
 
-              {visibleSectionEntries.map(({ section, totals }, visIdx) => (
+              {visibleSectionEntries.map(({ section, totals }, visIdx) => {
+                const blocks = adjustmentBlocksForSection(section);
+                const splitHotels = Boolean(section.splitByHotel);
+                return (
                 <div
                   key={section.segmentId ?? `vis-${visIdx}`}
                   className={visIdx > 0 ? "mt-8 pt-6 border-t border-slate-200" : ""}
@@ -621,8 +718,37 @@ const RoomingInitialAdjustmentModal = ({
                       {section.title}
                     </h4>
                   )}
-                  {renderTable(section)}
-                  {showMultiLayout && section.sortedKeys.length > 0 && (
+                  {blocks.map((block, blockIdx) => {
+                    const hotelKey = splitHotels ? block.hotelKey : null;
+                    const blockTotals = computeBlockTotals(
+                      block,
+                      adjustments,
+                      section.segmentId,
+                      bedsPerRoom,
+                      hotelKey,
+                    );
+                    return (
+                      <div
+                        key={block.hotelKey ?? `block-${blockIdx}`}
+                        className={blockIdx > 0 ? "mt-6" : ""}
+                      >
+                        {block.hotelName && (
+                          <h5 className="text-sm font-bold text-teal-800 border-b border-teal-200 pb-1 mb-3">
+                            {block.hotelName}
+                          </h5>
+                        )}
+                        {splitHotels && (block.sortedKeys || []).length > 0 && (
+                          <SectionSummaryBox
+                            title={`Resumen · ${block.hotelName ?? "Hotel"}`}
+                            totals={blockTotals}
+                            bedsPerRoom={bedsPerRoom}
+                          />
+                        )}
+                        {renderTable(section, block, hotelKey)}
+                      </div>
+                    );
+                  })}
+                  {showMultiLayout && (section.sortedKeys || []).length > 0 && (
                     <SectionSummaryBox
                       title={`Resumen · ${section.title ?? "Gira"}`}
                       totals={totals}
@@ -630,11 +756,18 @@ const RoomingInitialAdjustmentModal = ({
                     />
                   )}
                 </div>
-              ))}
+                );
+              })}
 
-              {showMultiLayout && (
+              {(showMultiLayout || anyHotelSplit) && (
                 <SectionSummaryBox
-                  title={`Total general (${visibleSectionEntries.length} tramos)`}
+                  title={
+                    showMultiLayout && anyHotelSplit
+                      ? `Total general (${visibleSectionEntries.length} tramos)`
+                      : showMultiLayout
+                        ? `Total general (${visibleSectionEntries.length} tramos)`
+                        : `Total general (${hotelBlockCount} hoteles)`
+                  }
                   totals={visibleGrandTotals}
                   bedsPerRoom={bedsPerRoom}
                 />

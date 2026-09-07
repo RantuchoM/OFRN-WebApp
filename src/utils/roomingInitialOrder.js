@@ -480,13 +480,35 @@ export function listPedidoHotelBuckets({
   return { split: true, buckets };
 }
 
-export function makeAdjustmentKey(segmentId, rangeLabel) {
+export function makeAdjustmentKey(segmentId, rangeLabel, hotelKey = null) {
+  if (hotelKey) {
+    const seg = segmentId == null ? "_" : segmentId;
+    return `${seg}::${hotelKey}::${rangeLabel}`;
+  }
   if (segmentId == null) return rangeLabel;
   return `${segmentId}::${rangeLabel}`;
 }
 
-export function getAdjustmentForRange(adjustments, segmentId, rangeLabel) {
+export function getAdjustmentForRange(
+  adjustments,
+  segmentId,
+  rangeLabel,
+  hotelKey = null,
+) {
   if (!adjustments) return { ...DEFAULT_ADJ };
+  if (hotelKey) {
+    const scoped =
+      adjustments[makeAdjustmentKey(segmentId, rangeLabel, hotelKey)];
+    if (scoped) return scoped;
+    if (hotelKey === UNASSIGNED_HOTEL_KEY) {
+      return (
+        adjustments[makeAdjustmentKey(segmentId, rangeLabel)] ??
+        adjustments[rangeLabel] ??
+        { ...DEFAULT_ADJ }
+      );
+    }
+    return { ...DEFAULT_ADJ };
+  }
   const key = makeAdjustmentKey(segmentId, rangeLabel);
   return adjustments[key] ?? adjustments[rangeLabel] ?? { ...DEFAULT_ADJ };
 }
@@ -951,12 +973,15 @@ function computeRowsFromDateGroups(
   segmentId,
   adjustmentsByRange,
   bedsPerRoom,
-  applyAdjustments,
+  hotelKey = null,
 ) {
   return (sortedGroups || []).map((group) => {
-    const adj = applyAdjustments
-      ? getAdjustmentForRange(adjustmentsByRange, segmentId, group.rangeLabel)
-      : DEFAULT_ADJ;
+    const adj = getAdjustmentForRange(
+      adjustmentsByRange,
+      segmentId,
+      group.rangeLabel,
+      hotelKey,
+    );
     const extraStdM = adj.std_m || 0;
     const extraStdF = adj.std_f || 0;
     const extraPlusM = adj.plus_m || 0;
@@ -1074,8 +1099,6 @@ export function buildInitialOrderSections({
 
     const hotelBlocks = [];
     buckets.forEach((bucket) => {
-      const applyAdjustments =
-        !split || bucket.hotelKey === UNASSIGNED_HOTEL_KEY;
       const { sortedGroups } = buildInitialDateGroups({
         roster,
         logisticsMap,
@@ -1095,7 +1118,7 @@ export function buildInitialOrderSections({
         segmentId,
         adjustmentsByRange,
         bedsPerRoom,
-        applyAdjustments,
+        split ? bucket.hotelKey : null,
       );
       const block = summarizeOrderBlock(computedRows, {
         hotelKey: bucket.hotelKey,

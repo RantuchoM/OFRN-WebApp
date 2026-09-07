@@ -916,3 +916,30 @@ Gira 12 / bloque **Alba Carmona** (id_repertorio=149).
 **Verificar en Drive UI:** abrir la carpeta del bloque → cada acceso directo numerado → debe abrir la carpeta Archivo (no Spatocco / Para acomodar). En detalle del shortcut, el destino debe coincidir con `obras.link_drive`.
 
 **Nota:** en origen Chiquilín queda `Perc Batería 2` (combinado, 403 al borrar); la copia Archivo también lo incluye y el seed lo asocia como `Perc Batería 2` para `unique_part_per_work`. La carpeta Archivo puede tardar en aparecer en File Stream local bajo `H:\…\Archivo General OFRN`; la fuente de verdad es el folder Drive del Archivo.
+
+---
+
+### Completado (2026-09-07) — Walsh *Manuelita* + Disney Favorites (Para acomodar, gira 170)
+
+Zip local `manuelitalatortugamariaelenawalshvspartituracom.zip` → dos obras nuevas en [Para acomodar](https://drive.google.com/drive/folders/10ap1aEjq3X9bFRB3z4DQ-F0fB7y3JutI) (`link_drive` directo, **no** `copiar_carpeta_a_archivo`). Gira **170** *Agasajo Maestros Jardin 27* / bloque Repertorio (`id_repertorio=147`).
+
+| id | Título | Comp. | Partes | Orgánico | Drive |
+|----|--------|-------|--------|----------|-------|
+| **3629** | Manuelita, la tortuga | Walsh, María Elena | **5** | `1.1.1.1 - 0.0.0.0` (Fl1 Ob Cl Fg) | [1-8whIq8YVQr--4E51o2Dft6Orm7QfQc5](https://drive.google.com/open?id=1-8whIq8YVQr--4E51o2Dft6Orm7QfQc5) |
+| **3630** | Disney Favorites [quinteto de vientos] | Varios | **6** | `1.1.1.1 - 1.0.0.0` (Fl Ob Cl Hn Fg) | [1vBQIAqhX9LWzajNuH7EaB0tA31oQ5m9I](https://drive.google.com/open?id=1vBQIAqhX9LWzajNuH7EaB0tA31oQ5m9I) |
+
+Disney: SCORE extraído de `Partitura_y_Partes.pdf` pp. 1–13; partes individuales ya venían sueltas. Manuelita: PDFs Sibelius ya por instrumento (sin split).
+
+| Artefacto | Rol |
+|-----------|-----|
+| `scripts/lib/walshDisneyCatalog.mjs` | Manifiesto + `driveFolderId` |
+| `scripts/process-walsh-disney-local.mjs` | Copia zip → Para acomodar + crop SCORE Disney + rename canónico |
+| `scripts/generate-walsh-disney-sync.mjs` | Seed particellas desde Drive |
+| `supabase/seed_walsh_disney_sync.sql` | INSERT obras + particellas — **aplicado linked** |
+| `supabase/seed_gira_170_walsh_disney.sql` | Vincula al bloque 147 — **aplicado linked** |
+
+- [x] PDFs canónicos en Para acomodar (5 + 6)
+- [x] Particellas con `url_archivo` Drive
+- [x] Gira 170 orden 2 y 3 (después de *Bailan en ronda…*)
+- [x] Shortcuts del bloque Repertorio (`sync_repertoire_shortcuts` programa 170)
+

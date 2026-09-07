@@ -104,7 +104,8 @@ El reporte seguía asumiendo que `log.checkin` y `log.checkout` eran siempre str
 ### Pedido partido por hotel (completado)
 
 - [x] Si el tramo/gira tiene **2+ hoteles** y **al menos una persona ya está en una habitación**, el Pedido Inicial (tabla, texto y detalle) se parte por hotel.
-- [x] Cada hotel lista solo a quienes están asignados ahí, con sus check-in/out reales. Quienes aún no tienen habitación van a **Sin asignar** (y ahí se aplican los ajustes manuales de extras).
+- [x] Cada hotel lista solo a quienes están asignados ahí, con sus check-in/out reales. Quienes aún no tienen habitación van a **Sin asignar**. Los extras STD/PLUS se cargan **en cada hotel** (no solo en Sin asignar).
 - [x] Sin distribución (nadie en habitaciones) o un solo hotel: el pedido sigue agregado como antes (pedido inicial clásico).
 - [x] Texto: encabezado + resumen por hotel; **Copiar {hotel}** envía solo ese bloque; **Copiar todo** conserva el texto completo + total general.
 - [x] Helpers: `listPedidoHotelBuckets`, `listHotelCopyTargets`, `buildInitialOrderTextSummary(..., { hotelKey })` en `roomingInitialOrder.js`.
+- [x] Ajuste previo (`RoomingInitialAdjustmentModal`): mismas particiones por hotel; extras STD/PLUS se graban con clave `segmentId::hotelKey::rango` y aplican solo a ese hotel (unassigned hereda claves viejas sin hotel).
