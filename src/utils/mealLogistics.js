@@ -8,7 +8,7 @@ import { isLocalAtMealSlot } from "./giraTramos";
 import { stripHtml } from "./eventDisplayUtils";
 import { isFimbaOnlyAgendaEvent } from "./agendaHelpers";
 
-/** Orden del día para comparar inicio/fin de cobertura de comidas. */
+/** Orden del dÃ­a para comparar inicio/fin de cobertura de comidas. */
 export const MEAL_SERVICE_ORDER = {
   Desayuno: 0,
   Almuerzo: 1,
@@ -17,16 +17,16 @@ export const MEAL_SERVICE_ORDER = {
   Catering: 4,
 };
 
-/** Tipos canónicos (agrupan todos los eventos de comida). */
+/** Tipos canÃ³nicos (agrupan todos los eventos de comida). */
 export const MEAL_SERVICES = ["Desayuno", "Almuerzo", "Merienda", "Cena"];
 
 /**
- * Sufijos automáticos frecuentes al final de la descripción de una comida
- * (convocados / placeholders). Usados para extraer el detalle de subcategoría.
+ * Sufijos automÃ¡ticos frecuentes al final de la descripciÃ³n de una comida
+ * (convocados / placeholders). Usados para extraer el detalle de subcategorÃ­a.
  */
 export const MEAL_AUTO_DESCRIPTION_SUFFIXES = [
   "Solo alojados",
-  "Producción",
+  "ProducciÃ³n",
   "Directores",
   "Solistas",
   "Locales",
@@ -40,7 +40,7 @@ export const MEAL_AUTO_DESCRIPTION_SUFFIXES = [
 ];
 
 /**
- * Bebé / menor en cuna (`ocupa_cama: false` en rooming): no consume, no cuenta en comidas.
+ * BebÃ© / menor en cuna (`ocupa_cama: false` en rooming): no consume, no cuenta en comidas.
  */
 export function isPersonInCuna(person) {
   if (!person) return false;
@@ -49,7 +49,7 @@ export function isPersonInCuna(person) {
   return false;
 }
 
-/** ¿El integrante está en cuna según `asignaciones_config` de las habitaciones? */
+/** Â¿El integrante estÃ¡ en cuna segÃºn `asignaciones_config` de las habitaciones? */
 export function resolveEnCunaFromRooms(personId, rooms = []) {
   if (personId == null) return false;
   for (const room of rooms || []) {
@@ -76,19 +76,19 @@ export function collectCunaOccupantIds(rooms = []) {
   return ids;
 }
 
-/** Categoría de tipos de evento de comida en `tipos_evento` / `categorias_tipos_eventos`. */
+/** CategorÃ­a de tipos de evento de comida en `tipos_evento` / `categorias_tipos_eventos`. */
 export const MEAL_CATEGORY_ID = 4;
 
 /**
- * Categoría Catering (hermana de Comidas). Seed típico id 9; preferir nombre.
+ * CategorÃ­a Catering (hermana de Comidas). Seed tÃ­pico id 9; preferir nombre.
  * @see supabase/migrations/20260901140559_catering_categoria_tipo.sql
  */
 export const CATERING_CATEGORY_ID = 9;
 export const CATERING_CATEGORY_NAME = "Catering";
-/** Slot sintético de matriz/filtro para eventos de categoría Catering. */
+/** Slot sintÃ©tico de matriz/filtro para eventos de categorÃ­a Catering. */
 export const CATERING_SERVICE = "Catering";
 
-/** IDs canónicos fijos (compatibilidad / cobertura de reglas). */
+/** IDs canÃ³nicos fijos (compatibilidad / cobertura de reglas). */
 export const CANONICAL_MEAL_TYPE_IDS = {
   Desayuno: 7,
   Almuerzo: 8,
@@ -104,11 +104,11 @@ export const MEAL_TYPE_ID_TO_SERVICE = {
 };
 
 /**
- * Colores de servicio de comida (fuente única para matriz, reporte, logística e impresión).
+ * Colores de servicio de comida (fuente Ãºnica para matriz, reporte, logÃ­stica e impresiÃ³n).
  * - `tag` / `card`: UI interactiva (texto coloreado sobre fondo suave).
  * - `reportTag`: PDF/reporte (texto negro sobre fondo resaltado).
- * - `rowHover` / `date` / `icon`: filas de eventos en logística.
- * - `print`: hex para el CSS crítico de PrintWrapper (sin Tailwind en la ventana de impresión).
+ * - `rowHover` / `date` / `icon`: filas de eventos en logÃ­stica.
+ * - `print`: hex para el CSS crÃ­tico de PrintWrapper (sin Tailwind en la ventana de impresiÃ³n).
  */
 export const MEAL_SERVICE_STYLES = {
   Desayuno: {
@@ -205,22 +205,22 @@ export function getMealServiceStyle(servicio) {
   return MEAL_SERVICE_STYLES[base] || MEAL_SERVICE_STYLES.default;
 }
 
-/** ¿El id es un tipo canónico puro (sin detalle)? */
+/** Â¿El id es un tipo canÃ³nico puro (sin detalle)? */
 export function isCanonicalMealTypeId(id) {
   const n = Number(id);
   return n === 7 || n === 8 || n === 9 || n === 10;
 }
 
 /**
- * Tipo canónico D/A/M/C a partir del nombre del tipo de evento.
+ * Tipo canÃ³nico D/A/M/C a partir del nombre del tipo de evento.
  * Regla de negocio: la **primera palabra** del nombre determina el grupo.
- * Ej: "Merienda a bordo" → Merienda; "Almuerzo (Vianda)" → Almuerzo.
+ * Ej: "Merienda a bordo" â Merienda; "Almuerzo (Vianda)" â Almuerzo.
  */
 export function mealBaseFromTypeName(nombre) {
   if (!nombre) return null;
   const raw = String(nombre).trim();
   if (!raw) return null;
-  // Primera palabra (corta en espacio o paréntesis sin espacio)
+  // Primera palabra (corta en espacio o parÃ©ntesis sin espacio)
   const firstToken = raw.split(/[\s(/]+/)[0] || "";
   if (MEAL_SERVICE_ORDER[firstToken] != null) return firstToken;
   const lower = firstToken.toLowerCase();
@@ -261,7 +261,7 @@ function eventCategoriaNombre(evt) {
 }
 
 /**
- * ¿Categoría Catering (no Comidas / id 4)?
+ * Â¿CategorÃ­a Catering (no Comidas / id 4)?
  * Prioriza nombre; fallback a id de seed documentado + nombre de tipo.
  */
 export function isCateringEvent(evt) {
@@ -277,9 +277,9 @@ export function isCateringEvent(evt) {
 }
 
 /**
- * ¿Este evento (o fila con tipos_evento) es de comida (categoría Comidas)?
- * Prioriza id_categoria = 4; fallback a ids 7–10 o nombre agrupable.
- * Catering NO cuenta aquí (usar `isCateringEvent` / `isMealRelatedEvent`).
+ * Â¿Este evento (o fila con tipos_evento) es de comida (categorÃ­a Comidas)?
+ * Prioriza id_categoria = 4; fallback a ids 7â10 o nombre agrupable.
+ * Catering NO cuenta aquÃ­ (usar `isCateringEvent` / `isMealRelatedEvent`).
  */
 export function isMealEvent(evt) {
   if (!evt) return false;
@@ -291,7 +291,7 @@ export function isMealEvent(evt) {
   return false;
 }
 
-/** Comida (cat 4 / D-A-M-C) o Catering — lo que entra al gestor de comidas. */
+/** Comida (cat 4 / D-A-M-C) o Catering â lo que entra al gestor de comidas. */
 export function isMealRelatedEvent(evt) {
   return isMealEvent(evt) || isCateringEvent(evt);
 }
@@ -300,7 +300,7 @@ export function isMealRelatedEvent(evt) {
 export function mealRelatedKind(evt) {
   if (isCateringEvent(evt)) return "catering";
   if (isMealEvent(evt)) return "comidas";
-  // Filas del Manager a menudo traen `servicio` canónico sin embed fresco de tipos_evento.
+  // Filas del Manager a menudo traen `servicio` canÃ³nico sin embed fresco de tipos_evento.
   const svc = String(evt?.servicio || "").trim();
   if (svc === CATERING_SERVICE) return "catering";
   if (MEAL_SERVICES.includes(svc) || normalizeMealServiceBase(svc)) return "comidas";
@@ -308,7 +308,7 @@ export function mealRelatedKind(evt) {
 }
 
 /**
- * ¿Pasa el filtro de clase comida/catering?
+ * Â¿Pasa el filtro de clase comida/catering?
  * @param {'all'|'comidas'|'catering'} kindFilter
  */
 export function passesMealKindFilter(evt, kindFilter = "all") {
@@ -319,7 +319,7 @@ export function passesMealKindFilter(evt, kindFilter = "all") {
   return true;
 }
 
-/** Keys especiales en filtros multi de Locación / Artista. */
+/** Keys especiales en filtros multi de LocaciÃ³n / Artista. */
 export const MEAL_FILTER_NO_LOC = "__none__";
 export const MEAL_FILTER_NO_ARTIST = "__none__";
 
@@ -354,8 +354,8 @@ export function isDefaultMealFilters(filters) {
 
 /**
  * Comparador estable de filas del MealsManager (grilla completa).
- * Orden: fecha ASC → servicio (D/A/M/C/Catering = MEAL_SERVICE_ORDER) →
- * hora_inicio ASC → id. Misma lógica que el walk diario + Catering intercalado
+ * Orden: fecha ASC â servicio (D/A/M/C/Catering = MEAL_SERVICE_ORDER) â
+ * hora_inicio ASC â id. Misma lÃ³gica que el walk diario + Catering intercalado
  * por fecha (no apendado al final).
  */
 export function compareMealManagerRows(a, b) {
@@ -392,7 +392,7 @@ export function sortMealManagerGrid(rows) {
 
 /**
  * Filtro puro de filas/eventos de comida (Manager / Asistencia / Reporte).
- * Nunca muta `rows`. Vacantes (`isTemp`) ignoran locación/artista para poder crear.
+ * Nunca muta `rows`. Vacantes (`isTemp`) ignoran locaciÃ³n/artista para poder crear.
  *
  * @param {object[]} rows
  * @param {{ mealKindFilter?: string, serviceFilter?: string[]|Set, locacionIds?: string[], artistaIds?: string[] }} filters
@@ -456,8 +456,8 @@ export function filterMealManagerRows(rows, filters = {}) {
 }
 
 /**
- * Normaliza un texto al tipo canónico (Desayuno|Almuerzo|Merienda|Cena) si comienza con él.
- * "Merienda a bordo" → "Merienda"; "Almuerzo (Vianda)" → "Almuerzo".
+ * Normaliza un texto al tipo canÃ³nico (Desayuno|Almuerzo|Merienda|Cena) si comienza con Ã©l.
+ * "Merienda a bordo" â "Merienda"; "Almuerzo (Vianda)" â "Almuerzo".
  */
 export function normalizeMealServiceBase(servicioOrLabel) {
   if (!servicioOrLabel) return null;
@@ -483,8 +483,8 @@ function escapeRegex(s) {
 /**
  * Etiqueta visible: "{tipo}" o "{tipo} {detalle}".
  * Si el detalle ya incluye el tipo al inicio, se usa tal cual.
- * Ej: ("Merienda", "a bordo") → "Merienda a bordo"
- *     ("Almuerzo", "(Vianda)") → "Almuerzo (Vianda)"
+ * Ej: ("Merienda", "a bordo") â "Merienda a bordo"
+ *     ("Almuerzo", "(Vianda)") â "Almuerzo (Vianda)"
  */
 export function formatMealServiceLabel(servicio, detalle) {
   const base = normalizeMealServiceBase(servicio) || String(servicio || "").trim();
@@ -512,7 +512,7 @@ export function stripMealAutoDescriptionSuffix(plain, extraLabels = []) {
     .filter(Boolean)
     .sort((a, b) => b.length - a.length);
 
-  // Quitar una o más etiquetas conocidas al final (con + / espacios).
+  // Quitar una o mÃ¡s etiquetas conocidas al final (con + / espacios).
   let guard = 0;
   while (text && guard < 24) {
     guard += 1;
@@ -540,9 +540,9 @@ export function stripMealAutoDescriptionSuffix(plain, extraLabels = []) {
 }
 
 /**
- * Extrae el "otros detalles" del servicio a partir de la descripción.
- * "Merienda a bordo Solo alojados" + base Merienda → "a bordo"
- * "Almuerzo (Vianda)" → "(Vianda)"
+ * Extrae el "otros detalles" del servicio a partir de la descripciÃ³n.
+ * "Merienda a bordo Solo alojados" + base Merienda â "a bordo"
+ * "Almuerzo (Vianda)" â "(Vianda)"
  */
 export function parseMealServiceDetalle(descripcion, servicio, extraLabels = []) {
   const base = normalizeMealServiceBase(servicio);
@@ -565,7 +565,7 @@ export function parseMealServiceDetalle(descripcion, servicio, extraLabels = [])
   return "";
 }
 
-/** Etiqueta completa: nombre real del tipo de evento (o legacy desde descripción). */
+/** Etiqueta completa: nombre real del tipo de evento (o legacy desde descripciÃ³n). */
 export function mealDisplayLabelFromEvent(evt, extraLabels = []) {
   const typeName =
     evt?.tipos_evento?.nombre ||
@@ -594,7 +594,7 @@ export function mealDisplayLabelFromEvent(evt, extraLabels = []) {
 }
 
 /**
- * Reescribe el prefijo de servicio en la descripción al cambiar el detalle.
+ * Reescribe el prefijo de servicio en la descripciÃ³n al cambiar el detalle.
  * Conserva el resto (convocados, notas).
  */
 export function rewriteMealDescriptionServiceLabel(
@@ -623,7 +623,7 @@ export function rewriteMealDescriptionServiceLabel(
     return merged;
   }
 
-  // Intento con solo el tipo canónico al inicio
+  // Intento con solo el tipo canÃ³nico al inicio
   const base = normalizeMealServiceBase(next) || normalizeMealServiceBase(prev);
   if (base && plain.toLowerCase().startsWith(base.toLowerCase())) {
     const rest = plain.slice(base.length);
@@ -642,7 +642,7 @@ export function rewriteMealDescriptionServiceLabel(
   return existingHtml || plain;
 }
 
-/** CSS de badges de servicio para la ventana de impresión (selector `span.` para ganar a `span.rounded`). */
+/** CSS de badges de servicio para la ventana de impresiÃ³n (selector `span.` para ganar a `span.rounded`). */
 export function buildMealServicePrintBadgeCss() {
   const byClass = new Map();
   Object.values(MEAL_SERVICE_STYLES).forEach((style) => {
@@ -658,7 +658,7 @@ export function buildMealServicePrintBadgeCss() {
 }
 
 /**
- * Clave ordenable fecha+servicio (misma lógica que la matriz de comidas).
+ * Clave ordenable fecha+servicio (misma lÃ³gica que la matriz de comidas).
  * Ej: vie 19/06 Merienda > vie 19/06 Almuerzo > jue 18/06 Cena
  */
 export function mealSlotKey(date, servicio) {
@@ -687,7 +687,7 @@ function resolveCoverageService(coverage, fallback) {
   return fallback;
 }
 
-/** Límites de cobertura calculados en logística por persona. */
+/** LÃ­mites de cobertura calculados en logÃ­stica por persona. */
 export function getMealCoverageBounds(logistics) {
   const start = logistics?.comida_inicio;
   const end = logistics?.comida_fin;
@@ -706,8 +706,8 @@ export function getMealCoverageBounds(logistics) {
 }
 
 /**
- * ¿La persona tiene cobertura de comida para este slot (fecha + servicio)?
- * Usa comida_inicio / comida_fin de su regla logística (por persona, categoría, etc.).
+ * Â¿La persona tiene cobertura de comida para este slot (fecha + servicio)?
+ * Usa comida_inicio / comida_fin de su regla logÃ­stica (por persona, categorÃ­a, etc.).
  */
 export function isPersonEligibleForMealSlot(
   person,
@@ -715,7 +715,7 @@ export function isPersonEligibleForMealSlot(
   options = {},
 ) {
   if (!person || person.estado_gira !== "confirmado") return false;
-  // Bebé en cuna: no consume, fuera de cualquier criterio de convocados.
+  // BebÃ© en cuna: no consume, fuera de cualquier criterio de convocados.
   if (isPersonInCuna(person)) return false;
   if (
     options.cunaExcluidosIds?.length &&
@@ -762,10 +762,10 @@ export function isPersonEligibleForMealSlot(
     if (!requiredGrupos.some((id) => mine.has(id))) return false;
   }
 
-  // Convocatoria explícita por residencia (LOC:): cuenta a quienes viven
+  // Convocatoria explÃ­cita por residencia (LOC:): cuenta a quienes viven
   // en esa ciudad aunque el tramo activo sea otra sede o el slot quede
-  // fuera de comida_inicio/fin (p. ej. vianda de regreso el día siguiente).
-  // No aplica a quien entró solo por GRP:/ENS:/FAM: vía OR en la misma lista.
+  // fuera de comida_inicio/fin (p. ej. vianda de regreso el dÃ­a siguiente).
+  // No aplica a quien entrÃ³ solo por GRP:/ENS:/FAM: vÃ­a OR en la misma lista.
   if (
     Array.isArray(convocados) &&
     convocados.some(
@@ -782,9 +782,9 @@ export function isPersonEligibleForMealSlot(
       ? isLocalAtMealSlot(person, fecha, servicio, options.segments, hora)
       : person.is_local;
 
-  // Catering usa slot sintético 4 (después de Cena). La cobertura logística
-  // solo define D–C; comparar por slot dejaría fuera a todos los viajeros.
-  // Criterio: día calendario dentro de comida_inicio..comida_fin (inclusive).
+  // Catering usa slot sintÃ©tico 4 (despuÃ©s de Cena). La cobertura logÃ­stica
+  // solo define DâC; comparar por slot dejarÃ­a fuera a todos los viajeros.
+  // Criterio: dÃ­a calendario dentro de comida_inicio..comida_fin (inclusive).
   if (servicio === CATERING_SERVICE) {
     const day = String(fecha || "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
@@ -814,8 +814,8 @@ export function isPersonEligibleForMealSlot(
 }
 
 /**
- * Resuelve el slot canónico D/A/M/C de un evento de comida, o `Catering`.
- * Prioriza el nombre del tipo (primera palabra), luego ids 7–10, luego `servicio` en fila.
+ * Resuelve el slot canÃ³nico D/A/M/C de un evento de comida, o `Catering`.
+ * Prioriza el nombre del tipo (primera palabra), luego ids 7â10, luego `servicio` en fila.
  */
 export function mealServicioFromEvent(evt) {
   if (isCateringEvent(evt)) return CATERING_SERVICE;
@@ -840,8 +840,8 @@ export function mealServicioFromEvent(evt) {
 
 /**
  * IDs de `giras_grupos` asignados al evento/fila de comida.
- * Si `selectedGrupos` es un array (aunque vacío), es la fuente de verdad del Manager
- * — así vaciar grupos no queda “pegado” al embed `eventos_grupos` hasta el save.
+ * Si `selectedGrupos` es un array (aunque vacÃ­o), es la fuente de verdad del Manager
+ * â asÃ­ vaciar grupos no queda âpegadoâ al embed `eventos_grupos` hasta el save.
  * @param {object} row
  * @returns {number[]}
  */
@@ -863,10 +863,10 @@ export function mealRowGrupoIds(row) {
 }
 
 /**
- * ¿La fila tiene audiencia OFRN (convocados y/o grupos de convocatoria)?
- * - `GRP:NONE` → no (artistas FIMBA siguen aditivos).
- * - Ambos ejes vacíos → no (catering solo-artista).
- * - Un eje vacío no filtra (AND); grupos sin convocados sí cuentan OFRN.
+ * Â¿La fila tiene audiencia OFRN (convocados y/o grupos de convocatoria)?
+ * - `GRP:NONE` â no (artistas FIMBA siguen aditivos).
+ * - Ambos ejes vacÃ­os â no (catering solo-artista).
+ * - Un eje vacÃ­o no filtra (AND); grupos sin convocados sÃ­ cuentan OFRN.
  * @param {object} row
  * @returns {boolean}
  */
@@ -880,7 +880,7 @@ export function mealRowHasOfrnAudience(row) {
 }
 
 /**
- * Campos de fila cuya edición cambia elegibilidad / pax / deducción / aviso de turno.
+ * Campos de fila cuya ediciÃ³n cambia elegibilidad / pax / deducciÃ³n / aviso de turno.
  * Tras mutarlos, el Manager debe refrescar el estado derivado de **todo** el turno
  * (`mealTurnoKey` = fecha|servicio), no solo la fila editada.
  */
@@ -905,15 +905,15 @@ export function isOrchestraMealRow(row) {
   return mealRowGrupoIds(row).length === 0;
 }
 
-/** Evento con ≥1 grupo de convocatoria. */
+/** Evento con â¥1 grupo de convocatoria. */
 export function isGrupoMealRow(row) {
   if (!row || row.isTemp) return false;
   return mealRowGrupoIds(row).length > 0;
 }
 
 /**
- * Clave locación-aware: fecha + servicio + id_locacion.
- * Conservada por compatibilidad; la **deducción** orquesta↔grupo usa `mealTurnoKey`
+ * Clave locaciÃ³n-aware: fecha + servicio + id_locacion.
+ * Conservada por compatibilidad; la **deducciÃ³n** orquestaâgrupo usa `mealTurnoKey`
  * (misma fecha/servicio aunque el lugar difiera).
  */
 export function mealCoincidenceKey(row) {
@@ -922,15 +922,15 @@ export function mealCoincidenceKey(row) {
   if (!turno) return null;
   const locRaw = row.id_locacion;
   const loc =
-    locRaw == null || locRaw === "" ? "∅" : String(Number(locRaw) || locRaw);
+    locRaw == null || locRaw === "" ? "â" : String(Number(locRaw) || locRaw);
   return `${turno}|${loc}`;
 }
 
 /**
  * Turno de comida = misma fecha + mismo servicio (D/A/M/C/Catering),
- * **sin** locación. Usado para:
- * - deducción orquesta↔grupo (grupo tiene prioridad; orquesta resta esos IDs)
- * - sobre-inclusión (persona en ≥2 comidas del turno)
+ * **sin** locaciÃ³n. Usado para:
+ * - deducciÃ³n orquestaâgrupo (grupo tiene prioridad; orquesta resta esos IDs)
+ * - sobre-inclusiÃ³n (persona en â¥2 comidas del turno)
  */
 export function mealTurnoKey(row) {
   if (!row) return null;
@@ -942,12 +942,12 @@ export function mealTurnoKey(row) {
 }
 
 /**
- * Detecta sobre-inclusión: personas OFRN (y tags FIMBA) que aparecen en
- * ≥2 comidas del mismo turno (`mealTurnoKey`), usando el set **post-deducción**
- * orquesta↔grupo cuando se pasa `getEligiblePeople` ya deducido.
+ * Detecta sobre-inclusiÃ³n: personas OFRN (y tags FIMBA) que aparecen en
+ * â¥2 comidas del mismo turno (`mealTurnoKey`), usando el set **post-deducciÃ³n**
+ * orquestaâgrupo cuando se pasa `getEligiblePeople` ya deducido.
  *
- * @param {Array} rows — filas de comida (ignora isTemp)
- * @param {(row: object) => Array} getEligiblePeople — elegibles OFRN por fila
+ * @param {Array} rows â filas de comida (ignora isTemp)
+ * @param {(row: object) => Array} getEligiblePeople â elegibles OFRN por fila
  * @returns {{
  *   people: Array<{ id: number, person: object, eventIds: string[], turnoKey: string }>,
  *   artists: Array<{ id: number|string, nombre: string, eventIds: string[], turnoKey: string }>,
@@ -1060,14 +1060,14 @@ export function formatComensalesBadgeLabel(ofrnCount, artistPax) {
   if (n === 0 && m === 0) return "0";
   if (n === 0) return `${m} artista${m === 1 ? "" : "s"}`;
   if (m === 0) return `${n} OFRN`;
-  return `${n} OFRN · ${m} artista${m === 1 ? "" : "s"}`;
+  return `${n} OFRN Â· ${m} artista${m === 1 ? "" : "s"}`;
 }
 
 /**
  * Columnas de Control de Asistencia: una por turno (`mealTurnoKey` =
  * fecha|servicio), agrupando N eventos concurrentes del mismo servicio.
  *
- * @param {Array} events — eventos meal ya filtrados (vista)
+ * @param {Array} events â eventos meal ya filtrados (vista)
  * @returns {Array<{
  *   turnoKey: string,
  *   fecha: string,
@@ -1117,8 +1117,8 @@ export function buildMealAttendanceTurnColumns(events = []) {
 }
 
 /**
- * Evento del turno donde la persona realmente come (post-deducción /
- * elegibilidad). Preferencia: comida de grupo → primer evento por orden
+ * Evento del turno donde la persona realmente come (post-deducciÃ³n /
+ * elegibilidad). Preferencia: comida de grupo â primer evento por orden
  * estable (`compareMealManagerRows`).
  *
  * @param {object[]} turnoEvents
@@ -1143,7 +1143,7 @@ export function resolveAttendanceEventForPerson(
 
 /**
  * Estado de asistencia a mostrar en una celda de turno.
- * Si hay varios registros (sobre-inclusión residual), prioriza P > A > vacío.
+ * Si hay varios registros (sobre-inclusiÃ³n residual), prioriza P > A > vacÃ­o.
  *
  * @param {Array<'P'|'A'|null|undefined|string>} statuses
  * @returns {'P'|'A'|null}
@@ -1157,7 +1157,7 @@ export function mergeAttendanceStatuses(statuses = []) {
 
 /**
  * Comidas de grupo que coinciden en el mismo turno (`mealTurnoKey` =
- * fecha|servicio) con un evento orquesta/general — aunque la locación difiera.
+ * fecha|servicio) con un evento orquesta/general â aunque la locaciÃ³n difiera.
  * El grupo tiene prioridad; la orquesta resta esos comensales.
  */
 export function findCoincidingGrupoMealRows(orchestraRow, allRows = []) {
@@ -1176,9 +1176,9 @@ export function findCoincidingGrupoMealRows(orchestraRow, allRows = []) {
 
 /**
  * Resta del headcount/listado orquesta a quienes ya comen en un evento de grupo
- * del mismo turno (fecha + servicio; locación irrelevante). Ausentes ya fuera vía roster.
+ * del mismo turno (fecha + servicio; locaciÃ³n irrelevante). Ausentes ya fuera vÃ­a roster.
  *
- * @param {Array} orchestraEligible — personas elegibles de la fila orquesta
+ * @param {Array} orchestraEligible â personas elegibles de la fila orquesta
  * @param {Array} coincidingGrupoRows
  * @param {(grupoRow: object) => Array} getGrupoEligiblePeople
  * @returns {{ people: Array, deducted: Array, deductedIds: Set<number>, deductedCount: number }}
@@ -1248,7 +1248,7 @@ export function fimbaArtistMealPax(propuestas = []) {
 
 /**
  * Etiqueta de columna para dieta de un participante FIMBA en MealsReport.
- * Presets → label canónico; `otro` / nota libre → «Otros» (evita N columnas por nota).
+ * Presets â label canÃ³nico; `otro` / nota libre â Â«OtrosÂ» (evita N columnas por nota).
  * @param {{ tipo_alimentacion?: string|null, nota_alimentacion?: string|null }} part
  * @param {(tipo: string|null|undefined, nota?: string|null|undefined) => string} labelFn
  */
@@ -1261,13 +1261,13 @@ export function fimbaParticipanteDietReportLabel(part, labelFn) {
     typeof labelFn === "function"
       ? labelFn(part?.tipo_alimentacion, part?.nota_alimentacion)
       : "";
-  if (labeled && labeled !== "—") return labeled;
+  if (labeled && labeled !== "â") return labeled;
   return "Regular";
 }
 
 /**
  * Desglose de pax artistas FIMBA por dieta (nominados) + residuo sin nominar.
- * Total = Σ dietas + residualArt (= `fimbaArtistMealPax` cuando hay cupo planificado).
+ * Total = Î£ dietas + residualArt (= `fimbaArtistMealPax` cuando hay cupo planificado).
  *
  * @param {Array<{ id?: unknown, cantidad_planificada?: number, requiere_comidas?: boolean }>} propuestas
  * @param {Map<string, Array<{ activo?: boolean, tipo_alimentacion?: string|null, nota_alimentacion?: string|null }>>|Record<string, Array>} participantesByPropuestaId
@@ -1318,8 +1318,8 @@ export function fimbaArtistMealDietBreakdown(
 }
 
 /**
- * Detalle libre del nombre de tipo (todo después del tipo base).
- * "Merienda a bordo" → "a bordo"; "Almuerzo" → "".
+ * Detalle libre del nombre de tipo (todo despuÃ©s del tipo base).
+ * "Merienda a bordo" â "a bordo"; "Almuerzo" â "".
  */
 export function mealDetalleFromTypeName(nombre) {
   const base = mealBaseFromTypeName(nombre);
@@ -1351,7 +1351,7 @@ function mapMealTypeRow(t) {
   };
 }
 
-/** Tipos de categoría Comidas (id 4) — editor de tipos D/A/M/C. */
+/** Tipos de categorÃ­a Comidas (id 4) â editor de tipos D/A/M/C. */
 export async function fetchMealEventTypes(supabase) {
   const { data, error } = await supabase
     .from("tipos_evento")
@@ -1382,4 +1382,175 @@ export async function fetchMealRelatedEventTypes(supabase) {
       return catName === "catering";
     })
     .map(mapMealTypeRow);
+}
+
+/**
+ * Persistencia de `hora_fin` al guardar eventos.
+ * Comidas/Catering: nunca inventar fin desde inicio — vacío → null.
+ * Otros tipos: conserva el fallback histórico (fin = inicio si falta).
+ */
+export function resolveEventHoraFinForSave(horaFin, horaInicio, eventLike) {
+  const raw = String(horaFin || "").trim().slice(0, 5);
+  if (isMealRelatedEvent(eventLike)) {
+    return raw || null;
+  }
+  const start = String(horaInicio || "").trim().slice(0, 5);
+  return raw || start || null;
+}
+
+/** Servicios que deben estar cubiertos en la ventana de un artista FIMBA. */
+export const MEAL_ARTIST_COVERAGE_REQUIRED = Object.freeze([
+  "Almuerzo",
+  "Merienda",
+  "Cena",
+]);
+
+function addOneCalendarDay(isoDate) {
+  const d = new Date(`${String(isoDate).slice(0, 10)}T12:00:00`);
+  d.setDate(d.getDate() + 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Enumera slots requeridos (fecha + servicio) entre bookends inclusive.
+ * No exige servicios anteriores al primer tagged ni posteriores al último.
+ *
+ * @param {string} startFecha YYYY-MM-DD
+ * @param {string} startServicio
+ * @param {string} endFecha
+ * @param {string} endServicio
+ * @param {string[]} [requiredServices]
+ * @returns {{ fecha: string, servicio: string, slotKey: number }[]}
+ */
+export function enumerateRequiredMealSlotsInWindow(
+  startFecha,
+  startServicio,
+  endFecha,
+  endServicio,
+  requiredServices = MEAL_ARTIST_COVERAGE_REQUIRED,
+) {
+  const startKey = mealSlotKey(startFecha, startServicio);
+  const endKey = mealSlotKey(endFecha, endServicio);
+  if (startKey == null || endKey == null || startKey > endKey) return [];
+
+  const startDay = String(startFecha).slice(0, 10);
+  const endDay = String(endFecha).slice(0, 10);
+  const out = [];
+  let cursor = startDay;
+  while (cursor <= endDay) {
+    for (const servicio of requiredServices) {
+      const key = mealSlotKey(cursor, servicio);
+      if (key == null) continue;
+      if (key < startKey || key > endKey) continue;
+      out.push({ fecha: cursor, servicio, slotKey: key });
+    }
+    cursor = addOneCalendarDay(cursor);
+    if (out.length > 5000) break;
+  }
+  return out;
+}
+
+/**
+ * Cobertura de comidas por artista FIMBA (tags en eventos).
+ * Ventana = primer → último servicio tagged (orden fecha + MEAL_SERVICE_ORDER).
+ * Dentro de la ventana exige Almuerzo/Merienda/Cena (bookends respetados).
+ * Desayuno/Catering pueden anclar el borde pero no se exigen.
+ *
+ * @param {Array<{ fecha?: string, servicio?: string, propuestas?: Array<{ id?: unknown, nombre?: string, requiere_comidas?: boolean, estado?: string }>, rawEvent?: object }>} mealRows
+ * @param {{ requiredServices?: string[], resolveServicio?: (row: object) => string|null }} [opts]
+ * @returns {{ artistaId: string, artistaNombre: string, first: object|null, last: object|null, presentCount: number, missing: Array<{ fecha: string, servicio: string }>, ok: boolean }[]}
+ */
+export function findFimbaArtistMealCoverageGaps(mealRows = [], opts = {}) {
+  const required = opts.requiredServices || MEAL_ARTIST_COVERAGE_REQUIRED;
+  const resolveServicio =
+    opts.resolveServicio ||
+    ((row) =>
+      row?.servicio ||
+      mealServicioFromEvent(row?.rawEvent || row) ||
+      null);
+
+  /** @type {Map<string, { id: string, nombre: string, slots: { fecha: string, servicio: string, slotKey: number }[] }>} */
+  const byArtist = new Map();
+
+  for (const row of mealRows || []) {
+    const fecha = String(row?.fecha || "").slice(0, 10);
+    if (!fecha) continue;
+    const servicio = resolveServicio(row);
+    if (!servicio) continue;
+    const slotKey = mealSlotKey(fecha, servicio);
+    if (slotKey == null) continue;
+
+    const props = row.propuestas || [];
+    for (const p of props) {
+      if (!p?.id) continue;
+      if (p.requiere_comidas === false) continue;
+      const estado = String(p.estado || "").toLowerCase();
+      if (estado === "cancelado" || estado === "rechazado") continue;
+      const id = String(p.id);
+      if (!byArtist.has(id)) {
+        byArtist.set(id, {
+          id,
+          nombre: p.nombre || `Artista ${p.id}`,
+          slots: [],
+        });
+      }
+      byArtist.get(id).slots.push({ fecha, servicio, slotKey });
+    }
+  }
+
+  const results = [];
+  for (const artist of byArtist.values()) {
+    if (!artist.slots.length) {
+      results.push({
+        artistaId: artist.id,
+        artistaNombre: artist.nombre,
+        first: null,
+        last: null,
+        presentCount: 0,
+        missing: [],
+        ok: true,
+      });
+      continue;
+    }
+    artist.slots.sort((a, b) => a.slotKey - b.slotKey);
+    const first = artist.slots[0];
+    const last = artist.slots[artist.slots.length - 1];
+
+    const presentRequired = new Set();
+    for (const s of artist.slots) {
+      if (required.includes(s.servicio)) {
+        presentRequired.add(`${s.fecha}|${s.servicio}`);
+      }
+    }
+
+    const expected = enumerateRequiredMealSlotsInWindow(
+      first.fecha,
+      first.servicio,
+      last.fecha,
+      last.servicio,
+      required,
+    );
+    const missing = expected
+      .filter((e) => !presentRequired.has(`${e.fecha}|${e.servicio}`))
+      .map((e) => ({ fecha: e.fecha, servicio: e.servicio }));
+
+    results.push({
+      artistaId: artist.id,
+      artistaNombre: artist.nombre,
+      first: { fecha: first.fecha, servicio: first.servicio },
+      last: { fecha: last.fecha, servicio: last.servicio },
+      presentCount: presentRequired.size,
+      missing,
+      ok: missing.length === 0,
+    });
+  }
+
+  return results.sort((a, b) =>
+    a.artistaNombre.localeCompare(b.artistaNombre, "es", {
+      sensitivity: "base",
+    }),
+  );
 }

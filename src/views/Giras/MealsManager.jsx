@@ -60,7 +60,9 @@ import {
   MEAL_FILTER_NO_LOC,
   MEAL_FILTER_NO_ARTIST,
   DEFAULT_MEAL_SERVICE_FILTER,
+  findFimbaArtistMealCoverageGaps,
 } from "../../utils/mealLogistics";
+import { createCoverageGapsWithToast } from "../../utils/fimbaMealCoverageCreate";
 import MealTypesEditorModal from "../../components/logistics/MealTypesEditorModal";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
@@ -78,6 +80,7 @@ import {
 } from "../../services/giraGruposService";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import FimbaEventArtistasTagsCell from "../Fimba/FimbaEventArtistasTagsCell";
+import FimbaMealCoveragePanel from "../Fimba/FimbaMealCoveragePanel";
 import { grupoNombreInitials } from "../../components/giras/GiraGrupoChips";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -2051,6 +2054,41 @@ export default function MealsManager({
   );
   const [overInclusionOpen, setOverInclusionOpen] = useState(false);
 
+  /** Filas reales (no vacantes temp) para cobertura A/M/C + inferencia de locación. */
+  const coverageSiblingRows = useMemo(() => {
+    if (!fimbaMode) return [];
+    return (grid || []).filter(
+      (r) => r && !r.isTemp && r.id != null && !String(r.id).startsWith("temp-"),
+    );
+  }, [fimbaMode, grid]);
+
+  const coverageGaps = useMemo(() => {
+    if (!fimbaMode) return [];
+    return findFimbaArtistMealCoverageGaps(coverageSiblingRows);
+  }, [fimbaMode, coverageSiblingRows]);
+
+  const handleCreateCoverageGap = async (gap) => {
+    if (!gira?.id || !gap) return;
+    await createCoverageGapsWithToast(supabase, [gap], {
+      giraId: gira.id,
+      siblingRows: coverageSiblingRows,
+      mealTypes,
+    });
+    await refreshGridData();
+    onFimbaTagsSaved?.();
+  };
+
+  const handleCreateAllCoverageGaps = async (gapsList) => {
+    if (!gira?.id) return;
+    await createCoverageGapsWithToast(supabase, gapsList, {
+      giraId: gira.id,
+      siblingRows: coverageSiblingRows,
+      mealTypes,
+    });
+    await refreshGridData();
+    onFimbaTagsSaved?.();
+  };
+
   const gridById = useMemo(() => {
     const map = new Map();
     for (const row of grid) {
@@ -2083,7 +2121,7 @@ export default function MealsManager({
   );
 
   const mealTableColCount =
-    11 + (hasGiraGrupos ? 1 : 0) + (hasAnyFimbaTags ? 1 : 0);
+    12 + (hasGiraGrupos ? 1 : 0) + (hasAnyFimbaTags ? 1 : 0);
 
   /** Tinte muy suave por servicio (solo FIMBA); hex del estilo de comida. */
   const fimbaMealRowTintStyle = useCallback(
@@ -3096,6 +3134,19 @@ export default function MealsManager({
         </div>
       )}
 
+      {fimbaMode && coverageGaps.length > 0 && (
+        <div className="mx-2 md:mx-4 mt-2 mb-0 shrink-0">
+          <FimbaMealCoveragePanel
+            compact
+            gaps={coverageGaps}
+            readOnly={readOnly}
+            onFilterArtista={(id) => setFilterArtistaIds([String(id)])}
+            onCreateGap={handleCreateCoverageGap}
+            onCreateAllGaps={handleCreateAllCoverageGaps}
+          />
+        </div>
+      )}
+
       {/* Barra de herramientas flotante para descripción (rich text) */}
       {toolbarPos.visible && (
         <div
@@ -3154,7 +3205,8 @@ export default function MealsManager({
                 </th>
                 <th className="px-3 py-3 w-28 border-r border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">Día</th>
                 <th className="px-3 py-3 w-40 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">Servicio</th>
-                <th className="px-3 py-3 w-20 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">Horario</th>
+                <th className="px-2 py-3 w-16 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]" title="Hora inicio">H. Inic.</th>
+                <th className="px-2 py-3 w-16 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]" title="Hora fin (opcional; vacío por defecto)">H. Fin</th>
                 <th className={`px-2 py-3 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0] ${fimbaMode ? "w-28 max-w-[7.5rem]" : "w-44"}`}>Lugar</th>
                 <th className="px-3 py-3 w-64 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">Descripción</th>
                 <th className="px-1 py-3 w-28 max-w-28 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">
@@ -3352,6 +3404,15 @@ export default function MealsManager({
                     </td>
                     <td className="px-1">
                       <TimeInput value={row.hora_inicio || ""} onChange={(v) => handleGridChange(row.id, "hora_inicio", v)} disabled={isSaving} isDirty={isDirty} />
+                    </td>
+                    <td className="px-1">
+                      <TimeInput
+                        value={row.hora_fin || ""}
+                        onChange={(v) => handleGridChange(row.id, "hora_fin", v)}
+                        disabled={isSaving}
+                        isDirty={isDirty}
+                        allowEmpty
+                      />
                     </td>
                     <td className={`px-1 ${fimbaMode ? "w-28 max-w-[7.5rem]" : ""} relative`}>
                       <GridLocationSelect
@@ -3661,6 +3722,7 @@ export default function MealsManager({
                       <span>{format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}</span>
                       <span className="text-slate-400 font-normal">
                         {row.hora_inicio || "-"}
+                        {row.hora_fin ? `–${row.hora_fin}` : ""}
                       </span>
                       {hasTurnoOver && (
                         <IconAlertTriangle
@@ -3836,6 +3898,7 @@ function MobileMealEditor({ row, catalogs, mealTypes = [], onCancel, onSave }) {
   const descEditorRef = useRef(null);
   const initialRef = useRef({
     hora_inicio: row.hora_inicio || "",
+    hora_fin: row.hora_fin || "",
     id_locacion: row.id_locacion || "",
     descripcion: row.descripcion || "",
     id_tipo_evento: row.id_tipo_evento ?? "",
@@ -3845,6 +3908,7 @@ function MobileMealEditor({ row, catalogs, mealTypes = [], onCancel, onSave }) {
   });
   const [draft, setDraft] = useState({
     hora_inicio: row.hora_inicio || "",
+    hora_fin: row.hora_fin || "",
     id_locacion: row.id_locacion || "",
     descripcion: row.descripcion || "",
     id_tipo_evento: row.id_tipo_evento ?? "",
@@ -3859,6 +3923,7 @@ function MobileMealEditor({ row, catalogs, mealTypes = [], onCancel, onSave }) {
     const initial = initialRef.current;
     return (
       String(draft.hora_inicio || "") !== String(initial.hora_inicio || "") ||
+      String(draft.hora_fin || "") !== String(initial.hora_fin || "") ||
       String(draft.id_locacion || "") !== String(initial.id_locacion || "") ||
       String(draft.descripcion || "") !== String(initial.descripcion || "") ||
       String(draft.id_tipo_evento || "") !==
@@ -3941,7 +4006,7 @@ function MobileMealEditor({ row, catalogs, mealTypes = [], onCancel, onSave }) {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-[9px] font-bold text-slate-500 uppercase">
-                Horario
+                H. Inic.
               </label>
               <input
                 type="text"
@@ -3956,15 +4021,30 @@ function MobileMealEditor({ row, catalogs, mealTypes = [], onCancel, onSave }) {
             </div>
             <div>
               <label className="text-[9px] font-bold text-slate-500 uppercase">
-                Lugar
+                H. Fin
               </label>
-              <div className="mt-1">
-                <GridLocationSelect
-                  value={draft.id_locacion}
-                  onChange={(v) => setDraft((p) => ({ ...p, id_locacion: v }))}
-                  options={catalogs.locaciones}
-                />
-              </div>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="vacío = sin fin"
+                value={draft.hora_fin}
+                onChange={(e) =>
+                  setDraft((p) => ({ ...p, hora_fin: e.target.value }))
+                }
+                className="w-full mt-1 border border-slate-300 rounded px-2 py-1.5 text-xs"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-[9px] font-bold text-slate-500 uppercase">
+              Lugar
+            </label>
+            <div className="mt-1">
+              <GridLocationSelect
+                value={draft.id_locacion}
+                onChange={(v) => setDraft((p) => ({ ...p, id_locacion: v }))}
+                options={catalogs.locaciones}
+              />
             </div>
           </div>
           <div>

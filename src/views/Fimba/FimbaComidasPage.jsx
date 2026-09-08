@@ -282,6 +282,8 @@ export default function FimbaComidasPage() {
             mealFilters={mealFilters}
             onMealFiltersChange={setMealFilters}
             fimbaMode
+            readOnly={readOnly}
+            onGoToGestor={() => setComidasTab("manager")}
           />
         )}
       </div>

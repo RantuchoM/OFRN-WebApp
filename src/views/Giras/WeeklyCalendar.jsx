@@ -22,6 +22,7 @@ import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";
 import EventForm from "../../components/forms/EventForm";
 import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
+import { resolveEventHoraFinForSave } from "../../utils/mealLogistics";
 
 // --- SUBCOMPONENTE DE MODAL DE LECTURA DE EVENTO CON DETALLES ---
 const ReadOnlyEventDetailModal = ({
@@ -320,7 +321,16 @@ export default function WeeklyCalendar({
             : null,
         fecha: editFormData.fecha,
         hora_inicio: editFormData.hora_inicio,
-        hora_fin: editFormData.hora_fin.trim() || editFormData.hora_inicio,
+        hora_fin: resolveEventHoraFinForSave(
+          editFormData.hora_fin,
+          editFormData.hora_inicio,
+          {
+            id_tipo_evento: editFormData.id_tipo_evento,
+            tipos_evento: eventTypes.find(
+              (t) => String(t.id) === String(editFormData.id_tipo_evento),
+            ),
+          },
+        ),
         id_tipo_evento: editFormData.id_tipo_evento || null,
         id_locacion: editFormData.id_locacion || null,
         id_gira_transporte: editFormData.id_gira_transporte ?? null,

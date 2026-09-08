@@ -115,6 +115,9 @@ import { isIntegranteConvocadoAEnsayo } from "../../utils/ensayoCheckinBanner";
 import { notifyEnsayoEventoSoftDeleted } from "../../utils/ensayoCheckinLifecycle";
 import { deriveAgendaPermissions } from "../../utils/agendaPermissions";
 import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
+import {
+  resolveEventHoraFinForSave,
+} from "../../utils/mealLogistics";
 
 const DELETED_FILTERS_STORAGE_KEY_PREFIX = "unified_agenda_deleted_filters_v1_";
 const RECENT_CHANGES_ACK_STORAGE_KEY_PREFIX =
@@ -1775,7 +1778,16 @@ export default function UnifiedAgenda({
           : null,
         fecha: editFormData.fecha,
         hora_inicio: editFormData.hora_inicio,
-        hora_fin: editFormData.hora_fin || editFormData.hora_inicio,
+        hora_fin: resolveEventHoraFinForSave(
+          editFormData.hora_fin,
+          editFormData.hora_inicio,
+          {
+            id_tipo_evento: editFormData.id_tipo_evento,
+            tipos_evento: formEventTypes.find(
+              (t) => String(t.id) === String(editFormData.id_tipo_evento),
+            ),
+          },
+        ),
         id_tipo_evento: editFormData.id_tipo_evento || null,
         id_locacion: editFormData.id_locacion || null,
         id_gira_transporte: editFormData.id_gira_transporte ?? null,
@@ -1884,7 +1896,7 @@ export default function UnifiedAgenda({
       observaciones_aforo: "",
       fecha: "",
       hora_inicio: "10:00",
-      hora_fin: "12:00",
+      hora_fin: "",
       id_tipo_evento: "",
       id_locacion: "",
       id_gira_transporte: null,
@@ -1947,7 +1959,16 @@ export default function UnifiedAgenda({
         : null,
       fecha: newFormData.fecha,
       hora_inicio: newFormData.hora_inicio,
-      hora_fin: newFormData.hora_fin || newFormData.hora_inicio,
+      hora_fin: resolveEventHoraFinForSave(
+        newFormData.hora_fin,
+        newFormData.hora_inicio,
+        {
+          id_tipo_evento: newFormData.id_tipo_evento,
+          tipos_evento: formEventTypes.find(
+            (t) => String(t.id) === String(newFormData.id_tipo_evento),
+          ),
+        },
+      ),
       id_tipo_evento: newFormData.id_tipo_evento || null,
       id_locacion: newFormData.id_locacion || null,
       id_gira_transporte: newFormData.id_gira_transporte ?? null,

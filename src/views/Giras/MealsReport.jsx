@@ -7,6 +7,8 @@ import {
   IconCopy,
   IconX,
   IconCheck,
+  IconDownload,
+  IconFiles,
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import { format, parseISO } from "date-fns";
@@ -30,15 +32,17 @@ import {
   isOrchestraMealRow,
   findCoincidingGrupoMealRows,
   deductGrupoMembersFromOrchestraEligible,
+  findFimbaArtistMealCoverageGaps,
 } from "../../utils/mealLogistics";
+import {
+  buildMealsPedidoText,
+  ARTISTAS_FIMBA_DIET,
+} from "../../utils/mealsReportText";
+import { exportMealsReportByArtista } from "../../utils/mealsReportByArtistExport";
 import { resolveLocalidadResidencia } from "../../utils/integranteDomicilioViaticos";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import { buildIntegranteGruposMap } from "../../services/giraGruposService";
 import { labelFimbaAlimentacion } from "../../services/fimbaService";
-
-/** Residuo planificada − nominados (sin dieta discriminada). */
-const ARTISTAS_FIMBA_DIET = "Artistas FIMBA";
-
 /** Etiquetas fijas de tags GRP: (alineado con MealsManager). */
 const CONV_TAG_LABELS = {
   "GRP:TUTTI": "Tutti",
@@ -219,12 +223,17 @@ export default function MealsReport({
   onMealFiltersChange = null,
   /** FIMBA Comidas: suma pax artistas tagueados + skin magenta. */
   fimbaMode = false,
-  /** Grupos de convocatoria de la gira (AND con convocados en elegibilidad). */
+  /** Grupos de convocatoria de la gira (AND con elegibilidad). */
   giraGrupos = [],
+  /** Consulta FIMBA: sin crear comidas desde alertas. */
+  readOnly = false,
+  /** FIMBA Comidas: ir a pestaña Gestor (cobertura A/M/C vive ahí). */
+  onGoToGestor = null,
 }) {
   const reportRef = useRef(null);
   const fetchGenRef = useRef(0);
   const [loading, setLoading] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
   const [reportData, setReportData] = useState([]);
   /** id_propuesta → participantes (dietas FIMBA) para recalcular al filtrar artista. */
   const [fimbaPartsByPropuesta, setFimbaPartsByPropuesta] = useState(
@@ -235,6 +244,8 @@ export default function MealsReport({
     ensamblesById: new Map(),
   });
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [showArtistExportModal, setShowArtistExportModal] = useState(false);
+  const [artistExportBusy, setArtistExportBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const filtersControlled =
     mealFilters != null && typeof onMealFiltersChange === "function";
@@ -542,6 +553,7 @@ export default function MealsReport({
             lugar: locCity ? `${locName} - ${locCity}` : locName,
             locacionLabel: locName,
             locKey,
+            id_locacion: locId,
             ciudadKey,
             ciudadLabel,
             convocados,
@@ -578,6 +590,7 @@ export default function MealsReport({
     segmentsKey,
     giraGruposKey,
     fimbaMode,
+    refreshTick,
   ]);
 
   // --- Memorias y Totales ---
@@ -871,187 +884,83 @@ export default function MealsReport({
     [activeRoster],
   );
 
-  const textSummary = useMemo(() => {
-    const formatDayHeader = (isoDate) => {
-      const label = format(parseISO(isoDate), "EEEE dd/MM", { locale: es });
-      return label.charAt(0).toUpperCase() + label.slice(1);
-    };
+  const textSummary = useMemo(
+    () =>
+      buildMealsPedidoText(filteredReport, {
+        nonLocalRoster,
+        includeStayBlocks: true,
+      }),
+    [filteredReport, nonLocalRoster],
+  );
 
-    const formatDayRange = (isoDate) => format(parseISO(isoDate), "dd/MM");
+  /** Filas del reporte sin filtro de artista (base del batch por artista). */
+  const reportRowsForArtistBatch = useMemo(() => {
+    const locSet =
+      selectedLocationKeys.length > 0
+        ? new Set(selectedLocationKeys.map(String))
+        : null;
+    const ciudadSet =
+      selectedLocalidadKeys.length > 0
+        ? new Set(selectedLocalidadKeys.map(String))
+        : null;
+    const convSet =
+      selectedConvTags.length > 0
+        ? new Set(selectedConvTags.map(String))
+        : null;
 
-    const serviceOrder = ["Desayuno", "Almuerzo", "Merienda", "Cena", CATERING_SERVICE];
-    const servicePlural = {
-      Desayuno: "desayunos",
-      Almuerzo: "almuerzos",
-      Merienda: "meriendas",
-      Cena: "cenas",
-      [CATERING_SERVICE]: "catering",
-    };
-
-    const perDate = {};
-    filteredReport.forEach((row) => {
-      if (!perDate[row.fecha]) perDate[row.fecha] = {};
-      // Clave por etiqueta completa para no fusionar "Almuerzo" con "Almuerzo (Vianda)"
-      const groupKey = row.servicioLabel || row.servicio;
-      if (!perDate[row.fecha][groupKey]) {
-        perDate[row.fecha][groupKey] = {
-          Total: 0,
-          base: row.servicio,
-          label: groupKey,
-        };
+    return reportData.filter((r) => {
+      if (!selectedTypes.has(r.servicio)) return false;
+      if (!passesMealKindFilter(r.rawEvent || r, mealKindFilter)) return false;
+      if (locSet && !locSet.has(String(r.locKey))) return false;
+      if (ciudadSet && !ciudadSet.has(String(r.ciudadKey))) return false;
+      if (convSet) {
+        const tags = r.convocados?.length
+          ? r.convocados.map(String)
+          : ["__empty__"];
+        if (!tags.some((t) => convSet.has(t))) return false;
       }
-      perDate[row.fecha][groupKey].Total += row.counts.Total || 0;
-      Object.entries(row.counts).forEach(([diet, value]) => {
-        if (diet === "Total" || !value) return;
-        perDate[row.fecha][groupKey][diet] =
-          (perDate[row.fecha][groupKey][diet] || 0) + value;
-      });
+      return true;
     });
+  }, [
+    reportData,
+    selectedTypes,
+    mealKindFilter,
+    selectedLocationKeys,
+    selectedLocalidadKeys,
+    selectedConvTags,
+  ]);
 
-    const orderedDates = Object.keys(perDate).sort((a, b) =>
-      a.localeCompare(b),
-    );
+  const coverageGaps = useMemo(() => {
+    if (!fimbaMode) return [];
+    return findFimbaArtistMealCoverageGaps(reportData);
+  }, [fimbaMode, reportData]);
 
-    const mealBlocks = orderedDates
-      .map((dateKey) => {
-        const groups = Object.values(perDate[dateKey] || {}).sort((a, b) => {
-          const oa = serviceOrder.indexOf(a.base);
-          const ob = serviceOrder.indexOf(b.base);
-          if (oa !== ob) return (oa < 0 ? 99 : oa) - (ob < 0 ? 99 : ob);
-          return String(a.label).localeCompare(String(b.label), "es");
-        });
+  const coverageBrokenCount = useMemo(
+    () =>
+      (coverageGaps || []).filter((g) => !g.ok && g.missing?.length > 0).length,
+    [coverageGaps],
+  );
 
-        const dateRows = groups
-          .map((counts) => {
-            if (!counts || !counts.Total) return null;
-
-            const diets = Object.entries(counts)
-              .filter(
-                ([k, v]) =>
-                  k !== "Total" && k !== "base" && k !== "label" && v > 0,
-              )
-              .sort(([a], [b]) => {
-                const rank = (d) => {
-                  if (d === "Estándar" || d === "Regular") return 0;
-                  if (d === ARTISTAS_FIMBA_DIET) return 2;
-                  return 1;
-                };
-                const ra = rank(a);
-                const rb = rank(b);
-                if (ra !== rb) return ra - rb;
-                return a.localeCompare(b, "es");
-              })
-              .map(([diet, value]) => `${value} ${diet.toLowerCase()}`);
-
-            const details = diets.length > 0 ? ` (${diets.join(", ")})` : "";
-            const base = counts.base;
-            const pluralRoot = servicePlural[base] || String(counts.label || "").toLowerCase();
-            // Si la etiqueta difiere del tipo (subcategoría), usarla literal
-            const isSub =
-              counts.label &&
-              String(counts.label).toLowerCase() !== String(base || "").toLowerCase();
-            const name = isSub
-              ? String(counts.label).toLowerCase()
-              : pluralRoot;
-            return `${counts.Total} ${name}${details}`;
-          })
-          .filter(Boolean);
-
-        if (dateRows.length === 0) return null;
-        return `${formatDayHeader(dateKey)}\n${dateRows.join("\n")}`;
-      })
-      .filter(Boolean);
-
-    const isMinorPerson = (person) => {
-      if (person?.menor === true || person?.menor === 1) return true;
-      if (!person?.fecha_nacimiento) return false;
-      const birth = new Date(person.fecha_nacimiento);
-      if (Number.isNaN(birth.getTime())) return false;
-      const today = new Date();
-      let age = today.getFullYear() - birth.getFullYear();
-      const monthDiff = today.getMonth() - birth.getMonth();
-      if (
-        monthDiff < 0 ||
-        (monthDiff === 0 && today.getDate() < birth.getDate())
-      ) {
-        age -= 1;
-      }
-      return age < 18;
-    };
-
-    const groupedByStay = {};
-    nonLocalRoster.forEach((person) => {
-      const inDate =
-        person?.logistics?.checkin?.date || person?.logistics?.comida_inicio?.date;
-      const outDate =
-        person?.logistics?.checkout?.date || person?.logistics?.comida_fin?.date;
-      if (!inDate || !outDate) return;
-      const key = `${inDate}|${outDate}`;
-      if (!groupedByStay[key]) {
-        groupedByStay[key] = {
-          inDate,
-          outDate,
-          pax: 0,
-          minors: 0,
-          superiorRooms: new Set(),
-        };
-      }
-      groupedByStay[key].pax += 1;
-      if (isMinorPerson(person)) groupedByStay[key].minors += 1;
-
-      const room = person?.habitacion;
-      const roomType = String(room?.tipo || "").toLowerCase();
-      const isSuperiorRoom = roomType === "plus" || roomType === "superior";
-      if (isSuperiorRoom && room?.id) groupedByStay[key].superiorRooms.add(room.id);
-    });
-
-    const stayBlocks = Object.values(groupedByStay)
-      .sort((a, b) => a.inDate.localeCompare(b.inDate))
-      .map((group) => {
-        const extras = [];
-        if (group.minors > 0) {
-          extras.push(`${group.minors} ${group.minors === 1 ? "menor" : "menores"}`);
-        }
-        const roomCount = group.superiorRooms.size;
-        if (roomCount > 0) {
-          extras.push(
-            `${roomCount} ${roomCount === 1 ? "habitación superior" : "habitaciones superiores"}`,
-          );
-        }
-        const extraText = extras.length > 0 ? ` (${extras.join(", ")})` : "";
-        const paxLabel = group.pax === 1 ? "pasajero" : "pasajeros";
-        return (
-          `Grupo ingreso ${formatDayRange(group.inDate)} al ${formatDayRange(group.outDate)}\n` +
-          `${group.pax} ${paxLabel}${extraText}`
-        );
+  const handleExportByArtista = async (modes) => {
+    setArtistExportBusy(true);
+    try {
+      const onlyIds =
+        selectedArtistaIds.length > 0
+          ? selectedArtistaIds.filter((id) => id !== NO_ARTIST_KEY)
+          : null;
+      await exportMealsReportByArtista({
+        reportRows: reportRowsForArtistBatch,
+        fimbaPartsByPropuesta,
+        labelFn: labelFimbaAlimentacion,
+        onlyArtistaIds: onlyIds,
+        giraNombre: gira?.nombre_gira || gira?.nomenclador || "Gira",
+        modes,
       });
-
-    const stayPaxTotal = Object.values(groupedByStay).reduce(
-      (sum, group) => sum + group.pax,
-      0,
-    );
-
-    // Para alimentación: el total debe reflejar comidas (pico por servicio),
-    // no el conteo de hospedaje no local (que puede no coincidir con ningún servicio).
-    const mealPeak = filteredReport.reduce(
-      (max, row) => Math.max(max, row.counts?.Total || 0),
-      0,
-    );
-
-    const blocks = [];
-    if (mealPeak > 0) {
-      blocks.push(`Cantidad de pasajeros: ${mealPeak}`);
+      setShowArtistExportModal(false);
+    } finally {
+      setArtistExportBusy(false);
     }
-    if (mealBlocks.length > 0) blocks.push(mealBlocks.join("\n\n"));
-    blocks.push("Fecha de ingreso y egreso.");
-    if (stayPaxTotal > 0) {
-      blocks.push(
-        `Hospedaje (no locales): ${stayPaxTotal} ${stayPaxTotal === 1 ? "pasajero" : "pasajeros"}`,
-      );
-    }
-    if (stayBlocks.length > 0) blocks.push(stayBlocks.join("\n\n"));
-    return blocks.join("\n\n");
-  }, [filteredReport, nonLocalRoster]);
+  };
 
   const handleCopySummary = async () => {
     try {
@@ -1275,6 +1184,20 @@ export default function MealsReport({
         </div>
 
         <div className="flex items-center gap-2 ml-auto shrink-0">
+          {fimbaMode && (
+            <button
+              type="button"
+              onClick={() => setShowArtistExportModal(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold h-[34px] border ${
+                fimbaMode
+                  ? "border-[#d73289] text-[#d73289] bg-white hover:bg-fuchsia-50"
+                  : "border-indigo-600 text-indigo-700 bg-white"
+              }`}
+              title="Excel multi-hoja y/o ZIP de textos pedido, uno por artista"
+            >
+              <IconFiles size={16} /> Por artista
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setShowSummaryModal(true)}
@@ -1296,6 +1219,33 @@ export default function MealsReport({
           </button>
         </div>
       </div>
+
+      {fimbaMode && coverageBrokenCount > 0 && (
+        <div className="px-3 sm:px-4 pt-3 print:hidden">
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950"
+            role="status"
+          >
+            <span className="font-medium">
+              Cobertura A/M/C incompleta · {coverageBrokenCount} artista
+              {coverageBrokenCount === 1 ? "" : "s"}
+            </span>
+            {typeof onGoToGestor === "function" ? (
+              <button
+                type="button"
+                onClick={onGoToGestor}
+                className="shrink-0 text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded border border-[#d73289] bg-white text-[#d73289] hover:bg-fuchsia-50"
+              >
+                Ir a Gestor
+              </button>
+            ) : (
+              <span className="text-amber-800/80">
+                Gestionar huecos en la pestaña Gestor.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Contenido Reporte = cuadro / tabla por dieta */}
       <div className="meals-report-export flex-1 overflow-auto p-8" ref={reportRef}>
@@ -1470,6 +1420,89 @@ export default function MealsReport({
                 >
                   {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
                   {copied ? "Copiado" : "Copiar texto"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {showArtistExportModal &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 print:hidden"
+            onClick={() => !artistExportBusy && setShowArtistExportModal(false)}
+          >
+            <div
+              className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-slate-200 flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-800">
+                  Exportar por artista
+                </h3>
+                <button
+                  type="button"
+                  disabled={artistExportBusy}
+                  onClick={() => setShowArtistExportModal(false)}
+                  className="p-1 text-slate-400 hover:text-slate-700"
+                  title="Cerrar"
+                >
+                  <IconX size={18} />
+                </button>
+              </div>
+              <div className="p-4 space-y-3 text-sm text-slate-600">
+                <p className="m-0">
+                  Genera un archivo por cada artista tagueado en comidas
+                  {selectedArtistaIds.length > 0
+                    ? " (solo los del filtro Artista activo)"
+                    : ""}
+                  . Respeta filtros de tipo/locación/convocados.
+                </p>
+                <ul className="list-disc pl-5 m-0 space-y-1 text-xs">
+                  <li>
+                    <strong>Excel</strong>: multi-hoja (Índice + una hoja cuadro
+                    por artista)
+                  </li>
+                  <li>
+                    <strong>ZIP textos</strong>: un .txt de pedido por artista
+                  </li>
+                </ul>
+              </div>
+              <div className="px-4 py-3 border-t border-slate-200 flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={artistExportBusy}
+                  onClick={() => handleExportByArtista(["excel"])}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {artistExportBusy ? (
+                    <IconLoader size={14} className="animate-spin inline" />
+                  ) : (
+                    <IconDownload size={14} className="inline mr-1" />
+                  )}{" "}
+                  Solo Excel
+                </button>
+                <button
+                  type="button"
+                  disabled={artistExportBusy}
+                  onClick={() => handleExportByArtista(["zip"])}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Solo ZIP textos
+                </button>
+                <button
+                  type="button"
+                  disabled={artistExportBusy}
+                  onClick={() => handleExportByArtista(["excel", "zip"])}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-[#d73289] hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1"
+                >
+                  {artistExportBusy ? (
+                    <IconLoader size={14} className="animate-spin" />
+                  ) : (
+                    <IconFiles size={14} />
+                  )}
+                  Excel + ZIP
                 </button>
               </div>
             </div>

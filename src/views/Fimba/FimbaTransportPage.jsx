@@ -3894,7 +3894,7 @@ export default function FimbaTransportPage() {
                   }${isTodos ? " fimba-veh-filter-chip--todos" : ""}`}
                 >
                   <button
-                    type="button"
+                  type="button"
                     className="fimba-veh-filter-chip__label"
                     onClick={() => handleVehiculoExclusive(id)}
                     title={
@@ -3903,7 +3903,7 @@ export default function FimbaTransportPage() {
                     }
                   >
                     {label}
-                  </button>
+                </button>
                   {isSelected ? (
                     <>
                       <span
@@ -4770,7 +4770,7 @@ export default function FimbaTransportPage() {
                             disabled={
                               !canAddIntermediate && !isCreatingIntermediateHere
                             }
-                            title={
+                                  title={
                               isCreatingIntermediateHere
                                 ? "Creando parada intermedia…"
                                 : canAddIntermediate
@@ -4820,15 +4820,15 @@ export default function FimbaTransportPage() {
                         >
                           {horaFinDisp.value ? (
                           <span
-                              style={
-                                horaFinDisp.isCalculated
+                                  style={
+                                    horaFinDisp.isCalculated
                                   ? { fontStyle: "italic" }
-                                  : undefined
-                              }
-                            >
-                              {horaFinDisp.value}
-                            </span>
-                          ) : (
+                                      : undefined
+                                  }
+                                >
+                                  {horaFinDisp.value}
+                                </span>
+                              ) : (
                             <span>—</span>
                           )}
                         </td>
@@ -5042,27 +5042,27 @@ export default function FimbaTransportPage() {
                               ? { cursor: "pointer" }
                               : {}),
                           }}
-                          title={
+                                title={
                             readOnly
                               ? ev.vuelo || undefined
                               : "Vuelo / nota"
                           }
                         >
                           {isCellEditing(ev.id, "vuelo") ? (
-                            <input
-                              className="fimba-cell-input"
+                                <input
+                                  className="fimba-cell-input"
                               autoFocus={
                                 rowEditing
                                   ? rowEditFocusField === "vuelo"
                                   : !editMode
                               }
-                              value={evDraft.vuelo}
-                              disabled={evSaving}
-                              placeholder="Vuelo"
+                                  value={evDraft.vuelo}
+                                  disabled={evSaving}
+                                  placeholder="Vuelo"
                               title="Vuelo / nota (línea Vuelo: en descripcion)"
-                              onChange={(e) =>
-                                setEventField(ev.id, "vuelo", e.target.value)
-                              }
+                                  onChange={(e) =>
+                                    setEventField(ev.id, "vuelo", e.target.value)
+                                  }
                               onBlur={() => {
                                 if (rowEditing) return;
                                 commitEvento(ev.id);

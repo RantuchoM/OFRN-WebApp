@@ -23,7 +23,13 @@ const formatWhileTyping = (raw) => {
   return val;
 };
 
-export default function TimeInput({ value, onChange, label, className }) {
+export default function TimeInput({
+  value,
+  onChange,
+  label,
+  className,
+  allowEmpty = false,
+}) {
   const [showClock, setShowClock] = useState(false);
   const committed = sliceCommitted(value);
   const [draft, setDraft] = useState(committed);
@@ -39,7 +45,16 @@ export default function TimeInput({ value, onChange, label, className }) {
   }, [value, focused]);
 
   const commitIfValid = (val) => {
-    const normalized = normalizeTime(val);
+    const trimmed = String(val || '').trim();
+    if (!trimmed) {
+      if (allowEmpty) {
+        onChange('');
+        setDraft('');
+        return true;
+      }
+      return false;
+    }
+    const normalized = normalizeTime(trimmed);
     if (normalized) {
       onChange(normalized);
       setDraft(normalized);
