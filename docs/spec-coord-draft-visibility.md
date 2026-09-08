@@ -31,4 +31,4 @@ Mejorar la experiencia de usuario de los coordinadores de ensamble, asegurando q
 | Inicialización de filterStatus en GirasView | ✅ Completado | `GirasView.jsx`: useState inicial con lógica de roles + useEffect para asegurar actualización cuando user esté disponible |
 | Verificación de GirasListControls | ✅ Completado | `GirasListControls.jsx`: Ya refleja correctamente el estado de `filterStatus` recibido como prop, no requiere cambios |
 | Ocultar borradores Sinfónico / Camerata a no editores | ✅ Completado | `GirasView.jsx`: `canSeeDraftOrchestral` (`admin` \| `editor`); filtro en `filteredGiras`, calendario semanal y redirect de deep-link |
-| Borradores excluidos del resumen anual (UX) | ✅ Completado | `girasYearSummary.js` (`isProgramBorrador`), `useGirasYearSummary.js` (ensayos de programas borrador) |
+| Borradores en el resumen anual (UX) | ✅ Completado | El número principal sigue siendo no-borrador. Sufijo `+ n [Borrador]` en chips de tipo y en ensayos (`GirasYearSummaryBar`, `countProgramsByTypeSplit`) |

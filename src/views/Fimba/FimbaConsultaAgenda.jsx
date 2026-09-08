@@ -106,6 +106,8 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
   const [edicion, setEdicion] = useState(null);
   const [propuestas, setPropuestas] = useState([]);
   const [logisticsSummary, setLogisticsSummary] = useState([]);
+  const [ofrnRouteRules, setOfrnRouteRules] = useState([]);
+  const [ofrnLocalities, setOfrnLocalities] = useState([]);
   const [propuestaRoutes, setPropuestaRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -171,6 +173,8 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
     }
     setFlota(flotaRes.flota || []);
     setLogisticsSummary(logRes?.error ? [] : logRes?.summary || []);
+    setOfrnRouteRules(logRes?.error ? [] : logRes?.routeRules || []);
+    setOfrnLocalities(logRes?.error ? [] : logRes?.localities || []);
     setPropuestaRoutes(rutasRes?.error ? [] : rutasRes?.rutas || []);
     if (ed) setEdicion(ed);
     if (propsRes) {
@@ -210,8 +214,10 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
         capacityFn: computeFimbaCapacity,
         eventVehicleIds: giraTransporteIdsFromEvent,
         propuestaRoutes,
+        ofrnRouteRules,
+        ofrnLocalities,
       }),
-    [flota, eventos, logisticsSummary, propuestaRoutes],
+    [flota, eventos, logisticsSummary, propuestaRoutes, ofrnRouteRules, ofrnLocalities],
   );
 
   const handleExportPdf = () => {

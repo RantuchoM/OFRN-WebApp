@@ -542,6 +542,182 @@ assert(
   "auditoría: ride trayecto↔trayecto no figura",
 );
 
+// --- FIMBA: cada hop cuenta (no solo primera ↑ / última ↓) ---
+const hopTid = 900;
+const hopEvents = [
+  { id: 1, fecha: "2026-09-15", hora_inicio: "08:00:00" },
+  { id: 2, fecha: "2026-09-15", hora_inicio: "12:00:00" },
+  { id: 3, fecha: "2026-09-15", hora_inicio: "16:00:00" },
+  { id: 4, fecha: "2026-09-15", hora_inicio: "20:00:00" },
+];
+const hopPerson = {
+  id: 77,
+  apellido: "Pérez",
+  nombre: "Juan",
+  estado_gira: "activo",
+  logistics: { transports: [{ id: hopTid, subidaId: 1, bajadaId: 4 }] },
+};
+const hopRules = [
+  {
+    id: 10,
+    id_transporte_fisico: hopTid,
+    alcance: "Persona",
+    id_integrante: 77,
+    id_evento_subida: 1,
+    id_evento_bajada: 2,
+  },
+  {
+    id: 11,
+    id_transporte_fisico: hopTid,
+    alcance: "Persona",
+    id_integrante: 77,
+    id_evento_subida: 3,
+    id_evento_bajada: 4,
+  },
+];
+
+function hopMatchesPersona(rule, person) {
+  return (
+    String(rule.alcance).toLowerCase() === "persona" &&
+    String(rule.id_integrante) === String(person.id)
+  );
+}
+
+function extractHopsLite(rules, summary, tid) {
+  const rides = [];
+  for (const p of summary) {
+    const tr = (p.logistics?.transports || []).find((t) => String(t.id) === String(tid));
+    if (!tr) continue;
+    for (const r of rules) {
+      if (String(r.id_transporte_fisico) !== String(tid)) continue;
+      if (!hopMatchesPersona(r, p)) continue;
+      rides.push({
+        id: p.id,
+        seats: 1,
+        source: "ofrn",
+        subidaId: r.id_evento_subida,
+        bajadaId: r.id_evento_bajada,
+      });
+    }
+  }
+  return rides;
+}
+
+const collapsedRide = {
+  id: 77,
+  seats: 1,
+  source: "ofrn",
+  subidaId: 1,
+  bajadaId: 4,
+};
+const collapsedSeq = buildSequence(hopEvents, [collapsedRide], [], 10);
+assert(
+  collapsedSeq.byEventId["1"]?.board_seats === 1 &&
+    collapsedSeq.byEventId["2"]?.board_seats === 0 &&
+    collapsedSeq.byEventId["3"]?.board_seats === 0 &&
+    collapsedSeq.byEventId["4"]?.alight_seats === 1 &&
+    collapsedSeq.byEventId["2"]?.alight_seats === 0,
+  "documenta colapso OFRN: solo cuenta ↑ primera y ↓ última",
+);
+
+const hopRides = extractHopsLite(hopRules, [hopPerson], hopTid);
+assert(hopRides.length === 2, "FIMBA expande 2 hops (no 1 ride colapsado)");
+const hopSeq = buildSequence(hopEvents, hopRides, [], 10);
+assert(
+  hopSeq.byEventId["1"]?.board_seats === 1 &&
+    hopSeq.byEventId["2"]?.alight_seats === 1 &&
+    hopSeq.byEventId["3"]?.board_seats === 1 &&
+    hopSeq.byEventId["4"]?.alight_seats === 1,
+  "cada subida y cada bajada cuenta 1 (Pérez en 08/12 y 16/20)",
+);
+assert(
+  hopSeq.byEventId["1"]?.en_transito === 1 &&
+    hopSeq.byEventId["2"]?.en_transito === 0 &&
+    hopSeq.byEventId["3"]?.en_transito === 1 &&
+    hopSeq.byEventId["4"]?.en_transito === 0,
+  "entre hops no queda a bordo; al salir de cada bajada libera plaza",
+);
+
+function uniqueOfrnLite(rides, pred) {
+  const seen = new Set();
+  let n = 0;
+  for (const r of rides) {
+    if (!pred(r)) continue;
+    const key = r.source === "ofrn" && r.id != null ? String(r.id) : null;
+    if (key) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    n += Number(r.seats) || 0;
+  }
+  return n;
+}
+
+function buildSequenceUniqueOfrn(sorted, ofrnRides, fimbaRides, capacidad) {
+  const stops = sorted.map((evt, currentIdx) => {
+    const board =
+      uniqueOfrnLite(
+        ofrnRides,
+        (r) => r.subidaId != null && String(r.subidaId) === String(evt.id),
+      ) +
+      fimbaRides
+        .filter((r) => r.subidaId != null && String(r.subidaId) === String(evt.id))
+        .reduce((s, r) => s + (Number(r.seats) || 0), 0);
+    const alight =
+      uniqueOfrnLite(
+        ofrnRides,
+        (r) => r.bajadaId != null && String(r.bajadaId) === String(evt.id),
+      ) +
+      fimbaRides
+        .filter((r) => r.bajadaId != null && String(r.bajadaId) === String(evt.id))
+        .reduce((s, r) => s + (Number(r.seats) || 0), 0);
+    let enTransito = uniqueOfrnLite(ofrnRides, (r) => {
+      if (!r.subidaId) return false;
+      const upIdx = indexOfEvent(sorted, r.subidaId);
+      const downIdx =
+        r.bajadaId != null && r.bajadaId !== ""
+          ? indexOfEvent(sorted, r.bajadaId)
+          : null;
+      return isOnBoardAfterStop(upIdx, downIdx, currentIdx);
+    });
+    for (const r of fimbaRides) {
+      if (!r.subidaId) continue;
+      const upIdx = indexOfEvent(sorted, r.subidaId);
+      const downIdx =
+        r.bajadaId != null && r.bajadaId !== ""
+          ? indexOfEvent(sorted, r.bajadaId)
+          : null;
+      if (isOnBoardAfterStop(upIdx, downIdx, currentIdx)) {
+        enTransito += Number(r.seats) || 0;
+      }
+    }
+    return { eventId: evt.id, board_seats: board, alight_seats: alight, en_transito: enTransito, capacidad };
+  });
+  return {
+    stops,
+    byEventId: Object.fromEntries(stops.map((s) => [String(s.eventId), s])),
+  };
+}
+
+const uniqueHopSeq = buildSequenceUniqueOfrn(hopEvents, hopRides, [], 10);
+assert(
+  uniqueHopSeq.byEventId["1"]?.board_seats === 1 &&
+    uniqueHopSeq.byEventId["2"]?.alight_seats === 1 &&
+    uniqueHopSeq.byEventId["3"]?.board_seats === 1 &&
+    uniqueHopSeq.byEventId["4"]?.alight_seats === 1,
+  "secuencia unique: cada ↑ y cada ↓ cuenta 1",
+);
+const overlapRides = [
+  { id: 77, seats: 1, source: "ofrn", subidaId: 1, bajadaId: 4 },
+  { id: 77, seats: 1, source: "ofrn", subidaId: 2, bajadaId: 3 },
+];
+const overlapSeq = buildSequenceUniqueOfrn(hopEvents, overlapRides, [], 10);
+assert(
+  overlapSeq.byEventId["2"]?.board_seats === 1 &&
+    overlapSeq.byEventId["2"]?.en_transito === 1,
+  "en_transito no doble-cuenta a la misma persona con hops solapados",
+);
+
 if (process.exitCode) {
   console.error("\nAlgunas aserciones fallaron.");
 } else {

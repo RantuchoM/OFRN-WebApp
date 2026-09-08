@@ -1,20 +1,22 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
+import { toast } from "sonner";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { IconLoader, IconRefresh, IconX } from "./Icons";
+import {
+  applyPwaUpdate,
+  resolveServiceWorkerRegistration,
+} from "../../utils/pwaApplyUpdate";
 import { hasUnsavedWork } from "../../utils/unsavedWork";
 
 /** Rutas públicas de Entradas: actualización silenciosa sin overlay ni banner. */
-export function isEntradasPublicRoute(pathname = "") {
+function isEntradasPublicRoute(pathname = "") {
   return String(pathname || "").startsWith("/entradas");
 }
 
 /** Idle poll: 15 min, and only while the tab is visible. Focus / visibility / navegación siguen chequeando al toque. */
 const VERSION_POLL_MS = 15 * 60 * 1000;
 const ENTRADAS_SW_POLL_MS = 15 * 60 * 1000;
-const RESTART_MESSAGE_MS = 400;
-/** iOS PWA a veces no dispara `controlling`; recarga única de respaldo. */
-const RELOAD_FALLBACK_MS = 2500;
 const RELOAD_GUARD_KEY = "ofrn:pwa-reload-guard";
 const PRELOAD_RELOAD_KEY = "ofrn:preload-reload";
 const RELOAD_GUARD_WINDOW_MS = 15_000;
@@ -103,7 +105,7 @@ function UpdateAvailableBanner({ onUpdate, onDismiss, subtitle }) {
           className="w-full inline-flex items-center justify-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white hover:bg-indigo-700"
         >
           <IconRefresh size={11} />
-          Actualizar
+          Actualizar versión
         </button>
       </div>
     </div>
@@ -123,11 +125,13 @@ function ReloadPrompt() {
 
 /**
  * Actualizaciones de deploy (Vercel + PWA):
- * - Staff: nunca fuerza reload mid-sesión; banner «Nueva versión / Actualizar».
+ * - Staff: nunca fuerza reload mid-sesión; banner «Nueva versión / Actualizar versión».
  * - Al cambiar de ruta sin trabajo dirty: aplica la SW waiting (navegación limpia).
  * - Si hay dirty (FIMBA planilla/modal, data-unsaved-work): solo banner.
  * - /entradas: sigue en modo silencioso (público).
  * - version.json: poll 15 min (pestaña visible) + check en foco/navegación; cache browser 60 s.
+ * - Un tap: espera waiting (updatefound → installed) → skipWaiting → controllerchange → reload.
+ *   Si no hay waiting y el build está desfasado: unregister + clear caches + reload.
  */
 function ReloadPromptProd() {
   const { pathname } = useLocation();
@@ -135,42 +139,30 @@ function ReloadPromptProd() {
   const swRegistrationRef = useRef(null);
   const restartStartedRef = useRef(false);
   const reloadPendingRef = useRef(false);
-  const fallbackTimerRef = useRef(null);
   const pathnameRef = useRef(pathname);
   const [isRestarting, setIsRestarting] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   /** Build remoto distinto del embebido (sin depender solo del SW). */
   const [buildOutdated, setBuildOutdated] = useState(false);
 
+  const resetApplyUi = useCallback(() => {
+    reloadPendingRef.current = false;
+    restartStartedRef.current = false;
+    setIsRestarting(false);
+  }, []);
+
   const reloadPageWithGuard = useCallback(() => {
     if (reloadPendingRef.current) return false;
     const count = markReloadAttempt();
     if (count > RELOAD_GUARD_MAX) {
       console.warn("[PWA] Recargas repetidas detectadas; se detiene la actualización automática.");
-      reloadPendingRef.current = false;
-      restartStartedRef.current = false;
-      setIsRestarting(false);
+      resetApplyUi();
       return false;
     }
     reloadPendingRef.current = true;
     window.location.reload();
     return true;
-  }, []);
-
-  const clearFallbackTimer = useCallback(() => {
-    if (fallbackTimerRef.current != null) {
-      window.clearTimeout(fallbackTimerRef.current);
-      fallbackTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleIosFallbackReload = useCallback(() => {
-    clearFallbackTimer();
-    fallbackTimerRef.current = window.setTimeout(() => {
-      fallbackTimerRef.current = null;
-      reloadPageWithGuard();
-    }, RELOAD_FALLBACK_MS);
-  }, [clearFallbackTimer, reloadPageWithGuard]);
+  }, [resetApplyUi]);
 
   const {
     offlineReady: [offlineReady, setOfflineReady],
@@ -178,56 +170,73 @@ function ReloadPromptProd() {
     updateServiceWorker,
   } = useRegisterSW({
     onRegistered(r) {
-      swRegistrationRef.current = r ?? null;
+      if (r) swRegistrationRef.current = r;
+    },
+    onRegisteredSW(_swUrl, r) {
+      if (r) swRegistrationRef.current = r;
     },
     onRegisterError(error) {
       console.error("SW registration error", error);
     },
     onNeedReload() {
-      clearFallbackTimer();
       reloadPageWithGuard();
     },
   });
 
   const updateAvailable = needRefresh || buildOutdated;
 
-  const applyWaitingServiceWorker = useCallback(async () => {
-    const registration = swRegistrationRef.current;
-    if (registration?.waiting) {
-      scheduleIosFallbackReload();
-      try {
-        await updateServiceWorker(true);
-        return true;
-      } catch (error) {
-        console.error("SW update failed", error);
-        clearFallbackTimer();
-        reloadPendingRef.current = false;
-        restartStartedRef.current = false;
-        setIsRestarting(false);
-        return false;
+  const failApplyUpdate = useCallback(
+    (message) => {
+      console.warn("[PWA] No se pudo aplicar la actualización:", message);
+      resetApplyUi();
+      if (!entradasSilentUpdate) {
+        toast.error(message);
       }
+      return false;
+    },
+    [entradasSilentUpdate, resetApplyUi],
+  );
+
+  const applyWaitingServiceWorker = useCallback(async () => {
+    try {
+      const registration = await resolveServiceWorkerRegistration(
+        swRegistrationRef.current,
+      );
+      if (registration) swRegistrationRef.current = registration;
+      const result = await applyPwaUpdate({
+        registration,
+        updateServiceWorker,
+        allowNuke: true,
+        reload: reloadPageWithGuard,
+      });
+      if (!result.ok) {
+        return failApplyUpdate(
+          result.error ||
+            "No se pudo actualizar. Cerrá la app y volvé a abrirla, o intentá de nuevo.",
+        );
+      }
+      return true;
+    } catch (error) {
+      console.error("SW update failed", error);
+      return failApplyUpdate(
+        "No se pudo actualizar. Cerrá la app y volvé a abrirla, o intentá de nuevo.",
+      );
     }
-    // Sin SW waiting (solo version.json): hard reload.
-    clearFallbackTimer();
-    return reloadPageWithGuard();
-  }, [
-    clearFallbackTimer,
-    reloadPageWithGuard,
-    scheduleIosFallbackReload,
-    updateServiceWorker,
-  ]);
+  }, [failApplyUpdate, reloadPageWithGuard, updateServiceWorker]);
 
   const beginApplyUpdate = useCallback(() => {
     if (restartStartedRef.current) return;
     restartStartedRef.current = true;
     setIsRestarting(true);
-    window.setTimeout(() => {
-      void applyWaitingServiceWorker();
-    }, RESTART_MESSAGE_MS);
+    void applyWaitingServiceWorker();
   }, [applyWaitingServiceWorker]);
 
   const checkForNewVersion = useCallback(async () => {
-    swRegistrationRef.current?.update();
+    const registration = await resolveServiceWorkerRegistration(
+      swRegistrationRef.current,
+    );
+    if (registration) swRegistrationRef.current = registration;
+    registration?.update();
     if (!LOCAL_BUILD_ID) return;
     const remote = await fetchRemoteBuildId();
     if (!remote) return;
@@ -309,15 +318,10 @@ function ReloadPromptProd() {
       if (!ok) return;
     }
 
-    const registration = swRegistrationRef.current;
-    if (!registration?.waiting && !buildOutdated) {
-      void registration?.update();
-      void checkForNewVersion();
-      return;
-    }
-
+    // Un tap siempre entra al apply: espera waiting si hace falta.
+    // El early-return previo (update() sin await) era un no-op silencioso.
     beginApplyUpdate();
-  }, [beginApplyUpdate, buildOutdated, checkForNewVersion]);
+  }, [beginApplyUpdate]);
 
   useEffect(() => {
     if (!offlineReady) return;
@@ -345,8 +349,6 @@ function ReloadPromptProd() {
       window.removeEventListener("focus", poll);
     };
   }, [entradasSilentUpdate]);
-
-  useEffect(() => () => clearFallbackTimer(), [clearFallbackTimer]);
 
   const showBanner =
     updateAvailable && !entradasSilentUpdate && !isRestarting && !bannerDismissed;
@@ -380,6 +382,9 @@ function ReloadPromptProd() {
             <p className="text-sm font-black text-slate-800 uppercase tracking-tight leading-snug">
               Estamos reiniciando la aplicación para que disfrutes de la versión más
               actualizada
+            </p>
+            <p className="text-[11px] font-semibold text-slate-500 leading-snug">
+              Un momento: estamos activando la versión nueva.
             </p>
           </div>
         </div>

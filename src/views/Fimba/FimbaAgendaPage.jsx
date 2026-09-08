@@ -443,6 +443,8 @@ export default function FimbaAgendaPage() {
   const [catalogTipos, setCatalogTipos] = useState([]);
   const [dbCategorias, setDbCategorias] = useState([]);
   const [logisticsSummary, setLogisticsSummary] = useState([]);
+  const [ofrnRouteRules, setOfrnRouteRules] = useState([]);
+  const [ofrnLocalities, setOfrnLocalities] = useState([]);
   const [propuestaRoutes, setPropuestaRoutes] = useState([]);
   const [selectedPropuestaIds, setSelectedPropuestaIds] = useState(
     () => seedFilters.propuestaIds,
@@ -577,6 +579,8 @@ export default function FimbaAgendaPage() {
       ]).then(([logRes, rutasRes]) => {
         if (loadGen !== reloadGenRef.current) return;
       setLogisticsSummary(logRes.error ? [] : logRes.summary || []);
+        setOfrnRouteRules(logRes.error ? [] : logRes.routeRules || []);
+        setOfrnLocalities(logRes.error ? [] : logRes.localities || []);
         setPropuestaRoutes(rutasRes.error ? [] : rutasRes.rutas || []);
       });
     } finally {
@@ -599,6 +603,8 @@ export default function FimbaAgendaPage() {
             loadFimbaTransportLogisticsSummary(edicion.id_gira).then((res) => ({
               key: "logistics",
               data: res.error ? [] : res.summary || [],
+              routeRules: res.error ? [] : res.routeRules || [],
+              localities: res.error ? [] : res.localities || [],
               error: res.error,
             })),
           );
@@ -628,7 +634,11 @@ export default function FimbaAgendaPage() {
           if (r.error) {
             setError(r.error.message || "Error al actualizar");
           }
-          if (r.key === "logistics") setLogisticsSummary(r.data);
+          if (r.key === "logistics") {
+            setLogisticsSummary(r.data);
+            setOfrnRouteRules(r.routeRules || []);
+            setOfrnLocalities(r.localities || []);
+          }
           if (r.key === "rutas") setPropuestaRoutes(r.data);
           if (r.key === "eventos") setEventosBase(r.data);
         }
@@ -1065,8 +1075,10 @@ export default function FimbaAgendaPage() {
         capacityFn: computeFimbaCapacity,
         eventVehicleIds: giraTransporteIdsFromEvent,
         propuestaRoutes,
+        ofrnRouteRules,
+        ofrnLocalities,
       }),
-    [flota, eventosBase, logisticsSummary, propuestaRoutes],
+    [flota, eventosBase, logisticsSummary, propuestaRoutes, ofrnRouteRules, ofrnLocalities],
   );
 
   const categoryOptions = useMemo(

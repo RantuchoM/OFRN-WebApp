@@ -10,8 +10,9 @@ import {
 } from "../utils/giraDateRange";
 import {
   countConvokedEnsayos,
-  countProgramsByType,
+  countProgramsByTypeSplit,
   currentYearBounds,
+  isProgramBorrador,
 } from "../utils/girasYearSummary";
 
 const GIRAS_YEAR_SELECT = `
@@ -63,11 +64,13 @@ async function fetchYearProgramsForUser(
     user,
     isGuest,
     isDifusion,
+    allPrograms,
     desde,
     hasta,
   },
 ) {
-  const applyPersonalFilter = isIntegranteUser(user, isGuest, isDifusion);
+  const applyPersonalFilter =
+    !allPrograms && isIntegranteUser(user, isGuest, isDifusion);
 
   let myEnsembleMembershipRows = [];
   let myFamily = null;
@@ -155,7 +158,7 @@ async function fetchYearProgramsForUser(
 async function fetchYearEnsayosConvocados(supabase, integranteId, desde, hasta) {
   const uid = Number(integranteId);
   if (!Number.isFinite(uid)) {
-    return { ensayosConvocados: 0 };
+    return { ensayosConvocados: 0, ensayosBorrador: 0 };
   }
 
   const { data: memberships, error: memErr } = await supabase
@@ -198,7 +201,7 @@ async function fetchYearEnsayosConvocados(supabase, integranteId, desde, hasta) 
 
   const allEventIds = [...new Set([...eventIds, ...invitedEventIds])];
   if (!allEventIds.length) {
-    return { ensayosConvocados: 0 };
+    return { ensayosConvocados: 0, ensayosBorrador: 0 };
   }
 
   const { data: events, error: evErr } = await supabase
@@ -226,33 +229,44 @@ async function fetchYearEnsayosConvocados(supabase, integranteId, desde, hasta) 
       .in("id", giraIds);
     if (progErr) throw progErr;
     draftGiraIds = new Set(
-      (programRows || [])
-        .filter((p) => (p.estado || "Borrador").trim() === "Borrador")
-        .map((p) => p.id),
+      (programRows || []).filter(isProgramBorrador).map((p) => p.id),
     );
   }
 
-  const eventsInPublishedPrograms = eventList.filter(
-    (evt) => !evt.id_gira || !draftGiraIds.has(evt.id_gira),
+  const split = countConvokedEnsayos(
+    eventList,
+    uid,
+    memberships || [],
+    customRows || [],
+    draftGiraIds,
   );
 
   return {
-    ensayosConvocados: countConvokedEnsayos(
-      eventsInPublishedPrograms,
-      uid,
-      memberships || [],
-      customRows || [],
-    ),
+    ensayosConvocados: split.count,
+    ensayosBorrador: split.draftCount,
   };
 }
 
-export function girasYearSummaryQueryKey({ userId, isGuest, isDifusion, year }) {
-  return ["giras-year-summary", userId, isGuest, isDifusion, year];
+export function girasYearSummaryQueryKey({
+  userId,
+  isGuest,
+  isDifusion,
+  year,
+  allPrograms,
+}) {
+  return [
+    "giras-year-summary",
+    userId,
+    isGuest,
+    isDifusion,
+    year,
+    allPrograms ? "all" : "personal",
+  ];
 }
 
 export function useGirasYearSummary(
   supabase,
-  { user, isGuest, isDifusion, enabled = true } = {},
+  { user, isGuest, isDifusion, allPrograms = false, enabled = true } = {},
 ) {
   const { year, desde, hasta } = currentYearBounds();
 
@@ -262,6 +276,7 @@ export function useGirasYearSummary(
       isGuest,
       isDifusion,
       year,
+      allPrograms,
     }),
     enabled: Boolean(enabled && user),
     staleTime: 5 * 60 * 1000,
@@ -270,7 +285,9 @@ export function useGirasYearSummary(
         return {
           year,
           programCounts: {},
+          draftProgramCounts: {},
           ensayosConvocados: null,
+          ensayosBorrador: null,
           totalPrograms: 0,
         };
       }
@@ -279,13 +296,16 @@ export function useGirasYearSummary(
         user,
         isGuest,
         isDifusion,
+        allPrograms,
         desde,
         hasta,
       });
 
-      const programCounts = countProgramsByType(programs, { desde, hasta });
+      const { counts: programCounts, draftCounts: draftProgramCounts } =
+        countProgramsByTypeSplit(programs, { desde, hasta });
 
       let ensayosConvocados = null;
+      let ensayosBorrador = null;
       if (!isGuest && Number.isFinite(Number(user?.id))) {
         const ensayoData = await fetchYearEnsayosConvocados(
           supabase,
@@ -294,12 +314,15 @@ export function useGirasYearSummary(
           hasta,
         );
         ensayosConvocados = ensayoData.ensayosConvocados;
+        ensayosBorrador = ensayoData.ensayosBorrador;
       }
 
       return {
         year,
         programCounts,
+        draftProgramCounts,
         ensayosConvocados,
+        ensayosBorrador,
         totalPrograms: Object.values(programCounts).reduce((a, b) => a + b, 0),
       };
     },
@@ -308,7 +331,9 @@ export function useGirasYearSummary(
   return {
     year,
     programCounts: query.data?.programCounts ?? {},
+    draftProgramCounts: query.data?.draftProgramCounts ?? {},
     ensayosConvocados: query.data?.ensayosConvocados ?? null,
+    ensayosBorrador: query.data?.ensayosBorrador ?? 0,
     totalPrograms: query.data?.totalPrograms ?? 0,
     isLoading: query.isLoading,
     isFetching: query.isFetching,

@@ -3,13 +3,35 @@ import { IconLoader, IconMusic } from "../ui/Icons";
 import { getProgramStyle } from "../../utils/giraUtils";
 import { orderedProgramTypeEntries } from "../../utils/girasYearSummary";
 
+function BorradorCountSuffix({ n }) {
+  const count = Number(n) || 0;
+  if (count <= 0) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-slate-500"
+      title={`${count} en programas Borrador`}
+    >
+      <span className="text-slate-400 font-semibold">+</span>
+      <span className="tabular-nums font-bold leading-none">{count}</span>
+      <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded text-[9px] uppercase font-bold leading-none">
+        Borrador
+      </span>
+    </span>
+  );
+}
+
 export default function GirasYearSummaryBar({
   year,
   programCounts,
+  draftProgramCounts,
   ensayosConvocados,
+  ensayosBorrador,
   isLoading,
 }) {
-  const typeEntries = orderedProgramTypeEntries(programCounts);
+  const typeEntries = orderedProgramTypeEntries(
+    programCounts,
+    draftProgramCounts,
+  );
   const hasPrograms = typeEntries.length > 0;
   const showEnsayos = ensayosConvocados != null;
 
@@ -34,8 +56,9 @@ export default function GirasYearSummaryBar({
           <div className="flex shrink-0 items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
             <IconMusic size={16} className="shrink-0 text-indigo-600" />
             <span className="font-medium">Ensayos de ensamble convocados</span>
-            <span className="rounded-md bg-white px-2 py-0.5 text-base font-bold tabular-nums text-indigo-700">
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-white px-2 py-0.5 text-base font-bold tabular-nums text-indigo-700">
               {isLoading ? "…" : ensayosConvocados}
+              {!isLoading && <BorradorCountSuffix n={ensayosBorrador} />}
             </span>
           </div>
         )}
@@ -46,7 +69,7 @@ export default function GirasYearSummaryBar({
               Sin programas en el año en curso.
             </span>
           )}
-          {typeEntries.map(({ tipo, count }) => {
+          {typeEntries.map(({ tipo, count, draftCount }) => {
             const style = getProgramStyle(tipo);
             const colorTokens = (style?.color || "").split(" ");
             const chipClass =
@@ -65,8 +88,9 @@ export default function GirasYearSummaryBar({
                 className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold ${chipClass}`}
               >
                 <span className="truncate">{tipo}</span>
-                <span className="rounded-md bg-white/70 px-1.5 py-0.5 text-base font-bold tabular-nums leading-none">
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-white/70 px-1.5 py-0.5 text-base font-bold tabular-nums leading-none">
                   {count}
+                  <BorradorCountSuffix n={draftCount} />
                 </span>
               </div>
             );

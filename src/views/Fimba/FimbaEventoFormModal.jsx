@@ -433,6 +433,7 @@ function FimbaEventoOfrnBoardingSection({
             giraId={Number(giraId)}
             regions={ofrnRegions}
             localities={ofrnLocalities}
+            routeRules={ofrnRouteRules}
             passengers={ofrnPassengers}
             admissionRules={ofrnAdmissionRules}
             giraGrupos={giraGrupos}

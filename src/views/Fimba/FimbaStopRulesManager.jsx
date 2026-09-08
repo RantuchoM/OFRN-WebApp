@@ -57,6 +57,7 @@ export default function FimbaStopRulesManager({
   admissionRules = [],
   regions = [],
   localities = [],
+  routeRules = null,
   sequencesByVehicle = null,
   /** Tab inicial al abrir: `artistas` | `orquesta`. */
   initialTab = "artistas",
@@ -1355,6 +1356,7 @@ export default function FimbaStopRulesManager({
                     giraId={Number(giraId)}
                     regions={regions}
                     localities={localities}
+                    routeRules={routeRules}
                     passengers={passengers}
                     admissionRules={admissionRules}
                     sortedEvents={sortedEvents}

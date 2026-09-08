@@ -16,7 +16,8 @@ Informe en **Gestión → Servicios** con cantidad de servicios por integrante, 
 | Ensayo de gira | Duración &lt; 75 min | **No cuenta** (marcadores / slots cortos) |
 
 - Eventos `tecnica = true` o `is_deleted = true` no cuentan.
-- Programas en estado **Borrador**: sus eventos de gira no cuentan.
+- Programas en estado **Borrador**: sus eventos de gira no cuentan en este informe oficial.
+- **Paridad Giras (listado):** el resumen anual de la pestaña Giras (`GirasYearSummaryBar`) mantiene el total vigente aparte y muestra los programas/ensayos borrador como sufijo **`+ n [Borrador]`**. No se mezclan en el número principal ni en Gestión → Servicios.
 - **Grupos de convocatoria:** si el evento tiene `eventos_grupos`, solo cuentan integrantes de al menos un grupo asignado (mismos criterios de visibilidad agenda para músicos).
 
 ## Columnas de la matriz
@@ -70,3 +71,4 @@ Los eventos de gira solo se consideran si su `id_gira` está en el conjunto de p
 | Vista Gestión → Servicios + filtros tipo Convocatorias | Completado |
 | Columnas valor + total y desglose R/L 3+1 | Completado |
 | Export Excel | Completado |
+| Giras resumen anual: vigentes + sufijo `+ n [Borrador]` | Completado |

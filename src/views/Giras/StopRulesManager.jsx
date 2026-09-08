@@ -33,7 +33,9 @@ import {
 } from "../../utils/fimbaTransportBoarding";
 import {
   alightAllOfrnAboardAtStop,
+  alightOfrnGrupoAtStop,
   alightOfrnPeopleAtStop,
+  listOpenOfrnGrupoRidesAtStop,
   upsertOfrnGrupoRutaStop,
 } from "../../services/fimbaService";
 import {
@@ -170,7 +172,7 @@ export default function StopRulesManager({
   /** Sin shell modal/overlay: contenido al nivel del padre (ej. pestaña FIMBA Orquesta OFRN). */
   embedded = false,
   /**
-   * FIMBA / multi-chip: varias ↑/↓ del mismo alcance (Categoría, Grupo, etc.)
+   * FIMBA / multi-chip: varias ↑/↓ del mismo alcance (Categoría, Grupo, Persona…)
    * sin diálogo «Reemplazar». OFRN Trayectos standalone deja el default false.
    */
   allowMultipleAssignments = false,
@@ -178,9 +180,16 @@ export default function StopRulesManager({
   sortedEvents = [],
   /** Grupos de convocatoria `giras_grupos` (si no se pasan, se cargan por giraId). */
   giraGrupos: giraGruposProp = null,
+  /**
+   * Reglas `giras_logistica_rutas` de la gira (FIMBA). Con
+   * `allowMultipleAssignments` se cuentan todos los hops, no la ↑/↓ colapsada.
+   */
+  routeRules = null,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const [existingRules, setExistingRules] = useState([]);
+  /** Rides Grupo ↑ sin ↓ que aún cubren esta parada (vista bajadas). */
+  const [openGrupoRides, setOpenGrupoRides] = useState([]);
   const [transportAdmissionRules, setTransportAdmissionRules] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expandedRuleId, setExpandedRuleId] = useState(null); // Estado para el acordeón
@@ -219,8 +228,9 @@ export default function StopRulesManager({
       setMirrorBajadaEventId("");
       setRowMirrorEventByRuleId({});
       setMirrorBusyKey(null);
+      setOpenGrupoRides([]);
     }
-  }, [isOpen, transportId, event?.id]);
+  }, [isOpen, transportId, event?.id, type]);
 
   useEffect(() => {
     if (Array.isArray(giraGruposProp)) {
@@ -236,6 +246,39 @@ export default function StopRulesManager({
       cancelled = true;
     };
   }, [isOpen, giraId, supabase, giraGruposProp]);
+
+  // Re-resolver miembros/labels de rides Grupo abiertos cuando carga el roster de grupos.
+  useEffect(() => {
+    if (!isOpen || type !== "down" || !transportId || !event?.id || !giraId) {
+      return;
+    }
+    let cancelled = false;
+    listOpenOfrnGrupoRidesAtStop({
+      giraId,
+      id_transporte_fisico: transportId,
+      id_evento: event.id,
+      sortedEvents,
+      giraGrupos,
+    }).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        console.error(error);
+        return;
+      }
+      setOpenGrupoRides(data || []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isOpen,
+    type,
+    transportId,
+    event?.id,
+    giraId,
+    giraGrupos,
+    sortedEvents,
+  ]);
 
   useEffect(() => {
     if (isOpen && transportId) fetchAdmissions();
@@ -394,6 +437,21 @@ export default function StopRulesManager({
 
       if (error) throw error;
       setExistingRules(data || []);
+
+      if (type === "down" && event?.id != null) {
+        const { data: openG, error: openErr } =
+          await listOpenOfrnGrupoRidesAtStop({
+            giraId,
+            id_transporte_fisico: transportId,
+            id_evento: event.id,
+            sortedEvents,
+            giraGrupos,
+          });
+        if (openErr) console.error(openErr);
+        setOpenGrupoRides(openG || []);
+      } else {
+        setOpenGrupoRides([]);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -622,16 +680,19 @@ export default function StopRulesManager({
         // 2) Ride abierto / huérfano: mismo alcance+objetivo, este extremo vacío
         //    → UPDATE (cierra el ride). Evita insertar bajada-only que a veces
         //    no se reflejaba bien tras refresh desde el embed FIMBA.
-        //    Multi + ya hay ↑ en esta parada: no reutilizar huérfano (INSERT).
-        //    Multi + ya hay ↓: sí se puede cerrar otro ride abierto del mismo alcance.
+        //    Multi + ↑: siempre INSERT (nueva subida aunque hayan abordado antes).
+        //    Multi + ↓ ya en esta parada: INSERT otra ↓ (no reusar huérfano).
+        //    Multi + ↓ sin fila aquí: sí cerrar ride abierto del mismo alcance.
         const openRide =
-          allowMultipleAssignments && alreadyHere && type === "up"
+          allowMultipleAssignments && type === "up"
             ? null
-            : (existingAll || []).find(
-                (r) =>
-                  sameTarget(r, currentId) &&
-                  (r[fieldToUpdate] == null || r[fieldToUpdate] === ""),
-              );
+            : allowMultipleAssignments && alreadyHere && type === "down"
+              ? null
+              : (existingAll || []).find(
+                  (r) =>
+                    sameTarget(r, currentId) &&
+                    (r[fieldToUpdate] == null || r[fieldToUpdate] === ""),
+                );
         if (openRide) {
           const openPatch = { [fieldToUpdate]: event.id };
           if (
@@ -1377,6 +1438,9 @@ export default function StopRulesManager({
           transportId,
           eventId,
           sortedEvents,
+          routeRules,
+          localities,
+          expandAllHops: allowMultipleAssignments,
         })
           .filter((r) => r.openRide)
           .map((r) => String(r.id)),
@@ -1463,7 +1527,9 @@ export default function StopRulesManager({
         return {
           id: idStr,
           label,
-          subLabel: "Ya tiene otra parada",
+          subLabel: allowMultipleAssignments
+            ? "Ya tiene otra parada (se agregará otra)"
+            : "Ya tiene otra parada",
           optionClassName: "bg-cyan-50",
           labelClassName: "text-cyan-700",
           subLabelClassName: "text-[10px] text-cyan-600",
@@ -1471,7 +1537,9 @@ export default function StopRulesManager({
       }
 
       const subLabel = isThisStop
-        ? "Ya está asignado a esta parada"
+        ? allowMultipleAssignments
+          ? "Ya está en esta parada (se agregará otra)"
+          : "Ya está asignado a esta parada"
         : "Sin parada aún";
 
       return {
@@ -1492,6 +1560,7 @@ export default function StopRulesManager({
     sortedEvents,
     transportAdmissionRules,
     localities,
+    allowMultipleAssignments,
   ]);
 
   const hasNewPersonToAutoInclude =
@@ -1505,13 +1574,33 @@ export default function StopRulesManager({
       transportId,
       eventId: event.id,
       sortedEvents,
+      routeRules,
+      localities,
+      expandAllHops: allowMultipleAssignments,
     });
-  }, [type, event?.id, transportId, passengers, sortedEvents]);
+  }, [
+    type,
+    event?.id,
+    transportId,
+    passengers,
+    sortedEvents,
+    routeRules,
+    localities,
+    allowMultipleAssignments,
+  ]);
 
   const aboardOpen = useMemo(
     () => aboardAtStop.filter((r) => r.openRide && !r.alreadyAlightingHere),
     [aboardAtStop],
   );
+
+  const openGrupoMemberIds = useMemo(() => {
+    const s = new Set();
+    (openGrupoRides || []).forEach((g) => {
+      (g.memberIds || []).forEach((id) => s.add(String(id)));
+    });
+    return s;
+  }, [openGrupoRides]);
 
   const aboardSeats = useMemo(
     () => aboardAtStop.reduce((s, r) => s + (Number(r.seats) || 0), 0),
@@ -1527,6 +1616,7 @@ export default function StopRulesManager({
         id_transporte_fisico: transportId,
         id_evento: event.id,
         integranteIds: [integranteId],
+        allowMultiple: allowMultipleAssignments,
       });
       if (res.error) {
         toast.error(res.error.message || "No se pudo bajar");
@@ -1540,19 +1630,58 @@ export default function StopRulesManager({
     }
   };
 
+  const handleAlightOpenGrupo = async (row) => {
+    if (!giraId || !transportId || !event?.id || !row?.grupoId) return;
+    const busyKey = `open-grupo:${row.rule?.id || row.grupoId}`;
+    setMirrorBusyKey(busyKey);
+    try {
+      const res = await alightOfrnGrupoAtStop({
+        giraId,
+        id_transporte_fisico: transportId,
+        id_grupo: row.grupoId,
+        id_evento: event.id,
+        giraGrupos,
+      });
+      if (res.error) {
+        toast.error(res.error.message || "No se pudo bajar el grupo");
+        return;
+      }
+      await fetchRules();
+      onRefresh?.();
+      toast.success(`Bajada del grupo «${row.label}» asignada aquí.`);
+    } finally {
+      setMirrorBusyKey(null);
+    }
+  };
+
   const handleBajarTodoOfrn = async () => {
     if (!giraId || !transportId || !event?.id) return;
-    if (aboardOpen.length === 0) {
+    const hasOpenGrupos = (openGrupoRides || []).length > 0;
+    if (aboardOpen.length === 0 && !hasOpenGrupos) {
       toast.info("Nadie con ride abierto a bordo en esta parada.");
       return;
     }
     const seats = aboardOpen.reduce((s, r) => s + (Number(r.seats) || 0), 0);
+    const grupoNames = (openGrupoRides || []).map((g) => g.label).filter(Boolean);
     const ok = await confirm({
       title: "Bajar todo (orquesta)",
       message:
-        `¿Bajar a las ${aboardOpen.length} persona(s) a bordo de este vehículo ` +
-        `en esta parada (${seats} asiento${seats === 1 ? "" : "s"})?\n\n` +
-        `Se crearán/actualizarán reglas Persona en giras_logistica_rutas.`,
+        (hasOpenGrupos
+          ? `Se cerrarán ${openGrupoRides.length} regla(s) de alcance Grupo` +
+            (grupoNames.length
+              ? ` (${grupoNames.join(", ")})`
+              : "") +
+            ` en esta parada` +
+            (aboardOpen.length
+              ? `; el resto de personas a bordo se baja como Persona`
+              : "") +
+            `.\n\n`
+          : `¿Bajar a las ${aboardOpen.length} persona(s) a bordo de este vehículo ` +
+            `en esta parada (${seats} asiento${seats === 1 ? "" : "s"})?\n\n` +
+            `Se crearán/actualizarán reglas Persona en giras_logistica_rutas.\n\n`) +
+        (hasOpenGrupos
+          ? `Personas listadas a bordo: ${aboardOpen.length} · ${seats} asiento${seats === 1 ? "" : "s"}.`
+          : ""),
       confirmText: "Bajar todo",
       overlayClassName: embedded ? "z-[110]" : "z-[100]",
     });
@@ -1565,6 +1694,12 @@ export default function StopRulesManager({
         id_evento: event.id,
         passengers,
         sortedEvents,
+        giraGrupos,
+        allowMultiple: allowMultipleAssignments,
+        preferGrupo: true,
+        routeRules,
+        localities,
+        expandAllHops: allowMultipleAssignments,
       });
       if (res.error) {
         toast.error(res.error.message || "No se pudo bajar todo");
@@ -1572,11 +1707,23 @@ export default function StopRulesManager({
       }
       await fetchRules();
       onRefresh?.();
-      toast.success(
-        res.closed === 1
-          ? "Se bajó 1 persona"
-          : `Se bajaron ${res.closed} personas`,
-      );
+      const g = res.gruposClosed || 0;
+      const p = res.personasClosed || 0;
+      if (g > 0 && p > 0) {
+        toast.success(
+          `Se bajaron ${g} grupo${g === 1 ? "" : "s"} y ${p} persona${p === 1 ? "" : "s"}`,
+        );
+      } else if (g > 0) {
+        toast.success(
+          g === 1 ? "Se bajó 1 grupo" : `Se bajaron ${g} grupos`,
+        );
+      } else {
+        toast.success(
+          res.closed === 1
+            ? "Se bajó 1 persona"
+            : `Se bajaron ${res.closed} personas`,
+        );
+      }
     } finally {
       setBajarTodoBusy(false);
     }
@@ -1594,7 +1741,7 @@ export default function StopRulesManager({
                     <IconUsers size={14} /> A bordo en esta parada
                   </h4>
                   <p className="text-[11px] text-rose-700/80 m-0 mt-0.5">
-                    {aboardAtStop.length === 0
+                    {aboardAtStop.length === 0 && openGrupoRides.length === 0
                       ? "Nadie de orquesta figura a bordo aquí."
                       : `${aboardAtStop.length} persona${aboardAtStop.length === 1 ? "" : "s"} · ${aboardSeats} asiento${aboardSeats === 1 ? "" : "s"} (derivado de subida/bajada)`}
                   </p>
@@ -1603,10 +1750,12 @@ export default function StopRulesManager({
                   type="button"
                   onClick={handleBajarTodoOfrn}
                   disabled={
-                    bajarTodoBusy || loading || aboardOpen.length === 0
+                    bajarTodoBusy ||
+                    loading ||
+                    (aboardOpen.length === 0 && openGrupoRides.length === 0)
                   }
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[11px] font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 shadow-sm"
-                  title="Crear bajadas Persona para todos los rides abiertos a bordo"
+                  title="Cierra primero rides Grupo abiertos; el resto como Persona"
                 >
                   {bajarTodoBusy ? (
                     <IconLoader size={12} className="animate-spin" />
@@ -1616,9 +1765,54 @@ export default function StopRulesManager({
                   Bajar todo
                 </button>
               </div>
+
+              {openGrupoRides.length > 0 && (
+                <div className="rounded border border-rose-200 bg-white/90 p-2 space-y-1.5">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-rose-800 m-0">
+                    Grupos a bordo (sin bajada)
+                  </p>
+                  <p className="text-[10px] text-rose-700/80 m-0">
+                    Subieron como alcance Grupo — bajá el grupo entero (no
+                    persona por persona).
+                  </p>
+                  <ul className="m-0 p-0 list-none divide-y divide-rose-100">
+                    {openGrupoRides.map((row) => {
+                      const busyKey = `open-grupo:${row.rule?.id || row.grupoId}`;
+                      return (
+                        <li
+                          key={String(row.rule?.id || row.grupoId)}
+                          className="flex items-center justify-between gap-2 py-1.5 text-xs"
+                        >
+                          <span className="text-slate-700 truncate">
+                            <span className="font-semibold">{row.label}</span>
+                            <span className="text-slate-400 ml-1">
+                              · {row.memberCount} integrante
+                              {row.memberCount === 1 ? "" : "s"}
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            disabled={
+                              loading || mirrorBusyKey === busyKey || bajarTodoBusy
+                            }
+                            onClick={() => handleAlightOpenGrupo(row)}
+                            className="shrink-0 px-2 py-0.5 rounded text-[10px] font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
+                            title="Crear bajada alcance Grupo en esta parada"
+                          >
+                            {mirrorBusyKey === busyKey ? "…" : "Bajar grupo"}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+
               {aboardAtStop.length > 0 && (
                 <ul className="max-h-40 overflow-y-auto divide-y divide-rose-100 bg-white/80 rounded border border-rose-100 m-0 p-0 list-none">
-                  {aboardAtStop.map((row) => (
+                  {aboardAtStop.map((row) => {
+                    const coveredByGrupo = openGrupoMemberIds.has(String(row.id));
+                    return (
                     <li
                       key={String(row.id)}
                       className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs"
@@ -1633,6 +1827,11 @@ export default function StopRulesManager({
                             Chofer
                           </span>
                         ) : null}
+                        {coveredByGrupo ? (
+                          <span className="ml-1 text-[10px] font-semibold text-violet-700">
+                            (vía grupo)
+                          </span>
+                        ) : null}
                         {row.alreadyAlightingHere ? (
                           <span className="ml-1 text-[10px] font-semibold text-rose-600">
                             (ya baja aquí)
@@ -1640,25 +1839,35 @@ export default function StopRulesManager({
                         ) : null}
                       </span>
                       {row.openRide && !row.alreadyAlightingHere ? (
-                        <button
-                          type="button"
-                          disabled={
-                            quickAlightBusyId === String(row.id) || loading
-                          }
-                          onClick={() => handleQuickAlightPerson(row.id)}
-                          className="shrink-0 px-2 py-0.5 rounded text-[10px] font-bold text-rose-700 bg-rose-100 hover:bg-rose-200 disabled:opacity-50"
-                        >
-                          {quickAlightBusyId === String(row.id)
-                            ? "…"
-                            : "Bajar"}
-                        </button>
+                        coveredByGrupo ? (
+                          <span
+                            className="text-[10px] text-violet-600 shrink-0 font-semibold"
+                            title="Usá «Bajar grupo» arriba para no crear N reglas Persona"
+                          >
+                            Ver grupo
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={
+                              quickAlightBusyId === String(row.id) || loading
+                            }
+                            onClick={() => handleQuickAlightPerson(row.id)}
+                            className="shrink-0 px-2 py-0.5 rounded text-[10px] font-bold text-rose-700 bg-rose-100 hover:bg-rose-200 disabled:opacity-50"
+                          >
+                            {quickAlightBusyId === String(row.id)
+                              ? "…"
+                              : "Bajar"}
+                          </button>
+                        )
                       ) : (
                         <span className="text-[10px] text-slate-400 shrink-0">
                           OK
                         </span>
                       )}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
             </div>

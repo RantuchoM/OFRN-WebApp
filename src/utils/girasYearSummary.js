@@ -18,32 +18,56 @@ export function currentYearBounds(d = new Date()) {
   };
 }
 
-/** Cuenta programas visibles en el año, agrupados por tipo. */
-export function countProgramsByType(programs, { desde, hasta }) {
+/**
+ * Cuenta programas visibles en el año, agrupados por tipo.
+ * Vigente/Pausada van a `counts`; estado `Borrador` va a `draftCounts`.
+ */
+export function countProgramsByTypeSplit(programs, { desde, hasta }) {
   const counts = {};
+  const draftCounts = {};
   const referenceDate = toLocalDateString();
   for (const program of programs || []) {
-    if (isProgramBorrador(program)) continue;
     if (
       !programOverlapsDateRange(program, desde, hasta, referenceDate)
     ) {
       continue;
     }
     const tipo = program.tipo || "General";
+    if (isProgramBorrador(program)) {
+      draftCounts[tipo] = (draftCounts[tipo] || 0) + 1;
+      continue;
+    }
     counts[tipo] = (counts[tipo] || 0) + 1;
   }
-  return counts;
+  return { counts, draftCounts };
 }
 
-export function orderedProgramTypeEntries(counts) {
+/** Cuenta programas no-borrador visibles en el año, agrupados por tipo. */
+export function countProgramsByType(programs, range) {
+  return countProgramsByTypeSplit(programs, range).counts;
+}
+
+export function orderedProgramTypeEntries(counts, draftCounts = {}) {
   const known = Object.keys(PROGRAM_TYPES).filter((k) => k !== "default");
   const entries = known
-    .map((tipo) => ({ tipo, count: counts[tipo] || 0 }))
-    .filter((row) => row.count > 0);
+    .map((tipo) => ({
+      tipo,
+      count: counts[tipo] || 0,
+      draftCount: draftCounts[tipo] || 0,
+    }))
+    .filter((row) => row.count > 0 || row.draftCount > 0);
 
-  for (const [tipo, count] of Object.entries(counts || {})) {
-    if (!known.includes(tipo) && count > 0) {
-      entries.push({ tipo, count });
+  const knownSet = new Set(known);
+  const extraTipos = new Set([
+    ...Object.keys(counts || {}),
+    ...Object.keys(draftCounts || {}),
+  ]);
+  for (const tipo of extraTipos) {
+    if (knownSet.has(tipo)) continue;
+    const count = counts[tipo] || 0;
+    const draftCount = draftCounts[tipo] || 0;
+    if (count > 0 || draftCount > 0) {
+      entries.push({ tipo, count, draftCount });
     }
   }
   return entries;
@@ -86,24 +110,37 @@ export function isIntegranteConvocadoToEnsayo(
   });
 }
 
-export function countConvokedEnsayos(events, integranteId, memberships, customRows) {
+export function countConvokedEnsayos(
+  events,
+  integranteId,
+  memberships,
+  customRows,
+  draftGiraIds,
+) {
   const customByEventId = new Map();
   for (const row of customRows || []) {
     customByEventId.set(row.id_evento, row);
   }
 
   let count = 0;
+  let draftCount = 0;
+  const drafts = draftGiraIds instanceof Set ? draftGiraIds : new Set();
   for (const evt of events || []) {
     if (
-      isIntegranteConvocadoToEnsayo(
+      !isIntegranteConvocadoToEnsayo(
         evt,
         integranteId,
         memberships,
         customByEventId,
       )
     ) {
+      continue;
+    }
+    if (evt.id_gira != null && drafts.has(evt.id_gira)) {
+      draftCount += 1;
+    } else {
       count += 1;
     }
   }
-  return count;
+  return { count, draftCount };
 }

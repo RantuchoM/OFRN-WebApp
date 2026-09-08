@@ -158,12 +158,15 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const {
     year: summaryYear,
     programCounts: yearProgramCounts,
+    draftProgramCounts: yearDraftProgramCounts,
     ensayosConvocados: yearEnsayosConvocados,
+    ensayosBorrador: yearEnsayosBorrador,
     isLoading: yearSummaryLoading,
   } = useGirasYearSummary(supabase, {
     user,
     isGuest,
     isDifusion,
+    allPrograms: Boolean(isEditor || isAdmin),
     enabled: Boolean(user) && mode === "LIST" && showYearSummary,
   });
 
@@ -1843,7 +1846,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
               <GirasYearSummaryBar
                 year={summaryYear}
                 programCounts={yearProgramCounts}
+                draftProgramCounts={yearDraftProgramCounts}
                 ensayosConvocados={yearEnsayosConvocados}
+                ensayosBorrador={yearEnsayosBorrador}
                 isLoading={yearSummaryLoading}
               />
             )}

@@ -42,6 +42,7 @@ import {
   indexOfEvent,
   isFimbaRideAboardAtStop,
   isOpenFimbaRide,
+  isPresentAtStop,
   isVehicleBoardingSequenceEvent,
   listOfrnPeopleAboardAtStop,
   sumRidesOccupyingWindow,
@@ -3918,9 +3919,13 @@ export async function listVehiclesAvailability(
 
   // OFRN logistics (roster a bordo). Cacheable vía opts.logisticsSummary.
   let logisticsSummary = opts.logisticsSummary;
+  let ofrnRouteRules = opts.ofrnRouteRules ?? null;
+  let ofrnLocalities = opts.ofrnLocalities || [];
   if (includeOfrn && logisticsSummary == null) {
     const pack = await loadFimbaTransportLogisticsSummary(giraId);
     logisticsSummary = pack.error ? [] : pack.summary || [];
+    if (ofrnRouteRules == null) ofrnRouteRules = pack.routeRules || [];
+    if (!ofrnLocalities.length) ofrnLocalities = pack.localities || [];
   }
   logisticsSummary = logisticsSummary || [];
 
@@ -3965,7 +3970,10 @@ export async function listVehiclesAvailability(
     const capacidad = capacidadGiraTransporte(gt);
 
     const ofrnRides = includeOfrn
-      ? extractOfrnRidesForVehicle(logisticsSummary, tid)
+      ? extractOfrnRidesForVehicle(logisticsSummary, tid, {
+          routeRules: ofrnRouteRules,
+          localities: ofrnLocalities,
+        })
       : [];
     const endpointIds = collectVehicleRideEndpointIds(
       propuestaRoutes,
@@ -5945,21 +5953,139 @@ export async function alightAllFimbaAboardAtStop(opts = {}) {
 }
 
 /**
+ * Reglas Grupo OFRN con ↑ y sin ↓ que todavía cubren la parada
+ * (presentes vía `isPresentAtStop`). Fuente: `giras_logistica_rutas`.
+ *
+ * @param {{
+ *   giraId: number|string,
+ *   id_transporte_fisico: number|string,
+ *   id_evento: number|string,
+ *   sortedEvents?: Array<{ id?: unknown }>,
+ *   giraGrupos?: Array<object>,
+ * }} opts
+ * @returns {Promise<{
+ *   data: Array<{
+ *     rule: object,
+ *     grupoId: string,
+ *     label: string,
+ *     memberIds: string[],
+ *     memberCount: number,
+ *   }>,
+ *   error: Error|null,
+ * }>}
+ */
+export async function listOpenOfrnGrupoRidesAtStop(opts = {}) {
+  const giraId = Number(opts.giraId);
+  const tid = Number(opts.id_transporte_fisico);
+  const idEvento = opts.id_evento;
+  const sorted = Array.isArray(opts.sortedEvents) ? opts.sortedEvents : [];
+  let giraGrupos = Array.isArray(opts.giraGrupos) ? opts.giraGrupos : [];
+  if (
+    !Number.isFinite(giraId) ||
+    !Number.isFinite(tid) ||
+    idEvento == null ||
+    idEvento === ""
+  ) {
+    return { data: [], error: null };
+  }
+
+  const { data: rows, error } = await supabase
+    .from("giras_logistica_rutas")
+    .select("*")
+    .eq("id_gira", giraId)
+    .eq("id_transporte_fisico", tid)
+    .eq("alcance", "Grupo");
+  if (error) return { data: [], error };
+
+  const needMembers =
+    giraGrupos.length === 0 &&
+    (rows || []).some(
+      (r) =>
+        r.id_evento_subida != null &&
+        r.id_evento_subida !== "" &&
+        (r.id_evento_bajada == null || r.id_evento_bajada === ""),
+    );
+  if (needMembers) {
+    const { grupos } = await fetchGiraGrupos(supabase, giraId);
+    giraGrupos = grupos || [];
+  }
+
+  const currentIdx = sorted.length ? indexOfEvent(sorted, idEvento) : -1;
+  const out = [];
+  for (const rule of rows || []) {
+    if (rule.id_evento_subida == null || rule.id_evento_subida === "") continue;
+    if (rule.id_evento_bajada != null && rule.id_evento_bajada !== "") continue;
+
+    if (currentIdx >= 0) {
+      const upIdx = indexOfEvent(sorted, rule.id_evento_subida);
+      if (!isPresentAtStop(upIdx, null, currentIdx)) continue;
+    }
+
+    const grupoId = String((rule.target_ids || [])[0] ?? "");
+    if (!grupoId) continue;
+    const g = giraGrupos.find((x) => String(x.id) === grupoId);
+    const memberIds = integranteIdsInGrupos(giraGrupos, [grupoId]).map(String);
+    out.push({
+      rule,
+      grupoId,
+      label: g?.nombre || `Grupo #${grupoId}`,
+      memberIds,
+      memberCount: memberIds.length,
+    });
+  }
+
+  out.sort((a, b) =>
+    String(a.label).localeCompare(String(b.label), "es", {
+      sensitivity: "base",
+    }),
+  );
+  return { data: out, error: null };
+}
+
+/**
+ * Cierra un ride Grupo abierto fijando ↓ en este evento (UPDATE, no N Persona).
+ *
+ * @param {{
+ *   giraId: number|string,
+ *   id_transporte_fisico: number|string,
+ *   id_grupo: number|string,
+ *   id_evento: number|string,
+ *   giraGrupos?: Array<object>,
+ * }} opts
+ */
+export async function alightOfrnGrupoAtStop(opts = {}) {
+  return upsertOfrnGrupoRutaStop({
+    id_gira: opts.giraId,
+    id_transporte_fisico: opts.id_transporte_fisico,
+    id_grupo: opts.id_grupo,
+    id_evento: opts.id_evento,
+    type: "down",
+    ensureAdmission: true,
+    giraGrupos: opts.giraGrupos,
+  });
+}
+
+/**
  * Cierra rides OFRN abiertos: fija `id_evento_bajada` en reglas Persona
  * (fuerza 5) para los integrantes indicados, o crea la regla si no existe.
  * Reutiliza la jerarquía de `giras_logistica_rutas` (no inventa matching).
+ *
+ * Con `allowMultiple: true` (FIMBA): si ya bajó en otro evento y no hay ride
+ * abierto, **INSERT** otra fila (no «Reemplazar» la bajada anterior).
  *
  * @param {{
  *   giraId: number|string,
  *   id_transporte_fisico: number|string,
  *   id_evento: number|string,
  *   integranteIds: Array<number|string>,
+ *   allowMultiple?: boolean,
  * }} opts
  */
 export async function alightOfrnPeopleAtStop(opts = {}) {
   const giraId = Number(opts.giraId);
   const tid = Number(opts.id_transporte_fisico);
   const idEvento = Number(opts.id_evento);
+  const allowMultiple = Boolean(opts.allowMultiple);
   const ids = [
     ...new Set(
       (opts.integranteIds || []).map(Number).filter(Number.isFinite),
@@ -6000,13 +6126,20 @@ export async function alightOfrnPeopleAtStop(opts = {}) {
         r.id_evento_bajada != null &&
         String(r.id_evento_bajada) === String(idEvento),
     );
-    if (alreadyHere) {
+    if (alreadyHere && !allowMultiple) {
       closed.push(alreadyHere);
       continue;
     }
 
+    // Cerrar ride abierto Persona (↑ sin ↓) — siempre UPDATE, también en multi.
     const openPersona = personaRules.find(
-      (r) => r.id_evento_bajada == null || r.id_evento_bajada === "",
+      (r) =>
+        (r.id_evento_bajada == null || r.id_evento_bajada === "") &&
+        !(
+          allowMultiple &&
+          alreadyHere &&
+          Number(r.id) === Number(alreadyHere.id)
+        ),
     );
     if (openPersona) {
       const { data, error } = await supabase
@@ -6023,12 +6156,14 @@ export async function alightOfrnPeopleAtStop(opts = {}) {
       continue;
     }
 
+    // OFRN clásico: una sola bajada Persona → mover la existente.
+    // FIMBA multi: no reemplazar; INSERT abajo.
     const otherBajada = personaRules.find(
       (r) =>
         r.id_evento_bajada != null &&
         String(r.id_evento_bajada) !== String(idEvento),
     );
-    if (otherBajada) {
+    if (otherBajada && !allowMultiple) {
       const { data, error } = await supabase
         .from("giras_logistica_rutas")
         .update({ id_evento_bajada: idEvento })
@@ -6067,8 +6202,9 @@ export async function alightOfrnPeopleAtStop(opts = {}) {
 }
 
 /**
- * «Bajar todo» OFRN: genera bajadas Persona para quienes están a bordo
- * (ride abierto) en este vehículo/parada.
+ * «Bajar todo» OFRN: primero cierra rides **Grupo** abiertos a bordo
+ * (alcance Grupo, mismo target_ids); luego Persona solo para quienes
+ * siguen con ride abierto y no quedaron cubiertos por esos grupos.
  *
  * @param {{
  *   giraId: number|string,
@@ -6076,22 +6212,81 @@ export async function alightOfrnPeopleAtStop(opts = {}) {
  *   id_evento: number|string,
  *   passengers?: Array<object>,
  *   sortedEvents?: Array<{ id?: unknown }>,
+ *   giraGrupos?: Array<object>,
+ *   allowMultiple?: boolean,
+ *   preferGrupo?: boolean,
+ *   routeRules?: Array<object>|null,
+ *   localities?: Array<object>,
+ *   expandAllHops?: boolean,
  * }} opts
  */
 export async function alightAllOfrnAboardAtStop(opts = {}) {
+  const preferGrupo = opts.preferGrupo !== false;
+  const giraGrupos = opts.giraGrupos || [];
+  let gruposClosed = 0;
+  const coveredByGrupo = new Set();
+
+  if (preferGrupo) {
+    const { data: openGrupos, error: gErr } = await listOpenOfrnGrupoRidesAtStop({
+      giraId: opts.giraId,
+      id_transporte_fisico: opts.id_transporte_fisico,
+      id_evento: opts.id_evento,
+      sortedEvents: opts.sortedEvents || [],
+      giraGrupos,
+    });
+    if (gErr) return { closed: 0, rules: [], gruposClosed: 0, error: gErr };
+
+    for (const row of openGrupos || []) {
+      const res = await alightOfrnGrupoAtStop({
+        giraId: opts.giraId,
+        id_transporte_fisico: opts.id_transporte_fisico,
+        id_grupo: row.grupoId,
+        id_evento: opts.id_evento,
+        giraGrupos,
+      });
+      if (res.error) {
+        return {
+          closed: 0,
+          rules: [],
+          gruposClosed,
+          error: res.error,
+        };
+      }
+      gruposClosed += 1;
+      (row.memberIds || []).forEach((id) => coveredByGrupo.add(String(id)));
+    }
+  }
+
   const aboard = listOfrnPeopleAboardAtStop({
     passengers: opts.passengers || [],
     transportId: opts.id_transporte_fisico,
     eventId: opts.id_evento,
     sortedEvents: opts.sortedEvents || [],
-  }).filter((row) => row.openRide && !row.alreadyAlightingHere);
+    routeRules: opts.routeRules,
+    localities: opts.localities || [],
+    expandAllHops: Boolean(opts.expandAllHops),
+  }).filter(
+    (row) =>
+      row.openRide &&
+      !row.alreadyAlightingHere &&
+      !coveredByGrupo.has(String(row.id)),
+  );
 
-  return alightOfrnPeopleAtStop({
+  const personaRes = await alightOfrnPeopleAtStop({
     giraId: opts.giraId,
     id_transporte_fisico: opts.id_transporte_fisico,
     id_evento: opts.id_evento,
     integranteIds: aboard.map((r) => r.id),
+    allowMultiple: opts.allowMultiple,
   });
+
+  return {
+    closed: (personaRes.closed || 0) + gruposClosed,
+    rules: personaRes.rules || [],
+    gruposClosed,
+    personasClosed: personaRes.closed || 0,
+    error: personaRes.error,
+  };
 }
 
 /**

@@ -60,8 +60,9 @@
 - **Sin persistencia** localStorage (estado de componente).
 
 ## 10. Agenda: conciertos de programa en Borrador
-- **Estado**: Completado (2026-08-30).
+- **Estado**: Completado (2026-08-30). Actualizado (2026-09-08): resumen anual de Giras.
 - **Comportamiento**: Con el filtro de giras activas (sin «Mostrar borradores»), los **conciertos** (`id_tipo_evento = 1`) de un programa en estado `Borrador` se muestran por defecto a músicos y al resto de roles, con tag **Borrador** en la tarjeta (móvil y desktop). Ensayos, comidas, logística y demás tipos del mismo programa borrador siguen ocultos.
+- **Giras listado (Resumen año)**: el conteo de programas/ensayos vigentes no cambia; si hay programas `estado === 'Borrador'` (columna `programas.estado`) se agrega el sufijo compacto **`+ n [Borrador]`** (mismo badge slate). No oculta las cards borrador del listado. Editor/admin ven todos los programas del año; el músico sigue viendo solo su convocatoria. Ensayos de ensamble siguen siendo personales.
 - **Excepciones previas**: paradas del vehículo asignado siguen visibles aunque el programa no esté vigente.
 - **Staff**: el toggle «Mostrar borradores» sigue revelando el resto de eventos no vigentes.
 - **Implementación**: `UnifiedAgenda.jsx` (`filteredItems` + badge en tarjeta).

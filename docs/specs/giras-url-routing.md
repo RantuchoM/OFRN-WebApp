@@ -106,9 +106,9 @@ const url = `${window.location.origin}${window.location.pathname}?tab=giras&view
 ## Resumen anual en listado (GirasView LIST)
 
 - [x] Al final del listado de programas (cuando el filtro de fecha llega al 31/12 del año en curso), se muestra un cuadro horizontal con estadísticas del año.
-- **Programas por tipo**: cuenta solo los programas en los que el integrante está convocado (filtro personal: ensamble/familia/nómina), entre el 1/ene y el 31/dic del año en curso — **sin** ampliar por rol editor ni por ensambles coordinados. **Excluye programas en estado `Borrador`.**
-- **Ensayos de ensamble convocados**: solo para usuarios integrante (no invitados). Cuenta eventos `id_tipo_evento = 13`, no técnicos, no eliminados, en el año en curso, donde el músico está convocado (membresía activa en el ensamble del evento ± overrides `eventos_asistencia_custom`). **Excluye ensayos cuyo programa asociado está en `Borrador`.**
-- Implementación: `GirasYearSummaryBar.jsx`, `useGirasYearSummary.js`, `girasYearSummary.js`.
+- **Programas por tipo**: entre el 1/ene y el 31/dic del año en curso. **Músico:** solo programas en los que está convocado (ensamble/familia/nómina), sin ampliar por ensambles coordinados. **Editor/admin:** todos los programas del año (el listado que gestionan). El número principal **excluye** programas en estado `Borrador`. Si hay programas borrador, el chip muestra el sufijo compacto **`+ n [Borrador]`** (mismo tag slate que Agenda). Un tipo solo-borrador también aparece (`0 + n [Borrador]`).
+- **Ensayos de ensamble convocados**: solo para usuarios integrante (no invitados). Cuenta eventos `id_tipo_evento = 13`, no técnicos, no eliminados, en el año en curso, donde el músico está convocado (membresía activa en el ensamble del evento ± overrides `eventos_asistencia_custom`). El número principal **excluye** ensayos cuyo programa asociado está en `Borrador`; esos ensayos se muestran aparte como **`+ n [Borrador]`** cuando n > 0.
+- Implementación: `GirasYearSummaryBar.jsx`, `useGirasYearSummary.js`, `girasYearSummary.js` (`countProgramsByTypeSplit`, `countConvokedEnsayos`).
 - Visible solo en `mode === LIST` y cuando `filterDateEnd >= endOfCurrentYearLocal()`.
 
 ## Resumen

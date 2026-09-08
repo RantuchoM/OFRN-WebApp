@@ -2,9 +2,11 @@
  * Secuencia subida/bajada + en tránsito para flota FIMBA/OFRN.
  *
  * Equivalencia OFRN (hoja de ruta / `buildRoadmapExportData` en roadmapExport.js):
- * - Una persona tiene `subidaId` / `bajadaId` por unidad `giras_transportes`
- *   (reglas `giras_logistica_rutas` vía `calculateLogisticsSummary`).
- * - Sube en la parada cuya `evt.id === subidaId`; baja en `bajadaId`.
+ * - En **Giras OFRN**, `calculateLogisticsSummary` colapsa a un solo
+ *   `subidaId` / `bajadaId` por persona×unidad (primera/última ganadora).
+ * - En **FIMBA**, cada fila de `giras_logistica_rutas` es un hop: se cuenta
+ *   ↑ en *cada* `id_evento_subida` y ↓ en *cada* `id_evento_bajada`.
+ *   `en_transito` no duplica a la misma persona si varios hops se solapan.
  * - En tránsito **al salir** de la parada i (misma semántica que "TOTAL A BORDO AL SALIR"):
  *     upIdx <= i && (bajadaId ausente → hasta el final | downIdx > i)
  * - Plazas extra de instrumento (`instrumentos.plaza_extra`): 1 asiento adicional
@@ -1051,6 +1053,8 @@ export function sumRidesOccupyingWindow(
   opts = {},
 ) {
   const exclude = opts.excludeBoardEventIds || null;
+  /** @type {Set<string>} */
+  const ofrnSeen = new Set();
   const lookup = (id) => {
     if (id == null || id === "") return null;
     const key = String(id);
@@ -1075,6 +1079,11 @@ export function sumRidesOccupyingWindow(
           normalizeScheduleEvent(lookup(r.bajadaId));
 
     if (rideOverlapsScheduleWindow(upEv, downEv, window)) {
+      const personKey = ofrnRidePersonKey(r);
+      if (personKey) {
+        if (ofrnSeen.has(personKey)) continue;
+        ofrnSeen.add(personKey);
+      }
       total += rideCapacitySeats(r);
     }
   }
@@ -1401,6 +1410,8 @@ export function listOffTrayectoRideEndpoints(opts = {}) {
     eventById = null,
     tipoById = null,
     vehicleIds = null,
+    ofrnRouteRules = null,
+    ofrnLocalities = [],
   } = opts;
 
   const want =
@@ -1427,7 +1438,10 @@ export function listOffTrayectoRideEndpoints(opts = {}) {
           ? [...want]
           : [];
     for (const tid of ids) {
-      for (const r of extractOfrnRidesForVehicle(logisticsSummary, tid)) {
+      for (const r of extractOfrnRidesForVehicle(logisticsSummary, tid, {
+        routeRules: ofrnRouteRules,
+        localities: ofrnLocalities,
+      })) {
         ofrnRides.push({ ...r, id_gira_transporte: tid });
       }
     }
@@ -1650,13 +1664,143 @@ export function buildFimbaRidesForVehicle(
 }
 
 /**
+ * Clave de integrante OFRN para no doble-contar cupo cuando hay varios hops.
+ * @param {object|null|undefined} ride
+ */
+export function ofrnRidePersonKey(ride) {
+  if (!ride || ride.source !== "ofrn") return null;
+  if (ride.id == null || ride.id === "") return null;
+  return String(ride.id);
+}
+
+/**
+ * Suma asientos OFRN únicos por persona (varios hops del mismo músico).
+ * Rides sin `id` se suman sueltos. FIMBA/otros no se deduplican aquí.
+ *
+ * @param {Array<object>} rides
+ * @param {(r: object) => boolean} predicate
+ * @returns {{ capacity: number, display: number }}
+ */
+export function uniqueOfrnSeatsMatching(rides, predicate) {
+  /** @type {Map<string, { cap: number, seats: number }>} */
+  const byPerson = new Map();
+  let looseCap = 0;
+  let looseSeats = 0;
+  for (const r of rides || []) {
+    if (typeof predicate === "function" && !predicate(r)) continue;
+    const cap = rideCapacitySeats(r);
+    const seats = Math.max(0, Number(r.seats) || 0);
+    const key = ofrnRidePersonKey(r);
+    if (!key) {
+      looseCap += cap;
+      looseSeats += seats;
+      continue;
+    }
+    const prev = byPerson.get(key);
+    if (!prev) {
+      byPerson.set(key, { cap, seats });
+    } else {
+      prev.cap = Math.max(prev.cap, cap);
+      prev.seats = Math.max(prev.seats, seats);
+    }
+  }
+  let capacity = looseCap;
+  let display = looseSeats;
+  for (const v of byPerson.values()) {
+    capacity += v.cap;
+    display += v.seats;
+  }
+  return { capacity, display };
+}
+
+/**
+ * Un ride OFRN por (persona × regla `giras_logistica_rutas`) en la unidad.
+ * FIMBA cuenta cada hop; no colapsa a la ↑/↓ ganadora de logística OFRN.
+ *
+ * @param {Array<object>} routeRules
+ * @param {Array<object>} summary — pasajeros con `logistics.transports` (admisión)
+ * @param {number|string} idGiraTransporte
+ * @param {Array<object>} [localities]
+ * @returns {Array<object>}
+ */
+export function extractOfrnRidesFromRouteRules(
+  routeRules,
+  summary,
+  idGiraTransporte,
+  localities = [],
+) {
+  const want = String(idGiraTransporte);
+  const rulesForVehicle = (routeRules || []).filter((r) => {
+    if (String(r?.id_transporte_fisico) !== want) return false;
+    return r.id_evento_subida != null || r.id_evento_bajada != null;
+  });
+  if (rulesForVehicle.length === 0) return [];
+
+  const rides = [];
+  for (const p of summary || []) {
+    if (p?.estado_gira === "ausente") continue;
+    const tr = (p.logistics?.transports || p.transports || []).find(
+      (t) => String(t.id) === want,
+    );
+    if (!tr) continue;
+
+    for (const r of rulesForVehicle) {
+      if (!matchesRule(r, p, localities)) continue;
+      const seats = ofrnSeatWeight(p);
+      const esChofer = isFimbaChoferRide(r);
+      rides.push({
+        id: p.id,
+        key: `ofrn-rule-${r.id ?? "x"}-pax-${p.id}`,
+        seats,
+        capacitySeats: esChofer ? 0 : seats,
+        es_chofer: esChofer,
+        subidaId: r.id_evento_subida ?? null,
+        bajadaId: r.id_evento_bajada ?? null,
+        subidaData: r.evento_subida || null,
+        bajadaData: r.evento_bajada || null,
+        source: "ofrn",
+        ruleId: r.id ?? null,
+        apellido: p.apellido,
+        nombre: p.nombre,
+      });
+    }
+  }
+  return rides;
+}
+
+/**
  * Pasajeros OFRN a bordo de la unidad con sus paradas (subida/bajada).
+ *
+ * FIMBA (default si hay `routeRules`): un ride por regla×persona — cada ↑/↓.
+ * Sin reglas / `expandAllHops: false`: par de extremos colapsado de
+ * `calculateLogisticsSummary` (Giras OFRN: primera/última ganadora).
  *
  * @param {Array<object>} summary — output `calculateLogisticsSummary`
  * @param {number|string} idGiraTransporte
+ * @param {{
+ *   routeRules?: Array<object>|null,
+ *   localities?: Array<object>,
+ *   expandAllHops?: boolean,
+ * }} [opts]
  * @returns {Array<{ id: unknown, seats: number, subidaId: unknown|null, bajadaId: unknown|null, source: 'ofrn', subidaData?: object|null, bajadaData?: object|null }>}
  */
-export function extractOfrnRidesForVehicle(summary, idGiraTransporte) {
+export function extractOfrnRidesForVehicle(summary, idGiraTransporte, opts = {}) {
+  const routeRules = opts.routeRules;
+  const localities = opts.localities || [];
+  const expandAllHops =
+    opts.expandAllHops !== false &&
+    Array.isArray(routeRules) &&
+    routeRules.length > 0;
+  if (expandAllHops) {
+    const expanded = extractOfrnRidesFromRouteRules(
+      routeRules,
+      summary,
+      idGiraTransporte,
+      localities,
+    );
+    if (expanded.length > 0) return expanded;
+  }
+
   const want = String(idGiraTransporte);
   const rides = [];
   for (const p of summary || []) {
@@ -1693,27 +1837,32 @@ export function extractOfrnRidesForVehicle(summary, idGiraTransporte) {
  */
 export function sumPresentSeatsAtStop(rides, sorted, currentIdx, filterFn) {
   let total = 0;
+  /** @type {Set<string>} */
+  const ofrnSeen = new Set();
   for (const r of rides || []) {
     if (typeof filterFn === "function" && !filterFn(r)) continue;
     if (!r.subidaId && !r.bajadaId) continue;
     const upIdx = r.subidaId != null ? indexOfEvent(sorted, r.subidaId) : -1;
     // Si solo tiene bajada (sin subida), cuenta solo en el evento de bajada
+    let present = false;
     if (upIdx < 0) {
-      if (
+      present =
         r.bajadaId != null &&
-        String(r.bajadaId) === String(sorted?.[currentIdx]?.id)
-      ) {
-        total += Number(r.seats) || 0;
-      }
-      continue;
+        String(r.bajadaId) === String(sorted?.[currentIdx]?.id);
+    } else {
+      const downIdx =
+        r.bajadaId != null && r.bajadaId !== ""
+          ? indexOfEvent(sorted, r.bajadaId)
+          : null;
+      present = isPresentAtStop(upIdx, downIdx, currentIdx);
     }
-    const downIdx =
-      r.bajadaId != null && r.bajadaId !== ""
-        ? indexOfEvent(sorted, r.bajadaId)
-        : null;
-    if (isPresentAtStop(upIdx, downIdx, currentIdx)) {
-      total += Number(r.seats) || 0;
+    if (!present) continue;
+    const personKey = ofrnRidePersonKey(r);
+    if (personKey) {
+      if (ofrnSeen.has(personKey)) continue;
+      ofrnSeen.add(personKey);
     }
+    total += Number(r.seats) || 0;
   }
   return total;
 }
@@ -1798,6 +1947,9 @@ function rideIsAboardAfterStop(ride, sorted, currentIdx) {
  *   transportId?: unknown,
  *   eventId?: unknown,
  *   sortedEvents?: Array<{ id?: unknown }>,
+ *   routeRules?: Array<object>|null,
+ *   localities?: Array<object>,
+ *   expandAllHops?: boolean,
  * }} opts
  * @returns {Array<{
  *   id: unknown,
@@ -1816,6 +1968,9 @@ export function listOfrnPeopleAboardAtStop(opts = {}) {
     transportId,
     eventId,
     sortedEvents = [],
+    routeRules = null,
+    localities = [],
+    expandAllHops = false,
   } = opts;
   if (transportId == null || transportId === "" || eventId == null || eventId === "") {
     return [];
@@ -1825,53 +1980,105 @@ export function listOfrnPeopleAboardAtStop(opts = {}) {
   const currentIdx = sorted.length ? indexOfEvent(sorted, eventId) : -1;
   const want = String(transportId);
   const out = [];
+  const hops =
+    expandAllHops && Array.isArray(routeRules) && routeRules.length > 0
+      ? extractOfrnRidesFromRouteRules(
+          routeRules,
+          passengers,
+          transportId,
+          localities,
+        )
+      : null;
+  const hopsByPerson = hops
+    ? hops.reduce((map, r) => {
+        const key = String(r.id);
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(r);
+        return map;
+      }, new Map())
+    : null;
 
   for (const p of passengers || []) {
     if (p?.estado_gira === "ausente") continue;
     const tr = (p.logistics?.transports || p.transports || []).find(
       (t) => String(t.id) === want,
     );
-    if (!tr?.subidaId) continue;
+    if (!tr) continue;
+
+    const personHops = hopsByPerson?.get(String(p.id)) || null;
+    const intervals =
+      personHops && personHops.length > 0
+        ? personHops
+        : tr.subidaId
+          ? [
+              {
+                subidaId: tr.subidaId,
+                bajadaId: tr.bajadaId,
+                es_chofer: isFimbaChoferRide(tr),
+              },
+            ]
+          : [];
+    if (intervals.length === 0) continue;
 
     let present = false;
     let openRide = false;
-    if (currentIdx >= 0) {
-      const upIdx = indexOfEvent(sorted, tr.subidaId);
-      const downIdx =
-        tr.bajadaId != null && tr.bajadaId !== ""
-          ? indexOfEvent(sorted, tr.bajadaId)
-          : null;
-      present = isPresentAtStop(upIdx, downIdx, currentIdx);
-      // Ride abierto = aún a bordo al salir de la parada *anterior*, o presente
-      // sin bajada / con bajada posterior (hay que fijar bajada aquí).
-      openRide =
-        present &&
-        (downIdx == null ||
-          downIdx < 0 ||
-          !Number.isFinite(downIdx) ||
-          downIdx > currentIdx);
-    } else {
-      // Sin secuencia: a bordo si tiene subida y (sin bajada o baja en este evento)
-      present =
-        !tr.bajadaId ||
-        tr.bajadaId === "" ||
-        String(tr.bajadaId) === String(eventId);
-      openRide = !tr.bajadaId || tr.bajadaId === "";
+    let alreadyAlightingHere = false;
+    let esChofer = false;
+    let subidaId = intervals[0].subidaId ?? null;
+    let bajadaId = intervals[0].bajadaId ?? null;
+
+    for (const hop of intervals) {
+      if (isFimbaChoferRide(hop) || hop.es_chofer) esChofer = true;
+      let hopPresent = false;
+      let hopOpen = false;
+      if (currentIdx >= 0) {
+        const upIdx =
+          hop.subidaId != null ? indexOfEvent(sorted, hop.subidaId) : -1;
+        const downIdx =
+          hop.bajadaId != null && hop.bajadaId !== ""
+            ? indexOfEvent(sorted, hop.bajadaId)
+            : null;
+        hopPresent =
+          upIdx >= 0
+            ? isPresentAtStop(upIdx, downIdx, currentIdx)
+            : hop.bajadaId != null &&
+              String(hop.bajadaId) === String(eventId);
+        hopOpen =
+          hopPresent &&
+          (downIdx == null ||
+            downIdx < 0 ||
+            !Number.isFinite(downIdx) ||
+            downIdx > currentIdx);
+      } else {
+        hopPresent =
+          !hop.bajadaId ||
+          hop.bajadaId === "" ||
+          String(hop.bajadaId) === String(eventId);
+        hopOpen = !hop.bajadaId || hop.bajadaId === "";
+      }
+      if (hopPresent) {
+        present = true;
+        subidaId = hop.subidaId ?? subidaId;
+        bajadaId = hop.bajadaId ?? bajadaId;
+      }
+      if (hopOpen) openRide = true;
+      if (
+        hop.bajadaId != null &&
+        hop.bajadaId !== "" &&
+        String(hop.bajadaId) === String(eventId)
+      ) {
+        alreadyAlightingHere = true;
+      }
     }
     if (!present) continue;
-
-    const alreadyAlightingHere =
-      tr.bajadaId != null &&
-      tr.bajadaId !== "" &&
-      String(tr.bajadaId) === String(eventId);
 
     out.push({
       id: p.id,
       person: p,
       seats: ofrnSeatWeight(p),
-      es_chofer: isFimbaChoferRide(tr),
-      subidaId: tr.subidaId ?? null,
-      bajadaId: tr.bajadaId ?? null,
+      es_chofer: esChofer,
+      subidaId,
+      bajadaId,
       alreadyAlightingHere,
       openRide,
       label:
@@ -1921,8 +2128,15 @@ export function resolveAboardAfterStopBreakdown(opts = {}) {
   let ofrnSeats = 0;
   /** @type {string[]} */
   const ofrnSurnames = [];
+  /** @type {Set<string>} */
+  const ofrnSeen = new Set();
   for (const r of ofrnRides || []) {
     if (!rideIsAboardAfterStop(r, sortedEvents, currentIdx)) continue;
+    const personKey = ofrnRidePersonKey(r);
+    if (personKey) {
+      if (ofrnSeen.has(personKey)) continue;
+      ofrnSeen.add(personKey);
+    }
     ofrnSeats += Math.max(0, Number(r.seats) || 0);
     const ap = String(r.apellido || "").trim();
     if (ap) {
@@ -2084,7 +2298,6 @@ export function buildVehicleBoardingSequence(opts = {}) {
   const sorted = sortEventsBySchedule(opts.events || []);
   const ofrnRides = opts.ofrnRides || [];
   const fimbaRides = opts.fimbaRides || [];
-  const allRides = [...ofrnRides, ...fimbaRides];
   const capacidad =
     opts.capacidad != null && Number.isFinite(Number(opts.capacidad))
       ? Number(opts.capacidad)
@@ -2094,12 +2307,14 @@ export function buildVehicleBoardingSequence(opts = {}) {
   let anyNegative = false;
 
   const stops = sorted.map((evt, currentIdx) => {
-    const boardOfrn = ofrnRides
-      .filter((r) => r.subidaId != null && String(r.subidaId) === String(evt.id))
-      .reduce((s, r) => s + rideCapacitySeats(r), 0);
-    const alightOfrn = ofrnRides
-      .filter((r) => r.bajadaId != null && String(r.bajadaId) === String(evt.id))
-      .reduce((s, r) => s + rideCapacitySeats(r), 0);
+    const boardOfrn = uniqueOfrnSeatsMatching(
+      ofrnRides,
+      (r) => r.subidaId != null && String(r.subidaId) === String(evt.id),
+    ).capacity;
+    const alightOfrn = uniqueOfrnSeatsMatching(
+      ofrnRides,
+      (r) => r.bajadaId != null && String(r.bajadaId) === String(evt.id),
+    ).capacity;
     const boardFimba = fimbaRides
       .filter((r) => r.subidaId != null && String(r.subidaId) === String(evt.id))
       .reduce((s, r) => s + rideCapacitySeats(r), 0);
@@ -2111,23 +2326,18 @@ export function buildVehicleBoardingSequence(opts = {}) {
     const alightSeats = alightOfrn + alightFimba;
     const delta = boardSeats - alightSeats;
 
-    let enTransito = 0;
-    let enTransitoOfrn = 0;
+    const ofrnAboard = uniqueOfrnSeatsMatching(ofrnRides, (r) =>
+      rideIsAboardAfterStop(r, sorted, currentIdx),
+    );
+    let enTransitoOfrn = ofrnAboard.capacity;
     let enTransitoFimba = 0;
-    for (const r of allRides) {
+    for (const r of fimbaRides) {
       if (!r.subidaId) continue;
-      const upIdx = indexOfEvent(sorted, r.subidaId);
-      const downIdx =
-        r.bajadaId != null && r.bajadaId !== ""
-          ? indexOfEvent(sorted, r.bajadaId)
-          : null;
-      if (isOnBoardAfterStop(upIdx, downIdx, currentIdx)) {
-        const seats = rideCapacitySeats(r);
-        enTransito += seats;
-        if (r.source === "ofrn") enTransitoOfrn += seats;
-        else enTransitoFimba += seats;
+      if (rideIsAboardAfterStop(r, sorted, currentIdx)) {
+        enTransitoFimba += rideCapacitySeats(r);
       }
     }
+    let enTransito = enTransitoOfrn + enTransitoFimba;
 
     const orquesta_en_lugar = sumPresentSeatsAtStop(
       ofrnRides,
@@ -2229,6 +2439,8 @@ export function buildVehicleBoardingSequence(opts = {}) {
  *   capacityFn?: (p: object) => { para_transporte?: number },
  *   eventVehicleIds?: (ev: object) => number[],
  *   propuestaRoutes?: Array,
+ *   ofrnRouteRules?: Array<object>|null,
+ *   ofrnLocalities?: Array<object>,
  * }} opts
  */
 export function buildAllVehicleBoardingSequences(opts = {}) {
@@ -2239,6 +2451,8 @@ export function buildAllVehicleBoardingSequences(opts = {}) {
     capacityFn,
     eventVehicleIds,
     propuestaRoutes = [],
+    ofrnRouteRules = null,
+    ofrnLocalities = [],
   } = opts;
 
   const idFn =
@@ -2264,7 +2478,11 @@ export function buildAllVehicleBoardingSequences(opts = {}) {
     if (!Number.isFinite(tid)) continue;
     // OFRN rides primero: sus endpoints entran a la secuencia aunque el evento
     // no tenga fila FIMBA (y marcan Conciertos solo si son ↑/↓ reales).
-    const ofrnRides = extractOfrnRidesForVehicle(logisticsSummary, tid);
+    const ofrnRides = extractOfrnRidesForVehicle(logisticsSummary, tid, {
+      routeRules: ofrnRouteRules,
+      localities: ofrnLocalities,
+      expandAllHops: true,
+    });
     const routesForVehicle = (propuestaRoutes || []).filter(
       (r) => Number(r?.id_gira_transporte) === tid,
     );
@@ -2591,7 +2809,8 @@ export function resolveOfrnRouteRuleLabel(rule, ctx = {}) {
 /**
  * Resumen de reglas OFRN que suben/bajan en una parada×vehículo
  * (misma idea que `getEventRulesSummary` de GirasTransportesManager).
- * `plazas` = Σ `ofrnSeatWeight` de pasajeros cuya regla ganadora es esa.
+ * `plazas` = Σ `ofrnSeatWeight` de pasajeros admitidos que matchean la regla
+ * en *este* extremo (cada hop FIMBA; no la ↑/↓ colapsada de Giras).
  *
  * @param {{
  *   eventId: unknown,
@@ -2636,7 +2855,6 @@ export function summarizeOfrnStopRules(opts = {}) {
   const labelCtx = { passengers, localities, regions, giraGrupos };
 
   return relevant.map((r) => {
-    const scopeNorm = normalize(r.alcance);
     const matched = (passengers || []).filter((p) => {
       if (p?.estado_gira === "ausente") return false;
       if (!matchesRule(r, p, localities)) return false;
@@ -2644,14 +2862,9 @@ export function summarizeOfrnStopRules(opts = {}) {
         (t) => String(t.id) === String(transportId),
       );
       if (!tr) return false;
-      const eventIdMatch =
-        type === "up"
-          ? String(tr.subidaId) === String(eventId)
-          : String(tr.bajadaId) === String(eventId);
-      if (!eventIdMatch) return false;
-      const winningScope =
-        type === "up" ? tr.subidaScope || "" : tr.bajadaScope || "";
-      return scopeNorm === normalize(winningScope);
+      // FIMBA: contar a quienes matchean *esta* regla en este extremo,
+      // no solo si la ↑/↓ ganadora de logística OFRN (primera/última) cae aquí.
+      return true;
     });
     const plazas = matched.reduce((s, p) => s + ofrnSeatWeight(p), 0);
     const pairEmbed =

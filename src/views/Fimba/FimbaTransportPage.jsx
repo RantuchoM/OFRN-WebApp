@@ -1493,8 +1493,10 @@ export default function FimbaTransportPage() {
         capacityFn: computeFimbaCapacity,
         eventVehicleIds: giraTransporteIdsFromEvent,
         propuestaRoutes,
+        ofrnRouteRules,
+        ofrnLocalities,
       }),
-    [vehiculos, eventos, logisticsSummary, propuestaRoutes],
+    [vehiculos, eventos, logisticsSummary, propuestaRoutes, ofrnRouteRules, ofrnLocalities],
   );
 
   /**
@@ -1821,12 +1823,15 @@ export default function FimbaTransportPage() {
   const ofrnRidesForAudit = useMemo(() => {
     const out = [];
     for (const gt of vehiculos || []) {
-      for (const r of extractOfrnRidesForVehicle(logisticsSummary, gt.id)) {
+      for (const r of extractOfrnRidesForVehicle(logisticsSummary, gt.id, {
+        routeRules: ofrnRouteRules,
+        localities: ofrnLocalities,
+      })) {
         out.push({ ...r, id_gira_transporte: gt.id });
       }
     }
     return out;
-  }, [vehiculos, logisticsSummary]);
+  }, [vehiculos, logisticsSummary, ofrnRouteRules, ofrnLocalities]);
 
   const offTrayectoEndpoints = useMemo(
     () =>
@@ -3811,9 +3816,10 @@ export default function FimbaTransportPage() {
           </div>
         )}
         <p className="fimba-muted" style={{ margin: "0 0 0.75rem", fontSize: "0.82rem" }}>
-          Cada fila es un trayecto o parada ordenado por fecha/hora. Subida/bajada y
-          tránsito/cap siguen el criterio OFRN (reglas de ruta +{" "}
-          <code style={{ fontSize: "0.75rem" }}>plaza_extra</code>) y plazas FIMBA.
+          Cada fila es un trayecto o parada ordenado por fecha/hora. Subida/bajada
+          cuenta en <em>cada</em> parada con ↑/↓ (no solo la primera y la última
+          del viaje). Tránsito/cap usa las mismas reglas de ruta +{" "}
+          <code style={{ fontSize: "0.75rem" }}>plaza_extra</code> y plazas FIMBA.
           Tránsito = plazas a bordo al <em>salir</em> de la parada vs{" "}
           <code style={{ fontSize: "0.75rem" }}>capacidad_maxima</code> (libres al hover).
           Origen, fecha y horario quedan fijos al desplazar horizontalmente el resto de la
@@ -5455,6 +5461,7 @@ export default function FimbaTransportPage() {
           admissionRules={ofrnAdmissionRules}
           regions={ofrnRegions}
           localities={ofrnLocalities}
+          routeRules={ofrnRouteRules}
           sequencesByVehicle={sequencesByVehicle}
           onRefresh={handleBoardingRefresh}
         />
