@@ -94,9 +94,9 @@ export function canonicalizeAgendaConsultaFilters(filters = {}) {
   const includeTutti = Boolean(filters.includeTutti);
   const origen = hasOfrnConvocatoriaFilter(grupoIds, includeTutti)
     ? "all"
-    : filters.origen === "ofrn" || filters.origen === "all"
+    : filters.origen === "ofrn" || filters.origen === "fimba"
       ? filters.origen
-      : "fimba";
+      : "all";
   return {
     propuestaIds,
     grupoIds,
@@ -384,7 +384,7 @@ export function collectPropuestaRouteAgendaEventIds(
 
 /**
  * Visibilidad de fila en planilla:
- * - Sin artista ni OFRN opt-in: el caller aplica origen (default FIMBA).
+ * - Sin artista ni OFRN opt-in: el caller aplica origen (default Todos / all).
  * - Solo artista: tags / paradas del artista (agenda FIMBA). No incluye Tutti.
  * - Grupo y/o Tutti: **incluyen** esas convocatorias OFRN (unión con FIMBA /
  *   artista). No reemplazan la agenda FIMBA.
@@ -566,11 +566,11 @@ export function buildFimbaAgendaSharePath(basePath, filters = {}) {
     params.set("locacion", locs.join(","));
   }
 
-  // Grupo/Tutti incluyen orquesta → origen unificado. Artista solo no fuerza all.
-  // Default de planilla = FIMBA (se omite el param).
+  // Grupo/Tutti incluyen orquesta → origen unificado (all = default, se omite).
+  // Artista solo no fuerza all. Default de planilla = Todos (se omite el param).
   if (hasOfrnConvocatoriaFilter(grupos, filters.includeTutti)) {
-    params.set("origen", "all");
-  } else if (filters.origen === "ofrn" || filters.origen === "all") {
+    // all (default) — omit
+  } else if (filters.origen === "fimba" || filters.origen === "ofrn") {
     params.set("origen", filters.origen);
   }
 

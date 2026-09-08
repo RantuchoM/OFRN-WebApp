@@ -454,14 +454,14 @@ export default function FimbaAgendaPage() {
     () => Boolean(seedFilters.includeTutti),
   );
   /**
-   * Default: Solo FIMBA. Grupo/Tutti incluyen orquesta → all.
+   * Default: Todos. Grupo/Tutti incluyen orquesta → all.
    * Artista solo no fuerza all (evita volcar toda la convocatoria OFRN).
    */
   const [filtroOrigen, setFiltroOrigen] = useState(() => {
     if (hasOfrnConvocatoriaFilter(seedFilters.grupoIds, seedFilters.includeTutti)) {
       return "all";
     }
-    return seedFilters.origen || "fimba";
+    return seedFilters.origen || "all";
   });
   /**
    * Multi-select de categorías (`id_categoria` / categorias_tipos_eventos),
@@ -944,7 +944,7 @@ export default function FimbaAgendaPage() {
     if (hasOfrnConvocatoriaFilter(seed.grupoIds, seed.includeTutti)) {
       setFiltroOrigen("all");
     } else {
-      setFiltroOrigen(seed.origen || "fimba");
+      setFiltroOrigen(seed.origen || "all");
     }
     if (queryLocked) {
       setSelectedCategoryIds([]);
@@ -1403,7 +1403,7 @@ export default function FimbaAgendaPage() {
   };
 
   const origenFilterActive =
-    !ofrnIncludeActive && filtroOrigen !== "fimba";
+    !ofrnIncludeActive && filtroOrigen !== "all";
 
   const hasNonDefaultFilters =
     origenFilterActive ||
@@ -1485,7 +1485,7 @@ export default function FimbaAgendaPage() {
 
   const handleClearAllFilters = useCallback(() => {
     if (queryLocked) return;
-    setFiltroOrigen("fimba");
+    setFiltroOrigen("all");
     setSelectedCategoryIds([]);
     setSelectedLocacionIds([]);
     setSelectedPropuestaIds([]);
