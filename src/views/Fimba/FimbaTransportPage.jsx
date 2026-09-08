@@ -3989,12 +3989,20 @@ export default function FimbaTransportPage() {
                     <th className="fimba-sticky-fecha">Fecha</th>
                     <th
                       className="fimba-sticky-hora"
-                      title="Hora de comienzo · hora de fin = hora com del siguiente evento de este vehículo (cian itálico). Sin siguiente con hora → —"
+                      title="Hora de comienzo de esta parada"
                     >
-                      Com · Fin
+                      Com
                     </th>
                     <th className="fimba-detalle-cell">Detalle</th>
-                    <th>Locación</th>
+                    <th title="Locación de catálogo de esta parada (origen del tramo)">
+                      Origen
+                    </th>
+                    <th
+                      className="fimba-planilla-col-secondary fimba-planilla-llegada"
+                      title="Hora de llegada = hora com del siguiente evento de este vehículo (calculada). Sin siguiente con hora → —"
+                    >
+                      H. Llegada
+                    </th>
                     <th
                       className="fimba-planilla-insert-col"
                       title="Insertar evento intermedio (completa hasta→desde entre esta parada y la siguiente)"
@@ -4005,7 +4013,7 @@ export default function FimbaTransportPage() {
                       </span>
                     </th>
                     <th
-                      className="fimba-planilla-destino"
+                      className="fimba-planilla-destino fimba-planilla-col-secondary"
                       title="Locación (o destino) de la siguiente parada del mismo vehículo"
                     >
                       Destino
@@ -4214,11 +4222,16 @@ export default function FimbaTransportPage() {
                           ev,
                           prevStopForVehicle,
                           {
-                            horaFinHint:
-                              metrics?.hora_fin_display?.value || null,
-                            horaFinFecha: nextStopForVehicle?.fecha
-                              ? String(nextStopForVehicle.fecha).slice(0, 10)
+                            // Fin real del evento (persistido). NO usar
+                            // hora_fin_display (= com del next): empuja el
+                            // retorno después del next y solo queda la ida.
+                            horaFinHint: ev?.hora_fin
+                              ? String(ev.hora_fin).slice(0, 5)
                               : null,
+                            horaFinFecha: ev?.hora_fin
+                              ? String(ev.fecha || "").slice(0, 10)
+                              : null,
+                            nextEv: nextStopForVehicle || null,
                           },
                         )
                       : { ok: false, reason: "no_prev" };
@@ -4235,6 +4248,8 @@ export default function FimbaTransportPage() {
                           "Este evento no tiene locación de catálogo",
                         same_loc:
                           "Misma locación que la anterior (usá recorrido intermedio en la pausa)",
+                        no_gap:
+                          "No hay hueco horario entre la anterior/siguiente para ida y vuelta",
                       };
                       return (
                         map[movimientosDefaults.reason] ||
@@ -4615,7 +4630,7 @@ export default function FimbaTransportPage() {
                           title={
                             readOnly
                               ? undefined
-                              : "Hora de comienzo (la fin es la del siguiente evento)"
+                              : "Hora de comienzo"
                           }
                           style={
                             !readOnly && !isCellEditing(ev.id, "hora")
@@ -4654,56 +4669,9 @@ export default function FimbaTransportPage() {
                                   )
                                 }
                               />
-                              <input
-                                className="fimba-cell-input"
-                                type="time"
-                                value={horaFinDisp.value || ""}
-                                disabled
-                                title={
-                                  horaFinDisp.isCalculated
-                                    ? "Hora com del siguiente evento de este vehículo (no se guarda en este evento)"
-                                    : "Sin siguiente evento con hora en este vehículo"
-                                }
-                                readOnly
-                              />
                             </div>
                           ) : (
-                            <>
-                              <span title="Hora de comienzo">{horaCom}</span>
-                              <span className="fimba-muted" style={{ margin: "0 0.2rem" }}>
-                                ·
-                              </span>
-                              {horaFinDisp.value ? (
-                                <span
-                                  title={
-                                    horaFinDisp.isCalculated
-                                      ? "Hora com del siguiente evento asignado a este vehículo"
-                                      : "Sin siguiente evento con hora en la agenda de este vehículo"
-                                  }
-                                  style={
-                                    horaFinDisp.isCalculated
-                                      ? {
-                                          color: "#0e7490",
-                                          fontStyle: "italic",
-                                        }
-                                      : undefined
-                                  }
-                                >
-                                  {horaFinDisp.value}
-                                </span>
-                              ) : (
-                                <span
-                                  className="fimba-muted"
-                                  title={
-                                    pauseAfterRow
-                                      ? "Pausa: la siguiente parada del mismo vehículo repite la locación"
-                                      : undefined
-                                  }
-                                >
-                                  —
-                                </span>
-                              )}
-                            </>
+                            <span title="Hora de comienzo">{horaCom}</span>
                           )}
                         </td>
                         <td
@@ -4830,7 +4798,7 @@ export default function FimbaTransportPage() {
                           )}
                         </td>
                         <td
-                          className="fimba-muted fimba-planilla-wrap fimba-planilla-loc-cell"
+                          className="fimba-planilla-wrap fimba-planilla-loc-cell"
                           style={{
                             fontSize: "0.85rem",
                             ...(!readOnly && !isCellEditing(ev.id, "locacion")
@@ -4841,10 +4809,10 @@ export default function FimbaTransportPage() {
                             readOnly
                               ? locacion
                               : isCellEditing(ev.id, "locacion")
-                                ? "Buscar o crear locación"
+                                ? "Buscar o crear origen (locación)"
                                 : editMode
-                                  ? "Clic para cambiar locación (buscar / crear)"
-                                  : "Doble clic en la fila para editar locación"
+                                  ? "Clic para cambiar origen (buscar / crear)"
+                                  : "Doble clic en la fila para editar origen"
                           }
                           onClick={
                             readOnly || !editMode
@@ -4887,12 +4855,38 @@ export default function FimbaTransportPage() {
                                   endCellEdit(ev.id, "locacion");
                                 }}
                                 onRefresh={refreshLocations}
-                                placeholder="Buscar locación…"
+                                placeholder="Buscar origen…"
                                 className="fimba-planilla-loc-select"
                               />
                             </div>
                           ) : (
                             locacion
+                          )}
+                        </td>
+                        <td
+                          className="fimba-planilla-col-secondary fimba-planilla-llegada"
+                          title={
+                            horaFinDisp.value
+                              ? horaFinDisp.isCalculated
+                                ? "Hora com del siguiente evento asignado a este vehículo (calculada; no se guarda aquí)"
+                                : "Hora de llegada"
+                              : pauseAfterRow
+                                ? "Pausa: la siguiente parada del mismo vehículo repite la locación"
+                                : "Sin siguiente evento con hora en este vehículo"
+                          }
+                        >
+                          {horaFinDisp.value ? (
+                            <span
+                              style={
+                                horaFinDisp.isCalculated
+                                  ? { fontStyle: "italic" }
+                                  : undefined
+                              }
+                            >
+                              {horaFinDisp.value}
+                            </span>
+                          ) : (
+                            <span>—</span>
                           )}
                         </td>
                         <td
@@ -4946,7 +4940,7 @@ export default function FimbaTransportPage() {
                           </button>
                         </td>
                         <td
-                          className="fimba-muted fimba-planilla-destino"
+                          className="fimba-planilla-destino fimba-planilla-col-secondary"
                           style={{
                             fontSize: "0.82rem",
                             ...(!readOnly && canAddIntermediate
@@ -5258,13 +5252,13 @@ export default function FimbaTransportPage() {
                                     metrics?.next_event_raw ||
                                     null,
                                   vehicleId: primaryVehicleId,
-                                  horaFinHint:
-                                    metrics?.hora_fin_display?.value || null,
-                                  horaFinFecha: nextStopForVehicle?.fecha
-                                    ? String(nextStopForVehicle.fecha).slice(
-                                        0,
-                                        10,
-                                      )
+                                  // Solo fin persistido del ancla (transporte
+                                  // suele tener hora_fin null → default +60').
+                                  horaFinHint: ev?.hora_fin
+                                    ? String(ev.hora_fin).slice(0, 5)
+                                    : null,
+                                  horaFinFecha: ev?.hora_fin
+                                    ? String(ev.fecha || "").slice(0, 10)
                                     : null,
                                   warnIntervening: warnInterveningMovimientos,
                                 })

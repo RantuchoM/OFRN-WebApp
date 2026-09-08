@@ -440,22 +440,57 @@ export async function applyStopBoardingAtCreate({
 }
 
 /**
+ * Epoch ms for evento fecha+hora_inicio (local). Invalid → NaN.
+ * @param {string|null|undefined} fecha
+ * @param {string|null|undefined} hora
+ * @returns {number}
+ */
+function eventDateTimeMs(fecha, hora) {
+  const f = String(fecha || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return NaN;
+  const [y, m, d] = f.split("-").map(Number);
+  const hm = String(hora || "00:00").slice(0, 5);
+  const [hh, mm] = hm.split(":").map((x) => Number(x));
+  const h = Number.isFinite(hh) ? hh : 0;
+  const min = Number.isFinite(mm) ? mm : 0;
+  return new Date(y, m - 1, d, h, min, 0, 0).getTime();
+}
+
+/**
+ * @param {number} ms
+ * @returns {{ fecha: string, hora_inicio: string }|null}
+ */
+function fromEventDateTimeMs(ms) {
+  if (!Number.isFinite(ms)) return null;
+  const dt = new Date(ms);
+  return {
+    fecha: `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`,
+    hora_inicio: `${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`,
+  };
+}
+
+/**
  * Defaults para «Crear movimientos intermedios» desde una fila de planilla:
  * salir de la locación anterior (~30' antes del inicio), el evento ancla en el
  * medio (ya existe), y volver a la anterior (~30' después del fin).
  *
- * `horaFinHint` = fin calculado de planilla (`resolveHoraFinDisplay`) o
- * `hora_fin` persistida; si falta, asume duración 60' desde el inicio.
+ * Fin del ancla = `hora_fin` persistida o `horaFinHint` **solo si es fin real
+ * del evento** (no usar `resolveHoraFinDisplay` / hora com del next: en
+ * transporte eso es la siguiente parada y empuja el retorno *después* del
+ * next, dejando solo la ida enganchada al ancla). Si falta, asume 60' desde
+ * el inicio. Si hay next y fin+30 no entra en el hueco, usa el punto medio
+ * entre ancla y next.
  *
  * @param {object} anchorEv — evento de la fila (destino / actividad)
  * @param {object|null|undefined} prevEv — parada anterior del mismo vehículo
  * @param {{
  *   horaFinHint?: string|null,
  *   horaFinFecha?: string|null,
+ *   nextEv?: object|null,
  * }} [opts]
  * @returns {{
  *   ok: boolean,
- *   reason?: 'no_prev'|'no_prev_loc'|'no_anchor_loc'|'same_loc',
+ *   reason?: 'no_prev'|'no_prev_loc'|'no_anchor_loc'|'same_loc'|'no_gap',
  *   idLocSalida: string,
  *   idLocWaypoint: string,
  *   idLocRetorno: string,
@@ -494,8 +529,27 @@ export function buildMovimientosIntermediosDefaults(anchorEv, prevEv, opts = {})
     return { ok: false, reason: "no_anchor_loc" };
   }
 
-  const before = offsetEventDateTime(startFecha, startHora, -30);
+  const anchorMs = eventDateTimeMs(startFecha, startHora);
+  const prevMs = eventDateTimeMs(prevEv?.fecha, prevEv?.hora_inicio);
 
+  let before = offsetEventDateTime(startFecha, startHora, -30);
+  let beforeMs = eventDateTimeMs(before.fecha, before.hora_inicio);
+  // Salida debe quedar estrictamente entre prev y ancla.
+  if (
+    Number.isFinite(prevMs) &&
+    Number.isFinite(anchorMs) &&
+    !(prevMs < beforeMs && beforeMs < anchorMs)
+  ) {
+    const mid = fromEventDateTimeMs(Math.floor((prevMs + anchorMs) / 2));
+    if (!mid || !(prevMs < eventDateTimeMs(mid.fecha, mid.hora_inicio) &&
+      eventDateTimeMs(mid.fecha, mid.hora_inicio) < anchorMs)) {
+      return { ok: false, reason: "no_gap" };
+    }
+    before = mid;
+    beforeMs = eventDateTimeMs(before.fecha, before.hora_inicio);
+  }
+
+  // Fin real del evento — NUNCA la hora com del next (planilla Hora Fin).
   let finFecha =
     String(opts.horaFinFecha || "").slice(0, 10) || startFecha;
   let finHora =
@@ -509,8 +563,40 @@ export function buildMovimientosIntermediosDefaults(anchorEv, prevEv, opts = {})
     finFecha = assumed.fecha || startFecha;
     finHora = assumed.hora_inicio;
   }
+  let finMs = eventDateTimeMs(finFecha, finHora);
+  // Si el "fin" quedó antes o igual al inicio, forzar +60' desde inicio.
+  if (!Number.isFinite(finMs) || finMs <= anchorMs) {
+    const assumed = offsetEventDateTime(startFecha, startHora, 60);
+    finFecha = assumed.fecha || startFecha;
+    finHora = assumed.hora_inicio;
+    finMs = eventDateTimeMs(finFecha, finHora);
+  }
 
-  const after = offsetEventDateTime(finFecha, finHora, 30);
+  let after = offsetEventDateTime(finFecha, finHora, 30);
+  let afterMs = eventDateTimeMs(after.fecha, after.hora_inicio);
+
+  const nextEv = opts.nextEv || null;
+  const nextMs = nextEv?.id
+    ? eventDateTimeMs(nextEv.fecha, nextEv.hora_inicio)
+    : NaN;
+  // Retorno debe quedar entre ancla y next (si hay next). Si fin+30 no entra,
+  // usar punto medio del hueco ancla→next (no empujar después del next).
+  if (Number.isFinite(nextMs)) {
+    if (!(anchorMs < afterMs && afterMs < nextMs)) {
+      const mid = fromEventDateTimeMs(Math.floor((anchorMs + nextMs) / 2));
+      const midMs = mid
+        ? eventDateTimeMs(mid.fecha, mid.hora_inicio)
+        : NaN;
+      if (!mid || !(anchorMs < midMs && midMs < nextMs)) {
+        return { ok: false, reason: "no_gap" };
+      }
+      after = mid;
+      afterMs = midMs;
+    }
+  } else if (!(anchorMs < afterMs)) {
+    return { ok: false, reason: "no_gap" };
+  }
+
   const act = String(anchorEv?.actividad || "").trim();
 
   return {
@@ -609,6 +695,50 @@ export async function createMovimientosIntermediosAroundEvent({
     };
   }
 
+  const tPrev = eventDateTimeMs(prevEv.fecha, prevEv.hora_inicio);
+  const tSalida = eventDateTimeMs(fechaSalida, horaSalida);
+  const tAnchor = eventDateTimeMs(anchorEv.fecha, anchorEv.hora_inicio);
+  const tRetorno = eventDateTimeMs(fechaRetorno, horaRetorno);
+  const tNext = nextEv?.id
+    ? eventDateTimeMs(nextEv.fecha, nextEv.hora_inicio)
+    : NaN;
+
+  // Validar orden completo *antes* de crear nada (evita ida huérfana).
+  if (
+    !Number.isFinite(tSalida) ||
+    !Number.isFinite(tAnchor) ||
+    !Number.isFinite(tRetorno)
+  ) {
+    return {
+      eventos: [],
+      error: new Error("Completá fechas y horas válidas de salida y retorno"),
+    };
+  }
+  if (!(tSalida < tAnchor && tAnchor < tRetorno)) {
+    return {
+      eventos: [],
+      error: new Error(
+        "Fecha y hora deben ir en orden: salida < este evento < retorno",
+      ),
+    };
+  }
+  if (Number.isFinite(tPrev) && !(tPrev < tSalida)) {
+    return {
+      eventos: [],
+      error: new Error(
+        "La salida debe ser posterior a la parada anterior del vehículo",
+      ),
+    };
+  }
+  if (Number.isFinite(tNext) && !(tRetorno < tNext)) {
+    return {
+      eventos: [],
+      error: new Error(
+        "El retorno debe ser anterior a la parada siguiente del vehículo (si no hay hueco, ajustá horarios o mové la siguiente parada)",
+      ),
+    };
+  }
+
   const common = {
     vehicleId,
     idGira,
@@ -647,11 +777,13 @@ export async function createMovimientosIntermediosAroundEvent({
     actividad: actRetorno,
   });
   if (e2 || !retorno?.id) {
+    const detail =
+      (e2 && e2.message) || "No se pudo crear la parada de retorno";
     return {
       eventos: [salida],
-      error:
-        e2 ||
-        new Error("Salida creada, pero no se pudo crear la parada de retorno"),
+      error: new Error(
+        `Solo se creó la salida (ida). Falló el retorno (vuelta): ${detail}`,
+      ),
     };
   }
 

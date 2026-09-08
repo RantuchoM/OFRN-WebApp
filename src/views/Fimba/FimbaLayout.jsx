@@ -792,18 +792,22 @@ const FIMBA_CSS = `
       display: block !important;
     }
   }
-  /* Planilla trayectos: horizontal scroll that actually works */
+  /* Planilla trayectos: own scrollport so thead sticky top:0 works (meals pattern) */
   .fimba-planilla-card {
     padding: 0;
-    overflow: visible;
+    overflow: hidden;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    max-height: min(70vh, calc(100dvh - 11rem));
   }
   .fimba-planilla-scroll {
-    overflow-x: auto;
-    overflow-y: visible;
+    overflow: auto;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior-x: contain;
+    overscroll-behavior: contain;
     max-width: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
   }
   /* Filtro Artista (Transportes): overlay local mientras recompute diferido */
   .fimba-planilla-filter-busy-host {
@@ -1054,11 +1058,16 @@ const FIMBA_CSS = `
   }
   .fimba-planilla-table thead th {
     position: sticky;
+    /*
+      Sticky scrollport is .fimba-planilla-scroll (overflow:auto).
+      top is relative to THAT box — keep top: 0 so thead does not cover row 1.
+    */
     top: 0;
-    z-index: 5;
-    background: #fff;
+    z-index: 20;
+    background: var(--fimba-surface, #fff);
+    box-shadow: 0 1px 0 var(--fimba-border, #e2e8f0);
   }
-  /* Sticky context while scrolling right: Origen | Fecha | Com·Fin (compact) */
+  /* Sticky context while scrolling right: Origen (org) | Fecha | Com (compact) */
   .fimba-planilla-table .fimba-bulk-check-col {
     width: 1.75rem;
     min-width: 1.75rem;
@@ -1154,8 +1163,8 @@ const FIMBA_CSS = `
     position: sticky;
     left: 8.75rem;
     z-index: 3;
-    min-width: 5rem;
-    width: 5rem;
+    min-width: 3.5rem;
+    width: 3.5rem;
     padding-left: 0.2rem !important;
     padding-right: 0.25rem !important;
     background: #fff;
@@ -1164,8 +1173,8 @@ const FIMBA_CSS = `
   .fimba-planilla-table thead .fimba-sticky-origen,
   .fimba-planilla-table thead .fimba-sticky-fecha,
   .fimba-planilla-table thead .fimba-sticky-hora {
-    z-index: 6;
-    background: #fff;
+    z-index: 22;
+    background: var(--fimba-surface, #fff);
   }
   .fimba-planilla-table .fimba-row-ofrn .fimba-sticky-origen,
   .fimba-planilla-table .fimba-row-ofrn .fimba-sticky-fecha,
@@ -1198,15 +1207,15 @@ const FIMBA_CSS = `
   }
   .fimba-planilla-table.fimba-table-edit .fimba-sticky-hora {
     left: 13.25rem;
-    min-width: 6.5rem;
-    width: 6.5rem;
+    min-width: 4.75rem;
+    width: 4.75rem;
   }
   .fimba-planilla-table.fimba-table-edit thead .fimba-sticky-sync,
   .fimba-planilla-table.fimba-table-edit thead .fimba-sticky-origen,
   .fimba-planilla-table.fimba-table-edit thead .fimba-sticky-fecha,
   .fimba-planilla-table.fimba-table-edit thead .fimba-sticky-hora {
-    z-index: 6;
-    background: #fff;
+    z-index: 22;
+    background: var(--fimba-surface, #fff);
   }
   .fimba-planilla-table.fimba-table-edit .fimba-row-ofrn .fimba-sticky-sync,
   .fimba-planilla-table.fimba-table-edit .fimba-row-ofrn .fimba-sticky-origen,
@@ -1224,13 +1233,41 @@ const FIMBA_CSS = `
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
-    min-width: 5.5rem;
+    min-width: 4.25rem;
   }
   .fimba-hora-edit .fimba-cell-input {
     min-width: 0;
     width: 100%;
     padding: 0.15rem 0.25rem;
     font-size: 0.78rem;
+  }
+  /* H. Llegada + Destino: secondary (calculated) tone */
+  .fimba-planilla-table th.fimba-planilla-col-secondary,
+  .fimba-planilla-table td.fimba-planilla-col-secondary {
+    color: #64748b;
+    background: #f1f5f9;
+  }
+  .fimba-planilla-table thead th.fimba-planilla-col-secondary {
+    background: #f1f5f9;
+    z-index: 20;
+    font-weight: 600;
+  }
+  .fimba-planilla-table td.fimba-planilla-llegada {
+    white-space: nowrap;
+    font-size: 0.82rem;
+    text-align: center;
+    min-width: 4.25rem;
+    padding-left: 0.35rem !important;
+    padding-right: 0.35rem !important;
+  }
+  .fimba-planilla-table .fimba-row-ofrn td.fimba-planilla-col-secondary {
+    background: #e8f1f5;
+  }
+  .fimba-planilla-table .fimba-row-ambos td.fimba-planilla-col-secondary {
+    background: #f3eef3;
+  }
+  .fimba-planilla-table .fimba-row-contexto td.fimba-planilla-col-secondary {
+    background: #eef1f4;
   }
   .fimba-planilla-table.fimba-table-edit .fimba-planilla-wrap .fimba-cell-input {
     min-width: 7.5rem;
@@ -1251,8 +1288,8 @@ const FIMBA_CSS = `
     box-shadow: -6px 0 10px -8px rgba(15, 23, 42, 0.16);
   }
   .fimba-planilla-table thead th.fimba-planilla-actions {
-    z-index: 6;
-    background: #fff;
+    z-index: 22;
+    background: var(--fimba-surface, #fff);
   }
   .fimba-planilla-table .fimba-row-ofrn .fimba-planilla-actions {
     background: #f3fafd;
@@ -2548,6 +2585,10 @@ const FIMBA_CSS = `
       height: auto !important;
       max-height: none !important;
       max-width: none !important;
+    }
+    .fimba-planilla-card {
+      max-height: none !important;
+      overflow: visible !important;
     }
     .fimba-agenda-table,
     .fimba-planilla-table,

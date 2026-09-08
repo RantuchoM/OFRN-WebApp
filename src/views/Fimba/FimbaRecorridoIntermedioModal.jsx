@@ -27,6 +27,8 @@ const MOVIMIENTOS_REASON_MSG = {
   no_anchor_loc: "Este evento no tiene locación de catálogo.",
   same_loc:
     "La parada anterior está en la misma locación (pausa). Usá «Crear recorrido intermedio» en el divisor de pausa.",
+  no_gap:
+    "No hay hueco horario con la parada anterior/siguiente para colocar salida y retorno. Ajustá horarios o mové esas paradas.",
 };
 
 /** Headcount artista = cantidad_planificada; grupo OFRN = |integrantes|. */
@@ -222,6 +224,7 @@ export default function FimbaRecorridoIntermedioModal({
     ? buildMovimientosIntermediosDefaults(anchorEv, prevEv, {
         horaFinHint: context?.horaFinHint || null,
         horaFinFecha: context?.horaFinFecha || null,
+        nextEv: nextEv || null,
       })
     : null;
   const aroundBlockedReason =
@@ -432,15 +435,37 @@ export default function FimbaRecorridoIntermedioModal({
         const [hh, mm] = String(hora).slice(0, 5).split(":").map(Number);
         return new Date(y, m - 1, d, hh || 0, mm || 0, 0, 0).getTime();
       };
+      const tPrev = toMs(
+        String(prevEv.fecha || "").slice(0, 10),
+        String(prevEv.hora_inicio || "").slice(0, 5),
+      );
       const t1 = toMs(fechaSalida, horaSalida);
       const t2 = toMs(
         fechaWaypoint || String(anchorEv.fecha || "").slice(0, 10),
         horaWaypoint || String(anchorEv.hora_inicio || "").slice(0, 5),
       );
       const t3 = toMs(fechaRetorno, horaRetorno);
+      const tNext = nextEv?.id
+        ? toMs(
+            String(nextEv.fecha || "").slice(0, 10),
+            String(nextEv.hora_inicio || "").slice(0, 5),
+          )
+        : NaN;
       if (!(t1 < t2 && t2 < t3)) {
         setError(
           "Fecha y hora deben ir en orden: salida < este evento < retorno",
+        );
+        return;
+      }
+      if (Number.isFinite(tPrev) && !(tPrev < t1)) {
+        setError(
+          "La salida debe ser posterior a la parada anterior del vehículo",
+        );
+        return;
+      }
+      if (Number.isFinite(tNext) && !(t3 < tNext)) {
+        setError(
+          "El retorno debe ser anterior a la parada siguiente del vehículo",
         );
         return;
       }
@@ -480,8 +505,14 @@ export default function FimbaRecorridoIntermedioModal({
           giraGrupos,
         });
         if (err) {
-          setError(err.message || "No se pudieron crear los movimientos");
-          if (eventos?.length) onSaved?.(eventos, { partial: true });
+          const partialCount = eventos?.length || 0;
+          setError(
+            partialCount === 1
+              ? err.message ||
+                  "Solo se creó 1 de 2 paradas (ida). La vuelta falló; el modal sigue abierto para reintentar."
+              : err.message || "No se pudieron crear los movimientos",
+          );
+          if (partialCount) onSaved?.(eventos, { partial: true });
           return;
         }
         onSaved?.(eventos);
