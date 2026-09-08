@@ -14,6 +14,31 @@ export const GIRA_GRUPO_DEFAULT_COLORS = [
   "#0891b2",
 ];
 
+/** Sentinel del multi-select Grupos (no es un `giras_grupos.id`). */
+export const GIRA_GRUPOS_TUTTI_VALUE = "tutti";
+
+/** Etiqueta UI: eventos sin filas en `eventos_grupos` (orquesta / generales). */
+export const GIRA_GRUPOS_TUTTI_LABEL = "Actividades Tutti";
+
+export function isGiraGruposTuttiValue(v) {
+  return (
+    String(v ?? "")
+      .trim()
+      .toLocaleLowerCase("es") === GIRA_GRUPOS_TUTTI_VALUE
+  );
+}
+
+/** ¿El filtro editorial de grupos está activo (Tutti y/o ids)? */
+export function hasEditorialGrupoFilter(
+  filterGrupoIds = [],
+  includeGeneralEvents = false,
+) {
+  return (
+    Boolean(includeGeneralEvents) ||
+    (filterGrupoIds || []).some((id) => Number.isFinite(Number(id)))
+  );
+}
+
 /**
  * @param {import("@supabase/supabase-js").SupabaseClient} supabase
  * @param {number|string} idGira
@@ -280,16 +305,23 @@ export function eventGruposMetaFromEvent(evt) {
     .filter(Boolean);
 }
 
-/** ¿El evento pasa el filtro editorial de grupos? */
+/**
+ * ¿El evento pasa el filtro editorial de grupos?
+ * - Sin Tutti ni ids → no filtra (true).
+ * - Solo Tutti (`includeGeneralEvents`) → sin `eventos_grupos`.
+ * - Solo ids → intersección con grupos del evento.
+ * - Tutti + ids → unión (aditivo).
+ */
 export function eventPassesEditorialGrupoFilter(
   evt,
   filterGrupoIds = [],
-  includeGeneralEvents = true,
+  includeGeneralEvents = false,
 ) {
   const selected = (filterGrupoIds || []).map(Number).filter(Number.isFinite);
-  if (selected.length === 0) return true;
+  if (!hasEditorialGrupoFilter(selected, includeGeneralEvents)) return true;
   const eventIds = eventGrupoIdsFromEvent(evt);
-  if (eventIds.length === 0) return includeGeneralEvents;
+  if (eventIds.length === 0) return Boolean(includeGeneralEvents);
+  if (selected.length === 0) return false;
   return eventIds.some((id) => selected.includes(id));
 }
 

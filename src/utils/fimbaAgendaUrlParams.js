@@ -22,6 +22,9 @@ import { isFimbaRideAboardAtStop } from "./fimbaTransportBoarding";
 /** Sentinel del multi-select «Grupos OFRN» (no es un `giras_grupos.id`). */
 export const FIMBA_AGENDA_TUTTI_VALUE = "tutti";
 
+/** Etiqueta UI del opt-in Tutti / actividades sin grupo. */
+export const FIMBA_AGENDA_TUTTI_LABEL = "Actividades Tutti";
+
 /** @param {unknown} v */
 export function isFimbaAgendaTuttiValue(v) {
   return String(v ?? "")
@@ -236,16 +239,23 @@ export function isSinglePropuestaOnlyFilter(
 }
 
 /**
- * Convoca Tutti / general histórica (NULL), no `none` ni grupos puntuales.
+ * Convoca Tutti / general histórica: OFRN sin grupo puntual
+ * (`audiencia_ofrn=tutti`, o NULL/`grupos` sin filas en `eventos_grupos`).
+ * No incluye `audiencia_ofrn=none` ni eventos con ≥1 `eventos_grupos`.
  * @param {object|null|undefined} ev
  */
 export function eventMatchesTuttiAudiencia(ev) {
   if (!ev) return false;
+  const hasGrupoTags =
+    (ev.grupos || []).length > 0 ||
+    (ev.eventos_grupos || []).some(
+      (eg) => eg?.id_grupo != null || eg?.giras_grupos?.id != null,
+    );
+  if (hasGrupoTags) return false;
   const ao = ev.audiencia_ofrn;
-  if (ao === "none" || ao === "grupos") return false;
+  if (ao === "none") return false;
   if (ao === "tutti") return true;
-  if (ao == null || ao === "") {
-    if ((ev.grupos || []).length > 0) return false;
+  if (ao == null || ao === "" || ao === "grupos") {
     return Boolean(ev.es_ofrn);
   }
   return false;

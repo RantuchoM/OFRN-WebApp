@@ -44,7 +44,7 @@ export default function LogisticsDashboard({
   hospedajeExcluidosIds = EMPTY_HOSPEDAJE_EXCLUIDOS,
   giraGrupos = [],
   filterGrupoIds = [],
-  includeGeneralEvents = true,
+  includeGeneralEvents = false,
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [isMealsMenuOpen, setIsMealsMenuOpen] = useState(false);

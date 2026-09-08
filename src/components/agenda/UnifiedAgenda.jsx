@@ -53,8 +53,13 @@ import EventForm from "../forms/EventForm";
 import {
   eventGrupoIdsFromEvent,
   eventGruposMetaFromEvent,
+  eventPassesEditorialGrupoFilter,
   fetchGiraGrupos,
   GIRA_GRUPO_DEFAULT_COLORS,
+  GIRA_GRUPOS_TUTTI_LABEL,
+  GIRA_GRUPOS_TUTTI_VALUE,
+  hasEditorialGrupoFilter,
+  isGiraGruposTuttiValue,
   setEventoGrupos,
 } from "../../services/giraGruposService";
 import IndependentRehearsalForm from "../../views/Ensembles/IndependentRehearsalForm";
@@ -507,7 +512,7 @@ export default function UnifiedAgenda({
   const [giraGruposLocal, setGiraGruposLocal] = useState([]);
   const [filterGrupoIdsLocal, setFilterGrupoIdsLocal] = useState([]);
   const [includeGeneralEventsLocal, setIncludeGeneralEventsLocal] =
-    useState(true);
+    useState(false);
   const [gruposAssignTarget, setGruposAssignTarget] = useState(null);
   const [stagePlotViewerEvent, setStagePlotViewerEvent] = useState(null);
   const [backlineConsultaEvento, setBacklineConsultaEvento] = useState(null);
@@ -646,6 +651,7 @@ export default function UnifiedAgenda({
   const canManageGiraGrupos =
     !!giraId && (isEditor || isAdmin) && giraGrupos.length > 0;
 
+  /** Opciones para asignar grupos a un evento (sin sentinel Tutti). */
   const grupoFilterOptions = useMemo(
     () =>
       giraGrupos.map((g) => ({
@@ -654,6 +660,41 @@ export default function UnifiedAgenda({
         color: g.color || GIRA_GRUPO_DEFAULT_COLORS[0],
       })),
     [giraGrupos],
+  );
+
+  /** Toolbar filtro: Actividades Tutti primero, luego grupos nombrados. */
+  const grupoToolbarFilterOptions = useMemo(
+    () => [
+      {
+        value: GIRA_GRUPOS_TUTTI_VALUE,
+        label: GIRA_GRUPOS_TUTTI_LABEL,
+        color: "#0369a1",
+      },
+      ...grupoFilterOptions,
+    ],
+    [grupoFilterOptions],
+  );
+
+  const selectedGrupoToolbarValues = useMemo(
+    () => [
+      ...(includeGeneralEvents ? [GIRA_GRUPOS_TUTTI_VALUE] : []),
+      ...filterGrupoIds.map(Number).filter(Number.isFinite),
+    ],
+    [includeGeneralEvents, filterGrupoIds],
+  );
+
+  const handleGrupoToolbarFilterChange = useCallback(
+    (next) => {
+      const list = Array.isArray(next) ? next : [];
+      setIncludeGeneralEvents(list.some((v) => isGiraGruposTuttiValue(v)));
+      setFilterGrupoIds(
+        list
+          .filter((v) => !isGiraGruposTuttiValue(v))
+          .map((id) => Number(id))
+          .filter(Number.isFinite),
+      );
+    },
+    [setFilterGrupoIds, setIncludeGeneralEvents],
   );
 
   const canUserEditEvent = (evt) => {
@@ -1296,14 +1337,15 @@ export default function UnifiedAgenda({
       }
 
       // Filtro por grupos de convocatoria (editores/admins en agenda de gira)
-      if (filterGrupoIds.length > 0) {
-        const evtGrupoIds = eventGrupoIdsFromEvent(item);
-        if (evtGrupoIds.length === 0) {
-          if (!includeGeneralEvents) return false;
-        } else {
-          const selected = new Set(filterGrupoIds.map(Number));
-          if (!evtGrupoIds.some((id) => selected.has(Number(id)))) return false;
-        }
+      if (
+        hasEditorialGrupoFilter(filterGrupoIds, includeGeneralEvents) &&
+        !eventPassesEditorialGrupoFilter(
+          item,
+          filterGrupoIds,
+          includeGeneralEvents,
+        )
+      ) {
+        return false;
       }
 
       if (!eventMatchesAgendaSearch(item, agendaSearchQuery)) return false;
@@ -2649,11 +2691,14 @@ export default function UnifiedAgenda({
                 {canManageGiraGrupos && !hideGruposToolbarFilter && (
                   <div
                     className={`inline-flex items-stretch rounded-lg border overflow-visible h-[34px] shadow-sm ${
-                      filterGrupoIds.length > 0
+                      hasEditorialGrupoFilter(
+                        filterGrupoIds,
+                        includeGeneralEvents,
+                      )
                         ? "border-indigo-400 bg-indigo-50"
                         : "border-slate-200 bg-white"
                     }`}
-                    title="Filtro por grupos de convocatoria"
+                    title="Filtro por grupos (Actividades Tutti = sin grupo asignado)"
                   >
                     <div className="relative min-w-0 w-[7.5rem] sm:min-w-[8.5rem] max-w-full">
                       <MultiSelectDropdown
@@ -2661,34 +2706,12 @@ export default function UnifiedAgenda({
                         summaryMode="names"
                         label="Grupos"
                         placeholder="Grupos..."
-                        options={grupoFilterOptions}
-                        value={filterGrupoIds.map(Number)}
-                        onChange={(arr) =>
-                          setFilterGrupoIds(arr.map(Number))
-                        }
+                        options={grupoToolbarFilterOptions}
+                        value={selectedGrupoToolbarValues}
+                        onChange={handleGrupoToolbarFilterChange}
                         className="w-full [&_button]:w-full [&_button]:h-[32px] [&_button]:border-0 [&_button]:rounded-none [&_button]:bg-transparent [&_button]:shadow-none [&_button]:hover:border-transparent"
                       />
                     </div>
-                    {filterGrupoIds.length > 0 && (
-                      <label
-                        className={`inline-flex items-center px-2.5 border-l text-[10px] font-bold cursor-pointer select-none shrink-0 transition-colors ${
-                          includeGeneralEvents
-                            ? "bg-slate-800 text-white border-slate-700"
-                            : "bg-transparent text-slate-500 border-indigo-200 hover:bg-white/70"
-                        }`}
-                        title="Incluir eventos sin grupo asignado (generales)"
-                      >
-                        <input
-                          type="checkbox"
-                          className="sr-only"
-                          checked={includeGeneralEvents}
-                          onChange={(e) =>
-                            setIncludeGeneralEvents(e.target.checked)
-                          }
-                        />
-                        <span>+ Gen.</span>
-                      </label>
-                    )}
                   </div>
                 )}
 

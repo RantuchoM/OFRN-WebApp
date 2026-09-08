@@ -236,6 +236,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
     setFilterGrupoIds,
     includeGeneralEvents,
     setIncludeGeneralEvents,
+    setGrupoFilterSelection,
     grupoFilterOptions,
     giraGrupos,
   } = useGiraGruposFilter(supabase, selectedGira?.id, {
@@ -1508,6 +1509,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
                     onFilterChange={setFilterGrupoIds}
                     includeGeneralEvents={includeGeneralEvents}
                     onIncludeGeneralChange={setIncludeGeneralEvents}
+                    onSelectionChange={setGrupoFilterSelection}
                     className="shrink-0 max-w-full"
                   />
                 )}

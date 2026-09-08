@@ -79,6 +79,7 @@ import {
   buildIntegranteGruposMap,
   eventGrupoIdsFromEvent,
   eventPassesEditorialGrupoFilter,
+  hasEditorialGrupoFilter,
   setEventoGrupos,
 } from "../../services/giraGruposService";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
@@ -1740,7 +1741,7 @@ export default function MealsManager({
   hospedajeExcluidosIds = [],
   giraGrupos = [],
   filterGrupoIds = [],
-  includeGeneralEvents = true,
+  includeGeneralEvents = false,
   /** Modo FIMBA: tags artistas + pax aditivo + skin/nav del festival. */
   fimbaMode = false,
   propuestas = [],
@@ -2846,7 +2847,10 @@ export default function MealsManager({
               segments,
             ),
           );
-    if (hasGiraGrupos && (filterGrupoIds || []).length > 0) {
+    if (
+      hasGiraGrupos &&
+      hasEditorialGrupoFilter(filterGrupoIds, includeGeneralEvents)
+    ) {
       rows = rows.filter((row) => {
         // Vacantes siempre visibles para poder crear (aunque el filtro oculte generales).
         if (row.isTemp) return true;

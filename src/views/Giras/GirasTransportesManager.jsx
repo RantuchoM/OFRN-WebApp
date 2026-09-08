@@ -97,6 +97,7 @@ import {
   eventGrupoIdsFromEvent,
   eventPassesEditorialGrupoFilter,
   fetchGiraTransportesGruposMap,
+  hasEditorialGrupoFilter,
   setEventoGrupos,
   setGiraTransporteGrupos,
 } from "../../services/giraGruposService";
@@ -169,7 +170,7 @@ export default function GirasTransportesManager({
   gira,
   giraGrupos = [],
   filterGrupoIds = [],
-  includeGeneralEvents = true,
+  includeGeneralEvents = false,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const {
@@ -727,7 +728,8 @@ export default function GirasTransportesManager({
   const filteredTransports = useMemo(() => {
     if (!transportTypeFilter || transportTypeFilter.size === 0) return [];
     const grupoFilterOn =
-      hasGiraGrupos && (filterGrupoIds || []).length > 0;
+      hasGiraGrupos &&
+      hasEditorialGrupoFilter(filterGrupoIds, includeGeneralEvents);
     const selectedGrupoSet = new Set(
       (filterGrupoIds || []).map(Number).filter(Number.isFinite),
     );
@@ -745,11 +747,12 @@ export default function GirasTransportesManager({
       const vehicleGrupoIds = transportGruposMap.get(Number(t.id)) || [];
       // Vehículo etiquetado: solo si intersecta los grupos tildados.
       if (vehicleGrupoIds.length > 0) {
+        if (selectedGrupoSet.size === 0) return false;
         return vehicleGrupoIds.some((id) => selectedGrupoSet.has(Number(id)));
       }
 
       const events = transportEvents[t.id] || [];
-      // Vehículo general: visible con "+ Gen." o si alguna parada es del grupo filtrado.
+      // Vehículo general: visible con Actividades Tutti o si alguna parada es del grupo filtrado.
       if (includeGeneralEvents) return true;
       return events.some((evt) =>
         eventPassesEditorialGrupoFilter(evt, filterGrupoIds, false),
@@ -2397,7 +2400,8 @@ export default function GirasTransportesManager({
           const isExpanded = activeTransportId === t.id;
           const myEventsAll = transportEvents[t.id] || [];
           const myEvents =
-            hasGiraGrupos && (filterGrupoIds || []).length > 0
+            hasGiraGrupos &&
+            hasEditorialGrupoFilter(filterGrupoIds, includeGeneralEvents)
               ? myEventsAll.filter((evt) =>
                   eventPassesEditorialGrupoFilter(
                     evt,

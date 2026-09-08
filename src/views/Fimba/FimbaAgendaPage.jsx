@@ -79,6 +79,7 @@ import {
   TRANSPORT_DESTINO_SIN_LOCACION,
 } from "../../utils/fimbaTransportBoarding";
 import {
+  FIMBA_AGENDA_TUTTI_LABEL,
   FIMBA_AGENDA_TUTTI_VALUE,
   buildFimbaAgendaConsultaLegacySharePath,
   buildFimbaAgendaConsultaSharePath,
@@ -1146,7 +1147,7 @@ export default function FimbaAgendaPage() {
     () => [
       {
         value: FIMBA_AGENDA_TUTTI_VALUE,
-        label: "Tutti",
+        label: FIMBA_AGENDA_TUTTI_LABEL,
         color: "#00B1EB",
       },
       ...(giraGrupos || []).map((g) => ({
@@ -1436,7 +1437,7 @@ export default function FimbaAgendaPage() {
     }
     if (includeTutti || selectedGrupoIds.length > 0) {
       const names = [
-        ...(includeTutti ? ["Tutti"] : []),
+        ...(includeTutti ? [FIMBA_AGENDA_TUTTI_LABEL] : []),
         ...(giraGrupos || [])
         .filter((g) =>
           selectedGrupoIds.some((id) => String(id) === String(g.id)),
@@ -1618,7 +1619,7 @@ export default function FimbaAgendaPage() {
             .map((p) => p.nombre)
         : [];
     const grupoNames = [
-      ...(includeTutti ? ["Tutti"] : []),
+      ...(includeTutti ? [FIMBA_AGENDA_TUTTI_LABEL] : []),
       ...(selectedGrupoIds.length > 0
         ? (giraGrupos || [])
             .filter((g) =>
@@ -1916,7 +1917,7 @@ export default function FimbaAgendaPage() {
             <div className="fimba-agenda-filter-item">
             <label
               className="fimba-label"
-              title="Desactivado = solo agenda FIMBA. Tutti o un grupo carga la convocatoria OFRN."
+              title="Desactivado = solo agenda FIMBA. Actividades Tutti o un grupo carga la convocatoria OFRN."
             >
               Grupos OFRN
             </label>
@@ -1965,7 +1966,7 @@ export default function FimbaAgendaPage() {
               filtroOrigen === "fimba" &&
               selectedPropuestaIds.length === 0 && (
                 <span className="fimba-muted fimba-agenda-active-filters-hint">
-                  Marcá Tutti o un grupo OFRN para la convocatoria.
+                  Marcá Actividades Tutti o un grupo OFRN para la convocatoria.
                 </span>
               )}
           </div>

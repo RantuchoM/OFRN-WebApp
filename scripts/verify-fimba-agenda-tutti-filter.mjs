@@ -79,11 +79,16 @@ function hasAgendaEntityFilter(propuestaIds, grupoIds, includeTutti = false) {
 
 function eventMatchesTuttiAudiencia(ev) {
   if (!ev) return false;
+  const hasGrupoTags =
+    (ev.grupos || []).length > 0 ||
+    (ev.eventos_grupos || []).some(
+      (eg) => eg?.id_grupo != null || eg?.giras_grupos?.id != null,
+    );
+  if (hasGrupoTags) return false;
   const ao = ev.audiencia_ofrn;
-  if (ao === "none" || ao === "grupos") return false;
+  if (ao === "none") return false;
   if (ao === "tutti") return true;
-  if (ao == null || ao === "") {
-    if ((ev.grupos || []).length > 0) return false;
+  if (ao == null || ao === "" || ao === "grupos") {
     return Boolean(ev.es_ofrn);
   }
   return false;
@@ -181,6 +186,16 @@ assert(eventMatchesTuttiAudiencia(tuttiOfrn), "tutti OFRN match");
 assert(eventMatchesTuttiAudiencia(dualTutti), "dual tagged + tutti match");
 assert(!eventMatchesTuttiAudiencia(grupoOfrn), "grupo puntual no es Tutti");
 assert(!eventMatchesTuttiAudiencia(fimbaTagged), "FIMBA none no es Tutti");
+assert(
+  eventMatchesTuttiAudiencia({
+    id: 99,
+    es_ofrn: true,
+    audiencia_ofrn: "grupos",
+    propuestas: [],
+    grupos: [],
+  }),
+  "audiencia grupos sin eventos_grupos cuenta como Tutti",
+);
 
 assert(
   eventMatchesAgendaEntityFilter(fimbaTagged, [5], [], {}),
