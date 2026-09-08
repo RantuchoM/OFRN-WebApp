@@ -41,6 +41,7 @@ import {
   indexOfEvent,
   isFimbaRideAboardAtStop,
   isOpenFimbaRide,
+  isTransportTipoEvent,
   isVehicleBoardingSequenceEvent,
   listOfrnPeopleAboardAtStop,
   sumRidesOccupyingWindow,
@@ -6813,16 +6814,15 @@ export async function patchFimbaEventoPlanilla(eventoId, patch = {}) {
 }
 
 /**
- * ¿El fin del evento se deriva del siguiente (transporte / flota)?
+ * ¿El fin del evento se deriva del siguiente del mismo vehículo?
+ * Solo tipo transporte (o ride sintético). Un concierto/comida con flota
+ * asignada conserva `hora_fin` persistida: no se calcula ni se anula.
  * En ese caso el bulk de horarios solo mueve `hora_inicio` (+ fecha si rola día).
  */
 export function eventUsesDerivedHoraFin(ev) {
   if (!ev) return false;
-  if (ev.es_traslado) return true;
-  if (actividadUsaTransporte(ev.id_tipo_evento, ev.tipos_evento)) return true;
-  if ((ev.vehiculos || []).length > 0) return true;
-  if (ev.id_gira_transporte != null && ev.id_gira_transporte !== "") return true;
-  return false;
+  if (ev.es_ride_segment) return true;
+  return isTransportTipoEvent(ev);
 }
 
 function pad2Time(n) {
