@@ -905,8 +905,6 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         ),
       );
     }
-      });
-    }
     return list;
   }, [ajustesPendientes, filterArregladorId, searchObraText]);
 

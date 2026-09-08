@@ -39,7 +39,6 @@ const SearchableSelect = ({ label, options, value, onChange, placeholder, colorC
     const filteredOptions = options.filter((item) =>
         matchesMultiTokenSearch([item.apellido, item.nombre], query)
     );
-    );
 
     return (
         <div className="relative" ref={wrapperRef}>
