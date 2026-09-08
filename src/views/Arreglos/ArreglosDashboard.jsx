@@ -20,6 +20,7 @@ import {
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../services/supabase";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import DateInput from "../../components/ui/DateInput";
 import ConfirmModal from "../../components/ui/ConfirmModal";
@@ -866,14 +867,17 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     if (filterArregladorId) {
       list = list.filter((w) => String(w.id_integrante_arreglador) === String(filterArregladorId));
     }
-    const q = searchObraText.trim().toLowerCase();
-    if (q) {
-      list = list.filter((w) => {
-        const titulo = stripHtmlForSort(w.titulo).toLowerCase();
-        const compositor = (w.compositor_full || "").toLowerCase();
-        const arreglador = (w.arreglador_label || "").toLowerCase();
-        return titulo.includes(q) || compositor.includes(q) || arreglador.includes(q);
-      });
+    if (searchObraText.trim()) {
+      list = list.filter((w) =>
+        matchesMultiTokenSearch(
+          [
+            stripHtmlForSort(w.titulo),
+            w.compositor_full,
+            w.arreglador_label,
+          ],
+          searchObraText,
+        ),
+      );
     }
     return [...list].sort(compareArreglosPorUrgencia);
   }, [works, filterArregladorId, searchObraText]);
@@ -893,13 +897,14 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         (a) => String(a.id_integrante_arreglador) === String(filterArregladorId),
       );
     }
-    const q = searchObraText.trim().toLowerCase();
-    if (q) {
-      list = list.filter((a) => {
-        const titulo = stripHtmlForSort(a.obra_titulo).toLowerCase();
-        const brief = (a.brief || "").toLowerCase();
-        const partes = (a.partes_afectadas || "").toLowerCase();
-        return titulo.includes(q) || brief.includes(q) || partes.includes(q);
+    if (searchObraText.trim()) {
+      list = list.filter((a) =>
+        matchesMultiTokenSearch(
+          [stripHtmlForSort(a.obra_titulo), a.brief, a.partes_afectadas],
+          searchObraText,
+        ),
+      );
+    }
       });
     }
     return list;

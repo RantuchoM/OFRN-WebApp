@@ -9,6 +9,7 @@ import {
   IconCheck,
 } from "../ui/Icons";
 import { toast } from "sonner";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import { getGoogleMapsUrl } from "../../utils/agendaHelpers";
 import {
   parseGoogleMapsCoords,
@@ -266,10 +267,11 @@ export default function LocationManagerModal({
     }
   };
 
-  const filteredLocations = locations.filter(
-    (l) =>
-      l.nombre.toLowerCase().includes(search.toLowerCase()) ||
-      l.localidades?.localidad?.toLowerCase().includes(search.toLowerCase()),
+  const filteredLocations = locations.filter((l) =>
+    matchesMultiTokenSearch(
+      [l.nombre, l.localidades?.localidad, l.direccion],
+      search,
+    ),
   );
 
   const previewGoogleMapsUrl = useMemo(() => {

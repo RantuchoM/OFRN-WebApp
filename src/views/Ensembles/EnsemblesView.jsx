@@ -12,6 +12,7 @@ import SearchableSelect from '../../components/ui/SearchableSelect';
 import { BajaDateField, BajaDateModal } from '../../components/ui/BajaDateControls';
 import EnsembleProgramManager from './EnsembleProgramManager';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
+import { matchesMultiTokenSearch } from '../../utils/sanitize';
 
 const createEmptyEnsembleInstrumentation = () => ({
     fl: 0,
@@ -425,12 +426,12 @@ export default function EnsemblesView({ supabase }) {
         setShowMusicianPicker(true);
     };
 
-    const filteredMusicians = allMusicians.filter(m => {
-        const term = searchText.toLowerCase();
-        const fullName = `${m.nombre} ${m.apellido}`.toLowerCase();
-        const instrument = m.instrumentos?.instrumento?.toLowerCase() || '';
-        return fullName.includes(term) || instrument.includes(term);
-    }).sort((a, b) => {
+    const filteredMusicians = allMusicians.filter((m) =>
+        matchesMultiTokenSearch(
+            [m.nombre, m.apellido, m.instrumentos?.instrumento],
+            searchText,
+        ),
+    ).sort((a, b) => {
         const isMemberA = memberIds.has(a.id) || memberIds.has(Number(a.id));
         const isMemberB = memberIds.has(b.id) || memberIds.has(Number(b.id));
         if (isMemberA && !isMemberB) return -1;

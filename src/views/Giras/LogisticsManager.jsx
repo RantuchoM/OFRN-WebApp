@@ -50,6 +50,7 @@ import {
 } from "../../utils/mealLogistics";
 import EventForm from "../../components/forms/EventForm";
 import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 
 // --- CONSTANTES ---
@@ -469,9 +470,7 @@ const MultiSelectCell = ({
             />
             <div className="overflow-y-auto flex-1">
               {options
-                .filter((o) =>
-                  o.label?.toLowerCase().includes(search.toLowerCase()),
-                )
+                .filter((o) => matchesMultiTokenSearch([o.label], search))
                 .map((opt) => (
                   <div
                     key={opt.val || opt.id}
@@ -929,11 +928,8 @@ export default function LogisticsManager({
       (m) => (m.estado_gira || "").toLowerCase() !== "ausente",
     );
     if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      list = list.filter(
-        (m) =>
-          m.nombre?.toLowerCase().includes(term) ||
-          m.apellido?.toLowerCase().includes(term),
+      list = list.filter((m) =>
+        matchesMultiTokenSearch([m.nombre, m.apellido], searchTerm),
       );
     }
     if (showOnlyMissing) {

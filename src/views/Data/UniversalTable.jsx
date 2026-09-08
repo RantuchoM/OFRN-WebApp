@@ -25,7 +25,7 @@ import {
 } from "../../utils/stagePlotSvgSanitize";
 import { reloadStagePlotInstrumentIcons } from "../../services/stagePlotInstrumentIconsService";
 import { mergeLocaciones } from "../../services/mergeLocaciones";
-import { normalizeForSearch } from "../../utils/sanitize";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 
 const COL_WIDTH_STORAGE_PREFIX = "ofrn:universal-table:col-widths:";
 const DEFAULT_COL_WIDTH_BY_TYPE = {
@@ -575,8 +575,8 @@ const SearchableSelect = ({ value, options, onChange, onBlur, className }) => {
 
   const filteredOptions = useMemo(() => {
     if (!searchTerm) return options;
-    return options.filter(opt => 
-      opt.label.toLowerCase().includes(searchTerm.toLowerCase())
+    return options.filter((opt) =>
+      matchesMultiTokenSearch([opt.label], searchTerm),
     );
   }, [options, searchTerm]);
 
@@ -714,14 +714,14 @@ const MergeLocationPick = ({
     }
   }, [showSearch, isOpen]);
 
-  const filtered = options.filter((item) => {
-    const q = normalizeForSearch(query);
-    if (!q) return true;
-    const haystack = normalizeForSearch(
-      item.searchText || [item.label, item.direccion].filter(Boolean).join(" "),
-    );
-    return haystack.includes(q);
-  });
+  const filtered = options.filter((item) =>
+    matchesMultiTokenSearch(
+      item.searchText
+        ? [item.searchText]
+        : [item.label, item.direccion],
+      query,
+    ),
+  );
 
   const renderThreeLines = (opt, { compact = false } = {}) => (
     <div className={`min-w-0 ${compact ? "" : "pr-6"}`}>

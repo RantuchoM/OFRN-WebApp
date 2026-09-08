@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 import { membershipActiveOnProgramDate } from "../../utils/ensembleMembership";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import { createPortal } from "react-dom";
 import {
   IconLoader, IconFilter, IconPlus, IconX, IconUser, IconTrash, IconEdit,
@@ -167,8 +168,12 @@ export default function HorasCatedraDashboard({ supabase }) {
             records 
         };
     }).filter(m => {
-        const full = `${m.apellido} ${m.nombre}`.toLowerCase();
-        const matchesSearch = searchTerm === "" || full.includes(searchTerm.toLowerCase());
+        const matchesSearch =
+          searchTerm === "" ||
+          matchesMultiTokenSearch(
+            [m.apellido, m.nombre, m.instrumentos?.instrumento],
+            searchTerm,
+          );
         
         let matchesEnsemble = true;
         if (selectedEnsembles.size > 0) {

@@ -151,6 +151,7 @@ import {
   entradaRolCanTerceros,
   entradaRolLabel,
 } from "../../../utils/entradaRoles";
+import { matchesMultiTokenSearch } from "../../../utils/sanitize";
 import "../../../styles/entradas-filarmonica.css";
 
 const ADMIN_TABS = ["programas", "usuarios"];
@@ -1496,20 +1497,14 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     if (filtroRoles.size > 0) {
       list = list.filter((u) => filtroRoles.has(String(u.rol || "personal").toLowerCase()));
     }
-    const q = adminUsuarioFiltroNombre.trim().toLowerCase();
+    const q = adminUsuarioFiltroNombre.trim();
     if (!q) return list;
-    return list.filter((u) => {
-      const nombreCompleto = `${u.nombre || ""} ${u.apellido || ""}`.trim().toLowerCase();
-      const apellidoNombre = `${u.apellido || ""} ${u.nombre || ""}`.trim().toLowerCase();
-      const email = String(u.email || "").toLowerCase();
-      return (
-        nombreCompleto.includes(q) ||
-        apellidoNombre.includes(q) ||
-        String(u.nombre || "").toLowerCase().includes(q) ||
-        String(u.apellido || "").toLowerCase().includes(q) ||
-        email.includes(q)
-      );
-    });
+    return list.filter((u) =>
+      matchesMultiTokenSearch(
+        [u.nombre, u.apellido, u.email],
+        q,
+      ),
+    );
   }, [adminData.usuarios, adminUsuarioFiltroLocalidades, adminUsuarioFiltroRoles, adminUsuarioFiltroNombre]);
 
   useEffect(() => {

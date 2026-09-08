@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { matchesMultiTokenSearch } from "../../../utils/sanitize";
 
 export default function ChoferPickerDropdown({
   anchorRef,
@@ -50,11 +51,9 @@ export default function ChoferPickerDropdown({
 
   if (!isOpen || !dropdownStyle) return null;
 
-  const query = String(search || "").toLowerCase();
-  const filteredOptions = options.filter((c) => {
-    const haystack = `${c.label} ${c.dni || ""}`.toLowerCase();
-    return haystack.includes(query);
-  });
+  const filteredOptions = options.filter((c) =>
+    matchesMultiTokenSearch([c.label, c.dni], search),
+  );
 
   return createPortal(
     <div

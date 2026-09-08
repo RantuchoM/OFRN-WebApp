@@ -42,16 +42,11 @@ export default function SearchableSelect({
         [options],
     );
 
-    // Filtrado local (búsqueda insensible a mayúsculas/acentos)
+    // Filtrado local (sin tildes/mayúsculas; palabras sueltas en cualquier orden)
     const filteredOptions = useMemo(() => {
         if (!search.trim()) return normalizedOptions.slice(0, 300);
-        const s = normalizeForSearch(search);
         return normalizedOptions
-            .filter(
-                (o) =>
-                    normalizeForSearch(o.label).includes(s) ||
-                    (o.subLabel && normalizeForSearch(o.subLabel).includes(s))
-            )
+            .filter((o) => matchesMultiTokenSearch([o.label, o.subLabel], search))
             .slice(0, 80);
     }, [normalizedOptions, search]);
 

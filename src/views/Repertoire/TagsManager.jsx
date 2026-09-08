@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { IconTag, IconPlus, IconTrash, IconEdit, IconSearch, IconX, IconCheck, IconLoader } from '../../components/ui/Icons';
-import { normalizeForSearch } from '../../utils/sanitize';
+import { matchesMultiTokenSearch } from '../../utils/sanitize';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 export default function TagsManager({ supabase, onClose }) {
@@ -49,7 +49,7 @@ export default function TagsManager({ supabase, onClose }) {
     };
 
     const filtered = tags.filter((t) =>
-        normalizeForSearch(t.tag).includes(normalizeForSearch(search))
+        matchesMultiTokenSearch([t.tag], search)
     );
 
     return (

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { IconX, IconCheck, IconSearch } from "../../components/ui/Icons";
 import { normalize } from "../../hooks/useLogistics";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 
 export default function TransportPassengersModal({
   isOpen,
@@ -142,9 +143,10 @@ export default function TransportPassengersModal({
 
   // Filtrado de lista base (búsqueda y rol)
   const filteredRoster = roster.filter((p) => {
-    const matchSearch = `${p.nombre} ${p.apellido}`
-      .toLowerCase()
-      .includes(searchTerm.toLowerCase());
+    const matchSearch = matchesMultiTokenSearch(
+      [p.nombre, p.apellido],
+      searchTerm,
+    );
     const matchRole =
       filterRole === "todos" ||
       (filterRole === "musicos" &&

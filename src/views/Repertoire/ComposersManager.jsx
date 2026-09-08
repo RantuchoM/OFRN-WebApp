@@ -5,7 +5,7 @@ import {
     IconArrowLeft, IconAlertTriangle, IconChevronDown 
 } from '../../components/ui/Icons';
 import DateInput from '../../components/ui/DateInput';
-import { normalizeForSearch } from '../../utils/sanitize';
+import { matchesMultiTokenSearch } from '../../utils/sanitize';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 // --- 1. SUB-COMPONENTE: SELECTOR CON BÚSQUEDA ---
@@ -36,8 +36,9 @@ const SearchableSelect = ({ label, options, value, onChange, placeholder, colorC
         }
     }, [selectedItem, value]);
 
-    const filteredOptions = options.filter(item => 
-        normalizeForSearch(`${item.apellido} ${item.nombre}`).includes(normalizeForSearch(query))
+    const filteredOptions = options.filter((item) =>
+        matchesMultiTokenSearch([item.apellido, item.nombre], query)
+    );
     );
 
     return (
@@ -487,8 +488,8 @@ export default function ComposersManager({ supabase, onClose, initialSelectedId 
         setRelatedWorks([]);
     };
 
-    const filtered = composers.filter(c =>
-        normalizeForSearch(`${c.apellido} ${c.nombre}`).includes(normalizeForSearch(search))
+    const filtered = composers.filter((c) =>
+        matchesMultiTokenSearch([c.apellido, c.nombre], search)
     );
 
     return (

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconLoader, IconX } from "../ui/Icons";
 import { getAdminReservasList } from "../../services/entradaService";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 
 const BUCKET_META = {
   reservaron: { title: "Reservas activas", fechaLabel: "Fecha de reserva" },
@@ -15,14 +16,6 @@ function formatFechaAdquisicion(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" });
-}
-
-function normalizeSearch(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "");
 }
 
 export default function EntradasAdminReservasListModal({
@@ -67,22 +60,19 @@ export default function EntradasAdminReservasListModal({
   }, [open, bucket, idsKey]);
 
   const filtered = useMemo(() => {
-    const q = normalizeSearch(query);
-    if (!q) return rows;
-    return rows.filter((row) => {
-      const haystack = normalizeSearch(
+    if (!query.trim()) return rows;
+    return rows.filter((row) =>
+      matchesMultiTokenSearch(
         [
           row.usuarioLabel,
           row.email,
           row.codigoReserva,
           row.conciertoNombre,
           row.cantidad,
-        ]
-          .filter((v) => v != null && v !== "")
-          .join(" "),
-      );
-      return haystack.includes(q);
-    });
+        ],
+        query,
+      ),
+    );
   }, [rows, query]);
 
   if (!open) return null;

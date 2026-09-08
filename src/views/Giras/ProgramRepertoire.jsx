@@ -38,6 +38,7 @@ import {
 } from "../../services/giraService";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { toast } from "sonner";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 
 function sortArcos(arcos) {
   return [...(arcos || [])].sort((a, b) => Number(a.id) - Number(b.id));
@@ -281,10 +282,11 @@ const AdvancedImportModal = ({
   };
 
   // Filtrado en cliente para el buscador de giras
-  const filteredPrograms = programs.filter(
-    (p) =>
-      p.nombre_gira.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.nomenclador?.toLowerCase().includes(searchTerm.toLowerCase()),
+  const filteredPrograms = programs.filter((p) =>
+    matchesMultiTokenSearch(
+      [p.nombre_gira, p.nomenclador, p.mes_letra],
+      searchTerm,
+    ),
   );
 
   const selectedBlockObj = blocks.find((b) => b.id === selectedBlockId);

@@ -8,6 +8,7 @@ import {
   IconUser,
   IconX,
 } from "../../components/ui/Icons";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 
 const CONCEPTOS = [
   { id: "h_basico", label: "Basico", color: "text-blue-700 bg-blue-50 border-blue-200" },
@@ -95,22 +96,18 @@ export default function BulkNovedadModal({
   };
 
   const filteredCandidates = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    if (!q) return candidates;
-    return candidates.filter((m) => {
-      const fullName = `${m.apellido || ""} ${m.nombre || ""}`.toLowerCase();
-      const instrument = String(m.instrumentos?.instrumento || "").toLowerCase();
-      const ensambles = (m.ensambles || [])
-        .map((e) => e.ensamble || "")
-        .join(" ")
-        .toLowerCase();
-
-      return (
-        fullName.includes(q) ||
-        instrument.includes(q) ||
-        ensambles.includes(q)
-      );
-    });
+    if (!searchTerm.trim()) return candidates;
+    return candidates.filter((m) =>
+      matchesMultiTokenSearch(
+        [
+          m.apellido,
+          m.nombre,
+          m.instrumentos?.instrumento,
+          ...(m.ensambles || []).map((e) => e.ensamble),
+        ],
+        searchTerm,
+      ),
+    );
   }, [candidates, searchTerm]);
 
   const toggleId = (id) => {

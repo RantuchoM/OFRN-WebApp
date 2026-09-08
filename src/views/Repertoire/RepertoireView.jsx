@@ -43,7 +43,7 @@ import RepertoireSelectionBar from "../../components/repertoire/RepertoireSelect
 import InstrumentationFilterModal from "../../components/repertoire/InstrumentationFilterModal";
 import { calculateInstrumentation, workMatchesInstrumentationFilter } from "../../utils/instrumentation";
 import { getInstrumentationFilterLabel } from "../../utils/instrumentationFilterPresets";
-import { matchesMultiTokenSearch, normalizeForSearch } from "../../utils/sanitize";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import { getFixedMenuPosition } from "../../utils/fixedMenuPosition";
 import {
   loadRepertoireSelection,
@@ -1131,28 +1131,22 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       }
       if (
         filters.titulo &&
-        !normalizeForSearch(work.titulo_plain).includes(normalizeForSearch(filters.titulo))
+        !matchesMultiTokenSearch([work.titulo_plain], filters.titulo)
       )
         return false;
       if (
         filters.compositor &&
-        !normalizeForSearch(work.compositor_full).includes(
-          normalizeForSearch(filters.compositor),
-        )
+        !matchesMultiTokenSearch([work.compositor_full], filters.compositor)
       )
         return false;
       if (
         filters.pais &&
-        !normalizeForSearch(work.pais_nombre).includes(
-          normalizeForSearch(filters.pais),
-        )
+        !matchesMultiTokenSearch([work.pais_nombre], filters.pais)
       )
         return false;
       if (
         filters.arreglador &&
-        !normalizeForSearch(work.arreglador_full).includes(
-          normalizeForSearch(filters.arreglador),
-        )
+        !matchesMultiTokenSearch([work.arreglador_full], filters.arreglador)
       )
         return false;
       if (filters.estado !== "Todos" && work.estado !== filters.estado) return false;
@@ -1174,9 +1168,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
 
       if (
         filters.observaciones &&
-        !normalizeForSearch(work.observaciones).includes(
-          normalizeForSearch(filters.observaciones),
-        )
+        !matchesMultiTokenSearch([work.observaciones], filters.observaciones)
       )
         return false;
       if (selectedTags.size > 0 && !work.tags_ids.some((id) => selectedTags.has(id))) return false;

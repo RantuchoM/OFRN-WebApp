@@ -1,40 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { IconSearch, IconArrowRight } from './Icons';
-import { normalizeForSearch } from '../../utils/sanitize';
+import { getSearchHighlightRanges, matchesMultiTokenSearch } from '../../utils/sanitize';
 
 const HighlightSearchMatch = ({ text, query }) => {
   const rawText = String(text ?? "");
-  const normalizedQuery = normalizeForSearch(query);
-  if (!normalizedQuery) return <>{rawText}</>;
-
-  const normalizedChars = [];
-  const originalIndexByNormalizedIndex = [];
-  Array.from(rawText).forEach((char, originalIdx) => {
-    const normalizedChar = char
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase();
-    Array.from(normalizedChar).forEach((c) => {
-      normalizedChars.push(c);
-      originalIndexByNormalizedIndex.push(originalIdx);
-    });
-  });
-
-  const normalizedText = normalizedChars.join("");
-  if (!normalizedText) return <>{rawText}</>;
-
-  const ranges = [];
-  let searchFrom = 0;
-  while (searchFrom < normalizedText.length) {
-    const foundAt = normalizedText.indexOf(normalizedQuery, searchFrom);
-    if (foundAt === -1) break;
-    const startOriginal = originalIndexByNormalizedIndex[foundAt];
-    const endNormIdx = foundAt + normalizedQuery.length - 1;
-    const endOriginal = (originalIndexByNormalizedIndex[endNormIdx] ?? startOriginal) + 1;
-    ranges.push([startOriginal, endOriginal]);
-    searchFrom = foundAt + 1;
-  }
-
+  const ranges = getSearchHighlightRanges(rawText, query);
   if (!ranges.length) return <>{rawText}</>;
 
   const parts = [];
@@ -61,9 +31,8 @@ export default function CommandPalette({ isOpen, onClose, actions = [] }) {
   // Filtrado
   const filteredActions = useMemo(() => {
       if (!query) return actions.slice(0, 10); // Mostrar primeros 10 si no hay búsqueda
-      const normalizedQuery = normalizeForSearch(query);
-      return actions.filter(action => 
-        normalizeForSearch(action.label).includes(normalizedQuery)
+      return actions.filter((action) =>
+        matchesMultiTokenSearch([action.label], query),
       );
   }, [query, actions]);
 

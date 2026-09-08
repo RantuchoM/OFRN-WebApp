@@ -18,6 +18,7 @@ import {
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import { useAuth } from "../../context/AuthContext";
 
 // Configuración de Estados y Colores (filtros y badges)
@@ -355,11 +356,10 @@ export default function FeedbackAdmin({ supabase }) {
       }
 
       if (searchTerm) {
-        const lower = searchTerm.toLowerCase();
-        const textMatch =
-          (item.titulo || "").toLowerCase().includes(lower) ||
-          (item.mensaje || "").toLowerCase().includes(lower) ||
-          (item.user_email || "").toLowerCase().includes(lower);
+        const textMatch = matchesMultiTokenSearch(
+          [item.titulo, item.mensaje, item.user_email],
+          searchTerm,
+        );
         if (!textMatch) return false;
       }
 

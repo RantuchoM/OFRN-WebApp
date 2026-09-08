@@ -56,7 +56,7 @@ import {
   upsertFimbaAgendaConsulta,
 } from "../../services/fimbaService";
 import { supabase } from "../../services/supabase";
-import { normalizeForSearch } from "../../utils/sanitize";
+import { matchesMultiTokenSearch, normalizeForSearch } from "../../utils/sanitize";
 import { stripHtml } from "../../utils/eventDisplayUtils";
 import { fimbaTipoRowTintStyle } from "../../utils/fimbaEventCategories";
 import { formatFechaLargaEs, formatWeekdayFullLocal } from "../../utils/dates";
@@ -367,13 +367,12 @@ function getFimbaAgendaSearchParts(ev, flotaById = null) {
 }
 
 function eventMatchesFimbaAgendaSearch(ev, query, flotaById = null) {
-  const q = normalizeForSearch(query);
-  if (!q) return true;
+  if (!String(query || "").trim()) return true;
   if (!ev) return false;
-  const haystack = normalizeForSearch(
-    getFimbaAgendaSearchParts(ev, flotaById).join(" "),
+  return matchesMultiTokenSearch(
+    getFimbaAgendaSearchParts(ev, flotaById),
+    query,
   );
-  return haystack.includes(q);
 }
 
 /**

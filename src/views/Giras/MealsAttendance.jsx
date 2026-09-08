@@ -17,6 +17,7 @@ import MealOrchestraOnlyFilterChip from "../../components/logistics/MealOrchestr
 import { format, parseISO, isAfter, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import {
   isPersonEligibleForMealSlot,
   mealServicioFromEvent,
@@ -361,12 +362,11 @@ export default function MealsAttendance({
 
     // 4. Filtro por Búsqueda de Texto
     if (searchTerm) {
-      const lower = searchTerm.toLowerCase();
-      data = data.filter(
-        (p) =>
-          p.nombre.toLowerCase().includes(lower) ||
-          p.apellido.toLowerCase().includes(lower) ||
-          p.instrumentos?.instrumento?.toLowerCase().includes(lower),
+      data = data.filter((p) =>
+        matchesMultiTokenSearch(
+          [p.nombre, p.apellido, p.instrumentos?.instrumento],
+          searchTerm,
+        ),
       );
     }
 

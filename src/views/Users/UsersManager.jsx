@@ -22,6 +22,7 @@ import ConfirmModal from "../../components/ui/ConfirmModal";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { isProtectedIntegrante } from "../../utils/protectedIntegrantes";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 
 // Roles asignables en Gestión de Usuarios (multi-selección, alineado con AuthContext y docs de permisos)
 const ROLES_OPTIONS = [
@@ -144,24 +145,34 @@ export default function UsersManager({ supabase }) {
       const to = from + pageSize - 1;
       const term = debouncedSearch.trim();
 
-      let query = supabase
-        .from("integrantes")
-        .select(INTEGRANTES_SELECT, { count: "exact" })
-        .order("apellido", { ascending: true })
-        .order("nombre", { ascending: true });
-
       if (term) {
-        const clean = term.replace(/%/g, "");
-        query = query.or(
-          `nombre.ilike.%${clean}%,apellido.ilike.%${clean}%,mail.ilike.%${clean}%`,
+        const { data, error } = await supabase
+          .from("integrantes")
+          .select(INTEGRANTES_SELECT)
+          .order("apellido", { ascending: true })
+          .order("nombre", { ascending: true });
+        if (error) throw error;
+        const filtered = (data || []).filter((m) =>
+          matchesMultiTokenSearch(
+            [m.nombre, m.apellido, m.mail, m.instrumentos?.instrumento],
+            term,
+          ),
         );
+        setTotalCount(filtered.length);
+        setIntegrantes(filtered.slice(from, to + 1));
+      } else {
+        let query = supabase
+          .from("integrantes")
+          .select(INTEGRANTES_SELECT, { count: "exact" })
+          .order("apellido", { ascending: true })
+          .order("nombre", { ascending: true });
+
+        const { data, error, count } = await query.range(from, to);
+
+        if (error) throw error;
+        setIntegrantes(data || []);
+        setTotalCount(count ?? 0);
       }
-
-      const { data, error, count } = await query.range(from, to);
-
-      if (error) throw error;
-      setIntegrantes(data || []);
-      setTotalCount(count ?? 0);
     } catch (error) {
       console.error("Error fetching integrantes:", error);
       alert("Error cargando usuarios: " + error.message);

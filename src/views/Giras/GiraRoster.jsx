@@ -55,6 +55,7 @@ import {
   repertorioGruposMetaFromBlock,
 } from "../../services/giraGruposService";
 import { toast } from "sonner";
+import { applyMultiTokenOrIlike, matchesMultiTokenSearch } from "../../utils/sanitize";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
 import UniversalExporter from "../../components/ui/UniversalExporter";
 import InstrumentationBadges, {
@@ -936,11 +937,10 @@ export default function GiraRoster({
     if (rawRoster) {
       let filtered = rawRoster.filter((m) => {
         // Search
-        const matchesSearch =
-          m.nombre_completo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          m.instrumentos?.instrumento
-            ?.toLowerCase()
-            .includes(searchTerm.toLowerCase());
+        const matchesSearch = matchesMultiTokenSearch(
+          [m.nombre_completo, m.instrumentos?.instrumento],
+          searchTerm,
+        );
 
         // Filtros Múltiples
         const matchesRole =
@@ -2295,25 +2295,28 @@ export default function GiraRoster({
 
   const searchIndividual = async (term) => {
     const cleanTerm = term.trim();
+    if (!cleanTerm) {
+      setSearchResults([]);
+      return;
+    }
     let query = supabase
       .from("integrantes")
       .select("id, nombre, apellido, mail, instrumentos(instrumento), cuil");
-    if (cleanTerm.includes(" ")) {
-      const parts = cleanTerm.split(" ");
-      query = query
-        .ilike("nombre", `%${parts[0]}%`)
-        .ilike("apellido", `%${parts.slice(1).join(" ")}%`);
-    } else {
-      query = query.or(
-        `nombre.ilike.%${cleanTerm}%,apellido.ilike.%${cleanTerm}%`,
-      );
-    }
-    const { data } = await query.limit(30);
+    query = applyMultiTokenOrIlike(query, ["nombre", "apellido"], cleanTerm);
+    const { data } = await query.limit(80);
     const currentIds = new Set(localRoster.map((r) => integranteKey(r.id)));
-    const withFlag = (data || []).map((m) => ({
-      ...m,
-      isAlreadyInTour: currentIds.has(integranteKey(m.id)),
-    }));
+    const withFlag = (data || [])
+      .filter((m) =>
+        matchesMultiTokenSearch(
+          [m.nombre, m.apellido, m.mail, m.cuil, m.instrumentos?.instrumento],
+          cleanTerm,
+        ),
+      )
+      .slice(0, 30)
+      .map((m) => ({
+        ...m,
+        isAlreadyInTour: currentIds.has(integranteKey(m.id)),
+      }));
     setSearchResults(withFlag);
   };
 

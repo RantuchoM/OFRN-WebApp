@@ -42,6 +42,7 @@ import { syncSingleSegmentDates } from "../../services/giraSegmentosService";
 import GiraTramosEditor from "./GiraTramosEditor";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 
 const ZONA_PRESETS = ["Andina", "Atlántica", "Valle"];
 
@@ -379,7 +380,7 @@ const StaffSearchInput = ({ options, onSelect, onCreateNew }) => {
   const wrapperRef = useRef(null);
 
   const filtered = options.filter((o) =>
-    o.label.toLowerCase().includes(search.toLowerCase()),
+    matchesMultiTokenSearch([o.label], search),
   );
 
   useEffect(() => {

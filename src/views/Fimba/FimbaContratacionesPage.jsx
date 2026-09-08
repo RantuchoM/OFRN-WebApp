@@ -45,6 +45,7 @@ import {
 } from "./FimbaEstadoConocido";
 import { DocumentacionDrivePreview } from "./FimbaDocumentacionDrivePreview";
 import { FIMBA_ROLES } from "../../utils/fimbaUserSession";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import { useFimbaSheetLeaveGuard } from "./FimbaSheetLeaveGuardContext";
 
 const NEW_ROW_KEY = "__new__";
@@ -493,12 +494,6 @@ function compareSortValues(type, a, b, dir) {
     cmp = ES_COLLATOR.compare(String(a), String(b));
   }
   return dir === "desc" ? -cmp : cmp;
-}
-
-function rowNombreSearchHaystack(draft, row, propuestasById) {
-  const free = String(draft?.nombre || "").trim();
-  const artist = resolveArtistaLabel(draft, row, propuestasById);
-  return `${free} ${artist}`.trim().toLowerCase();
 }
 
 function SortableTh({
@@ -1430,13 +1425,16 @@ function ContratacionesPlanilla({
 
   const displayList = useMemo(() => {
     let items = [...list];
-    const q = String(nombreQuery || "")
-      .trim()
-      .toLowerCase();
-    if (q) {
+    if (String(nombreQuery || "").trim()) {
       items = items.filter((r) => {
         const draft = resolveDisplayDraft(r);
-        return rowNombreSearchHaystack(draft, r, propuestasById).includes(q);
+        return matchesMultiTokenSearch(
+          [
+            draft?.nombre,
+            resolveArtistaLabel(draft, r, propuestasById),
+          ],
+          nombreQuery,
+        );
       });
     }
     if (sortKey && SORT_TYPES[sortKey]) {

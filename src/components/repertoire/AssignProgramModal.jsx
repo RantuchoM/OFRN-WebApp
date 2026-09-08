@@ -8,7 +8,7 @@ import {
   IconTrash,
   IconX,
 } from "../ui/Icons";
-import { normalizeForSearch } from "../../utils/sanitize";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import {
   addPlaceholderOpcion,
   fetchDirectRepertorioAssignmentsForObra,
@@ -50,13 +50,12 @@ function GiraSearchPicker({
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
-  const filtered = giras.filter((g) => {
-    if (!searchQuery.trim()) return true;
-    const hay = normalizeForSearch(
-      `${g.mes_letra} ${g.nomenclador} ${g.nombre_gira}`,
-    );
-    return hay.includes(normalizeForSearch(searchQuery));
-  });
+  const filtered = giras.filter((g) =>
+    matchesMultiTokenSearch(
+      [g.mes_letra, g.nomenclador, g.nombre_gira],
+      searchQuery,
+    ),
+  );
 
   return (
     <div ref={wrapRef} className="relative">

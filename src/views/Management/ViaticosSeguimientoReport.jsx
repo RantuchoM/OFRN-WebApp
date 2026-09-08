@@ -32,6 +32,7 @@ import {
   formatDevReintLabel,
   patchViaticoSeguimiento,
 } from "../../services/viaticosSeguimientoService";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 
 const YEAR_NOW = new Date().getFullYear();
 const YEAR_OPTIONS = [YEAR_NOW, YEAR_NOW - 1, YEAR_NOW - 2];
@@ -513,10 +514,9 @@ function ColumnValueFilter({ label, options, selected, onChange, compact }) {
   }, [open]);
 
   const visibleOptions = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return options;
+    if (!q.trim()) return options;
     return options.filter((opt) =>
-      String(opt.label).toLowerCase().includes(needle),
+      matchesMultiTokenSearch([opt.label], q),
     );
   }, [options, q]);
 
@@ -677,7 +677,7 @@ export default function ViaticosSeguimientoReport({ supabase }) {
   );
 
   const filteredRows = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     return rows.filter((row) => {
       for (const col of COLUMN_DEFS) {
         const selected = columnFilters[col.key];
@@ -686,18 +686,17 @@ export default function ViaticosSeguimientoReport({ supabase }) {
         }
       }
       if (!q) return true;
-      const haystack = [
-        row.personaCell,
-        row.programaLabel,
-        row.salidaCell,
-        row.regresoCell,
-        row.seguimiento_color,
-        row.vehiculo,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(q);
+      return matchesMultiTokenSearch(
+        [
+          row.personaCell,
+          row.programaLabel,
+          row.salidaCell,
+          row.regresoCell,
+          row.seguimiento_color,
+          row.vehiculo,
+        ],
+        q,
+      );
     });
   }, [rows, query, columnFilters]);
 

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { IconCheck, IconChevronDown, IconSearch, IconX } from "./Icons";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 
 export default function FilterDropdown({
   label,
@@ -24,8 +25,8 @@ export default function FilterDropdown({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const filteredOptions = options.filter(opt => 
-    opt.label.toLowerCase().includes(search.toLowerCase())
+  const filteredOptions = options.filter((opt) =>
+    matchesMultiTokenSearch([opt.label], search),
   );
 
   const handleToggle = (id) => {

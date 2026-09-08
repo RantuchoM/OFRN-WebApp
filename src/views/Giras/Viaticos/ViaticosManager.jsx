@@ -36,6 +36,7 @@ import {
   listValorDiarioVigencias,
 } from "../../../services/viaticosValorDiarioService";
 import { canAdminValorDiario } from "../../../utils/viaticosValorDiarioAdmin";
+import { matchesMultiTokenSearch } from "../../../utils/sanitize";
 import {
   calculateDaysDiff,
   useViaticosIndividuales,
@@ -164,7 +165,7 @@ const MemberSearchSelect = ({ options = [], value, onChange, placeholder }) => {
     if (!options) return [];
     if (!search) return options;
     return options.filter((opt) =>
-      opt.label.toLowerCase().includes(search.toLowerCase()),
+      matchesMultiTokenSearch([opt.label], search),
     );
   }, [options, search]);
 

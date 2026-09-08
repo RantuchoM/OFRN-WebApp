@@ -90,6 +90,7 @@ import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { formatFechaLargaEs } from "../../utils/dates";
 import { toast } from "sonner";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 
 /** Embed `eventos_grupos` alineado a `selectedGrupos` (deducción orquesta↔grupo en vivo). */
 const buildEventosGruposEmbed = (selectedGrupos, giraGrupos) =>
@@ -1121,7 +1122,7 @@ const GridLocationSelect = ({
 
   const selectedOption = options.find((o) => String(o.id) === String(value));
   const filteredOptions = options.filter((o) =>
-    o.label.toLowerCase().includes(search.toLowerCase()),
+    matchesMultiTokenSearch([o.label], search),
   );
 
   return (
