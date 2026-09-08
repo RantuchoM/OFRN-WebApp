@@ -3599,9 +3599,9 @@ export default function MealsManager({
                           {!row.isTemp && (
                             <button
                               type="button"
-                              onClick={() => addSiblingMeal(row)}
+                              onClick={() => openSiblingMealAdd(row)}
                               className="p-0.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all shrink-0"
-                              title={`Agregar otro ${row.servicio.toLowerCase()} este día`}
+                              title="Agregar comida (tipo y fecha editables)"
                             >
                               <IconPlus size={14} />
                             </button>
@@ -3860,9 +3860,9 @@ export default function MealsManager({
                       <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                         <button
                           type="button"
-                          onClick={() => addSiblingMeal(row)}
+                          onClick={() => openSiblingMealAdd(row)}
                           className="text-slate-300 hover:text-indigo-600"
-                          title={`Agregar otro ${row.servicio.toLowerCase()} este día`}
+                          title="Agregar comida (tipo y fecha editables)"
                         >
                           <IconPlus size={14} />
                         </button>
@@ -3954,9 +3954,9 @@ export default function MealsManager({
                       </span>
                       <button
                         type="button"
-                        onClick={() => addSiblingMeal(row)}
+                        onClick={() => openSiblingMealAdd(row)}
                         className="p-1 rounded border border-slate-200 text-indigo-600 bg-white"
-                        title={`Agregar otro ${row.servicio.toLowerCase()}`}
+                        title="Agregar comida (tipo y fecha editables)"
                       >
                         <IconPlus size={12} />
                       </button>
@@ -4024,6 +4024,16 @@ export default function MealsManager({
           </div>
         </div>
       </div>
+
+      {siblingAddDraft && (
+        <SiblingMealAddModal
+          draft={siblingAddDraft}
+          mealTypes={mealTypes}
+          onChange={setSiblingAddDraft}
+          onCancel={() => setSiblingAddDraft(null)}
+          onConfirm={confirmSiblingMealAdd}
+        />
+      )}
 
       {overInclusionOpen && (
         <MealTurnoOverInclusionModal
