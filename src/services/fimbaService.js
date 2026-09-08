@@ -37,6 +37,7 @@ import {
   buildArtistaTrasladoAgendaBlocks,
   buildFimbaRidesForVehicle,
   collectVehicleRideEndpointIds,
+  eventUsesDerivedHoraFin,
   extractOfrnRidesForVehicle,
   indexOfEvent,
   isFimbaRideAboardAtStop,
@@ -6812,18 +6813,7 @@ export async function patchFimbaEventoPlanilla(eventoId, patch = {}) {
   };
 }
 
-/**
- * ¿El fin del evento se deriva del siguiente (transporte / flota)?
- * En ese caso el bulk de horarios solo mueve `hora_inicio` (+ fecha si rola día).
- */
-export function eventUsesDerivedHoraFin(ev) {
-  if (!ev) return false;
-  if (ev.es_traslado) return true;
-  if (actividadUsaTransporte(ev.id_tipo_evento, ev.tipos_evento)) return true;
-  if ((ev.vehiculos || []).length > 0) return true;
-  if (ev.id_gira_transporte != null && ev.id_gira_transporte !== "") return true;
-  return false;
-}
+export { eventUsesDerivedHoraFin };
 
 function pad2Time(n) {
   return String(n).padStart(2, "0");

@@ -1,6 +1,7 @@
 import { buildAgendaPdfExportItems } from "./agendaHelpers";
 import { exportAgendaToPDF } from "./agendaPdfExporter";
 import { labelGiraTransporte } from "../services/fimbaService";
+import { resolveAgendaHoraFinDisplay } from "./fimbaTransportBoarding";
 
 /**
  * Resuelve la unidad de flota primaria para el chip de transporte del PDF OFRN
@@ -65,14 +66,19 @@ function buildFimbaPdfDescription(ev) {
  * (mismo pipeline que UnifiedAgenda).
  *
  * @param {Array<object>} rows — filas ya filtradas (planilla / consulta artista)
- * @param {{ flotaById?: Map|Record|null }} [opts]
+ * @param {{ flotaById?: Map|Record|null, sequencesByVehicle?: Map|null }} [opts]
  * @returns {Array<object>}
  */
-export function mapFimbaAgendaRowsForPdf(rows, { flotaById = null } = {}) {
+export function mapFimbaAgendaRowsForPdf(
+  rows,
+  { flotaById = null, sequencesByVehicle = null } = {},
+) {
   return (rows || []).map((ev) => {
     const giras_transportes = resolvePrimaryGiraTransporte(ev, flotaById);
+    const horaFinDisp = resolveAgendaHoraFinDisplay(ev, sequencesByVehicle);
     return {
       ...ev,
+      hora_fin: horaFinDisp.value,
       descripcion: buildFimbaPdfDescription(ev),
       tipos_evento: ev.tipos_evento || {
         id: ev.id_tipo_evento,
@@ -95,15 +101,21 @@ export function mapFimbaAgendaRowsForPdf(rows, { flotaById = null } = {}) {
  *   title?: string,
  *   subTitle?: string,
  *   flotaById?: Map|Record|null,
+ *   sequencesByVehicle?: Map|null,
  * }} [opts]
  * @returns {number} cantidad de filas exportadas (0 = no se generó PDF)
  */
 export function exportFimbaAgendaToPDF(
   filteredRows,
-  { title = "Agenda FIMBA", subTitle = "", flotaById = null } = {},
+  {
+    title = "Agenda FIMBA",
+    subTitle = "",
+    flotaById = null,
+    sequencesByVehicle = null,
+  } = {},
 ) {
   const exportItems = buildAgendaPdfExportItems(
-    mapFimbaAgendaRowsForPdf(filteredRows, { flotaById }),
+    mapFimbaAgendaRowsForPdf(filteredRows, { flotaById, sequencesByVehicle }),
   );
   if (exportItems.length === 0) return 0;
   exportAgendaToPDF(exportItems, title, subTitle, true);

@@ -273,6 +273,58 @@ export function resolveAgendaDestinoLabel(
 }
 
 /**
+ * ¿El fin se deriva del siguiente evento del mismo vehículo?
+ * Solo tipo catálogo transporte (o ride sintético). Comidas, conciertos y
+ * demás —aunque tengan flota— usan `eventos.hora_fin` persistida.
+ *
+ * @param {object|null|undefined} ev
+ */
+export function eventUsesDerivedHoraFin(ev) {
+  if (!ev) return false;
+  return isTransportTipoEvent(ev) || Boolean(ev.es_ride_segment);
+}
+
+/**
+ * Hora fin de planilla Agenda / consulta / PDF.
+ * - Transporte: hora com del siguiente evento **asignado al mismo vehículo**.
+ * - Comidas, conciertos y demás: solo si el evento tiene `hora_inicio` y
+ *   `hora_fin` cargadas; no se inventa desde el vecino cronológico.
+ *
+ * @param {object|null|undefined} ev
+ * @param {Map|null|undefined} sequencesByVehicle
+ * @param {{ isTransport?: boolean }} [opts]
+ * @returns {{ value: string|null, isCalculated: boolean, source: 'next_event'|'persisted'|'missing' }}
+ */
+export function resolveAgendaHoraFinDisplay(
+  ev,
+  sequencesByVehicle,
+  opts = {},
+) {
+  const isTransport =
+    opts.isTransport != null
+      ? Boolean(opts.isTransport)
+      : eventUsesDerivedHoraFin(ev);
+  if (isTransport && ev) {
+    const { nextEvent } = resolveTransportDestinoFromNextStop(
+      ev,
+      sequencesByVehicle,
+    );
+    return resolveHoraFinDisplay(ev, nextEvent);
+  }
+  const start = ev?.hora_inicio != null && String(ev.hora_inicio).trim() !== ""
+    ? String(ev.hora_inicio).slice(0, 5)
+    : null;
+  const persisted =
+    ev?.hora_fin != null && String(ev.hora_fin).trim() !== ""
+      ? String(ev.hora_fin).slice(0, 5)
+      : null;
+  if (!start || !persisted) {
+    return { value: null, isCalculated: false, source: "missing" };
+  }
+  return { value: persisted, isCalculated: false, source: "persisted" };
+}
+
+/**
  * Siguiente parada del mismo vehículo en la secuencia ya ordenada
  * (`buildVehicleBoardingSequence.sortedEvents` / `sortEventsBySchedule`).
  *
@@ -589,10 +641,11 @@ export function defaultIntermediateStopSchedule(currentEv, nextEv) {
  * Prefill for «Insertar evento» / completar hueco hasta→desde between two
  * chronological neighbors (Agenda same-day list or Transportes vehicle sequence).
  *
- * - `hora_inicio` = fin del tramo previo = `hora_inicio` del next asignado
- *   (`resolveHoraFinDisplay`). Ya no se usa `hora_fin` persistida huérfana.
+ * - Transporte: `hora_inicio` = hora com del next **asignado al vehículo**
+ *   (`resolveHoraFinDisplay`). No usa `hora_fin` persistida huérfana.
+ * - Comidas / conciertos / demás: `hora_inicio` = `hora_fin` persistida del
+ *   evento previo (si hay inicio+fin cargados); si no, midpoint / +30m.
  * - `hora_fin` del draft = `hora_inicio` del next al insertar entre; null si es cola.
- * - No usable fin and no next → same +30m fallback as midpoint helper.
  * - Overnight / degenerate (calculated fin equals next start): still prefill
  *   those times; user can adjust in the create modal. Fecha stays on previous
  *   unless +30m rolls the calendar day.
@@ -603,10 +656,33 @@ export function defaultIntermediateStopSchedule(currentEv, nextEv) {
  */
 export function defaultGapFillEventSchedule(prevEv, nextEv) {
   const curFecha = String(prevEv?.fecha || "").slice(0, 10) || null;
-  const finDisp = resolveHoraFinDisplay(prevEv, nextEv);
   const nextInicio = nextEv?.hora_inicio
     ? String(nextEv.hora_inicio).slice(0, 5)
     : null;
+
+  // Comidas / conciertos / etc.: el hueco empieza en el fin persistido
+  // (no en el inicio del vecino cronológico).
+  if (!eventUsesDerivedHoraFin(prevEv)) {
+    const persistedFin =
+      prevEv?.hora_fin != null && String(prevEv.hora_fin).trim() !== ""
+        ? String(prevEv.hora_fin).slice(0, 5)
+        : null;
+    if (persistedFin) {
+      return {
+        fecha: curFecha,
+        hora_inicio: persistedFin,
+        hora_fin: nextInicio,
+      };
+    }
+    const fallback = defaultIntermediateStopSchedule(prevEv, nextEv);
+    return {
+      fecha: fallback.fecha || curFecha,
+      hora_inicio: fallback.hora_inicio || null,
+      hora_fin: nextInicio,
+    };
+  }
+
+  const finDisp = resolveHoraFinDisplay(prevEv, nextEv);
 
   if (finDisp.value) {
     return {

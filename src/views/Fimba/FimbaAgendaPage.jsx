@@ -73,8 +73,10 @@ import {
   defaultGapFillEventSchedule,
   formatAgendaOrigenLabel,
   resolveAgendaDestinoLabel,
+  resolveAgendaHoraFinDisplay,
   resolveLegacyDestinoFromDescripcion,
   resolveEventAboardCount,
+  resolveTransportDestinoFromNextStop,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
   TRANSPORT_DESTINO_SIN_LOCACION,
 } from "../../utils/fimbaTransportBoarding";
@@ -1585,7 +1587,9 @@ export default function FimbaAgendaPage() {
   };
 
   const openIntermediateEvent = (ev) => {
-    const nextEv = nextSameDayNeighbor(ev);
+    const nextEv = eventUsesDerivedHoraFin(ev)
+      ? resolveTransportDestinoFromNextStop(ev, sequencesByVehicle).nextEvent
+      : nextSameDayNeighbor(ev);
     const { fecha, hora_inicio, hora_fin } = defaultGapFillEventSchedule(
       ev,
       nextEv,
@@ -1663,6 +1667,7 @@ export default function FimbaAgendaPage() {
       title,
       subTitle,
       flotaById,
+      sequencesByVehicle,
     });
   };
 
@@ -2055,6 +2060,10 @@ export default function FimbaAgendaPage() {
               const destino = resolveAgendaDestinoLabel(ev, sequencesByVehicle, {
                 isTransport: isTx,
               });
+              const horaFinDisp = resolveAgendaHoraFinDisplay(
+                ev,
+                sequencesByVehicle,
+              );
               const vuelo = ev.vuelo || "—";
               const aboard = isTx
                 ? resolveEventAboardCount(ev, sequencesByVehicle, null)
@@ -2100,6 +2109,7 @@ export default function FimbaAgendaPage() {
                     ev={ev}
                     origenLabel={origen}
                     destinoLabel={destino}
+                    horaFinDisplay={horaFinDisp}
                     vueloLabel={vuelo}
                     vehicleLabel={vehLabel}
                     aboardCount={aboard}
@@ -2256,6 +2266,10 @@ export default function FimbaAgendaPage() {
                   const destino = resolveAgendaDestinoLabel(ev, sequencesByVehicle, {
                         isTransport: isTx,
                       });
+                  const horaFinDisp = resolveAgendaHoraFinDisplay(
+                    ev,
+                    sequencesByVehicle,
+                  );
                   const vuelo = ev.vuelo || "—";
                   const rowEditing = isRowEditing(ev.id);
                   const evKey = String(ev.id);
@@ -2399,17 +2413,13 @@ export default function FimbaAgendaPage() {
                         )}
                       </td>
                       <td>
-                        {rowEditing ? (
+                        {rowEditing && !derivedHoraFin ? (
                           <input
                             className="fimba-cell-input"
                             type="time"
                             value={evDraft.hora_fin || ""}
-                            disabled={evSaving || derivedHoraFin}
-                            title={
-                              derivedHoraFin
-                                ? "Hora fin derivada del siguiente evento de transporte (editar en modal / Transportes)"
-                                : "Hora de fin"
-                            }
+                            disabled={evSaving}
+                            title="Hora de fin cargada en este evento"
                             onChange={(e) =>
                               setEventField(ev.id, "hora_fin", e.target.value)
                             }
@@ -2422,7 +2432,24 @@ export default function FimbaAgendaPage() {
                             onDoubleClick={(e) => e.stopPropagation()}
                           />
                         ) : (
-                          sliceTime(ev.hora_fin)
+                          <span
+                            style={
+                              horaFinDisp.isCalculated
+                                ? { fontStyle: "italic" }
+                                : undefined
+                            }
+                            title={
+                              derivedHoraFin
+                                ? horaFinDisp.value
+                                  ? "Hora com del siguiente evento del mismo vehículo (calculada)"
+                                  : "Sin siguiente evento con hora en este vehículo"
+                                : horaFinDisp.value
+                                  ? "Hora de fin cargada en este evento"
+                                  : "Sin hora de fin cargada"
+                            }
+                          >
+                            {horaFinDisp.value || "—"}
+                          </span>
                         )}
                       </td>
                       <td>
