@@ -271,6 +271,7 @@ export default function FimbaComidasPage() {
             giraGrupos={giraGrupos}
             mealFilters={mealFilters}
             onMealFiltersChange={setMealFilters}
+            fimbaMode
           />
         )}
         {comidasTab === "report" && (

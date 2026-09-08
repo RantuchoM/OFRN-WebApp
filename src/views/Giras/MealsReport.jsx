@@ -11,6 +11,7 @@ import {
   IconFiles,
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
+import MealOrchestraOnlyFilterChip from "../../components/logistics/MealOrchestraOnlyFilterChip";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { handlePrintExport } from "../../utils/PrintWrapper";
@@ -33,6 +34,9 @@ import {
   findCoincidingGrupoMealRows,
   deductGrupoMembersFromOrchestraEligible,
   findFimbaArtistMealCoverageGaps,
+  buildMealArtistFilterOptions,
+  mealRowMatchesArtistFilter,
+  MEAL_FILTER_ORCHESTRA_ONLY,
 } from "../../utils/mealLogistics";
 import {
   buildMealsPedidoText,
@@ -656,33 +660,13 @@ export default function MealsReport({
       });
   }, [reportData, tagCatalogs]);
 
-  const artistOptions = useMemo(() => {
-    const map = new Map();
-    let hasNone = false;
-    reportData.forEach((row) => {
-      const props = row.propuestas || [];
-      if (!props.length) {
-        hasNone = true;
-        return;
-      }
-      props.forEach((p) => {
-        if (!p?.id) return;
-        const key = String(p.id);
-        if (map.has(key)) return;
-        map.set(key, {
-          value: key,
-          label: p.nombre || `Artista ${p.id}`,
-        });
-      });
-    });
-    const opts = Array.from(map.values()).sort((a, b) =>
-      a.label.localeCompare(b.label, "es", { sensitivity: "base" }),
-    );
-    if (hasNone) {
-      opts.push({ value: NO_ARTIST_KEY, label: "Sin artistas" });
-    }
-    return opts;
-  }, [reportData]);
+  const artistOptions = useMemo(
+    () => buildMealArtistFilterOptions({ rows: reportData }),
+    [reportData],
+  );
+  const showArtistFilter =
+    fimbaMode ||
+    artistOptions.some((o) => o.value !== MEAL_FILTER_ORCHESTRA_ONLY);
 
   // Descartar selecciones que ya no existan en los datos cargados
   useEffect(() => {
@@ -748,14 +732,8 @@ export default function MealsReport({
         const tags = r.convocados?.length ? r.convocados.map(String) : ["__empty__"];
         if (!tags.some((t) => convSet.has(t))) return false;
       }
-      if (artistSet) {
-        const ids = (r.propuestas || [])
-          .map((p) => (p?.id != null ? String(p.id) : null))
-          .filter(Boolean);
-        const matches =
-          (ids.length === 0 && artistSet.has(NO_ARTIST_KEY)) ||
-          ids.some((id) => artistSet.has(id));
-        if (!matches) return false;
+      if (artistSet && !mealRowMatchesArtistFilter(r, artistSet)) {
+        return false;
       }
       return true;
     });
@@ -946,7 +924,10 @@ export default function MealsReport({
     try {
       const onlyIds =
         selectedArtistaIds.length > 0
-          ? selectedArtistaIds.filter((id) => id !== NO_ARTIST_KEY)
+          ? selectedArtistaIds.filter(
+              (id) =>
+                id !== NO_ARTIST_KEY && id !== MEAL_FILTER_ORCHESTRA_ONLY,
+            )
           : null;
       await exportMealsReportByArtista({
         reportRows: reportRowsForArtistBatch,
@@ -1085,6 +1066,13 @@ export default function MealsReport({
             )}
           </div>
 
+          {showArtistFilter && (
+            <MealOrchestraOnlyFilterChip
+              value={selectedArtistaIds}
+              onChange={setSelectedArtistaIds}
+            />
+          )}
+
           <div
             className={`inline-flex items-stretch rounded-lg border overflow-visible h-[34px] shadow-sm bg-white shrink-0 ${filterClusterBorder}`}
             title="Filtros de lugar, convocados y artistas"
@@ -1128,7 +1116,7 @@ export default function MealsReport({
                 className="w-full [&_button]:w-full [&_button]:h-[32px] [&_button]:border-0 [&_button]:rounded-none [&_button]:bg-transparent [&_button]:shadow-none [&_button]:hover:border-transparent [&_button]:px-2"
               />
             </div>
-            {artistOptions.length > 0 && (
+            {showArtistFilter && (
               <div className="w-[7.5rem] sm:w-[8.75rem] border-l border-slate-200">
                 <MultiSelectDropdown
                   compact

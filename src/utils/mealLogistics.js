@@ -3,6 +3,7 @@ import {
   isNobodyConvocados,
   personMatchesLocConvocadoTag,
   resolvePersonGrupoIds,
+  ROSTER_CATEGORIES,
 } from "./giraUtils";
 import { isLocalAtMealSlot } from "./giraTramos";
 import { stripHtml } from "./eventDisplayUtils";
@@ -319,9 +320,120 @@ export function passesMealKindFilter(evt, kindFilter = "all") {
   return true;
 }
 
-/** Keys especiales en filtros multi de LocaciÃ³n / Artista. */
+/** Keys especiales en filtros multi de Locación / Artista. */
 export const MEAL_FILTER_NO_LOC = "__none__";
 export const MEAL_FILTER_NO_ARTIST = "__none__";
+/** Comidas sin tags FIMBA y con audiencia OFRN (orquesta come; no «Nadie»). */
+export const MEAL_FILTER_ORCHESTRA_ONLY = "__orchestra__";
+export const MEAL_FILTER_ORCHESTRA_ONLY_LABEL = "Solo orquesta";
+
+const EXCLUSIVE_MEAL_CONV_TAGS = new Set([
+  ROSTER_CATEGORIES.NONE,
+  ROSTER_CATEGORIES.TUTTI,
+]);
+
+export function isExclusiveMealConvocadoTag(id) {
+  return EXCLUSIVE_MEAL_CONV_TAGS.has(String(id || ""));
+}
+
+/**
+ * Toggle de un tag en la columna Convocados.
+ * Destildar siempre está permitido (incluye Tutti / Nadie) y la selección puede
+ * quedar vacía: no hay mínimo de un chip. Encender Tutti o Nadie sigue siendo
+ * exclusivo (reemplaza el resto) porque son sentinels contradictorios.
+ */
+export function toggleMealConvocadosSelection(current = [], id) {
+  const tag = String(id || "");
+  if (!tag) return [...(current || [])].map(String);
+  const selected = (current || []).map(String);
+  if (selected.includes(tag)) {
+    return selected.filter((x) => x !== tag);
+  }
+  if (isExclusiveMealConvocadoTag(tag)) return [tag];
+  const withoutExclusive = selected.filter(
+    (x) => !isExclusiveMealConvocadoTag(x),
+  );
+  if (withoutExclusive.includes(tag)) return withoutExclusive;
+  return [...withoutExclusive, tag];
+}
+
+/** ¿La fila tiene al menos un tag de artista FIMBA? */
+export function mealRowHasArtistTags(row) {
+  return (row?.propuestas || []).some((p) => p?.id != null);
+}
+
+/**
+ * Comida «solo orquesta»: sin artistas FIMBA y con audiencia OFRN
+ * (convocados y/o grupos; no `GRP:NONE` ni ambos ejes vacíos).
+ */
+export function mealRowIsSoloOrquesta(row) {
+  if (!row || row.isTemp) return false;
+  if (mealRowHasArtistTags(row)) return false;
+  return mealRowHasOfrnAudience(row);
+}
+
+/**
+ * ¿La fila pasa el multi-select de Artista (ids + Solo orquesta / Sin artistas)?
+ * Vacío = no filtra.
+ */
+export function mealRowMatchesArtistFilter(row, artistIds) {
+  const list = artistIds || [];
+  if (list.length === 0) return true;
+  const artistSet =
+    list instanceof Set ? list : new Set([...list].map(String));
+  if (
+    artistSet.has(MEAL_FILTER_ORCHESTRA_ONLY) &&
+    mealRowIsSoloOrquesta(row)
+  ) {
+    return true;
+  }
+  const ids = (row?.propuestas || [])
+    .map((p) => (p?.id != null ? String(p.id) : null))
+    .filter(Boolean);
+  if (ids.length === 0 && artistSet.has(MEAL_FILTER_NO_ARTIST)) return true;
+  return ids.some((id) => artistSet.has(id));
+}
+
+/** Opciones del filtro Artista: «Solo orquesta» siempre primero + tags presentes. */
+export function buildMealArtistFilterOptions({
+  propuestas = [],
+  rows = [],
+} = {}) {
+  const map = new Map();
+  const seedFrom = (list) => {
+    for (const p of list || []) {
+      if (p?.id == null) continue;
+      const key = String(p.id);
+      if (map.has(key)) continue;
+      map.set(key, {
+        value: key,
+        label: p.nombre || `Artista ${p.id}`,
+      });
+    }
+  };
+  seedFrom(propuestas);
+  for (const r of rows || []) {
+    if (r?.isTemp) continue;
+    seedFrom(r.propuestas);
+  }
+  const opts = Array.from(map.values()).sort((a, b) =>
+    a.label.localeCompare(b.label, "es", { sensitivity: "base" }),
+  );
+  opts.unshift({
+    value: MEAL_FILTER_ORCHESTRA_ONLY,
+    label: MEAL_FILTER_ORCHESTRA_ONLY_LABEL,
+  });
+  return opts;
+}
+
+/** Enciende/apaga el filtro Solo orquesta. Al encender, queda exclusivo. */
+export function toggleMealOrchestraOnlyFilter(artistaIds = []) {
+  const current = (artistaIds || []).map(String);
+  if (current.includes(MEAL_FILTER_ORCHESTRA_ONLY)) {
+    return current.filter((id) => id !== MEAL_FILTER_ORCHESTRA_ONLY);
+  }
+  return [MEAL_FILTER_ORCHESTRA_ONLY];
+}
 
 /** Default servicios visibles en gestor/asistencia/reporte (Desayuno off). */
 export const DEFAULT_MEAL_SERVICE_FILTER = [
@@ -440,15 +552,8 @@ export function filterMealManagerRows(rows, filters = {}) {
       if (!locSet.has(locKey)) return false;
     }
 
-    if (artistSet) {
-      const props = r.propuestas || [];
-      const ids = props
-        .map((p) => (p?.id != null ? String(p.id) : null))
-        .filter(Boolean);
-      const matches =
-        (ids.length === 0 && artistSet.has(MEAL_FILTER_NO_ARTIST)) ||
-        ids.some((id) => artistSet.has(id));
-      if (!matches) return false;
+    if (artistSet && !mealRowMatchesArtistFilter(r, artistSet)) {
+      return false;
     }
 
     return true;
