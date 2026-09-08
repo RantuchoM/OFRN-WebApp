@@ -177,6 +177,7 @@ function StopCell({
       plazas: n,
       asientos_equipaje: Math.max(0, Number(ruta.asientos_equipaje) || 0),
       observaciones_equipaje: ruta.observaciones_equipaje ?? null,
+      rutaId: ruta.id,
     });
   };
 
@@ -192,6 +193,7 @@ function StopCell({
         patch.observaciones_equipaje !== undefined
           ? patch.observaciones_equipaje
           : ruta.observaciones_equipaje ?? null,
+      rutaId: ruta.id,
     });
   };
 
@@ -515,10 +517,9 @@ export default function FimbaEventoArtistasBoardingTable({
   const persistStop = async (propId, type, payload) => {
     const key = syncKey(propId, type);
     const p = (propuestas || []).find((x) => String(x.id) === String(propId));
-    if (type === "up" && p) {
-      const existing = rutaFor(propId, "up");
+    if (type === "up" && p && !payload.rutaId) {
       const usage = computeArtistaTransporteUsage(p, allRutas, {
-        excludeRutaIds: existing?.id ? [existing.id] : [],
+        excludeRutaIds: [],
         eventId: event?.id,
         sortedEvents,
       });
@@ -541,31 +542,15 @@ export default function FimbaEventoArtistasBoardingTable({
       plazas: payload.plazas,
       type,
       id_evento: event.id,
-      replaceConflict: Boolean(payload.create) ? false : true,
+      allowMultiple: true,
+      rutaId: payload.rutaId || null,
       asientos_equipaje: payload.asientos_equipaje,
       observaciones_equipaje: payload.observaciones_equipaje,
       skipCapAssert: true,
       propuesta: p || null,
       sortedEvents,
     };
-    let res = await upsertFimbaPropuestaRutaStop(upsertPayload);
-    if (res.conflict) {
-      const ok = await confirm({
-        title: "Conflicto de parada",
-        message: `${res.error?.message || "Conflicto"}.\n\n¿Reemplazar la parada anterior?`,
-        confirmText: "Reemplazar",
-        destructive: true,
-        overlayClassName: "z-[110]",
-      });
-      if (!ok) {
-        setCellSync((s) => ({ ...s, [key]: "idle" }));
-        return;
-      }
-      res = await upsertFimbaPropuestaRutaStop({
-        ...upsertPayload,
-        replaceConflict: true,
-      });
-    }
+    const res = await upsertFimbaPropuestaRutaStop(upsertPayload);
     if (res.error) {
       setError(res.error.message || "No se pudo guardar la regla");
       setCellSync((s) => ({ ...s, [key]: "error" }));

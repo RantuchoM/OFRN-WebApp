@@ -61,6 +61,7 @@ import {
   MEAL_FILTER_NO_ARTIST,
   DEFAULT_MEAL_SERVICE_FILTER,
   findFimbaArtistMealCoverageGaps,
+  filterFimbaPropuestasForMeals,
 } from "../../utils/mealLogistics";
 import { createCoverageGapsWithToast } from "../../utils/fimbaMealCoverageCreate";
 import MealTypesEditorModal from "../../components/logistics/MealTypesEditorModal";
@@ -2582,7 +2583,7 @@ export default function MealsManager({
     const map = new Map();
     let hasNone = false;
     const seedFrom = (list) => {
-      for (const p of list || []) {
+      for (const p of filterFimbaPropuestasForMeals(list)) {
         if (!p?.id) continue;
         const key = String(p.id);
         if (map.has(key)) continue;
@@ -2595,12 +2596,12 @@ export default function MealsManager({
     seedFrom(propuestas);
     for (const r of grid) {
       if (r.isTemp) continue;
-      const props = r.propuestas || [];
-      if (!props.length) {
+      const mealProps = filterFimbaPropuestasForMeals(r.propuestas || []);
+      if (!mealProps.length) {
         hasNone = true;
         continue;
       }
-      seedFrom(props);
+      seedFrom(mealProps);
     }
     const opts = Array.from(map.values()).sort((a, b) =>
       a.label.localeCompare(b.label, "es", { sensitivity: "base" }),
@@ -3478,6 +3479,7 @@ export default function MealsManager({
                             propuestas={propuestas}
                             giraGrupos={giraGrupos}
                             edicion={edicion}
+                            mealsOnly
                             onSaved={async (eventoId, tags) => {
                               const idGrupos = (tags?.id_grupos || [])
                                 .map(Number)
@@ -3580,9 +3582,12 @@ export default function MealsManager({
                               onFimbaTagsSaved?.(eventoId);
                             }}
                           />
-                        ) : (row.propuestas || []).length > 0 ? (
+                        ) : filterFimbaPropuestasForMeals(row.propuestas || [])
+                            .length > 0 ? (
                           <div className="flex flex-wrap gap-1">
-                            {(row.propuestas || []).map((p) => (
+                            {filterFimbaPropuestasForMeals(
+                              row.propuestas || [],
+                            ).map((p) => (
                               <span
                                 key={p.id}
                                 className="text-[10px] font-bold px-1.5 py-0.5 rounded border truncate max-w-[9rem]"
@@ -3700,7 +3705,9 @@ export default function MealsManager({
               const hasTurnoOver = rowHasTurnoOverInclusion(row);
               const isDirty = row.dirty;
               const tone = getMealServiceStyle(row.servicio);
-              const artistNames = (row.propuestas || [])
+              const artistNames = filterFimbaPropuestasForMeals(
+                row.propuestas || [],
+              )
                 .map((p) => p.nombre)
                 .filter(Boolean)
                 .join(", ");

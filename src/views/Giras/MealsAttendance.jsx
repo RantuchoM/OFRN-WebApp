@@ -33,6 +33,7 @@ import {
   mealRowHasOfrnAudience,
   isOrchestraMealRow,
   findCoincidingGrupoMealRows,
+  filterFimbaPropuestasForMeals,
   buildMealAttendanceTurnColumns,
   resolveAttendanceEventForPerson,
   mergeAttendanceStatuses,
@@ -205,7 +206,7 @@ export default function MealsAttendance({
       const { data: evts } = await supabase
         .from("eventos")
         .select(
-          `*, tipos_evento (nombre, id_categoria), locaciones (id, nombre), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), eventos_fimba_propuestas ( id_propuesta, fimba_propuestas ( id, nombre ) )`,
+          `*, tipos_evento (nombre, id_categoria), locaciones (id, nombre), eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), eventos_fimba_propuestas ( id_propuesta, fimba_propuestas ( id, nombre, requiere_comidas ) )`,
         )
         .eq("id_gira", gira.id)
         .eq("is_deleted", false)
@@ -297,7 +298,7 @@ export default function MealsAttendance({
     const map = new Map();
     let hasNone = false;
     for (const evt of events) {
-      const props = evt.propuestas || [];
+      const props = filterFimbaPropuestasForMeals(evt.propuestas || []);
       if (!props.length) {
         hasNone = true;
         continue;

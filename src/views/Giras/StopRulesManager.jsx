@@ -169,6 +169,11 @@ export default function StopRulesManager({
   onRefresh,
   /** Sin shell modal/overlay: contenido al nivel del padre (ej. pestaña FIMBA Orquesta OFRN). */
   embedded = false,
+  /**
+   * FIMBA / multi-chip: varias ↑/↓ del mismo alcance (Categoría, Grupo, etc.)
+   * sin diálogo «Reemplazar». OFRN Trayectos standalone deja el default false.
+   */
+  allowMultipleAssignments = false,
   /** Secuencia del vehículo (para «a bordo» / Bajar todo). */
   sortedEvents = [],
   /** Grupos de convocatoria `giras_grupos` (si no se pasan, se cargan por giraId). */
@@ -545,14 +550,15 @@ export default function StopRulesManager({
       let workingAdmissionRules = [...(transportAdmissionRules || [])];
 
       for (const currentId of selectedIds) {
-        // 1) Ya apunta a este evento → noop
+        // 1) Ya apunta a este evento
         const alreadyHere = (existingAll || []).find(
           (r) =>
             sameTarget(r, currentId) &&
             r[fieldToUpdate] != null &&
             String(r[fieldToUpdate]) === String(event.id),
         );
-        if (alreadyHere) continue;
+        // OFRN clásico: noop. FIMBA multi: seguir e INSERT otra fila del mismo alcance.
+        if (alreadyHere && !allowMultipleAssignments) continue;
 
         // Grupo: incluir miembros en admisión del bus (también al cerrar ride abierto)
         if (newScope === "Grupo" && currentId) {
@@ -616,11 +622,16 @@ export default function StopRulesManager({
         // 2) Ride abierto / huérfano: mismo alcance+objetivo, este extremo vacío
         //    → UPDATE (cierra el ride). Evita insertar bajada-only que a veces
         //    no se reflejaba bien tras refresh desde el embed FIMBA.
-        const openRide = (existingAll || []).find(
-          (r) =>
-            sameTarget(r, currentId) &&
-            (r[fieldToUpdate] == null || r[fieldToUpdate] === ""),
-        );
+        //    Multi + ya hay ↑ en esta parada: no reutilizar huérfano (INSERT).
+        //    Multi + ya hay ↓: sí se puede cerrar otro ride abierto del mismo alcance.
+        const openRide =
+          allowMultipleAssignments && alreadyHere && type === "up"
+            ? null
+            : (existingAll || []).find(
+                (r) =>
+                  sameTarget(r, currentId) &&
+                  (r[fieldToUpdate] == null || r[fieldToUpdate] === ""),
+              );
         if (openRide) {
           const openPatch = { [fieldToUpdate]: event.id };
           if (
@@ -642,13 +653,16 @@ export default function StopRulesManager({
         }
 
         // 3) Conflicto: mismo alcance ya tiene este extremo en otro evento
-        const conflict = (existingAll || []).find((r) => {
-          if (!sameTarget(r, currentId)) return false;
-          const currentEventId = r[fieldToUpdate];
-          if (!currentEventId) return false;
-          if (String(currentEventId) === String(event.id)) return false;
-          return true;
-        });
+        const conflict =
+          allowMultipleAssignments
+            ? null
+            : (existingAll || []).find((r) => {
+                if (!sameTarget(r, currentId)) return false;
+                const currentEventId = r[fieldToUpdate];
+                if (!currentEventId) return false;
+                if (String(currentEventId) === String(event.id)) return false;
+                return true;
+              });
 
         if (conflict) {
           const actionLabel = type === "up" ? "subida" : "bajada";

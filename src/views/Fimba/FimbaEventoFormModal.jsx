@@ -424,6 +424,7 @@ function FimbaEventoOfrnBoardingSection({
           <StopRulesManager
             isOpen
             embedded
+            allowMultipleAssignments
             onClose={() => setOfrnBoardPanel(null)}
             event={evento}
             type={ofrnBoardPanel}

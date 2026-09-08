@@ -259,31 +259,17 @@ export default function FimbaStopRulesManager({
     [aboardFimba],
   );
 
-  /** Si ya hay definición en esta parada+vehículo del artista, se edita esa fila. */
-  const existingRutaForSelection = useMemo(() => {
-    if (!propuestaId || !vehicleId) return null;
-    return (
-      (rutas || []).find(
-        (r) =>
-          String(r.id_propuesta) === String(propuestaId) &&
-          String(r.id_gira_transporte) === String(vehicleId),
-      ) || null
-    );
-  }, [rutas, propuestaId, vehicleId]);
-
   const usageForSelection = useMemo(() => {
     if (!propuestaId) return null;
     const p = (propuestas || []).find((x) => String(x.id) === String(propuestaId));
     if (!p) return null;
-    const excludeRutaIds = existingRutaForSelection?.id
-      ? [existingRutaForSelection.id]
-      : [];
+    // Alta aditiva: no excluir filas existentes (cada ↑ suma al tope).
     return computeArtistaTransporteUsage(p, allRutas, {
-      excludeRutaIds,
+      excludeRutaIds: [],
       eventId: event?.id,
       sortedEvents,
     });
-  }, [propuestaId, propuestas, allRutas, existingRutaForSelection, event?.id, sortedEvents]);
+  }, [propuestaId, propuestas, allRutas, event?.id, sortedEvents]);
 
   const explicitPlazasAtStop = useMemo(
     () =>
@@ -304,54 +290,29 @@ export default function FimbaStopRulesManager({
       const opt = bajadaByPropuesta.get(String(pid));
       const aboard = Math.max(0, Number(opt?.plazasAboard) || 0);
       if (aboard > 0) return aboard;
-      const existing =
-        (rutas || []).find(
-          (r) =>
-            String(r.id_propuesta) === String(pid) &&
-            String(r.id_gira_transporte) === String(vehicleId),
-        ) || null;
-      return Math.max(1, Number(existing?.plazas) || 1);
+      return 1;
     }
     const p = (propuestas || []).find((x) => String(x.id) === String(pid));
     if (!p) return 1;
-    const existing =
-      (rutas || []).find(
-        (r) =>
-          String(r.id_propuesta) === String(pid) &&
-          String(r.id_gira_transporte) === String(vehicleId),
-      ) || null;
     const usage = computeArtistaTransporteUsage(p, allRutas, {
-      excludeRutaIds: existing?.id ? [existing.id] : [],
+      excludeRutaIds: [],
       eventId: event?.id,
       sortedEvents,
     });
-    const n = defaultArtistaAssignPlazas({
+    return defaultArtistaAssignPlazas({
       remaining: usage.remaining,
       vehicleLibres,
     });
-    if (n <= 0 && existing && Number(existing.plazas) > 0) {
-      return Math.max(0, Number(existing.plazas) || 0);
-    }
-    return n;
   };
 
   const handlePropuestaChange = (id) => {
     setPropuestaId(id);
     if (id) {
       setPlazas(String(defaultPlazasForPropuesta(id)));
-      const existing =
-        (rutas || []).find(
-          (r) =>
-            String(r.id_propuesta) === String(id) &&
-            String(r.id_gira_transporte) === String(vehicleId),
-        ) || null;
-      setAsientosEquipaje(
-        existing?.asientos_equipaje != null
-          ? String(existing.asientos_equipaje)
-          : "",
-      );
-      setObsEquipaje(existing?.observaciones_equipaje || "");
-      setEsChofer(Boolean(existing?.es_chofer));
+      // Alta aditiva: form limpio (no editar la fila previa del mismo artista).
+      setAsientosEquipaje("");
+      setObsEquipaje("");
+      setEsChofer(false);
     } else {
       setPlazas("");
       setAsientosEquipaje("");
@@ -404,7 +365,7 @@ export default function FimbaStopRulesManager({
       plazas: n,
       type,
       id_evento: event.id,
-      replaceConflict: true,
+      rutaId: ruta.id,
       asientos_equipaje: Math.max(0, Number(ruta.asientos_equipaje) || 0),
       observaciones_equipaje: ruta.observaciones_equipaje ?? null,
       es_chofer: Boolean(ruta.es_chofer),
@@ -429,7 +390,7 @@ export default function FimbaStopRulesManager({
       plazas: Math.max(0, Number(ruta.plazas) || 0),
       type,
       id_evento: event.id,
-      replaceConflict: true,
+      rutaId: ruta.id,
       asientos_equipaje:
         patch.asientos_equipaje != null
           ? Math.max(0, Number(patch.asientos_equipaje) || 0)
@@ -463,7 +424,7 @@ export default function FimbaStopRulesManager({
       plazas: Math.max(0, Number(ruta.plazas) || 0),
       type: "up",
       id_evento: event.id,
-      replaceConflict: true,
+      rutaId: ruta.id,
       asientos_equipaje: Math.max(0, Number(ruta.asientos_equipaje) || 0),
       observaciones_equipaje: ruta.observaciones_equipaje ?? null,
       es_chofer: next,
@@ -495,7 +456,7 @@ export default function FimbaStopRulesManager({
     }
     if (isBajada) {
       const opt = bajadaByPropuesta.get(String(propuestaId));
-      if (!opt?.aboard && !existingRutaForSelection) {
+      if (!opt?.aboard) {
         setError(
           opt?.reason
             ? `No se puede bajar: ${opt.reason}.`
@@ -520,42 +481,17 @@ export default function FimbaStopRulesManager({
     setSaving(true);
     setError(null);
     const luggage = luggagePayloadFromForm();
-    let res = await upsertFimbaPropuestaRutaStop({
+    const res = await upsertFimbaPropuestaRutaStop({
       id_propuesta: propuestaId,
       id_gira_transporte: vehicleId,
       plazas: n,
       type,
       id_evento: event.id,
-      replaceConflict: false,
+      allowMultiple: true,
       sortedEvents,
       es_chofer: !isBajada ? Boolean(esChofer) : undefined,
       ...luggage,
     });
-    if (res.conflict) {
-      const ok = await confirm({
-        title: "Conflicto de parada",
-        message: `${res.error?.message || "Conflicto"}.\n\n¿Reemplazar la parada anterior?`,
-        confirmText: "Reemplazar",
-        destructive: true,
-        overlayClassName: "z-[110]",
-      });
-      if (ok) {
-        res = await upsertFimbaPropuestaRutaStop({
-          id_propuesta: propuestaId,
-          id_gira_transporte: vehicleId,
-          plazas: n,
-          type,
-          id_evento: event.id,
-          replaceConflict: true,
-          sortedEvents,
-          es_chofer: !isBajada ? Boolean(esChofer) : undefined,
-          ...luggage,
-        });
-      } else {
-        setSaving(false);
-        return;
-      }
-    }
     setSaving(false);
     if (res.error) {
       setError(res.error.message || "No se pudo guardar");
@@ -612,7 +548,7 @@ export default function FimbaStopRulesManager({
         plazas: n,
         type: "down",
         id_evento: event.id,
-        replaceConflict: true,
+        allowMultiple: true,
         sortedEvents,
         es_chofer: Boolean(row.es_chofer || row.ruta?.es_chofer),
         asientos_equipaje: Math.max(
@@ -1344,11 +1280,9 @@ export default function FimbaStopRulesManager({
                       !vehicleId ||
                       (isBajada
                         ? Boolean(propuestaId) &&
-                          !bajadaByPropuesta.get(String(propuestaId))?.aboard &&
-                          !existingRutaForSelection
+                          !bajadaByPropuesta.get(String(propuestaId))?.aboard
                         : usageForSelection != null &&
-                          usageForSelection.remaining <= 0 &&
-                          !existingRutaForSelection)
+                          usageForSelection.remaining <= 0)
                     }
                     className={`w-full py-2 rounded text-xs font-bold text-white shadow-sm flex justify-center items-center gap-2 disabled:opacity-60 ${
                       type === "up"
@@ -1361,9 +1295,7 @@ export default function FimbaStopRulesManager({
                     ) : (
                       <IconPlus size={14} />
                     )}{" "}
-                    {existingRutaForSelection
-                      ? "Actualizar regla"
-                      : "Agregar regla"}
+                    Agregar regla
                   </button>
                 </div>
               </>
@@ -1414,6 +1346,7 @@ export default function FimbaStopRulesManager({
                   <StopRulesManager
                     isOpen
                     embedded
+                    allowMultipleAssignments
                     onClose={onClose}
                     event={event}
                     type={type}

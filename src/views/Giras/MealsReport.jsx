@@ -33,6 +33,7 @@ import {
   findCoincidingGrupoMealRows,
   deductGrupoMembersFromOrchestraEligible,
   findFimbaArtistMealCoverageGaps,
+  filterFimbaPropuestasForMeals,
 } from "../../utils/mealLogistics";
 import {
   buildMealsPedidoText,
@@ -660,7 +661,7 @@ export default function MealsReport({
     const map = new Map();
     let hasNone = false;
     reportData.forEach((row) => {
-      const props = row.propuestas || [];
+      const props = filterFimbaPropuestasForMeals(row.propuestas || []);
       if (!props.length) {
         hasNone = true;
         return;
@@ -749,7 +750,7 @@ export default function MealsReport({
         if (!tags.some((t) => convSet.has(t))) return false;
       }
       if (artistSet) {
-        const ids = (r.propuestas || [])
+        const ids = filterFimbaPropuestasForMeals(r.propuestas || [])
           .map((p) => (p?.id != null ? String(p.id) : null))
           .filter(Boolean);
         const matches =
@@ -765,7 +766,7 @@ export default function MealsReport({
     if (!fimbaMode || !artistSet) return rows;
 
     return rows.map((row) => {
-      const scopedProps = (row.propuestas || []).filter(
+      const scopedProps = filterFimbaPropuestasForMeals(row.propuestas || []).filter(
         (p) => p?.id != null && artistSet.has(String(p.id)),
       );
       const ofrn = row.ofrnCounts || { Total: 0 };

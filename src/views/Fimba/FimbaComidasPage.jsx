@@ -15,7 +15,7 @@ import {
 } from "../../services/fimbaService";
 import { useLogistics } from "../../hooks/useLogistics";
 import { useFimbaAccess } from "../../hooks/useFimbaAccess";
-import { createDefaultMealFilters } from "../../utils/mealLogistics";
+import { createDefaultMealFilters, filterFimbaPropuestasForMeals } from "../../utils/mealLogistics";
 import MealsManager from "../Giras/MealsManager";
 import MealsAttendance from "../Giras/MealsAttendance";
 import MealsReport from "../Giras/MealsReport";
@@ -118,6 +118,12 @@ export default function FimbaComidasPage() {
   const roster = useMemo(
     () => (summary || []).filter((p) => p?.estado_gira !== "ausente"),
     [summary],
+  );
+
+  /** Sin comida (`requiere_comidas === false`) no aparecen en Gestor/picker. */
+  const propuestasComidas = useMemo(
+    () => filterFimbaPropuestasForMeals(propuestas),
+    [propuestas],
   );
 
   if (booting || (gira?.id && logisticsLoading && !summary?.length)) {
@@ -255,7 +261,7 @@ export default function FimbaComidasPage() {
             roster={roster}
             giraGrupos={giraGrupos}
             fimbaMode
-            propuestas={propuestas}
+            propuestas={propuestasComidas}
             edicion={edicion}
             readOnly={readOnly}
             mealFilters={mealFilters}

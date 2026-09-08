@@ -21,6 +21,7 @@ import FimbaEventArtistasTagsPicker from "./FimbaEventArtistasTagsPicker";
  * @param {object|null} [props.edicion]
  * @param {(eventoId: number|string, tags?: object) => void|Promise} [props.onSaved]
  * @param {boolean} [props.showOfrnChips] — Transportes: mostrar Tutti/grupos (no hay col. OFRN).
+ * @param {boolean} [props.mealsOnly] — Comidas: oculta artistas con `requiere_comidas === false`.
  */
 export default function FimbaEventArtistasTagsCell({
   ev,
@@ -30,10 +31,15 @@ export default function FimbaEventArtistasTagsCell({
   edicion = null,
   onSaved = null,
   showOfrnChips = false,
+  mealsOnly = false,
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const taggedPropuestas = sortFimbaPropuestasByNombre(ev?.propuestas || []);
+  const taggedPropuestas = sortFimbaPropuestasByNombre(
+    mealsOnly
+      ? (ev?.propuestas || []).filter((p) => p?.requiere_comidas !== false)
+      : ev?.propuestas || [],
+  );
   const grupos = Array.isArray(ev?.grupos) ? ev.grupos : [];
   const ao = ev?.audiencia_ofrn;
   const orquestaLabel = ev?.orquesta_label || null;
@@ -174,6 +180,7 @@ export default function FimbaEventArtistasTagsCell({
           propuestas={propuestas}
           giraGrupos={giraGrupos}
           edicion={edicion}
+          mealsOnly={mealsOnly}
           onClose={() => setPickerOpen(false)}
           onSaved={onSaved}
         />

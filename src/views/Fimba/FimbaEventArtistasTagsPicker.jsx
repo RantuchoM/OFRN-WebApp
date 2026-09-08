@@ -56,6 +56,9 @@ function eventLabel(ev) {
  *
  * Con `draftMode` no escribe en DB: `onApply({ id_propuestas, id_grupos, audiencia_ofrn })`.
  * Útil al crear eventos (p.ej. recorrido intermedio) antes de tener `evento.id`.
+ *
+ * `mealsOnly`: catálogo sin artistas `requiere_comidas === false` (Comidas);
+ * al guardar conserva esos tags si ya estaban en el evento (Agenda/Transport).
  */
 export default function FimbaEventArtistasTagsPicker({
   open,
@@ -64,6 +67,7 @@ export default function FimbaEventArtistasTagsPicker({
   giraGrupos: giraGruposProp = [],
   edicion = null,
   draftMode = false,
+  mealsOnly = false,
   onClose,
   onSaved,
   onApply,
@@ -80,6 +84,8 @@ export default function FimbaEventArtistasTagsPicker({
 
   useEffect(() => {
     if (!open || !evento) return;
+    // Conservar tags existentes (incl. sin comida) para no borrarlos al guardar
+    // desde Comidas; el catálogo `mealsOnly` solo oculta sugerencias nuevas.
     setSelectedProps(
       (evento.propuestas || []).map((p) => String(p.id ?? p)).filter(Boolean),
     );
@@ -96,7 +102,13 @@ export default function FimbaEventArtistasTagsPicker({
     const load = async () => {
       const haveProps = (propuestasProp || []).length > 0;
       const haveGrupos = (giraGruposProp || []).length > 0;
-      if (haveProps) setPropuestas(propuestasProp);
+      if (haveProps) {
+        setPropuestas(
+          mealsOnly
+            ? (propuestasProp || []).filter((p) => p?.requiere_comidas !== false)
+            : propuestasProp,
+        );
+      }
       if (haveGrupos) setGiraGrupos(giraGruposProp);
       if (haveProps && haveGrupos) return;
 
@@ -111,7 +123,12 @@ export default function FimbaEventArtistasTagsPicker({
           tasks.push(
             listFimbaPropuestas(edicionId).then((res) => {
               if (!cancelled && !res.error) {
-                setPropuestas(res.propuestas || []);
+                const list = res.propuestas || [];
+                setPropuestas(
+                  mealsOnly
+                    ? list.filter((p) => p?.requiere_comidas !== false)
+                    : list,
+                );
               }
             }),
           );
@@ -135,7 +152,7 @@ export default function FimbaEventArtistasTagsPicker({
     return () => {
       cancelled = true;
     };
-  }, [open, propuestasProp, giraGruposProp, edicion, evento]);
+  }, [open, propuestasProp, giraGruposProp, edicion, evento, mealsOnly]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -199,7 +216,15 @@ export default function FimbaEventArtistasTagsPicker({
       setError("Seleccioná uno o más grupos OFRN de la gira");
       return;
     }
-    const propIds = selectedProps.map(Number).filter(Number.isFinite);
+    let propIds = selectedProps.map(Number).filter(Number.isFinite);
+    // Comidas: no quitar tags de artistas sin comida (siguen en Agenda/Transport).
+    if (mealsOnly) {
+      const keepNoMeal = (evento?.propuestas || [])
+        .filter((p) => p?.requiere_comidas === false && p?.id != null)
+        .map((p) => Number(p.id))
+        .filter(Number.isFinite);
+      propIds = [...new Set([...propIds, ...keepNoMeal])];
+    }
     const tagsPayload = {
       id_propuestas: propIds,
       id_grupos: idGrupos,
@@ -347,9 +372,22 @@ export default function FimbaEventArtistasTagsPicker({
                     type="button"
                     className="fimba-btn fimba-btn-ghost"
                     disabled={saving}
-                    onClick={() =>
-                      setSelectedProps(sortedPropuestas.map((p) => String(p.id)))
-                    }
+                    onClick={() => {
+                      const mealIds = sortedPropuestas.map((p) => String(p.id));
+                      if (!mealsOnly) {
+                        setSelectedProps(mealIds);
+                        return;
+                      }
+                      const keepNoMeal = (evento?.propuestas || [])
+                        .filter(
+                          (p) =>
+                            p?.requiere_comidas === false && p?.id != null,
+                        )
+                        .map((p) => String(p.id));
+                      setSelectedProps([
+                        ...new Set([...mealIds, ...keepNoMeal]),
+                      ]);
+                    }}
                     style={{
                       padding: 0,
                       fontSize: "0.7rem",
@@ -363,7 +401,20 @@ export default function FimbaEventArtistasTagsPicker({
                     type="button"
                     className="fimba-btn fimba-btn-ghost"
                     disabled={saving || selectedProps.length === 0}
-                    onClick={() => setSelectedProps([])}
+                    onClick={() => {
+                      if (!mealsOnly) {
+                        setSelectedProps([]);
+                        return;
+                      }
+                      setSelectedProps(
+                        (evento?.propuestas || [])
+                          .filter(
+                            (p) =>
+                              p?.requiere_comidas === false && p?.id != null,
+                          )
+                          .map((p) => String(p.id)),
+                      );
+                    }}
                     style={{
                       padding: 0,
                       fontSize: "0.7rem",

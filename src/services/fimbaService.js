@@ -5071,6 +5071,7 @@ export async function loadFimbaTransportLogisticsSummary(giraId) {
  *   type: 'up'|'down',
  *   ensureAdmission?: boolean,
  *   giraGrupos?: Array<object>,
+ *   allowMultiple?: boolean,
  * }} payload
  * @returns {Promise<{ data: object|null, error: Error|null }>}
  */
@@ -5082,6 +5083,7 @@ export async function upsertOfrnGrupoRutaStop(payload) {
   const type = payload?.type === "down" ? "down" : "up";
   const field = type === "up" ? "id_evento_subida" : "id_evento_bajada";
   const grupoKey = String(idGrupo);
+  const allowMultiple = Boolean(payload?.allowMultiple);
 
   if (
     !Number.isFinite(idGira) ||
@@ -5112,16 +5114,20 @@ export async function upsertOfrnGrupoRutaStop(payload) {
       r[field] != null &&
       String(r[field]) === String(idEvento),
   );
-  if (alreadyHere) {
+  // Sin multi: noop si ya hay ↓/↑ del grupo en esta parada.
+  if (alreadyHere && !allowMultiple) {
     return { data: alreadyHere, error: null };
   }
 
   const openRide = (existingAll || []).find(
-    (r) => sameGrupo(r) && (r[field] == null || r[field] === ""),
+    (r) =>
+      sameGrupo(r) &&
+      (r[field] == null || r[field] === "") &&
+      !(allowMultiple && alreadyHere && Number(r.id) === Number(alreadyHere.id)),
   );
 
   let row = null;
-  if (openRide) {
+  if (openRide && !(allowMultiple && alreadyHere && type === "up")) {
     const { data, error } = await supabase
       .from("giras_logistica_rutas")
       .update({ [field]: idEvento })
@@ -5548,10 +5554,14 @@ async function assertPropuestaRutaWithinTransportCap(
 /**
  * Alta o actualización de parada subida/bajada con plazas para un artista.
  *
+ * **Multi-asignación (default):** varias ↑/↓ del mismo artista en la misma
+ * unidad/parada son filas distintas. No hay diálogo «Reemplazar»: una subida
+ * nueva siempre INSERT; una bajada cierra el próximo ride abierto/presente.
+ *
+ * Edición de una fila existente: pasar `rutaId` (plazas / equipaje / chofer).
+ *
  * Subida: nuevo ride (consume tope = plazas a bordo). Tras una bajada las
  * plazas se liberan y se puede volver a subir (otro ride) en la misma unidad.
- * Conflicto solo si ya hay un ride **a bordo en esta parada** (no un ride
- * abierto de un tramo posterior).
  *
  * Bajada: cierra el ride abierto (set `id_evento_bajada`) o **adelanta** la
  * bajada de un ride cerrado que aún está a bordo en esta parada (bajada
@@ -5564,6 +5574,8 @@ async function assertPropuestaRutaWithinTransportCap(
  *   plazas: number,
  *   type: 'up'|'down',
  *   id_evento: number|string,
+ *   allowMultiple?: boolean,
+ *   rutaId?: number|string|null,
  *   replaceConflict?: boolean,
  *   asientos_equipaje?: number|null,
  *   observaciones_equipaje?: string|null,
@@ -5580,6 +5592,11 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
   const plazas = Math.max(0, Number(payload.plazas) || 0);
   const type = payload.type === "down" ? "down" : "up";
   const field = type === "up" ? "id_evento_subida" : "id_evento_bajada";
+  const allowMultiple = payload.allowMultiple !== false;
+  const rutaId =
+    payload.rutaId != null && payload.rutaId !== ""
+      ? Number(payload.rutaId)
+      : null;
   const skipCapAssert = Boolean(payload.skipCapAssert);
   const hasEquipajeSeats = Object.prototype.hasOwnProperty.call(
     payload,
@@ -5643,10 +5660,38 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     );
   };
 
+  // Edición explícita de una fila (cantidad / equipaje / chofer).
+  if (Number.isFinite(rutaId)) {
+    const target = list.find((r) => Number(r.id) === rutaId);
+    if (!target) {
+      return {
+        ruta: null,
+        error: new Error("Regla de parada no encontrada"),
+      };
+    }
+    const capCheck = await assertCap(target.id, target.es_chofer);
+    if (capCheck.error) return { ruta: null, error: capCheck.error };
+    const { data, error } = await supabase
+      .from("fimba_propuesta_rutas")
+      .update({
+        plazas,
+        ...luggagePatch,
+        ...choferPatch,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", target.id)
+      .select(FIMBA_PROPUESTA_RUTA_SELECT)
+      .single();
+    if (error) return { ruta: null, error };
+    return { ruta: mapFimbaPropuestaRutaRow(data), error: null };
+  }
+
   const same = list.find(
     (r) => r[field] != null && String(r[field]) === String(idEvento),
   );
-  if (same) {
+  // Sin multi: actualizar plazas de la fila que ya apunta a esta parada.
+  // Con multi: no fusionar — una ↑/↓ nueva es otra fila (o cierra otro ride).
+  if (same && !allowMultiple) {
     const capCheck = await assertCap(same.id, same.es_chofer);
     if (capCheck.error) return { ruta: null, error: capCheck.error };
     const { data, error } = await supabase
@@ -5675,8 +5720,17 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
   );
 
   if (type === "down") {
-    const openRide = occupyingOpen.length
-      ? occupyingOpen[occupyingOpen.length - 1]
+    // Con multi: no reutilizar una bajada ya fijada en esta parada; cerrar otro ride.
+    const openCandidates = allowMultiple
+      ? occupyingOpen.filter(
+          (r) =>
+            r.id_evento_bajada == null ||
+            r.id_evento_bajada === "" ||
+            String(r.id_evento_bajada) !== String(idEvento),
+        )
+      : occupyingOpen;
+    const openRide = openCandidates.length
+      ? openCandidates[openCandidates.length - 1]
       : null;
     const movableClosedList = occupyingPresent.filter(
       (r) =>
@@ -5715,13 +5769,16 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     return {
       ruta: null,
       error: new Error(
-        "Este artista no está a bordo de este vehículo. Asigná primero una subida.",
+        same && allowMultiple
+          ? "No hay más rides a bordo para bajar en esta parada."
+          : "Este artista no está a bordo de este vehículo. Asigná primero una subida.",
       ),
     };
   }
 
   // type === up
-  if (occupyingOpen.length) {
+  // Multi: nunca «Reemplazar» un ride abierto — siempre alta aditiva.
+  if (occupyingOpen.length && !allowMultiple) {
     const openRide = occupyingOpen[occupyingOpen.length - 1];
     if (!payload.replaceConflict) {
       return {
@@ -5752,39 +5809,45 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
 
   // Completar fila huérfana (solo bajada, sin subida) si esa bajada es
   // esta parada o una posterior (tramo válido). Si la bajada es anterior,
-  // no reutilizar: crear ride nuevo.
-  const bajadaOnly = [...list]
-    .reverse()
-    .find(
-      (r) =>
-        (r.id_evento_subida == null || r.id_evento_subida === "") &&
-        r.id_evento_bajada != null &&
-        r.id_evento_bajada !== "",
-    );
-  const bajadaOnlyUsable = (() => {
-    if (!bajadaOnly) return false;
-    const downIdx = indexOfEvent(timeline, bajadaOnly.id_evento_bajada);
-    const curIdx = indexOfEvent(timeline, idEvento);
-    if (curIdx < 0 || downIdx < 0) return true;
-    return downIdx >= curIdx;
-  })();
-  if (bajadaOnly && bajadaOnlyUsable) {
-    const capCheck = await assertCap(bajadaOnly.id, bajadaOnly.es_chofer);
-    if (capCheck.error) return { ruta: null, error: capCheck.error };
-    const { data, error } = await supabase
-      .from("fimba_propuesta_rutas")
-      .update({
-        id_evento_subida: idEvento,
-        plazas,
-        ...luggagePatch,
-        ...choferPatch,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", bajadaOnly.id)
-      .select(FIMBA_PROPUESTA_RUTA_SELECT)
-      .single();
-    if (error) return { ruta: null, error };
-    return { ruta: mapFimbaPropuestaRutaRow(data), error: null, completed: true };
+  // no reutilizar: crear ride nuevo. En multi no reutilizar huérfanas.
+  if (!allowMultiple) {
+    const bajadaOnly = [...list]
+      .reverse()
+      .find(
+        (r) =>
+          (r.id_evento_subida == null || r.id_evento_subida === "") &&
+          r.id_evento_bajada != null &&
+          r.id_evento_bajada !== "",
+      );
+    const bajadaOnlyUsable = (() => {
+      if (!bajadaOnly) return false;
+      const downIdx = indexOfEvent(timeline, bajadaOnly.id_evento_bajada);
+      const curIdx = indexOfEvent(timeline, idEvento);
+      if (curIdx < 0 || downIdx < 0) return true;
+      return downIdx >= curIdx;
+    })();
+    if (bajadaOnly && bajadaOnlyUsable) {
+      const capCheck = await assertCap(bajadaOnly.id, bajadaOnly.es_chofer);
+      if (capCheck.error) return { ruta: null, error: capCheck.error };
+      const { data, error } = await supabase
+        .from("fimba_propuesta_rutas")
+        .update({
+          id_evento_subida: idEvento,
+          plazas,
+          ...luggagePatch,
+          ...choferPatch,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", bajadaOnly.id)
+        .select(FIMBA_PROPUESTA_RUTA_SELECT)
+        .single();
+      if (error) return { ruta: null, error };
+      return {
+        ruta: mapFimbaPropuestaRutaRow(data),
+        error: null,
+        completed: true,
+      };
+    }
   }
 
   const capCheck = await assertCap(null, esChofer);
@@ -5862,7 +5925,7 @@ export async function alightAllFimbaAboardAtStop(opts = {}) {
         plazas: Math.max(0, Number(r.plazas) || 0),
         type: "down",
         id_evento: idEvento,
-        replaceConflict: true,
+        allowMultiple: true,
         asientos_equipaje: Math.max(0, Number(r.asientos_equipaje) || 0),
         observaciones_equipaje: r.observaciones_equipaje ?? null,
         skipCapAssert: true,
