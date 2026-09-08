@@ -32,7 +32,7 @@ export default function ConnectionBadge({
   }
 
   const baseClass =
-    "flex items-center gap-2 rounded-full font-bold shadow-sm border transition-all animate-in fade-in px-2 py-1 sm:px-3";
+    "flex shrink-0 items-center gap-2 rounded-full font-bold shadow-sm border transition-all animate-in fade-in px-2 py-1 sm:px-3";
   const statusClass = isOnline
     ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
     : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100";

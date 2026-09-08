@@ -86,6 +86,8 @@ import {
   resolveCuerdasConfigForBlock,
 } from "../../utils/seatingCuerdasConfig";
 import { applyBulkParticellaAssignments } from "../../utils/seatingBulkAssign";
+import { useSeatingLateAssignmentChanges } from "../../hooks/useSeatingLateAssignmentChanges";
+import SeatingLateAssignmentBanner from "../../components/seating/SeatingLateAssignmentBanner";
 import {
   SEATING_INTEGRANTES_EMBED,
   mapRosterForSeating,
@@ -1048,6 +1050,8 @@ export default function ProgramSeating({
     useState(false);
   const [showParticellaModal, setShowParticellaModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const [loadedProgramId, setLoadedProgramId] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isAcceptingAllSuggestions, setIsAcceptingAllSuggestions] =
     useState(false);
@@ -1820,6 +1824,11 @@ export default function ProgramSeating({
   ]);
 
   useEffect(() => {
+    setInitialLoadDone(false);
+    setLoadedProgramId(null);
+  }, [program?.id]);
+
+  useEffect(() => {
     if (program?.id && !rosterLoading) fetchInitialData();
   }, [program.id, rosterLoading, rawRoster]);
 
@@ -2208,6 +2217,7 @@ export default function ProgramSeating({
   };
 
   const fetchInitialData = async () => {
+    const programId = program.id;
     setLoading(true);
     try {
       const { data: instruments } = await supabase
@@ -2269,6 +2279,8 @@ export default function ProgramSeating({
       console.error(err);
     } finally {
       setLoading(false);
+      setInitialLoadDone(true);
+      setLoadedProgramId(programId);
     }
   };
 
@@ -2935,6 +2947,20 @@ export default function ProgramSeating({
     return without;
   }, [seatingContainers, otherMusicians, displayObras, assignments, musicianAssignments]);
 
+  const lateAssignment = useSeatingLateAssignmentChanges({
+    supabase,
+    program,
+    loading,
+    initialLoadDone:
+      initialLoadDone && !loading && loadedProgramId === program?.id,
+    confirmedRoster,
+    musicianAssignments,
+    assignments,
+    containers,
+    obras,
+    particellas,
+  });
+
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
       <CreateParticellaModal
@@ -3365,6 +3391,14 @@ export default function ProgramSeating({
           </button>
         </div>
       </div>
+
+      {lateAssignment.visible && (
+        <SeatingLateAssignmentBanner
+          musicians={lateAssignment.musicians}
+          detalleText={lateAssignment.detalleText}
+          emails={lateAssignment.emails}
+        />
+      )}
 
       {isEscenarioView ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">

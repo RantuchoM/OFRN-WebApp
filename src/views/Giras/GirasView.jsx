@@ -1430,8 +1430,8 @@ export default function GirasView({ supabase, trigger = 0 }) {
       {dialog}
       <div className="bg-white border-b border-slate-200 sticky top-0 shadow-sm shrink-0 z-40">
         {isDetailView ? (
-          <div className="px-2.5 sm:px-4 py-1.5 sm:py-2 flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-3 print:hidden">
-            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+          <div className="px-2.5 sm:px-4 py-1.5 sm:py-2 flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-3 print:hidden min-w-0">
+            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto min-w-0">
               <AppNavLink
                 tab="giras"
                 className={`p-1.5 sm:p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors ${
@@ -1442,7 +1442,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 {" "}
                 <IconArrowLeft size={20} />{" "}
               </AppNavLink>
-              <div className="flex flex-col overflow-hidden">
+              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                 <h2 className="text-sm sm:text-m font-bold text-slate-800 truncate leading-tight">
                   {`${selectedGira.mes_letra} | ${selectedGira.nomenclador}. ${selectedGira.nombre_gira}`}
                   {shortDateRangeLabel && (
@@ -1508,7 +1508,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
                     onFilterChange={setFilterGrupoIds}
                     includeGeneralEvents={includeGeneralEvents}
                     onIncludeGeneralChange={setIncludeGeneralEvents}
-                    className="shrink-0"
+                    className="shrink-0 max-w-full"
                   />
                 )}
                 <div className="flex items-center justify-between gap-0.5 bg-slate-100 p-0.5 sm:p-1 rounded-lg flex-1 sm:flex-none overflow-hidden max-w-full min-w-0">
@@ -1597,7 +1597,11 @@ export default function GirasView({ supabase, trigger = 0 }) {
 
       <div
         ref={scrollContainerRef}
-        className="relative min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto bg-slate-50 print:h-auto print:overflow-visible"
+        className={`relative min-h-0 min-w-0 flex-1 overflow-y-auto bg-slate-50 print:h-auto print:overflow-visible ${
+          mode === "AGENDA" || mode === "FULL_AGENDA"
+            ? "overflow-x-hidden"
+            : "overflow-x-auto"
+        }`}
       >
         {mode === "FULL_AGENDA" && <AgendaGeneral supabase={supabase} />}
         {mode === "CALENDAR" && <MusicianCalendar supabase={supabase} />}

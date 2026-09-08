@@ -175,7 +175,7 @@ function AgendaSearchField({ onQueryChange }) {
 
   return (
     <div
-      className={`relative flex items-center shrink-0 transition-colors ${
+      className={`relative flex min-w-[6.5rem] flex-1 items-center sm:min-w-0 sm:flex-none sm:shrink-0 transition-colors ${
         isActive
           ? "border-indigo-500 bg-white ring-1 ring-indigo-500/25"
           : "border-slate-200 bg-white"
@@ -192,7 +192,7 @@ function AgendaSearchField({ onQueryChange }) {
         placeholder="Buscar..."
         title="Buscar en tipo, detalle y locaciones"
         aria-label="Buscar en tipo, detalle y locaciones"
-        className="w-[7.5rem] sm:w-[10.5rem] pl-8 pr-7 py-1.5 text-xs font-medium text-slate-700 bg-transparent rounded-full border-0 outline-none focus:ring-0 placeholder:text-slate-400"
+        className="w-full min-w-0 sm:w-[10.5rem] pl-8 pr-7 py-1.5 text-xs font-medium text-slate-700 bg-transparent rounded-full border-0 outline-none focus:ring-0 placeholder:text-slate-400"
       />
       {isActive && (
         <button
@@ -2243,7 +2243,7 @@ export default function UnifiedAgenda({
   ]);
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 animate-in fade-in relative">
+    <div className="relative flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-x-hidden bg-slate-50 animate-in fade-in">
       {dialog}
       {isOfflineMode && (
         <div className="bg-amber-100 border-b border-amber-200 px-4 py-1 text-[10px] sm:text-xs font-bold text-amber-800 text-center flex items-center justify-center gap-2 sticky top-0 z-40">
@@ -2252,9 +2252,11 @@ export default function UnifiedAgenda({
         </div>
       )}
 
-      <div className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-30 shrink-0">
-        <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-3 overflow-hidden flex-1">
+      <div className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-30 shrink-0 min-w-0">
+        <div className="px-3 sm:px-4 py-2 sm:py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between min-w-0">
+          <div
+            className={`flex items-center gap-3 overflow-hidden min-w-0 flex-1 ${giraId ? "hidden md:flex" : ""}`}
+          >
             {onBack && (
               <button
                 onClick={onBack}
@@ -2282,7 +2284,7 @@ export default function UnifiedAgenda({
             </div>
           </div>
 
-          <div className="flex gap-2 items-center">
+          <div className="flex flex-wrap items-center gap-2 min-w-0 w-full md:w-auto md:flex-nowrap">
             <ConnectionBadge
               status={realtimeStatus}
               lastUpdate={lastUpdate}
@@ -2307,7 +2309,7 @@ export default function UnifiedAgenda({
               <button
                 type="button"
                 onClick={() => setIsTranspositionOpen(true)}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-bold shadow-sm hover:bg-indigo-100 hover:text-indigo-800"
+                className="inline-flex shrink-0 items-center gap-1 px-3 py-1.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-bold shadow-sm hover:bg-indigo-100 hover:text-indigo-800"
               >
                 <IconRefresh size={14} />
                 <span>Importar</span>
@@ -2318,7 +2320,7 @@ export default function UnifiedAgenda({
               <button
                 type="button"
                 onClick={() => setShowWithFimba((v) => !v)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold shadow-sm transition-all ${
+                className={`inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold shadow-sm transition-all ${
                   showWithFimba
                     ? "bg-[#d73289] text-white border-[#d73289] hover:bg-[#c02a7a]"
                     : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
@@ -2653,7 +2655,7 @@ export default function UnifiedAgenda({
                     }`}
                     title="Filtro por grupos de convocatoria"
                   >
-                    <div className="relative min-w-[7.5rem] sm:min-w-[8.5rem]">
+                    <div className="relative min-w-0 w-[7.5rem] sm:min-w-[8.5rem] max-w-full">
                       <MultiSelectDropdown
                         compact
                         summaryMode="names"
@@ -2691,7 +2693,7 @@ export default function UnifiedAgenda({
                 )}
 
                 {canEdit && musicianOptions.length > 0 && (
-                  <div className="w-[140px] sm:w-[160px]">
+                  <div className="w-[min(100%,10rem)] sm:w-[160px] min-w-0">
                     <SearchableSelect
                       options={musicianOptions}
                       value={viewAsUserId}
@@ -2725,7 +2727,7 @@ export default function UnifiedAgenda({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-slate-50/50 relative">
+      <div className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto bg-slate-50/50 relative">
         {/* SPINNER INICIAL (SOLO SI NO HAY DATOS) */}
         {loading && items.length === 0 && (
           <div className="text-center py-10">
@@ -2992,7 +2994,7 @@ export default function UnifiedAgenda({
                                 )}
                               {/* --- CONTENEDOR MÓVIL (VISIBLE SOLO EN < md) --- */}
                               <div
-                                className={`md:hidden relative flex flex-row items-stretch px-4 py-2 border-b border-slate-200 transition-colors group gap-2
+                                className={`md:hidden relative flex min-w-0 max-w-full flex-row items-stretch overflow-x-hidden px-3 sm:px-4 py-2 border-b border-slate-200 transition-colors group gap-2
                             ${shouldDim && !isDeleted ? "opacity-50 grayscale hover:bg-slate-50" : ""}
                             ${isDeleted ? "bg-orange-50 opacity-80 line-through" : ""}
                             ${isAgendaHiddenTransport ? "bg-slate-100 opacity-80" : ""}
@@ -3056,7 +3058,7 @@ export default function UnifiedAgenda({
 
                                 <div className="flex-1 min-w-0 flex flex-col gap-1 py-1">
                                   <div className="flex items-start gap-1.5 mb-0.5">
-                                    <div className="min-w-[7rem] shrink-0 flex flex-col gap-1">
+                                    <div className="min-w-0 max-w-[9rem] shrink flex flex-col gap-1">
                                       <div className="flex flex-wrap gap-1 items-center">
                                         <span
                                           className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-full [&_mark]:bg-yellow-200 [&_mark]:text-yellow-900 [&_mark]:rounded-sm [&_mark]:px-0.5"
@@ -3115,7 +3117,7 @@ export default function UnifiedAgenda({
                                   {evt.id_tipo_evento === 13 ? (
                                     <>
                                       {/* Descripción con chips de ensamble al costado */}
-                                      <div className="flex items-start gap-2">
+                                      <div className="flex min-w-0 items-start gap-2">
                                         <div
                                           className={`flex-1 text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
                                         >
@@ -3136,7 +3138,7 @@ export default function UnifiedAgenda({
                                           )}
                                         </div>
 
-                                        <div className="flex flex-wrap gap-1 shrink-0">
+                                        <div className="flex min-w-0 max-w-[48%] flex-wrap gap-1">
                                           {(evt.eventos_ensambles?.length > 0
                                             ? evt.eventos_ensambles
                                                 .map(
@@ -3270,7 +3272,7 @@ export default function UnifiedAgenda({
                                     )}
                                     {shouldShowLocacionEnEvento(evt) && (
                                       <div
-                                        className={`flex items-start gap-1 text-xs mt-0.5 ${isDeleted ? "text-orange-700" : "text-slate-500"}`}
+                                        className={`flex min-w-0 items-start gap-1 text-xs mt-0.5 ${isDeleted ? "text-orange-700" : "text-slate-500"}`}
                                       >
                                         <VenueStatusPin
                                           eventId={evt.id}
@@ -3282,7 +3284,7 @@ export default function UnifiedAgenda({
                                         />
                                         <div className="flex flex-col min-w-0">
                                           <span
-                                            className={`font-semibold truncate ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
+                                            className={`block min-w-0 font-semibold truncate ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
                                           >
                                             {agendaSearchQuery.trim() ? (
                                               <AgendaSearchHighlight
@@ -3332,7 +3334,7 @@ export default function UnifiedAgenda({
                                   </div>
                                 </div>
 
-                                <div className="shrink-0 flex items-start gap-1 pl-2 pt-1 border-l border-slate-100 flex-col justify-between min-w-[40px]">
+                                <div className="shrink-0 flex items-start gap-1 pl-2 pt-1 border-l border-slate-100 flex-col justify-between">
                                   {isDeleted &&
                                   (isEditor || isAdmin || isManagement) ? (
                                     <div className="flex flex-col gap-1 items-end">

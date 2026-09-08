@@ -65,3 +65,16 @@
 - **Excepciones previas**: paradas del vehículo asignado siguen visibles aunque el programa no esté vigente.
 - **Staff**: el toggle «Mostrar borradores» sigue revelando el resto de eventos no vigentes.
 - **Implementación**: `UnifiedAgenda.jsx` (`filteredItems` + badge en tarjeta).
+
+## 11. Agenda móvil: sin overflow horizontal
+- **Estado**: Completado (2026-09-08).
+- **Problema:** En teléfonos, la Agenda de gira (y la Agenda general) se podía desplazar de costado: gutter vacío a la derecha, texto de locación truncado y restos de la toolbar (p. ej. puntos del overflow) alineados al borde. No era un recorte visual de un widget: el scrollport entero era más ancho que el viewport.
+- **Causa:** La barra sticky de `UnifiedAgenda` (Importar + chip «con FIMBA» + Buscar de ancho fijo `shrink-0` + Filtros + PDF / «Ver como…») era una fila `flex` sin wrap. En staff eso supera ~390px y ensancha el contenido. El shell de gira (`GirasView` scroll container) tenía `overflow-x-auto`, así que toda la página se podía panear. El FAB de feedback (`position: fixed`) seguía anclado al borde real de la pantalla.
+- **Fix (móvil; desktop ≥ md casi igual):**
+  - Toolbar: `flex-wrap` + `min-w-0`; búsqueda `flex-1 min-w-[6.5rem]` (en `sm+` vuelve al ancho fijo).
+  - En gira, el título duplicado («Vista Compacta») se oculta en `< md` (el header de `GirasView` ya muestra el programa).
+  - Contención: `UnifiedAgenda` y el listado `overflow-x-hidden` / `min-w-0`; en `GirasView`, `overflow-x-hidden` solo en `AGENDA` y `FULL_AGENDA` (Logística y otras vistas siguen con `overflow-x-auto` para tablas).
+  - Tarjetas móviles: `min-w-0 max-w-full overflow-x-hidden`; columna de tipo sin `min-w-[7rem]`; locación con `min-w-0` + truncate; riel de iconos `shrink-0` en columna (no ensancha la página).
+  - Header de gira / filtro Grupos / chrome de `App.jsx`: `min-w-0` y `overflow-x-hidden` de red de seguridad.
+- **Rutas afectadas:** Agenda de gira (`view=AGENDA`) y Agenda general (`FULL_AGENDA`); ambas usan `UnifiedAgenda`.
+- **Implementación:** `UnifiedAgenda.jsx`, `GirasView.jsx`, `GiraGruposFilterControl.jsx`, `ConnectionBadge.jsx`, `App.jsx`.

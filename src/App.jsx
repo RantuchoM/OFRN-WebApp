@@ -1206,7 +1206,7 @@ const ProtectedApp = ({ initialTab }) => {
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <EnsayoLocalRemindersSync />
         <GlobalRehearsalAttendanceBanner />
-        <header className="h-14 md:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-4 sm:px-8 shrink-0 z-30 gap-2 md:gap-4">
+        <header className="h-14 md:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-4 sm:px-8 shrink-0 z-30 gap-2 md:gap-4 min-w-0 overflow-x-hidden">
           {/* 1. SECCIÓN IZQUIERDA (Logo/Título/Suplantación) */}
           <div className="flex items-center gap-2 shrink-0">
             <button

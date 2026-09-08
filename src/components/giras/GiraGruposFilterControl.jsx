@@ -23,7 +23,7 @@ export default function GiraGruposFilterControl({
       } ${className}`}
       title="Filtro por grupos de convocatoria"
     >
-      <div className="relative min-w-[8.5rem] sm:min-w-[11rem] max-w-[14rem]">
+      <div className="relative min-w-0 w-[8.5rem] sm:min-w-[11rem] max-w-[min(14rem,100%)]">
         <MultiSelectDropdown
           compact
           summaryMode="names"
