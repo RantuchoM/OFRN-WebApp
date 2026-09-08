@@ -610,11 +610,11 @@ function PlanillaBoardCell({
                 title={
                   chip.pairOffTrayecto?.hint
                     ? `${
-                        chip.title ||
-                        (chip.kind === "ofrn"
-                          ? "Orquesta OFRN — clic para reglas de ruta"
-                          : chip.kind === "synthetic"
-                            ? `${chip.label}: ${chip.plazas} plaza${chip.plazas === 1 ? "" : "s"} (reserva técnica anónima)`
+                  chip.title ||
+                  (chip.kind === "ofrn"
+                    ? "Orquesta OFRN — clic para reglas de ruta"
+                    : chip.kind === "synthetic"
+                      ? `${chip.label}: ${chip.plazas} plaza${chip.plazas === 1 ? "" : "s"} (reserva técnica anónima)`
                             : `${chip.label}: ${chip.plazas} plaza${chip.plazas === 1 ? "" : "s"}${chip.es_chofer ? " · Chofer (sin cupo)" : ""}`)
                       } · ${chip.pairOffTrayecto.hint}`
                     : chip.title ||
@@ -647,8 +647,8 @@ function PlanillaBoardCell({
                     chip.pairOffTrayecto
                       ? "#f59e0b"
                       : chip.kind === "fimba" && chip.color
-                        ? `${chip.color}55`
-                        : "#e2e8f0",
+                      ? `${chip.color}55`
+                      : "#e2e8f0",
                   cursor:
                     canEdit && (chip.kind === "ofrn" || chip.kind === "synthetic")
                       ? "pointer"
@@ -1885,10 +1885,10 @@ export default function FimbaTransportPage() {
         clearBoarding: hasBoarding,
         links,
       });
-      if (err) {
-        setError(err.message || "No se pudo eliminar");
-        return;
-      }
+    if (err) {
+      setError(err.message || "No se pudo eliminar");
+      return;
+    }
       await softRefresh({ eventos: true, rutas: true });
     } finally {
       setDeletingEventId(null);
@@ -1952,7 +1952,7 @@ export default function FimbaTransportPage() {
       const { evento: created, error: err } = await createDestinoStopEvent({
         currentEv: ev,
         vehicleId: Number(vehicleId),
-        nextEv,
+      nextEv,
         fecha: sched.fecha || ev.fecha || "",
         horaInicio: sched.hora_inicio || "",
         idLocacion: null,
@@ -3894,7 +3894,7 @@ export default function FimbaTransportPage() {
                   }${isTodos ? " fimba-veh-filter-chip--todos" : ""}`}
                 >
                   <button
-                    type="button"
+                  type="button"
                     className="fimba-veh-filter-chip__label"
                     onClick={() => handleVehiculoExclusive(id)}
                     title={
@@ -3903,7 +3903,7 @@ export default function FimbaTransportPage() {
                     }
                   >
                     {label}
-                  </button>
+                </button>
                   {isSelected ? (
                     <button
                       type="button"
@@ -3998,12 +3998,6 @@ export default function FimbaTransportPage() {
                       Origen
                     </th>
                     <th
-                      className="fimba-planilla-col-secondary fimba-planilla-llegada"
-                      title="Hora de llegada = hora com del siguiente evento de este vehículo (calculada). Sin siguiente con hora → —"
-                    >
-                      H. Llegada
-                    </th>
-                    <th
                       className="fimba-planilla-insert-col"
                       title="Insertar evento intermedio (completa hasta→desde entre esta parada y la siguiente)"
                       style={{ width: 36, textAlign: "center", padding: "0.4rem 0.15rem" }}
@@ -4011,6 +4005,12 @@ export default function FimbaTransportPage() {
                       <span className="fimba-muted" style={{ fontSize: "0.7rem" }}>
                         +
                       </span>
+                    </th>
+                    <th
+                      className="fimba-planilla-col-secondary fimba-planilla-llegada"
+                      title="Hora de llegada = hora com del siguiente evento de este vehículo (calculada). Sin siguiente con hora → —"
+                    >
+                      H. Llegada
                     </th>
                     <th
                       className="fimba-planilla-destino fimba-planilla-col-secondary"
@@ -4094,11 +4094,11 @@ export default function FimbaTransportPage() {
                           next_event: null,
                         }
                       : boardingMetricsForEventRow(
-                          ev,
-                          sequencesByVehicle,
-                          preferVehicleIdsForMetrics,
+                      ev,
+                      sequencesByVehicle,
+                      preferVehicleIdsForMetrics,
                           { enablePause: showVehiclePauses },
-                        );
+                    );
                     const stop = metrics.primary?.stop || null;
                     const multiVeh =
                       (metrics.perVehicle || []).filter((p) => p.stop).length > 1;
@@ -4106,7 +4106,7 @@ export default function FimbaTransportPage() {
                     const destinoSiguiente = isContext
                       ? "—"
                       : metrics.destino_siguiente != null &&
-                          metrics.destino_siguiente !== "—"
+                      metrics.destino_siguiente !== "—"
                         ? metrics.destino_siguiente
                         : TRANSPORT_DESTINO_SIN_SIGUIENTE;
                     const horaFinDisp = metrics.hora_fin_display || {
@@ -4671,12 +4671,12 @@ export default function FimbaTransportPage() {
                               />
                             </div>
                           ) : (
-                            <span title="Hora de comienzo">{horaCom}</span>
+                              <span title="Hora de comienzo">{horaCom}</span>
                           )}
                         </td>
                         <td
                           className="fimba-planilla-wrap fimba-detalle-cell"
-                          title={
+                                  title={
                             readOnly
                               ? undefined
                               : hasHtmlMarkup(ev.actividad)
@@ -4805,7 +4805,7 @@ export default function FimbaTransportPage() {
                               ? { cursor: "pointer" }
                               : {}),
                           }}
-                          title={
+                                title={
                             readOnly
                               ? locacion
                               : isCellEditing(ev.id, "locacion")
@@ -4864,32 +4864,6 @@ export default function FimbaTransportPage() {
                           )}
                         </td>
                         <td
-                          className="fimba-planilla-col-secondary fimba-planilla-llegada"
-                          title={
-                            horaFinDisp.value
-                              ? horaFinDisp.isCalculated
-                                ? "Hora com del siguiente evento asignado a este vehículo (calculada; no se guarda aquí)"
-                                : "Hora de llegada"
-                              : pauseAfterRow
-                                ? "Pausa: la siguiente parada del mismo vehículo repite la locación"
-                                : "Sin siguiente evento con hora en este vehículo"
-                          }
-                        >
-                          {horaFinDisp.value ? (
-                            <span
-                              style={
-                                horaFinDisp.isCalculated
-                                  ? { fontStyle: "italic" }
-                                  : undefined
-                              }
-                            >
-                              {horaFinDisp.value}
-                            </span>
-                          ) : (
-                            <span>—</span>
-                          )}
-                        </td>
-                        <td
                           className="fimba-planilla-insert-col"
                           style={{
                             textAlign: "center",
@@ -4907,12 +4881,12 @@ export default function FimbaTransportPage() {
                               isCreatingIntermediateHere
                                 ? "Creando parada intermedia…"
                                 : canAddIntermediate
-                                  ? nextEvHasRealStop
-                                    ? "Insertar evento intermedio (hasta→desde entre esta parada y la siguiente)"
-                                    : "Insertar evento después de esta parada (desde = hora fin)"
+                                ? nextEvHasRealStop
+                                  ? "Insertar evento intermedio (hasta→desde entre esta parada y la siguiente)"
+                                  : "Insertar evento después de esta parada (desde = hora fin)"
                                   : creatingIntermediateFromId != null
                                     ? "Creando otra parada…"
-                                    : "Asigná un vehículo a esta fila para insertar un evento intermedio"
+                                : "Asigná un vehículo a esta fila para insertar un evento intermedio"
                             }
                             aria-label={
                               isCreatingIntermediateHere
@@ -4935,13 +4909,39 @@ export default function FimbaTransportPage() {
                             {isCreatingIntermediateHere ? (
                               <IconLoader size={14} className="animate-spin" />
                             ) : (
-                              <IconPlus size={14} />
+                            <IconPlus size={14} />
                             )}
                           </button>
                         </td>
                         <td
+                          className="fimba-planilla-col-secondary fimba-planilla-llegada"
+                          title={
+                            horaFinDisp.value
+                              ? horaFinDisp.isCalculated
+                                ? "Hora com del siguiente evento asignado a este vehículo (calculada; no se guarda aquí)"
+                                : "Hora de llegada"
+                              : pauseAfterRow
+                                ? "Pausa: la siguiente parada del mismo vehículo repite la locación"
+                                : "Sin siguiente evento con hora en este vehículo"
+                          }
+                        >
+                          {horaFinDisp.value ? (
+                          <span
+                              style={
+                                horaFinDisp.isCalculated
+                                  ? { fontStyle: "italic" }
+                                  : undefined
+                              }
+                            >
+                              {horaFinDisp.value}
+                            </span>
+                          ) : (
+                            <span>—</span>
+                          )}
+                        </td>
+                        <td
                           className="fimba-planilla-destino fimba-planilla-col-secondary"
-                          style={{
+                            style={{
                             fontSize: "0.82rem",
                             ...(!readOnly && canAddIntermediate
                               ? { cursor: "pointer" }
@@ -5122,33 +5122,33 @@ export default function FimbaTransportPage() {
                             </span>
                           ) : (
                             <>
-                              <PlanillaBoardCell
-                                direction="up"
-                                chips={upsBoard.chips}
-                                total={upsBoard.total}
-                                canEdit={canEditStops}
-                                removing={
-                                  removingBoardKey != null &&
-                                  removingBoardKey.startsWith("up-")
-                                }
-                                onOpen={(opts) => openBoard("up", opts)}
-                                onRemoveChip={(chip) =>
-                                  handleRemoveBoardChip(chip, "up")
-                                }
-                              />
-                              {multiVeh ? (
-                                <span
-                                  className="fimba-muted"
-                                  style={{
-                                    display: "block",
-                                    fontSize: "0.68rem",
-                                    marginTop: 2,
-                                  }}
-                                  title="Hay varios vehículos: se muestra el primero del filtro/fila"
-                                >
-                                  multi-veh.
-                                </span>
-                              ) : null}
+                          <PlanillaBoardCell
+                            direction="up"
+                            chips={upsBoard.chips}
+                            total={upsBoard.total}
+                            canEdit={canEditStops}
+                            removing={
+                              removingBoardKey != null &&
+                              removingBoardKey.startsWith("up-")
+                            }
+                            onOpen={(opts) => openBoard("up", opts)}
+                            onRemoveChip={(chip) =>
+                              handleRemoveBoardChip(chip, "up")
+                            }
+                          />
+                          {multiVeh ? (
+                            <span
+                              className="fimba-muted"
+                              style={{
+                                display: "block",
+                                fontSize: "0.68rem",
+                                marginTop: 2,
+                              }}
+                              title="Hay varios vehículos: se muestra el primero del filtro/fila"
+                            >
+                              multi-veh.
+                            </span>
+                          ) : null}
                             </>
                           )}
                         </td>
@@ -5158,20 +5158,20 @@ export default function FimbaTransportPage() {
                               —
                             </span>
                           ) : (
-                            <PlanillaBoardCell
-                              direction="down"
-                              chips={downsBoard.chips}
-                              total={downsBoard.total}
-                              canEdit={canEditStops}
-                              removing={
-                                removingBoardKey != null &&
-                                removingBoardKey.startsWith("down-")
-                              }
-                              onOpen={(opts) => openBoard("down", opts)}
-                              onRemoveChip={(chip) =>
-                                handleRemoveBoardChip(chip, "down")
-                              }
-                            />
+                          <PlanillaBoardCell
+                            direction="down"
+                            chips={downsBoard.chips}
+                            total={downsBoard.total}
+                            canEdit={canEditStops}
+                            removing={
+                              removingBoardKey != null &&
+                              removingBoardKey.startsWith("down-")
+                            }
+                            onOpen={(opts) => openBoard("down", opts)}
+                            onRemoveChip={(chip) =>
+                              handleRemoveBoardChip(chip, "down")
+                            }
+                          />
                           )}
                         </td>
                         {isContext ? (
@@ -5179,13 +5179,13 @@ export default function FimbaTransportPage() {
                             —
                           </td>
                         ) : (
-                          <PlanillaTransitoCell
-                            enTransito={enTransito}
-                            cap={cap}
-                            libres={libres}
-                            overbook={overbook}
-                            aBordo={aBordo}
-                          />
+                        <PlanillaTransitoCell
+                          enTransito={enTransito}
+                          cap={cap}
+                          libres={libres}
+                          overbook={overbook}
+                          aBordo={aBordo}
+                        />
                         )}
                         <td className="fimba-planilla-actions">
                           {!readOnly && rowEditing ? (
