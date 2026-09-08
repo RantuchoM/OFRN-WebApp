@@ -1555,6 +1555,31 @@ const FIMBA_CSS = `
   .fimba-veh-filter-chip__mod:hover {
     opacity: 1;
   }
+  /* Export (CNRT / hoja de ruta) on selected vehicle chip */
+  .fimba-veh-filter-chip__export {
+    display: inline-flex;
+    align-items: stretch;
+    border-left: 1px solid currentColor;
+  }
+  .fimba-veh-filter-chip__export-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.28rem 0.4rem;
+    line-height: 1;
+  }
+  .fimba-veh-filter-chip__export-btn:hover:not(:disabled) {
+    background: rgba(0, 177, 235, 0.15);
+  }
+  .fimba-veh-filter-chip__export-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
   .fimba-input, .fimba-select, .fimba-textarea {
     width: 100%;
     border: 1px solid var(--fimba-border);

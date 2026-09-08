@@ -3894,7 +3894,7 @@ export default function FimbaTransportPage() {
                   }${isTodos ? " fimba-veh-filter-chip--todos" : ""}`}
                 >
                   <button
-                  type="button"
+                    type="button"
                     className="fimba-veh-filter-chip__label"
                     onClick={() => handleVehiculoExclusive(id)}
                     title={
@@ -3903,17 +3903,33 @@ export default function FimbaTransportPage() {
                     }
                   >
                     {label}
-                </button>
+                  </button>
                   {isSelected ? (
-                    <button
-                      type="button"
-                      className="fimba-veh-filter-chip__mod"
-                      onClick={() => handleVehiculoRemove(id)}
-                      title="Quitar del filtro"
-                      aria-label={`Quitar ${label} del filtro`}
-                    >
-                      <IconMinus size={12} />
-                    </button>
+                    <>
+                      <span
+                        className="fimba-veh-filter-chip__export"
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                      >
+                        <FimbaTransportReportsMenu
+                          vehiculo={gt}
+                          sequence={sequencesByVehicle.get(id)}
+                          edicionNombre={edicionLabel}
+                          ofrnPassengerById={ofrnPassengerById}
+                          participantesByPropuesta={participantesByPropuesta}
+                          compact
+                        />
+                      </span>
+                      <button
+                        type="button"
+                        className="fimba-veh-filter-chip__mod"
+                        onClick={() => handleVehiculoRemove(id)}
+                        title="Quitar del filtro"
+                        aria-label={`Quitar ${label} del filtro`}
+                      >
+                        <IconMinus size={12} />
+                      </button>
+                    </>
                   ) : (
                     <button
                       type="button"
@@ -3989,11 +4005,10 @@ export default function FimbaTransportPage() {
                     <th className="fimba-sticky-fecha">Fecha</th>
                     <th
                       className="fimba-sticky-hora"
-                      title="Hora de comienzo de esta parada"
+                      title="Hora de inicio de esta parada"
                     >
-                      Com
+                      H.Inic.
                     </th>
-                    <th className="fimba-detalle-cell">Detalle</th>
                     <th title="Locación de catálogo de esta parada (origen del tramo)">
                       Origen
                     </th>
@@ -4008,7 +4023,7 @@ export default function FimbaTransportPage() {
                     </th>
                     <th
                       className="fimba-planilla-col-secondary fimba-planilla-llegada"
-                      title="Hora de llegada = hora com del siguiente evento de este vehículo (calculada). Sin siguiente con hora → —"
+                      title="Hora de llegada = hora inicio del siguiente evento de este vehículo (calculada). Sin siguiente con hora → —"
                     >
                       H. Llegada
                     </th>
@@ -4018,6 +4033,7 @@ export default function FimbaTransportPage() {
                     >
                       Destino
                     </th>
+                    <th className="fimba-detalle-cell">Detalle</th>
                     <th title="Línea Vuelo: en eventos.descripcion (misma fuente que Agenda)">
                       Vuelo
                     </th>
@@ -4675,129 +4691,6 @@ export default function FimbaTransportPage() {
                           )}
                         </td>
                         <td
-                          className="fimba-planilla-wrap fimba-detalle-cell"
-                                  title={
-                            readOnly
-                              ? undefined
-                              : hasHtmlMarkup(ev.actividad)
-                                ? "Detalle con formato: editar en el lápiz (formulario)"
-                                : "Detalle / obs."
-                          }
-                          style={{
-                            fontWeight: 600,
-                            ...(!readOnly &&
-                            !isCellEditing(ev.id, "actividad") &&
-                            !hasHtmlMarkup(ev.actividad)
-                              ? { cursor: "pointer" }
-                              : {}),
-                          }}
-                        >
-                          {isCellEditing(ev.id, "actividad") ? (
-                            <div
-                              style={{ display: "flex", flexDirection: "column", gap: 4 }}
-                              onBlur={(e) => {
-                                if (e.currentTarget.contains(e.relatedTarget)) {
-                                  return;
-                                }
-                                if (rowEditing) return;
-                                commitEvento(ev.id);
-                                if (!editMode) endCellEdit(ev.id, "actividad");
-                              }}
-                            >
-                              {hasHtmlMarkup(evDraft.actividad) ? (
-                                <>
-                                  <FimbaEventDetallePreview html={evDraft.actividad} />
-                                  <span
-                                    className="fimba-muted"
-                                    style={{ fontSize: "0.68rem", fontWeight: 400 }}
-                                  >
-                                    Con formato: editar en el modal del evento
-                                  </span>
-                                </>
-                              ) : (
-                                <input
-                                  className="fimba-cell-input"
-                                  autoFocus={
-                                    rowEditing
-                                      ? rowEditFocusField === "actividad"
-                                      : !editMode
-                                  }
-                                  value={evDraft.actividad}
-                                  disabled={evSaving}
-                                  placeholder="Detalle"
-                                  onChange={(e) =>
-                                    setEventField(ev.id, "actividad", e.target.value)
-                                  }
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      if (rowEditing) {
-                                        confirmRowEdit(ev.id);
-                                        return;
-                                      }
-                                      commitEvento(ev.id);
-                                      if (!editMode) endCellEdit(ev.id, "actividad");
-                                    }
-                                  }}
-                                />
-                              )}
-                              <input
-                                className="fimba-cell-input"
-                                value={evDraft.observaciones}
-                                disabled={evSaving}
-                                placeholder="Obs. equipaje"
-                                title="Observaciones Equipaje"
-                                onChange={(e) =>
-                                  setEventField(ev.id, "observaciones", e.target.value)
-                                }
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    if (rowEditing) {
-                                      confirmRowEdit(ev.id);
-                                      return;
-                                    }
-                                    commitEvento(ev.id);
-                                    if (!editMode) endCellEdit(ev.id, "actividad");
-                                  }
-                                }}
-                              />
-                            </div>
-                          ) : (
-                            <>
-                              <FimbaEventDetallePreview
-                                html={ev.actividad}
-                                empty={ev.tipo_nombre || "—"}
-                                clamp
-                              />
-                              {ev.observaciones ? (
-                                <span
-                                  className="fimba-muted"
-                                  style={{
-                                    display: "block",
-                                    fontSize: "0.75rem",
-                                    fontWeight: 400,
-                                  }}
-                                >
-                                  {ev.observaciones}
-                                </span>
-                              ) : null}
-                              {!ev.actividad && ev.descripcion && !ev.tipo_nombre ? (
-                                <span
-                                  className="fimba-muted"
-                                  style={{
-                                    display: "block",
-                                    fontSize: "0.75rem",
-                                    fontWeight: 400,
-                                  }}
-                                >
-                                  {String(ev.descripcion).slice(0, 80)}
-                                </span>
-                              ) : null}
-                            </>
-                          )}
-                        </td>
-                        <td
                           className="fimba-planilla-wrap fimba-planilla-loc-cell"
                           style={{
                             fontSize: "0.85rem",
@@ -4881,12 +4774,12 @@ export default function FimbaTransportPage() {
                               isCreatingIntermediateHere
                                 ? "Creando parada intermedia…"
                                 : canAddIntermediate
-                                ? nextEvHasRealStop
-                                  ? "Insertar evento intermedio (hasta→desde entre esta parada y la siguiente)"
-                                  : "Insertar evento después de esta parada (desde = hora fin)"
+                                  ? nextEvHasRealStop
+                                    ? "Insertar evento intermedio (hasta→desde entre esta parada y la siguiente)"
+                                    : "Insertar evento después de esta parada (desde = hora fin)"
                                   : creatingIntermediateFromId != null
                                     ? "Creando otra parada…"
-                                : "Asigná un vehículo a esta fila para insertar un evento intermedio"
+                                    : "Asigná un vehículo a esta fila para insertar un evento intermedio"
                             }
                             aria-label={
                               isCreatingIntermediateHere
@@ -5016,6 +4909,129 @@ export default function FimbaTransportPage() {
                               </span>
                             ) : null}
                           </span>
+                        </td>
+                        <td
+                          className="fimba-planilla-wrap fimba-detalle-cell"
+                                  title={
+                            readOnly
+                              ? undefined
+                              : hasHtmlMarkup(ev.actividad)
+                                ? "Detalle con formato: editar en el lápiz (formulario)"
+                                : "Detalle / obs."
+                          }
+                          style={{
+                            fontWeight: 600,
+                            ...(!readOnly &&
+                            !isCellEditing(ev.id, "actividad") &&
+                            !hasHtmlMarkup(ev.actividad)
+                              ? { cursor: "pointer" }
+                              : {}),
+                          }}
+                        >
+                          {isCellEditing(ev.id, "actividad") ? (
+                            <div
+                              style={{ display: "flex", flexDirection: "column", gap: 4 }}
+                              onBlur={(e) => {
+                                if (e.currentTarget.contains(e.relatedTarget)) {
+                                  return;
+                                }
+                                if (rowEditing) return;
+                                commitEvento(ev.id);
+                                if (!editMode) endCellEdit(ev.id, "actividad");
+                              }}
+                            >
+                              {hasHtmlMarkup(evDraft.actividad) ? (
+                                <>
+                                  <FimbaEventDetallePreview html={evDraft.actividad} />
+                                  <span
+                                    className="fimba-muted"
+                                    style={{ fontSize: "0.68rem", fontWeight: 400 }}
+                                  >
+                                    Con formato: editar en el modal del evento
+                                  </span>
+                                </>
+                              ) : (
+                                <input
+                                  className="fimba-cell-input"
+                                  autoFocus={
+                                    rowEditing
+                                      ? rowEditFocusField === "actividad"
+                                      : !editMode
+                                  }
+                                  value={evDraft.actividad}
+                                  disabled={evSaving}
+                                  placeholder="Detalle"
+                                  onChange={(e) =>
+                                    setEventField(ev.id, "actividad", e.target.value)
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      if (rowEditing) {
+                                        confirmRowEdit(ev.id);
+                                        return;
+                                      }
+                                      commitEvento(ev.id);
+                                      if (!editMode) endCellEdit(ev.id, "actividad");
+                                    }
+                                  }}
+                                />
+                              )}
+                              <input
+                                className="fimba-cell-input"
+                                value={evDraft.observaciones}
+                                disabled={evSaving}
+                                placeholder="Obs. equipaje"
+                                title="Observaciones Equipaje"
+                                onChange={(e) =>
+                                  setEventField(ev.id, "observaciones", e.target.value)
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    if (rowEditing) {
+                                      confirmRowEdit(ev.id);
+                                      return;
+                                    }
+                                    commitEvento(ev.id);
+                                    if (!editMode) endCellEdit(ev.id, "actividad");
+                                  }
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <>
+                              <FimbaEventDetallePreview
+                                html={ev.actividad}
+                                empty={ev.tipo_nombre || "—"}
+                                clamp
+                              />
+                              {ev.observaciones ? (
+                                <span
+                                  className="fimba-muted"
+                                  style={{
+                                    display: "block",
+                                    fontSize: "0.75rem",
+                                    fontWeight: 400,
+                                  }}
+                                >
+                                  {ev.observaciones}
+                                </span>
+                              ) : null}
+                              {!ev.actividad && ev.descripcion && !ev.tipo_nombre ? (
+                                <span
+                                  className="fimba-muted"
+                                  style={{
+                                    display: "block",
+                                    fontSize: "0.75rem",
+                                    fontWeight: 400,
+                                  }}
+                                >
+                                  {String(ev.descripcion).slice(0, 80)}
+                                </span>
+                              ) : null}
+                            </>
+                          )}
                         </td>
                         <td
                           className="fimba-muted fimba-planilla-wrap"

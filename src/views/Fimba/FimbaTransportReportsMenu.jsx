@@ -33,6 +33,8 @@ export default function FimbaTransportReportsMenu({
   ofrnPassengerById = null,
   participantesByPropuesta = null,
   disabled = false,
+  /** Compact trigger for vehicle filter chips (icon only). */
+  compact = false,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState(null);
@@ -220,16 +222,26 @@ export default function FimbaTransportReportsMenu({
         <button
           ref={triggerRef}
           type="button"
-          className="fimba-btn fimba-btn-ghost"
-          style={{ padding: "0.25rem 0.4rem" }}
+          className={
+            compact
+              ? "fimba-veh-filter-chip__export-btn"
+              : "fimba-btn fimba-btn-ghost"
+          }
+          style={compact ? undefined : { padding: "0.25rem 0.4rem" }}
           disabled={disabled || busy || !vehiculo}
-          title="Reportes de transporte (CNRT, paradas, hoja de ruta, Excel)"
+          title="Reportes: CNRT, hoja de ruta, paradas (PDF/Excel)"
+          aria-label="Reportes de transporte"
           aria-haspopup="menu"
           aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((v) => !v)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setMenuOpen((v) => !v);
+          }}
         >
           {busy ? (
-            <IconLoader size={15} className="animate-spin" />
+            <IconLoader size={compact ? 13 : 15} className="animate-spin" />
+          ) : compact ? (
+            <IconDownload size={13} />
           ) : (
             <>
               <IconDownload size={15} />
