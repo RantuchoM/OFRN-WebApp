@@ -10,7 +10,11 @@ import {
   timeStringToMinutes,
 } from "./dates";
 import { stripHtml } from "./eventDisplayUtils";
-import { normalizeForSearch } from "./sanitize";
+import {
+  getSearchHighlightRanges,
+  matchesMultiTokenSearch,
+  normalizeForSearch,
+} from "./sanitize";
 
 export const ID_TIPO_TRASLADO_INTERNO = 35;
 const TIPO_TRANSPORTE_SALIDA = 11;
@@ -217,60 +221,17 @@ export function getAgendaEventSearchParts(item) {
 
 /** ¿El evento coincide con el texto de búsqueda (tipo, detalle y/o locación)? */
 export function eventMatchesAgendaSearch(item, query) {
-  const q = normalizeForSearch(query);
-  if (!q) return true;
+  if (!String(query || "").trim()) return true;
   if (!item || item.isProgramMarker) return false;
-  const haystack = normalizeForSearch(getAgendaEventSearchParts(item).join(" "));
-  return haystack.includes(q);
+  return matchesMultiTokenSearch(getAgendaEventSearchParts(item), query);
 }
 
 /**
  * Rangos [start, end) en el texto original que coinciden con la query
- * (insensible a tildes/mayúsculas).
+ * (insensible a tildes/mayúsculas; cada palabra se resalta por separado).
  */
 export function getAccentInsensitiveHighlightRanges(text, query) {
-  const rawText = String(text ?? "");
-  const normalizedQuery = normalizeForSearch(query);
-  if (!normalizedQuery || !rawText) return [];
-
-  const normalizedChars = [];
-  const originalIndexByNormalizedIndex = [];
-  Array.from(rawText).forEach((char, originalIdx) => {
-    const normalizedChar = char
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase();
-    Array.from(normalizedChar).forEach((c) => {
-      normalizedChars.push(c);
-      originalIndexByNormalizedIndex.push(originalIdx);
-    });
-  });
-
-  const normalizedText = normalizedChars.join("");
-  if (!normalizedText) return [];
-
-  const ranges = [];
-  let searchFrom = 0;
-  while (searchFrom < normalizedText.length) {
-    const foundAt = normalizedText.indexOf(normalizedQuery, searchFrom);
-    if (foundAt === -1) break;
-    const startOriginal = originalIndexByNormalizedIndex[foundAt];
-    const endNormIdx = foundAt + normalizedQuery.length - 1;
-    const endOriginal =
-      (originalIndexByNormalizedIndex[endNormIdx] ?? startOriginal) + 1;
-    ranges.push([startOriginal, endOriginal]);
-    searchFrom = foundAt + 1;
-  }
-
-  if (!ranges.length) return [];
-
-  const merged = [];
-  ranges.forEach(([start, end]) => {
-    const last = merged[merged.length - 1];
-    if (!last || start > last[1]) merged.push([start, end]);
-    else last[1] = Math.max(last[1], end);
-  });
-  return merged;
+  return getSearchHighlightRanges(text, query);
 }
 
 const HTML_SEARCH_MARK_OPEN =

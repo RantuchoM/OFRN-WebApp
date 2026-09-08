@@ -9,7 +9,10 @@
  * - Si un participante tiene checkin_at/checkout_at propios, se usan esas fechas;
  *   si no, hereda el rango del artista. Cupos sin nominar usan el rango del artista.
  *
- * No se modela merienda (queda fuera del pedido estándar).
+ * Pedido hotel (Hotelería / reportes): no modela Merienda.
+ * Cobertura Gestor A/M/C (`amcFlagsForStayDay`): misma base Early/Late + Merienda
+ * en llegada y días intermedios (check-in canónico 14:00 < Merienda 17:00;
+ * salida canónica 10:00 → Late solo Almuerzo, sin Merienda/Cena).
  */
 
 import {
@@ -95,6 +98,57 @@ export function mealFlagsForDay(fecha, checkin, checkout, opts = {}) {
     almuerzo: (isArrival && early) || (!isArrival && !isDeparture) || (isDeparture && late),
     cena: !isDeparture,
   };
+}
+
+/**
+ * Flags A/M/C para cobertura del Gestor (no Desayuno).
+ * Reusa Early/Late de Hotelería; Merienda = llegada + intermedios (nunca salida).
+ *
+ * @returns {{ almuerzo: boolean, merienda: boolean, cena: boolean }}
+ */
+export function amcFlagsForStayDay(fecha, checkin, checkout, opts = {}) {
+  const early = opts.early === true || opts.checkin_early === true;
+  const late = opts.late === true || opts.checkout_late === true;
+  const f = String(fecha || "").slice(0, 10);
+  const ci = String(checkin || "").slice(0, 10);
+  const co = String(checkout || "").slice(0, 10);
+  if (!f || !ci || !co || f < ci || f > co) {
+    return { almuerzo: false, merienda: false, cena: false };
+  }
+  const isArrival = f === ci;
+  const isDeparture = f === co;
+  const isSameDay = ci === co;
+  const hotel = mealFlagsForDay(fecha, checkin, checkout, { early, late });
+
+  if (isSameDay) {
+    // 0 noches: Early/Late → Almuerzo (+ Merienda); sin Cena (paridad hotel).
+    const lunch = hotel.almuerzo;
+    return { almuerzo: lunch, merienda: lunch, cena: false };
+  }
+
+  return {
+    almuerzo: hotel.almuerzo,
+    // Llegada: check-in 14:00 está antes de Merienda 17:00 → incluir.
+    // Intermedios: sí. Salida: no (checkout 10:00; Late solo almuerzo).
+    merienda: isArrival || (!isArrival && !isDeparture),
+    cena: hotel.cena,
+  };
+}
+
+/**
+ * Slots A/M/C esperados en [check-in, check-out] según Early/Late.
+ * @returns {{ fecha: string, servicio: 'Almuerzo'|'Merienda'|'Cena' }[]}
+ */
+export function enumerateExpectedAmcSlotsForStay(checkin, checkout, opts = {}) {
+  const days = enumerateStayDays(checkin, checkout);
+  const out = [];
+  for (const fecha of days) {
+    const flags = amcFlagsForStayDay(fecha, checkin, checkout, opts);
+    if (flags.almuerzo) out.push({ fecha, servicio: "Almuerzo" });
+    if (flags.merienda) out.push({ fecha, servicio: "Merienda" });
+    if (flags.cena) out.push({ fecha, servicio: "Cena" });
+  }
+  return out;
 }
 
 function emptyMealCounts() {

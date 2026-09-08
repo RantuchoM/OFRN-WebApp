@@ -22,6 +22,29 @@ function formatSlot(fecha, servicio) {
   return hora ? `${day} · ${servicio} (${hora})` : `${day} · ${servicio}`;
 }
 
+function formatStayDay(iso) {
+  if (!iso) return "—";
+  try {
+    return format(parseISO(String(iso).slice(0, 10)), "EEE dd/MM", {
+      locale: es,
+    });
+  } catch {
+    return String(iso).slice(0, 10);
+  }
+}
+
+function windowLabel(g) {
+  if (g.windowSource === "stay" && g.checkinAt && g.checkoutAt) {
+    return `Estadía: ${formatStayDay(g.checkinAt)} → ${formatStayDay(g.checkoutAt)}`;
+  }
+  if (g.first && g.last) {
+    const prefix =
+      g.windowSource === "tagged" ? "Ventana (tags): " : "Ventana: ";
+    return `${prefix}${formatSlot(g.first.fecha, g.first.servicio)} → ${formatSlot(g.last.fecha, g.last.servicio)}`;
+  }
+  return null;
+}
+
 /**
  * Panel de alertas de cobertura A/M/C por artista FIMBA.
  *
@@ -45,11 +68,19 @@ export default function FimbaMealCoveragePanel({
   const [open, setOpen] = useState(true);
   const [busyKey, setBusyKey] = useState(null);
 
-  const broken = useMemo(
-    () => (gaps || []).filter((g) => !g.ok && g.missing?.length > 0),
+  const active = useMemo(
+    () => (gaps || []).filter((g) => !g.skipped),
     [gaps],
   );
-  const okCount = (gaps || []).length - broken.length;
+  const skipped = useMemo(
+    () => (gaps || []).filter((g) => g.skipped),
+    [gaps],
+  );
+  const broken = useMemo(
+    () => active.filter((g) => !g.ok && g.missing?.length > 0),
+    [active],
+  );
+  const okCount = active.length - broken.length;
   const allMissing = useMemo(() => {
     const list = [];
     for (const g of broken) {
@@ -79,8 +110,8 @@ export default function FimbaMealCoveragePanel({
         className="fimba-meal-coverage-ok"
         style={{
           display: "flex",
-          alignItems: "center",
-          gap: 8,
+          flexDirection: "column",
+          gap: 4,
           padding: compact ? "6px 12px" : "8px 14px",
           borderRadius: 10,
           background: "#f0fdf4",
@@ -90,9 +121,17 @@ export default function FimbaMealCoveragePanel({
           fontWeight: 600,
         }}
       >
-        <IconCheck size={14} />
-        Cobertura de comidas OK · {okCount} artista
-        {okCount === 1 ? "" : "s"} con Almuerzo/Merienda/Cena en su ventana
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <IconCheck size={14} />
+          Cobertura de comidas OK · {okCount} artista
+          {okCount === 1 ? "" : "s"} con Almuerzo/Merienda/Cena en su ventana
+          (estadía o tags)
+        </div>
+        {skipped.length > 0 && (
+          <div style={{ fontWeight: 500, color: "#4d7c0f", fontSize: "0.68rem" }}>
+            {skipped.length} sin estadía ni tags (omitidos)
+          </div>
+        )}
       </div>
     );
   }
@@ -149,7 +188,7 @@ export default function FimbaMealCoveragePanel({
           <IconAlertTriangle size={16} className="shrink-0" />
           <span style={{ flex: 1 }}>
             Cobertura incompleta · {broken.length} artista
-            {broken.length === 1 ? "" : "s"} · {allMissing.length} hueco
+            {broken.length === 1 ? "" : "s"} · {allMissing.length} pendiente
             {allMissing.length === 1 ? "" : "s"}
           </span>
           {open ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
@@ -175,7 +214,7 @@ export default function FimbaMealCoveragePanel({
               cursor: busyKey ? "wait" : "pointer",
               flexShrink: 0,
             }}
-            title="Crear todos los huecos listados (A 12:30 · M 17:00 · C 21:30)"
+            title="Crear todos los pendientes listados (A 12:30 · M 17:00 · C 21:30)"
           >
             {busyKey === "all" ? (
               <IconLoader size={12} className="animate-spin" />
@@ -200,123 +239,151 @@ export default function FimbaMealCoveragePanel({
             overflow: "auto",
           }}
         >
-          {broken.map((g) => (
-            <li
-              key={g.artistaId}
-              style={{
-                background: "#fff",
-                border: "1px solid #fde68a",
-                borderRadius: 8,
-                padding: "8px 10px",
-                fontSize: "0.75rem",
-              }}
-            >
-              <div
+          {broken.map((g) => {
+            const win = windowLabel(g);
+            return (
+              <li
+                key={g.artistaId}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  marginBottom: 4,
+                  background: "#fff",
+                  border: "1px solid #fde68a",
+                  borderRadius: 8,
+                  padding: "8px 10px",
+                  fontSize: "0.75rem",
                 }}
               >
-                <strong style={{ color: "#78350f", flex: 1 }}>
-                  {g.artistaNombre}
-                </strong>
-                {typeof onFilterArtista === "function" && (
-                  <button
-                    type="button"
-                    onClick={() => onFilterArtista(g.artistaId)}
-                    style={{
-                      border: "1px solid #d73289",
-                      background: "#fff",
-                      color: "#d73289",
-                      borderRadius: 6,
-                      padding: "2px 8px",
-                      fontSize: "0.65rem",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Filtrar
-                  </button>
-                )}
-              </div>
-              {g.first && g.last && (
-                <div style={{ color: "#a16207", marginBottom: 6 }}>
-                  Ventana: {formatSlot(g.first.fecha, g.first.servicio)} →{" "}
-                  {formatSlot(g.last.fecha, g.last.servicio)}
-                </div>
-              )}
-              <ul
-                style={{
-                  listStyle: "none",
-                  margin: 0,
-                  padding: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4,
-                }}
-              >
-                {g.missing.map((m) => {
-                  const key = `${g.artistaId}|${m.fecha}|${m.servicio}`;
-                  return (
-                    <li
-                      key={key}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    marginBottom: 4,
+                  }}
+                >
+                  <strong style={{ color: "#78350f", flex: 1 }}>
+                    {g.artistaNombre}
+                  </strong>
+                  {typeof onFilterArtista === "function" && (
+                    <button
+                      type="button"
+                      onClick={() => onFilterArtista(g.artistaId)}
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        color: "#991b1b",
-                        fontWeight: 600,
+                        border: "1px solid #d73289",
+                        background: "#fff",
+                        color: "#d73289",
+                        borderRadius: 6,
+                        padding: "2px 8px",
+                        fontSize: "0.65rem",
+                        fontWeight: 700,
+                        cursor: "pointer",
                       }}
                     >
-                      <span style={{ flex: 1, minWidth: 0 }}>
-                        Falta: {formatSlot(m.fecha, m.servicio)}
-                      </span>
-                      {canCreate && (
-                        <button
-                          type="button"
-                          disabled={Boolean(busyKey)}
-                          onClick={() =>
-                            runCreate(key, () =>
-                              onCreateGap({
-                                artistaId: g.artistaId,
-                                artistaNombre: g.artistaNombre,
-                                fecha: m.fecha,
-                                servicio: m.servicio,
-                              }),
-                            )
-                          }
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 3,
-                            border: "1px solid #d73289",
-                            background: "#fff",
-                            color: "#d73289",
-                            borderRadius: 6,
-                            padding: "2px 8px",
-                            fontSize: "0.62rem",
-                            fontWeight: 700,
-                            cursor: busyKey ? "wait" : "pointer",
-                            flexShrink: 0,
-                          }}
-                          title={`Crear ${m.servicio} a las ${MEAL_COVERAGE_DEFAULT_HORA[m.servicio] || "?"}`}
-                        >
-                          {busyKey === key ? (
-                            <IconLoader size={11} className="animate-spin" />
-                          ) : (
-                            <IconPlus size={11} />
-                          )}
-                          Crear automáticamente
-                        </button>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+                      Filtrar
+                    </button>
+                  )}
+                </div>
+                {win && (
+                  <div style={{ color: "#a16207", marginBottom: 4 }}>
+                    {win}
+                  </div>
+                )}
+                {g.note && (
+                  <div
+                    style={{
+                      color: "#a16207",
+                      marginBottom: 6,
+                      fontWeight: 500,
+                      fontSize: "0.68rem",
+                    }}
+                  >
+                    {g.note}
+                  </div>
+                )}
+                <ul
+                  style={{
+                    listStyle: "none",
+                    margin: 0,
+                    padding: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4,
+                  }}
+                >
+                  {g.missing.map((m) => {
+                    const key = `${g.artistaId}|${m.fecha}|${m.servicio}`;
+                    return (
+                      <li
+                        key={key}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          color: "#991b1b",
+                          fontWeight: 600,
+                        }}
+                      >
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          Falta: {formatSlot(m.fecha, m.servicio)}
+                        </span>
+                        {canCreate && (
+                          <button
+                            type="button"
+                            disabled={Boolean(busyKey)}
+                            onClick={() =>
+                              runCreate(key, () =>
+                                onCreateGap({
+                                  artistaId: g.artistaId,
+                                  artistaNombre: g.artistaNombre,
+                                  fecha: m.fecha,
+                                  servicio: m.servicio,
+                                }),
+                              )
+                            }
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 3,
+                              border: "1px solid #d73289",
+                              background: "#fff",
+                              color: "#d73289",
+                              borderRadius: 6,
+                              padding: "2px 8px",
+                              fontSize: "0.62rem",
+                              fontWeight: 700,
+                              cursor: busyKey ? "wait" : "pointer",
+                              flexShrink: 0,
+                            }}
+                            title={`Crear ${m.servicio} a las ${MEAL_COVERAGE_DEFAULT_HORA[m.servicio] || "?"}`}
+                          >
+                            {busyKey === key ? (
+                              <IconLoader size={11} className="animate-spin" />
+                            ) : (
+                              <IconPlus size={11} />
+                            )}
+                            Crear automáticamente
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            );
+          })}
+          {skipped.length > 0 && (
+            <li
+              style={{
+                fontSize: "0.68rem",
+                color: "#a16207",
+                fontWeight: 500,
+                padding: "4px 2px",
+              }}
+            >
+              Omitidos ({skipped.length}):{" "}
+              {skipped.map((g) => g.artistaNombre).join(", ")} — sin check-in/out
+              ni comidas tagueadas
             </li>
-          ))}
+          )}
         </ul>
       )}
     </div>

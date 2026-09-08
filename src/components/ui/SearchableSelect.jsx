@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { IconSearch, IconX, IconCheck } from './Icons';
-import { normalizeForSearch } from '../../utils/sanitize';
+import { matchesMultiTokenSearch } from '../../utils/sanitize';
 
 const cleanOptionText = (value) => {
     if (value == null) return "";

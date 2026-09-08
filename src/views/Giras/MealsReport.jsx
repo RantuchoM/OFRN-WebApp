@@ -228,6 +228,8 @@ export default function MealsReport({
   onMealFiltersChange = null,
   /** FIMBA Comidas: suma pax artistas tagueados + skin magenta. */
   fimbaMode = false,
+  /** Catálogo artistas (con check-in/out) para cobertura A/M/C. */
+  propuestas = [],
   /** Grupos de convocatoria de la gira (AND con elegibilidad). */
   giraGrupos = [],
   /** Consulta FIMBA: sin crear comidas desde alertas. */
@@ -911,12 +913,14 @@ export default function MealsReport({
 
   const coverageGaps = useMemo(() => {
     if (!fimbaMode) return [];
-    return findFimbaArtistMealCoverageGaps(reportData);
-  }, [fimbaMode, reportData]);
+    return findFimbaArtistMealCoverageGaps(reportData, { propuestas });
+  }, [fimbaMode, reportData, propuestas]);
 
   const coverageBrokenCount = useMemo(
     () =>
-      (coverageGaps || []).filter((g) => !g.ok && g.missing?.length > 0).length,
+      (coverageGaps || []).filter(
+        (g) => !g.skipped && !g.ok && g.missing?.length > 0,
+      ).length,
     [coverageGaps],
   );
 

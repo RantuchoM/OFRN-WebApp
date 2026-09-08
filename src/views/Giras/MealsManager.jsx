@@ -2081,8 +2081,10 @@ export default function MealsManager({
 
   const coverageGaps = useMemo(() => {
     if (!fimbaMode) return [];
-    return findFimbaArtistMealCoverageGaps(coverageSiblingRows);
-  }, [fimbaMode, coverageSiblingRows]);
+    return findFimbaArtistMealCoverageGaps(coverageSiblingRows, {
+      propuestas,
+    });
+  }, [fimbaMode, coverageSiblingRows, propuestas]);
 
   const handleCreateCoverageGap = async (gap) => {
     if (!gira?.id || !gap) return;
