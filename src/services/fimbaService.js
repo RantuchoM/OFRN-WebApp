@@ -7,6 +7,7 @@
  */
 
 import { supabase } from "./supabase";
+import { applyMultiTokenOrIlike } from "../utils/sanitize";
 import {
   fetchGiraGrupos,
   setEventoGrupos,
@@ -3232,9 +3233,10 @@ export async function searchProgramasForFimba(q, limit = 30) {
     .limit(limit);
   const term = String(q || "").trim();
   if (term) {
-    const safe = term.replace(/%/g, "").replace(/,/g, "");
-    query = query.or(
-      `nomenclador.ilike.%${safe}%,nombre_gira.ilike.%${safe}%,subtitulo.ilike.%${safe}%,mes_letra.ilike.%${safe}%`,
+    query = applyMultiTokenOrIlike(
+      query,
+      ["nomenclador", "nombre_gira", "subtitulo", "mes_letra"],
+      term,
     );
   }
   const { data, error } = await query;

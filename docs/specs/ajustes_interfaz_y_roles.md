@@ -40,9 +40,9 @@
 ## 7. Búsqueda por detalle y locación (Agenda)
 - **Estado**: Completado (2026-08-10). Actualizado: input con debounce (UX).
 - **UI**: Input con ícono de lupa a la izquierda del botón Filtros en `UnifiedAgenda.jsx` (placeholder «Buscar…», botón limpiar con ✕). Componente `AgendaSearchField`: valor local inmediato; el padre recibe la query con debounce (~250 ms) y `startTransition`. Con texto activo: borde indigo resaltado + ring sutil; fondo blanco (sin lavado violeta).
-- **Alcance del match**: nombre de `tipos_evento`, descripción/detalle del evento (HTML aplanado), detalle de transporte vinculado, y campos de locación (`nombre`, `dirección`, `localidad`). Insensible a tildes/mayúsculas.
-- **Comportamiento**: filtra la lista ya acotada por fecha/categoría/etc.; con búsqueda activa se ocultan separadores de programa. Las coincidencias se resaltan con `<mark>` amarillo en tipo (badge y fallback sin descripción), detalle y locación. El texto del input no espera al re-render de la lista.
-- **Helpers**: `eventMatchesAgendaSearch`, `highlightHtmlSearch`, `getAccentInsensitiveHighlightRanges` en `agendaHelpers.js`.
+- **Alcance del match**: nombre de `tipos_evento`, descripción/detalle del evento (HTML aplanado), detalle de transporte vinculado, y campos de locación (`nombre`, `dirección`, `localidad`). Insensible a tildes/mayúsculas; **palabras sueltas en cualquier orden** (`matchesMultiTokenSearch`).
+- **Comportamiento**: filtra la lista ya acotada por fecha/categoría/etc.; con búsqueda activa se ocultan separadores de programa. Las coincidencias se resaltan con `<mark>` amarillo **por token** en tipo (badge y fallback sin descripción), detalle y locación. El texto del input no espera al re-render de la lista.
+- **Helpers**: `eventMatchesAgendaSearch`, `highlightHtmlSearch`, `getAccentInsensitiveHighlightRanges` (delega en `getSearchHighlightRanges`) en `agendaHelpers.js`. Spec global: `docs/specs/busqueda-texto.md`.
 - **Perf**: No atar el input controlled al estado de filtro del árbol grande (`UnifiedAgenda`); si no, cada tecla re-filtra y re-renderiza toda la agenda y la letra tarda en verse.
 
 ## 8. Agenda: expandir pasado (editores)

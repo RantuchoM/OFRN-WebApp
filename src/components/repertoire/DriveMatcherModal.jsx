@@ -21,7 +21,7 @@ import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups"; // <--- IMPORT
 import { parseOrganicoVientosInput } from "../../utils/particellaOrganicoInput";
 import OrganicoVientosAddField from "./OrganicoVientosAddField";
 import { toast } from "sonner";
-import { normalizeForSearch } from "../../utils/sanitize";
+import { matchesMultiTokenSearch, normalizeForSearch } from "../../utils/sanitize";
 import {
   attachDriveLinksByFilename,
   expandDriveFileToParts,
@@ -421,9 +421,8 @@ export default function DriveMatcherModal({
   // ... (Gestsión de Partes: handleAddPart, handleDeletePart, etc. se mantienen igual)
   const allOptions = [...INSTRUMENT_GROUPS, ...(catalogoInstrumentos || [])];
 
-  const queryNorm = normalizeForSearch(instrumentQuery);
   const filteredInstruments = allOptions.filter((i) =>
-    normalizeForSearch(i.instrumento).includes(queryNorm),
+    matchesMultiTokenSearch([i.instrumento], instrumentQuery),
   );
 
   const handleAddPart = () => {

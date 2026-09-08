@@ -1,4 +1,5 @@
 import { isRepertorioPlaceholder } from "../utils/repertorioRowDisplay";
+import { applyMultiTokenOrIlike } from "../utils/sanitize";
 
 export const PLACEHOLDER_OPCIONES_SELECT = `
   id,
@@ -220,9 +221,7 @@ export async function searchProgramasForAssign(supabase, query = "", limit = 40)
     .limit(limit);
   const t = String(query || "").trim();
   if (t.length >= 2) {
-    q = q.or(
-      `nombre_gira.ilike.%${t}%,nomenclador.ilike.%${t}%,mes_letra.ilike.%${t}%`,
-    );
+    q = applyMultiTokenOrIlike(q, ["nombre_gira", "nomenclador", "mes_letra"], t);
   }
   const { data, error } = await q;
   if (error) throw error;

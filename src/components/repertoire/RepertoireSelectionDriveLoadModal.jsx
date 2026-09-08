@@ -8,7 +8,7 @@ import {
   loadArchivoSelectionFromDrive,
   matchSelectionItemsToWorkIds,
 } from "../../services/repertoireSelectionDriveService";
-import { normalizeForSearch } from "../../utils/sanitize";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 export default function RepertoireSelectionDriveLoadModal({
@@ -50,9 +50,8 @@ export default function RepertoireSelectionDriveLoadModal({
   }, [supabase]);
 
   const filteredFolders = useMemo(() => {
-    const q = normalizeForSearch(search);
-    if (!q) return folders;
-    return folders.filter((f) => normalizeForSearch(f.name).includes(q));
+    if (!search.trim()) return folders;
+    return folders.filter((f) => matchesMultiTokenSearch([f.name], search));
   }, [folders, search]);
 
   const selectedFolder = folders.find((f) => f.id === selectedFolderId) || null;

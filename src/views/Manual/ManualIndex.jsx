@@ -5,39 +5,44 @@ import {
   IconChevronDown, IconFileText, IconLoader, IconMenu
 } from '../../components/ui/Icons';
 import VideoPlayer from '../../components/ui/VideoPlayer';
+import { getSearchHighlightRanges, matchesMultiTokenSearch, splitSearchTokens } from '../../utils/sanitize';
 import 'react-quill/dist/quill.snow.css';
 
 // --- UTILIDAD: GENERAR EXTRACTO CON RESALTADO ---
 const getSearchSnippet = (htmlContent, query) => {
   if (!htmlContent || !query) return null;
 
-  // 1. Eliminar etiquetas HTML para buscar en texto plano
   const div = document.createElement("div");
   div.innerHTML = htmlContent;
   const text = div.textContent || div.innerText || "";
-  
   if (!text) return null;
 
-  const lowerText = text.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  const index = lowerText.indexOf(lowerQuery);
+  if (!matchesMultiTokenSearch([text], query)) return null;
 
-  if (index === -1) return null;
+  const tokens = splitSearchTokens(query);
+  const ranges = getSearchHighlightRanges(text, query);
+  const first = ranges[0];
+  const matchLen = first ? first[1] - first[0] : (tokens[0]?.length || 0);
+  const index = first ? first[0] : 0;
 
-  // 2. Calcular ventana de texto (ej: 40 caracteres antes y después)
   const start = Math.max(0, index - 40);
-  const end = Math.min(text.length, index + query.length + 60);
-  
+  const end = Math.min(text.length, index + matchLen + 60);
+
   let snippet = text.substring(start, end);
-  
-  // 3. Agregar elipses si cortamos texto
   if (start > 0) snippet = "..." + snippet;
   if (end < text.length) snippet = snippet + "...";
 
-  // 4. Resaltar la palabra encontrada (usando Regex para mantener mayúsculas/minúsculas originales)
-  // Reemplazamos la coincidencia por un span con fondo amarillo
-  const regex = new RegExp(`(${query})`, 'gi');
-  return snippet.replace(regex, '<mark class="bg-yellow-200 font-bold rounded-sm px-0.5">$1</mark>');
+  const snippetRanges = getSearchHighlightRanges(snippet, query);
+  if (!snippetRanges.length) return snippet;
+  let out = "";
+  let cursor = 0;
+  for (const [s, e] of snippetRanges) {
+    out += snippet.slice(cursor, s);
+    out += `<mark class="bg-yellow-200 font-bold rounded-sm px-0.5">${snippet.slice(s, e)}</mark>`;
+    cursor = e;
+  }
+  out += snippet.slice(cursor);
+  return out;
 };
 
 
@@ -185,8 +190,6 @@ export default function ManualIndex() {
 
     // 2. Si no hay búsqueda, devolver árbol limpio
     if (!searchQuery.trim()) return fullTree;
-
-    const lowerQuery = searchQuery.toLowerCase();
     
     // 3. Función de Filtrado con Lógica de "Match Directo vs Indirecto"
     const filterNodes = (nodes) => {
@@ -195,7 +198,7 @@ export default function ManualIndex() {
         const filteredChildren = filterNodes(node.children);
         
         // B. Chequear coincidencia propia
-        const titleMatch = node.title.toLowerCase().includes(lowerQuery);
+        const titleMatch = matchesMultiTokenSearch([node.title], searchQuery);
         // Generar snippet si hay match en contenido (costoso, pero útil)
         const contentSnippet = getSearchSnippet(node.content, searchQuery);
         

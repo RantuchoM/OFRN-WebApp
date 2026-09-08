@@ -171,6 +171,155 @@ const typeIdForBase = (mealTypes, base) => {
   const any = mealTypes?.find((t) => mealBaseFromTypeName(t.nombre) === base);
   return any?.id ?? canon ?? null;
 };
+
+/** Resuelve servicio base + labels al elegir un tipo de evento (D/A/M/C o Catering). */
+const resolveMealTypeSelection = (mealTypes, typeId, fallbackServicio = "") => {
+  const id =
+    typeId === "" || typeId == null ? null : Number(typeId);
+  const tipo = mealTypes?.find((t) => Number(t.id) === Number(id));
+  const tipoNombre = tipo?.nombre || typeNombreById(mealTypes, id) || "";
+  const isCatering =
+    Boolean(tipo?.is_catering) ||
+    tipo?.servicio === CATERING_SERVICE ||
+    (mealBaseFromTypeName(tipoNombre) == null &&
+      String(tipoNombre).toLowerCase().includes("catering"));
+  const servicio = isCatering
+    ? CATERING_SERVICE
+    : mealBaseFromTypeName(tipoNombre) ||
+      tipo?.servicio ||
+      fallbackServicio ||
+      "";
+  return { id_tipo_evento: id, tipo_nombre: tipoNombre || servicio, servicio };
+};
+
+/**
+ * Mini-modal al "+" de fila: fecha y tipo editables (defaults = fila origen).
+ * Temp row sin hora_fin ni tags artistas (paridad con sibling add previo).
+ */
+function SiblingMealAddModal({
+  draft,
+  mealTypes = [],
+  onChange,
+  onCancel,
+  onConfirm,
+}) {
+  if (!draft || typeof document === "undefined") return null;
+
+  const typeOptions = mealTypes.length
+    ? mealTypes
+    : draft.id_tipo_evento
+      ? [
+          {
+            id: draft.id_tipo_evento,
+            nombre: draft.tipo_nombre || draft.servicio,
+          },
+        ]
+      : [];
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-[1px] flex items-center justify-center p-4 print:hidden"
+      onClick={onCancel}
+      role="presentation"
+    >
+      <div
+        className="w-full max-w-sm bg-white rounded-xl shadow-2xl border border-slate-200 animate-in zoom-in-95 fade-in duration-150"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="sibling-meal-add-title"
+      >
+        <div className="px-4 py-3 border-b border-slate-200 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3
+              id="sibling-meal-add-title"
+              className="text-sm font-bold text-slate-800"
+            >
+              Agregar comida
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Tipo y fecha pre-cargados de la fila; podés cambiarlos antes de
+              crear.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="p-1 text-slate-400 hover:text-slate-700 rounded"
+            title="Cerrar"
+          >
+            <IconX size={18} />
+          </button>
+        </div>
+        <div className="px-4 py-3 space-y-3">
+          <div>
+            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wide">
+              Fecha
+            </label>
+            <input
+              type="date"
+              value={draft.fecha || ""}
+              onChange={(e) =>
+                onChange({ ...draft, fecha: e.target.value || "" })
+              }
+              className="mt-1 w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400"
+            />
+          </div>
+          <div>
+            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wide">
+              Servicio / tipo
+            </label>
+            <select
+              value={draft.id_tipo_evento ?? ""}
+              onChange={(e) => {
+                const resolved = resolveMealTypeSelection(
+                  mealTypes,
+                  e.target.value,
+                  draft.servicio,
+                );
+                onChange({ ...draft, ...resolved });
+              }}
+              className={`mt-1 w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 ${
+                getMealServiceStyle(draft.servicio).tag
+              }`}
+            >
+              {typeOptions.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.nombre}
+                </option>
+              ))}
+              {!typeOptions.some(
+                (t) => Number(t.id) === Number(draft.id_tipo_evento),
+              ) &&
+                draft.id_tipo_evento && (
+                  <option value={draft.id_tipo_evento}>
+                    {draft.tipo_nombre || draft.servicio}
+                  </option>
+                )}
+            </select>
+          </div>
+        </div>
+        <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={!draft.fecha || !draft.servicio}
+            onClick={onConfirm}
+            className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:pointer-events-none rounded-lg"
+          >
+            Crear fila
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 const GROUP_DEFS = [
   {
     id: "GRP:TUTTI",
@@ -1620,6 +1769,8 @@ export default function MealsManager({
   const [deletingRows, setDeletingRows] = useState(new Set());
   const [justSavedRows, setJustSavedRows] = useState(new Set()); // Para el destello verde
   const [comensalesDetailRow, setComensalesDetailRow] = useState(null);
+  /** Draft del mini-modal "+" (fecha/tipo editables; defaults = fila origen). */
+  const [siblingAddDraft, setSiblingAddDraft] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
   const [localMealFilters, setLocalMealFilters] = useState(() =>
     createDefaultMealFilters(),
@@ -1822,9 +1973,13 @@ export default function MealsManager({
     calculateGrid(mealOnly, rules || []);
   };
 
-  const makeTempMealRow = (fecha, servicio) => {
-    const idTipo = typeIdForBase(mealTypes, servicio);
-    const tipoNombre = typeNombreById(mealTypes, idTipo) || servicio;
+  const makeTempMealRow = (fecha, servicio, opts = {}) => {
+    const idTipo =
+      opts.id_tipo_evento != null && opts.id_tipo_evento !== ""
+        ? Number(opts.id_tipo_evento)
+        : typeIdForBase(mealTypes, servicio);
+    const tipoNombre =
+      opts.tipo_nombre || typeNombreById(mealTypes, idTipo) || servicio;
     return {
       id: `temp-${fecha}-${servicio}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       fecha,
@@ -1978,25 +2133,69 @@ export default function MealsManager({
     setGrid(sortMealManagerGrid(newGrid));
   };
 
-  /** Agrega otra fila del mismo día/servicio (p. ej. 2.º almuerzo para otro grupo). */
-  const addSiblingMeal = (row) => {
+  /** Abre mini-modal "+" con fecha/tipo editables (defaults = fila). */
+  const openSiblingMealAdd = (row) => {
     if (!row?.fecha || !row?.servicio) return;
-    const newRow = makeTempMealRow(row.fecha, row.servicio);
+    const idTipo =
+      row.id_tipo_evento != null && row.id_tipo_evento !== ""
+        ? Number(row.id_tipo_evento)
+        : typeIdForBase(mealTypes, row.servicio);
+    setSiblingAddDraft({
+      sourceRowId: row.id,
+      fecha: row.fecha,
+      servicio: row.servicio,
+      id_tipo_evento: idTipo,
+      tipo_nombre: row.tipo_nombre || typeNombreById(mealTypes, idTipo) || row.servicio,
+    });
+  };
+
+  /**
+   * Agrega fila temp (sin hora_fin; sin tags artistas — mismo patrón que antes).
+   * `overrides` permite otra fecha/servicio/tipo respecto de la fila origen.
+   */
+  const addSiblingMeal = (row, overrides = {}) => {
+    const fecha = overrides.fecha || row?.fecha;
+    const servicio = overrides.servicio || row?.servicio;
+    if (!fecha || !servicio) return;
+    const newRow = makeTempMealRow(fecha, servicio, {
+      id_tipo_evento: overrides.id_tipo_evento,
+      tipo_nombre: overrides.tipo_nombre,
+    });
     setGrid((prev) => {
       const idx = prev.findIndex((r) => r.id === row.id);
       if (idx === -1) return sortMealManagerGrid([...prev, newRow]);
+      const sameTurn = fecha === row.fecha && servicio === row.servicio;
       let insertAt = idx + 1;
-      while (
-        insertAt < prev.length &&
-        prev[insertAt].fecha === row.fecha &&
-        prev[insertAt].servicio === row.servicio
-      ) {
-        insertAt += 1;
+      if (sameTurn) {
+        while (
+          insertAt < prev.length &&
+          prev[insertAt].fecha === fecha &&
+          prev[insertAt].servicio === servicio
+        ) {
+          insertAt += 1;
+        }
       }
       const copy = [...prev];
       copy.splice(insertAt, 0, newRow);
       return sortMealManagerGrid(copy);
     });
+  };
+
+  const confirmSiblingMealAdd = () => {
+    if (!siblingAddDraft?.fecha || !siblingAddDraft?.servicio) return;
+    const source =
+      grid.find((r) => r.id === siblingAddDraft.sourceRowId) || {
+        id: siblingAddDraft.sourceRowId,
+        fecha: siblingAddDraft.fecha,
+        servicio: siblingAddDraft.servicio,
+      };
+    addSiblingMeal(source, {
+      fecha: siblingAddDraft.fecha,
+      servicio: siblingAddDraft.servicio,
+      id_tipo_evento: siblingAddDraft.id_tipo_evento,
+      tipo_nombre: siblingAddDraft.tipo_nombre,
+    });
+    setSiblingAddDraft(null);
   };
 
   const getEligiblePeopleRaw = useCallback(

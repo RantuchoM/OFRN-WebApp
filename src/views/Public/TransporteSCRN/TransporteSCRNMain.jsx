@@ -23,6 +23,7 @@ import {
   scrnTransporteColorFromEntity,
 } from "./scrnTransporteColor";
 import { cupoPasajerosViaje } from "./scrnPlazasCapacidad";
+import { matchesMultiTokenSearch } from "../../../utils/sanitize";
 import SolicitudModal from "./SolicitudModal";
 import ProponerNuevoViajeModal from "./ProponerNuevoViajeModal";
 import EditarPerfilScrnModal from "./EditarPerfilScrnModal";
@@ -376,7 +377,7 @@ export default function TransporteSCRNMain({
         !rawT || (Number.isFinite(transId) && Number(item.id_transporte) === transId);
       const destinoMatch =
         !filters.destino ||
-        item.destino_final?.toLowerCase().includes(filters.destino.toLowerCase());
+        matchesMultiTokenSearch([item.destino_final], filters.destino);
       const salidaDia = item.fecha_salida
         ? String(item.fecha_salida).slice(0, 10)
         : "";

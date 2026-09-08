@@ -39,6 +39,7 @@ import {
 } from "./viajeTransporteConflict";
 import { isSalidaHoyOFutura } from "./viajeSalidaTemporal";
 import { normalizeViaticosOpciones } from "../../../utils/scrnViaticoPrefill";
+import { matchesMultiTokenSearch } from "../../../utils/sanitize";
 import {
   normalizeScrnTransporteColor,
   scrnTransporteAccentStyle,
@@ -684,27 +685,25 @@ export default function AdminSCRNPanel({
   };
 
   const filteredDGLocalidades = useMemo(() => {
-    const idQ = dgFilters.localidades.id.trim().toLowerCase();
-    const locQ = dgFilters.localidades.localidad.trim().toLowerCase();
+    const idQ = dgFilters.localidades.id.trim();
+    const locQ = dgFilters.localidades.localidad.trim();
     return localidades.filter((item) => {
       const d = localidadesEdits[item.id] || {};
       const idStr = String(item.id);
-      const locStr = (d.localidad ?? item.localidad ?? "").toLowerCase();
-      if (idQ && !idStr.toLowerCase().includes(idQ)) return false;
-      if (locQ && !locStr.includes(locQ)) return false;
+      const locStr = d.localidad ?? item.localidad ?? "";
+      if (idQ && !matchesMultiTokenSearch([idStr], idQ)) return false;
+      if (locQ && !matchesMultiTokenSearch([locStr], locQ)) return false;
       return true;
     });
   }, [localidades, localidadesEdits, dgFilters.localidades]);
 
   const filteredDGTipos = useMemo(() => {
-    const nq = dgFilters.tipos.nombre.trim().toLowerCase();
-    const eq = dgFilters.tipos.emoji.trim().toLowerCase();
+    const nq = dgFilters.tipos.nombre.trim();
+    const eq = dgFilters.tipos.emoji.trim();
     return tiposCatalog.filter((item) => {
       const draft = { ...item, ...tiposEdits[item.id] };
-      const nombreStr = (draft.nombre || "").toLowerCase();
-      const emojiStr = (draft.emoji || "").toLowerCase();
-      if (nq && !nombreStr.includes(nq)) return false;
-      if (eq && !emojiStr.includes(eq)) return false;
+      if (nq && !matchesMultiTokenSearch([draft.nombre], nq)) return false;
+      if (eq && !matchesMultiTokenSearch([draft.emoji], eq)) return false;
       return true;
     });
   }, [tiposCatalog, tiposEdits, dgFilters.tipos]);
@@ -714,18 +713,19 @@ export default function AdminSCRNPanel({
     return uxProfiles.filter((item) => {
       const d = { ...item, ...uxEdits[item.id] };
       const pairs = [
-        [f.nombre, (d.nombre || "").toLowerCase()],
-        [f.apellido, (d.apellido || "").toLowerCase()],
-        [f.dni, (d.dni || "").toLowerCase()],
-        [f.fecha_nacimiento, (d.fecha_nacimiento || "").toLowerCase()],
-        [f.email, (d.email || "").toLowerCase()],
-        [f.cargo, (d.cargo || "").toLowerCase()],
-        [f.genero, (d.genero || "").toLowerCase()],
+        [f.nombre, d.nombre],
+        [f.apellido, d.apellido],
+        [f.dni, d.dni],
+        [f.fecha_nacimiento, d.fecha_nacimiento],
+        [f.email, d.email],
+        [f.cargo, d.cargo],
+        [f.genero, d.genero],
         [f.admin, d.es_admin ? "sí admin" : "no"],
       ];
       for (const [q, hay] of pairs) {
-        const qq = (q || "").trim().toLowerCase();
-        if (qq && !String(hay).includes(qq)) return false;
+        if (String(q || "").trim() && !matchesMultiTokenSearch([hay], q)) {
+          return false;
+        }
       }
       return true;
     });

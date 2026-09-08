@@ -14,6 +14,7 @@ import InstrumentationFilterModal from "./InstrumentationFilterModal";
 import OrganicoVientosAddField from "./OrganicoVientosAddField";
 import { fetchRosterForGira } from "../../hooks/useGiraRoster";
 import { formatSecondsToTime } from "../../utils/time";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import {
   calculateInstrumentation,
   computeInstrumentationConvokedFromRoster,
@@ -300,30 +301,29 @@ export default function RepertoireWorkPickerModal({
   const filteredLibrary = useMemo(
     () =>
       worksLibrary.filter((w) => {
-        const tituloFilter = normalizeSearchText(debouncedFilters.titulo);
-        const compositorFilter = normalizeSearchText(debouncedFilters.compositor);
-        const arregladorFilter = normalizeSearchText(debouncedFilters.arreglador);
-
         if (
-          tituloFilter &&
-          !String(w.titulo_plain || normalizeSearchText(w.titulo)).includes(
-            tituloFilter,
+          debouncedFilters.titulo &&
+          !matchesMultiTokenSearch(
+            [w.titulo_plain, w.titulo],
+            debouncedFilters.titulo,
           )
         ) {
           return false;
         }
         if (
-          compositorFilter &&
-          !String(w.compositor_plain || normalizeSearchText(w.compositor_full)).includes(
-            compositorFilter,
+          debouncedFilters.compositor &&
+          !matchesMultiTokenSearch(
+            [w.compositor_plain, w.compositor_full],
+            debouncedFilters.compositor,
           )
         ) {
           return false;
         }
         if (
-          arregladorFilter &&
-          !String(w.arreglador_plain || normalizeSearchText(w.arreglador_full)).includes(
-            arregladorFilter,
+          debouncedFilters.arreglador &&
+          !matchesMultiTokenSearch(
+            [w.arreglador_plain, w.arreglador_full],
+            debouncedFilters.arreglador,
           )
         ) {
           return false;

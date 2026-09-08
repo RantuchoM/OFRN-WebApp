@@ -11,6 +11,7 @@ import {
   IconUpload,
   IconX,
 } from "../../components/ui/Icons";
+import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import {
   createInstrumento,
   findInstrumentosByStagePlotType,
@@ -849,24 +850,19 @@ export default function StagePlotInstrumentsPanel({
   }, [selected]);
 
   const filtered = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => {
-      const name = String(r.instrumento || "").toLowerCase();
-      const type = String(r.stage_plot_type || "").toLowerCase();
-      const fam = String(r.familia || "").toLowerCase();
-      const id = String(r.id || "").toLowerCase();
-      const typeLabel = (
-        TYPE_LABEL.get(r.stage_plot_type) || ""
-      ).toLowerCase();
-      return (
-        name.includes(q) ||
-        type.includes(q) ||
-        typeLabel.includes(q) ||
-        fam.includes(q) ||
-        id.includes(q)
-      );
-    });
+    if (!filter.trim()) return rows;
+    return rows.filter((r) =>
+      matchesMultiTokenSearch(
+        [
+          r.instrumento,
+          r.stage_plot_type,
+          TYPE_LABEL.get(r.stage_plot_type),
+          r.familia,
+          r.id,
+        ],
+        filter,
+      ),
+    );
   }, [rows, filter]);
 
   const { withIcon, withoutIcon } = useMemo(
