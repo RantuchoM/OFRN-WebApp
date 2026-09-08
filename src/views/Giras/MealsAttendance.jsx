@@ -13,6 +13,7 @@ import {
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
+import MealOrchestraOnlyFilterChip from "../../components/logistics/MealOrchestraOnlyFilterChip";
 import { format, parseISO, isAfter, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
@@ -28,12 +29,12 @@ import {
   isDefaultMealFilters,
   DEFAULT_MEAL_SERVICE_FILTER,
   MEAL_FILTER_NO_LOC,
-  MEAL_FILTER_NO_ARTIST,
+  buildMealArtistFilterOptions,
+  MEAL_FILTER_ORCHESTRA_ONLY,
   mealRowGrupoIds,
   mealRowHasOfrnAudience,
   isOrchestraMealRow,
   findCoincidingGrupoMealRows,
-  filterFimbaPropuestasForMeals,
   buildMealAttendanceTurnColumns,
   resolveAttendanceEventForPerson,
   mergeAttendanceStatuses,
@@ -61,6 +62,7 @@ export default function MealsAttendance({
   mealFilters = null,
   onMealFiltersChange = null,
   giraGrupos = [],
+  fimbaMode = false,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const [loading, setLoading] = useState(false);
@@ -269,7 +271,6 @@ export default function MealsAttendance({
   };
 
   const NO_LOC_FILTER = MEAL_FILTER_NO_LOC;
-  const NO_ARTIST_FILTER = MEAL_FILTER_NO_ARTIST;
 
   const locationFilterOptions = useMemo(() => {
     const map = new Map();
@@ -294,28 +295,15 @@ export default function MealsAttendance({
     return opts;
   }, [events]);
 
-  const artistFilterOptions = useMemo(() => {
-    const map = new Map();
-    let hasNone = false;
-    for (const evt of events) {
-      const props = filterFimbaPropuestasForMeals(evt.propuestas || []);
-      if (!props.length) {
-        hasNone = true;
-        continue;
-      }
-      for (const p of props) {
-        if (!p?.id) continue;
-        const key = String(p.id);
-        if (map.has(key)) continue;
-        map.set(key, { value: key, label: p.nombre || `Artista ${p.id}` });
-      }
-    }
-    const opts = Array.from(map.values()).sort((a, b) =>
-      a.label.localeCompare(b.label, "es", { sensitivity: "base" }),
+  const artistFilterOptions = useMemo(
+    () => buildMealArtistFilterOptions({ rows: events }),
+    [events],
+  );
+  const showArtistFilter =
+    fimbaMode ||
+    artistFilterOptions.some(
+      (o) => o.value !== MEAL_FILTER_ORCHESTRA_ONLY,
     );
-    if (hasNone) opts.push({ value: NO_ARTIST_FILTER, label: "Sin artistas" });
-    return opts;
-  }, [events]);
 
   /** Vista filtrada — nunca se escribe sobre `events`. */
   const filteredEvents = useMemo(
@@ -748,7 +736,13 @@ export default function MealsAttendance({
                   onChange={setFilterLocacionIds}
                 />
               </div>
-              {artistFilterOptions.length > 0 && (
+              {showArtistFilter && (
+                <MealOrchestraOnlyFilterChip
+                  value={filterArtistaIds}
+                  onChange={setFilterArtistaIds}
+                />
+              )}
+              {showArtistFilter && (
                 <div className="w-36 relative z-50">
                   <MultiSelectDropdown
                     compact

@@ -58,7 +58,9 @@ import {
   createDefaultMealFilters,
   isDefaultMealFilters,
   MEAL_FILTER_NO_LOC,
-  MEAL_FILTER_NO_ARTIST,
+  MEAL_FILTER_ORCHESTRA_ONLY,
+  buildMealArtistFilterOptions,
+  toggleMealConvocadosSelection,
   DEFAULT_MEAL_SERVICE_FILTER,
   findFimbaArtistMealCoverageGaps,
   filterFimbaPropuestasForMeals,
@@ -80,6 +82,7 @@ import {
   setEventoGrupos,
 } from "../../services/giraGruposService";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
+import MealOrchestraOnlyFilterChip from "../../components/logistics/MealOrchestraOnlyFilterChip";
 import FimbaEventArtistasTagsCell from "../Fimba/FimbaEventArtistasTagsCell";
 import FimbaMealCoveragePanel from "../Fimba/FimbaMealCoveragePanel";
 import { grupoNombreInitials } from "../../components/giras/GiraGrupoChips";
@@ -1302,20 +1305,7 @@ const MultiGroupSelect = ({
   };
 
   const toggleOption = (id) => {
-    let created = [...(value || [])];
-    if (id === ROSTER_CATEGORIES.NONE) created = [ROSTER_CATEGORIES.NONE];
-    else if (id === "GRP:TUTTI") created = ["GRP:TUTTI"];
-    else {
-      if (
-        created.includes("GRP:TUTTI") ||
-        created.includes(ROSTER_CATEGORIES.NONE)
-      ) {
-        created = [];
-      }
-      if (created.includes(id)) created = created.filter((x) => x !== id);
-      else created.push(id);
-    }
-    onChange(created);
+    onChange(toggleMealConvocadosSelection(value, id));
   };
 
   const q = normalize(search);
@@ -1376,10 +1366,11 @@ const MultiGroupSelect = ({
         )}
         {value.map((id) => {
           const isNone = id === ROSTER_CATEGORIES.NONE || id === "GRP:NONE";
+          const label = getGroupLabelShort(id, catalogs);
           return (
             <span
               key={id}
-              className={`${compact ? "text-[8px] px-0.5" : "text-[9px] px-1"} rounded border font-bold ${
+              className={`${compact ? "text-[8px] pl-0.5 pr-0" : "text-[9px] pl-1 pr-0"} inline-flex items-center gap-0 rounded border font-bold ${
                 darkMode
                   ? isNone
                     ? "bg-slate-800 text-slate-200 border-slate-600"
@@ -1391,10 +1382,24 @@ const MultiGroupSelect = ({
               title={
                 isNone
                   ? "Orquesta OFRN no come; artistas FIMBA se cuentan aparte"
-                  : undefined
+                  : `Quitar ${label}`
               }
             >
-              {getGroupLabelShort(id, catalogs)}
+              <span className={compact ? "pr-0.5" : "pr-0.5"}>{label}</span>
+              {!disabled && (
+                <button
+                  type="button"
+                  aria-label={`Quitar ${label}`}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleOption(id);
+                  }}
+                  className={`${compact ? "p-0.5" : "p-0.5"} rounded-r hover:bg-black/10 text-current opacity-70 hover:opacity-100`}
+                >
+                  <IconX size={compact ? 8 : 10} />
+                </button>
+              )}
             </span>
           );
         })}
@@ -1463,7 +1468,9 @@ const MultiGroupSelect = ({
               </div>
             ) : (
               tabOptions.map((opt) => {
-                const selected = value.includes(opt.id);
+                const selected = (value || [])
+                  .map(String)
+                  .includes(String(opt.id));
                 return (
                   <button
                     key={opt.id}
@@ -1472,7 +1479,7 @@ const MultiGroupSelect = ({
                       e.stopPropagation();
                       toggleOption(opt.id);
                     }}
-                    className={`w-full text-left text-[11px] px-2 py-1.5 rounded border transition-colors truncate ${
+                    className={`w-full text-left text-[11px] px-2 py-1.5 rounded border transition-colors flex items-center gap-2 min-w-0 ${
                       selected
                         ? tab === "localidades"
                           ? "bg-purple-100 border-purple-300 font-bold text-purple-900"
@@ -1482,7 +1489,16 @@ const MultiGroupSelect = ({
                         : "bg-slate-50 border-transparent hover:bg-slate-100 text-slate-700"
                     }`}
                   >
-                    {opt.label}
+                    <span
+                      className={`w-3.5 h-3.5 shrink-0 rounded border flex items-center justify-center ${
+                        selected
+                          ? "bg-white border-current"
+                          : "border-slate-300 bg-white"
+                      }`}
+                    >
+                      {selected && <IconCheck size={9} strokeWidth={4} />}
+                    </span>
+                    <span className="truncate">{opt.label}</span>
                   </button>
                 );
               })
@@ -2550,7 +2566,6 @@ export default function MealsManager({
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const NO_LOC_FILTER = MEAL_FILTER_NO_LOC;
-  const NO_ARTIST_FILTER = MEAL_FILTER_NO_ARTIST;
 
   const locationFilterOptions = useMemo(() => {
     const map = new Map();
@@ -2579,38 +2594,15 @@ export default function MealsManager({
     return opts;
   }, [grid, catalogs.locaciones]);
 
-  const artistFilterOptions = useMemo(() => {
-    const map = new Map();
-    let hasNone = false;
-    const seedFrom = (list) => {
-      for (const p of filterFimbaPropuestasForMeals(list)) {
-        if (!p?.id) continue;
-        const key = String(p.id);
-        if (map.has(key)) continue;
-        map.set(key, {
-          value: key,
-          label: p.nombre || `Artista ${p.id}`,
-        });
-      }
-    };
-    seedFrom(propuestas);
-    for (const r of grid) {
-      if (r.isTemp) continue;
-      const mealProps = filterFimbaPropuestasForMeals(r.propuestas || []);
-      if (!mealProps.length) {
-        hasNone = true;
-        continue;
-      }
-      seedFrom(mealProps);
-    }
-    const opts = Array.from(map.values()).sort((a, b) =>
-      a.label.localeCompare(b.label, "es", { sensitivity: "base" }),
+  const artistFilterOptions = useMemo(
+    () => buildMealArtistFilterOptions({ propuestas, rows: grid }),
+    [grid, propuestas],
+  );
+  const showArtistFilter =
+    fimbaMode ||
+    artistFilterOptions.some(
+      (o) => o.value !== MEAL_FILTER_ORCHESTRA_ONLY,
     );
-    if (hasNone) {
-      opts.push({ value: NO_ARTIST_FILTER, label: "Sin artistas" });
-    }
-    return opts;
-  }, [grid, propuestas]);
 
   /**
    * Vista filtrada derivada — nunca se escribe de vuelta a `grid`.
@@ -2831,6 +2823,12 @@ export default function MealsManager({
               );
             })}
           </div>
+          {showArtistFilter && (
+            <MealOrchestraOnlyFilterChip
+              value={filterArtistaIds}
+              onChange={setFilterArtistaIds}
+            />
+          )}
           <div
             className={`inline-flex items-stretch rounded-lg border overflow-visible h-[28px] shadow-sm bg-white shrink-0 ${
               filterLocacionIds.length > 0 || filterArtistaIds.length > 0
@@ -2852,7 +2850,7 @@ export default function MealsManager({
                 className="w-full [&_button]:w-full [&_button]:h-[26px] [&_button]:border-0 [&_button]:rounded-none [&_button]:bg-transparent [&_button]:shadow-none [&_button]:hover:border-transparent [&_button]:px-2 [&_button]:text-[10px]"
               />
             </div>
-            {(fimbaMode || artistFilterOptions.some((o) => o.value !== NO_ARTIST_FILTER)) && (
+            {(fimbaMode || showArtistFilter) && (
               <div className="w-[7.25rem] border-l border-slate-200">
                 <MultiSelectDropdown
                   compact
@@ -3025,8 +3023,14 @@ export default function MealsManager({
                   value={filterLocacionIds}
                   onChange={setFilterLocacionIds}
                 />
-                {(fimbaMode ||
-                  artistFilterOptions.some((o) => o.value !== NO_ARTIST_FILTER)) && (
+                {showArtistFilter && (
+                  <MealOrchestraOnlyFilterChip
+                    value={filterArtistaIds}
+                    onChange={setFilterArtistaIds}
+                    compact
+                  />
+                )}
+                {showArtistFilter && (
                   <MultiSelectDropdown
                     compact
                     summaryMode="names"

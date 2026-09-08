@@ -639,6 +639,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 - [x] **Comidas grilla orden cronológico (2026-09-07):** `calculateGrid` ya no deja Catering apendado al final del walk D/A/M/C. `sortMealManagerGrid` / `compareMealManagerRows` (`mealLogistics.js`): fecha → servicio (`MEAL_SERVICE_ORDER`) → hora_inicio → id; se aplica al setear `grid` y de nuevo en `filteredGrid` (filtros/segmento conservan orden; day dividers FIMBA siguen fechas ordenadas).
 - [x] **Recalc turno comidas** al editar convocados/grupos/artistas: hermanas del mismo `fecha|servicio` refrescan deducción y avisos (OFRN + FIMBA).
 - [x] **Comidas Manager:** tags FIMBA en select; columna Artistas; sin badge `×N mismo slot`; Manager OFRN oculta solo-artista; FIMBA Comidas las conserva.
+- [x] **Comidas filtro Solo orquesta (2026-09-08):** chip + opción Artista `MEAL_FILTER_ORCHESTRA_ONLY` (Gestor/Asistencia/Reporte, `mealFilters` compartidos). Match = sin tags FIMBA y con audiencia OFRN (`mealRowIsSoloOrquesta`). Columna Convocados: destildar chips con ×; Tutti/Nadie se apagan; no hay mínimo de un tag (`toggleMealConvocadosSelection`).
 - [x] Agenda OFRN (`UnifiedAgenda`): toggle staff **con FIMBA** (default OFF); músicos siempre ocultan solo-FIMBA
 - [x] Agenda **consulta Backline / Rider** (editores/admins): íconos de fila + modales RO card en `FimbaAgendaPage` + `UnifiedAgenda`
 - [x] Agenda **Descargar PDF**: reusa UnifiedAgenda (`exportAgendaToPDF`) vía `fimbaAgendaPdf.js`; toolbar planilla + agenda artista/consulta; vista filtrada
@@ -967,6 +968,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 | `src/views/Fimba/FimbaAgendaEventCard.jsx` | Card móvil + `FimbaAgendaCardMenu` / `buildAgendaCardMenuItems` (también kebab planilla desktop) |
 | `src/utils/fimbaAgendaUrlParams.js` | Query staff + token único de consulta (`fimba_agenda_consultas`) + `retainSelectedFilterIds` |
 | `scripts/verify-fimba-agenda-tutti-filter.mjs` | Aserciones Tutti opt-in + fingerprint consulta + catálogo vacío no borra URL |
+| `scripts/verify-meal-orchestra-filter.mjs` | Filtro Solo orquesta + destildado Convocados (Tutti/Nadie/vacío/multi) |
 | `src/views/Fimba/FimbaAgendaPage.jsx` | Planilla agenda (+ **móvil cards**); Copiar enlace → token único; `agendaOnly` oculta filtros; íconos consulta Backline/Rider (editores) |
 | `supabase/migrations/20260902153808_fimba_agenda_consultas.sql` | Tabla `fimba_agenda_consultas` (token UUID + filtros congelados) |
 | `src/utils/fimbaTransportBoarding.js` | Boarding + filtros agenda por rutas (`eventMatchesPropuestaRouteFilter`) |
