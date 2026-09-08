@@ -8,7 +8,7 @@ import {
   IconUser,
   IconX,
 } from "../../components/ui/Icons";
-import { matchesMultiTokenSearch } from "../../utils/sanitize";
+import { filterAndRankMultiTokenSearch } from "../../utils/sanitize";
 
 const CONCEPTOS = [
   { id: "h_basico", label: "Basico", color: "text-blue-700 bg-blue-50 border-blue-200" },
@@ -97,16 +97,17 @@ export default function BulkNovedadModal({
 
   const filteredCandidates = useMemo(() => {
     if (!searchTerm.trim()) return candidates;
-    return candidates.filter((m) =>
-      matchesMultiTokenSearch(
-        [
-          m.apellido,
-          m.nombre,
-          m.instrumentos?.instrumento,
-          ...(m.ensambles || []).map((e) => e.ensamble),
-        ],
-        searchTerm,
-      ),
+    return filterAndRankMultiTokenSearch(
+      candidates,
+      (m) => [
+        m.apellido,
+        m.nombre,
+        [m.apellido, m.nombre].filter(Boolean).join(" "),
+        [m.nombre, m.apellido].filter(Boolean).join(" "),
+        m.instrumentos?.instrumento,
+        ...(m.ensambles || []).map((e) => e.ensamble),
+      ],
+      searchTerm,
     );
   }, [candidates, searchTerm]);
 

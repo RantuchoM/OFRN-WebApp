@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { IconUsers, IconChevronDown, IconCheck, IconX, IconPlus } from '../ui/Icons';
-import { matchesMultiTokenSearch } from '../../utils/sanitize';
+import { filterAndRankMultiTokenSearch } from '../../utils/sanitize';
 
 export default function ComposerMultiSelect({ compositores, selectedIds, onChange, onAddNew, forceClose }) {
     const [isOpen, setIsOpen] = useState(false);
@@ -29,8 +29,15 @@ export default function ComposerMultiSelect({ compositores, selectedIds, onChang
         onChange(newSelection);
     };
 
-    const filteredList = compositores.filter((c) =>
-        matchesMultiTokenSearch([c.apellido, c.nombre], search)
+    const filteredList = filterAndRankMultiTokenSearch(
+        compositores,
+        (c) => [
+            c.apellido,
+            c.nombre,
+            [c.apellido, c.nombre].filter(Boolean).join(' '),
+            [c.nombre, c.apellido].filter(Boolean).join(' '),
+        ],
+        search,
     );
 
     const selectedDisplay = compositores.filter(c => selectedIds.has(c.id));

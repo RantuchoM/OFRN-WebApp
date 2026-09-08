@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { IconSearch, IconArrowRight } from './Icons';
-import { getSearchHighlightRanges, matchesMultiTokenSearch } from '../../utils/sanitize';
+import { filterAndRankMultiTokenSearch, getSearchHighlightRanges } from '../../utils/sanitize';
 
 const HighlightSearchMatch = ({ text, query }) => {
   const rawText = String(text ?? "");
@@ -28,11 +28,13 @@ export default function CommandPalette({ isOpen, onClose, actions = [] }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef(null);
 
-  // Filtrado
+  // Filtrado + ranking (mejores matches primero)
   const filteredActions = useMemo(() => {
       if (!query) return actions.slice(0, 10); // Mostrar primeros 10 si no hay búsqueda
-      return actions.filter((action) =>
-        matchesMultiTokenSearch([action.label], query),
+      return filterAndRankMultiTokenSearch(
+        actions,
+        (action) => [action.label],
+        query,
       );
   }, [query, actions]);
 

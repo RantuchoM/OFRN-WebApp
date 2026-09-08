@@ -55,7 +55,7 @@ import {
   repertorioGruposMetaFromBlock,
 } from "../../services/giraGruposService";
 import { toast } from "sonner";
-import { applyMultiTokenOrIlike, matchesMultiTokenSearch } from "../../utils/sanitize";
+import { applyMultiTokenOrIlike, filterAndRankMultiTokenSearch, matchesMultiTokenSearch, scoreMultiTokenSearch } from "../../utils/sanitize";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
 import UniversalExporter from "../../components/ui/UniversalExporter";
 import InstrumentationBadges, {
@@ -1008,6 +1008,20 @@ export default function GiraRoster({
         roleOrderMap[rol] !== undefined ? roleOrderMap[rol] : 999;
 
       const sorted = [...filtered].sort((a, b) => {
+        // 0. Con búsqueda activa, mejores matches primero
+        if (searchTerm.trim()) {
+          const parts = (m) => [
+            m.nombre_completo,
+            m.nombre,
+            m.apellido,
+            m.instrumentos?.instrumento,
+          ];
+          const scoreDiff =
+            scoreMultiTokenSearch(parts(b), searchTerm) -
+            scoreMultiTokenSearch(parts(a), searchTerm);
+          if (scoreDiff !== 0) return scoreDiff;
+        }
+
         // 1. Ausentes siempre al final
         if (a.estado_gira === "ausente" && b.estado_gira !== "ausente")
           return 1;
@@ -2305,13 +2319,19 @@ export default function GiraRoster({
     query = applyMultiTokenOrIlike(query, ["nombre", "apellido"], cleanTerm);
     const { data } = await query.limit(80);
     const currentIds = new Set(localRoster.map((r) => integranteKey(r.id)));
-    const withFlag = (data || [])
-      .filter((m) =>
-        matchesMultiTokenSearch(
-          [m.nombre, m.apellido, m.mail, m.cuil, m.instrumentos?.instrumento],
-          cleanTerm,
-        ),
-      )
+    const withFlag = filterAndRankMultiTokenSearch(
+      data || [],
+      (m) => [
+        m.nombre,
+        m.apellido,
+        [m.apellido, m.nombre].filter(Boolean).join(" "),
+        [m.nombre, m.apellido].filter(Boolean).join(" "),
+        m.mail,
+        m.cuil,
+        m.instrumentos?.instrumento,
+      ],
+      cleanTerm,
+    )
       .slice(0, 30)
       .map((m) => ({
         ...m,

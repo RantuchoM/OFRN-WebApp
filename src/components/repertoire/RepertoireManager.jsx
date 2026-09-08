@@ -74,7 +74,7 @@ import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
 import { useAuth } from "../../context/AuthContext";
-import { matchesMultiTokenSearch } from "../../utils/sanitize";
+import { filterAndRankMultiTokenSearch } from "../../utils/sanitize";
 import WorkForm from "../../views/Repertoire/WorkForm";
 import RepertoireWorkPickerModal from "./RepertoireWorkPickerModal";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
@@ -497,8 +497,15 @@ const SoloistSelect = ({ currentId, musicians, onChange }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const filtered = musicians.filter((m) =>
-    matchesMultiTokenSearch([m.apellido, m.nombre], search),
+  const filtered = filterAndRankMultiTokenSearch(
+    musicians,
+    (m) => [
+      m.apellido,
+      m.nombre,
+      [m.apellido, m.nombre].filter(Boolean).join(" "),
+      [m.nombre, m.apellido].filter(Boolean).join(" "),
+    ],
+    search,
   );
 
   return (

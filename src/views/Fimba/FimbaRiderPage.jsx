@@ -24,7 +24,7 @@ import {
   sanitizeFimbaRiderHtml,
 } from "../../utils/fimbaRider";
 import { printFimbaRiders } from "../../utils/fimbaReports";
-import { matchesMultiTokenSearch, normalizeForSearch } from "../../utils/sanitize";
+import { filterAndRankMultiTokenSearch, normalizeForSearch } from "../../utils/sanitize";
 import FimbaRichTextEditor from "./FimbaRichTextEditor";
 
 const DEBOUNCE_MS = 500;
@@ -257,8 +257,10 @@ export default function FimbaRiderPage() {
 
   const filteredPropuestas = useMemo(() => {
     if (!searchQuery.trim()) return propuestas;
-    return propuestas.filter((p) =>
-      matchesMultiTokenSearch([p.nombre], searchQuery),
+    return filterAndRankMultiTokenSearch(
+      propuestas,
+      (p) => [p.nombre],
+      searchQuery,
     );
   }, [propuestas, searchQuery]);
 

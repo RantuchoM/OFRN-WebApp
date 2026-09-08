@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { IconSearch, IconX, IconCheck } from './Icons';
-import { matchesMultiTokenSearch } from '../../utils/sanitize';
+import { filterAndRankMultiTokenSearch } from '../../utils/sanitize';
 
 const cleanOptionText = (value) => {
     if (value == null) return "";
@@ -42,12 +42,14 @@ export default function SearchableSelect({
         [options],
     );
 
-    // Filtrado local (sin tildes/mayúsculas; palabras sueltas en cualquier orden)
+    // Filtrado local (sin tildes/mayúsculas; mejores matches primero)
     const filteredOptions = useMemo(() => {
         if (!search.trim()) return normalizedOptions.slice(0, 300);
-        return normalizedOptions
-            .filter((o) => matchesMultiTokenSearch([o.label, o.subLabel], search))
-            .slice(0, 80);
+        return filterAndRankMultiTokenSearch(
+            normalizedOptions,
+            (o) => [o.label, o.subLabel],
+            search,
+        ).slice(0, 80);
     }, [normalizedOptions, search]);
 
     // Opción seleccionada (Single); trim para alinear con datos viejos con espacios

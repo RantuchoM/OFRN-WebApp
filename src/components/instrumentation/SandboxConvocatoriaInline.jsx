@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { IconChevronDown, IconLoader, IconSearch, IconX } from "../ui/Icons";
-import { matchesMultiTokenSearch } from "../../utils/sanitize";
+import { filterAndRankMultiTokenSearch } from "../../utils/sanitize";
 import { isRegionalConvocatoriaEnsamble } from "../../utils/convocatoriaEnsambleViews";
 import {
   buildFuentesFromSets,
@@ -206,9 +206,11 @@ function PickSearchDropdown({
 
   const filteredOptions = useMemo(() => {
     if (!search.trim()) return options.slice(0, 100);
-    return options
-      .filter((o) => matchesMultiTokenSearch([o.label], search))
-      .slice(0, 80);
+    return filterAndRankMultiTokenSearch(
+      options,
+      (o) => [o.label],
+      search,
+    ).slice(0, 80);
   }, [options, search]);
 
   useLayoutEffect(() => {

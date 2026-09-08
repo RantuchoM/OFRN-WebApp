@@ -50,7 +50,7 @@ import {
 } from "../../utils/mealLogistics";
 import EventForm from "../../components/forms/EventForm";
 import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
-import { matchesMultiTokenSearch } from "../../utils/sanitize";
+import { filterAndRankMultiTokenSearch } from "../../utils/sanitize";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 
 // --- CONSTANTES ---
@@ -469,9 +469,11 @@ const MultiSelectCell = ({
               onChange={(e) => setSearch(e.target.value)}
             />
             <div className="overflow-y-auto flex-1">
-              {options
-                .filter((o) => matchesMultiTokenSearch([o.label], search))
-                .map((opt) => (
+              {filterAndRankMultiTokenSearch(
+                options,
+                (o) => [o.label],
+                search,
+              ).map((opt) => (
                   <div
                     key={opt.val || opt.id}
                     onClick={() => toggleSelection(opt.val || opt.id)}
@@ -928,8 +930,15 @@ export default function LogisticsManager({
       (m) => (m.estado_gira || "").toLowerCase() !== "ausente",
     );
     if (searchTerm.trim()) {
-      list = list.filter((m) =>
-        matchesMultiTokenSearch([m.nombre, m.apellido], searchTerm),
+      list = filterAndRankMultiTokenSearch(
+        list,
+        (m) => [
+          m.nombre,
+          m.apellido,
+          [m.apellido, m.nombre].filter(Boolean).join(" "),
+          [m.nombre, m.apellido].filter(Boolean).join(" "),
+        ],
+        searchTerm,
       );
     }
     if (showOnlyMissing) {

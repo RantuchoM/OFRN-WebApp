@@ -1,4 +1,7 @@
-import { matchesMultiTokenSearch } from "./sanitize";
+import {
+  matchesMultiTokenSearch,
+  scoreMultiTokenSearch,
+} from "./sanitize";
 
 /**
  * Fragments de un participante (y vínculo OFRN si viene embebido) para búsqueda.
@@ -29,6 +32,20 @@ export function participanteSearchParts(p) {
 }
 
 /**
+ * Partes de búsqueda de un artista + nómina (para score/rank).
+ * @param {string|null|undefined} artistNombre
+ * @param {Array<object>|null|undefined} participantes
+ * @returns {string[]}
+ */
+export function fimbaArtistaPersonSearchParts(artistNombre, participantes) {
+  const parts = [artistNombre];
+  for (const p of participantes || []) {
+    parts.push(...participanteSearchParts(p));
+  }
+  return parts;
+}
+
+/**
  * Match artista/propuesta por nombre o por nombres de su nómina.
  * Tokens AND, sin tildes/mayúsculas (`normalizeForSearch`).
  *
@@ -42,9 +59,26 @@ export function matchesFimbaArtistaPersonSearch(
   participantes,
   query,
 ) {
-  const parts = [artistNombre];
-  for (const p of participantes || []) {
-    parts.push(...participanteSearchParts(p));
-  }
-  return matchesMultiTokenSearch(parts, query);
+  return matchesMultiTokenSearch(
+    fimbaArtistaPersonSearchParts(artistNombre, participantes),
+    query,
+  );
+}
+
+/**
+ * Score de relevancia (mayor = mejor; -1 = no match). Usa ranking de `sanitize`.
+ * @param {string|null|undefined} artistNombre
+ * @param {Array<object>|null|undefined} participantes
+ * @param {string} query
+ * @returns {number}
+ */
+export function scoreFimbaArtistaPersonSearch(
+  artistNombre,
+  participantes,
+  query,
+) {
+  return scoreMultiTokenSearch(
+    fimbaArtistaPersonSearchParts(artistNombre, participantes),
+    query,
+  );
 }

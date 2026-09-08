@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { matchesMultiTokenSearch } from "../../../utils/sanitize";
+import { filterAndRankMultiTokenSearch } from "../../../utils/sanitize";
 
 export default function ChoferPickerDropdown({
   anchorRef,
@@ -51,8 +51,10 @@ export default function ChoferPickerDropdown({
 
   if (!isOpen || !dropdownStyle) return null;
 
-  const filteredOptions = options.filter((c) =>
-    matchesMultiTokenSearch([c.label, c.dni], search),
+  const filteredOptions = filterAndRankMultiTokenSearch(
+    options,
+    (c) => [c.label, c.dni],
+    search,
   );
 
   return createPortal(

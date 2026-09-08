@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { IconPlus, IconCheck, IconChevronDown, IconX } from "../ui/Icons";
 import PartNameLabel, { usePartNameTooltip } from "./PartNameLabel";
 import { getPartDisplayName } from "../../utils/partNameDisplay";
-import { matchesMultiTokenSearch } from "../../utils/sanitize";
+import { filterAndRankMultiTokenSearch } from "../../utils/sanitize";
 
 export const CreateParticellaModal = ({ isOpen, onClose, onConfirm, instrumentList, defaultInstrumentId }) => {
   const [selectedInstr, setSelectedInstr] = useState(defaultInstrumentId || "");
@@ -118,11 +118,10 @@ export const ParticellaSelect = ({ options, value, onChange, onRequestCreate, pl
     </div>
   );
 
-  const filteredOptions = options.filter((o) =>
-    matchesMultiTokenSearch(
-      [o.nombre_archivo, o.instrumentos?.instrumento],
-      search,
-    ),
+  const filteredOptions = filterAndRankMultiTokenSearch(
+    options,
+    (o) => [o.nombre_archivo, o.instrumentos?.instrumento],
+    search,
   );
   const recommendedOptions = filteredOptions.filter((o) => o.id_instrumento === preferredInstrumentId);
   const otherOptions = filteredOptions.filter((o) => o.id_instrumento !== preferredInstrumentId);

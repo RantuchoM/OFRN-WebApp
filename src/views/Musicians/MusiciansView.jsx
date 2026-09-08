@@ -32,7 +32,7 @@ import {
   toIsoDateString,
 } from "../../utils/ensembleMembership";
 import UniversalExporter from "../../components/ui/UniversalExporter";
-import { getSearchHighlightRanges, matchesMultiTokenSearch } from "../../utils/sanitize";
+import { getSearchHighlightRanges, matchesMultiTokenSearch, scoreMultiTokenSearch } from "../../utils/sanitize";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 // --- CONFIGURACIÓN ---
@@ -1508,20 +1508,29 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
   const processedResultados = useMemo(() => {
     let filtered = [...resultados];
+    const q = searchText.trim();
+    /** @type {Map<any, number>|null} */
+    let searchScores = null;
 
-    if (searchText.trim()) {
-      filtered = filtered.filter((item) =>
-        matchesMultiTokenSearch(
-          [
-            item.apellido,
-            item.nombre,
-            item.dni,
-            item.mail,
-            item.instrumentos?.instrumento,
-          ],
-          searchText,
-        ),
-      );
+    if (q) {
+      const musicianParts = (item) => [
+        item.apellido,
+        item.nombre,
+        [item.apellido, item.nombre].filter(Boolean).join(" "),
+        [item.nombre, item.apellido].filter(Boolean).join(" "),
+        item.dni,
+        item.mail,
+        item.instrumentos?.instrumento,
+      ];
+      const ranked = filtered
+        .map((item) => ({
+          item,
+          score: scoreMultiTokenSearch(musicianParts(item), q),
+        }))
+        .filter((row) => row.score >= 0)
+        .sort((a, b) => b.score - a.score);
+      searchScores = new Map(ranked.map((row) => [row.item, row.score]));
+      filtered = ranked.map((row) => row.item);
     }
 
     Object.keys(columnFilters).forEach((key) => {
@@ -1537,7 +1546,13 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         return matchesMultiTokenSearch([val], columnFilters[key]);
       });
     });
+
+    // Con búsqueda activa, la relevancia manda; el sort de columna desempata.
     return filtered.sort((a, b) => {
+      if (searchScores) {
+        const scoreDiff = (searchScores.get(b) ?? 0) - (searchScores.get(a) ?? 0);
+        if (scoreDiff !== 0) return scoreDiff;
+      }
       let valA, valB;
       if (sortConfig.key === "apellido") {
         valA = `${a.apellido} ${a.nombre}`;

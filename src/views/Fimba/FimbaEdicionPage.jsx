@@ -34,7 +34,7 @@ import {
   updateFimbaPropuesta,
 } from "../../services/fimbaService";
 import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
-import { matchesFimbaArtistaPersonSearch } from "../../utils/fimbaArtistaSearch";
+import { scoreFimbaArtistaPersonSearch } from "../../utils/fimbaArtistaSearch";
 import {
   resolveParticipanteStay,
   classifyStayOverride,
@@ -522,18 +522,25 @@ function FimbaArtistasTable({
     const q = String(personSearchQuery || "").trim();
     const list = propuestas || [];
     if (!q) return list;
-    return list.filter((p) => {
-      const key = propuestaKey(p.id);
-      const parts =
-        participantesSearchIndex[key] ||
-        participantesByPropuesta[key]?.rows ||
-        participantesCacheRef.current[key]?.rows ||
-        [];
-      const nombre = editMode
-        ? drafts[p.id]?.nombre ?? p.nombre
-        : p.nombre;
-      return matchesFimbaArtistaPersonSearch(nombre, parts, q);
-    });
+    return list
+      .map((p) => {
+        const key = propuestaKey(p.id);
+        const parts =
+          participantesSearchIndex[key] ||
+          participantesByPropuesta[key]?.rows ||
+          participantesCacheRef.current[key]?.rows ||
+          [];
+        const nombre = editMode
+          ? drafts[p.id]?.nombre ?? p.nombre
+          : p.nombre;
+        return {
+          p,
+          score: scoreFimbaArtistaPersonSearch(nombre, parts, q),
+        };
+      })
+      .filter((row) => row.score >= 0)
+      .sort((a, b) => b.score - a.score)
+      .map((row) => row.p);
   }, [
     propuestas,
     personSearchQuery,

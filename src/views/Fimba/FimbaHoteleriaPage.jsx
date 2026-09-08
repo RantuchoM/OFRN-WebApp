@@ -27,7 +27,7 @@ import {
   filterHoteleriaRowsForComidas,
 } from "../../services/fimbaService";
 import { compareEsText } from "../../utils/fimbaAgendaSort";
-import { matchesFimbaArtistaPersonSearch } from "../../utils/fimbaArtistaSearch";
+import { scoreFimbaArtistaPersonSearch } from "../../utils/fimbaArtistaSearch";
 import { toast } from "sonner";
 import { resolveParticipanteStay, classifyStayOverride, stayDateFromEventOrMirror, formatStayEventLabel } from "../../utils/fimbaStay";
 import {
@@ -169,13 +169,18 @@ export default function FimbaHoteleriaPage() {
   const visibleRows = useMemo(() => {
     const q = String(personSearchQuery || "").trim();
     if (!q) return rows;
-    return (rows || []).filter((r) =>
-      matchesFimbaArtistaPersonSearch(
-        r?.propuesta?.nombre,
-        r?.personas || r?.participantes || [],
-        q,
-      ),
-    );
+    return (rows || [])
+      .map((r) => ({
+        r,
+        score: scoreFimbaArtistaPersonSearch(
+          r?.propuesta?.nombre,
+          r?.personas || r?.participantes || [],
+          q,
+        ),
+      }))
+      .filter((row) => row.score >= 0)
+      .sort((a, b) => b.score - a.score)
+      .map((row) => row.r);
   }, [rows, personSearchQuery]);
 
   const hasLoadedOnce = useRef(false);
