@@ -178,6 +178,7 @@ export function FimbaAgendaCardMenu({
  */
 export default function FimbaAgendaEventCard({
   ev,
+  horaFinDisplay = null,
   origenLabel = "—",
   destinoLabel = null,
   vueloLabel = null,
@@ -199,7 +200,9 @@ export default function FimbaAgendaEventCard({
   busy = false,
 }) {
   const horaCom = sliceTime(ev?.hora_inicio);
-  const horaFin = sliceTime(ev?.hora_fin);
+  const horaFin = horaFinDisplay
+    ? horaFinDisplay.value || "—"
+    : sliceTime(ev?.hora_fin);
   const timeRange =
     horaFin && horaFin !== "—" ? `${horaCom} – ${horaFin}` : horaCom;
 
@@ -296,7 +299,19 @@ export default function FimbaAgendaEventCard({
 
         <div className="fimba-agenda-event-card-when">
           <IconClock size={14} className="fimba-agenda-event-card-when-icon" />
-          <span className="fimba-agenda-event-card-time">{timeRange}</span>
+          <span
+            className="fimba-agenda-event-card-time"
+            style={
+              horaFinDisplay?.isCalculated ? { fontStyle: "italic" } : undefined
+            }
+            title={
+              horaFinDisplay?.isCalculated
+                ? "Hora fin = hora com del siguiente evento del mismo vehículo"
+                : undefined
+            }
+          >
+            {timeRange}
+          </span>
         </div>
 
         <div className="fimba-agenda-event-card-badges">

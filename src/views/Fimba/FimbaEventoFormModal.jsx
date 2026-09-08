@@ -737,12 +737,22 @@ export default function FimbaEventoFormModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const tipoSeleccionado = useMemo(
+    () => tipos.find((t) => Number(t.id) === Number(tipoId)) || null,
+    [tipos, tipoId],
+  );
+
+  /** Fin derivado = tipo transporte, no el checkbox «Asignar vehículo(s)». */
+  const derivedHoraFin = Boolean(
+    forceTransporte || actividadUsaTransporte(tipoId, tipoSeleccionado),
+  );
+
   const isDirty = useMemo(() => {
     if (Number(tipoId) !== Number(initialForm.tipoId)) return true;
     if ((fecha || "") !== (initialForm.fecha || "")) return true;
     if ((horaCom || "") !== (initialForm.horaCom || "")) return true;
     if (
-      !usaTransporte &&
+      !derivedHoraFin &&
       (horaFin || "") !== (initialForm.horaFin || "")
     ) {
       return true;
@@ -807,6 +817,7 @@ export default function FimbaEventoFormModal({
     fecha,
     horaCom,
     horaFin,
+    derivedHoraFin,
     actividad,
     destino,
     idLocacion,
@@ -968,11 +979,6 @@ export default function FimbaEventoFormModal({
     }
     return list;
   }, [tipos, categoriaFiltro, forceTransporte, tipoId]);
-
-  const tipoSeleccionado = useMemo(
-    () => tipos.find((t) => Number(t.id) === Number(tipoId)) || null,
-    [tipos, tipoId],
-  );
 
   const transportDestinoMetrics = useMemo(() => {
     if (!usaTransporte || !isEdit || !evento?.id || !sequencesByVehicle) {
@@ -1267,7 +1273,7 @@ export default function FimbaEventoFormModal({
       const window = {
         fecha,
         hora_inicio: horaCom || null,
-        hora_fin: usaTransporte
+        hora_fin: derivedHoraFin
           ? transportPauseAfter
             ? null
             : sliceTime(transportNextEvent?.hora_inicio) || null
@@ -1329,6 +1335,7 @@ export default function FimbaEventoFormModal({
     fecha,
     horaCom,
     horaFin,
+    derivedHoraFin,
     transportNextEvent?.hora_inicio,
     transportPauseAfter,
     transportDestinoVehicleId,
@@ -1470,7 +1477,7 @@ export default function FimbaEventoFormModal({
       id_gira: edicion.id_gira,
       fecha,
       hora_inicio: horaCom || null,
-      hora_fin: usaTransporte ? null : horaFin || null,
+      hora_fin: derivedHoraFin ? null : horaFin || null,
       actividad,
       destino: usaTransporte ? "" : destino,
       id_locacion: idLocacion || null,
@@ -1660,7 +1667,7 @@ export default function FimbaEventoFormModal({
             </div>
             <div className="fimba-field">
               <label className="fimba-label">Hora fin</label>
-              {usaTransporte ? (
+              {derivedHoraFin ? (
                 <>
                   <input
                     className="fimba-input"

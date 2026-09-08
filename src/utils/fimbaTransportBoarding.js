@@ -273,6 +273,55 @@ export function resolveAgendaDestinoLabel(
 }
 
 /**
+ * Hora fin de planilla Agenda.
+ *
+ * - Transporte (tipo catálogo / ride): calculada = hora com del siguiente
+ *   evento **asignado al mismo vehículo**. No usa `eventos.hora_fin` huérfana
+ *   ni el siguiente evento de otra unidad / del mismo día.
+ * - Comidas, conciertos y demás: solo si el propio evento tiene hora de
+ *   inicio **y** fin persistidas. No se inventa un fin desde el vecino.
+ *
+ * @param {object|null|undefined} ev
+ * @param {Map|null|undefined} sequencesByVehicle
+ * @param {{ isTransport?: boolean }} [opts]
+ * @returns {{ value: string|null, isCalculated: boolean, source: 'next_event'|'persisted'|'missing' }}
+ */
+export function resolveAgendaHoraFinDisplay(
+  ev,
+  sequencesByVehicle,
+  opts = {},
+) {
+  const isTransport =
+    opts.isTransport != null
+      ? Boolean(opts.isTransport)
+      : isTransportTipoEvent(ev) || Boolean(ev?.es_ride_segment);
+
+  if (isTransport && ev) {
+    const { nextEvent } = resolveTransportDestinoFromNextStop(
+      ev,
+      sequencesByVehicle,
+    );
+    return resolveHoraFinDisplay(ev, nextEvent);
+  }
+
+  const start = ev?.hora_inicio;
+  const end = ev?.hora_fin;
+  if (
+    start != null &&
+    String(start).trim() !== "" &&
+    end != null &&
+    String(end).trim() !== ""
+  ) {
+    return {
+      value: String(end).slice(0, 5),
+      isCalculated: false,
+      source: "persisted",
+    };
+  }
+  return { value: null, isCalculated: false, source: "missing" };
+}
+
+/**
  * Siguiente parada del mismo vehículo en la secuencia ya ordenada
  * (`buildVehicleBoardingSequence.sortedEvents` / `sortEventsBySchedule`).
  *

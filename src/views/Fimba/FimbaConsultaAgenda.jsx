@@ -32,6 +32,7 @@ import {
   buildAllVehicleBoardingSequences,
   formatAgendaOrigenLabel,
   resolveAgendaDestinoLabel,
+  resolveAgendaHoraFinDisplay,
   resolveEventAboardCount,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
   TRANSPORT_DESTINO_SIN_LOCACION,
@@ -222,6 +223,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
       title: `Agenda FIMBA — ${artistName}`,
       subTitle: [edName, `Artista: ${artistName}`].filter(Boolean).join(" · "),
       flotaById,
+      sequencesByVehicle,
     });
   };
 
@@ -392,6 +394,10 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
               const destino = resolveAgendaDestinoLabel(ev, sequencesByVehicle, {
                 isTransport: isTx,
               });
+              const horaFinDisp = resolveAgendaHoraFinDisplay(
+                ev,
+                sequencesByVehicle,
+              );
               const vuelo = ev.vuelo || "—";
               const aboard = isTx
                 ? resolveEventAboardCount(ev, sequencesByVehicle, null)
@@ -412,6 +418,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                   ) : null}
                   <FimbaAgendaEventCard
                     ev={ev}
+                    horaFinDisplay={horaFinDisp}
                     origenLabel={origen}
                     destinoLabel={destino}
                     vueloLabel={vuelo}
@@ -464,6 +471,10 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                   const destino = resolveAgendaDestinoLabel(ev, sequencesByVehicle, {
                     isTransport: isTx,
                   });
+                  const horaFinDisp = resolveAgendaHoraFinDisplay(
+                    ev,
+                    sequencesByVehicle,
+                  );
                   const vuelo = ev.vuelo || "—";
                   const aboard = isTx
                     ? resolveEventAboardCount(ev, sequencesByVehicle, null)
@@ -493,7 +504,22 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                         <FechaCellLabel fecha={ev.fecha} />
                       </td>
                       <td>{sliceTime(ev.hora_inicio)}</td>
-                      <td>{sliceTime(ev.hora_fin)}</td>
+                      <td
+                        style={
+                          horaFinDisp.isCalculated
+                            ? { fontStyle: "italic" }
+                            : undefined
+                        }
+                        title={
+                          horaFinDisp.isCalculated
+                            ? "Hora com del siguiente evento del mismo vehículo (calculada)"
+                            : horaFinDisp.value
+                              ? "Hora de fin cargada en el evento"
+                              : undefined
+                        }
+                      >
+                        {horaFinDisp.value || "—"}
+                      </td>
                       <td>
                         <span
                           className="fimba-badge"

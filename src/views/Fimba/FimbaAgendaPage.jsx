@@ -73,6 +73,7 @@ import {
   defaultGapFillEventSchedule,
   formatAgendaOrigenLabel,
   resolveAgendaDestinoLabel,
+  resolveAgendaHoraFinDisplay,
   resolveLegacyDestinoFromDescripcion,
   resolveEventAboardCount,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
@@ -1663,6 +1664,7 @@ export default function FimbaAgendaPage() {
       title,
       subTitle,
       flotaById,
+      sequencesByVehicle,
     });
   };
 
@@ -2055,6 +2057,10 @@ export default function FimbaAgendaPage() {
               const destino = resolveAgendaDestinoLabel(ev, sequencesByVehicle, {
                 isTransport: isTx,
               });
+              const horaFinDisp = resolveAgendaHoraFinDisplay(
+                ev,
+                sequencesByVehicle,
+              );
               const vuelo = ev.vuelo || "—";
               const aboard = isTx
                 ? resolveEventAboardCount(ev, sequencesByVehicle, null)
@@ -2098,6 +2104,7 @@ export default function FimbaAgendaPage() {
                   ) : null}
                   <FimbaAgendaEventCard
                     ev={ev}
+                    horaFinDisplay={horaFinDisp}
                     origenLabel={origen}
                     destinoLabel={destino}
                     vueloLabel={vuelo}
@@ -2256,6 +2263,10 @@ export default function FimbaAgendaPage() {
                   const destino = resolveAgendaDestinoLabel(ev, sequencesByVehicle, {
                         isTransport: isTx,
                       });
+                  const horaFinDisp = resolveAgendaHoraFinDisplay(
+                    ev,
+                    sequencesByVehicle,
+                  );
                   const vuelo = ev.vuelo || "—";
                   const rowEditing = isRowEditing(ev.id);
                   const evKey = String(ev.id);
@@ -2403,11 +2414,17 @@ export default function FimbaAgendaPage() {
                           <input
                             className="fimba-cell-input"
                             type="time"
-                            value={evDraft.hora_fin || ""}
+                            value={
+                              derivedHoraFin
+                                ? horaFinDisp.value || ""
+                                : evDraft.hora_fin || ""
+                            }
                             disabled={evSaving || derivedHoraFin}
                             title={
                               derivedHoraFin
-                                ? "Hora fin derivada del siguiente evento de transporte (editar en modal / Transportes)"
+                                ? horaFinDisp.value
+                                  ? "Hora fin derivada del siguiente evento del mismo vehículo (editar en Transportes)"
+                                  : "Sin siguiente evento con hora en este vehículo"
                                 : "Hora de fin"
                             }
                             onChange={(e) =>
@@ -2421,8 +2438,23 @@ export default function FimbaAgendaPage() {
                             }}
                             onDoubleClick={(e) => e.stopPropagation()}
                           />
+                        ) : horaFinDisp.value ? (
+                          <span
+                            style={
+                              horaFinDisp.isCalculated
+                                ? { fontStyle: "italic" }
+                                : undefined
+                            }
+                            title={
+                              horaFinDisp.isCalculated
+                                ? "Hora com del siguiente evento del mismo vehículo (calculada)"
+                                : "Hora de fin cargada en el evento"
+                            }
+                          >
+                            {horaFinDisp.value}
+                          </span>
                         ) : (
-                          sliceTime(ev.hora_fin)
+                          "—"
                         )}
                       </td>
                       <td>
