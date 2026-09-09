@@ -18,6 +18,12 @@ import {
 } from "react-router-dom";
 import AppNavLink from "./components/ui/AppNavLink";
 import { MODE_TO_TAB } from "./utils/appNavigation";
+import {
+  destinationLeavesSeating,
+  isModifiedClick,
+  isSeatingSearch,
+  requestSeatingLeave,
+} from "./utils/seatingLateMailLeaveGuard";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { getRolesDisplay } from "./utils/authRolesDisplay";
 import { supabase } from "./services/supabase";
@@ -753,28 +759,60 @@ const ProtectedApp = ({ initialTab }) => {
     viewParam = null,
     subTabParam = null,
   ) => {
-    if (newMode === "MANAGEMENT") {
-      navigate("/management");
+    const apply = () => {
+      if (newMode === "MANAGEMENT") {
+        navigate("/management");
+        setIsMobileMenuOpen(false);
+        return;
+      }
+
+      const newParams = new URLSearchParams(searchParams);
+      const targetTab = modeToTab[newMode];
+      if (targetTab) newParams.set("tab", targetTab);
+      else newParams.delete("tab");
+
+      if (newMode === "GIRAS" && giraId) {
+        newParams.set("giraId", giraId);
+        if (viewParam) newParams.set("view", viewParam);
+        if (subTabParam) newParams.set("subTab", subTabParam);
+      } else {
+        ["giraId", "view", "subTab"].forEach((p) => newParams.delete(p));
+      }
+
+      const search = newParams.toString();
+      navigate({ pathname: "/", search: search ? `?${search}` : "" });
       setIsMobileMenuOpen(false);
-      return;
+    };
+
+    if (isSeatingSearch(searchParams)) {
+      const dest =
+        newMode === "MANAGEMENT"
+          ? "/management"
+          : (() => {
+              const newParams = new URLSearchParams(searchParams);
+              const targetTab = modeToTab[newMode];
+              if (targetTab) newParams.set("tab", targetTab);
+              else newParams.delete("tab");
+              if (newMode === "GIRAS" && giraId) {
+                newParams.set("giraId", giraId);
+                if (viewParam) newParams.set("view", viewParam);
+                if (subTabParam) newParams.set("subTab", subTabParam);
+              } else {
+                ["giraId", "view", "subTab"].forEach((p) =>
+                  newParams.delete(p),
+                );
+              }
+              const search = newParams.toString();
+              return { pathname: "/", search: search ? `?${search}` : "" };
+            })();
+      if (
+        destinationLeavesSeating(location, dest) &&
+        !requestSeatingLeave(apply)
+      ) {
+        return;
+      }
     }
-
-    const newParams = new URLSearchParams(searchParams);
-    const targetTab = modeToTab[newMode];
-    if (targetTab) newParams.set("tab", targetTab);
-    else newParams.delete("tab");
-
-    if (newMode === "GIRAS" && giraId) {
-      newParams.set("giraId", giraId);
-      if (viewParam) newParams.set("view", viewParam);
-      if (subTabParam) newParams.set("subTab", subTabParam);
-    } else {
-      ["giraId", "view", "subTab"].forEach((p) => newParams.delete(p));
-    }
-
-    const search = newParams.toString();
-    navigate({ pathname: "/", search: search ? `?${search}` : "" });
-    setIsMobileMenuOpen(false);
+    apply();
   };
 
   const allMenuItems = [
@@ -1149,7 +1187,15 @@ const ProtectedApp = ({ initialTab }) => {
           {isManagement && (
             <Link
               to="/fimba"
-              onClick={() => setIsMobileMenuOpen(false)}
+              onClick={(e) => {
+                setIsMobileMenuOpen(false);
+                if (
+                  !isModifiedClick(e) &&
+                  !requestSeatingLeave(() => navigate("/fimba"))
+                ) {
+                  e.preventDefault();
+                }
+              }}
               className={`
               w-full flex items-center px-3 py-2.5 rounded-xl transition-all
               text-slate-600 hover:bg-pink-50 hover:text-[#94216D]
@@ -1172,7 +1218,15 @@ const ProtectedApp = ({ initialTab }) => {
           )}
           <Link
             to="/entradas"
-            onClick={() => setIsMobileMenuOpen(false)}
+            onClick={(e) => {
+              setIsMobileMenuOpen(false);
+              if (
+                !isModifiedClick(e) &&
+                !requestSeatingLeave(() => navigate("/entradas"))
+              ) {
+                e.preventDefault();
+              }
+            }}
             className={`
               w-full flex items-center px-3 py-2.5 rounded-xl transition-all
               text-slate-600 hover:bg-indigo-50 hover:text-indigo-700

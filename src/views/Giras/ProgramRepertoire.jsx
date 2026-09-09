@@ -22,6 +22,7 @@ import {
 } from "../../components/ui/Icons";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import { useSearchParams } from "react-router-dom";
+import { requestSeatingLeave } from "../../utils/seatingLateMailLeaveGuard";
 import { useAuth } from "../../context/AuthContext";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import ProgramSeating from "../Giras/ProgramSeating";
@@ -776,7 +777,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
     setPlayRequest({ blockId, nonce: Date.now() });
   };
 
-  const handleTabChange = (newTab) => {
+  const applyTabChange = (newTab) => {
     setSearchParams((prev) => {
       const newParams = new URLSearchParams(prev);
       newParams.set("subTab", newTab);
@@ -787,6 +788,15 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
       }
       return newParams;
     });
+  };
+
+  const handleTabChange = (newTab) => {
+    const leavingSeating =
+      activeTab === "seating" && newTab !== "seating";
+    if (leavingSeating && !requestSeatingLeave(() => applyTabChange(newTab))) {
+      return;
+    }
+    applyTabChange(newTab);
   };
 
   const handleSeatingViewChange = (view) => {

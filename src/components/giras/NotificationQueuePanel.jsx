@@ -4,7 +4,12 @@ import { sendConvocatoriaNotificationTasks } from "../../utils/convocatoriaNotif
 
 const FLUSH_DELAY_MS = 6000;
 
-const VARIANT_LABELS = { ALTA: "Alta", BAJA: "Baja", AUSENTE: "Ausente" };
+const VARIANT_LABELS = {
+  ALTA: "Alta",
+  BAJA: "Baja",
+  AUSENTE: "Ausente",
+  SEATING_CAMBIO: "Seating",
+};
 
 /**
  * Panel tipo "cola de carga" (estilo Google Drive): listado de tareas pendientes de notificación,

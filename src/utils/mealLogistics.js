@@ -1052,6 +1052,145 @@ export function mealTurnoKey(row) {
 }
 
 /**
+ * Unión de tags de convocados OFRN al fusionar comidas.
+ * - Une tags positivos (Tutti, Solo alojados, LOC:/ENS:/FAM:, IDs, etc.).
+ * - Si hay al menos un tag positivo, descarta `GRP:NONE` (Nadie).
+ * - Si solo había Nadie (sin positivos), conserva `[GRP:NONE]`.
+ * - Listas vacías no aportan Nadie ni positivos.
+ * @param {Array<Array<string|number>|null|undefined>} lists
+ * @returns {Array<string|number>}
+ */
+export function mergeMealConvocados(lists = []) {
+  const seen = new Set();
+  const positive = [];
+  let hadNone = false;
+  for (const list of lists || []) {
+    if (!Array.isArray(list) || list.length === 0) continue;
+    for (const tag of list) {
+      if (tag == null || tag === "") continue;
+      const key = String(tag);
+      if (key === ROSTER_CATEGORIES.NONE || key === "GRP:NONE") {
+        hadNone = true;
+        continue;
+      }
+      if (seen.has(key)) continue;
+      seen.add(key);
+      positive.push(tag);
+    }
+  }
+  if (positive.length > 0) return positive;
+  if (hadNone) return [ROSTER_CATEGORIES.NONE];
+  return [];
+}
+
+/**
+ * ¿Se pueden fusionar estas filas? ≥2 reales, misma fecha + servicio.
+ * @param {Array<object>} rows
+ * @returns {{ ok: boolean, reason?: string, turnoKey?: string }}
+ */
+export function canMergeMealRows(rows = []) {
+  const real = (rows || []).filter((r) => r && !r.isTemp && r.id != null);
+  if (real.length < 2) {
+    return { ok: false, reason: "need_two" };
+  }
+  const keys = new Set();
+  for (const r of real) {
+    const k = mealTurnoKey(r);
+    if (!k) return { ok: false, reason: "missing_turno" };
+    keys.add(k);
+  }
+  if (keys.size !== 1) {
+    return { ok: false, reason: "different_turno" };
+  }
+  return { ok: true, turnoKey: [...keys][0] };
+}
+
+/**
+ * Survivor: mayor «completitud» (locación, hora, audiencia), desempate por id numérico menor.
+ * @param {Array<object>} rows
+ * @returns {object|null}
+ */
+export function pickMealMergeSurvivor(rows = []) {
+  const real = (rows || []).filter((r) => r && !r.isTemp && r.id != null);
+  if (real.length === 0) return null;
+  const score = (r) => {
+    let s = 0;
+    if (r.id_locacion != null && r.id_locacion !== "") s += 3;
+    if (r.hora_inicio) s += 3;
+    if (r.hora_fin) s += 1;
+    if (String(r.descripcion || "").trim()) s += 1;
+    const conv = r.convocados || [];
+    if (conv.length > 0 && !isNobodyConvocados(conv)) s += 1;
+    if (mealRowGrupoIds(r).length > 0) s += 1;
+    const props = r.propuestas || r.eventos_fimba_propuestas || [];
+    if (props.length > 0) s += 1;
+    return s;
+  };
+  return [...real].sort((a, b) => {
+    const ds = score(b) - score(a);
+    if (ds !== 0) return ds;
+    const ai = Number(a.id);
+    const bi = Number(b.id);
+    if (Number.isFinite(ai) && Number.isFinite(bi)) return ai - bi;
+    return String(a.id).localeCompare(String(b.id));
+  })[0];
+}
+
+/**
+ * Payload de fusión: convocados / grupos / artistas unidos sobre el survivor.
+ * @param {Array<object>} rows
+ * @param {object} [survivor]
+ * @returns {{
+ *   survivor: object,
+ *   dropIds: Array<number|string>,
+ *   convocados: Array,
+ *   selectedGrupos: number[],
+ *   propuestaIds: number[],
+ *   propuestas: object[],
+ * } | null}
+ */
+export function buildMergedMealState(rows = [], survivor = null) {
+  const real = (rows || []).filter((r) => r && !r.isTemp && r.id != null);
+  if (!canMergeMealRows(real).ok) return null;
+  const keep = survivor || pickMealMergeSurvivor(real);
+  if (!keep) return null;
+  const dropIds = real
+    .filter((r) => String(r.id) !== String(keep.id))
+    .map((r) => r.id);
+
+  const convocados = mergeMealConvocados(real.map((r) => r.convocados));
+  const selectedGrupos = [
+    ...new Set(real.flatMap((r) => mealRowGrupoIds(r))),
+  ];
+
+  const byPropId = new Map();
+  for (const r of real) {
+    for (const p of r.propuestas || []) {
+      if (p?.id == null) continue;
+      byPropId.set(Number(p.id), p);
+    }
+    for (const link of r.eventos_fimba_propuestas || []) {
+      const p = link?.fimba_propuestas || link;
+      const id = Number(link?.id_propuesta ?? p?.id);
+      if (!Number.isFinite(id)) continue;
+      if (!byPropId.has(id) && p?.id != null) byPropId.set(id, p);
+      else if (!byPropId.has(id)) byPropId.set(id, { id });
+    }
+  }
+  const propuestas = Array.from(byPropId.values());
+  const propuestaIds = propuestas.map((p) => Number(p.id)).filter(Number.isFinite);
+
+  return {
+    survivor: keep,
+    dropIds,
+    convocados,
+    selectedGrupos,
+    propuestaIds,
+    propuestas,
+  };
+}
+
+/**
  * Detecta sobre-inclusiÃÂÃÂÃÂÃÂ³n: personas OFRN (y tags FIMBA) que aparecen en
  * ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ¥2 comidas del mismo turno (`mealTurnoKey`), usando el set **post-deducciÃÂÃÂÃÂÃÂ³n**
  * orquestaÃÂÃÂ¢ÃÂÃÂÃÂÃÂgrupo cuando se pasa `getEligiblePeople` ya deducido.

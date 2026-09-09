@@ -1,6 +1,11 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { buildAppTo } from "../../utils/appNavigation";
+import {
+  destinationLeavesSeating,
+  isModifiedClick,
+  requestSeatingLeave,
+} from "../../utils/seatingLateMailLeaveGuard";
 
 /**
  * Link de navegación interna OFRN con href real (rueda / Ctrl+clic → nueva pestaña).
@@ -20,6 +25,8 @@ export default function AppNavLink({
   onClick = null,
   ...rest
 }) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const resolvedTo =
     to ??
     buildAppTo({
@@ -38,6 +45,11 @@ export default function AppNavLink({
       className={className}
       onClick={(e) => {
         onClick?.(e);
+        if (e.defaultPrevented || isModifiedClick(e)) return;
+        if (!destinationLeavesSeating(location, resolvedTo)) return;
+        if (!requestSeatingLeave(() => navigate(resolvedTo))) {
+          e.preventDefault();
+        }
       }}
       {...rest}
     >

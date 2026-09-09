@@ -19,6 +19,7 @@ import {
   IconSearch,
   IconPlus,
   IconAlertTriangle,
+  IconMerge,
 } from "../../components/ui/Icons";
 import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
@@ -64,6 +65,8 @@ import {
   DEFAULT_MEAL_SERVICE_FILTER,
   findFimbaArtistMealCoverageGaps,
   filterFimbaPropuestasForMeals,
+  canMergeMealRows,
+  buildMergedMealState,
 } from "../../utils/mealLogistics";
 import { createCoverageGapsWithToast } from "../../utils/fimbaMealCoverageCreate";
 import MealTypesEditorModal from "../../components/logistics/MealTypesEditorModal";
@@ -82,6 +85,7 @@ import {
   hasEditorialGrupoFilter,
   setEventoGrupos,
 } from "../../services/giraGruposService";
+import { setEventoFimbaPropuestas } from "../../services/fimbaService";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import MealOrchestraOnlyFilterChip from "../../components/logistics/MealOrchestraOnlyFilterChip";
 import FimbaEventArtistasTagsCell from "../Fimba/FimbaEventArtistasTagsCell";
@@ -1662,7 +1666,16 @@ const MultiGroupSelect = ({
 };
 
 // --- PANEL DE EDICIÓN MASIVA (barra flotante, portal → body) ---
-const BulkEditPanel = ({ selectedCount, onApply, onCancel, catalogs }) => {
+const BulkEditPanel = ({
+  selectedCount,
+  onApply,
+  onCancel,
+  catalogs,
+  canMerge = false,
+  mergeDisabledReason = "",
+  onMerge = null,
+  merging = false,
+}) => {
   const [values, setValues] = useState({
     hora_inicio: "",
     id_locacion: "",
@@ -1711,6 +1724,31 @@ const BulkEditPanel = ({ selectedCount, onApply, onCancel, catalogs }) => {
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          {typeof onMerge === "function" && (
+            <button
+              type="button"
+              onClick={onMerge}
+              disabled={!canMerge || merging}
+              title={
+                canMerge
+                  ? "Fusionar comidas del mismo día y servicio"
+                  : mergeDisabledReason ||
+                    "Seleccioná ≥2 comidas con la misma fecha y servicio"
+              }
+              className={`text-xs font-black px-3 py-1.5 rounded-lg shadow-md active:scale-95 transition-all flex items-center gap-1 ${
+                canMerge && !merging
+                  ? "bg-amber-400 hover:bg-amber-300 text-amber-950"
+                  : "bg-indigo-900/50 text-indigo-300 cursor-not-allowed"
+              }`}
+            >
+              {merging ? (
+                <IconLoader size={14} className="animate-spin" />
+              ) : (
+                <IconMerge size={14} />
+              )}{" "}
+              Fusionar
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onApply(values)}
@@ -1773,6 +1811,7 @@ export default function MealsManager({
   /** Draft del mini-modal "+" (fecha/tipo editables; defaults = fila origen). */
   const [siblingAddDraft, setSiblingAddDraft] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
+  const [mergingMeals, setMergingMeals] = useState(false);
   const [localMealFilters, setLocalMealFilters] = useState(() =>
     createDefaultMealFilters(),
   );
@@ -2500,6 +2539,159 @@ export default function MealsManager({
     }
 
     refreshGridData();
+  };
+
+  const selectedRowsForMerge = useMemo(() => {
+    const ids = Array.from(selectedRows);
+    return grid.filter(
+      (r) => ids.includes(r.id) && !r.isTemp && r.id != null,
+    );
+  }, [grid, selectedRows]);
+
+  const mealMergeEligibility = useMemo(() => {
+    if (readOnly) {
+      return {
+        ok: false,
+        reason: "Solo lectura",
+      };
+    }
+    const check = canMergeMealRows(selectedRowsForMerge);
+    if (check.ok) return { ok: true, reason: "" };
+    if (check.reason === "need_two") {
+      return {
+        ok: false,
+        reason: "Seleccioná al menos 2 comidas guardadas",
+      };
+    }
+    if (check.reason === "different_turno" || check.reason === "missing_turno") {
+      return {
+        ok: false,
+        reason: "Solo se fusionan comidas de la misma fecha y servicio",
+      };
+    }
+    return { ok: false, reason: "No se pueden fusionar estas filas" };
+  }, [readOnly, selectedRowsForMerge]);
+
+  const handleMergeSelectedMeals = async () => {
+    if (readOnly || mergingMeals) return;
+    const eligibility = canMergeMealRows(selectedRowsForMerge);
+    if (!eligibility.ok) {
+      toast.info(
+        eligibility.reason === "different_turno" ||
+          eligibility.reason === "missing_turno"
+          ? "Solo se fusionan comidas de la misma fecha y servicio."
+          : "Seleccioná al menos 2 comidas guardadas del mismo día y servicio.",
+      );
+      return;
+    }
+
+    const merged = buildMergedMealState(selectedRowsForMerge);
+    if (!merged) return;
+    const { survivor, dropIds, convocados, selectedGrupos, propuestaIds, propuestas } =
+      merged;
+    const serviceLabel =
+      survivor.tipo_nombre ||
+      serviceLabelOf(survivor.servicio, survivor.servicio_detalle) ||
+      survivor.servicio ||
+      eligibility.turnoKey;
+
+    const ok = await confirm({
+      title: "Fusionar comidas",
+      message: `¿Fusionar ${selectedRowsForMerge.length} comidas de ${serviceLabel} (${survivor.fecha}) en un solo evento?\n\nSe unen convocados OFRN, grupos y artistas FIMBA. Se conserva el evento más completo (id ${survivor.id}) y se borran los demás.`,
+      confirmText: "Fusionar",
+    });
+    if (!ok) return;
+
+    setMergingMeals(true);
+    try {
+      const descripcion = mergeMealDescriptionWithConvocados(
+        survivor.descripcion,
+        serviceLabel,
+        convocados,
+        catalogs,
+        survivor.convocados,
+        propuestas,
+      );
+
+      const { error: updErr } = await supabase
+        .from("eventos")
+        .update({ convocados, descripcion })
+        .eq("id", survivor.id);
+      if (updErr) throw updErr;
+
+      if (hasGiraGrupos) {
+        const { error: gruposError } = await setEventoGrupos(
+          supabase,
+          survivor.id,
+          selectedGrupos,
+        );
+        if (gruposError) throw gruposError;
+      }
+
+      const { error: tagsError } = await setEventoFimbaPropuestas(
+        survivor.id,
+        propuestaIds,
+      );
+      if (tagsError) throw tagsError;
+
+      if (dropIds.length > 0) {
+        const { error: delErr } = await supabase
+          .from("eventos")
+          .delete()
+          .in("id", dropIds);
+        if (delErr) throw delErr;
+      }
+
+      const dropSet = new Set(dropIds.map(String));
+      setGrid((prev) => {
+        const withoutDropped = prev.filter((r) => !dropSet.has(String(r.id)));
+        const idx = withoutDropped.findIndex(
+          (r) => String(r.id) === String(survivor.id),
+        );
+        if (idx < 0) return withoutDropped;
+        const prevRow = withoutDropped[idx];
+        const nextRow = {
+          ...prevRow,
+          convocados,
+          descripcion,
+          selectedGrupos,
+          eventos_grupos: buildEventosGruposEmbed(selectedGrupos, giraGrupos),
+          propuestas,
+          dirty: false,
+        };
+        return rematerializeTurnoSiblings(
+          withoutDropped,
+          idx,
+          prevRow,
+          nextRow,
+        );
+      });
+
+      setSelectedRows(new Set());
+      if (comensalesDetailRow && dropSet.has(String(comensalesDetailRow.id))) {
+        setComensalesDetailRow(null);
+      }
+
+      toast.success(
+        `Fusionadas ${selectedRowsForMerge.length} comidas en el evento ${survivor.id}.`,
+      );
+      onFimbaTagsSaved?.(survivor.id);
+      await refreshGridData();
+    } catch (e) {
+      console.error(e);
+      toast.error(
+        e?.message
+          ? `No se pudo fusionar: ${e.message}`
+          : "No se pudieron fusionar las comidas",
+      );
+      try {
+        await refreshGridData();
+      } catch (_) {
+        /* ignore */
+      }
+    } finally {
+      setMergingMeals(false);
+    }
   };
 
   const handleResetAllMealNames = async () => {
@@ -3309,7 +3501,18 @@ export default function MealsManager({
         </div>
       )}
 
-      {selectedRows.size > 0 && <BulkEditPanel selectedCount={selectedRows.size} onCancel={() => setSelectedRows(new Set())} onApply={handleBulkApply} catalogs={catalogs} />}
+      {selectedRows.size > 0 && (
+        <BulkEditPanel
+          selectedCount={selectedRows.size}
+          onCancel={() => setSelectedRows(new Set())}
+          onApply={handleBulkApply}
+          catalogs={catalogs}
+          canMerge={mealMergeEligibility.ok}
+          mergeDisabledReason={mealMergeEligibility.reason}
+          onMerge={readOnly ? null : handleMergeSelectedMeals}
+          merging={mergingMeals}
+        />
+      )}
 
       {(turnoOverInclusions.personCount > 0 ||
         turnoOverInclusions.artistCount > 0) && (

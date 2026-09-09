@@ -914,6 +914,8 @@ const GlobalStringsManager = React.lazy(
 
 const STRINGS_PANEL_HEIGHT_KEY = "seating_strings_panel_height_px";
 const DEFAULT_STRINGS_PANEL_HEIGHT = 350;
+/** Evita que el default `[]` sea una identidad nueva en cada render (loop de fetch + spinner). */
+const EMPTY_REPERTOIRE_BLOCKS = [];
 const MIN_STRINGS_PANEL_HEIGHT = 140;
 const MIN_SEATING_AREA_HEIGHT = 180;
 const AnnualRotationModal = React.lazy(
@@ -983,7 +985,7 @@ export default function ProgramSeating({
   supabase,
   program,
   onBack,
-  repertoireBlocks = [],
+  repertoireBlocks = EMPTY_REPERTOIRE_BLOCKS,
   canAccessStringsConfig = false,
   onRefreshGira = null,
   onOrganicoSave = null,
@@ -1195,15 +1197,19 @@ export default function ProgramSeating({
     repertoireBlocks.length > 0 ? repertoireBlocks : fetchedBlocks;
 
   // Aseguramos orden estable de bloques y de obras dentro de cada bloque
-  const effectiveBlocks = (rawBlocks || [])
-    .slice()
-    .sort((a, b) => (a.orden || 0) - (b.orden || 0))
-    .map((block) => ({
-      ...block,
-      repertorio_obras: (block.repertorio_obras || [])
+  const effectiveBlocks = useMemo(
+    () =>
+      (rawBlocks || [])
         .slice()
-        .sort((a, b) => (a.orden || 0) - (b.orden || 0)),
-    }));
+        .sort((a, b) => (a.orden || 0) - (b.orden || 0))
+        .map((block) => ({
+          ...block,
+          repertorio_obras: (block.repertorio_obras || [])
+            .slice()
+            .sort((a, b) => (a.orden || 0) - (b.orden || 0)),
+        })),
+    [rawBlocks],
+  );
 
   const obras = useMemo(() => {
     if (!effectiveBlocks || effectiveBlocks.length === 0) return [];
@@ -1828,9 +1834,23 @@ export default function ProgramSeating({
     setLoadedProgramId(null);
   }, [program?.id]);
 
+  const seatingRosterIdentity = useMemo(
+    () =>
+      (rawRoster || [])
+        .map(
+          (m) =>
+            `${m.id}:${m.estado_gira || ""}:${m.rol_gira || ""}:${m.id_instr || ""}`,
+        )
+        .join("|"),
+    [rawRoster],
+  );
+
   useEffect(() => {
     if (program?.id && !rosterLoading) fetchInitialData();
-  }, [program.id, rosterLoading, rawRoster]);
+    // fetchInitialData lee rawRoster del closure; la identidad serializada evita
+    // re-fetch + spinner si React Query entrega el mismo roster con otra referencia.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ver seatingRosterIdentity
+  }, [program.id, rosterLoading, seatingRosterIdentity]);
 
   const isString = (id) => ["01", "02", "03", "04"].includes(id);
 
@@ -3397,6 +3417,9 @@ export default function ProgramSeating({
           musicians={lateAssignment.musicians}
           detalleText={lateAssignment.detalleText}
           emails={lateAssignment.emails}
+          supabase={supabase}
+          program={program}
+          onDismissSession={lateAssignment.dismissSession}
         />
       )}
 

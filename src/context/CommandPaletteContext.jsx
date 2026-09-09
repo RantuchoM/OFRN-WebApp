@@ -1,5 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import {
+  destinationLeavesSeating,
+  requestSeatingLeave,
+} from '../utils/seatingLateMailLeaveGuard';
 import { useAuth } from './AuthContext'; 
 import { supabase } from '../services/supabase'; 
 import { canAccessMusicTranslation } from '../constants/musicTranslationAccess';
@@ -52,9 +56,20 @@ export const CommandPaletteProvider = ({ children }) => {
   const [registeredCommands, setRegisteredCommands] = useState({});
   const [girasCommands, setGirasCommands] = useState([]); 
   
-  const navigate = useNavigate();
-  // eslint-disable-next-line no-unused-vars
-  const location = useLocation(); 
+  const rawNavigate = useNavigate();
+  const location = useLocation();
+  const navigate = useCallback(
+    (to, opts) => {
+      if (!destinationLeavesSeating(location, to)) {
+        rawNavigate(to, opts);
+        return;
+      }
+      if (requestSeatingLeave(() => rawNavigate(to, opts))) {
+        rawNavigate(to, opts);
+      }
+    },
+    [rawNavigate, location],
+  );
   const [searchParams] = useSearchParams();
   
   const {

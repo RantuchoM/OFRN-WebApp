@@ -31,6 +31,14 @@
       return "";
     }
 
+    function escapeHtmlMail(s: string): string {
+      return String(s || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
     function nombreSaludoConvocatoria(payloadNombre: string, d: any): string {
       const nRaw = d?.primer_integrante_nombre ?? d?.nombre_primero;
       const aRaw = d?.primer_integrante_apellido ?? d?.apellido_primero;
@@ -601,6 +609,28 @@
             ${fechasZonaBlock}
             <p>Si tenés consultas, contactá a la administración.</p>
           `;
+        } else if (variant === "SEATING_CAMBIO") {
+          titulo = "Novedades de seating";
+          const novedades = Array.isArray(d?.novedades) ? d.novedades : [];
+          const novedadesItems = novedades
+            .map((n: any) => {
+              const obra = escapeHtmlMail(n?.obra || "Obra");
+              const from = escapeHtmlMail(n?.from || "sin asignación");
+              const to = escapeHtmlMail(n?.to || "sin asignación");
+              return `<li style="margin: 4px 0;"><strong>${obra}</strong>: ${from} → ${to}</li>`;
+            })
+            .join("");
+          const novedadesBlock = novedadesItems
+            ? `<p style="margin: 10px 0 6px 0;"><strong>Tus asignaciones:</strong></p><ul style="margin: 0 0 12px 0; padding-left: 18px;">${novedadesItems}</ul>`
+            : reasonBlock;
+          parrafo = `
+            <p>${saludo}</p>
+            <p>Se actualizaron tus asignaciones de particella en la gira <strong>${gira}</strong> (${nomenclador}).</p>
+            ${fechasZonaBlock}
+            ${novedadesBlock}
+            ${linkRepertorio ? `<p><a href="${linkRepertorio}" style="color:#4f46e5; font-weight:bold;">Ver repertorio y material</a></p>` : ""}
+            <p>Cualquier consulta, respondé a este correo.</p>
+          `;
         } else {
           parrafo = `<p>${saludo}</p><p>Actualización sobre la gira <strong>${gira}</strong> (${nomenclador}).</p>${reasonBlock}${fechasZonaBlock}`;
         }
@@ -761,6 +791,7 @@
             else if (v === 'BAJA') subject = `Baja de gira | ${nombreGira}`;
             else if (v === 'AUSENTE') subject = `Ausencia en gira | ${nombreGira}`;
             else if (v === 'GIRA_ELIMINADA') subject = `Gira cancelada | ${nombreGira}`;
+            else if (v === 'SEATING_CAMBIO') subject = `Novedades de seating | ${nombreGira}`;
             else subject = `Convocatoria OFRN | ${nombreGira}`;
           } else if (tid === "scrn_transporte_evento") {
             subject = detalle?.titulo ? `[SCRN] ${detalle.titulo}` : "Aviso Transporte SCRN";

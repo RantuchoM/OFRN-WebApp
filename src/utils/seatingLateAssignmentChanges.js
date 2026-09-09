@@ -154,6 +154,26 @@ export function diffEffectiveAssignments(baseline, current) {
   return changes;
 }
 
+export function effectiveAssignmentsSignature(map) {
+  if (!(map instanceof Map) || map.size === 0) return "";
+  return [...map.entries()]
+    .map(([key, ids]) => `${key}=${partIdsSignature(ids)}`)
+    .sort()
+    .join("|");
+}
+
+export function lateAssignmentChangesEqual(a, b) {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+    return false;
+  }
+  const sig = (change) =>
+    `${integranteKey(change.musicianId)}:${change.obraId}:${partIdsSignature(change.fromIds)}:${partIdsSignature(change.toIds)}`;
+  return (
+    a.map(sig).sort().join("|") === b.map(sig).sort().join("|")
+  );
+}
+
 export function formatPartsLabel(ids, particellasById) {
   const names = normalizePartIds(ids).map((id) => {
     const part = particellasById?.get?.(String(id));
@@ -193,6 +213,71 @@ export function collectMusicianEmails(musicians) {
     emails.push(mail);
   });
   return emails;
+}
+
+/** Variante de `convocatoria_gira` para novedades de seating / particella. */
+export const SEATING_CAMBIO_MAIL_VARIANT = "SEATING_CAMBIO";
+
+export function formatSeatingCambioReason(changes) {
+  return (changes || [])
+    .map((c) =>
+      formatAssignmentChangeLine(
+        c.obraTitle || "Obra",
+        c.fromLabel || "sin asignación",
+        c.toLabel || "sin asignación",
+      ),
+    )
+    .join("\n");
+}
+
+export function musiciansWithMail(musicians) {
+  return (musicians || []).filter((m) => String(m.mail || "").trim());
+}
+
+/** Pendientes de mail en esta visita: con mail y aún no enviados con éxito. */
+export function pendingLateAssignmentMusicians(musicians, sentIds) {
+  const sent = sentIds instanceof Set ? sentIds : new Set(
+    [...(sentIds || [])].map((id) => String(id)),
+  );
+  return musiciansWithMail(musicians).filter(
+    (m) => !sent.has(String(m.id)),
+  );
+}
+
+/**
+ * Una tarea por músico (mismo shape que altas/bajas de roster).
+ * Omite quienes no tienen mail.
+ */
+export function buildSeatingCambioMailTask(musician, { now = Date.now() } = {}) {
+  const mail = String(musician?.mail || "").trim();
+  if (!mail || musician?.id == null) return null;
+  const nombre = String(musician.nombre || "").trim();
+  const apellido = String(musician.apellido || "").trim();
+  const nombreCompleto =
+    musician.nombreCompleto ||
+    (nombre && apellido ? `${nombre} ${apellido}` : "") ||
+    musician.displayName ||
+    "Participante";
+  return {
+    id: `seating-cambio-${musician.id}-${now}`,
+    variant: SEATING_CAMBIO_MAIL_VARIANT,
+    emails: [mail],
+    nombres: [nombreCompleto],
+    nombrePrimero: nombre,
+    apellidoPrimero: apellido,
+    reason: formatSeatingCambioReason(musician.changes),
+    novedades: (musician.changes || []).map((c) => ({
+      obra: c.obraTitle || "Obra",
+      from: c.fromLabel || "sin asignación",
+      to: c.toLabel || "sin asignación",
+    })),
+  };
+}
+
+export function buildSeatingCambioMailTasks(musicians, options) {
+  return (musicians || [])
+    .map((m) => buildSeatingCambioMailTask(m, options))
+    .filter(Boolean);
 }
 
 export async function fetchProgramContainerItems(supabase, programId) {

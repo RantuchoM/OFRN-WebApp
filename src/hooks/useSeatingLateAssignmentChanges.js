@@ -7,10 +7,12 @@ import {
   buildEffectiveAssignments,
   collectMusicianEmails,
   diffEffectiveAssignments,
+  effectiveAssignmentsSignature,
   fetchProgramContainerItems,
   formatLateAssignmentDetalle,
   formatPartsLabel,
   isWithinSeatingLateChangeWindow,
+  lateAssignmentChangesEqual,
 } from "../utils/seatingLateAssignmentChanges";
 
 /**
@@ -50,7 +52,6 @@ export function useSeatingLateAssignmentChanges({
     }
     const programId = program.id;
     let cancelled = false;
-    setItemsProgramId(null);
     fetchProgramContainerItems(supabase, programId)
       .then((items) => {
         if (cancelled) return;
@@ -86,6 +87,12 @@ export function useSeatingLateAssignmentChanges({
 
   const baselineRef = useRef(null);
   const baselineProgramIdRef = useRef(null);
+  const currentAssignmentsRef = useRef(currentAssignments);
+  currentAssignmentsRef.current = currentAssignments;
+  const currentSignature = useMemo(
+    () => effectiveAssignmentsSignature(currentAssignments),
+    [currentAssignments],
+  );
   const [rawChanges, setRawChanges] = useState([]);
   const seatingReady =
     initialLoadDone && !loading && program?.id != null;
@@ -103,20 +110,22 @@ export function useSeatingLateAssignmentChanges({
       return;
     }
     if (!seatingReady || !itemsReady) return;
+    const live = currentAssignmentsRef.current;
     if (!baselineRef.current) {
-      baselineRef.current = currentAssignments;
+      baselineRef.current = live;
       setRawChanges([]);
       return;
     }
-    setRawChanges(
-      diffEffectiveAssignments(baselineRef.current, currentAssignments),
+    const next = diffEffectiveAssignments(baselineRef.current, live);
+    setRawChanges((prev) =>
+      lateAssignmentChangesEqual(prev, next) ? prev : next,
     );
   }, [
     program?.id,
     withinWindow,
     seatingReady,
     itemsReady,
-    currentAssignments,
+    currentSignature,
   ]);
 
   const particellasById = useMemo(() => {
@@ -156,6 +165,10 @@ export function useSeatingLateAssignmentChanges({
         byMusician.set(mid, {
           id: person.id,
           displayName: seatingApellidoNombre(person),
+          nombre: person.nombre || "",
+          apellido: person.apellido || "",
+          nombreCompleto:
+            person.nombre_completo || seatingApellidoNombre(person),
           mail: String(person.mail || "").trim(),
           changes: [],
         });
@@ -193,11 +206,17 @@ export function useSeatingLateAssignmentChanges({
   );
   const emails = useMemo(() => collectMusicianEmails(musicians), [musicians]);
 
+  const dismissSession = () => {
+    baselineRef.current = currentAssignmentsRef.current;
+    setRawChanges([]);
+  };
+
   return {
     visible: withinWindow && musicians.length > 0,
     musicians,
     count: musicians.length,
     detalleText,
     emails,
+    dismissSession,
   };
 }
