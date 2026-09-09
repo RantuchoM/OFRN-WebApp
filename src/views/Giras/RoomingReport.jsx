@@ -1,9 +1,44 @@
 // src/views/Giras/RoomingReport.jsx
-import React, { useRef, useMemo } from "react";
-import { IconFileText, IconPrinter, IconX } from "../../components/ui/Icons";
-import { differenceInCalendarDays } from "date-fns";
-import { formatTramoTitle } from "../../utils/giraTramos";
+import React, { useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import {
+  IconFileText,
+  IconPrinter,
+  IconX,
+  IconFileExcel,
+  IconHotel,
+  IconLoader,
+} from "../../components/ui/Icons";
+import {
+  buildOfrnRoomingSegmentSections,
+  exportOfrnRoomingExcel,
+  listOfrnRoomingHotels,
+  totalBedNightsFromRooms,
+} from "../../utils/ofrnRoomingExport";
+import { toast } from "sonner";
 
+const formatDate = (d) =>
+  d
+    ? d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })
+    : "-";
+const formatTime = (d) =>
+  d
+    ? d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
+    : "";
+const formatDOB = (isoString) =>
+  isoString ? isoString.split("-").reverse().join("/") : "-";
+
+const getEmptyStats = () => ({
+  total: 0,
+  std: 0,
+  plus: 0,
+  matri: 0,
+  cuna: 0,
+});
+
+/**
+ * Reporte de rooming OFRN: vista / PDF / Excel, filtrable por hotel.
+ */
 const RoomingReportModal = ({
   bookings,
   rooms,
@@ -12,49 +47,51 @@ const RoomingReportModal = ({
   segmentRows = [],
   segments = [],
   cortesCount = 0,
+  programName = "",
 }) => {
   const componentRef = useRef();
-  const defaultSegmentId = segmentRows[0]?.id ?? null;
+  const [hotelBookingId, setHotelBookingId] = useState("all");
+  const [excelBusy, setExcelBusy] = useState(false);
 
-  const segmentSections = useMemo(() => {
-    const hasTramos = cortesCount > 0 && segmentRows.length > 0;
-    if (!hasTramos) {
-      return [
-        {
-          segmentRow: null,
-          segmentSpec: null,
-          indice: 0,
-          bookings,
-        },
-      ];
-    }
-    return segmentRows
-      .map((segRow, idx) => ({
-        segmentRow: segRow,
-        segmentSpec: segments[idx] ?? null,
-        indice: idx,
-        bookings: bookings.filter((b) => {
-          const segId = b.id_segmento ?? defaultSegmentId;
-          return Number(segId) === Number(segRow.id);
-        }),
-      }))
-      .filter((section) =>
-        section.bookings.some((bk) =>
-          rooms.some((r) => r.id_hospedaje === bk.id),
-        ),
-      );
-  }, [bookings, rooms, segmentRows, segments, cortesCount, defaultSegmentId]);
+  const hotelOptions = useMemo(
+    () => listOfrnRoomingHotels(bookings, rooms),
+    [bookings, rooms],
+  );
+
+  const segmentSections = useMemo(
+    () =>
+      buildOfrnRoomingSegmentSections({
+        bookings,
+        rooms,
+        logisticsMap,
+        segmentRows,
+        segments,
+        cortesCount,
+        hotelBookingId,
+      }),
+    [
+      bookings,
+      rooms,
+      logisticsMap,
+      segmentRows,
+      segments,
+      cortesCount,
+      hotelBookingId,
+    ],
+  );
 
   const handlePrint = () => {
     const printContent = componentRef.current;
-    const windowUrl = "about:blank";
-    const uniqueName = new Date();
-    const windowName = "Print" + uniqueName.getTime();
+    if (!printContent) return;
     const printWindow = window.open(
-      windowUrl,
-      windowName,
+      "about:blank",
+      `Print${Date.now()}`,
       "left=50000,top=50000,width=0,height=0",
     );
+    if (!printWindow) {
+      toast.error("No se pudo abrir la ventana de impresión.");
+      return;
+    }
 
     printWindow.document.write(`
             <html>
@@ -106,112 +143,93 @@ const RoomingReportModal = ({
     }, 500);
   };
 
-  const formatDate = (d) =>
-    d
-      ? d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })
-      : "-";
-  const formatTime = (d) =>
-    d
-      ? d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
-      : "";
-  const formatDOB = (isoString) =>
-    isoString ? isoString.split("-").reverse().join("/") : "-";
-  const getEmptyStats = () => ({
-    total: 0,
-    std: 0,
-    plus: 0,
-    matri: 0,
-    cuna: 0,
-  });
-
-  // Misma resolución que roomingInitialOrder.getLogisticsDates (string | evento | {}).
-  const getLogisticsDates = (log) => {
-    const parseMilestone = (raw, siblingTime, defaultTime) => {
-      if (raw == null || raw === "") return null;
-      let dStr = null;
-      let tStr = null;
-      if (typeof raw === "string") {
-        dStr = raw;
-        tStr = siblingTime || defaultTime;
-      } else if (typeof raw === "object") {
-        dStr = raw.fecha || raw.date || null;
-        if (!dStr) return null;
-        tStr =
-          raw.hora_inicio ||
-          raw.hora ||
-          raw.time ||
-          siblingTime ||
-          defaultTime;
-      } else {
-        return null;
-      }
-      const day = String(dStr).slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
-      const safeTime = String(tStr || defaultTime).slice(0, 5);
-      const parsed = new Date(`${day}T${safeTime}`);
-      return Number.isNaN(parsed.getTime()) ? null : parsed;
-    };
-
-    return {
-      dateIn: parseMilestone(log?.checkin, log?.checkin_time, "14:00"),
-      dateOut: parseMilestone(log?.checkout, log?.checkout_time, "10:00"),
-    };
-  };
-
-  const getBookingSegmentBounds = (bk, segmentRow) => {
-    let segIn = null;
-    let segOut = null;
-    if (bk?.fecha_checkin) {
-      const t = (bk.hora_checkin || "14:00").slice(0, 5);
-      segIn = new Date(`${bk.fecha_checkin}T${t}`);
-    } else if (segmentRow?.fecha_desde) {
-      segIn = new Date(`${segmentRow.fecha_desde}T14:00`);
+  const handleExcel = async () => {
+    setExcelBusy(true);
+    try {
+      await exportOfrnRoomingExcel({
+        bookings,
+        rooms,
+        logisticsMap,
+        segmentRows,
+        segments,
+        cortesCount,
+        hotelBookingId,
+        programName,
+      });
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.message || "No se pudo exportar el Excel.");
+    } finally {
+      setExcelBusy(false);
     }
-    if (bk?.fecha_checkout) {
-      const t = (bk.hora_checkout || "10:00").slice(0, 5);
-      segOut = new Date(`${bk.fecha_checkout}T${t}`);
-    } else if (segmentRow?.fecha_hasta) {
-      segOut = new Date(`${segmentRow.fecha_hasta}T10:00`);
-    }
-    return { segIn, segOut };
   };
 
-  const formatSegmentTitle = (section) => {
-    const row = section.segmentRow;
-    if (!row) return null;
-    return formatTramoTitle(section.indice, row.fecha_desde, row.fecha_hasta);
-  };
-
-  const clipDatesToSegment = (dateIn, dateOut, bk, segmentRow) => {
-    const { segIn, segOut } = getBookingSegmentBounds(bk, segmentRow);
-    if (!segIn && !segOut) return { dateIn, dateOut };
-    let inClipped = dateIn;
-    let outClipped = dateOut;
-    if (segIn && dateIn && dateIn < segIn) inClipped = segIn;
-    if (segOut && dateOut && dateOut > segOut) outClipped = segOut;
-    if (segIn && !dateIn) inClipped = segIn;
-    if (segOut && !dateOut) outClipped = segOut;
-    return { dateIn: inClipped, dateOut: outClipped };
-  };
-
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="bg-white w-full max-w-6xl h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden">
-        <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full max-w-6xl h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden border border-slate-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-4 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2 bg-slate-50 shrink-0">
           <h3 className="font-bold text-slate-800 flex items-center gap-2">
             <IconFileText size={20} className="text-indigo-600" /> Reporte de
             Rooming por Hotel
           </h3>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600">
+              <IconHotel size={14} className="text-indigo-500" />
+              Hotel
+              <select
+                className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white font-semibold text-slate-800 max-w-[220px]"
+                value={String(hotelBookingId)}
+                onChange={(e) => setHotelBookingId(e.target.value)}
+                title="Filtrar export / vista por hotel"
+              >
+                <option value="all">
+                  Todos ({hotelOptions.length} hotel
+                  {hotelOptions.length === 1 ? "" : "es"})
+                </option>
+                {hotelOptions.map((h) => (
+                  <option key={h.bookingId} value={String(h.bookingId)}>
+                    {h.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
+              type="button"
+              disabled={excelBusy || segmentSections.length === 0}
+              onClick={handleExcel}
+              className="bg-emerald-700 text-white px-3 py-1.5 rounded text-sm font-bold hover:bg-emerald-800 flex items-center gap-2 shadow-sm disabled:opacity-50"
+              title={
+                hotelBookingId === "all"
+                  ? "Excel: Habitaciones + plazas; con varios hoteles, una hoja extra por hotel"
+                  : "Excel de este hotel"
+              }
+            >
+              {excelBusy ? (
+                <IconLoader size={16} className="animate-spin" />
+              ) : (
+                <IconFileExcel size={16} />
+              )}
+              Excel
+            </button>
+            <button
+              type="button"
               onClick={handlePrint}
-              className="bg-indigo-600 text-white px-3 py-1.5 rounded text-sm font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm"
+              disabled={segmentSections.length === 0}
+              className="bg-indigo-600 text-white px-3 py-1.5 rounded text-sm font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm disabled:opacity-50"
             >
               <IconPrinter size={16} /> Imprimir / PDF
             </button>
             <button
+              type="button"
               onClick={onClose}
               className="text-slate-400 hover:text-slate-600 p-1"
+              title="Cerrar"
             >
               <IconX size={24} />
             </button>
@@ -220,319 +238,302 @@ const RoomingReportModal = ({
 
         <div className="flex-1 overflow-auto p-8 bg-white" ref={componentRef}>
           <h1 className="mb-4">Listado de Distribución de Habitaciones</h1>
+          {hotelBookingId !== "all" && hotelOptions.length > 0 && (
+            <p className="text-sm text-slate-500 mb-4">
+              Filtro:{" "}
+              {hotelOptions.find(
+                (h) => String(h.bookingId) === String(hotelBookingId),
+              )?.label || "Hotel"}
+            </p>
+          )}
+          {segmentSections.length === 0 && (
+            <p className="text-amber-700">
+              No hay habitaciones para el hotel seleccionado.
+            </p>
+          )}
           {segmentSections.map((section, sectionIdx) => (
             <div
               key={section.segmentRow?.id ?? `all-${sectionIdx}`}
               className={sectionIdx > 0 ? "page-break mt-8" : ""}
             >
-              {formatSegmentTitle(section) && (
+              {section.tramoTitle && (
                 <h2
                   className="mb-4 text-base font-bold text-indigo-900 border-b border-indigo-200 pb-2"
                   style={{ pageBreakAfter: "avoid" }}
                 >
-                  {formatSegmentTitle(section)}
+                  {section.tramoTitle}
                 </h2>
               )}
-              {section.bookings.map((bk) => {
-            const hotelRooms = rooms.filter((r) => r.id_hospedaje === bk.id);
-            if (hotelRooms.length === 0) return null;
+              {section.hotels.map((hotel, hotelIdx) => {
+                const processedRooms = hotel.rooms;
+                const totalBedNights = totalBedNightsFromRooms(processedRooms);
 
-            const processedRooms = hotelRooms.map((r) => {
-              // FILTRAR OCUPANTES: Solo permitimos a los que tienen estado "confirmado"
-              // Esto asegura que si alguien cambió a "ausente" o "baja", no salga en el PDF
-              const validOccupants = (r.occupants || []).filter(
-                (occ) => occ.estado_gira === "confirmado",
-              );
-
-              const occupantsWithDates = validOccupants.map((occ) => {
-                const log = logisticsMap[occ.id] || {};
-                const { dateIn, dateOut } = getLogisticsDates(log);
-                const clipped = clipDatesToSegment(
-                  dateIn,
-                  dateOut,
-                  bk,
-                  section.segmentRow,
-                );
-                return {
-                  ...occ,
-                  dateIn: clipped.dateIn,
-                  dateOut: clipped.dateOut,
-                  ocupa_cama: occ.ocupa_cama !== false,
+                const stats = {
+                  Simple: getEmptyStats(),
+                  Doble: getEmptyStats(),
+                  Triple: getEmptyStats(),
+                  Cuádruple: getEmptyStats(),
+                  Múltiple: getEmptyStats(),
                 };
-              });
-
-              occupantsWithDates.sort((a, b) => {
-                if (!a.dateIn) return 1;
-                if (!b.dateIn) return -1;
-                return a.dateIn - b.dateIn;
-              });
-
-              const effectiveCheckIn =
-                occupantsWithDates.length > 0 && occupantsWithDates[0].dateIn
-                  ? occupantsWithDates[0].dateIn
-                  : null;
-              const sortedByOut = [...occupantsWithDates].sort((a, b) => {
-                if (!a.dateOut) return 1;
-                if (!b.dateOut) return -1;
-                return b.dateOut - a.dateOut;
-              });
-              const effectiveCheckOut =
-                sortedByOut.length > 0 && sortedByOut[0].dateOut
-                  ? sortedByOut[0].dateOut
-                  : null;
-
-              const bedOccupants = occupantsWithDates.filter(
-                (o) => o.ocupa_cama !== false,
-              );
-              const extraOccupants = occupantsWithDates.filter(
-                (o) => o.ocupa_cama === false,
-              );
-              const count = bedOccupants.length;
-              let capacityType =
-                count === 1
-                  ? "Simple"
-                  : count === 2
-                    ? "Doble"
-                    : count === 3
-                      ? "Triple"
-                      : count === 4
-                        ? "Cuádruple"
-                        : count > 4
-                          ? "Múltiple"
-                          : "Vacía";
-              const isPlus = r.tipo === "Plus";
-              const isMatri = r.es_matrimonial;
-              const hasCuna =
-                r.con_cuna || (extraOccupants && extraOccupants.length > 0);
-
-              return {
-                ...r,
-                occupants: occupantsWithDates,
-                bedOccupants,
-                extraOccupants,
-                effectiveCheckIn,
-                effectiveCheckOut,
-                capacityType,
-                isPlus,
-                isMatri,
-                hasCuna,
-                typeMain: `${capacityType} ${isPlus ? "superior" : "básico"}`,
-                typeMainCapital: `${capacityType} ${isPlus ? "Superior" : "Básico"}`,
-                typeExtras: [
-                  isMatri && "Matrimonial",
-                  hasCuna && "Cuna",
-                ].filter(Boolean),
-              };
-            });
-
-            processedRooms.sort((a, b) => {
-              if (!a.effectiveCheckIn) return 1;
-              if (!b.effectiveCheckIn) return -1;
-              return a.effectiveCheckIn - b.effectiveCheckIn;
-            });
-
-            let totalBedNights = 0;
-            processedRooms.forEach((room) => {
-              room.bedOccupants.forEach((occ) => {
-                if (occ.dateIn && occ.dateOut) {
-                  const nights = differenceInCalendarDays(
-                    occ.dateOut,
-                    occ.dateIn,
+                processedRooms.forEach((r) => {
+                  if (stats[r.capacityType]) {
+                    stats[r.capacityType].total++;
+                    if (r.isPlus) stats[r.capacityType].plus++;
+                    else stats[r.capacityType].std++;
+                    if (r.isMatri) stats[r.capacityType].matri++;
+                    if (r.hasCuna) stats[r.capacityType].cuna++;
+                  }
+                });
+                const activeCategories = Object.entries(stats).filter(
+                  ([_, data]) => data.total > 0,
+                );
+                const grandTotal = (key) =>
+                  activeCategories.reduce(
+                    (acc, [_, data]) => acc + data[key],
+                    0,
                   );
-                  if (nights > 0) totalBedNights += nights;
-                }
-              });
-            });
 
-            const stats = {
-              Simple: getEmptyStats(),
-              Doble: getEmptyStats(),
-              Triple: getEmptyStats(),
-              Cuádruple: getEmptyStats(),
-              Múltiple: getEmptyStats(),
-            };
-            processedRooms.forEach((r) => {
-              if (stats[r.capacityType]) {
-                stats[r.capacityType].total++;
-                if (r.isPlus) stats[r.capacityType].plus++;
-                else stats[r.capacityType].std++;
-                if (r.isMatri) stats[r.capacityType].matri++;
-                if (r.hasCuna) stats[r.capacityType].cuna++;
-              }
-            });
-            const activeCategories = Object.entries(stats).filter(
-              ([_, data]) => data.total > 0,
-            );
-            const grandTotal = (key) =>
-              activeCategories.reduce((acc, [_, data]) => acc + data[key], 0);
+                const dateGroups = {};
+                processedRooms.forEach((r) => {
+                  if (!r.effectiveCheckIn || !r.effectiveCheckOut) return;
+                  const dateKey = `${formatDate(r.effectiveCheckIn)} al ${formatDate(r.effectiveCheckOut)}`;
+                  if (!dateGroups[dateKey]) dateGroups[dateKey] = {};
+                  const capLower = r.capacityType.toLowerCase();
+                  const capPlural = capLower.endsWith("e")
+                    ? `${capLower}s`
+                    : `${capLower}es`;
+                  let baseDesc = `${capPlural} ${r.isPlus ? "superior" : "básico"}`;
+                  if (r.isMatri) baseDesc += " matrimonial";
+                  if (r.hasCuna) baseDesc += " c/cuna";
+                  if (!dateGroups[dateKey][baseDesc])
+                    dateGroups[dateKey][baseDesc] = 0;
+                  dateGroups[dateKey][baseDesc]++;
+                });
 
-            const dateGroups = {};
-            processedRooms.forEach((r) => {
-              if (!r.effectiveCheckIn || !r.effectiveCheckOut) return;
-              const dateKey = `${formatDate(r.effectiveCheckIn)} al ${formatDate(r.effectiveCheckOut)}`;
-              if (!dateGroups[dateKey]) dateGroups[dateKey] = {};
-              const capLower = r.capacityType.toLowerCase();
-              const capPlural = capLower.endsWith("e")
-                ? capLower + "s"
-                : capLower + "es";
-              let baseDesc = `${capPlural} ${r.isPlus ? "superior" : "básico"}`;
-              if (r.isMatri) baseDesc += " matrimonial";
-              if (r.hasCuna) baseDesc += " c/cuna";
-              if (!dateGroups[dateKey][baseDesc])
-                dateGroups[dateKey][baseDesc] = 0;
-              dateGroups[dateKey][baseDesc]++;
-            });
+                const sortedDateKeys = Object.keys(dateGroups).sort((a, b) => {
+                  const parseD = (str) => {
+                    const [d, m] = str.split(" al ")[0].split("/");
+                    return parseInt(m, 10) * 100 + parseInt(d, 10);
+                  };
+                  return parseD(a) - parseD(b);
+                });
 
-            const sortedDateKeys = Object.keys(dateGroups).sort((a, b) => {
-              const parseD = (str) => {
-                const [d, m] = str.split(" al ")[0].split("/");
-                return parseInt(m) * 100 + parseInt(d);
-              };
-              return parseD(a) - parseD(b);
-            });
-
-            const { segIn, segOut } = getBookingSegmentBounds(
-              bk,
-              section.segmentRow,
-            );
-            const stayLabel =
-              segIn && segOut
-                ? `${formatDate(segIn)} – ${formatDate(segOut)}`
-                : null;
-
-            return (
-              <div key={bk.id} className="mb-8 no-break">
-                <h2>
-                  🏨 {bk.hoteles?.nombre || "Hotel sin nombre"}{" "}
-                  <span style={{ fontWeight: "normal", fontSize: "0.8em" }}>
-                    ({bk.hoteles?.localidades?.localidad})
-                    {stayLabel ? ` · ${stayLabel}` : ""}
-                  </span>
-                </h2>
-                <div className="mb-6 no-break">
-                  <h3>Resumen General de Habitaciones</h3>
-                  <table
-                    className="summary-table"
-                    style={{ width: "auto", minWidth: "50%" }}
+                return (
+                  <div
+                    key={hotel.bookingId}
+                    className={`mb-8 no-break${hotelIdx > 0 ? " page-break" : ""}`}
                   >
-                    <thead>
-                      <tr>
-                        <th style={{ textAlign: "left" }}>Tipo</th>
-                        <th>Total</th>
-                        <th>Básico</th>
-                        <th>Superior</th>
-                        <th>Matrimonial</th>
-                        <th>Con Cuna</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activeCategories.map(([type, data]) => (
-                        <tr key={type}>
-                          <td>{type}</td>
-                          <td className="center" style={{ fontWeight: "bold" }}>
-                            {data.total}
-                          </td>
-                          <td className="center text-muted">
-                            {data.std || "-"}
-                          </td>
-                          <td className="center text-muted">
-                            {data.plus || "-"}
-                          </td>
-                          <td className="center text-muted">
-                            {data.matri || "-"}
-                          </td>
-                          <td className="center text-muted">
-                            {data.cuna || "-"}
-                          </td>
-                        </tr>
-                      ))}
-                      <tr
-                        className="total-row"
-                        style={{ borderTop: "2px solid #cbd5e1" }}
+                    <h2>
+                      🏨 {hotel.hotelName}{" "}
+                      <span
+                        style={{ fontWeight: "normal", fontSize: "0.8em" }}
                       >
-                        <td>TOTAL GENERAL</td>
-                        <td className="center">{grandTotal("total")}</td>
-                        <td className="center">{grandTotal("std")}</td>
-                        <td className="center">{grandTotal("plus")}</td>
-                        <td className="center">{grandTotal("matri")}</td>
-                        <td className="center">{grandTotal("cuna")}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div className="mb-6 no-break">
-                  <h3>Desglose por Rango de Fechas</h3>
-                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg">
-                    {sortedDateKeys.map((dateRange) => (
-                      <div key={dateRange} className="date-group">
-                        <div className="date-header">{dateRange}</div>
-                        <ul className="room-list">
-                          {Object.entries(dateGroups[dateRange]).map(
-                            ([desc, count]) => (
-                              <li key={desc}>
-                                <b>{count}</b> {desc}
-                              </li>
-                            ),
-                          )}
-                        </ul>
-                      </div>
-                    ))}
-                    <div
-                      style={{
-                        marginTop: "15px",
-                        borderTop: "2px solid #cbd5e1",
-                        paddingTop: "10px",
-                        textAlign: "right",
-                        color: "#b45309",
-                        fontWeight: "bold",
-                      }}
-                    >
-                      Cantidad total de camas (noches):{" "}
-                      <span style={{ fontSize: "14px", marginLeft: "5px" }}>
-                        {totalBedNights}
+                        {hotel.localidad ? `(${hotel.localidad})` : ""}
+                        {hotel.stayLabel ? ` · ${hotel.stayLabel}` : ""}
                       </span>
+                    </h2>
+                    <div className="mb-6 no-break">
+                      <h3>Resumen General de Habitaciones</h3>
+                      <table
+                        className="summary-table"
+                        style={{ width: "auto", minWidth: "50%" }}
+                      >
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: "left" }}>Tipo</th>
+                            <th>Total</th>
+                            <th>Básico</th>
+                            <th>Superior</th>
+                            <th>Matrimonial</th>
+                            <th>Con Cuna</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activeCategories.map(([type, data]) => (
+                            <tr key={type}>
+                              <td>{type}</td>
+                              <td
+                                className="center"
+                                style={{ fontWeight: "bold" }}
+                              >
+                                {data.total}
+                              </td>
+                              <td className="center text-muted">
+                                {data.std || "-"}
+                              </td>
+                              <td className="center text-muted">
+                                {data.plus || "-"}
+                              </td>
+                              <td className="center text-muted">
+                                {data.matri || "-"}
+                              </td>
+                              <td className="center text-muted">
+                                {data.cuna || "-"}
+                              </td>
+                            </tr>
+                          ))}
+                          <tr
+                            className="total-row"
+                            style={{ borderTop: "2px solid #cbd5e1" }}
+                          >
+                            <td>TOTAL GENERAL</td>
+                            <td className="center">{grandTotal("total")}</td>
+                            <td className="center">{grandTotal("std")}</td>
+                            <td className="center">{grandTotal("plus")}</td>
+                            <td className="center">{grandTotal("matri")}</td>
+                            <td className="center">{grandTotal("cuna")}</td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
-                  </div>
-                </div>
-                <div className="page-break"></div>
-                <h3>Lista de Pasajeros (Ordenado por Check-In)</h3>
-                <table>
-                  <thead>
-                    <tr>
-                      <th style={{ width: "30px" }} className="center">
-                        #
-                      </th>
-                      <th style={{ width: "180px" }}>Detalle Habitación</th>
-                      <th>Apellido y Nombre</th>
-                      <th style={{ width: "40px" }} className="center">
-                        Sexo
-                      </th>
-                      <th style={{ width: "70px" }}>DNI</th>
-                      <th style={{ width: "70px" }}>F. Nac</th>
-                      <th style={{ width: "85px" }}>Check In</th>
-                      <th style={{ width: "85px" }}>Check Out</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {processedRooms.map((r, idx) => {
-                      const occupants = r.occupants;
-                      const rowSpan = occupants.length || 1;
-                      return (
-                        <React.Fragment key={r.id}>
-                          {occupants.map((occ, i) => (
-                            <tr key={occ.id}>
-                              {i === 0 && (
-                                <>
-                                  <td
-                                    rowSpan={rowSpan}
-                                    className="center group-header"
-                                  >
-                                    {idx + 1}
+                    <div className="mb-6 no-break">
+                      <h3>Desglose por Rango de Fechas</h3>
+                      <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg">
+                        {sortedDateKeys.map((dateRange) => (
+                          <div key={dateRange} className="date-group">
+                            <div className="date-header">{dateRange}</div>
+                            <ul className="room-list">
+                              {Object.entries(dateGroups[dateRange]).map(
+                                ([desc, count]) => (
+                                  <li key={desc}>
+                                    <b>{count}</b> {desc}
+                                  </li>
+                                ),
+                              )}
+                            </ul>
+                          </div>
+                        ))}
+                        <div
+                          style={{
+                            marginTop: "15px",
+                            borderTop: "2px solid #cbd5e1",
+                            paddingTop: "10px",
+                            textAlign: "right",
+                            color: "#b45309",
+                            fontWeight: "bold",
+                          }}
+                        >
+                          Cantidad total de camas (noches):{" "}
+                          <span
+                            style={{ fontSize: "14px", marginLeft: "5px" }}
+                          >
+                            {totalBedNights}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="page-break"></div>
+                    <h3>Lista de Pasajeros (Ordenado por Check-In)</h3>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th style={{ width: "30px" }} className="center">
+                            #
+                          </th>
+                          <th style={{ width: "180px" }}>Detalle Habitación</th>
+                          <th>Apellido y Nombre</th>
+                          <th style={{ width: "40px" }} className="center">
+                            Sexo
+                          </th>
+                          <th style={{ width: "70px" }}>DNI</th>
+                          <th style={{ width: "70px" }}>F. Nac</th>
+                          <th style={{ width: "85px" }}>Check In</th>
+                          <th style={{ width: "85px" }}>Check Out</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {processedRooms.map((r, idx) => {
+                          const occupants = r.occupants;
+                          const rowSpan = occupants.length || 1;
+                          return (
+                            <React.Fragment key={r.id}>
+                              {occupants.map((occ, i) => (
+                                <tr key={occ.id}>
+                                  {i === 0 && (
+                                    <>
+                                      <td
+                                        rowSpan={rowSpan}
+                                        className="center group-header"
+                                      >
+                                        {idx + 1}
+                                      </td>
+                                      <td
+                                        rowSpan={rowSpan}
+                                        className="group-header"
+                                      >
+                                        <div className="room-type">
+                                          {r.typeMainCapital}
+                                        </div>
+                                        {r.typeExtras.map((extra) => (
+                                          <div
+                                            key={extra}
+                                            className="room-extra"
+                                          >
+                                            + {extra}
+                                          </div>
+                                        ))}
+                                        {r.notas_internas && (
+                                          <div className="room-note">
+                                            Nota: {r.notas_internas}
+                                          </div>
+                                        )}
+                                        <div className="room-dates">
+                                          <div>
+                                            In:{" "}
+                                            {formatDate(r.effectiveCheckIn)}{" "}
+                                            {formatTime(r.effectiveCheckIn)}
+                                          </div>
+                                          <div>
+                                            Out:{" "}
+                                            {formatDate(r.effectiveCheckOut)}{" "}
+                                            {formatTime(r.effectiveCheckOut)}
+                                          </div>
+                                        </div>
+                                      </td>
+                                    </>
+                                  )}
+                                  <td style={{ verticalAlign: "middle" }}>
+                                    <b>{occ.apellido}</b>, {occ.nombre}
+                                    {occ.ocupa_cama === false ? " (Cuna)" : ""}
                                   </td>
                                   <td
-                                    rowSpan={rowSpan}
-                                    className="group-header"
+                                    className="center"
+                                    style={{ verticalAlign: "middle" }}
                                   >
+                                    {occ.genero || "-"}
+                                  </td>
+                                  <td className="date-col">
+                                    {occ.dni || "-"}
+                                  </td>
+                                  <td className="date-col">
+                                    {formatDOB(occ.fecha_nac)}
+                                  </td>
+                                  <td className="date-col">
+                                    {formatDate(occ.dateIn)}{" "}
+                                    <span
+                                      className="text-muted"
+                                      style={{ marginLeft: "2px" }}
+                                    >
+                                      {formatTime(occ.dateIn)}
+                                    </span>
+                                  </td>
+                                  <td className="date-col">
+                                    {formatDate(occ.dateOut)}{" "}
+                                    <span
+                                      className="text-muted"
+                                      style={{ marginLeft: "2px" }}
+                                    >
+                                      {formatTime(occ.dateOut)}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                              {occupants.length === 0 && (
+                                <tr>
+                                  <td className="center group-header">
+                                    <b>{idx + 1}</b>
+                                  </td>
+                                  <td className="group-header">
                                     <div className="room-type">
                                       {r.typeMainCapital}
                                     </div>
@@ -541,95 +542,33 @@ const RoomingReportModal = ({
                                         + {extra}
                                       </div>
                                     ))}
-                                    {r.notas_internas && (
-                                      <div className="room-note">
-                                        Nota: {r.notas_internas}
-                                      </div>
-                                    )}
-                                    <div className="room-dates">
-                                      <div>
-                                        In: {formatDate(r.effectiveCheckIn)}{" "}
-                                        {formatTime(r.effectiveCheckIn)}
-                                      </div>
-                                      <div>
-                                        Out: {formatDate(r.effectiveCheckOut)}{" "}
-                                        {formatTime(r.effectiveCheckOut)}
-                                      </div>
-                                    </div>
                                   </td>
-                                </>
+                                  <td
+                                    colSpan="6"
+                                    style={{
+                                      color: "#cbd5e1",
+                                      fontStyle: "italic",
+                                      verticalAlign: "middle",
+                                    }}
+                                  >
+                                    Sin asignar
+                                  </td>
+                                </tr>
                               )}
-                              <td style={{ verticalAlign: "middle" }}>
-                                <b>{occ.apellido}</b>, {occ.nombre}
-                                {occ.ocupa_cama === false ? " (Cuna)" : ""}
-                              </td>
-                              <td className="center" style={{ verticalAlign: "middle" }}>
-                                {occ.genero || "-"}
-                              </td>
-                              <td className="date-col">{occ.dni || "-"}</td>
-                              <td className="date-col">
-                                {formatDOB(occ.fecha_nac)}
-                              </td>
-                              <td className="date-col">
-                                {formatDate(occ.dateIn)}{" "}
-                                <span
-                                  className="text-muted"
-                                  style={{ marginLeft: "2px" }}
-                                >
-                                  {formatTime(occ.dateIn)}
-                                </span>
-                              </td>
-                              <td className="date-col">
-                                {formatDate(occ.dateOut)}{" "}
-                                <span
-                                  className="text-muted"
-                                  style={{ marginLeft: "2px" }}
-                                >
-                                  {formatTime(occ.dateOut)}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                          {occupants.length === 0 && (
-                            <tr>
-                              <td className="center group-header">
-                                <b>{idx + 1}</b>
-                              </td>
-                              <td className="group-header">
-                                <div className="room-type">
-                                  {r.typeMainCapital}
-                                </div>
-                                {r.typeExtras.map((extra) => (
-                                  <div key={extra} className="room-extra">
-                                    + {extra}
-                                  </div>
-                                ))}
-                              </td>
-                              <td
-                                colSpan="6"
-                                style={{
-                                  color: "#cbd5e1",
-                                  fontStyle: "italic",
-                                  verticalAlign: "middle",
-                                }}
-                              >
-                                Sin asignar
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })}
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 

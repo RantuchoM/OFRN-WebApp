@@ -37,7 +37,7 @@ const OPTIONS = [
     id: "rooming",
     title: "Reporte de habitaciones",
     description:
-      "Distribución por hotel, tipos de habitación y lista de pasajeros asignados.",
+      "Distribución por hotel (elegí uno o todos), tipos de habitación y pasajeros. PDF e Excel.",
     icon: IconFileText,
     accent: "indigo",
   },

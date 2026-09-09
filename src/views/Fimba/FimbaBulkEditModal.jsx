@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import {
+  IconArrowRight,
   IconBus,
   IconCheck,
   IconClock,
@@ -14,9 +16,11 @@ import {
   bulkPatchFimbaEventosTags,
   bulkReassignFimbaEventosVehiculo,
   bulkShiftFimbaEventosSchedule,
+  findBoardingLinksForEvents,
   labelGiraTransporte,
 } from "../../services/fimbaService";
 import { sortFimbaPropuestasByNombre } from "../../utils/fimbaAgendaSort";
+import { formatAgendaOrigenLabel } from "../../utils/fimbaTransportBoarding";
 
 function sliceTime(t) {
   if (!t) return "";
@@ -28,6 +32,37 @@ function eventStartSortKey(ev) {
   const hora = String(ev?.hora_inicio || "00:00:00").slice(0, 8);
   const id = Number(ev?.id) || 0;
   return `${fecha}T${hora.padEnd(8, "0")}|${String(id).padStart(12, "0")}`;
+}
+
+function vehicleLabelsForEvent(ev, vehiculos) {
+  const flotaById = new Map(
+    (vehiculos || []).map((gt) => [Number(gt.id), gt]),
+  );
+  const labels = [];
+  for (const r of ev?.vehiculos || []) {
+    const tid = Number(r?.id_gira_transporte);
+    if (!Number.isFinite(tid)) continue;
+    const gt = r?.giras_transportes || flotaById.get(tid) || null;
+    labels.push(gt ? labelGiraTransporte(gt) : `Vehículo #${tid}`);
+  }
+  if (
+    !labels.length &&
+    ev?.id_gira_transporte != null &&
+    ev.id_gira_transporte !== ""
+  ) {
+    const tid = Number(ev.id_gira_transporte);
+    const gt = flotaById.get(tid) || null;
+    labels.push(gt ? labelGiraTransporte(gt) : `Vehículo #${tid}`);
+  }
+  return labels.length ? labels : ["SIN SERVICIO"];
+}
+
+function eventPreviewLine(ev) {
+  const fecha = String(ev?.fecha || "").slice(0, 10) || "—";
+  const hora = sliceTime(ev?.hora_inicio) || "—";
+  const origen =
+    formatAgendaOrigenLabel(ev, { skipDestinoFallback: true }) || "—";
+  return `${fecha} ${hora} · ${origen}`;
 }
 
 /**
@@ -66,6 +101,11 @@ export default function FimbaBulkEditModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
+  /** Confirm preview before applying vehicle reassignment. */
+  const [vehiclePreviewOpen, setVehiclePreviewOpen] = useState(false);
+  const [boardingPreview, setBoardingPreview] = useState(null);
+  const [boardingPreviewLoading, setBoardingPreviewLoading] = useState(false);
+
   const earliest = useMemo(() => {
     if (!events.length) return null;
     return [...events].sort((a, b) =>
@@ -81,11 +121,11 @@ export default function FimbaBulkEditModal({
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Escape" && !saving) onClose?.();
+      if (e.key === "Escape" && !saving && !vehiclePreviewOpen) onClose?.();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, saving]);
+  }, [onClose, saving, vehiclePreviewOpen]);
 
   const propuestaOptions = useMemo(
     () =>
@@ -132,7 +172,36 @@ export default function FimbaBulkEditModal({
 
   const canApply = hasScheduleAction || hasTagsAction || hasVehicleAction;
 
-  const handleApply = async () => {
+  const nextVehicleLabel = useMemo(() => {
+    if (!vehicleId) return "SIN SERVICIO";
+    const gt = (vehiculos || []).find(
+      (v) => String(v.id) === String(vehicleId),
+    );
+    return gt ? labelGiraTransporte(gt) : `Vehículo #${vehicleId}`;
+  }, [vehicleId, vehiculos]);
+
+  const vehiclePreviewRows = useMemo(() => {
+    if (!hasVehicleAction) return [];
+    return [...(events || [])]
+      .filter((ev) => ev?.id != null && !ev.es_contexto_agenda)
+      .filter((ev) => !(ev.es_ofrn && !ev.es_fimba))
+      .sort((a, b) =>
+        eventStartSortKey(a).localeCompare(eventStartSortKey(b)),
+      )
+      .map((ev) => ({
+        id: ev.id,
+        line: eventPreviewLine(ev),
+        before: vehicleLabelsForEvent(ev, vehiculos).join(" · "),
+        after: nextVehicleLabel,
+      }));
+  }, [events, vehiculos, hasVehicleAction, nextVehicleLabel]);
+
+  const currentVehicleSummary = useMemo(() => {
+    const set = new Set(vehiclePreviewRows.map((r) => r.before));
+    return [...set];
+  }, [vehiclePreviewRows]);
+
+  const runApply = async () => {
     if (!canApply || saving) return;
     setSaving(true);
     setError(null);
@@ -172,19 +241,82 @@ export default function FimbaBulkEditModal({
         if (err) throw err;
         summary.vehicle = { updated, skipped };
       }
+      setVehiclePreviewOpen(false);
       onApplied?.(summary);
     } catch (err) {
       setError(err?.message || "No se pudo aplicar la edición en lote");
       setSaving(false);
-      return;
+      // Keep preview open so the user can retry / cancel.
+      throw err;
     }
     setSaving(false);
   };
 
+  const openVehiclePreview = async () => {
+    setError(null);
+    setVehiclePreviewOpen(true);
+    setBoardingPreviewLoading(true);
+    setBoardingPreview(null);
+    try {
+      const ids = vehiclePreviewRows.map((r) => r.id);
+      const { totals, error: err } = await findBoardingLinksForEvents(ids);
+      if (err) {
+        setBoardingPreview({ total: 0, error: err.message });
+      } else {
+        setBoardingPreview(totals);
+      }
+    } catch (err) {
+      setBoardingPreview({
+        total: 0,
+        error: err?.message || "No se pudieron contar ↑/↓",
+      });
+    } finally {
+      setBoardingPreviewLoading(false);
+    }
+  };
+
+  const handleApplyClick = () => {
+    if (!canApply || saving) return;
+    if (hasVehicleAction) {
+      openVehiclePreview();
+      return;
+    }
+    runApply().catch(() => {});
+  };
+
+  const boardingNote = useMemo(() => {
+    if (boardingPreviewLoading) return "Contando subidas/bajadas…";
+    if (!boardingPreview) return null;
+    if (boardingPreview.error) {
+      return `No se pudo verificar ↑/↓: ${boardingPreview.error}`;
+    }
+    if (!boardingPreview.total) {
+      return "Ninguna subida/bajada vinculada a estas paradas.";
+    }
+    const parts = [];
+    if (boardingPreview.fimbaTotal) {
+      parts.push(`${boardingPreview.fimbaTotal} FIMBA`);
+    }
+    if (boardingPreview.ofrnTotal) {
+      parts.push(`${boardingPreview.ofrnTotal} Orquesta`);
+    }
+    const detail = parts.join(" · ") || `${boardingPreview.total} regla(s)`;
+    if (!vehicleId) {
+      return (
+        `${detail} quedan intactas (siguen en el vehículo previo; ` +
+        `SIN SERVICIO solo quita la asignación de flota).`
+      );
+    }
+    return (
+      `${detail} se migran al vehículo destino (mismos extremos ↑/↓; ` +
+      `no se borran ni se recrean paradas).`
+    );
+  }, [boardingPreview, boardingPreviewLoading, vehicleId]);
+
   const modal = (
     <div
       className="fimba-modal-backdrop"
-      onClick={saving ? undefined : onClose}
+      onClick={saving || vehiclePreviewOpen ? undefined : onClose}
       role="presentation"
     >
       <div
@@ -235,7 +367,7 @@ export default function FimbaBulkEditModal({
           aplicar.
         </p>
 
-        {error && (
+        {error && !vehiclePreviewOpen && (
           <div className="fimba-error" style={{ marginBottom: "0.75rem" }}>
             {error}
           </div>
@@ -558,8 +690,10 @@ export default function FimbaBulkEditModal({
                   </select>
                 </div>
                 <p className="fimba-muted" style={{ margin: "0.45rem 0 0", fontSize: "0.72rem" }}>
-                  Reasigna la flota FIMBA del evento (conserva plazas técnicas).
-                  Omite paradas pure-OFRN y filas de contexto.
+                  Reasigna la flota FIMBA del evento y migra ↑/↓ al mismo
+                  vehículo (conserva plazas técnicas y reglas). Omite paradas
+                  pure-OFRN y filas de contexto. Pedirá vista previa antes de
+                  aplicar.
                 </p>
               </div>
             )}
@@ -585,13 +719,17 @@ export default function FimbaBulkEditModal({
           <button
             type="button"
             className="fimba-btn fimba-btn-primary"
-            onClick={handleApply}
+            onClick={handleApplyClick}
             disabled={!canApply || saving}
             style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
           >
             {saving ? (
               <>
                 <IconLoader size={14} className="animate-spin" /> Aplicando…
+              </>
+            ) : hasVehicleAction ? (
+              <>
+                <IconBus size={14} /> Revisar y aplicar
               </>
             ) : (
               <>
@@ -604,5 +742,92 @@ export default function FimbaBulkEditModal({
     </div>
   );
 
-  return createPortal(modal, document.body);
+  const previewChildren = (
+    <div className="mt-3 space-y-3 text-sm text-slate-600">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+        <div className="font-semibold text-slate-800">
+          {vehiclePreviewRows.length} parada
+          {vehiclePreviewRows.length === 1 ? "" : "s"} a mudar
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="font-medium text-slate-700">
+            {currentVehicleSummary.join(" · ") || "—"}
+          </span>
+          <IconArrowRight size={12} className="text-slate-400 shrink-0" />
+          <span className="font-bold text-indigo-700">{nextVehicleLabel}</span>
+        </div>
+      </div>
+
+      <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-200">
+        <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 gap-y-0 border-b border-slate-200 bg-slate-100 px-2 py-1.5 text-[0.65rem] font-bold uppercase tracking-wide text-slate-500 sticky top-0">
+          <span>Antes</span>
+          <span />
+          <span>Después</span>
+        </div>
+        <ul className="divide-y divide-slate-100">
+          {vehiclePreviewRows.slice(0, 40).map((row) => (
+            <li key={row.id} className="px-2 py-1.5">
+              <div className="text-[0.7rem] text-slate-500 mb-0.5 truncate" title={row.line}>
+                {row.line}
+              </div>
+              <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-center text-xs">
+                <span className="truncate text-slate-700" title={row.before}>
+                  {row.before}
+                </span>
+                <IconArrowRight size={12} className="text-slate-400" />
+                <span className="truncate font-semibold text-indigo-700" title={row.after}>
+                  {row.after}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+        {vehiclePreviewRows.length > 40 && (
+          <p className="px-2 py-1.5 text-[0.7rem] text-slate-500 border-t border-slate-100">
+            …y {vehiclePreviewRows.length - 40} más
+          </p>
+        )}
+      </div>
+
+      {boardingNote && (
+        <p className="text-xs leading-relaxed text-slate-500 m-0">
+          {boardingPreviewLoading ? (
+            <span className="inline-flex items-center gap-1.5">
+              <IconLoader size={12} className="animate-spin" /> {boardingNote}
+            </span>
+          ) : (
+            boardingNote
+          )}
+        </p>
+      )}
+    </div>
+  );
+
+  return (
+    <>
+      {createPortal(modal, document.body)}
+      <ConfirmDialog
+        isOpen={vehiclePreviewOpen}
+        onClose={() => {
+          if (saving) return;
+          setVehiclePreviewOpen(false);
+          setError(null);
+        }}
+        onConfirm={runApply}
+        title="Confirmar mudanza de vehículo"
+        message={`Se reasignarán ${vehiclePreviewRows.length} parada${
+          vehiclePreviewRows.length === 1 ? "" : "s"
+        } al vehículo destino. Las subidas/bajadas se conservan.`}
+        confirmText="Confirmar mudanza"
+        cancelText="Volver"
+        confirmLoading={saving}
+        confirmDisabled={boardingPreviewLoading || vehiclePreviewRows.length === 0}
+        loadingText="Aplicando mudanza…"
+        errorMessage={vehiclePreviewOpen ? error : null}
+        overlayClassName="z-[110]"
+      >
+        {previewChildren}
+      </ConfirmDialog>
+    </>
+  );
 }

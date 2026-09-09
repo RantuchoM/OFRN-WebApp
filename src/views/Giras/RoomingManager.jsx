@@ -3277,6 +3277,7 @@ export default function RoomingManager({
           segmentRows={segmentRows}
           segments={segments}
           cortesCount={cortesCount}
+          programName={`${program?.nomenclador || ""} | ${program?.zona || ""}`}
         />
       )}
       {showInitialAdjust && (

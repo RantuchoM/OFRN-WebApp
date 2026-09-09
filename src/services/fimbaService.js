@@ -7389,9 +7389,124 @@ export async function bulkPatchFimbaEventosTags(events, opts = {}) {
 }
 
 /**
+ * Filtro PostgREST: extremos ↑/↓ en cualquiera de los eventos.
+ * @param {Array<number>} eventIds
+ */
+function boardingEndpointsOrFilter(eventIds) {
+  return (eventIds || [])
+    .filter((id) => Number.isFinite(Number(id)))
+    .flatMap((id) => [
+      `id_evento_subida.eq.${Number(id)}`,
+      `id_evento_bajada.eq.${Number(id)}`,
+    ])
+    .join(",");
+}
+
+/**
+ * Reasigna flota FIMBA de un evento preferiendo UPDATE in-place del
+ * `id_gira_transporte` (no delete+insert) cuando hay una sola fila.
+ * Conserva plazas técnicas. No toca ↑/↓.
+ *
+ * @param {number|string} eventoId
+ * @param {number|null} nextId
+ * @param {number} plazas
+ */
+async function reassignFimbaEventoTransporteRow(eventoId, nextId, plazas) {
+  const id = Number(eventoId);
+  const nPlazas = Math.max(0, Number(plazas) || 0);
+  if (!Number.isFinite(id)) {
+    return { error: new Error("id de evento requerido") };
+  }
+
+  if (nextId == null) {
+    return setFimbaEventoTransportes(id, []);
+  }
+
+  const { data: existing, error: eFind } = await supabase
+    .from("fimba_evento_transportes")
+    .select("id, id_gira_transporte, plazas")
+    .eq("id_evento", id);
+  if (eFind) return { error: eFind };
+
+  const rows = existing || [];
+  if (
+    rows.length === 1 &&
+    Number(rows[0].id_gira_transporte) === Number(nextId)
+  ) {
+    if (Number(rows[0].plazas) === nPlazas) return { error: null };
+    const { error } = await supabase
+      .from("fimba_evento_transportes")
+      .update({ plazas: nPlazas })
+      .eq("id", rows[0].id);
+    return { error };
+  }
+
+  if (rows.length === 1) {
+    const { error } = await supabase
+      .from("fimba_evento_transportes")
+      .update({
+        id_gira_transporte: Number(nextId),
+        plazas: nPlazas,
+      })
+      .eq("id", rows[0].id);
+    // Conflicto UNIQUE (ya hay fila al destino) → reemplazo completo.
+    if (!error) return { error: null };
+  }
+
+  return setFimbaEventoTransportes(id, [
+    { id_gira_transporte: nextId, plazas: nPlazas },
+  ]);
+}
+
+/**
+ * Migra ↑/↓ al vehículo destino sin borrar filas.
+ * FIMBA: `fimba_propuesta_rutas.id_gira_transporte`
+ * OFRN: `giras_logistica_rutas.id_transporte_fisico`
+ *
+ * @param {Array<number>} eventIds
+ * @param {number} nextId
+ */
+async function migrateBoardingRulesToVehicle(eventIds, nextId) {
+  const ids = [
+    ...new Set(
+      (eventIds || []).map(Number).filter((n) => Number.isFinite(n)),
+    ),
+  ];
+  const tid = Number(nextId);
+  if (!ids.length || !Number.isFinite(tid)) return { error: null };
+
+  const now = new Date().toISOString();
+  // Chunk to keep PostgREST `.or(...)` URL size bounded.
+  const chunkSize = 40;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const orFilter = boardingEndpointsOrFilter(chunk);
+    if (!orFilter) continue;
+    const [fimbaRes, ofrnRes] = await Promise.all([
+      supabase
+        .from("fimba_propuesta_rutas")
+        .update({ id_gira_transporte: tid, updated_at: now })
+        .or(orFilter),
+      supabase
+        .from("giras_logistica_rutas")
+        .update({ id_transporte_fisico: tid })
+        .or(orFilter),
+    ]);
+    if (fimbaRes.error) return { error: fimbaRes.error };
+    if (ofrnRes.error) return { error: ofrnRes.error };
+  }
+  return { error: null };
+}
+
+/**
  * Reasigna la flota FIMBA (`fimba_evento_transportes`) de varios eventos a
  * un mismo vehículo. Conserva plazas técnicas de la 1ª unidad previa.
+ * **Conserva ↑/↓**: migra `fimba_propuesta_rutas.id_gira_transporte` y
+ * `giras_logistica_rutas.id_transporte_fisico` de los extremos tocados al
+ * vehículo destino (no borra reglas ni recrea eventos).
  * Omite paradas pure-OFRN (solo `id_gira_transporte`) y filas de contexto.
+ * SIN SERVICIO: limpia asignación de flota; deja ↑/↓ intactas (siguen
+ * apuntando al vehículo previo hasta una reasignación).
  *
  * @param {Array<object>} events
  * @param {number|string|null} idGiraTransporte — null/"" = SIN SERVICIO
@@ -7416,6 +7531,8 @@ export async function bulkReassignFimbaEventosVehiculo(
   let updated = 0;
   let skipped = 0;
   let firstError = null;
+  /** @type {number[]} */
+  const migratedEventIds = [];
 
   for (const ev of list) {
     if (ev.es_contexto_agenda) {
@@ -7428,17 +7545,30 @@ export async function bulkReassignFimbaEventosVehiculo(
       continue;
     }
     const prevPlazas = Math.max(0, Number(ev.vehiculos?.[0]?.plazas) || 0);
-    const assignments =
-      nextId != null
-        ? [{ id_gira_transporte: nextId, plazas: prevPlazas }]
-        : [];
-    const { error } = await setFimbaEventoTransportes(ev.id, assignments);
+    const { error } = await reassignFimbaEventoTransporteRow(
+      ev.id,
+      nextId,
+      prevPlazas,
+    );
     if (error) {
       firstError = firstError || error;
       skipped += 1;
       continue;
     }
+    migratedEventIds.push(Number(ev.id));
     updated += 1;
+  }
+
+  // Tras reasignar flota: las reglas ↑/↓ siguen keyed por vehículo.
+  // Sin migrar el id, los chips desaparecen del vehículo nuevo (bug «wipe»).
+  if (nextId != null && migratedEventIds.length > 0 && !firstError) {
+    const { error: migErr } = await migrateBoardingRulesToVehicle(
+      migratedEventIds,
+      nextId,
+    );
+    if (migErr) {
+      return { updated, skipped, error: migErr };
+    }
   }
 
   return { updated, skipped, error: firstError };

@@ -680,28 +680,131 @@ export async function exportFimbaHoteleriaExcel(opts = {}) {
   return true;
 }
 
+/** Clave estable de hotel para filtrar / agrupar rooming FIMBA. */
+export function fimbaRoomingHotelKey(row) {
+  const id =
+    row?.hotel?.id ??
+    row?.propuesta?.id_hotel ??
+    row?.id_hotel ??
+    null;
+  if (id != null && id !== "") return `id:${id}`;
+  const nombre = String(row?.hotel?.nombre || "").trim();
+  if (nombre) return `name:${nombre.toLowerCase()}`;
+  return "sin_hotel";
+}
+
+export function fimbaRoomingHotelLabel(row) {
+  return String(row?.hotel?.nombre || "").trim() || "Sin hotel asignado";
+}
+
+/**
+ * Hoteles distintos presentes en filas de hotelería (para export por hotel).
+ */
+export function listFimbaRoomingHotels(hoteleriaRows = []) {
+  const map = new Map();
+  for (const r of hoteleriaRows || []) {
+    if (r.requiere_hotel === false || r.propuesta?.requiere_hotel === false) {
+      continue;
+    }
+    const key = fimbaRoomingHotelKey(r);
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        label: fimbaRoomingHotelLabel(r),
+        hotelId: r?.hotel?.id ?? r?.propuesta?.id_hotel ?? null,
+        count: 0,
+      });
+    }
+    map.get(key).count += 1;
+  }
+  return Array.from(map.values()).sort((a, b) =>
+    a.label.localeCompare(b.label, "es", { sensitivity: "base" }),
+  );
+}
+
+export function filterFimbaHoteleriaRowsByHotelKey(rows = [], hotelKey) {
+  if (!hotelKey || hotelKey === "all") return rows || [];
+  return (rows || []).filter((r) => fimbaRoomingHotelKey(r) === hotelKey);
+}
+
+function sheetNameSafe(raw, used = new Set()) {
+  let base = String(raw || "Hotel")
+    .replace(/[\\/*?:\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 31);
+  if (!base) base = "Hotel";
+  let name = base;
+  let i = 2;
+  while (used.has(name.toLowerCase())) {
+    const suffix = ` (${i})`;
+    name = `${base.slice(0, Math.max(1, 31 - suffix.length))}${suffix}`;
+    i += 1;
+  }
+  used.add(name.toLowerCase());
+  return name;
+}
+
 /**
  * Rooming list: una hoja por habitación (Word) + una por plaza.
+ * `hotelKey`: filtra un hotel. `separateByHotel`: con varios hoteles, hoja extra por hotel.
  */
 export async function exportFimbaRoomingExcel(opts = {}) {
-  const { edicionNombre = "Edicion", artistaNombre, rows = [], fileName } = opts;
-  if (!rows.length) {
+  const {
+    edicionNombre = "Edicion",
+    artistaNombre,
+    rows = [],
+    fileName,
+    hotelKey = "all",
+    separateByHotel = true,
+  } = opts;
+  const scoped = filterFimbaHoteleriaRowsByHotelKey(rows, hotelKey);
+  if (!scoped.length) {
     toast.message("No hay rooming para exportar.");
     return false;
   }
-  const habitaciones = buildFimbaRoomingHabitacionRows(rows);
-  const rooming = buildFimbaRoomingRows(rows);
+  const habitaciones = buildFimbaRoomingHabitacionRows(scoped);
+  const rooming = buildFimbaRoomingRows(scoped);
   if (!habitaciones.length && !rooming.length) {
     toast.message("No hay rooming para exportar.");
     return false;
   }
+
+  const hotels = listFimbaRoomingHotels(scoped);
+  const hotelSuffix =
+    hotels.length === 1
+      ? safeFilePart(hotels[0].label)
+      : hotelKey && hotelKey !== "all"
+        ? safeFilePart(hotels[0]?.label || "Hotel")
+        : "Todos_hoteles";
   const name =
     fileName ||
-    `FIMBA_Rooming_${safeFilePart(artistaNombre || edicionNombre)}_${stamp()}`;
-  await writeFimbaWorkbook(name, [
+    `FIMBA_Rooming_${safeFilePart(artistaNombre || edicionNombre)}_${hotelSuffix}_${stamp()}`;
+
+  const sheets = [
     { name: "Habitaciones", columns: ROOMING_HABITACION_COLS, rows: habitaciones },
     { name: "Rooming plazas", columns: ROOMING_COLS, rows: rooming },
-  ]);
+  ];
+
+  if (
+    separateByHotel &&
+    hotels.length > 1 &&
+    (!hotelKey || hotelKey === "all")
+  ) {
+    const used = new Set(sheets.map((s) => s.name.toLowerCase()));
+    for (const hotel of hotels) {
+      const hotelRows = filterFimbaHoteleriaRowsByHotelKey(scoped, hotel.key);
+      const hotelPlazas = buildFimbaRoomingRows(hotelRows);
+      if (!hotelPlazas.length) continue;
+      sheets.push({
+        name: sheetNameSafe(hotel.label, used),
+        columns: ROOMING_COLS,
+        rows: hotelPlazas,
+      });
+    }
+  }
+
+  await writeFimbaWorkbook(name, sheets);
   return true;
 }
 

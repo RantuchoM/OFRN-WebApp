@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   IconX,
@@ -8,6 +8,7 @@ import {
   IconFileExcel,
   IconLoader,
   IconCheck,
+  IconHotel,
 } from "../../components/ui/Icons";
 import RoomingReportsHubModal from "../Giras/RoomingReportsHubModal";
 import {
@@ -23,7 +24,11 @@ import {
   exportFimbaDetallePasajerosExcel,
   DEFAULT_BEDS_PER_ROOM,
 } from "../../utils/fimbaReports";
-import { exportFimbaRoomingExcel } from "../../utils/fimbaExport";
+import {
+  exportFimbaRoomingExcel,
+  filterFimbaHoteleriaRowsByHotelKey,
+  listFimbaRoomingHotels,
+} from "../../utils/fimbaExport";
 import {
   INITIAL_ORDER_BEDS_PER_ROOM_OPTIONS,
 } from "../../utils/roomingInitialOrder";
@@ -53,6 +58,25 @@ export default function FimbaHoteleriaReports({
   const [bedsPerRoom, setBedsPerRoom] = useState(DEFAULT_BEDS_PER_ROOM);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** Filtro rooming: "all" | hotel key de listFimbaRoomingHotels. */
+  const [roomingHotelKey, setRoomingHotelKey] = useState("all");
+
+  useEffect(() => {
+    if (!open) return;
+    setReport(initialReport || null);
+    setRoomingHotelKey("all");
+    setCopied(false);
+  }, [open, initialReport]);
+
+  const roomingHotels = useMemo(
+    () => listFimbaRoomingHotels(hoteleriaRows),
+    [hoteleriaRows],
+  );
+
+  const roomingRows = useMemo(
+    () => filterFimbaHoteleriaRowsByHotelKey(hoteleriaRows, roomingHotelKey),
+    [hoteleriaRows, roomingHotelKey],
+  );
 
   const textSummary = useMemo(
     () =>
@@ -72,12 +96,12 @@ export default function FimbaHoteleriaReports({
     [hoteleriaRows],
   );
   const rooming = useMemo(
-    () => buildFimbaRoomingPrintModel(hoteleriaRows),
-    [hoteleriaRows],
+    () => buildFimbaRoomingPrintModel(roomingRows),
+    [roomingRows],
   );
   const roomingText = useMemo(
-    () => buildFimbaRoomingText(hoteleriaRows, { edicionNombre }),
-    [hoteleriaRows, edicionNombre],
+    () => buildFimbaRoomingText(roomingRows, { edicionNombre }),
+    [roomingRows, edicionNombre],
   );
 
   if (!open) return null;
@@ -107,6 +131,7 @@ export default function FimbaHoteleriaReports({
 
   const handleCloseAll = () => {
     setReport(null);
+    setRoomingHotelKey("all");
     onClose?.();
   };
 
@@ -125,6 +150,11 @@ export default function FimbaHoteleriaReports({
     detalle: "Detalle de pasajeros",
     rooming: "Reporte de habitaciones",
   };
+
+  const selectedHotelLabel =
+    roomingHotelKey === "all"
+      ? null
+      : roomingHotels.find((h) => h.key === roomingHotelKey)?.label;
 
   return createPortal(
     <div
@@ -154,6 +184,29 @@ export default function FimbaHoteleriaReports({
                   {INITIAL_ORDER_BEDS_PER_ROOM_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value} title={o.title}>
                       {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {report === "rooming" && roomingHotels.length > 0 && (
+              <label className="text-[10px] font-bold text-slate-500 flex items-center gap-1.5">
+                <IconHotel size={14} className="text-indigo-500" />
+                Hotel
+                <select
+                  className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white font-semibold text-slate-800 max-w-[200px]"
+                  value={roomingHotelKey}
+                  onChange={(e) => setRoomingHotelKey(e.target.value)}
+                  title="Filtrar rooming por hotel"
+                >
+                  <option value="all">
+                    Todos ({roomingHotels.length} hotel
+                    {roomingHotels.length === 1 ? "" : "es"})
+                  </option>
+                  {roomingHotels.map((h) => (
+                    <option key={h.key} value={h.key}>
+                      {h.label}
+                      {h.count > 1 ? ` · ${h.count} artistas` : ""}
                     </option>
                   ))}
                 </select>
@@ -239,14 +292,22 @@ export default function FimbaHoteleriaReports({
                     setBusy(true);
                     try {
                       await exportFimbaRoomingExcel({
-                        edicionNombre,
-                        rows: hoteleriaRows,
+                        edicionNombre: selectedHotelLabel
+                          ? `${edicionNombre} · ${selectedHotelLabel}`
+                          : edicionNombre,
+                        rows: roomingRows,
+                        hotelKey: roomingHotelKey,
                       });
                     } finally {
                       setBusy(false);
                     }
                   }}
                   className="bg-emerald-800 text-white px-3 py-1.5 rounded text-sm font-bold hover:bg-emerald-900 flex items-center gap-1.5"
+                  title={
+                    roomingHotelKey === "all"
+                      ? "Excel: Habitaciones + plazas; con varios hoteles, hoja extra por hotel"
+                      : `Excel rooming · ${selectedHotelLabel || "hotel"}`
+                  }
                 >
                   {busy ? (
                     <IconLoader size={16} className="animate-spin" />
@@ -268,7 +329,11 @@ export default function FimbaHoteleriaReports({
                 } else if (report === "detalle") {
                   printFimbaDetallePasajeros(hoteleriaRows, { edicionNombre });
                 } else if (report === "rooming") {
-                  printFimbaRooming(hoteleriaRows, { edicionNombre });
+                  printFimbaRooming(roomingRows, {
+                    edicionNombre: selectedHotelLabel
+                      ? `${edicionNombre} · ${selectedHotelLabel}`
+                      : edicionNombre,
+                  });
                 }
               }}
               className="bg-indigo-600 text-white px-3 py-1.5 rounded text-sm font-bold hover:bg-indigo-700 flex items-center gap-1.5"
@@ -407,10 +472,27 @@ export default function FimbaHoteleriaReports({
           {report === "rooming" && (
             <div className="space-y-5">
               <p className="text-[11px] text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
-                Rooming discriminado por habitación. Excel: hoja{" "}
-                <b>Habitaciones</b> (una fila por hab., ocupantes con IN→OUT;
-                pegable en Word) y hoja <b>Rooming plazas</b>.
+                Rooming discriminado por habitación
+                {selectedHotelLabel ? (
+                  <>
+                    {" "}
+                    · hotel <b>{selectedHotelLabel}</b>
+                  </>
+                ) : (
+                  <> · elegí un hotel arriba o exportá todos (Excel agrupa por hotel)</>
+                )}
+                . Excel: hoja <b>Habitaciones</b> (una fila por hab., ocupantes
+                con IN→OUT; pegable en Word) y hoja <b>Rooming plazas</b>
+                {roomingHotels.length > 1 && roomingHotelKey === "all"
+                  ? "; más una hoja por hotel"
+                  : ""}
+                .
               </p>
+              {rooming.length === 0 && (
+                <p className="text-amber-700">
+                  No hay rooming para el hotel seleccionado.
+                </p>
+              )}
               {rooming.map((b, idx) => (
                 <div key={`${b.artista}-${idx}`}>
                   <h4 className="font-bold text-indigo-900 border-b border-indigo-100 pb-1 mb-2">

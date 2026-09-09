@@ -407,16 +407,17 @@ export default function FimbaHoteleriaPage() {
           <button
             type="button"
             className="fimba-btn fimba-btn-ghost"
-            disabled={!!exporting || rowsHotel.length === 0}
-            onClick={() => runExport("rooming")}
-            title="Excel rooming de la edición (una fila por habitación + plazas)"
+            disabled={rowsHotel.length === 0}
+            onClick={() =>
+              setHotelReportsCtx({
+                rows: rowsHotel,
+                label: edicionLabel,
+                initialReport: "rooming",
+              })
+            }
+            title="Rooming por hotel: elegí hotel y exportá Excel / PDF"
           >
-            {exporting === "rooming" ? (
-              <IconLoader size={14} className="animate-spin" />
-            ) : (
-              <IconFileExcel size={14} />
-            )}{" "}
-            Excel rooming
+            <IconFileExcel size={14} /> Excel rooming
           </button>
           <button
             type="button"
@@ -1004,6 +1005,7 @@ export default function FimbaHoteleriaPage() {
         onClose={() => setHotelReportsCtx(null)}
         hoteleriaRows={hotelReportsCtx?.rows || []}
         edicionNombre={hotelReportsCtx?.label || edicionLabel}
+        initialReport={hotelReportsCtx?.initialReport || null}
       />
       <FimbaComidasReportModal
         open={comidasReportOpen}
