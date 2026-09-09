@@ -269,8 +269,9 @@ export default function FimbaStopRulesManager({
       excludeRutaIds: [],
       eventId: event?.id,
       sortedEvents,
+      id_gira_transporte: vehicleId,
     });
-  }, [propuestaId, propuestas, allRutas, event?.id, sortedEvents]);
+  }, [propuestaId, propuestas, allRutas, event?.id, sortedEvents, vehicleId]);
 
   const explicitPlazasAtStop = useMemo(
     () =>
@@ -299,6 +300,7 @@ export default function FimbaStopRulesManager({
       excludeRutaIds: [],
       eventId: event?.id,
       sortedEvents,
+      id_gira_transporte: vehicleId,
     });
     return defaultArtistaAssignPlazas({
       remaining: usage.remaining,
@@ -349,6 +351,7 @@ export default function FimbaStopRulesManager({
           excludeRutaIds: [ruta.id],
           eventId: event?.id,
           sortedEvents,
+          id_gira_transporte: vehicleId,
         });
         const check = validateArtistaTransporteAssign(full, usage.used, n);
         if (!check.ok) {
@@ -835,6 +838,7 @@ export default function FimbaStopRulesManager({
                             excludeRutaIds: [r.id],
                             eventId: event?.id,
                             sortedEvents,
+                            id_gira_transporte: vehicleId,
                           },
                         );
                         const sync = ruleSync[r.id];
@@ -1103,6 +1107,7 @@ export default function FimbaStopRulesManager({
                                 {
                                   eventId: event?.id,
                                   sortedEvents,
+                                  id_gira_transporte: vehicleId,
                                 },
                               );
                               return (

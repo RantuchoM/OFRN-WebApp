@@ -339,14 +339,20 @@ export function formatFimbaTopeTransporteError(propuesta) {
 }
 
 /**
- * Suma plazas de rides de un artista.
- * Con `eventId` + `sortedEvents`: solo rides **presentes en esa parada**
- * (no un ride abierto de otro día). Sin secuencia: rides abiertos (subida
- * sin bajada). Rides cerrados no cuentan fuera de la parada de bajada.
+ * Suma plazas de rides de un artista para el tope de un hop.
  *
- * @param {Array<{ id?: unknown, id_propuesta?: unknown, plazas?: number, id_evento_subida?: unknown, id_evento_bajada?: unknown, propuesta?: { id?: unknown }|null }>} rutas
+ * El tope es **por hop y por vehículo**, no un presupuesto concurrente
+ * de toda la edición: el mismo artista puede subir/bajar muchas veces en
+ * la misma unidad y también en otras.
+ *
+ * Con `eventId`: solo plazas ya asignadas como **↑ en esa parada**
+ * (otro hop a bordo, un tramo posterior u otro vehículo no cuentan).
+ * Con `id_gira_transporte`: acota a esa unidad.
+ * Sin `eventId`: rides abiertos (opcionalmente de esa unidad).
+ *
+ * @param {Array<{ id?: unknown, id_propuesta?: unknown, id_gira_transporte?: unknown, plazas?: number, id_evento_subida?: unknown, id_evento_bajada?: unknown, propuesta?: { id?: unknown }|null }>} rutas
  * @param {number|string} idPropuesta
- * @param {{ excludeRutaIds?: Array<number|string>, onlyOpen?: boolean, eventId?: unknown, sortedEvents?: Array<{ id?: unknown }> }} [opts]
+ * @param {{ excludeRutaIds?: Array<number|string>, onlyOpen?: boolean, eventId?: unknown, id_gira_transporte?: unknown, sortedEvents?: Array<{ id?: unknown }> }} [opts]
  */
 export function sumPropuestaRutasPlazas(rutas, idPropuesta, opts = {}) {
   if (idPropuesta == null || idPropuesta === "") return 0;
@@ -354,19 +360,19 @@ export function sumPropuestaRutasPlazas(rutas, idPropuesta, opts = {}) {
   const exclude = new Set((opts.excludeRutaIds || []).map(String));
   const onlyOpen = opts.onlyOpen !== false;
   const eventId = opts.eventId;
-  const sortedEvents = opts.sortedEvents;
-  const useStop =
-    eventId != null &&
-    eventId !== "" &&
-    Array.isArray(sortedEvents) &&
-    sortedEvents.length > 0;
+  const useStop = eventId != null && eventId !== "";
+  const wantGt = opts.id_gira_transporte;
+  const filterGt =
+    wantGt != null && wantGt !== "" && Number.isFinite(Number(wantGt));
   let sum = 0;
   for (const r of rutas || []) {
     const pid = r?.id_propuesta ?? r?.propuesta?.id;
     if (pid == null || String(pid) !== want) continue;
     if (r?.id != null && exclude.has(String(r.id))) continue;
+    if (filterGt && Number(r.id_gira_transporte) !== Number(wantGt)) continue;
     if (useStop) {
-      if (!isFimbaRideAboardAtStop(r, eventId, sortedEvents)) continue;
+      if (r.id_evento_subida == null || r.id_evento_subida === "") continue;
+      if (String(r.id_evento_subida) !== String(eventId)) continue;
     } else if (onlyOpen && !isOpenFimbaRide(r)) continue;
     sum += Math.max(0, Number(r.plazas) || 0);
   }
@@ -375,12 +381,13 @@ export function sumPropuestaRutasPlazas(rutas, idPropuesta, opts = {}) {
 
 /**
  * Uso / restantes del tope transporte por artista respecto a sus rutas.
- * En una parada: Σ plazas ya a bordo **en ese evento** ≤ para_transporte.
- * Un ride abierto de un tramo posterior no bloquea subir ahora.
+ * En una parada de un vehículo: Σ plazas ya asignadas como ↑ *aquí*
+ * ≤ para_transporte. Un hop anterior, un ride abierto posterior u otro
+ * vehículo no bloquean un nuevo Sube.
  *
  * @param {{ id?: unknown, cantidad_planificada?: number, plazas_extra_materiales?: number } | null} propuesta
  * @param {Array} rutas — `fimba_propuesta_rutas` (pueden ser de varias propuestas)
- * @param {{ excludeRutaIds?: Array<number|string>, id_propuesta?: unknown, onlyOpen?: boolean, eventId?: unknown, sortedEvents?: Array<{ id?: unknown }> }} [opts]
+ * @param {{ excludeRutaIds?: Array<number|string>, id_propuesta?: unknown, onlyOpen?: boolean, eventId?: unknown, id_gira_transporte?: unknown, sortedEvents?: Array<{ id?: unknown }> }} [opts]
  */
 export function computeArtistaTransporteUsage(propuesta, rutas, opts = {}) {
   const idProp = propuesta?.id ?? opts.id_propuesta;
@@ -389,6 +396,7 @@ export function computeArtistaTransporteUsage(propuesta, rutas, opts = {}) {
     excludeRutaIds: opts.excludeRutaIds,
     onlyOpen: opts.onlyOpen,
     eventId: opts.eventId,
+    id_gira_transporte: opts.id_gira_transporte,
     sortedEvents: opts.sortedEvents,
   });
   const remaining = Math.max(0, cap.para_transporte - used);
@@ -5070,7 +5078,8 @@ export async function loadFimbaTransportLogisticsSummary(giraId) {
 /**
  * Subida/bajada OFRN por **grupo** (`giras_grupos`) en `giras_logistica_rutas`.
  * Alcance `Grupo`, `target_ids = [id_grupo]` (text[]). Misma semántica que
- * StopRulesManager: UPDATE de ride abierto o INSERT. Opcionalmente incluye
+ * StopRulesManager: ↓ cierra ride abierto (UPDATE); ↑ con `allowMultiple`
+ * siempre INSERT (varios hops en el mismo vehículo). Opcionalmente incluye
  * a los miembros en admisión Persona del vehículo.
  *
  * @param {{
@@ -5137,7 +5146,9 @@ export async function upsertOfrnGrupoRutaStop(payload) {
   );
 
   let row = null;
-  if (openRide && !(allowMultiple && alreadyHere && type === "up")) {
+  // Multi + ↑: siempre INSERT (nueva subida aunque haya ride abierto).
+  // ↓ (y OFRN clásico): UPDATE del ride abierto para cerrarlo / completarlo.
+  if (openRide && !(allowMultiple && type === "up")) {
     const { data, error } = await supabase
       .from("giras_logistica_rutas")
       .update({ [field]: idEvento })
@@ -5516,7 +5527,8 @@ async function resolveRutaStopTimeline(idEvento, rutas, sortedEvents) {
 }
 
 /**
- * Hard-block: Σ plazas de rutas del artista (excl. fila en edición) + nuevas ≤ para_transporte.
+ * Hard-block: Σ plazas ya asignadas como ↑ en esta parada/vehículo
+ * (excl. fila en edición) + nuevas ≤ para_transporte.
  * @param {number} idPropuesta
  * @param {number} plazas
  * @param {number|string|null|undefined} excludeRutaId
@@ -5555,6 +5567,7 @@ async function assertPropuestaRutaWithinTransportCap(
     excludeRutaIds,
     eventId: opts.eventId,
     sortedEvents: opts.sortedEvents,
+    id_gira_transporte: opts.id_gira_transporte,
   });
   const check = validateArtistaTransporteAssign(prop, used, plazas);
   if (!check.ok) return { error: check.error };
@@ -5570,8 +5583,9 @@ async function assertPropuestaRutaWithinTransportCap(
  *
  * Edición de una fila existente: pasar `rutaId` (plazas / equipaje / chofer).
  *
- * Subida: nuevo ride (consume tope = plazas a bordo). Tras una bajada las
- * plazas se liberan y se puede volver a subir (otro ride) en la misma unidad.
+ * Subida: nuevo ride. El tope del artista aplica a las ↑ **de esta
+ * parada en esta unidad** (varios hops en el mismo vehículo u otros no
+ * consumen remaining). Tras una bajada se puede volver a subir.
  *
  * Bajada: cierra el ride abierto (set `id_evento_bajada`) o **adelanta** la
  * bajada de un ride cerrado que aún está a bordo en esta parada (bajada
@@ -5656,6 +5670,7 @@ export async function upsertFimbaPropuestaRutaStop(payload) {
     propuesta: payload.propuesta || null,
     eventId: idEvento,
     sortedEvents: timeline,
+    id_gira_transporte: idGt,
   };
 
   const assertCap = async (excludeId, rowEsChofer) => {
@@ -6062,6 +6077,7 @@ export async function alightOfrnGrupoAtStop(opts = {}) {
     type: "down",
     ensureAdmission: true,
     giraGrupos: opts.giraGrupos,
+    allowMultiple: Boolean(opts.allowMultiple),
   });
 }
 
@@ -6243,6 +6259,7 @@ export async function alightAllOfrnAboardAtStop(opts = {}) {
         id_grupo: row.grupoId,
         id_evento: opts.id_evento,
         giraGrupos,
+        allowMultiple: Boolean(opts.allowMultiple),
       });
       if (res.error) {
         return {

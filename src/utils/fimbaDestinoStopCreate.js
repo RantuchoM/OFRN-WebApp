@@ -355,6 +355,7 @@ export async function applyStopBoardingAtCreate({
         type: "up",
         plazas: up.cantidad,
         skipCapAssert: true,
+        allowMultiple: true,
         sortedEvents: timeline,
       });
       if (res.error) {
@@ -380,6 +381,7 @@ export async function applyStopBoardingAtCreate({
         type: "up",
         giraGrupos: giraGrupos || [],
         ensureAdmission: true,
+        allowMultiple: true,
       });
       if (res.error) {
         return {
@@ -400,6 +402,7 @@ export async function applyStopBoardingAtCreate({
         type: "down",
         plazas: down.cantidad,
         skipCapAssert: true,
+        allowMultiple: true,
         sortedEvents: timeline,
       });
       if (res.error) {
@@ -425,6 +428,7 @@ export async function applyStopBoardingAtCreate({
         type: "down",
         giraGrupos: giraGrupos || [],
         ensureAdmission: true,
+        allowMultiple: true,
       });
       if (res.error) {
         return {

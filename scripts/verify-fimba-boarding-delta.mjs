@@ -718,6 +718,130 @@ assert(
   "en_transito no doble-cuenta a la misma persona con hops solapados",
 );
 
+function sumPropuestaRutasPlazas(rutas, idPropuesta, opts = {}) {
+  if (idPropuesta == null || idPropuesta === "") return 0;
+  const want = String(idPropuesta);
+  const exclude = new Set((opts.excludeRutaIds || []).map(String));
+  const onlyOpen = opts.onlyOpen !== false;
+  const eventId = opts.eventId;
+  const useStop = eventId != null && eventId !== "";
+  const wantGt = opts.id_gira_transporte;
+  const filterGt =
+    wantGt != null && wantGt !== "" && Number.isFinite(Number(wantGt));
+  let sum = 0;
+  for (const r of rutas || []) {
+    const pid = r?.id_propuesta ?? r?.propuesta?.id;
+    if (pid == null || String(pid) !== want) continue;
+    if (r?.id != null && exclude.has(String(r.id))) continue;
+    if (filterGt && Number(r.id_gira_transporte) !== Number(wantGt)) continue;
+    if (useStop) {
+      if (r.id_evento_subida == null || r.id_evento_subida === "") continue;
+      if (String(r.id_evento_subida) !== String(eventId)) continue;
+    } else if (onlyOpen && !isOpenFimbaRide(r)) continue;
+    sum += Math.max(0, Number(r.plazas) || 0);
+  }
+  return sum;
+}
+
+const albaTope = 3;
+const albaRutas = [
+  {
+    id: 22,
+    id_propuesta: 5,
+    id_gira_transporte: 226,
+    plazas: 3,
+    id_evento_subida: 3867,
+    id_evento_bajada: 3911,
+  },
+  {
+    id: 33,
+    id_propuesta: 5,
+    id_gira_transporte: 226,
+    plazas: 3,
+    id_evento_subida: 3868,
+    id_evento_bajada: 4352,
+  },
+];
+const toyotaSorted = [{ id: 3910 }, { id: 3867 }, { id: 4363 }, { id: 3911 }];
+assert(
+  isFimbaRideAboardAtStop(albaRutas[0], 4363, toyotaSorted),
+  "Alba 15/09 09:50→16/09: a bordo en timeline Toyota 10:30 (eventos compartidos)",
+);
+assert(
+  sumPropuestaRutasPlazas(albaRutas, 5, {
+    eventId: 4363,
+    id_gira_transporte: 232,
+    sortedEvents: toyotaSorted,
+  }) === 0,
+  "tope Sube Toyota 10:30: ride Chevrolet no consume remaining (otro vehículo)",
+);
+assert(
+  sumPropuestaRutasPlazas(albaRutas, 5, {
+    eventId: 4363,
+    id_gira_transporte: 226,
+    sortedEvents: toyotaSorted,
+  }) === 0,
+  "tope Sube Chevrolet 10:30: hop 09:50 no consume remaining (otra parada)",
+);
+assert(
+  sumPropuestaRutasPlazas(albaRutas, 5, {
+    eventId: 3867,
+    id_gira_transporte: 226,
+  }) === albaTope,
+  "tope Sube Chevrolet 09:50: las 3 plazas de esa ↑ sí cuentan",
+);
+assert(
+  sumPropuestaRutasPlazas(
+    [
+      ...albaRutas,
+      {
+        id: 99,
+        id_propuesta: 5,
+        id_gira_transporte: 226,
+        plazas: 3,
+        id_evento_subida: 4363,
+        id_evento_bajada: null,
+      },
+    ],
+    5,
+    { eventId: 4363, id_gira_transporte: 226 },
+  ) === albaTope,
+  "mismo vehículo: segundo hop en 10:30 cuenta solo las ↑ de esa parada",
+);
+
+function ofrnGrupoRutaStopWrite({ allowMultiple, type, alreadyHere, hasOpenRide }) {
+  if (alreadyHere && !allowMultiple) return "noop";
+  if (hasOpenRide && !(allowMultiple && type === "up")) return "update";
+  return "insert";
+}
+assert(
+  ofrnGrupoRutaStopWrite({
+    allowMultiple: true,
+    type: "up",
+    alreadyHere: false,
+    hasOpenRide: true,
+  }) === "insert",
+  "grupo OFRN multi: nueva ↑ en otro evento INSERT aunque haya ride abierto",
+);
+assert(
+  ofrnGrupoRutaStopWrite({
+    allowMultiple: true,
+    type: "down",
+    alreadyHere: false,
+    hasOpenRide: true,
+  }) === "update",
+  "grupo OFRN multi: ↓ cierra el ride abierto (UPDATE)",
+);
+assert(
+  ofrnGrupoRutaStopWrite({
+    allowMultiple: false,
+    type: "up",
+    alreadyHere: false,
+    hasOpenRide: true,
+  }) === "update",
+  "grupo OFRN clásico: ↑ reusa ride abierto",
+);
+
 if (process.exitCode) {
   console.error("\nAlgunas aserciones fallaron.");
 } else {

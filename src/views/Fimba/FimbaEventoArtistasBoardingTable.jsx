@@ -95,6 +95,7 @@ function StopCell({
       excludeRutaIds: ruta?.id ? [ruta.id] : [],
       eventId,
       sortedEvents,
+      id_gira_transporte: vehicleId,
     });
     const n = defaultArtistaAssignPlazas({
       remaining: usage.remaining,
@@ -522,6 +523,7 @@ export default function FimbaEventoArtistasBoardingTable({
         excludeRutaIds: [],
         eventId: event?.id,
         sortedEvents,
+        id_gira_transporte: vehicleId,
       });
       const check = validateArtistaTransporteAssign(
         p,

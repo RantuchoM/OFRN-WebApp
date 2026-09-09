@@ -465,6 +465,7 @@ export async function createProgrammedTransportJourney(params) {
       type: "up",
       plazas: cantidad,
       skipCapAssert: true,
+      allowMultiple: true,
       sortedEvents,
     });
     if (up.error) {
@@ -483,6 +484,7 @@ export async function createProgrammedTransportJourney(params) {
       type: "down",
       plazas: cantidad,
       skipCapAssert: true,
+      allowMultiple: true,
       sortedEvents,
     });
     if (down.error) {
@@ -508,6 +510,7 @@ export async function createProgrammedTransportJourney(params) {
       type: "up",
       giraGrupos,
       ensureAdmission: true,
+      allowMultiple: true,
     });
     if (up.error) {
       return {
@@ -526,6 +529,7 @@ export async function createProgrammedTransportJourney(params) {
       type: "down",
       giraGrupos,
       ensureAdmission: true,
+      allowMultiple: true,
     });
     if (down.error) {
       return {

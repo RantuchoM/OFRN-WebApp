@@ -515,6 +515,7 @@ export default function StopRulesManager({
         type: "down",
         ensureAdmission: true,
         giraGrupos,
+        allowMultiple: allowMultipleAssignments,
       });
       if (res.error) return { mirrored, error: res.error };
       mirrored += 1;
@@ -1641,6 +1642,7 @@ export default function StopRulesManager({
         id_grupo: row.grupoId,
         id_evento: event.id,
         giraGrupos,
+        allowMultiple: allowMultipleAssignments,
       });
       if (res.error) {
         toast.error(res.error.message || "No se pudo bajar el grupo");
