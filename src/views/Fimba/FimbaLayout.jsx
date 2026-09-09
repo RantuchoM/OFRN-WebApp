@@ -1793,6 +1793,26 @@ const FIMBA_CSS = `
     color: #334155;
     font-weight: 700;
   }
+  /* Pending create: gray while DB write runs (Programar / recorrido) */
+  .fimba-row-pending-create,
+  li.fimba-row-pending-create,
+  article.fimba-row-pending-create {
+    opacity: 0.58;
+    filter: grayscale(0.4);
+    pointer-events: none;
+  }
+  .fimba-planilla-table tr.fimba-row-pending-create td,
+  .fimba-agenda-table tbody tr.fimba-row-pending-create td {
+    background: #f1f5f9 !important;
+    color: #64748b;
+  }
+  .fimba-agenda-event-card.fimba-row-pending-create {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+  }
+  .fimba-pending-create-label {
+    letter-spacing: 0.01em;
+  }
   .fimba-row-highlight td {
     animation: fimba-row-flash 6s ease-out;
   }

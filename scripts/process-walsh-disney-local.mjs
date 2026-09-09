@@ -1,5 +1,6 @@
 /**
- * Copia el zip extraído a Para acomodar, extrae SCORE Disney y renombra canónicamente.
+ * Copia fuentes a Para acomodar y renombra canónicamente.
+ * Disney replace: `node scripts/process-walsh-disney-local.mjs --disney-only --replace`
  */
 import { execSync } from "child_process";
 import {
@@ -14,6 +15,8 @@ import {
 import { join } from "path";
 import { canonicalPartFilename } from "./lib/pdfPartsRenaming.mjs";
 import {
+  DISNEY_FAVORITES_SOURCE_DEFAULT,
+  DISNEY_FAVORITES_WORK,
   PARA_ACOMODAR_ROOT,
   WALSH_DISNEY_SOURCE_DEFAULT,
   WALSH_DISNEY_WORKS,
@@ -24,6 +27,8 @@ const SPLIT_SCRIPT =
   "c:\\Users\\marti\\Downloads\\Cursor - Proyectos\\scripts\\split_and_rename_parts.py";
 
 const dryRun = process.argv.includes("--dry-run");
+const replaceFiles = process.argv.includes("--replace");
+const disneyOnly = process.argv.includes("--disney-only");
 
 function foldName(s) {
   return String(s || "")
@@ -46,9 +51,66 @@ function findLocalPdf(dir, wantedName) {
   );
 }
 
-function resolveSourceDir() {
+function findSourcePdf(dir, work, wantedName) {
+  const exact = findLocalPdf(dir, wantedName);
+  if (exact) return exact;
+  const item = (work.renames || []).find(
+    (r) => foldName(r.pdf) === foldName(wantedName),
+  );
+  if (!item || !existsSync(dir)) return null;
+  const files = readdirSync(dir).filter((f) => /\.pdf$/i.test(f));
+  const inst = foldName(item.instrument);
+  const aliases = [inst];
+  if (inst === "corno f") aliases.push("trompa", "horn");
+  if (inst === "clarinete bb") aliases.push("clarinete", "clarinet");
+  if (inst === "score") aliases.push("full score", "fullscore", "partitura");
+  return (
+    files.find((f) => {
+      const n = foldName(f);
+      return aliases.some(
+        (a) =>
+          n === `${a}.pdf` ||
+          n.startsWith(`${a} `) ||
+          n.includes(` - ${a}`) ||
+          n.endsWith(` ${a}.pdf`),
+      );
+    }) || null
+  );
+}
+
+function resolveSourceDir(work) {
+  if (work?.key === DISNEY_FAVORITES_WORK.key) {
+    if (existsSync(DISNEY_FAVORITES_SOURCE_DEFAULT)) {
+      return DISNEY_FAVORITES_SOURCE_DEFAULT;
+    }
+  }
   if (existsSync(WALSH_DISNEY_SOURCE_DEFAULT)) return WALSH_DISNEY_SOURCE_DEFAULT;
   throw new Error(`No se encuentra la fuente: ${WALSH_DISNEY_SOURCE_DEFAULT}`);
+}
+
+function copyExtras(sourceDir, targetDir, work) {
+  for (const extra of work.sourceExtras || []) {
+    const src = join(sourceDir, extra);
+    if (!existsSync(src)) {
+      console.warn(`  Extra ausente: ${extra}`);
+      continue;
+    }
+    const rename = (work.extraRenames || []).find(
+      (r) => foldName(r.from) === foldName(extra),
+    );
+    const destName = rename?.to || extra;
+    const dst = join(targetDir, destName);
+    if (existsSync(dst) && !replaceFiles) {
+      console.log(`  OK extra: ${destName}`);
+      continue;
+    }
+    if (dryRun) {
+      console.log(`  [COPY extra] ${extra} → ${destName}`);
+      continue;
+    }
+    copyFileSync(src, dst);
+    console.log(`  Extra: ${destName}`);
+  }
 }
 
 function copyWorkFiles(sourceDir, targetDir, work) {
@@ -57,22 +119,34 @@ function copyWorkFiles(sourceDir, targetDir, work) {
     else mkdirSync(targetDir, { recursive: true });
   }
   for (const pdf of work.sourcePdfs || []) {
-    const srcName = findLocalPdf(sourceDir, pdf);
+    const srcName = findSourcePdf(sourceDir, work, pdf);
     if (!srcName) {
       console.warn(`  Fuente ausente: ${pdf}`);
       continue;
     }
-    const dst = join(targetDir, srcName);
-    if (existsSync(dst)) {
-      console.log(`  OK (ya copiado): ${srcName}`);
+    const rename = (work.renames || []).find(
+      (r) => foldName(r.pdf) === foldName(pdf),
+    );
+    const destName =
+      replaceFiles && rename
+        ? canonicalPartFilename(
+            rename.instrument,
+            work.workNumber,
+            work.titulo,
+            work.composerTag,
+          )
+        : srcName;
+    const dst = join(targetDir, destName);
+    if (existsSync(dst) && !replaceFiles) {
+      console.log(`  OK (ya copiado): ${destName}`);
       continue;
     }
     if (dryRun) {
-      console.log(`  [COPY] ${srcName}`);
+      console.log(`  [COPY] ${srcName} → ${destName}`);
       continue;
     }
     copyFileSync(join(sourceDir, srcName), dst);
-    console.log(`  Copiado: ${srcName}`);
+    console.log(`  Copiado: ${destName}`);
   }
 }
 
@@ -164,8 +238,11 @@ function renameWorkPdfs(workDir, work) {
       continue;
     }
     if (existsSync(dst) && foldName(found) !== foldName(targetName)) {
-      console.warn(`  Colisión omitida: ${found} → ${targetName}`);
-      continue;
+      if (!replaceFiles) {
+        console.warn(`  Colisión omitida: ${found} → ${targetName}`);
+        continue;
+      }
+      unlinkSync(dst);
     }
     renameSync(join(workDir, found), dst);
     console.log(`  ${found} → ${targetName}`);
@@ -174,17 +251,23 @@ function renameWorkPdfs(workDir, work) {
   return { renamed, missing };
 }
 
-const sourceDir = resolveSourceDir();
-console.log(`Fuente: ${sourceDir}`);
-console.log(dryRun ? "=== DRY RUN ===" : "=== APLICANDO ===");
+const works = disneyOnly
+  ? WALSH_DISNEY_WORKS.filter((w) => w.key === DISNEY_FAVORITES_WORK.key)
+  : WALSH_DISNEY_WORKS;
 
-for (const work of WALSH_DISNEY_WORKS) {
+console.log(dryRun ? "=== DRY RUN ===" : replaceFiles ? "=== REEMPLAZAR ===" : "=== APLICANDO ===");
+if (disneyOnly) console.log("Modo: solo Disney Favorites");
+
+for (const work of works) {
+  const sourceDir = resolveSourceDir(work);
   const targetDir = join(PARA_ACOMODAR_ROOT, work.targetFolder);
   console.log(`\n=== ${work.targetFolder} ===`);
+  console.log(`Fuente: ${sourceDir}`);
   console.log(`Destino: ${targetDir}`);
 
   console.log("--- Copiar ---");
   copyWorkFiles(sourceDir, targetDir, work);
+  copyExtras(sourceDir, targetDir, work);
 
   if (work.crops?.length) {
     console.log("--- Extraer SCORE ---");

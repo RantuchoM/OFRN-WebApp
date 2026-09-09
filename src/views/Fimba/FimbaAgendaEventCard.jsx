@@ -197,6 +197,7 @@ export default function FimbaAgendaEventCard({
   primaryActions = null,
   readOnly = true,
   busy = false,
+  className = "",
 }) {
   const horaCom = sliceTime(ev?.hora_inicio);
   const horaFin = sliceTime(ev?.hora_fin);
@@ -243,8 +244,8 @@ export default function FimbaAgendaEventCard({
 
   return (
     <article
-      className={`fimba-agenda-event-card ${rowTone}${tipoTint ? " fimba-has-tipo-tint" : ""}`.trim()}
-      style={tipoTint}
+      className={`fimba-agenda-event-card ${rowTone}${tipoTint ? " fimba-has-tipo-tint" : ""}${className ? ` ${className}` : ""}`.trim()}
+      style={busy ? undefined : tipoTint}
       onClick={
         interactive
           ? (e) => {
@@ -272,11 +273,13 @@ export default function FimbaAgendaEventCard({
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}
       title={
-        interactive
-          ? readOnly
-            ? "Ver evento"
-            : "Abrir evento"
-          : undefined
+        busy
+          ? "Guardando…"
+          : interactive
+            ? readOnly
+              ? "Ver evento"
+              : "Abrir evento"
+            : undefined
       }
     >
       <div className="fimba-agenda-event-card-top">
@@ -359,6 +362,22 @@ export default function FimbaAgendaEventCard({
       </div>
 
       <div className="fimba-agenda-event-card-detalle">
+        {busy ? (
+          <span
+            className="fimba-pending-create-label"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              marginBottom: 4,
+              fontSize: "0.72rem",
+              fontWeight: 600,
+              color: "#64748b",
+            }}
+          >
+            <IconLoader size={12} className="animate-spin" /> Guardando…
+          </span>
+        ) : null}
         <FimbaEventDetallePreview html={ev?.actividad} clamp />
         {ev?.observaciones ? (
           <span className="fimba-agenda-event-card-obs">{ev.observaciones}</span>

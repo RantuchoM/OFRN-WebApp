@@ -1,7 +1,8 @@
 /**
  * Walsh — Manuelita, la tortuga (cuarteto de maderas)
- * Varios — Disney Favorites (quinteto de vientos)
- * Fuente: zip local → Para acomodar (sin copiar_carpeta_a_archivo).
+ * Varios — Disney Favorites (quinteto de vientos, arr. Adrian Wagner)
+ * Fuente: zip local (Manuelita) / Drive Wood (Disney) → Para acomodar
+ * (`link_drive` directo, sin copiar_carpeta_a_archivo).
  */
 export const PARA_ACOMODAR_ROOT =
   process.env.PARA_ACOMODAR_ROOT ||
@@ -68,65 +69,75 @@ export const MANUELITA_WORK = {
   ],
 };
 
+/** Fuente de reemplazo 2026-09-09 (MuseScore Wood, arr. Adrian Wagner). */
+export const DISNEY_FAVORITES_SOURCE_DRIVE_ID = "15THu20HyU9Vl2RAcDeFLIXG_fWcxKSF_";
+export const DISNEY_FAVORITES_SOURCE_DEFAULT =
+  process.env.DISNEY_FAVORITES_SOURCE ||
+  "C:\\Users\\marti\\Downloads\\disney_favorites_wood_new";
+
 export const DISNEY_FAVORITES_WORK = {
   key: "disney-favorites-quintet",
-  sourceFolder: "manuelita_extract_tmp",
+  sourceFolder: "disney_favorites_wood_new",
   targetFolder: "Varios - Disney Favorites [quinteto de vientos]",
   titulo: "Disney Favorites [quinteto de vientos]",
   workNumber: null,
   composerTag: "Varios",
   compositor: { apellido: "Varios", nombre: null },
-  arranger: null,
-  action: "insert",
+  arranger: { apellido: "Wagner", nombre: "Adrian" },
+  action: "update",
+  obraId: 3630,
   driveFolderId:
     process.env.DISNEY_FAVORITES_DRIVE_FOLDER_ID ||
     "1vBQIAqhX9LWzajNuH7EaB0tA31oQ5m9I",
+  sourceDriveFolderId:
+    process.env.DISNEY_FAVORITES_SOURCE_DRIVE_ID ||
+    DISNEY_FAVORITES_SOURCE_DRIVE_ID,
   anio: null,
   splits: [],
-  /** Partitura+partes combinada: extraer SCORE (pp. 1–13); las partes ya vienen sueltas. */
-  crops: [
-    {
-      pdf: "disney-Partitura_y_Partes.pdf",
-      instrument: "SCORE",
-      start: 1,
-      end: 13,
-    },
-  ],
+  /** Partes ya vienen sueltas (Fl, Ob, Cl Sib, Trompa Fa, Fg + Full Score). */
+  crops: [],
   observaciones:
-    "Para acomodar — Varios - Disney Favorites [quinteto de vientos]. Medley MuseScore (Flauta, Oboe, Clarinete Bb, Corno F, Fagot).",
-  durationQueryHint: "Disney Favorites woodwind quintet medley",
+    "Para acomodar — Varios - Disney Favorites [quinteto de vientos]. Quinteto de vientos arr. Adrian Wagner (Flauta, Oboe, Clarinete Bb, Corno F, Fagot). MuseScore Wood + MusicXML.",
+  durationQueryHint: "Disney Favorites woodwind quintet medley Adrian Wagner",
   sourcePdfs: [
-    "disney-Clarinete_en_Sib,_Bb_Clarinet_2.pdf",
-    "disney-Corno_en_Fa,_Horn_in_F.pdf",
-    "disney-Fagot,_Bassoon.pdf",
-    "disney-Flauta,_Flute.pdf",
-    "disney-Oboe.pdf",
-    "disney-Partitura_y_Partes.pdf",
+    "Disney_Favorites_Wood - Clarinete en Sib.pdf",
+    "Disney_Favorites_Wood - Fagot.pdf",
+    "Disney_Favorites_Wood - Flauta.pdf",
+    "Disney_Favorites_Wood - Full Score.pdf",
+    "Disney_Favorites_Wood - Oboe.pdf",
+    "Disney_Favorites_Wood - Trompa en Fa.pdf",
   ],
+  sourceExtras: ["Disney_Favorites_Wood.musicxml"],
   renames: [
     {
-      pdf: "disney-Clarinete_en_Sib,_Bb_Clarinet_2.pdf",
+      pdf: "Disney_Favorites_Wood - Clarinete en Sib.pdf",
       instrument: "Clarinete Bb",
     },
     {
-      pdf: "disney-Corno_en_Fa,_Horn_in_F.pdf",
+      pdf: "Disney_Favorites_Wood - Trompa en Fa.pdf",
       instrument: "Corno F",
     },
     {
-      pdf: "disney-Fagot,_Bassoon.pdf",
+      pdf: "Disney_Favorites_Wood - Fagot.pdf",
       instrument: "Fagot",
     },
     {
-      pdf: "disney-Flauta,_Flute.pdf",
+      pdf: "Disney_Favorites_Wood - Flauta.pdf",
       instrument: "Flauta",
     },
     {
-      pdf: "disney-Oboe.pdf",
+      pdf: "Disney_Favorites_Wood - Oboe.pdf",
       instrument: "Oboe",
     },
     {
-      pdf: "SCORE - raw split.pdf",
+      pdf: "Disney_Favorites_Wood - Full Score.pdf",
       instrument: "SCORE",
+    },
+  ],
+  extraRenames: [
+    {
+      from: "Disney_Favorites_Wood.musicxml",
+      to: "Disney Favorites [quinteto de vientos] - Varios.musicxml",
     },
   ],
 };

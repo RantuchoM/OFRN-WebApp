@@ -944,3 +944,21 @@ Disney: SCORE extraído de `Partitura_y_Partes.pdf` pp. 1–13; partes individua
 - [x] Gira 170 orden 2 y 3 (después de *Bailan en ronda…*)
 - [x] Shortcuts del bloque Repertorio (`sync_repertoire_shortcuts` programa 170)
 
+### Completado (2026-09-09) — Disney Favorites reemplazo MuseScore Wood (obra **3630**)
+
+Fuente nueva: [disney / Disney_Favorites_Wood](https://drive.google.com/drive/folders/15THu20HyU9Vl2RAcDeFLIXG_fWcxKSF_). PDFs sueltos (Fl, Ob, Cl Sib, Trompa Fa, Fg + Full Score 10 pp.) + MusicXML. Arr. **Adrian Wagner**.
+
+Reemplazo **in-place** en la carpeta Para acomodar existente [`1vBQIAqhX9LWzajNuH7EaB0tA31oQ5m9I`](https://drive.google.com/open?id=1vBQIAqhX9LWzajNuH7EaB0tA31oQ5m9I): mismos IDs de archivo Drive → `url_archivo` y seating (5 asignaciones) no se tocan. Se agregó `Disney Favorites [quinteto de vientos] - Varios.musicxml` (no es particella).
+
+| Artefacto | Rol |
+|-----------|-----|
+| `scripts/lib/walshDisneyCatalog.mjs` | Fuente Wood + `obraId` 3630 + `action: update` + arranger Wagner |
+| `scripts/process-walsh-disney-local.mjs` | `--disney-only --replace` copia sobre nombres canónicos |
+| `scripts/generate-walsh-disney-sync.mjs` | Emite `seed_disney_favorites_replace.sql` (sin DELETE de particellas) |
+| `supabase/seed_disney_favorites_replace.sql` | `id_arreglador` + observaciones — **aplicado linked** |
+
+- [x] 6 PDFs canónicos sobrescritos (IDs Drive invariantes)
+- [x] MusicXML en la carpeta de la obra
+- [x] Arreglador Adrian Wagner en `obras` / `obras_compositores`
+- [x] Particellas y seating intactos
+

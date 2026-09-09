@@ -96,6 +96,12 @@ import {
   offsetEventDateTime,
 } from "../../utils/fimbaDestinoStopCreate";
 import {
+  isFimbaPendingCreateEvent,
+  mergeServerEventsPreservingPending,
+  settlePendingWithCreatedEvents,
+  stripPendingCreateByToken,
+} from "../../utils/fimbaProgramarTransporte";
+import {
   eventMatchesOtrosEventosContext,
   eventMatchesPropuestaRouteFilter,
 } from "../../utils/fimbaAgendaUrlParams";
@@ -122,6 +128,7 @@ import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import { supabase } from "../../services/supabase";
 import { hasHtmlMarkup, stripHtml } from "../../utils/eventDisplayUtils";
 import { formatFechaLargaEs, formatWeekdayFullLocal } from "../../utils/dates";
+import { toast } from "sonner";
 
 /** Índice id_propuesta → participantes activos (batch, sin hotelería). */
 function participantesMapFromBatch(byPropuesta) {
@@ -947,6 +954,9 @@ export default function FimbaTransportPage() {
   const [dbCategorias, setDbCategorias] = useState([]);
   const [catalogTipos, setCatalogTipos] = useState([]);
   const [showProgramar, setShowProgramar] = useState(false);
+  const [programarSeed, setProgramarSeed] = useState(null);
+  /** Tokens de create en vuelo (anti doble-confirm / strip al settle). */
+  const pendingCreateTokensRef = useRef(new Set());
   /** Resalta filas recién creadas (Programar / +). */
   const [highlightEventIds, setHighlightEventIds] = useState([]);
   /** id de la fila origen mientras «+» crea la parada intermedia (null = idle). */
@@ -1227,8 +1237,14 @@ export default function FimbaTransportPage() {
           setPropuestaRoutes(res.rutas || []);
         }
         if (key === "eventos" && !res.error) {
-          setEventos(res.eventos || []);
-          eventosRef.current = res.eventos || [];
+          setEventos((prev) => {
+            const merged = mergeServerEventsPreservingPending(
+              res.eventos || [],
+              prev,
+            );
+            eventosRef.current = merged;
+            return merged;
+          });
         }
       }
 
@@ -1265,6 +1281,162 @@ export default function FimbaTransportPage() {
   const softRefresh = useCallback(
     (slices = {}) => load({ silent: true, ...slices }),
     [load],
+  );
+
+  const insertPendingCreateRows = useCallback((pendingRows) => {
+    if (!pendingRows?.length) return;
+    setEventos((prev) => {
+      const next = [...(prev || [])];
+      for (const row of pendingRows) {
+        if (!next.some((x) => String(x.id) === String(row.id))) {
+          next.push(row);
+        }
+      }
+      eventosRef.current = next;
+      return next;
+    });
+    setHighlightEventIds(pendingRows.map((r) => r.id).filter(Boolean));
+  }, []);
+
+  const handleProgramarOptimisticStart = useCallback(
+    ({ pendingRows, clientToken }) => {
+      const token = String(clientToken || "");
+      if (token && pendingCreateTokensRef.current.has(token)) return;
+      if (token) pendingCreateTokensRef.current.add(token);
+      setShowProgramar(false);
+      setProgramarSeed(null);
+      insertPendingCreateRows(pendingRows);
+    },
+    [insertPendingCreateRows],
+  );
+
+  const handleProgramarOptimisticSuccess = useCallback(
+    ({
+      clientToken,
+      eventos: created,
+      createParams,
+    }) => {
+      const token = String(clientToken || "");
+      if (token) pendingCreateTokensRef.current.delete(token);
+      const passenger = createParams?.passenger || null;
+      setEventos((prev) => {
+        const next = settlePendingWithCreatedEvents(
+          prev,
+          token,
+          created || [],
+          {
+            vehicleId: createParams?.vehicleId,
+            vehiculos,
+            passenger,
+            propuestas,
+            giraGrupos,
+          },
+        );
+        eventosRef.current = next;
+        return next;
+      });
+      const ids = (created || []).map((e) => e?.id).filter(Boolean);
+      setHighlightEventIds(ids);
+      softRefresh({ eventos: true, rutas: true, logistics: true });
+    },
+    [softRefresh, vehiculos, propuestas, giraGrupos],
+  );
+
+  const handleProgramarOptimisticFail = useCallback(
+    ({
+      clientToken,
+      error: err,
+      eventos: partialCreated,
+      reopenSeed,
+      createParams,
+      partial,
+    }) => {
+      const token = String(clientToken || "");
+      if (token) pendingCreateTokensRef.current.delete(token);
+      setEventos((prev) => {
+        let next = stripPendingCreateByToken(prev, token);
+        if (partialCreated?.length) {
+          next = settlePendingWithCreatedEvents(next, "", partialCreated, {
+            vehicleId: createParams?.vehicleId,
+            vehiculos,
+            passenger: createParams?.passenger,
+            propuestas,
+            giraGrupos,
+          });
+        }
+        eventosRef.current = next;
+        return next;
+      });
+      const msg =
+        err?.message || "No se pudo programar el transporte";
+      setError(msg);
+      toast.error(msg);
+      if (partial) {
+        softRefresh({ eventos: true, rutas: true, logistics: true });
+      } else if (reopenSeed) {
+        setProgramarSeed(reopenSeed);
+        setShowProgramar(true);
+      }
+    },
+    [vehiculos, propuestas, giraGrupos, softRefresh],
+  );
+
+  const handleRecorridoOptimisticStart = useCallback(
+    ({ pendingRows, clientToken }) => {
+      const token = String(clientToken || "");
+      if (token && pendingCreateTokensRef.current.has(token)) return;
+      if (token) pendingCreateTokensRef.current.add(token);
+      setRecorridoModal(null);
+      insertPendingCreateRows(pendingRows);
+    },
+    [insertPendingCreateRows],
+  );
+
+  const handleRecorridoOptimisticSuccess = useCallback(
+    ({ clientToken, eventos: created }) => {
+      const token = String(clientToken || "");
+      if (token) pendingCreateTokensRef.current.delete(token);
+      setEventos((prev) => {
+        const next = settlePendingWithCreatedEvents(
+          prev,
+          token,
+          created || [],
+          { vehiculos },
+        );
+        eventosRef.current = next;
+        return next;
+      });
+      const ids = (created || []).map((e) => e?.id).filter(Boolean);
+      if (ids.length) setHighlightEventIds(ids);
+      softRefresh({ eventos: true, rutas: true });
+    },
+    [softRefresh, vehiculos],
+  );
+
+  const handleRecorridoOptimisticFail = useCallback(
+    ({ clientToken, error: err, eventos: partialCreated, context, partial }) => {
+      const token = String(clientToken || "");
+      if (token) pendingCreateTokensRef.current.delete(token);
+      setEventos((prev) => {
+        let next = stripPendingCreateByToken(prev, token);
+        if (partialCreated?.length) {
+          next = settlePendingWithCreatedEvents(next, "", partialCreated, {
+            vehiculos,
+          });
+        }
+        eventosRef.current = next;
+        return next;
+      });
+      const msg = err?.message || "No se pudo crear el recorrido";
+      setError(msg);
+      toast.error(msg);
+      if (partial) {
+        softRefresh({ eventos: true, rutas: true });
+      } else if (context) {
+        setRecorridoModal(context);
+      }
+    },
+    [vehiculos, softRefresh],
   );
 
   /** Coalesce rapid Sube/Baja / luggage writes → one rutas fetch. */
@@ -4399,6 +4571,7 @@ export default function FimbaTransportPage() {
                     const rowEditing = isRowEditing(ev.id);
                     const canAssignVeh =
                       editMode && !isContext && canInlineAssignVehicle(ev);
+                    const isPendingCreate = isFimbaPendingCreateEvent(ev);
                     const isHighlighted = highlightEventIds.some(
                       (id) => String(id) === String(ev.id),
                     );
@@ -4410,6 +4583,7 @@ export default function FimbaTransportPage() {
                       editMode ? rowStatusClass(evStatus) : "",
                       isHighlighted ? "fimba-row-highlight" : "",
                       isDeletingRow ? "fimba-row-deleting" : "",
+                      isPendingCreate ? "fimba-row-pending-create" : "",
                     ]
                       .filter(Boolean)
                       .join(" ");
@@ -4560,7 +4734,10 @@ export default function FimbaTransportPage() {
                       <tr
                         className={evRowClass}
                         onDoubleClick={
-                          readOnly || editMode || isContext
+                          readOnly ||
+                          editMode ||
+                          isContext ||
+                          isPendingCreate
                             ? undefined
                             : (e) => {
                                 if (
@@ -4574,7 +4751,9 @@ export default function FimbaTransportPage() {
                               }
                         }
                         title={
-                          isContext
+                          isPendingCreate
+                            ? "Guardando…"
+                            : isContext
                             ? "Evento de agenda (contexto). Sin subidas/bajadas de transporte."
                             : readOnly
                             ? undefined
@@ -5063,6 +5242,26 @@ export default function FimbaTransportPage() {
                             </div>
                           ) : (
                             <>
+                              {isPendingCreate ? (
+                                <span
+                                  className="fimba-pending-create-label"
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    marginBottom: 2,
+                                    fontSize: "0.72rem",
+                                    fontWeight: 600,
+                                    color: "#64748b",
+                                  }}
+                                >
+                                  <IconLoader
+                                    size={12}
+                                    className="animate-spin"
+                                  />{" "}
+                                  Guardando…
+                                </span>
+                              ) : null}
                               <FimbaEventDetallePreview
                                 html={ev.actividad}
                                 empty={ev.tipo_nombre || "—"}
@@ -5448,6 +5647,9 @@ export default function FimbaTransportPage() {
             locationOptions={locationOptions}
             onRefreshLocations={refreshLocations}
             onClose={() => setRecorridoModal(null)}
+            onOptimisticStart={handleRecorridoOptimisticStart}
+            onOptimisticSuccess={handleRecorridoOptimisticSuccess}
+            onOptimisticFail={handleRecorridoOptimisticFail}
             onSaved={async (eventos, meta = {}) => {
               if (!meta?.partial) setRecorridoModal(null);
               await softRefresh({ eventos: true, rutas: true });
@@ -5469,7 +5671,14 @@ export default function FimbaTransportPage() {
             sequencesByVehicle={sequencesByVehicle}
             locationOptions={locationOptions}
             onRefreshLocations={refreshLocations}
-            onClose={() => setShowProgramar(false)}
+            initialSeed={programarSeed}
+            onClose={() => {
+              setShowProgramar(false);
+              setProgramarSeed(null);
+            }}
+            onOptimisticStart={handleProgramarOptimisticStart}
+            onOptimisticSuccess={handleProgramarOptimisticSuccess}
+            onOptimisticFail={handleProgramarOptimisticFail}
             onSaved={async ({
               desde,
               hasta,
@@ -5478,7 +5687,10 @@ export default function FimbaTransportPage() {
               eventos,
               partial,
             }) => {
-              if (!partial) setShowProgramar(false);
+              if (!partial) {
+                setShowProgramar(false);
+                setProgramarSeed(null);
+              }
               await softRefresh({ eventos: true, rutas: true, logistics: true });
               const ids = (
                 Array.isArray(eventos) && eventos.length

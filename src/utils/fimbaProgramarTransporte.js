@@ -776,6 +776,8 @@ export async function createProgrammedTransportJourney(params) {
     sin_servicio: false,
     asientos_equipaje: 0,
     observaciones_equipaje: "",
+    // plazas 0 → sin cupo anónimo; UI ya eligió vehículo (evita availability).
+    clientValidated: true,
     vehiculos: commonVeh,
   };
 
@@ -1000,4 +1002,322 @@ export async function createProgrammedTransportJourney(params) {
   }
 
   return { anterior, desde, hasta, siguiente, eventos, error: null };
+}
+
+/** ¿Fila provisional de create en background (aún sin id de DB)? */
+export function isFimbaPendingCreateEvent(ev) {
+  return Boolean(ev?._pendingCreate) || String(ev?.id || "").startsWith("pending:");
+}
+
+/** Token único por confirmación (anti doble-create / strip al settle/fail). */
+export function newFimbaPendingClientToken(prefix = "prog") {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
+function resolveLocacionLabel(locationOptions, idLocacion) {
+  if (idLocacion == null || idLocacion === "") return null;
+  const hit = (locationOptions || []).find(
+    (l) => String(l.id) === String(idLocacion),
+  );
+  if (!hit) return null;
+  return hit.nombre || hit.label || null;
+}
+
+/**
+ * Fila planilla/agenda provisional (gris) antes de que `saveFimbaEvento` responda.
+ *
+ * @param {object} opts
+ * @returns {object}
+ */
+export function buildPendingTransportStopRow(opts = {}) {
+  const {
+    clientToken,
+    slot = "stop",
+    fecha,
+    hora_inicio,
+    actividad,
+    id_locacion = null,
+    locacion_nombre = null,
+    vehicleId,
+    vehiculos = [],
+    propuestas = [],
+    grupos = [],
+    audiencia_ofrn = "none",
+    id_tipo_evento = null,
+    id_gira = null,
+  } = opts;
+  const token = String(clientToken || "x");
+  const gt =
+    (vehiculos || []).find((g) => Number(g.id) === Number(vehicleId)) || null;
+  const tipoId =
+    id_tipo_evento != null && id_tipo_evento !== ""
+      ? Number(id_tipo_evento)
+      : eventTypeIdForCategoria(gt?.categoria_logistica);
+  const ao = ["none", "tutti", "grupos"].includes(audiencia_ofrn)
+    ? audiencia_ofrn
+    : "none";
+  const locName = locacion_nombre || null;
+  const locId =
+    id_locacion != null && id_locacion !== "" ? Number(id_locacion) || id_locacion : null;
+
+  return {
+    id: `pending:${token}:${slot}`,
+    _pendingCreate: true,
+    _pendingClientToken: token,
+    _pendingSlot: slot,
+    id_gira: id_gira != null ? Number(id_gira) : null,
+    fecha: String(fecha || "").slice(0, 10),
+    hora_inicio: String(hora_inicio || "").slice(0, 5) || null,
+    hora_fin: null,
+    actividad: String(actividad || "").trim() || "Parada",
+    descripcion: String(actividad || "").trim() || "Parada",
+    destino: "",
+    vuelo: "",
+    observaciones: "",
+    observaciones_equipaje: "",
+    id_locacion: locId,
+    locacion_nombre: locName,
+    locaciones:
+      locId != null
+        ? { id: locId, nombre: locName || "" }
+        : null,
+    es_fimba: true,
+    es_ofrn: ao !== "none",
+    origen: ao !== "none" ? "ambos" : "fimba",
+    usa_transporte: true,
+    sin_servicio: false,
+    id_tipo_evento: tipoId,
+    vehiculos: [
+      {
+        id_gira_transporte: Number(vehicleId),
+        plazas: 0,
+        giras_transportes: gt,
+      },
+    ],
+    propuestas: propuestas || [],
+    grupos: ao === "grupos" ? grupos || [] : [],
+    audiencia_ofrn: ao,
+    orquesta_label: ao === "tutti" ? "Tutti" : null,
+  };
+}
+
+/**
+ * 2–4 filas pending del wizard Programar transporte (misma forma que el create real).
+ *
+ * @param {object} params — mismos campos de UI + `clientToken` + `locationOptions`
+ * @returns {object[]}
+ */
+export function buildPendingProgrammedJourneyRows(params = {}) {
+  const {
+    clientToken,
+    idGira,
+    vehicleId,
+    vehiculos = [],
+    locationOptions = [],
+    fechaSalida,
+    horaSalida,
+    idLocSalida,
+    fechaLlegada,
+    horaLlegada,
+    idLocLlegada,
+    passenger,
+    propuestas = [],
+    giraGrupos = [],
+    movimientoAnterior = null,
+    movimientoSiguiente = null,
+  } = params;
+
+  const kind = passenger?.kind === "grupo" ? "grupo" : "propuesta";
+  const paxId = Number(passenger?.id);
+  const paxLabel = String(passenger?.label || "").trim();
+  const actDesde = paxLabel ? `Salida · ${paxLabel}` : "Salida programada";
+  const actHasta = paxLabel ? `Llegada · ${paxLabel}` : "Llegada programada";
+  const actAnterior = paxLabel
+    ? `Mov. anterior · ${paxLabel}`
+    : "Movimiento anterior";
+  const actSiguiente = paxLabel
+    ? `Mov. siguiente · ${paxLabel}`
+    : "Movimiento siguiente";
+
+  const propuestasRows =
+    kind === "propuesta" && Number.isFinite(paxId)
+      ? (propuestas || []).filter((p) => Number(p.id) === paxId)
+      : [];
+  const gruposRows =
+    kind === "grupo" && Number.isFinite(paxId)
+      ? (giraGrupos || []).filter((g) => Number(g.id) === paxId)
+      : [];
+  const audiencia = kind === "grupo" ? "grupos" : "none";
+  const anteriorLeg = normalizeOptionalLeg(movimientoAnterior);
+  const siguienteLeg = normalizeOptionalLeg(movimientoSiguiente);
+
+  const base = {
+    clientToken,
+    id_gira: idGira,
+    vehicleId,
+    vehiculos,
+    propuestas: propuestasRows,
+    grupos: gruposRows,
+    audiencia_ofrn: audiencia,
+  };
+
+  const rows = [];
+  if (anteriorLeg) {
+    rows.push(
+      buildPendingTransportStopRow({
+        ...base,
+        slot: "anterior",
+        fecha: anteriorLeg.fecha,
+        hora_inicio: anteriorLeg.hora,
+        actividad: actAnterior,
+        id_locacion: anteriorLeg.idLocacion,
+        locacion_nombre: resolveLocacionLabel(
+          locationOptions,
+          anteriorLeg.idLocacion,
+        ),
+      }),
+    );
+  }
+  rows.push(
+    buildPendingTransportStopRow({
+      ...base,
+      slot: "desde",
+      fecha: String(fechaSalida || "").slice(0, 10),
+      hora_inicio: String(horaSalida || "").slice(0, 5),
+      actividad: actDesde,
+      id_locacion: idLocSalida,
+      locacion_nombre: resolveLocacionLabel(locationOptions, idLocSalida),
+    }),
+  );
+  rows.push(
+    buildPendingTransportStopRow({
+      ...base,
+      slot: "hasta",
+      fecha: String(fechaLlegada || "").slice(0, 10),
+      hora_inicio: String(horaLlegada || "").slice(0, 5),
+      actividad: actHasta,
+      id_locacion: idLocLlegada,
+      locacion_nombre: resolveLocacionLabel(locationOptions, idLocLlegada),
+    }),
+  );
+  if (siguienteLeg) {
+    rows.push(
+      buildPendingTransportStopRow({
+        ...base,
+        slot: "siguiente",
+        fecha: siguienteLeg.fecha,
+        hora_inicio: siguienteLeg.hora,
+        actividad: actSiguiente,
+        id_locacion: siguienteLeg.idLocacion,
+        locacion_nombre: resolveLocacionLabel(
+          locationOptions,
+          siguienteLeg.idLocacion,
+        ),
+      }),
+    );
+  }
+  return rows;
+}
+
+/** Quita filas pending de un token (fail / settle). */
+export function stripPendingCreateByToken(list, clientToken) {
+  const token = String(clientToken || "");
+  if (!token) return list || [];
+  return (list || []).filter(
+    (ev) => String(ev?._pendingClientToken || "") !== token,
+  );
+}
+
+/**
+ * Tras soft-refresh: conservar pending in-flight que el server aún no tiene.
+ * @param {object[]} serverRows
+ * @param {object[]} prevRows
+ */
+export function mergeServerEventsPreservingPending(serverRows, prevRows) {
+  const server = Array.isArray(serverRows) ? serverRows : [];
+  const pending = (prevRows || []).filter((ev) => isFimbaPendingCreateEvent(ev));
+  if (!pending.length) return server;
+  const serverIds = new Set(server.map((e) => String(e.id)));
+  return [...server, ...pending.filter((p) => !serverIds.has(String(p.id)))];
+}
+
+/**
+ * Reemplaza pending del token por eventos creados (settle inmediato).
+ * @param {object[]} prev
+ * @param {string} clientToken
+ * @param {object[]} createdEventos
+ * @param {{ vehicleId?: unknown, vehiculos?: object[], passenger?: object, propuestas?: object[], giraGrupos?: object[] }} [enrich]
+ */
+export function settlePendingWithCreatedEvents(
+  prev,
+  clientToken,
+  createdEventos,
+  enrich = {},
+) {
+  const without = stripPendingCreateByToken(prev, clientToken);
+  const {
+    vehicleId,
+    vehiculos = [],
+    passenger = null,
+    propuestas = [],
+    giraGrupos = [],
+  } = enrich;
+  const kind = passenger?.kind === "grupo" ? "grupo" : "propuesta";
+  const paxId = Number(passenger?.id);
+  const propuestasRows =
+    kind === "propuesta" && Number.isFinite(paxId)
+      ? (propuestas || []).filter((p) => Number(p.id) === paxId)
+      : [];
+  const gruposRows =
+    kind === "grupo" && Number.isFinite(paxId)
+      ? (giraGrupos || []).filter((g) => Number(g.id) === paxId)
+      : [];
+  const audiencia = kind === "grupo" ? "grupos" : "none";
+  const gt =
+    (vehiculos || []).find((g) => Number(g.id) === Number(vehicleId)) || null;
+
+  const next = [...without];
+  for (const created of createdEventos || []) {
+    if (!created?.id) continue;
+    const row = {
+      ...created,
+      actividad: created.actividad || created.descripcion || "Parada",
+      destino: created.destino || "",
+      es_fimba: created.es_fimba !== false,
+      es_ofrn: audiencia !== "none" || Boolean(created.es_ofrn),
+      origen:
+        audiencia !== "none" || created.es_ofrn ? "ambos" : "fimba",
+      usa_transporte: true,
+      sin_servicio: false,
+      vehiculos:
+        created.vehiculos?.length > 0
+          ? created.vehiculos
+          : vehicleId != null
+            ? [
+                {
+                  id_gira_transporte: Number(vehicleId),
+                  plazas: 0,
+                  giras_transportes: gt,
+                },
+              ]
+            : [],
+      propuestas:
+        created.propuestas?.length > 0
+          ? created.propuestas
+          : propuestasRows,
+      grupos:
+        created.grupos?.length > 0
+          ? created.grupos
+          : audiencia === "grupos"
+            ? gruposRows
+            : [],
+      audiencia_ofrn: created.audiencia_ofrn || audiencia,
+    };
+    const idx = next.findIndex((x) => String(x.id) === String(row.id));
+    if (idx >= 0) next[idx] = { ...next[idx], ...row };
+    else next.push(row);
+  }
+  return next;
 }

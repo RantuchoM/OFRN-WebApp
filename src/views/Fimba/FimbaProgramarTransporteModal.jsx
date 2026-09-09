@@ -13,8 +13,10 @@ import {
 import { supabase } from "../../services/supabase";
 import { computeFimbaCapacity } from "../../services/fimbaService";
 import {
+  buildPendingProgrammedJourneyRows,
   buildProgrammedTripOptionalLegDefaults,
   createProgrammedTransportJourney,
+  newFimbaPendingClientToken,
   rankVehiclesForProgrammedTrip,
 } from "../../utils/fimbaProgramarTransporte";
 
@@ -55,6 +57,11 @@ function emptyOptionalLeg() {
  *
  * `initialSeed` (Agenda → ancla en evento): prefills salida/llegada/pasajero
  * sin crear nada al abrir.
+ *
+ * Confirmación optimista: cierra vía `onOptimisticStart` (pending gris en
+ * planilla/agenda) y corre `createProgrammedTransportJourney` en background;
+ * `onOptimisticSuccess` / `onOptimisticFail` settlean o revierten. `onSaved`
+ * queda como fallback legacy (flujo bloqueante si no hay optimistic).
  */
 export default function FimbaProgramarTransporteModal({
   edicion,
@@ -66,6 +73,9 @@ export default function FimbaProgramarTransporteModal({
   onRefreshLocations,
   onClose,
   onSaved,
+  onOptimisticStart,
+  onOptimisticSuccess,
+  onOptimisticFail,
   initialSeed = null,
 }) {
   const seed = initialSeed && typeof initialSeed === "object" ? initialSeed : null;
@@ -296,7 +306,7 @@ export default function FimbaProgramarTransporteModal({
     }));
   };
 
-  const handleConfirm = async () => {
+  const handleConfirm = () => {
     if (!formReady || !selectedOffer?.vehicleId || saving) return;
     if (legAnterior.enabled) {
       if (!legAnterior.idLocacion || !legAnterior.fecha || !legAnterior.hora) {
@@ -321,7 +331,14 @@ export default function FimbaProgramarTransporteModal({
 
     setError(null);
     setSaving(true);
-    const result = await createProgrammedTransportJourney({
+
+    const passenger = {
+      kind: selectedPassenger.kind,
+      id: selectedPassenger.id,
+      cantidad: Math.max(1, Number(cantidad) || 1),
+      label: selectedPassenger.name,
+    };
+    const createParams = {
       idGira: edicion?.id_gira,
       vehicleId: selectedOffer.vehicleId,
       vehiculos,
@@ -331,28 +348,86 @@ export default function FimbaProgramarTransporteModal({
       fechaLlegada,
       horaLlegada,
       idLocLlegada,
-      passenger: {
-        kind: selectedPassenger.kind,
-        id: selectedPassenger.id,
-        cantidad: Math.max(1, Number(cantidad) || 1),
-        label: selectedPassenger.name,
-      },
+      passenger,
       giraGrupos,
       movimientoAnterior: legAnterior,
       movimientoSiguiente: legSiguiente,
-    });
-    setSaving(false);
-    if (result.error) {
-      setError(result.error.message || "No se pudo programar el transporte");
-      if (result.eventos?.length) {
-        onSaved?.({
+    };
+    const reopenSeed = {
+      fechaSalida,
+      horaSalida,
+      fechaLlegada,
+      horaLlegada,
+      idLocSalida,
+      idLocLlegada,
+      passengerKey,
+      anchorEventId: seed?.anchorEventId ?? null,
+    };
+
+    const useOptimistic = typeof onOptimisticStart === "function";
+    if (useOptimistic) {
+      const clientToken = newFimbaPendingClientToken("prog");
+      const pendingRows = buildPendingProgrammedJourneyRows({
+        clientToken,
+        idGira: edicion?.id_gira,
+        vehicleId: selectedOffer.vehicleId,
+        vehiculos,
+        locationOptions,
+        fechaSalida,
+        horaSalida,
+        idLocSalida,
+        fechaLlegada,
+        horaLlegada,
+        idLocLlegada,
+        passenger,
+        propuestas,
+        giraGrupos,
+        movimientoAnterior: legAnterior,
+        movimientoSiguiente: legSiguiente,
+      });
+      onOptimisticStart({
+        pendingRows,
+        clientToken,
+        reopenSeed,
+        createParams,
+      });
+      void createProgrammedTransportJourney(createParams).then((result) => {
+        if (result.error) {
+          onOptimisticFail?.({
+            clientToken,
+            error: result.error,
+            eventos: result.eventos || [],
+            reopenSeed,
+            createParams,
+            partial: Boolean(result.eventos?.length),
+          });
+          return;
+        }
+        onOptimisticSuccess?.({
+          clientToken,
           ...result,
-          partial: true,
+          createParams,
+          reopenSeed,
         });
-      }
+      });
       return;
     }
-    onSaved?.({ ...result, partial: false });
+
+    void (async () => {
+      const result = await createProgrammedTransportJourney(createParams);
+      setSaving(false);
+      if (result.error) {
+        setError(result.error.message || "No se pudo programar el transporte");
+        if (result.eventos?.length) {
+          onSaved?.({
+            ...result,
+            partial: true,
+          });
+        }
+        return;
+      }
+      onSaved?.({ ...result, partial: false });
+    })();
   };
 
   return (

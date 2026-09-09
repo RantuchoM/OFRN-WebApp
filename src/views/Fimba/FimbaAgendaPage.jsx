@@ -116,7 +116,14 @@ import FimbaAgendaEventCard, {
 } from "./FimbaAgendaEventCard";
 import { buildAgendaCardMenuItems } from "./fimbaAgendaCardMenuItems";
 import FimbaRichTextEditor from "./FimbaRichTextEditor";
-import { buildProgrammedTripSeedFromAgendaEvent } from "../../utils/fimbaProgramarTransporte";
+import {
+  buildProgrammedTripSeedFromAgendaEvent,
+  isFimbaPendingCreateEvent,
+  mergeServerEventsPreservingPending,
+  settlePendingWithCreatedEvents,
+  stripPendingCreateByToken,
+} from "../../utils/fimbaProgramarTransporte";
+import { toast } from "sonner";
 
 const FIMBA_AGENDA_SEARCH_DEBOUNCE_MS = 250;
 
@@ -496,6 +503,8 @@ export default function FimbaAgendaPage() {
   const [modal, setModal] = useState(null);
   /** Seed del wizard Programar transporte (Agenda → ancla evento). */
   const [programarSeed, setProgramarSeed] = useState(null);
+  /** Tokens de create en vuelo (Programar transporte optimistic). */
+  const pendingCreateTokensRef = useRef(new Set());
   const [copyLinkOk, setCopyLinkOk] = useState(false);
   /** Multi-select de filas visibles (ids) para «Editar en lote». */
   const [selectedEventIds, setSelectedEventIds] = useState(() => new Set());
@@ -648,13 +657,103 @@ export default function FimbaAgendaPage() {
             setOfrnLocalities(r.localities || []);
           }
           if (r.key === "rutas") setPropuestaRoutes(r.data);
-          if (r.key === "eventos") setEventosBase(r.data);
+          if (r.key === "eventos") {
+            setEventosBase((prev) =>
+              mergeServerEventsPreservingPending(r.data, prev),
+            );
+          }
         }
       } finally {
         setRefreshing(false);
       }
     },
     [edicionId, edicion?.id_gira, fetchOfrnEvents],
+  );
+
+  const insertPendingCreateRows = useCallback((pendingRows) => {
+    if (!pendingRows?.length) return;
+    setEventosBase((prev) => {
+      const next = [...(prev || [])];
+      for (const row of pendingRows) {
+        if (!next.some((x) => String(x.id) === String(row.id))) {
+          next.push(row);
+        }
+      }
+      return sortFimbaAgendaRows(next);
+    });
+  }, []);
+
+  const handleProgramarOptimisticStart = useCallback(
+    ({ pendingRows, clientToken }) => {
+      const token = String(clientToken || "");
+      if (token && pendingCreateTokensRef.current.has(token)) return;
+      if (token) pendingCreateTokensRef.current.add(token);
+      setProgramarSeed(null);
+      insertPendingCreateRows(pendingRows);
+    },
+    [insertPendingCreateRows],
+  );
+
+  const handleProgramarOptimisticSuccess = useCallback(
+    ({ clientToken, eventos: created, createParams }) => {
+      const token = String(clientToken || "");
+      if (token) pendingCreateTokensRef.current.delete(token);
+      setEventosBase((prev) =>
+        settlePendingWithCreatedEvents(prev, token, created || [], {
+          vehicleId: createParams?.vehicleId,
+          vehiculos: flota,
+          passenger: createParams?.passenger,
+          propuestas,
+          giraGrupos,
+        }),
+      );
+      reloadAgendaSlices({
+        eventos: true,
+        rutas: true,
+        logistics: true,
+      });
+    },
+    [reloadAgendaSlices, flota, propuestas, giraGrupos],
+  );
+
+  const handleProgramarOptimisticFail = useCallback(
+    ({
+      clientToken,
+      error: err,
+      eventos: partialCreated,
+      reopenSeed,
+      createParams,
+      partial,
+    }) => {
+      const token = String(clientToken || "");
+      if (token) pendingCreateTokensRef.current.delete(token);
+      setEventosBase((prev) => {
+        let next = stripPendingCreateByToken(prev, token);
+        if (partialCreated?.length) {
+          next = settlePendingWithCreatedEvents(next, "", partialCreated, {
+            vehicleId: createParams?.vehicleId,
+            vehiculos: flota,
+            passenger: createParams?.passenger,
+            propuestas,
+            giraGrupos,
+          });
+        }
+        return next;
+      });
+      const msg = err?.message || "No se pudo programar el transporte";
+      setError(msg);
+      toast.error(msg);
+      if (partial) {
+        reloadAgendaSlices({
+          eventos: true,
+          rutas: true,
+          logistics: true,
+        });
+      } else if (reopenSeed) {
+        setProgramarSeed(reopenSeed);
+      }
+    },
+    [flota, propuestas, giraGrupos, reloadAgendaSlices],
   );
 
   const upsertAgendaEvento = useCallback(
@@ -2151,7 +2250,10 @@ export default function FimbaAgendaPage() {
                       ? "OFRN"
                       : "—";
               const openEdit = () => setModal({ mode: "edit", evento: ev });
-              const menuItems = buildAgendaCardMenuItems({
+              const isPendingCreate = isFimbaPendingCreateEvent(ev);
+              const menuItems = isPendingCreate
+                ? []
+                : buildAgendaCardMenuItems({
                 canEdit: !readOnly,
                 // Lápiz visible en la card; kebab = secundarias
                 onDuplicate: () => handleDuplicate(ev),
@@ -2187,19 +2289,25 @@ export default function FimbaAgendaPage() {
                     vehicleLabel={vehLabel}
                     aboardCount={aboard}
                     showAboard={isTx}
-                    readOnly={readOnly}
+                    readOnly={readOnly || isPendingCreate}
+                    className={
+                      isPendingCreate ? "fimba-row-pending-create" : undefined
+                    }
+                    busy={isPendingCreate}
                     selectChecked={
-                      readOnly
+                      readOnly || isPendingCreate
                         ? null
                         : selectedEventIds.has(String(ev.id))
                     }
                     onSelectChange={
-                      readOnly
+                      readOnly || isPendingCreate
                         ? null
                         : () => toggleSelectEvent(ev.id)
                     }
-                    onActivate={readOnly ? null : openEdit}
-                    onEdit={readOnly ? null : openEdit}
+                    onActivate={
+                      readOnly || isPendingCreate ? null : openEdit
+                    }
+                    onEdit={readOnly || isPendingCreate ? null : openEdit}
                     menuItems={menuItems}
                     ofrnNode={
                       ev.es_ofrn ? (
@@ -2341,6 +2449,7 @@ export default function FimbaAgendaPage() {
                       });
                   const vuelo = ev.vuelo || "—";
                   const rowEditing = isRowEditing(ev.id);
+                  const isPendingCreate = isFimbaPendingCreateEvent(ev);
                   const evKey = String(ev.id);
                   const evDraft = eventDrafts[evKey] || draftFromEvent(ev);
                   const evStatus = eventRowStatus[evKey] || "idle";
@@ -2375,9 +2484,9 @@ export default function FimbaAgendaPage() {
                         </tr>
                       )}
                     <tr
-                      className={`${rowClass}${tipoTint && !rowEditing ? " fimba-has-tipo-tint" : ""}${rowEditing ? " fimba-agenda-row--editing" : ""}`.trim()}
+                      className={`${rowClass}${tipoTint && !rowEditing ? " fimba-has-tipo-tint" : ""}${rowEditing ? " fimba-agenda-row--editing" : ""}${isPendingCreate ? " fimba-row-pending-create" : ""}`.trim()}
                       onDoubleClick={
-                        readOnly
+                        readOnly || isPendingCreate
                           ? undefined
                           : (e) => {
                               if (
@@ -2391,13 +2500,15 @@ export default function FimbaAgendaPage() {
                             }
                       }
                       title={
-                        readOnly
+                        isPendingCreate
+                          ? "Guardando…"
+                          : readOnly
                           ? undefined
                           : rowEditing
                             ? "Editando fila · tilde confirma · Esc / X cancela"
                             : "Doble clic en la fila para editar · lápiz = formulario completo"
                       }
-                      style={rowEditing ? undefined : tipoTint}
+                      style={rowEditing || isPendingCreate ? undefined : tipoTint}
                     >
                       {!readOnly && (
                         <td
@@ -2574,6 +2685,26 @@ export default function FimbaAgendaPage() {
                           </div>
                         ) : (
                           <>
+                            {isPendingCreate ? (
+                              <span
+                                className="fimba-pending-create-label"
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  marginBottom: 2,
+                                  fontSize: "0.72rem",
+                                  fontWeight: 600,
+                                  color: "#64748b",
+                                }}
+                              >
+                                <IconLoader
+                                  size={12}
+                                  className="animate-spin"
+                                />{" "}
+                                Guardando…
+                              </span>
+                            ) : null}
                             <FimbaEventDetallePreview html={ev.actividad} clamp />
                         {ev.observaciones ? (
                           <span className="fimba-muted" style={{ display: "block", fontSize: "0.75rem", fontWeight: 400 }}>
@@ -2901,6 +3032,9 @@ export default function FimbaAgendaPage() {
             onRefreshLocations={refreshLocacionCatalog}
             initialSeed={programarSeed}
             onClose={() => setProgramarSeed(null)}
+            onOptimisticStart={handleProgramarOptimisticStart}
+            onOptimisticSuccess={handleProgramarOptimisticSuccess}
+            onOptimisticFail={handleProgramarOptimisticFail}
             onSaved={async ({ partial } = {}) => {
               if (!partial) setProgramarSeed(null);
               await reloadAgendaSlices({

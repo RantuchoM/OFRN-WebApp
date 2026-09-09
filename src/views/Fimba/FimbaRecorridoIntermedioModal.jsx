@@ -18,6 +18,10 @@ import {
   eventLocacionId,
   normalizeBoardingPassenger,
 } from "../../utils/fimbaDestinoStopCreate";
+import {
+  buildPendingTransportStopRow,
+  newFimbaPendingClientToken,
+} from "../../utils/fimbaProgramarTransporte";
 import { formatEventLocation } from "../../utils/fimbaTransportBoarding";
 import FimbaEventArtistasTagsPicker from "./FimbaEventArtistasTagsPicker";
 
@@ -206,6 +210,9 @@ export default function FimbaRecorridoIntermedioModal({
   onRefreshLocations,
   onClose,
   onSaved,
+  onOptimisticStart,
+  onOptimisticSuccess,
+  onOptimisticFail,
 }) {
   const variant =
     context?.variant === "aroundEvent" ? "aroundEvent" : "pause";
@@ -387,8 +394,64 @@ export default function FimbaRecorridoIntermedioModal({
     return `${d}/${m}/${y}`;
   };
 
-  const submit = async (e) => {
+  const locName = (id) => {
+    if (id == null || id === "") return null;
+    const hit = (locationOptions || []).find(
+      (l) => String(l.id) === String(id),
+    );
+    return hit?.nombre || hit?.label || null;
+  };
+
+  const pendingPassengerRows = () => {
+    const propIds = (idPropuestasTags || [])
+      .map(Number)
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const grupoIds =
+      audienciaOfrn === "grupos"
+        ? (idGruposTags || [])
+            .map(Number)
+            .filter((n) => Number.isFinite(n) && n > 0)
+        : [];
+    return {
+      propuestas: (propuestas || []).filter((p) =>
+        propIds.includes(Number(p.id)),
+      ),
+      grupos: (giraGrupos || []).filter((g) =>
+        grupoIds.includes(Number(g.id)),
+      ),
+      audiencia_ofrn: audienciaOfrn,
+    };
+  };
+
+  const runOptimisticCreate = (pendingRows, createPromise) => {
+    const clientToken = pendingRows[0]?._pendingClientToken;
+    onOptimisticStart?.({
+      pendingRows,
+      clientToken,
+      context,
+    });
+    void createPromise.then(({ eventos, error: err }) => {
+      if (err) {
+        onOptimisticFail?.({
+          clientToken,
+          error: err,
+          eventos: eventos || [],
+          context,
+          partial: Boolean(eventos?.length),
+        });
+        return;
+      }
+      onOptimisticSuccess?.({
+        clientToken,
+        eventos: eventos || [],
+        context,
+      });
+    });
+  };
+
+  const submit = (e) => {
     e.preventDefault();
+    if (saving) return;
     setError(null);
 
     if (isAround && aroundBlockedReason) {
@@ -471,54 +534,97 @@ export default function FimbaRecorridoIntermedioModal({
       }
 
       setSaving(true);
-      try {
-        const { eventos, error: err } = await createMovimientosIntermediosAroundEvent({
-          anchorEv,
-          prevEv,
-          nextEv,
-          vehicleId: Number(vehicleId),
-          idGira: edicion.id_gira,
-          vehiculos,
-          idPropuestasTags,
-          idGruposTags: audienciaOfrn === "grupos" ? idGruposTags : [],
-          audienciaOfrn,
-          detalleSalida,
-          detalleRetorno,
-          fechaSalida,
-          fechaRetorno,
-          horaSalida,
-          horaRetorno,
-          idLocacionSalida: idLocSalida,
-          idLocacionRetorno: idLocRetorno,
-          boardingSalida: {
-            subida: boardFromUi(subidaSalida),
-            bajada: boardFromUi(bajadaSalida),
-          },
-          boardingAnchor: {
-            subida: boardFromUi(subidaWaypoint),
-            bajada: boardFromUi(bajadaWaypoint),
-          },
-          boardingRetorno: {
-            subida: boardFromUi(subidaRetorno),
-            bajada: boardFromUi(bajadaRetorno),
-          },
-          giraGrupos,
-        });
-        if (err) {
-          const partialCount = eventos?.length || 0;
-          setError(
-            partialCount === 1
-              ? err.message ||
-                  "Solo se creó 1 de 2 paradas (ida). La vuelta falló; el modal sigue abierto para reintentar."
-              : err.message || "No se pudieron crear los movimientos",
-          );
-          if (partialCount) onSaved?.(eventos, { partial: true });
-          return;
-        }
-        onSaved?.(eventos);
-      } finally {
-        setSaving(false);
+      const createArgs = {
+        anchorEv,
+        prevEv,
+        nextEv,
+        vehicleId: Number(vehicleId),
+        idGira: edicion.id_gira,
+        vehiculos,
+        idPropuestasTags,
+        idGruposTags: audienciaOfrn === "grupos" ? idGruposTags : [],
+        audienciaOfrn,
+        detalleSalida,
+        detalleRetorno,
+        fechaSalida,
+        fechaRetorno,
+        horaSalida,
+        horaRetorno,
+        idLocacionSalida: idLocSalida,
+        idLocacionRetorno: idLocRetorno,
+        boardingSalida: {
+          subida: boardFromUi(subidaSalida),
+          bajada: boardFromUi(bajadaSalida),
+        },
+        boardingAnchor: {
+          subida: boardFromUi(subidaWaypoint),
+          bajada: boardFromUi(bajadaWaypoint),
+        },
+        boardingRetorno: {
+          subida: boardFromUi(subidaRetorno),
+          bajada: boardFromUi(bajadaRetorno),
+        },
+        giraGrupos,
+      };
+
+      if (typeof onOptimisticStart === "function") {
+        const clientToken = newFimbaPendingClientToken("mov");
+        const pax = pendingPassengerRows();
+        const pendingRows = [
+          buildPendingTransportStopRow({
+            clientToken,
+            slot: "salida",
+            id_gira: edicion.id_gira,
+            vehicleId,
+            vehiculos,
+            fecha: fechaSalida,
+            hora_inicio: horaSalida,
+            actividad: String(detalleSalida || "").trim() || "Salida",
+            id_locacion: idLocSalida,
+            locacion_nombre: locName(idLocSalida),
+            ...pax,
+          }),
+          buildPendingTransportStopRow({
+            clientToken,
+            slot: "retorno",
+            id_gira: edicion.id_gira,
+            vehicleId,
+            vehiculos,
+            fecha: fechaRetorno,
+            hora_inicio: horaRetorno,
+            actividad: String(detalleRetorno || "").trim() || "Retorno",
+            id_locacion: idLocRetorno,
+            locacion_nombre: locName(idLocRetorno),
+            ...pax,
+          }),
+        ];
+        runOptimisticCreate(
+          pendingRows,
+          createMovimientosIntermediosAroundEvent(createArgs),
+        );
+        return;
       }
+
+      void (async () => {
+        try {
+          const { eventos, error: err } =
+            await createMovimientosIntermediosAroundEvent(createArgs);
+          if (err) {
+            const partialCount = eventos?.length || 0;
+            setError(
+              partialCount === 1
+                ? err.message ||
+                    "Solo se creó 1 de 2 paradas (ida). La vuelta falló; el modal sigue abierto para reintentar."
+                : err.message || "No se pudieron crear los movimientos",
+            );
+            if (partialCount) onSaved?.(eventos, { partial: true });
+            return;
+          }
+          onSaved?.(eventos);
+        } finally {
+          setSaving(false);
+        }
+      })();
       return;
     }
 
@@ -571,50 +677,106 @@ export default function FimbaRecorridoIntermedioModal({
     }
 
     setSaving(true);
-    try {
-      const { eventos, error: err } = await createRecorridoIntermedioStops({
-        prevEv,
-        nextEv,
-        vehicleId: Number(vehicleId),
-        idGira: edicion.id_gira,
-        vehiculos,
-        idPropuestasTags,
-        idGruposTags: audienciaOfrn === "grupos" ? idGruposTags : [],
-        audienciaOfrn,
-        detalleSalida,
-        detalleWaypoint,
-        detalleRetorno,
-        fechaSalida,
-        fechaWaypoint,
-        fechaRetorno,
-        horaSalida,
-        horaWaypoint,
-        horaRetorno,
-        idLocacionActual: idLocActual,
-        idLocacionWaypoint: idLocWaypoint,
-        boardingSalida: {
-          subida: boardFromUi(subidaSalida),
-          bajada: boardFromUi(bajadaSalida),
-        },
-        boardingWaypoint: {
-          subida: boardFromUi(subidaWaypoint),
-          bajada: boardFromUi(bajadaWaypoint),
-        },
-        boardingRetorno: {
-          subida: boardFromUi(subidaRetorno),
-          bajada: boardFromUi(bajadaRetorno),
-        },
-        giraGrupos,
-      });
-      if (err) {
-        setError(err.message || "No se pudo crear el recorrido intermedio");
-        if (eventos?.length) onSaved?.(eventos, { partial: true });
-        return;
-      }
-      onSaved?.(eventos);
-    } finally {
-      setSaving(false);
+    const createArgs = {
+      prevEv,
+      nextEv,
+      vehicleId: Number(vehicleId),
+      idGira: edicion.id_gira,
+      vehiculos,
+      idPropuestasTags,
+      idGruposTags: audienciaOfrn === "grupos" ? idGruposTags : [],
+      audienciaOfrn,
+      detalleSalida,
+      detalleWaypoint,
+      detalleRetorno,
+      fechaSalida,
+      fechaWaypoint,
+      fechaRetorno,
+      horaSalida,
+      horaWaypoint,
+      horaRetorno,
+      idLocacionActual: idLocActual,
+      idLocacionWaypoint: idLocWaypoint,
+      boardingSalida: {
+        subida: boardFromUi(subidaSalida),
+        bajada: boardFromUi(bajadaSalida),
+      },
+      boardingWaypoint: {
+        subida: boardFromUi(subidaWaypoint),
+        bajada: boardFromUi(bajadaWaypoint),
+      },
+      boardingRetorno: {
+        subida: boardFromUi(subidaRetorno),
+        bajada: boardFromUi(bajadaRetorno),
+      },
+      giraGrupos,
+    };
+
+    if (typeof onOptimisticStart === "function") {
+      const clientToken = newFimbaPendingClientToken("rec");
+      const pax = pendingPassengerRows();
+      const pendingRows = [
+        buildPendingTransportStopRow({
+          clientToken,
+          slot: "salida",
+          id_gira: edicion.id_gira,
+          vehicleId,
+          vehiculos,
+          fecha: fechaSalida,
+          hora_inicio: horaSalida,
+          actividad: String(detalleSalida || "").trim() || "Salida",
+          id_locacion: idLocActual,
+          locacion_nombre: locActualLabel !== "(Sin locación)" ? locActualLabel : locName(idLocActual),
+          ...pax,
+        }),
+        buildPendingTransportStopRow({
+          clientToken,
+          slot: "waypoint",
+          id_gira: edicion.id_gira,
+          vehicleId,
+          vehiculos,
+          fecha: fechaWaypoint,
+          hora_inicio: horaWaypoint,
+          actividad: String(detalleWaypoint || "").trim() || "Llegada",
+          id_locacion: idLocWaypoint,
+          locacion_nombre: locName(idLocWaypoint),
+          ...pax,
+        }),
+        buildPendingTransportStopRow({
+          clientToken,
+          slot: "retorno",
+          id_gira: edicion.id_gira,
+          vehicleId,
+          vehiculos,
+          fecha: fechaRetorno,
+          hora_inicio: horaRetorno,
+          actividad: String(detalleRetorno || "").trim() || "Retorno",
+          id_locacion: idLocActual,
+          locacion_nombre: locActualLabel !== "(Sin locación)" ? locActualLabel : locName(idLocActual),
+          ...pax,
+        }),
+      ];
+      runOptimisticCreate(
+        pendingRows,
+        createRecorridoIntermedioStops(createArgs),
+      );
+      return;
     }
+
+    void (async () => {
+      try {
+        const { eventos, error: err } =
+          await createRecorridoIntermedioStops(createArgs);
+        if (err) {
+          setError(err.message || "No se pudo crear el recorrido intermedio");
+          if (eventos?.length) onSaved?.(eventos, { partial: true });
+          return;
+        }
+        onSaved?.(eventos);
+      } finally {
+        setSaving(false);
+      }
+    })();
   };
 
   const locLocked = (

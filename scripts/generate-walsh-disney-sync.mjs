@@ -7,6 +7,7 @@ import { calculateInstrumentation } from "./lib/calculateInstrumentation.mjs";
 import { appendSeedPartsFromFile } from "./lib/drivePartMatcher.mjs";
 import { canonicalPartFilename } from "./lib/pdfPartsRenaming.mjs";
 import {
+  DISNEY_FAVORITES_WORK,
   GIRA_170,
   PARA_ACOMODAR_FOLDER_ID,
   PARA_ACOMODAR_ROOT,
@@ -153,6 +154,46 @@ function mergeDriveLinks(localFiles, driveFiles, work) {
   });
 }
 
+function writeDisneyReplaceSql(data) {
+  const work = data?.work || DISNEY_FAVORITES_WORK;
+  const arr = work.arranger;
+  const arrAp = sqlEscape(arr.apellido);
+  const arrNom = arr.nombre ? `'${sqlEscape(arr.nombre)}'` : "NULL";
+  const sql = `-- Disney Favorites (obra ${work.obraId}): reemplazo MuseScore Wood arr. Adrian Wagner
+-- PDFs sobrescritos in-place en Drive (mismos file ids). No tocar particellas (seating).
+-- Generado: ${new Date().toISOString().slice(0, 10)}
+
+DO $$
+DECLARE
+  _id_arr bigint;
+BEGIN
+  SELECT id INTO _id_arr FROM compositores
+  WHERE apellido = '${arrAp}' AND (nombre = ${arrNom} OR (nombre IS NULL AND ${arrNom} IS NULL))
+  LIMIT 1;
+  IF _id_arr IS NULL THEN
+    INSERT INTO compositores (apellido, nombre)
+    VALUES ('${arrAp}', ${arrNom})
+    RETURNING id INTO _id_arr;
+  END IF;
+
+  UPDATE obras SET
+    id_arreglador = _id_arr,
+    observaciones = '${sqlEscape(work.observaciones)}',
+    link_drive = '${sqlEscape(data?.link_drive || driveFolderUrl(work.driveFolderId))}'
+  WHERE id = ${work.obraId};
+
+  INSERT INTO obras_compositores (id_obra, id_compositor, rol)
+  SELECT ${work.obraId}, _id_arr, 'arreglador'
+  WHERE NOT EXISTS (
+    SELECT 1 FROM obras_compositores
+    WHERE id_obra = ${work.obraId} AND id_compositor = _id_arr AND rol = 'arreglador'
+  );
+END $$;
+`;
+  writeFileSync("supabase/seed_disney_favorites_replace.sql", sql, "utf8");
+  console.log("Replace: supabase/seed_disney_favorites_replace.sql");
+}
+
 function buildGiraSql(titles) {
   const titlesSql = titles
     .map((t) => `    '${sqlEscape(t)}'`)
@@ -263,6 +304,7 @@ async function main() {
     );
 
     workData.push({
+      work,
       titulo: work.titulo,
       compositors: [work.compositor],
       arranger: work.arranger,
@@ -275,15 +317,21 @@ async function main() {
     });
   }
 
+  const insertData = workData.filter(
+    (w) => !(w.work?.action === "update" && w.work?.obraId),
+  );
   const insertSql = buildSeedSql({
     outComment:
       "-- Walsh Manuelita + Disney Favorites (Para acomodar) → gira 170",
-    workData,
+    workData: insertData,
     resolveArrangerVar: (w) =>
       w.arranger ? `_id_arr_${personVarSafe(personKey(w.arranger))}` : "NULL",
   });
 
-  writeSeed("supabase/seed_walsh_disney_sync.sql", insertSql, workData);
+  writeSeed("supabase/seed_walsh_disney_sync.sql", insertSql, insertData);
+  writeDisneyReplaceSql(
+    workData.find((w) => w.work?.key === DISNEY_FAVORITES_WORK.key),
+  );
   const giraSql = buildGiraSql(workData.map((w) => w.titulo));
   writeFileSync("supabase/seed_gira_170_walsh_disney.sql", giraSql, "utf8");
   console.log("\nSeed: supabase/seed_walsh_disney_sync.sql");
