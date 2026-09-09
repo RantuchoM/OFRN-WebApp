@@ -5470,12 +5470,23 @@ export default function FimbaTransportPage() {
             locationOptions={locationOptions}
             onRefreshLocations={refreshLocations}
             onClose={() => setShowProgramar(false)}
-            onSaved={async ({ desde, hasta }) => {
-              setShowProgramar(false);
+            onSaved={async ({
+              desde,
+              hasta,
+              anterior,
+              siguiente,
+              eventos,
+              partial,
+            }) => {
+              if (!partial) setShowProgramar(false);
               await softRefresh({ eventos: true, rutas: true, logistics: true });
-              const ids = [desde?.id, hasta?.id].filter((id) => id != null);
+              const ids = (
+                Array.isArray(eventos) && eventos.length
+                  ? eventos.map((e) => e?.id)
+                  : [anterior?.id, desde?.id, hasta?.id, siguiente?.id]
+              ).filter((id) => id != null);
               setHighlightEventIds(ids);
-              if (desde?.id) {
+              if (desde?.id && !partial) {
                 const row =
                   (eventosRef.current || []).find(
                     (x) => String(x.id) === String(desde.id),

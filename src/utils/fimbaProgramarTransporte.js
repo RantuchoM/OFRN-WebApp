@@ -1,6 +1,7 @@
 /**
- * «Programar transporte»: ranking de vehículos + creación de par de paradas
- * (desde / hasta) con boarding FIMBA o regla OFRN de grupo.
+ * «Programar transporte»: ranking de vehículos + creación de 2–4 paradas
+ * (viaje principal + piernas opcionales anterior/siguiente) con boarding
+ * solo en desde/hasta.
  */
 
 import {
@@ -12,10 +13,88 @@ import {
   listFimbaGiraGrupos,
 } from "../services/fimbaService";
 import { eventTypeIdForCategoria } from "./giraTransportUtils";
+import { offsetEventDateTime } from "./fimbaDestinoStopCreate";
+import { compareFimbaAgendaRows } from "./fimbaAgendaSort";
 import {
   formatEventLocation,
+  isTransportTipoEvent,
   isVehiclePauseBetweenStops,
 } from "./fimbaTransportBoarding";
+
+/** `id_locacion` estable como string (vacío si falta). */
+function eventLocacionIdStr(ev) {
+  const raw = ev?.id_locacion ?? ev?.locaciones?.id ?? null;
+  return raw != null && raw !== "" ? String(raw) : "";
+}
+
+/** ¿La fila tiene tag de la propuesta/artista? */
+function eventHasPropuestaTag(ev, propuestaId) {
+  const want = Number(propuestaId);
+  if (!Number.isFinite(want) || want <= 0) return false;
+  return (ev?.propuestas || []).some(
+    (p) => Number(p?.id ?? p) === want,
+  );
+}
+
+/**
+ * Fin operativo del evento: `hora_fin` si hay HH:MM, si no `hora_inicio`.
+ * @param {object|null|undefined} ev
+ * @returns {{ fecha: string, hora: string }}
+ */
+function eventEndDateTime(ev) {
+  const fecha = String(ev?.fecha || "").slice(0, 10);
+  const start = String(ev?.hora_inicio || "").slice(0, 5);
+  const fin = String(ev?.hora_fin || "").slice(0, 5);
+  const hora = /^\d{2}:\d{2}/.test(fin) ? fin : start;
+  return {
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : "",
+    hora: /^\d{2}:\d{2}/.test(hora) ? hora : "",
+  };
+}
+
+/**
+ * Evento previo del mismo artista (cronológico) con locación usable como
+ * origen: el más cercano anterior con `id_locacion` distinta a la del destino
+ * cuando es posible. Omite filas tipo transporte (ya son paradas de viaje).
+ *
+ * @param {object|null|undefined} evento — destino (llegada)
+ * @param {Array<object>|null|undefined} agendaEvents
+ * @param {number|string|null|undefined} propuestaId
+ * @param {{ skipTransport?: boolean }} [opts]
+ * @returns {object|null}
+ */
+export function findPreviousArtistAgendaEvent(
+  evento,
+  agendaEvents,
+  propuestaId,
+  opts = {},
+) {
+  if (!evento || propuestaId == null || propuestaId === "") return null;
+  const skipTransport = opts.skipTransport !== false;
+  const destLoc = eventLocacionIdStr(evento);
+
+  const candidates = (agendaEvents || [])
+    .filter((ev) => {
+      if (!ev || ev.id == null) return false;
+      if (String(ev.id) === String(evento.id)) return false;
+      if (skipTransport && isTransportTipoEvent(ev)) return false;
+      if (!eventHasPropuestaTag(ev, propuestaId)) return false;
+      return compareFimbaAgendaRows(ev, evento) < 0;
+    })
+    .sort(compareFimbaAgendaRows);
+
+  if (!candidates.length) return null;
+
+  // Más cercano hacia atrás con locación distinta al destino (si hay dest).
+  for (let i = candidates.length - 1; i >= 0; i -= 1) {
+    const prev = candidates[i];
+    const loc = eventLocacionIdStr(prev);
+    if (!loc) continue;
+    if (destLoc && loc === destLoc) continue;
+    return prev;
+  }
+  return null;
+}
 
 function tripDateTimeMs(fecha, hora) {
   const f = String(fecha || "").slice(0, 10);
@@ -287,7 +366,250 @@ export function rankVehiclesForProgrammedTrip(opts = {}) {
 }
 
 /**
- * Crea paradas desde + hasta y aplica boarding.
+ * Defaults editables para piernas opcionales al confirmar vehículo:
+ * anterior = salida − 30′; siguiente = llegada + 30′.
+ * Locación sugerida desde anclas del itinerario (origen / siguiente).
+ *
+ * @param {{
+ *   fechaSalida: string,
+ *   horaSalida: string,
+ *   fechaLlegada: string,
+ *   horaLlegada: string,
+ *   idLocSalida?: unknown,
+ *   origen?: object|null,
+ *   siguiente?: object|null,
+ * }} opts
+ */
+/** Locación de hotel / check-in del artista (salida sugerida). */
+export function resolvePropuestaOriginLocacionId(propuesta) {
+  if (!propuesta) return "";
+  const hotel =
+    propuesta.hoteles ?? propuesta.hotel ?? null;
+  const fromHotel = hotel?.id_locacion ?? null;
+  if (fromHotel != null && fromHotel !== "") return String(fromHotel);
+  const checkin = propuesta.evento_checkin ?? propuesta.eventos_checkin ?? null;
+  const fromCheckin =
+    checkin?.id_locacion ?? checkin?.locaciones?.id ?? null;
+  if (fromCheckin != null && fromCheckin !== "") return String(fromCheckin);
+  return "";
+}
+
+/**
+ * Prefill del wizard desde un evento de Agenda.
+ *
+ * Regla de origen (consecutivo artista):
+ * 1. Evento previo del mismo artista con locación distinta → origen;
+ *    **Salida** = fin del previo + 1′ (`hora_fin` si hay, si no `hora_inicio`);
+ *    **Llegada** = `hora_inicio` del actual − 1′.
+ * 2. Si no hay previo / misma locación → hotel/`evento_checkin` del artista
+ *    (si ≠ llegada); tiempos = llegada − lead − duración tramo.
+ *
+ * Destino = locación del evento actual. Artista = filtro único / ruta / tag único.
+ * No crea paradas — solo seeds el form.
+ *
+ * @param {object|null|undefined} evento
+ * @param {{
+ *   selectedPropuestaIds?: Array<number|string>,
+ *   propuestas?: Array<object>,
+ *   routeArtistaId?: number|string|null,
+ *   agendaEvents?: Array<object>,
+ *   leadMinutes?: number,
+ *   tripDurationMinutes?: number,
+ * }} [opts]
+ * @returns {{
+ *   fechaSalida: string,
+ *   horaSalida: string,
+ *   idLocSalida: string,
+ *   fechaLlegada: string,
+ *   horaLlegada: string,
+ *   idLocLlegada: string,
+ *   passengerKey: string,
+ *   anchorEventId: number|string|null,
+ * }}
+ */
+export function buildProgrammedTripSeedFromAgendaEvent(evento, opts = {}) {
+  const leadMinutes = Math.max(0, Number(opts.leadMinutes) || 30);
+  const tripDurationMinutes = Math.max(
+    5,
+    Number(opts.tripDurationMinutes) || 30,
+  );
+  const propuestas = opts.propuestas || [];
+  const agendaEvents = opts.agendaEvents || [];
+  const filterIds = [
+    ...new Set(
+      (opts.selectedPropuestaIds || [])
+        .map((id) => Number(id))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  ];
+  const routeId =
+    opts.routeArtistaId != null && opts.routeArtistaId !== ""
+      ? Number(opts.routeArtistaId)
+      : null;
+  const eventTagIds = [
+    ...new Set(
+      (evento?.propuestas || [])
+        .map((p) => Number(p?.id ?? p))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  ];
+
+  let propuestaId = null;
+  if (filterIds.length === 1) propuestaId = filterIds[0];
+  else if (Number.isFinite(routeId) && routeId > 0) propuestaId = routeId;
+  else if (eventTagIds.length === 1) propuestaId = eventTagIds[0];
+
+  const propuesta =
+    propuestaId != null
+      ? propuestas.find((p) => Number(p.id) === Number(propuestaId)) || null
+      : null;
+
+  const eventFecha = String(evento?.fecha || "").slice(0, 10);
+  const eventHora = String(evento?.hora_inicio || "").slice(0, 5);
+  const idLocLlegada = eventLocacionIdStr(evento);
+
+  const prevArtistEv = findPreviousArtistAgendaEvent(
+    evento,
+    agendaEvents,
+    propuestaId,
+  );
+  const prevLoc = prevArtistEv ? eventLocacionIdStr(prevArtistEv) : "";
+
+  let idLocSalida = "";
+  if (prevLoc && prevLoc !== idLocLlegada) {
+    idLocSalida = prevLoc;
+  } else {
+    const hotelLoc = resolvePropuestaOriginLocacionId(propuesta);
+    // Evitar salida = llegada (mismo hotel que el venue) — pedir origen a mano.
+    idLocSalida =
+      hotelLoc && hotelLoc !== idLocLlegada ? hotelLoc : "";
+  }
+
+  let fechaLlegada = "";
+  let horaLlegada = "";
+  let fechaSalida = "";
+  let horaSalida = "";
+
+  const hasEventStart =
+    /^\d{4}-\d{2}-\d{2}$/.test(eventFecha) && /^\d{2}:\d{2}/.test(eventHora);
+
+  if (prevArtistEv && idLocSalida && idLocSalida === prevLoc) {
+    // Consecutivo artista: Salida = fin previo + 1′; Llegada = inicio actual − 1′.
+    const prevEnd = eventEndDateTime(prevArtistEv);
+    if (prevEnd.fecha && prevEnd.hora) {
+      const salida = offsetEventDateTime(prevEnd.fecha, prevEnd.hora, 1);
+      fechaSalida = salida.fecha || prevEnd.fecha;
+      horaSalida = salida.hora_inicio || prevEnd.hora;
+    }
+    if (hasEventStart) {
+      const llegada = offsetEventDateTime(eventFecha, eventHora, -1);
+      fechaLlegada = llegada.fecha || eventFecha;
+      horaLlegada = llegada.hora_inicio || eventHora;
+    }
+    const salidaMs = tripDateTimeMs(fechaSalida, horaSalida);
+    const llegadaMs = tripDateTimeMs(fechaLlegada, horaLlegada);
+    if (
+      salidaMs != null &&
+      llegadaMs != null &&
+      salidaMs >= llegadaMs &&
+      hasEventStart
+    ) {
+      // Hueco < 2′: caer a lead + duración fija antes del inicio.
+      fechaSalida = "";
+      horaSalida = "";
+      fechaLlegada = "";
+      horaLlegada = "";
+    }
+  }
+
+  if (!fechaLlegada || !horaLlegada) {
+    // Sin previo (o solape): llegada = lead antes del inicio del destino.
+    const llegada = offsetEventDateTime(eventFecha, eventHora, -leadMinutes);
+    fechaLlegada =
+      llegada.fecha ||
+      (/^\d{4}-\d{2}-\d{2}$/.test(eventFecha) ? eventFecha : "");
+    horaLlegada =
+      llegada.hora_inicio ||
+      (/^\d{2}:\d{2}/.test(eventHora) ? eventHora : "");
+  }
+
+  if (!fechaSalida || !horaSalida) {
+    const salida = offsetEventDateTime(
+      fechaLlegada,
+      horaLlegada,
+      -tripDurationMinutes,
+    );
+    fechaSalida = salida.fecha || fechaLlegada || "";
+    horaSalida = salida.hora_inicio || "";
+  }
+
+  return {
+    fechaSalida,
+    horaSalida,
+    idLocSalida,
+    fechaLlegada,
+    horaLlegada,
+    idLocLlegada,
+    passengerKey: propuestaId != null ? `p:${propuestaId}` : "",
+    anchorEventId: evento?.id ?? null,
+  };
+}
+
+export function buildProgrammedTripOptionalLegDefaults(opts = {}) {
+  const {
+    fechaSalida,
+    horaSalida,
+    fechaLlegada,
+    horaLlegada,
+    idLocSalida = null,
+    origen = null,
+    siguiente = null,
+  } = opts;
+
+  const before = offsetEventDateTime(fechaSalida, horaSalida, -30);
+  const after = offsetEventDateTime(fechaLlegada, horaLlegada, 30);
+
+  const locFromEv = (ev) => {
+    const raw = ev?.id_locacion ?? ev?.locaciones?.id ?? null;
+    return raw != null && raw !== "" ? String(raw) : "";
+  };
+
+  return {
+    anterior: {
+      idLocacion: locFromEv(origen) || "",
+      fecha: before.fecha || String(fechaSalida || "").slice(0, 10) || "",
+      hora: before.hora_inicio || "",
+    },
+    siguiente: {
+      idLocacion:
+        locFromEv(siguiente) ||
+        (idLocSalida != null && idLocSalida !== ""
+          ? String(idLocSalida)
+          : ""),
+      fecha: after.fecha || String(fechaLlegada || "").slice(0, 10) || "",
+      hora: after.hora_inicio || "",
+    },
+  };
+}
+
+function normalizeOptionalLeg(leg) {
+  if (!leg || !leg.enabled) return null;
+  const idLocacion = leg.idLocacion ?? leg.id_locacion ?? null;
+  const fecha = String(leg.fecha || "").slice(0, 10);
+  const hora = String(leg.hora || leg.hora_inicio || "").trim().slice(0, 5);
+  if (!idLocacion || !fecha || !hora) return null;
+  return { idLocacion, fecha, hora };
+}
+
+/**
+ * Crea 2–4 paradas (viaje principal + piernas opcionales) y aplica boarding
+ * solo en el tramo principal (↑ desde / ↓ hasta).
+ *
+ * Orden temporal:
+ * 1. Movimiento anterior (opcional) — reposiciona el vehículo hacia la salida
+ * 2. Salida (desde) — subida del pasajero
+ * 3. Llegada (hasta) — bajada del pasajero
+ * 4. Movimiento siguiente (opcional) — destino posterior / retorno
  *
  * - Artista FIMBA: `fimba_propuesta_rutas` ↑ en desde, ↓ en hasta (cantidad).
  * - Grupo OFRN: tag `audiencia_ofrn=grupos` + `eventos_grupos` en ambas;
@@ -311,9 +633,36 @@ export function rankVehiclesForProgrammedTrip(opts = {}) {
  *     label?: string,
  *   },
  *   giraGrupos?: Array<object>,
+ *   movimientoAnterior?: {
+ *     enabled?: boolean,
+ *     idLocacion?: unknown,
+ *     fecha?: string,
+ *     hora?: string,
+ *   }|null,
+ *   movimientoSiguiente?: {
+ *     enabled?: boolean,
+ *     idLocacion?: unknown,
+ *     fecha?: string,
+ *     hora?: string,
+ *   }|null,
  * }} params
+ * @returns {Promise<{
+ *   anterior: object|null,
+ *   desde: object|null,
+ *   hasta: object|null,
+ *   siguiente: object|null,
+ *   eventos: Array<object>,
+ *   error: Error|null,
+ * }>}
  */
 export async function createProgrammedTransportJourney(params) {
+  const empty = {
+    anterior: null,
+    desde: null,
+    hasta: null,
+    siguiente: null,
+    eventos: [],
+  };
   const {
     idGira,
     vehicleId,
@@ -326,22 +675,19 @@ export async function createProgrammedTransportJourney(params) {
     idLocLlegada,
     passenger,
     giraGrupos: giraGruposParam,
+    movimientoAnterior: movimientoAnteriorParam = null,
+    movimientoSiguiente: movimientoSiguienteParam = null,
   } = params;
 
   if (!idGira) {
-    return { desde: null, hasta: null, error: new Error("Edición sin gira") };
+    return { ...empty, error: new Error("Edición sin gira") };
   }
   if (vehicleId == null || vehicleId === "") {
-    return {
-      desde: null,
-      hasta: null,
-      error: new Error("Elegí un vehículo"),
-    };
+    return { ...empty, error: new Error("Elegí un vehículo") };
   }
   if (!idLocSalida || !idLocLlegada) {
     return {
-      desde: null,
-      hasta: null,
+      ...empty,
       error: new Error("Indicá locación de salida y de llegada"),
     };
   }
@@ -351,8 +697,7 @@ export async function createProgrammedTransportJourney(params) {
   const hLleg = String(horaLlegada || "").trim().slice(0, 5);
   if (!fSal || !hSal || !fLleg || !hLleg) {
     return {
-      desde: null,
-      hasta: null,
+      ...empty,
       error: new Error("Indicá fecha y hora de salida y de llegada"),
     };
   }
@@ -360,10 +705,35 @@ export async function createProgrammedTransportJourney(params) {
   const llegadaMs = tripDateTimeMs(fLleg, hLleg);
   if (salidaMs == null || llegadaMs == null || llegadaMs <= salidaMs) {
     return {
-      desde: null,
-      hasta: null,
+      ...empty,
       error: new Error("La llegada debe ser posterior a la salida"),
     };
+  }
+
+  const anteriorLeg = normalizeOptionalLeg(movimientoAnteriorParam);
+  const siguienteLeg = normalizeOptionalLeg(movimientoSiguienteParam);
+
+  if (anteriorLeg) {
+    const antMs = tripDateTimeMs(anteriorLeg.fecha, anteriorLeg.hora);
+    if (antMs == null || !(antMs < salidaMs)) {
+      return {
+        ...empty,
+        error: new Error(
+          "El movimiento anterior debe ser anterior a la salida",
+        ),
+      };
+    }
+  }
+  if (siguienteLeg) {
+    const sigMs = tripDateTimeMs(siguienteLeg.fecha, siguienteLeg.hora);
+    if (sigMs == null || !(sigMs > llegadaMs)) {
+      return {
+        ...empty,
+        error: new Error(
+          "El movimiento siguiente debe ser posterior a la llegada",
+        ),
+      };
+    }
   }
 
   const kind = passenger?.kind === "grupo" ? "grupo" : "propuesta";
@@ -371,8 +741,7 @@ export async function createProgrammedTransportJourney(params) {
   const cantidad = Math.max(1, Number(passenger?.cantidad) || 1);
   if (!Number.isFinite(paxId)) {
     return {
-      desde: null,
-      hasta: null,
+      ...empty,
       error: new Error("Elegí un artista FIMBA o un grupo OFRN"),
     };
   }
@@ -387,6 +756,12 @@ export async function createProgrammedTransportJourney(params) {
   const actHasta = paxLabel
     ? `Llegada · ${paxLabel}`
     : "Llegada programada";
+  const actAnterior = paxLabel
+    ? `Mov. anterior · ${paxLabel}`
+    : "Movimiento anterior";
+  const actSiguiente = paxLabel
+    ? `Mov. siguiente · ${paxLabel}`
+    : "Movimiento siguiente";
 
   const commonVeh = [
     {
@@ -408,52 +783,94 @@ export async function createProgrammedTransportJourney(params) {
   const grupoIds = kind === "grupo" ? [paxId] : [];
   const audiencia = kind === "grupo" ? "grupos" : "none";
 
-  const { evento: desde, error: eDesde } = await saveFimbaEvento({
-    ...commonBase,
-    fecha: fSal,
-    hora_inicio: hSal,
-    hora_fin: null,
-    actividad: actDesde,
-    id_locacion: idLocSalida,
+  const tagPayload = {
     id_propuestas: propuestaIds,
     id_grupos: grupoIds,
     audiencia_ofrn: audiencia,
-  });
-  if (eDesde || !desde?.id) {
-    return {
-      desde: null,
-      hasta: null,
-      error: eDesde || new Error("No se pudo crear la parada de salida"),
-    };
+  };
+
+  let anterior = null;
+  let desde = null;
+  let hasta = null;
+  let siguiente = null;
+  const eventos = [];
+
+  const pushCreated = (ev) => {
+    if (ev?.id) eventos.push(ev);
+  };
+
+  if (anteriorLeg) {
+    const { evento: antEv, error: eAnt } = await saveFimbaEvento({
+      ...commonBase,
+      ...tagPayload,
+      fecha: anteriorLeg.fecha,
+      hora_inicio: anteriorLeg.hora,
+      hora_fin: null,
+      actividad: actAnterior,
+      id_locacion: anteriorLeg.idLocacion,
+    });
+    if (eAnt || !antEv?.id) {
+      return {
+        ...empty,
+        eventos,
+        error:
+          eAnt || new Error("No se pudo crear el movimiento anterior"),
+      };
+    }
+    anterior = antEv;
+    pushCreated(anterior);
   }
 
-  const { evento: hasta, error: eHasta } = await saveFimbaEvento({
-    ...commonBase,
-    fecha: fLleg,
-    hora_inicio: hLleg,
-    hora_fin: null,
-    actividad: actHasta,
-    id_locacion: idLocLlegada,
-    id_propuestas: propuestaIds,
-    id_grupos: grupoIds,
-    audiencia_ofrn: audiencia,
-    vehiculos: [
-      {
-        id_gira_transporte: Number(vehicleId),
-        plazas: 0,
-      },
-    ],
-  });
-  if (eHasta || !hasta?.id) {
-    return {
-      desde,
-      hasta: null,
-      error:
-        eHasta ||
-        new Error(
-          "Parada de salida creada, pero falló la de llegada. Completala a mano.",
-        ),
-    };
+  {
+    const { evento: desdeEv, error: eDesde } = await saveFimbaEvento({
+      ...commonBase,
+      ...tagPayload,
+      fecha: fSal,
+      hora_inicio: hSal,
+      hora_fin: null,
+      actividad: actDesde,
+      id_locacion: idLocSalida,
+    });
+    if (eDesde || !desdeEv?.id) {
+      return {
+        anterior,
+        desde: null,
+        hasta: null,
+        siguiente: null,
+        eventos,
+        error: eDesde || new Error("No se pudo crear la parada de salida"),
+      };
+    }
+    desde = desdeEv;
+    pushCreated(desde);
+  }
+
+  {
+    const { evento: hastaEv, error: eHasta } = await saveFimbaEvento({
+      ...commonBase,
+      ...tagPayload,
+      fecha: fLleg,
+      hora_inicio: hLleg,
+      hora_fin: null,
+      actividad: actHasta,
+      id_locacion: idLocLlegada,
+    });
+    if (eHasta || !hastaEv?.id) {
+      return {
+        anterior,
+        desde,
+        hasta: null,
+        siguiente: null,
+        eventos,
+        error:
+          eHasta ||
+          new Error(
+            "Parada de salida creada, pero falló la de llegada. Completala a mano.",
+          ),
+      };
+    }
+    hasta = hastaEv;
+    pushCreated(hasta);
   }
 
   if (kind === "propuesta") {
@@ -470,8 +887,11 @@ export async function createProgrammedTransportJourney(params) {
     });
     if (up.error) {
       return {
+        anterior,
         desde,
         hasta,
+        siguiente: null,
+        eventos,
         error: new Error(
           `Paradas creadas, pero falló la subida: ${up.error.message}`,
         ),
@@ -489,8 +909,11 @@ export async function createProgrammedTransportJourney(params) {
     });
     if (down.error) {
       return {
+        anterior,
         desde,
         hasta,
+        siguiente: null,
+        eventos,
         error: new Error(
           `Paradas + subida OK, pero falló la bajada: ${down.error.message}`,
         ),
@@ -514,8 +937,11 @@ export async function createProgrammedTransportJourney(params) {
     });
     if (up.error) {
       return {
+        anterior,
         desde,
         hasta,
+        siguiente: null,
+        eventos,
         error: new Error(
           `Paradas creadas, pero falló la subida del grupo: ${up.error.message}`,
         ),
@@ -533,8 +959,11 @@ export async function createProgrammedTransportJourney(params) {
     });
     if (down.error) {
       return {
+        anterior,
         desde,
         hasta,
+        siguiente: null,
+        eventos,
         error: new Error(
           `Paradas + subida OK, pero falló la bajada del grupo: ${down.error.message}`,
         ),
@@ -542,5 +971,33 @@ export async function createProgrammedTransportJourney(params) {
     }
   }
 
-  return { desde, hasta, error: null };
+  if (siguienteLeg) {
+    const { evento: sigEv, error: eSig } = await saveFimbaEvento({
+      ...commonBase,
+      ...tagPayload,
+      fecha: siguienteLeg.fecha,
+      hora_inicio: siguienteLeg.hora,
+      hora_fin: null,
+      actividad: actSiguiente,
+      id_locacion: siguienteLeg.idLocacion,
+    });
+    if (eSig || !sigEv?.id) {
+      return {
+        anterior,
+        desde,
+        hasta,
+        siguiente: null,
+        eventos,
+        error:
+          eSig ||
+          new Error(
+            "Viaje principal OK, pero falló el movimiento siguiente. Completalo a mano.",
+          ),
+      };
+    }
+    siguiente = sigEv;
+    pushCreated(siguiente);
+  }
+
+  return { anterior, desde, hasta, siguiente, eventos, error: null };
 }

@@ -1,7 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import {
+  IconArrowLeft,
+  IconArrowRight,
   IconBus,
+  IconCheck,
+  IconClock,
   IconLoader,
   IconMapPin,
   IconX,
@@ -9,6 +13,7 @@ import {
 import { supabase } from "../../services/supabase";
 import { computeFimbaCapacity } from "../../services/fimbaService";
 import {
+  buildProgrammedTripOptionalLegDefaults,
   createProgrammedTransportJourney,
   rankVehiclesForProgrammedTrip,
 } from "../../utils/fimbaProgramarTransporte";
@@ -40,9 +45,16 @@ function formatPassengerOptionLabel(name, headcount) {
   return base;
 }
 
+function emptyOptionalLeg() {
+  return { enabled: false, idLocacion: "", fecha: "", hora: "" };
+}
+
 /**
- * Wizard «Programar transporte»: form + ranking de vehículos + creación
- * de par de paradas (desde / hasta) con boarding.
+ * Wizard «Programar transporte»: form + ranking de vehículos + confirmación
+ * guiada (piernas opcionales anterior/siguiente) antes de crear 2–4 paradas.
+ *
+ * `initialSeed` (Agenda → ancla en evento): prefills salida/llegada/pasajero
+ * sin crear nada al abrir.
  */
 export default function FimbaProgramarTransporteModal({
   edicion,
@@ -54,18 +66,55 @@ export default function FimbaProgramarTransporteModal({
   onRefreshLocations,
   onClose,
   onSaved,
+  initialSeed = null,
 }) {
-  const [fechaSalida, setFechaSalida] = useState(todayISO);
-  const [horaSalida, setHoraSalida] = useState("10:00");
-  const [fechaLlegada, setFechaLlegada] = useState(todayISO);
-  const [horaLlegada, setHoraLlegada] = useState("12:00");
-  const [idLocSalida, setIdLocSalida] = useState("");
-  const [idLocLlegada, setIdLocLlegada] = useState("");
+  const seed = initialSeed && typeof initialSeed === "object" ? initialSeed : null;
+  const [fechaSalida, setFechaSalida] = useState(
+    () => seed?.fechaSalida || todayISO(),
+  );
+  const [horaSalida, setHoraSalida] = useState(
+    () => seed?.horaSalida || "10:00",
+  );
+  const [fechaLlegada, setFechaLlegada] = useState(
+    () => seed?.fechaLlegada || todayISO(),
+  );
+  const [horaLlegada, setHoraLlegada] = useState(
+    () => seed?.horaLlegada || "12:00",
+  );
+  const [idLocSalida, setIdLocSalida] = useState(
+    () => (seed?.idLocSalida != null ? String(seed.idLocSalida) : ""),
+  );
+  const [idLocLlegada, setIdLocLlegada] = useState(
+    () => (seed?.idLocLlegada != null ? String(seed.idLocLlegada) : ""),
+  );
   /** `p:ID` artista FIMBA · `g:ID` grupo OFRN */
-  const [passengerKey, setPassengerKey] = useState("");
+  const [passengerKey, setPassengerKey] = useState(
+    () => seed?.passengerKey || "",
+  );
   const [cantidad, setCantidad] = useState("1");
+  const [selectedOffer, setSelectedOffer] = useState(null);
+  const [legAnterior, setLegAnterior] = useState(emptyOptionalLeg);
+  const [legSiguiente, setLegSiguiente] = useState(emptyOptionalLeg);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+
+  // Headcount al abrir con seed de artista (sin esperar onChange del select).
+  useEffect(() => {
+    if (!seed?.passengerKey) return;
+    const kind = String(seed.passengerKey).startsWith("g:")
+      ? "grupo"
+      : "propuesta";
+    const id = Number(String(seed.passengerKey).slice(2));
+    if (!Number.isFinite(id)) return;
+    const entity =
+      kind === "grupo"
+        ? (giraGrupos || []).find((g) => Number(g.id) === id)
+        : (propuestas || []).find((p) => Number(p.id) === id);
+    if (!entity) return;
+    setCantidad(String(resolvePassengerHeadcount(kind, entity)));
+    // Solo al montar con seed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     setFechaLlegada((prev) => {
@@ -74,6 +123,23 @@ export default function FimbaProgramarTransporteModal({
       return prev;
     });
   }, [fechaSalida]);
+
+  // Si cambia el viaje principal, invalidar selección de vehículo / piernas.
+  useEffect(() => {
+    setSelectedOffer(null);
+    setLegAnterior(emptyOptionalLeg());
+    setLegSiguiente(emptyOptionalLeg());
+    setError(null);
+  }, [
+    fechaSalida,
+    horaSalida,
+    fechaLlegada,
+    horaLlegada,
+    idLocSalida,
+    idLocLlegada,
+    passengerKey,
+    cantidad,
+  ]);
 
   const passengerOptions = useMemo(() => {
     const props = (propuestas || []).map((p) => {
@@ -155,13 +221,109 @@ export default function FimbaProgramarTransporteModal({
     Boolean(selectedPassenger) &&
     Math.max(1, Number(cantidad) || 0) > 0;
 
-  const handleSelectVehicle = async (offer) => {
+  const plannedStopCount =
+    2 + (legAnterior.enabled ? 1 : 0) + (legSiguiente.enabled ? 1 : 0);
+
+  const handleSelectVehicle = (offer) => {
     if (!formReady || !offer?.vehicleId || saving) return;
     setError(null);
+    const defaults = buildProgrammedTripOptionalLegDefaults({
+      fechaSalida,
+      horaSalida,
+      fechaLlegada,
+      horaLlegada,
+      idLocSalida,
+      origen: offer.origen || null,
+      siguiente: offer.siguiente || null,
+    });
+    setSelectedOffer(offer);
+    // Defaults editables al habilitar; piernas off hasta que el usuario las active.
+    setLegAnterior({
+      enabled: false,
+      idLocacion: defaults.anterior.idLocacion,
+      fecha: defaults.anterior.fecha,
+      hora: defaults.anterior.hora,
+    });
+    setLegSiguiente({
+      enabled: false,
+      idLocacion: defaults.siguiente.idLocacion,
+      fecha: defaults.siguiente.fecha,
+      hora: defaults.siguiente.hora,
+    });
+  };
+
+  const toggleLegAnterior = (enabled) => {
+    if (!enabled) {
+      setLegAnterior((prev) => ({ ...prev, enabled: false }));
+      return;
+    }
+    const defaults = buildProgrammedTripOptionalLegDefaults({
+      fechaSalida,
+      horaSalida,
+      fechaLlegada,
+      horaLlegada,
+      idLocSalida,
+      origen: selectedOffer?.origen || null,
+      siguiente: selectedOffer?.siguiente || null,
+    });
+    setLegAnterior((prev) => ({
+      enabled: true,
+      idLocacion: prev.idLocacion || defaults.anterior.idLocacion,
+      fecha: prev.fecha || defaults.anterior.fecha,
+      hora: prev.hora || defaults.anterior.hora,
+    }));
+  };
+
+  const toggleLegSiguiente = (enabled) => {
+    if (!enabled) {
+      setLegSiguiente((prev) => ({ ...prev, enabled: false }));
+      return;
+    }
+    const defaults = buildProgrammedTripOptionalLegDefaults({
+      fechaSalida,
+      horaSalida,
+      fechaLlegada,
+      horaLlegada,
+      idLocSalida,
+      origen: selectedOffer?.origen || null,
+      siguiente: selectedOffer?.siguiente || null,
+    });
+    setLegSiguiente((prev) => ({
+      enabled: true,
+      idLocacion: prev.idLocacion || defaults.siguiente.idLocacion,
+      fecha: prev.fecha || defaults.siguiente.fecha,
+      hora: prev.hora || defaults.siguiente.hora,
+    }));
+  };
+
+  const handleConfirm = async () => {
+    if (!formReady || !selectedOffer?.vehicleId || saving) return;
+    if (legAnterior.enabled) {
+      if (!legAnterior.idLocacion || !legAnterior.fecha || !legAnterior.hora) {
+        setError(
+          "Movimiento anterior: completá locación, fecha y hora, o desmarcalo",
+        );
+        return;
+      }
+    }
+    if (legSiguiente.enabled) {
+      if (
+        !legSiguiente.idLocacion ||
+        !legSiguiente.fecha ||
+        !legSiguiente.hora
+      ) {
+        setError(
+          "Movimiento siguiente: completá locación, fecha y hora, o desmarcalo",
+        );
+        return;
+      }
+    }
+
+    setError(null);
     setSaving(true);
-    const { desde, hasta, error: err } = await createProgrammedTransportJourney({
+    const result = await createProgrammedTransportJourney({
       idGira: edicion?.id_gira,
-      vehicleId: offer.vehicleId,
+      vehicleId: selectedOffer.vehicleId,
       vehiculos,
       fechaSalida,
       horaSalida,
@@ -176,16 +338,21 @@ export default function FimbaProgramarTransporteModal({
         label: selectedPassenger.name,
       },
       giraGrupos,
+      movimientoAnterior: legAnterior,
+      movimientoSiguiente: legSiguiente,
     });
     setSaving(false);
-    if (err) {
-      setError(err.message || "No se pudo programar el transporte");
-      if (desde?.id || hasta?.id) {
-        onSaved?.({ desde, hasta, partial: true });
+    if (result.error) {
+      setError(result.error.message || "No se pudo programar el transporte");
+      if (result.eventos?.length) {
+        onSaved?.({
+          ...result,
+          partial: true,
+        });
       }
       return;
     }
-    onSaved?.({ desde, hasta, partial: false });
+    onSaved?.({ ...result, partial: false });
   };
 
   return (
@@ -239,9 +406,19 @@ export default function FimbaProgramarTransporteModal({
           className="fimba-muted"
           style={{ margin: "0 0 0.85rem", fontSize: "0.8rem" }}
         >
-          Indicá salida y llegada; elegí el vehículo más óptimo según su agenda.
-          Se crean dos paradas (desde / hasta) con subida y bajada del
-          artista/grupo.
+          {seed?.anchorEventId != null ? (
+            <>
+              Prefill desde Agenda: llegada a la locación del evento (por
+              defecto 30′ antes del inicio). Completá la salida si falta,
+              elegí vehículo y confirmá — nada se crea al abrir.
+            </>
+          ) : (
+            <>
+              Indicá salida y llegada; elegí un vehículo. Al seleccionarlo podés
+              sumar un movimiento anterior y/o siguiente (hasta 4 paradas). Nada
+              se crea hasta confirmar.
+            </>
+          )}
         </p>
 
         <div
@@ -276,6 +453,7 @@ export default function FimbaProgramarTransporteModal({
                 type="date"
                 value={fechaSalida}
                 onChange={(e) => setFechaSalida(e.target.value)}
+                disabled={saving}
               />
             </div>
             <div className="fimba-field fimba-prog-hora">
@@ -288,6 +466,7 @@ export default function FimbaProgramarTransporteModal({
                 type="time"
                 value={horaSalida}
                 onChange={(e) => setHoraSalida(e.target.value)}
+                disabled={saving}
               />
             </div>
           </div>
@@ -318,6 +497,7 @@ export default function FimbaProgramarTransporteModal({
                 value={fechaLlegada}
                 min={fechaSalida || undefined}
                 onChange={(e) => setFechaLlegada(e.target.value)}
+                disabled={saving}
               />
             </div>
             <div className="fimba-field fimba-prog-hora">
@@ -330,6 +510,7 @@ export default function FimbaProgramarTransporteModal({
                 type="time"
                 value={horaLlegada}
                 onChange={(e) => setHoraLlegada(e.target.value)}
+                disabled={saving}
               />
             </div>
           </div>
@@ -344,6 +525,7 @@ export default function FimbaProgramarTransporteModal({
                 className="fimba-select"
                 value={passengerKey}
                 onChange={(e) => handlePassengerChange(e.target.value)}
+                disabled={saving}
               >
                 <option value="">Seleccionar…</option>
                 {passengerOptions.some((o) => o.kind === "propuesta") && (
@@ -382,6 +564,7 @@ export default function FimbaProgramarTransporteModal({
                 step={1}
                 value={cantidad}
                 onChange={(e) => setCantidad(e.target.value)}
+                disabled={saving}
               />
               {selectedPassenger?.kind === "grupo" ? (
                 <span
@@ -430,84 +613,349 @@ export default function FimbaProgramarTransporteModal({
                 display: "flex",
                 flexDirection: "column",
                 gap: 8,
-                maxHeight: 280,
+                maxHeight: selectedOffer ? 160 : 280,
                 overflowY: "auto",
               }}
             >
-              {ranked.map((offer, idx) => (
-                <li key={offer.vehicleId}>
-                  <button
-                    type="button"
-                    className="fimba-btn"
-                    disabled={saving}
-                    onClick={() => handleSelectVehicle(offer)}
-                    style={{
-                      width: "100%",
-                      textAlign: "left",
-                      padding: "0.65rem 0.75rem",
-                      background: idx === 0 ? "rgba(148, 33, 109, 0.06)" : "#fff",
-                      borderColor:
-                        idx === 0
-                          ? "var(--fimba-deep)"
-                          : "var(--fimba-border)",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 4,
-                      alignItems: "stretch",
-                    }}
-                  >
-                    <span
+              {ranked.map((offer, idx) => {
+                const isSelected =
+                  selectedOffer &&
+                  Number(selectedOffer.vehicleId) === Number(offer.vehicleId);
+                return (
+                  <li key={offer.vehicleId}>
+                    <button
+                      type="button"
+                      className="fimba-btn"
+                      disabled={saving}
+                      onClick={() => handleSelectVehicle(offer)}
+                      aria-pressed={isSelected}
                       style={{
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "0.65rem 0.75rem",
+                        background: isSelected
+                          ? "rgba(148, 33, 109, 0.1)"
+                          : idx === 0
+                            ? "rgba(148, 33, 109, 0.06)"
+                            : "#fff",
+                        borderColor: isSelected
+                          ? "var(--fimba-deep)"
+                          : idx === 0
+                            ? "var(--fimba-deep)"
+                            : "var(--fimba-border)",
+                        borderWidth: isSelected ? 2 : 1,
                         display: "flex",
-                        justifyContent: "space-between",
-                        gap: 8,
-                        fontWeight: 700,
-                        color: "var(--fimba-text)",
+                        flexDirection: "column",
+                        gap: 4,
+                        alignItems: "stretch",
                       }}
                     >
-                      <span>
-                        {idx === 0 ? "★ " : ""}
-                        {offer.label}
+                      <span
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 8,
+                          fontWeight: 700,
+                          color: "var(--fimba-text)",
+                        }}
+                      >
+                        <span>
+                          {isSelected ? "✓ " : idx === 0 ? "★ " : ""}
+                          {offer.label}
+                        </span>
+                        <span
+                          className="fimba-muted"
+                          style={{ fontWeight: 500, fontSize: "0.75rem" }}
+                        >
+                          {offer.libresEstimados != null
+                            ? `${offer.libresEstimados} libres`
+                            : "sin cap."}
+                          {offer.gapCovers ? " · hueco OK" : ""}
+                        </span>
                       </span>
                       <span
                         className="fimba-muted"
-                        style={{ fontWeight: 500, fontSize: "0.75rem" }}
+                        style={{ fontSize: "0.75rem", lineHeight: 1.35 }}
                       >
-                        {offer.libresEstimados != null
-                          ? `${offer.libresEstimados} libres`
-                          : "sin cap."}
-                        {offer.gapCovers ? " · hueco OK" : ""}
+                        <strong style={{ color: "var(--fimba-text)" }}>
+                          Origen:
+                        </strong>{" "}
+                        {offer.origenLabel || "Sin parada previa (agenda libre)"}
+                        <br />
+                        <strong style={{ color: "var(--fimba-text)" }}>
+                          Siguiente destino:
+                        </strong>{" "}
+                        {offer.siguienteLabel ||
+                          "Sin parada posterior (cola libre)"}
                       </span>
-                    </span>
-                    <span
-                      className="fimba-muted"
-                      style={{ fontSize: "0.75rem", lineHeight: 1.35 }}
-                    >
-                      <strong style={{ color: "var(--fimba-text)" }}>
-                        Origen:
-                      </strong>{" "}
-                      {offer.origenLabel || "Sin parada previa (agenda libre)"}
-                      <br />
-                      <strong style={{ color: "var(--fimba-text)" }}>
-                        Siguiente destino:
-                      </strong>{" "}
-                      {offer.siguienteLabel ||
-                        "Sin parada posterior (cola libre)"}
-                    </span>
-                    {offer.reasons?.length ? (
-                      <span
-                        className="fimba-muted"
-                        style={{ fontSize: "0.68rem" }}
-                      >
-                        {offer.reasons.slice(0, 3).join(" · ")}
-                      </span>
-                    ) : null}
-                  </button>
-                </li>
-              ))}
+                      {offer.reasons?.length ? (
+                        <span
+                          className="fimba-muted"
+                          style={{ fontSize: "0.68rem" }}
+                        >
+                          {offer.reasons.slice(0, 3).join(" · ")}
+                        </span>
+                      ) : null}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
+
+        {selectedOffer ? (
+          <div
+            style={{
+              marginTop: "1rem",
+              padding: "0.85rem",
+              border: "1px solid var(--fimba-border)",
+              borderRadius: 8,
+              background: "rgba(148, 33, 109, 0.03)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.75rem",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                flexWrap: "wrap",
+              }}
+            >
+              <strong
+                style={{
+                  fontSize: "0.85rem",
+                  color: "var(--fimba-deep)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <IconBus size={14} /> {selectedOffer.label}
+              </strong>
+              <span className="fimba-muted" style={{ fontSize: "0.75rem" }}>
+                Se crearán {plannedStopCount} parada
+                {plannedStopCount === 1 ? "" : "s"} al confirmar
+              </span>
+            </div>
+
+            <p
+              className="fimba-muted"
+              style={{ margin: 0, fontSize: "0.75rem", lineHeight: 1.4 }}
+            >
+              Viaje principal (siempre): salida → llegada con subida/bajada.
+              Opcional: reposicionar el vehículo antes y/o después.
+            </p>
+
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: "0.85rem",
+                fontWeight: 600,
+                color: "var(--fimba-text)",
+                cursor: saving ? "default" : "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={legAnterior.enabled}
+                disabled={saving}
+                onChange={(e) => toggleLegAnterior(e.target.checked)}
+              />
+              <IconArrowLeft size={14} />
+              Movimiento anterior
+              <span
+                className="fimba-muted"
+                style={{ fontWeight: 400, fontSize: "0.72rem" }}
+              >
+                ¿de dónde sale y a qué hora?
+              </span>
+            </label>
+            {legAnterior.enabled ? (
+              <div className="fimba-prog-trip-row">
+                <div className="fimba-field fimba-prog-loc">
+                  <label className="fimba-label">
+                    <IconMapPin
+                      size={12}
+                      style={{ display: "inline", marginRight: 4 }}
+                    />
+                    Locación de origen
+                  </label>
+                  <LocationSelectWithCreate
+                    supabase={supabase}
+                    options={locationOptions}
+                    value={legAnterior.idLocacion}
+                    onChange={(v) =>
+                      setLegAnterior((prev) => ({
+                        ...prev,
+                        idLocacion: v || "",
+                      }))
+                    }
+                    onRefresh={onRefreshLocations}
+                    placeholder="¿De dónde sale el vehículo?"
+                  />
+                </div>
+                <div className="fimba-field fimba-prog-fecha">
+                  <label className="fimba-label" htmlFor="fimba-prog-ant-fecha">
+                    Fecha
+                  </label>
+                  <input
+                    id="fimba-prog-ant-fecha"
+                    className="fimba-input"
+                    type="date"
+                    value={legAnterior.fecha}
+                    onChange={(e) =>
+                      setLegAnterior((prev) => ({
+                        ...prev,
+                        fecha: e.target.value,
+                      }))
+                    }
+                    disabled={saving}
+                  />
+                </div>
+                <div className="fimba-field fimba-prog-hora">
+                  <label className="fimba-label" htmlFor="fimba-prog-ant-hora">
+                    <IconClock
+                      size={12}
+                      style={{ display: "inline", marginRight: 4 }}
+                    />
+                    Hora
+                  </label>
+                  <input
+                    id="fimba-prog-ant-hora"
+                    className="fimba-input"
+                    type="time"
+                    value={legAnterior.hora}
+                    onChange={(e) =>
+                      setLegAnterior((prev) => ({
+                        ...prev,
+                        hora: e.target.value,
+                      }))
+                    }
+                    disabled={saving}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            <div
+              style={{
+                padding: "0.5rem 0.65rem",
+                borderRadius: 6,
+                background: "#fff",
+                border: "1px dashed var(--fimba-border)",
+                fontSize: "0.78rem",
+                color: "var(--fimba-text)",
+              }}
+            >
+              <strong>Viaje principal</strong>
+              <div className="fimba-muted" style={{ marginTop: 4 }}>
+                Salida {horaSalida} → Llegada {horaLlegada} · ↑/↓ del
+                artista/grupo
+              </div>
+            </div>
+
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: "0.85rem",
+                fontWeight: 600,
+                color: "var(--fimba-text)",
+                cursor: saving ? "default" : "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={legSiguiente.enabled}
+                disabled={saving}
+                onChange={(e) => toggleLegSiguiente(e.target.checked)}
+              />
+              <IconArrowRight size={14} />
+              Movimiento siguiente
+              <span
+                className="fimba-muted"
+                style={{ fontWeight: 400, fontSize: "0.72rem" }}
+              >
+                ¿a dónde vuelve y a qué hora llega?
+              </span>
+            </label>
+            {legSiguiente.enabled ? (
+              <div className="fimba-prog-trip-row">
+                <div className="fimba-field fimba-prog-loc">
+                  <label className="fimba-label">
+                    <IconMapPin
+                      size={12}
+                      style={{ display: "inline", marginRight: 4 }}
+                    />
+                    Locación de destino
+                  </label>
+                  <LocationSelectWithCreate
+                    supabase={supabase}
+                    options={locationOptions}
+                    value={legSiguiente.idLocacion}
+                    onChange={(v) =>
+                      setLegSiguiente((prev) => ({
+                        ...prev,
+                        idLocacion: v || "",
+                      }))
+                    }
+                    onRefresh={onRefreshLocations}
+                    placeholder="¿A dónde vuelve / continúa?"
+                  />
+                </div>
+                <div className="fimba-field fimba-prog-fecha">
+                  <label className="fimba-label" htmlFor="fimba-prog-sig-fecha">
+                    Fecha
+                  </label>
+                  <input
+                    id="fimba-prog-sig-fecha"
+                    className="fimba-input"
+                    type="date"
+                    value={legSiguiente.fecha}
+                    min={fechaLlegada || undefined}
+                    onChange={(e) =>
+                      setLegSiguiente((prev) => ({
+                        ...prev,
+                        fecha: e.target.value,
+                      }))
+                    }
+                    disabled={saving}
+                  />
+                </div>
+                <div className="fimba-field fimba-prog-hora">
+                  <label className="fimba-label" htmlFor="fimba-prog-sig-hora">
+                    <IconClock
+                      size={12}
+                      style={{ display: "inline", marginRight: 4 }}
+                    />
+                    Hora llegada
+                  </label>
+                  <input
+                    id="fimba-prog-sig-hora"
+                    className="fimba-input"
+                    type="time"
+                    value={legSiguiente.hora}
+                    onChange={(e) =>
+                      setLegSiguiente((prev) => ({
+                        ...prev,
+                        hora: e.target.value,
+                      }))
+                    }
+                    disabled={saving}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {saving ? (
           <p
@@ -520,7 +968,8 @@ export default function FimbaProgramarTransporteModal({
               fontSize: "0.8rem",
             }}
           >
-            <IconLoader size={14} className="animate-spin" /> Creando paradas…
+            <IconLoader size={14} className="animate-spin" /> Creando{" "}
+            {plannedStopCount} parada{plannedStopCount === 1 ? "" : "s"}…
           </p>
         ) : null}
 
@@ -528,7 +977,9 @@ export default function FimbaProgramarTransporteModal({
           style={{
             display: "flex",
             justifyContent: "flex-end",
+            gap: 8,
             marginTop: "1rem",
+            flexWrap: "wrap",
           }}
         >
           <button
@@ -539,6 +990,22 @@ export default function FimbaProgramarTransporteModal({
           >
             Cancelar
           </button>
+          {selectedOffer ? (
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-primary"
+              onClick={handleConfirm}
+              disabled={saving || !formReady}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <IconCheck size={14} />
+              Confirmar ({plannedStopCount})
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

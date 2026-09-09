@@ -1,4 +1,5 @@
 import {
+  IconCalendarPlus,
   IconCopy,
   IconEdit,
   IconFileText,
@@ -13,6 +14,7 @@ export function buildAgendaCardMenuItems({
   onDuplicate,
   onDelete,
   onInsertIntermediate,
+  onProgramarTransporte,
   onBackline,
   onRider,
   canEdit = false,
@@ -32,6 +34,14 @@ export function buildAgendaCardMenuItems({
       label: "Insertar intermedio",
       icon: <IconPlus size={14} className="shrink-0" />,
       onClick: onInsertIntermediate,
+    });
+  }
+  if (canEdit && onProgramarTransporte) {
+    items.push({
+      key: "programar",
+      label: "Programar transporte",
+      icon: <IconCalendarPlus size={14} className="shrink-0" />,
+      onClick: onProgramarTransporte,
     });
   }
   if (canEdit && onDuplicate) {

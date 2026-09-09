@@ -106,6 +106,7 @@ import {
 } from "../../utils/fimbaAgendaConsulta";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
 import FimbaBulkEditModal from "./FimbaBulkEditModal";
+import FimbaProgramarTransporteModal from "./FimbaProgramarTransporteModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import FimbaBacklineConsultaModal from "./FimbaBacklineConsultaModal";
 import FimbaRiderConsultaModal from "./FimbaRiderConsultaModal";
@@ -115,6 +116,7 @@ import FimbaAgendaEventCard, {
 } from "./FimbaAgendaEventCard";
 import { buildAgendaCardMenuItems } from "./fimbaAgendaCardMenuItems";
 import FimbaRichTextEditor from "./FimbaRichTextEditor";
+import { buildProgrammedTripSeedFromAgendaEvent } from "../../utils/fimbaProgramarTransporte";
 
 const FIMBA_AGENDA_SEARCH_DEBOUNCE_MS = 250;
 
@@ -492,6 +494,8 @@ export default function FimbaAgendaPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [modal, setModal] = useState(null);
+  /** Seed del wizard Programar transporte (Agenda → ancla evento). */
+  const [programarSeed, setProgramarSeed] = useState(null);
   const [copyLinkOk, setCopyLinkOk] = useState(false);
   /** Multi-select de filas visibles (ids) para «Editar en lote». */
   const [selectedEventIds, setSelectedEventIds] = useState(() => new Set());
@@ -1661,6 +1665,29 @@ export default function FimbaAgendaPage() {
     });
   };
 
+  /** Abre Programar transporte: origen = evento previo del artista (o hotel). */
+  const openProgramarTransporte = useCallback(
+    (ev) => {
+      if (readOnly || !edicion || !ev) return;
+      const seed = buildProgrammedTripSeedFromAgendaEvent(ev, {
+        selectedPropuestaIds,
+        propuestas,
+        routeArtistaId: artistaId,
+        // Base sin filtros de categoría/locación: el previo puede estar oculto.
+        agendaEvents: eventosBase,
+      });
+      setProgramarSeed(seed);
+    },
+    [
+      readOnly,
+      edicion,
+      selectedPropuestaIds,
+      propuestas,
+      artistaId,
+      eventosBase,
+    ],
+  );
+
   const handleExportPdf = () => {
     if (eventosFiltrados.length === 0) return;
     const artistaNombres =
@@ -2130,6 +2157,7 @@ export default function FimbaAgendaPage() {
                 onDuplicate: () => handleDuplicate(ev),
                 onDelete: () => handleDelete(ev),
                 onInsertIntermediate: () => openIntermediateEvent(ev),
+                onProgramarTransporte: () => openProgramarTransporte(ev),
                 onBackline: shouldShowAgendaBacklineIcon(
                   ev,
                   canSeeAgendaLogisticaConsulta,
@@ -2774,6 +2802,8 @@ export default function FimbaAgendaPage() {
                                 setModal({ mode: "edit", evento: ev }),
                               onInsertIntermediate: () =>
                                 openIntermediateEvent(ev),
+                              onProgramarTransporte: () =>
+                                openProgramarTransporte(ev),
                               onDuplicate: () => handleDuplicate(ev),
                               onDelete: () => handleDelete(ev),
                               onBackline: shouldShowAgendaBacklineIcon(
@@ -2852,6 +2882,32 @@ export default function FimbaAgendaPage() {
               } else {
                 await reloadAgendaSlices({ eventos: true });
               }
+            }}
+          />,
+          document.body,
+        )}
+
+      {!readOnly &&
+        programarSeed &&
+        edicion &&
+        createPortal(
+          <FimbaProgramarTransporteModal
+            edicion={edicion}
+            vehiculos={flota}
+            propuestas={propuestas}
+            giraGrupos={giraGrupos}
+            sequencesByVehicle={sequencesByVehicle}
+            locationOptions={locacionCatalogOptions}
+            onRefreshLocations={refreshLocacionCatalog}
+            initialSeed={programarSeed}
+            onClose={() => setProgramarSeed(null)}
+            onSaved={async ({ partial } = {}) => {
+              if (!partial) setProgramarSeed(null);
+              await reloadAgendaSlices({
+                eventos: true,
+                rutas: true,
+                logistics: true,
+              });
             }}
           />,
           document.body,
