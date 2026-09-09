@@ -736,7 +736,9 @@ export function isOpenFimbaRide(ruta) {
  *
  * Importante: un ride abierto NO hace match de eventos ajenos a la secuencia
  * (conciertos/check-ins de otros artistas). Eso rompía el filtro Artista de
- * Agenda (`eventMatchesPropuestaRouteFilter` → 171/171).
+ * Agenda (`eventMatchesPropuestaRouteFilter` → 171/171). Desde 2026-09-09 el
+ * filtro artista de agenda **ya no** usa «a bordo» para incluir traslados;
+ * solo extremos ↑/↓ (esta helper sigue siendo la fuente de tránsito/Sube/Baja).
  *
  * @param {object|null} ruta
  * @param {unknown} currentEventId

@@ -94,7 +94,8 @@ function vehicleLabel(ev, flota) {
 }
 
 /**
- * Agenda del artista: eventos tagged + paradas de transporte vía `fimba_propuesta_rutas`.
+ * Agenda del artista: eventos tagged (no-transporte) + traslados con ↑/↓
+ * del artista vía `fimba_propuesta_rutas` (sin piernas intermedias a bordo).
  * - Consulta token / readOnly: solo lectura.
  * - Superficies editables (`editable`): alta/edición/baja con FimbaEventoFormModal
  *   y propuesta fija (lockPropuesta).

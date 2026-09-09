@@ -96,6 +96,7 @@ import {
 import {
   agendaRowEditFieldsEqual,
   draftFromEvent,
+  resolveLeaveDirtyInlineRowEdit,
 } from "../../utils/fimbaPlanillaRowEdit";
 import { useFimbaAccess } from "../../hooks/useFimbaAccess";
 import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
@@ -506,6 +507,9 @@ export default function FimbaAgendaPage() {
   const savingEventRef = useRef(new Set());
   const eventDraftsRef = useRef(eventDrafts);
   eventDraftsRef.current = eventDrafts;
+  const editingRowIdRef = useRef(editingRowId);
+  editingRowIdRef.current = editingRowId;
+  const commitEventoRef = useRef(null);
   const eventosRef = useRef(eventosBase);
   eventosRef.current = eventosBase;
   /** Invalida respuestas stale si reload se re-dispara (HMR / remount / soft). */
@@ -729,7 +733,7 @@ export default function FimbaAgendaPage() {
   }, [readOnly, editingRowId]);
 
   const cancelRowEdit = useCallback((eventoId) => {
-    const key = String(eventoId ?? editingRowId ?? "");
+    const key = String(eventoId ?? editingRowIdRef.current ?? "");
     if (!key) {
       setEditingRowId(null);
       setRowEditFocusField(null);
@@ -760,7 +764,39 @@ export default function FimbaAgendaPage() {
     });
     setEditingRowId(null);
     setRowEditFocusField(null);
-  }, [editingRowId]);
+  }, []);
+
+  /** Dirty = borrador ≠ baseline (no confiar solo en eventRowStatus). */
+  const isRowEditDirty = useCallback((eventoId) => {
+    const key = String(eventoId ?? "");
+    if (!key) return false;
+    if (savingEventRef.current.has(key)) return true;
+    const ev = (eventosRef.current || []).find((x) => String(x.id) === key);
+    if (!ev) return false;
+    const draft = eventDraftsRef.current[key] || draftFromEvent(ev);
+    return !agendaRowEditFieldsEqual(draft, draftFromEvent(ev));
+  }, []);
+
+  const leaveCurrentRowEditIfNeeded = useCallback(async () => {
+    const currentId = editingRowIdRef.current;
+    if (currentId == null) return true;
+    if (savingEventRef.current.has(String(currentId))) return false;
+    if (!isRowEditDirty(currentId)) {
+      cancelRowEdit(currentId);
+      return true;
+    }
+    return resolveLeaveDirtyInlineRowEdit(confirm, {
+      save: async () => {
+        const ok = await commitEventoRef.current?.(currentId);
+        if (ok) {
+          setEditingRowId(null);
+          setRowEditFocusField(null);
+        }
+        return ok;
+      },
+      discard: () => cancelRowEdit(currentId),
+    });
+  }, [cancelRowEdit, confirm, isRowEditDirty]);
 
   useEffect(() => {
     if (editingRowId == null) return undefined;
@@ -773,11 +809,16 @@ export default function FimbaAgendaPage() {
   }, [editingRowId, cancelRowEdit]);
 
   const beginRowEdit = useCallback(
-    (ev, focusField = null) => {
+    async (ev, focusField = null) => {
       if (readOnly || !ev?.id) return;
       const key = String(ev.id);
-      if (editingRowId != null && editingRowId !== key) {
-        cancelRowEdit(editingRowId);
+      if (editingRowIdRef.current != null && editingRowIdRef.current === key) {
+        if (focusField) setRowEditFocusField(focusField);
+        return;
+      }
+      if (editingRowIdRef.current != null && editingRowIdRef.current !== key) {
+        const canLeave = await leaveCurrentRowEditIfNeeded();
+        if (!canLeave) return;
       }
       setEventDrafts((prev) => {
         const n = { ...prev, [key]: draftFromEvent(ev) };
@@ -788,7 +829,7 @@ export default function FimbaAgendaPage() {
       setEditingRowId(key);
       setRowEditFocusField(focusField || "fecha");
     },
-    [readOnly, editingRowId, cancelRowEdit],
+    [readOnly, leaveCurrentRowEditIfNeeded],
   );
 
   const isRowEditing = useCallback(
@@ -930,6 +971,8 @@ export default function FimbaAgendaPage() {
     },
     [commitEvento],
   );
+
+  commitEventoRef.current = commitEvento;
 
   useEffect(() => {
     reload();

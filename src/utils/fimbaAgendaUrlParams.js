@@ -1,4 +1,4 @@
-import { isFimbaRideAboardAtStop } from "./fimbaTransportBoarding";
+import { isTransportTipoEvent } from "./fimbaTransportBoarding";
 
 /**
  * Query params compartibles para `/fimba/edicion/:id/agenda`.
@@ -286,27 +286,36 @@ export function parseFimbaAgendaTuttiFlag(searchParams) {
 
 /**
  * ¿El evento es relevante para filtro de artista?
- * — tag `eventos_fimba_propuestas`, o
- * — parada ↑/↓ / a bordo vía `fimba_propuesta_rutas` (evento real en BD, editable).
+ * — No-transporte: tag `eventos_fimba_propuestas` (concierto, hotel, check-in…).
+ * — Transporte (tipo catálogo Traslado/Interno/…): **solo** ↑/↓ del artista en
+ *   `fimba_propuesta_rutas`. Tags heredados y paradas intermedias «a bordo»
+ *   (sin boarding propio) **no** cuentan.
  *
  * @param {object|null|undefined} ev
  * @param {number[]} propuestaIds
  * @param {Array<object>} [propuestaRoutes]
- * @param {Map|null} [sequencesByVehicle]
+ * @param {Map|null} [_sequencesByVehicle] — reservado (API estable); ya no se usa
+ *   para incluir piernas intermedias.
  */
 export function eventMatchesPropuestaRouteFilter(
   ev,
   propuestaIds,
   propuestaRoutes,
-  sequencesByVehicle = null,
+  _sequencesByVehicle = null,
 ) {
   const props = (propuestaIds || []).map(Number).filter(Number.isFinite);
   if (props.length === 0 || !ev?.id) return false;
 
-  const tagged = (ev.propuestas || []).some((p) =>
-    props.includes(Number(p.id)),
-  );
-  if (tagged) return true;
+  const isTransport = isTransportTipoEvent(ev);
+
+  // Tags solo para no-transporte. Un traslado tagged sin ↑/↓ del artista
+  // (p.ej. movimiento intermedio heredado) no entra al filtro.
+  if (!isTransport) {
+    const tagged = (ev.propuestas || []).some((p) =>
+      props.includes(Number(p.id)),
+    );
+    if (tagged) return true;
+  }
 
   if (!propuestaRoutes?.length) return false;
 
@@ -327,38 +336,25 @@ export function eventMatchesPropuestaRouteFilter(
     ) {
       return true;
     }
-
-    const tid = Number(r.id_gira_transporte);
-    if (!Number.isFinite(tid) || !sequencesByVehicle) continue;
-    const seq = sequencesByVehicle.get(tid);
-    const sorted = seq?.sortedEvents || [];
-    // Solo paradas del vehículo: rides abiertos no deben marcar conciertos ajenos.
-    if (
-      sorted.length &&
-      sorted.some((e) => String(e?.id) === String(evId)) &&
-      isFimbaRideAboardAtStop(r, evId, sorted)
-    ) {
-      return true;
-    }
   }
   return false;
 }
 
 /**
- * IDs de eventos de agenda para filtro de artista: ↑/↓ y paradas intermedias a bordo.
+ * IDs de eventos de agenda para filtro de artista: solo extremos ↑/↓.
  *
  * @param {number[]} propuestaFilterIds
  * @param {Array<object>} propuestaRoutes
- * @param {Map|null} sequencesByVehicle
+ * @param {Map|null} [_sequencesByVehicle] — reservado; intermedias ya no se incluyen
  * @returns {number[]}
  */
 export function collectPropuestaRouteAgendaEventIds(
   propuestaFilterIds,
   propuestaRoutes,
-  sequencesByVehicle,
+  _sequencesByVehicle = null,
 ) {
   const props = (propuestaFilterIds || []).map(Number).filter(Number.isFinite);
-  if (!props.length || !propuestaRoutes?.length || !sequencesByVehicle) {
+  if (!props.length || !propuestaRoutes?.length) {
     return [];
   }
   const want = new Set(props);
@@ -377,16 +373,6 @@ export function collectPropuestaRouteAgendaEventIds(
       const bajada = Number(r.id_evento_bajada);
       if (Number.isFinite(bajada)) ids.add(bajada);
     }
-
-    const tid = Number(r.id_gira_transporte);
-    if (!Number.isFinite(tid)) continue;
-    const sorted = sequencesByVehicle.get(tid)?.sortedEvents || [];
-    for (const stopEv of sorted) {
-      if (stopEv?.id == null) continue;
-      if (isFimbaRideAboardAtStop(r, stopEv.id, sorted)) {
-        ids.add(Number(stopEv.id));
-      }
-    }
   }
 
   return [...ids].filter(Number.isFinite);
@@ -395,7 +381,8 @@ export function collectPropuestaRouteAgendaEventIds(
 /**
  * Visibilidad de fila en planilla:
  * - Sin artista ni OFRN opt-in: el caller aplica origen (default Todos / all).
- * - Solo artista: tags / paradas del artista (agenda FIMBA). No incluye Tutti.
+ * - Solo artista: tags no-transporte ∪ ↑/↓ transporte del artista (agenda FIMBA).
+ *   No incluye Tutti ni piernas intermedias solo «a bordo».
  * - Grupo y/o Tutti: **incluyen** esas convocatorias OFRN (unión con FIMBA /
  *   artista). No reemplazan la agenda FIMBA.
  *

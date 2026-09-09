@@ -99,6 +99,7 @@ import {
   eventMatchesOtrosEventosContext,
   eventMatchesPropuestaRouteFilter,
 } from "../../utils/fimbaAgendaUrlParams";
+import { resolveLeaveDirtyInlineRowEdit } from "../../utils/fimbaPlanillaRowEdit";
 import {
   sortFimbaAgendaRows,
   sortFimbaPropuestasByNombre,
@@ -1018,6 +1019,9 @@ export default function FimbaTransportPage() {
   const savingVehRowRef = useRef(new Set());
   const eventDraftsRef = useRef(eventDrafts);
   eventDraftsRef.current = eventDrafts;
+  const editingRowIdRef = useRef(editingRowId);
+  editingRowIdRef.current = editingRowId;
+  const commitEventoRef = useRef(null);
   const vehDraftsRef = useRef(vehDrafts);
   vehDraftsRef.current = vehDrafts;
   const eventosRef = useRef(eventos);
@@ -2000,8 +2004,7 @@ export default function FimbaTransportPage() {
         setEditingCell({ eventId: key, field: "locacion" });
       } else {
         setEditingCell(null);
-        setEditingRowId(key);
-        setRowEditFocusField("locacion");
+        void beginRowEdit(enriched, "locacion");
       }
       // No bloquear UI: reconciliar secuencia / boarding en background.
       softRefresh({ eventos: true, rutas: true });
@@ -2100,8 +2103,7 @@ export default function FimbaTransportPage() {
         setEditingCell({ eventId: key, field: "locacion" });
       } else {
         setEditingCell(null);
-        setEditingRowId(key);
-        setRowEditFocusField("locacion");
+        void beginRowEdit(enriched, "locacion");
       }
       softRefresh({ eventos: true, rutas: true });
     } finally {
@@ -2287,7 +2289,11 @@ export default function FimbaTransportPage() {
     [softRefresh, confirm],
   );
 
-  const toggleEditMode = () => {
+  const toggleEditMode = async () => {
+    if (!editMode && editingRowIdRef.current != null) {
+      const canLeave = await leaveCurrentRowEditIfNeeded();
+      if (!canLeave) return;
+    }
     setEditMode((v) => {
       const next = !v;
       if (next) setEditingVehiculoId(null);
@@ -2299,7 +2305,7 @@ export default function FimbaTransportPage() {
   };
 
   const cancelRowEdit = (eventoId) => {
-    const key = String(eventoId ?? editingRowId ?? "");
+    const key = String(eventoId ?? editingRowIdRef.current ?? "");
     if (!key) {
       setEditingRowId(null);
       setRowEditFocusField(null);
@@ -2332,6 +2338,47 @@ export default function FimbaTransportPage() {
     setRowEditFocusField(null);
   };
 
+  /** Dirty = borrador planilla/vehículo ≠ baseline (row-edit fuera de modo planilla). */
+  const isRowEditDirty = (eventoId) => {
+    const key = String(eventoId ?? "");
+    if (!key) return false;
+    if (savingEventRef.current.has(key)) return true;
+    const ev = (eventosRef.current || []).find((x) => String(x.id) === key);
+    if (!ev) return false;
+    const draft = eventDraftsRef.current[key] || draftFromEvent(ev);
+    const baseline = draftFromEvent(ev);
+    if (!planillaFieldsEqual(draft, baseline)) return true;
+    if (
+      canInlineAssignVehicle(ev) &&
+      String(draft.id_gira_transporte ?? "") !==
+        String(baseline.id_gira_transporte ?? "")
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  const leaveCurrentRowEditIfNeeded = async () => {
+    const currentId = editingRowIdRef.current;
+    if (currentId == null) return true;
+    if (savingEventRef.current.has(String(currentId))) return false;
+    if (!isRowEditDirty(currentId)) {
+      cancelRowEdit(currentId);
+      return true;
+    }
+    return resolveLeaveDirtyInlineRowEdit(confirm, {
+      save: async () => {
+        const ok = await commitEventoRef.current?.(currentId);
+        if (ok) {
+          setEditingRowId(null);
+          setRowEditFocusField(null);
+        }
+        return ok;
+      },
+      discard: () => cancelRowEdit(currentId),
+    });
+  };
+
   useEffect(() => {
     if (!editingCell && editingRowId == null) return undefined;
     const onKey = (e) => {
@@ -2346,11 +2393,18 @@ export default function FimbaTransportPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [editingCell, editingRowId]);
 
-  const beginRowEdit = (ev, focusField = null) => {
+  const beginRowEdit = async (ev, focusField = null) => {
     if (readOnly || editMode || ev?.es_contexto_agenda) return;
     const key = String(ev.id);
-    if (editingRowId != null && editingRowId !== key) {
-      cancelRowEdit(editingRowId);
+    if (editingRowIdRef.current != null && editingRowIdRef.current === key) {
+      if (focusField && INLINE_CELL_FIELDS.has(focusField)) {
+        setRowEditFocusField(focusField);
+      }
+      return;
+    }
+    if (editingRowIdRef.current != null && editingRowIdRef.current !== key) {
+      const canLeave = await leaveCurrentRowEditIfNeeded();
+      if (!canLeave) return;
     }
     setEventDrafts((prev) => {
       const n = { ...prev, [key]: draftFromEvent(ev) };
@@ -2566,6 +2620,8 @@ export default function FimbaTransportPage() {
       setRowEditFocusField(null);
     }
   };
+
+  commitEventoRef.current = commitEvento;
 
   const changeAndCommitEvento = (eventoId, field, value) => {
     const key = String(eventoId);
@@ -4015,8 +4071,8 @@ export default function FimbaTransportPage() {
                     >
                       H.Inic.
                     </th>
-                    <th title="Locación de catálogo de esta parada (origen del tramo)">
-                      Origen
+                    <th title="Locación de catálogo de esta parada">
+                      Locación
                     </th>
                     <th
                       className="fimba-planilla-insert-col"
@@ -4708,10 +4764,10 @@ export default function FimbaTransportPage() {
                             readOnly
                               ? locacion
                               : isCellEditing(ev.id, "locacion")
-                                ? "Buscar o crear origen (locación)"
+                                ? "Buscar o crear locación"
                                 : editMode
-                                  ? "Clic para cambiar origen (buscar / crear)"
-                                  : "Doble clic en la fila para editar origen"
+                                  ? "Clic para cambiar locación (buscar / crear)"
+                                  : "Doble clic en la fila para editar locación"
                           }
                           onClick={
                             readOnly || !editMode
@@ -5424,19 +5480,18 @@ export default function FimbaTransportPage() {
                   (eventosRef.current || []).find(
                     (x) => String(x.id) === String(desde.id),
                   ) || desde;
-                const key = String(row.id);
-                setEventDrafts((prev) => {
-                  if (prev[key]) return prev;
-                  const n = { ...prev, [key]: draftFromEvent(row) };
-                  eventDraftsRef.current = n;
-                  return n;
-                });
                 if (editMode) {
+                  const key = String(row.id);
+                  setEventDrafts((prev) => {
+                    if (prev[key]) return prev;
+                    const n = { ...prev, [key]: draftFromEvent(row) };
+                    eventDraftsRef.current = n;
+                    return n;
+                  });
                   setEditingCell({ eventId: key, field: "actividad" });
                 } else {
                   setEditingCell(null);
-                  setEditingRowId(key);
-                  setRowEditFocusField("actividad");
+                  void beginRowEdit(row, "actividad");
                 }
               }
             }}

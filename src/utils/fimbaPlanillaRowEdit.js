@@ -56,3 +56,34 @@ export function agendaRowEditFieldsEqual(a, b) {
     (k) => String(a?.[k] ?? "") === String(b?.[k] ?? ""),
   );
 }
+
+/** ConfirmDialog (useConfirmDialog + secondaryAction) al salir de row-edit dirty. */
+export const UNSAVED_INLINE_ROW_EDIT_CONFIRM = {
+  title: "Cambios sin guardar",
+  message:
+    "Hay cambios sin guardar en la fila en edición. Guardá, descartá o quedate en la fila actual.",
+  confirmText: "Guardar",
+  cancelText: "Cancelar",
+  secondaryAction: {
+    label: "Descartar",
+    value: "discard",
+    className:
+      "w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm font-bold text-rose-700 hover:bg-rose-50 rounded-lg transition-colors",
+  },
+};
+
+/**
+ * Prompt Guardar / Cancelar / Descartar al abandonar una fila inline dirty.
+ * @returns {Promise<boolean>} true si se puede continuar (saved o discarded).
+ */
+export async function resolveLeaveDirtyInlineRowEdit(confirm, { save, discard }) {
+  const choice = await confirm(UNSAVED_INLINE_ROW_EDIT_CONFIRM);
+  if (choice === "confirm" || choice === true) {
+    return !!(await save());
+  }
+  if (choice === "discard" || choice === "secondary") {
+    discard?.();
+    return true;
+  }
+  return false;
+}

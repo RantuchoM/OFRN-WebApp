@@ -7,10 +7,18 @@ const DESTRUCTIVE_CLASS =
 /**
  * Confirmaciones async con ConfirmDialog (reemplazo de window.confirm / alert).
  *
+ * Con `secondaryAction`, resuelve `"confirm" | "cancel" | secondaryAction.value`
+ * (default `"secondary"`). Sin secondary: boolean `true` / `false`.
+ *
  * @example
  * const { confirm, alert, dialog } = useConfirmDialog();
  * if (!(await confirm({ title: "Eliminar", message: "¿Seguro?", destructive: true }))) return;
  * await alert({ title: "Aviso", message: "No hay datos." });
+ * const choice = await confirm({
+ *   title: "Cambios sin guardar",
+ *   confirmText: "Guardar",
+ *   secondaryAction: { label: "Descartar", value: "discard" },
+ * });
  * // ...
  * return <>{dialog}...</>;
  */
@@ -31,6 +39,9 @@ export function useConfirmDialog() {
       resolverRef.current = null;
     }
 
+    const secondary = options.secondaryAction || null;
+    const choiceMode = Boolean(secondary) || options.choice === true;
+
     return new Promise((resolve) => {
       resolverRef.current = resolve;
       setState({
@@ -44,6 +55,14 @@ export function useConfirmDialog() {
           : options.confirmClassName,
         messageIsHtml: !!options.messageIsHtml,
         overlayClassName: options.overlayClassName,
+        choiceMode,
+        secondaryAction: secondary
+          ? {
+              label: secondary.label ?? "Secundario",
+              className: secondary.className,
+              value: secondary.value ?? "secondary",
+            }
+          : null,
       });
     });
   }, []);
@@ -83,8 +102,15 @@ export function useConfirmDialog() {
     hideCancel: state?.hideCancel,
     confirmClassName: state?.confirmClassName,
     overlayClassName: state?.overlayClassName,
-    onClose: () => settle(false),
-    onConfirm: () => settle(true),
+    secondaryAction: state?.secondaryAction
+      ? {
+          label: state.secondaryAction.label,
+          className: state.secondaryAction.className,
+          onClick: () => settle(state.secondaryAction.value),
+        }
+      : null,
+    onClose: () => settle(state?.choiceMode ? "cancel" : false),
+    onConfirm: () => settle(state?.choiceMode ? "confirm" : true),
   });
 
   return { confirm, alert, dialog };
