@@ -2240,8 +2240,8 @@ export default function MealsManager({
 
   const getEligiblePeopleRaw = useCallback(
     (row) => {
-      // Sin audiencia OFRN (GRP:NONE, o convocados∅ + grupos∅) → solo artistas FIMBA.
-      // Grupos sin convocados sí cuentan (eje vacío = no filtra; AND con grupos).
+      // Sin audiencia OFRN (GRP:NONE sin grupos, o convocados∅ + grupos∅) → solo artistas FIMBA.
+      // Grupos tienen prioridad sobre Nadie; grupos sin convocados sí cuentan (AND).
       if (!mealRowHasOfrnAudience(row)) return [];
       return (roster || []).filter((p) =>
         isPersonEligibleForMealSlot(

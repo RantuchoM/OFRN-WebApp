@@ -49,12 +49,20 @@ function mealRowGrupoIds(row) {
   return [];
 }
 
+function positiveMealConvocados(convocados) {
+  return (Array.isArray(convocados) ? convocados : []).filter((tag) => {
+    if (tag == null || tag === "") return false;
+    const key = String(tag);
+    return key !== ROSTER_CATEGORIES.NONE && key !== "GRP:NONE";
+  });
+}
+
 function mealRowHasOfrnAudience(row) {
   if (!row || row.isTemp) return false;
+  // Grupos OFRN tienen prioridad sobre GRP:NONE (Nadie).
+  if (mealRowGrupoIds(row).length > 0) return true;
   if (isNobodyConvocados(row.convocados)) return false;
-  const hasConv = Array.isArray(row.convocados) && row.convocados.length > 0;
-  if (hasConv) return true;
-  return mealRowGrupoIds(row).length > 0;
+  return positiveMealConvocados(row.convocados).length > 0;
 }
 
 function mealRowHasArtistTags(row) {
@@ -175,6 +183,20 @@ const nobody = {
   convocados: [ROSTER_CATEGORIES.NONE],
   propuestas: [],
 };
+const nobodyWithGrupo = {
+  id: 7,
+  servicio: "Almuerzo",
+  convocados: [ROSTER_CATEGORIES.NONE],
+  selectedGrupos: [10],
+  propuestas: [],
+};
+const nobodyWithGrupoEmbed = {
+  id: 8,
+  servicio: "Almuerzo",
+  convocados: [ROSTER_CATEGORIES.NONE],
+  eventos_grupos: [{ id_grupo: 12 }],
+  propuestas: [],
+};
 const emptyBoth = {
   id: 5,
   servicio: "Almuerzo",
@@ -199,6 +221,18 @@ assert(mealRowIsSoloOrquesta(orchestraTutti) === true, "Tutti sin artistas = sol
 assert(mealRowIsSoloOrquesta(orchestraGrupos) === true, "Grupos OFRN sin artistas = solo orquesta");
 assert(mealRowIsSoloOrquesta(mixedArtists) === false, "Con artista no es solo orquesta");
 assert(mealRowIsSoloOrquesta(nobody) === false, "Nadie (GRP:NONE) no es solo orquesta");
+assert(
+  mealRowHasOfrnAudience(nobodyWithGrupo) === true,
+  "Nadie + selectedGrupos = audiencia OFRN (grupo gana)",
+);
+assert(
+  mealRowHasOfrnAudience(nobodyWithGrupoEmbed) === true,
+  "Nadie + eventos_grupos = audiencia OFRN",
+);
+assert(
+  mealRowIsSoloOrquesta(nobodyWithGrupo) === true,
+  "Nadie + grupo sin artistas = solo orquesta",
+);
 assert(mealRowIsSoloOrquesta(emptyBoth) === false, "Ambos ejes vacíos no es solo orquesta");
 assert(mealRowIsSoloOrquesta(vacancy) === false, "Vacante no es solo orquesta");
 

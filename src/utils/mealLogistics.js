@@ -367,8 +367,9 @@ export function mealRowHasArtistTags(row) {
 }
 
 /**
- * Comida ÃÂ«solo orquestaÃÂ»: sin artistas FIMBA y con audiencia OFRN
- * (convocados y/o grupos; no `GRP:NONE` ni ambos ejes vacÃÂ­os).
+ * Comida «solo orquesta»: sin artistas FIMBA y con audiencia OFRN
+ * (convocados positivos y/o grupos; no `GRP:NONE` solo ni ambos ejes vacíos).
+ * `GRP:NONE` + grupos sí cuenta (el grupo gana a Nadie).
  */
 export function mealRowIsSoloOrquesta(row) {
   if (!row || row.isTemp) return false;
@@ -834,9 +835,14 @@ export function isPersonEligibleForMealSlot(
     return false;
   }
 
-  if (convocados?.length) {
+  const requiredGrupos = [
+    ...new Set((grupoIds || []).map(Number).filter(Number.isFinite)),
+  ];
+  // Grupos presentes → ignorar GRP:NONE en el eje convocados (prioridad grupo).
+  const effectiveConv = effectiveMealConvocados(convocados, requiredGrupos);
+  if (effectiveConv.length) {
     if (
-      !isUserConvoked(convocados, person, {
+      !isUserConvoked(effectiveConv, person, {
         ...options,
         fecha,
         servicio,
@@ -846,9 +852,6 @@ export function isPersonEligibleForMealSlot(
     }
   }
 
-  const requiredGrupos = [
-    ...new Set((grupoIds || []).map(Number).filter(Number.isFinite)),
-  ];
   if (requiredGrupos.length > 0) {
     let mine;
     if (options.personGrupoIds instanceof Set) {
@@ -877,8 +880,7 @@ export function isPersonEligibleForMealSlot(
   // fuera de comida_inicio/fin (p. ej. vianda de regreso el dÃÂÃÂÃÂÃÂ­a siguiente).
   // No aplica a quien entrÃÂÃÂÃÂÃÂ³ solo por GRP:/ENS:/FAM: vÃÂÃÂÃÂÃÂ­a OR en la misma lista.
   if (
-    Array.isArray(convocados) &&
-    convocados.some(
+    effectiveConv.some(
       (tag) =>
         String(tag).startsWith("LOC:") &&
         personMatchesLocConvocadoTag(person, tag),
@@ -973,20 +975,49 @@ export function mealRowGrupoIds(row) {
 }
 
 /**
- * ÃÂÃÂÃÂÃÂ¿La fila tiene audiencia OFRN (convocados y/o grupos de convocatoria)?
- * - `GRP:NONE` ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ no (artistas FIMBA siguen aditivos).
- * - Ambos ejes vacÃÂÃÂÃÂÃÂ­os ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ no (catering solo-artista).
- * - Un eje vacÃÂÃÂÃÂÃÂ­o no filtra (AND); grupos sin convocados sÃÂÃÂÃÂÃÂ­ cuentan OFRN.
+ * Tags de convocados OFRN sin el sentinel `GRP:NONE` (Nadie).
+ * @param {Array<string|number>|null|undefined} convocados
+ * @returns {Array<string|number>}
+ */
+export function positiveMealConvocados(convocados) {
+  return (Array.isArray(convocados) ? convocados : []).filter((tag) => {
+    if (tag == null || tag === "") return false;
+    const key = String(tag);
+    return key !== ROSTER_CATEGORIES.NONE && key !== "GRP:NONE";
+  });
+}
+
+/**
+ * Convocados efectivos para elegibilidad de comida.
+ * Si hay ≥1 grupo OFRN en el evento, `GRP:NONE` se ignora (el grupo tiene
+ * prioridad sobre Nadie). Tags positivos se conservan (AND con grupos).
+ * Sin grupos, la lista se deja intacta (Nadie → 0 OFRN vía isUserConvoked).
+ * @param {Array<string|number>|null|undefined} convocados
+ * @param {number[]|null|undefined} grupoIds
+ * @returns {Array<string|number>}
+ */
+export function effectiveMealConvocados(convocados, grupoIds) {
+  const hasGrupos = (grupoIds || [])
+    .map(Number)
+    .some((id) => Number.isFinite(id));
+  if (hasGrupos) return positiveMealConvocados(convocados);
+  return Array.isArray(convocados) ? [...convocados] : [];
+}
+
+/**
+ * ¿La fila tiene audiencia OFRN (convocados y/o grupos de convocatoria)?
+ * - ≥1 grupo → sí (prioridad sobre `GRP:NONE`; artistas FIMBA siguen aditivos).
+ * - `GRP:NONE` sin grupos → no.
+ * - Ambos ejes vacíos → no (catering solo-artista).
+ * - Un eje vacío no filtra (AND); grupos sin convocados sí cuentan OFRN.
  * @param {object} row
  * @returns {boolean}
  */
 export function mealRowHasOfrnAudience(row) {
   if (!row || row.isTemp) return false;
+  if (mealRowGrupoIds(row).length > 0) return true;
   if (isNobodyConvocados(row.convocados)) return false;
-  const hasConv =
-    Array.isArray(row.convocados) && row.convocados.length > 0;
-  if (hasConv) return true;
-  return mealRowGrupoIds(row).length > 0;
+  return positiveMealConvocados(row.convocados).length > 0;
 }
 
 /**
