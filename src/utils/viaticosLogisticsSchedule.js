@@ -206,7 +206,13 @@ function mergeLogisticsEntries(entries) {
   return { ...salidaMeta, ...llegadaMeta };
 }
 
-/** Horarios de transporte personales (subida/bajada asignadas en logística). */
+/**
+ * Horarios de transporte personales (subida/bajada asignadas en logística).
+ * Por integrante: **primera ↑** (min fecha-hora) y **última ↓** (max) en **cualquier**
+ * transporte de la gira. Depende de `calculateLogisticsSummary`, que por unidad
+ * ya colapsa hops multi-leg a primera ↑ / última ↓ (no last-wins).
+ * Ausentes: `getMatchStrength` = 0 → sin reglas de ruta → sin fechas.
+ */
 export function buildPersonalLogisticsFromSummary(summary) {
   const map = {};
   (summary || []).forEach((person) => {
@@ -494,7 +500,8 @@ export function headerInfoToTravelSchedule(headerInfo) {
 
 /**
  * Mapa id_integrante → horarios para viáticos.
- * Prioridad: transporte (subida/bajada por persona) → reglas de ruta / pares de la localidad de viáticos.
+ * Prioridad: transporte personal (primera ↑ / última ↓ en cualquier unidad) →
+ * reglas de ruta / pares de la localidad de viáticos.
  */
 export function buildViaticosLogisticsMap({
   summary,

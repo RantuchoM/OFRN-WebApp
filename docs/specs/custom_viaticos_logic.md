@@ -65,6 +65,12 @@ COMMENT ON COLUMN public.giras_viaticos_config.rendicion_fecha IS 'Fecha límite
 - [x] **Logística en tramos desdoblados** (`resolveViaticoRowLogData` en `viaticosLogisticsSchedule.js`): filas con `id_evento_parada_inicio` / `id_evento_parada_fin` conservan fechas del tramo y resuelven **patente oficial** (y etiquetas de parada salida/llegada) desde el transporte de la parada de inicio, con fallback al `logisticsMap` del integrante. Usado en `ViaticosTable` y en `buildSelectedExportData` de `ViaticosManager`.
 - [x] **Vehículo oficial** (`transportes.es_oficial`): si el bus de catálogo es oficial, exportación de viáticos/destaques tilda `check_patente_oficial` (`resolveCheckPatenteOficial`). Spec: `docs/specs/transportes-es-oficial.md`.
 - [x] **Horario por localidad con varios charters** (`findBestRouteRule`): mantiene Localidad > Región > General; a igual alcance, la subida usa el evento **más temprano** y la bajada el **más tardío** (p. ej. Villa Regina: charter 05/08 + bajada 08/08). Consumido por destaques masivos y schedules de localidad.
+- [x] **Ventana individual = primera ↑ / última ↓ (2026-09-10):** para **todos** los integrantes OFRN, `fecha_salida` / `fecha_llegada` del viático salen de la logística de transporte (`giras_logistica_rutas`, IDs numéricos):
+  - **Inicio:** primera subida (↑) del integrante en **cualquier** `giras_transportes` de la gira.
+  - **Fin:** última bajada (↓) en cualquier transporte de la gira.
+  - Implementación: `calculateLogisticsSummary` (por unidad, a igual fuerza de match: ↑ más temprana / ↓ más tardía; corrige el bug `p >=` last-wins que en hops multi-leg dejaba solo el último viaje, p. ej. Fernández gira 12: 21/09 en lugar de 13/09) → `buildPersonalLogisticsFromSummary` / `buildViaticosLogisticsMap` (min ↑ / max ↓ entre unidades).
+  - `estado_gira === 'ausente'`: fuerza de match 0 → sin fechas de transporte (regla de proyecto).
+  - Ejemplo gira 12 (Carla Fernández, id `8525695`): reglas Persona en unidad 226 — ↑13/09 07:00↓13/09 16:00 y ↑21/09 15:00↓21/09 23:00 → ventana viático **13/09 07:00 → 21/09 23:00**.
 - [x] **Doc. vehículo y chofer (export opcional)**: la documentación del vehículo y el carnet/DNI del chofer (`collectTransportSupportDocs` en `ViaticosManager`) **ya no** se adjuntan automáticamente al marcar Doc. Común o Doc. Reducida. Checkbox explícito **«Doc. del vehículo y chofer»** (`docVehiculoChofer`) en `ViaticosBulkEditPanel` y `LocationBulkPanel`; solo se incluyen PDFs de logística si el usuario lo tilda.
 
 ## 4. Archivos tocados
@@ -79,4 +85,5 @@ COMMENT ON COLUMN public.giras_viaticos_config.rendicion_fecha IS 'Fecha límite
 | Export pre-check | `src/utils/viaticosExportMotivoLugar.js` |
 | Lugar comisión auto | `src/utils/viaticosParadasIntegrante.js` (`resolveLugarComisionAutoForRow`) |
 | Logística tramos | `src/utils/viaticosLogisticsSchedule.js` (`resolveViaticoRowLogData`) |
+| Primera ↑ / última ↓ | `src/hooks/useLogistics.js` (`calculateLogisticsSummary`) + `buildPersonalLogisticsFromSummary` |
 | Esquema | `supabase/schema.sql` |

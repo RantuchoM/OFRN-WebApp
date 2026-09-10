@@ -974,27 +974,19 @@ export default function GirasTransportesManager({
     return relevantRules.map((r) => {
       const scopeNorm = normalize(r.alcance);
 
+      // Hop-aware (paridad FIMBA summarizeOfrnStopRules): contar quien matchea
+      // *esta* regla en este extremo. No exigir subidaId/bajadaId ganador
+      // (primera/última de calculateLogisticsSummary) — si no, hops intermedios
+      // y altas multi-leg quedan en 0 hasta un reload manual.
       const actualPassengers = passengerList.filter((p) => {
-        const matchesStop = matchesRule(r, p, localitiesList);
-        if (!matchesStop) return false;
-
+        if (p?.estado_gira === "ausente" || p?.estado_gira === "baja") {
+          return false;
+        }
+        if (!matchesRule(r, p, localitiesList)) return false;
         const tr = p.logistics?.transports?.find(
           (t) => String(t.id) === String(transportId),
         );
-        if (!tr) return false;
-
-        const eventIdMatch =
-          type === "up"
-            ? String(tr.subidaId) === String(eventId)
-            : String(tr.bajadaId) === String(eventId);
-        if (!eventIdMatch) return false;
-
-        // Solo contamos si esta regla es la que efectivamente define
-        // el trayecto para esta persona y este evento/transport.
-        const winningScope =
-          type === "up" ? tr.subidaScope || "" : tr.bajadaScope || "";
-
-        return scopeNorm === winningScope;
+        return Boolean(tr);
       });
       const actualIds = new Set(actualPassengers.map((p) => String(p.id)));
       const count = actualPassengers.length;
@@ -1020,7 +1012,7 @@ export default function GirasTransportesManager({
       const scope = r.alcance;
       if (scope === "General") label = "Todos";
       else if (scope === "Persona") {
-        const p = roster?.find((mus) => mus.id === r.id_integrante);
+        const p = roster?.find((mus) => String(mus.id) === String(r.id_integrante));
         label = p ? `${p.apellido}` : "Individual";
       } else if (scope === "Region") {
         const reg = regionsList.find(
@@ -1034,6 +1026,10 @@ export default function GirasTransportesManager({
         label = loc ? loc.localidad : "Loc";
       } else if (scope === "Categoria") {
         label = r.target_ids?.[0] || "Categoría";
+      } else if (scope === "Grupo") {
+        const gid = r.target_ids?.[0];
+        const g = (giraGrupos || []).find((x) => String(x.id) === String(gid));
+        label = g?.nombre || "Grupo";
       } else {
         label = scope;
       }
@@ -4067,6 +4063,7 @@ export default function GirasTransportesManager({
           localities={localitiesList}
           passengers={passengerList}
           admissionRules={admissionRules}
+          routeRules={routeRules}
           giraGrupos={giraGrupos}
           sortedEvents={sortEventsBySchedule(
             transportEvents[rulesModal.transportId] || [],

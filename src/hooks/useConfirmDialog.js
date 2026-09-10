@@ -7,8 +7,9 @@ const DESTRUCTIVE_CLASS =
 /**
  * Confirmaciones async con ConfirmDialog (reemplazo de window.confirm / alert).
  *
- * Con `secondaryAction`, resuelve `"confirm" | "cancel" | secondaryAction.value`
- * (default `"secondary"`). Sin secondary: boolean `true` / `false`.
+ * Con `secondaryAction` y/o `tertiaryAction` (o `choice: true`), resuelve
+ * `"confirm" | "cancel" | secondaryAction.value | tertiaryAction.value`.
+ * Sin acciones extra: boolean `true` / `false`.
  *
  * @example
  * const { confirm, alert, dialog } = useConfirmDialog();
@@ -18,6 +19,7 @@ const DESTRUCTIVE_CLASS =
  *   title: "Cambios sin guardar",
  *   confirmText: "Guardar",
  *   secondaryAction: { label: "Descartar", value: "discard" },
+ *   tertiaryAction: { label: "Otra opción", value: "other" },
  * });
  * // ...
  * return <>{dialog}...</>;
@@ -40,7 +42,9 @@ export function useConfirmDialog() {
     }
 
     const secondary = options.secondaryAction || null;
-    const choiceMode = Boolean(secondary) || options.choice === true;
+    const tertiary = options.tertiaryAction || null;
+    const choiceMode =
+      Boolean(secondary) || Boolean(tertiary) || options.choice === true;
 
     return new Promise((resolve) => {
       resolverRef.current = resolve;
@@ -61,6 +65,13 @@ export function useConfirmDialog() {
               label: secondary.label ?? "Secundario",
               className: secondary.className,
               value: secondary.value ?? "secondary",
+            }
+          : null,
+        tertiaryAction: tertiary
+          ? {
+              label: tertiary.label ?? "Terciario",
+              className: tertiary.className,
+              value: tertiary.value ?? "tertiary",
             }
           : null,
       });
@@ -107,6 +118,13 @@ export function useConfirmDialog() {
           label: state.secondaryAction.label,
           className: state.secondaryAction.className,
           onClick: () => settle(state.secondaryAction.value),
+        }
+      : null,
+    tertiaryAction: state?.tertiaryAction
+      ? {
+          label: state.tertiaryAction.label,
+          className: state.tertiaryAction.className,
+          onClick: () => settle(state.tertiaryAction.value),
         }
       : null,
     onClose: () => settle(state?.choiceMode ? "cancel" : false),

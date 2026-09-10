@@ -3,7 +3,9 @@
  *
  * Equivalencia OFRN (hoja de ruta / `buildRoadmapExportData` en roadmapExport.js):
  * - En **Giras OFRN**, `calculateLogisticsSummary` colapsa a un solo
- *   `subidaId` / `bajadaId` por persona×unidad (primera/última ganadora).
+ *   `subidaId` / `bajadaId` por persona×unidad: a igual fuerza, **primera ↑**
+ *   y **última ↓** cronológicas (no last-wins). Viáticos usan ese colapso
+ *   + min/max entre unidades (`buildPersonalLogisticsFromSummary`).
  * - En **FIMBA**, cada fila de `giras_logistica_rutas` es un hop: se cuenta
  *   ↑ en *cada* `id_evento_subida` y ↓ en *cada* `id_evento_bajada`.
  *   `en_transito` no duplica a la misma persona si varios hops se solapan.
@@ -25,6 +27,14 @@
  * Modelo duro — **un vehículo = una línea de ocupación**:
  * OFRN + FIMBA comparten la misma secuencia cronológica, el mismo Δ y el
  * mismo «a bordo». No hay mundos de conteo separados por organización.
+ *
+ * «Pausa · vehículo libre» (same-loc consecutive) **no** resetea en_transito:
+ * solo blankea Destino/Hora fin y libera ranking al programar. Un ride
+ * abierto (↑ sin ↓) sigue ocupando plazas tras la pausa y el cambio de día.
+ *
+ * Rutas FIMBA con `id_gira_transporte` ≠ flota del evento ↑ se excluyen del
+ * conteo de ese vehículo (`isFimbaPropuestaRutaFleetAligned`) para no inventar
+ * plazas fantasma cuando la planilla filtrada oculta la subida.
  *
  * Δ en parada = board_seats − alight_seats (net; bajadas dejan de contar en
  * en_transito vía isOnBoardAfterStop: downIdx > i).
@@ -736,9 +746,9 @@ export function isOpenFimbaRide(ruta) {
  *
  * Importante: un ride abierto NO hace match de eventos ajenos a la secuencia
  * (conciertos/check-ins de otros artistas). Eso rompía el filtro Artista de
- * Agenda (`eventMatchesPropuestaRouteFilter` → 171/171). Desde 2026-09-09 el
- * filtro artista de agenda **ya no** usa «a bordo» para incluir traslados;
- * solo extremos ↑/↓ (esta helper sigue siendo la fuente de tránsito/Sube/Baja).
+ * Agenda (`eventMatchesPropuestaRouteFilter` → 171/171). El filtro artista
+ * (2026-09-10) vuelve a usar «a bordo» **solo** sobre la secuencia del
+ * vehículo (↑/↓/intermedias mientras el ride está abierto; tras ↓ no).
  *
  * @param {object|null} ruta
  * @param {unknown} currentEventId
@@ -1170,16 +1180,159 @@ export function buildFimbaSyntheticRides(
 }
 
 /**
+ * Ids de flota (`giras_transportes`) declarados en un evento (fila planilla o embed).
+ * @param {object|null|undefined} ev
+ * @returns {number[]}
+ */
+export function eventFleetGiraTransporteIds(ev) {
+  const ids = new Set();
+  for (const r of ev?.vehiculos || []) {
+    const n = Number(r?.id_gira_transporte);
+    if (Number.isFinite(n)) ids.add(n);
+  }
+  if (ev?.id_gira_transporte != null && ev.id_gira_transporte !== "") {
+    const n = Number(ev.id_gira_transporte);
+    if (Number.isFinite(n)) ids.add(n);
+  }
+  return [...ids];
+}
+
+/**
+ * Resuelve el evento ↑ de una ruta (embed o lookup).
+ * @param {object|null|undefined} ruta
+ * @param {Map<string, object>|Record<string, object>|null|undefined} eventById
+ */
+function resolveRutaSubidaEvent(ruta, eventById = null) {
+  if (!ruta) return null;
+  return resolveRideEndpointEvent(
+    ruta.id_evento_subida,
+    ruta.evento_subida,
+    eventById,
+  );
+}
+
+/**
+ * ¿La ruta FIMBA pertenece a la flota del vehículo `idGiraTransporte`?
+ *
+ * Si el evento ↑ declara flota (`vehiculos` / `id_gira_transporte`) y **ningún**
+ * id coincide con el gt de la ruta, es un desalineamiento (ruta mal asignada):
+ * no debe sumar plazas fantasma en ese vehículo. Sin flota en el ↑ → se confía
+ * en `ruta.id_gira_transporte` (true).
+ *
+ * Caso 2026-09-10: Sol Liebeskind ruta #50 con gt 226 pero ↑ en evento de gt 232
+ * → open ride sumaba +2 en Chevrolet tras la pausa aunque la planilla filtrada
+ * no mostraba la subida.
+ *
+ * @param {object|null|undefined} ruta
+ * @param {number|string|null|undefined} idGiraTransporte
+ * @param {Map<string, object>|Record<string, object>|null|undefined} [eventById]
+ */
+export function isFimbaPropuestaRutaFleetAligned(
+  ruta,
+  idGiraTransporte,
+  eventById = null,
+) {
+  const want = Number(
+    idGiraTransporte != null && idGiraTransporte !== ""
+      ? idGiraTransporte
+      : ruta?.id_gira_transporte,
+  );
+  if (!Number.isFinite(want) || !ruta) return true;
+  const upEv = resolveRutaSubidaEvent(ruta, eventById);
+  const fleet = eventFleetGiraTransporteIds(upEv);
+  if (fleet.length === 0) return true;
+  return fleet.some((id) => Number(id) === want);
+}
+
+/**
+ * Rutas FIMBA cuyo `id_gira_transporte` no coincide con la flota del evento ↑.
+ * Para panel de integridad en planilla Transportes.
+ *
+ * @param {{
+ *   propuestaRoutes?: Array<object>,
+ *   eventById?: Map<string, object>|Record<string, object>|null,
+ *   vehicleIds?: Array<number|string>|Set<number>|null,
+ * }} [opts]
+ * @returns {Array<{
+ *   key: string,
+ *   kind: 'fimba_fleet_mismatch',
+ *   label: string,
+ *   plazas: number,
+ *   color?: string|null,
+ *   id_gira_transporte: unknown|null,
+ *   endpointFleetIds: number[],
+ *   end: 'up',
+ *   eventId: unknown,
+ *   event: object|null,
+ *   whenLabel: string,
+ *   pairEventId: unknown|null,
+ *   rutaId: unknown|null,
+ *   openRide: boolean,
+ * }>}
+ */
+export function listFleetMismatchPropuestaRoutes(opts = {}) {
+  const {
+    propuestaRoutes = [],
+    eventById = null,
+    vehicleIds = null,
+    tipoById = null,
+  } = opts;
+  const want =
+    vehicleIds == null
+      ? null
+      : new Set(
+          [...(vehicleIds instanceof Set ? vehicleIds : vehicleIds)]
+            .map(Number)
+            .filter((n) => Number.isFinite(n)),
+        );
+
+  /** @type {Array<object>} */
+  const rows = [];
+  for (const r of propuestaRoutes || []) {
+    const tid = r?.id_gira_transporte ?? null;
+    if (want && want.size > 0 && !want.has(Number(tid))) continue;
+    const plazas = Math.max(0, Number(r?.plazas) || 0);
+    if (plazas <= 0) continue;
+    if (isFimbaPropuestaRutaFleetAligned(r, tid, eventById)) continue;
+    const upEv = resolveRutaSubidaEvent(r, eventById);
+    if (!upEv) continue;
+    const nombre =
+      r?.propuesta?.nombre ||
+      `Artista #${r?.id_propuesta ?? "?"}`;
+    rows.push({
+      key: `fimba-fleet-mismatch-${r.id ?? `${r.id_propuesta}-${r.id_evento_subida}`}`,
+      kind: "fimba_fleet_mismatch",
+      label: String(nombre).trim() || `Artista #${r.id_propuesta}`,
+      plazas,
+      color: r?.propuesta?.color || null,
+      id_gira_transporte: tid,
+      endpointFleetIds: eventFleetGiraTransporteIds(upEv),
+      end: "up",
+      eventId: upEv.id,
+      event: upEv,
+      whenLabel: formatOffTrayectoEndpointWhen(upEv, tipoById),
+      pairEventId: r.id_evento_bajada ?? null,
+      rutaId: r.id ?? null,
+      openRide: isOpenFimbaRide(r),
+    });
+  }
+  return rows;
+}
+
+/**
  * Ids de eventos que son ↑/↓ de rides explícitos FIMBA o OFRN en una unidad.
+ * Omite rutas FIMBA con flota ↑ desalineada (no inyectar stubs fantasma).
  * @param {Array<object>} propuestaRoutes
  * @param {Array<object>} ofrnRides
  * @param {number|string} idGiraTransporte
+ * @param {Map<string, object>|Record<string, object>|null|undefined} [eventById]
  * @returns {Set<string>}
  */
 export function collectVehicleRideEndpointIds(
   propuestaRoutes,
   ofrnRides,
   idGiraTransporte,
+  eventById = null,
 ) {
   const want = Number(idGiraTransporte);
   const ids = new Set();
@@ -1187,6 +1340,7 @@ export function collectVehicleRideEndpointIds(
     if (Number.isFinite(want) && Number(r?.id_gira_transporte) !== want) {
       continue;
     }
+    if (!isFimbaPropuestaRutaFleetAligned(r, want, eventById)) continue;
     if (r?.id_evento_subida != null && r.id_evento_subida !== "") {
       ids.add(String(r.id_evento_subida));
     }
@@ -2474,6 +2628,12 @@ export function buildAllVehicleBoardingSequences(opts = {}) {
         };
 
   const map = new Map();
+  /** @type {Map<string, object>} */
+  const eventById = new Map();
+  for (const ev of eventos || []) {
+    if (ev?.id == null || ev.id === "") continue;
+    eventById.set(String(ev.id), ev);
+  }
 
   for (const gt of vehiculos) {
     const tid = Number(gt.id);
@@ -2485,13 +2645,17 @@ export function buildAllVehicleBoardingSequences(opts = {}) {
       localities: ofrnLocalities,
       expandAllHops: true,
     });
+    // Excluye rutas con ↑ en flota de otro vehículo (plazas fantasma / open ride).
     const routesForVehicle = (propuestaRoutes || []).filter(
-      (r) => Number(r?.id_gira_transporte) === tid,
+      (r) =>
+        Number(r?.id_gira_transporte) === tid &&
+        isFimbaPropuestaRutaFleetAligned(r, tid, eventById),
     );
     const endpointIds = collectVehicleRideEndpointIds(
-      propuestaRoutes,
+      routesForVehicle,
       ofrnRides,
       tid,
+      eventById,
     );
     // Planilla trayectos omite Conciertos/etc.; merge stubs desde embeds de
     // rutas para que ↑/↓ fuera de planilla cierren el ride en la secuencia.
@@ -2511,7 +2675,7 @@ export function buildAllVehicleBoardingSequences(opts = {}) {
     const fimbaRides = buildFimbaRidesForVehicle(
       vehicleEvents,
       tid,
-      propuestaRoutes,
+      routesForVehicle,
       capacityFn,
     );
     const seq = buildVehicleBoardingSequence({

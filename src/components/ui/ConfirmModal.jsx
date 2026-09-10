@@ -20,10 +20,12 @@ export default function ConfirmModal({
   confirmDisabled = false,
   loadingText = "Procesando…",
   secondaryAction = null,
+  tertiaryAction = null,
 }) {
   if (!isOpen) return null;
 
   const busy = !!confirmLoading;
+  const hasExtraActions = Boolean(secondaryAction || tertiaryAction);
 
   const handleConfirm = async () => {
     if (busy || confirmDisabled) return;
@@ -38,7 +40,9 @@ export default function ConfirmModal({
   return createPortal(
     <div className={`fixed inset-0 ${overlayClassName} flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200 p-3 sm:p-4`}>
       <div
-        className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[min(90vh,36rem)] overflow-y-auto p-5 sm:p-6 transform transition-all scale-100 animate-in zoom-in-95 duration-200 border border-slate-100"
+        className={`bg-white rounded-xl shadow-2xl w-full max-h-[min(90vh,36rem)] overflow-y-auto p-5 sm:p-6 transform transition-all scale-100 animate-in zoom-in-95 duration-200 border border-slate-100 ${
+          hasExtraActions ? "max-w-lg" : "max-w-md"
+        }`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-modal-title"
@@ -83,7 +87,26 @@ export default function ConfirmModal({
           </button>
         </div>
 
-        <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-2 sm:gap-3">
+        <div
+          className={`mt-6 flex flex-col-reverse gap-2 sm:gap-3 ${
+            hasExtraActions
+              ? "sm:flex-row sm:flex-wrap sm:justify-end"
+              : "sm:flex-row sm:justify-end"
+          }`}
+        >
+          {tertiaryAction ? (
+            <button
+              type="button"
+              onClick={tertiaryAction.onClick}
+              disabled={busy || tertiaryAction.disabled}
+              className={
+                tertiaryAction.className ||
+                "w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm font-bold text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors disabled:opacity-50"
+              }
+            >
+              {tertiaryAction.label}
+            </button>
+          ) : null}
           {secondaryAction ? (
             <button
               type="button"

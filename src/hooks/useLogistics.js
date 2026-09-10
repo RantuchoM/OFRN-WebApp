@@ -334,6 +334,36 @@ export const calculateLogisticsSummary = (
         );
       };
 
+      /** Fecha-hora del extremo de ruta (para empate de prioridad). */
+      const routeEventDateTime = (evt) => {
+        if (!evt?.fecha) return null;
+        const dt = new Date(
+          `${evt.fecha}T${evt.hora_inicio || evt.hora || "00:00"}`,
+        );
+        return Number.isNaN(dt.getTime()) ? null : dt;
+      };
+
+      /**
+       * Colapso por persona×unidad: mayor fuerza gana; a igual fuerza,
+       * subida = evento más temprano, bajada = más tardío (primera ↑ / última ↓).
+       * Evita que hops multi-leg posteriores (p. ej. 21/09) pisen la ↑ del 13/09
+       * con `p >=` last-wins — eso corrían mal los viáticos.
+       */
+      const shouldTakeRouteEndpoint = (
+        prio,
+        existing,
+        candidateEvt,
+        preferEarliest,
+      ) => {
+        if (prio > existing.prio) return true;
+        if (prio < existing.prio) return false;
+        const candDt = routeEventDateTime(candidateEvt);
+        const existDt = routeEventDateTime(existing.data);
+        if (!candDt) return !existing.data;
+        if (!existDt) return true;
+        return preferEarliest ? candDt < existDt : candDt > existDt;
+      };
+
       myRoutes.forEach((r) => {
         const scope = normalize(r.alcance);
         const p = getMatchStrength(r, person, allLocalities);
@@ -347,22 +377,28 @@ export const calculateLogisticsSummary = (
         // Usar id_evento_* como fuente de verdad; el embed PostgREST puede
         // faltar y dejaba subidaId/bajadaId en null aunque la regla existiera
         // (síntoma típico: bajada OFRN «guardada» que no mueve el tránsito).
-        if (r.id_evento_subida && allowSubida && p >= sub.prio) {
-          sub = {
-            prio: p,
-            data: resolveRouteEvent(r.evento_subida, r.id_evento_subida),
-            scope,
-            rawId: r.id_evento_subida,
-            es_chofer: Boolean(r.es_chofer),
-          };
+        if (r.id_evento_subida && allowSubida) {
+          const data = resolveRouteEvent(r.evento_subida, r.id_evento_subida);
+          if (shouldTakeRouteEndpoint(p, sub, data, true)) {
+            sub = {
+              prio: p,
+              data,
+              scope,
+              rawId: r.id_evento_subida,
+              es_chofer: Boolean(r.es_chofer),
+            };
+          }
         }
-        if (r.id_evento_bajada && allowBajada && p >= baj.prio) {
-          baj = {
-            prio: p,
-            data: resolveRouteEvent(r.evento_bajada, r.id_evento_bajada),
-            scope,
-            rawId: r.id_evento_bajada,
-          };
+        if (r.id_evento_bajada && allowBajada) {
+          const data = resolveRouteEvent(r.evento_bajada, r.id_evento_bajada);
+          if (shouldTakeRouteEndpoint(p, baj, data, false)) {
+            baj = {
+              prio: p,
+              data,
+              scope,
+              rawId: r.id_evento_bajada,
+            };
+          }
         }
       });
 
@@ -620,9 +656,12 @@ export function useLogistics(supabase, gira, trigger = 0) {
     return res;
   }, [baseRoster, db]);
 
-  const refresh = useCallback(() => {
-    refreshRoster();
-    fetchAll();
+  /** Refetch roster + rutas/admisión/eventos. Awaitable so UI chips wait for new rules. */
+  const refresh = useCallback(async () => {
+    await Promise.all([
+      Promise.resolve(refreshRoster()),
+      fetchAll(),
+    ]);
   }, [refreshRoster, fetchAll]);
 
   return {

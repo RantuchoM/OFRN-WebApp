@@ -382,7 +382,7 @@ export default function FimbaStopRulesManager({
     }
     setRuleSync((s) => ({ ...s, [ruta.id]: "saved" }));
     await reloadRutas();
-    onRefresh?.("rutas");
+    await onRefresh?.("rutas");
   };
 
   const persistRutaLuggage = async (ruta, patch) => {
@@ -413,7 +413,7 @@ export default function FimbaStopRulesManager({
     }
     setRuleSync((s) => ({ ...s, [ruta.id]: "saved" }));
     await reloadRutas();
-    onRefresh?.("rutas");
+    await onRefresh?.("rutas");
   };
 
   const persistRutaChofer = async (ruta, nextChofer) => {
@@ -441,7 +441,7 @@ export default function FimbaStopRulesManager({
     }
     setRuleSync((s) => ({ ...s, [ruta.id]: "saved" }));
     await reloadRutas();
-    onRefresh?.("rutas");
+    await onRefresh?.("rutas");
   };
 
   const handleAdd = async () => {
@@ -508,7 +508,7 @@ export default function FimbaStopRulesManager({
     setEsChofer(false);
     await reloadRutas();
     await reloadReserva();
-    onRefresh?.("rutas");
+    await onRefresh?.("rutas");
   };
 
   const handleDelete = async (ruta) => {
@@ -533,7 +533,7 @@ export default function FimbaStopRulesManager({
       }
       await reloadRutas();
       await reloadReserva();
-      onRefresh?.("rutas");
+      await onRefresh?.("rutas");
     } finally {
       setDeletingRutaId(null);
     }
@@ -567,7 +567,7 @@ export default function FimbaStopRulesManager({
       }
       await reloadRutas();
       await reloadReserva();
-      onRefresh?.("rutas");
+      await onRefresh?.("rutas");
     } finally {
       setQuickAlightBusyId(null);
     }
@@ -610,7 +610,7 @@ export default function FimbaStopRulesManager({
     }
     await reloadRutas();
     await reloadReserva();
-    onRefresh?.("rutas");
+    await onRefresh?.("rutas");
   };
 
   const handleSaveReserva = async () => {
@@ -637,7 +637,7 @@ export default function FimbaStopRulesManager({
     }
     setReservaSync("saved");
     await reloadReserva();
-    onRefresh?.("reserva");
+    await onRefresh?.("reserva");
   };
 
   if (!isOpen || !event) return null;
@@ -1366,8 +1366,8 @@ export default function FimbaStopRulesManager({
                     admissionRules={admissionRules}
                     sortedEvents={sortedEvents}
                     giraGrupos={giraGrupos}
-                    onRefresh={() => {
-                      onRefresh?.("ofrn");
+                    onRefresh={async () => {
+                      await onRefresh?.("ofrn");
                     }}
                   />
                 )}

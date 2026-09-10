@@ -45,6 +45,7 @@ import {
   clearFimbaPropuestaRutaStop,
   computeFimbaCapacity,
   decodeFimbaTrasladoDescripcion,
+  deleteFimbaPropuestaRuta,
   deleteFimbaTraslado,
   deleteFimbaEventosBulk,
   findBoardingLinksForEvent,
@@ -81,6 +82,7 @@ import {
   formatBoardChipLabel,
   formatEventLocation,
   isVehiclePauseBetweenStops,
+  listFleetMismatchPropuestaRoutes,
   listOffTrayectoRideEndpoints,
   previousAssignedStopInVehicleSequence,
   nextAssignedStopInVehicleSequence,
@@ -1041,7 +1043,6 @@ export default function FimbaTransportPage() {
   const propuestasRef = useRef(propuestas);
   propuestasRef.current = propuestas;
   const edicionRef = useRef(edicion);
-  const rutasRefreshTimerRef = useRef(null);
   edicionRef.current = edicion;
 
   const refreshLocations = useCallback(async () => {
@@ -1439,37 +1440,19 @@ export default function FimbaTransportPage() {
     [vehiculos, softRefresh],
   );
 
-  /** Coalesce rapid Sube/Baja / luggage writes → one rutas fetch. */
-  const softRefreshRutasDebounced = useCallback(() => {
-    if (rutasRefreshTimerRef.current) {
-      clearTimeout(rutasRefreshTimerRef.current);
-    }
-    rutasRefreshTimerRef.current = setTimeout(() => {
-      rutasRefreshTimerRef.current = null;
-      softRefresh({ rutas: true });
-    }, 400);
-  }, [softRefresh]);
-
-  useEffect(
-    () => () => {
-      if (rutasRefreshTimerRef.current) {
-        clearTimeout(rutasRefreshTimerRef.current);
-      }
-    },
-    [],
-  );
-
   const handleBoardingRefresh = useCallback(
-    (scope) => {
+    async (scope) => {
       if (scope === "ofrn") {
-        softRefresh({ logistics: true });
+        // Orquesta OFRN: chips Subidas/Bajadas leen ofrnRouteRules del slice logistics.
+        await softRefresh({ logistics: true });
       } else if (scope === "reserva" || scope === "eventos") {
-        softRefresh({ eventos: true, rutas: scope === "reserva" });
+        await softRefresh({ eventos: true, rutas: scope === "reserva" });
       } else {
-        softRefreshRutasDebounced();
+        // Artistas FIMBA: refresh inmediato para chips sin reload de página.
+        await softRefresh({ rutas: true });
       }
     },
-    [softRefresh, softRefreshRutasDebounced],
+    [softRefresh],
   );
 
   useEffect(() => {
@@ -2027,6 +2010,26 @@ export default function FimbaTransportPage() {
     ],
   );
 
+  /** Rutas FIMBA con gt distinto a la flota del evento ↑ (plazas fantasma). */
+  const fleetMismatchRoutes = useMemo(
+    () =>
+      listFleetMismatchPropuestaRoutes({
+        propuestaRoutes,
+        eventById: eventByIdForBoarding,
+        tipoById,
+        vehicleIds: preferVehicleIdsForMetrics,
+      }),
+    [
+      propuestaRoutes,
+      eventByIdForBoarding,
+      tipoById,
+      preferVehicleIdsForMetrics,
+    ],
+  );
+
+  const boardingIntegrityCount =
+    offTrayectoEndpoints.length + fleetMismatchRoutes.length;
+
   const handleDelete = async (ev) => {
     if (deletingEventId != null) return;
     const label = stripHtml(ev.actividad) || ev.tipo_nombre || "trayecto";
@@ -2428,14 +2431,21 @@ export default function FimbaTransportPage() {
   /** Quita ↑/↓ FIMBA del extremo fuera de trayecto (una acción). */
   const handleClearOffTrayectoEndpoint = useCallback(
     async (row) => {
-      if (row?.kind !== "fimba" || row?.rutaId == null) return;
+      const isFleetMismatch = row?.kind === "fimba_fleet_mismatch";
+      if (
+        (row?.kind !== "fimba" && !isFleetMismatch) ||
+        row?.rutaId == null
+      ) {
+        return;
+      }
       const endLabel = row.end === "up" ? "subida" : "bajada";
       if (
         !(await confirm({
-          title: `Quitar ${endLabel}`,
-          message:
-            `¿Quitar la ${endLabel} de «${row.label}» en este evento?\n\n` +
-            `Si el ride tiene el otro extremo, queda abierto; si no, se elimina la ruta.`,
+          title: isFleetMismatch ? "Quitar ruta mal asignada" : `Quitar ${endLabel}`,
+          message: isFleetMismatch
+            ? `¿Eliminar la ruta de «${row.label}» en este vehículo?\n\nEl evento ↑ pertenece a otra flota; quitar evita plazas fantasma.`
+            : `¿Quitar la ${endLabel} de «${row.label}» en este evento?\n\n` +
+              `Si el ride tiene el otro extremo, queda abierto; si no, se elimina la ruta.`,
           confirmText: "Quitar",
           destructive: true,
         }))
@@ -2445,10 +2455,12 @@ export default function FimbaTransportPage() {
       setClearingOffTrayectoKey(row.key);
       setError(null);
       try {
-        const { error: err } = await clearFimbaPropuestaRutaStop(
-          row.rutaId,
-          row.end === "up" ? "up" : "down",
-        );
+        const { error: err } = isFleetMismatch
+          ? await deleteFimbaPropuestaRuta(row.rutaId)
+          : await clearFimbaPropuestaRutaStop(
+              row.rutaId,
+              row.end === "up" ? "up" : "down",
+            );
         if (err) {
           setError(err.message || "No se pudo quitar la asignación");
           return;
@@ -3749,7 +3761,7 @@ export default function FimbaTransportPage() {
             </button>
           </div>
         </div>
-        {offTrayectoEndpoints.length > 0 && (
+        {boardingIntegrityCount > 0 && (
           <div
             className="fimba-off-trayecto-panel fimba-no-print"
             style={{
@@ -3782,7 +3794,13 @@ export default function FimbaTransportPage() {
             >
               <IconAlertTriangle size={15} />
               <span style={{ flex: 1 }}>
-                Subidas/bajadas fuera de trayecto ({offTrayectoEndpoints.length})
+                Integridad boarding ({boardingIntegrityCount})
+                {offTrayectoEndpoints.length > 0
+                  ? ` · fuera de trayecto ${offTrayectoEndpoints.length}`
+                  : ""}
+                {fleetMismatchRoutes.length > 0
+                  ? ` · flota ≠ ruta ${fleetMismatchRoutes.length}`
+                  : ""}
               </span>
               <span style={{ fontWeight: 600, fontSize: "0.72rem", opacity: 0.85 }}>
                 {showOffTrayectoPanel ? "Ocultar" : "Ver lista"}
@@ -3795,6 +3813,114 @@ export default function FimbaTransportPage() {
                   borderTop: "1px solid rgba(245, 158, 11, 0.35)",
                 }}
               >
+                {fleetMismatchRoutes.length > 0 ? (
+                  <>
+                    <p
+                      className="fimba-muted"
+                      style={{
+                        margin: "0.45rem 0 0.55rem",
+                        fontSize: "0.72rem",
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      Rutas FIMBA cuyo vehículo no coincide con la flota del
+                      evento ↑. Ya no suman al tránsito de ese vehículo;{" "}
+                      <strong>Quitar</strong> o reasigná la subida al vehículo
+                      correcto (si quedó abierta, también cerrá la bajada).
+                    </p>
+                    <ul
+                      style={{
+                        listStyle: "none",
+                        margin: "0 0 0.65rem",
+                        padding: 0,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
+                      }}
+                    >
+                      {fleetMismatchRoutes.map((row) => {
+                        const veh =
+                          row.id_gira_transporte != null
+                            ? vehiculos.find(
+                                (g) =>
+                                  Number(g.id) === Number(row.id_gira_transporte),
+                              )
+                            : null;
+                        const vehLabel = veh
+                          ? labelGiraTransporte(veh)
+                          : null;
+                        const fecha = row.event?.fecha
+                          ? String(row.event.fecha).slice(5).replace("-", "/")
+                          : "";
+                        const clearing =
+                          clearingOffTrayectoKey != null &&
+                          clearingOffTrayectoKey === row.key;
+                        const canClearFimba =
+                          !readOnly && row.rutaId != null;
+                        return (
+                          <li
+                            key={row.key}
+                            style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: "0.35rem 0.45rem",
+                              borderRadius: 6,
+                              background: "rgba(255,255,255,0.55)",
+                              border: "1px solid rgba(245, 158, 11, 0.35)",
+                              fontSize: "0.75rem",
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontWeight: 700,
+                                color: "#b45309",
+                                minWidth: "4.5rem",
+                              }}
+                            >
+                              Flota ≠ ruta
+                              {row.openRide ? " · abierta" : ""}
+                            </span>
+                            <span style={{ fontWeight: 600 }}>{row.label}</span>
+                            {row.plazas > 0 ? (
+                              <span className="fimba-muted">· {row.plazas}</span>
+                            ) : null}
+                            {vehLabel ? (
+                              <span className="fimba-muted">· {vehLabel}</span>
+                            ) : null}
+                            {fecha ? (
+                              <span className="fimba-muted">· {fecha}</span>
+                            ) : null}
+                            <span className="fimba-muted">
+                              · ↑ {row.whenLabel}
+                            </span>
+                            <span style={{ flex: 1 }} />
+                            {canClearFimba ? (
+                              <button
+                                type="button"
+                                className="fimba-btn fimba-btn-ghost"
+                                style={{
+                                  fontSize: "0.7rem",
+                                  padding: "0.15rem 0.45rem",
+                                  color: "#b91c1c",
+                                }}
+                                disabled={clearing}
+                                onClick={() =>
+                                  handleClearOffTrayectoEndpoint(row)
+                                }
+                              >
+                                {clearing ? "…" : "Quitar subida"}
+                              </button>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </>
+                ) : null}
+                {offTrayectoEndpoints.length > 0 ? (
+                <>
                 <p
                   className="fimba-muted"
                   style={{
@@ -3949,6 +4075,8 @@ export default function FimbaTransportPage() {
                     );
                   })}
                 </ul>
+                </>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -4056,7 +4184,8 @@ export default function FimbaTransportPage() {
           <strong>Subidas</strong> / <strong>Bajadas</strong>: quién sube/baja en la
           parada (plazas FIMBA + reglas OFRN); clic para asignar, × para quitar.
           Si un extremo está en Concierto/Ensayo/etc., el banner ámbar{" "}
-          <em>Subidas/bajadas fuera de trayecto</em> lista esos rides:{" "}
+          <em>Integridad boarding</em> lista extremos ↑/↓ fuera de trayecto y
+          rutas FIMBA con flota ≠ vehículo:{" "}
           <strong>Quitar bajada/subida</strong> (FIMBA) o{" "}
           <strong>Corregir</strong> (abre Subidas/Bajadas en ese extremo).
           {editMode

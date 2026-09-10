@@ -172,11 +172,11 @@ export default function StopRulesManager({
   /** Sin shell modal/overlay: contenido al nivel del padre (ej. pestaña FIMBA Orquesta OFRN). */
   embedded = false,
   /**
-   * FIMBA / multi-chip: varias ↑/↓ del mismo alcance (Categoría, Grupo, Persona…).
-   * Ante conflicto en otro evento pregunta Reemplazar / Crear nueva / Cancelar.
-   * OFRN Trayectos standalone (default false) solo ofrece Reemplazar o Cancelar.
-   * Nota: `embedded` (FimbaStopRulesManager / FimbaEventoFormModal) también activa
-   * multi aunque el padre olvide el prop — evita el diálogo binario «Reemplazar parada».
+   * FIMBA / multi-chip: varias ↑/↓ del mismo alcance en la *misma* parada
+   * (INSERT aditivo; hops abiertos). El diálogo de conflicto en *otra* parada
+   * es siempre 4-way (Reemplazar / Crear nueva / Extremo adicional / Cancelar),
+   * también en OFRN Trayectos standalone — no depende de este flag.
+   * `embedded` (FimbaStopRulesManager / FimbaEventoFormModal) también activa multi.
    */
   allowMultipleAssignments = false,
   /** Secuencia del vehículo (para «a bordo» / Bajar todo). */
@@ -189,7 +189,7 @@ export default function StopRulesManager({
    */
   routeRules = null,
 }) {
-  /** FIMBA embedded o flag explícito → 3-way conflict + hops aditivos. */
+  /** FIMBA embedded o flag explícito → hops aditivos en la misma parada. */
   const allowMulti = Boolean(allowMultipleAssignments || embedded);
   const { confirm, dialog } = useConfirmDialog();
   const [existingRules, setExistingRules] = useState([]);
@@ -464,6 +464,14 @@ export default function StopRulesManager({
     }
   };
 
+  /** Lista local + planilla padre (chips Suben/Bajan / FIMBA logistics). */
+  const refreshAfterMutation = async ({ reloadRules = true } = {}) => {
+    if (reloadRules) await fetchRules();
+    if (typeof onRefresh === "function") {
+      await Promise.resolve(onRefresh());
+    }
+  };
+
   /** Paradas posteriores (u otras) del vehículo para espejar Grupo ↑ → ↓. */
   const bajadaCandidateStops = useMemo(() => {
     const list = Array.isArray(sortedEvents) ? sortedEvents : [];
@@ -560,8 +568,7 @@ export default function StopRulesManager({
         toast.error(res.error.message || "No se pudo crear la bajada del grupo");
         return;
       }
-      await fetchRules();
-      onRefresh && onRefresh();
+      await refreshAfterMutation();
       toast.success(
         `Bajada del grupo asignada en ${resolveStopLabel(picked)}.`,
       );
@@ -611,9 +618,13 @@ export default function StopRulesManager({
       };
 
       let anyChange = false;
+      let allowMirrorAfter = false;
       let workingAdmissionRules = [...(transportAdmissionRules || [])];
 
       for (const currentId of selectedIds) {
+        // Extremo a persistir en INSERT (puede voltearse a «adicional» en conflicto).
+        let insertType = type;
+
         // 1) Ya apunta a este evento
         const alreadyHere = (existingAll || []).find(
           (r) =>
@@ -716,10 +727,12 @@ export default function StopRulesManager({
           openRide[fieldToUpdate] = event.id;
           if (openPatch.es_chofer != null) openRide.es_chofer = openPatch.es_chofer;
           anyChange = true;
+          if (type === "up") allowMirrorAfter = true;
           continue;
         }
 
         // 3) Conflicto: mismo alcance ya tiene este extremo en otro evento
+        //    Siempre 4-way (OFRN Trayectos + FIMBA Orquesta): no depende de allowMulti.
         const conflict = (existingAll || []).find((r) => {
           if (!sameTarget(r, currentId)) return false;
           const currentEventId = r[fieldToUpdate];
@@ -730,52 +743,39 @@ export default function StopRulesManager({
 
         if (conflict) {
           const actionLabel = type === "up" ? "subida" : "bajada";
+          const otherTitle =
+            type === "up" ? "Bajada adicional" : "Subida adicional";
           const prevStopLabel =
             resolveStopLabel(conflict[fieldToUpdate]) || "otra parada";
-          let shouldReplace = true;
 
-          if (allowMulti) {
-            const choice = await confirm({
-              title:
-                type === "up"
-                  ? "Ya tiene una subida"
-                  : "Ya tiene una bajada",
-              message:
-                `Este alcance ya tiene ${actionLabel} en ${prevStopLabel}.\n\n` +
-                `¿Querés reemplazar esa parada o crear una ${actionLabel} nueva y mantener la anterior?`,
-              confirmText: "Reemplazar",
-              cancelText: "Cancelar",
-              secondaryAction: {
-                label:
-                  type === "up"
-                    ? "Crear nueva subida"
-                    : "Crear nueva bajada",
-                value: "create",
-              },
-              overlayClassName: embedded ? "z-[110]" : "z-[100]",
-            });
-            if (choice === "cancel" || choice === false) {
-              continue;
-            }
-            shouldReplace = choice === "confirm" || choice === true;
-          } else {
-            const confirmReplace = await confirm({
-              title: "Reemplazar parada",
-              message:
-                `Ya existe una ${actionLabel.toUpperCase()} definida para este alcance en ${prevStopLabel}.\n\n` +
-                `¿Querés reemplazarla por esta parada?\n\n` +
-                `Aceptar: reemplazar la ${actionLabel} anterior.\n` +
-                `Cancelar: dejar todo como está para este objetivo.`,
-              confirmText: "Reemplazar",
-              overlayClassName: embedded ? "z-[110]" : "z-[100]",
-            });
-            if (!confirmReplace) {
-              continue;
-            }
-            shouldReplace = true;
+          const choice = await confirm({
+            title:
+              type === "up" ? "Ya tiene una subida" : "Ya tiene una bajada",
+            message:
+              `Este alcance ya tiene ${actionLabel} en ${prevStopLabel}.\n\n` +
+              `Reemplazar: mueve la ${actionLabel} anterior a esta parada.\n` +
+              `Crear nueva ${actionLabel}: agrega otra y mantiene la anterior.\n` +
+              `${otherTitle}: agrega una ${type === "up" ? "↓" : "↑"} en esta parada y mantiene la ${actionLabel} anterior.\n` +
+              `Cancelar: dejar todo como está.`,
+            confirmText: "Reemplazar",
+            cancelText: "Cancelar",
+            secondaryAction: {
+              label:
+                type === "up" ? "Crear nueva subida" : "Crear nueva bajada",
+              value: "create",
+            },
+            tertiaryAction: {
+              label: otherTitle,
+              value: "other",
+            },
+            overlayClassName: embedded ? "z-[110]" : "z-[100]",
+          });
+
+          if (choice === "cancel" || choice === false) {
+            continue;
           }
 
-          if (shouldReplace) {
+          if (choice === "confirm" || choice === true) {
             const { error: updateErr } = await supabase
               .from("giras_logistica_rutas")
               .update({ [fieldToUpdate]: event.id })
@@ -784,9 +784,15 @@ export default function StopRulesManager({
             if (updateErr) throw updateErr;
             conflict[fieldToUpdate] = event.id;
             anyChange = true;
+            if (type === "up") allowMirrorAfter = true;
             continue;
           }
-          // allowMulti + "Crear nueva": seguir al INSERT sin mover la fila previa.
+
+          if (choice === "other") {
+            // Extremo opuesto en esta parada; no mover la fila en conflicto.
+            insertType = type === "up" ? "down" : "up";
+          }
+          // "create" | "other": seguir al INSERT sin mover la fila previa.
         }
 
         // --- LÓGICA DE AUTO-INCLUSIÓN (por persona) ---
@@ -907,8 +913,8 @@ export default function StopRulesManager({
           id_transporte_fisico: transportId,
           alcance: newScope,
           prioridad: priority,
-          id_evento_subida: type === "up" ? event.id : null,
-          id_evento_bajada: type === "down" ? event.id : null,
+          id_evento_subida: insertType === "up" ? event.id : null,
+          id_evento_bajada: insertType === "down" ? event.id : null,
           id_region: newScope === "Region" ? currentId : null,
           id_localidad: newScope === "Localidad" ? currentId : null,
           id_integrante: newScope === "Persona" ? currentId : null,
@@ -917,7 +923,9 @@ export default function StopRulesManager({
               ? [String(currentId)]
               : [],
           es_chofer:
-            type === "up" && newScope === "Persona" ? Boolean(esChofer) : false,
+            insertType === "up" && newScope === "Persona"
+              ? Boolean(esChofer)
+              : false,
         };
 
         const { data: inserted, error } = await supabase
@@ -928,6 +936,7 @@ export default function StopRulesManager({
         if (error) throw error;
         if (inserted) existingAll.push(inserted);
         anyChange = true;
+        if (insertType === "up") allowMirrorAfter = true;
       }
 
       if (anyChange) {
@@ -937,6 +946,7 @@ export default function StopRulesManager({
 
       const shouldMirrorBajada =
         type === "up" &&
+        allowMirrorAfter &&
         newScope === "Grupo" &&
         alsoMirrorBajada &&
         mirrorBajadaEventId;
@@ -964,8 +974,7 @@ export default function StopRulesManager({
       }
 
       if (anyChange || shouldMirrorBajada) {
-        await fetchRules();
-        onRefresh && onRefresh();
+        await refreshAfterMutation();
       }
     } catch (err) {
       console.error(err);
@@ -989,8 +998,7 @@ export default function StopRulesManager({
       return;
     try {
       await supabase.from("giras_logistica_rutas").delete().eq("id", ruleId);
-      fetchRules();
-      onRefresh && onRefresh();
+      await refreshAfterMutation();
     } catch (err) {
       console.error(err);
     }
@@ -1012,7 +1020,7 @@ export default function StopRulesManager({
           String(r.id) === String(rule.id) ? { ...r, es_chofer: next } : r,
         ),
       );
-      onRefresh && onRefresh();
+      await refreshAfterMutation({ reloadRules: false });
     } catch (err) {
       console.error(err);
       toast.error("No se pudo actualizar el flag de chofer");
@@ -1132,7 +1140,7 @@ export default function StopRulesManager({
       }
 
       if (needInclusion.length === 0) {
-        onRefresh && onRefresh();
+        await refreshAfterMutation({ reloadRules: false });
         return;
       }
 
@@ -1149,7 +1157,7 @@ export default function StopRulesManager({
         overlayClassName: embedded ? "z-[110]" : "z-[100]",
       });
       if (!confirmed) {
-        onRefresh && onRefresh();
+        await refreshAfterMutation({ reloadRules: false });
         return;
       }
 
@@ -1183,7 +1191,7 @@ export default function StopRulesManager({
         ),
       );
 
-      onRefresh && onRefresh();
+      await refreshAfterMutation({ reloadRules: false });
 
       toast.success(
         created?.length === 1
@@ -1658,8 +1666,7 @@ export default function StopRulesManager({
         toast.error(res.error.message || "No se pudo bajar");
         return;
       }
-      await fetchRules();
-      onRefresh?.();
+      await refreshAfterMutation();
       toast.success("Bajada asignada");
     } finally {
       setQuickAlightBusyId(null);
@@ -1683,8 +1690,7 @@ export default function StopRulesManager({
         toast.error(res.error.message || "No se pudo bajar el grupo");
         return;
       }
-      await fetchRules();
-      onRefresh?.();
+      await refreshAfterMutation();
       toast.success(`Bajada del grupo «${row.label}» asignada aquí.`);
     } finally {
       setMirrorBusyKey(null);
@@ -1742,8 +1748,7 @@ export default function StopRulesManager({
         toast.error(res.error.message || "No se pudo bajar todo");
         return;
       }
-      await fetchRules();
-      onRefresh?.();
+      await refreshAfterMutation();
       const g = res.gruposClosed || 0;
       const p = res.personasClosed || 0;
       if (g > 0 && p > 0) {

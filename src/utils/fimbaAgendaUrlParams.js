@@ -1,4 +1,4 @@
-import { isTransportTipoEvent } from "./fimbaTransportBoarding";
+import { isFimbaRideAboardAtStop } from "./fimbaTransportBoarding";
 
 /**
  * Query params compartibles para `/fimba/edicion/:id/agenda`.
@@ -286,36 +286,33 @@ export function parseFimbaAgendaTuttiFlag(searchParams) {
 
 /**
  * ¿El evento es relevante para filtro de artista?
- * — No-transporte: tag `eventos_fimba_propuestas` (concierto, hotel, check-in…).
- * — Transporte (tipo catálogo Traslado/Interno/…): **solo** ↑/↓ del artista en
- *   `fimba_propuesta_rutas`. Tags heredados y paradas intermedias «a bordo»
- *   (sin boarding propio) **no** cuentan.
+ * — Tag `eventos_fimba_propuestas` (transporte o no), **o**
+ * — A bordo en esa pierna: ↑, ↓ o parada intermedia del **mismo** vehículo
+ *   mientras el ride de `fimba_propuesta_rutas` está abierto
+ *   (`isFimbaRideAboardAtStop` + secuencia). Tras un ↓, piernas posteriores
+ *   del vehículo **no** matchean por boarding (hace falta nuevo ↑ o tag).
+ *
+ * Un ↓ suelto/mal puesto sigue matcheando ese extremo (pair por fila de ruta);
+ * no abre ventanas multi-día sobre eventos ajenos al vehículo.
  *
  * @param {object|null|undefined} ev
  * @param {number[]} propuestaIds
  * @param {Array<object>} [propuestaRoutes]
- * @param {Map|null} [_sequencesByVehicle] — reservado (API estable); ya no se usa
- *   para incluir piernas intermedias.
+ * @param {Map|null} [sequencesByVehicle] — `id_gira_transporte` → `{ sortedEvents }`
  */
 export function eventMatchesPropuestaRouteFilter(
   ev,
   propuestaIds,
   propuestaRoutes,
-  _sequencesByVehicle = null,
+  sequencesByVehicle = null,
 ) {
   const props = (propuestaIds || []).map(Number).filter(Number.isFinite);
   if (props.length === 0 || !ev?.id) return false;
 
-  const isTransport = isTransportTipoEvent(ev);
-
-  // Tags solo para no-transporte. Un traslado tagged sin ↑/↓ del artista
-  // (p.ej. movimiento intermedio heredado) no entra al filtro.
-  if (!isTransport) {
-    const tagged = (ev.propuestas || []).some((p) =>
-      props.includes(Number(p.id)),
-    );
-    if (tagged) return true;
-  }
+  const tagged = (ev.propuestas || []).some((p) =>
+    props.includes(Number(p.id)),
+  );
+  if (tagged) return true;
 
   if (!propuestaRoutes?.length) return false;
 
@@ -328,6 +325,7 @@ export function eventMatchesPropuestaRouteFilter(
     if (Math.max(0, Number(r.plazas) || 0) <= 0) continue;
     if (r.id_evento_subida == null || r.id_evento_subida === "") continue;
 
+    // Extremos ↑/↓ siempre (aunque falte secuencia o el extremo esté off-trayecto).
     if (String(r.id_evento_subida) === String(evId)) return true;
     if (
       r.id_evento_bajada != null &&
@@ -336,22 +334,35 @@ export function eventMatchesPropuestaRouteFilter(
     ) {
       return true;
     }
+
+    // Intermedias / ride abierto: solo paradas de la secuencia del vehículo.
+    const tid = Number(r.id_gira_transporte);
+    if (!Number.isFinite(tid) || !sequencesByVehicle) continue;
+    const sorted = sequencesByVehicle.get(tid)?.sortedEvents || [];
+    if (
+      sorted.length &&
+      sorted.some((e) => String(e?.id) === String(evId)) &&
+      isFimbaRideAboardAtStop(r, evId, sorted)
+    ) {
+      return true;
+    }
   }
   return false;
 }
 
 /**
- * IDs de eventos de agenda para filtro de artista: solo extremos ↑/↓.
+ * IDs de eventos de agenda para filtro de artista: extremos ↑/↓ y, si hay
+ * secuencia del vehículo, paradas intermedias mientras el ride está abierto.
  *
  * @param {number[]} propuestaFilterIds
  * @param {Array<object>} propuestaRoutes
- * @param {Map|null} [_sequencesByVehicle] — reservado; intermedias ya no se incluyen
+ * @param {Map|null} [sequencesByVehicle]
  * @returns {number[]}
  */
 export function collectPropuestaRouteAgendaEventIds(
   propuestaFilterIds,
   propuestaRoutes,
-  _sequencesByVehicle = null,
+  sequencesByVehicle = null,
 ) {
   const props = (propuestaFilterIds || []).map(Number).filter(Number.isFinite);
   if (!props.length || !propuestaRoutes?.length) {
@@ -373,6 +384,15 @@ export function collectPropuestaRouteAgendaEventIds(
       const bajada = Number(r.id_evento_bajada);
       if (Number.isFinite(bajada)) ids.add(bajada);
     }
+
+    const tid = Number(r.id_gira_transporte);
+    if (!Number.isFinite(tid) || !sequencesByVehicle) continue;
+    const sorted = sequencesByVehicle.get(tid)?.sortedEvents || [];
+    for (const stop of sorted) {
+      const sid = Number(stop?.id);
+      if (!Number.isFinite(sid)) continue;
+      if (isFimbaRideAboardAtStop(r, stop.id, sorted)) ids.add(sid);
+    }
   }
 
   return [...ids].filter(Number.isFinite);
@@ -381,8 +401,8 @@ export function collectPropuestaRouteAgendaEventIds(
 /**
  * Visibilidad de fila en planilla:
  * - Sin artista ni OFRN opt-in: el caller aplica origen (default Todos / all).
- * - Solo artista: tags no-transporte ∪ ↑/↓ transporte del artista (agenda FIMBA).
- *   No incluye Tutti ni piernas intermedias solo «a bordo».
+ * - Solo artista: tags ∪ a bordo (↑/↓/intermedias del ride en el vehículo).
+ *   No incluye Tutti. Tras ↓, piernas posteriores no entran por boarding.
  * - Grupo y/o Tutti: **incluyen** esas convocatorias OFRN (unión con FIMBA /
  *   artista). No reemplazan la agenda FIMBA.
  *

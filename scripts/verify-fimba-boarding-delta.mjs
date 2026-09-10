@@ -842,6 +842,57 @@ assert(
   "grupo OFRN clásico: ↑ reusa ride abierto",
 );
 
+// --- Fleet mismatch: ruta.gt ≠ flota del evento ↑ (Sol Liebeskind #50 class) ---
+function eventFleetGiraTransporteIds(ev) {
+  const ids = new Set();
+  for (const r of ev?.vehiculos || []) {
+    const n = Number(r?.id_gira_transporte);
+    if (Number.isFinite(n)) ids.add(n);
+  }
+  if (ev?.id_gira_transporte != null && ev.id_gira_transporte !== "") {
+    const n = Number(ev.id_gira_transporte);
+    if (Number.isFinite(n)) ids.add(n);
+  }
+  return [...ids];
+}
+function isFimbaPropuestaRutaFleetAligned(ruta, idGt, eventById) {
+  const want = Number(idGt ?? ruta?.id_gira_transporte);
+  if (!Number.isFinite(want) || !ruta) return true;
+  const up =
+    (eventById && eventById.get(String(ruta.id_evento_subida))) ||
+    ruta.evento_subida;
+  const fleet = eventFleetGiraTransporteIds(up);
+  if (fleet.length === 0) return true;
+  return fleet.some((id) => Number(id) === want);
+}
+const solMismatchById = new Map([
+  ["4424", { id: 4424, vehiculos: [{ id_gira_transporte: 232 }] }],
+]);
+assert(
+  isFimbaPropuestaRutaFleetAligned(
+    { id_gira_transporte: 226, id_evento_subida: 4424, plazas: 2 },
+    226,
+    solMismatchById,
+  ) === false,
+  "ruta gt 226 + ↑ flota 232 → no alineada (excluir del tránsito 226)",
+);
+assert(
+  isFimbaPropuestaRutaFleetAligned(
+    { id_gira_transporte: 232, id_evento_subida: 4424, plazas: 2 },
+    232,
+    solMismatchById,
+  ) === true,
+  "misma ruta en gt 232 → alineada",
+);
+assert(
+  isFimbaPropuestaRutaFleetAligned(
+    { id_gira_transporte: 226, id_evento_subida: 999, plazas: 2 },
+    226,
+    new Map(),
+  ) === true,
+  "sin flota en ↑ → se confía en id_gira_transporte",
+);
+
 if (process.exitCode) {
   console.error("\nAlgunas aserciones fallaron.");
 } else {

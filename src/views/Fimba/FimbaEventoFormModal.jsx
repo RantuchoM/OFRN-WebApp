@@ -442,8 +442,8 @@ function FimbaEventoOfrnBoardingSection({
                 sequencesByVehicle?.get?.(String(ofrnBoardVehicleId)))
                 ?.sortedEvents || []
             }
-            onRefresh={() => {
-              onBoardingRefresh?.("ofrn");
+            onRefresh={async () => {
+              await onBoardingRefresh?.("ofrn");
             }}
           />
         </div>

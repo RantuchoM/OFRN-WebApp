@@ -4615,9 +4615,15 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
     ofrnStopIds = (stopRows || []).map((r) => r.id);
   }
 
-  /** Extremos ↑/↓ de rutas del artista (sin piernas intermedias del vehículo). */
+  /**
+   * Extremos ↑/↓ + todas las paradas FIMBA de los vehículos de esas rutas
+   * (luego el filtro `eventMatchesPropuestaRouteFilter` + secuencias deja solo
+   * tagged ∪ a bordo en el intervalo ↑→↓).
+   */
   let routeVehicleEventIds = [];
   if (hasPropuestaFilter && propuestaRoutesForFilter.length > 0) {
+    /** @type {Set<number>} */
+    const routeFleetIds = new Set();
     for (const r of propuestaRoutesForFilter) {
       if (Math.max(0, Number(r.plazas) || 0) <= 0) continue;
       if (r.id_evento_subida != null && r.id_evento_subida !== "") {
@@ -4625,6 +4631,18 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
       }
       if (r.id_evento_bajada != null && r.id_evento_bajada !== "") {
         routeVehicleEventIds.push(r.id_evento_bajada);
+      }
+      const tid = Number(r.id_gira_transporte);
+      if (Number.isFinite(tid)) routeFleetIds.add(tid);
+    }
+    if (routeFleetIds.size > 0) {
+      const { data: fleetStopRows, error: eFleetStops } = await supabase
+        .from("fimba_evento_transportes")
+        .select("id_evento")
+        .in("id_gira_transporte", [...routeFleetIds]);
+      if (eFleetStops) return { eventos: [], error: eFleetStops };
+      for (const row of fleetStopRows || []) {
+        if (row?.id_evento != null) routeVehicleEventIds.push(row.id_evento);
       }
     }
   }
@@ -4843,9 +4861,25 @@ export async function listFimbaAgenda(edicionId, opts = {}) {
 
   let agendaPropuestaFilterCtx = {};
   if (hasPropuestaFilter && propuestaRoutesForFilter.length > 0) {
-    // Solo rutas: el match de transporte es ↑/↓ (sin secuencias / a bordo).
+    const routeFleetIds = [
+      ...new Set(
+        propuestaRoutesForFilter
+          .map((r) => Number(r.id_gira_transporte))
+          .filter(Number.isFinite),
+      ),
+    ];
+    const sequencesByVehicle =
+      routeFleetIds.length > 0
+        ? buildAllVehicleBoardingSequences({
+            vehiculos: routeFleetIds.map((id) => ({ id })),
+            eventos,
+            propuestaRoutes: propuestaRoutesForFilter,
+            eventVehicleIds: giraTransporteIdsFromEvent,
+          })
+        : null;
     agendaPropuestaFilterCtx = {
       propuestaRoutes: propuestaRoutesForFilter,
+      sequencesByVehicle,
     };
   }
 

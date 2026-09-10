@@ -334,6 +334,64 @@ assert(
   ),
   "artista: ride abierto NO incluye concierto ajeno (regresión 171/171)",
 );
+
+// Product 2026-09-10: tras ↓ el ride cierra — piernas posteriores no matchean
+// por boarding (ni ↓ suelto de otro ride). Tags sí; extremos ↑/↓ del pair sí.
+const closedRoute = {
+  id_propuesta: 5,
+  plazas: 3,
+  id_gira_transporte: 10,
+  id_evento_subida: 100,
+  id_evento_bajada: 101,
+};
+const seqClosed = new Map([
+  [10, { sortedEvents: [{ id: 100 }, { id: 101 }, { id: 102 }, { id: 103 }] }],
+]);
+assert(
+  eventMatchesPropuestaRouteFilterFull(
+    { id: 100, propuestas: [] },
+    [5],
+    [closedRoute],
+    seqClosed,
+  ),
+  "artista: ↑ del ride cerrado matchea",
+);
+assert(
+  eventMatchesPropuestaRouteFilterFull(
+    { id: 101, propuestas: [] },
+    [5],
+    [closedRoute],
+    seqClosed,
+  ),
+  "artista: ↓ del ride cerrado matchea",
+);
+assert(
+  !eventMatchesPropuestaRouteFilterFull(
+    { id: 102, propuestas: [] },
+    [5],
+    [closedRoute],
+    seqClosed,
+  ),
+  "artista: tras ↓ no matchea pierna posterior (sin tag)",
+);
+assert(
+  eventMatchesPropuestaRouteFilterFull(
+    { id: 102, propuestas: [{ id: 5 }] },
+    [5],
+    [closedRoute],
+    seqClosed,
+  ),
+  "artista: tag en transporte sí matchea aunque no a bordo",
+);
+assert(
+  !eventMatchesPropuestaRouteFilterFull(
+    { id: 3911, propuestas: [{ id: 7, nombre: "Ruggiero" }] },
+    [5],
+    [closedRoute],
+    seqClosed,
+  ),
+  "artista: evento Ruggiero-tagged sin boarding Alba no matchea",
+);
 assert(
   eventMatchesAgendaEntityFilter(
     { id: 100, propuestas: [{ id: 7 }] },
