@@ -1352,7 +1352,7 @@ export default function FimbaStopRulesManager({
                   <StopRulesManager
                     isOpen
                     embedded
-                    allowMultipleAssignments
+                    allowMultipleAssignments={true}
                     onClose={onClose}
                     event={event}
                     type={type}

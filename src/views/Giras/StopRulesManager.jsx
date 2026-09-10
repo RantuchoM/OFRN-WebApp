@@ -172,8 +172,11 @@ export default function StopRulesManager({
   /** Sin shell modal/overlay: contenido al nivel del padre (ej. pestaña FIMBA Orquesta OFRN). */
   embedded = false,
   /**
-   * FIMBA / multi-chip: varias ↑/↓ del mismo alcance (Categoría, Grupo, Persona…)
-   * sin diálogo «Reemplazar». OFRN Trayectos standalone deja el default false.
+   * FIMBA / multi-chip: varias ↑/↓ del mismo alcance (Categoría, Grupo, Persona…).
+   * Ante conflicto en otro evento pregunta Reemplazar / Crear nueva / Cancelar.
+   * OFRN Trayectos standalone (default false) solo ofrece Reemplazar o Cancelar.
+   * Nota: `embedded` (FimbaStopRulesManager / FimbaEventoFormModal) también activa
+   * multi aunque el padre olvide el prop — evita el diálogo binario «Reemplazar parada».
    */
   allowMultipleAssignments = false,
   /** Secuencia del vehículo (para «a bordo» / Bajar todo). */
@@ -182,10 +185,12 @@ export default function StopRulesManager({
   giraGrupos: giraGruposProp = null,
   /**
    * Reglas `giras_logistica_rutas` de la gira (FIMBA). Con
-   * `allowMultipleAssignments` se cuentan todos los hops, no la ↑/↓ colapsada.
+   * multi-asignación se cuentan todos los hops, no la ↑/↓ colapsada.
    */
   routeRules = null,
 }) {
+  /** FIMBA embedded o flag explícito → 3-way conflict + hops aditivos. */
+  const allowMulti = Boolean(allowMultipleAssignments || embedded);
   const { confirm, dialog } = useConfirmDialog();
   const [existingRules, setExistingRules] = useState([]);
   /** Rides Grupo ↑ sin ↓ que aún cubren esta parada (vista bajadas). */
@@ -515,7 +520,7 @@ export default function StopRulesManager({
         type: "down",
         ensureAdmission: true,
         giraGrupos,
-        allowMultiple: allowMultipleAssignments,
+        allowMultiple: allowMulti,
       });
       if (res.error) return { mirrored, error: res.error };
       mirrored += 1;
@@ -617,7 +622,7 @@ export default function StopRulesManager({
             String(r[fieldToUpdate]) === String(event.id),
         );
         // OFRN clásico: noop. FIMBA multi: seguir e INSERT otra fila del mismo alcance.
-        if (alreadyHere && !allowMultipleAssignments) continue;
+        if (alreadyHere && !allowMulti) continue;
 
         // Grupo: incluir miembros en admisión del bus (también al cerrar ride abierto)
         if (newScope === "Grupo" && currentId) {
@@ -685,9 +690,9 @@ export default function StopRulesManager({
         //    Multi + ↓ ya en esta parada: INSERT otra ↓ (no reusar huérfano).
         //    Multi + ↓ sin fila aquí: sí cerrar ride abierto del mismo alcance.
         const openRide =
-          allowMultipleAssignments && type === "up"
+          allowMulti && type === "up"
             ? null
-            : allowMultipleAssignments && alreadyHere && type === "down"
+            : allowMulti && alreadyHere && type === "down"
               ? null
               : (existingAll || []).find(
                   (r) =>
@@ -715,43 +720,73 @@ export default function StopRulesManager({
         }
 
         // 3) Conflicto: mismo alcance ya tiene este extremo en otro evento
-        const conflict =
-          allowMultipleAssignments
-            ? null
-            : (existingAll || []).find((r) => {
-                if (!sameTarget(r, currentId)) return false;
-                const currentEventId = r[fieldToUpdate];
-                if (!currentEventId) return false;
-                if (String(currentEventId) === String(event.id)) return false;
-                return true;
-              });
+        const conflict = (existingAll || []).find((r) => {
+          if (!sameTarget(r, currentId)) return false;
+          const currentEventId = r[fieldToUpdate];
+          if (!currentEventId) return false;
+          if (String(currentEventId) === String(event.id)) return false;
+          return true;
+        });
 
         if (conflict) {
           const actionLabel = type === "up" ? "subida" : "bajada";
-          const confirmReplace = await confirm({
-            title: "Reemplazar parada",
-            message:
-              `Ya existe una ${actionLabel.toUpperCase()} definida para este alcance en otro evento.\n\n` +
-              `¿Querés reemplazarla por esta parada?\n\n` +
-              `Aceptar: reemplazar la ${actionLabel} anterior.\n` +
-              `Cancelar: dejar todo como está para este objetivo.`,
-            confirmText: "Reemplazar",
-            overlayClassName: embedded ? "z-[110]" : "z-[100]",
-          });
+          const prevStopLabel =
+            resolveStopLabel(conflict[fieldToUpdate]) || "otra parada";
+          let shouldReplace = true;
 
-          if (!confirmReplace) {
-            continue;
+          if (allowMulti) {
+            const choice = await confirm({
+              title:
+                type === "up"
+                  ? "Ya tiene una subida"
+                  : "Ya tiene una bajada",
+              message:
+                `Este alcance ya tiene ${actionLabel} en ${prevStopLabel}.\n\n` +
+                `¿Querés reemplazar esa parada o crear una ${actionLabel} nueva y mantener la anterior?`,
+              confirmText: "Reemplazar",
+              cancelText: "Cancelar",
+              secondaryAction: {
+                label:
+                  type === "up"
+                    ? "Crear nueva subida"
+                    : "Crear nueva bajada",
+                value: "create",
+              },
+              overlayClassName: embedded ? "z-[110]" : "z-[100]",
+            });
+            if (choice === "cancel" || choice === false) {
+              continue;
+            }
+            shouldReplace = choice === "confirm" || choice === true;
+          } else {
+            const confirmReplace = await confirm({
+              title: "Reemplazar parada",
+              message:
+                `Ya existe una ${actionLabel.toUpperCase()} definida para este alcance en ${prevStopLabel}.\n\n` +
+                `¿Querés reemplazarla por esta parada?\n\n` +
+                `Aceptar: reemplazar la ${actionLabel} anterior.\n` +
+                `Cancelar: dejar todo como está para este objetivo.`,
+              confirmText: "Reemplazar",
+              overlayClassName: embedded ? "z-[110]" : "z-[100]",
+            });
+            if (!confirmReplace) {
+              continue;
+            }
+            shouldReplace = true;
           }
 
-          const { error: updateErr } = await supabase
-            .from("giras_logistica_rutas")
-            .update({ [fieldToUpdate]: event.id })
-            .eq("id", conflict.id);
+          if (shouldReplace) {
+            const { error: updateErr } = await supabase
+              .from("giras_logistica_rutas")
+              .update({ [fieldToUpdate]: event.id })
+              .eq("id", conflict.id);
 
-          if (updateErr) throw updateErr;
-          conflict[fieldToUpdate] = event.id;
-          anyChange = true;
-          continue;
+            if (updateErr) throw updateErr;
+            conflict[fieldToUpdate] = event.id;
+            anyChange = true;
+            continue;
+          }
+          // allowMulti + "Crear nueva": seguir al INSERT sin mover la fila previa.
         }
 
         // --- LÓGICA DE AUTO-INCLUSIÓN (por persona) ---
@@ -1441,7 +1476,7 @@ export default function StopRulesManager({
           sortedEvents,
           routeRules,
           localities,
-          expandAllHops: allowMultipleAssignments,
+          expandAllHops: allowMulti,
         })
           .filter((r) => r.openRide)
           .map((r) => String(r.id)),
@@ -1528,8 +1563,8 @@ export default function StopRulesManager({
         return {
           id: idStr,
           label,
-          subLabel: allowMultipleAssignments
-            ? "Ya tiene otra parada (se agregará otra)"
+          subLabel: allowMulti
+            ? "Ya tiene otra parada (se preguntará)"
             : "Ya tiene otra parada",
           optionClassName: "bg-cyan-50",
           labelClassName: "text-cyan-700",
@@ -1538,7 +1573,7 @@ export default function StopRulesManager({
       }
 
       const subLabel = isThisStop
-        ? allowMultipleAssignments
+        ? allowMulti
           ? "Ya está en esta parada (se agregará otra)"
           : "Ya está asignado a esta parada"
         : "Sin parada aún";
@@ -1561,7 +1596,7 @@ export default function StopRulesManager({
     sortedEvents,
     transportAdmissionRules,
     localities,
-    allowMultipleAssignments,
+    allowMulti,
   ]);
 
   const hasNewPersonToAutoInclude =
@@ -1577,7 +1612,7 @@ export default function StopRulesManager({
       sortedEvents,
       routeRules,
       localities,
-      expandAllHops: allowMultipleAssignments,
+      expandAllHops: allowMulti,
     });
   }, [
     type,
@@ -1587,7 +1622,7 @@ export default function StopRulesManager({
     sortedEvents,
     routeRules,
     localities,
-    allowMultipleAssignments,
+    allowMulti,
   ]);
 
   const aboardOpen = useMemo(
@@ -1617,7 +1652,7 @@ export default function StopRulesManager({
         id_transporte_fisico: transportId,
         id_evento: event.id,
         integranteIds: [integranteId],
-        allowMultiple: allowMultipleAssignments,
+        allowMultiple: allowMulti,
       });
       if (res.error) {
         toast.error(res.error.message || "No se pudo bajar");
@@ -1642,7 +1677,7 @@ export default function StopRulesManager({
         id_grupo: row.grupoId,
         id_evento: event.id,
         giraGrupos,
-        allowMultiple: allowMultipleAssignments,
+        allowMultiple: allowMulti,
       });
       if (res.error) {
         toast.error(res.error.message || "No se pudo bajar el grupo");
@@ -1697,11 +1732,11 @@ export default function StopRulesManager({
         passengers,
         sortedEvents,
         giraGrupos,
-        allowMultiple: allowMultipleAssignments,
+        allowMultiple: allowMulti,
         preferGrupo: true,
         routeRules,
         localities,
-        expandAllHops: allowMultipleAssignments,
+        expandAllHops: allowMulti,
       });
       if (res.error) {
         toast.error(res.error.message || "No se pudo bajar todo");
