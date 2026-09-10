@@ -4038,7 +4038,7 @@ export default function MealsManager({
                           onClick={() =>
                             comensalesHasPeople && setComensalesDetailRow(row)
                           }
-                          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-black transition-all ${
+                          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-black whitespace-nowrap transition-all ${
                             comensalesHasPeople
                               ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                               : "bg-slate-100 text-slate-400 cursor-default"
@@ -4212,7 +4212,7 @@ export default function MealsManager({
                         comensalesHasPeople && setComensalesDetailRow(row)
                       }
                       disabled={!comensalesHasPeople}
-                      className="shrink-0 text-[10px] px-2 py-1 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold disabled:opacity-50"
+                      className="shrink-0 text-[10px] px-2 py-1 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold whitespace-nowrap disabled:opacity-50"
                       title={
                         deductedCount > 0
                           ? `−${deductedCount} en grupo coincidente`

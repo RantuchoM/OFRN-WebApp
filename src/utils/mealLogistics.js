@@ -29,7 +29,7 @@ export const MEAL_SERVICES = ["Desayuno", "Almuerzo", "Merienda", "Cena"];
  */
 export const MEAL_AUTO_DESCRIPTION_SUFFIXES = [
   "Solo alojados",
-  "ProducciÃÂÃÂÃÂÃÂ³n",
+  "Producci\u00F3n",
   "Directores",
   "Solistas",
   "Locales",
@@ -1063,7 +1063,7 @@ export function mealCoincidenceKey(row) {
   if (!turno) return null;
   const locRaw = row.id_locacion;
   const loc =
-    locRaw == null || locRaw === "" ? "ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ" : String(Number(locRaw) || locRaw);
+    locRaw == null || locRaw === "" ? "\u2205" : String(Number(locRaw) || locRaw);
   return `${turno}|${loc}`;
 }
 
@@ -1333,14 +1333,15 @@ export function findMealTurnoOverInclusions(rows = [], getEligiblePeople) {
   };
 }
 
-/** Texto del badge de comensales: `n OFRN - m artistas` (omitiendo lados en 0). */
+/** Texto del badge de comensales: `n OFRN · m artistas` (omitiendo lados en 0). */
 export function formatComensalesBadgeLabel(ofrnCount, artistPax) {
   const n = Math.max(0, Number(ofrnCount) || 0);
   const m = Math.max(0, Number(artistPax) || 0);
   if (n === 0 && m === 0) return "0";
   if (n === 0) return `${m} artista${m === 1 ? "" : "s"}`;
   if (m === 0) return `${n} OFRN`;
-  return `${n} OFRN ÃÂÃÂÃÂÃÂ· ${m} artista${m === 1 ? "" : "s"}`;
+  // Middle dot via \u escape — avoids UTF-8 double-encoding mojibake in source.
+  return `${n} OFRN \u00B7 ${m} artista${m === 1 ? "" : "s"}`;
 }
 
 /**
@@ -1555,7 +1556,7 @@ export function fimbaParticipanteDietReportLabel(part, labelFn) {
     typeof labelFn === "function"
       ? labelFn(part?.tipo_alimentacion, part?.nota_alimentacion)
       : "";
-  if (labeled && labeled !== "ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ") return labeled;
+  if (labeled && labeled !== "\u2014") return labeled;
   return "Regular";
 }
 
