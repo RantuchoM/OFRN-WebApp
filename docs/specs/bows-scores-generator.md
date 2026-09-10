@@ -4,7 +4,7 @@
 Permitir que los editores generen automáticamente copias de las particellas de **SCORE de Cuerdas (General)** (ID: 50) en la carpeta de Arcos de la gira para facilitar la revisión comparativa de arcos por parte de los guías.
 
 ## Lógica de Negocio
-1. **Filtro de Usuario:** Solo visible para `isEditor` o `isManagement`.
+1. **Filtro de Usuario:** Visible para `isEditor`, `isManagement`, o quien ya puede editar el repertorio del programa (`canEdit`: coordinador general o coordinador de un ensamble fuente).
 2. **Nombres en Drive (arcos):** Nunca usar `obras.titulo` para carpetas/shortcuts. La EF resuelve el nombre desde `obras.link_drive` (nombre real de la carpeta en Drive) + `nombreSet` del set de arcos. Si no hay `link_drive`, la operación falla con mensaje claro.
 3. **Origen de Datos (scores):**
    - Se recorren todas las obras (`obras`) del programa.
@@ -27,7 +27,7 @@ Permitir que los editores generen automáticamente copias de las particellas de 
    - `sync_bowing_to_program` recibe `repertoireBlockId` opcional; al acomodar/generar se limpia también el shortcut legado en la raíz de arcos.
 
 ## UI/UX
-- Menú desplegable **「Arcos」** en la pestaña Repertorio de la gira (`ProgramRepertoire.jsx`), visible para `isEditor` o `isManagement`.
+- Menú desplegable **「Arcos」** en la pestaña Repertorio de la gira (`ProgramRepertoire.jsx`), visible para `isEditor`, `isManagement` o `canEdit` (coordinadores de ensamble del programa).
 - En **móvil**, el menú se renderiza con **portal** a `document.body` (posición `fixed`, `z-[110]`) para no quedar recortado por `overflow` del contenedor; la barra de acciones hace `flex-wrap`.
 - Opciones del menú:
   1. **Carpeta de arcos** — abre en nueva pestaña `programas.id_folder_arcos` (fallback `id_shortcut_arcos_drive`). Si no existe, toast indicando usar «Generar toda la gira».
@@ -57,14 +57,14 @@ COMMENT ON COLUMN public.programas.id_folder_arcos IS 'ID de Google Drive de la 
 ## Estado de Implementación
 - **Edge Function `manage-drive`**: acciones `COPY_FILES_BATCH` y `sync_bowing_to_program` implementadas; `resolveTourArcosShortcutsParent` crea subcarpetas por bloque cuando hay >1 repertorio.
 - **Frontend `ProgramRepertoire.jsx`**:
-  - Menú **Arcos** con portal fijo en móvil/desktop y cuatro acciones: «Carpeta de arcos», «Generar toda la gira», «Acomodar Arcos», «Scores para Arcos» (`isEditor` o `isManagement`).
+  - Menú **Arcos** con portal fijo en móvil/desktop y cuatro acciones: «Carpeta de arcos», «Generar toda la gira», «Acomodar Arcos», «Scores para Arcos» (`isEditor`, `isManagement` o `canEdit`).
   - `executeGenerateBowScores` / `executeRepairArcos` reutilizados por el flujo batch y el modal final de scores.
   - `handleSyncArco` / `syncBowingToProgram` pasan `repertoireBlockId`.
   - Lógica que filtra `obras_particellas` por `id_instrumento === "50"` y parsea `url_archivo` como string o JSON de versiones.
   - Scores: `executeGenerateBowScores` envía `repertoireBlockId` por archivo; `COPY_FILES_BATCH` anida con `resolveTourArcosShortcutsParent` cuando hay >1 bloque.
 - **Permisos**:
-  - Menú Arcos: visible para `isEditor` o `isManagement`.
-  - «Importar Repertorio» y «Sincronizar Drive»: visibles solo para editores/admins (`isEditor`).
+  - Menú Arcos: visible para `isEditor`, `isManagement` o `canEdit` (coordinador general / coordinador de ensamble fuente del programa).
+  - «Importar Repertorio» y «Sincronizar Drive»: visibles para `isEditor` o `canEdit` (misma base que la edición del repertorio).
 - **Migración gira/programa 12 (Sinf 11/26, 2026-08-31):**
   - Bloques con arcos: Gala Lírica (14), King Crimson (12), Bob Marley (16). Alba Carmona sin obras.
   - Shortcuts: `sync_bowing_to_program` × 42 (0 fallos) → subcarpetas por bloque.

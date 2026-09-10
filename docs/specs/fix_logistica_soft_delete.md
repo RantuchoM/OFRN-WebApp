@@ -27,8 +27,8 @@ Se deben filtrar los eventos de la tabla `eventos` (eventos de gira) para exclui
 
 ### Borrado hard de eventos vs reglas de logística (completado)
 - [x] Agenda usa soft-delete (`is_deleted` / `deleted_at`); borrado definitivo y `MealsManager.deleteRow` hacen `DELETE` hard.
-- [x] FKs opcionales `giras_logistica_reglas.id_evento_{checkin,checkout,comida_inicio,comida_fin}` y `giras_logistica_reglas_transportes.id_evento_{subida,bajada}` → `eventos(id)` con **ON DELETE SET NULL** (migración `20260907182003_giras_logistica_reglas_eventos_on_delete_set_null`), alineado a viáticos/FIMBA.
-- [x] Así, borrar un evento referenciado como ventana de comida (u otra punta opcional) no viola FK; la regla queda con ese puntero en NULL. UX MealsManager (spinner → fila gris/sale de grilla) sin cambios de UI.
+- [x] FKs opcionales `giras_logistica_reglas.id_evento_{checkin,checkout}` y `giras_logistica_reglas_transportes.id_evento_{subida,bajada}` → `eventos(id)` con **ON DELETE SET NULL**. Las ventanas de comida ya no usan evento: slot `(fecha, servicio)` (`docs/specs/logistica-comida-slot.md`); borrar una comida no toca la regla.
+- [x] Borrar un check-in/out referenciado no viola FK (SET NULL). UX MealsManager (spinner → fila gris/sale de grilla) sin cambios de UI.
 - [x] Paths de transporte (`GirasTransportesManager` / `deleteGiraTransporteCascade`) que ya nullean FKs antes del DELETE siguen válidos (redundantes con SET NULL).
 
 ### Tipos de comida reales (id_tipo_evento + agrupación D/A/M/C)

@@ -26,7 +26,7 @@ Locación / hora / tipo del survivor **no** se rellenan desde los otros (solo ta
 | `descripcion` | `mergeMealDescriptionWithConvocados` con convocados y siglas FIMBA fusionados |
 
 ## Borrado
-Hard `DELETE` de los no-survivor (paridad `deleteRow`). Junctions `eventos_grupos` / `eventos_fimba_propuestas` CASCADE. FKs de logística ya son `ON DELETE SET NULL`.
+Hard `DELETE` de los no-survivor (paridad `deleteRow`). Junctions `eventos_grupos` / `eventos_fimba_propuestas` CASCADE. Check-in/out logísticos: FKs `ON DELETE SET NULL`. Ventanas de comida ya no apuntan a eventos (slot día+tipo).
 
 ## Post-merge
 1. Rematerializar hermanas del turno en memoria (`rematerializeTurnoSiblings`).

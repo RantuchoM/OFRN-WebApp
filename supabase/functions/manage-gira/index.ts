@@ -307,14 +307,14 @@ async function duplicateGira(
         hora_checkout: r.hora_checkout,
         comida_inicio_servicio: r.comida_inicio_servicio,
         comida_fin_servicio: r.comida_fin_servicio,
+        comida_inicio_fecha: shiftDate(r.comida_inicio_fecha, days),
+        comida_fin_fecha: shiftDate(r.comida_fin_fecha, days),
         prov_desayuno: r.prov_desayuno,
         prov_almuerzo: r.prov_almuerzo,
         prov_merienda: r.prov_merienda,
         prov_cena: r.prov_cena,
         id_evento_checkin: r.id_evento_checkin,
         id_evento_checkout: r.id_evento_checkout,
-        id_evento_comida_inicio: r.id_evento_comida_inicio,
-        id_evento_comida_fin: r.id_evento_comida_fin,
       }));
       await supabase.from("giras_logistica_reglas").insert(newReglas);
       log(` → OK. ${reglas.length} reglas logísticas copiadas.`);
@@ -577,6 +577,25 @@ async function moveGira(supabase: any, giraId: number, days: number) {
       if (uErr) throw uErr;
     }
     log(`   ${eventos.length} evento(s) actualizado(s).`);
+  }
+
+  log("2b. Desplazando slots de comida en reglas logísticas...");
+  const { data: reglasMove } = await supabase
+    .from("giras_logistica_reglas")
+    .select("id, comida_inicio_fecha, comida_fin_fecha")
+    .eq("id_gira", giraId);
+  if (reglasMove?.length) {
+    for (const r of reglasMove) {
+      const { error: rErr } = await supabase
+        .from("giras_logistica_reglas")
+        .update({
+          comida_inicio_fecha: shiftDate(r.comida_inicio_fecha, days),
+          comida_fin_fecha: shiftDate(r.comida_fin_fecha, days),
+        })
+        .eq("id", r.id);
+      if (rErr) throw rErr;
+    }
+    log(`   ${reglasMove.length} regla(s) de comida actualizada(s).`);
   }
 
   log("3. Moviendo agenda de comidas...");

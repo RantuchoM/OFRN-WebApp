@@ -48,6 +48,7 @@ import {
   mealDisplayLabelFromEvent,
   isMealEvent,
 } from "../../utils/mealLogistics";
+import MealSlotCellEditor from "../../components/logistics/MealSlotCellEditor";
 import EventForm from "../../components/forms/EventForm";
 import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
 import { filterAndRankMultiTokenSearch } from "../../utils/sanitize";
@@ -1021,9 +1022,7 @@ export default function LogisticsManager({
     const relatedRules = logisticsRules.filter(
       (r) =>
         Number(r.id_evento_checkin) === Number(eventId) ||
-        Number(r.id_evento_checkout) === Number(eventId) ||
-        Number(r.id_evento_comida_inicio) === Number(eventId) ||
-        Number(r.id_evento_comida_fin) === Number(eventId),
+        Number(r.id_evento_checkout) === Number(eventId),
     );
 
     if (relatedRules.length === 0) return "No se encontraron asociaciones";
@@ -1081,9 +1080,7 @@ export default function LogisticsManager({
     return rules.filter(
       (r) =>
         String(r.id_evento_checkin) === String(eventId) ||
-        String(r.id_evento_checkout) === String(eventId) ||
-        String(r.id_evento_comida_inicio) === String(eventId) ||
-        String(r.id_evento_comida_fin) === String(eventId)
+        String(r.id_evento_checkout) === String(eventId),
     );
   };
 
@@ -1486,37 +1483,23 @@ export default function LogisticsManager({
                   {!collapsedGroups.range && (
                     <>
                       <td className="p-1 border-r border-slate-200 bg-emerald-50/10 min-w-0">
-                        <EventCellEditor
+                        <MealSlotCellEditor
                           rule={row}
-                          field="comida_inicio"
-                          eventId={row.id_evento_comida_inicio}
-                          allEvents={allEvents}
-                          tipoEventoIds={[7, 8, 9, 10]}
-                          onRefresh={refresh}
+                          which="inicio"
+                          gira={gira}
                           supabase={supabase}
-                          giraId={gira.id}
-                          labelDefault={row.comida_inicio_servicio || "Inicio"}
-                          onManualUpdate={(f, v) => handleRowChange(idx, f, v)}
-                          onEditEvent={(evt, triggerOpen) => handleRequestEditEvent(evt, row.id, "comida_inicio", triggerOpen)}
-                          locations={catalogs.venues}
-                          eventTypes={catalogs.eventTypes}
+                          onRefresh={refresh}
+                          labelDefault="Inicio"
                         />
                       </td>
                       <td className="p-1 border-r border-slate-200 bg-emerald-50/10 min-w-0">
-                        <EventCellEditor
+                        <MealSlotCellEditor
                           rule={row}
-                          field="comida_fin"
-                          eventId={row.id_evento_comida_fin}
-                          allEvents={allEvents}
-                          tipoEventoIds={[7, 8, 9, 10]}
-                          onRefresh={refresh}
+                          which="fin"
+                          gira={gira}
                           supabase={supabase}
-                          giraId={gira.id}
-                          labelDefault={row.comida_fin_servicio || "Fin"}
-                          onManualUpdate={(f, v) => handleRowChange(idx, f, v)}
-                          onEditEvent={(evt, triggerOpen) => handleRequestEditEvent(evt, row.id, "comida_fin", triggerOpen)}
-                          locations={catalogs.venues}
-                          eventTypes={catalogs.eventTypes}
+                          onRefresh={refresh}
+                          labelDefault="Fin"
                         />
                       </td>
                     </>
@@ -1784,7 +1767,7 @@ export default function LogisticsManager({
                         icon: IconUtensils,
                         colorClass:
                           "text-emerald-600 border-emerald-600 bg-emerald-50",
-                        field: "id_evento_comida_inicio",
+                        isLinked: false,
                       },
                       {
                         id: "c_in",
@@ -1811,7 +1794,7 @@ export default function LogisticsManager({
                         icon: IconUtensils,
                         colorClass:
                           "text-emerald-600 border-emerald-600 bg-emerald-50",
-                        field: "id_evento_comida_fin",
+                        isLinked: false,
                       },
                       {
                         id: "baj",

@@ -6,6 +6,7 @@ import {
   isLocalAt,
   isLocalAtMealSlot,
   isLocalForTramoIndex,
+  mealSlotToInstant,
 } from "./giraTramos";
 
 const MEAL_RULE_FIELDS = new Set(["comida_inicio", "comida_fin"]);
@@ -544,6 +545,26 @@ export const getCategoriaLogistica = (person) => {
   return isLocal ? "LOCALES" : "NO_LOCALES";
 };
 
+const MEAL_SLOT_BASES = new Set([
+  "Desayuno",
+  "Almuerzo",
+  "Merienda",
+  "Cena",
+  "Catering",
+]);
+
+/** Tipo base D/A/M/C desde texto de regla (evita ciclo con mealLogistics). */
+const slotServiceFromRule = (raw) => {
+  if (!raw) return null;
+  const first = String(raw).trim().split(/[\s(/]+/)[0] || "";
+  if (MEAL_SLOT_BASES.has(first)) return first;
+  const lower = first.toLowerCase();
+  for (const base of MEAL_SLOT_BASES) {
+    if (lower === base.toLowerCase()) return base;
+  }
+  return null;
+};
+
 const RULE_FIELD_INSTANT = {
   checkin: {
     event: "id_evento_checkin",
@@ -556,13 +577,15 @@ const RULE_FIELD_INSTANT = {
     time: "hora_checkout",
   },
   comida_inicio: {
-    event: "id_evento_comida_inicio",
+    event: null,
     date: "comida_inicio_fecha",
+    servicio: "comida_inicio_servicio",
     time: null,
   },
   comida_fin: {
-    event: "id_evento_comida_fin",
+    event: null,
     date: "comida_fin_fecha",
+    servicio: "comida_fin_servicio",
     time: null,
   },
 };
@@ -573,7 +596,16 @@ export const resolveRuleFieldInstant = (rule, field, allEvents = []) => {
   const cfg = RULE_FIELD_INSTANT[field];
   if (!cfg) return null;
 
-  if (rule[cfg.event]) {
+  if (MEAL_RULE_FIELDS.has(field)) {
+    const fecha = rule[cfg.date] ? String(rule[cfg.date]).slice(0, 10) : null;
+    if (!fecha) return null;
+    const servicio =
+      slotServiceFromRule(rule[cfg.servicio]) ||
+      (field === "comida_fin" ? "Cena" : "Desayuno");
+    return mealSlotToInstant(fecha, servicio);
+  }
+
+  if (cfg.event && rule[cfg.event]) {
     const linked = (allEvents || []).find(
       (e) => String(e.id) === String(rule[cfg.event]),
     );
@@ -637,12 +669,7 @@ export const resolveIsLocalForLogisticsCategory = (
 
 /** Regla con hitos de comida configurados (para preview de chips). */
 export const ruleHasMealMilestones = (rule) =>
-  Boolean(
-    rule?.id_evento_comida_inicio ||
-      rule?.comida_inicio_fecha ||
-      rule?.id_evento_comida_fin ||
-      rule?.comida_fin_fecha,
-  );
+  Boolean(rule?.comida_inicio_fecha || rule?.comida_fin_fecha);
 
 /**
  * Compatibilidad de categorías para reglas logísticas.

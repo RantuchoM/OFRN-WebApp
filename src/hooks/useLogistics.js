@@ -19,7 +19,11 @@ import {
   enrichRosterWithGrupoIds,
   fetchGiraGrupos,
 } from "../services/giraGruposService";
-import { resolvePersonIsLocal } from "../utils/giraTramos";
+import { mealSlotToInstant, resolvePersonIsLocal } from "../utils/giraTramos";
+import {
+  canonicalizeMealSlotService,
+  resolveRuleMealSlot,
+} from "../utils/mealLogistics";
 
 /** Stable empty — `summary || []` as a new `[]` each render breaks roster-dependent effects. */
 const EMPTY_SUMMARY = Object.freeze([]);
@@ -133,6 +137,33 @@ export const calculateLogisticsSummary = (
 
     const resolve = (key, legacyDate, legacyTime, svcField, r, strength) => {
       const src = getSourceCode(r);
+      if (key === "comida_inicio" || key === "comida_fin") {
+        const slot = resolveRuleMealSlot(
+          r,
+          key === "comida_fin" ? "fin" : "inicio",
+        );
+        if (!slot?.fecha) return;
+        const svc =
+          slot.servicio ||
+          canonicalizeMealSlotService(r[svcField]) ||
+          (key === "comida_fin" ? "Cena" : "Desayuno");
+        const instant = mealSlotToInstant(slot.fecha, svc);
+        log[key] = {
+          date: slot.fecha,
+          time: instant.hora,
+          hora: instant.hora,
+          isLinked: false,
+          isSlot: true,
+          src,
+          ruleId: r.id,
+          field: key,
+          svc,
+          descripcion: svc,
+          strength,
+        };
+        return;
+      }
+
       const eventId = r[`id_evento_${key}`];
       const linkedEvent = eventId
         ? allEvents.find((e) => String(e.id) === String(eventId))

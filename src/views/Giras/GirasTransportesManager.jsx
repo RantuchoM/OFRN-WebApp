@@ -1484,18 +1484,6 @@ export default function GirasTransportesManager({
           .update({ id_evento_checkout: null })
           .eq("id_evento_checkout", eventId),
       );
-      cleanupPromises.push(
-        supabase
-          .from("giras_logistica_reglas")
-          .update({ id_evento_comida_inicio: null })
-          .eq("id_evento_comida_inicio", eventId),
-      );
-      cleanupPromises.push(
-        supabase
-          .from("giras_logistica_reglas")
-          .update({ id_evento_comida_fin: null })
-          .eq("id_evento_comida_fin", eventId),
-      );
 
       await Promise.all(cleanupPromises);
 

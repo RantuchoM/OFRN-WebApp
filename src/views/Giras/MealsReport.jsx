@@ -239,7 +239,8 @@ export default function MealsReport({
 }) {
   const reportRef = useRef(null);
   const fetchGenRef = useRef(0);
-  const [loading, setLoading] = useState(false);
+  /** true al montar con gira: evita aviso de cobertura sobre reportData=[] vacío. */
+  const [loading, setLoading] = useState(() => Boolean(gira?.id));
   const [refreshTick, setRefreshTick] = useState(0);
   const [reportData, setReportData] = useState([]);
   /** id_propuesta → participantes (dietas FIMBA) para recalcular al filtrar artista. */
@@ -912,9 +913,9 @@ export default function MealsReport({
   ]);
 
   const coverageGaps = useMemo(() => {
-    if (!fimbaMode) return [];
+    if (!fimbaMode || loading) return [];
     return findFimbaArtistMealCoverageGaps(reportData, { propuestas });
-  }, [fimbaMode, reportData, propuestas]);
+  }, [fimbaMode, loading, reportData, propuestas]);
 
   const coverageBrokenCount = useMemo(
     () =>
@@ -1213,7 +1214,7 @@ export default function MealsReport({
         </div>
       </div>
 
-      {fimbaMode && coverageBrokenCount > 0 && (
+      {fimbaMode && !loading && coverageBrokenCount > 0 && (
         <div className="px-3 sm:px-4 pt-3 print:hidden">
           <div
             className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950"

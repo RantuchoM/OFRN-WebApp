@@ -587,6 +587,37 @@ export function normalizeMealServiceBase(servicioOrLabel) {
   return null;
 }
 
+/** Tipos que una regla puede usar como borde de cobertura (no Catering). */
+export const MEAL_SLOT_SERVICES = Object.freeze([
+  "Desayuno",
+  "Almuerzo",
+  "Merienda",
+  "Cena",
+]);
+
+/** Tipo base D/A/M/C/Catering o null. */
+export function canonicalizeMealSlotService(value) {
+  return mealBaseFromTypeName(value) || normalizeMealServiceBase(value) || null;
+}
+
+/**
+ * Slot persistido en la regla (día + tipo). `which`: "inicio" | "fin".
+ * No infiere servicio: si falta el tipo, `servicio` queda null.
+ */
+export function resolveRuleMealSlot(rule, which = "inicio") {
+  if (!rule) return null;
+  const fechaRaw =
+    which === "fin" ? rule.comida_fin_fecha : rule.comida_inicio_fecha;
+  const svcRaw =
+    which === "fin" ? rule.comida_fin_servicio : rule.comida_inicio_servicio;
+  const fecha = fechaRaw ? String(fechaRaw).slice(0, 10) : null;
+  if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return null;
+  return {
+    fecha,
+    servicio: canonicalizeMealSlotService(svcRaw),
+  };
+}
+
 function escapeRegex(s) {
   return String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

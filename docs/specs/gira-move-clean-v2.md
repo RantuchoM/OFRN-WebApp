@@ -12,14 +12,15 @@ Refactorizar el traslado de giras para que la tabla `eventos` sea el origen prin
    - `fecha_hasta`
    - `fecha_confirmacion_limite`
 
-3. **Actualización de Eventos:** Se desplazan todos los registros de la tabla `eventos` sumando el `daysDiff` a la columna `fecha`. Las reglas de logística se mantienen íntegras gracias a sus FKs hacia los eventos (ya no se actualizan columnas de fecha en `giras_logistica_reglas`).
+3. **Actualización de Eventos:** Se desplazan todos los registros de la tabla `eventos` sumando el `daysDiff` a la columna `fecha`. Check-in/out de logística siguen por FK a esos eventos.
+3b. **Slots de comida en reglas:** `comida_inicio_fecha` / `comida_fin_fecha` se desplazan el mismo delta (la ventana ya no es un evento). Ver `docs/specs/logistica-comida-slot.md`.
 
 4. **Otras tablas con fechas (traslado coherente):**
    - `programas_agenda_comidas`: se actualiza `fecha`.
    - `giras_destaques_config`: `fecha_llegada`, `fecha_salida`.
    - `giras_viaticos_detalle`: `fecha_salida`, `fecha_llegada`.
 
-5. **Limpieza de esquema:** Las columnas de fecha en `giras_logistica_reglas` (`fecha_checkin`, `fecha_checkout`, `comida_inicio_fecha`, `comida_fin_fecha`) fueron eliminadas. No se realiza ninguna actualización sobre esa tabla en el traslado ni se copian esas columnas en la duplicación.
+5. **Fechas en reglas:** `fecha_checkin` / `fecha_checkout` siguen fuera de la tabla (viven en el evento). `comida_inicio_fecha` / `comida_fin_fecha` **volvieron** como identidad de slot (no hay FKs de comida).
 
 ## Notificación Masiva (notify: true)
 
@@ -61,7 +62,7 @@ Refactorizar el traslado de giras para que la tabla `eventos` sea el origen prin
 
 ## Duplicación (duplicateGira)
 
-- En la copia de `giras_logistica_reglas` ya no se incluyen `fecha_checkin`, `fecha_checkout`, `comida_inicio_fecha`, `comida_fin_fecha` (columnas eliminadas). Se copian el resto de campos (alcance, prioridad, horas, servicios de comida, etc.).
+- En la copia de `giras_logistica_reglas` se copian `comida_inicio_fecha` / `comida_fin_fecha` desplazadas el mismo delta, más servicio, alcance, prioridad, horas y check-in/out. No se copian FKs de comida (columnas eliminadas).
 
 ## Documentación y estado
 

@@ -895,14 +895,6 @@ export const deleteGiraTransporteCascade = async (supabase, giraTransporteId) =>
           .from("giras_logistica_reglas")
           .update({ id_evento_checkout: null })
           .in("id_evento_checkout", eventIds),
-        supabase
-          .from("giras_logistica_reglas")
-          .update({ id_evento_comida_inicio: null })
-          .in("id_evento_comida_inicio", eventIds),
-        supabase
-          .from("giras_logistica_reglas")
-          .update({ id_evento_comida_fin: null })
-          .in("id_evento_comida_fin", eventIds),
       ]);
       for (const r of cleanup) {
         if (r.error) throw r.error;

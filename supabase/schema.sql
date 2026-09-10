@@ -532,20 +532,18 @@ CREATE TABLE public.giras_logistica_reglas (
   hora_checkout time without time zone,
   comida_inicio_servicio text,
   comida_fin_servicio text,
+  comida_inicio_fecha date,
+  comida_fin_fecha date,
   prov_desayuno text,
   prov_almuerzo text,
   prov_merienda text,
   prov_cena text,
   id_evento_checkin integer,
   id_evento_checkout integer,
-  id_evento_comida_inicio integer,
-  id_evento_comida_fin integer,
   CONSTRAINT giras_logistica_reglas_pkey PRIMARY KEY (id),
   CONSTRAINT giras_logistica_reglas_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
   CONSTRAINT giras_logistica_reglas_id_evento_checkin_fkey FOREIGN KEY (id_evento_checkin) REFERENCES public.eventos(id) ON DELETE SET NULL,
-  CONSTRAINT giras_logistica_reglas_id_evento_checkout_fkey FOREIGN KEY (id_evento_checkout) REFERENCES public.eventos(id) ON DELETE SET NULL,
-  CONSTRAINT giras_logistica_reglas_id_evento_comida_inicio_fkey FOREIGN KEY (id_evento_comida_inicio) REFERENCES public.eventos(id) ON DELETE SET NULL,
-  CONSTRAINT giras_logistica_reglas_id_evento_comida_fin_fkey FOREIGN KEY (id_evento_comida_fin) REFERENCES public.eventos(id) ON DELETE SET NULL
+  CONSTRAINT giras_logistica_reglas_id_evento_checkout_fkey FOREIGN KEY (id_evento_checkout) REFERENCES public.eventos(id) ON DELETE SET NULL
 );
 CREATE TABLE public.giras_logistica_reglas_backup_2026_01_21 (
   id bigint,

@@ -37,6 +37,7 @@ import {
   rewriteMealDescriptionServiceLabel,
   mealServicioFromEvent,
   mealBaseFromTypeName,
+  resolveRuleMealSlot,
   CANONICAL_MEAL_TYPE_IDS,
   CATERING_SERVICE,
   fetchMealEventTypes,
@@ -1794,7 +1795,11 @@ export default function MealsManager({
   onMealFiltersChange = null,
 }) {
   const { confirm, dialog } = useConfirmDialog();
-  const [loading, setLoading] = useState(false);
+  /**
+   * true desde el montaje si ya hay gira: evita primer paint con grid=[]
+   * mientras fetchAllData aún no corrió (cobertura A/M/C falsa).
+   */
+  const [loading, setLoading] = useState(() => Boolean(gira?.id));
   /** Fuente completa en memoria. Los filtros NUNCA escriben acá (solo hide en vista). */
   const [grid, setGrid] = useState([]);
   const [catalogs, setCatalogs] = useState({
@@ -2089,17 +2094,19 @@ export default function MealsManager({
     let minKey = Infinity,
       maxKey = -Infinity;
     rulesData.forEach((r) => {
-      if (r.comida_inicio_fecha) {
+      const start = resolveRuleMealSlot(r, "inicio");
+      if (start?.fecha) {
         const k = toIntKey(
-          r.comida_inicio_fecha,
-          r.comida_inicio_servicio || "Desayuno",
+          start.fecha,
+          start.servicio || "Desayuno",
         );
         if (k != null) minKey = Math.min(minKey, k);
       }
-      if (r.comida_fin_fecha) {
+      const end = resolveRuleMealSlot(r, "fin");
+      if (end?.fecha) {
         const k = toIntKey(
-          r.comida_fin_fecha,
-          r.comida_fin_servicio || "Cena",
+          end.fecha,
+          end.servicio || "Cena",
         );
         if (k != null) maxKey = Math.max(maxKey, k);
       }
@@ -2320,11 +2327,12 @@ export default function MealsManager({
   }, [fimbaMode, grid]);
 
   const coverageGaps = useMemo(() => {
-    if (!fimbaMode) return [];
+    // Mientras loading, grid=[] no significa «cero comidas» — no calcular huecos.
+    if (!fimbaMode || loading) return [];
     return findFimbaArtistMealCoverageGaps(coverageSiblingRows, {
       propuestas,
     });
-  }, [fimbaMode, coverageSiblingRows, propuestas]);
+  }, [fimbaMode, loading, coverageSiblingRows, propuestas]);
 
   const handleCreateCoverageGap = async (gap) => {
     if (!gira?.id || !gap) return;
@@ -3548,7 +3556,7 @@ export default function MealsManager({
         </div>
       )}
 
-      {fimbaMode && coverageGaps.length > 0 && (
+      {fimbaMode && !loading && coverageGaps.length > 0 && (
         <div className="mx-2 md:mx-4 mt-2 mb-0 shrink-0">
           <FimbaMealCoveragePanel
             compact

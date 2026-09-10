@@ -42,6 +42,14 @@ Permitir que los coordinadores de ensamble editen la configuración de sus progr
 - Al hacer clic (si hay convocados) muestra toast con la lista de nombres.
 - **Alcance:** solo se muestra y se calcula el roster (`useGiraRosterQuery`) cuando hay **1 a 3 ensambles activos**. En Coordinación general / admin con todos los ensambles (o más de 3) el badge se oculta y no se dispara el fetch.
 
+### 9. Herramientas de repertorio (Arcos / Importar / Drive)
+- En `ProgramRepertoire.jsx`, `canEdit` ya habilita edición del listado (`RepertoireManager` `readOnly={!canEdit}`).
+- Quien tiene `canEdit` (coordinador de ensamble fuente o coordinador general en programas tipo Ensamble) también ve:
+  - Menú **Arcos** (Carpeta, Generar toda la gira, Acomodar, Scores).
+  - **Importar Repertorio**.
+  - **Sincronizar Drive**.
+- Editores y management conservan el acceso previo (Arcos para `isEditor`/`isManagement`; Importar/Sync para `isEditor` o `canEdit`).
+
 ## Flujo de Datos
 - `ProgramCardItem` recibe la función `onEdit`.
 - Al hacer clic en editar se ejecuta `handleEditProgram(program)`:
@@ -77,5 +85,8 @@ Permitir que los coordinadores de ensamble editen la configuración de sus progr
 5. **Consistencia visual (v2)**
    - Uso confirmado de **giraUtils** (`getProgramStyle`) para las tarjetas de programas, alineado con la vista de Giras y evitando colores hardcodeados.
    - Acciones de navegación (Agenda, Repertorio) y edición centralizadas en la tarjeta.
+
+6. **Herramientas de repertorio para coordinadores**
+   - En `ProgramRepertoire.jsx`, **Arcos**, **Importar Repertorio** y **Sincronizar Drive** usan `canEdit` (además de `isEditor` / `isManagement` donde correspondía), para que el coordinador que ya puede editar el programa también use esas acciones.
 
 La funcionalidad ha sido implementada satisfactoriamente.

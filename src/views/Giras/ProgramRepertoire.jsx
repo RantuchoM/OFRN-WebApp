@@ -645,11 +645,16 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
             (f) =>
               f.tipo === "ENSAMBLE" && myCoordinatedEnsembles.has(f.valor_id),
           );
-          if (isCoordinator) setCanEdit(true);
+          if (isCoordinator) {
+            setCanEdit(true);
+            return;
+          }
         }
       }
+      setCanEdit(false);
     };
     if (program && user) checkPermissions();
+    else setCanEdit(false);
   }, [user, isEditor, isCoordGeneral, program, supabase]);
 
   // 2. Efecto de Carga de Datos
@@ -1258,6 +1263,9 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
     }
   };
 
+  const showArcosTools = isEditor || isManagement || canEdit;
+  const showImportAndSync = isEditor || canEdit;
+
   if (!program)
     return (
       <div className="p-10 text-center">
@@ -1343,7 +1351,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
             ) : (
               <div className="w-full min-w-0 max-w-none space-y-2">
                 <div className="flex w-full min-w-0 flex-wrap justify-end gap-2">
-                  {(isEditor || isManagement) && (
+                  {showArcosTools && (
                     <>
                       <div className="relative shrink-0">
                         <button
@@ -1438,7 +1446,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
                           )}
                       </div>
 
-                      {isEditor && (
+                      {showImportAndSync && (
                         <>
                           <button
                             onClick={() => setShowImport(true)}
