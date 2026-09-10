@@ -202,14 +202,24 @@ export function resolveCiudadDj(m) {
 }
 
 const SUFIJO_PROVINCIA_DJ = "de la Provincia de Río Negro";
+export const DOMICILIO_LABORAL_DJ_SEDE_OFRN = `Zatti 287, de la localidad de Viedma, ${SUFIJO_PROVINCIA_DJ}`;
+export const DOMICILIO_LABORAL_DJ_PUNTOS = ".".repeat(
+  DOMICILIO_LABORAL_DJ_SEDE_OFRN.length,
+);
+
+function isCondicionEstable(person) {
+  return String(person?.condicion || "").trim().toLowerCase() === "estable";
+}
 
 /**
  * Texto del campo PDF `domicilio_laboral`:
- * "{domicilio de viáticos}, de la localidad de {localidad de viáticos}, de la Provincia de Río Negro"
+ * Si condicion !== Estable → puntos (completa a mano).
+ * Estable: "{domicilio de viáticos}, de la localidad de {localidad de viáticos}, de la Provincia de Río Negro"
  * Domicilio de viáticos = dirección de la sede (`laboral.direccion`).
- * Localidad = `id_loc_viaticos`, con fallback a la localidad de la locación.
+ * Localidad = `id_loc_viaticos`, con fallback a la localidad de la locación / sede OFRN.
  */
 export function formatDomicilioLaboralDj(m) {
+  if (!isCondicionEstable(m)) return DOMICILIO_LABORAL_DJ_PUNTOS;
   const direccion = (m?.laboral?.direccion || "").trim();
   const locViaticos = getViaticosNombre(m).trim();
   const locacionLoc = Array.isArray(m?.laboral?.localidades)
@@ -221,5 +231,5 @@ export function formatDomicilioLaboralDj(m) {
   }
   if (direccion) return `${direccion}, ${SUFIJO_PROVINCIA_DJ}`;
   if (localidad) return `de la localidad de ${localidad}, ${SUFIJO_PROVINCIA_DJ}`;
-  return `Zatti 287, de la localidad de Viedma, ${SUFIJO_PROVINCIA_DJ}`;
+  return DOMICILIO_LABORAL_DJ_SEDE_OFRN;
 }

@@ -1575,20 +1575,25 @@ async function generateDJInternal(m: any, templateRes: ArrayBuffer, firmaRes: Ar
   safeSet("provincia", "Río Negro");
   safeSet("email", m.mail || "");
   safeSet("telefono", m.telefono || "");
-  // domicilio_laboral del PDF: sede (domicilio de viáticos) + localidad de viáticos + provincia
-  const direccionViaticos = domicilioLaboralDireccion;
-  const localidadObjLaboral = Array.isArray(m.laboral?.localidades)
-    ? m.laboral.localidades[0]
-    : m.laboral?.localidades;
-  const localidadParaLaboral = localidadViaticos || localidadObjLaboral?.localidad || "";
+  // domicilio_laboral del PDF: sede OFRN solo si condicion === Estable; si no, puntos para completar a mano
   const sufijoProvinciaRn = "de la Provincia de Río Negro";
-  let domicilioLaboralTexto = `Zatti 287, de la localidad de Viedma, ${sufijoProvinciaRn}`;
-  if (direccionViaticos && localidadParaLaboral) {
-    domicilioLaboralTexto = `${direccionViaticos}, de la localidad de ${localidadParaLaboral}, ${sufijoProvinciaRn}`;
-  } else if (direccionViaticos) {
-    domicilioLaboralTexto = `${direccionViaticos}, ${sufijoProvinciaRn}`;
-  } else if (localidadParaLaboral) {
-    domicilioLaboralTexto = `de la localidad de ${localidadParaLaboral}, ${sufijoProvinciaRn}`;
+  const sedeOfrn = `Zatti 287, de la localidad de Viedma, ${sufijoProvinciaRn}`;
+  const esEstable = String(m?.condicion || "").trim().toLowerCase() === "estable";
+  let domicilioLaboralTexto = ".".repeat(sedeOfrn.length);
+  if (esEstable) {
+    const direccionViaticos = domicilioLaboralDireccion;
+    const localidadObjLaboral = Array.isArray(m.laboral?.localidades)
+      ? m.laboral.localidades[0]
+      : m.laboral?.localidades;
+    const localidadParaLaboral = localidadViaticos || localidadObjLaboral?.localidad || "";
+    domicilioLaboralTexto = sedeOfrn;
+    if (direccionViaticos && localidadParaLaboral) {
+      domicilioLaboralTexto = `${direccionViaticos}, de la localidad de ${localidadParaLaboral}, ${sufijoProvinciaRn}`;
+    } else if (direccionViaticos) {
+      domicilioLaboralTexto = `${direccionViaticos}, ${sufijoProvinciaRn}`;
+    } else if (localidadParaLaboral) {
+      domicilioLaboralTexto = `de la localidad de ${localidadParaLaboral}, ${sufijoProvinciaRn}`;
+    }
   }
   safeSet("domicilio_laboral", domicilioLaboralTexto);
 
@@ -2718,9 +2723,11 @@ serve(async (req) => {
     }
 
     // --- ACCIÓN: REEXPORTAR DJ + EXPEDIENTE + MOSAICO (lote) ---
-    // Elegibles: firma + domicilio (personal o sede) + ya tienen DJ/documentacion/docred.
+    // Elegibles por defecto: firma + domicilio (personal o sede) + ya tienen DJ/documentacion/docred.
+    // onlyNonEstable: no Estable + DJ existente (no exige firma/domicilio).
     if (action === "reexport_docs_packs") {
       const dryRun = Boolean(body.dryRun);
+      const onlyNonEstable = Boolean(body.onlyNonEstable);
       const batchLimit = Math.min(Math.max(Number(body.limit) || 1, 1), 8);
       const requestedIds = Array.isArray(body.musicianIds)
         ? body.musicianIds.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id))
@@ -2732,13 +2739,16 @@ serve(async (req) => {
       const { data: rows, error: listError } = await supabase
         .from("integrantes")
         .select(
-          "id, apellido, nombre, firma, domicilio, id_domicilio_laboral, link_declaracion, documentacion, docred, last_modified_at",
+          "id, apellido, nombre, condicion, firma, domicilio, id_domicilio_laboral, link_declaracion, documentacion, docred, last_modified_at",
         )
         .order("id");
       if (listError) throw new Error(`Error listando integrantes: ${listError.message}`);
 
       const eligible = (rows || []).filter((row: any) => {
-        if (!hasFirmaAdjunto(row) || !hasDomicilioParaDj(row) || !hasExpedienteExistente(row)) {
+        if (onlyNonEstable) {
+          if (String(row.condicion || "").trim().toLowerCase() === "estable") return false;
+          if (!(row.link_declaracion || "").toString().trim()) return false;
+        } else if (!hasFirmaAdjunto(row) || !hasDomicilioParaDj(row) || !hasExpedienteExistente(row)) {
           return false;
         }
         if (Number.isFinite(skipIfModifiedAfter) && row.last_modified_at) {
@@ -2777,7 +2787,7 @@ serve(async (req) => {
       for (const id of batchIds) {
         try {
           const m = await fetchMusicianForDj(supabase, id);
-          if (!hasFirmaAdjunto(m) || !hasDomicilioParaDj(m)) {
+          if (!onlyNonEstable && (!hasFirmaAdjunto(m) || !hasDomicilioParaDj(m))) {
             errors.push({ id, error: "Falta firma o domicilio al reexportar" });
             continue;
           }
