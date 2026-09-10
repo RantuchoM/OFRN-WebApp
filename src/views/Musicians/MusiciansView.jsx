@@ -20,13 +20,21 @@ import {
   IconUsers,
   IconUser,
   IconMapPin,
+  IconMerge,
 } from "../../components/ui/Icons";
 import { toast } from "sonner";
 import InstrumentFilter from "../../components/filters/InstrumentFilter";
 import WhatsAppLink from "../../components/ui/WhatsAppLink";
 import MusicianForm from "./MusicianForm";
 import HorasCatedraDashboard from "./HorasCatedraDashboard";
+import MergeIntegrantesModal from "../../components/musicians/MergeIntegrantesModal";
 import SearchableSelect from "../../components/ui/SearchableSelect";
+import {
+  deleteIntegrante,
+  formatIntegranteDeleteBlockers,
+  getIntegranteDeleteBlockers,
+} from "../../services/mergeIntegrantes";
+import { isProtectedIntegrante } from "../../utils/protectedIntegrantes";
 import {
   membershipActiveOnProgramDate,
   toIsoDateString,
@@ -523,6 +531,7 @@ const AVAILABLE_COLUMNS = [
 const MusicianCard = ({
   item,
   onEdit,
+  onDelete,
   isSelected,
   onCheckboxChange,
   highlightText,
@@ -575,6 +584,16 @@ const MusicianCard = ({
           >
             <IconEdit size={16} />
           </button>
+          {onDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(item)}
+              className="p-1.5 text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-red-50 hover:text-red-600"
+              title="Eliminar"
+            >
+              <IconTrash size={16} />
+            </button>
+          )}
           {item.mail && (
             <button
               onClick={handleCopyEmail}
@@ -1153,7 +1172,7 @@ const MassEditModal = ({
 
 // --- COMPONENTE PRINCIPAL ---
 export default function MusiciansView({ supabase, catalogoInstrumentos }) {
-  const { confirm, dialog } = useConfirmDialog();
+  const { confirm, alert, dialog } = useConfirmDialog();
   const [resultados, setResultados] = useState([]);
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -1207,6 +1226,9 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const shiftKeyHeldRef = useRef(false);
   const [isMassEditOpen, setIsMassEditOpen] = useState(false);
   const [columnFilters, setColumnFilters] = useState({});
+  const [isMergeOpen, setIsMergeOpen] = useState(false);
+  const [mergeSourceId, setMergeSourceId] = useState("");
+  const [mergeTargetId, setMergeTargetId] = useState("");
 
   useEffect(() => {
     const allIds = new Set(catalogoInstrumentos.map((i) => i.id));
@@ -1484,6 +1506,80 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       console.error(error);
       toast.error("Error en edición masiva: " + error.message, { id: toastId });
     }
+  };
+
+  const handleDeleteMusician = async (item) => {
+    if (isProtectedIntegrante(item)) {
+      await alert({
+        title: "Cuenta protegida",
+        message: "No se puede eliminar esta cuenta protegida.",
+      });
+      return;
+    }
+
+    const toastId = toast.loading("Revisando vínculos…");
+    const info = await getIntegranteDeleteBlockers(supabase, item.id);
+    toast.dismiss(toastId);
+    if (!info.ok) {
+      toast.error(info.error || "No se pudo revisar la ficha.");
+      return;
+    }
+
+    if (!info.can_delete) {
+      const choice = await confirm({
+        title: "No se puede eliminar",
+        message: formatIntegranteDeleteBlockers(info, item),
+        confirmText: "Entendido",
+        hideCancel: true,
+        secondaryAction: {
+          label: "Fusionar con otra persona",
+          value: "merge",
+        },
+      });
+      if (choice === "merge") {
+        setMergeSourceId(item.id);
+        setMergeTargetId("");
+        setIsMergeOpen(true);
+      }
+      return;
+    }
+
+    const label =
+      `${item.apellido || ""}, ${item.nombre || ""}`.replace(
+        /^,\s*|,\s*$/g,
+        "",
+      ) || `#${item.id}`;
+    if (
+      !(await confirm({
+        title: "Eliminar integrante",
+        message: `¿Eliminar a ${label}?\n\nNo tiene giras ni otra actividad que lo retenga. Esta acción no se puede deshacer.`,
+        destructive: true,
+        confirmText: "Eliminar",
+      }))
+    ) {
+      return;
+    }
+
+    const result = await deleteIntegrante(supabase, item.id);
+    if (!result.ok || result.deleted === false) {
+      if (Array.isArray(result.blockers) && result.blockers.length) {
+        await alert({
+          title: "No se puede eliminar",
+          message: formatIntegranteDeleteBlockers(result, item),
+        });
+      } else {
+        toast.error(result.error || "No se pudo eliminar.");
+      }
+      return;
+    }
+    toast.success("Integrante eliminado.");
+    fetchData();
+  };
+
+  const openMergeModal = (sourceId = "", targetId = "") => {
+    setMergeSourceId(sourceId || "");
+    setMergeTargetId(targetId || "");
+    setIsMergeOpen(true);
   };
 
   const startEditModal = async (item) => {
@@ -1933,6 +2029,20 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                 <IconMapPin size={14} />{" "}
                 <span className="hidden sm:inline">Sede</span>
               </button>
+              {selectedMusicians.size === 2 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ids = Array.from(selectedMusicians);
+                    openMergeModal(ids[0], ids[1]);
+                  }}
+                  className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-md text-xs font-bold hover:bg-violet-700 transition-colors shadow-sm"
+                  title="Fusionar las dos personas seleccionadas"
+                >
+                  <IconMerge size={14} />{" "}
+                  <span className="hidden sm:inline">Fusionar</span>
+                </button>
+              )}
             </div>
           )}
           <div
@@ -1944,6 +2054,16 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               fileName="musicos"
               orientation="p"
             />
+            <button
+              type="button"
+              onClick={() => openMergeModal()}
+              className="flex-1 md:flex-none flex justify-center items-center gap-2 bg-violet-50 text-violet-800 border border-violet-200 px-3 py-2 rounded-lg hover:bg-violet-100 shadow-sm transition-all"
+              title="Fusionar personas duplicadas"
+              aria-label="Fusionar personas"
+            >
+              <IconMerge size={16} />{" "}
+              <span className="hidden md:inline text-xs font-bold">Fusionar</span>
+            </button>
             <button
               onClick={() => {
                 setEditingId(null);
@@ -1998,6 +2118,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                 key={item.id}
                 item={item}
                 onEdit={startEditModal}
+                onDelete={handleDeleteMusician}
                 isSelected={selectedMusicians.has(item.id)}
                 onCheckboxChange={(ev) =>
                   handleMusicianCheckboxChange(item.id, idx, ev)
@@ -2264,19 +2385,8 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                         <IconEdit size={16} />
                       </button>
                       <button
-                        onClick={async () => {
-                          if (await confirm({
-                            title: "Eliminar integrante",
-                            message: "¿Eliminar este integrante?",
-                            destructive: true,
-                          })) {
-                            await supabase
-                              .from("integrantes")
-                              .delete()
-                              .eq("id", item.id);
-                            fetchData();
-                          }
-                        }}
+                        type="button"
+                        onClick={() => handleDeleteMusician(item)}
                         className="text-slate-400 hover:text-red-600 p-1"
                       >
                         <IconTrash size={16} />
@@ -2363,6 +2473,19 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           </div>,
           document.body,
         )}
+
+      <MergeIntegrantesModal
+        isOpen={isMergeOpen}
+        onClose={() => setIsMergeOpen(false)}
+        people={resultados}
+        supabase={supabase}
+        initialSourceId={mergeSourceId}
+        initialTargetId={mergeTargetId}
+        onMergeSuccess={() => {
+          setSelectedMusicians(new Set());
+          fetchData();
+        }}
+      />
 
       <MassEditModal
         isOpen={isMassEditOpen}

@@ -126,10 +126,10 @@
 ### 5. Estado de Implementación
 
 - **Estado**: Completado
-- **Última revisión**: 2026-08-19
+- **Última revisión**: 2026-09-10
 - **Notas**:
   - Falta aplicar `condicionColors` y el encabezado dinámico en `MusicianForm.jsx`.
   - Falta reorganizar `domicilio`, `domicilio_laboral`, `genero`, `alimentacion` y `nota_interna` en la estructura de grid 2x2 + columna de notas dentro de la sección personal.
-  - **DJ (`domicilio_laboral` del PDF)**: `{dirección de sede / domicilio de viáticos}, de la localidad de {localidad de viáticos}, de la Provincia de Río Negro`. Fallback de localidad: localidad de la locación; si no hay sede, `Zatti 287, de la localidad de Viedma, de la Provincia de Río Negro`. Generación en `generateDJInternal` (`manage-drive`) y `formatDomicilioLaboralDj`.
-  - **Reexport masivo** (`reexport_docs_packs`): regenera DJ + documentación + documentación reducida para integrantes con **firma**, **domicilio** (texto o sede laboral) y al menos un PDF de expediente ya existente. Lotes de 1 por timeout/memoria de Edge Function. `dryRun: true` lista elegibles. `skipIfModifiedAfter` evita reprocesar.
+  - **DJ (`domicilio_laboral` del PDF)**: si `condicion !== "estable"` (case-insensitive) → puntos del largo de la sede OFRN (el firmante completa a mano), sin usar sede ni viáticos. Si es Estable: `{dirección de sede / domicilio de viáticos}, de la localidad de {localidad de viáticos}, de la Provincia de Río Negro`; fallback de localidad: localidad de la locación; si no hay sede, `Zatti 287, de la localidad de Viedma, de la Provincia de Río Negro`. Generación en `generateDJInternal` (`manage-drive`) y `formatDomicilioLaboralDj`.
+  - **Reexport masivo** (`reexport_docs_packs`): regenera DJ + documentación + documentación reducida. Por defecto: **firma**, **domicilio** (texto o sede laboral) y al menos un PDF de expediente ya existente. Con `onlyNonEstable: true`: `condicion !== estable` y DJ (`link_declaracion`) existente; no exige firma/domicilio. Lotes de 1 por timeout/memoria de Edge Function. `dryRun: true` lista elegibles. `skipIfModifiedAfter` evita reprocesar.
 
