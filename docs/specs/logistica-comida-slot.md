@@ -23,7 +23,7 @@ La elegibilidad (`isPersonEligibleForMealSlot` / `mealSlotKey`) no cambia: sigue
 
 Picker de slot: chips D/A/M/C + calendario **sin tope de mes** (producción a veces viaja antes/después). Los días de `fecha_desde`…`fecha_hasta` se destacan; el resto es seleccionable. Abre en el mes del slot o del inicio de gira.
 
-Tarjetas de celda (Inicio/Fin y Check-in/Check-out): fondo blanco, borde 2px del color del tipo, chip centrado + fecha (`text-[11px]`), `min-h-[56px]`, acciones al hover. Comidas: `getMealServiceStyle`. Check-in/out: `tipos_evento.color` (ids 22/23) y hora en la línea de fecha.
+Tarjetas de celda (Inicio/Fin y Check-in/Check-out): fondo blanco, borde 2px del color del tipo, chip centrado + fecha/hora en negro (`text-slate-900`), `min-h-[56px]`, acciones al hover. Comidas: `getMealServiceStyle`. Check-in/out: `tipos_evento.color` (ids 22/23) y hora en la línea de fecha.
 
 ## Migración de giras existentes
 

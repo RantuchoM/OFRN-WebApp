@@ -245,7 +245,7 @@ export default function MealSlotCellEditor({
           >
             {saving ? "Guardando..." : servicio || title}
           </span>
-          <div className={`text-[11px] font-bold leading-tight ${theme.date}`}>
+          <div className="text-[11px] font-bold leading-tight text-slate-900">
             {formatSlotDate(fecha)}
           </div>
         </button>

@@ -725,10 +725,7 @@ const EventCellEditor = ({
           >
             {loading ? "Procesando..." : typeLabel}
           </span>
-          <div
-            className="text-[11px] font-bold leading-tight whitespace-nowrap"
-            style={stayTheme.dateStyle}
-          >
+          <div className="text-[11px] font-bold leading-tight whitespace-nowrap text-slate-900">
             {formatDateBrief(event.fecha)}
             {event?.hora_inicio ? ` · ${event.hora_inicio.slice(0, 5)}` : ""}
           </div>
