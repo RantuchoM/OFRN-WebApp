@@ -32,17 +32,6 @@ function sliceIso(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
 }
 
-function addDaysIso(iso, days) {
-  const s = sliceIso(iso);
-  if (!s) return "";
-  const d = new Date(`${s}T12:00:00`);
-  d.setDate(d.getDate() + days);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 function formatSlotDate(dateStr) {
   if (!dateStr) return "";
   const date = new Date(`${dateStr}T00:00:00`);
@@ -52,39 +41,31 @@ function formatSlotDate(dateStr) {
   return `${dayName} ${day}/${month}/${year}`;
 }
 
-function inRange(iso, min, max) {
-  if (min && iso < min) return false;
-  if (max && iso > max) return false;
+function inGiraRange(iso, from, to) {
+  if (!from && !to) return false;
+  if (from && iso < from) return false;
+  if (to && iso > to) return false;
   return true;
 }
 
-function monthKey(year, month) {
-  return year * 12 + month;
-}
-
-function SlotCalendar({ value, minDate, maxDate, onSelect }) {
-  const min = sliceIso(minDate);
-  const max = sliceIso(maxDate);
-  const seed = sliceIso(value) || min || max || new Date().toISOString().slice(0, 10);
+function SlotCalendar({ value, highlightFrom, highlightTo, onSelect }) {
+  const from = sliceIso(highlightFrom);
+  const to = sliceIso(highlightTo);
+  const seed =
+    sliceIso(value) || from || to || new Date().toISOString().slice(0, 10);
   const [sy, sm] = seed.split("-").map(Number);
   const [year, setYear] = useState(sy);
   const [month, setMonth] = useState(sm);
 
   useEffect(() => {
-    const next = sliceIso(value) || min || max;
+    const next = sliceIso(value) || from;
     if (!next) return;
     const [yy, mm] = next.split("-").map(Number);
     if (yy && mm) {
       setYear(yy);
       setMonth(mm);
     }
-  }, [value, min, max]);
-
-  const minMk = min ? monthKey(Number(min.slice(0, 4)), Number(min.slice(5, 7))) : null;
-  const maxMk = max ? monthKey(Number(max.slice(0, 4)), Number(max.slice(5, 7))) : null;
-  const curMk = monthKey(year, month);
-  const canPrev = minMk == null || curMk > minMk;
-  const canNext = maxMk == null || curMk < maxMk;
+  }, [value, from]);
 
   const firstDay = new Date(year, month - 1, 1);
   const lastDay = new Date(year, month, 0);
@@ -102,7 +83,6 @@ function SlotCalendar({ value, minDate, maxDate, onSelect }) {
         <button
           type="button"
           onClick={() => {
-            if (!canPrev) return;
             if (month === 1) {
               setMonth(12);
               setYear((y) => y - 1);
@@ -110,8 +90,7 @@ function SlotCalendar({ value, minDate, maxDate, onSelect }) {
               setMonth((m) => m - 1);
             }
           }}
-          disabled={!canPrev}
-          className="p-1 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 disabled:hover:bg-transparent"
+          className="p-1 rounded hover:bg-slate-100 text-slate-600"
           aria-label="Mes anterior"
         >
           ‹
@@ -122,7 +101,6 @@ function SlotCalendar({ value, minDate, maxDate, onSelect }) {
         <button
           type="button"
           onClick={() => {
-            if (!canNext) return;
             if (month === 12) {
               setMonth(1);
               setYear((y) => y + 1);
@@ -130,8 +108,7 @@ function SlotCalendar({ value, minDate, maxDate, onSelect }) {
               setMonth((m) => m + 1);
             }
           }}
-          disabled={!canNext}
-          className="p-1 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 disabled:hover:bg-transparent"
+          className="p-1 rounded hover:bg-slate-100 text-slate-600"
           aria-label="Mes siguiente"
         >
           ›
@@ -146,7 +123,7 @@ function SlotCalendar({ value, minDate, maxDate, onSelect }) {
         {cells.map((d, i) => {
           if (d === null) return <div key={`e-${i}`} />;
           const iso = toIso(year, month, d);
-          const enabled = inRange(iso, min, max);
+          const inGira = inGiraRange(iso, from, to);
           const isSelected =
             selectedParts &&
             selectedParts[0] === year &&
@@ -156,14 +133,13 @@ function SlotCalendar({ value, minDate, maxDate, onSelect }) {
             <button
               key={d}
               type="button"
-              disabled={!enabled}
-              onClick={() => enabled && onSelect(iso)}
+              onClick={() => onSelect(iso)}
               className={`py-1 rounded ${
                 isSelected
                   ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                  : enabled
+                  : inGira
                     ? "text-slate-800 hover:bg-emerald-100 font-semibold"
-                    : "text-slate-300 cursor-not-allowed"
+                    : "text-slate-400 hover:bg-slate-100"
               }`}
             >
               {d}
@@ -200,12 +176,6 @@ export default function MealSlotCellEditor({
 
   const giraFrom = sliceIso(gira?.fecha_desde);
   const giraTo = sliceIso(gira?.fecha_hasta);
-  const paddedFrom = giraFrom ? addDaysIso(giraFrom, -7) : "";
-  const paddedTo = giraTo ? addDaysIso(giraTo, 7) : "";
-  const minDate =
-    [paddedFrom, fecha].filter(Boolean).sort()[0] || paddedFrom;
-  const maxDate =
-    [paddedTo, fecha].filter(Boolean).sort().at(-1) || paddedTo;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -260,20 +230,21 @@ export default function MealSlotCellEditor({
   if (hasSlot) {
     const theme = getMealServiceStyle(servicio || "Almuerzo");
     return (
-      <div className="group relative bg-white border border-slate-200 rounded-lg px-2 py-2.5 flex flex-col items-center justify-center text-center shadow-sm w-full min-h-[56px]">
+      <div
+        className={`group relative border-2 rounded-lg px-2 py-2.5 flex flex-col items-center justify-center text-center shadow-sm w-full min-h-[56px] ${theme.card}`}
+      >
         {dialog}
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="w-full flex flex-col items-center justify-center gap-0.5 min-h-[40px]"
+          className="w-full flex flex-col items-center justify-center gap-1 min-h-[40px]"
           title="Cambiar slot"
         >
-          <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
-            {saving ? "Guardando..." : "Slot"}
+          <span
+            className={`text-[11px] font-black uppercase tracking-wide px-2 py-0.5 rounded-md border ${theme.tag}`}
+          >
+            {saving ? "Guardando..." : servicio || title}
           </span>
-          <div className="text-[13px] font-black text-slate-800 break-words whitespace-normal leading-tight w-full">
-            {servicio || title}
-          </div>
           <div className={`text-[11px] font-bold leading-tight ${theme.date}`}>
             {formatSlotDate(fecha)}
           </div>
@@ -306,8 +277,8 @@ export default function MealSlotCellEditor({
               title={title}
               draftFecha={draftFecha}
               draftServicio={draftServicio}
-              minDate={minDate}
-              maxDate={maxDate}
+              highlightFrom={giraFrom}
+              highlightTo={giraTo}
               rangeHint={
                 giraFrom && giraTo
                   ? `Gira ${formatSlotDate(giraFrom)} – ${formatSlotDate(giraTo)}`
@@ -347,8 +318,8 @@ export default function MealSlotCellEditor({
             title={title}
             draftFecha={draftFecha}
             draftServicio={draftServicio}
-            minDate={minDate}
-            maxDate={maxDate}
+            highlightFrom={giraFrom}
+            highlightTo={giraTo}
             rangeHint={
               giraFrom && giraTo
                 ? `Gira ${formatSlotDate(giraFrom)} – ${formatSlotDate(giraTo)}`
@@ -375,8 +346,8 @@ function SlotPickerModal({
   title,
   draftFecha,
   draftServicio,
-  minDate,
-  maxDate,
+  highlightFrom,
+  highlightTo,
   rangeHint,
   saving,
   onClose,
@@ -385,8 +356,8 @@ function SlotPickerModal({
 }) {
   const hint =
     rangeHint ||
-    (minDate && maxDate
-      ? `${formatSlotDate(minDate)} – ${formatSlotDate(maxDate)}`
+    (highlightFrom && highlightTo
+      ? `${formatSlotDate(highlightFrom)} – ${formatSlotDate(highlightTo)}`
       : "Días de la gira");
 
   return (
@@ -436,8 +407,8 @@ function SlotPickerModal({
           </p>
           <SlotCalendar
             value={draftFecha}
-            minDate={minDate}
-            maxDate={maxDate}
+            highlightFrom={highlightFrom}
+            highlightTo={highlightTo}
             onSelect={onFecha}
           />
           {(!draftFecha || !draftServicio) && (

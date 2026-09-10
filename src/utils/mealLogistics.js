@@ -116,7 +116,7 @@ export const MEAL_TYPE_ID_TO_SERVICE = {
 export const MEAL_SERVICE_STYLES = {
   Desayuno: {
     tag: "bg-sky-50 text-sky-800 border-sky-200",
-    card: "bg-sky-50/25 border-sky-200",
+    card: "bg-white border-sky-500",
     reportTag: "bg-sky-200 border-sky-400 text-slate-900",
     rowHover: "hover:bg-sky-50/70",
     date: "text-sky-800",
@@ -130,7 +130,7 @@ export const MEAL_SERVICE_STYLES = {
   },
   Almuerzo: {
     tag: "bg-amber-50 text-amber-700 border-amber-200",
-    card: "bg-amber-50/25 border-amber-200",
+    card: "bg-white border-amber-500",
     reportTag: "bg-amber-200 border-amber-400 text-slate-900",
     rowHover: "hover:bg-amber-50/70",
     date: "text-amber-700",
@@ -144,7 +144,7 @@ export const MEAL_SERVICE_STYLES = {
   },
   Merienda: {
     tag: "bg-rose-50 text-rose-700 border-rose-200",
-    card: "bg-rose-50/25 border-rose-200",
+    card: "bg-white border-rose-500",
     reportTag: "bg-rose-200 border-rose-400 text-slate-900",
     rowHover: "hover:bg-rose-50/70",
     date: "text-rose-700",
@@ -158,7 +158,7 @@ export const MEAL_SERVICE_STYLES = {
   },
   Cena: {
     tag: "bg-indigo-50 text-indigo-700 border-indigo-200",
-    card: "bg-indigo-50/25 border-indigo-200",
+    card: "bg-white border-indigo-500",
     reportTag: "bg-indigo-200 border-indigo-400 text-slate-900",
     rowHover: "hover:bg-indigo-50/70",
     date: "text-indigo-700",
@@ -172,7 +172,7 @@ export const MEAL_SERVICE_STYLES = {
   },
   Catering: {
     tag: "bg-orange-50 text-orange-800 border-orange-200",
-    card: "bg-orange-50/25 border-orange-200",
+    card: "bg-white border-orange-500",
     reportTag: "bg-orange-200 border-orange-400 text-slate-900",
     rowHover: "hover:bg-orange-50/70",
     date: "text-orange-800",
@@ -186,7 +186,7 @@ export const MEAL_SERVICE_STYLES = {
   },
   default: {
     tag: "bg-slate-100 text-slate-600 border-slate-200",
-    card: "bg-slate-50/50 border-slate-200",
+    card: "bg-white border-slate-400",
     reportTag: "bg-slate-200 border-slate-400 text-slate-900",
     rowHover: "hover:bg-slate-50",
     date: "text-slate-700",

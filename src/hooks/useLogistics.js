@@ -467,7 +467,7 @@ export function useLogistics(supabase, gira, trigger = 0) {
       supabase
         .from("eventos")
         .select(
-          `*, locaciones(*, localidades(*)), tipos_evento(id, nombre, id_categoria)`,
+          `*, locaciones(*, localidades(*)), tipos_evento(id, nombre, color, id_categoria)`,
         )
         .eq("id_gira", giraId)
         .eq("is_deleted", false),

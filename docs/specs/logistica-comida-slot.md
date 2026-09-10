@@ -21,7 +21,9 @@ La elegibilidad (`isPersonEligibleForMealSlot` / `mealSlotKey`) no cambia: sigue
 
 ## UI (Logística)
 
-Picker de slot: chips D/A/M/C + calendario acotado a `programas.fecha_desde`…`fecha_hasta`. Celda: `Cena · lun 14/09`. No lista eventos ni crea comidas desde logística.
+Picker de slot: chips D/A/M/C + calendario **sin tope de mes** (producción a veces viaja antes/después). Los días de `fecha_desde`…`fecha_hasta` se destacan; el resto es seleccionable. Abre en el mes del slot o del inicio de gira.
+
+Tarjetas de celda (Inicio/Fin y Check-in/Check-out): fondo blanco, borde 2px del color del tipo, chip centrado + fecha (`text-[11px]`), `min-h-[56px]`, acciones al hover. Comidas: `getMealServiceStyle`. Check-in/out: `tipos_evento.color` (ids 22/23) y hora en la línea de fecha.
 
 ## Migración de giras existentes
 
@@ -35,7 +37,7 @@ Al mover o duplicar, `comida_*_fecha` se desplaza el mismo delta que el resto de
 
 - [x] Columnas fecha restauradas + backfill + drop FKs de comida
 - [x] Motor de cobertura/asistencia lee solo slot
-- [x] Picker tipo + día (rango de la gira, ±7 días para llegadas tempranas)
+- [x] Picker tipo + día (meses libres; días de gira destacados)
 - [x] `manage-gira` move/duplicate desplaza fechas de slot
 - [x] Matriz Comidas usa fechas de regla para el rango
 - [x] Migración aplicada en remoto (`20260910134517`) + `manage-gira` deploy

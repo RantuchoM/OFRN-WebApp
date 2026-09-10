@@ -42,12 +42,6 @@ import {
 import { toInstantKey } from "../../utils/giraTramos";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { toast } from "sonner";
-import {
-  MEAL_TYPE_ID_TO_SERVICE,
-  getMealServiceStyle,
-  mealDisplayLabelFromEvent,
-  isMealEvent,
-} from "../../utils/mealLogistics";
 import MealSlotCellEditor from "../../components/logistics/MealSlotCellEditor";
 import EventForm from "../../components/forms/EventForm";
 import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
@@ -315,33 +309,56 @@ const cleanEventLabel = (text) => {
     .trim();
 };
 
-const getEventTypeTheme = (idTipoEvento) => {
+/** Color de `tipos_evento` para Check-in (22) / Check-Out (23). */
+const STAY_TIPO_COLOR_FALLBACK = "#24ebc3";
+
+function normalizeTipoHex(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return STAY_TIPO_COLOR_FALLBACK;
+  if (s.startsWith("#")) {
+    if (s.length === 4) {
+      return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`;
+    }
+    return s.length >= 7 ? s.slice(0, 7) : STAY_TIPO_COLOR_FALLBACK;
+  }
+  if (/^[0-9a-fA-F]{6}$/.test(s)) return `#${s}`;
+  return STAY_TIPO_COLOR_FALLBACK;
+}
+
+function tipoHexWithAlpha(hex, alpha) {
+  return `${normalizeTipoHex(hex)}${alpha}`;
+}
+
+function resolveEventTipoColor(idTipoEvento, eventTypes, event) {
+  const fromEvent = event?.tipos_evento?.color;
+  if (fromEvent) return normalizeTipoHex(fromEvent);
   const id = Number(idTipoEvento);
-  if ([22, 23].includes(id)) {
-    return {
-      chip: "bg-orange-100 text-orange-800 border-orange-200",
-      row: "hover:bg-orange-50/70",
-      date: "text-orange-800",
-      icon: "text-orange-300",
-    };
-  }
-  const mealService = MEAL_TYPE_ID_TO_SERVICE[id];
-  if (mealService) {
-    const style = getMealServiceStyle(mealService);
-    return {
-      chip: style.tag,
-      row: style.rowHover,
-      date: style.date,
-      icon: style.icon,
-    };
-  }
+  const fromCatalog = (eventTypes || []).find(
+    (t) => Number(t.id) === id,
+  )?.color;
+  if (fromCatalog) return normalizeTipoHex(fromCatalog);
+  if (id === 22 || id === 23) return STAY_TIPO_COLOR_FALLBACK;
+  return "#6366f1";
+}
+
+function stayColorTheme(hex) {
+  const color = normalizeTipoHex(hex);
   return {
-    chip: "bg-indigo-100 text-indigo-800 border-indigo-200",
-    row: "hover:bg-indigo-50/70",
-    date: "text-indigo-800",
-    icon: "text-slate-300",
+    color,
+    cardStyle: {
+      backgroundColor: "#ffffff",
+      borderColor: color,
+    },
+    tagStyle: {
+      backgroundColor: tipoHexWithAlpha(color, "28"),
+      color,
+      borderColor: color,
+    },
+    dateStyle: { color },
+    iconStyle: { color: tipoHexWithAlpha(color, "99") },
+    headerStyle: { backgroundColor: tipoHexWithAlpha(color, "22") },
   };
-};
+}
 
 const getEventTypeLabel = (idTipoEvento) => {
   const id = Number(idTipoEvento);
@@ -511,6 +528,7 @@ const EventCellEditor = ({
   onManualUpdate,
   onEditEvent,
   isExternalProcessing,
+  eventTypes,
 }) => {
   const { confirm, dialog } = useConfirmDialog();
   const [isOpen, setIsOpen] = useState(false);
@@ -572,153 +590,194 @@ const EventCellEditor = ({
     }
   };
 
-  if (event) {
-    return (
-      <div className="group relative bg-white border border-slate-200 rounded-lg p-2 flex flex-col justify-center shadow-sm w-full min-h-[56px]">
-        {dialog}
-        <div className="flex justify-between items-center mb-1 shrink-0">
-          <span
-            className={`text-[6px] font-black uppercase px-1 rounded ${field.includes("comida") ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700"}`}
+  const typeLabel =
+    labelDefault || getEventTypeLabel(event?.id_tipo_evento || tipoEventoIds?.[0]);
+  const tipoId = event?.id_tipo_evento || tipoEventoIds?.[0];
+  const stayTheme = stayColorTheme(
+    resolveEventTipoColor(tipoId, eventTypes, event),
+  );
+  const cleanDesc = event ? cleanEventLabel(event.descripcion) : "";
+  const foldLabel = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/[\s\-]+/g, "");
+  const showDesc =
+    Boolean(cleanDesc) && foldLabel(cleanDesc) !== foldLabel(typeLabel);
+
+  const pickerPortal =
+    isOpen &&
+    createPortal(
+      <div
+        className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+        onClick={() => setIsOpen(false)}
+      >
+        <div
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            className="p-4 border-b flex justify-between items-center"
+            style={stayTheme.headerStyle}
           >
-            {loading ? "Procesando..." : "Agenda"}
-          </span>
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              // AQUI PASAMOS EL CALLBACK setIsOpen(true) para que al desvincular se abra el menú
-              onClick={() => onEditEvent(event, () => setIsOpen(true))}
-              className="p-0.5 hover:bg-slate-100 rounded text-slate-600 transition-colors"
-              title="Editar"
-            >
-              <IconEdit size={10} />
+            <h4 className="text-xs font-black uppercase text-slate-700">
+              Vincular: {labelDefault}
+            </h4>
+            <button type="button" onClick={() => setIsOpen(false)}>
+              <IconX size={18} />
             </button>
+          </div>
+          <div className="p-4 space-y-4">
+            <div className="max-h-60 overflow-y-auto border rounded-xl divide-y">
+              {allEvents
+                ?.filter((e) =>
+                  tipoEventoIds.includes(Number(e.id_tipo_evento)),
+                )
+                .sort((a, b) => {
+                  const ka = toInstantKey(a.fecha, a.hora_inicio) ?? "";
+                  const kb = toInstantKey(b.fecha, b.hora_inicio) ?? "";
+                  return ka.localeCompare(kb);
+                })
+                .map((ev) => {
+                  const rowTheme = stayColorTheme(
+                    resolveEventTipoColor(
+                      ev.id_tipo_evento,
+                      eventTypes,
+                      ev,
+                    ),
+                  );
+                  const eventTypeLabel = getEventTypeLabel(ev.id_tipo_evento);
+                  const cleanDescription = cleanEventLabel(ev.descripcion);
+                  return (
+                    <div
+                      key={ev.id}
+                      onClick={() => handleLink(ev.id)}
+                      className="p-3 cursor-pointer flex justify-between items-center transition-colors hover:bg-slate-50"
+                    >
+                      <div className="min-w-0 flex-1 pr-2">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span
+                            className="inline-flex items-center px-1.5 py-0.5 rounded-md border text-[9px] font-semibold uppercase tracking-wide"
+                            style={rowTheme.tagStyle}
+                            title={eventTypeLabel}
+                          >
+                            {eventTypeLabel}
+                          </span>
+                        </div>
+                        <div className="text-[13px] font-medium text-slate-800 break-words leading-snug">
+                          {cleanDescription || "Sin descripción"}
+                        </div>
+                        <div
+                          className="text-[12px] font-medium mt-1"
+                          style={rowTheme.dateStyle}
+                        >
+                          {formatDateBrief(ev.fecha)} •{" "}
+                          {ev.hora_inicio?.slice(0, 5)} hs
+                        </div>
+                      </div>
+                      <span className="shrink-0" style={rowTheme.iconStyle}>
+                        <IconLink size={14} />
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
             <button
-              onClick={handleUnlink}
-              disabled={isProcessing}
-              className="p-0.5 hover:bg-red-50 rounded text-red-500 transition-colors"
-              title="Desvincular"
+              type="button"
+              onClick={() => {
+                onEditEvent({
+                  id_gira: giraId,
+                  id_tipo_evento: tipoEventoIds[0],
+                  fecha: manualDate || new Date().toISOString().split("T")[0],
+                  hora_inicio: "12:00:00",
+                  descripcion: labelDefault,
+                  visible_agenda: true,
+                  _isNew: true,
+                  _linkTo: { ruleId: rule.id, field: field },
+                });
+                setIsOpen(false);
+              }}
+              className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-100"
             >
-              <IconLinkOff
-                size={10}
-                className={isProcessing ? "animate-spin" : ""}
-              />
+              <IconCalendarPlus size={16} /> Crear nuevo
             </button>
           </div>
         </div>
-        <div className="text-[9px] font-black text-slate-800 break-words whitespace-normal leading-tight w-full mb-1">
-          {event.descripcion}
+      </div>,
+      document.body,
+    );
+
+  if (event) {
+    return (
+      <div
+        className="group relative border-2 rounded-lg px-2 py-2.5 flex flex-col items-center justify-center text-center shadow-sm w-full min-h-[56px]"
+        style={stayTheme.cardStyle}
+      >
+        {dialog}
+        <button
+          type="button"
+          onClick={() => setIsOpen(true)}
+          className="w-full flex flex-col items-center justify-center gap-1 min-h-[40px]"
+          title="Cambiar evento"
+        >
+          <span
+            className="text-[11px] font-black uppercase tracking-wide px-2 py-0.5 rounded-md border whitespace-nowrap"
+            style={stayTheme.tagStyle}
+          >
+            {loading ? "Procesando..." : typeLabel}
+          </span>
+          <div
+            className="text-[11px] font-bold leading-tight whitespace-nowrap"
+            style={stayTheme.dateStyle}
+          >
+            {formatDateBrief(event.fecha)}
+            {event?.hora_inicio ? ` · ${event.hora_inicio.slice(0, 5)}` : ""}
+          </div>
+          {showDesc && (
+            <div className="text-[10px] font-medium text-slate-500 leading-tight line-clamp-2">
+              {cleanDesc}
+            </div>
+          )}
+        </button>
+        <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            type="button"
+            onClick={() => onEditEvent(event, () => setIsOpen(true))}
+            className="p-0.5 hover:bg-slate-100 rounded text-slate-600 transition-colors"
+            title="Editar"
+          >
+            <IconEdit size={11} />
+          </button>
+          <button
+            type="button"
+            onClick={handleUnlink}
+            disabled={isProcessing}
+            className="p-0.5 hover:bg-red-50 rounded text-red-500 transition-colors"
+            title="Desvincular"
+          >
+            <IconLinkOff
+              size={11}
+              className={isProcessing ? "animate-spin" : ""}
+            />
+          </button>
         </div>
-        {/* FORMATO DE FECHA BREVE AQUI */}
-        <div className="text-[8px] font-bold text-slate-400 leading-none shrink-0 italic">
-          {formatDateBrief(event.fecha)} • {event?.hora_inicio?.slice(0, 5)} hs
-        </div>
+        {pickerPortal}
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-1 w-full overflow-hidden">
+      {dialog}
       <button
+        type="button"
         onClick={() => setIsOpen(true)}
         disabled={loading}
-        className={`w-full py-0.5 border border-dashed border-slate-300 rounded text-[8px] font-black uppercase transition-all ${loading ? "opacity-50" : "hover:border-indigo-400 hover:text-indigo-600 bg-slate-50/20"}`}
+        className={`w-full min-h-[56px] px-2 py-2 border border-dashed border-slate-300 rounded-lg text-[12px] font-black uppercase tracking-wide flex items-center justify-center text-center transition-all bg-slate-50/20 ${loading ? "opacity-50" : "hover:border-[color:var(--stay-color)] hover:text-[color:var(--stay-color)]"}`}
+        style={{ ["--stay-color"]: stayTheme.color }}
       >
         {loading ? "Vinculando..." : "Vincular"}
       </button>
-      {isOpen &&
-        createPortal(
-          <div
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4"
-            onClick={() => setIsOpen(false)}
-          >
-            <div
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
-                <h4 className="text-xs font-black uppercase text-slate-700">
-                  Vincular: {labelDefault}
-                </h4>
-                <button onClick={() => setIsOpen(false)}>
-                  <IconX size={18} />
-                </button>
-              </div>
-              <div className="p-4 space-y-4">
-                <div className="max-h-60 overflow-y-auto border rounded-xl divide-y">
-                  {allEvents
-                    ?.filter((e) =>
-                      tipoEventoIds.includes(Number(e.id_tipo_evento)),
-                    )
-                    .sort((a, b) => {
-                      const ka =
-                        toInstantKey(a.fecha, a.hora_inicio) ?? "";
-                      const kb =
-                        toInstantKey(b.fecha, b.hora_inicio) ?? "";
-                      return ka.localeCompare(kb);
-                    })
-                    .map((ev) => {
-                      const theme = getEventTypeTheme(ev.id_tipo_evento);
-                      const isMeal = isMealEvent(ev);
-                      const eventTypeLabel = isMeal
-                        ? mealDisplayLabelFromEvent(ev)
-                        : getEventTypeLabel(ev.id_tipo_evento);
-                      const cleanDescription = cleanEventLabel(ev.descripcion);
-                      return (
-                        <div
-                          key={ev.id}
-                          onClick={() => handleLink(ev.id)}
-                          className={`p-3 cursor-pointer flex justify-between items-center transition-colors ${theme.row}`}
-                        >
-                          <div className="min-w-0 flex-1 pr-2">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span
-                                className={`inline-flex items-center px-1.5 py-0.5 rounded-md border text-[9px] font-semibold uppercase tracking-wide ${theme.chip}`}
-                                title={eventTypeLabel}
-                              >
-                                {eventTypeLabel}
-                              </span>
-                            </div>
-                            <div className="text-[13px] font-medium text-slate-800 break-words leading-snug">
-                              {cleanDescription || "Sin descripción"}
-                            </div>
-                            <div
-                              className={`text-[12px] font-medium mt-1 ${theme.date}`}
-                            >
-                              {formatDateBrief(ev.fecha)} •{" "}
-                              {ev.hora_inicio?.slice(0, 5)} hs
-                            </div>
-                          </div>
-                          <IconLink
-                            size={14}
-                            className={`${theme.icon} shrink-0`}
-                          />
-                        </div>
-                      );
-                    })}
-                </div>
-                <button
-                  onClick={() => {
-                    onEditEvent({
-                      id_gira: giraId,
-                      id_tipo_evento: tipoEventoIds[0],
-                      fecha:
-                        manualDate || new Date().toISOString().split("T")[0],
-                      hora_inicio: "12:00:00",
-                      descripcion: labelDefault,
-                      visible_agenda: true,
-                      _isNew: true,
-                      _linkTo: { ruleId: rule.id, field: field },
-                    });
-                    setIsOpen(false);
-                  }}
-                  className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-100"
-                >
-                  <IconCalendarPlus size={16} /> Crear nuevo
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {pickerPortal}
     </div>
   );
 };
