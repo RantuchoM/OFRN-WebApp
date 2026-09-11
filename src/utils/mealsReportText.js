@@ -5,16 +5,153 @@
 
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { CATERING_SERVICE } from "./mealLogistics";
 
 const ARTISTAS_FIMBA_DIET = "Artistas FIMBA";
+/** Paridad `CATERING_SERVICE` de mealLogistics (evita arrastrar ese módulo aquí). */
+const CATERING_SERVICE = "Catering";
+
+function lookupParts(participantesByPropuestaId, id) {
+  if (id == null || id === "") return [];
+  const key = String(id);
+  if (participantesByPropuestaId instanceof Map) {
+    return participantesByPropuestaId.get(key) || [];
+  }
+  return participantesByPropuestaId?.[key] || [];
+}
+
+/** Régimen “sin especificación especial” (no se lista en el bloque de excepciones). */
+export function isStandardMealDiet(label) {
+  const s = String(label || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return (
+    !s ||
+    s === "estandar" ||
+    s === "regular" ||
+    s === "—" ||
+    s === "-" ||
+    s === ARTISTAS_FIMBA_DIET.toLowerCase()
+  );
+}
+
+/**
+ * Nominados de un servicio: OFRN contados + artistas FIMBA (incl. residuales).
+ */
+export function collectMealCasos({
+  ofrnPeople = [],
+  propuestas = [],
+  participantesByPropuestaId = new Map(),
+  labelFn,
+} = {}) {
+  const casos = [];
+
+  for (const person of ofrnPeople || []) {
+    if (!person) continue;
+    casos.push({
+      origen: "OFRN",
+      id_propuesta: null,
+      artista: "",
+      apellido: person.apellido || "",
+      nombre: person.nombre || "",
+      alimentacion: person.alimentacion || "Estándar",
+      nota: "",
+    });
+  }
+
+  for (const p of propuestas || []) {
+    if (p?.requiere_comidas === false) continue;
+    const plan = Math.max(0, Number(p.cantidad_planificada) || 0);
+    const parts = lookupParts(participantesByPropuestaId, p.id);
+    const activos = (parts || []).filter((x) => x.activo !== false);
+    const artista = p.nombre || "";
+
+    for (const part of activos) {
+      const tipo = part?.tipo_alimentacion;
+      const nota = String(part?.nota_alimentacion || "").trim();
+      const labeled =
+        typeof labelFn === "function" ? labelFn(tipo, nota) : "";
+      casos.push({
+        origen: "FIMBA",
+        id_propuesta: p.id != null ? String(p.id) : null,
+        artista,
+        apellido: part.apellido || "",
+        nombre: part.nombre || "",
+        alimentacion: labeled && labeled !== "—" ? labeled : "Regular",
+        nota,
+      });
+    }
+
+    const residual =
+      plan === 0 && activos.length > 0
+        ? 0
+        : Math.max(0, plan - activos.length);
+    for (let i = 0; i < residual; i += 1) {
+      casos.push({
+        origen: "FIMBA",
+        id_propuesta: p.id != null ? String(p.id) : null,
+        artista,
+        apellido: "(por confirmar)",
+        nombre: `#${i + 1}`,
+        alimentacion: ARTISTAS_FIMBA_DIET,
+        nota: "",
+      });
+    }
+  }
+
+  return casos;
+}
+
+export function formatMealCasoLine(caso) {
+  const who =
+    [caso?.apellido, caso?.nombre].filter(Boolean).join(", ") ||
+    "(sin nombre)";
+  const artist = caso?.artista ? ` (${caso.artista})` : "";
+  const diet = caso?.alimentacion || "Regular";
+  const nota = String(caso?.nota || "").trim();
+  const notaAlreadyInDiet =
+    nota && diet.toLowerCase().includes(nota.toLowerCase());
+  const notaPart = nota && !notaAlreadyInDiet ? `. ${nota}` : "";
+  return `${who}${artist} — ${diet}${notaPart}`;
+}
+
+export function collectNonStandardCasosFromRows(rows = []) {
+  const seen = new Set();
+  const out = [];
+  for (const row of rows || []) {
+    for (const caso of row.casos || []) {
+      if (isStandardMealDiet(caso.alimentacion)) continue;
+      const key = [
+        caso.origen || "",
+        caso.id_propuesta || "",
+        caso.apellido || "",
+        caso.nombre || "",
+        caso.alimentacion || "",
+        caso.nota || "",
+      ].join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(caso);
+    }
+  }
+  return out.sort((a, b) => {
+    const aa = `${a.artista || ""} ${a.apellido || ""} ${a.nombre || ""}`;
+    const bb = `${b.artista || ""} ${b.apellido || ""} ${b.nombre || ""}`;
+    return aa.localeCompare(bb, "es", { sensitivity: "base" });
+  });
+}
 
 /**
  * @param {Array<{ fecha: string, servicio: string, servicioLabel?: string, counts: Record<string, number> }>} filteredRows
  * @param {{ nonLocalRoster?: object[], includeStayBlocks?: boolean }} [opts]
  */
 export function buildMealsPedidoText(filteredRows = [], opts = {}) {
-  const { nonLocalRoster = [], includeStayBlocks = true } = opts;
+  const {
+    nonLocalRoster = [],
+    includeStayBlocks = true,
+    includeCasos = true,
+  } = opts;
 
   const formatDayHeader = (isoDate) => {
     const label = format(parseISO(isoDate), "EEEE dd/MM", { locale: es });
@@ -208,6 +345,14 @@ export function buildMealsPedidoText(filteredRows = [], opts = {}) {
     if (stayBlocks.length > 0) blocks.push(stayBlocks.join("\n\n"));
   }
 
+  if (includeCasos) {
+    const specs = collectNonStandardCasosFromRows(filteredRows);
+    if (specs.length > 0) {
+      blocks.push("Especificaciones alimenticias");
+      blocks.push(specs.map(formatMealCasoLine).join("\n"));
+    }
+  }
+
   return blocks.join("\n\n");
 }
 
@@ -244,7 +389,11 @@ export function scopeMealsReportRowToArtista(
     delete counts[ARTISTAS_FIMBA_DIET];
   }
   counts.Total = (Number(ofrn.Total) || 0) + artistTotal;
-  return { ...row, counts, propuestas: scopedProps };
+  const artistKey = String(artistaId);
+  const casos = (row.casos || []).filter(
+    (c) => c?.id_propuesta != null && String(c.id_propuesta) === artistKey,
+  );
+  return { ...row, counts, propuestas: scopedProps, casos };
 }
 
 export { ARTISTAS_FIMBA_DIET };

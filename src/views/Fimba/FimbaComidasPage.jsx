@@ -191,7 +191,7 @@ export default function FimbaComidasPage() {
             . Tags de artistas suman pax; grupos OFRN tienen prioridad y se restan
             de comidas generales del mismo turno (fecha + servicio).
             {comidasTab === "report"
-              ? " · Reporte: cuadro por dieta + Texto pedido (respetan filtros)."
+              ? " · Reporte: cuadro por dieta + Texto pedido + exportar por artista o locación (con especificaciones alimenticias)."
               : ""}
           </div>
         </div>
