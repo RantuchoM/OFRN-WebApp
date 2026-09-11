@@ -67,6 +67,9 @@ import {
   confirmedSeatingRosterKeySet,
   isConfirmedConvocadoForSeatingReports,
   isMusicianOnConfirmedSeatingRoster,
+  isSeatingSlotVacancy,
+  isVacancyMusician,
+  VACANCY_SEATING_BORDER_CLASS,
 } from "../../utils/seatingRosterGate";
 import {
   didParseCellSeatingStringsStandPairs,
@@ -612,6 +615,9 @@ const MobileSeatingTable = ({
                           const isMe =
                             !isPlaceholder &&
                             String(musicianId) === String(user.id);
+                          const isVacancy =
+                            !isPlaceholder &&
+                            isSeatingSlotVacancy(item, filteredRoster);
                           const hasNoParts =
                             !isPlaceholder &&
                             musiciansWithoutParts.has(String(musicianId));
@@ -634,14 +640,22 @@ const MobileSeatingTable = ({
                                   isMe ? "bg-amber-50" : "bg-white"
                                 }`}
                               >
-                                <div className="flex flex-col leading-none border-l-2 border-slate-200 pl-2">
+                                <div
+                                  className={`flex flex-col leading-none pl-2 ${
+                                    isVacancy
+                                      ? `border ${VACANCY_SEATING_BORDER_CLASS} rounded px-1`
+                                      : "border-l-2 border-slate-200"
+                                  }`}
+                                >
                                   <span
                                     className={`text-[10px] font-medium truncate ${
                                       isPlaceholder
                                         ? "text-slate-300 italic"
-                                        : isMe
+                                        : isVacancy
                                           ? "text-amber-900 font-bold"
-                                          : "text-slate-600"
+                                          : isMe
+                                            ? "text-amber-900 font-bold"
+                                            : "text-slate-600"
                                     }`}
                                     title={
                                       isPlaceholder
@@ -739,6 +753,7 @@ const MobileSeatingTable = ({
 
             {windsAndPerc.map((m) => {
               const isMe = String(m.id) === String(user.id);
+              const isVacancy = isVacancyMusician(m);
               const hasNoParts = musiciansWithoutParts.has(String(m.id));
               return (
                 <tr
@@ -756,7 +771,13 @@ const MobileSeatingTable = ({
                   >
                     <div className="flex flex-col leading-none">
                       <span
-                        className={`font-bold text-[10px] truncate ${isMe ? "text-amber-900" : "text-slate-800"}`}
+                        className={`font-bold text-[10px] truncate ${
+                          isVacancy
+                            ? `border ${VACANCY_SEATING_BORDER_CLASS} rounded px-1 text-amber-900`
+                            : isMe
+                              ? "text-amber-900"
+                              : "text-slate-800"
+                        }`}
                         title={musicianTooltipById[m.id] || ""}
                       >
                         {m.apellido}, {m.nombre?.charAt(0)}.
@@ -822,7 +843,12 @@ const MobileSeatingTable = ({
 };
 
 // --- CELDA DE INFO (ESCRITORIO) ---
-const ContainerInfoCell = ({ container, myStandInfo, musicianTooltipById }) => {
+const ContainerInfoCell = ({
+  container,
+  myStandInfo,
+  musicianTooltipById,
+  roster = [],
+}) => {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -879,12 +905,15 @@ const ContainerInfoCell = ({ container, myStandInfo, musicianTooltipById }) => {
                 const isEndOfDesk =
                   pos.lado === 1 && idx !== sorted.length - 1;
 
+                const isVacancy = isSeatingSlotVacancy(item, roster);
                 return (
                   <div
                     key={item.id}
-                    className={`text-[9px] text-slate-700 truncate leading-tight py-1 flex justify-between px-1 ${
-                      isEndOfDesk ? "border-b-2 border-slate-300 mb-2 pb-1" : ""
-                    }`}
+                    className={`text-[9px] truncate leading-tight py-1 flex justify-between px-1 ${
+                      isVacancy
+                        ? `text-amber-900 border ${VACANCY_SEATING_BORDER_CLASS} rounded bg-amber-50`
+                        : "text-slate-700"
+                    } ${isEndOfDesk ? "border-b-2 border-slate-300 mb-2 pb-1" : ""}`}
                   >
                     <span title={musicianTooltipById?.[item.id_musico] || ""}>
                       {item.integrantes?.apellido},{" "}
@@ -3804,6 +3833,7 @@ export default function ProgramSeating({
                                 container={c}
                                 myStandInfo={myStandText}
                                 musicianTooltipById={musicianTooltipById}
+                                roster={filteredRoster}
                               />
                               {hasContainerSuggestions && (
                                 <button
@@ -3925,6 +3955,7 @@ export default function ProgramSeating({
                   </tr>
                   {otherMusicians.map((m) => {
                     const isMe = String(m.id) === String(user.id);
+                    const isVacancy = isVacancyMusician(m);
                     const hasNoParts = musiciansWithoutParts.has(String(m.id));
                     const musicianSuggestions =
                       derivedMusicianSuggestions[m.id] || {};
@@ -3955,7 +3986,13 @@ export default function ProgramSeating({
                             )}
                             <div className="flex flex-col min-w-0 flex-1">
                               <span
-                                className={`font-bold truncate text-xs ${isMe ? "text-amber-900" : "text-slate-700"}`}
+                                className={`font-bold truncate text-xs ${
+                                  isVacancy
+                                    ? `border ${VACANCY_SEATING_BORDER_CLASS} rounded px-1 text-amber-900 w-fit`
+                                    : isMe
+                                      ? "text-amber-900"
+                                      : "text-slate-700"
+                                }`}
                                 title={musicianTooltipById[m.id] || ""}
                               >
                                 {m.apellido}, {m.nombre}

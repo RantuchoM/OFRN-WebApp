@@ -46,6 +46,11 @@ import {
   CUERDAS_UNDO_HISTORY_LIMIT,
 } from "../../utils/seatingCuerdasUndo";
 import { isEditableKeyboardTarget } from "../../utils/isEditableKeyboardTarget";
+import {
+  isSeatingSlotVacancy,
+  isVacancyMusician,
+  VACANCY_SEATING_BORDER_CLASS,
+} from "../../utils/seatingRosterGate";
 import { toast } from "sonner";
 
 const PROGRAM_TYPES = [
@@ -1954,10 +1959,14 @@ export default function GlobalStringsManager({
                                 prev.lado !== itemAfter.lado);
                             return changed ? "text-fixed-indigo font-bold" : "text-slate-600";
                           };
+                          const vacancyBorder = (item) =>
+                            item && isSeatingSlotVacancy(item, roster)
+                              ? VACANCY_SEATING_BORDER_CLASS
+                              : "border-slate-200";
                             return (
                             <React.Fragment key={`row-${c.id}-${a}`}>
                               {/* Antes afuera */}
-                              <div className="py-0.5 border border-slate-200 bg-slate-50 text-center">
+                              <div className={`py-0.5 border ${vacancyBorder(b.left)} bg-slate-50 text-center`}>
                                 <span className="truncate block">
                                   {b.left
                                     ? `${b.left.integrantes?.apellido}, ${b.left.integrantes?.nombre}`
@@ -1965,7 +1974,7 @@ export default function GlobalStringsManager({
                                 </span>
                               </div>
                               {/* Antes adentro */}
-                              <div className="py-0.5 border border-slate-200 bg-slate-50 text-center">
+                              <div className={`py-0.5 border ${vacancyBorder(b.right)} bg-slate-50 text-center`}>
                                 <span className="truncate block">
                                   {b.right
                                     ? `${b.right.integrantes?.apellido}, ${b.right.integrantes?.nombre}`
@@ -1974,7 +1983,7 @@ export default function GlobalStringsManager({
                               </div>
                               {/* Después afuera */}
                               <div
-                                className={`py-0.5 border border-slate-200 bg-emerald-50/70 text-center ${cellClass(
+                                className={`py-0.5 border ${vacancyBorder(d.left)} bg-emerald-50/70 text-center ${cellClass(
                                   b.left,
                                   d.left,
                                 )}`}
@@ -1987,7 +1996,7 @@ export default function GlobalStringsManager({
                               </div>
                               {/* Después adentro */}
                               <div
-                                className={`py-0.5 border border-slate-200 bg-emerald-50/70 text-center ${cellClass(
+                                className={`py-0.5 border ${vacancyBorder(d.right)} bg-emerald-50/70 text-center ${cellClass(
                                   b.right,
                                   d.right,
                                 )}`}
@@ -2268,7 +2277,25 @@ export default function GlobalStringsManager({
           <div className="col-span-2 bg-white border border-slate-200 rounded-lg flex flex-col overflow-hidden shadow-sm min-w-0">
             <div className="px-1.5 py-1 bg-slate-100 border-b border-slate-200 text-[9px] font-bold text-slate-500 uppercase flex justify-between"><span className="truncate">Sin asignar ({available.length})</span></div>
             <div className="overflow-y-auto p-0.5 space-y-0.5 flex-1 select-none">
-              {available.map((m) => (<div key={m.id} draggable={!readOnly} onDragStart={(e) => handleDragStart(e, "NEW", m.id, null)} className="text-[9px] px-1 py-0.5 bg-slate-50 border border-slate-100 rounded flex justify-between items-center hover:bg-indigo-50 cursor-grab active:cursor-grabbing"><div className="truncate pointer-events-none text-slate-700">{m.apellido}, {m.nombre}{m.instrumentos?.instrumento ? ` (${m.instrumentos.instrumento})` : ""}</div></div>))}
+              {available.map((m) => (
+                <div
+                  key={m.id}
+                  draggable={!readOnly}
+                  onDragStart={(e) => handleDragStart(e, "NEW", m.id, null)}
+                  className={`text-[9px] px-1 py-0.5 border rounded flex justify-between items-center hover:bg-indigo-50 cursor-grab active:cursor-grabbing ${
+                    isVacancyMusician(m)
+                      ? `bg-amber-50 ${VACANCY_SEATING_BORDER_CLASS} text-amber-900`
+                      : "bg-slate-50 border-slate-100"
+                  }`}
+                >
+                  <div className="truncate pointer-events-none text-slate-700">
+                    {m.apellido}, {m.nombre}
+                    {m.instrumentos?.instrumento
+                      ? ` (${m.instrumentos.instrumento})`
+                      : ""}
+                  </div>
+                </div>
+              ))}
               {available.length === 0 && <div className="text-center text-[10px] text-slate-300 italic mt-4">Todos asignados</div>}
             </div>
           </div>
@@ -2356,6 +2383,8 @@ export default function GlobalStringsManager({
                     const { left, right } = row;
                     const renderCell = (item, ladoVal) => {
                       const key = item ? item.id : `empty-${a}-${ladoVal}`;
+                      const isVacancy =
+                        !!item && isSeatingSlotVacancy(item, roster);
                       return (
                         <div
                           key={key}
@@ -2388,11 +2417,11 @@ export default function GlobalStringsManager({
                               dragOverItemId === key
                                 ? "ring-2 ring-indigo-400 ring-offset-1 bg-indigo-50 border-indigo-400"
                                 : item?._suggestionType === "provisional"
-                                  ? "cursor-grab bg-orange-50 border-orange-300 text-orange-900"
+                                  ? `cursor-grab bg-orange-50 text-orange-900 ${isVacancy ? VACANCY_SEATING_BORDER_CLASS : "border-orange-300"}`
                                 : item?._suggestionType === "shift_up_one"
-                                  ? "cursor-grab bg-amber-50 border-amber-300 text-amber-900"
+                                  ? `cursor-grab bg-amber-50 text-amber-900 ${isVacancy ? VACANCY_SEATING_BORDER_CLASS : "border-amber-300"}`
                                 : item
-                                  ? "cursor-grab bg-white border-slate-100"
+                                  ? `cursor-grab ${isVacancy ? `bg-amber-50 ${VACANCY_SEATING_BORDER_CLASS} text-amber-900` : "bg-white border-slate-100"}`
                                   : "cursor-default bg-slate-50 border-dashed border-slate-200 text-slate-300"
                             }`}
                           >

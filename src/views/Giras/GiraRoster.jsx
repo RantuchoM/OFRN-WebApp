@@ -1263,10 +1263,11 @@ export default function GiraRoster({
 
   // --- CRUD GIRA ---
   const handleDeleteVacancy = async (vacancy) => {
+    const etiqueta = vacancy.apellido || "sin etiqueta";
     if (
       !(await confirm({
-        title: "Eliminar vacante",
-        message: `¿Eliminar definitivamente la vacante "${vacancy.apellido}"?\n\nSe quitará del roster y se liberará su logística (habitación, transporte, etc.).`,
+        title: "Eliminar plaza vacante",
+        message: `¿Eliminar la plaza vacante «${etiqueta}»?\n\nNo se borra un músico real: se quita esta plaza simulada del roster y se libera su logística (habitación, seating, grupos, transporte, etc.).`,
         destructive: true,
         confirmText: "Eliminar",
       }))

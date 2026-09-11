@@ -449,75 +449,83 @@ export default function RosterTableRow({
         </div>
       </td>
 
-      {/* ACCIONES - 20% móvil: Mail, WhatsApp, Editar, Link (grid 2x2) */}
+      {/* ACCIONES - 20% móvil: Mail, WhatsApp, Editar, Link (grid 2x2). Vacante: ASIGNAR + papelera en fila aparte */}
       <td
-        className={`py-1.5 px-0.5 md:px-1 md:pr-2 w-[20%] md:w-auto text-right min-w-0 ${mutedCell}`}
+        className={`py-1.5 px-0.5 md:px-1 md:pr-2 w-[20%] md:w-auto text-right min-w-0 overflow-visible ${mutedCell}`}
       >
-        <div className="mx-auto inline-grid grid-cols-2 gap-0.5 md:gap-1 justify-items-center max-w-full">
-          {/* Mail */}
-          <button
-            type="button"
-            disabled={!m.mail}
-            onClick={() => {
-              if (m.mail) window.location.href = `mailto:${m.mail}`;
-            }}
-            className={`w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded ${
-              m.mail
-                ? "text-slate-500 hover:text-fixed-indigo-600 hover:bg-white"
-                : "text-slate-300 cursor-default"
-            } transition-colors`}
-            title={m.mail || "Sin mail"}
-          >
-            <IconMail size={12} />
-          </button>
+        <div className="flex flex-col items-center w-full">
+          <div className="mx-auto inline-grid grid-cols-2 gap-0.5 md:gap-1 justify-items-center max-w-full">
+            {/* Mail */}
+            <button
+              type="button"
+              disabled={!m.mail}
+              onClick={() => {
+                if (m.mail) window.location.href = `mailto:${m.mail}`;
+              }}
+              className={`w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded ${
+                m.mail
+                  ? "text-slate-500 hover:text-fixed-indigo-600 hover:bg-white"
+                  : "text-slate-300 cursor-default"
+              } transition-colors`}
+              title={m.mail || "Sin mail"}
+            >
+              <IconMail size={12} />
+            </button>
 
-          {/* WhatsApp */}
-          <div className="w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded hover:bg-white transition-colors">
-            {m.telefono ? (
-              <WhatsAppLink phone={m.telefono} iconSize={12} />
-            ) : (
-              <IconPhone size={12} className="text-slate-300" />
-            )}
+            {/* WhatsApp */}
+            <div className="w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded hover:bg-white transition-colors">
+              {m.telefono ? (
+                <WhatsAppLink phone={m.telefono} iconSize={12} />
+              ) : (
+                <IconPhone size={12} className="text-slate-300" />
+              )}
+            </div>
+
+            {/* Editar */}
+            <button
+              type="button"
+              onClick={() => onEdit(m)}
+              className="w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded text-slate-400 hover:text-fixed-indigo-600 hover:bg-white transition-colors"
+              title="Editar"
+            >
+              <IconPencil size={12} />
+            </button>
+
+            {/* Link de acceso */}
+            <button
+              type="button"
+              onClick={() => onCopyLink(m)}
+              className="w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded text-slate-400 hover:text-fixed-indigo-600 hover:bg-white transition-colors"
+              title="Copiar link de acceso"
+            >
+              <IconLink size={12} />
+            </button>
           </div>
 
-          {/* Editar */}
-          <button
-            type="button"
-            onClick={() => onEdit(m)}
-            className="w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded text-slate-400 hover:text-fixed-indigo-600 hover:bg-white transition-colors"
-            title="Editar"
-          >
-            <IconPencil size={12} />
-          </button>
-
-          {/* Link de acceso */}
-          <button
-            type="button"
-            onClick={() => onCopyLink(m)}
-            className="w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded text-slate-400 hover:text-fixed-indigo-600 hover:bg-white transition-colors"
-            title="Copiar link de acceso"
-          >
-            <IconLink size={12} />
-          </button>
-
-          {/* Vacantes: asignar titular o eliminar sin cubrir */}
           {m.es_simulacion && isEditor && (
-            <div className="col-span-2 flex justify-end items-center gap-1 mt-1">
+            <div className="flex items-center justify-end gap-0.5 mt-0.5 shrink-0 self-end relative z-10">
+              {onDeleteVacancy && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onDeleteVacancy(m);
+                  }}
+                  className="w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors shrink-0"
+                  title="Eliminar plaza vacante"
+                  aria-label="Eliminar plaza vacante"
+                >
+                  <IconTrash size={14} />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onSwap(m)}
-                className="bg-amber-500 hover:bg-amber-600 text-white text-[9px] font-bold px-2 py-1 rounded shadow-sm flex items-center gap-1"
+                className="bg-amber-500 hover:bg-amber-600 text-white text-[9px] font-bold px-2 py-1 rounded shadow-sm flex items-center gap-1 shrink-0"
                 title="Asignar titular"
               >
                 <IconExchange size={10} /> ASIGNAR
-              </button>
-              <button
-                type="button"
-                onClick={() => onDeleteVacancy(m)}
-                className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                title="Eliminar vacante"
-              >
-                <IconTrash size={14} />
               </button>
             </div>
           )}

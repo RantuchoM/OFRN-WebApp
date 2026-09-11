@@ -17,6 +17,7 @@ Refactorizar el selector de músicos en la vista de Seating para validar contra 
 - El seating consume `useGiraRoster` (ausentes / no confirmados fuera) y, si el **bloque activo** tiene filas en `programas_repertorios_grupos`, recorta el roster visible a la unión de miembros de esos grupos.
 - Bloque sin grupos = roster confirmado completo (comportamiento histórico).
 - El **panel de edición** de cuerdas usa el mismo recorte por grupo del bloque activo (disponibles + atriles visibles). Los ítems de músicos fuera del filtro quedan ocultos pero persisten en la config compartida.
+- **Vacantes en UI:** plazas ocupadas por `es_simulacion` se marcan con borde ámbar `border-amber-400` (Nómina) en Seating y en Disposición de Cuerdas; el texto de la plaza no cambia.
 - **UI pestañas:** chip de grupo en pestaña inactiva = iniciales (`compact`); pestaña activa = nombre completo. No cambia el filtro.
 
 ## Configs de cuerdas multi-bloque (2026-08-27)

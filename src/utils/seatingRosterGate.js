@@ -39,3 +39,26 @@ export function isMusicianOnConfirmedSeatingRoster(rosterKeys, musicianId) {
   const k = integranteKey(musicianId);
   return !!(k && rosterKeys?.has?.(k));
 }
+
+/** Plaza vacante (`integrantes.es_simulacion`). */
+export function isVacancyMusician(person) {
+  return person?.es_simulacion === true;
+}
+
+/**
+ * Slot de seating ocupado por una vacante: embed del ítem o fila del roster.
+ */
+export function isSeatingSlotVacancy(item, roster = []) {
+  if (isVacancyMusician(item?.integrantes)) return true;
+  const id = item?.id_musico;
+  if (id == null) return false;
+  return (roster || []).some(
+    (m) => String(m.id) === String(id) && isVacancyMusician(m),
+  );
+}
+
+/**
+ * Borde de plaza vacante: mismo ámbar que Nómina
+ * (`GiraRoster` `border-l-amber-400`, badge VACANTE `border-amber-200`).
+ */
+export const VACANCY_SEATING_BORDER_CLASS = "border-amber-400";

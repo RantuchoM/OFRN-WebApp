@@ -18,11 +18,12 @@ Proveer una interfaz centralizada para comparar la instrumentación técnica req
 
 3. **Matriz de Comparación**
    - Se renderiza dentro del contenido expandido de cada acordeón.
-   - **Columnas**: Instrumentos estándar, en este orden:
-     - `Fl`, `Ob`, `Cl`, `Fg`, `Cr`, `Tp`, `Tb`, `Tba`, `Tim`, `Perc`, `Har`, `Pno`, `Cuerdas`.
+   - **Columnas** (resumen en cabecera de card): `Fl`, `Ob`, `Cl`, `Fg`, `Cr`, `Tp`, `Tb`, `Tba`, `Perc`, `Har`, `Pno`, `Str`. `Tim` se oculta (se suma en `Perc`). No hay columnas Vn/Va/Vc/Cb: violín/viola/cello/contrabajo (`id_instr` 01–04) van a **Str**.
    - **Filas**:
-     - **Fila Superior (Req Max)**: Instrumentación máxima requerida por las obras asociadas al programa.
-     - **Fila Inferior (Conv)**: Instrumentación convocada (conteo de integrantes activos vinculados a la gira).
+     - **Conv**: vientos / perc / arpa / piano. Cuerdas no entran en este conteo (evita comparar ~20 arcos vs Req 0/1).
+     - **Req Max**: requerido máximo de obras (misma lógica seating).
+     - **Sug.**: delta Req−Conv (no aplica a `Str`).
+     - **Vacantes**: plazas `es_simulacion` ya creadas, **incluye cuerdas** (01–04 o `instrumentos.familia` con `cuerd`). Ámbar `bg-amber-200` si hay conteo; tooltip con nombres/rótulos.
    - La tabla debe ser scrollable horizontalmente en pantallas pequeñas (`overflow-x-auto`) y mantener un diseño compacto (`text-xs`, paddings cortos).
 
 4. **Alertas Visuales**
@@ -87,7 +88,7 @@ Proveer una interfaz centralizada para comparar la instrumentación técnica req
     - **Instrumento efectivo:** `giras_integrantes.id_instr ?? integrantes.id_instr` (ver `docs/specs/gira-instrument-override.md`).
     - Campos usados en conteo: `id_instr` efectivo + `instrumentos.instrumento` / `familia`.
   - Se mapea el instrumento real a una de las columnas de la matriz usando las mismas heurísticas que `ProgramSeating`:
-    - Si `id_instr` efectivo ∈ `["01", "02", "03", "04"]` → cuenta en **Cuerdas**.
+    - Si `id_instr` efectivo ∈ `["01", "02", "03", "04"]` → **no** suma en Conv (cuerdas fuera del semáforo Req/Conv). Si `es_simulacion`, sí suma en la fila **Vacantes** → `Str`.
     - Si `instrumentos.instrumento` contiene:
       - `"flaut"` o `"picc"` → **Fl**
       - `"oboe"` o `"corno ing"` → **Ob**
@@ -102,8 +103,8 @@ Proveer una interfaz centralizada para comparar la instrumentación técnica req
       - `"arpa"` → **Har**
       - `"piano"`, `"teclado"`, `"celesta"`, `"órgano"`, `"organo"` → **Pno**
     - Si ninguna de las anteriores coincide:
-      - Si `instrumentos.familia` incluye `"cuerd"` → cuenta como **Cuerdas**.
-- Cada integrante suma `+1` en la familia correspondiente.
+      - Si `instrumentos.familia` incluye `"cuerd"` → igual que 01–04: fuera de Conv; vacante simulada → **Vacantes / Str**.
+- Cada integrante de viento/perc/arpa/piano suma `+1` en Conv. Las vacantes de cuerda solo aparecen en Vacantes.
 - Resultado: un mapa por programa:
   - `convoked = { Fl, Ob, Cl, Fg, Cr, Tp, Tb, Tba, Tim, Perc, Har, Pno, Str }`.
 

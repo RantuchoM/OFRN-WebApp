@@ -5,10 +5,10 @@
  */
 
 export const SEATING_INTEGRANTES_EMBED =
-  "nombre, apellido, nombre_preferencia, apellido_preferencia, instrumentos(instrumento)";
+  "nombre, apellido, nombre_preferencia, apellido_preferencia, es_simulacion, instrumentos(instrumento)";
 
 export const SEATING_INTEGRANTES_EMBED_MIN =
-  "nombre, apellido, nombre_preferencia, apellido_preferencia";
+  "nombre, apellido, nombre_preferencia, apellido_preferencia, es_simulacion";
 
 function trimText(value) {
   return String(value ?? "").trim();

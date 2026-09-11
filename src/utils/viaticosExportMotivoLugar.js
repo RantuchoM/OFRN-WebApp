@@ -155,29 +155,69 @@ export function collectMotivoLugarWarnings(rows) {
 
 const MAX_LISTED = 12;
 
-function summarizeLabels(labels) {
+export function summarizeExportPersonLabels(labels) {
   const unique = [...new Set(labels.filter(Boolean))];
   if (unique.length <= MAX_LISTED) return unique.join("; ");
   const head = unique.slice(0, MAX_LISTED).join("; ");
   return `${head}; y ${unique.length - MAX_LISTED} más`;
 }
 
+/** Grupos disjuntos: solo motivo, solo lugar, o ambos. */
+export function groupMotivoLugarIssues(issues) {
+  const motivoOnly = [];
+  const lugarOnly = [];
+  const both = [];
+  for (const issue of issues || []) {
+    const label = issue?.label;
+    if (!label) continue;
+    if (issue.missingMotivo && issue.missingLugar) both.push(label);
+    else if (issue.missingMotivo) motivoOnly.push(label);
+    else if (issue.missingLugar) lugarOnly.push(label);
+  }
+  return { motivoOnly, lugarOnly, both };
+}
+
+export function summarizeMotivoLugarGaps(issues) {
+  const grouped = groupMotivoLugarIssues(issues);
+  const hasMotivo =
+    grouped.motivoOnly.length > 0 || grouped.both.length > 0;
+  const hasLugar = grouped.lugarOnly.length > 0 || grouped.both.length > 0;
+  return { ...grouped, hasMotivo, hasLugar };
+}
+
+const WARNING_SECTIONS = [
+  { key: "motivo", lead: "Falta", field: "motivo", listKey: "motivoOnly" },
+  { key: "lugar", lead: "Falta", field: "lugar", listKey: "lugarOnly" },
+  { key: "ambos", lead: "Faltan", field: "ambos", listKey: "both" },
+];
+
+export function getMotivoLugarWarningSections(issues) {
+  const grouped = summarizeMotivoLugarGaps(issues);
+  return WARNING_SECTIONS.filter((section) => grouped[section.listKey].length)
+    .map((section) => ({
+      key: section.key,
+      lead: section.lead,
+      field: section.field,
+      names: grouped[section.listKey],
+      summary: summarizeExportPersonLabels(grouped[section.listKey]),
+    }));
+}
+
+export function formatMotivoLugarWarningTitle(issues) {
+  const { hasMotivo, hasLugar } = summarizeMotivoLugarGaps(issues);
+  if (hasMotivo && hasLugar) return "Faltan motivo y lugar de comisión";
+  if (hasMotivo) return "Falta el motivo de comisión";
+  if (hasLugar) return "Falta el lugar de comisión";
+  return "";
+}
+
 export function formatMotivoLugarWarningMessage(issues) {
   if (!issues?.length) return "";
 
-  const sinMotivo = issues.filter((i) => i.missingMotivo).map((i) => i.label);
-  const sinLugar = issues.filter((i) => i.missingLugar).map((i) => i.label);
-
-  const lines = [
-    "Faltan motivo y/o lugar de comisión para el PDF en:",
-    "",
-  ];
-  if (sinMotivo.length) {
-    lines.push(`• Sin motivo: ${summarizeLabels(sinMotivo)}`);
-  }
-  if (sinLugar.length) {
-    lines.push(`• Sin lugar de comisión: ${summarizeLabels(sinLugar)}`);
-  }
+  const sections = getMotivoLugarWarningSections(issues);
+  const lines = sections.map(
+    (section) => `• ${section.lead} ${section.field}: ${section.summary}`,
+  );
   lines.push(
     "",
     "Si hay un valor general en la gira (o en destaques), solo se listan quienes no lo heredan.",

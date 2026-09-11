@@ -26,6 +26,11 @@ Optimizar la interfaz de Auditoría de Instrumentación para mejorar la densidad
 - **Icono `IconFolder`** (solo si la obra tiene `link_drive`): abre el enlace de Drive en nueva pestaña. Se usa `buildDriveUrl(link_drive)` para soportar tanto URL completa como solo ID de carpeta (`https://drive.google.com/drive/folders/<id>`).
 - **Modal WorkForm**: Renderizado en la vista con estado `workFormOpen` y `workFormInitialData`; cierre con `closeWorkForm` o desde `onSave`/`onCancel` del formulario. Se usa `catalogoInstrumentos={[]}`; WorkForm puede cargar instrumentos internamente si hace falta.
 
+### 5b. Fila "Vacantes" e inclusión de cuerdas (2026-09)
+- La fila **Vacantes** cuenta plazas `es_simulacion` por columna (ámbar `bg-amber-200`).
+- **Cuerdas** (`id_instr` 01–04 o familia `cuerd`): no entran en Conv/nombres de Conv; sí se muestran en Vacantes bajo la columna **Str** (tooltip con rótulos).
+- **Vacantes auto** no inventa plazas de cuerda ni de Tim (sigue el loop de vientos/perc/arpa/piano; salta Tim).
+
 ### 5. Tooltips en fila "Conv"
 - En la fila de **Convocados (Conv)** de la tabla de resumen, cada celda de instrumento tiene un **tooltip nativo** (`title`) con la lista de **apellidos y nombres** de los músicos confirmados para ese instrumento en esa gira.
 - **Lógica**: Función `getConvokedNamesByColumn(roster)` que:

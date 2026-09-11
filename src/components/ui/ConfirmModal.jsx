@@ -55,14 +55,14 @@ export default function ConfirmModal({
             <h3 id="confirm-modal-title" className="text-base sm:text-lg font-bold text-slate-800 pr-1">
               {title}
             </h3>
-            {messageIsHtml ? (
+            {messageIsHtml && message ? (
               <p
                 className="text-sm text-slate-500 mt-2 leading-relaxed whitespace-pre-line [&_strong]:font-bold [&_strong]:text-slate-800"
                 dangerouslySetInnerHTML={{ __html: message }}
               />
-            ) : (
+            ) : message ? (
               <p className="text-sm text-slate-500 mt-2 leading-relaxed whitespace-pre-line">{message}</p>
-            )}
+            ) : null}
             {children}
             {errorMessage ? (
               <p className="text-sm text-red-700 mt-3 leading-relaxed whitespace-pre-line rounded-lg border border-red-200 bg-red-50 px-3 py-2">

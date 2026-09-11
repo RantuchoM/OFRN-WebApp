@@ -51,6 +51,9 @@ const INSTRUMENT_COLUMNS = [
 
 /** Mismo orden y cantidad de columnas en cada tarjeta (sin Tim) para alinear verticalmente al escanear. */
 const AUDIT_GRID_COLUMNS = INSTRUMENT_COLUMNS.filter((c) => c.id !== "Tim");
+/** Resumen: mismas columnas de vientos/perc + Str para vacantes de cuerda ya creadas (01–04). */
+const AUDIT_SUMMARY_COLUMNS = [...AUDIT_GRID_COLUMNS, { id: "Str", label: "Str" }];
+const STRING_INSTR_IDS = new Set(["01", "02", "03", "04"]);
 
 /** Ancho fijo de la columna de etiquetas del resumen (Conv / Req Max / …). */
 const AUDIT_SUMMARY_ROW_LABEL_TH =
@@ -71,7 +74,7 @@ const AUDIT_WORKS_INST_TH_TD =
 const AUDIT_SUMMARY_LABEL_PX = 76;
 const AUDIT_SUMMARY_INST_PX = 36;
 const AUDIT_SUMMARY_TABLE_MIN_PX =
-  AUDIT_SUMMARY_LABEL_PX + AUDIT_GRID_COLUMNS.length * AUDIT_SUMMARY_INST_PX;
+  AUDIT_SUMMARY_LABEL_PX + AUDIT_SUMMARY_COLUMNS.length * AUDIT_SUMMARY_INST_PX;
 
 const AUDIT_WORKS_TABLE_MIN_PX = 256 + AUDIT_GRID_COLUMNS.length * 36;
 
@@ -99,7 +102,56 @@ function createEmptyInstrumentationMap() {
     Perc: 0,
     Har: 0,
     Pno: 0,
+    Str: 0,
   };
+}
+
+function classifyAuditColumn(m) {
+  const idInstr = String(m.id_instr || "");
+  const name = (m.instrumentos?.instrumento || "").toLowerCase();
+  const familia = (m.instrumentos?.familia || "").toLowerCase();
+
+  if (STRING_INSTR_IDS.has(idInstr)) return "Str";
+  if (name.includes("flaut") || name.includes("picc")) return "Fl";
+  if (name.includes("oboe") || name.includes("corno ing")) return "Ob";
+  if (
+    name.includes("clarin") ||
+    name.includes("requinto") ||
+    name.includes("basset")
+  ) {
+    return "Cl";
+  }
+  if (name.includes("fagot") || name.includes("contraf")) return "Fg";
+  if (name.includes("corno") || name.includes("trompa")) return "Cr";
+  if (name.includes("trompet") || name.includes("fliscorno")) return "Tp";
+  if (name.includes("trombon") || name.includes("trombón")) return "Tb";
+  if (name.includes("tuba") || name.includes("bombard")) return "Tba";
+  if (name.includes("timbal")) return "Tim";
+  if (
+    name.includes("perc") ||
+    name.includes("bombo") ||
+    name.includes("platillo") ||
+    name.includes("caja")
+  ) {
+    return "Perc";
+  }
+  if (name.includes("arpa")) return "Har";
+  if (
+    name.includes("piano") ||
+    name.includes("teclado") ||
+    name.includes("celesta") ||
+    name.includes("órgano") ||
+    name.includes("organo")
+  ) {
+    return "Pno";
+  }
+  if (familia.includes("cuerd")) return "Str";
+  return null;
+}
+
+function rosterAuditDisplayName(m) {
+  const name = `${m.apellido || ""}, ${m.nombre || ""}`.trim();
+  return name && name !== "," ? name : "";
 }
 
 /** Chips de giras_fuentes (mismo estilo que el header de GiraRoster), solo lectura. */
@@ -150,87 +202,19 @@ function computeConvokedForProgram(roster = []) {
     if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
 
     const isVacancy = !!m.es_simulacion;
-    const idInstr = String(m.id_instr || "");
-    const name = (m.instrumentos?.instrumento || "").toLowerCase();
-    const familia = (m.instrumentos?.familia || "").toLowerCase();
+    const col = classifyAuditColumn(m);
+    if (!col) return;
 
-    const add = (key) => {
-      all[key] += 1;
-      if (isVacancy) vacants[key] += 1;
-      else real[key] += 1;
-    };
-
-    // Excluir cuerdas del conteo de instrumentación (solo vientos / perc / otros)
-    if (["01", "02", "03", "04"].includes(idInstr)) {
+    // Conv/Req siguen centrados en vientos/perc; las cuerdas (01–04) solo
+    // alimentan la fila Vacantes cuando ya existe una plaza es_simulacion.
+    if (col === "Str") {
+      if (isVacancy) vacants.Str += 1;
       return;
     }
 
-    if (name.includes("flaut") || name.includes("picc")) {
-      add("Fl");
-      return;
-    }
-    if (name.includes("oboe") || name.includes("corno ing")) {
-      add("Ob");
-      return;
-    }
-    if (
-      name.includes("clarin") ||
-      name.includes("requinto") ||
-      name.includes("basset")
-    ) {
-      add("Cl");
-      return;
-    }
-    if (name.includes("fagot") || name.includes("contraf")) {
-      add("Fg");
-      return;
-    }
-    if (name.includes("corno") || name.includes("trompa")) {
-      add("Cr");
-      return;
-    }
-    if (name.includes("trompet") || name.includes("fliscorno")) {
-      add("Tp");
-      return;
-    }
-    if (name.includes("trombon") || name.includes("trombón")) {
-      add("Tb");
-      return;
-    }
-    if (name.includes("tuba") || name.includes("bombard")) {
-      add("Tba");
-      return;
-    }
-    if (name.includes("timbal")) {
-      add("Tim");
-      return;
-    }
-    if (
-      name.includes("perc") ||
-      name.includes("bombo") ||
-      name.includes("platillo") ||
-      name.includes("caja")
-    ) {
-      add("Perc");
-      return;
-    }
-    if (name.includes("arpa")) {
-      add("Har");
-      return;
-    }
-    if (
-      name.includes("piano") ||
-      name.includes("teclado") ||
-      name.includes("celesta") ||
-      name.includes("órgano") ||
-      name.includes("organo")
-    ) {
-      add("Pno");
-      return;
-    }
-
-    // No sumar cuerdas por familia acá: el panel de auditoría se centra en
-    // vientos / percusión / otros para instrumentación estándar.
+    all[col] += 1;
+    if (isVacancy) vacants[col] += 1;
+    else real[col] += 1;
   });
 
   return { all, real, vacants };
@@ -246,75 +230,29 @@ function getConvokedNamesByColumn(roster = []) {
   );
   confirmed.forEach((m) => {
     if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
-    const name = `${m.apellido || ""}, ${m.nombre || ""}`.trim();
+    const name = rosterAuditDisplayName(m);
     if (!name) return;
-    const idInstr = String(m.id_instr || "");
-    const instrumentName = (m.instrumentos?.instrumento || "").toLowerCase();
-    const familia = (m.instrumentos?.familia || "").toLowerCase();
+    const col = classifyAuditColumn(m);
+    if (!col || col === "Str") return;
+    out[col].push(name);
+  });
+  return out;
+}
 
-    if (["01", "02", "03", "04"].includes(idInstr)) return;
-    if (instrumentName.includes("flaut") || instrumentName.includes("picc")) {
-      out.Fl.push(name);
-      return;
-    }
-    if (instrumentName.includes("oboe") || instrumentName.includes("corno ing")) {
-      out.Ob.push(name);
-      return;
-    }
-    if (
-      instrumentName.includes("clarin") ||
-      instrumentName.includes("requinto") ||
-      instrumentName.includes("basset")
-    ) {
-      out.Cl.push(name);
-      return;
-    }
-    if (instrumentName.includes("fagot") || instrumentName.includes("contraf")) {
-      out.Fg.push(name);
-      return;
-    }
-    if (instrumentName.includes("corno") || instrumentName.includes("trompa")) {
-      out.Cr.push(name);
-      return;
-    }
-    if (instrumentName.includes("trompet") || instrumentName.includes("fliscorno")) {
-      out.Tp.push(name);
-      return;
-    }
-    if (instrumentName.includes("trombon") || instrumentName.includes("trombón")) {
-      out.Tb.push(name);
-      return;
-    }
-    if (instrumentName.includes("tuba") || instrumentName.includes("bombard")) {
-      out.Tba.push(name);
-      return;
-    }
-    if (instrumentName.includes("timbal")) {
-      out.Tim.push(name);
-      return;
-    }
-    if (
-      instrumentName.includes("perc") ||
-      instrumentName.includes("bombo") ||
-      instrumentName.includes("platillo") ||
-      instrumentName.includes("caja")
-    ) {
-      out.Perc.push(name);
-      return;
-    }
-    if (instrumentName.includes("arpa")) {
-      out.Har.push(name);
-      return;
-    }
-    if (
-      instrumentName.includes("piano") ||
-      instrumentName.includes("teclado") ||
-      instrumentName.includes("celesta") ||
-      instrumentName.includes("órgano") ||
-      instrumentName.includes("organo")
-    ) {
-      out.Pno.push(name);
-    }
+/** Nombres de plazas es_simulacion por columna, incluidas cuerdas (01–04 / familia). */
+function getVacantNamesByColumn(roster = []) {
+  const out = createEmptyInstrumentationMap();
+  Object.keys(out).forEach((k) => (out[k] = []));
+
+  (roster || []).forEach((m) => {
+    if (!m.es_simulacion) return;
+    if (m.estado_gira === "ausente") return;
+    if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
+    const name = rosterAuditDisplayName(m);
+    if (!name) return;
+    const col = classifyAuditColumn(m);
+    if (!col) return;
+    out[col].push(name);
   });
   return out;
 }
@@ -337,72 +275,9 @@ function getConvokedMusiciansByColumn(roster = []) {
   );
   confirmed.forEach((m) => {
     if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
-    const idInstr = String(m.id_instr || "");
-    const instrumentName = (m.instrumentos?.instrumento || "").toLowerCase();
-
-    if (["01", "02", "03", "04"].includes(idInstr)) return;
-    if (instrumentName.includes("flaut") || instrumentName.includes("picc")) {
-      pushUnique("Fl", m);
-      return;
-    }
-    if (instrumentName.includes("oboe") || instrumentName.includes("corno ing")) {
-      pushUnique("Ob", m);
-      return;
-    }
-    if (
-      instrumentName.includes("clarin") ||
-      instrumentName.includes("requinto") ||
-      instrumentName.includes("basset")
-    ) {
-      pushUnique("Cl", m);
-      return;
-    }
-    if (instrumentName.includes("fagot") || instrumentName.includes("contraf")) {
-      pushUnique("Fg", m);
-      return;
-    }
-    if (instrumentName.includes("corno") || instrumentName.includes("trompa")) {
-      pushUnique("Cr", m);
-      return;
-    }
-    if (instrumentName.includes("trompet") || instrumentName.includes("fliscorno")) {
-      pushUnique("Tp", m);
-      return;
-    }
-    if (instrumentName.includes("trombon") || instrumentName.includes("trombón")) {
-      pushUnique("Tb", m);
-      return;
-    }
-    if (instrumentName.includes("tuba") || instrumentName.includes("bombard")) {
-      pushUnique("Tba", m);
-      return;
-    }
-    if (instrumentName.includes("timbal")) {
-      pushUnique("Tim", m);
-      return;
-    }
-    if (
-      instrumentName.includes("perc") ||
-      instrumentName.includes("bombo") ||
-      instrumentName.includes("platillo") ||
-      instrumentName.includes("caja")
-    ) {
-      pushUnique("Perc", m);
-      return;
-    }
-    if (instrumentName.includes("arpa")) {
-      pushUnique("Har", m);
-      return;
-    }
-    if (
-      instrumentName.includes("piano") ||
-      instrumentName.includes("teclado") ||
-      instrumentName.includes("celesta") ||
-      instrumentName.includes("órgano") ||
-      instrumentName.includes("organo")
-    ) {
-      pushUnique("Pno", m);
-    }
+    const col = classifyAuditColumn(m);
+    if (!col || col === "Str") return;
+    pushUnique(col, m);
   });
   return out;
 }
@@ -479,7 +354,7 @@ function computeInstrumentationDeficits(required, convokedAll) {
   const convokedPercTotal = (convokedAll.Tim || 0) + (convokedAll.Perc || 0);
   const deficits = {};
   for (const col of INSTRUMENT_COLUMNS) {
-    if (col.id === "Tim") continue;
+    if (col.id === "Tim" || col.id === "Str") continue;
     if (col.id === "Perc") {
       deficits.Perc = Math.max(0, requiredPercTotal - convokedPercTotal);
     } else {
@@ -1167,7 +1042,7 @@ export default function InstrumentationAudit({ supabase }) {
       let created = 0;
       try {
         for (const col of INSTRUMENT_COLUMNS) {
-          if (col.id === "Tim") continue;
+          if (col.id === "Tim" || col.id === "Str") continue;
           const n = deficits[col.id] || 0;
           if (n <= 0) continue;
 
@@ -1393,6 +1268,7 @@ export default function InstrumentationAudit({ supabase }) {
             (convokedAll.Tim || 0) + (convokedAll.Perc || 0);
 
           const convokedNamesByColumn = getConvokedNamesByColumn(p._roster || []);
+          const vacantNamesByColumn = getVacantNamesByColumn(p._roster || []);
           const deficits = computeInstrumentationDeficits(required, convokedAll);
           const autoVacanciesTotal = Object.values(deficits).reduce(
             (a, b) => a + b,
@@ -1447,7 +1323,7 @@ export default function InstrumentationAudit({ supabase }) {
                           >
                             Resumen
                           </th>
-                          {AUDIT_GRID_COLUMNS.map((col) => (
+                          {AUDIT_SUMMARY_COLUMNS.map((col) => (
                             <th
                               key={col.id}
                               className={`${AUDIT_SUMMARY_INST_TH_TD} font-semibold text-slate-600`}
@@ -1462,7 +1338,18 @@ export default function InstrumentationAudit({ supabase }) {
                           <td className={AUDIT_SUMMARY_ROW_LABEL_TH}>
                             Conv
                           </td>
-                          {AUDIT_GRID_COLUMNS.map((col) => {
+                          {AUDIT_SUMMARY_COLUMNS.map((col) => {
+                            if (col.id === "Str") {
+                              return (
+                                <td
+                                  key={col.id}
+                                  className={`${AUDIT_SUMMARY_INST_TH_TD} font-mono text-slate-300`}
+                                  title="Cuerdas no entran en Conv; las plazas creadas se ven en Vacantes"
+                                >
+                                  ·
+                                </td>
+                              );
+                            }
                             const convVal =
                               col.id === "Perc"
                                 ? convokedPercTotal
@@ -1518,7 +1405,17 @@ export default function InstrumentationAudit({ supabase }) {
                           <td className={AUDIT_SUMMARY_ROW_LABEL_TH}>
                             Req Max
                           </td>
-                          {AUDIT_GRID_COLUMNS.map((col) => {
+                          {AUDIT_SUMMARY_COLUMNS.map((col) => {
+                            if (col.id === "Str") {
+                              return (
+                                <td
+                                  key={col.id}
+                                  className={`${AUDIT_SUMMARY_INST_TH_TD} font-mono text-slate-300`}
+                                >
+                                  ·
+                                </td>
+                              );
+                            }
                             const convVal =
                               col.id === "Perc"
                                 ? convokedPercTotal
@@ -1571,7 +1468,17 @@ export default function InstrumentationAudit({ supabase }) {
                           <td className={AUDIT_SUMMARY_ROW_LABEL_TH}>
                             Sug.
                           </td>
-                          {AUDIT_GRID_COLUMNS.map((col) => {
+                          {AUDIT_SUMMARY_COLUMNS.map((col) => {
+                            if (col.id === "Str") {
+                              return (
+                                <td
+                                  key={col.id}
+                                  className={`${AUDIT_SUMMARY_INST_TH_TD} font-mono text-slate-300`}
+                                >
+                                  ·
+                                </td>
+                              );
+                            }
                             let delta;
                             if (col.id === "Perc") {
                               delta = requiredPercTotal - convokedPercTotal;
@@ -1609,14 +1516,26 @@ export default function InstrumentationAudit({ supabase }) {
                           <td className={AUDIT_SUMMARY_ROW_LABEL_TH}>
                             Vacantes
                           </td>
-                          {AUDIT_GRID_COLUMNS.map((col) => {
+                          {AUDIT_SUMMARY_COLUMNS.map((col) => {
                             const v =
                               col.id === "Perc"
                                 ? (vacants.Tim || 0) + (vacants.Perc || 0)
                                 : vacants[col.id] || 0;
+                            const namesList =
+                              col.id === "Perc"
+                                ? [
+                                    ...(vacantNamesByColumn.Tim || []),
+                                    ...(vacantNamesByColumn.Perc || []),
+                                  ]
+                                : vacantNamesByColumn[col.id] || [];
+                            const tooltipText =
+                              namesList.length > 0
+                                ? namesList.join("\n")
+                                : undefined;
                             return (
                               <td
                                 key={col.id}
+                                title={tooltipText}
                                 className={`${AUDIT_SUMMARY_INST_TH_TD} font-mono ${
                                   v > 0
                                     ? "bg-amber-200 text-black font-semibold rounded"

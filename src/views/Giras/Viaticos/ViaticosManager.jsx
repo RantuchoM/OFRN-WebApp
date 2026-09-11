@@ -69,10 +69,13 @@ import { buildViaticosLogisticsMap, resolveViaticoRowLogData } from "../../../ut
 import { resolveCheckPatenteOficial } from "../../../utils/transporteOficial";
 import {
   collectMotivoLugarWarningsForExport,
-  formatMotivoLugarWarningMessage,
   resolveLugarViaticosIndividual,
   resolveMotivoViaticosIndividual,
 } from "../../../utils/viaticosExportMotivoLugar";
+import {
+  MotivoLugarExportWarningBody,
+  MotivoLugarExportWarningTitle,
+} from "./MotivoLugarExportWarning";
 import { VIATICOS_ROOT_FOLDER_URL } from "../../../utils/driveFolders";
 
 const uint8ArrayToBase64 = (uint8Array) => {
@@ -1361,9 +1364,7 @@ const collectTransportSupportDocs = (personData) => {
     setExportStatus("");
     setExportDetail("");
     pendingExportRef.current = runExport;
-    setExportMotivoLugarConfirm({
-      message: formatMotivoLugarWarningMessage(issues),
-    });
+    setExportMotivoLugarConfirm({ issues });
   };
 
   const handleConfirmExportDespiteMotivoLugar = () => {
@@ -1956,12 +1957,19 @@ const collectTransportSupportDocs = (personData) => {
         isOpen={!!exportMotivoLugarConfirm}
         onClose={clearPendingExport}
         onConfirm={handleConfirmExportDespiteMotivoLugar}
-        title="Motivo o lugar de comisión incompletos"
-        message={exportMotivoLugarConfirm?.message || ""}
+        title={
+          <MotivoLugarExportWarningTitle
+            issues={exportMotivoLugarConfirm?.issues}
+          />
+        }
         confirmText="Exportar igual"
         cancelText="Revisar"
         overlayClassName="z-[110]"
-      />
+      >
+        <MotivoLugarExportWarningBody
+          issues={exportMotivoLugarConfirm?.issues}
+        />
+      </ConfirmDialog>
 
       {/* PANEL SUPERIOR: INDIVIDUALES */}
       <div className="bg-white border-b border-slate-200 shadow-sm mb-4">
