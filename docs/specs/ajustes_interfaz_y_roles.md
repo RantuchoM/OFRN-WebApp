@@ -35,7 +35,8 @@
 - **Estado**: Completado.
 - **Comportamiento**: Con rol efectivo `consulta_general`, la Agenda oculta eventos `tecnica: true` y paradas con `visible_agenda === false` de buses ajenos (las del vehículo asignado sí se ven). Sin UI de "Filtro Técnica" ni toggle de marca Téc.
 - **Permisos**: `canSeeTechEvents` / `canSeeHiddenAgendaEvents` en `deriveAgendaPermissions` (excluyen `consulta_general`; siguen incluyendo admin/editor/curador/coord_general/produccion_general/director y, para Téc, `tecnico`).
-- **Implementación**: `agendaPermissions.js`, `useAgendaFilters.js`, `UnifiedAgenda.jsx`.
+- **Backline / Rider (view-only, 2026-09-11)**: `consulta_general` es `isManagement` → ve íconos **Ver Backline** / **Ver Rider** en `UnifiedAgenda` cuando el evento aplica (misma regla que resto de gestión). En FIMBA, `rol_fimba=consulta` usa `canSeeRider` para los ítems RO del kebab Agenda. Spec detallada: `docs/specs/fimba-plataforma.md` § Agenda · Consulta Backline / Rider.
+- **Implementación**: `agendaPermissions.js`, `useAgendaFilters.js`, `UnifiedAgenda.jsx`, `FimbaAgendaPage.jsx` (`canSeeRider`).
 
 ## 7. Búsqueda por detalle y locación (Agenda)
 - **Estado**: Completado (2026-08-10). Actualizado: input con debounce (UX).

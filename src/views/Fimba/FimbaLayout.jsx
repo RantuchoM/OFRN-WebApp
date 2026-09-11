@@ -462,6 +462,48 @@ const FIMBA_CSS = `
     color: var(--fimba-deep, #94216d);
     text-decoration: underline;
   }
+  .fimba-detalle-preview-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    vertical-align: top;
+  }
+  .fimba-detalle-preview-row .fimba-detalle-preview,
+  .fimba-detalle-preview-row .fimba-detalle-preview--clamp,
+  .fimba-detalle-preview-row .fimba-detalle-preview--expanded {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .fimba-detalle-preview--expandable {
+    cursor: pointer;
+  }
+  .fimba-detalle-preview--expanded {
+    max-height: none;
+    overflow: visible;
+  }
+  .fimba-detalle-images-chip {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .fimba-detalle-images-btn {
+    margin-top: 0.1rem;
+    flex-shrink: 0;
+    background: #0a0a0a;
+    color: #fff;
+    border: none;
+    box-shadow: none;
+  }
+  .fimba-detalle-images-btn:hover {
+    background: #262626;
+    color: #fff;
+  }
+  .fimba-detalle-images-btn svg {
+    stroke: currentColor;
+    color: #fff;
+  }
   .fimba-detalle-tooltip-body a {
     color: #93c5fd;
     text-decoration: underline;
@@ -715,15 +757,12 @@ const FIMBA_CSS = `
     font-size: 0.92rem;
     line-height: 1.35;
     min-width: 0;
-    max-height: 4.05em;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
     word-break: break-word;
   }
-  .fimba-agenda-event-card-detalle .fimba-detalle-preview {
-    display: contents;
+  /* Clamp vive en .fimba-detalle-preview--clamp (tap → expand); chip a la derecha */
+  .fimba-agenda-event-card-detalle .fimba-detalle-preview-row {
+    display: flex;
+    width: 100%;
   }
   .fimba-agenda-event-card-obs {
     display: block;

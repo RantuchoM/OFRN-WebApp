@@ -1,18 +1,23 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import EventDescripcionImagesButton from "../../components/agenda/EventDescripcionImagesButton";
 import {
   IconBold,
   IconItalic,
   IconUnderline,
 } from "../../components/ui/Icons";
 import {
+  extractEventDescripcionImageSrcs,
+  sanitizeEventDescripcionHtml,
+} from "../../utils/eventDescripcionHtml";
+import {
   hasHtmlMarkup,
   stripHtml,
 } from "../../utils/eventDisplayUtils";
-import { sanitizeFimbaRiderHtml } from "../../utils/fimbaRider";
 
-/** True si el HTML de detalle no tiene texto visible (p. ej. `<br>`, `<div><br></div>`). */
+/** True si el HTML de detalle no tiene texto visible ni imágenes allowlisted. */
 export function isFimbaDetalleEmpty(html) {
+  if (extractEventDescripcionImageSrcs(html).length > 0) return false;
   return !stripHtml(html);
 }
 
@@ -39,9 +44,9 @@ let activeDetalleTooltipHide = null;
  * Vista lectura de `eventos.descripcion` (parte actividad / Detalle FIMBA).
  * Misma columna OFRN que EventForm / EventQuickView.
  * `clamp` = max-height en planilla; tooltip portal (HTML sanitizado) solo si el
- * texto está truncado (`scrollHeight`/`scrollWidth` > client*).
- * Al scroll (capture) / Escape / blur / mouseleave se cierra — no se reposiciona
- * (evita tooltips stuck al scroll de `.fimba-agenda-scroll` sin mouseleave).
+ * texto está truncado (`scrollHeight`/`scrollWidth` > client*) — desktop hover.
+ * En móvil (coarse pointer / &lt; md): tap en texto truncado → expand/collapse;
+ * no abre edición (stopPropagation). Chip imágenes → modal galería.
  */
 export function FimbaEventDetallePreview({
   html,
@@ -53,6 +58,7 @@ export function FimbaEventDetallePreview({
   const triggerRef = useRef(null);
   const [tooltip, setTooltip] = useState(null);
   const [truncated, setTruncated] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   // Identidad estable para el registro global (un solo tooltip abierto).
   const hideRef = useRef(null);
   if (!hideRef.current) {
@@ -66,12 +72,27 @@ export function FimbaEventDetallePreview({
   const hideTooltip = hideRef.current;
 
   const raw = html == null ? "" : String(html);
+  const imageSrcs = useMemo(
+    () => extractEventDescripcionImageSrcs(raw),
+    [raw],
+  );
   const plain = stripHtml(raw);
   const isHtml = hasHtmlMarkup(raw);
-  const safeHtml = isHtml ? sanitizeFimbaRiderHtml(raw) : null;
+  // Lista/tooltip: sin <img> (galería aparte); allowlist https/data/blob.
+  const safeHtml = isHtml
+    ? sanitizeEventDescripcionHtml(raw, { keepImages: false })
+    : null;
+  const hasText = Boolean(plain);
+  const hasImages = imageSrcs.length > 0;
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [raw]);
 
   const showTooltip = () => {
-    if (!clamp || !truncated || !plain || !triggerRef.current) return;
+    if (!clamp || expanded || !truncated || !hasText || !triggerRef.current) {
+      return;
+    }
     if (activeDetalleTooltipHide && activeDetalleTooltipHide !== hideTooltip) {
       activeDetalleTooltipHide();
     }
@@ -83,8 +104,9 @@ export function FimbaEventDetallePreview({
 
   // Medir overflow real del clamp (resize / cambio de contenido).
   useEffect(() => {
-    if (!clamp || !plain) {
-      setTruncated(false);
+    if (!clamp || !hasText || expanded) {
+      if (!clamp || !hasText) setTruncated(false);
+      else if (expanded) setTruncated(true);
       return undefined;
     }
     const el = triggerRef.current;
@@ -112,12 +134,12 @@ export function FimbaEventDetallePreview({
       ro?.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [clamp, plain, raw]);
+  }, [clamp, hasText, raw, expanded]);
 
   // Si deja de estar truncado, cerrar tooltip abierto.
   useEffect(() => {
-    if (!truncated) hideTooltip();
-  }, [truncated, hideTooltip]);
+    if (!truncated || expanded) hideTooltip();
+  }, [truncated, expanded, hideTooltip]);
 
   // Cerrar al scroll anidado (agenda) / window, resize y Escape.
   useEffect(() => {
@@ -146,7 +168,7 @@ export function FimbaEventDetallePreview({
     [],
   );
 
-  if (!plain) {
+  if (!hasText && !hasImages) {
     return (
       <span className={className} style={style}>
         {empty}
@@ -154,19 +176,37 @@ export function FimbaEventDetallePreview({
     );
   }
 
+  const isClamped = clamp && !expanded;
+  const canExpand = clamp && hasText && (truncated || expanded);
   const previewClass = [
     isHtml ? "fimba-detalle-preview" : null,
-    clamp ? "fimba-detalle-preview--clamp" : null,
+    isClamped ? "fimba-detalle-preview--clamp" : null,
+    expanded ? "fimba-detalle-preview--expanded" : null,
+    canExpand ? "fimba-detalle-preview--expandable" : null,
     className || null,
   ]
     .filter(Boolean)
     .join(" ");
 
-  const tooltipInteractive = clamp && truncated;
+  const tooltipInteractive = clamp && !expanded && truncated && hasText;
+
+  const stopRowActivate = (e) => {
+    e.stopPropagation();
+  };
+
+  const toggleExpand = (e) => {
+    if (!canExpand) return;
+    e.preventDefault();
+    e.stopPropagation();
+    hideTooltip();
+    setExpanded((v) => !v);
+  };
+
   const previewProps = {
     ref: triggerRef,
     className: previewClass || undefined,
-    style,
+    style: hasText ? style : undefined,
+    onClick: canExpand ? toggleExpand : stopRowActivate,
     ...(tooltipInteractive
       ? {
           onMouseEnter: showTooltip,
@@ -176,17 +216,35 @@ export function FimbaEventDetallePreview({
           tabIndex: 0,
           "aria-label": plain,
         }
-      : {}),
+      : canExpand
+        ? {
+            role: "button",
+            tabIndex: 0,
+            "aria-expanded": expanded,
+            "aria-label": expanded
+              ? "Contraer detalle"
+              : "Expandir detalle completo",
+            onKeyDown: (e) => {
+              if (e.key === "Enter" || e.key === " ") toggleExpand(e);
+            },
+          }
+        : {}),
   };
 
-  const previewNode = isHtml ? (
-    <span
-      {...previewProps}
-      dangerouslySetInnerHTML={{ __html: safeHtml }}
-    />
-  ) : (
-    <span {...previewProps}>{raw}</span>
-  );
+  const previewNode = hasText ? (
+    isHtml ? (
+      <span
+        {...previewProps}
+        dangerouslySetInnerHTML={{ __html: safeHtml }}
+      />
+    ) : (
+      <span {...previewProps}>{raw}</span>
+    )
+  ) : null;
+
+  const imagesBtn = hasImages ? (
+    <EventDescripcionImagesButton srcs={imageSrcs} />
+  ) : null;
 
   const tooltipNode =
     clamp && tooltip && typeof document !== "undefined"
@@ -221,7 +279,15 @@ export function FimbaEventDetallePreview({
 
   return (
     <>
-      {previewNode}
+      <span
+        className="fimba-detalle-preview-row"
+        style={!hasText && hasImages ? style : undefined}
+        onClick={stopRowActivate}
+        onDoubleClick={stopRowActivate}
+      >
+        {previewNode}
+        {imagesBtn}
+      </span>
       {tooltipNode}
     </>
   );

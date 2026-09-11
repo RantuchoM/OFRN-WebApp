@@ -391,15 +391,18 @@ function eventMatchesFimbaAgendaSearch(ev, query, flotaById = null) {
  */
 export default function FimbaAgendaPage() {
   const { edicionId, artistaId } = useParams();
-  const { readOnly, agendaOnly, source, canSeeContrataciones } =
-    useFimbaAccess();
+  const { readOnly, agendaOnly, source, canSeeRider } = useFimbaAccess();
   const { confirm, alert, dialog: confirmDialog } = useConfirmDialog();
   const consultaSession = useFimbaConsultaEdicionSession();
   const queryLocked = Boolean(agendaOnly);
   const canCopyConsultaLink =
     source === "ofrn" || source === "fimba_editor";
-  /** Misma base que Contrataciones: OFRN management / editor_general (no consulta ni tokens). */
-  const canSeeAgendaLogisticaConsulta = Boolean(canSeeContrataciones);
+  /**
+   * Ver Backline / Rider desde Agenda (kebab + modales RO).
+   * Misma base que pestaña Rider: OFRN management / editor_general / consulta usuario.
+   * Tokens `/c` `/a` `/e` → canSeeRider false.
+   */
+  const canSeeAgendaLogisticaConsulta = Boolean(canSeeRider);
   const [backlineConsultaEvento, setBacklineConsultaEvento] = useState(null);
   const [riderConsultaEvento, setRiderConsultaEvento] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();

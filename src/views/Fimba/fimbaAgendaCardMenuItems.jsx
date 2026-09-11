@@ -8,7 +8,12 @@ import {
   IconTrash,
 } from "../../components/ui/Icons";
 
-/** Helpers de ítems de menú frecuentes (staff / consulta editable). */
+/**
+ * Ítems de menú ⋮ Agenda (planilla + cards).
+ * Mutaciones solo si `canEdit`. Ver Backline / Ver Rider son RO: se muestran
+ * cuando hay callback (el caller aplica `canSeeRider` / contenido del evento).
+ * Consulta (`canEdit=false`) puede quedar con kebab solo de vista.
+ */
 export function buildAgendaCardMenuItems({
   onEdit,
   onDuplicate,

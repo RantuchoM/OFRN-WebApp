@@ -94,7 +94,6 @@ import {
   buildAgendaPdfExportItems,
   eventMatchesAgendaSearch,
   getAccentInsensitiveHighlightRanges,
-  highlightHtmlSearch,
   isFimbaOnlyAgendaEvent,
   ID_TIPO_TRASLADO_INTERNO,
 } from "../../utils/agendaHelpers";
@@ -109,6 +108,7 @@ import ConnectionBadge from "./ConnectionBadge";
 import DriveSmartButton from "./DriveSmartButton";
 import TourDivider from "./TourDivider";
 import AgendaMealActionModal from "./AgendaMealActionModal";
+import AgendaEventDescripcionHtml from "./AgendaEventDescripcionHtml";
 import EventTranspositionModal from "./EventTranspositionModal";
 import EventHistoryModal from "../giras/EventHistoryModal";
 import ConfirmModal from "../ui/ConfirmModal";
@@ -645,8 +645,11 @@ export default function UnifiedAgenda({
   const isAdmin = isAdminFlag || userRoles.includes("admin");
   const isGlobalEditor = userRoles.some((role) => editorRoles.includes(role));
   const canEdit = isGlobalEditor || coordinatedEnsembles.size > 0;
-  /** Backline / Rider consulta en agenda: editores y admins (isEditor incluye admin/curador). */
-  const canSeeAgendaLogisticaConsulta = Boolean(isEditor);
+  /**
+   * Backline / Rider consulta RO en agenda OFRN.
+   * Staff de gestión (incl. `consulta_general`); no músicos / técnicos solos.
+   */
+  const canSeeAgendaLogisticaConsulta = Boolean(isManagement);
   /** Filtro / Tag de grupos: solo editores y admins, y solo si la gira ya tiene grupos. */
   const canManageGiraGrupos =
     !!giraId && (isEditor || isAdmin) && giraGrupos.length > 0;
@@ -2923,9 +2926,6 @@ export default function UnifiedAgenda({
                       idLocacion: evt.id_locacion,
                       locacion: evt.locaciones,
                     });
-                    const descHtml = evt.descripcion
-                      ? highlightHtmlSearch(evt.descripcion, agendaSearchQuery)
-                      : "";
                     const isConcertEvent = Number(evt.id_tipo_evento) === 1;
                     const isDraftProgramConcert =
                       isConcertEvent &&
@@ -3166,11 +3166,10 @@ export default function UnifiedAgenda({
                                           className={`flex-1 text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
                                         >
                                           {evt.descripcion ? (
-                                            <div
-                                              className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold [&>mark]:bg-yellow-200 [&>mark]:text-yellow-900"
-                                              dangerouslySetInnerHTML={{
-                                                __html: descHtml,
-                                              }}
+                                            <AgendaEventDescripcionHtml
+                                              html={evt.descripcion}
+                                              query={agendaSearchQuery}
+                                              htmlClassName="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold [&>mark]:bg-yellow-200 [&>mark]:text-yellow-900"
                                             />
                                           ) : (
                                             <span>
@@ -3254,11 +3253,10 @@ export default function UnifiedAgenda({
                                       className={`text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
                                     >
                                       {evt.descripcion ? (
-                                        <div
-                                          className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold [&>mark]:bg-yellow-200 [&>mark]:text-yellow-900"
-                                          dangerouslySetInnerHTML={{
-                                            __html: descHtml,
-                                          }}
+                                        <AgendaEventDescripcionHtml
+                                          html={evt.descripcion}
+                                          query={agendaSearchQuery}
+                                          htmlClassName="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold [&>mark]:bg-yellow-200 [&>mark]:text-yellow-900"
                                         />
                                       ) : (
                                         <span>
@@ -3720,11 +3718,10 @@ export default function UnifiedAgenda({
                                       className={`flex-1 text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
                                     >
                                       {evt.descripcion ? (
-                                        <div
-                                          className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold [&>mark]:bg-yellow-200 [&>mark]:text-yellow-900 text-sm"
-                                          dangerouslySetInnerHTML={{
-                                            __html: descHtml,
-                                          }}
+                                        <AgendaEventDescripcionHtml
+                                          html={evt.descripcion}
+                                          query={agendaSearchQuery}
+                                          htmlClassName="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold [&>mark]:bg-yellow-200 [&>mark]:text-yellow-900 text-sm"
                                         />
                                       ) : (
                                         <span

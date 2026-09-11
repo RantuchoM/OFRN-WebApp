@@ -34,7 +34,8 @@ export function resolveEventRidersForConsulta(evt) {
 }
 
 /**
- * Icono Backline en agenda: fila de planilla Backline + staff editor/admin.
+ * Icono / ítem menú Backline: fila de planilla Backline + permiso de consulta logística.
+ * Gate FIMBA: `canSeeRider` (incluye `rol_fimba=consulta`). Gate OFRN: `isManagement`.
  * @param {object|null|undefined} evt
  * @param {boolean} canSee
  */
@@ -43,7 +44,8 @@ export function shouldShowAgendaBacklineIcon(evt, canSee) {
 }
 
 /**
- * Icono Rider en agenda: hay al menos un rider de artista tagueado + staff editor/admin.
+ * Icono / ítem menú Rider: hay al menos un rider de artista tagueado + permiso de consulta logística.
+ * Gate FIMBA: `canSeeRider` (incluye `rol_fimba=consulta`). Gate OFRN: `isManagement`.
  * @param {object|null|undefined} evt
  * @param {boolean} canSee
  */

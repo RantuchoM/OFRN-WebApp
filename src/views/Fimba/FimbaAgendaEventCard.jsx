@@ -251,7 +251,7 @@ export default function FimbaAgendaEventCard({
           ? (e) => {
               if (
                 e.target.closest(
-                  "button, a, input, select, textarea, label, .fimba-artistas-tags-cell, .fimba-agenda-card-menu, .fimba-agenda-event-card-actions",
+                  "button, a, input, select, textarea, label, .fimba-artistas-tags-cell, .fimba-agenda-card-menu, .fimba-agenda-event-card-actions, .fimba-agenda-event-card-detalle, .fimba-detalle-preview-row, .fimba-detalle-images-btn",
                 )
               ) {
                 return;
