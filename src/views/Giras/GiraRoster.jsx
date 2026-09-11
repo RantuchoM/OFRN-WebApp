@@ -2281,32 +2281,6 @@ export default function GiraRoster({
     );
   };
 
-  const handleLiberarPlaza = async (integrante) => {
-    if (
-      !(await confirm({
-        title: "Liberar plaza",
-        message: `¿Liberar plaza de ${integrante.nombre}? Se creará una vacante.`,
-        destructive: true,
-        confirmText: "Liberar",
-      }))
-    )
-      return;
-    setLoadingAction(true);
-    try {
-      const { error } = await supabase.rpc("liberar_plaza_generar_vacante", {
-        p_id_gira: gira.id,
-        p_id_integrante_real: integrante.id,
-      });
-      if (error) throw error;
-      toast.success("Plaza liberada.");
-      refreshRoster();
-    } catch (err) {
-      toast.error("Error: " + err.message);
-    } finally {
-      setLoadingAction(false);
-    }
-  };
-
   const searchIndividual = async (term) => {
     const cleanTerm = term.trim();
     if (!cleanTerm) {
@@ -3742,6 +3716,7 @@ export default function GiraRoster({
         onRefresh={refreshRoster}
         onAssigned={handleVacancyAssigned}
         onDelete={isEditor ? handleDeleteVacancy : undefined}
+        ausenteIds={listaAusentes.map((r) => r.id)}
       />
 
       {localNotificacionInicialEnviada && (

@@ -241,7 +241,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Montaje en Seating (sub-tabs Disposición | Escenario)
 - [x] Modo nocturno: Stage `.no-dark-invert` + piso `STAGE_PLOT_BG_FILL_NIGHT` + grilla/radial `*_STROKE_NIGHT` (contenido sin invertir)
 - [x] Migración `stage_plots` v1 + deploy linked
-- [x] Menú Gira: Disposición + Escenario bajo Repertorio
+- [x] Menú Gira: Seating + Escenario bajo Repertorio (label 2026-09-11: «Seating», no «Disposición»)
 - [x] Exportar / Reportes unificado (dropdown en Disposición)
 - [x] Iconos cuerdas FreeSVG CC0 (colores de origen): `violin.svg` ([175059](https://freesvg.org/publicdomainq-0008893doscnq)), `viola.svg` ([179008](https://freesvg.org/publicdomainq-violin2)), `cello.svg` ([3882](https://freesvg.org/cello-vector-image) papapishu), `bass.svg` ([183100](https://freesvg.org/double-bass-3253216)).
 - [x] Maderas Gerald_G (Openclipart PD): `flute.svg` (colores de origen) y `oboe.svg` (silueta mono `currentColor`) — archivos distintos; `oboe` ya no reutiliza `flute.svg`.

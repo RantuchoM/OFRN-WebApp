@@ -3,6 +3,7 @@ import { integranteKey } from "./integranteIds";
 /**
  * Misma lógica que la vista ProgramSeating / GiraRoster para “quién cuenta” en seating:
  * convocados presentes (`estado_gira === 'confirmado'`) y sin rol de soporte excluido.
+ * Las vacantes (`es_simulacion`) SÍ pueden sentarse; al asignar titular heredan atril/parte.
  */
 export const SEATING_REPORT_EXCLUDED_ROLES = [
   "staff",

@@ -15,7 +15,6 @@ function seatingInstrumentCode(id) {
 
 function passesRosterFilters(m) {
   if (m.estado_gira === "ausente") return false;
-  if (m.es_simulacion) return false;
   if (!countsTowardInstrumentationConvoked(m.rol_gira)) return false;
   return true;
 }

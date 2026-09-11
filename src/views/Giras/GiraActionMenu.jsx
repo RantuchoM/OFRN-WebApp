@@ -185,7 +185,7 @@ const GiraActionMenu = ({
               />
               <SubMenuItem
                 icon={IconLayers}
-                label="Disposición"
+                label="Seating"
                 view="REPERTOIRE"
                 subTab="seating"
                 seatingView="disposicion"

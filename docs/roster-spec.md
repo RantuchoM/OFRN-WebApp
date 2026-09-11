@@ -20,10 +20,17 @@ Para obtener la lista de personas que viajan:
 
 ## 4. Vacantes (integrantes simulados)
 
-- Las vacantes son filas en `integrantes` con `es_simulacion = true`, vinculadas a la gira vía `giras_integrantes`.
-- **Crear**: modal "Nueva vacante" en el roster (`AddVacancyModal`).
-- **Asignar titular**: modal "Asignar titular" (`SwapVacancyModal`) → RPC `materializar_reemplazo` (transfiere logística al músico real).
-- **Eliminar sin asignar**: botón papelera en la fila del roster o "Eliminar vacante" en el modal de asignación → `deleteVacancyFromGira` en `giraService.js` (limpia rooming, transporte, viáticos y borra el integrante simulado).
+- Las vacantes son filas en `integrantes` con `es_simulacion = true` y `condicion = 'Refuerzo'`, vinculadas a la gira vía `giras_integrantes` (`rol = 'musico'`, `estado = 'confirmado'`). El ID lo asigna la BD (IDENTITY). El rótulo de plaza va en `integrantes.apellido`.
+- **Crear** (`crear_vacante`, transaccional): modal "Nueva vacante" (`AddVacancyModal`) o "Vacantes auto" en Auditoría de instrumentación. Inserta integrante + `giras_integrantes` en una sola transacción. Auto: no duplica la misma etiqueta/instrumento ya presente; género NULL (no F fijo); salta Tim. Pueden entrar a un **grupo de la gira** (`giras_grupos_integrantes`) como cualquier convocado (reservan el slot).
+- **Asignar titular** (`materializar_reemplazo`): modal "Asignar titular" (`SwapVacancyModal`). Transfiere en la misma transacción: nómina, reglas `target_ids`, transporte actual (`id_integrante` + `target_ids`), admisión/rutas, RSVP comidas legacy, viáticos, seating (`id_musicos_asignados` y `seating_contenedores_items`), check-in/asistencia, accesos, exclusiones hotel y **grupos**.
+  - Si el titular ya está en la gira como **ausente**: se **bloquea** (no se vuelca logística).
+  - Si ya está confirmado: se borra la fila de la vacante en `giras_integrantes` y se transfiere la logística a la fila existente.
+  - Si no está: se reemplaza `id_integrante` en la fila de la vacante y `estado = 'confirmado'`.
+  - **Grupos (verdad de la plaza):** si la vacante está en uno o más `giras_grupos`, el titular queda **solo** en esos grupos de la gira (sin duplicar). Si estaba en otro grupo, sale de ese y entra al de la vacante. `giras_grupos_integrantes` no tiene columna de orden de membresía (el `orden` es del grupo). Si la vacante no está en ningún grupo, no se toca la membresía previa del titular. Se elimina el ID simulado del grupo.
+  - **Hotelería (única excepción):** F vs M o `−` vs F/M → se saca de la habitación (`alerta_alojamiento`). Ambos NULL → hereda. Un NULL vs F/M/`−` → desaloja. Se actualizan `id_integrantes_asignados` y `asignaciones_config`. Si el titular ya estaba en otra habitación de la gira y hereda, se lo saca de la anterior (sin dos camas).
+- **Eliminar** (`eliminar_vacante` vía `deleteVacancyFromGira`): confirma en UI y limpia en una transacción habitaciones + `asignaciones_config`, seating, transporte/`target_ids`, admisión/rutas, viáticos, RSVP, accesos, exclusiones, **grupos**, check-in/asistencia, luego borra `giras_integrantes` y el integrante simulado. No toca `pasajeros_ids` (columna inexistente).
+- **Logística territorial:** niveles 3–1 (localidad/región/general) solo si `condicion === 'estable'`. Las vacantes (Refuerzo) solo matchean ID personal o categoría/grupo.
+- La RPC rota `liberar_plaza_generar_vacante` está **eliminada** (no hay control de UI; era SECURITY DEFINER y usaba columnas viejas).
 
 ## 5. Consumo en Servicios
 - La función `resolveGiraRosterIds` en `giraService.js` es la implementación de referencia para esta lógica.

@@ -16,6 +16,7 @@
 - **Filtro Maestro de Ausencia**: Si `giras_integrantes.estado === 'ausente'`, el músico NO debe tener servicios de logística (cero habitaciones, cero transporte, grisado en roster).
 - **Prioridad de Convocatoria**: Las exclusiones manuales y el estado 'ausente' tienen prioridad absoluta sobre los filtros de Ensamble o Familia.
 - **Seating Estricto**: El Seating debe usar el roster filtrado de `useGiraRoster`. Si un ensamble está excluido, sus miembros NO deben aparecer en el seating aunque su familia esté convocada.
+- **Vacantes (`es_simulacion`)**: son `integrantes` reales (IDs numéricos), no una tabla aparte. Al tocar roster, seating, grupos (`giras_grupos` / `giras_grupos_integrantes`), hotel, transporte, comidas u otra logística de gira, coordinar también generar / asignar / eliminar vacante. Hotel: si el titular es de otro género, sale de la habitación; el grupo se hereda o se quita sin esa excepción. Detalle: `.cursor/rules/gira-vacantes-coordinacion.mdc`.
 
 ## 4. Reglas de Logística (Fuerza de Match)
 - **Jerarquía (Strength)**: 

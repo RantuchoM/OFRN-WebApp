@@ -108,9 +108,7 @@ export default function RosterGroupsModal({
   const confirmados = useMemo(
     () =>
       (roster || []).filter(
-        (m) =>
-          !m.es_simulacion &&
-          (m.estado_gira || "").toLowerCase() !== "ausente",
+        (m) => (m.estado_gira || "").toLowerCase() !== "ausente",
       ),
     [roster],
   );

@@ -25,6 +25,7 @@ import {
 } from "../../utils/instrumentation";
 import { fetchRosterForGira } from "../../hooks/useGiraRoster";
 import { getProgramStyle } from "../../utils/giraUtils";
+import { crearVacante } from "../../services/giraService";
 import DateInput from "../../components/ui/DateInput";
 import WorkForm from "../Repertoire/WorkForm";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
@@ -1175,44 +1176,28 @@ export default function InstrumentationAudit({ supabase }) {
             instrumentsCatalog,
           );
 
+          const existingVacLabels = new Set(
+            (program._roster || [])
+              .filter((m) => m.es_simulacion && String(m.id_instr || "") === String(idInstr || ""))
+              .map((m) => String(m.apellido || "").trim().toLowerCase()),
+          );
+
           for (let i = 0; i < n; i++) {
-            const uniqueToken = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
             const rol = `${col.label} vacante${n > 1 ? ` ${i + 1}` : ""}`;
             const apellidoCompuesto = `${rol} ${etiquetaGira}`.trim();
+            if (existingVacLabels.has(apellidoCompuesto.toLowerCase())) continue;
 
-            const { data: newVacancy, error: userError } = await supabase
-              .from("integrantes")
-              .insert([
-                {
-                  nombre: "Vacante",
-                  apellido: apellidoCompuesto,
-                  es_simulacion: true,
-                  genero: "F",
-                  id_localidad: locRow.id_localidad,
-                  id_instr: idInstr || null,
-                  dni: `SIM-${uniqueToken}`,
-                  mail: `vacante-${uniqueToken}@placeholder.system`,
-                  condicion: "Refuerzo",
-                },
-              ])
-              .select("id")
-              .single();
-
-            if (userError) throw userError;
-
-            const { error: linkError } = await supabase
-              .from("giras_integrantes")
-              .insert([
-                {
-                  id_gira: program.id,
-                  id_integrante: newVacancy.id,
-                  rol: "musico",
-                  estado: "confirmado",
-                },
-              ]);
-
-            if (linkError) throw linkError;
+            const result = await crearVacante(supabase, {
+              giraId: program.id,
+              etiqueta: rol,
+              idLocalidad: locRow.id_localidad,
+              idInstr: idInstr || null,
+              genero: null,
+              nomenclador: nomenclador,
+            });
+            if (!result.ok) throw new Error(result.error);
             created += 1;
+            existingVacLabels.add(apellidoCompuesto.toLowerCase());
           }
         }
 

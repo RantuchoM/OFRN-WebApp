@@ -1,302 +1,383 @@
-import React, { useState, useEffect } from 'react';
-import { IconUserPlus, IconExchange, IconLoader, IconCheck, IconX, IconTrash } from '../ui/Icons';
-import SearchableSelect from '../ui/SearchableSelect'; 
-import { useConfirmDialog } from '../../hooks/useConfirmDialog';
+import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
+import {
+  IconUserPlus,
+  IconExchange,
+  IconLoader,
+  IconCheck,
+  IconX,
+  IconTrash,
+} from "../ui/Icons";
+import SearchableSelect from "../ui/SearchableSelect";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import { crearVacante } from "../../services/giraService";
 
-// --- MODAL 1: CREAR VACANTE (CORREGIDO) ---
-export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, localities, instruments, giraNomenclador }) => {
-    const [loading, setLoading] = useState(false);
-    const [formData, setFormData] = useState({
-        rol: '', 
-        genero: 'F', 
-        id_localidad: '',
-        id_instr: '' 
-    });
+export const AddVacancyModal = ({
+  isOpen,
+  onClose,
+  giraId,
+  supabase,
+  onRefresh,
+  localities,
+  instruments,
+  giraNomenclador,
+}) => {
+  const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState({
+    rol: "",
+    genero: "F",
+    id_localidad: "",
+    id_instr: "",
+  });
 
-    const localityOptions = localities.map(l => ({ id: l.id, label: l.localidad }));
-    const instrumentOptions = instruments.map(i => ({ id: i.id, label: i.instrumento }));
+  const localityOptions = (localities || []).map((l) => ({
+    id: l.id,
+    label: l.localidad,
+  }));
+  const instrumentOptions = (instruments || []).map((i) => ({
+    id: i.id,
+    label: i.instrumento,
+  }));
 
-    useEffect(() => {
-        if(isOpen) setFormData({ rol: '', genero: 'F', id_localidad: '', id_instr: '' });
-    }, [isOpen]);
+  useEffect(() => {
+    if (isOpen)
+      setFormData({ rol: "", genero: "F", id_localidad: "", id_instr: "" });
+  }, [isOpen]);
 
-    const handleCreate = async () => {
-        if (!formData.rol || !formData.id_localidad) return alert("Rol y Localidad requeridos.");
-        
-        setLoading(true);
-        try {
-            const uniqueToken = Date.now().toString().slice(-6);
+  const handleCreate = async () => {
+    if (!formData.rol || !formData.id_localidad)
+      return alert("Rol y Localidad requeridos.");
 
-            // CORRECCIÓN 1: 'giraNomenclador' ahora viene de las props y está definido
-            const etiquetaGira = giraNomenclador ? `(${giraNomenclador})` : '';
-            
-            const apellidoCompuesto = `${formData.rol} ${etiquetaGira}`.trim();
+    setLoading(true);
+    try {
+      const result = await crearVacante(supabase, {
+        giraId,
+        etiqueta: formData.rol,
+        idLocalidad: formData.id_localidad,
+        idInstr: formData.id_instr || null,
+        genero: formData.genero || null,
+        nomenclador: giraNomenclador || null,
+      });
+      if (!result.ok) throw new Error(result.error);
+      onRefresh();
+      onClose();
+    } catch (error) {
+      console.error(error);
+      alert("Error al crear vacante: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-            // id lo asigna la BD (IDENTITY); evita colisiones con secuencias o IDs legacy/cliente.
-            const { data: newVacancy, error: userError } = await supabase
-                .from('integrantes')
-                .insert([{
-                    nombre: 'Vacante',
-                    apellido: apellidoCompuesto,
-                    es_simulacion: true,
-                    genero: formData.genero,
-                    id_localidad: formData.id_localidad,
-                    id_instr: formData.id_instr || null,
-                    dni: `SIM-${uniqueToken}`, 
-                    mail: `vacante-${uniqueToken}@placeholder.system`,
-                    condicion: 'Refuerzo' // <--- CORRECCIÓN: Asignar condición "Refuerzo" explícitamente
-                }])
-                .select('id')
-                .single();
+  if (!isOpen) return null;
 
-            if (userError) throw userError;
-
-            // 2. Asignarlo a la Gira
-            const { error: linkError } = await supabase
-                .from('giras_integrantes')
-                .insert([{
-                    id_gira: giraId,
-                    id_integrante: newVacancy.id,
-                    rol: 'musico', 
-                    estado: 'confirmado' 
-                }]);
-
-            if (linkError) throw linkError;
-
-            onRefresh();
-            onClose();
-        } catch (error) {
-            console.error(error);
-            alert("Error al crear vacante: " + error.message);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    if (!isOpen) return null;
-
-    return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-sm animate-in zoom-in-95">
-                <div className="p-4 border-b bg-amber-50 rounded-t-lg flex justify-between items-center">
-                    <h3 className="font-bold text-amber-800 flex items-center gap-2">
-                        <IconUserPlus size={18}/> Nueva Vacante
-                    </h3>
-                    <button onClick={onClose}><IconX/></button>
-                </div>
-                
-                <div className="p-5 space-y-4">
-                    <p className="text-xs text-slate-500 italic">
-                        Crea un integrante simulado para reservar recursos logísticos.
-                    </p>
-
-                    <div>
-                        <label className="block text-xs font-bold text-slate-600 mb-1">ETIQUETA / ROL *</label>
-                        <input 
-                            autoFocus
-                            type="text" 
-                            className="w-full border p-2 rounded text-sm focus:border-amber-500 outline-none"
-                            placeholder="Ej: Oboe 2, Refuerzo..."
-                            value={formData.rol}
-                            onChange={e => setFormData({...formData, rol: e.target.value})}
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-bold text-slate-600 mb-1">INSTRUMENTO (Opcional)</label>
-                        <SearchableSelect 
-                            options={instrumentOptions}
-                            value={formData.id_instr}
-                            onChange={v => setFormData({...formData, id_instr: v})}
-                            placeholder="Seleccionar instrumento..."
-                            className="text-sm"
-                        />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-600 mb-1">GÉNERO *</label>
-                            <select 
-                                className="w-full border p-2 rounded text-sm bg-white outline-none"
-                                value={formData.genero}
-                                onChange={e => setFormData({...formData, genero: e.target.value})}
-                            >
-                                <option value="F">Femenino</option>
-                                <option value="M">Masculino</option>
-                                <option value="-">No Binario</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-600 mb-1">ORIGEN *</label>
-                            <SearchableSelect 
-                                options={localityOptions}
-                                value={formData.id_localidad}
-                                onChange={v => setFormData({...formData, id_localidad: v})}
-                                placeholder="Ciudad..."
-                                className="text-sm"
-                            />
-                        </div>
-                    </div>
-                </div>
-
-                <div className="p-4 bg-slate-50 border-t flex justify-end gap-2 rounded-b-lg">
-                    <button onClick={onClose} className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-200 rounded">Cancelar</button>
-                    <button 
-                        onClick={handleCreate} 
-                        disabled={loading}
-                        className="px-4 py-2 text-xs font-bold bg-amber-500 text-white rounded hover:bg-amber-600 flex items-center gap-2 disabled:opacity-50 shadow-sm"
-                    >
-                        {loading ? <IconLoader className="animate-spin"/> : <IconCheck/>} Crear Vacante
-                    </button>
-                </div>
-            </div>
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm animate-in zoom-in-95">
+        <div className="p-4 border-b bg-amber-50 rounded-t-lg flex justify-between items-center">
+          <h3 className="font-bold text-amber-800 flex items-center gap-2">
+            <IconUserPlus size={18} /> Nueva Vacante
+          </h3>
+          <button type="button" onClick={onClose}>
+            <IconX />
+          </button>
         </div>
-    );
+
+        <div className="p-5 space-y-4">
+          <p className="text-xs text-slate-500 italic">
+            Crea un integrante simulado para reservar recursos logísticos
+            (incluida la ubicación en un grupo de la gira).
+          </p>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-600 mb-1">
+              ETIQUETA / ROL *
+            </label>
+            <input
+              autoFocus
+              type="text"
+              className="w-full border p-2 rounded text-sm focus:border-amber-500 outline-none"
+              placeholder="Ej: Oboe 2, Refuerzo..."
+              value={formData.rol}
+              onChange={(e) =>
+                setFormData({ ...formData, rol: e.target.value })
+              }
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-600 mb-1">
+              INSTRUMENTO (Opcional)
+            </label>
+            <SearchableSelect
+              options={instrumentOptions}
+              value={formData.id_instr}
+              onChange={(v) => setFormData({ ...formData, id_instr: v })}
+              placeholder="Seleccionar instrumento..."
+              className="text-sm"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1">
+                GÉNERO *
+              </label>
+              <select
+                className="w-full border p-2 rounded text-sm bg-white outline-none"
+                value={formData.genero}
+                onChange={(e) =>
+                  setFormData({ ...formData, genero: e.target.value })
+                }
+              >
+                <option value="F">Femenino</option>
+                <option value="M">Masculino</option>
+                <option value="-">No Binario</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1">
+                ORIGEN *
+              </label>
+              <SearchableSelect
+                options={localityOptions}
+                value={formData.id_localidad}
+                onChange={(v) =>
+                  setFormData({ ...formData, id_localidad: v })
+                }
+                placeholder="Ciudad..."
+                className="text-sm"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 bg-slate-50 border-t flex justify-end gap-2 rounded-b-lg">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-200 rounded"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleCreate}
+            disabled={loading}
+            className="px-4 py-2 text-xs font-bold bg-amber-500 text-white rounded hover:bg-amber-600 flex items-center gap-2 disabled:opacity-50 shadow-sm"
+          >
+            {loading ? <IconLoader className="animate-spin" /> : <IconCheck />}{" "}
+            Crear Vacante
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
 };
 
-// --- MODAL 2: SWAP (ASIGNAR TITULAR) ---
-// onAssigned: callback opcional para notificaciones (envía info del músico real asignado)
-export const SwapVacancyModal = ({ isOpen, onClose, giraId, placeholder, supabase, onRefresh, onAssigned, onDelete }) => {
-    const [loading, setLoading] = useState(false);
-    const [searching, setSearching] = useState(false);
-    const [candidates, setCandidates] = useState([]);
-    const [selectedRealId, setSelectedRealId] = useState(null);
-    const { confirm, dialog } = useConfirmDialog();
+export const SwapVacancyModal = ({
+  isOpen,
+  onClose,
+  giraId,
+  placeholder,
+  supabase,
+  onRefresh,
+  onAssigned,
+  onDelete,
+  ausenteIds,
+}) => {
+  const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [candidates, setCandidates] = useState([]);
+  const [selectedRealId, setSelectedRealId] = useState(null);
+  const { confirm, dialog } = useConfirmDialog();
+  const ausenteSet = new Set((ausenteIds || []).map(String));
 
-    useEffect(() => {
-        if(isOpen) fetchCandidates();
-    }, [isOpen]);
+  useEffect(() => {
+    if (isOpen) fetchCandidates();
+  }, [isOpen]);
 
-    const fetchCandidates = async () => {
-        setSearching(true);
-        // Filtramos para no mostrar vacantes en la lista de candidatos
-        const { data } = await supabase
-            .from('integrantes')
-            .select('id, nombre, apellido, dni, mail, instrumentos(instrumento)')
-            .eq('es_simulacion', false)
-            .order('apellido');
-        
-        const options = (data || []).map(p => ({
-            id: p.id,
-            label: `${p.apellido}, ${p.nombre}`,
-            subLabel: p.dni || 'Sin DNI',
-            nombre: p.nombre,
-            apellido: p.apellido,
-            mail: p.mail
-        }));
-        setCandidates(options);
-        setSearching(false);
-    };
+  const fetchCandidates = async () => {
+    setSearching(true);
+    const { data } = await supabase
+      .from("integrantes")
+      .select("id, nombre, apellido, dni, mail, instrumentos(instrumento)")
+      .eq("es_simulacion", false)
+      .order("apellido");
 
-    const handleSwap = async () => {
-        if (!selectedRealId) return;
-        if (!(await confirm({
-            title: 'Asignar titular',
-            message: `¿Confirmar asignación? Toda la logística de "${placeholder.apellido}" será transferida.`,
-        }))) return;
+    const options = (data || []).map((p) => ({
+      id: p.id,
+      label: `${p.apellido}, ${p.nombre}`,
+      subLabel: ausenteSet.has(String(p.id))
+        ? "Ausente en esta gira"
+        : p.dni || "Sin DNI",
+      nombre: p.nombre,
+      apellido: p.apellido,
+      mail: p.mail,
+      disabled: ausenteSet.has(String(p.id)),
+    }));
+    setCandidates(options);
+    setSearching(false);
+  };
 
-        setLoading(true);
-        try {
-            const { data, error } = await supabase.rpc('materializar_reemplazo', {
-                p_id_gira: giraId,
-                p_id_placeholder: placeholder.id,
-                p_id_real: parseInt(selectedRealId)
-            });
+  const handleSwap = async () => {
+    if (!selectedRealId) return;
+    if (ausenteSet.has(String(selectedRealId))) {
+      alert("No se puede asignar un titular marcado como ausente en esta gira.");
+      return;
+    }
+    if (
+      !(await confirm({
+        title: "Asignar titular",
+        message: `¿Confirmar asignación? Toda la logística de "${placeholder.apellido}" será transferida (incluida la ubicación en grupos).`,
+      }))
+    )
+      return;
 
-            if (error) throw error;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.rpc("materializar_reemplazo", {
+        p_id_gira: giraId,
+        p_id_placeholder: placeholder.id,
+        p_id_real: parseInt(selectedRealId, 10),
+      });
 
-            // Notificación al padre para que encole el mail (si corresponde)
-            if (onAssigned) {
-                const realId = parseInt(selectedRealId);
-                const selected = candidates.find(c => c.id === realId);
-                if (selected) {
-                    onAssigned({
-                        id: selected.id,
-                        nombre: selected.nombre,
-                        apellido: selected.apellido,
-                        mail: selected.mail
-                    });
-                }
-            }
+      if (error) throw error;
 
-            onClose();
-            
-            if (data && data.alerta_alojamiento) {
-                alert(`⚠️ Músico asignado, PERO desalojado de la habitación por diferencia de género.\nRevisa el Rooming.`);
-            } else {
-                alert("✅ Asignación exitosa con transferencia de logística.");
-            }
-            onRefresh();
-
-        } catch (err) {
-            console.error(err);
-            alert("Error: " + err.message);
-        } finally {
-            setLoading(false);
+      if (onAssigned) {
+        const realId = parseInt(selectedRealId, 10);
+        const selected = candidates.find((c) => c.id === realId);
+        if (selected) {
+          onAssigned({
+            id: selected.id,
+            nombre: selected.nombre,
+            apellido: selected.apellido,
+            mail: selected.mail,
+          });
         }
-    };
+      }
 
-    if (!isOpen || !placeholder) return null;
+      onClose();
 
-    return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            {dialog}
-            <div className="bg-white rounded-lg shadow-2xl w-full max-w-md animate-in slide-in-from-bottom-10">
-                <div className="p-4 border-b bg-indigo-600 text-white rounded-t-lg flex justify-between items-center">
-                    <h3 className="font-bold flex items-center gap-2">
-                        <IconExchange size={18} className="text-indigo-200"/> Asignar Titular
-                    </h3>
-                    <button onClick={onClose} className="hover:text-indigo-200"><IconX/></button>
-                </div>
-                <div className="p-6">
-                    <div className="bg-amber-50 border border-amber-100 p-3 rounded mb-6 flex justify-between items-center">
-                        <div>
-                            <span className="text-[10px] font-bold text-amber-500 uppercase block">VACANTE A CUBRIR</span>
-                            <span className="font-bold text-slate-700">{placeholder.apellido}</span>
-                        </div>
-                        <div className="text-right">
-                            <span className="text-[10px] font-bold text-slate-400 block">CONFIGURACIÓN</span>
-                            <span className="text-xs bg-white border px-2 py-1 rounded font-mono">
-                                {placeholder.genero === 'F' ? 'Mujer' : 'Hombre'} • {placeholder.localidad_nombre || 'Sin Loc.'}
-                            </span>
-                        </div>
-                    </div>
-                    <div className="space-y-2">
-                        <label className="block text-sm font-bold text-slate-700">Seleccionar Músico Real</label>
-                        {searching ? (
-                            <div className="text-xs text-slate-400">Cargando padrón...</div>
-                        ) : (
-                            <SearchableSelect 
-                                options={candidates}
-                                value={selectedRealId}
-                                onChange={setSelectedRealId}
-                                placeholder="Buscar por apellido o DNI..."
-                                className="h-10 text-base"
-                            />
-                        )}
-                    </div>
-                </div>
-                <div className="p-4 border-t flex justify-between items-center gap-3 bg-slate-50 rounded-b-lg">
-                    {onDelete ? (
-                        <button
-                            type="button"
-                            onClick={() => onDelete(placeholder)}
-                            disabled={loading}
-                            className="px-3 py-2 font-bold text-red-600 hover:bg-red-50 rounded text-sm flex items-center gap-1.5 disabled:opacity-50"
-                        >
-                            <IconTrash size={14} /> Eliminar vacante
-                        </button>
-                    ) : (
-                        <span />
-                    )}
-                    <div className="flex gap-3">
-                        <button onClick={onClose} className="px-4 py-2 font-bold text-slate-500 hover:bg-slate-200 rounded text-sm">Cancelar</button>
-                        <button onClick={handleSwap} disabled={loading || !selectedRealId} className="px-6 py-2 font-bold bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow-md disabled:opacity-50 flex items-center gap-2 text-sm">
-                            {loading ? <IconLoader className="animate-spin"/> : <IconExchange/>} Confirmar
-                        </button>
-                    </div>
-                </div>
-            </div>
+      if (data && data.alerta_alojamiento) {
+        alert(
+          `⚠️ Músico asignado, PERO desalojado de la habitación por diferencia de género.\nRevisa el Rooming.`,
+        );
+      } else {
+        alert("✅ Asignación exitosa con transferencia de logística.");
+      }
+      onRefresh();
+    } catch (err) {
+      console.error(err);
+      alert("Error: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen || !placeholder) return null;
+
+  const selectable = candidates.filter((c) => !c.disabled);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      {dialog}
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-md animate-in slide-in-from-bottom-10">
+        <div className="p-4 border-b bg-indigo-600 text-white rounded-t-lg flex justify-between items-center">
+          <h3 className="font-bold flex items-center gap-2">
+            <IconExchange size={18} className="text-indigo-200" /> Asignar
+            Titular
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="hover:text-indigo-200"
+          >
+            <IconX />
+          </button>
         </div>
-    );
+        <div className="p-6">
+          <div className="bg-amber-50 border border-amber-100 p-3 rounded mb-6 flex justify-between items-center">
+            <div>
+              <span className="text-[10px] font-bold text-amber-500 uppercase block">
+                VACANTE A CUBRIR
+              </span>
+              <span className="font-bold text-slate-700">
+                {placeholder.apellido}
+              </span>
+            </div>
+            <div className="text-right">
+              <span className="text-[10px] font-bold text-slate-400 block">
+                CONFIGURACIÓN
+              </span>
+              <span className="text-xs bg-white border px-2 py-1 rounded font-mono">
+                {placeholder.genero === "F"
+                  ? "Mujer"
+                  : placeholder.genero === "M"
+                    ? "Hombre"
+                    : placeholder.genero === "-"
+                      ? "No binario"
+                      : "Sin género"}{" "}
+                • {placeholder.localidad_nombre || "Sin Loc."}
+              </span>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-bold text-slate-700">
+              Seleccionar Músico Real
+            </label>
+            {searching ? (
+              <div className="text-xs text-slate-400">Cargando padrón...</div>
+            ) : (
+              <SearchableSelect
+                options={selectable}
+                value={selectedRealId}
+                onChange={setSelectedRealId}
+                placeholder="Buscar por apellido o DNI..."
+                className="h-10 text-base"
+              />
+            )}
+          </div>
+        </div>
+        <div className="p-4 border-t flex justify-between items-center gap-3 bg-slate-50 rounded-b-lg">
+          {onDelete ? (
+            <button
+              type="button"
+              onClick={() => onDelete(placeholder)}
+              disabled={loading}
+              className="px-3 py-2 font-bold text-red-600 hover:bg-red-50 rounded text-sm flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <IconTrash size={14} /> Eliminar vacante
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 font-bold text-slate-500 hover:bg-slate-200 rounded text-sm"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleSwap}
+              disabled={loading || !selectedRealId}
+              className="px-6 py-2 font-bold bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow-md disabled:opacity-50 flex items-center gap-2 text-sm"
+            >
+              {loading ? (
+                <IconLoader className="animate-spin" />
+              ) : (
+                <IconExchange />
+              )}{" "}
+              Confirmar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
 };

@@ -2,6 +2,7 @@
 
 import { resolveLocalidadResidencia } from "./integranteDomicilioViaticos";
 import { integranteKey } from "./integranteIds";
+import { isCondicionEstable } from "./vacantesLogistics";
 import {
   isLocalAt,
   isLocalAtMealSlot,
@@ -531,7 +532,7 @@ export const getCategoriaLogistica = (person) => {
   if (ROLES_CATEGORIA_LOGISTICA_PRODUCCION_SET.has(rol)) return "PRODUCCION";
   if (rol === "staff") return "STAFF";
 
-  const isPlantaEstable = condicion === "estable";
+  const isPlantaEstable = isCondicionEstable({ condicion });
   const isLocal = Boolean(person?.is_local);
 
   if (
@@ -807,6 +808,9 @@ export const getMatchStrength = (
     return personMatchesGrupoRule(rule, person, options) ? 4 : 0;
   }
 
+  // Niveles 3–1 (localidad / región / general) solo planta Estable.
+  if (!isCondicionEstable(person)) return 0;
+
   if ((rule.target_localities || []).map(String).includes(pLoc)) return 3;
   if (
     normalize(rule.alcance) === "localidad" &&
@@ -946,8 +950,6 @@ export const matchesRule = (
     return true;
   }
 
-  if ((rule.target_regions || []).map(String).includes(pReg)) return true;
-  if ((rule.target_localities || []).map(String).includes(pLoc)) return true;
   if (
     (rule.target_categories || []).some((cat) =>
       categoryMatches(cat, pCat, person, categoryContext),
@@ -955,11 +957,18 @@ export const matchesRule = (
   )
     return true;
 
-  if (scope === "general") return true;
-  if (scope === "region" && String(rule.id_region) === pReg) return true;
-  if (scope === "localidad" && String(rule.id_localidad) === pLoc) return true;
   if (scope === "grupo") {
     return personMatchesGrupoRule(rule, person, options);
+  }
+
+  // Localidad / región / general: solo planta Estable (refuerzos y vacantes no).
+  if (isCondicionEstable(person)) {
+    if ((rule.target_regions || []).map(String).includes(pReg)) return true;
+    if ((rule.target_localities || []).map(String).includes(pLoc)) return true;
+    if (scope === "general") return true;
+    if (scope === "region" && String(rule.id_region) === pReg) return true;
+    if (scope === "localidad" && String(rule.id_localidad) === pLoc)
+      return true;
   }
   if (scope === "categoria" || scope === "instrumento") {
     if (

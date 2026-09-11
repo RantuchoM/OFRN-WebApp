@@ -1,0 +1,35 @@
+---
+description: Coordinar vacantes de gira (es_simulacion) al cambiar logística, seating, grupos, roster, hotel, transporte o comidas
+globs: src/views/Giras/**/*.jsx,src/components/giras/**/*.jsx,src/hooks/useGira*.js,src/hooks/useRoster*.js,src/hooks/useSeating*.js,src/services/gira*.js,src/utils/vacantes*.js,src/utils/gira*.js,src/utils/rooming*.js,src/utils/meal*.js,src/utils/seating*.js,src/utils/transport*.js,src/utils/transporte*.js,src/utils/ensemble*.js,supabase/migrations/**/*vacante*,docs/roster-spec.md
+alwaysApply: false
+---
+
+# Vacantes de gira: coordinar todos los subsistemas
+
+Una vacante **no es una tabla aparte**. Es un `integrantes` real con `es_simulacion = true`, vinculado por `giras_integrantes`. IDs **numéricos**.
+
+Al cambiar roster, seating, **grupos**, hotel, transporte, comidas, check-in, viáticos, admisión/rutas o reglas de logística: actualizar también los caminos **generar / asignar / eliminar** y las RPCs (`crear_vacante`, `materializar_reemplazo`, `eliminar_vacante`). No reintroducir deletes client-only por varios pasos ni columnas caídas (`pasajeros_ids`). Transporte usa `target_ids` / reglas.
+
+## Checklist (crear, asignar titular, eliminar)
+
+- [ ] Roster (`giras_integrantes`) y seating (`useGiraRoster`)
+- [ ] **Grupos** (`giras_grupos` / `giras_grupos_integrantes`): membresía de primer orden, sin excepción de género
+- [ ] Hotel (`id_integrantes_asignados` **y** `asignaciones_config`)
+- [ ] Transporte (`target_ids` / reglas; no `pasajeros_ids`)
+- [ ] Comidas, check-in, viáticos, admisión/rutas, reglas de logística
+
+**Asignar:** el titular hereda la logística de la vacante (incluido el grupo). **Eliminar:** la vacante sale de todos esos vínculos (incluido el grupo). Nunca volcar logística de vacante a alguien con `giras_integrantes.estado === 'ausente'`.
+
+## Hotel: única excepción
+
+Si el titular es de **otro género**, se lo **saca de la habitación**. Mismo género hereda la cama. Sincronizar `asignaciones_config` (no solo `id_integrantes_asignados`). Nunca dejar el ID simulado. Nunca dejar al titular en dos habitaciones.
+
+```js
+// ❌ BAD: solo swap de id_integrantes_asignados; grupos e asignaciones_config olvidados
+// ✅ GOOD: RPC materializar_reemplazo; titular entra al mismo giras_grupos_integrantes;
+//         hotel: hereda cama si mismo género, si no se quita; remap de asignaciones_config
+```
+
+## Condición y homónimos UI
+
+Las vacantes suelen ser `condicion: 'Refuerzo'`: localidad/región/general **no** aplican como si fueran `estable`. No confundir con “vacante” de UI (fila vacía de comidas, cama/asiento vacío de FIMBA).
